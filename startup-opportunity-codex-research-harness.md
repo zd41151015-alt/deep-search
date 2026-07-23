@@ -3,12 +3,11 @@
 > **状态**: 提案
 > **创建日期**: 2026-07-23
 > **目标版本**: Codex-native v1
-> **关系**: 本文是独立新方案，不修改旧的 Icarus 方案文档
-> **业务基线**: 已迁移旧方案的非 Icarus 核心业务原则、lane、领域模块、数据模型、评分、Artifact、报告和验收合同；Icarus Runtime、Macro Routing 和 Agent 执行预算不在本文范围内
+> **方案范围**: 本文完整定义创业机会调研的业务原则、lane、领域模块、数据模型、评分、Artifact、报告和验收合同，并使用 Codex Harness 的引用式产物模型实现；通用 Workflow Runtime、Macro Routing 和 Agent 执行预算不在本文范围内。首版不采集用户侧外部验证预算，不提供运行时人工动态调权，也不执行多国家统一比较和排名
 
 ## 1. 决策摘要
 
-创业机会调研不再以 Icarus 的 Web 工作台、通用 Workflow Definition、Dynamic Graph Runtime、Feature Registry 和容器 IPC 为基础。首版直接运行在 Codex 中，并在当前仓库建设一个领域专用的 Research Harness。
+创业机会调研不以独立 Web 工作台、通用 Workflow Definition、Dynamic Graph Runtime、Feature Registry 或容器 IPC 为基础。首版直接运行在 Codex 中，并在当前仓库建设一个领域专用的 Research Harness。
 
 最终架构决策如下：
 
@@ -20,7 +19,9 @@
 - 仓库内 Research Harness 负责 run 状态、Evidence Store、artifact schema、引用校验、checkpoint、幂等写入、评分和报告生成。
 - 聊天消息和 subagent 最终回复不是正式事实源。正式事实源是 `runs/<run_id>/` 下通过校验的结构化产物。
 - 首版不实现 token、cost、lifetime budget、resource ledger 或精细预算统计。
+- 首版不采集用户可投入的外部验证金额、人数或资源预算；验证建议只披露相对 effort，不声称适配用户的实际预算。
 - 首版仍保留最大 follow-up 轮数、无新证据停止、证据充分性和用户主动停止等收敛条件，避免研究无限展开。
+- 一个 Run 只研究一个 primary market 和一个 primary language；多国家请求拆成独立 Run，首版不对不同国家的分数做统一校准或排名。
 - 本项目不实现一个新的通用 workflow engine。所有运行状态和脚本都只服务创业机会调研领域。
 
 ```text
@@ -119,7 +120,7 @@ go | conditional_go | no_go | insufficient_evidence
 | 输出 | 一篇报告 | TopN 决策建议或单 thesis verdict |
 | 人工介入 | 常在开始和结束 | 可在主窗口中途持续纠偏 |
 
-Codex 已经提供 Agent 执行循环、文件和命令工具、Skills、MCP、hooks、subagents、会话恢复以及桌面交互面。对于个人或小团队进行的高不确定性调研，继续建设 Icarus 通用运行时会产生大量与核心研究质量无关的前端、状态机、发布和基础设施工作。
+Codex 已经提供 Agent 执行循环、文件和命令工具、Skills、MCP、hooks、subagents、会话恢复以及桌面交互面。对于个人或小团队进行的高不确定性调研，另行建设通用工作流运行时会产生大量与核心研究质量无关的前端、状态机、发布和基础设施工作。
 
 因此本方案采用：
 
@@ -151,13 +152,16 @@ GPT Researcher 的 deep 模式仍是 Research Kernel 的流程参考，但不作
 ## 5. 非目标
 
 - 不建设通用 Dynamic DAG Runtime、Workflow Definition DSL 或 Recipe Registry。
-- 不建设 Icarus 兼容层，不复用 Icarus host/container/IPC/Workbench。
+- 不建设通用工作流平台兼容层，也不引入 host/container/IPC/Workbench 作为运行前提。
 - 不建设多用户 SaaS、独立 Web 前端、任务队列或运营后台。
 - 不以 custom command 作为唯一入口；Codex 桌面主窗口未明确支持自定义 `/prompts:*` command，因此入口统一为 Skill。
 - 不把 Skill 写成一个只生成长报告的超级 prompt。
 - 不把 subagent 聊天回复当作正式 artifact。
 - 不让每个 lane 自由修改最终 schema、评分规则或报告合同。
 - 不实现 token/cost 预算统计、资源账本或按模型计费归因。
+- 不采集用户侧外部验证预算，不输出金额、人数或资源配置建议，也不声称建议的验证动作符合用户实际资金条件。
+- 不允许用户在运行中任意修改评分权重；只使用经过版本化、校准和审计的 scoring profile。
+- 不在一个 Run 中混合多个国家的证据、分数和推荐；跨市场统一校准、排名和进入顺序建议不属于首版能力。
 - 不自动执行用户访谈、投放、付费实验、产品开发或其他外部验证动作。
 - 不追踪后续创业成败，也不根据业务结果自动修改历史评分。
 - 不保证产生的方向一定成功；系统输出的是基于当前可获得证据的决策建议。
@@ -430,7 +434,7 @@ $startup-opportunity
 - 当前 run id、action、mode 和 status。
 - scope assumptions 和用户决策。
 - research plan、已完成 lane 和待处理 gap。
-- Evidence、Claim、Finding、Insight 和 source manifest。
+- Evidence、Claim、Finding、Insight、Judgment Assessment 和 source manifest。
 - Artifact schema version 和校验结果。
 - 当前候选、淘汰理由、hard gate 和 limitations。
 - 最终报告、报告 hash 和生成时使用的 artifact refs。
@@ -704,6 +708,7 @@ runs/<run_id>/
   claims/
   findings/
   insights/
+  judgments/
   artifacts/
     lanes/
     synthesis/
@@ -923,6 +928,19 @@ adversarial_review
 
 开放行业研究使用 `bounded_domain_research`，但仍必须声明 `lane_kind`、research goal、输入和输出 schema。Planner 不能在 plan 中发明新的 agent role、工具权限或 artifact schema。
 
+`ai_capability_evidence` 保持为一个受控 unit type，不为不同 AI 问题发布六套 role 或输出 schema。每个此类 unit 必须在 task envelope 中声明 `required_dimensions`：
+
+```text
+capability_frontier
+cost_and_deployment
+workflow_and_human_boundary
+ecosystem_and_platform
+data_and_evaluation
+adoption_and_trust
+```
+
+Planner 可以创建多个具有不同 unit id 的 `ai_capability_evidence` unit 并行覆盖这些维度，也可以在一个 unit 中覆盖多个维度。单个 unit 可以只承担部分 dimensions，但 `uses_ai=true` 或 AI validation profile 的 plan aggregate 必须覆盖全部六类；只有业务上确实无关的维度才能显式 `not_applicable`。Result 必须为每个 required dimension 返回独立的 `JudgmentAssessment`、artifact refs 和 `covered | insufficient_evidence | not_applicable` 状态，不得用一段综合文字掩盖缺失维度。
+
 ### 12.4 Plan validator
 
 确定性 validator 至少检查：
@@ -934,6 +952,8 @@ adversarial_review
 - output path 位于当前 Run 内且没有跨 unit 写冲突。
 - discover 和 validate 只能使用各自允许的 unit 组合。
 - AI mandatory bundle 在 `uses_ai=true` 或 AI validation profile 下完整。
+- 每个 `ai_capability_evidence` unit 的 required dimensions 使用 closed values，且 result 对每个维度都有 coverage status、判断引用和缺口说明。
+- mandatory AI dimension 缺失、只有低等级证据或错误标记为 `not_applicable` 时，plan/result validation 失败或进入 `insufficient_evidence`。
 - counter-evidence unit 没有被省略。
 - 至少一个需求/任务 unit 不读取 product/capability seeds。
 - 至少一个 counterfactual unit 主动检验初始假设之外的用户、任务或替代方案。
@@ -1222,6 +1242,7 @@ Evidence
   -> Claim
   -> Finding
   -> Insight
+  -> Judgment Assessment
   -> Demand Thesis / Solution Hypothesis
   -> Opportunity Thesis or Concept Verdict
 ```
@@ -1230,6 +1251,7 @@ Evidence
 - Claim 是可被单独支持或反驳的事实/判断。
 - Finding 是对多条 Claim 的归纳发现。
 - Insight 是与创业决策直接相关的跨来源或跨 lane 洞察。
+- Judgment Assessment 对一个会影响决策的判断汇总 supporting/opposing refs、信号状态、代表性、独立性和决策充分性。
 - 下游对象必须通过 refs 回溯，不能复制一段无来源的自然语言作为证据。
 
 ### 16.2 Evidence Record
@@ -1253,7 +1275,7 @@ Evidence
   "source_independence": "primary",
   "source_bias": "negative_review_heavy",
   "evidence_tier": "public_behavior_proxy",
-  "evidence_status": "supported",
+  "evidence_lifecycle_status": "active",
   "representativeness": "评论样本偏向主动反馈用户，不能代表全体用户",
   "evidence_role": "support",
   "user_language_role": "trigger_phrase",
@@ -1366,7 +1388,69 @@ model_inference_only
 
 `model_inference_only` 不能单独通过 hard gate。
 
-### 16.7 Freshness
+### 16.7 判断信号与决策充分性
+
+Evidence 的生命周期、Evidence 对某个判断的作用，以及当前材料是否足以支持决策是三件不同的事。不得用一个 `evidence_status` 同时表达这三层语义。
+
+每个会影响 hard gate、候选保留、selected solution、排名、推荐档位或 concept verdict 的关键判断，都必须形成独立的 `JudgmentAssessment`：
+
+```json
+{
+  "schema_version": "startup_opportunity.judgment_assessment.v1",
+  "judgment_id": "judgment_001",
+  "subject_ref": "demand_001",
+  "dimension": "migration_intent",
+  "judgment_signal": "mixed",
+  "evidence_tier_summary": ["public_behavior_proxy", "self_reported_need"],
+  "supporting_claim_refs": ["claim_001"],
+  "opposing_claim_refs": ["claim_009"],
+  "representativeness": "公开评论偏向主动反馈用户",
+  "independence": "two_independent_source_groups",
+  "decision_sufficiency": "insufficient",
+  "insufficiency_reasons": ["low_tier_only"],
+  "what_would_change_the_decision": ["获得目标家庭的迁移或付费承诺证据"],
+  "valid_as_of": "2026-07-23",
+  "limitations": []
+}
+```
+
+`judgment_signal` 使用 closed values：
+
+```text
+supported
+opposed
+mixed
+no_signal
+source_unavailable
+not_applicable
+```
+
+`decision_sufficiency` 使用：
+
+```text
+sufficient
+insufficient
+blocked
+not_applicable
+```
+
+`blocked` 只用于缺少必须由用户授权、私有数据或不可替代外部来源提供的决定性输入；一般公开资料不足使用 `insufficient`。`not_applicable` 必须说明为什么该维度与当前 subject 无关。
+
+`insufficiency_reasons` 至少支持：
+
+```text
+no_signal
+conflicting_signal
+source_unavailable
+stale_decisive_evidence
+low_tier_only
+single_source
+missing_required_dimension
+```
+
+`source_unavailable` 表示完成合理检索后仍无法获得决定性来源，必须由 Source Manifest 中的访问失败或来源缺口记录支撑；它不等于没有查到支持观点。`no_signal` 表示来源可获得，但没有观察到相关信号。`confidence_band` 只表达判断可信程度，不能替代 `decision_sufficiency`。
+
+### 16.8 Freshness
 
 所有 Evidence 必须有 `valid_as_of` 和 `freshness_policy`。以下内容尤其需要重新校验：
 
@@ -1397,17 +1481,18 @@ valid_as_of
 freshness_policy
 ```
 
-`evidence_status` 使用 closed values：
+`evidence_lifecycle_status` 只描述 Evidence Record 本身的生命周期，使用 closed values：
 
 ```text
-supported
-disputed
+active
 superseded
 stale
 unverified
 ```
 
-### 16.8 Source Manifest
+Evidence 对判断的支持或反对作用由 `evidence_role`、Claim stance 和 `JudgmentAssessment` 表达，不写入生命周期状态。
+
+### 16.9 Source Manifest
 
 ```text
 manifest_id
@@ -1417,6 +1502,9 @@ accepted_evidence_refs
 rejected_source_records
   - source
   - rejection_reason
+unavailable_source_records
+  - source
+  - access_failure_or_missing_reason
 canonical_source_groups
 shared_dataset_groups
 duplicate_or_syndication_groups
@@ -1431,7 +1519,7 @@ limitations
 
 Source Manifest 既记录采用的来源，也记录读过但拒绝使用的来源及原因，避免 follow-up 重复读取低质量材料。
 
-### 16.9 Traceability
+### 16.10 Traceability
 
 最终 traceability artifact 至少验证：
 
@@ -1439,7 +1527,8 @@ Source Manifest 既记录采用的来源，也记录读过但拒绝使用的来�
 report statement
   -> decision recommendation or verdict
   -> ranking/dimension decision
-  -> opportunity/concept object
+  -> judgment assessment
+  -> opportunity/concept subject ref
   -> insight
   -> finding
   -> claim
@@ -1523,6 +1612,14 @@ regulation
 
 Profile 只影响 lane 优先级和必填 bundle，不改变最终必须形成 Demand Thesis、Solution Hypothesis、Baseline Option 和 Opportunity Thesis 的要求。
 
+`market` 和 `language` 表示当前 Run 的单一 primary market 和 primary research language。一个 Run 不混合多个国家的需求、买单、竞争、法规和渠道证据，也不把不同国家未经校准的分数放入同一排名。用户要求比较多个国家时，为每个市场创建独立 Run；这些 Run 可以互相引用，但首版不生成自动跨市场统一排名或进入顺序建议。
+
+首版不采集用户侧外部验证金额、人数或资源预算：
+
+- `validation_timeline` 只表示希望获得决策信号的时间范围。
+- `team_capability_constraints` 只表示当前团队已有的技术、行业、渠道和运营能力边界。
+- 系统不得从这两个字段推断用户未声明的资金预算，也不得声称建议的验证动作符合用户实际资源条件。
+
 ### 17.2 概念验证 Scope
 
 ```text
@@ -1554,10 +1651,13 @@ regulated_ai
 
 AI profile 必须研究 baseline、可靠性、数据、人工复核、provider/platform 依赖和商品化风险。Regulated AI 额外检查责任、可解释性、审计、隐私和人工控制边界。
 
+概念验证同样遵守单一 primary market、单一 primary language 和不采集外部验证预算的边界。`validation_timeline` 可以影响建议优先验证哪个假设，但不用于估算金额、人数或资源配置。
+
 ### 17.3 需要澄清的情况
 
 - 缺少目标市场或语言会改变结论。
 - 输入同时要求 TopN 发现和单一 thesis verdict。
+- 输入要求多个国家统一评分或直接排名；首版应说明将拆分为独立市场 Run，而不是混合证据继续。
 - 目标用户、买单方或产品概念完全无法区分。
 - 用户明确要求依赖当前无法访问的私有数据。
 - 约束相互冲突，例如只允许消费者产品但 thesis 是企业基础设施。
@@ -1731,9 +1831,12 @@ dimension
 hypothesis
 supporting_claim_refs
 opposing_claim_refs
+judgment_assessment_refs
 evidence_quality
 freshness
 decision
+decision_sufficiency
+insufficiency_reasons
 uncertainty
 what_would_change_decision
 limitations
@@ -1802,8 +1905,11 @@ counter_evidence
   "evidence_refs": [],
   "supporting_claim_refs": [],
   "opposing_claim_refs": [],
+  "judgment_assessment_refs": [],
   "findings": [],
   "dimension_decision": "mixed",
+  "decision_sufficiency": "insufficient",
+  "insufficiency_reasons": ["low_tier_only"],
   "evidence_quality": "medium",
   "uncertainty": "medium",
   "what_would_change_decision": [],
@@ -1821,6 +1927,8 @@ opposes
 insufficient_evidence
 not_applicable
 ```
+
+`dimension_decision` 是面向 verdict 的简化结果；它必须由 `judgment_assessment_refs` 推导。`supports | opposes | mixed` 分别对应 Judgment Assessment 的 `supported | opposed | mixed`，而 `insufficient_evidence` 必须保留具体 insufficiency reasons，不能吞并 `no_signal`、`source_unavailable`、冲突或 stale 等不同原因。
 
 ### 19.5 Verdict Gate
 
@@ -1932,7 +2040,18 @@ current_solution_inertia
 
 ### 20.10 AI 能力证据与方案评估
 
-仅对相关候选启用，输出：
+仅对相关候选启用。该 lane 使用一个 `ai_capability_evidence` unit type，但必须覆盖以下业务维度；这些维度不是固定 graph node：
+
+| Dimension | 必答问题 |
+| --- | --- |
+| `capability_frontier` | 哪些目标任务最近从不可行变为可行，真实边界和失败模式是什么 |
+| `cost_and_deployment` | 质量、延迟、推理成本、端侧/云端部署和开源可用性是否支持产品化 |
+| `workflow_and_human_boundary` | 哪些 task step 可自动化或增强，哪些必须 human-in-the-loop，异常如何恢复 |
+| `ecosystem_and_platform` | 分发、集成、provider portability、平台内置和 incumbent bundling 风险如何 |
+| `data_and_evaluation` | 数据权利、ground truth、代表性评测、线上监控和反馈闭环能否成立 |
+| `adoption_and_trust` | 安全、隐私、可解释性、责任和消费者信任是否允许进入目标工作流 |
+
+输出至少包括：
 
 ```text
 newly feasible tasks
@@ -1948,7 +2067,28 @@ provider dependency
 platform bundle risk
 capability half-life
 defensibility beyond model access
+adoption and trust boundary
 ```
+
+同时输出 coverage matrix：
+
+```json
+{
+  "required_dimensions": ["capability_frontier", "data_and_evaluation"],
+  "dimension_results": [
+    {
+      "dimension": "capability_frontier",
+      "coverage_status": "covered",
+      "artifact_refs": ["capability_001"],
+      "judgment_assessment_refs": ["judgment_ai_001"],
+      "limitations": []
+    }
+  ],
+  "missing_required_dimensions": []
+}
+```
+
+`coverage_status` 使用 `covered | insufficient_evidence | not_applicable`。Mandatory dimension 不得仅因来源难找而标记 `not_applicable`；来源不可得时必须使用 `insufficient_evidence` 并记录 `source_unavailable`。
 
 ### 20.11 买单、商业化和获客
 
@@ -2006,17 +2146,24 @@ Counter-evidence 不是普通 lane 的重复搜索。它应主动寻找：
   "queries": [],
   "evidence_refs": [],
   "source_manifest_ref": "",
+  "judgment_assessment_refs": [],
   "claims": [],
   "supporting_claims": [],
   "opposing_claims": [],
   "findings": [],
   "insights": [],
+  "task_operating_profile_refs": [],
   "demand_theses": [],
   "baseline_options": [],
   "solution_hypotheses": [],
+  "capability_evidence_refs": [],
+  "user_language_refs": [],
+  "solution_failure_refs": [],
   "scored_candidates": [],
   "kill_conditions": [],
   "pre_kill_decisions": [],
+  "rejected_candidate_refs": [],
+  "watchlist_candidate_refs": [],
   "retained_candidates": [],
   "candidate_diversity_summary": {
     "covered_users": [],
@@ -2026,12 +2173,18 @@ Counter-evidence 不是普通 lane 的重复搜索。它应主动寻找：
     "counterfactual_candidates": [],
     "known_blind_spots": []
   },
+  "decision_sufficiency_summary": {
+    "status": "insufficient",
+    "insufficiency_reasons": [],
+    "what_would_change_the_decision": []
+  },
   "open_questions": [],
+  "audit_refs": [],
   "limitations": []
 }
 ```
 
-`claims` 可以只保存 refs，正式 Claim 仍独立存储。`retained_candidates` 必须引用通过 pre-kill 的 Demand/Solution 对象，不能把自然语言标题直接当成候选。
+`claims`、`findings`、`insights` 和各类领域对象可以只保存 refs，正式对象仍独立存储。`retained_candidates`、`rejected_candidate_refs` 和 `watchlist_candidate_refs` 必须引用 typed Demand/Solution 对象，不能把自然语言标题直接当成候选。每个影响保留或淘汰的关键判断必须出现在 `judgment_assessment_refs` 中；`decision_sufficiency_summary` 不得仅由 lane 自报，Evaluator 必须根据引用对象复算其允许进入的最高阶段。
 
 ### 20.15 Lane 内评分与 Pre-kill
 
@@ -2100,12 +2253,19 @@ Pre-kill 规则：
 
 ### 20.17 AI/Hybrid Profile 对需求 Lane 的约束
 
-`ai_first` 和 `hybrid` 可以提高以下研究优先级：
+`ai_first` 和 `hybrid` 可以提高 AI workaround、近期 task feasibility、自动化边界和新模态的研究优先级，但需求 lane 的补充要求仍按原业务问题展开：
 
-- 近期能力边界变化创造的新 task feasibility。
-- 用户已经使用通用模型形成的 workaround。
-- 人工/软件任务中可自动化或增强的步骤。
-- 新的 input/output modality、延迟和部署边界。
+| 需求 Lane | AI/Hybrid 补充要求 |
+| --- | --- |
+| 用户语言 | 用户主动提到 AI 只作为 workaround 或 expectation；继续寻找任务语言和失败表达 |
+| 受众痛点 | 补充频率、工作量、等待时间、人工成本、错误损失和当前放弃率 |
+| JTBD 与任务流 | 拆到具体 task step，记录模态、上下文、异常分支、审核节点和 outcome metric |
+| Top 产品 | 同时覆盖消费者产品、通用模型、平台原生能力、开源方案和人工服务 |
+| 评论与差评 | 识别准确性、幻觉、延迟、上下文丢失、不可控、无法集成和审核负担 |
+| 搜索需求 | 区分一次性答案需求、持续 workflow 需求和用户使用通用 AI 自助的行为 |
+| 趋势变化 | 需求侧只研究行为、预算、平台和监管变化；模型能力变化进入方案证据 |
+| 替代方案 | 强制包含通用模型、Prompt、自动化工具、模板、人工服务和平台原生功能 |
+| 解法失效 | 区分传统方案失败、现有 AI 方案失败和 non-consumption，并定位具体 task step |
 
 但需求 lane 仍不得把 `AI + 行业` 直接写成 Demand Thesis。AI signal 先形成 query seed 或 Capability Evidence，再由 Solution Hypothesis 与 solution-neutral Demand Thesis 对接。
 
@@ -2239,6 +2399,8 @@ limitations
 ```
 
 建议可以是访谈、自然复述测试、价格承诺、落地页、人工流程演示或 AI baseline spike，但本系统不执行或追踪这些动作。
+
+`effort_band` 使用 `low | medium | high`，只表示验证动作在时间、协调、开发、招募、数据和合规方面的相对复杂度。它不是金额、人数或资源配置估算，也不表示该建议适配用户实际预算。首版不因用户未提供预算而推断其可承担的验证动作；报告必须把这一点作为适用边界，而不是自动改写建议。
 
 ## 22. 领域数据模型
 
@@ -2534,6 +2696,7 @@ Capability Evidence 不能独立成为 Opportunity Thesis。
   "source_lanes": [],
   "supporting_insight_refs": [],
   "opposing_claim_refs": [],
+  "judgment_assessment_refs": [],
   "audit_refs": [],
   "risks": [],
   "kill_criteria": [],
@@ -2818,8 +2981,8 @@ proposed -> screened -> recommended
 | buyer language clarity | 是否可翻译成预算、风险或家庭支出理由 |
 | monetization | 付费或渠道变现是否成立 |
 | acquisition feasibility | 是否有可触达第一批用户的路径 |
-| entry version feasibility | 小团队能否构建或人工验证 |
-| validation feasibility | 决定性假设是否容易验证 |
+| entry version feasibility | 在已声明 team capability 和 validation timeline 下，第一版产品在技术与运营上是否可实现；不评价用户资金是否充足 |
+| validation feasibility | 决定性假设是否存在快速、可靠、可观察的验证方法；不评价用户能否负担该验证 |
 | AI baseline gap | AI 方案相对通用 baseline 的真实增量 |
 | differentiation | 是否有清晰定位和可持续差异 |
 | timing window | 为什么现在进入 |
@@ -2829,7 +2992,7 @@ proposed -> screened -> recommended
 | compliance risk | 法规、隐私和责任风险 |
 | judgment confidence | 来源质量、独立性、覆盖和一致性 |
 
-需求强度、用户语言、入口场景和解法失效高度相关。Scoring policy 必须进行相关性折减，不允许简单线性累加造成重复计分。
+需求强度、用户语言、入口场景和解法失效高度相关。Scoring policy 必须进行相关性折减，不允许简单线性累加造成重复计分。`entry_version_feasibility`、`validation_feasibility` 和 `effort_band` 都不得使用未采集的用户资金预算作为输入。
 
 参考 scoring profile 使用以下相对重要性。它们是校准起点，不要求简单相加为 100%，实际 profile 必须归一化适用维度并记录相关性折减：
 
@@ -2890,7 +3053,7 @@ hard gates
   -> robust rank or partial-order recommendation
 ```
 
-没有证据的维度保持 `unknown`，不得填默认中性高分。不同 discovery profile 可以使用不同权重，但必须记录 scoring policy version 和输入快照。
+没有证据的维度保持 `unknown`，不得填默认中性高分。不同 discovery profile 可以选择预先定义、校准和版本化的 scoring profile，但用户和 Agent 都不能在运行中任意修改单项权重。每次评分必须记录 scoring policy version 和输入快照。
 
 ### 23.4 输出合同
 
@@ -2903,6 +3066,8 @@ hard gates
   "global_score": 8.1,
   "confidence_score": 7.6,
   "decision_value_band": "high",
+  "team_execution_fit": "medium",
+  "team_execution_fit_reasons": [],
   "uncertainty_band": "medium",
   "rank_stability": 0.74,
   "rank": 1,
@@ -2911,6 +3076,7 @@ hard gates
   "score_breakdown": {},
   "correlation_adjustments": [],
   "hard_gate_results": [],
+  "judgment_assessment_refs": [],
   "sensitivity": {
     "most_sensitive_dimensions": [],
     "downside_case_score": 6.4,
@@ -2949,6 +3115,8 @@ evidence_insufficient_for_ordering
 | `watchlist` | 信号存在，但证据、时机或商业化不足 |
 | `reject` | 反证、替代、风险或不可行性足以否定当前机会 |
 
+`strong_candidate` 与 `quick_validation` 的区别来自证据充分性和是否仍有少量决定性未知数，不由用户预算直接决定。若机会质量高但当前团队能力不匹配，应分别表达 opportunity quality 和 team execution fit，不能用预算不足把市场证据降级。
+
 ### 23.6 Portfolio View
 
 TopN 之后增加：
@@ -2977,6 +3145,7 @@ Portfolio View 是轻量组合建议，不是投资组合优化器。
   "uncertainty_band": "medium",
   "decisive_supporting_refs": [],
   "decisive_opposing_refs": [],
+  "decisive_judgment_assessment_refs": [],
   "rationale": "",
   "critical_unknowns": [],
   "what_would_change_the_decision": [],
@@ -3013,6 +3182,7 @@ startup_opportunity.evidence.v1
 startup_opportunity.claim.v1
 startup_opportunity.finding.v1
 startup_opportunity.insight.v1
+startup_opportunity.judgment_assessment.v1
 startup_opportunity.user_language_map.v1
 startup_opportunity.solution_failure_map.v1
 startup_opportunity.discovery_lane_result.v1
@@ -3053,19 +3223,19 @@ startup_opportunity.concept_report.v1
 startup_opportunity.traceability.v1
 ```
 
-`discovery_fan_in` 和 `concept_validation_fan_in` 只聚合通过校验的 branch refs、失败/缺失 branch、evidence gaps 和 limitations，不复制所有 raw evidence。
+`discovery_fan_in` 和 `concept_validation_fan_in` 采用引用式聚合：只保存通过校验的 branch/artifact refs、必要的决策摘要、失败或缺失 branch、evidence gaps 和 limitations，不复制所有 raw evidence。引用式聚合仍必须完整保留证据充分性、反证、pre-kill 和 decision impact 语义。
 
 Artifact 依赖关系：
 
 ```text
 intake -> scope -> plan -> seed/maps
-  -> branch/lane results -> fan-in
+  -> branch/lane results + judgment assessments -> fan-in
   -> demand + baseline + solutions + solution evaluation
   -> opportunity thesis -> merge -> enrichment fan-in
   -> value/buyer/AI artifacts -> ranking + sensitivity
   -> decision recommendation + portfolio + report
 
-concept frame -> validation plan -> validation branch results -> fan-in
+concept frame -> validation plan -> validation branch results + judgment assessments -> fan-in
   -> hypothesis evidence matrix -> adversarial review -> verdict -> report
 ```
 
@@ -3077,11 +3247,11 @@ concept frame -> validation plan -> validation branch results -> fan-in
 
 #### Reference evaluator
 
-检查 evidence/claim/finding/insight/demand/solution/baseline refs 存在且关系方向正确。
+检查 evidence/claim/finding/insight/judgment assessment/demand/solution/baseline refs 存在且关系方向正确。
 
 #### Research quality evaluator
 
-检查 supporting/opposing evidence、来源独立性、sample bias、freshness、limitations 和 abstention。
+检查 supporting/opposing evidence、judgment signal、来源独立性、representativeness、sample bias、freshness、decision sufficiency、limitations 和 abstention。
 
 #### Decision readiness evaluator
 
@@ -3099,7 +3269,8 @@ concept frame -> validation plan -> validation branch results -> fan-in
 | Research Plan | allowlist、依赖无环、output ownership、seed-independent/counterfactual unit、retention/diversity 和 stop policy |
 | User Language Map | verbatim quote、source location、geo/language、功能词剔除和 quote provenance |
 | Solution Failure Map | baseline、failure scene、next action、migration signal 和用户语言引用 |
-| Discovery Lane Result | 支持/反对、pre-kill、retained candidates、diversity summary、open questions 和 limitations |
+| Judgment Assessment | signal、support/opposition refs、evidence tier、representativeness、independence、decision sufficiency、insufficiency reason 和 what-would-change-it |
+| Discovery Lane Result | judgment refs、支持/反对、领域对象 refs、pre-kill、rejected/watchlist/retained candidates、decision sufficiency、diversity summary、open questions 和 limitations |
 | Demand Thesis | solution-neutral、user/JTBD/scene/current alternative/loss/buyer/outcome 完整 |
 | Solution Hypothesis | demand/baseline refs、delivery form、workflow change、baseline delta、risks 和 kill criteria |
 | Solution Evaluation | selected/alternatives/rejected、baseline comparison、critical unknowns 和 capability-only signals |
@@ -3133,6 +3304,22 @@ evidence_gaps
 decision_impact_of_gaps
 limitations
 ```
+
+`discovery_fan_in.v1` 还必须包含以下引用式业务摘要：
+
+```text
+branch_evaluation_summary
+evidence_sufficiency_summary
+opposing_evidence_summary
+pre_kill_summary
+retained_candidate_refs
+rejected_candidate_refs
+watchlist_candidate_refs
+judgment_assessment_refs
+solution_evaluation_required
+```
+
+`concept_validation_fan_in.v1` 必须按 dimension 汇总 judgment assessment refs、决定性支持和反对证据、缺失 mandatory dimensions、decision sufficiency 和 what would change the verdict。Fan-in 不复制底层 Evidence/Claim 内容，但必须保留这些 refs 和摘要；否则不得进入 solution evaluation、ranking 或 verdict gate。
 
 缺失 branch 影响 hard gate 或 verdict 时必须 follow-up、澄清或 `insufficient_evidence`，不能默认为中性结果。
 
@@ -3207,7 +3394,7 @@ failed
 ### 25.3 报告写作规则
 
 - 报告基于 curated judgment context，不直接把 raw evidence 交给 writer 拼接。
-- 每个决定性判断必须能回到 Claim/Finding/Insight。
+- 每个决定性判断必须能回到 Judgment Assessment，并继续回溯到 Claim/Finding/Insight/Evidence。
 - 明确区分事实、推断、假设和建议。
 - 不用过长来源综述淹没决策结论。
 - 不把 `confidence_band` 表述成统计成功概率。
@@ -3231,6 +3418,7 @@ rejected_opportunity_refs
 capability_only_signals
 trend_only_signals
 sensitivity_summary
+judgment_assessment_refs
 validation_suggestion_refs
 source_manifest_refs
 traceability_ref
@@ -3248,6 +3436,7 @@ validation_plan_ref
 hypothesis_evidence_matrix_ref
 adversarial_review_ref
 concept_verdict_ref
+judgment_assessment_refs
 validation_suggestion_refs
 source_manifest_refs
 traceability_ref
@@ -3497,6 +3686,7 @@ source repetition stop
 - 宽泛机会发现不输出单一 concept verdict。
 - 模糊输入在选择会显著改变结果时请求澄清。
 - Run 创建后不因模型自由判断改变 mode。
+- 每个 Run 只有一个 primary market 和 primary language；多国家请求拆成独立 Run，且不产生未经校准的统一跨市场排名。
 
 ### 29.2 Run 和恢复
 
@@ -3525,6 +3715,10 @@ source repetition stop
 - Supporting 和 opposing evidence 同时存在，或明确记录为什么不存在。
 - 过期来源不能继续支撑强推荐。
 - 无证据时返回 `insufficient_evidence`，不以模型常识补齐。
+- Evidence lifecycle、judgment signal 和 decision sufficiency 使用不同字段，不把来源状态与判断方向混在同一个 enum 中。
+- Fixture 能区分 `opposed`、`mixed`、`no_signal`、`source_unavailable`、`not_applicable` 和 `stale`，且每个决定性判断记录 what would change the decision。
+- `source_unavailable` 有 Source Manifest 的访问失败或来源缺口记录；`no_signal` 有已完成合理检索但未观察到信号的记录。
+- 决定性判断的 `decision_sufficiency` 为 `insufficient` 或 `blocked` 时，Evaluator 限制推荐档位或输出 `insufficient_evidence`。
 
 ### 29.5 机会发现
 
@@ -3533,9 +3727,10 @@ source repetition stop
 - 每个推荐机会回连 selected solution 和 Baseline Option。
 - Seed-independent lane 能发现初始 product/capability seed 之外的需求。
 - Counterfactual lane 能保留至少一个不同 user/job/scene 或替代解释。
-- 交付形态比较包含原生 App 之外的合理选项。
+- Consumer fixture 覆盖 native app、mini program、mobile web/PWA、platform native 和 service-assisted 的合理比较。
+- Buyer fixture 覆盖 self payer、household payer、sponsor payer 和 provider/channel model；使用者和付款者分离时分别验证。
 - Lane 内不使用固定 TopN 过早删除多样候选。
-- LaneResult 包含 pre-kill、retained candidates 和 candidate diversity summary。
+- LaneResult 包含 judgment assessments、领域对象 refs、pre-kill、rejected/watchlist/retained candidates、decision sufficiency 和 candidate diversity summary。
 - 只有能力或趋势、没有 Demand Thesis 的对象被标记 `capability_only`/`trend_only`。
 - 强候选包含 mental position occupation 和自然复述测试状态；未执行测试时是 `not_tested`。
 - 排名输出 hard gate、uncertainty、sensitivity 和 rank stability。
@@ -3557,6 +3752,8 @@ source repetition stop
 - 产品 unit economics 不成立时触发 kill condition。
 - 单一 provider/platform 内置风险限制推荐档位。
 - AI fixture 分别覆盖 technical reliability、evaluation feasibility、data readiness、human review dependency、provider portability、data feedback moat 和 adoption trust。
+- `ai_capability_evidence` coverage fixture 覆盖 capability frontier、cost/deployment、workflow/human boundary、ecosystem/platform、data/evaluation 和 adoption/trust；mandatory dimension 缺失时不能强推荐。
+- AI coverage dimension 只有在业务上确实不适用时才能标记 `not_applicable`；来源不可得必须标记 `insufficient_evidence` 和 `source_unavailable`。
 - AI 产品单位经济和 Research Harness Agent 执行预算严格区分。
 
 ### 29.8 报告
@@ -3566,24 +3763,29 @@ source repetition stop
 - 报告明确限制、反证和证据时间。
 - Concept report 不输出无关 TopN。
 - 报告不把 confidence 或 global score 描述为成功概率。
+- Validation Suggestion 的 `effort_band` 只表达相对复杂度，不输出资源配置，也不声称适配用户实际资金预算。
 
 ### 29.9 领域合同完整性
 
-- Fixture 覆盖 UserLanguageMap、SolutionFailureMap、Demand Thesis、Baseline Option、Solution Evaluation、Opportunity Thesis 和 Decision Recommendation。
+- Fixture 覆盖 UserLanguageMap、SolutionFailureMap、Judgment Assessment、Demand Thesis、Baseline Option、Solution Evaluation、Opportunity Thesis 和 Decision Recommendation。
 - Opportunity Thesis 的 demand/solution/baseline/claim/insight refs 全部可回溯。
 - Buyer Purchase Language 分别表达 user、buyer、payer、budget source、purchase trigger 和 decision criteria。
 - Value Layer Analysis 不把一次性 output 自动判为 workflow/outcome 价值。
 - User State Context Model 缺少授权数据、更新触发或 ground truth 时不能获得高 `state_context_value`/`data_feedback_moat`。
 - Global scoring 使用 versioned reference profile、相关性折减和 `unknown` handling。
+- Active Run 不允许用户或 Agent 任意修改单项权重；不同偏好只能选择已发布的 versioned scoring profile。
+- Opportunity quality、team execution fit 和 validation feasibility 分别表达；用户资金预算不直接决定 `strong_candidate` 与 `quick_validation`。
 - Fan-in 对 partial、failed、cancelled 和 superseded branch 保留 decision impact，不默认为中性输入。
+- Discovery fan-in 保留 evidence sufficiency、opposing evidence、pre-kill、candidate disposition、judgment refs 和 solution-evaluation-required 摘要，但不复制 raw evidence。
 - Validation Suggestion 每条回连决定性假设和 evidence gap，且不创建外部验证动作。
 
 ### 29.10 架构边界
 
-- 新方案不依赖 Icarus 仓库、Icarus Runtime 或 Dynamic Workflow DAG framework。
+- 新方案不依赖外部通用 Workflow Runtime 或 Dynamic Workflow DAG framework。
 - 不存在隐藏 LLM 调用的“确定性脚本”。
 - Hooks 被禁用时核心流程仍能显式运行。
 - 首版没有 Agent token/cost 预算账本或资源 ledger。
+- 首版不采集用户侧外部验证预算，也不进行多国家统一比较和排名。
 
 ## 30. 实施顺序
 
@@ -3623,6 +3825,14 @@ source repetition stop
 - 在能力稳定后打包 Codex Plugin。
 - 需要无人值守时再评估 `codex exec`、automation 或 Agents SDK/Responses API 服务层。
 - 需要多用户或独立 UI 时在 Harness 外建设产品层，不修改领域 artifact 合同。
+
+### 30.6 明确不采用或延期的能力
+
+- 不采用运行时人工动态调权。需要不同判断偏好时选择经过校准、版本化和审计的 scoring profile；新 profile 必须独立发布，不能在 active Run 中临时修改单项权重。
+- 多国家同时比较延期。首版每个 Run 只有一个 primary market 和 primary language；多国家请求拆成独立 Run，允许互相引用，但不生成未经跨市场校准的统一分数、排名或进入顺序建议。
+- 未来若建设 Market Comparison，必须使用独立 comparison artifact，至少比较 demand、buyer/payment、competition、acquisition、delivery form、regulation、localization cost 和 evidence comparability；不能直接合并各市场 raw evidence 或 global score。
+- Scope assumption 模板属于后续易用性能力，不影响当前显式 ScopeFrame 合同。
+- 报告后二次深入由 continuation Run 支持，不原地修改 completed Run，也不需要新增验证执行平台。
 
 ## 31. 风险与注意事项
 
@@ -3678,4 +3888,4 @@ $startup-opportunity
 
 Codex 主窗口提供比固定工作台 workflow 更自然的实时沟通和动态纠偏；Subagents 提供研究并行和上下文隔离；仓库内 Harness 则保留专业调研服务不可缺少的证据链、结构化合同、恢复和评价能力。
 
-本方案的关键不是用 Codex 替换所有工程控制，而是把控制面缩减到创业机会调研真正需要的部分。它避免继续建设通用 Icarus Runtime，也避免把服务退化成一次性聊天或长报告生成。
+本方案的关键不是用 Codex 替换所有工程控制，而是把控制面缩减到创业机会调研真正需要的部分。它避免另行建设通用 Workflow Runtime，也避免把服务退化成一次性聊天或长报告生成。
