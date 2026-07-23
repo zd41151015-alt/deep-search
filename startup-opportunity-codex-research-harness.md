@@ -3,7 +3,7 @@
 > **状态**: 提案
 > **创建日期**: 2026-07-23
 > **目标版本**: Codex-native v1
-> **方案范围**: 本文完整定义创业机会调研的业务原则、lane、领域模块、数据模型、评分、Artifact、报告和验收合同，并使用 Codex Harness 的引用式产物模型实现；通用 Workflow Runtime、Macro Routing 和 Agent 执行预算不在本文范围内。首版不采集用户侧外部验证预算，不提供运行时人工动态调权，也不执行多国家统一比较和排名
+> **方案范围**: 本文完整定义创业机会调研的业务原则、lane、领域模块、数据模型、比较、Artifact、决策简报、报告和验收合同，并使用 Codex Harness 的引用式产物模型实现；通用 Workflow Runtime、Macro Routing 和 Agent 执行预算不在本文范围内。首版不采集用户侧外部验证预算，不提供运行时人工动态调权，也不执行多国家统一比较和排名
 
 ## 1. 决策摘要
 
@@ -13,10 +13,10 @@
 
 - Codex 桌面主窗口是主要交互入口，用户可以在调研过程中持续补充信息、改变范围、暂停、恢复或要求深入某个方向。
 - 用户通过一个通用 Skill `$startup-opportunity` 发起、恢复、查询创业机会调研。
-- 主 Agent 负责输入澄清、范围冻结、研究规划、subagent 调度、gap analysis、综合判断和最终报告。
+- 主 Agent 负责决策问题澄清、范围冻结、研究规划、subagent 调度、gap analysis、综合判断、决策简报和最终报告。
 - Subagents 负责边界清晰、可并行的研究 lane、证据审计和对抗式复核。
 - Skill 定义可复用方法，custom agent 定义角色，脚本执行确定性操作，MCP 提供外部数据工具，hooks 只承担生命周期约束和记录。
-- 仓库内 Research Harness 负责 run 状态、Evidence Store、artifact schema、引用校验、checkpoint、幂等写入、评分和报告生成。
+- 仓库内 Research Harness 负责 run 状态、Decision Context、Evidence Store、artifact schema、引用校验、checkpoint、幂等写入、比较、决策简报和报告生成。
 - 聊天消息和 subagent 最终回复不是正式事实源。正式事实源是 `runs/<run_id>/` 下通过校验的结构化产物。
 - 首版不实现 token、cost、lifetime budget、resource ledger 或精细预算统计。
 - 首版不采集用户可投入的外部验证金额、人数或资源预算；验证建议只披露相对 effort，不声称适配用户的实际预算。
@@ -30,7 +30,7 @@
   -> 主 Agent: intake / scope / plan / orchestration
   -> Subagents: research lanes / audit / adversarial review
   -> Research Harness: evidence / artifacts / validation / checkpoint
-  -> 主 Agent: synthesis / recommendation / report
+  -> 主 Agent: synthesis / recommendation / decision brief / report
   -> 用户继续追问、纠偏或恢复 Run
 ```
 
@@ -64,9 +64,9 @@ AI 在家庭旅行场景有哪些值得小团队关注的方向
 - 推荐档位、敏感性、关键未知数、kill criteria 和轻量验证建议。
 - `recommended_first_bet`、备选方向、共享渠道/能力和资源冲突。
 
-### 2.2 概念市场验证
+### 2.2 概念证据评估
 
-`concept_market_validation` 从一个用户已经提出的产品或功能 thesis 出发，验证需求、替代方案、竞品饱和度、差异化、付费、获客、可行性、合规和反证。
+`concept_evidence_assessment` 从一个用户已经提出的产品或功能 thesis 出发，基于公开资料和用户在 Run 开始前主动提供的已有材料，评估需求、替代方案、竞品饱和度、差异化、付费、获客、可行性、合规和反证。
 
 输入示例：
 
@@ -76,13 +76,13 @@ AI 在家庭旅行场景有哪些值得小团队关注的方向
 把家庭票据自动整理成预算记录的 App 是否有付费空间
 ```
 
-输出是单一 thesis 的：
+输出是单一 thesis 在当前可获得证据下的优先级判断：
 
 ```text
-go | conditional_go | no_go | insufficient_evidence
+prioritize | investigate_further | deprioritize | insufficient_evidence
 ```
 
-同时包含置信度、支持/反对判断链、决定性证据、关键缺口、kill criteria、决策建议和可选的轻量验证建议。该模式不重新生成 TopN 机会池。
+同时包含证据强度、支持/反对判断链、决定性证据、关键缺口、kill criteria、决策建议和可选的轻量验证建议。该模式不重新生成 TopN 机会池，不声称已经完成真实市场行动验证，也不执行或追踪访谈、落地页、订金、付费实验和 MVP 测试。
 
 ### 2.3 两种模式的共同内核
 
@@ -94,7 +94,7 @@ go | conditional_go | no_go | insufficient_evidence
 - Artifact Contract 和 evaluator。
 - Evidence Store、checkpoint、报告和审计工具。
 
-两种模式不共享宏观输出合同。运行中不能从概念验证静默变形成机会发现，也不能从机会发现静默变形成单 thesis verdict。
+两种模式不共享宏观输出合同。运行中不能从概念证据评估静默变形成机会发现，也不能从机会发现静默变形成单 thesis assessment。
 
 ### 2.4 消费者产品边界
 
@@ -116,8 +116,8 @@ go | conditional_go | no_go | insufficient_evidence
 | 候选生成 | 容易直接从模型总结产生 | 从需求、任务、替代方案、解法失效和市场判断层形成 |
 | 研究维度 | 动态扩展为主 | 预设 lane + 动态补充 |
 | 证据 | 通常服务报告写作 | 必须形成可审计判断链 |
-| 评估 | 自然语言综合 | hard gate、结构化评分、反证和敏感性 |
-| 输出 | 一篇报告 | TopN 决策建议或单 thesis verdict |
+| 评估 | 自然语言综合 | hard gate、结构化比较面板、反证和敏感性 |
+| 输出 | 一篇报告 | TopN 决策建议或单 thesis evidence assessment，并同时生成决策简报和完整报告 |
 | 人工介入 | 常在开始和结束 | 可在主窗口中途持续纠偏 |
 
 Codex 已经提供 Agent 执行循环、文件和命令工具、Skills、MCP、hooks、subagents、会话恢复以及桌面交互面。对于个人或小团队进行的高不确定性调研，另行建设通用工作流运行时会产生大量与核心研究质量无关的前端、状态机、发布和基础设施工作。
@@ -138,7 +138,7 @@ GPT Researcher 的 deep 模式仍是 Research Kernel 的流程参考，但不作
 
 - 通过一个通用 Skill 在 Codex 桌面、CLI 和 IDE 中使用同一套调研能力。
 - 让用户能在主窗口实时观察、纠偏和补充调研，而不依赖独立工作台页面。
-- 支持 `opportunity_discovery` 和 `concept_market_validation` 两类明确任务。
+- 支持 `opportunity_discovery` 和 `concept_evidence_assessment` 两类明确任务。
 - 让需求、任务、用户语言、替代方案、竞品、市场、买单、AI baseline 和反证等 lane 可独立并行研究。
 - 保留结构化 Evidence、Claim、Finding、Insight 和 Opportunity Thesis。
 - 所有结论保留 source provenance、evidence refs、limitations、freshness 和反证。
@@ -147,7 +147,7 @@ GPT Researcher 的 deep 模式仍是 Research Kernel 的流程参考，但不作
 - 让主 Agent 根据当前证据缺口规划有限 follow-up，而不是预先固定所有查询。
 - 通过 JSON Schema、确定性脚本和独立 reviewer 提高一致性。
 - 通过 run directory 和 checkpoint 支持跨会话恢复，不把聊天历史当成唯一状态。
-- 同时生成机器可读 JSON 和面向决策的 Markdown 报告。
+- 同时生成机器可读 JSON、默认面向用户的 Markdown 决策简报和完整 Markdown 报告。
 
 ## 5. 非目标
 
@@ -157,13 +157,13 @@ GPT Researcher 的 deep 模式仍是 Research Kernel 的流程参考，但不作
 - 不以 custom command 作为唯一入口；Codex 桌面主窗口未明确支持自定义 `/prompts:*` command，因此入口统一为 Skill。
 - 不把 Skill 写成一个只生成长报告的超级 prompt。
 - 不把 subagent 聊天回复当作正式 artifact。
-- 不让每个 lane 自由修改最终 schema、评分规则或报告合同。
+- 不让每个 lane 自由修改最终 schema、比较规则或报告合同。
 - 不实现 token/cost 预算统计、资源账本或按模型计费归因。
 - 不采集用户侧外部验证预算，不输出金额、人数或资源配置建议，也不声称建议的验证动作符合用户实际资金条件。
-- 不允许用户在运行中任意修改评分权重；只使用经过版本化、校准和审计的 scoring profile。
+- 不允许用户在运行中任意修改比较面板的重要性；只使用经过版本化、校准和审计的 decision/comparison profile。
 - 不在一个 Run 中混合多个国家的证据、分数和推荐；跨市场统一校准、排名和进入顺序建议不属于首版能力。
-- 不自动执行用户访谈、投放、付费实验、产品开发或其他外部验证动作。
-- 不追踪后续创业成败，也不根据业务结果自动修改历史评分。
+- 不自动执行或追踪用户访谈、落地页、订金、投放、付费实验、MVP 测试、产品开发或其他外部验证动作；这些内容只能作为由用户自行决定是否执行的建议出现。
+- 不追踪后续创业成败，也不根据业务结果自动修改历史比较结果。
 - 不保证产生的方向一定成功；系统输出的是基于当前可获得证据的决策建议。
 
 ## 6. 核心设计原则
@@ -225,9 +225,9 @@ mental_position_occupation
 
 每个 lane 都必须返回 supporting claims、opposing claims、uncertainty 和 kill conditions。反证不是最终报告阶段的装饰性章节。
 
-### 6.9 评分是决策辅助，不是客观概率
+### 6.9 比较是决策辅助，不是客观概率
 
-先执行 hard gates，再考虑 evidence sufficiency、decision value、downside/upside 和 speed-to-learn。多个机会证据区间重叠时输出 partial order，不强行制造精确排名。
+先执行 hard gates，再分别判断需求与市场、方案与商业闭环、证据强度、团队适配与学习速度。对用户默认输出 ordinal band、支配关系和 partial order，不暴露一个看似精确的全局总分。多个机会证据区间重叠时不强行制造精确排名。
 
 ### 6.10 主窗口交互必须落盘
 
@@ -332,7 +332,7 @@ retained_candidates
 candidate_diversity_summary
 ```
 
-Lane 内评分只用于 triage，不能直接与其他 lane 的分数比较。跨 lane 合并后才执行统一 hard gate 和全局排序。
+Lane 内评分只用于 triage，不能直接与其他 lane 的分数比较。跨 lane 合并后才执行统一 hard gate 和全局比较。
 
 ### 6.18 候选保留优先多样性，不固定 TopN
 
@@ -358,7 +358,7 @@ expected_information_gain
 stop_condition
 ```
 
-首版不计算 Agent 研究成本，但仍优先回答最可能改变 hard gate、verdict、selected solution、推荐档位或主要 limitation 的问题。研究深度本身不是质量指标。
+首版不计算 Agent 研究成本，但仍优先回答最可能改变 hard gate、concept assessment、selected solution、推荐档位或主要 limitation 的问题。研究深度本身不是质量指标。
 
 ### 6.20 人工控制和 Agent 质量是两层合同
 
@@ -375,10 +375,73 @@ execution_quality
   = schema + refs + opposing evidence + freshness + completeness
 
 decision_readiness
-  = hard gates + evidence sufficiency + verdict/recommendation constraints
+  = hard gates + evidence sufficiency + assessment/recommendation constraints
 ```
 
 执行质量通过不代表业务结论可推荐，业务结论证据不足时仍必须 abstain。
+
+### 6.21 先明确用户要做的决定
+
+Run 的顶层对象不只是研究主题，还包括 `DecisionContext`。系统必须先明确用户希望当前研究回答什么决策问题，再决定 scope、lane 和输出形式。
+
+`decision_to_make` 首版使用：
+
+```text
+choose_opportunity
+assess_concept_viability
+prioritize_research_gap
+reassess_with_new_material
+```
+
+`decision_to_make` 不包含模糊的 `continue_validation`，也不把外部访谈、落地页、订金、付费实验或 MVP 测试变成系统 action。外部验证只能作为带有 `execution_owner=user`、`execution_supported=false` 和 `result_tracking_supported=false` 的可选建议出现。
+
+### 6.22 证据等级限制结论强度，不表示验证生命周期
+
+Evidence tier 描述当前 Run 已经可以访问的材料强度，不表示系统会把机会从公开资料逐步推进到访谈、承诺、交易和留存。公开来源或用户主动提供的已有材料中如果恰好包含直接行为、承诺或交易证据，可以按其真实等级使用；系统不负责生成、执行或持续追踪这些证据。
+
+缺少高等级行为或承诺证据不等于反证。系统必须将其表达为证据缺口、结论上限或 `insufficient_evidence`，不能自动解释为 `deprioritize`。
+
+### 6.23 决策简报和完整报告是双层输出
+
+每个 completed Run 同时生成：
+
+```text
+report.json
+  -> 结构化事实源
+
+decision-brief.md
+  -> 默认用户入口，回答当前应如何判断
+
+report.md
+  -> 完整研究、证据链和审计报告
+```
+
+决策简报与完整报告必须从同一份通过校验的结构化事实源生成。简报不得产生报告中不存在的新判断，也不得省略会改变结论的强反证。
+
+### 6.24 候选生成与候选评估保持证据独立
+
+Candidate generation 和 evaluation 不得完全复用同一搜索路径形成自证循环。Research Plan 必须在可行时分离生成来源与评估来源，在 enrichment 前冻结核心 thesis、关键假设和 kill criteria，并由独立 challenger query 主动寻找替代解释。
+
+Adversarial review 不复用正向 query 简单添加否定词。无法取得独立评估来源时必须披露 `evaluation_source_overlap`，并降低 evidence sufficiency。
+
+### 6.25 用户认知变化是正式决策上下文
+
+系统不仅记录用户如何改变 scope，还记录：
+
+```text
+initial_belief
+favored_hypothesis
+assumed_truths
+evidence_that_changed_belief
+remaining_disagreement
+final_decision_owner
+```
+
+这些字段用于发现确认偏误和解释判断变化，不用于迎合用户偏好或修改证据结论。Checkpoint 摘要应说明当前相信什么、哪些证据改变了判断、仍存在哪些分歧。
+
+### 6.26 所有候选都需要 Business Engine Thesis
+
+AI 产品和非 AI 产品都必须说明从用户价值到可持续业务的基本闭环，包括定价单位、使用或购买频率、留存或复购触发、毛利与服务负担、获客假设、回收逻辑、可触达 beachhead、渠道依赖、增长回路和 minimum viable scale。宽泛 TAM 不能替代可触达市场和业务闭环判断。
 
 ## 7. 总体架构
 
@@ -387,7 +450,7 @@ decision_readiness
 | 层 | 主要职责 |
 | --- | --- |
 | Codex Agent Harness | 模型推理、工具调用、subagents、权限、会话和交互 |
-| Startup Opportunity Research Harness | run、计划、证据、artifact、checkpoint、校验、评分和报告 |
+| Startup Opportunity Research Harness | run、计划、证据、artifact、checkpoint、校验、比较、决策简报和报告 |
 | 可选产品层 | 未来的多用户、API、定时执行、独立 UI 和运营能力 |
 
 首版只实现前两层。可选产品层不是当前依赖。
@@ -398,6 +461,7 @@ decision_readiness
 $startup-opportunity
   -> parse action and input
   -> create or load run
+  -> decision framing
   -> scope framing
   -> research plan
   -> validate plan
@@ -406,8 +470,8 @@ $startup-opportunity
   -> gap analysis and bounded follow-up
   -> domain synthesis
   -> adversarial review
-  -> deterministic gates / scoring / sensitivity
-  -> report generation
+  -> deterministic gates / four-panel comparison / sensitivity
+  -> report.json / decision brief / full report generation
   -> final artifact validation
   -> complete or insufficient_evidence
 ```
@@ -419,7 +483,7 @@ $startup-opportunity
 | `AGENTS.md` | 仓库级恒定规则、正式产物要求和验证命令 |
 | Skill | 唯一入口和可复用研究方法 |
 | Skill references | 两种模式、lane playbook、schema 和报告规范 |
-| Skill scripts | 创建 run、验证、记录证据、评分、checkpoint 和报告 |
+| Skill scripts | 创建 run、验证、记录证据、比较、checkpoint、决策简报和报告 |
 | Custom agents | lane researcher、evidence auditor、adversarial reviewer |
 | Subagents | 并行执行边界清晰的研究任务 |
 | MCP | 搜索、抓取、榜单、评论、趋势和外部结构化数据 |
@@ -432,12 +496,13 @@ $startup-opportunity
 以下状态必须保存在仓库，而不是依赖某个线程记住：
 
 - 当前 run id、action、mode 和 status。
+- 当前 DecisionContext、初始判断和 belief update。
 - scope assumptions 和用户决策。
 - research plan、已完成 lane 和待处理 gap。
 - Evidence、Claim、Finding、Insight、Judgment Assessment 和 source manifest。
 - Artifact schema version 和校验结果。
 - 当前候选、淘汰理由、hard gate 和 limitations。
-- 最终报告、报告 hash 和生成时使用的 artifact refs。
+- report.json、决策简报、完整报告、各自 hash 和生成时使用的 artifact refs。
 
 ## 8. 建议仓库结构
 
@@ -463,11 +528,11 @@ deep-search/
         SKILL.md
         references/
           opportunity-discovery.md
-          concept-market-validation.md
+          concept-evidence-assessment.md
           research-kernel.md
           lane-catalog.md
           artifact-contracts.md
-          scoring-policy.md
+          comparison-policy.md
           report-contract.md
         scripts/
           create-run
@@ -476,7 +541,7 @@ deep-search/
           record-evidence
           validate-artifact
           checkpoint-run
-          calculate-ranking
+          calculate-comparison
           calculate-sensitivity
           audit-traceability
           build-report
@@ -491,7 +556,7 @@ deep-search/
       evidence-store/
       artifact-store/
       validators/
-      ranking/
+      comparison/
       reporting/
 
   runs/
@@ -508,7 +573,7 @@ deep-search/
 - `.codex/agents/` 描述不同 subagent 的角色、模型偏好、推理强度和工具边界。
 - `harness/` 保存确定性领域逻辑，不发起隐藏 LLM 调用。
 - `runs/` 保存每次运行的状态和产物，默认不提交包含大体积 raw evidence 的内容。
-- `tests/` 验证 schema、引用、评分和代表性研究 fixture。
+- `tests/` 验证 schema、引用、比较规则和代表性研究 fixture。
 
 后续需要跨项目安装和共享时，可以把 Skill、agents、hooks 和 MCP 配置打包为 Codex Plugin。Plugin 是分发单元，不是首版运行时前提。
 
@@ -523,13 +588,13 @@ deep-search/
 ```yaml
 ---
 name: startup-opportunity
-description: 发现和评估创业机会，或验证一个明确的产品/功能市场假设。用于创业方向调研、市场机会发现、竞品与替代方案研究、买单和获客判断、AI 方案 baseline 比较，以及恢复已有调研 Run。
+description: 发现和评估创业机会，或评估一个明确产品/功能假设的当前证据。用于创业方向调研、市场机会发现、概念证据评估、竞品与替代方案研究、买单和获客判断、AI 方案 baseline 比较，以及恢复已有调研 Run。
 ---
 ```
 
 ```text
 discover
-validate
+assess
 resume
 status
 ```
@@ -546,7 +611,7 @@ query: 宠物行业 App
 ```text
 $startup-opportunity
 
-action: validate
+action: assess
 query: 面向自由行用户的 AI 行程冲突检查功能值得做吗
 ```
 
@@ -574,14 +639,14 @@ Codex 也可以根据自然语言隐式选择该 Skill，但正式执行前必�
 | action | 是否创建新 Run | mode |
 | --- | --- | --- |
 | `discover` | 是 | `opportunity_discovery` |
-| `validate` | 是 | `concept_market_validation` |
+| `assess` | 是 | `concept_evidence_assessment` |
 | `resume` | 否 | 从 manifest 读取 |
 | `status` | 否 | 从 manifest 读取，只读 |
 
 Skill 不提供 `auto` 作为正式 mode。用户没有写 action 时可以进行轻量判断：
 
 - 宽泛行业、技术能力、用户群体或场景通常对应 `discover`。
-- 明确产品、功能、Solution Thesis 通常对应 `validate`。
+- 明确产品、功能、Solution Thesis 通常对应 `assess`。
 - 输入同时包含宽泛发现和明确概念，且选择会显著改变输出时，先在主窗口澄清。
 - 不允许在 Run 创建后仅根据模型判断切换 mode。要切换必须创建新 Run 或由用户显式要求转换并记录 provenance。
 
@@ -598,6 +663,7 @@ Skill 不提供 `auto` 作为正式 mode。用户没有写 action 时可以进�
   "market": "CN",
   "language": "zh-CN",
   "principal": "local_user",
+  "decision_context_ref": "decision-context.json",
   "attachments": [],
   "explicit_constraints": {},
   "created_at": "2026-07-23T00:00:00Z"
@@ -609,19 +675,22 @@ Skill 不提供 `auto` 作为正式 mode。用户没有写 action 时可以进�
 ```text
 target_market
 target_language
+venture_goal
+decision_horizon
+founder_advantages
+non_negotiable_constraints
 target_users
 excluded_users
 delivery_form_preferences
 business_model_preferences
 team_capabilities
-validation_timeline
 risk_preferences
 ai_scope
 research_axes
 requested_output_count
 ```
 
-这里的 `validation_timeline` 是业务验证周期约束，不是 Agent token/cost budget。
+`decision_horizon` 表示用户希望何时获得当前研究判断，不是外部验证计划、Agent token/cost budget 或系统对后续行动的承诺。
 
 ### 9.4 Skill 内部流程
 
@@ -629,24 +698,24 @@ requested_output_count
 
 ```text
 1. 读取 action 和输入。
-2. 对 discover/validate 创建 Run，对 resume/status 加载 Run。
+2. 对 discover/assess 创建 Run，对 resume/status 加载 Run。
 3. 校验 manifest、schema version 和当前 status。
 4. status 只生成状态摘要，不启动 subagent。
-5. 新 Run 执行 scope framing，并记录用户澄清。
+5. 新 Run 先形成 DecisionContext，再执行 scope framing，并记录用户澄清和初始判断。
 6. 加载对应 mode reference，而不是把两套完整流程同时放入上下文。
 7. 生成 research-plan.json 并运行 deterministic validation。
 8. 按 wave 启动 bounded subagents。
 9. 每个 wave 结束后校验 artifact、checkpoint 和 gap。
-10. 满足停止条件后执行综合、复核、评分和报告。
-11. 写入 final artifacts，再向用户汇报。
+10. 满足停止条件后执行综合、复核、比较和推荐。
+11. 从同一 report.json 生成 decision-brief.md 和 report.md，验证一致性后再向用户汇报。
 ```
 
 Skill 必须使用 progressive disclosure：
 
 - `SKILL.md` 只保留入口、不可违反的规则和路由。
 - `opportunity-discovery.md` 只在 discover Run 中读取。
-- `concept-market-validation.md` 只在 validate Run 中读取。
-- lane、scoring、artifact 和 report reference 按阶段读取。
+- `concept-evidence-assessment.md` 只在 assess Run 中读取。
+- lane、comparison、artifact 和 report reference 按阶段读取。
 - 大型 schema 由验证脚本消费，不全部注入模型上下文。
 
 ## 10. 仓库级指导与配置
@@ -659,7 +728,7 @@ Skill 必须使用 progressive disclosure：
 - 不得把聊天回复当作正式 artifact。
 - 不得伪造 evidence ref、URL、用户原话或市场数据。
 - Subagent 必须写入分配的 output path，不能覆盖其他 lane 文件。
-- 最终报告必须通过 schema、traceability 和 freshness 校验。
+- report.json、决策简报和完整报告必须通过 schema、traceability、freshness 和一致性校验。
 - 用户对 scope 和候选的纠偏必须写入 `decisions.jsonl`。
 - 不执行外部验证动作或其他有业务副作用的操作。
 - 指定 lint、schema validation 和 eval 命令。
@@ -692,11 +761,12 @@ Plugin 不保存 Run 状态，也不替代 Evidence Store。
 
 ### 11.1 Run 是领域任务边界
 
-一次 `discover` 或 `validate` 创建一个 Run。Run 是最小恢复、审计和报告边界：
+一次 `discover` 或 `assess` 创建一个 Run。Run 是最小恢复、审计和报告边界：
 
 ```text
 runs/<run_id>/
   intake.json
+  decision-context.json
   manifest.json
   scope-frame.json
   research-plan.json
@@ -713,9 +783,10 @@ runs/<run_id>/
     lanes/
     synthesis/
     reviews/
-    ranking/
+    comparison/
   checkpoints/
   report.json
+  decision-brief.md
   report.md
 ```
 
@@ -725,7 +796,7 @@ runs/<run_id>/
 
 ```text
 created
-  -> needs_clarification
+  -> decision_framed
   -> scoped
   -> planned
   -> researching
@@ -743,6 +814,8 @@ failed
 insufficient_evidence
 cancelled
 ```
+
+`created` 或 `decision_framed` 可以在高影响输入缺失时进入 `needs_clarification`，澄清后回到 `decision_framed` 或继续 `scoped`。
 
 `resume` 只允许从 `paused`、`failed`、`needs_clarification` 或可恢复的中间状态继续。`completed` 默认只读；用户要求深入研究时创建新的 continuation Run，并记录 parent run id，避免改写历史报告。
 
@@ -781,6 +854,7 @@ cancelled
 
 ```text
 run_created
+decision_context_written
 scope_written
 plan_validated
 research_unit_started
@@ -796,6 +870,9 @@ report_completed
 ```text
 scope_assumption_confirmed
 scope_changed_by_user
+initial_belief_recorded
+belief_changed_by_evidence
+remaining_disagreement_recorded
 candidate_rejected_by_user
 followup_requested_by_user
 limitation_accepted
@@ -809,12 +886,13 @@ run_cancelled
 
 在以下边界写 checkpoint：
 
+- DecisionContext 完成。
 - scope 完成。
 - plan 通过校验。
 - 每个 research wave 完成。
 - synthesis 完成。
 - adversarial review 完成。
-- final report 完成。
+- report.json、decision brief 和 full report 完成。
 
 Checkpoint 保存当前 manifest snapshot、已完成 unit、artifact refs、未解决 gaps 和下一步建议。恢复时先验证引用存在，再从最后一个有效 checkpoint 继续。
 
@@ -862,7 +940,10 @@ Research Plan 是一次 Run 的受约束执行计划，不是通用 Graph IR。�
   "exploration_policy": {
     "require_seed_independent_demand_unit": true,
     "require_counterfactual_unit": true,
-    "initial_hypotheses_are_questions_not_truth": true
+    "initial_hypotheses_are_questions_not_truth": true,
+    "separate_generation_and_evaluation_sources": true,
+    "freeze_thesis_before_enrichment": true,
+    "require_independent_challenger_queries": true
   },
   "waves": [
     {
@@ -917,6 +998,7 @@ competitor_gap
 market_space
 monetization
 acquisition
+business_engine
 delivery_feasibility
 compliance_risk
 counter_evidence
@@ -939,7 +1021,7 @@ data_and_evaluation
 adoption_and_trust
 ```
 
-Planner 可以创建多个具有不同 unit id 的 `ai_capability_evidence` unit 并行覆盖这些维度，也可以在一个 unit 中覆盖多个维度。单个 unit 可以只承担部分 dimensions，但 `uses_ai=true` 或 AI validation profile 的 plan aggregate 必须覆盖全部六类；只有业务上确实无关的维度才能显式 `not_applicable`。Result 必须为每个 required dimension 返回独立的 `JudgmentAssessment`、artifact refs 和 `covered | insufficient_evidence | not_applicable` 状态，不得用一段综合文字掩盖缺失维度。
+Planner 可以创建多个具有不同 unit id 的 `ai_capability_evidence` unit 并行覆盖这些维度，也可以在一个 unit 中覆盖多个维度。单个 unit 可以只承担部分 dimensions，但 `uses_ai=true` 或 AI assessment profile 的 plan aggregate 必须覆盖全部六类；只有业务上确实无关的维度才能显式 `not_applicable`。Result 必须为每个 required dimension 返回独立的 `JudgmentAssessment`、artifact refs 和 `covered | insufficient_evidence | not_applicable` 状态，不得用一段综合文字掩盖缺失维度。
 
 ### 12.4 Plan validator
 
@@ -950,13 +1032,16 @@ Planner 可以创建多个具有不同 unit id 的 `ai_capability_evidence` unit
 - 不存在循环依赖。
 - unit type、agent role 和 schema 在 allowlist 中。
 - output path 位于当前 Run 内且没有跨 unit 写冲突。
-- discover 和 validate 只能使用各自允许的 unit 组合。
-- AI mandatory bundle 在 `uses_ai=true` 或 AI validation profile 下完整。
+- discover 和 assess 只能使用各自允许的 unit 组合。
+- AI mandatory bundle 在 `uses_ai=true` 或 AI assessment profile 下完整。
 - 每个 `ai_capability_evidence` unit 的 required dimensions 使用 closed values，且 result 对每个维度都有 coverage status、判断引用和缺口说明。
 - mandatory AI dimension 缺失、只有低等级证据或错误标记为 `not_applicable` 时，plan/result validation 失败或进入 `insufficient_evidence`。
 - counter-evidence unit 没有被省略。
 - 至少一个需求/任务 unit 不读取 product/capability seeds。
 - 至少一个 counterfactual unit 主动检验初始假设之外的用户、任务或替代方案。
+- generation 和 evaluation source policy 已声明；不能分离时必须记录 overlap 和对 sufficiency 的影响。
+- enrichment 前存在冻结的 thesis、关键假设和 kill criteria snapshot。
+- challenger query 不得仅复用正向 query 添加否定词。
 - candidate retention policy 不使用固定 TopN，且包含多样性和最小证据要求。
 - follow-up 有最大轮数和停止条件。
 
@@ -975,7 +1060,7 @@ stop_condition
 首版不统计研究成本，但仍只追踪可能改变以下结果的问题：
 
 - hard gate。
-- verdict。
+- concept assessment。
 - 推荐档位。
 - selected solution 或 delivery form。
 - 最重要的 limitation。
@@ -990,6 +1075,7 @@ stop_condition
 主 Agent 是唯一编排者，负责：
 
 - 解释 Skill 和 mode 合同。
+- 形成和维护 DecisionContext，明确当前要回答的决策问题。
 - 与用户澄清 scope。
 - 创建和维护 Run。
 - 生成和验证 Research Plan。
@@ -1014,7 +1100,7 @@ stop_condition
 - 形成 findings、insights、limitations 和 unresolved questions。
 - 写入指定 lane artifact。
 
-默认只写自己分配的 output path 和 Evidence Store，不修改 plan、manifest、scoring policy 或最终报告。
+默认只写自己分配的 output path 和 Evidence Store，不修改 plan、manifest、comparison policy、决策简报或完整报告。
 
 #### Evidence Auditor
 
@@ -1036,10 +1122,11 @@ Auditor 返回 audit artifact，不直接修改研究结论。
 - 寻找强替代方案和 non-consumption 解释。
 - 检查买单、获客、合规和迁移成本是否被低估。
 - 检查 AI 方案是否已被通用模型、平台或开源 baseline 覆盖。
-- 检查评分是否重复计算相关维度。
+- 检查比较面板是否重复计算相关维度。
 - 提出会翻转结论的证据缺口。
+- 使用独立 challenger query 和替代解释，避免沿用候选生成阶段的正向搜索路径。
 
-Reviewer 不负责重新写一版更乐观或更悲观的报告，而是输出结构化 revision requests 和 verdict challenge。
+Reviewer 不负责重新写一版更乐观或更悲观的报告，而是输出结构化 revision requests 和 assessment/recommendation challenge。
 
 ### 13.3 Subagent task envelope
 
@@ -1066,7 +1153,7 @@ Reviewer 不负责重新写一版更乐观或更悲观的报告，而是输出�
 - 只把独立 unit 放入同一 wave。
 - 每个 subagent 拥有唯一 output path。
 - Evidence 写入使用稳定 operation key，防止同一 URL/内容被重复记录。
-- Subagents 不并发修改 `manifest.json`、`research-plan.json` 或最终报告。
+- Subagents 不并发修改 `manifest.json`、`research-plan.json`、`decision-brief.md` 或 `report.md`。
 - 主 Agent 在 wave 结束后串行执行 validation、fan-in 和 checkpoint。
 - 并发槽不足时按 wave 内优先级分批执行，不改变 plan 语义。
 
@@ -1079,6 +1166,18 @@ Reviewer 不负责重新写一版更乐观或更悲观的报告，而是输出�
 - 否决某个假设。
 - 提供新资料。
 - 暂停或停止 Run。
+
+每个 checkpoint 的用户摘要还必须说明：
+
+```text
+current_belief
+evidence_that_changed_belief
+unchanged_assumptions
+remaining_disagreement
+next_decision_relevant_question
+```
+
+用户初始偏好和 belief update 只用于暴露认知变化，不覆盖证据判断。
 
 主 Agent 接收到这类指令后：
 
@@ -1099,7 +1198,7 @@ Reviewer 不负责重新写一版更乐观或更悲观的报告，而是输出�
 - JSON Schema validation。
 - URL canonicalization、内容 hash 和 evidence 去重。
 - evidence ref、artifact ref 和 source manifest 校验。
-- hard gate、评分公式、敏感性和 rank stability 计算。
+- hard gate、面板 band、支配关系、敏感性和 stability band 计算。
 - checkpoint snapshot。
 - Markdown/JSON 报告装配。
 - fixture 和 eval 执行。
@@ -1218,14 +1317,14 @@ Follow-up 只针对会改变决策的问题。常见触发条件：
 - Baseline Option 不清楚。
 - buyer、payer、purchase trigger 或获客路径缺证据。
 - AI 方案缺少通用模型、平台或开源 baseline。
-- reviewer 提出可能翻转 verdict 的证据缺口。
+- reviewer 提出可能翻转 assessment 或 recommendation 的证据缺口。
 - 关键数据已过 freshness policy。
 
 停止条件：
 
 - 达到 `max_followup_rounds`。
 - 连续一轮没有 material new evidence。
-- 新证据不会改变 hard gate、verdict、推荐档位或主要 limitation。
+- 新证据不会改变 hard gate、assessment、推荐档位或主要 limitation。
 - 无法访问更高质量来源，继续搜索只会重复已有样本。
 - 用户要求停止或接受当前 limitation。
 
@@ -1244,7 +1343,7 @@ Evidence
   -> Insight
   -> Judgment Assessment
   -> Demand Thesis / Solution Hypothesis
-  -> Opportunity Thesis or Concept Verdict
+  -> Opportunity Thesis or Concept Evidence Assessment
 ```
 
 - Evidence 是网页、评论、报告、榜单、帖子、公开数据或测试结果等原始材料。
@@ -1263,12 +1362,14 @@ Evidence
   "run_id": "2026-07-23-pet-care",
   "unit_id": "review_mining_cn",
   "source_type": "app_store_review",
+  "evidence_origin": "public_source",
   "source_name": "App Store",
   "url": "https://example.com",
   "published_at": "2026-06-01",
   "retrieved_at": "2026-07-23T00:00:00Z",
   "query": "用药提醒 App 家庭协同 差评",
   "research_goal": "验证现有提醒工具是否存在家庭同步缺口",
+  "research_phase_role": "candidate_evaluation",
   "geo": "CN",
   "language": "zh-CN",
   "sample_size": 120,
@@ -1388,11 +1489,41 @@ model_inference_only
 
 `model_inference_only` 不能单独通过 hard gate。
 
+`evidence_origin` 使用：
+
+```text
+public_source
+user_provided_existing_material
+repository_existing_material
+```
+
+`research_phase_role` 使用：
+
+```text
+candidate_generation
+candidate_evaluation
+adversarial_challenger
+shared_context
+```
+
+它只表示材料在 Run 开始或研究过程中如何被系统取得，不表示系统执行了外部验证。用户提供的已有访谈、交易或行为材料仍必须记录原始方法、样本、时间、选择偏差和可复核性，不能仅因来自用户而自动获得高等级。
+
+证据等级对应结论上限：
+
+| 当前主要证据 | 允许用途和结论上限 |
+| --- | --- |
+| `model_inference_only`、`media_or_trend_signal` | 只能形成研究线索，不能单独支持正式推荐 |
+| `vendor_claim`、`expert_or_operator_report`、`self_reported_need` | 可以支持初步 hypothesis；决定性维度仅有这些材料时最高为 `investigate_further` 或 `insufficient_evidence` |
+| `public_behavior_proxy`、`observed_workflow` | 可以支持较强的当前证据判断，但仍须披露代表性、迁移和买单限制 |
+| `direct_behavior`、`transaction_or_commitment` | 如果当前可获得，可以提高 decision sufficiency；系统不负责主动生成或追踪 |
+
+缺少 `direct_behavior` 或 `transaction_or_commitment` 不自动产生反对判断。它只能构成 evidence gap、结论上限或 limitation。
+
 ### 16.7 判断信号与决策充分性
 
 Evidence 的生命周期、Evidence 对某个判断的作用，以及当前材料是否足以支持决策是三件不同的事。不得用一个 `evidence_status` 同时表达这三层语义。
 
-每个会影响 hard gate、候选保留、selected solution、排名、推荐档位或 concept verdict 的关键判断，都必须形成独立的 `JudgmentAssessment`：
+每个会影响 hard gate、候选保留、selected solution、排序、推荐档位或 concept assessment 的关键判断，都必须形成独立的 `JudgmentAssessment`：
 
 ```json
 {
@@ -1512,6 +1643,10 @@ source_type_coverage
 geo_language_coverage
 time_coverage
 stance_coverage
+generation_source_groups
+evaluation_source_groups
+challenger_source_groups
+generation_evaluation_overlap
 known_source_blind_spots
 freshness_summary
 limitations
@@ -1525,8 +1660,9 @@ Source Manifest 既记录采用的来源，也记录读过但拒绝使用的来�
 
 ```text
 report statement
-  -> decision recommendation or verdict
-  -> ranking/dimension decision
+  -> decision brief
+  -> decision recommendation or concept assessment
+  -> comparison/dimension decision
   -> judgment assessment
   -> opportunity/concept subject ref
   -> insight
@@ -1539,12 +1675,59 @@ report statement
 
 ## 17. Scope Framing
 
-### 17.1 机会发现 Scope
+### 17.1 Decision Context
+
+每个新 Run 在 ScopeFrame 之前生成 `decision-context.json`：
+
+```json
+{
+  "schema_version": "startup_opportunity.decision_context.v1",
+  "decision_to_make": "choose_opportunity",
+  "decision_question": "在当前团队条件下，宠物行业中哪个消费者机会最值得优先关注？",
+  "decision_options": [],
+  "venture_goal": "durable_small_business",
+  "decision_horizon": "本次 Run 结束时形成优先方向判断",
+  "founder_advantages": [],
+  "non_negotiable_constraints": [],
+  "team_capability_refs": [],
+  "risk_preferences": [],
+  "initial_belief": "unknown",
+  "favored_hypothesis": null,
+  "assumed_truths": [],
+  "final_decision_owner": "user",
+  "assumptions": [],
+  "open_questions": []
+}
+```
+
+`decision_to_make` 使用 closed values：
+
+```text
+choose_opportunity
+assess_concept_viability
+prioritize_research_gap
+reassess_with_new_material
+```
+
+`venture_goal` 使用：
+
+```text
+bootstrapped_cashflow
+durable_small_business
+venture_scale
+strategic_exploration
+unspecified
+```
+
+`venture_goal`、团队能力和风险偏好用于区分 opportunity quality 与 team execution fit，并选择已经发布的 decision/comparison profile；它们不允许用户或 Agent 在 active Run 中临时修改单项面板的重要性。用户不愿提供初始判断时使用 `unknown`，不得由 Agent 猜测。
+
+### 17.2 机会发现 Scope
 
 `scope-frame.json` 至少包含：
 
 ```text
 direction
+decision_context_ref
 discovery_profile
 research_axes
 market
@@ -1560,7 +1743,6 @@ native_app_required
 delivery_form_preferences
 business_model_preferences
 team_capability_constraints
-validation_timeline
 risk_preferences
 ai_scope
 assumptions
@@ -1616,14 +1798,15 @@ Profile 只影响 lane 优先级和必填 bundle，不改变最终必须形成 D
 
 首版不采集用户侧外部验证金额、人数或资源预算：
 
-- `validation_timeline` 只表示希望获得决策信号的时间范围。
+- `DecisionContext.decision_horizon` 只表示希望获得当前研究判断的时间范围。
 - `team_capability_constraints` 只表示当前团队已有的技术、行业、渠道和运营能力边界。
 - 系统不得从这两个字段推断用户未声明的资金预算，也不得声称建议的验证动作符合用户实际资源条件。
 
-### 17.2 概念验证 Scope
+### 17.3 概念证据评估 Scope
 
 ```text
 product_thesis
+decision_context_ref
 target_user
 buyer / payer
 entry_scene
@@ -1634,14 +1817,13 @@ delivery_form
 business_model
 acquisition_hypothesis
 team_constraints
-validation_timeline
 assumptions
 unknowns
 kill_criteria
-validation_profile
+assessment_profile
 ```
 
-`validation_profile`：
+`assessment_profile`：
 
 ```text
 general
@@ -1651,12 +1833,13 @@ regulated_ai
 
 AI profile 必须研究 baseline、可靠性、数据、人工复核、provider/platform 依赖和商品化风险。Regulated AI 额外检查责任、可解释性、审计、隐私和人工控制边界。
 
-概念验证同样遵守单一 primary market、单一 primary language 和不采集外部验证预算的边界。`validation_timeline` 可以影响建议优先验证哪个假设，但不用于估算金额、人数或资源配置。
+概念证据评估同样遵守单一 primary market、单一 primary language 和不采集外部验证预算的边界。`DecisionContext.decision_horizon` 只帮助判断优先补充哪个桌面证据缺口或如何描述可选建议，不用于估算金额、人数或资源配置，也不创建外部验证生命周期。
 
-### 17.3 需要澄清的情况
+### 17.4 需要澄清的情况
 
+- `decision_to_make` 无法从用户问题中可靠判断，且不同解释会改变输出。
 - 缺少目标市场或语言会改变结论。
-- 输入同时要求 TopN 发现和单一 thesis verdict。
+- 输入同时要求 TopN 发现和单一 thesis assessment。
 - 输入要求多个国家统一评分或直接排名；首版应说明将拆分为独立市场 Run，而不是混合证据继续。
 - 目标用户、买单方或产品概念完全无法区分。
 - 用户明确要求依赖当前无法访问的私有数据。
@@ -1668,6 +1851,7 @@ AI profile 必须研究 baseline、可靠性、数据、人工复核、provider/
 
 ```text
 discover intake
+  -> decision context
   -> scope framing
   -> initial probe
   -> opportunity space map
@@ -1679,14 +1863,17 @@ discover intake
   -> Demand Thesis synthesis
   -> Solution Hypothesis comparison
   -> Opportunity Thesis synthesis
+  -> freeze thesis / assumptions / kill criteria
   -> dedupe and clustering
   -> enrichment waves
+  -> Business Engine Thesis
   -> evidence audit
-  -> hard gates and ranking
+  -> hard gates and comparison
   -> sensitivity and portfolio view
   -> adversarial review
   -> optional decisive follow-up
-  -> final report
+  -> report.json
+  -> decision brief + full report
 ```
 
 ### 18.1 Initial Probe
@@ -1787,6 +1974,7 @@ market space
 monetization
 buyer purchase language
 acquisition and distribution
+business engine and reachable beachhead
 delivery feasibility
 compliance and platform risk
 counter evidence
@@ -1794,15 +1982,16 @@ early unit economics
 AI baseline and dependency bundle when relevant
 ```
 
-完成 enrichment 后再进行全局 hard gate、排序和 portfolio view。
+完成 enrichment 后再进行全局 hard gate、四面板比较、partial order 和 portfolio view。
 
-## 19. 概念市场验证流程
+## 19. 概念证据评估流程
 
 ```text
-validate intake
+assess intake
+  -> decision context
   -> concept framing
-  -> validation questions and plan
-  -> parallel validation waves
+  -> evidence assessment questions and plan
+  -> parallel assessment waves
       -> target user / JTBD / user language
       -> current alternatives / solution failure
       -> demand and behavior signals
@@ -1814,12 +2003,14 @@ validate intake
       -> counter evidence
   -> branch artifact validation
   -> hypothesis evidence matrix
+  -> Business Engine Thesis
   -> evidence audit
   -> gap analysis and bounded follow-up
   -> adversarial review
-  -> verdict gate
+  -> assessment gate
   -> optional validation suggestions
-  -> concept report
+  -> report.json
+  -> decision brief + concept evidence report
 ```
 
 所有 branch output 必须回连同一个 `concept_hypothesis_id`。不得在某个 branch 中重新定义产品目标或另行生成机会池。
@@ -1842,29 +2033,29 @@ what_would_change_decision
 limitations
 ```
 
-### 19.2 Verdict
+### 19.2 Assessment Result
 
 ```text
-go
-  关键需求、baseline 增量、买单、获客和可行性证据达到继续决策门槛。
+prioritize
+  当前可获得证据对关键需求、baseline 增量、买单、获客和可行性提供了相对较强支持，值得优先关注；不表示真实市场已经验证。
 
-conditional_go
-  主 thesis 基本成立，但存在少数可明确验证的决定性条件。
+investigate_further
+  主 thesis 存在值得继续研究的信号，但仍有会改变判断的决定性公开证据缺口或证据等级限制。
 
-no_go
-  强替代方案、缺少增量价值、无法买单/获客、不可接受风险或反证推翻 thesis。
+deprioritize
+  强替代方案、缺少增量价值、买单/获客逻辑不成立、不可接受风险或高质量反证使当前 thesis 不值得优先关注。
 
 insufficient_evidence
   关键维度无法获得足够证据，不能可靠给出方向性结论。
 ```
 
-Verdict 不能仅由 LLM 自由写作生成。确定性 gate 检查必填维度、证据状态和 hard fail，主 Agent再基于通过校验的 evidence matrix 形成解释。
+Assessment result 不能仅由 LLM 自由写作生成。确定性 gate 检查必填维度、证据状态、结论上限和 hard fail，主 Agent 再基于通过校验的 evidence matrix 形成解释。
 
-### 19.3 Concept Validation Plan
+### 19.3 Concept Evidence Assessment Plan
 
 ```text
 concept_hypothesis_ref
-validation_profile
+assessment_profile
 dimensions
   - dimension_id
   - hypothesis
@@ -1876,7 +2067,7 @@ dimensions
   - stop_condition
 mandatory_bundles
 followup_policy
-verdict_gate_version
+assessment_gate_version
 limitations
 ```
 
@@ -1889,16 +2080,17 @@ current_alternatives_and_solution_failure
 competitor_saturation_and_differentiation
 buyer_language_and_willingness_to_pay
 acquisition_and_distribution
+business_engine_viability
 delivery_feasibility
 compliance_and_platform_risk
 counter_evidence
 ```
 
-### 19.4 Concept Validation Branch Result
+### 19.4 Concept Evidence Assessment Branch Result
 
 ```json
 {
-  "schema_version": "startup_opportunity.concept_validation_branch_result.v1",
+  "schema_version": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
   "concept_hypothesis_id": "concept_001",
   "dimension_id": "buyer_language_and_willingness_to_pay",
   "research_questions": [],
@@ -1928,16 +2120,18 @@ insufficient_evidence
 not_applicable
 ```
 
-`dimension_decision` 是面向 verdict 的简化结果；它必须由 `judgment_assessment_refs` 推导。`supports | opposes | mixed` 分别对应 Judgment Assessment 的 `supported | opposed | mixed`，而 `insufficient_evidence` 必须保留具体 insufficiency reasons，不能吞并 `no_signal`、`source_unavailable`、冲突或 stale 等不同原因。
+`dimension_decision` 是面向 assessment result 的简化结果；它必须由 `judgment_assessment_refs` 推导。`supports | opposes | mixed` 分别对应 Judgment Assessment 的 `supported | opposed | mixed`，而 `insufficient_evidence` 必须保留具体 insufficiency reasons，不能吞并 `no_signal`、`source_unavailable`、冲突或 stale 等不同原因。
 
-### 19.5 Verdict Gate
+### 19.5 Assessment Gate
 
-- `go` 要求所有决定性 hard gate 通过，没有未解决的 thesis-killing opposition。
-- `conditional_go` 只允许保留少量、明确、可验证且不会掩盖当前强反证的 conditions。
-- 任一决定性维度被高质量反证推翻，可以直接产生 `no_go`，不因其他维度高分抵消。
+- `prioritize` 要求所有决定性 desk-evidence hard gate 通过，没有未解决的 thesis-killing opposition，并且明确声明“值得优先关注”而不是“市场已经验证”。
+- 缺少 BusinessEngineThesis，或定价、留存/复购、可触达 beachhead 和服务负担均无法形成可审计假设时，不得输出 `prioritize`。
+- `investigate_further` 用于存在正向信号，但仍有少量决定性公开证据缺口、来源重叠或证据等级限制的情况。
+- 任一决定性维度被高质量反证推翻，可以直接产生 `deprioritize`，不因其他维度表现较强而抵消。
 - 决定性维度只有低等级、过期或单一来源证据时产生 `insufficient_evidence`。
-- AI/regulated-AI mandatory bundle 不完整时不得输出 `go`。
-- Verdict 必须列出 decisive evidence、decisive opposition、critical gaps 和 what would change decision。
+- AI/regulated-AI mandatory bundle 不完整时不得输出 `prioritize`。
+- 缺少系统职责范围外的行为、承诺或交易证据本身不得产生 `deprioritize`；只能形成结论上限、critical gap 或 limitation。
+- Assessment result 必须列出 decisive evidence、decisive opposition、critical gaps 和 what would change decision。
 
 ## 20. 调研 Lane Catalog
 
@@ -2090,9 +2284,27 @@ adoption and trust boundary
 
 `coverage_status` 使用 `covered | insufficient_evidence | not_applicable`。Mandatory dimension 不得仅因来源难找而标记 `not_applicable`；来源不可得时必须使用 `insufficient_evidence` 并记录 `source_unavailable`。
 
-### 20.11 买单、商业化和获客
+### 20.11 买单、商业化、获客与业务闭环
 
-目标：把用户触发语言翻译成购买语言，明确预算来源、决策标准、价格替代和第一批用户获取路径。
+目标：把用户触发语言翻译成购买语言，明确预算来源、决策标准、价格替代、第一批用户获取路径，并形成所有候选都适用的 `BusinessEngineThesis`。
+
+业务闭环至少覆盖：
+
+```text
+pricing_unit
+usage_or_purchase_frequency
+retention_or_repeat_trigger
+gross_margin_band
+service_and_support_burden
+cac_hypothesis
+payback_logic
+reachable_beachhead_market
+channel_dependency
+growth_loop
+minimum_viable_scale
+```
+
+相关字段使用区间、假设和证据 refs，不因缺少一方经营数据伪造精确数值。宽泛 TAM、内容热度或竞品融资不能替代可触达 beachhead 和业务闭环。
 
 ### 20.12 反证
 
@@ -2105,6 +2317,7 @@ Counter-evidence 不是普通 lane 的重复搜索。它应主动寻找：
 - 平台很快会内置。
 - 合规、数据或交付成本不可接受。
 - 市场信号来自同一来源链。
+- 候选生成和评估证据高度重叠，结论可能来自自证循环。
 
 ### 20.13 Lane Plan 合同
 
@@ -2159,6 +2372,7 @@ Counter-evidence 不是普通 lane 的重复搜索。它应主动寻找：
   "capability_evidence_refs": [],
   "user_language_refs": [],
   "solution_failure_refs": [],
+  "business_engine_refs": [],
   "scored_candidates": [],
   "kill_conditions": [],
   "pre_kill_decisions": [],
@@ -2246,8 +2460,8 @@ Pre-kill 规则：
 | 替代方案与非 App 竞争 | 人工服务、表格、微信群、纸质流程、平台内置、通用模型和不处理 | 用户为什么继续使用 baseline；成本、惯性、切换门槛和失败模式是什么 | `BaselineOption`、substitute landscape、switching cost | 只研究同类 App 会低估真实竞争；必须包含 status quo/non-consumption |
 | 现有解法失效 | 用户叙述、差评、迁移案例、服务流程和社区求助 | 在什么场景失效；为什么失效；next action 和迁移动机是什么 | `SolutionFailureMap`、failure scenes、next actions | 只有功能缺失、没有失败后行动时不能推断迁移 |
 | AI 能力证据 | 官方文档、独立 benchmark、可复现实测、平台能力和开源实现 | 相对通用模型/platform/open source 的 gap；可靠性、数据、人工和商品化边界是什么 | capability evidence、baseline manifest、AI gate inputs | 厂商 claim 不替代目标任务评测；不能实测时标记 `desk_research_only` |
-| 买单、商业化和获客 | 定价、交易/承诺信号、渠道案例、购买流程、社区和竞品商业模式 | 谁付款、预算来源、purchase trigger、decision criteria、触达和价格替代是什么 | `BuyerPurchaseLanguage`、marketing bridge、acquisition hypotheses | “愿意使用”不等于“愿意购买”；使用者与付款者分离时必须分别验证 |
-| 反证 | 强替代产品、反面行为数据、法规、失败案例、平台路线图和专家异议 | 什么最可能推翻 demand、solution、distribution 或 timing | opposing matrix、kill conditions、verdict challenges | 不能只重复正向 query 加否定词；必须寻找独立、最强的替代解释 |
+| 买单、商业化、获客与业务闭环 | 定价、公开交易/承诺信号、渠道案例、购买流程、社区和竞品商业模式 | 谁付款、预算来源、purchase trigger、触达、留存/复购、毛利与服务负担、可触达 beachhead 和增长回路是什么 | `BuyerPurchaseLanguage`、`BusinessEngineThesis`、marketing bridge、acquisition hypotheses | “愿意使用”不等于“愿意购买”；使用者与付款者分离时分别判断；缺少非公开经营数据时使用区间和 unknown |
+| 反证 | 强替代产品、反面行为数据、法规、失败案例、平台路线图和专家异议 | 什么最可能推翻 demand、solution、distribution 或 timing；是否存在 generation/evaluation 自证 | opposing matrix、kill conditions、assessment challenges、source-overlap judgment | 不能只重复正向 query 加否定词；必须寻找独立、最强的替代解释 |
 
 所有 lane 都必须记录 geo、language、time range、source bias、independence、limitations 和 freshness。
 
@@ -2275,8 +2489,9 @@ Pre-kill 规则：
 
 | 模块 | 输入 | 输出 | 核心约束 |
 | --- | --- | --- | --- |
+| Decision Context Framer | intake、用户决策问题和初始判断 | `DecisionContext` | 明确本 Run 要回答的决定；不把外部验证变成系统 action |
 | Scope Framer | intake、用户约束和附件 refs | `ScopeFrame`、assumptions、open questions | 只澄清高影响缺口；mode 创建后不可静默改变 |
-| Research Planner | ScopeFrame、mode policy | `ResearchPlan` | 只能使用 allowlisted lane/unit；包含 seed-independent、counterfactual、retention 和 stop policy |
+| Research Planner | DecisionContext、ScopeFrame、mode policy | `ResearchPlan` | 只能使用 allowlisted lane/unit；包含 seed-independent、counterfactual、source separation、retention 和 stop policy |
 | Seed Probe | scope、plan | `SeedProbe` | Seed 只扩大入口，不直接进入评分或成为先验真值 |
 | Opportunity Space Mapper | scope、seed、初始 evidence | `OpportunitySpaceMap` | 先描述用户、任务、baseline 和 friction，不生成正式机会 |
 | Solution Space Mapper | scope、opportunity map、capability seeds | `SolutionSpaceMap` | 同时包含 ordinary software、platform、human、AI 和 status quo |
@@ -2285,15 +2500,17 @@ Pre-kill 规则：
 | Discovery Lane | LanePlan、scope、maps | `DiscoveryLaneResult` | 支持/反对、pre-kill、多样性和 limitations 必填 |
 | Solution Hypothesis Evaluator | demands、solutions、baselines、capability evidence | `SolutionEvaluation` | 同一需求下显式比较；AI 不是默认 selected solution |
 | Opportunity Thesis Synthesizer | validated lane results、solution evaluation | `OpportunityThesis[]` | 必须回连 demand/solution/baseline 和审计引用 |
+| Thesis Snapshot Publisher | synthesized thesis、关键假设、kill criteria、generation sources | `ThesisEvaluationSnapshot` | enrichment 前不可变发布；后续变化产生 revision，不静默改写 thesis |
 | Opportunity Clusterer | theses、semantic features | `MergeResult` | 按 user/job/scene/baseline/solution 判断合并，不只看标题相似度 |
 | Judgment Enricher | merged opportunities、evidence gaps | enrichment plan/results | 只补充会影响决策的市场、买单、获客、风险和反证 |
+| Business Engine Enricher | opportunity refs、buyer/acquisition evidence | `BusinessEngineThesis` | 所有候选适用；使用区间和 unknown，不以宽泛 TAM 替代可触达市场 |
 | AI Capability Benchmarker | AI solution refs、target task、baseline candidates | `AICapabilityBenchmark` | 优先可复现实测；无法实测时 `desk_research_only` |
 | Value/Context/Buyer Enricher | opportunity refs、evidence | value、state/context、buyer language artifacts | workflow/outcome、授权状态和购买语言必须分别判断 |
-| Global Ranker | enriched opportunities、scoring policy | `Ranking` | 先 hard gate；unknown 不补默认高分；处理相关维度重复计分 |
-| Sensitivity Analyzer | ranking inputs、扰动规则 | `Sensitivity` | 输出 downside/upside、rank range、stability 和敏感维度 |
-| Decision Recommendation Builder | ranking、sensitivity、portfolio inputs | `DecisionRecommendation` | 允许 partial order；说明 what would change decision |
-| Validation Suggestion Builder | recommendation/verdict、critical unknowns | `ValidationSuggestions` | 只建议，不执行；每条建议对应决定性假设 |
-| Reporter | curated judgment context、report contract | JSON + Markdown report | 不直接消费 raw evidence；JSON/Markdown 一致 |
+| Opportunity Comparator | enriched opportunities、decision/comparison policy | `OpportunityComparison` | 先 hard gate；按四个独立面板比较；unknown 不补默认高分；默认不输出全局总分 |
+| Sensitivity Analyzer | comparison inputs、扰动规则 | `Sensitivity` | 输出 downside/upside relation、可能的 rank group、stability band 和敏感维度 |
+| Decision Recommendation Builder | comparison、sensitivity、portfolio inputs | `DecisionRecommendation` | 允许 partial order；说明 what would change decision |
+| Validation Suggestion Builder | recommendation/assessment、critical unknowns | `ValidationSuggestions` | 只建议，不执行或追踪；每条建议对应决定性假设并声明 execution owner |
+| Reporter | curated judgment context、report contract | JSON + decision brief + full report | 不直接消费 raw evidence；三者一致，简报是默认用户入口 |
 
 ### 21.1 Seed Probe
 
@@ -2384,7 +2601,29 @@ audit_refs
 limitations
 ```
 
-### 21.6 Validation Suggestion
+### 21.6 Thesis Evaluation Snapshot
+
+在 enrichment 和独立评估开始前写入不可变 snapshot：
+
+```text
+snapshot_id
+subject_refs
+demand_thesis_refs
+solution_hypothesis_refs
+baseline_option_refs
+business_model_assumptions
+critical_assumptions
+kill_criteria
+generation_source_groups
+evaluation_questions
+frozen_at
+revision_policy
+limitations
+```
+
+后续证据可以支持、反对或要求产生新 revision，但不能静默改写原 thesis 来规避反证。
+
+### 21.7 Validation Suggestion
 
 ```text
 critical_assumption
@@ -2395,10 +2634,19 @@ failure_signal
 effort_band
 decision_affected
 evidence_gap_refs
+execution_owner
+execution_supported
+result_tracking_supported
 limitations
 ```
 
-建议可以是访谈、自然复述测试、价格承诺、落地页、人工流程演示或 AI baseline spike，但本系统不执行或追踪这些动作。
+建议可以是访谈、自然复述测试、价格承诺、落地页、人工流程演示或 AI baseline spike，但本系统不执行或追踪这些动作。外部动作固定声明：
+
+```text
+execution_owner = user
+execution_supported = false
+result_tracking_supported = false
+```
 
 `effort_band` 使用 `low | medium | high`，只表示验证动作在时间、协调、开发、招募、数据和合规方面的相对复杂度。它不是金额、人数或资源配置估算，也不表示该建议适配用户实际预算。首版不因用户未提供预算而推断其可承担的验证动作；报告必须把这一点作为适用边界，而不是自动改写建议。
 
@@ -2498,6 +2746,7 @@ Baseline Option 是正式对照项，不参加机会 TopN：
   "acquisition_motion": "community",
   "buyer_model": "household_payer",
   "payment_mode": "subscription",
+  "business_engine_ref": "business_engine_001",
   "expected_outcomes": [],
   "risks": [],
   "kill_criteria": [],
@@ -2700,7 +2949,7 @@ Capability Evidence 不能独立成为 Opportunity Thesis。
   "audit_refs": [],
   "risks": [],
   "kill_criteria": [],
-  "ranking_ref": null,
+  "comparison_ref": null,
   "decision_recommendation_ref": null,
   "validation_suggestion_refs": [],
   "lifecycle_status": "proposed",
@@ -2842,7 +3091,7 @@ limitations
 
 无法进行代表性实测时必须标记 `desk_research_only`，不得用厂商 benchmark 替代目标任务可靠性判断。
 
-### 22.9 Concept Hypothesis 与 Verdict
+### 22.9 Concept Hypothesis 与 Evidence Assessment
 
 ```json
 {
@@ -2866,17 +3115,25 @@ limitations
 
 ```json
 {
-  "schema_version": "startup_opportunity.concept_verdict.v1",
+  "schema_version": "startup_opportunity.concept_evidence_assessment.v1",
   "concept_hypothesis_id": "concept_001",
-  "verdict": "conditional_go",
-  "confidence_band": "medium",
+  "assessment_result": "investigate_further",
+  "evidence_strength_band": "medium",
   "dimension_decisions": [],
+  "business_engine_ref": "business_engine_001",
   "decisive_evidence_refs": [],
   "decisive_opposing_refs": [],
   "critical_gaps": [],
   "conditions": [],
   "kill_criteria": [],
   "recommendation": "",
+  "belief_update_summary": {
+    "initial_belief": "unknown",
+    "evidence_that_changed_belief": [],
+    "unchanged_assumptions": [],
+    "remaining_disagreement": [],
+    "final_decision_owner": "user"
+  },
   "validation_suggestions": [],
   "limitations": []
 }
@@ -2944,16 +3201,49 @@ proposed -> screened -> recommended
 
 `stale` 表示决定性证据已经过期或市场状态发生重大变化，不表示 thesis 已被证伪。重新研究应创建 continuation Run 或新 revision，不改写历史结论。
 
-## 23. Hard Gates、评分和排序
+### 22.14 Business Engine Thesis
+
+所有进入正式比较的机会和概念都必须形成 `BusinessEngineThesis`，但缺少非公开经营数据时允许字段为 `unknown`：
+
+```json
+{
+  "schema_version": "startup_opportunity.business_engine_thesis.v1",
+  "business_engine_id": "business_engine_001",
+  "subject_ref": "opportunity_001",
+  "pricing_unit": "household_subscription",
+  "usage_or_purchase_frequency": "recurring",
+  "retention_or_repeat_trigger": "持续照护记录、家庭交接和异常补救",
+  "gross_margin_band": "unknown",
+  "service_and_support_burden": "medium",
+  "cac_hypothesis": "通过慢病宠物社区和诊所推荐触达",
+  "payback_logic": "unknown",
+  "reachable_beachhead_market": "已有慢病管理需求且由家庭成员共同照护的宠物家庭",
+  "channel_dependency": ["pet_health_community", "clinic_referral"],
+  "growth_loop": "家庭协作邀请与专业渠道推荐",
+  "minimum_viable_scale": "unknown",
+  "assumptions": [],
+  "supporting_claim_refs": [],
+  "opposing_claim_refs": [],
+  "judgment_assessment_refs": [],
+  "unknowns": [],
+  "limitations": []
+}
+```
+
+该对象描述候选产品本身的商业闭环，不涉及 Research Harness 执行预算。`unknown` 不得被默认中性分替代；决定性商业闭环字段未知时限制推荐档位。
+
+## 23. Hard Gates、比较和排序
 
 ### 23.1 Hard Gates
 
-评分前先检查：
+比较前先检查：
 
 - 没有明确 user/JTBD/entry scene，不能进入强推荐。
 - 没有 Baseline Option 或无法说明增量价值，进入 `watchlist` 或 `reject`。
 - buyer、payer、purchase trigger 和获取路径均无法说明，不能进入强推荐。
+- 缺少 `BusinessEngineThesis`，或定价单位、留存/复购触发、可触达 beachhead 和服务负担均无法形成合理假设，不能进入强推荐。
 - supporting evidence 主要来自模型推断或单一非独立来源，不能进入强推荐。
+- 候选生成与评估来源高度重叠且没有独立 challenger evidence 时，限制 evidence strength 和推荐档位。
 - opposing evidence 已经推翻核心需求或迁移动机，进入 `reject`。
 - 高风险行业缺少可接受合规边界，限制推荐档位或拒绝。
 - `uses_ai=true` 但缺少 mandatory AI bundle，进入 `insufficient_evidence`。
@@ -2962,70 +3252,29 @@ proposed -> screened -> recommended
 - 关键数据无法合法持续获取，不能把数据壁垒计入正向判断。
 - 候选产品的推理、工具、存储和人工审核后单位经济明显不成立，触发 kill condition。
 
-### 23.2 评分维度
+### 23.2 比较面板与观察维度
 
-评分只用于候选间可解释比较：
+候选默认通过四个相互区分的面板比较，不把所有维度压缩成一个面向用户的全局总分：
 
-| 维度 | 说明 |
-| --- | --- |
-| demand strength | 问题是否真实、频繁或损失足够大 |
-| user language strength | 是否来自真实用户自然表达 |
-| entry scene clarity | 产品在什么时刻被想起是否清楚 |
-| solution failure strength | 现有方案是否真实失败且有 next action |
-| mental position white space | 心智位置是否尚未被稳定占领 |
-| workflow/outcome value | 是否超出一次性 output |
-| state/context value | 是否需要持续状态、协作和上下文 |
-| market potential | 用户规模、消费能力和趋势 |
-| product gap | 头部产品覆盖和满意度缺口 |
-| payer clarity | user/buyer/payer/decision maker 是否清楚 |
-| buyer language clarity | 是否可翻译成预算、风险或家庭支出理由 |
-| monetization | 付费或渠道变现是否成立 |
-| acquisition feasibility | 是否有可触达第一批用户的路径 |
-| entry version feasibility | 在已声明 team capability 和 validation timeline 下，第一版产品在技术与运营上是否可实现；不评价用户资金是否充足 |
-| validation feasibility | 决定性假设是否存在快速、可靠、可观察的验证方法；不评价用户能否负担该验证 |
-| AI baseline gap | AI 方案相对通用 baseline 的真实增量 |
-| differentiation | 是否有清晰定位和可持续差异 |
-| timing window | 为什么现在进入 |
-| substitute risk | 当前替代是否足够好 |
-| commoditization risk | 是否会被模型、平台或竞品快速抹平 |
-| competition risk | 同质化和巨头风险 |
-| compliance risk | 法规、隐私和责任风险 |
-| judgment confidence | 来源质量、独立性、覆盖和一致性 |
+| 面板 | 主要观察维度 | 输出作用 |
+| --- | --- | --- |
+| `demand_and_market` | demand strength、用户语言、入口场景、解法失效、心智 white space、可触达 beachhead、timing | 判断问题和市场入口是否值得关注 |
+| `solution_and_business` | baseline delta、workflow/outcome value、差异化、payer/buyer language、定价单位、留存/复购、获客、服务负担、渠道、合规和替代风险 | 判断方案及业务闭环是否成立 |
+| `evidence_strength` | 来源等级、独立性、代表性、覆盖、freshness、generation/evaluation overlap 和 opposing evidence | 限制结论强度和不确定性，不给机会吸引力加分 |
+| `team_fit_and_learning` | 已声明能力、founder advantage、entry version feasibility、关键未知数可研究性和 speed-to-learn | 判断用户优先关注该机会是否合理，不改变市场事实 |
 
-需求强度、用户语言、入口场景和解法失效高度相关。Scoring policy 必须进行相关性折减，不允许简单线性累加造成重复计分。`entry_version_feasibility`、`validation_feasibility` 和 `effort_band` 都不得使用未采集的用户资金预算作为输入。
+每个面板输出 `strong | medium | weak | unknown | not_applicable`、observable anchors、support/opposition refs 和 limitations。需求强度、用户语言、入口场景和解法失效等相关维度不能简单线性累加。
 
-参考 scoring profile 使用以下相对重要性。它们是校准起点，不要求简单相加为 100%，实际 profile 必须归一化适用维度并记录相关性折减：
+Comparison policy 可以在内部使用版本化 rubric 辅助一致比较，但必须满足：
 
-| 维度 | 参考重要性 |
-| --- | ---: |
-| demand strength | 16 |
-| user language strength | 7 |
-| entry scene clarity | 6 |
-| solution failure strength | 7 |
-| mental position white space | 6 |
-| workflow/outcome value | 9 |
-| state/context value | 6 |
-| market potential | 10 |
-| product gap | 8 |
-| payer clarity | 7 |
-| buyer language clarity | 6 |
-| monetization | 7 |
-| acquisition feasibility | 7 |
-| entry version feasibility | 6 |
-| validation feasibility | 6 |
-| `natural_restatement_testability` | 5 |
-| AI baseline gap | 6（仅 AI 方案） |
-| differentiation | 6 |
-| timing window | 4 |
-| substitute risk | -6 |
-| capability commoditization risk | -7 |
-| competition risk | -5 |
-| compliance/platform risk | -5 |
-| judgment confidence | 10 |
+- 每个 band 有可观察的 anchor 和反例。
+- `evidence_strength` 只控制区间宽度、decision sufficiency 和推荐上限，不进入 opportunity attractiveness 加权和。
+- `unknown` 不填默认中性值。
+- `AI baseline gap` 对非 AI 方案为 `not_applicable`，不造成奖励或惩罚。
+- 用户和 Agent 不能在 active Run 中修改单项面板的重要性；`DecisionContext` 只能选择已发布的 decision/comparison profile。
+- 面向用户的 brief/report 不展示 `global_score`、伪精确置信分或小数点排名稳定性。
 
-`AI baseline gap` 对非 AI 方案标记 `not_applicable`，其权重按 profile 重新归一化，不能给非 AI 方案默认高分或低分。
-
-AI 方案的以下指标必须作为独立 score inputs，不得藏在 `differentiation` 或自然语言 rationale 中：
+AI 方案的以下指标必须作为独立 comparison inputs，不得藏在 `differentiation` 或自然语言 rationale 中：
 
 | AI 指标 | 决策含义 |
 | --- | --- |
@@ -3042,47 +3291,48 @@ AI 方案的以下指标必须作为独立 score inputs，不得藏在 `differen
 | `capability_half_life` | 当前能力窗口可维持多久，模型升级是增强还是替代 |
 | `ai_adoption_trust` | 安全、隐私、可解释性、责任和消费者信任是否允许进入工作流 |
 
-### 23.3 评分顺序
+### 23.3 比较顺序
 
 ```text
 hard gates
-  -> evidence sufficiency / uncertainty band
-  -> baseline delta and outcome value
-  -> expected decision value
-  -> downside / upside / speed-to-learn
-  -> robust rank or partial-order recommendation
+  -> four comparison panels
+  -> evidence sufficiency and conclusion ceiling
+  -> pairwise dominance / Pareto relation
+  -> downside / upside relation and speed-to-learn
+  -> robust leader group or partial-order recommendation
 ```
 
-没有证据的维度保持 `unknown`，不得填默认中性高分。不同 discovery profile 可以选择预先定义、校准和版本化的 scoring profile，但用户和 Agent 都不能在运行中任意修改单项权重。每次评分必须记录 scoring policy version 和输入快照。
+没有证据的维度保持 `unknown`，不得填默认中性值。不同 discovery profile 和 venture goal 可以选择预先定义、校准和版本化的 decision/comparison profile。每次比较必须记录 policy version、observable rubric version 和输入快照。
 
 ### 23.4 输出合同
 
 ```json
 {
   "opportunity_id": "opportunity_001",
-  "scoring_policy_version": "1.0.0",
-  "input_snapshot_ref": "artifacts/ranking/input-snapshot.json",
-  "score_band": "strong_candidate",
-  "global_score": 8.1,
-  "confidence_score": 7.6,
+  "comparison_policy_version": "1.0.0",
+  "input_snapshot_ref": "artifacts/comparison/input-snapshot.json",
+  "recommendation_band": "strong_candidate",
   "decision_value_band": "high",
-  "team_execution_fit": "medium",
-  "team_execution_fit_reasons": [],
   "uncertainty_band": "medium",
-  "rank_stability": 0.74,
-  "rank": 1,
+  "comparison_panels": {
+    "demand_and_market": {"band": "strong", "dimension_assessments": [], "limitations": []},
+    "solution_and_business": {"band": "medium", "dimension_assessments": [], "limitations": []},
+    "evidence_strength": {"band": "medium", "decision_sufficiency": "sufficient", "source_overlap": "low", "limitations": []},
+    "team_fit_and_learning": {"band": "medium", "reasons": [], "limitations": []}
+  },
   "ordering_mode": "partial_order",
   "rank_relation": "robust_leader",
-  "score_breakdown": {},
-  "correlation_adjustments": [],
+  "dominates": [],
+  "dominated_by": [],
+  "close_to_indistinguishable_from": [],
   "hard_gate_results": [],
   "judgment_assessment_refs": [],
   "sensitivity": {
     "most_sensitive_dimensions": [],
-    "downside_case_score": 6.4,
-    "expected_case_score": 8.1,
-    "upside_case_score": 8.7,
-    "rank_range": [1, 4]
+    "downside_relation": "falls_into_leader_group",
+    "expected_relation": "robust_leader",
+    "upside_relation": "robust_leader",
+    "stability_band": "medium"
   },
   "recommendation": "",
   "rationale": "",
@@ -3098,7 +3348,7 @@ hard gates
 }
 ```
 
-`global_score` 不是成功概率。候选区间重叠时应输出：
+候选无法形成稳定支配关系时应输出：
 
 ```text
 robust_leader
@@ -3110,12 +3360,12 @@ evidence_insufficient_for_ordering
 
 | 档位 | 含义 |
 | --- | --- |
-| `strong_candidate` | 需求、买单、方案和 baseline 增量较清晰，建议优先关注 |
-| `quick_validation` | 有潜力但存在少数决定性未知数 |
+| `strong_candidate` | 当前证据下需求、买单、方案、baseline 增量和业务闭环相对清晰，建议优先关注；不表示市场已经验证 |
+| `investigate_further` | 有潜力但存在少数决定性桌面证据缺口或证据等级限制 |
 | `watchlist` | 信号存在，但证据、时机或商业化不足 |
 | `reject` | 反证、替代、风险或不可行性足以否定当前机会 |
 
-`strong_candidate` 与 `quick_validation` 的区别来自证据充分性和是否仍有少量决定性未知数，不由用户预算直接决定。若机会质量高但当前团队能力不匹配，应分别表达 opportunity quality 和 team execution fit，不能用预算不足把市场证据降级。
+`strong_candidate` 与 `investigate_further` 的区别来自当前证据充分性和是否仍有少量决定性未知数，不由用户预算直接决定。若机会质量高但当前团队能力不匹配，应分别表达 opportunity quality 和 team execution fit，不能用团队不匹配把市场证据降级。
 
 ### 23.6 Portfolio View
 
@@ -3137,6 +3387,7 @@ Portfolio View 是轻量组合建议，不是投资组合优化器。
 ```json
 {
   "schema_version": "startup_opportunity.decision_recommendation.v1",
+  "decision_context_ref": "decision-context.json",
   "recommended_first_bet": "opportunity_001",
   "alternative_bets": [],
   "rejected_or_watchlist_refs": [],
@@ -3146,10 +3397,18 @@ Portfolio View 是轻量组合建议，不是投资组合优化器。
   "decisive_supporting_refs": [],
   "decisive_opposing_refs": [],
   "decisive_judgment_assessment_refs": [],
+  "business_engine_refs": [],
   "rationale": "",
   "critical_unknowns": [],
   "what_would_change_the_decision": [],
   "recommended_next_action": "",
+  "belief_update_summary": {
+    "initial_belief": "unknown",
+    "evidence_that_changed_belief": [],
+    "unchanged_assumptions": [],
+    "remaining_disagreement": [],
+    "final_decision_owner": "user"
+  },
   "validation_suggestion_refs": [],
   "portfolio_view_ref": "",
   "limitations": []
@@ -3160,7 +3419,7 @@ Portfolio View 是轻量组合建议，不是投资组合优化器。
 
 ```text
 prioritize
-validate_first
+investigate_further
 watch
 reject
 insufficient_evidence
@@ -3172,6 +3431,7 @@ insufficient_evidence
 
 ```text
 startup_opportunity.intake.v1
+startup_opportunity.decision_context.v1
 startup_opportunity.run_manifest.v1
 startup_opportunity.scope_frame.v1
 startup_opportunity.research_plan.v1
@@ -3193,6 +3453,7 @@ startup_opportunity.solution_hypothesis.v1
 startup_opportunity.solution_evaluation.v1
 startup_opportunity.capability_evidence.v1
 startup_opportunity.opportunity_thesis.v1
+startup_opportunity.thesis_evaluation_snapshot.v1
 startup_opportunity.merge.v1
 startup_opportunity.enrichment_branch_result.v1
 startup_opportunity.enrichment_fan_in.v1
@@ -3204,39 +3465,44 @@ startup_opportunity.capability_commoditization_risk.v1
 startup_opportunity.value_layer_analysis.v1
 startup_opportunity.user_state_context_model.v1
 startup_opportunity.buyer_purchase_language.v1
-startup_opportunity.ranking.v1
+startup_opportunity.business_engine_thesis.v1
+startup_opportunity.opportunity_comparison.v1
 startup_opportunity.sensitivity.v1
 startup_opportunity.decision_recommendation.v1
 startup_opportunity.portfolio_view.v1
 startup_opportunity.adversarial_review.v1
 startup_opportunity.validation_suggestions.v1
+startup_opportunity.decision_brief.v1
 startup_opportunity.report.v1
 startup_opportunity.concept_frame.v1
 startup_opportunity.concept_hypothesis.v1
-startup_opportunity.concept_validation_plan.v1
-startup_opportunity.concept_validation_branch_result.v1
-startup_opportunity.concept_validation_fan_in.v1
+startup_opportunity.concept_evidence_assessment_plan.v1
+startup_opportunity.concept_evidence_assessment_branch_result.v1
+startup_opportunity.concept_evidence_assessment_fan_in.v1
 startup_opportunity.hypothesis_evidence_matrix.v1
-startup_opportunity.concept_verdict.v1
-startup_opportunity.concept_validation_suggestions.v1
-startup_opportunity.concept_report.v1
+startup_opportunity.concept_evidence_assessment.v1
+startup_opportunity.concept_assessment_suggestions.v1
+startup_opportunity.concept_evidence_report.v1
 startup_opportunity.traceability.v1
 ```
 
-`discovery_fan_in` 和 `concept_validation_fan_in` 采用引用式聚合：只保存通过校验的 branch/artifact refs、必要的决策摘要、失败或缺失 branch、evidence gaps 和 limitations，不复制所有 raw evidence。引用式聚合仍必须完整保留证据充分性、反证、pre-kill 和 decision impact 语义。
+`discovery_fan_in` 和 `concept_evidence_assessment_fan_in` 采用引用式聚合：只保存通过校验的 branch/artifact refs、必要的决策摘要、失败或缺失 branch、evidence gaps 和 limitations，不复制所有 raw evidence。引用式聚合仍必须完整保留证据充分性、反证、pre-kill 和 decision impact 语义。
 
 Artifact 依赖关系：
 
 ```text
-intake -> scope -> plan -> seed/maps
+intake -> decision context -> scope -> plan -> seed/maps
   -> branch/lane results + judgment assessments -> fan-in
   -> demand + baseline + solutions + solution evaluation
-  -> opportunity thesis -> merge -> enrichment fan-in
-  -> value/buyer/AI artifacts -> ranking + sensitivity
-  -> decision recommendation + portfolio + report
+  -> opportunity thesis -> frozen thesis snapshot -> merge -> enrichment fan-in
+  -> value/buyer/business-engine/AI artifacts -> comparison + sensitivity
+  -> decision recommendation + portfolio -> report.json
+  -> decision brief + full report
 
-concept frame -> validation plan -> validation branch results + judgment assessments -> fan-in
-  -> hypothesis evidence matrix -> adversarial review -> verdict -> report
+decision context -> concept frame -> evidence assessment plan
+  -> assessment branch results + judgment assessments -> fan-in
+  -> hypothesis evidence matrix -> adversarial review -> assessment result
+  -> report.json -> decision brief + concept evidence report
 ```
 
 ### 24.2 Evaluator 层次
@@ -3255,18 +3521,19 @@ concept frame -> validation plan -> validation branch results + judgment assessm
 
 #### Decision readiness evaluator
 
-检查 hard gate、buyer、baseline delta、selected solution、kill criteria、AI mandatory bundle 和推荐档位上限。
+检查 hard gate、buyer、baseline delta、selected solution、Business Engine、evidence conclusion ceiling、kill criteria、AI mandatory bundle 和推荐档位上限。
 
 #### Report evaluator
 
-检查 JSON/Markdown 一致性、引用覆盖、限制披露、排名解释和是否错误表达为确定性商业结论。
+检查 report.json、decision-brief.md 和 report.md 一致性、引用覆盖、限制披露、partial-order 解释和是否错误表达为确定性商业结论或真实市场验证结论。
 
 ### 24.3 关键 Artifact 专用校验
 
 | Artifact | 必须校验 |
 | --- | --- |
+| Decision Context | decision_to_make、decision question、venture goal、初始判断、最终决策所有者和 assumptions |
 | Scope Frame | mode、market/language、profile、约束、assumptions 和高影响 open questions |
-| Research Plan | allowlist、依赖无环、output ownership、seed-independent/counterfactual unit、retention/diversity 和 stop policy |
+| Research Plan | allowlist、依赖无环、output ownership、seed-independent/counterfactual unit、generation/evaluation source separation、frozen-thesis boundary、retention/diversity 和 stop policy |
 | User Language Map | verbatim quote、source location、geo/language、功能词剔除和 quote provenance |
 | Solution Failure Map | baseline、failure scene、next action、migration signal 和用户语言引用 |
 | Judgment Assessment | signal、support/opposition refs、evidence tier、representativeness、independence、decision sufficiency、insufficiency reason 和 what-would-change-it |
@@ -3275,10 +3542,13 @@ concept frame -> validation plan -> validation branch results + judgment assessm
 | Solution Hypothesis | demand/baseline refs、delivery form、workflow change、baseline delta、risks 和 kill criteria |
 | Solution Evaluation | selected/alternatives/rejected、baseline comparison、critical unknowns 和 capability-only signals |
 | Opportunity Thesis | demand/solution/baseline、mental position、buyer language、value layer、state/context、反证和 freshness |
+| Thesis Evaluation Snapshot | subject、关键假设、kill criteria、generation source groups、frozen_at 和 revision policy |
+| Business Engine Thesis | pricing unit、频率、留存/复购、服务负担、可触达 beachhead、渠道、growth loop、unknown 和 refs |
 | AI artifacts | baseline setup、reliability、evaluation、data rights、human review、产品单位经济、portability 和 bundle risk |
-| Ranking | hard gate 先于评分、unknown handling、correlation adjustment、sensitivity 和 partial-order 规则 |
-| Concept fan-in/verdict | 所有 branch 回连同一 hypothesis、decisive evidence、反证、缺口和 verdict gate |
-| Report | JSON/Markdown 一致、决定性判断可回溯、限制和 stale evidence 完整披露 |
+| Opportunity Comparison | hard gate 先于比较、四面板、unknown handling、evidence strength 不参与吸引力加分、sensitivity 和 partial-order 规则；用户输出无 global score |
+| Concept fan-in/assessment | 所有 branch 回连同一 hypothesis、decisive evidence、反证、证据结论上限、缺口、belief update 和 assessment gate |
+| Decision Brief | 决策问题、当前建议、决定性正反证据、未选项、最大未知数、what-would-change-it、belief update、有效期和边界 |
+| Report | 三层输出一致、决定性判断可回溯、限制和 stale evidence 完整披露 |
 
 ### 24.4 Fan-in 与 Partial 结果
 
@@ -3319,9 +3589,9 @@ judgment_assessment_refs
 solution_evaluation_required
 ```
 
-`concept_validation_fan_in.v1` 必须按 dimension 汇总 judgment assessment refs、决定性支持和反对证据、缺失 mandatory dimensions、decision sufficiency 和 what would change the verdict。Fan-in 不复制底层 Evidence/Claim 内容，但必须保留这些 refs 和摘要；否则不得进入 solution evaluation、ranking 或 verdict gate。
+`concept_evidence_assessment_fan_in.v1` 必须按 dimension 汇总 judgment assessment refs、决定性支持和反对证据、缺失 mandatory dimensions、decision sufficiency 和 what would change the assessment。Fan-in 不复制底层 Evidence/Claim 内容，但必须保留这些 refs 和摘要；否则不得进入 comparison 或 assessment gate。
 
-缺失 branch 影响 hard gate 或 verdict 时必须 follow-up、澄清或 `insufficient_evidence`，不能默认为中性结果。
+缺失 branch 影响 hard gate 或 assessment 时必须 follow-up、澄清或 `insufficient_evidence`，不能默认为中性结果。
 
 ### 24.5 Evaluator 结果
 
@@ -3341,9 +3611,53 @@ failed
 - 每个正式 artifact 记录 schema version、created_at、producer role、input refs 和 content hash。
 - Final report 记录使用的全部主要 artifact refs 和 policy version。
 
-## 25. 最终报告
+## 25. 决策简报与完整报告
 
-### 25.1 机会发现 Markdown
+### 25.1 决策简报
+
+`decision-brief.md` 是 completed Run 的默认用户入口，控制在一至两页，只回答当前决策所需的高信号问题：
+
+```text
+# 决策简报
+
+## 本次要回答的决策问题
+## 当前建议及适用含义
+## 决定性支持证据
+## 决定性反对证据
+## 为什么没有选择其他方向或结论
+## 最大未知数
+## 什么证据会改变判断
+## 用户初始判断与本次认知变化
+## 可选下一步建议及执行边界
+## 结论有效期、Scope 和局限
+```
+
+机会发现简报突出 `recommended_first_bet`、alternative bets 和 partial-order relation。概念证据评估简报突出 `prioritize | investigate_further | deprioritize | insufficient_evidence`，并明确结论只针对当前可获得证据。
+
+决策简报结构化合同：
+
+```text
+decision_context_ref
+mode
+recommendation_or_assessment_ref
+current_recommendation
+recommendation_meaning
+decisive_supporting_refs
+decisive_opposing_refs
+alternatives_not_selected
+critical_unknowns
+what_would_change_the_decision
+belief_update_summary
+optional_validation_suggestion_refs
+external_action_boundary
+valid_as_of
+scope_summary
+limitations
+```
+
+`external_action_boundary` 必须说明系统不执行或追踪外部验证。简报不能为追求简短而省略会改变结论的强反证或关键 evidence insufficiency。
+
+### 25.2 机会发现完整报告
 
 ```text
 # 创业机会调研报告
@@ -3353,7 +3667,7 @@ failed
 ## Discovery Profile 与 Research Axes
 ## 决策建议
 ## 组合建议
-## 排名总览
+## 比较面板、支配关系与排序组
 ## 研究方法与局限
 ## Top 机会详解
 ### Demand Thesis
@@ -3362,6 +3676,7 @@ failed
 ### Solution Hypotheses 与 Baseline 比较
 ### Selected Solution 与交付形态
 ### 买单语言、Marketing Bridge、商业化和获客
+### Business Engine Thesis 与可触达 Beachhead
 ### Output / Workflow / Outcome 价值与状态上下文
 ### 市场、竞品和可行性
 ### AI Capability Evidence（适用时）
@@ -3369,21 +3684,21 @@ failed
 ### Kill Criteria
 ### 决策建议和轻量验证建议
 ## Watchlist 与 Reject
-## 敏感性与排名稳定性
+## 敏感性与 partial-order 稳定性
 ## 审计追踪和来源
 ```
 
-### 25.2 概念验证 Markdown
+### 25.3 概念证据评估完整报告
 
 ```text
-# 概念市场验证报告
+# 概念证据评估报告
 
-## Verdict 与置信度
+## Assessment Result 与证据强度
 ## Concept Hypothesis
 ## 决定性支持和反对证据
 ## 需求、替代与解法失效
 ## 竞品与差异化
-## 买单、获客与商业化
+## 买单、获客、商业化与 Business Engine
 ## 可行性、合规和 AI Bundle（适用时）
 ## 关键未知数和 Kill Criteria
 ## 决策建议
@@ -3391,27 +3706,30 @@ failed
 ## 局限和来源
 ```
 
-### 25.3 报告写作规则
+### 25.4 写作与一致性规则
 
-- 报告基于 curated judgment context，不直接把 raw evidence 交给 writer 拼接。
+- 决策简报和完整报告基于同一 curated judgment context，不直接把 raw evidence 交给 writer 拼接。
 - 每个决定性判断必须能回到 Judgment Assessment，并继续回溯到 Claim/Finding/Insight/Evidence。
 - 明确区分事实、推断、假设和建议。
 - 不用过长来源综述淹没决策结论。
-- 不把 `confidence_band` 表述成统计成功概率。
+- 不输出面向用户的全局总分，不把 `confidence_band` 或 panel band 表述成统计成功概率。
 - 不隐去反证、过期证据或 `desk_research_only`。
-- JSON 是结构化事实源，Markdown 是其决策表达；两者冲突时 evaluator 失败。
+- 概念证据评估不得写成“市场已经验证”；外部验证建议必须声明系统不执行、不追踪。
+- JSON 是结构化事实源，decision brief 和完整 Markdown 是两种决策表达；三者冲突时 evaluator 失败。
 
-### 25.4 JSON Report Contract
+### 25.5 JSON Report Contract
 
 机会发现报告顶层结构：
 
 ```text
 report_metadata
+decision_context_ref
 scope_frame_ref
 research_plan_ref
 decision_recommendation_ref
 portfolio_view_ref
-ranking_refs
+comparison_refs
+business_engine_refs
 top_opportunity_refs
 watchlist_refs
 rejected_opportunity_refs
@@ -3426,16 +3744,18 @@ freshness_summary
 limitations
 ```
 
-概念验证报告顶层结构：
+概念证据评估报告顶层结构：
 
 ```text
 report_metadata
+decision_context_ref
 concept_frame_ref
 concept_hypothesis_ref
-validation_plan_ref
+evidence_assessment_plan_ref
 hypothesis_evidence_matrix_ref
 adversarial_review_ref
-concept_verdict_ref
+concept_evidence_assessment_ref
+business_engine_ref
 judgment_assessment_refs
 validation_suggestion_refs
 source_manifest_refs
@@ -3445,6 +3765,16 @@ limitations
 ```
 
 `report_metadata` 包含 run id、mode、skill/policy/schema versions、generated_at、valid_as_of 和主要 input artifact hashes。
+
+生成顺序固定为：
+
+```text
+validated artifacts
+  -> report.json
+  -> decision-brief.md
+  -> report.md
+  -> three-output consistency evaluation
+```
 
 ## 26. 示例执行
 
@@ -3540,27 +3870,27 @@ reject
 
 每个 AI 推荐方向必须单独输出 capability delta、technical reliability、evaluation feasibility、data readiness、human review dependency、provider portability、platform/open-source substitution、data feedback moat、capability half-life 和 adoption trust。
 
-### 26.3 AI 行程冲突检查概念验证
+### 26.3 AI 行程冲突检查概念证据评估
 
 调用：
 
 ```text
 $startup-opportunity
 
-action: validate
+action: assess
 query: 面向自由行用户的 AI 行程冲突检查功能值得做吗
 ```
 
 Scope：
 
 ```text
-mode = concept_market_validation
-validation_profile = ai
+mode = concept_evidence_assessment
+assessment_profile = ai
 target_user = complex independent travelers
 claimed_value = detect schedule, location, opening-hour and reservation conflicts
 ```
 
-除通用验证维度外，必须比较：
+除通用证据评估维度外，必须比较：
 
 - 用户手工检查、地图、OTA 和日历 baseline。
 - 通用模型 + web/map tools 是否已经足够。
@@ -3569,7 +3899,7 @@ claimed_value = detect schedule, location, opening-hour and reservation conflict
 - 平台内置风险和可持续差异。
 - 用户是否愿意为单次检查或持续行程协同付费。
 
-如果需求存在，但通用模型/OTA 已充分覆盖且没有工作流、数据或渠道差异，verdict 应为 `no_go` 或受限的 `conditional_go`，不能因为 AI 能完成任务就推荐。
+如果需求存在，但通用模型/OTA 已充分覆盖且没有工作流、数据或渠道差异，assessment result 应为 `deprioritize` 或受限的 `investigate_further`，不能因为 AI 能完成任务就推荐。即使结果是 `prioritize`，也只表示当前证据支持优先关注，不表示市场已经完成真实行动验证。
 
 ## 27. GPT Researcher 的关系
 
@@ -3602,8 +3932,10 @@ entry Skill
 mode references
 lane catalog
 custom agents
+decision context contract
 artifact schema bundle
-scoring policy
+decision/comparison policy
+decision brief contract
 report contract
 deterministic scripts
 MCP tool contract
@@ -3612,7 +3944,7 @@ MCP tool contract
 Manifest 记录版本或内容 hash。恢复 Run 时如果当前定义与 manifest 不一致：
 
 - schema 向后兼容且脚本声明可恢复，可以继续并记录 migration event。
-- 方法或评分逻辑变化会改变结论时，默认使用旧版本快照或创建 continuation Run。
+- 方法或比较逻辑变化会改变结论时，默认使用旧版本快照或创建 continuation Run。
 - 无法取得旧定义时暂停并向用户说明，不静默使用最新文件重算历史结论。
 
 ### 28.2 幂等和重复交付
@@ -3621,7 +3953,7 @@ Manifest 记录版本或内容 hash。恢复 Run 时如果当前定义与 manife
 - Evidence 使用稳定 operation key 去重。
 - Subagent retry 写入新的 attempt/revision，不覆盖已发布 artifact。
 - Checkpoint 只引用通过验证的正式 artifact。
-- Report generation 可以重复执行，但相同输入 refs 和 policy version 应产生一致结构并记录新 hash。
+- 三层输出生成可以重复执行，但相同输入 refs 和 policy version 应产生一致的 report.json、decision-brief.md 和 report.md，并记录新 hash。
 
 ### 28.3 Process crash
 
@@ -3646,7 +3978,7 @@ Completed Run 的正式 artifact 和报告不可原地重写。用户提出以�
 - 更新过期市场或竞品信息。
 - 深入某个 Top 机会。
 - 使用新约束重新排序。
-- 把发现的机会转成概念验证。
+- 把发现的机会转成概念证据评估。
 - 补充用户提供的私有材料。
 
 Continuation Run 记录 parent id、继承的 artifact refs、重新校验的 Evidence 和新的 decision log。
@@ -3681,16 +4013,17 @@ source repetition stop
 ### 29.1 入口和 mode
 
 - `$startup-opportunity` 可以在支持 Skills 的 Codex 桌面、CLI 和 IDE 中被显式调用。
-- `discover`、`validate`、`resume`、`status` 行为稳定且互不混淆。
+- `discover`、`assess`、`resume`、`status` 行为稳定且互不混淆。
 - 明确产品 thesis 不进入 TopN 发现流程。
-- 宽泛机会发现不输出单一 concept verdict。
+- 宽泛机会发现不输出单一 concept evidence assessment。
 - 模糊输入在选择会显著改变结果时请求澄清。
 - Run 创建后不因模型自由判断改变 mode。
+- 每个新 Run 都有 DecisionContext，`decision_to_make` 只能使用 published enum，且不包含外部验证 action。
 - 每个 Run 只有一个 primary market 和 primary language；多国家请求拆成独立 Run，且不产生未经校准的统一跨市场排名。
 
 ### 29.2 Run 和恢复
 
-- 每个 Run 都有 intake、manifest、plan、events、decisions 和 checkpoint。
+- 每个 Run 都有 intake、decision context、manifest、plan、events、decisions 和 checkpoint。
 - 用户中途改变 scope 后，decision log、plan revision 和废弃 artifact 可追踪。
 - Process crash 后可以从最后有效 checkpoint 恢复。
 - 恢复不依赖原 subagent thread 或完整聊天历史。
@@ -3703,6 +4036,7 @@ source repetition stop
 - 并发 unit 不写同一正式文件。
 - 主 Agent 只消费通过 schema/reference validation 的 artifact。
 - Evidence auditor 和 adversarial reviewer 与原 lane researcher 分离。
+- Adversarial reviewer 使用独立 challenger query；不能取得独立来源时记录 generation/evaluation overlap。
 
 ### 29.4 Evidence 和质量
 
@@ -3719,6 +4053,9 @@ source repetition stop
 - Fixture 能区分 `opposed`、`mixed`、`no_signal`、`source_unavailable`、`not_applicable` 和 `stale`，且每个决定性判断记录 what would change the decision。
 - `source_unavailable` 有 Source Manifest 的访问失败或来源缺口记录；`no_signal` 有已完成合理检索但未观察到信号的记录。
 - 决定性判断的 `decision_sufficiency` 为 `insufficient` 或 `blocked` 时，Evaluator 限制推荐档位或输出 `insufficient_evidence`。
+- Evidence origin 区分 public source 和用户主动提供的已有材料，不把后者自动判为高等级。
+- Evidence tier 只描述当前材料强度，不形成外部验证生命周期；缺少行为/承诺证据不自动成为反证。
+- 低等级证据触发已定义的结论上限，`prioritize` 不得绕过 evidence sufficiency。
 
 ### 29.5 机会发现
 
@@ -3727,21 +4064,25 @@ source repetition stop
 - 每个推荐机会回连 selected solution 和 Baseline Option。
 - Seed-independent lane 能发现初始 product/capability seed 之外的需求。
 - Counterfactual lane 能保留至少一个不同 user/job/scene 或替代解释。
+- Research Plan 在 enrichment 前冻结 thesis、关键假设和 kill criteria，并尽可能分离候选生成与评估来源。
 - Consumer fixture 覆盖 native app、mini program、mobile web/PWA、platform native 和 service-assisted 的合理比较。
 - Buyer fixture 覆盖 self payer、household payer、sponsor payer 和 provider/channel model；使用者和付款者分离时分别验证。
 - Lane 内不使用固定 TopN 过早删除多样候选。
 - LaneResult 包含 judgment assessments、领域对象 refs、pre-kill、rejected/watchlist/retained candidates、decision sufficiency 和 candidate diversity summary。
 - 只有能力或趋势、没有 Demand Thesis 的对象被标记 `capability_only`/`trend_only`。
 - 强候选包含 mental position occupation 和自然复述测试状态；未执行测试时是 `not_tested`。
-- 排名输出 hard gate、uncertainty、sensitivity 和 rank stability。
+- 比较输出 hard gate、四个独立面板、uncertainty、sensitivity 和 partial-order stability band，不输出面向用户的 global score。
 - 区间重叠时允许 partial order。
+- 每个正式候选具有 BusinessEngineThesis；宽泛 TAM 不能替代可触达 beachhead、留存/复购和渠道判断。
 
-### 29.6 概念验证
+### 29.6 概念证据评估
 
-- Fixture 覆盖 `go`、`conditional_go`、`no_go` 和 `insufficient_evidence`。
+- Fixture 覆盖 `prioritize`、`investigate_further`、`deprioritize` 和 `insufficient_evidence`。
 - 所有 branch 回连同一个 concept hypothesis。
-- 强替代方案或反证可以翻转 verdict。
+- 强替代方案或反证可以翻转 assessment result。
 - AI/regulated AI 缺 mandatory bundle 时不能给出强结论。
+- `prioritize` 明确表示当前证据支持优先关注，不得写成“市场已经验证”。
+- 系统不创建、执行或追踪外部访谈、落地页、订金、付费实验和 MVP 测试。
 
 ### 29.7 AI 机会
 
@@ -3756,28 +4097,31 @@ source repetition stop
 - AI coverage dimension 只有在业务上确实不适用时才能标记 `not_applicable`；来源不可得必须标记 `insufficient_evidence` 和 `source_unavailable`。
 - AI 产品单位经济和 Research Harness Agent 执行预算严格区分。
 
-### 29.8 报告
+### 29.8 决策简报和报告
 
-- JSON 和 Markdown 内容一致。
+- report.json、decision-brief.md 和 report.md 内容一致。
+- 决策简报是默认用户入口，包含决策问题、当前建议、决定性正反证据、未选项、最大未知数、what-would-change-it、belief update、有效期和边界。
 - Top 机会包含 trigger phrase、entry scene、mental position occupation、solution failure、next action、buyer language、marketing bridge、baseline delta、value layer、state/context、risks 和 kill criteria。
 - 报告明确限制、反证和证据时间。
-- Concept report 不输出无关 TopN。
-- 报告不把 confidence 或 global score 描述为成功概率。
+- Concept evidence report 不输出无关 TopN。
+- 简报和报告不输出 global score，也不把 confidence 或 panel band 描述为成功概率。
 - Validation Suggestion 的 `effort_band` 只表达相对复杂度，不输出资源配置，也不声称适配用户实际资金预算。
+- 外部 Validation Suggestion 固定声明 `execution_owner=user`、`execution_supported=false` 和 `result_tracking_supported=false`。
 
 ### 29.9 领域合同完整性
 
-- Fixture 覆盖 UserLanguageMap、SolutionFailureMap、Judgment Assessment、Demand Thesis、Baseline Option、Solution Evaluation、Opportunity Thesis 和 Decision Recommendation。
+- Fixture 覆盖 DecisionContext、UserLanguageMap、SolutionFailureMap、Judgment Assessment、Demand Thesis、Baseline Option、Solution Evaluation、Opportunity Thesis、BusinessEngineThesis、Decision Recommendation 和 Decision Brief。
 - Opportunity Thesis 的 demand/solution/baseline/claim/insight refs 全部可回溯。
 - Buyer Purchase Language 分别表达 user、buyer、payer、budget source、purchase trigger 和 decision criteria。
 - Value Layer Analysis 不把一次性 output 自动判为 workflow/outcome 价值。
 - User State Context Model 缺少授权数据、更新触发或 ground truth 时不能获得高 `state_context_value`/`data_feedback_moat`。
-- Global scoring 使用 versioned reference profile、相关性折减和 `unknown` handling。
-- Active Run 不允许用户或 Agent 任意修改单项权重；不同偏好只能选择已发布的 versioned scoring profile。
-- Opportunity quality、team execution fit 和 validation feasibility 分别表达；用户资金预算不直接决定 `strong_candidate` 与 `quick_validation`。
+- Opportunity comparison 使用 versioned rubric、四面板、相关性折减和 `unknown` handling；evidence strength 不进入 attractiveness 加权和。
+- Active Run 不允许用户或 Agent 任意修改单项面板的重要性；不同偏好只能选择已发布的 versioned decision/comparison profile。
+- Opportunity quality、evidence strength、team execution fit 和 researchability 分别表达；用户资金预算不直接决定 `strong_candidate` 与 `investigate_further`。
 - Fan-in 对 partial、failed、cancelled 和 superseded branch 保留 decision impact，不默认为中性输入。
 - Discovery fan-in 保留 evidence sufficiency、opposing evidence、pre-kill、candidate disposition、judgment refs 和 solution-evaluation-required 摘要，但不复制 raw evidence。
 - Validation Suggestion 每条回连决定性假设和 evidence gap，且不创建外部验证动作。
+- Decision Recommendation 记录 initial belief、改变判断的证据、remaining disagreement 和 final decision owner；这些字段不覆盖证据判断。
 
 ### 29.10 架构边界
 
@@ -3794,25 +4138,26 @@ source repetition stop
 ### 30.1 基础 Harness
 
 - 创建 `AGENTS.md`、Skill 目录和三类 custom agents。
-- 建立 run store、manifest、events、decisions 和 checkpoint。
+- 建立 run store、DecisionContext、manifest、events、decisions 和 checkpoint。
 - 建立 Evidence Store 和 stable ids。
 - 实现 schema/reference/freshness validator。
 - 实现基础 MCP 或 web evidence recording adapter。
+- 实现 report.json -> decision-brief.md/report.md 的双层输出和一致性 evaluator。
 
-### 30.2 Concept Validation Vertical Slice
+### 30.2 Concept Evidence Assessment Vertical Slice
 
-- 实现 `validate` action。
+- 实现 `assess` action。
 - 覆盖需求、替代、竞品、买单、获客、可行性和反证。
-- 输出 evidence matrix、adversarial review 和四类 verdict。
+- 输出 evidence matrix、BusinessEngineThesis、adversarial review 和四类 assessment result。
 - 验证主窗口纠偏和跨会话恢复。
 
-优先实现 concept validation，因为它围绕单一 thesis，最容易验证 typed handoff、evidence chain、review 和 report 是否真正闭环。
+优先实现 concept evidence assessment，因为它围绕单一 thesis，最容易验证 typed handoff、evidence chain、结论上限、review、decision brief 和 full report 是否真正闭环。
 
 ### 30.3 Opportunity Discovery
 
 - 实现 `discover` action、profile 和 lane catalog。
-- 实现 research waves、gap follow-up、Demand/Solution synthesis 和 clustering。
-- 实现 hard gates、ranking、sensitivity 和 portfolio view。
+- 实现 research waves、gap follow-up、Demand/Solution synthesis、frozen thesis boundary 和 clustering。
+- 实现 BusinessEngineThesis、hard gates、四面板比较、sensitivity 和 portfolio view。
 
 ### 30.4 AI Bundle
 
@@ -3828,7 +4173,7 @@ source repetition stop
 
 ### 30.6 明确不采用或延期的能力
 
-- 不采用运行时人工动态调权。需要不同判断偏好时选择经过校准、版本化和审计的 scoring profile；新 profile 必须独立发布，不能在 active Run 中临时修改单项权重。
+- 不采用运行时人工动态调权。需要不同判断偏好时选择经过校准、版本化和审计的 decision/comparison profile；新 profile 必须独立发布，不能在 active Run 中临时修改单项面板的重要性。
 - 多国家同时比较延期。首版每个 Run 只有一个 primary market 和 primary language；多国家请求拆成独立 Run，允许互相引用，但不生成未经跨市场校准的统一分数、排名或进入顺序建议。
 - 未来若建设 Market Comparison，必须使用独立 comparison artifact，至少比较 demand、buyer/payment、competition、acquisition、delivery form、regulation、localization cost 和 evidence comparability；不能直接合并各市场 raw evidence 或 global score。
 - Scope assumption 模板属于后续易用性能力，不影响当前显式 ScopeFrame 合同。
@@ -3841,14 +4186,18 @@ source repetition stop
 - Web 数据可能不完整或受地域、登录、反爬和个性化排序影响。
 - 评论、搜索量和媒体讨论是代理证据，不能替代行为、交易或支付承诺。
 - 多来源可能共享同一底层数据，来源数不能直接等于置信度。
+- 候选生成和评估复用同一搜索路径会形成自证循环；无法取得独立 challenger source 时必须降低结论强度。
 - LLM 可能过度概括用户表达，真实 quote 与模型总结必须分离。
+- 用户初始偏好可能造成确认偏误，belief update 必须解释变化但不能覆盖证据结论。
 - 用户抱怨不等于会迁移，需求存在不等于有人付费。
 - Trigger phrase 不等于 buyer purchase language。
+- 公开资料通常无法提供完整 CAC、留存和毛利数据，Business Engine 必须允许 unknown 和区间，不能生成伪精确经营模型。
 - 原生 App 不一定是最佳首发形态。
 - AI 能力、价格、License 和平台政策变化快，必须使用 freshness policy。
 - 厂商 benchmark 不能替代目标任务评测。
 - 单次 output 容易商品化，必须验证 workflow/outcome 价值。
 - 长期状态和数据闭环必须建立在用户授权、可获得数据和隐私边界上。
+- 决策简报可能因压缩而隐去强反证，必须与 report.json 和完整报告执行一致性校验。
 - Hooks 是辅助 guardrail，不应被误认为完整安全控制面。
 - Codex 权限和 subagent 行为依赖当前客户端、账号和项目配置，Harness 不假设所有环境能力完全一致。
 - 本系统输出决策建议，不替用户承担创业、法律、医疗、金融或投资责任。
@@ -3879,11 +4228,13 @@ $startup-opportunity
   + Demand Thesis
   + Solution Hypotheses
   + Baseline Option
-  + Opportunity Thesis or Concept Verdict
-  + deterministic validation and scoring
+  + Business Engine Thesis
+  + Opportunity Thesis or Concept Evidence Assessment
+  + deterministic validation and four-panel comparison
   + adversarial review
   + immutable run artifacts and checkpoint
-  + decision-oriented JSON / Markdown report
+  + decision context and belief update
+  + report.json / decision brief / full report
 ```
 
 Codex 主窗口提供比固定工作台 workflow 更自然的实时沟通和动态纠偏；Subagents 提供研究并行和上下文隔离；仓库内 Harness 则保留专业调研服务不可缺少的证据链、结构化合同、恢复和评价能力。
