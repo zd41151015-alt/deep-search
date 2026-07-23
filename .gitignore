@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+# Build output
+dist/
+
+data/
+logs/
+
+# Secrets
+.env
+
+# Temp files
+.tmp-*
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Skills system (local per-installation state)
+tmp/
+
