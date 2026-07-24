@@ -235,11 +235,11 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | G0.4 Plan / Adaptation Runtime 定向返修候选 `<G0.4_RUNTIME_REPAIR_COMMIT>`；等待中控接受 |
+| Active task | G0.4 Plan / Adaptation Runtime 第二次定向返修候选 `<G0.4_RUNTIME_SECOND_REPAIR_COMMIT>`；等待中控接受 |
 | Current slice | `G0.4 implementation=REPAIR_CANDIDATE_PENDING_ACCEPTANCE`；`G0.R=READY`；G1-G4 未开放 |
-| Expected base | `eee8dea4115f1448c092306921894ec2e573f822`；follow-up parent 必须为同一提交 |
+| Expected base | `274337f8efd34fbadbf3d0babab13bf551100393`；follow-up parent 必须为同一提交 |
 | Consecutive state-query failures | `0` |
-| Last effective operation | `g0_4_runtime_repair_candidate_recorded` |
+| Last effective operation | `g0_4_runtime_second_repair_candidate_recorded` |
 | Next allowed action | 中控接受 clean repair candidate 后仍只能创建独立 G0.R；不得施工 G1 |
 
 ## 已完成切片与证据
@@ -253,7 +253,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | G0.4 initial planning contract candidate | `REJECTED_BY_CONTROLLER` | `30b31754684ee83cc132ee4d3362307b98e27e23` | `da820811d0fa7495fd28dc127e1d1ff91adbdc97` |
 | G0.4 accepted AI source-binding repair | `DONE` | `7f8c0c935c894dd56eb50937741ceb9e9971d8c0` | `30b31754684ee83cc132ee4d3362307b98e27e23` |
 | G0.4 Plan / Adaptation Runtime rejected candidate | `REJECTED_BY_CONTROLLER` | `eee8dea4115f1448c092306921894ec2e573f822` | `7f8c0c935c894dd56eb50937741ceb9e9971d8c0` |
-| G0.4 Plan / Adaptation Runtime directed repair | `REPAIR_CANDIDATE_PENDING_ACCEPTANCE` | `<G0.4_RUNTIME_REPAIR_COMMIT>` | `eee8dea4115f1448c092306921894ec2e573f822` |
+| G0.4 Plan / Adaptation Runtime directed repair | `REJECTED_BY_CONTROLLER` | `274337f8efd34fbadbf3d0babab13bf551100393` | `eee8dea4115f1448c092306921894ec2e573f822` |
+| G0.4 Plan / Adaptation Runtime second directed repair | `REPAIR_CANDIDATE_PENDING_ACCEPTANCE` | `<G0.4_RUNTIME_SECOND_REPAIR_COMMIT>` | `274337f8efd34fbadbf3d0babab13bf551100393` |
 
 G0.1 交付物：
 
@@ -551,7 +552,7 @@ Follow-up 提交：`7f8c0c935c894dd56eb50937741ceb9e9971d8c0`；parent=`30b31754
 
 ## G0.4 Plan / Adaptation Runtime 定向返修候选
 
-返修以 clean `main@eee8dea4115f1448c092306921894ec2e573f822` 为唯一基线，提交占位 `<G0.4_RUNTIME_REPAIR_COMMIT>`，parent 必须为 `eee8dea4115f1448c092306921894ec2e573f822`。
+返修以 clean `main@eee8dea4115f1448c092306921894ec2e573f822` 为唯一基线，提交为 `274337f8efd34fbadbf3d0babab13bf551100393`，parent=`eee8dea4115f1448c092306921894ec2e573f822`。中控以跨 Run Gap ref 可进入 Snapshot、`requested_by=user` 的合法 `decisions.jsonl#decision_id` 无法进入 apply 为由拒绝该候选；提交与历史验证证据保留，不 amend/rebase/reset。
 
 ### 定向修复
 
@@ -582,10 +583,51 @@ Follow-up 提交：`7f8c0c935c894dd56eb50937741ceb9e9971d8c0`；parent=`30b31754
 | `npm audit` | PASS；0 vulnerabilities |
 | `git diff --check` | PASS；follow-up 提交前复核 |
 
+## G0.4 Plan / Adaptation Runtime 第二次定向返修候选
+
+第二次返修以 clean `main@274337f8efd34fbadbf3d0babab13bf551100393` 为唯一基线，提交占位 `<G0.4_RUNTIME_SECOND_REPAIR_COMMIT>`，parent 必须为 `274337f8efd34fbadbf3d0babab13bf551100393`。
+
+### 中控失败复现
+
+- schema-valid `startup_opportunity.event.v1` 以显式 path 进入 Document Bundle，但其 `run_id=run_foreign_001`；旧 `GapAnalyzer` 只验证 target/fragment，作为另一 Run 的 `observedArtifactRef` 仍返回 `valid=true` 并把跨 Run ref 写入新 Gap Snapshot。Observed、repeated source、machine subject/basis/evidence 都存在同类缺口。
+- 旧 `assertAdaptationBundleMatchesStoredArtifacts` 把除 `manifest.json` 外的每个 bundle entry 都当 formal Artifact envelope。`requested_by=user` 按已发布 contract 必须通过 `user_decision_ref` 回连 `decisions.jsonl#decision_id`，而 G0.3 append log 不能作为 formal Artifact target，导致 schema/policy-valid user action 无法进入 apply。
+
+### 第二次定向修复
+
+- `GapAnalyzer` 对 observed Artifact、repeated source、machine subject/basis/evidence 和 trigger Event 的全部 path-like refs，在显式 Document Bundle 内验证 exact target、适用 fragment、document type 和 Run boundary；目标 document 带 `run_id` 时必须等于当前 `manifest.run_id`。`events.jsonl` trigger 必须使用 exact `#event_id`；schema 已发布的独立 `events/<id>.json` 继续以 whole-document ref 表达。
+- `JsonlStore.readExactRecord` 只读取 ref 明示的 `events.jsonl` 或 `decisions.jsonl`，要求完整 JSONL tail、唯一 exact fragment、closed Event/Decision schema、当前 Run、canonical record、确定性 `append_jsonl` operation key、receipt 文件名和 receipt payload 全部一致。Append 与 repair 复用同一 closed log-type/receipt identity 校验。
+- `ArtifactStore` 为 `trigger_event_ref` / `user_decision_ref` 增加窄化 JSONL adapter：formal envelope、schema、hash、Run 与普通 ref 仍按原路径验证；typed JSONL record 由 exact log/receipt reader 注入显式验证 bundle，`events.jsonl` / `decisions.jsonl` 仍禁止成为 formal Artifact target。
+- `PlanRevisionRuntime` 在首次 apply 的 Plan receipt/control/manifest 之前，对 caller bundle 中 JSONL effective record 和 formal policy input 分别与磁盘 exact 对账；pending receipt replay、applied replay 和 reopen 从 immutable Adaptation Decision/Gap refs 重新验证 user Decision/Event log binding。Caller-only content、missing fragment、wrong log type/Run、receipt/log drift 均 fail closed。
+- `RunStore` 在既有 reopen 顺序中先 repair 两个 JSONL log，再只为 formal documents 明示的 typed JSONL refs 加入 exact record；不依赖聊天、路径启发式、隐藏 LLM 或无关 Run 内容。
+- 未修改 bundle `1.0.0`、`2.0.0`、`2.1.0`、`2.2.0`、任何已发布 schema/policy、envelope/receipt version 或 G0.3 durability contract；本次只增加 G0.4 必需的 JSONL typed-ref compatibility。
+
+### 第二次定向回归与验证证据
+
+- `tests/fixtures/g0.4/plan-adaptation-cases.json` 固定 10 个 valid action、4 个 negative Plan case、16 个 negative apply case、3 个 Gap cycle identity case、8 个 negative Gap reference case 和 4 个 crash boundary。
+- `tests/g0.4-runtime.test.ts` 使用真实临时 filesystem 运行 18 个测试。Gap negative 覆盖 cross-Run observed/basis/evidence/repeated-source/trigger Event；相同输入、不同 event ref 和不同 base Plan 的 cycle identity 仍稳定。
+- User-requested 正例把真实 `Decision` 与 trigger `Event` 通过 Run Store append/receipt contract 写盘，正式发布引用它们的 Adaptation Decision/Gap Snapshot，完成 apply、idempotent replay 和 reopen。负例覆盖 caller same-id content 篡改、missing fragment、wrong log type、wrong Run、receipt drift、log drift，并逐项断言 Plan receipt、control path、checkpoint 和 manifest 在拒绝前后不变。
+- Recovery negative 覆盖 `after_intent` pending receipt replay、applied replay 和 reopen 的 JSONL receipt/log drift；原 formal Gap/Planning Context tamper、CAS/idempotency、retry/supersede/late Artifact、四个 crash boundary、fake/missing AI source 和 accepted 29 mutation negatives 保持通过。
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm ci` | PASS；Node.js `24.18.0` / npm `11.16.0`；18 packages installed，19 packages audited，0 vulnerabilities |
+| `npm run lint` | PASS；Biome checked 117 files，0 diagnostics |
+| `npm run typecheck` | PASS；`tsc --noEmit` |
+| `npm test` | PASS；77 tests，77 passed，0 failed/skipped/todo |
+| `npm run validate:schemas` | PASS；bundle `2.2.0`，22 schemas，21 document validators，0 unresolved refs |
+| `npm run validate:fixtures` | PASS；18 tests，18 passed；accepted 29 mutation negatives、fake/missing source 和 future Artifact boundary 保持通过 |
+| `npm run validate:store` | PASS；11 tests，11 passed |
+| `npm run test:faults` | PASS；10 tests，10 passed |
+| `npm run test:recovery` | PASS；11 tests，11 passed |
+| `npm run test:g0.4` | PASS；18 tests，18 passed |
+| `npm run verify:skeleton` | PASS；G0.4 required paths、单一 lockfile、package metadata 和 Node `24.18.0` runtime checks 通过 |
+| `npm audit` | PASS；0 vulnerabilities |
+| `git diff --check` | PASS；second follow-up 提交前复核 |
+
 ## 当前阻塞与风险
 
 - G0.4 implementation 当前为 `REPAIR_CANDIDATE_PENDING_ACCEPTANCE`；Store/Plan/Adaptation 成功只证明机械 contract，不证明 Evidence 充分、decision ready、研究完成或 G0 Foundation `DONE`。
 - G0.3 Evidence substrate 不包含完整 Evidence Record、origin/provenance/freshness/independence/bias 或 Claim/Finding/Insight；这些仍由 G1.2 拥有，不得从 raw record 推导研究结论。
 - `discover`、`assess`、comparison 和 reporting 只有职责/reference 落点，没有业务闭环；G1-G4 保持 `NOT_READY`。
-- 中控接受 clean `<G0.4_RUNTIME_REPAIR_COMMIT>` 后，下一步仍只能由独立会话执行 G0.R。只有 G0.R 通过后，才可标记 G0 `DONE` 并开放 G1.1。
+- 中控接受 clean `<G0.4_RUNTIME_SECOND_REPAIR_COMMIT>` 后，下一步仍只能由独立会话执行 G0.R。只有 G0.R 通过后，才可标记 G0 `DONE` 并开放 G1.1。
 - 目标 runtime 是精确 Node.js `24.18.0`；PATH 上其他 Node 版本会被 engine guard 或 repository doctor 拒绝，开发者需先切换版本。

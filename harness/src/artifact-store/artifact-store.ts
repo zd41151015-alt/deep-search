@@ -1,5 +1,6 @@
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { JsonlStore } from "../run-store/jsonl-store.js";
 import type { ArtifactValidator, DocumentBundleEntry } from "../validators/artifact-validator.js";
 import { publishTemp, removeTemp, writeSyncedTemp } from "./atomic-file.js";
 import {
@@ -210,6 +211,14 @@ function collectPathRefs(envelope: FormalArtifactEnvelope): readonly string[] {
       }
       return;
     }
+    if (
+      typeof value === "string" &&
+      (key === "trigger_event_ref" || key === "user_decision_ref") &&
+      pathLikeRef(value)
+    ) {
+      refs.add(value);
+      return;
+    }
     if (!isRecord(value)) {
       return;
     }
@@ -241,18 +250,6 @@ async function listFiles(directory: string, prefix = ""): Promise<readonly strin
   return files;
 }
 
-async function jsonlFragmentExists(filename: string, fragment: string): Promise<boolean> {
-  const lines = (await readFile(filename, "utf8")).split("\n").filter(Boolean);
-  return lines.some((line) => {
-    try {
-      const record = JSON.parse(line) as Record<string, unknown>;
-      return record.event_id === fragment || record.decision_id === fragment;
-    } catch {
-      return false;
-    }
-  });
-}
-
 function fragmentExists(value: unknown, fragment: string): boolean {
   if (Array.isArray(value)) {
     return value.some((item) => fragmentExists(item, fragment));
@@ -275,6 +272,7 @@ async function assertReferenceExists(
   runRoot: string,
   ref: string,
   pending: FormalArtifactEnvelope,
+  logs: JsonlStore,
 ): Promise<void> {
   const parsed = validateArtifactRef(ref);
   if (parsed.path === pending.artifact_path) {
@@ -283,6 +281,10 @@ async function assertReferenceExists(
         ref,
       });
     }
+    return;
+  }
+  if (parsed.path === "events.jsonl" || parsed.path === "decisions.jsonl") {
+    await logs.readExactRecord(runRoot, pending.run_id, ref, parsed.path);
     return;
   }
   const filename = await resolveRunPath(runRoot, parsed.path);
@@ -303,19 +305,24 @@ async function assertReferenceExists(
   if (parsed.fragment === null) {
     return;
   }
-  const exists = parsed.path.endsWith(".jsonl")
-    ? await jsonlFragmentExists(filename, parsed.fragment)
-    : fragmentExists(JSON.parse(await readFile(filename, "utf8")) as unknown, parsed.fragment);
+  const exists = fragmentExists(
+    JSON.parse(await readFile(filename, "utf8")) as unknown,
+    parsed.fragment,
+  );
   if (!exists) {
     throw new StoreError("reference.fragment_missing", "artifact ref fragment is missing", { ref });
   }
 }
 
 export class ArtifactStore {
+  private readonly logs: JsonlStore;
+
   constructor(
     private readonly runsRoot: string,
     private readonly validator: ArtifactValidator,
-  ) {}
+  ) {
+    this.logs = new JsonlStore(validator);
+  }
 
   async publish(input: PublishArtifactInput): Promise<PublishArtifactResult> {
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
@@ -574,7 +581,7 @@ export class ArtifactStore {
   ): Promise<void> {
     this.validateEnvelopeBoundary(runId, envelope);
     for (const ref of collectPathRefs(envelope)) {
-      await assertReferenceExists(runRoot, ref, envelope);
+      await assertReferenceExists(runRoot, ref, envelope, this.logs);
     }
   }
 
@@ -583,7 +590,7 @@ export class ArtifactStore {
     envelope: FormalArtifactEnvelope,
   ): Promise<void> {
     for (const ref of collectPathRefs(envelope)) {
-      await assertReferenceExists(runRoot, ref, envelope);
+      await assertReferenceExists(runRoot, ref, envelope, this.logs);
     }
     const documents = [...(await this.listFormalDocuments(runRoot))];
     try {
@@ -601,6 +608,40 @@ export class ArtifactStore {
       documents.splice(existingIndex, 1);
     }
     documents.push({ path: envelope.artifact_path, document: envelope });
+    const typedJsonlRefs = documents
+      .flatMap((entry) => {
+        const effective =
+          isRecord(entry.document.document) &&
+          [
+            "startup_opportunity.artifact_envelope.v1",
+            "startup_opportunity.artifact_envelope.v2",
+            "startup_opportunity.artifact_envelope.v3",
+          ].includes(String(entry.document.schema_version))
+            ? entry.document.document
+            : entry.document;
+        return [effective.trigger_event_ref, effective.user_decision_ref];
+      })
+      .filter((ref): ref is string => typeof ref === "string")
+      .filter((ref) => {
+        const target = ref.split("#", 1)[0];
+        return target === "events.jsonl" || target === "decisions.jsonl";
+      });
+    for (const ref of [...new Set(typedJsonlRefs)].sort()) {
+      const parsed = validateArtifactRef(ref);
+      if (parsed.path !== "events.jsonl" && parsed.path !== "decisions.jsonl") {
+        throw new StoreError("reference.type_mismatch", "typed JSONL ref targets another path", {
+          ref,
+        });
+      }
+      const existingLog = documents.findIndex((entry) => entry.path === parsed.path);
+      if (existingLog >= 0) {
+        documents.splice(existingLog, 1);
+      }
+      documents.push({
+        path: parsed.path,
+        document: await this.logs.readExactRecord(runRoot, envelope.run_id, ref, parsed.path),
+      });
+    }
     const bundleVersion = inputBundleVersion(envelope.schema_version);
     const bundleResult = this.validator.validateDocumentBundle({
       schema_version: bundleVersion,

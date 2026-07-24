@@ -252,11 +252,40 @@ export class GapAnalyzer {
           ),
         );
       }
+      if (
+        manifest?.schemaVersion === "startup_opportunity.run_manifest.v1" &&
+        typeof target.document.run_id === "string" &&
+        target.document.run_id !== manifest.document.run_id
+      ) {
+        errors.push(
+          analysisError(
+            "gap.reference_run_mismatch",
+            "machine input ref crosses the current Run boundary",
+            {
+              ref,
+              targetRunId: target.document.run_id,
+              currentRunId: manifest.document.run_id,
+            },
+          ),
+        );
+      }
     }
 
     const triggerEvent =
       input.triggerEventRef === null ? null : targetByRef(documents, input.triggerEventRef);
     if (input.triggerEventRef !== null) {
+      if (
+        input.triggerEventRef.split("#", 1)[0]?.endsWith(".jsonl") &&
+        fragmentOf(input.triggerEventRef) === null
+      ) {
+        errors.push(
+          analysisError(
+            "gap.reference_fragment_missing",
+            "triggerEventRef must identify one exact Event record",
+            { ref: input.triggerEventRef },
+          ),
+        );
+      }
       if (triggerEvent !== null && triggerEvent.schemaVersion !== "startup_opportunity.event.v1") {
         errors.push(
           analysisError(
@@ -265,22 +294,6 @@ export class GapAnalyzer {
             {
               ref: input.triggerEventRef,
               actualSchemaVersion: triggerEvent.schemaVersion,
-            },
-          ),
-        );
-      } else if (
-        triggerEvent?.schemaVersion === "startup_opportunity.event.v1" &&
-        manifest?.schemaVersion === "startup_opportunity.run_manifest.v1" &&
-        triggerEvent.document.run_id !== manifest.document.run_id
-      ) {
-        errors.push(
-          analysisError(
-            "gap.trigger_event_run_mismatch",
-            "triggerEventRef must resolve within the current Run",
-            {
-              ref: input.triggerEventRef,
-              eventRunId: triggerEvent.document.run_id,
-              currentRunId: manifest.document.run_id,
             },
           ),
         );

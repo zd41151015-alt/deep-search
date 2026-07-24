@@ -25,7 +25,16 @@
     "partial_retry",
     "candidate_transform_mismatch",
     "gap_snapshot_disk_mismatch",
-    "planning_context_disk_mismatch"
+    "planning_context_disk_mismatch",
+    "user_decision_caller_record_mismatch",
+    "user_decision_missing_fragment",
+    "user_decision_wrong_log_type",
+    "user_decision_wrong_run",
+    "user_decision_receipt_drift",
+    "user_decision_log_drift",
+    "user_decision_pending_replay_drift",
+    "user_decision_applied_replay_drift",
+    "user_decision_reopen_drift"
   ],
   "gap_cycle_identity_cases": [
     "same_input_stable",
@@ -35,7 +44,12 @@
   "negative_gap_reference_cases": [
     "trigger_event_wrong_document_type",
     "trigger_event_missing_fragment",
-    "observed_artifact_missing_fragment"
+    "observed_artifact_missing_fragment",
+    "observed_artifact_cross_run",
+    "machine_basis_cross_run",
+    "machine_evidence_cross_run",
+    "repeated_source_cross_run",
+    "trigger_event_cross_run"
   ],
   "crash_boundaries": [
     "after_intent",

@@ -338,6 +338,7 @@ function validateReceiptDocuments(
 async function validateReceiptSources(
   runRoot: string,
   receipt: PlanOperationReceipt,
+  logs: JsonlStore,
 ): Promise<void> {
   try {
     const basePlan = await storedEffectiveDocument(runRoot, receipt.base_plan_ref);
@@ -348,6 +349,33 @@ async function validateReceiptSources(
       const decision = await storedEffectiveDocument(runRoot, adaptationRef);
       if (canonicalContentHash(decision) !== receipt.adaptation_hashes[index]) {
         throw new Error("adaptation hash mismatch");
+      }
+      if (decision.requested_by === "user") {
+        if (typeof decision.user_decision_ref !== "string") {
+          throw new Error("user decision ref missing");
+        }
+        await logs.readExactRecord(
+          runRoot,
+          receipt.run_id,
+          decision.user_decision_ref,
+          "decisions.jsonl",
+        );
+      }
+      if (Array.isArray(decision.trigger_gap_refs)) {
+        for (const gapRef of decision.trigger_gap_refs) {
+          if (typeof gapRef !== "string") {
+            continue;
+          }
+          const gap = await storedEffectiveDocument(runRoot, gapRef.split("#", 1)[0] ?? "");
+          if (typeof gap.trigger_event_ref === "string") {
+            await logs.readExactRecord(
+              runRoot,
+              receipt.run_id,
+              gap.trigger_event_ref,
+              "events.jsonl",
+            );
+          }
+        }
       }
     }
   } catch (_error) {
@@ -438,10 +466,69 @@ async function assertAdaptationBundleMatchesStoredArtifacts(
   runId: string,
   documents: readonly EffectiveDocument[],
   artifacts: ArtifactStore,
+  logs: JsonlStore,
 ): Promise<void> {
+  for (const supplied of documents) {
+    if (
+      supplied.schemaVersion === "startup_opportunity.adaptation_decision.v2" &&
+      supplied.document.requested_by === "user"
+    ) {
+      if (typeof supplied.document.user_decision_ref !== "string") {
+        throw new StoreError(
+          "reference.fragment_missing",
+          "user-requested adaptation requires an exact Decision log ref",
+          { artifactPath: supplied.path },
+        );
+      }
+      await logs.readExactRecord(
+        runRoot,
+        runId,
+        supplied.document.user_decision_ref,
+        "decisions.jsonl",
+      );
+    }
+    if (
+      supplied.schemaVersion === "startup_opportunity.gap_snapshot.v1" &&
+      typeof supplied.document.trigger_event_ref === "string"
+    ) {
+      await logs.readExactRecord(
+        runRoot,
+        runId,
+        supplied.document.trigger_event_ref,
+        "events.jsonl",
+      );
+    }
+  }
   for (const supplied of [...documents]
     .filter((document) => document.path !== "manifest.json")
     .sort((left, right) => left.path.localeCompare(right.path))) {
+    if (supplied.path === "events.jsonl" || supplied.path === "decisions.jsonl") {
+      const id =
+        supplied.path === "events.jsonl"
+          ? supplied.document.event_id
+          : supplied.document.decision_id;
+      if (typeof id !== "string" || supplied.envelope !== null) {
+        throw new StoreError(
+          "adaptation.stored_artifact_invalid",
+          "adaptation JSONL input must be one effective record with the correct id",
+          { artifactPath: supplied.path },
+        );
+      }
+      const storedRecord = await logs.readExactRecord(
+        runRoot,
+        runId,
+        `${supplied.path}#${id}`,
+        supplied.path,
+      );
+      if (canonicalJson(storedRecord) !== canonicalJson(supplied.document)) {
+        throw new StoreError(
+          "adaptation.stored_content_mismatch",
+          "adaptation bundle JSONL record differs from its durable log record",
+          { artifactPath: supplied.path, recordId: id },
+        );
+      }
+      continue;
+    }
     let stored: unknown;
     try {
       stored = JSON.parse(
@@ -742,12 +829,13 @@ export class PlanRevisionRuntime {
         input.runId,
       );
       validateReceiptDocuments(existingReceipt, this.validator, this.artifacts);
-      await validateReceiptSources(runRoot, existingReceipt);
+      await validateReceiptSources(runRoot, existingReceipt, this.logs);
       await assertAdaptationBundleMatchesStoredArtifacts(
         runRoot,
         input.runId,
         bundleDocuments,
         this.artifacts,
+        this.logs,
       );
       const expectedHashes = selectedDecisions.map((decision) =>
         canonicalContentHash(decision.document),
@@ -881,6 +969,7 @@ export class PlanRevisionRuntime {
       input.runId,
       bundleDocuments,
       this.artifacts,
+      this.logs,
     );
     const patchedBundle: DocumentBundle = {
       ...input.adaptationBundle,
@@ -1156,7 +1245,7 @@ export async function recoverPlanRevisionOperationsLocked(
       runId,
     );
     validateReceiptDocuments(receipt, validator, artifacts);
-    await validateReceiptSources(runRoot, receipt);
+    await validateReceiptSources(runRoot, receipt, logs);
     const current = await readManifest(runRoot, validator);
     if (current.current_plan_ref === receipt.result_plan_ref) {
       if (await completeOperation(runRoot, receipt, artifacts, logs, validator)) {

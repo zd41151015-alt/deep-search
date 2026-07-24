@@ -16,6 +16,7 @@ import {
   createPlanSemanticValidator,
   type DocumentBundle,
   type FormalArtifactEnvelope,
+  operationKey,
   planningRunStateHash,
   RunStore,
   StoreError,
@@ -288,6 +289,19 @@ function triggerEvent(runId: string, eventId: string): Record<string, unknown> {
   };
 }
 
+function userPlanDecision(runId: string, decisionId: string): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: decisionId,
+    run_id: runId,
+    decision_type: "plan_change_requested_by_user",
+    timestamp: "2026-07-24T12:04:30Z",
+    actor: "user",
+    reason: "The user requested the explicit failed-unit retry.",
+    artifact_refs: [GAP_REF],
+  };
+}
+
 function retryDecision(runId: string): Record<string, unknown> {
   return {
     schema_version: "startup_opportunity.adaptation_decision.v2",
@@ -387,6 +401,8 @@ async function setupPersistedRun(
   contextTest: TestContext,
   runId: string,
   action: "retry" | "supersede" = "retry",
+  requestedByUser = false,
+  eventDriven = false,
 ) {
   const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g04-"));
   contextTest.after(() => rm(root, { recursive: true, force: true }));
@@ -417,7 +433,22 @@ async function setupPersistedRun(
     createdAt: "2026-07-24T12:03:00Z",
   });
   const gap = gapSnapshot(runId);
+  const triggerEventRecord = eventDriven
+    ? triggerEvent(runId, `gap_trigger_${runId.replaceAll("-", "_")}`)
+    : null;
+  if (triggerEventRecord !== null) {
+    gap.trigger_kind = "artifact_validation_failed";
+    gap.trigger_event_ref = `events.jsonl#${String(triggerEventRecord.event_id)}`;
+    gap.wave_id = null;
+  }
   const decision = action === "retry" ? retryDecision(runId) : supersedeDecision(runId);
+  const userDecision = requestedByUser
+    ? userPlanDecision(runId, `decision_${runId.replaceAll("-", "_")}`)
+    : null;
+  if (userDecision !== null) {
+    decision.requested_by = "user";
+    decision.user_decision_ref = `decisions.jsonl#${String(userDecision.decision_id)}`;
+  }
   await store.publishArtifact({
     runId,
     envelope: formalEnvelope(runId, CONTEXT_REF, planningContext.document, [
@@ -425,13 +456,26 @@ async function setupPersistedRun(
       PLAN_REF,
     ]),
   });
+  if (triggerEventRecord !== null) {
+    await store.appendEvent(runId, triggerEventRecord);
+  }
   await store.publishArtifact({
     runId,
-    envelope: formalEnvelope(runId, GAP_REF, gap, [PLAN_REF]),
+    envelope: formalEnvelope(runId, GAP_REF, gap, [
+      PLAN_REF,
+      ...(triggerEventRecord === null ? [] : [String(gap.trigger_event_ref)]),
+    ]),
   });
+  if (userDecision !== null) {
+    await store.appendDecision(runId, userDecision);
+  }
   await store.publishArtifact({
     runId,
-    envelope: formalEnvelope(runId, DECISION_REF, decision, [PLAN_REF, GAP_REF]),
+    envelope: formalEnvelope(runId, DECISION_REF, decision, [
+      PLAN_REF,
+      GAP_REF,
+      ...(userDecision === null ? [] : [String(decision.user_decision_ref)]),
+    ]),
   });
   const beforeCheckpoint = JSON.parse(
     await readFile(path.join(runRoot, "manifest.json"), "utf8"),
@@ -469,6 +513,10 @@ async function setupPersistedRun(
   };
   const adaptationBundle = bundle(currentManifest, plan, planningContext, gap, decision, [
     checkpointEntry,
+    ...(userDecision === null ? [] : [{ path: "decisions.jsonl", document: userDecision }]),
+    ...(triggerEventRecord === null
+      ? []
+      : [{ path: "events.jsonl", document: triggerEventRecord }]),
   ]);
   return {
     root,
@@ -478,6 +526,8 @@ async function setupPersistedRun(
     plan,
     gap,
     decision,
+    userDecision,
+    triggerEventRecord,
     planningContext,
     currentManifest,
     adaptationBundle,
@@ -489,10 +539,9 @@ async function planApplyBoundaryState(runRoot: string) {
   return {
     manifest: await readFile(path.join(runRoot, "manifest.json"), "utf8"),
     plans: (await readdir(path.join(runRoot, "plans"))).sort(),
+    adaptationDecisions: (await readdir(path.join(runRoot, "adaptations/decisions"))).sort(),
     checkpoints: (await readdir(path.join(runRoot, "checkpoints"))).sort(),
-    planReceipts: (await readdir(path.join(runRoot, ".store/operations")))
-      .filter((name) => name.startsWith("plan-revision-"))
-      .sort(),
+    operationReceipts: (await readdir(path.join(runRoot, ".store/operations"))).sort(),
   };
 }
 
@@ -526,6 +575,12 @@ function candidateFor(
       { path: GAP_REF, document: setup.gap },
       { path: DECISION_REF, document: setup.decision },
       setup.checkpointEntry,
+      ...(setup.userDecision === null
+        ? []
+        : [{ path: "decisions.jsonl", document: setup.userDecision }]),
+      ...(setup.triggerEventRecord === null
+        ? []
+        : [{ path: "events.jsonl", document: setup.triggerEventRecord }]),
     ],
   };
   return { transformed, candidateBundle };
@@ -668,6 +723,7 @@ test("Gap cycle identity binds base Plan, exact event, and observed Artifact has
   const firstEventRef = "events.jsonl";
   const secondEventRef = "events/gap-trigger-two.json";
   const wrongTypeEventRef = "events/wrong-trigger-type.json";
+  const foreignEventRef = "events/foreign-trigger.json";
   const firstEvent = triggerEvent(runId, "gap_trigger_one");
   const secondEvent = triggerEvent(runId, "gap_trigger_two");
   const wrongTypeDocument = {
@@ -680,6 +736,7 @@ test("Gap cycle identity binds base Plan, exact event, and observed Artifact has
     reason: "This valid Decision must not be accepted as an Event.",
     artifact_refs: [],
   };
+  const foreignEvent = triggerEvent("gap-cycle-foreign-run", "gap_trigger_foreign");
   const currentBundle = bundle(
     runManifest,
     plan,
@@ -690,6 +747,7 @@ test("Gap cycle identity binds base Plan, exact event, and observed Artifact has
       { path: firstEventRef, document: firstEvent },
       { path: secondEventRef, document: secondEvent },
       { path: wrongTypeEventRef, document: wrongTypeDocument },
+      { path: foreignEventRef, document: foreignEvent },
     ],
   );
   const analyzer = await createGapAnalyzer(repositoryRoot);
@@ -744,7 +802,10 @@ test("Gap cycle identity binds base Plan, exact event, and observed Artifact has
   );
   assert.equal(changedPlanCycle.snapshot?.revision, 1);
 
-  const wrongEventType = analyzer.analyze({ ...input, triggerEventRef: wrongTypeEventRef });
+  const wrongEventType = analyzer.analyze({
+    ...input,
+    triggerEventRef: wrongTypeEventRef,
+  });
   assert.equal(wrongEventType.valid, false);
   assert.ok(
     wrongEventType.errors.some((error) => error.code === "gap.trigger_event_type_mismatch"),
@@ -766,6 +827,63 @@ test("Gap cycle identity binds base Plan, exact event, and observed Artifact has
   assert.equal(missingObservedFragment.valid, false);
   assert.ok(
     missingObservedFragment.errors.some((error) => error.code === "gap.reference_fragment_missing"),
+  );
+
+  const assertRunMismatch = (result: ReturnType<typeof analyzer.analyze>) => {
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((error) => error.code === "gap.reference_run_mismatch"));
+  };
+  assertRunMismatch(
+    analyzer.analyze({
+      ...input,
+      observedArtifactRefs: [`${foreignEventRef}#gap_trigger_foreign`],
+    }),
+  );
+  assertRunMismatch(
+    analyzer.analyze({
+      ...input,
+      machineChecks: [
+        {
+          checkId: "foreign_basis",
+          gapType: "freshness_failed",
+          subjectRef: PLAN_REF,
+          basisRefs: [`${foreignEventRef}#gap_trigger_foreign`],
+          evidenceRefs: [],
+          decisionImpact: ["execution_validity"],
+          severity: "blocking",
+          detail: "A foreign-Run basis must be rejected.",
+        },
+      ],
+    }),
+  );
+  assertRunMismatch(
+    analyzer.analyze({
+      ...input,
+      machineChecks: [
+        {
+          checkId: "foreign_evidence",
+          gapType: "freshness_failed",
+          subjectRef: PLAN_REF,
+          basisRefs: [PLAN_REF],
+          evidenceRefs: [`${foreignEventRef}#gap_trigger_foreign`],
+          decisionImpact: ["execution_validity"],
+          severity: "blocking",
+          detail: "Foreign-Run evidence must be rejected.",
+        },
+      ],
+    }),
+  );
+  assertRunMismatch(
+    analyzer.analyze({
+      ...input,
+      triggerEventRef: `${foreignEventRef}#gap_trigger_foreign`,
+    }),
+  );
+  assertRunMismatch(
+    analyzer.analyze({
+      ...input,
+      repeatedSourceRefs: [`${foreignEventRef}#gap_trigger_foreign`],
+    }),
   );
 });
 
@@ -958,6 +1076,260 @@ test("Plan apply rejects an in-memory Planning Context that differs from disk be
       error instanceof StoreError && error.code === "adaptation.stored_content_mismatch",
   );
   assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+});
+
+test("user-requested Adaptation applies and replays from an exact Decision log record", async (contextTest) => {
+  const runId = "runtime-user-decision-apply";
+  const setup = await setupPersistedRun(contextTest, runId, "retry", true, true);
+  assert.ok(setup.userDecision);
+  assert.ok(setup.triggerEventRecord);
+  const { candidateBundle } = candidateFor(setup);
+  const preflight = (await createAdaptationPolicyValidator(repositoryRoot)).validateDocumentBundle(
+    setup.adaptationBundle,
+  );
+  assert.equal(preflight.valid, true, JSON.stringify(preflight));
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const input = {
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    candidateBundle,
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    nextStep: "Continue from the user-requested retry.",
+    beliefSummary: {
+      current_belief: "The exact durable user Decision authorizes the retry.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Does the retry produce a valid result?",
+    },
+  };
+  assert.equal((await runtime.apply(input)).status, "applied");
+  assert.equal((await runtime.apply(input)).status, "idempotent_replay");
+  const reopened = await setup.store.load(runId);
+  assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
+  assert.deepEqual(reopened.manifest.applied_adaptation_refs, [DECISION_REF]);
+});
+
+test("user-requested apply rejects forged or drifted Decision log inputs before Plan writes", async (contextTest) => {
+  const scenarios: readonly {
+    readonly name: string;
+    readonly expectedCode: string;
+    readonly mutate: (
+      setup: Awaited<ReturnType<typeof setupPersistedRun>>,
+      adaptationBundle: DocumentBundle,
+    ) => Promise<void>;
+  }[] = [
+    {
+      name: "caller-record-altered",
+      expectedCode: "adaptation.stored_content_mismatch",
+      mutate: async (_setup, adaptationBundle) => {
+        const record = adaptationBundle.documents.find(
+          (entry) => entry.path === "decisions.jsonl",
+        )?.document;
+        assert.ok(record);
+        record.reason = "Caller-only content must not replace the durable Decision record.";
+      },
+    },
+    {
+      name: "missing-fragment",
+      expectedCode: "reference.fragment_missing",
+      mutate: async (_setup, adaptationBundle) => {
+        const adaptation = adaptationBundle.documents.find(
+          (entry) => entry.path === DECISION_REF,
+        )?.document;
+        assert.ok(adaptation);
+        adaptation.user_decision_ref = "decisions.jsonl";
+      },
+    },
+    {
+      name: "wrong-log-type",
+      expectedCode: "reference.type_mismatch",
+      mutate: async (setup, adaptationBundle) => {
+        const events = (await readFile(path.join(setup.runRoot, "events.jsonl"), "utf8"))
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as Record<string, unknown>);
+        const eventId = events[0]?.event_id;
+        assert.equal(typeof eventId, "string");
+        const adaptation = adaptationBundle.documents.find(
+          (entry) => entry.path === DECISION_REF,
+        )?.document;
+        assert.ok(adaptation);
+        adaptation.user_decision_ref = `events.jsonl#${String(eventId)}`;
+      },
+    },
+    {
+      name: "wrong-run-record",
+      expectedCode: "reference.run_mismatch",
+      mutate: async (setup) => {
+        assert.ok(setup.userDecision);
+        const foreign = clone(setup.userDecision);
+        foreign.run_id = "runtime-user-foreign-run";
+        await writeFile(path.join(setup.runRoot, "decisions.jsonl"), `${canonicalJson(foreign)}\n`);
+      },
+    },
+    {
+      name: "receipt-drift",
+      expectedCode: "recovery.invalid_operation",
+      mutate: async (setup) => {
+        assert.ok(setup.userDecision);
+        const key = operationKey("append_jsonl", {
+          run_id: String(setup.userDecision.run_id),
+          log_path: "decisions.jsonl",
+          record: setup.userDecision,
+        });
+        const receiptPath = path.join(
+          setup.runRoot,
+          ".store/operations",
+          `log-${key.slice("sha256:".length)}.json`,
+        );
+        const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
+        const receiptRecord = receipt.record as Record<string, unknown>;
+        receiptRecord.reason = "The receipt no longer matches its operation identity.";
+        await writeFile(receiptPath, `${canonicalJson(receipt)}\n`);
+      },
+    },
+    {
+      name: "log-drift",
+      expectedCode: "recovery.missing_operation",
+      mutate: async (setup) => {
+        assert.ok(setup.userDecision);
+        const drifted = clone(setup.userDecision);
+        drifted.reason = "The log record no longer matches its durable receipt.";
+        await writeFile(path.join(setup.runRoot, "decisions.jsonl"), `${canonicalJson(drifted)}\n`);
+      },
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const runId = `runtime-user-${scenario.name}`;
+    const setup = await setupPersistedRun(contextTest, runId, "retry", true);
+    const { candidateBundle } = candidateFor(setup);
+    const adaptationBundle = clone(setup.adaptationBundle);
+    await scenario.mutate(setup, adaptationBundle);
+    const before = await planApplyBoundaryState(setup.runRoot);
+    await assert.rejects(
+      (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+        runId,
+        adaptationBundle,
+        adaptationRefs: [DECISION_REF],
+        candidateBundle,
+        createdAt: "2026-07-24T12:08:00Z",
+        checkpointCreatedAt: "2026-07-24T12:09:00Z",
+        nextStep: "Reject unbound user Decision input.",
+        beliefSummary: {
+          current_belief: "Only exact durable Decision log records may authorize apply.",
+          evidence_that_changed_belief: [],
+          unchanged_assumptions: [],
+          remaining_disagreement: [],
+          next_decision_relevant_question: "Does the Decision record match disk and receipt?",
+        },
+      }),
+      (error: unknown) => error instanceof StoreError && error.code === scenario.expectedCode,
+      scenario.name,
+    );
+    assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before, scenario.name);
+  }
+});
+
+test("Decision log binding remains fail-closed across pending, applied, and reopen recovery", async (contextTest) => {
+  const makeInput = (
+    runId: string,
+    setup: Awaited<ReturnType<typeof setupPersistedRun>>,
+    candidateBundle: DocumentBundle,
+  ) => ({
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    candidateBundle,
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    nextStep: "Keep Decision log recovery fail closed.",
+    beliefSummary: {
+      current_belief: "Recovery requires the exact durable user Decision.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Does the Decision still match its receipt?",
+    },
+  });
+  const decisionReceiptPath = (setup: Awaited<ReturnType<typeof setupPersistedRun>>): string => {
+    assert.ok(setup.userDecision);
+    const key = operationKey("append_jsonl", {
+      run_id: String(setup.userDecision.run_id),
+      log_path: "decisions.jsonl",
+      record: setup.userDecision,
+    });
+    return path.join(setup.runRoot, ".store/operations", `log-${key.slice("sha256:".length)}.json`);
+  };
+  const corruptReceipt = async (setup: Awaited<ReturnType<typeof setupPersistedRun>>) => {
+    const receiptPath = decisionReceiptPath(setup);
+    const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
+    const record = receipt.record as Record<string, unknown>;
+    record.reason = "Recovery must reject this receipt identity drift.";
+    await writeFile(receiptPath, `${canonicalJson(receipt)}\n`);
+  };
+  const driftLog = async (setup: Awaited<ReturnType<typeof setupPersistedRun>>) => {
+    assert.ok(setup.userDecision);
+    const record = clone(setup.userDecision);
+    record.reason = "Recovery must reject this log content drift.";
+    await writeFile(path.join(setup.runRoot, "decisions.jsonl"), `${canonicalJson(record)}\n`);
+  };
+
+  {
+    const runId = "runtime-user-pending-replay-drift";
+    const setup = await setupPersistedRun(contextTest, runId, "retry", true);
+    const { candidateBundle } = candidateFor(setup);
+    const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+    const input = makeInput(runId, setup, candidateBundle);
+    await assert.rejects(
+      runtime.apply({ ...input, faultAt: "after_intent" }),
+      (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+    );
+    await corruptReceipt(setup);
+    const before = await planApplyBoundaryState(setup.runRoot);
+    await assert.rejects(
+      runtime.apply(input),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "recovery.invalid_plan_operation",
+    );
+    assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+  }
+
+  {
+    const runId = "runtime-user-applied-replay-drift";
+    const setup = await setupPersistedRun(contextTest, runId, "retry", true);
+    const { candidateBundle } = candidateFor(setup);
+    const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+    const input = makeInput(runId, setup, candidateBundle);
+    assert.equal((await runtime.apply(input)).status, "applied");
+    await driftLog(setup);
+    const before = await planApplyBoundaryState(setup.runRoot);
+    await assert.rejects(
+      runtime.apply(input),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "recovery.invalid_plan_operation",
+    );
+    assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+  }
+
+  {
+    const runId = "runtime-user-reopen-receipt-drift";
+    const setup = await setupPersistedRun(contextTest, runId, "retry", true);
+    const { candidateBundle } = candidateFor(setup);
+    const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+    assert.equal((await runtime.apply(makeInput(runId, setup, candidateBundle))).status, "applied");
+    await corruptReceipt(setup);
+    const before = await planApplyBoundaryState(setup.runRoot);
+    await assert.rejects(
+      setup.store.load(runId),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "recovery.invalid_operation",
+    );
+    assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+  }
 });
 
 test("Plan Revision apply is CAS-safe, immutable, and idempotent on a real Run", async (contextTest) => {

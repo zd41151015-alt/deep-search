@@ -626,12 +626,41 @@ export class RunStore {
     };
     this.validateManifest(recoveredManifest);
     await this.assertManifestRefsExist(runRoot, recoveredManifest);
+    const recoveryDocuments: DocumentBundleEntry[] = [
+      { path: "manifest.json", document: recoveredManifest },
+      ...formalDocuments.filter((entry) => !invalidCheckpoints.includes(entry.path)),
+    ];
+    const typedJsonlRefs = recoveryDocuments
+      .flatMap((entry) => {
+        const effective =
+          isRecord(entry.document.document) &&
+          [
+            "startup_opportunity.artifact_envelope.v1",
+            "startup_opportunity.artifact_envelope.v2",
+            "startup_opportunity.artifact_envelope.v3",
+          ].includes(String(entry.document.schema_version))
+            ? entry.document.document
+            : entry.document;
+        return [effective.trigger_event_ref, effective.user_decision_ref];
+      })
+      .filter((ref): ref is string => typeof ref === "string");
+    for (const ref of [...new Set(typedJsonlRefs)].sort()) {
+      const logPath = ref.split("#", 1)[0];
+      if (logPath !== "events.jsonl" && logPath !== "decisions.jsonl") {
+        continue;
+      }
+      const existing = recoveryDocuments.findIndex((entry) => entry.path === logPath);
+      if (existing >= 0) {
+        recoveryDocuments.splice(existing, 1);
+      }
+      recoveryDocuments.push({
+        path: logPath,
+        document: await this.logs.readExactRecord(runRoot, runId, ref, logPath),
+      });
+    }
     const bundle = this.validator.validateDocumentBundle({
       schema_version: "startup_opportunity.document_bundle.v3",
-      documents: [
-        { path: "manifest.json", document: recoveredManifest },
-        ...formalDocuments.filter((entry) => !invalidCheckpoints.includes(entry.path)),
-      ],
+      documents: recoveryDocuments,
     });
     if (!bundle.valid) {
       throw new StoreError(
