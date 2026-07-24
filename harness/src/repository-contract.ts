@@ -1,0 +1,186 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
+export const SKELETON_VERSION = "g0.1" as const;
+
+export const IMPLEMENTATION_STACK = {
+  language: "TypeScript 7.0.2",
+  runtime: "Node.js 24.18.x LTS",
+  packageManager: "npm 11.16.x",
+  lockfile: "package-lock.json v3",
+} as const;
+
+export const SKILL_REFERENCE_PATHS = [
+  ".agents/skills/startup-opportunity/references/opportunity-discovery.md",
+  ".agents/skills/startup-opportunity/references/concept-evidence-assessment.md",
+  ".agents/skills/startup-opportunity/references/research-kernel.md",
+  ".agents/skills/startup-opportunity/references/lane-catalog.md",
+  ".agents/skills/startup-opportunity/references/artifact-contracts.md",
+  ".agents/skills/startup-opportunity/references/comparison-policy.md",
+  ".agents/skills/startup-opportunity/references/report-contract.md",
+] as const;
+
+export const CUSTOM_AGENT_PATHS = [
+  ".codex/agents/lane-researcher.toml",
+  ".codex/agents/evidence-auditor.toml",
+  ".codex/agents/adversarial-reviewer.toml",
+] as const;
+
+export const RESERVED_SKILL_COMMANDS = {
+  "create-run": "G0.3",
+  "load-run": "G0.3",
+  "validate-plan": "G0.4",
+  "analyze-gaps": "G0.4",
+  "validate-adaptation": "G0.4",
+  "apply-plan-revision": "G0.4",
+  "record-evidence": "G0.3",
+  "validate-artifact": "G0.2",
+  "checkpoint-run": "G0.3",
+  "calculate-comparison": "G2.4",
+  "calculate-sensitivity": "G2.4",
+  "audit-traceability": "G1.4",
+  "build-report": "G1.4",
+} as const;
+
+export type ReservedSkillCommand = keyof typeof RESERVED_SKILL_COMMANDS;
+
+export const SKILL_SCRIPT_PATHS = [
+  ".agents/skills/startup-opportunity/scripts/doctor.ts",
+  ...Object.keys(RESERVED_SKILL_COMMANDS).map(
+    (command) => `.agents/skills/startup-opportunity/scripts/${command}.ts`,
+  ),
+] as const;
+
+export const RESPONSIBILITY_PATHS = [
+  "harness/README.md",
+  "harness/schemas/README.md",
+  "harness/policies/README.md",
+  "harness/templates/README.md",
+  "harness/evals/README.md",
+  "harness/src/run-store/README.md",
+  "harness/src/evidence-store/README.md",
+  "harness/src/artifact-store/README.md",
+  "harness/src/validators/README.md",
+  "harness/src/adaptation/README.md",
+  "harness/src/comparison/README.md",
+  "harness/src/reporting/README.md",
+  "tests/fixtures/README.md",
+  "tests/evals/README.md",
+  "runs/.gitkeep",
+] as const;
+
+export const REQUIRED_REPOSITORY_PATHS = [
+  ".node-version",
+  ".npmrc",
+  "AGENTS.md",
+  "README.md",
+  "package.json",
+  "package-lock.json",
+  "tsconfig.json",
+  ".agents/skills/startup-opportunity/SKILL.md",
+  ...SKILL_REFERENCE_PATHS,
+  ...SKILL_SCRIPT_PATHS,
+  ...CUSTOM_AGENT_PATHS,
+  ...RESPONSIBILITY_PATHS,
+] as const;
+
+const FORBIDDEN_LOCKFILES = [
+  "bun.lock",
+  "bun.lockb",
+  "deno.lock",
+  "pnpm-lock.yaml",
+  "uv.lock",
+  "yarn.lock",
+] as const;
+
+export interface DoctorCheck {
+  readonly id: string;
+  readonly status: "pass" | "fail";
+  readonly detail: string;
+}
+
+export interface DoctorReport {
+  readonly schemaVersion: "startup_opportunity.repository_doctor.v1";
+  readonly skeletonVersion: typeof SKELETON_VERSION;
+  readonly ok: boolean;
+  readonly stack: typeof IMPLEMENTATION_STACK;
+  readonly checks: readonly DoctorCheck[];
+}
+
+async function readNonEmptyFile(root: string, relativePath: string): Promise<DoctorCheck> {
+  try {
+    const contents = await readFile(path.join(root, relativePath), "utf8");
+    return contents.trim().length > 0
+      ? { id: `path:${relativePath}`, status: "pass", detail: "present and non-empty" }
+      : { id: `path:${relativePath}`, status: "fail", detail: "file is empty" };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "unreadable file";
+    return { id: `path:${relativePath}`, status: "fail", detail };
+  }
+}
+
+async function checkForbiddenLockfile(root: string, filename: string): Promise<DoctorCheck> {
+  try {
+    await readFile(path.join(root, filename));
+    return {
+      id: `single-lockfile:${filename}`,
+      status: "fail",
+      detail: `${filename} introduces a second package-management stack`,
+    };
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    return code === "ENOENT"
+      ? { id: `single-lockfile:${filename}`, status: "pass", detail: "absent" }
+      : { id: `single-lockfile:${filename}`, status: "fail", detail: "could not inspect path" };
+  }
+}
+
+async function checkPackageMetadata(root: string): Promise<DoctorCheck> {
+  try {
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8")) as {
+      engines?: { node?: string; npm?: string };
+      packageManager?: string;
+    };
+    const valid =
+      packageJson.engines?.node === "24.18.x" &&
+      packageJson.engines.npm === "11.16.x" &&
+      packageJson.packageManager === "npm@11.16.0";
+    return {
+      id: "toolchain:package-metadata",
+      status: valid ? "pass" : "fail",
+      detail: valid ? "Node/npm metadata is frozen" : "package metadata drifted from G0.1",
+    };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "invalid package metadata";
+    return { id: "toolchain:package-metadata", status: "fail", detail };
+  }
+}
+
+function checkRuntime(): DoctorCheck {
+  const valid = process.versions.node === "24.18.0";
+  return {
+    id: "toolchain:runtime",
+    status: valid ? "pass" : "fail",
+    detail: valid
+      ? `running Node.js ${process.versions.node}`
+      : `expected Node.js 24.18.0, received ${process.versions.node}`,
+  };
+}
+
+export async function inspectRepository(root: string): Promise<DoctorReport> {
+  const checks = await Promise.all([
+    ...REQUIRED_REPOSITORY_PATHS.map((relativePath) => readNonEmptyFile(root, relativePath)),
+    ...FORBIDDEN_LOCKFILES.map((filename) => checkForbiddenLockfile(root, filename)),
+    checkPackageMetadata(root),
+  ]);
+  const allChecks = [...checks, checkRuntime()];
+
+  return {
+    schemaVersion: "startup_opportunity.repository_doctor.v1",
+    skeletonVersion: SKELETON_VERSION,
+    ok: allChecks.every((check) => check.status === "pass"),
+    stack: IMPLEMENTATION_STACK,
+    checks: allChecks,
+  };
+}

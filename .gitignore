@@ -3,6 +3,10 @@ node_modules/
 # Build output
 dist/
 
+# Runtime research artifacts
+runs/*
+!runs/.gitkeep
+
 data/
 logs/
 
@@ -21,4 +25,3 @@ logs/
 
 # Skills system (local per-installation state)
 tmp/
-

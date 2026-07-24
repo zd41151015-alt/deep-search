@@ -1,8 +1,8 @@
 # Startup Opportunity Research Harness 实施进度
 
-> **状态**: READY / G0_FOUNDATION_READY
-> **当前 Gate**: G0 Foundation Harness=`READY`；G1-G4=`NOT_READY`
-> **下一独立会话**: G0.1 Repository / Toolchain / Skill Skeleton
+> **状态**: IN_PROGRESS / G0_FOUNDATION_IN_PROGRESS
+> **当前 Gate**: G0 Foundation Harness=`IN_PROGRESS`；G1-G4=`NOT_READY`
+> **下一独立会话**: G0.2 Core Artifact Schema Bundle
 > **最后更新**: 2026-07-23
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
 
@@ -136,11 +136,32 @@ last effective operation
 
 G0.1 完成后必须把真实工具链、提交和 clean baseline 回写到本节。
 
+中控初始化期间检测到上述 setup 改动已由同一条本地 `main` 提交链原子保存，并完成对账：
+
+| 提交 | Parent | 内容 | 状态 |
+| --- | --- | --- | --- |
+| `124e458` | `62e02b7` | 数据驱动动态扩展 RFC 完善 | accepted |
+| `4033ae5` | `124e458` | 新增实施进度账本并建立 RFC 施工职责引用 | accepted current baseline |
+
+G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当作 current HEAD 或重复提交上述文档。
+
+### G0.1 工具链冻结
+
+| 决策 | 冻结值 | 依据 |
+| --- | --- | --- |
+| 实现语言 | TypeScript `7.0.2` | Harness 以 typed JSON artifact、CLI 和跨平台文件操作为主；严格类型检查可在 schema/store 实现前先约束入口和路径合同 |
+| 运行时 | Node.js `24.18.x` LTS；`.node-version=24.18.0` | 本机已有 LTS 运行时；后续确定性脚本、Node test runner 和 JSON 工具可共用一个 runtime |
+| 包管理器 | npm `11.16.x`；`packageManager=npm@11.16.0` | 随目标 Node 工具链提供，不引入 pnpm/yarn/bun/uv 等第二套安装面 |
+| Lockfile | `package-lock.json` v3 | `npm ci` 可从 clean dependency tree 重放；package 和 transitive version 均已锁定 |
+| 质量入口 | Biome `2.5.5`、TypeScript compiler、Node test runner + tsx | 分别提供真实 lint、typecheck 和 TypeScript test；不依赖第二种实现语言 |
+| 安装脚本策略 | 仅批准 `esbuild@0.28.1`、`fsevents@2.3.3` | npm `allowScripts` 使用精确版本，不允许后续未审阅版本自动继承权限 |
+| G0.1 提交 | `PENDING_G0_1_ATOMIC_COMMIT`；parent=`4033ae504219bfc6d616d76a1b2c44143e83cb42` | 实现、测试、本文和启动前 reconciliation 同一提交；实际 hash 由提交后最终证据回报 |
+
 ## Gate 总览
 
 | Gate | 状态 | 依赖 | 退出证据 |
 | --- | --- | --- | --- |
-| G0 Foundation Harness | `READY` | RFC v1 | 工具链与仓库骨架、核心 schema、Run/Artifact Store、validator、checkpoint、Gap/Adaptation/Plan Revision、完整 foundation regression |
+| G0 Foundation Harness | `IN_PROGRESS` | RFC v1 | 工具链与仓库骨架、核心 schema、Run/Artifact Store、validator、checkpoint、Gap/Adaptation/Plan Revision、完整 foundation regression |
 | G1 Concept Evidence Assessment | `NOT_READY` | G0 | 单 thesis 从 intake 到 report 的端到端闭环，buyer gap 触发 plan r2，独立 G1 回归 |
 | G2 Opportunity Discovery | `NOT_READY` | G1 | discovery lanes、Demand/Solution synthesis、pre-kill/enrichment、比较/portfolio 和独立 G2 回归 |
 | G3 AI Bundle | `NOT_READY` | G2 | 六维 AI mandatory bundle、baseline/reliability/data/economics/risk gates 和独立 G3 回归 |
@@ -150,8 +171,8 @@ G0.1 完成后必须把真实工具链、提交和 clean baseline 回写到本�
 
 | 工作包 | 范围 | 状态 |
 | --- | --- | --- |
-| W0 | Repository、toolchain、Skill/agent/Harness skeleton、测试入口 | `READY` |
-| W1 | Schema bundle、reference validator、artifact envelopes | `NOT_READY` |
+| W0 | Repository、toolchain、Skill/agent/Harness skeleton、测试入口 | `DONE` |
+| W1 | Schema bundle、reference validator、artifact envelopes | `READY` |
 | W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `NOT_READY` |
 | W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `NOT_READY` |
 | W4 | Assess domain contracts、research branches、matrix、audit/review/report | `NOT_READY` |
@@ -163,8 +184,8 @@ G0.1 完成后必须把真实工具链、提交和 clean baseline 回写到本�
 
 | 切片 | 内容 | 状态 | 主要退出条件 |
 | --- | --- | --- | --- |
-| G0.1 | Repository / Toolchain / Skill Skeleton | `READY` | 冻结单一实现工具链和 lockfile；替换占位 README；建立 `AGENTS.md`、Skill references/scripts、custom agent、Harness/test 目录；最小 lint/typecheck/test 命令可运行；只建 skeleton，不提前实现 G0.2+ 业务逻辑 |
-| G0.2 | Core Artifact Schema Bundle | `NOT_READY` | artifact envelope、Run Manifest、Research Plan、Gap Snapshot、Adaptation Decision、Event/Decision、Checkpoint closed schemas；positive/negative fixtures；deterministic schema validation |
+| G0.1 | Repository / Toolchain / Skill Skeleton | `DONE` | 冻结单一实现工具链和 lockfile；替换占位 README；建立 `AGENTS.md`、Skill references/scripts、custom agent、Harness/test 目录；最小 lint/typecheck/test 命令可运行；只建 skeleton，不提前实现 G0.2+ 业务逻辑 |
+| G0.2 | Core Artifact Schema Bundle | `READY` | artifact envelope、Run Manifest、Research Plan、Gap Snapshot、Adaptation Decision、Event/Decision、Checkpoint closed schemas；positive/negative fixtures；deterministic schema validation |
 | G0.3 | Run / Artifact Store and Recovery | `NOT_READY` | create/load run、atomic artifact publish、refs/hash、event/decision append、checkpoint、reopen/recovery、path traversal/write-conflict/idempotency fixtures |
 | G0.4 | Plan / Adaptation Runtime | `NOT_READY` | plan validator、machine gap draft、adaptation validator、immutable plan revision、stale-base/CAS、retry/supersede/late artifact、crash-boundary fixtures |
 | G0.R | Independent Foundation Whole-Gate Regression | `NOT_READY` | 从 clean G0 candidate 独立重放全部 G0 tests、negative/fault/crash fixtures、determinism、git diff/check；通过后 G0=`DONE` |
@@ -213,20 +234,45 @@ G0.1 完成后必须把真实工具链、提交和 clean baseline 回写到本�
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | `none` |
-| Current slice | `G0.1` |
-| Expected base | `main@62e02b7` + 已说明的 RFC/账本 setup 改动 |
+| Active task | `none`（G0.1 原子提交后交回中控验收） |
+| Current slice | `G0.2` (`READY`，未开始) |
+| Expected base | `PENDING_G0_1_ATOMIC_COMMIT`；其 parent 必须为 `4033ae504219bfc6d616d76a1b2c44143e83cb42` |
 | Consecutive state-query failures | `0` |
-| Last effective operation | `controller_thread_and_automation_bound` |
-| Next allowed action | 中控确认 automation 后创建 G0.1 独立施工任务；不得开始 G0.2 |
+| Last effective operation | `g0_1_exit_recorded` |
+| Next allowed action | 中控验收 G0.1 commit/parent/clean status 后创建 G0.2 独立施工任务；不得开始 G0.3 |
 
 ## 已完成切片与证据
 
-当前尚无已完成实现切片。G0.1 完成后在此追加交付物、测试、提交和边界证据，不删除初始基线记录。
+| 切片 | 状态 | Commit | Parent |
+| --- | --- | --- | --- |
+| G0.1 Repository / Toolchain / Skill Skeleton | `DONE` | `PENDING_G0_1_ATOMIC_COMMIT` | `4033ae504219bfc6d616d76a1b2c44143e83cb42` |
+
+G0.1 交付物：
+
+- 冻结 TypeScript/Node/npm 单一实现栈、engine guard、精确依赖和 `package-lock.json` v3；repository doctor 拒绝第二 lockfile 和工具链 metadata drift。
+- 替换占位 README，增加 repo-local `AGENTS.md`，记录开发命令、正式 artifact、subagent ownership、受控 plan change 和外部动作边界。
+- 建立 `$startup-opportunity` Skill、7 份 progressive-disclosure references、1 个可运行 doctor script 和 13 个按真实后续切片 fail-closed 的 RFC 命令入口。
+- 建立 lane researcher、evidence auditor、adversarial reviewer 三类 project-scoped custom agent；字段符合 Codex standalone TOML contract，model/reasoning/权限默认继承父线程。
+- 建立 Harness source entry、schemas/policies/templates/evals 和 store/validator/adaptation/comparison/reporting 责任目录；未发布空 schema、空 policy 或伪业务实现。
+- 建立 Node test runner 入口和 9 个 skeleton/负例测试，覆盖 Skill YAML、agent TOML、doctor、reserved command 非零退出、缺失入口、metadata drift、第二 lockfile 和 lockfile/runtime 冻结。
+
+G0.1 验证证据（Node.js `24.18.0` / npm `11.16.0`）：
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm ci` | PASS；12 packages installed，0 vulnerabilities；精确 `allowScripts` 策略后无未审阅脚本告警 |
+| `npm run lint` | PASS；Biome checked 23 files，0 diagnostics |
+| `npm run typecheck` | PASS；`tsc --noEmit` |
+| `npm test` | PASS；9 tests，9 passed，0 failed/skipped/todo |
+| `npm run verify:skeleton` | PASS；所有 required path、单一 lockfile、package metadata 和 Node runtime checks 通过 |
+| `git diff --check` | PASS；提交前复核 |
+
+提交后 `git status --short` 必须为空；实际 commit hash、parent 和 clean status 在本切片最终回报中给出，不通过 amend/rebase 回写占位。
 
 ## 当前阻塞与风险
 
-- 仓库尚未冻结实现语言、运行时和包管理器；该决策只允许在 G0.1 完成并记录。
-- 当前 RFC 和本账本尚未形成原子 baseline commit；G0.1 必须保留并审阅这些已确认文档改动。
-- RFC 定义的是完整目标形态，首个切片必须避免用目录和空 schema 冒充 Foundation Harness 完成。
+- G0.2 schema bundle 和 deterministic schema/reference validator 尚未实现；`harness/schemas/` 只有明确的所有权边界，不能被视为 Foundation Harness 完成。
+- G0.3 Run/Artifact/Evidence Store、checkpoint/recovery 与 G0.4 adaptation runtime 均未开始；所有对应 Skill 入口会结构化失败，不能被调用方转成成功或 mock artifact。
+- `discover`、`assess`、comparison 和 reporting 只有职责/reference 落点，没有业务闭环；G1-G4 保持 `NOT_READY`。
+- 目标 runtime 是精确 Node.js `24.18.0`；PATH 上其他 Node 版本会被 engine guard 或 repository doctor 拒绝，开发者需先切换版本。
 - Codex task status 工具可能暂时不可用；中控按三次失败后的多证据降级规则处理，不能仅凭超时判断任务失败。

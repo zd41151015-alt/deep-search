@@ -1,0 +1,41 @@
+import { type DoctorReport, inspectRepository } from "./repository-contract.js";
+
+const HELP = `Startup Opportunity Research Harness (G0.1)
+
+Usage:
+  npm run harness -- help
+  npm run harness -- doctor [--json]
+
+Commands:
+  help    Show the implemented G0.1 command surface.
+  doctor  Validate repository, toolchain, Skill, agent, Harness, and test skeleton contracts.
+
+Research execution commands remain unavailable until their owning slices are complete.
+`;
+
+export function printHelp(
+  write: (text: string) => void = process.stdout.write.bind(process.stdout),
+) {
+  write(HELP);
+}
+
+function formatHumanReport(report: DoctorReport): string {
+  const lines = report.checks.map(
+    (check) => `${check.status === "pass" ? "PASS" : "FAIL"} ${check.id}: ${check.detail}`,
+  );
+  return [`repository doctor: ${report.ok ? "PASS" : "FAIL"}`, ...lines, ""].join("\n");
+}
+
+export async function runDoctor(args: readonly string[], root = process.cwd()): Promise<number> {
+  const unsupported = args.filter((arg) => arg !== "--json");
+  if (unsupported.length > 0) {
+    process.stderr.write(`doctor: unsupported argument(s): ${unsupported.join(", ")}\n`);
+    return 64;
+  }
+
+  const report = await inspectRepository(root);
+  process.stdout.write(
+    args.includes("--json") ? `${JSON.stringify(report, null, 2)}\n` : formatHumanReport(report),
+  );
+  return report.ok ? 0 : 1;
+}
