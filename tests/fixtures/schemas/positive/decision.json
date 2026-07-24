@@ -1,0 +1,10 @@
+{
+  "schema_version": "startup_opportunity.decision.v1",
+  "decision_id": "decision_001",
+  "run_id": "2026-07-23-core-schema",
+  "decision_type": "initial_belief_recorded",
+  "timestamp": "2026-07-23T00:01:00Z",
+  "actor": "main_agent",
+  "reason": "The user did not state an initial preference.",
+  "artifact_refs": ["decision-context.json"]
+}

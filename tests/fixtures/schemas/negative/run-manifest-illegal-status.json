@@ -1,0 +1,6 @@
+{
+  "case_id": "run-manifest-illegal-status",
+  "base_fixture": "run-manifest.json",
+  "mutations": [{ "op": "set", "path": ["status"], "value": "running" }],
+  "expected_issues": [{ "keyword": "enum", "instance_path": "/status" }]
+}

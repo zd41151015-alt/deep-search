@@ -1,5 +1,5 @@
-# Schema Bundle Boundary
+# Core Schema Bundle
 
-G0.2 owns closed JSON Schemas for artifact envelopes, Run Manifest, Research Plan, Gap Snapshot, Adaptation Decision, Event, Decision, and Checkpoint, together with positive and negative fixtures. No schema is published in G0.1 because an empty or permissive schema would falsely claim a contract.
+`v1/bundle.json` publishes schema bundle `1.0.0` on JSON Schema Draft 2020-12. It contains closed schemas for the formal artifact envelope, Run Manifest, Research Plan, Gap Snapshot, action-discriminated Adaptation Decision, Event, Decision, Checkpoint, and explicit validation document bundle. Shared definitions close version, path, reference, enum, and research-unit shapes.
 
-Published schemas must carry stable version identifiers, reject unknown closed-enum values where required, and be consumed by the deterministic validator rather than copied into agent prompts.
+`npm run validate:schemas` compiles the complete bundle and verifies that every internal `$ref`, including its JSON Pointer, resolves without network access. `npm run validate:fixtures` exercises representative positive and negative documents. A schema-valid artifact still has no publication or decision-readiness status; G0.3 owns storage/publication and later evaluators own business sufficiency.

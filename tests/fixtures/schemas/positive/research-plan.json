@@ -1,0 +1,64 @@
+{
+  "schema_version": "startup_opportunity.research_plan.v1",
+  "plan_id": "plan_core_schema",
+  "run_id": "2026-07-23-core-schema",
+  "mode": "opportunity_discovery",
+  "revision": 1,
+  "parent_plan_ref": null,
+  "triggered_by_adaptation_refs": [],
+  "created_at": "2026-07-23T00:05:00Z",
+  "research_questions": [
+    {
+      "question_id": "rq_001",
+      "question": "Is the observed workflow gap decision-relevant?",
+      "decision_impact": "May change the baseline gate.",
+      "uncertainty": "high",
+      "expected_information_gain": "high",
+      "stop_condition": "One independent source group is assessed."
+    }
+  ],
+  "candidate_retention_policy": {
+    "minimum_evidence_requirement": "At least one non-model supporting Claim.",
+    "candidate_retention_threshold": "Pass pre-kill with independent decision value.",
+    "candidate_diversity_policy": ["Retain distinct user, job, and entry-scene hypotheses."],
+    "counterfactual_candidate_requirement": true
+  },
+  "exploration_policy": {
+    "require_seed_independent_demand_unit": true,
+    "require_counterfactual_unit": true,
+    "initial_hypotheses_are_questions_not_truth": true,
+    "separate_generation_and_evaluation_sources": true,
+    "freeze_thesis_before_enrichment": true,
+    "require_independent_challenger_queries": true
+  },
+  "waves": [
+    {
+      "wave_id": "wave_1",
+      "depends_on": [],
+      "units": [
+        {
+          "unit_id": "user_language_cn",
+          "unit_type": "user_language_mining",
+          "plan_disposition": "enabled",
+          "priority_band": "normal",
+          "attempt": 1,
+          "supersedes_unit_ref": null,
+          "research_goal": "Collect source-backed trigger language.",
+          "input_refs": ["scope-frame.json"],
+          "agent_role": "lane-researcher",
+          "output_path": "artifacts/lanes/user-language.json",
+          "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1",
+          "source_preferences": [],
+          "required_outputs": ["supporting_claims", "opposing_claims"],
+          "stop_conditions": []
+        }
+      ]
+    }
+  ],
+  "adaptation_policy_ref": "harness/policies/adaptation.v1.json",
+  "followup_policy": {
+    "max_followup_rounds": 2,
+    "require_decision_relevance": true,
+    "stop_when_no_material_new_evidence": true
+  }
+}

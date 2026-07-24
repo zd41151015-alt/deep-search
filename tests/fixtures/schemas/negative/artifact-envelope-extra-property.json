@@ -1,0 +1,8 @@
+{
+  "case_id": "artifact-envelope-extra-property",
+  "base_fixture": "artifact-envelope.json",
+  "mutations": [{ "op": "set", "path": ["unpublished_state"], "value": "accepted" }],
+  "expected_issues": [
+    { "keyword": "additionalProperties", "additional_property": "unpublished_state" }
+  ]
+}

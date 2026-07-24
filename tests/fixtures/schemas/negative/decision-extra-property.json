@@ -1,0 +1,6 @@
+{
+  "case_id": "decision-extra-property",
+  "base_fixture": "decision.json",
+  "mutations": [{ "op": "set", "path": ["approval"], "value": true }],
+  "expected_issues": [{ "keyword": "additionalProperties", "additional_property": "approval" }]
+}

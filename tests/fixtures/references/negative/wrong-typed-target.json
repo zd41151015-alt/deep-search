@@ -1,0 +1,14 @@
+{
+  "case_id": "wrong-typed-target",
+  "base_fixture": "valid-document-bundle.json",
+  "mutations": [
+    {
+      "op": "copy",
+      "from_path": ["documents", 2, "document"],
+      "path": ["documents", 0, "document"]
+    }
+  ],
+  "expected_issues": [
+    { "code": "reference.type_mismatch", "instance_path_suffix": "#/based_on_plan_ref" }
+  ]
+}

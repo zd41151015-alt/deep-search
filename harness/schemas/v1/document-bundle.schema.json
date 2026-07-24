@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v1/document-bundle.schema.json",
+  "title": "Startup Opportunity Validation Document Bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "documents"],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.document_bundle.v1" },
+    "documents": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "document"],
+        "properties": {
+          "path": { "$ref": "definitions.schema.json#/$defs/artifactPath" },
+          "document": {
+            "oneOf": [
+              { "$ref": "run-manifest.schema.json" },
+              { "$ref": "research-plan.schema.json" },
+              { "$ref": "gap-snapshot.schema.json" },
+              { "$ref": "adaptation-decision.schema.json" },
+              { "$ref": "event.schema.json" },
+              { "$ref": "decision.schema.json" },
+              { "$ref": "checkpoint.schema.json" },
+              { "$ref": "artifact-envelope.schema.json" }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "case_id": "run-manifest-invalid-plan-path",
+  "base_fixture": "run-manifest.json",
+  "mutations": [{ "op": "set", "path": ["current_plan_ref"], "value": "../research-plan.r1.json" }],
+  "expected_issues": [{ "keyword": "pattern", "instance_path": "/current_plan_ref" }]
+}

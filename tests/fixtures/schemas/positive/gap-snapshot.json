@@ -1,0 +1,36 @@
+{
+  "schema_version": "startup_opportunity.gap_snapshot.v1",
+  "snapshot_id": "gap_wave_1_r1",
+  "snapshot_cycle_key": "discovery:wave_1:fixture-hash-set",
+  "run_id": "2026-07-23-core-schema",
+  "based_on_plan_ref": "plans/research-plan.r1.json",
+  "revision": 1,
+  "parent_snapshot_ref": null,
+  "created_at": "2026-07-23T00:25:00Z",
+  "trigger_kind": "wave_completed",
+  "trigger_event_ref": null,
+  "phase": "discovery",
+  "wave_id": "wave_1",
+  "observed_artifact_refs": ["artifacts/lanes/user-language.json"],
+  "gaps": [
+    {
+      "gap_id": "gap_buyer_001",
+      "subject_ref": "opportunity_003",
+      "gap_type": "buyer_evidence_insufficient",
+      "detection_mode": "agent_semantic",
+      "triggered_by": {
+        "judgment_ref": "judgment_buyer_003",
+        "decision_sufficiency": "insufficient",
+        "independent_source_count": 0
+      },
+      "decision_impact": ["hard_gate", "recommendation_band"],
+      "severity": "blocking",
+      "basis_refs": ["artifacts/lanes/user-language.json", "judgment_buyer_003"],
+      "evidence_refs": [],
+      "recommended_unit_types": ["buyer_language", "acquisition"]
+    }
+  ],
+  "material_new_evidence_observed": true,
+  "unresolved_decision_relevant_questions": ["rq_001"],
+  "stop_signals": []
+}

@@ -9,7 +9,7 @@ Use this Skill as the single repo-local entry for Startup Opportunity research. 
 
 ## Current Execution Gate
 
-Run `npm run harness -- doctor --json` before relying on this repository. At G0.1, only repository inspection is implemented. Do not create a Run, dispatch research, or claim that `discover`, `assess`, `resume`, or `status` completed. Reserved scripts exit non-zero and identify the future slice that owns their implementation.
+Run `npm run harness -- doctor --json` before relying on this repository. At G0.2, repository inspection plus closed core schema and typed-reference validation are implemented. Do not create a Run, publish an artifact, dispatch research, or claim that `discover`, `assess`, `resume`, or `status` completed. Reserved scripts exit non-zero and identify the future slice that owns their implementation.
 
 ## Action Routing
 
@@ -39,4 +39,4 @@ Run `npm run harness -- doctor --json` before relying on this repository. At G0.
 
 ## Script Surface
 
-`scripts/doctor.ts` is operational in G0.1. The remaining RFC-named scripts are executable boundary entries that deliberately fail closed until the ledger opens their owning slice. A non-zero reserved-command response is not a Harness failure and must not be converted into a mock artifact or success result.
+`scripts/doctor.ts` and `scripts/validate-artifact.ts` are operational in G0.2. `validate-artifact` accepts one JSON document, an explicitly supplied typed document bundle, or the schema bundle self-check; schema success is not publication, evidence sufficiency, decision readiness, or a completed research action. The remaining RFC-named scripts deliberately fail closed until the ledger opens their owning slice. A non-zero reserved-command response is not a Harness failure and must not be converted into a mock artifact or success result.

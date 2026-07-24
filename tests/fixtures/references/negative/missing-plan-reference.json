@@ -1,0 +1,11 @@
+{
+  "case_id": "missing-plan-reference",
+  "base_fixture": "valid-document-bundle.json",
+  "mutations": [{ "op": "delete_array_item", "path": ["documents"], "index": 0 }],
+  "expected_issues": [
+    {
+      "code": "reference.missing",
+      "instance_path_suffix": "#/based_on_plan_ref"
+    }
+  ]
+}

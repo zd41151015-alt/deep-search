@@ -1,0 +1,6 @@
+{
+  "case_id": "artifact-envelope-missing-required",
+  "base_fixture": "artifact-envelope.json",
+  "mutations": [{ "op": "delete", "path": ["content_hash"] }],
+  "expected_issues": [{ "keyword": "required", "missing_property": "content_hash" }]
+}

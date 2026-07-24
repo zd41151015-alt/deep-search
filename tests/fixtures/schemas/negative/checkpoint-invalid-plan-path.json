@@ -1,0 +1,6 @@
+{
+  "case_id": "checkpoint-invalid-plan-path",
+  "base_fixture": "checkpoint.json",
+  "mutations": [{ "op": "set", "path": ["current_plan_ref"], "value": "/tmp/plan.json" }],
+  "expected_issues": [{ "keyword": "pattern", "instance_path": "/current_plan_ref" }]
+}

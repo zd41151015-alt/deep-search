@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-export const SKELETON_VERSION = "g0.1" as const;
+export const SKELETON_VERSION = "g0.2" as const;
 
 export const IMPLEMENTATION_STACK = {
   language: "TypeScript 7.0.2",
@@ -34,7 +34,6 @@ export const RESERVED_SKILL_COMMANDS = {
   "validate-adaptation": "G0.4",
   "apply-plan-revision": "G0.4",
   "record-evidence": "G0.3",
-  "validate-artifact": "G0.2",
   "checkpoint-run": "G0.3",
   "calculate-comparison": "G2.4",
   "calculate-sensitivity": "G2.4",
@@ -44,8 +43,32 @@ export const RESERVED_SKILL_COMMANDS = {
 
 export type ReservedSkillCommand = keyof typeof RESERVED_SKILL_COMMANDS;
 
+export const IMPLEMENTED_SKILL_COMMANDS = ["doctor", "validate-artifact"] as const;
+
+export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/v1/bundle.json",
+  "harness/schemas/v1/definitions.schema.json",
+  "harness/schemas/v1/artifact-envelope.schema.json",
+  "harness/schemas/v1/run-manifest.schema.json",
+  "harness/schemas/v1/research-plan.schema.json",
+  "harness/schemas/v1/gap-snapshot.schema.json",
+  "harness/schemas/v1/adaptation-decision.schema.json",
+  "harness/schemas/v1/event.schema.json",
+  "harness/schemas/v1/decision.schema.json",
+  "harness/schemas/v1/checkpoint.schema.json",
+  "harness/schemas/v1/document-bundle.schema.json",
+] as const;
+
+export const VALIDATOR_SOURCE_PATHS = [
+  "harness/src/validators/schema-bundle.ts",
+  "harness/src/validators/artifact-validator.ts",
+  "harness/src/validators/validate-artifact-command.ts",
+] as const;
+
 export const SKILL_SCRIPT_PATHS = [
-  ".agents/skills/startup-opportunity/scripts/doctor.ts",
+  ...IMPLEMENTED_SKILL_COMMANDS.map(
+    (command) => `.agents/skills/startup-opportunity/scripts/${command}.ts`,
+  ),
   ...Object.keys(RESERVED_SKILL_COMMANDS).map(
     (command) => `.agents/skills/startup-opportunity/scripts/${command}.ts`,
   ),
@@ -82,6 +105,8 @@ export const REQUIRED_REPOSITORY_PATHS = [
   ...SKILL_SCRIPT_PATHS,
   ...CUSTOM_AGENT_PATHS,
   ...RESPONSIBILITY_PATHS,
+  ...SCHEMA_BUNDLE_PATHS,
+  ...VALIDATOR_SOURCE_PATHS,
 ] as const;
 
 const FORBIDDEN_LOCKFILES = [

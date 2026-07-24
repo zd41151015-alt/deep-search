@@ -1,0 +1,18 @@
+{
+  "case_id": "research-plan-extra-unit-field",
+  "base_fixture": "research-plan.json",
+  "mutations": [
+    {
+      "op": "set",
+      "path": ["waves", 0, "units", 0, "runtime_status"],
+      "value": "completed"
+    }
+  ],
+  "expected_issues": [
+    {
+      "keyword": "additionalProperties",
+      "instance_path": "/waves/0/units/0",
+      "additional_property": "runtime_status"
+    }
+  ]
+}

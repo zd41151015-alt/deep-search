@@ -1,0 +1,13 @@
+{
+  "case_id": "adaptation-decision-stop-with-target",
+  "base_fixture": "adaptation-decision.json",
+  "mutations": [
+    { "op": "set", "path": ["action"], "value": "stop_followup" },
+    {
+      "op": "set",
+      "path": ["stop_condition"],
+      "value": "No further evidence would change the decision."
+    }
+  ],
+  "expected_issues": [{ "keyword": "oneOf", "instance_path": "" }]
+}

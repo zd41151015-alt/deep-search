@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v1/research-plan.schema.json",
+  "title": "Startup Opportunity Research Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "plan_id",
+    "run_id",
+    "mode",
+    "revision",
+    "parent_plan_ref",
+    "triggered_by_adaptation_refs",
+    "created_at",
+    "research_questions",
+    "candidate_retention_policy",
+    "exploration_policy",
+    "waves",
+    "adaptation_policy_ref",
+    "followup_policy"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.research_plan.v1" },
+    "plan_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "mode": { "$ref": "definitions.schema.json#/$defs/mode" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "parent_plan_ref": {
+      "anyOf": [{ "$ref": "definitions.schema.json#/$defs/planRef" }, { "type": "null" }]
+    },
+    "triggered_by_adaptation_refs": {
+      "type": "array",
+      "items": { "$ref": "definitions.schema.json#/$defs/adaptationRef" },
+      "uniqueItems": true
+    },
+    "created_at": { "$ref": "definitions.schema.json#/$defs/timestamp" },
+    "research_questions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "question_id",
+          "question",
+          "decision_impact",
+          "uncertainty",
+          "expected_information_gain",
+          "stop_condition"
+        ],
+        "properties": {
+          "question_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+          "question": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+          "decision_impact": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+          "uncertainty": { "enum": ["low", "medium", "high", "unknown"] },
+          "expected_information_gain": { "enum": ["low", "medium", "high", "unknown"] },
+          "stop_condition": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" }
+        }
+      }
+    },
+    "candidate_retention_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_evidence_requirement",
+        "candidate_retention_threshold",
+        "candidate_diversity_policy",
+        "counterfactual_candidate_requirement"
+      ],
+      "properties": {
+        "minimum_evidence_requirement": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "candidate_retention_threshold": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "candidate_diversity_policy": {
+          "type": "array",
+          "items": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "counterfactual_candidate_requirement": { "type": "boolean" }
+      }
+    },
+    "exploration_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "require_seed_independent_demand_unit",
+        "require_counterfactual_unit",
+        "initial_hypotheses_are_questions_not_truth",
+        "separate_generation_and_evaluation_sources",
+        "freeze_thesis_before_enrichment",
+        "require_independent_challenger_queries"
+      ],
+      "properties": {
+        "require_seed_independent_demand_unit": { "type": "boolean" },
+        "require_counterfactual_unit": { "type": "boolean" },
+        "initial_hypotheses_are_questions_not_truth": { "type": "boolean" },
+        "separate_generation_and_evaluation_sources": { "type": "boolean" },
+        "freeze_thesis_before_enrichment": { "type": "boolean" },
+        "require_independent_challenger_queries": { "type": "boolean" }
+      }
+    },
+    "waves": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["wave_id", "depends_on", "units"],
+        "properties": {
+          "wave_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+          "depends_on": { "$ref": "definitions.schema.json#/$defs/identifierArray" },
+          "units": {
+            "type": "array",
+            "items": { "$ref": "definitions.schema.json#/$defs/researchUnit" },
+            "minItems": 1
+          }
+        }
+      }
+    },
+    "adaptation_policy_ref": {
+      "type": "string",
+      "const": "harness/policies/adaptation.v1.json"
+    },
+    "followup_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_followup_rounds",
+        "require_decision_relevance",
+        "stop_when_no_material_new_evidence"
+      ],
+      "properties": {
+        "max_followup_rounds": { "type": "integer", "minimum": 0 },
+        "require_decision_relevance": { "const": true },
+        "stop_when_no_material_new_evidence": { "const": true }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "revision": { "const": 1 } }, "required": ["revision"] },
+      "then": {
+        "properties": {
+          "parent_plan_ref": { "type": "null" },
+          "triggered_by_adaptation_refs": { "type": "array", "maxItems": 0 }
+        }
+      },
+      "else": {
+        "properties": {
+          "parent_plan_ref": { "$ref": "definitions.schema.json#/$defs/planRef" },
+          "triggered_by_adaptation_refs": { "type": "array", "minItems": 1 }
+        }
+      }
+    }
+  ]
+}

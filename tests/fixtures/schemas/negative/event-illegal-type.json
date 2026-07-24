@@ -1,0 +1,6 @@
+{
+  "case_id": "event-illegal-type",
+  "base_fixture": "event.json",
+  "mutations": [{ "op": "set", "path": ["event_type"], "value": "artifact_saved" }],
+  "expected_issues": [{ "keyword": "enum", "instance_path": "/event_type" }]
+}

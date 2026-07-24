@@ -1,5 +1,5 @@
 # Deterministic Eval Boundary
 
-Harness-level evaluators will check schema and reference integrity, research-quality constraints, decision readiness, adaptation policy, traceability, and three-output consistency. Each evaluator is introduced with representative passing, revision-required, insufficient-evidence, and failing fixtures in its owning slice.
+G0.2 provides schema integrity and explicit document-bundle typed-reference checks. Later Harness-level evaluators add freshness, research-quality constraints, decision readiness, adaptation policy, traceability, and three-output consistency. Each evaluator is introduced with representative passing, revision-required, insufficient-evidence, and failing fixtures in its owning slice.
 
-Repository skeleton checks are executable in `tests/skeleton.test.ts`; their implementation is not evidence that artifact or report evaluators exist.
+Repository checks remain in `tests/skeleton.test.ts`; schema/reference checks live in `tests/schema-validation.test.ts`. Neither is evidence that research-quality, policy, or report evaluators exist.

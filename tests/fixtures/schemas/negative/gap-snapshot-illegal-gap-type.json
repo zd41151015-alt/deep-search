@@ -1,0 +1,6 @@
+{
+  "case_id": "gap-snapshot-illegal-gap-type",
+  "base_fixture": "gap-snapshot.json",
+  "mutations": [{ "op": "set", "path": ["gaps", 0, "gap_type"], "value": "anything_else" }],
+  "expected_issues": [{ "keyword": "enum", "instance_path": "/gaps/0/gap_type" }]
+}

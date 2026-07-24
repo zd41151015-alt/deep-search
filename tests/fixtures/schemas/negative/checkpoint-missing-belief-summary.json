@@ -1,0 +1,6 @@
+{
+  "case_id": "checkpoint-missing-belief-summary",
+  "base_fixture": "checkpoint.json",
+  "mutations": [{ "op": "delete", "path": ["belief_summary"] }],
+  "expected_issues": [{ "keyword": "required", "missing_property": "belief_summary" }]
+}

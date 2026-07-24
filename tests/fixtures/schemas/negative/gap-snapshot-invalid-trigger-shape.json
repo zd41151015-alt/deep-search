@@ -1,0 +1,6 @@
+{
+  "case_id": "gap-snapshot-invalid-trigger-shape",
+  "base_fixture": "gap-snapshot.json",
+  "mutations": [{ "op": "set", "path": ["trigger_kind"], "value": "user_decision" }],
+  "expected_issues": [{ "keyword": "type", "instance_path": "/trigger_event_ref" }]
+}

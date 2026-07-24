@@ -1,0 +1,29 @@
+{
+  "schema_version": "startup_opportunity.adaptation_decision.v1",
+  "adaptation_id": "adapt_001",
+  "run_id": "2026-07-23-core-schema",
+  "based_on_plan_ref": "plans/research-plan.r1.json",
+  "trigger_gap_refs": ["adaptations/gap-snapshots/gap-wave-1.r1.json#gap_buyer_001"],
+  "action": "add_unit",
+  "target_unit": {
+    "unit_id": "buyer_language_opportunity_003",
+    "unit_type": "buyer_language",
+    "plan_disposition": "enabled",
+    "priority_band": "high",
+    "attempt": 1,
+    "supersedes_unit_ref": null,
+    "research_goal": "Assess buyer, payer, purchase trigger, and decision criteria.",
+    "input_refs": ["opportunity_003", "judgment_buyer_003"],
+    "agent_role": "lane-researcher",
+    "output_path": "artifacts/lanes/buyer-language-opportunity-003.json",
+    "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1",
+    "source_preferences": [],
+    "required_outputs": ["supporting_claims", "opposing_claims"],
+    "stop_conditions": []
+  },
+  "reason": "Buyer evidence is required before the hard gate can pass.",
+  "expected_decision_impact": ["hard_gate", "recommendation_band"],
+  "success_condition": "Independent buyer evidence is assessed or its absence is established.",
+  "requested_by": "main_agent",
+  "created_at": "2026-07-23T00:30:00Z"
+}

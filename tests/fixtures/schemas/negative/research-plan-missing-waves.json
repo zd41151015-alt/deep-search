@@ -1,0 +1,6 @@
+{
+  "case_id": "research-plan-missing-waves",
+  "base_fixture": "research-plan.json",
+  "mutations": [{ "op": "delete", "path": ["waves"] }],
+  "expected_issues": [{ "keyword": "required", "missing_property": "waves" }]
+}

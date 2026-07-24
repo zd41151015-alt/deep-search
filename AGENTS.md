@@ -21,6 +21,6 @@
 ## Development
 
 - Use Node.js `24.18.x` and npm `11.16.x`; install exactly from `package-lock.json` with `npm ci`.
-- Run `npm run lint`, `npm run typecheck`, `npm test`, and `npm run verify:skeleton` for repository/toolchain/skeleton changes.
+- Run `npm run lint`, `npm run typecheck`, `npm test`, `npm run validate:schemas`, `npm run validate:fixtures`, and `npm run verify:skeleton` for repository/toolchain/schema changes.
 - Add production behavior only in the slice that owns it. A directory, empty schema, mock-only path, or deferred-command entry is not evidence that a downstream Gate is complete.
 - Keep generated output under ignored paths such as `dist/`; do not commit research raw data or secrets.

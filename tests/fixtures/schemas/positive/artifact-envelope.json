@@ -1,0 +1,20 @@
+{
+  "schema_version": "startup_opportunity.artifact_envelope.v1",
+  "artifact_type": "startup_opportunity.event.v1",
+  "artifact_path": "events/event-001.json",
+  "run_id": "2026-07-23-core-schema",
+  "created_at": "2026-07-23T00:25:00Z",
+  "producer_role": "harness",
+  "input_refs": ["plans/research-plan.r1.json"],
+  "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "document": {
+    "schema_version": "startup_opportunity.event.v1",
+    "event_id": "event_001",
+    "run_id": "2026-07-23-core-schema",
+    "event_type": "gap_snapshot_created",
+    "timestamp": "2026-07-23T00:25:00Z",
+    "actor": "harness",
+    "reason": "The validated wave boundary produced a Gap Snapshot.",
+    "artifact_refs": ["adaptations/gap-snapshots/gap-wave-1.r1.json"]
+  }
+}

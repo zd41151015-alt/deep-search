@@ -1,0 +1,20 @@
+{
+  "case_id": "plan-path-revision-mismatch",
+  "base_fixture": "valid-document-bundle.json",
+  "mutations": [
+    { "op": "set", "path": ["documents", 0, "path"], "value": "plans/research-plan.r2.json" },
+    {
+      "op": "set",
+      "path": ["documents", 1, "document", "based_on_plan_ref"],
+      "value": "plans/research-plan.r2.json"
+    },
+    {
+      "op": "set",
+      "path": ["documents", 2, "document", "based_on_plan_ref"],
+      "value": "plans/research-plan.r2.json"
+    }
+  ],
+  "expected_issues": [
+    { "code": "reference.path_revision_mismatch", "instance_path_suffix": "research-plan.r2.json" }
+  ]
+}

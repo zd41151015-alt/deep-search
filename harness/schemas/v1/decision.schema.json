@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v1/decision.schema.json",
+  "title": "Startup Opportunity Decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision_id",
+    "run_id",
+    "decision_type",
+    "timestamp",
+    "actor",
+    "reason",
+    "artifact_refs"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.decision.v1" },
+    "decision_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "decision_type": {
+      "enum": [
+        "scope_assumption_confirmed",
+        "scope_changed_by_user",
+        "initial_belief_recorded",
+        "belief_changed_by_evidence",
+        "remaining_disagreement_recorded",
+        "candidate_rejected_by_user",
+        "followup_requested_by_user",
+        "plan_change_requested_by_user",
+        "limitation_accepted",
+        "run_paused",
+        "run_cancelled"
+      ]
+    },
+    "timestamp": { "$ref": "definitions.schema.json#/$defs/timestamp" },
+    "actor": { "enum": ["user", "main_agent"] },
+    "reason": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "artifact_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" }
+  }
+}

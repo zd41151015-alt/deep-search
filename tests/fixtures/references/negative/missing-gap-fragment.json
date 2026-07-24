@@ -1,0 +1,17 @@
+{
+  "case_id": "missing-gap-fragment",
+  "base_fixture": "valid-document-bundle.json",
+  "mutations": [
+    {
+      "op": "set",
+      "path": ["documents", 2, "document", "trigger_gap_refs", 0],
+      "value": "adaptations/gap-snapshots/gap-wave-1.r1.json#gap_unknown"
+    }
+  ],
+  "expected_issues": [
+    {
+      "code": "reference.fragment_missing",
+      "instance_path_suffix": "#/trigger_gap_refs/0"
+    }
+  ]
+}

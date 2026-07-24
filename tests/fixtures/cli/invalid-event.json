@@ -1,0 +1,10 @@
+{
+  "schema_version": "startup_opportunity.event.v1",
+  "event_id": "event_001",
+  "run_id": "2026-07-23-core-schema",
+  "event_type": "artifact_saved",
+  "timestamp": "2026-07-23T00:25:00Z",
+  "actor": "harness",
+  "reason": "This fixture must be rejected by the closed event enum.",
+  "artifact_refs": []
+}

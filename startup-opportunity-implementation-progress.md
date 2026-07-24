@@ -2,7 +2,7 @@
 
 > **状态**: IN_PROGRESS / G0_FOUNDATION_IN_PROGRESS
 > **当前 Gate**: G0 Foundation Harness=`IN_PROGRESS`；G1-G4=`NOT_READY`
-> **下一独立会话**: G0.2 Core Artifact Schema Bundle
+> **下一独立会话**: G0.3 Run / Artifact Store and Recovery
 > **最后更新**: 2026-07-23
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
 
@@ -155,7 +155,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | Lockfile | `package-lock.json` v3 | `npm ci` 可从 clean dependency tree 重放；package 和 transitive version 均已锁定 |
 | 质量入口 | Biome `2.5.5`、TypeScript compiler、Node test runner + tsx | 分别提供真实 lint、typecheck 和 TypeScript test；不依赖第二种实现语言 |
 | 安装脚本策略 | 仅批准 `esbuild@0.28.1`、`fsevents@2.3.3` | npm `allowScripts` 使用精确版本，不允许后续未审阅版本自动继承权限 |
-| G0.1 提交 | `PENDING_G0_1_ATOMIC_COMMIT`；parent=`4033ae504219bfc6d616d76a1b2c44143e83cb42` | 实现、测试、本文和启动前 reconciliation 同一提交；实际 hash 由提交后最终证据回报 |
+| G0.1 提交 | `4fb428d54ea1656fe8a15ffdc1d4e963d4a4609e`；parent=`4033ae504219bfc6d616d76a1b2c44143e83cb42` | 实现、测试、本文和启动前 reconciliation 已由一个 clean 原子提交保存 |
 
 ## Gate 总览
 
@@ -172,8 +172,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | 工作包 | 范围 | 状态 |
 | --- | --- | --- |
 | W0 | Repository、toolchain、Skill/agent/Harness skeleton、测试入口 | `DONE` |
-| W1 | Schema bundle、reference validator、artifact envelopes | `READY` |
-| W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `NOT_READY` |
+| W1 | Schema bundle、reference validator、artifact envelopes | `DONE` |
+| W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `READY` |
 | W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `NOT_READY` |
 | W4 | Assess domain contracts、research branches、matrix、audit/review/report | `NOT_READY` |
 | W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `NOT_READY` |
@@ -185,8 +185,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | 切片 | 内容 | 状态 | 主要退出条件 |
 | --- | --- | --- | --- |
 | G0.1 | Repository / Toolchain / Skill Skeleton | `DONE` | 冻结单一实现工具链和 lockfile；替换占位 README；建立 `AGENTS.md`、Skill references/scripts、custom agent、Harness/test 目录；最小 lint/typecheck/test 命令可运行；只建 skeleton，不提前实现 G0.2+ 业务逻辑 |
-| G0.2 | Core Artifact Schema Bundle | `READY` | artifact envelope、Run Manifest、Research Plan、Gap Snapshot、Adaptation Decision、Event/Decision、Checkpoint closed schemas；positive/negative fixtures；deterministic schema validation |
-| G0.3 | Run / Artifact Store and Recovery | `NOT_READY` | create/load run、atomic artifact publish、refs/hash、event/decision append、checkpoint、reopen/recovery、path traversal/write-conflict/idempotency fixtures |
+| G0.2 | Core Artifact Schema Bundle | `DONE` | artifact envelope、Run Manifest、Research Plan、Gap Snapshot、Adaptation Decision、Event/Decision、Checkpoint closed schemas；positive/negative fixtures；deterministic schema validation |
+| G0.3 | Run / Artifact Store and Recovery | `READY` | create/load run、atomic artifact publish、refs/hash、event/decision append、checkpoint、reopen/recovery、path traversal/write-conflict/idempotency fixtures |
 | G0.4 | Plan / Adaptation Runtime | `NOT_READY` | plan validator、machine gap draft、adaptation validator、immutable plan revision、stale-base/CAS、retry/supersede/late artifact、crash-boundary fixtures |
 | G0.R | Independent Foundation Whole-Gate Regression | `NOT_READY` | 从 clean G0 candidate 独立重放全部 G0 tests、negative/fault/crash fixtures、determinism、git diff/check；通过后 G0=`DONE` |
 
@@ -234,18 +234,19 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | `none`（G0.1 原子提交后交回中控验收） |
-| Current slice | `G0.2` (`READY`，未开始) |
-| Expected base | `PENDING_G0_1_ATOMIC_COMMIT`；其 parent 必须为 `4033ae504219bfc6d616d76a1b2c44143e83cb42` |
+| Active task | `none`（G0.2 原子提交后交回中控验收） |
+| Current slice | `G0.3` (`READY`，未开始) |
+| Expected base | `PENDING_G0_2_ATOMIC_COMMIT`；其 parent 必须为 `4fb428d54ea1656fe8a15ffdc1d4e963d4a4609e` |
 | Consecutive state-query failures | `0` |
-| Last effective operation | `g0_1_exit_recorded` |
-| Next allowed action | 中控验收 G0.1 commit/parent/clean status 后创建 G0.2 独立施工任务；不得开始 G0.3 |
+| Last effective operation | `g0_2_exit_recorded` |
+| Next allowed action | 中控验收 G0.2 commit/parent/clean status 后创建 G0.3 独立施工任务；不得开始 G0.4 |
 
 ## 已完成切片与证据
 
 | 切片 | 状态 | Commit | Parent |
 | --- | --- | --- | --- |
-| G0.1 Repository / Toolchain / Skill Skeleton | `DONE` | `PENDING_G0_1_ATOMIC_COMMIT` | `4033ae504219bfc6d616d76a1b2c44143e83cb42` |
+| G0.1 Repository / Toolchain / Skill Skeleton | `DONE` | `4fb428d54ea1656fe8a15ffdc1d4e963d4a4609e` | `4033ae504219bfc6d616d76a1b2c44143e83cb42` |
+| G0.2 Core Artifact Schema Bundle | `DONE` | `PENDING_G0_2_ATOMIC_COMMIT` | `4fb428d54ea1656fe8a15ffdc1d4e963d4a4609e` |
 
 G0.1 交付物：
 
@@ -269,10 +270,42 @@ G0.1 验证证据（Node.js `24.18.0` / npm `11.16.0`）：
 
 提交后 `git status --short` 必须为空；实际 commit hash、parent 和 clean status 在本切片最终回报中给出，不通过 amend/rebase 回写占位。
 
+G0.2 交付物：
+
+- 发布 schema bundle `1.0.0`（JSON Schema Draft 2020-12）：10 个 `.schema.json` 文件和 1 个 bundle manifest；其中 8 个核心正式 artifact contract 覆盖 Artifact Envelope、Run Manifest、Research Plan、Gap Snapshot、Adaptation Decision、Event、Decision 和 Checkpoint，另含 validation-only Document Bundle 与共享定义。
+- 所有对象边界 closed；required fields、RFC closed enum、Run-relative path/ref/version/hash、plan/snapshot revision lineage 与 Adaptation Decision action-discriminated `oneOf` 均由 schema 拒绝非法 shape。
+- 精确加入 Ajv `8.20.0` 和 `ajv-formats` `3.0.1`；Ajv `8.17.1` 因已知 `$data` ReDoS advisory 未保留，最终 lockfile audit 为 0 vulnerabilities。没有第二实现栈、包管理器或 lockfile。
+- 实现可复用 `ArtifactValidator`、完整 bundle `$ref`/JSON Pointer 编译检查、排序稳定的结构化 validation issues，以及仅对显式提供 Document Bundle 执行的 typed target、fragment、Run boundary、path/revision 和 parent-lineage 检查。
+- `validate-artifact` 同时成为 Harness CLI 与 Skill script 的真实入口；支持 `--file`、`--bundle`、`--schema-bundle`。其他 12 个未开放 Skill 命令继续结构化 fail-closed 并报告 owning slice。
+- 新增 29 个 JSON fixtures：8 个核心正例、15 个 schema 负例、1 个有效 reference bundle、4 个 reference 负例和 1 个 raw CLI 负例。负例覆盖 required、额外字段、closed enum、action shape、path、version/revision、typed target/type 和 fragment。
+- 新增 9 个 schema/reference/CLI 测试，并保留更新后的 9 个 G0.1 repository/Skill/agent/toolchain 回归；测试断言具体 keyword、instance path、missing/additional property 或 reference error code，不只断言非零退出。
+
+G0.2 schema/validator 决策：
+
+- Formal Artifact Envelope 包含 typed document、Run-relative `artifact_path`、producer、input refs 和 supplied `sha256` 字段；G0.2 只验证 shape，不计算 hash、不写临时文件、不发布 artifact。
+- Document Bundle 是显式 validation input，不是 Run Store 或恢复格式。Reference evaluator 只检查 bundle 中 RFC 已知的 typed refs，不扫描 `runs/`，不把任意 ID ref 误判为必须存在的文件。
+- Research Plan schema 固化已发布 shape、closed unit/action vocabulary 和 revision fields；DAG、mode allowlist、完整 AI coverage、调度与 policy semantics 仍由 G0.4 拥有。
+- Gap Snapshot/Adaptation Decision schema 固化数据形状和 closed action branch；Gap analyzer、状态前置条件、CAS、幂等 apply、retry/supersede/late-artifact runtime 未实现。
+
+G0.2 验证证据（Node.js `24.18.0` / npm `11.16.0`）：
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm ci` | PASS；18 packages installed from package-lock v3；0 vulnerabilities |
+| `npm run lint` | PASS；Biome checked 67 files，0 diagnostics |
+| `npm run typecheck` | PASS；`tsc --noEmit` |
+| `npm test` | PASS；18 tests，18 passed，0 failed/skipped/todo |
+| `npm run validate:schemas` | PASS；10 schemas compiled，9 document validators，0 unresolved refs |
+| `npm run validate:fixtures` | PASS；9 tests，9 passed；全部 29 JSON fixtures 被专项 suite 覆盖 |
+| `npm run verify:skeleton` | PASS；required paths、单一 lockfile、package metadata、Node runtime 和 G0.2 bundle/validator paths 通过 |
+| `git diff --check` | PASS；提交前复核 |
+
+提交后 `git status --short` 必须为空；实际 G0.2 commit hash、parent 和 clean status 在本切片最终回报中给出，不通过 amend/rebase 回写占位。
+
 ## 当前阻塞与风险
 
-- G0.2 schema bundle 和 deterministic schema/reference validator 尚未实现；`harness/schemas/` 只有明确的所有权边界，不能被视为 Foundation Harness 完成。
-- G0.3 Run/Artifact/Evidence Store、checkpoint/recovery 与 G0.4 adaptation runtime 均未开始；所有对应 Skill 入口会结构化失败，不能被调用方转成成功或 mock artifact。
+- G0.2 schema/reference validation 只证明结构和显式 bundle 引用闭合；它不证明 artifact 已发布、Evidence 充分、业务 policy 通过、decision ready 或 G0 Foundation 完成。
+- G0.3 Run/Artifact/Evidence Store、event/decision append、hash/atomic publish、checkpoint/recovery 与 G0.4 adaptation runtime 均未开始；对应 Skill 入口继续结构化失败，不能被调用方转成成功或 mock artifact。
 - `discover`、`assess`、comparison 和 reporting 只有职责/reference 落点，没有业务闭环；G1-G4 保持 `NOT_READY`。
 - 目标 runtime 是精确 Node.js `24.18.0`；PATH 上其他 Node 版本会被 engine guard 或 repository doctor 拒绝，开发者需先切换版本。
 - Codex task status 工具可能暂时不可用；中控按三次失败后的多证据降级规则处理，不能仅凭超时判断任务失败。

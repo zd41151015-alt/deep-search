@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --import tsx
 
-import { rejectReservedCommand } from "../../../../harness/src/reserved-command.js";
+import { runValidateArtifact } from "../../../../harness/src/validators/validate-artifact-command.js";
 
-rejectReservedCommand("validate-artifact");
+process.exitCode = await runValidateArtifact(process.argv.slice(2));

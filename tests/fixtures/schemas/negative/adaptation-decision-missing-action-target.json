@@ -1,0 +1,6 @@
+{
+  "case_id": "adaptation-decision-missing-action-target",
+  "base_fixture": "adaptation-decision.json",
+  "mutations": [{ "op": "delete", "path": ["target_unit"] }],
+  "expected_issues": [{ "keyword": "required", "missing_property": "target_unit" }]
+}

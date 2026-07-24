@@ -1,0 +1,6 @@
+{
+  "case_id": "research-plan-invalid-revision-lineage",
+  "base_fixture": "research-plan.json",
+  "mutations": [{ "op": "set", "path": ["revision"], "value": 2 }],
+  "expected_issues": [{ "keyword": "minItems", "instance_path": "/triggered_by_adaptation_refs" }]
+}
