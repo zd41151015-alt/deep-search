@@ -1,4 +1,5 @@
 import { canonicalJson } from "../artifact-store/canonical.js";
+import type { DocumentBundleReferenceContext } from "../validators/artifact-validator.js";
 import type { PlanningContractValidationResult } from "../validators/planning-contract-validator.js";
 import {
   createPlanningContractEvaluator,
@@ -91,8 +92,11 @@ function waveAncestors(
 export class PlanSemanticValidator {
   constructor(private readonly contracts: PlanningContractEvaluator) {}
 
-  validateDocumentBundle(value: unknown): PlanValidationResult {
-    const planningContract = this.contracts.validateDocumentBundle(value);
+  validateDocumentBundle(
+    value: unknown,
+    referenceContext: DocumentBundleReferenceContext = {},
+  ): PlanValidationResult {
+    const planningContract = this.contracts.validateDocumentBundle(value, referenceContext);
     const byPath = documentMap(value);
     const context = leafPlanningContexts(value)[0];
     const targetBinding = context?.document.target_plan_binding;

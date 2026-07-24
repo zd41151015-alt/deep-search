@@ -644,24 +644,21 @@ export class RunStore {
         return [effective.trigger_event_ref, effective.user_decision_ref];
       })
       .filter((ref): ref is string => typeof ref === "string");
+    const exactJsonlRecords = new Map<string, Record<string, unknown>>();
     for (const ref of [...new Set(typedJsonlRefs)].sort()) {
       const logPath = ref.split("#", 1)[0];
       if (logPath !== "events.jsonl" && logPath !== "decisions.jsonl") {
         continue;
       }
-      const existing = recoveryDocuments.findIndex((entry) => entry.path === logPath);
-      if (existing >= 0) {
-        recoveryDocuments.splice(existing, 1);
-      }
-      recoveryDocuments.push({
-        path: logPath,
-        document: await this.logs.readExactRecord(runRoot, runId, ref, logPath),
-      });
+      exactJsonlRecords.set(ref, await this.logs.readExactRecord(runRoot, runId, ref, logPath));
     }
-    const bundle = this.validator.validateDocumentBundle({
-      schema_version: "startup_opportunity.document_bundle.v3",
-      documents: recoveryDocuments,
-    });
+    const bundle = this.validator.validateDocumentBundle(
+      {
+        schema_version: "startup_opportunity.document_bundle.v3",
+        documents: recoveryDocuments,
+      },
+      { exactJsonlRecords },
+    );
     if (!bundle.valid) {
       throw new StoreError(
         "recovery.reference_invalid",

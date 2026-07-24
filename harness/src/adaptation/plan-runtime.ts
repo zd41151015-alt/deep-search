@@ -14,7 +14,11 @@ import { withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { type JsonlStore, JsonlStore as RuntimeJsonlStore } from "../run-store/jsonl-store.js";
 import type { BeliefSummary, RunManifest } from "../run-store/run-store.js";
-import type { ArtifactValidator, DocumentBundle } from "../validators/artifact-validator.js";
+import type {
+  ArtifactValidator,
+  DocumentBundle,
+  DocumentBundleReferenceContext,
+} from "../validators/artifact-validator.js";
 import { createArtifactValidator } from "../validators/artifact-validator.js";
 import { planningRunStateHash } from "../validators/planning-contract-identities.js";
 import {
@@ -467,7 +471,8 @@ async function assertAdaptationBundleMatchesStoredArtifacts(
   documents: readonly EffectiveDocument[],
   artifacts: ArtifactStore,
   logs: JsonlStore,
-): Promise<void> {
+): Promise<DocumentBundleReferenceContext> {
+  const exactJsonlRecords = new Map<string, Record<string, unknown>>();
   for (const supplied of documents) {
     if (
       supplied.schemaVersion === "startup_opportunity.adaptation_decision.v2" &&
@@ -480,22 +485,28 @@ async function assertAdaptationBundleMatchesStoredArtifacts(
           { artifactPath: supplied.path },
         );
       }
-      await logs.readExactRecord(
-        runRoot,
-        runId,
+      exactJsonlRecords.set(
         supplied.document.user_decision_ref,
-        "decisions.jsonl",
+        await logs.readExactRecord(
+          runRoot,
+          runId,
+          supplied.document.user_decision_ref,
+          "decisions.jsonl",
+        ),
       );
     }
     if (
       supplied.schemaVersion === "startup_opportunity.gap_snapshot.v1" &&
       typeof supplied.document.trigger_event_ref === "string"
     ) {
-      await logs.readExactRecord(
-        runRoot,
-        runId,
+      exactJsonlRecords.set(
         supplied.document.trigger_event_ref,
-        "events.jsonl",
+        await logs.readExactRecord(
+          runRoot,
+          runId,
+          supplied.document.trigger_event_ref,
+          "events.jsonl",
+        ),
       );
     }
   }
@@ -527,6 +538,7 @@ async function assertAdaptationBundleMatchesStoredArtifacts(
           { artifactPath: supplied.path, recordId: id },
         );
       }
+      exactJsonlRecords.set(`${supplied.path}#${id}`, storedRecord);
       continue;
     }
     let stored: unknown;
@@ -562,6 +574,7 @@ async function assertAdaptationBundleMatchesStoredArtifacts(
       );
     }
   }
+  return { exactJsonlRecords };
 }
 
 async function publishReceipt(
@@ -964,7 +977,7 @@ export class PlanRevisionRuntime {
         "adaptation bundle does not bind the on-disk current plan",
       );
     }
-    await assertAdaptationBundleMatchesStoredArtifacts(
+    const referenceContext = await assertAdaptationBundleMatchesStoredArtifacts(
       runRoot,
       input.runId,
       bundleDocuments,
@@ -977,7 +990,10 @@ export class PlanRevisionRuntime {
         entry.path === "manifest.json" ? { path: "manifest.json", document: manifest } : entry,
       ),
     };
-    const adaptationValidation = this.adaptations.validateDocumentBundle(patchedBundle);
+    const adaptationValidation = this.adaptations.validateDocumentBundle(
+      patchedBundle,
+      referenceContext,
+    );
     if (!adaptationValidation.valid) {
       throw new StoreError(
         "adaptation.policy_invalid",
@@ -1027,7 +1043,10 @@ export class PlanRevisionRuntime {
           "revision actions require an explicit candidate Planning Context bundle",
         );
       }
-      const candidateValidation = this.plans.validateDocumentBundle(input.candidateBundle);
+      const candidateValidation = this.plans.validateDocumentBundle(
+        input.candidateBundle,
+        referenceContext,
+      );
       if (!candidateValidation.valid) {
         throw new StoreError(
           "apply.candidate_plan_invalid",

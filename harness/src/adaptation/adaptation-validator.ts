@@ -1,4 +1,5 @@
 import { canonicalJson } from "../artifact-store/canonical.js";
+import type { DocumentBundleReferenceContext } from "../validators/artifact-validator.js";
 import { sortIssues, type ValidationIssue } from "../validators/schema-bundle.js";
 import {
   documentMap,
@@ -73,8 +74,11 @@ const FOLLOWUP_ACTIONS = new Set(["add_unit", "retry_unit", "supersede_unit"]);
 export class AdaptationPolicyValidator {
   constructor(private readonly plans: PlanSemanticValidator) {}
 
-  validateDocumentBundle(value: unknown): AdaptationValidationResult {
-    const planValidation = this.plans.validateDocumentBundle(value);
+  validateDocumentBundle(
+    value: unknown,
+    referenceContext: DocumentBundleReferenceContext = {},
+  ): AdaptationValidationResult {
+    const planValidation = this.plans.validateDocumentBundle(value, referenceContext);
     const documents = effectiveDocuments(value);
     const byPath = documentMap(value);
     const context = leafPlanningContexts(value)[0];

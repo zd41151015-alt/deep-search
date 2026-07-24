@@ -34,7 +34,20 @@
     "user_decision_log_drift",
     "user_decision_pending_replay_drift",
     "user_decision_applied_replay_drift",
-    "user_decision_reopen_drift"
+    "user_decision_reopen_drift",
+    "multi_decision_old_record_drift",
+    "multi_decision_old_receipt_missing",
+    "multi_decision_old_receipt_drift",
+    "multi_decision_missing_fragment",
+    "multi_decision_wrong_log_type",
+    "multi_decision_wrong_record_type",
+    "multi_decision_wrong_run",
+    "multi_event_old_receipt_drift"
+  ],
+  "multi_jsonl_fragment_cases": [
+    "two_event_fragments_publish_and_reopen",
+    "two_decision_fragments_publish_and_reopen",
+    "two_user_decisions_apply_replay_and_reopen"
   ],
   "gap_cycle_identity_cases": [
     "same_input_stable",

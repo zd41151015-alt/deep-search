@@ -586,6 +586,141 @@ function candidateFor(
   return { transformed, candidateBundle };
 }
 
+async function publishSecondJsonlBackedPair(setup: Awaited<ReturnType<typeof setupPersistedRun>>) {
+  const runId = String(setup.currentManifest.run_id);
+  const eventRecord = triggerEvent(runId, `gap_trigger_second_${runId.replaceAll("-", "_")}`);
+  eventRecord.timestamp = "2026-07-24T12:08:10Z";
+  await setup.store.appendEvent(runId, eventRecord);
+
+  const gapPath = "adaptations/gap-snapshots/gap-runtime-second.r1.json";
+  const gap = gapSnapshot(runId, "scope_invalidated", `${PLAN_REF}#buyer_active`);
+  gap.snapshot_id = "gap_runtime_snapshot_002";
+  gap.snapshot_cycle_key = `enrichment:event:${String(eventRecord.event_id)}`;
+  gap.created_at = "2026-07-24T12:08:20Z";
+  gap.trigger_kind = "artifact_validation_failed";
+  gap.trigger_event_ref = `events.jsonl#${String(eventRecord.event_id)}`;
+  gap.wave_id = null;
+  const gapRecord = (gap.gaps as Record<string, unknown>[])[0] as Record<string, unknown>;
+  gapRecord.gap_id = "gap_runtime_002";
+  gapRecord.recommended_unit_types = ["buyer_language"];
+  await setup.store.publishArtifact({
+    runId,
+    envelope: formalEnvelope(runId, gapPath, gap, [PLAN_REF, String(gap.trigger_event_ref)]),
+  });
+
+  const userDecision = userPlanDecision(runId, `decision_second_${runId.replaceAll("-", "_")}`);
+  userDecision.timestamp = "2026-07-24T12:08:30Z";
+  userDecision.reason = "The user requested the second exact scope supersession.";
+  userDecision.artifact_refs = [gapPath];
+  await setup.store.appendDecision(runId, userDecision);
+
+  const decisionPath = "adaptations/decisions/adapt-supersede-runtime-second.json";
+  const decision = supersedeDecision(runId);
+  decision.adaptation_id = "adapt_supersede_runtime_002";
+  decision.trigger_gap_refs = [`${gapPath}#gap_runtime_002`];
+  decision.requested_by = "user";
+  decision.user_decision_ref = `decisions.jsonl#${String(userDecision.decision_id)}`;
+  decision.created_at = "2026-07-24T12:08:40Z";
+  await setup.store.publishArtifact({
+    runId,
+    envelope: formalEnvelope(runId, decisionPath, decision, [
+      PLAN_REF,
+      gapPath,
+      String(decision.user_decision_ref),
+    ]),
+  });
+  return { eventRecord, gapPath, gap, userDecision, decisionPath, decision };
+}
+
+async function multiDecisionApplyInput(
+  setup: Awaited<ReturnType<typeof setupPersistedRun>>,
+  second: Awaited<ReturnType<typeof publishSecondJsonlBackedPair>>,
+) {
+  const loaded = await setup.store.load(String(setup.currentManifest.run_id));
+  const currentManifest = loaded.manifest as unknown as Record<string, unknown>;
+  const checkpointEnvelope = JSON.parse(
+    await readFile(path.join(setup.runRoot, loaded.lastValidCheckpointRef), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const checkpointEntry = {
+    path: loaded.lastValidCheckpointRef,
+    document: checkpointEnvelope.document,
+  };
+  const decisions = [
+    { path: DECISION_REF, document: setup.decision },
+    { path: second.decisionPath, document: second.decision },
+  ];
+  const transformed = transformPlan(
+    PLAN_REF,
+    setup.plan,
+    currentManifest as never,
+    decisions,
+    "2026-07-24T12:10:00Z",
+  );
+  assert.ok(transformed.plan);
+  const candidateContext = context(currentManifest, transformed.plan, {
+    path: "plans/planning-context.r2.json",
+    revision: 2,
+    parentRef: CONTEXT_REF,
+    stage: "candidate_revision",
+    createdAt: "2026-07-24T12:10:30Z",
+  });
+  const commonDocuments = [
+    { path: "manifest.json", document: currentManifest },
+    { path: PLAN_REF, document: setup.plan },
+    setup.planningContext,
+    { path: GAP_REF, document: setup.gap },
+    { path: second.gapPath, document: second.gap },
+    ...decisions,
+    checkpointEntry,
+  ];
+  const adaptationBundle: DocumentBundle = {
+    schema_version: "startup_opportunity.document_bundle.v2",
+    documents: commonDocuments,
+  };
+  const candidateBundle: DocumentBundle = {
+    schema_version: "startup_opportunity.document_bundle.v2",
+    documents: [
+      ...commonDocuments,
+      { path: transformed.planPath, document: transformed.plan },
+      candidateContext,
+    ],
+  };
+  return {
+    input: {
+      runId: String(currentManifest.run_id),
+      adaptationBundle,
+      adaptationRefs: [DECISION_REF, second.decisionPath],
+      candidateBundle,
+      createdAt: "2026-07-24T12:10:00Z",
+      checkpointCreatedAt: "2026-07-24T12:11:00Z",
+      nextStep: "Resume both independently authorized replacement units.",
+      beliefSummary: {
+        current_belief: "Each user Decision fragment independently authorizes one closed action.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Do both replacement units produce valid Artifacts?",
+      },
+    },
+    transformed,
+  };
+}
+
+async function receiptForRecord(runRoot: string, recordId: string): Promise<string> {
+  const operations = path.join(runRoot, ".store/operations");
+  for (const name of (await readdir(operations)).sort()) {
+    if (!name.startsWith("log-") || !name.endsWith(".json")) {
+      continue;
+    }
+    const filename = path.join(operations, name);
+    const value = JSON.parse(await readFile(filename, "utf8")) as Record<string, unknown>;
+    if (value.record_id === recordId) {
+      return filename;
+    }
+  }
+  throw new Error(`missing receipt for ${recordId}`);
+}
+
 test("Plan semantic validation enforces DAG, output uniqueness, policy tuple, and current bindings", async () => {
   const runId = "plan-semantic-fixture";
   const plan = basePlan(runId);
@@ -1330,6 +1465,278 @@ test("Decision log binding remains fail-closed across pending, applied, and reop
     );
     assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
   }
+});
+
+test("multiple exact Event and Decision fragments publish and reopen in one Run", async (contextTest) => {
+  const setup = await setupPersistedRun(
+    contextTest,
+    "runtime-multiple-jsonl-fragments",
+    "retry",
+    true,
+    true,
+  );
+  const second = await publishSecondJsonlBackedPair(setup);
+
+  const reopened = await setup.store.load("runtime-multiple-jsonl-fragments");
+  assert.ok(reopened.manifest.artifact_refs.includes(GAP_REF));
+  assert.ok(reopened.manifest.artifact_refs.includes(second.gapPath));
+  assert.ok(reopened.manifest.artifact_refs.includes(DECISION_REF));
+  assert.ok(reopened.manifest.artifact_refs.includes(second.decisionPath));
+});
+
+test("multi-record user Decisions apply, replay, and reopen through exact fragments", async (contextTest) => {
+  const setup = await setupPersistedRun(
+    contextTest,
+    "runtime-multiple-decision-apply",
+    "retry",
+    true,
+    true,
+  );
+  const second = await publishSecondJsonlBackedPair(setup);
+  const { input } = await multiDecisionApplyInput(setup, second);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+
+  assert.equal((await runtime.apply(input)).status, "applied");
+  assert.equal((await runtime.apply(input)).status, "idempotent_replay");
+  const reopened = await setup.store.load("runtime-multiple-decision-apply");
+  assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
+  assert.deepEqual(reopened.manifest.applied_adaptation_refs, [DECISION_REF, second.decisionPath]);
+  assert.ok(reopened.manifest.superseded_units.includes("acquisition_failed"));
+  assert.ok(reopened.manifest.superseded_units.includes("buyer_active"));
+});
+
+test("multi-record apply never substitutes another Decision fragment", async (contextTest) => {
+  await contextTest.test(
+    "altered old record is rejected while the newer record remains valid",
+    async (subtest) => {
+      const setup = await setupPersistedRun(
+        subtest,
+        "runtime-multiple-decision-old-drift",
+        "retry",
+        true,
+        true,
+      );
+      const second = await publishSecondJsonlBackedPair(setup);
+      const { input } = await multiDecisionApplyInput(setup, second);
+      const decisionId = String(setup.userDecision?.decision_id);
+      const records = (await readFile(path.join(setup.runRoot, "decisions.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const oldRecord = records.find((record) => record.decision_id === decisionId);
+      assert.ok(oldRecord);
+      oldRecord.reason = "Caller-altered old record that must not resolve to the newer Decision.";
+      await writeFile(
+        path.join(setup.runRoot, "decisions.jsonl"),
+        `${records.map((record) => canonicalJson(record)).join("\n")}\n`,
+      );
+      const before = await planApplyBoundaryState(setup.runRoot);
+      await assert.rejects(
+        (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply(input),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "recovery.missing_operation",
+      );
+      assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+    },
+  );
+
+  await contextTest.test(
+    "missing old receipt is rejected while the newer receipt remains",
+    async (subtest) => {
+      const setup = await setupPersistedRun(
+        subtest,
+        "runtime-multiple-decision-receipt-missing",
+        "retry",
+        true,
+        true,
+      );
+      const second = await publishSecondJsonlBackedPair(setup);
+      const { input } = await multiDecisionApplyInput(setup, second);
+      await rm(await receiptForRecord(setup.runRoot, String(setup.userDecision?.decision_id)), {
+        force: true,
+      });
+      const before = await planApplyBoundaryState(setup.runRoot);
+      await assert.rejects(
+        (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply(input),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "recovery.missing_operation",
+      );
+      assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+    },
+  );
+
+  await contextTest.test(
+    "altered old receipt is rejected while the newer receipt remains",
+    async (subtest) => {
+      const setup = await setupPersistedRun(
+        subtest,
+        "runtime-multiple-decision-receipt-drift",
+        "retry",
+        true,
+        true,
+      );
+      const second = await publishSecondJsonlBackedPair(setup);
+      const { input } = await multiDecisionApplyInput(setup, second);
+      const receiptPath = await receiptForRecord(
+        setup.runRoot,
+        String(setup.userDecision?.decision_id),
+      );
+      const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
+      const record = receipt.record as Record<string, unknown>;
+      record.reason = "The old receipt was altered while the newer receipt remains valid.";
+      await writeFile(receiptPath, `${canonicalJson(receipt)}\n`);
+      const before = await planApplyBoundaryState(setup.runRoot);
+      await assert.rejects(
+        (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply(input),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "recovery.invalid_operation",
+      );
+      assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+    },
+  );
+
+  await contextTest.test(
+    "missing old fragment is not replaced by the newer record",
+    async (subtest) => {
+      const setup = await setupPersistedRun(
+        subtest,
+        "runtime-multiple-decision-fragment-missing",
+        "retry",
+        true,
+        true,
+      );
+      const second = await publishSecondJsonlBackedPair(setup);
+      const { input } = await multiDecisionApplyInput(setup, second);
+      const oldDecision = input.adaptationBundle.documents.find(
+        (entry) => entry.path === DECISION_REF,
+      )?.document;
+      assert.ok(oldDecision);
+      oldDecision.user_decision_ref = "decisions.jsonl#decision_missing_old";
+      const before = await planApplyBoundaryState(setup.runRoot);
+      await assert.rejects(
+        (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply(input),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "reference.fragment_missing",
+      );
+      assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+    },
+  );
+
+  await contextTest.test(
+    "wrong log type is not replaced by a matching Event fragment",
+    async (subtest) => {
+      const setup = await setupPersistedRun(
+        subtest,
+        "runtime-multiple-decision-wrong-type",
+        "retry",
+        true,
+        true,
+      );
+      const second = await publishSecondJsonlBackedPair(setup);
+      const { input } = await multiDecisionApplyInput(setup, second);
+      const oldDecision = input.adaptationBundle.documents.find(
+        (entry) => entry.path === DECISION_REF,
+      )?.document;
+      assert.ok(oldDecision);
+      oldDecision.user_decision_ref = `events.jsonl#${String(second.eventRecord.event_id)}`;
+      const before = await planApplyBoundaryState(setup.runRoot);
+      await assert.rejects(
+        (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply(input),
+        (error: unknown) => error instanceof StoreError && error.code === "reference.type_mismatch",
+      );
+      assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+    },
+  );
+
+  await contextTest.test(
+    "wrong record type is not replaced by the newer Decision",
+    async (subtest) => {
+      const setup = await setupPersistedRun(
+        subtest,
+        "runtime-multiple-decision-record-type",
+        "retry",
+        true,
+        true,
+      );
+      const second = await publishSecondJsonlBackedPair(setup);
+      const { input } = await multiDecisionApplyInput(setup, second);
+      const decisionId = String(setup.userDecision?.decision_id);
+      const records = (await readFile(path.join(setup.runRoot, "decisions.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const oldRecord = records.find((record) => record.decision_id === decisionId);
+      assert.ok(oldRecord);
+      oldRecord.schema_version = "startup_opportunity.event.v1";
+      await writeFile(
+        path.join(setup.runRoot, "decisions.jsonl"),
+        `${records.map((record) => canonicalJson(record)).join("\n")}\n`,
+      );
+      const before = await planApplyBoundaryState(setup.runRoot);
+      await assert.rejects(
+        (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply(input),
+        (error: unknown) => error instanceof StoreError && error.code === "reference.type_mismatch",
+      );
+      assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+    },
+  );
+
+  await contextTest.test(
+    "wrong-Run old record is rejected while the newer record remains valid",
+    async (subtest) => {
+      const setup = await setupPersistedRun(
+        subtest,
+        "runtime-multiple-decision-wrong-run",
+        "retry",
+        true,
+        true,
+      );
+      const second = await publishSecondJsonlBackedPair(setup);
+      const { input } = await multiDecisionApplyInput(setup, second);
+      const decisionId = String(setup.userDecision?.decision_id);
+      const records = (await readFile(path.join(setup.runRoot, "decisions.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const oldRecord = records.find((record) => record.decision_id === decisionId);
+      assert.ok(oldRecord);
+      oldRecord.run_id = "run_foreign_001";
+      await writeFile(
+        path.join(setup.runRoot, "decisions.jsonl"),
+        `${records.map((record) => canonicalJson(record)).join("\n")}\n`,
+      );
+      const before = await planApplyBoundaryState(setup.runRoot);
+      await assert.rejects(
+        (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply(input),
+        (error: unknown) => error instanceof StoreError && error.code === "reference.run_mismatch",
+      );
+      assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+    },
+  );
+});
+
+test("multi-record reopen binds each Event receipt independently", async (contextTest) => {
+  const setup = await setupPersistedRun(
+    contextTest,
+    "runtime-multiple-event-receipt-drift",
+    "retry",
+    true,
+    true,
+  );
+  await publishSecondJsonlBackedPair(setup);
+  const receiptPath = await receiptForRecord(
+    setup.runRoot,
+    String(setup.triggerEventRecord?.event_id),
+  );
+  const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
+  const record = receipt.record as Record<string, unknown>;
+  record.reason = "The old Event receipt was altered while the newer Event remains valid.";
+  await writeFile(receiptPath, `${canonicalJson(receipt)}\n`);
+
+  await assert.rejects(
+    setup.store.load("runtime-multiple-event-receipt-drift"),
+    (error: unknown) => error instanceof StoreError && error.code === "recovery.invalid_operation",
+  );
 });
 
 test("Plan Revision apply is CAS-safe, immutable, and idempotent on a real Run", async (contextTest) => {

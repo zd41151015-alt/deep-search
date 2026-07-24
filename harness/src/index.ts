@@ -105,6 +105,7 @@ export type {
   ArtifactValidationResult,
   DocumentBundle,
   DocumentBundleEntry,
+  DocumentBundleReferenceContext,
   DocumentBundleValidationResult,
 } from "./validators/artifact-validator.js";
 export {

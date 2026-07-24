@@ -626,6 +626,7 @@ export class ArtifactStore {
         const target = ref.split("#", 1)[0];
         return target === "events.jsonl" || target === "decisions.jsonl";
       });
+    const exactJsonlRecords = new Map<string, Record<string, unknown>>();
     for (const ref of [...new Set(typedJsonlRefs)].sort()) {
       const parsed = validateArtifactRef(ref);
       if (parsed.path !== "events.jsonl" && parsed.path !== "decisions.jsonl") {
@@ -633,20 +634,19 @@ export class ArtifactStore {
           ref,
         });
       }
-      const existingLog = documents.findIndex((entry) => entry.path === parsed.path);
-      if (existingLog >= 0) {
-        documents.splice(existingLog, 1);
-      }
-      documents.push({
-        path: parsed.path,
-        document: await this.logs.readExactRecord(runRoot, envelope.run_id, ref, parsed.path),
-      });
+      exactJsonlRecords.set(
+        ref,
+        await this.logs.readExactRecord(runRoot, envelope.run_id, ref, parsed.path),
+      );
     }
     const bundleVersion = inputBundleVersion(envelope.schema_version);
-    const bundleResult = this.validator.validateDocumentBundle({
-      schema_version: bundleVersion,
-      documents,
-    });
+    const bundleResult = this.validator.validateDocumentBundle(
+      {
+        schema_version: bundleVersion,
+        documents,
+      },
+      { exactJsonlRecords },
+    );
     if (!bundleResult.valid) {
       throw new StoreError("artifact.reference_invalid", "formal artifact references are invalid", {
         bundleErrors: bundleResult.bundleErrors,

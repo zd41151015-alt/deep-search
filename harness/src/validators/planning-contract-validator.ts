@@ -3,6 +3,7 @@ import path from "node:path";
 import { canonicalContentHash } from "../artifact-store/canonical.js";
 import type {
   ArtifactValidationResult,
+  DocumentBundleReferenceContext,
   DocumentBundleValidationResult,
 } from "./artifact-validator.js";
 import { type ArtifactValidator, createArtifactValidator } from "./artifact-validator.js";
@@ -200,8 +201,11 @@ export class PlanningContractEvaluator {
     private readonly triggerSourcePolicyValidation: ArtifactValidationResult,
   ) {}
 
-  validateDocumentBundle(value: unknown): PlanningContractValidationResult {
-    const documentBundle = this.artifactValidator.validateDocumentBundle(value);
+  validateDocumentBundle(
+    value: unknown,
+    referenceContext: DocumentBundleReferenceContext = {},
+  ): PlanningContractValidationResult {
+    const documentBundle = this.artifactValidator.validateDocumentBundle(value, referenceContext);
     const documents = effectiveDocuments(value);
     const documentsByPath = new Map(documents.map((document) => [document.path, document]));
     const errors: ValidationIssue[] = [];

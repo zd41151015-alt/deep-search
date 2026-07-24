@@ -35,6 +35,10 @@ export interface DocumentBundle {
   readonly documents: readonly DocumentBundleEntry[];
 }
 
+export interface DocumentBundleReferenceContext {
+  readonly exactJsonlRecords?: ReadonlyMap<string, Record<string, unknown>>;
+}
+
 export interface DocumentBundleValidationResult {
   readonly schemaVersion: typeof DOCUMENT_BUNDLE_VALIDATION_RESULT_VERSION;
   readonly schemaBundleVersion: string;
@@ -408,6 +412,30 @@ function targetByRef(
   return documentsByPath.get(ref.split("#", 1)[0] ?? "") ?? null;
 }
 
+function exactJsonlTarget(
+  requirement: ReferenceRequirement,
+  targetPath: string,
+  fragment: string | undefined,
+  context: DocumentBundleReferenceContext,
+): EffectiveDocument | null {
+  if (
+    fragment === undefined ||
+    (targetPath !== "events.jsonl" && targetPath !== "decisions.jsonl")
+  ) {
+    return null;
+  }
+  const document = context.exactJsonlRecords?.get(requirement.ref);
+  if (document === undefined) {
+    return null;
+  }
+  return {
+    path: targetPath,
+    schemaVersion: schemaVersionOf(document) ?? "",
+    document,
+    envelope: null,
+  };
+}
+
 function recordById(
   document: Record<string, unknown>,
   collection: "gaps" | "units",
@@ -503,7 +531,10 @@ export class ArtifactValidator {
     };
   }
 
-  validateDocumentBundle(value: unknown): DocumentBundleValidationResult {
+  validateDocumentBundle(
+    value: unknown,
+    referenceContext: DocumentBundleReferenceContext = {},
+  ): DocumentBundleValidationResult {
     const bundleResult = this.validateDocument(value);
     if (!bundleResult.valid || !isRecord(value) || !Array.isArray(value.documents)) {
       return {
@@ -569,7 +600,8 @@ export class ArtifactValidator {
     for (const source of effectiveDocuments) {
       for (const requirement of referenceRequirements(source)) {
         const [targetPath = "", fragment] = requirement.ref.split("#", 2);
-        const target = documentsByPath.get(targetPath);
+        const exactTarget = exactJsonlTarget(requirement, targetPath, fragment, referenceContext);
+        const target = exactTarget ?? documentsByPath.get(targetPath);
         const qualifiedPath = `${source.path}#${requirement.instancePath}`;
         if (!target) {
           referenceErrors.push(
@@ -584,6 +616,20 @@ export class ArtifactValidator {
             ),
           );
           continue;
+        }
+        if (exactTarget !== null) {
+          const targetValidation = this.validateDocument(exactTarget.document, requirement.ref);
+          if (!targetValidation.valid) {
+            referenceErrors.push(
+              referenceIssue(
+                "reference.target_invalid",
+                qualifiedPath,
+                "typed JSONL reference target is not schema-valid",
+                { ref: requirement.ref, errors: targetValidation.errors },
+              ),
+            );
+            continue;
+          }
         }
         if (!requirement.expectedSchemaVersions.includes(target.schemaVersion)) {
           referenceErrors.push(
