@@ -289,6 +289,25 @@ function triggerEvent(runId: string, eventId: string): Record<string, unknown> {
   };
 }
 
+function eventGapCycleKey(
+  plan: Record<string, unknown>,
+  eventRef: string,
+  eventId: string,
+): string {
+  return operationKey("gap_snapshot_cycle", {
+    base_plan: {
+      ref: PLAN_REF,
+      content_hash: canonicalContentHash(plan),
+    },
+    trigger: {
+      kind: "artifact_validation_failed",
+      event_ref: eventRef,
+      event_id: eventId,
+    },
+    observed_artifacts: [],
+  });
+}
+
 function userPlanDecision(runId: string, decisionId: string): Record<string, unknown> {
   return {
     schema_version: "startup_opportunity.decision.v1",
@@ -440,6 +459,11 @@ async function setupPersistedRun(
     gap.trigger_kind = "artifact_validation_failed";
     gap.trigger_event_ref = `events.jsonl#${String(triggerEventRecord.event_id)}`;
     gap.wave_id = null;
+    gap.snapshot_cycle_key = eventGapCycleKey(
+      plan,
+      String(gap.trigger_event_ref),
+      String(triggerEventRecord.event_id),
+    );
   }
   const decision = action === "retry" ? retryDecision(runId) : supersedeDecision(runId);
   const userDecision = requestedByUser
@@ -595,11 +619,15 @@ async function publishSecondJsonlBackedPair(setup: Awaited<ReturnType<typeof set
   const gapPath = "adaptations/gap-snapshots/gap-runtime-second.r1.json";
   const gap = gapSnapshot(runId, "scope_invalidated", `${PLAN_REF}#buyer_active`);
   gap.snapshot_id = "gap_runtime_snapshot_002";
-  gap.snapshot_cycle_key = `enrichment:event:${String(eventRecord.event_id)}`;
   gap.created_at = "2026-07-24T12:08:20Z";
   gap.trigger_kind = "artifact_validation_failed";
   gap.trigger_event_ref = `events.jsonl#${String(eventRecord.event_id)}`;
   gap.wave_id = null;
+  gap.snapshot_cycle_key = eventGapCycleKey(
+    setup.plan,
+    String(gap.trigger_event_ref),
+    String(eventRecord.event_id),
+  );
   const gapRecord = (gap.gaps as Record<string, unknown>[])[0] as Record<string, unknown>;
   gapRecord.gap_id = "gap_runtime_002";
   gapRecord.recommended_unit_types = ["buyer_language"];
@@ -1503,6 +1531,113 @@ test("multi-record user Decisions apply, replay, and reopen through exact fragme
   assert.deepEqual(reopened.manifest.applied_adaptation_refs, [DECISION_REF, second.decisionPath]);
   assert.ok(reopened.manifest.superseded_units.includes("acquisition_failed"));
   assert.ok(reopened.manifest.superseded_units.includes("buyer_active"));
+});
+
+test("G0.R replays two exact Event and Decision chains through one filesystem batch", async (contextTest) => {
+  const runId = "foundation-regression-exact-jsonl";
+  const setup = await setupPersistedRun(contextTest, runId, "retry", true, true);
+  const second = await publishSecondJsonlBackedPair(setup);
+  assert.ok(setup.triggerEventRecord);
+  assert.ok(setup.userDecision);
+
+  const firstEventRef = String(setup.gap.trigger_event_ref);
+  const secondEventRef = String(second.gap.trigger_event_ref);
+  assert.equal(
+    setup.gap.snapshot_cycle_key,
+    eventGapCycleKey(setup.plan, firstEventRef, String(setup.triggerEventRecord.event_id)),
+  );
+  assert.equal(
+    second.gap.snapshot_cycle_key,
+    eventGapCycleKey(setup.plan, secondEventRef, String(second.eventRecord.event_id)),
+  );
+  assert.notEqual(setup.gap.snapshot_cycle_key, second.gap.snapshot_cycle_key);
+
+  const eventRecords = (await readFile(path.join(setup.runRoot, "events.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  const decisionRecords = (await readFile(path.join(setup.runRoot, "decisions.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  assert.equal(
+    eventRecords.filter((record) =>
+      [setup.triggerEventRecord?.event_id, second.eventRecord.event_id].includes(record.event_id),
+    ).length,
+    2,
+  );
+  assert.equal(
+    decisionRecords.filter((record) =>
+      [setup.userDecision?.decision_id, second.userDecision.decision_id].includes(
+        record.decision_id,
+      ),
+    ).length,
+    2,
+  );
+  const exactReceiptPaths = await Promise.all([
+    receiptForRecord(setup.runRoot, String(setup.triggerEventRecord.event_id)),
+    receiptForRecord(setup.runRoot, String(second.eventRecord.event_id)),
+    receiptForRecord(setup.runRoot, String(setup.userDecision.decision_id)),
+    receiptForRecord(setup.runRoot, String(second.userDecision.decision_id)),
+  ]);
+  assert.equal(new Set(exactReceiptPaths).size, 4);
+
+  const immutablePaths = [GAP_REF, second.gapPath, DECISION_REF, second.decisionPath];
+  const beforeApply = await Promise.all(
+    immutablePaths.map((artifactPath) => readFile(path.join(setup.runRoot, artifactPath), "utf8")),
+  );
+  const { input } = await multiDecisionApplyInput(setup, second);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  assert.equal((await runtime.apply(input)).status, "applied");
+  assert.equal((await runtime.apply(input)).status, "idempotent_replay");
+  const reopened = await setup.store.load(runId);
+  assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
+  assert.deepEqual(reopened.manifest.applied_adaptation_refs, [DECISION_REF, second.decisionPath]);
+  assert.deepEqual(
+    await Promise.all(
+      immutablePaths.map((artifactPath) =>
+        readFile(path.join(setup.runRoot, artifactPath), "utf8"),
+      ),
+    ),
+    beforeApply,
+  );
+
+  const artifactValidator = await createArtifactValidator(repositoryRoot);
+  const duplicatePathBundle = artifactValidator.validateDocumentBundle(
+    {
+      schema_version: "startup_opportunity.document_bundle.v3",
+      documents: [
+        { path: "events.jsonl", document: setup.triggerEventRecord },
+        { path: "events.jsonl", document: second.eventRecord },
+      ],
+    },
+    {
+      exactJsonlRecords: new Map([
+        [firstEventRef, setup.triggerEventRecord],
+        [secondEventRef, second.eventRecord],
+      ]),
+    },
+  );
+  assert.equal(duplicatePathBundle.valid, false);
+  assert.ok(
+    duplicatePathBundle.referenceErrors.some((error) => error.code === "reference.duplicate_path"),
+  );
+});
+
+test("G0.R reopen rejects a missing newer Event receipt before Plan state writes", async (contextTest) => {
+  const runId = "foundation-regression-new-event-receipt";
+  const setup = await setupPersistedRun(contextTest, runId, "retry", true, true);
+  const second = await publishSecondJsonlBackedPair(setup);
+  await rm(await receiptForRecord(setup.runRoot, String(second.eventRecord.event_id)), {
+    force: true,
+  });
+
+  const before = await planApplyBoundaryState(setup.runRoot);
+  await assert.rejects(
+    setup.store.load(runId),
+    (error: unknown) => error instanceof StoreError && error.code === "recovery.missing_operation",
+  );
+  assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
 });
 
 test("multi-record apply never substitutes another Decision fragment", async (contextTest) => {
