@@ -17,6 +17,7 @@
 - Subagents 负责边界清晰、可并行的研究 lane、证据审计和对抗式复核。
 - Skill 定义可复用方法，custom agent 定义角色，脚本执行确定性操作，MCP 提供外部数据工具，hooks 只承担生命周期约束和记录。
 - 仓库内 Research Harness 负责 run 状态、Decision Context、Evidence Store、artifact schema、引用校验、checkpoint、幂等写入、比较、决策简报和报告生成。
+- 每个 research wave 后由结构化 Gap Snapshot 汇总已收集数据中的缺口和停止信号；主 Agent 只能通过受控 Adaptation Decision 提议追加、取消、跳过、重试、替换或停止研究动作，Harness 校验后生成不可变 Plan Revision。
 - 聊天消息和 subagent 最终回复不是正式事实源。正式事实源是 `runs/<run_id>/` 下通过校验的结构化产物。
 - 首版不实现 token、cost、lifetime budget、resource ledger 或精细预算统计。
 - 首版不采集用户可投入的外部验证金额、人数或资源预算；验证建议只披露相对 effort，不声称适配用户的实际预算。
@@ -145,6 +146,7 @@ GPT Researcher 的 deep 模式仍是 Research Kernel 的流程参考，但不作
 - 所有 profile 先形成 solution-neutral Demand Thesis，再比较多个 Solution Hypothesis 和 Baseline Option。
 - AI 能力只能作为解决方案证据，不直接构成创业机会。
 - 让主 Agent 根据当前证据缺口规划有限 follow-up，而不是预先固定所有查询。
+- 让数据驱动的运行时调整具有显式触发依据、closed action、计划版本、证据引用和恢复语义，而不是依赖主 Agent 临场改写计划。
 - 通过 JSON Schema、确定性脚本和独立 reviewer 提高一致性。
 - 通过 run directory 和 checkpoint 支持跨会话恢复，不把聊天历史当成唯一状态。
 - 同时生成机器可读 JSON、默认面向用户的 Markdown 决策简报和完整 Markdown 报告。
@@ -152,6 +154,7 @@ GPT Researcher 的 deep 模式仍是 Research Kernel 的流程参考，但不作
 ## 5. 非目标
 
 - 不建设通用 Dynamic DAG Runtime、Workflow Definition DSL 或 Recipe Registry。
+- 不提供任意条件表达式、任意节点注入或可执行代码形式的动态路由；动态调整只能使用本领域发布的 gap type、adaptation action、unit type 和 policy。
 - 不建设通用工作流平台兼容层，也不引入 host/container/IPC/Workbench 作为运行前提。
 - 不建设多用户 SaaS、独立 Web 前端、任务队列或运营后台。
 - 不以 custom command 作为唯一入口；Codex 桌面主窗口未明确支持自定义 `/prompts:*` command，因此入口统一为 Skill。
@@ -443,6 +446,22 @@ final_decision_owner
 
 AI 产品和非 AI 产品都必须说明从用户价值到可持续业务的基本闭环，包括定价单位、使用或购买频率、留存或复购触发、毛利与服务负担、获客假设、回收逻辑、可触达 beachhead、渠道依赖、增长回路和 minimum viable scale。宽泛 TAM 不能替代可触达市场和业务闭环判断。
 
+### 6.27 调整先结构化，再执行
+
+主 Agent 可以判断证据是否矛盾、哪个缺口最可能改变决策以及下一步研究目标，但不得直接改写当前计划或静默启动额外 unit。每次数据驱动调整必须形成：
+
+```text
+validated artifacts
+  -> Gap Snapshot
+  -> Adaptation Decision proposal
+  -> deterministic policy validation
+  -> immutable Plan Revision
+  -> scheduler execution
+  -> checkpoint
+```
+
+Gap Snapshot 说明“观察到了什么”，Adaptation Decision 说明“建议改变什么以及为什么”，Plan Revision 说明“系统批准后的有效计划是什么”。语义判断与机械执行分离：LLM 负责开放式研究判断，Harness 负责边界、幂等、版本、引用和恢复。
+
 ## 7. 总体架构
 
 ### 7.1 三层模型
@@ -467,7 +486,9 @@ $startup-opportunity
   -> validate plan
   -> execute research waves with subagents
   -> validate branch artifacts
-  -> gap analysis and bounded follow-up
+  -> build Gap Snapshot
+  -> propose and validate bounded Adaptation Decision
+  -> apply immutable Plan Revision when needed
   -> domain synthesis
   -> adversarial review
   -> deterministic gates / four-panel comparison / sensitivity
@@ -483,7 +504,7 @@ $startup-opportunity
 | `AGENTS.md` | 仓库级恒定规则、正式产物要求和验证命令 |
 | Skill | 唯一入口和可复用研究方法 |
 | Skill references | 两种模式、lane playbook、schema 和报告规范 |
-| Skill scripts | 创建 run、验证、记录证据、比较、checkpoint、决策简报和报告 |
+| Skill scripts | 创建 run、验证、gap 聚合、adaptation 校验、Plan Revision 应用、记录证据、比较、checkpoint、决策简报和报告 |
 | Custom agents | lane researcher、evidence auditor、adversarial reviewer |
 | Subagents | 并行执行边界清晰的研究任务 |
 | MCP | 搜索、抓取、榜单、评论、趋势和外部结构化数据 |
@@ -498,7 +519,7 @@ $startup-opportunity
 - 当前 run id、action、mode 和 status。
 - 当前 DecisionContext、初始判断和 belief update。
 - scope assumptions 和用户决策。
-- research plan、已完成 lane 和待处理 gap。
+- 当前 research plan revision、历史 plan lineage、已完成 lane、Gap Snapshot 和待处理 Adaptation Decision。
 - Evidence、Claim、Finding、Insight、Judgment Assessment 和 source manifest。
 - Artifact schema version 和校验结果。
 - 当前候选、淘汰理由、hard gate 和 limitations。
@@ -538,6 +559,9 @@ deep-search/
           create-run
           load-run
           validate-plan
+          analyze-gaps
+          validate-adaptation
+          apply-plan-revision
           record-evidence
           validate-artifact
           checkpoint-run
@@ -549,6 +573,7 @@ deep-search/
   harness/
     schemas/
     policies/
+      adaptation.v1.json
     templates/
     evals/
     src/
@@ -556,6 +581,7 @@ deep-search/
       evidence-store/
       artifact-store/
       validators/
+      adaptation/
       comparison/
       reporting/
 
@@ -703,11 +729,12 @@ requested_output_count
 4. status 只生成状态摘要，不启动 subagent。
 5. 新 Run 先形成 DecisionContext，再执行 scope framing，并记录用户澄清和初始判断。
 6. 加载对应 mode reference，而不是把两套完整流程同时放入上下文。
-7. 生成 research-plan.json 并运行 deterministic validation。
+7. 生成 `plans/research-plan.r1.json` 并运行 deterministic validation。
 8. 按 wave 启动 bounded subagents。
-9. 每个 wave 结束后校验 artifact、checkpoint 和 gap。
-10. 满足停止条件后执行综合、复核、比较和推荐。
-11. 从同一 report.json 生成 decision-brief.md 和 report.md，验证一致性后再向用户汇报。
+9. 每个 wave 结束后先校验 artifact，再生成 Gap Snapshot。
+10. 主 Agent 为每个 decision-relevant gap 提出 Adaptation Decision；没有此类 gap 时可以不提案，Harness 校验动作并在需要改变计划时原子应用下一版 Plan Revision。
+11. 写 checkpoint 后执行新 revision，或在满足停止条件时进入综合、复核、比较和推荐。
+12. 从同一 report.json 生成 decision-brief.md 和 report.md，验证一致性后再向用户汇报。
 ```
 
 Skill 必须使用 progressive disclosure：
@@ -730,6 +757,7 @@ Skill 必须使用 progressive disclosure：
 - Subagent 必须写入分配的 output path，不能覆盖其他 lane 文件。
 - report.json、决策简报和完整报告必须通过 schema、traceability、freshness 和一致性校验。
 - 用户对 scope 和候选的纠偏必须写入 `decisions.jsonl`。
+- 主 Agent 不得直接覆盖 current plan；所有运行时调整必须经过 Gap Snapshot、Adaptation Decision、policy validation 和幂等 Plan Revision 应用。
 - 不执行外部验证动作或其他有业务副作用的操作。
 - 指定 lint、schema validation 和 eval 命令。
 
@@ -769,7 +797,12 @@ runs/<run_id>/
   decision-context.json
   manifest.json
   scope-frame.json
-  research-plan.json
+  plans/
+    research-plan.r1.json
+    research-plan.r2.json
+  adaptations/
+    gap-snapshots/
+    decisions/
   decisions.jsonl
   events.jsonl
   evidence/
@@ -815,7 +848,7 @@ insufficient_evidence
 cancelled
 ```
 
-`created` 或 `decision_framed` 可以在高影响输入缺失时进入 `needs_clarification`，澄清后回到 `decision_framed` 或继续 `scoped`。
+`created` 或 `decision_framed` 可以在高影响输入缺失时进入 `needs_clarification`。`planned`、`researching`、`synthesizing` 或 `reviewing` 只有在 validated `request_clarification` Adaptation Decision 后才能进入该状态，并保存原状态和 checkpoint；澄清后生成 event-driven Gap Snapshot，回到原阶段的下一安全边界。
 
 `resume` 只允许从 `paused`、`failed`、`needs_clarification` 或可恢复的中间状态继续。`completed` 默认只读；用户要求深入研究时创建新的 continuation Run，并记录 parent run id，避免改写历史报告。
 
@@ -829,6 +862,7 @@ cancelled
   "run_id": "2026-07-23-pet-care",
   "mode": "opportunity_discovery",
   "status": "researching",
+  "status_before_clarification": null,
   "parent_run_id": null,
   "created_at": "2026-07-23T00:00:00Z",
   "updated_at": "2026-07-23T01:00:00Z",
@@ -837,9 +871,22 @@ cancelled
   "schema_bundle_version": "1.0.0",
   "git_commit": null,
   "current_phase": "discovery_wave_1",
+  "current_plan_ref": "plans/research-plan.r2.json",
+  "plan_revision": 2,
+  "followup_round": 1,
+  "latest_gap_snapshot_ref": "adaptations/gap-snapshots/gap-wave-1.r1.json",
+  "pending_adaptation_refs": [],
+  "validated_adaptation_refs": [],
+  "rejected_adaptation_refs": [],
+  "applied_adaptation_refs": ["adaptations/decisions/adapt-002.json"],
   "completed_units": [],
   "active_units": [],
   "failed_units": [],
+  "invalidated_units": [],
+  "skipped_units": [],
+  "cancelled_units": [],
+  "superseded_units": [],
+  "ignored_late_artifact_refs": [],
   "artifact_refs": [],
   "checkpoint_ref": null,
   "limitations": []
@@ -860,8 +907,15 @@ plan_validated
 research_unit_started
 research_unit_completed
 artifact_validation_failed
+gap_snapshot_created
+adaptation_proposed
+adaptation_validated
+adaptation_rejected
+adaptation_applied
+plan_revision_created
+research_unit_invalidated
 checkpoint_written
-followup_added
+followup_stopped
 report_completed
 ```
 
@@ -875,12 +929,15 @@ belief_changed_by_evidence
 remaining_disagreement_recorded
 candidate_rejected_by_user
 followup_requested_by_user
+plan_change_requested_by_user
 limitation_accepted
 run_paused
 run_cancelled
 ```
 
 事件和决定都必须包含 timestamp、actor、reason 和相关 artifact refs。事件日志用于审计，不需要模拟完整分布式事务日志。
+
+Adaptation ref 在 manifest 中按 `pending -> validated -> applied` 推进，或从 pending/validated 进入 `rejected`；同一 ref 不能同时存在于互斥状态集合。Event 是审计事实，manifest 是当前索引，恢复时两者必须对账。
 
 ### 11.5 Checkpoint
 
@@ -890,11 +947,12 @@ run_cancelled
 - scope 完成。
 - plan 通过校验。
 - 每个 research wave 完成。
+- 每次 Plan Revision 应用或 Adaptation Decision 被拒绝且需要人工处理。
 - synthesis 完成。
 - adversarial review 完成。
 - report.json、decision brief 和 full report 完成。
 
-Checkpoint 保存当前 manifest snapshot、已完成 unit、artifact refs、未解决 gaps 和下一步建议。恢复时先验证引用存在，再从最后一个有效 checkpoint 继续。
+Checkpoint 保存当前 manifest snapshot、current plan ref 和 revision、已完成或失效 unit、artifact refs、最新 Gap Snapshot、已应用或待处理 Adaptation Decision、未解决 gaps 和下一步建议。恢复时先验证 plan lineage 和引用存在，再从最后一个有效 checkpoint 继续。
 
 Codex session resume 可以帮助恢复对话，但不能跳过上述领域恢复检查。
 
@@ -910,13 +968,20 @@ Research Plan 是一次 Run 的受约束执行计划，不是通用 Graph IR。�
 - 每个 unit 的研究目标、输入、输出和停止条件。
 - 哪些条件允许产生 follow-up。
 
+初始计划是 revision 1。后续计划只能由通过校验的 Adaptation Decision 派生；所有 revision 不可变，`manifest.current_plan_ref` 指向唯一生效版本。主 Agent、subagent 和 hook 都不能直接覆盖当前 plan 文件。
+
 ### 12.2 Plan schema
 
 ```json
 {
   "schema_version": "startup_opportunity.research_plan.v1",
+  "plan_id": "plan_2026-07-23-pet-care",
   "run_id": "2026-07-23-pet-care",
   "mode": "opportunity_discovery",
+  "revision": 1,
+  "parent_plan_ref": null,
+  "triggered_by_adaptation_refs": [],
+  "created_at": "2026-07-23T00:05:00Z",
   "research_questions": [
     {
       "question_id": "rq_001",
@@ -953,6 +1018,10 @@ Research Plan 是一次 Run 的受约束执行计划，不是通用 Graph IR。�
         {
           "unit_id": "user_language_cn",
           "unit_type": "user_language_mining",
+          "plan_disposition": "enabled",
+          "priority_band": "normal",
+          "attempt": 1,
+          "supersedes_unit_ref": null,
           "research_goal": "提取目标用户在问题发生时的自然语言",
           "input_refs": ["scope-frame.json"],
           "agent_role": "lane-researcher",
@@ -971,8 +1040,9 @@ Research Plan 是一次 Run 的受约束执行计划，不是通用 Graph IR。�
       ]
     }
   ],
+  "adaptation_policy_ref": "harness/policies/adaptation.v1.json",
   "followup_policy": {
-    "max_rounds": 2,
+    "max_followup_rounds": 2,
     "require_decision_relevance": true,
     "stop_when_no_material_new_evidence": true
   }
@@ -1028,6 +1098,9 @@ Planner 可以创建多个具有不同 unit id 的 `ai_capability_evidence` unit
 确定性 validator 至少检查：
 
 - unit id 和 output path 唯一。
+- unit 的 `plan_disposition` 使用 `enabled | skipped | cancelled | superseded`；运行时 `active/completed/failed` 状态只保存在 manifest/events，不混入计划语义。
+- `priority_band` 使用 `low | normal | high | blocking`，只影响满足依赖后的调度次序，不允许绕过 wave dependency。
+- retry/supersede unit 的 attempt、前序 unit ref 和新 output path 完整，lineage 不形成循环。
 - 所有 dependency 指向已声明 wave/unit。
 - 不存在循环依赖。
 - unit type、agent role 和 schema 在 allowlist 中。
@@ -1044,6 +1117,9 @@ Planner 可以创建多个具有不同 unit id 的 `ai_capability_evidence` unit
 - challenger query 不得仅复用正向 query 添加否定词。
 - candidate retention policy 不使用固定 TopN，且包含多样性和最小证据要求。
 - follow-up 有最大轮数和停止条件。
+- revision 为单调递增整数；revision 1 没有 parent，后续 revision 必须回连当前 plan 和至少一个已批准 Adaptation Decision。
+- `triggered_by_adaptation_refs` 中的决定都以该 revision 的 parent plan 为基础，且没有被重复应用。
+- 已完成或被下游 checkpoint 引用的 unit 不被删除或原地改写；调整只能保留、失效、跳过、重试或以新 unit supersede。
 
 ### 12.5 自适应 follow-up
 
@@ -1068,6 +1144,171 @@ stop_condition
 
 新增证据不再改变这些结果，或者连续一轮没有 material new evidence 时停止 follow-up。
 
+### 12.6 Gap Snapshot
+
+每个 wave 的 branch artifacts 通过 schema/reference validation 后，先生成 Gap Snapshot，再决定是否继续。用户中途改变 scope/优先级、artifact validation 失败、adversarial review 提出翻转性缺口时也可以立即生成 event-driven Snapshot，不必等待当前 wave 自然结束。Gap Snapshot 只描述当前数据状态和决策影响，不直接修改计划：
+
+```json
+{
+  "schema_version": "startup_opportunity.gap_snapshot.v1",
+  "snapshot_id": "gap_wave_1_r1",
+  "snapshot_cycle_key": "discovery:wave_1:<observed-artifact-hash-set>",
+  "run_id": "2026-07-23-pet-care",
+  "based_on_plan_ref": "plans/research-plan.r1.json",
+  "revision": 1,
+  "parent_snapshot_ref": null,
+  "created_at": "2026-07-23T00:25:00Z",
+  "trigger_kind": "wave_completed",
+  "trigger_event_ref": null,
+  "phase": "discovery",
+  "wave_id": "wave_1",
+  "observed_artifact_refs": ["artifacts/lanes/user_language_cn.json"],
+  "gaps": [
+    {
+      "gap_id": "gap_buyer_001",
+      "subject_ref": "opportunity_003",
+      "gap_type": "buyer_evidence_insufficient",
+      "detection_mode": "agent_semantic",
+      "triggered_by": {
+        "judgment_ref": "judgment_buyer_003",
+        "decision_sufficiency": "insufficient",
+        "independent_source_count": 0
+      },
+      "decision_impact": ["hard_gate", "recommendation_band"],
+      "severity": "blocking",
+      "basis_refs": ["artifacts/lanes/user_language_cn.json", "judgment_buyer_003"],
+      "evidence_refs": ["claim_021", "ev_108"],
+      "recommended_unit_types": ["buyer_language", "acquisition"]
+    }
+  ],
+  "material_new_evidence_observed": true,
+  "unresolved_decision_relevant_questions": ["rq_001"],
+  "stop_signals": []
+}
+```
+
+`gap_type` 使用 closed enum：
+
+```text
+mandatory_dimension_missing
+evidence_insufficient
+evidence_conflict
+baseline_unclear
+buyer_evidence_insufficient
+acquisition_evidence_insufficient
+freshness_failed
+reviewer_challenge
+candidate_pre_killed
+unit_failed
+scope_invalidated
+user_plan_change_requested
+source_repetition
+no_material_new_evidence
+```
+
+可以由脚本直接观察的缺失字段、引用失败、freshness、unit failure、轮数和来源重复使用 `deterministic` detection；证据是否实质矛盾、哪个缺口可能翻转结论等开放式判断使用 `agent_semantic`。`analyze-gaps` 先生成 machine-observable draft，主 Agent 只能追加或解释带 refs 的 semantic gap，最终整体通过 schema/reference validation 后原子发布。两类 gap 都必须给出 `basis_refs`；有底层证据时还必须给出 `evidence_refs`，不能只有无引用的理由。
+
+`trigger_kind` 使用 `wave_completed | user_decision | artifact_validation_failed | adversarial_review_completed | resume_reconciliation`。Wave snapshot 必须有 `wave_id`；event-driven snapshot 必须有 `trigger_event_ref`，两者不能都为空。`decision_impact` 使用 `hard_gate | concept_assessment | recommendation_band | selected_solution | delivery_form | major_limitation | next_action | execution_validity`；`severity` 使用 `blocking | material | advisory`。`stop_signals` 使用 `max_followup_rounds_reached | no_material_new_evidence | source_repetition | user_stop | limitation_accepted`。这些值是领域 enum，不接受任意表达式。
+
+### 12.7 Adaptation Decision
+
+主 Agent 读取 Gap Snapshot 后，为每个 decision-relevant gap 给出显式 disposition。只有 Snapshot 没有 decision-relevant gap 时才可以不创建 Adaptation Decision；已经被当前计划覆盖的 gap 使用 `continue_existing_plan`，不能靠沉默表示“不调整”。一个 decision 只表达一个原子动作，便于独立校验、重放和拒绝。Schema 使用按 action 区分的 `oneOf`：`add_unit` 携带完整 `target_unit`，其余 unit 动作携带 `target_unit_ref` 和动作所需字段，停止类动作不得伪造 target unit。
+
+```json
+{
+  "schema_version": "startup_opportunity.adaptation_decision.v1",
+  "adaptation_id": "adapt_002",
+  "run_id": "2026-07-23-pet-care",
+  "based_on_plan_ref": "plans/research-plan.r1.json",
+  "trigger_gap_refs": ["adaptations/gap-snapshots/gap-wave-1.r1.json#gap_buyer_001"],
+  "action": "add_unit",
+  "target_unit": {
+    "unit_id": "buyer_language_opportunity_003",
+    "unit_type": "buyer_language",
+    "plan_disposition": "enabled",
+    "priority_band": "high",
+    "attempt": 1,
+    "supersedes_unit_ref": null,
+    "research_goal": "判断候选 003 的 buyer、payer、purchase trigger 和购买标准",
+    "input_refs": ["opportunity_003", "judgment_buyer_003"],
+    "agent_role": "lane-researcher",
+    "output_path": "artifacts/lanes/buyer_language_opportunity_003.json",
+    "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+  },
+  "reason": "缺少独立买单证据，当前不能通过 buyer hard gate",
+  "expected_decision_impact": ["hard_gate", "recommendation_band"],
+  "success_condition": "取得独立买单证据，或确认无法获得更高质量来源",
+  "requested_by": "main_agent",
+  "created_at": "2026-07-23T00:30:00Z"
+}
+```
+
+`action` 使用 closed enum：
+
+```text
+add_unit
+cancel_unit
+skip_unit
+reprioritize_unit
+retry_unit
+supersede_unit
+continue_existing_plan
+request_clarification
+stop_followup
+terminate_insufficient_evidence
+```
+
+`requested_by` 使用 `main_agent | user`。用户提出的调整仍由主 Agent 转成 artifact，并同时回连 `decisions.jsonl` 中的用户决定；该字段不允许 subagent 获得计划修改权。
+
+用户直接 pause/cancel Run 属于生命周期控制，写 decision/event 和 checkpoint，不创建伪造的 Plan Revision。用户要求“停止继续搜索并按现有证据出报告”则使用 `stop_followup`，同时保留未解决 gap 和 limitation。
+
+动作语义：
+
+- `add_unit` 只能从 unit allowlist 创建具有唯一 id 和 output path 的新 unit。
+- `cancel_unit` 用于仍在运行但已失效的 unit；停止是 best effort，late artifact 标记为 ignored，不进入 fan-in。
+- `skip_unit` 只作用于尚未启动的 unit，并保存跳过原因和 decision impact。
+- `reprioritize_unit` 只改变同一 wave 或后续 wave 的调度优先级，不改变依赖和研究语义。
+- `retry_unit` 必须创建新的 attempt/output revision，不覆盖失败或 partial artifact。
+- `supersede_unit` 用新 unit 替代因 scope 或输入变化而无效的 pending/active unit，并保留 lineage。
+- `continue_existing_plan` 必须引用已经覆盖该 gap 的 pending/active unit，不创建 Plan Revision，用于显式说明无需新增动作。
+- `request_clarification` 只在缺口无法从当前证据解决且用户答案会实质改变结果时进入 `needs_clarification`。
+- `stop_followup` 表示当前 limitation 被接受或继续研究不再有决策价值，不等于证据充分。
+- `terminate_insufficient_evidence` 只在决定性缺口无法解决且结论合同要求 abstain 时使用。
+
+### 12.8 Adaptation policy validator
+
+Harness 在应用动作前必须确定性检查：
+
+- Gap Snapshot、gap、artifact 和 evidence refs 存在且属于当前 Run。
+- `based_on_plan_ref` 等于 manifest 当前 plan，避免基于过期计划并发修改。
+- action 在当前 mode、phase 和 published adaptation policy 中允许。
+- 新 unit 的 type、role、schema、path、dependency 和 source policy 通过 Plan validator。
+- action 没有修改 mode、primary market/language、comparison profile、权限或正式 schema。
+- follow-up 没有超过最大轮数，且声明了 decision impact 和 success/stop condition。
+- completed unit 和已被下游 checkpoint 引用的 artifact 没有被删除或覆盖。
+- cancel/skip/retry/supersede 的目标状态允许该动作，且不会造成未解释的 mandatory dimension 缺失。
+- 每个 blocking 或 decision-relevant gap 在 checkpoint 前至少被一个 validated decision 覆盖；`continue_existing_plan` 的现有 unit 必须确实覆盖同一 subject 和研究目标。
+- 相同 `adaptation_id + based_on_plan_ref` 重放时幂等；内容不同但 id 相同时拒绝。
+
+校验通过写入 `adaptation_validated`；校验失败写入 `adaptation_rejected`，保存具体字段、policy rule 和修订要求，不改变当前计划。需要用户决定时才暂停；一般 schema 或 policy 错误由主 Agent 修订提案后重新提交。
+
+### 12.9 Plan Revision 应用协议
+
+`apply-plan-revision` 以通过校验且会修改计划的 Adaptation Decision 为唯一变更输入，并原子执行：
+
+1. 重新确认 manifest 当前 plan 与 decision 的 base plan 一致。
+2. 复制当前有效计划，应用一个或一组彼此不冲突的已批准原子动作。
+3. 写入新的 `plans/research-plan.r<N>.json`，记录 parent 和 adaptation refs。
+4. 运行完整 Plan validator，而不仅校验变更片段。
+5. 原子更新 manifest 的 current plan、revision、unit disposition 和 adaptation refs；只有在已完成 wave 后追加或重试研究工作时才递增 follow-up round，纯 skip/cancel/reprioritize 不递增。
+6. 写入 `adaptation_applied`、`plan_revision_created` 和 checkpoint。
+
+若在第 5 步前失败，新 revision 不得成为 current plan；若 manifest 已更新但 checkpoint 未完成，恢复流程通过 event、hash 和 plan lineage 补写 checkpoint。多个 adaptation 可以在同一 revision 原子应用，但必须无目标冲突；否则按独立 revision 串行执行。
+
+`continue_existing_plan`、`request_clarification`、`stop_followup` 和 `terminate_insufficient_evidence` 不创建空 Plan Revision；它们通过 validated/applied event 原子更新 manifest 状态或 gap disposition，并写 checkpoint。只有 unit 集合、依赖或调度属性发生变化时才递增 plan revision。
+
+动态调整仍是领域受控重规划，不是通用 workflow runtime。主 Agent 决定研究问题、语义缺口和 query 目标；Harness 只负责验证允许的动作、生成有效计划、调度已批准 unit 和保存审计状态。
+
 ## 13. Subagent 设计
 
 ### 13.1 主 Agent
@@ -1078,10 +1319,10 @@ stop_condition
 - 形成和维护 DecisionContext，明确当前要回答的决策问题。
 - 与用户澄清 scope。
 - 创建和维护 Run。
-- 生成和验证 Research Plan。
+- 生成初始 Research Plan；基于已校验 artifact 形成语义 gap，并通过 Adaptation Decision 提议后续调整。
 - 启动、等待、纠偏和停止 subagents。
 - 聚合通过校验的 artifact，而不是聚合聊天摘要。
-- 执行 gap analysis、机会合成和最终判断。
+- 执行 gap analysis、机会合成和最终判断，但不直接覆盖当前 plan 或绕过 adaptation policy。
 - 保证用户中途指令被持久化。
 
 主 Agent 不应亲自完成所有网页搜索，否则会把原始材料和工具日志塞满主线程上下文。
@@ -1153,8 +1394,8 @@ Reviewer 不负责重新写一版更乐观或更悲观的报告，而是输出�
 - 只把独立 unit 放入同一 wave。
 - 每个 subagent 拥有唯一 output path。
 - Evidence 写入使用稳定 operation key，防止同一 URL/内容被重复记录。
-- Subagents 不并发修改 `manifest.json`、`research-plan.json`、`decision-brief.md` 或 `report.md`。
-- 主 Agent 在 wave 结束后串行执行 validation、fan-in 和 checkpoint。
+- Subagents 不并发修改 `manifest.json`、`plans/`、`adaptations/`、`decision-brief.md` 或 `report.md`。
+- 主 Agent 在 validation/fan-in 后串行生成 Gap Snapshot、处理 Adaptation Decision，再为最终生效的 plan revision 写 checkpoint。
 - 并发槽不足时按 wave 内优先级分批执行，不改变 plan 语义。
 
 ### 13.5 用户实时沟通
@@ -1183,8 +1424,8 @@ next_decision_relevant_question
 
 1. 写入 decision event。
 2. 判断当前 active units 是否仍然有效。
-3. 对不再有效的 unit 发出停止或忽略其 late artifact。
-4. 修订 plan 并重新运行 validator。
+3. 为不再有效的 unit 和新增研究需要生成 Gap Snapshot 与 Adaptation Decision。
+4. Harness 校验动作；通过后应用 Plan Revision，并对被取消的 unit 发出停止或忽略其 late artifact。
 5. 向用户说明哪些结果会保留、废弃或重新研究。
 
 ## 14. Harness、脚本、MCP 与 Hooks 的边界
@@ -1198,6 +1439,7 @@ next_decision_relevant_question
 - JSON Schema validation。
 - URL canonicalization、内容 hash 和 evidence 去重。
 - evidence ref、artifact ref 和 source manifest 校验。
+- machine-observable gap 聚合、Adaptation Decision policy validation 和不可变 Plan Revision 原子应用。
 - hard gate、面板 band、支配关系、敏感性和 stability band 计算。
 - checkpoint snapshot。
 - Markdown/JSON 报告装配。
@@ -1210,6 +1452,7 @@ next_decision_relevant_question
 - Claim 语义抽取。
 - 机会合并/拆分判断。
 - selected solution 决策。
+- 证据是否构成实质矛盾、哪个 gap 具有最高决策价值以及应该提出什么开放式研究目标。
 - 最终推荐理由生成。
 
 ### 14.2 MCP
@@ -1277,7 +1520,8 @@ initial_probe
   -> synthesize findings
   -> synthesize insights
   -> generate decision-relevant follow-up questions
-  -> bounded follow-up
+  -> contribute semantic gaps to Gap Snapshot
+  -> execute bounded follow-up only through validated Plan Revision
   -> curate source manifest
   -> structured judgment context
 ```
@@ -1319,6 +1563,8 @@ Follow-up 只针对会改变决策的问题。常见触发条件：
 - AI 方案缺少通用模型、平台或开源 baseline。
 - reviewer 提出可能翻转 assessment 或 recommendation 的证据缺口。
 - 关键数据已过 freshness policy。
+
+这些信号必须先进入 Gap Snapshot，再由 Adaptation Decision 映射为受控动作。Research Kernel 可以提出新的 query 和研究目标，但不能自行启动 unit 或修改 plan。
 
 停止条件：
 
@@ -1859,7 +2105,8 @@ discover intake
   -> research plan
   -> discovery waves
   -> lane artifact validation
-  -> gap analysis and bounded follow-up
+  -> Gap Snapshot
+  -> validated Adaptation Decision / bounded Plan Revision
   -> Demand Thesis synthesis
   -> Solution Hypothesis comparison
   -> Opportunity Thesis synthesis
@@ -1871,7 +2118,7 @@ discover intake
   -> hard gates and comparison
   -> sensitivity and portfolio view
   -> adversarial review
-  -> optional decisive follow-up
+  -> optional decisive Gap Snapshot / Plan Revision
   -> report.json
   -> decision brief + full report
 ```
@@ -1933,7 +2180,7 @@ AI 方案适用时补充 capability frontier、failure modes、human-in-the-loop
 
 ### 18.4 Discovery Waves
 
-需求、任务、替代方案和用户语言 unit 可以并行。解决方案证据 unit 根据需求和候选方案条件启用，不应在需求尚未定义前让 AI capability research 主导机会生成。
+需求、任务、替代方案和用户语言 unit 可以并行。解决方案证据 unit 根据需求和候选方案条件启用，不应在需求尚未定义前让 AI capability research 主导机会生成。条件启用不是隐式分支：如果该 unit 不在当前 plan 中，必须通过 `add_unit` Adaptation Decision 进入下一版 plan。
 
 每个 lane 产出：
 
@@ -1984,6 +2231,8 @@ AI baseline and dependency bundle when relevant
 
 完成 enrichment 后再进行全局 hard gate、四面板比较、partial order 和 portfolio view。
 
+`candidate_pre_killed` 可以触发对尚未开始且仅服务该候选的 enrichment unit 执行 `skip_unit`；如果 unit 还服务其他保留候选，则必须保留或由新 unit supersede，不能整支静默删除。`uses_ai=true` 且 mandatory AI bundle 缺失时必须触发 `add_unit`，或在无法补齐时限制结论强度。
+
 ## 19. 概念证据评估流程
 
 ```text
@@ -2005,7 +2254,8 @@ assess intake
   -> hypothesis evidence matrix
   -> Business Engine Thesis
   -> evidence audit
-  -> gap analysis and bounded follow-up
+  -> Gap Snapshot
+  -> validated Adaptation Decision / bounded Plan Revision
   -> adversarial review
   -> assessment gate
   -> optional validation suggestions
@@ -2053,7 +2303,12 @@ Assessment result 不能仅由 LLM 自由写作生成。确定性 gate 检查必
 
 ### 19.3 Concept Evidence Assessment Plan
 
+该对象表达 assess mode 的领域维度和 assessment gate，并由当前 Research Plan revision 引用。它不是绕过通用 Plan Revision 协议的第二个调度器：如果 Adaptation Decision 增加、跳过或 supersede assessment dimension/unit，必须同时发布新的 assessment plan revision，并由新的 Research Plan 指向它。已被 branch artifact 使用的旧 revision 不可覆盖。
+
 ```text
+revision
+parent_plan_ref
+triggered_by_adaptation_refs
 concept_hypothesis_ref
 assessment_profile
 dimensions
@@ -3435,6 +3690,8 @@ startup_opportunity.decision_context.v1
 startup_opportunity.run_manifest.v1
 startup_opportunity.scope_frame.v1
 startup_opportunity.research_plan.v1
+startup_opportunity.gap_snapshot.v1
+startup_opportunity.adaptation_decision.v1
 startup_opportunity.seed_probe.v1
 startup_opportunity.opportunity_space_map.v1
 startup_opportunity.solution_space_map.v1
@@ -3491,16 +3748,18 @@ startup_opportunity.traceability.v1
 Artifact 依赖关系：
 
 ```text
-intake -> decision context -> scope -> plan -> seed/maps
-  -> branch/lane results + judgment assessments -> fan-in
+intake -> decision context -> scope -> plan r1 -> seed/maps
+  -> branch/lane results + judgment assessments -> fan-in -> gap snapshot
+  -> adaptation decision -> plan rN when adjustment is approved
   -> demand + baseline + solutions + solution evaluation
   -> opportunity thesis -> frozen thesis snapshot -> merge -> enrichment fan-in
   -> value/buyer/business-engine/AI artifacts -> comparison + sensitivity
   -> decision recommendation + portfolio -> report.json
   -> decision brief + full report
 
-decision context -> concept frame -> evidence assessment plan
-  -> assessment branch results + judgment assessments -> fan-in
+decision context -> concept frame -> evidence assessment plan r1
+  -> assessment branch results + judgment assessments -> fan-in -> gap snapshot
+  -> adaptation decision -> assessment plan rN when adjustment is approved
   -> hypothesis evidence matrix -> adversarial review -> assessment result
   -> report.json -> decision brief + concept evidence report
 ```
@@ -3523,6 +3782,10 @@ decision context -> concept frame -> evidence assessment plan
 
 检查 hard gate、buyer、baseline delta、selected solution、Business Engine、evidence conclusion ceiling、kill criteria、AI mandatory bundle 和推荐档位上限。
 
+#### Adaptation policy evaluator
+
+检查 Gap Snapshot 的数据依据和 decision impact、Adaptation Decision 的 closed action 和状态前置条件、follow-up 上限、plan lineage、幂等键、scope/mode 边界、mandatory coverage 以及被取消、跳过或 supersede unit 的下游影响。
+
 #### Report evaluator
 
 检查 report.json、decision-brief.md 和 report.md 一致性、引用覆盖、限制披露、partial-order 解释和是否错误表达为确定性商业结论或真实市场验证结论。
@@ -3533,7 +3796,9 @@ decision context -> concept frame -> evidence assessment plan
 | --- | --- |
 | Decision Context | decision_to_make、decision question、venture goal、初始判断、最终决策所有者和 assumptions |
 | Scope Frame | mode、market/language、profile、约束、assumptions 和高影响 open questions |
-| Research Plan | allowlist、依赖无环、output ownership、seed-independent/counterfactual unit、generation/evaluation source separation、frozen-thesis boundary、retention/diversity 和 stop policy |
+| Research Plan | revision/parent/adaptation lineage、allowlist、依赖无环、output ownership、seed-independent/counterfactual unit、generation/evaluation source separation、frozen-thesis boundary、retention/diversity 和 stop policy |
+| Gap Snapshot | base plan、observed artifact refs、closed gap type、detection mode、trigger data、decision impact、severity、basis/evidence refs 和 stop signals |
+| Adaptation Decision | base plan、gap refs、closed action、目标 unit/state、decision impact、success/stop condition、policy boundary、幂等和 revision applicability |
 | User Language Map | verbatim quote、source location、geo/language、功能词剔除和 quote provenance |
 | Solution Failure Map | baseline、failure scene、next action、migration signal 和用户语言引用 |
 | Judgment Assessment | signal、support/opposition refs、evidence tier、representativeness、independence、decision sufficiency、insufficiency reason 和 what-would-change-it |
@@ -3560,7 +3825,10 @@ partial
 insufficient_evidence
 failed
 cancelled
+skipped
+ignored_late
 superseded_by_scope_change
+superseded_by_adaptation
 ```
 
 Fan-in 不要求所有 branch 成功才继续，但必须显式记录：
@@ -3569,6 +3837,8 @@ Fan-in 不要求所有 branch 成功才继续，但必须显式记录：
 completed_branch_refs
 partial_branch_refs
 failed_or_missing_branches
+skipped_branches
+ignored_late_branches
 superseded_branches
 evidence_gaps
 decision_impact_of_gaps
@@ -3608,6 +3878,7 @@ failed
 
 - Artifact 写入临时文件并通过校验后，再原子发布到正式 path。
 - 已被下游 checkpoint 引用的 artifact 不原地改写；修订产生新 revision。
+- Research Plan、Gap Snapshot 和 Adaptation Decision 一经正式发布均不可变；plan 只能通过新的 revision 演进，Adaptation Decision 的批准或拒绝状态由 event 和 manifest refs 表达，不回写原 artifact。
 - 每个正式 artifact 记录 schema version、created_at、producer role、input refs 和 content hash。
 - Final report 记录使用的全部主要 artifact refs 和 policy version。
 
@@ -3726,6 +3997,8 @@ report_metadata
 decision_context_ref
 scope_frame_ref
 research_plan_ref
+plan_lineage_refs
+applied_adaptation_refs
 decision_recommendation_ref
 portfolio_view_ref
 comparison_refs
@@ -3752,6 +4025,8 @@ decision_context_ref
 concept_frame_ref
 concept_hypothesis_ref
 evidence_assessment_plan_ref
+plan_lineage_refs
+applied_adaptation_refs
 hypothesis_evidence_matrix_ref
 adversarial_review_ref
 concept_evidence_assessment_ref
@@ -3764,7 +4039,7 @@ freshness_summary
 limitations
 ```
 
-`report_metadata` 包含 run id、mode、skill/policy/schema versions、generated_at、valid_as_of 和主要 input artifact hashes。
+`research_plan_ref` 或 `evidence_assessment_plan_ref` 指向最终生效 revision；`plan_lineage_refs` 和 `applied_adaptation_refs` 保留所有影响最终研究范围的计划变化，不要求决策简报逐条展示。`report_metadata` 包含 run id、mode、skill/policy/schema versions、generated_at、valid_as_of 和主要 input artifact hashes。
 
 生成顺序固定为：
 
@@ -3830,6 +4105,26 @@ shared calendar integration
 service-assisted workflow
 current WeChat + reminder baseline
 ```
+
+第一轮 fan-in 如果观察到“需求证据较强，但 buyer/payer 只有模型推断；另一个候选已经被迁移动机反证推翻”，系统形成：
+
+```text
+Gap Snapshot
+  gap_buyer_001: buyer_evidence_insufficient -> hard_gate
+  gap_candidate_004: candidate_pre_killed -> enrichment relevance
+
+Adaptation Decisions
+  add_unit(buyer_language_opportunity_003)
+  add_unit(acquisition_opportunity_003)
+  skip_unit(market_space_opportunity_004)
+  skip_unit(monetization_opportunity_004)
+
+research-plan.r1.json
+  -> validate adaptations
+  -> research-plan.r2.json
+```
+
+如果新增 buyer evidence 仍只有重复转载或无独立信号，下一轮 Gap Snapshot 产生 `source_repetition` 或 `no_material_new_evidence`，触发 `stop_followup` 并保留 limitation，而不是继续机械搜索。
 
 最终候选可以是“宠物慢病管理与家庭协同”，但只有在真实用户语言、baseline 增量、家庭买单逻辑、获客和迁移意愿通过 gate 后才能进入强推荐。
 
@@ -3935,6 +4230,7 @@ custom agents
 decision context contract
 artifact schema bundle
 decision/comparison policy
+adaptation policy
 decision brief contract
 report contract
 deterministic scripts
@@ -3951,6 +4247,9 @@ Manifest 记录版本或内容 hash。恢复 Run 时如果当前定义与 manife
 
 - `create-run` 对同一个显式 run id 不重复创建。
 - Evidence 使用稳定 operation key 去重。
+- Gap Snapshot 使用 base plan、trigger kind、wave/event id 和 observed artifact hashes 计算 `snapshot_cycle_key`；相同 content hash 重放幂等，相同 cycle 的 deterministic gap 必须稳定，semantic gap 变化必须发布新 snapshot revision、回连 parent 并说明原因。
+- Adaptation Decision 使用 `adaptation_id + based_on_plan_ref` 作为幂等键；相同内容重放返回已应用结果，不创建重复 unit 或 plan revision。
+- Plan Revision 使用 parent plan hash 和有序 adaptation refs 计算 operation key；相同输入必须生成语义一致的下一版计划。
 - Subagent retry 写入新的 attempt/revision，不覆盖已发布 artifact。
 - Checkpoint 只引用通过验证的正式 artifact。
 - 三层输出生成可以重复执行，但相同输入 refs 和 policy version 应产生一致的 report.json、decision-brief.md 和 report.md，并记录新 hash。
@@ -3962,14 +4261,18 @@ Manifest 记录版本或内容 hash。恢复 Run 时如果当前定义与 manife
 ```text
 load manifest
   -> validate last checkpoint
+  -> verify current plan ref and complete plan lineage
+  -> reconcile proposed / rejected / applied adaptations with events
   -> verify artifact refs and hashes
   -> identify completed / active / missing units
   -> mark orphan active units interrupted
+  -> ignore late artifacts from cancelled or superseded units
+  -> finish an atomically published plan revision or roll back to manifest current plan
   -> validate current definitions
   -> continue from next safe phase
 ```
 
-恢复不假设原 subagent thread 仍然存在。必要时使用原 task envelope 创建 replacement subagent。
+恢复不假设原 subagent thread 仍然存在。必要时使用当前 Plan Revision 中的原 task envelope 创建 replacement subagent。只有 Adaptation Decision artifact 已发布但没有 `adaptation_applied` event 时，不得猜测其已经批准；重新运行幂等校验和应用流程。
 
 ### 28.4 Completed Run
 
@@ -4024,12 +4327,28 @@ source repetition stop
 ### 29.2 Run 和恢复
 
 - 每个 Run 都有 intake、decision context、manifest、plan、events、decisions 和 checkpoint。
-- 用户中途改变 scope 后，decision log、plan revision 和废弃 artifact 可追踪。
+- 用户中途改变 scope 后，decision log、Gap Snapshot、Adaptation Decision、plan revision 和废弃 artifact 可追踪。
 - Process crash 后可以从最后有效 checkpoint 恢复。
 - 恢复不依赖原 subagent thread 或完整聊天历史。
 - Completed Run 不被后续深入研究原地改写。
 
-### 29.3 Subagents
+### 29.3 数据驱动动态扩展
+
+- 每个通过校验的 research wave 都产生 Gap Snapshot，即使结果是没有 decision-relevant gap 或只存在 stop signal。
+- 用户 scope/优先级变化、validation failure 和 adversarial review challenge 可以产生 event-driven Gap Snapshot，不需要等待 wave 结束。
+- 每个 decision-relevant gap 在 checkpoint 前都有 validated disposition；已有 unit 覆盖时使用 `continue_existing_plan`，不存在隐式忽略。
+- Fixture 覆盖 deterministic 和 agent-semantic gap；两类 gap 都有 observed artifact/evidence refs 和 decision impact。
+- buyer evidence 不足可以通过已批准 `add_unit` 追加 buyer-language unit，并生成新的不可变 Plan Revision。
+- `uses_ai=true` 且 mandatory AI bundle 缺失时追加允许的 AI unit；超过 follow-up 上限或无法补齐时限制结论，不能静默通过。
+- 已被核心反证 pre-kill 的候选可以跳过仅服务该候选的 pending enrichment，但不能删除已完成 artifact 或误伤共享 unit。
+- active unit 因 scope change 失效时使用 cancel/supersede；late artifact 标记 `ignored_late`，不能进入 fan-in。
+- 相同 Adaptation Decision 重放不会重复创建 unit；基于旧 plan revision 的并发 adaptation 被拒绝。
+- Adaptation policy 拒绝非法 unit type、越权路径、mode/market 切换、运行时比较调权和超过最大轮数的 follow-up。
+- `no_material_new_evidence`、`source_repetition` 或用户接受 limitation 可以触发 `stop_followup`，且停止不被表达为证据充分。
+- Crash fixture 覆盖 plan 文件已发布但 manifest/checkpoint 未完整更新的边界，并恢复到唯一有效 current plan。
+- 所有最终报告记录最终 plan ref、plan lineage 和已应用 Adaptation Decision refs。
+
+### 29.4 Subagents
 
 - 每个 subagent 获得 typed task envelope 和唯一 output path。
 - Subagent 最终消息不被当作正式 branch result。
@@ -4038,7 +4357,7 @@ source repetition stop
 - Evidence auditor 和 adversarial reviewer 与原 lane researcher 分离。
 - Adversarial reviewer 使用独立 challenger query；不能取得独立来源时记录 generation/evaluation overlap。
 
-### 29.4 Evidence 和质量
+### 29.5 Evidence 和质量
 
 - 每个决定性 Claim 有真实存在的 Evidence ref。
 - 用户原话与模型概括明确区分。
@@ -4057,7 +4376,7 @@ source repetition stop
 - Evidence tier 只描述当前材料强度，不形成外部验证生命周期；缺少行为/承诺证据不自动成为反证。
 - 低等级证据触发已定义的结论上限，`prioritize` 不得绕过 evidence sufficiency。
 
-### 29.5 机会发现
+### 29.6 机会发现
 
 - Fixture 覆盖 `general`、`industry_first`、`ai_first` 和 `hybrid`。
 - Demand Thesis 在 Solution Hypothesis 之前形成且保持方案中立。
@@ -4075,7 +4394,7 @@ source repetition stop
 - 区间重叠时允许 partial order。
 - 每个正式候选具有 BusinessEngineThesis；宽泛 TAM 不能替代可触达 beachhead、留存/复购和渠道判断。
 
-### 29.6 概念证据评估
+### 29.7 概念证据评估
 
 - Fixture 覆盖 `prioritize`、`investigate_further`、`deprioritize` 和 `insufficient_evidence`。
 - 所有 branch 回连同一个 concept hypothesis。
@@ -4084,7 +4403,7 @@ source repetition stop
 - `prioritize` 明确表示当前证据支持优先关注，不得写成“市场已经验证”。
 - 系统不创建、执行或追踪外部访谈、落地页、订金、付费实验和 MVP 测试。
 
-### 29.7 AI 机会
+### 29.8 AI 机会
 
 - Capability seed 不能单独生成正式机会。
 - 通用模型、平台和开源 baseline 已解决核心任务时降低或拒绝推荐。
@@ -4097,7 +4416,7 @@ source repetition stop
 - AI coverage dimension 只有在业务上确实不适用时才能标记 `not_applicable`；来源不可得必须标记 `insufficient_evidence` 和 `source_unavailable`。
 - AI 产品单位经济和 Research Harness Agent 执行预算严格区分。
 
-### 29.8 决策简报和报告
+### 29.9 决策简报和报告
 
 - report.json、decision-brief.md 和 report.md 内容一致。
 - 决策简报是默认用户入口，包含决策问题、当前建议、决定性正反证据、未选项、最大未知数、what-would-change-it、belief update、有效期和边界。
@@ -4108,7 +4427,7 @@ source repetition stop
 - Validation Suggestion 的 `effort_band` 只表达相对复杂度，不输出资源配置，也不声称适配用户实际资金预算。
 - 外部 Validation Suggestion 固定声明 `execution_owner=user`、`execution_supported=false` 和 `result_tracking_supported=false`。
 
-### 29.9 领域合同完整性
+### 29.10 领域合同完整性
 
 - Fixture 覆盖 DecisionContext、UserLanguageMap、SolutionFailureMap、Judgment Assessment、Demand Thesis、Baseline Option、Solution Evaluation、Opportunity Thesis、BusinessEngineThesis、Decision Recommendation 和 Decision Brief。
 - Opportunity Thesis 的 demand/solution/baseline/claim/insight refs 全部可回溯。
@@ -4123,9 +4442,10 @@ source repetition stop
 - Validation Suggestion 每条回连决定性假设和 evidence gap，且不创建外部验证动作。
 - Decision Recommendation 记录 initial belief、改变判断的证据、remaining disagreement 和 final decision owner；这些字段不覆盖证据判断。
 
-### 29.10 架构边界
+### 29.11 架构边界
 
 - 新方案不依赖外部通用 Workflow Runtime 或 Dynamic Workflow DAG framework。
+- 动态扩展只接受 closed gap/action/unit 和不可变 plan revision，不执行任意条件表达式或 Agent 生成代码。
 - 不存在隐藏 LLM 调用的“确定性脚本”。
 - Hooks 被禁用时核心流程仍能显式运行。
 - 首版没有 Agent token/cost 预算账本或资源 ledger。
@@ -4139,6 +4459,8 @@ source repetition stop
 
 - 创建 `AGENTS.md`、Skill 目录和三类 custom agents。
 - 建立 run store、DecisionContext、manifest、events、decisions 和 checkpoint。
+- 建立不可变 Plan Revision、Gap Snapshot、Adaptation Decision 和 versioned adaptation policy。
+- 实现 `analyze-gaps`、`validate-adaptation` 和幂等、原子的 `apply-plan-revision`。
 - 建立 Evidence Store 和 stable ids。
 - 实现 schema/reference/freshness validator。
 - 实现基础 MCP 或 web evidence recording adapter。
@@ -4149,14 +4471,14 @@ source repetition stop
 - 实现 `assess` action。
 - 覆盖需求、替代、竞品、买单、获客、可行性和反证。
 - 输出 evidence matrix、BusinessEngineThesis、adversarial review 和四类 assessment result。
-- 验证主窗口纠偏和跨会话恢复。
+- 验证 buyer gap 追加 unit、无新证据停止、主窗口纠偏、plan lineage 和跨会话恢复。
 
 优先实现 concept evidence assessment，因为它围绕单一 thesis，最容易验证 typed handoff、evidence chain、结论上限、review、decision brief 和 full report 是否真正闭环。
 
 ### 30.3 Opportunity Discovery
 
 - 实现 `discover` action、profile 和 lane catalog。
-- 实现 research waves、gap follow-up、Demand/Solution synthesis、frozen thesis boundary 和 clustering。
+- 实现 research waves、Gap Snapshot、受控 Adaptation Decision、候选 pre-kill 后的 enrichment skip、Demand/Solution synthesis、frozen thesis boundary 和 clustering。
 - 实现 BusinessEngineThesis、hard gates、四面板比较、sensitivity 和 portfolio view。
 
 ### 30.4 AI Bundle
@@ -4183,6 +4505,9 @@ source repetition stop
 
 - Codex subagents 提高并行度，也会增加上下文协调和来源重复，需要 wave、task envelope 和 artifact contract 约束。
 - 用户可以在主窗口实时纠偏，但若不写 decision log，会产生不可审计的隐式状态。
+- 如果 `material_new_evidence` 和 decision relevance 只存在于主 Agent 自然语言中，动态调整会再次退化为隐式状态；必须通过 Gap Snapshot 保存语义判断和 refs。
+- 并发产生的 adaptation 可能基于过期 plan；应用前必须执行 current-plan compare-and-swap 语义，拒绝 stale base revision。
+- cancel 是 best effort，late artifact 仍可能到达；fan-in 必须按 unit disposition 排除 `ignored_late` 结果。
 - Web 数据可能不完整或受地域、登录、反爬和个性化排序影响。
 - 评论、搜索量和媒体讨论是代理证据，不能替代行为、交易或支付承诺。
 - 多来源可能共享同一底层数据，来源数不能直接等于置信度。
@@ -4223,6 +4548,8 @@ Startup Opportunity 应实现为一个 Codex-native、repo-backed 的 Research H
 $startup-opportunity
   + Codex main-agent orchestration
   + bounded subagent research waves
+  + evidence-backed Gap Snapshot / Adaptation Decision
+  + immutable, validated Plan Revision
   + Research Kernel
   + Evidence / Claim / Finding / Insight
   + Demand Thesis
