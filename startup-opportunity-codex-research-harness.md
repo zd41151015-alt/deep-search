@@ -4455,6 +4455,8 @@ source repetition stop
 
 实施顺序按风险和可验证性拆分，不改变本文的完整目标形态。
 
+本节只维护稳定的阶段顺序、范围和架构退出方向。详细施工切片、实时状态、提交、测试证据、阻塞和下一独立会话记录在 `startup-opportunity-implementation-progress.md`；两者冲突时，本 RFC 是业务语义和架构边界权威，进度文档必须先按 RFC 修正，不能由实现自行选择新语义。
+
 ### 30.1 基础 Harness
 
 - 创建 `AGENTS.md`、Skill 目录和三类 custom agents。
