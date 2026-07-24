@@ -2,8 +2,8 @@
 
 > **状态**: IN_PROGRESS / G0_FOUNDATION_IN_PROGRESS
 > **当前 Gate**: G0 Foundation Harness=`IN_PROGRESS`；G1-G4=`NOT_READY`
-> **下一独立会话**: 中控验收本次 contract 修正提交后，恢复 G0.4 implementation；验收前不得创建 G0.R 或开放 G1
-> **最后更新**: 2026-07-23
+> **下一独立会话**: 只能执行独立 G0.R Foundation whole-gate regression；通过前不得标记 G0 `DONE` 或开放 G1
+> **最后更新**: 2026-07-24
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
 
 ## 文档职责
@@ -175,7 +175,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | W0 | Repository、toolchain、Skill/agent/Harness skeleton、测试入口 | `DONE` |
 | W1 | Schema bundle、reference validator、artifact envelopes | `DONE` |
 | W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `DONE` |
-| W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `IN_PROGRESS`；contract 已修正，runtime 未实现 |
+| W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `EXIT_CANDIDATE_PENDING_INDEPENDENT_REGRESSION` |
 | W4 | Assess domain contracts、research branches、matrix、audit/review/report | `NOT_READY` |
 | W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `NOT_READY` |
 | W6 | AI mandatory bundle 和 gates | `NOT_READY` |
@@ -188,8 +188,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | G0.1 | Repository / Toolchain / Skill Skeleton | `DONE` | 冻结单一实现工具链和 lockfile；替换占位 README；建立 `AGENTS.md`、Skill references/scripts、custom agent、Harness/test 目录；最小 lint/typecheck/test 命令可运行；只建 skeleton，不提前实现 G0.2+ 业务逻辑 |
 | G0.2 | Core Artifact Schema Bundle | `DONE` | artifact envelope、Run Manifest、Research Plan、Gap Snapshot、Adaptation Decision、Event/Decision、Checkpoint closed schemas；positive/negative fixtures；deterministic schema validation |
 | G0.3 | Run / Artifact Store and Recovery | `DONE` | create/load run、atomic artifact publish、refs/hash、event/decision append、checkpoint、reopen/recovery、path traversal/write-conflict/idempotency fixtures |
-| G0.4 implementation | Plan / Adaptation Runtime | `READY` | plan validator、machine gap draft、adaptation validator、immutable plan revision、stale-base/CAS、retry/supersede/late artifact、crash-boundary fixtures |
-| G0.R | Independent Foundation Whole-Gate Regression | `NOT_READY` | 从 clean G0 candidate 独立重放全部 G0 tests、negative/fault/crash fixtures、determinism、git diff/check；通过后 G0=`DONE` |
+| G0.4 implementation | Plan / Adaptation Runtime | `EXIT_CANDIDATE_PENDING_INDEPENDENT_REGRESSION` | plan validator、machine gap draft、adaptation validator、immutable plan revision、stale-base/CAS、retry/supersede/late artifact、crash-boundary fixtures |
+| G0.R | Independent Foundation Whole-Gate Regression | `READY` | 从 clean G0 candidate 独立重放全部 G0 tests、negative/fault/crash fixtures、determinism、git diff/check；通过后 G0=`DONE` |
 
 ## G1 Concept Evidence Assessment 施工切片
 
@@ -235,12 +235,12 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | G0.4 AI trigger source-binding contract follow-up；等待中控验收，不是 G0.4 runtime implementation |
-| Current slice | `G0.4 implementation=READY` 但受中控验收 gate 约束；尚未启动；G0.R、G1-G4 未开放 |
-| Expected base | follow-up 候选 `<G0.4_AI_TRIGGER_SOURCE_FIX_COMMIT>`；parent=`30b31754684ee83cc132ee4d3362307b98e27e23` |
+| Active task | G0.4 Plan / Adaptation Runtime 实现候选 `<G0.4_IMPLEMENTATION_COMMIT>`；等待独立 G0.R |
+| Current slice | `G0.4 implementation=EXIT_CANDIDATE_PENDING_INDEPENDENT_REGRESSION`；`G0.R=READY`；G1-G4 未开放 |
+| Expected base | `7f8c0c935c894dd56eb50937741ceb9e9971d8c0`；parent=`30b31754684ee83cc132ee4d3362307b98e27e23` |
 | Consecutive state-query failures | `0` |
-| Last effective operation | `g0_4_ai_trigger_source_followup_recorded` |
-| Next allowed action | 中控从 clean candidate 独立验收 contract/version/tests；接受后只能创建 G0.4 implementation，不能创建 G0.R 或开放 G1 |
+| Last effective operation | `g0_4_runtime_exit_candidate_recorded` |
+| Next allowed action | 只能从 clean `<G0.4_IMPLEMENTATION_COMMIT>` 创建独立 G0.R；不得施工 G1 |
 
 ## 已完成切片与证据
 
@@ -250,6 +250,9 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | G0.2 Core Artifact Schema Bundle | `DONE` | `da820615af2c2b821cdb46a9130286e3e9575f59` | `4fb428d54ea1656fe8a15ffdc1d4e963d4a4609e` |
 | G0.3 rejected implementation candidate | `REJECTED_BY_CONTROLLER` | `bcf84cdbda1d5e16c8ec039548ee2ef487d054ff` | `da820615af2c2b821cdb46a9130286e3e9575f59` |
 | G0.3 accepted repair | `DONE` | `004ecc088027166a53ec44a647bb2a5564eeeba0` | `bcf84cdbda1d5e16c8ec039548ee2ef487d054ff` |
+| G0.4 initial planning contract candidate | `REJECTED_BY_CONTROLLER` | `30b31754684ee83cc132ee4d3362307b98e27e23` | `da820811d0fa7495fd28dc127e1d1ff91adbdc97` |
+| G0.4 accepted AI source-binding repair | `DONE` | `7f8c0c935c894dd56eb50937741ceb9e9971d8c0` | `30b31754684ee83cc132ee4d3362307b98e27e23` |
+| G0.4 Plan / Adaptation Runtime | `EXIT_CANDIDATE_PENDING_INDEPENDENT_REGRESSION` | `<G0.4_IMPLEMENTATION_COMMIT>` | `7f8c0c935c894dd56eb50937741ceb9e9971d8c0` |
 
 G0.1 交付物：
 
@@ -475,7 +478,7 @@ Follow-up contract 交付：
 - 正例 bundle 新增一个 source attestation；mutation 负例从 21 增至 29，新增 missing source、wrong ref/schema/hash、subject mismatch、source content stale、context revision stale 和 trigger mismatch。中控的原三字段最小复现另有独立 test，现稳定返回 invalid。
 - 同步确认 G0.3 Store 的 `FormalArtifactEnvelope`、operation receipt recovery 和 publish reference bundle 仍为 v1-only。`artifact_envelope.v2` schema-valid 只表示可做显式 contract validation；真实 `RunStore.publishArtifact` regression 证明它在当前 `document_bundle.v1` reference-validation boundary 以 `artifact.reference_invalid` fail closed。本 follow-up 不实现 v2 Store runtime。
 
-Follow-up 提交占位：`<G0.4_AI_TRIGGER_SOURCE_FIX_COMMIT>`；parent 必须为 `30b31754684ee83cc132ee4d3362307b98e27e23`。只有中控从 clean tree 接受后才能恢复 G0.4 implementation；不得标记 G0.4 `DONE`、创建 G0.R 或开放 G1。
+Follow-up 提交：`7f8c0c935c894dd56eb50937741ceb9e9971d8c0`；parent=`30b31754684ee83cc132ee4d3362307b98e27e23`。该 contract 修正已由中控接受为 G0.4 implementation 的 clean baseline；本段保留其历史退出条件。
 
 ### Follow-up 验证证据
 
@@ -496,11 +499,59 @@ Follow-up 提交占位：`<G0.4_AI_TRIGGER_SOURCE_FIX_COMMIT>`；parent 必须�
 | `npm audit` | PASS；0 vulnerabilities |
 | `git diff --check` | PASS；提交前复核 |
 
+## G0.4 Plan / Adaptation Runtime 实现候选
+
+实现候选以 clean `main@7f8c0c935c894dd56eb50937741ceb9e9971d8c0` 为唯一基线，提交占位 `<G0.4_IMPLEMENTATION_COMMIT>`，parent 必须为 `7f8c0c935c894dd56eb50937741ceb9e9971d8c0`。
+
+### 生产交付
+
+- 新增 deterministic Research Plan semantic validator：检查 wave/unit DAG、依赖存在和 ancestor-wave 合法性、unit/output 唯一性、attempt/supersede lineage、manifest disposition、candidate parent retention、completed unit immutability，以及 exact mode/phase/unit_type/agent_role/required_artifact_schema tuple、Planning Context v2/source binding 和 AI mandatory coverage。
+- 新增 machine Gap Snapshot draft：只消费显式且已验证的 Document Bundle，机械生成 failed-unit、no-new-evidence、source-repetition、max-followup 和显式 closed machine-check gap；不使用字符串启发式、Run 扫描或隐藏 LLM。
+- 新增 Adaptation Decision v2 policy validator：覆盖 10 个 closed action 的状态、ref、coverage、retry、supersede、batch conflict、follow-up ceiling 和 stale 前置条件。`retry_unit` 只接受 `failed_units`；partial retry 继续 fail closed。
+- 新增 immutable Plan Revision runtime：operation identity 为 canonical parent Plan hash 加 sorted Adaptation Decision refs；先发布 immutable receipt，再发布 control Artifact，执行 manifest CAS，最后发布 checkpoint/Event。相同 replay 返回同一结果；operation content conflict、stale input/base 和 candidate transform drift 均拒绝。
+- 新增 retry/supersede/late Artifact/crash/reopen 语义：retry/supersede 保留 parent Plan 并发布新路径；late Artifact 保存但只进入 `ignored_late_artifact_refs`，reopen 不允许其重新进入 current `artifact_refs`；`after_intent`、`after_control_artifacts`、`after_manifest_update`、`after_checkpoint_publish` 均有恢复测试。
+- `validate-plan`、`analyze-gaps`、`validate-adaptation`、`apply-plan-revision` 已同时成为 Harness CLI 和 repo-local Skill script 的真实入口，返回结构化成功/失败。G1+ reserved command 继续 fail closed。
+
+### Schema / Store 迁移边界
+
+- 保留已接受的 bundle `1.0.0`、`2.0.0`、`2.1.0` 与全部旧 schema/policy 不变；默认新增 bundle `2.2.0`，共 22 schemas、21 document validators，只加入 G0.4 所需 v3 control envelope、v3 Document Bundle 和 Plan Revision apply policy schema。
+- v1 envelope 继续使用 v1 Store receipt；v2/v3 envelope 精确使用 v2 receipt，并将 Run manifest bundle version 升至 `2.2.0`。checkpoint 在 `2.2.0` Run 上使用 v3 envelope；reopen 同时接受 v1/v2/v3 envelope。
+- 显式 v2 planning bundle 继续执行 Planning Context v2 live stale binding；v3 Store bundle 只验证历史 context self-binding/lineage，避免用最新 manifest 重解释不可变历史 Artifact。
+- Planning Context v1 与 Adaptation Decision v1 只读，不能进入新 policy execution。`future_declared` output schema 可以进入 Plan，但正式 Artifact 发布仍要求 schema 已安装、envelope 兼容、reference/hash 有效且与 Plan `required_artifact_schema` 精确一致。
+- 迁移没有泛化 Store、引入第二引擎或改写 G0.3 durability contract；late Artifact 的 manifest 时间使用单调最大值，不能倒退 durable Run time。
+
+### Fixture 与验证证据
+
+- `tests/fixtures/g0.4/plan-adaptation-cases.json` 固定 10 个 valid action、4 个 negative Plan case、5 个 negative apply case 和 4 个 crash boundary；`tests/g0.4-runtime.test.ts` 使用真实临时 filesystem 运行 12 个测试。
+- G0.4 专项覆盖 DAG/output/allowlist/current binding、deterministic Gap、全部 closed action、failed-only retry、CAS、idempotency、stale input、operation-content conflict、candidate-transform mismatch、retry、supersede、late Artifact、future-declared publish rejection、四个 crash boundary、receipt drift/reopen，以及四个 Harness/Skill 入口的结构化成功/失败。
+- 原 fake/missing AI source 最小复现仍由 contract fixture suite 独立执行并 fail closed；accepted 29 mutation negatives 保持通过。
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm ci` | PASS；Node.js `24.18.0` / npm `11.16.0`；18 packages installed，19 packages audited，0 vulnerabilities |
+| `npm run lint` | PASS；Biome checked 117 files，0 diagnostics |
+| `npm run typecheck` | PASS；`tsc --noEmit` |
+| `npm test` | PASS；71 tests，71 passed，0 failed/skipped/todo |
+| `npm run validate:schemas` | PASS；bundle `2.2.0`，22 schemas，21 document validators，0 unresolved refs |
+| `npm run validate:fixtures` | PASS；18 tests，18 passed；包含 accepted 29 mutation negatives、fake/missing source 和 future Artifact boundary |
+| `npm run validate:store` | PASS；11 tests，11 passed |
+| `npm run test:faults` | PASS；10 tests，10 passed |
+| `npm run test:recovery` | PASS；11 tests，11 passed |
+| `npm run test:g0.4` | PASS；12 tests，12 passed |
+| `npm run verify:skeleton` | PASS；G0.4 required paths、单一 lockfile、package metadata 和 Node `24.18.0` runtime checks 通过 |
+| `npm audit` | PASS；0 vulnerabilities |
+| `git diff --check` | PASS；提交前复核 |
+
+### 中文化与禁止边界
+
+- `.codex/agents/*.toml` 的 `description`/`developer_instructions`、`.agents/skills/startup-opportunity/SKILL.md` 和 7 份 `references/*.md` 的业务说明已翻译为自然中文；保留 Startup Opportunity、Harness、Run、Artifact、Evidence、Claim、Finding、Insight、Gap Snapshot、Adaptation Decision、Plan Revision、Hard Gate、Planning Context、coverage_key、JSON Schema、CLI、代码标识、closed literal、命令、路径和文件名，未改变 role、ownership、权限或路由。
+- 未进入 G0.R implementation 或 G1+；未实现 `assess`/`discover`、comparison/reporting、G1 Evidence/Claim/Finding/Insight、G4 distribution/hook/MCP/Plugin、通用 Workflow Runtime、任意 DAG DSL、daemon、UI、DB 或隐藏 LLM。
+- 未执行或跟踪访谈、landing page、定金、广告、付费实验、MVP 测试或其他外部验证。
+
 ## 当前阻塞与风险
 
-- G0.3 Store 成功只证明机械持久化、hash/ref/index/checkpoint/recovery 合同；不证明 Evidence 充分、业务 policy 通过、decision ready 或 G0 Foundation 完成。
-- 初始候选的 AI trigger source-binding 漏检由 follow-up contract 修复，当前等待中控独立验收；G0.4 runtime 仍未开始。Research Plan DAG validator、Gap analyzer、Adaptation runtime validator、CAS/idempotent Plan Revision apply、retry/supersede/late-artifact runtime 均保持未实现，对应 Skill 入口继续结构化失败，不能被调用方转成成功或 mock artifact。
+- G0.4 implementation 只是 `EXIT_CANDIDATE_PENDING_INDEPENDENT_REGRESSION`；Store/Plan/Adaptation 成功只证明机械 contract，不证明 Evidence 充分、decision ready、研究完成或 G0 Foundation `DONE`。
 - G0.3 Evidence substrate 不包含完整 Evidence Record、origin/provenance/freshness/independence/bias 或 Claim/Finding/Insight；这些仍由 G1.2 拥有，不得从 raw record 推导研究结论。
 - `discover`、`assess`、comparison 和 reporting 只有职责/reference 落点，没有业务闭环；G1-G4 保持 `NOT_READY`。
+- 下一步只能由独立会话从 clean `<G0.4_IMPLEMENTATION_COMMIT>` 执行 G0.R。只有 G0.R 通过后，才可标记 G0 `DONE` 并开放 G1.1。
 - 目标 runtime 是精确 Node.js `24.18.0`；PATH 上其他 Node 版本会被 engine guard 或 repository doctor 拒绝，开发者需先切换版本。
-- Codex task status 工具可能暂时不可用；中控按三次失败后的多证据降级规则处理，不能仅凭超时判断任务失败。

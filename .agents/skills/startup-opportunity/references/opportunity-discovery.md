@@ -1,9 +1,9 @@
 # Opportunity Discovery
 
-`discover` creates an `opportunity_discovery` Run from a broad consumer industry, user group, scenario, or capability change. This mode is owned by G2 and is not operational in G0.1.
+`discover` 从宽泛的消费行业、用户群、场景或能力变化创建 `opportunity_discovery` Run。该 mode 由 G2 负责，在 G0.4 尚不可运行。
 
-The workflow must proceed from solution-neutral demand evidence through Demand Thesis, Baseline Option, alternative Solution Hypotheses, selected solution, and Opportunity Thesis. Product or AI seeds are search inputs, not evidence that an opportunity exists. At least one demand unit must be seed-independent and at least one unit must test a counterfactual user, job, scene, or alternative.
+工作流必须从 solution-neutral demand Evidence 开始，依次经过 Demand Thesis、Baseline Option、备选 Solution Hypothesis、选定 solution 和 Opportunity Thesis。产品或 AI seed 只是搜索输入，不是 Startup Opportunity 存在的 Evidence。至少一个 demand unit 必须独立于 seed，且至少一个 unit 必须检验 counterfactual user、job、scene 或 alternative。
 
-Lane results retain candidate diversity across user, JTBD, entry scene, buyer model, delivery form, and opportunity source. They return supporting and opposing claims, pre-kill decisions, retained/watchlist/rejected references, evidence sufficiency, and limitations. Enrichment begins only after the core thesis, assumptions, and kill criteria are frozen.
+Lane result 在 user、JTBD、entry scene、buyer model、delivery form 和 opportunity source 之间保留候选多样性。它们返回支持与反对 Claim、pre-kill decision、retained/watchlist/rejected 引用、Evidence sufficiency 和局限。只有 core thesis、assumption 和 kill criteria 冻结后，才能开始 enrichment。
 
-Final discovery output uses hard gates, four separate comparison panels, sensitivity, partial-order relations, a recommended first bet, alternatives, and explicit limitations. It never presents a global score as an objective success probability.
+最终 discovery 输出使用 Hard Gate、四个独立 comparison panel、sensitivity、partial-order relation、建议的 first bet、替代方案和明确局限。绝不把全局分数表示为客观成功概率。

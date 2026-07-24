@@ -1,9 +1,9 @@
 # Comparison Policy
 
-Comparison is a decision aid, not an objective probability model. Hard gates run first. Surviving opportunities are assessed in four distinct panels: `demand_and_market`, `solution_and_business`, `evidence_strength`, and `team_fit_and_learning`.
+Comparison 是决策辅助，不是客观概率模型。先执行 Hard Gate。通过的 Startup Opportunity 分别在四个独立 panel 中评估：`demand_and_market`、`solution_and_business`、`evidence_strength` 和 `team_fit_and_learning`。
 
-Each panel uses observable anchors and returns `strong`, `medium`, `weak`, `unknown`, or `not_applicable` with supporting/opposing references and limitations. Unknown values remain unknown. Evidence strength controls conclusion ceiling and uncertainty; it does not add attractiveness points. Correlated demand signals are not mechanically summed, and AI-only dimensions are `not_applicable` for non-AI solutions.
+每个 panel 使用可观察 anchor，返回 `strong`、`medium`、`weak`、`unknown` 或 `not_applicable`，并附支持/反对引用与局限。未知值必须保持 `unknown`。Evidence strength 控制 conclusion ceiling 与不确定性，不增加吸引力分数。相关 demand signal 不做机械求和；仅适用于 AI 的维度对非 AI 解决方案返回 `not_applicable`。
 
-Ordering uses pairwise dominance, downside/upside relations, speed to learn, and partial orders. The user-facing output may identify a robust leader group, close-to-indistinguishable candidates, or insufficient evidence for ordering. It never exposes a pseudo-precise global score or success probability.
+排序使用 pairwise dominance、downside/upside 关系、speed to learn 和 partial order。面向用户的输出可以识别稳健领先组、近乎无法区分的候选，或指出 Evidence 不足以排序。绝不展示伪精确的全局分数或成功概率。
 
-Policies and profiles are published and versioned. A user or agent may select an available profile through Decision Context but may not reweight individual dimensions during an active Run. G2.4 owns the implementation of comparison and sensitivity calculations.
+policy 与 profile 均已发布并版本化。用户或 agent 可以通过 Decision Context 选择可用 profile，但不得在 active Run 中重新设置单个维度权重。comparison 与 sensitivity 计算的实现由 G2.4 负责。

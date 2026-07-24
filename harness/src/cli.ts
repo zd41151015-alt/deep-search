@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 
+import {
+  runAnalyzeGaps,
+  runApplyPlanRevision,
+  runValidateAdaptation,
+  runValidatePlan,
+} from "./adaptation/adaptation-commands.js";
 import { printHelp, runDoctor } from "./commands.js";
 import {
   runCheckpointRun,
@@ -32,6 +38,18 @@ switch (command) {
     break;
   case "checkpoint-run":
     process.exitCode = await runCheckpointRun(args);
+    break;
+  case "validate-plan":
+    process.exitCode = await runValidatePlan(args);
+    break;
+  case "analyze-gaps":
+    process.exitCode = await runAnalyzeGaps(args);
+    break;
+  case "validate-adaptation":
+    process.exitCode = await runValidateAdaptation(args);
+    break;
+  case "apply-plan-revision":
+    process.exitCode = await runApplyPlanRevision(args);
     break;
   default:
     process.stderr.write(`Unknown command: ${command}\n`);

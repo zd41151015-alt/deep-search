@@ -18,6 +18,7 @@
     "validate:schemas": "tsx harness/src/cli.ts validate-artifact --schema-bundle --json",
     "validate:store": "node --import tsx --test tests/store.test.ts tests/store-cli.test.ts",
     "test:faults": "node --import tsx --test tests/store-faults.test.ts",
+    "test:g0.4": "node --import tsx --test tests/g0.4-runtime.test.ts",
     "test:recovery": "node --import tsx --test tests/store-recovery.test.ts",
     "verify:skeleton": "tsx harness/src/cli.ts doctor"
   },

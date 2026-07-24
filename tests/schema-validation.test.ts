@@ -115,9 +115,9 @@ function matchesSchemaIssue(issue: ValidationIssue, expected: ExpectedSchemaIssu
 test("published schema bundle is closed, versioned, and internally resolvable", async () => {
   const result = await inspectSchemaBundle(repositoryRoot);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
-  assert.equal(result.schemaBundleVersion, "2.1.0");
-  assert.equal(result.schemaCount, 19);
-  assert.equal(result.documentSchemaCount, 18);
+  assert.equal(result.schemaBundleVersion, "2.2.0");
+  assert.equal(result.schemaCount, 22);
+  assert.equal(result.documentSchemaCount, 21);
   assert.deepEqual(result.errors, []);
 });
 

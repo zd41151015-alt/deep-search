@@ -100,18 +100,27 @@ test("formal publication validates canonical hash, updates manifest, and replays
   assert.equal(replay.status, "idempotent_replay");
 });
 
-test("G0.3 Store rejects schema-valid v2 envelopes until its publish contract is enabled", async (context) => {
-  const { store } = await setup(context);
+test("G0.4 Store publishes v2 envelopes through the versioned receipt migration", async (context) => {
+  const { runRoot, store } = await setup(context);
   const v1 = await eventEnvelope("store-test");
   const v2 = {
     ...v1,
     schema_version: "startup_opportunity.artifact_envelope.v2",
   } as unknown as FormalArtifactEnvelope;
 
-  await assert.rejects(
-    store.publishArtifact({ runId: "store-test", envelope: v2 }),
-    (error: unknown) => error instanceof StoreError && error.code === "artifact.reference_invalid",
-  );
+  const published = await store.publishArtifact({ runId: "store-test", envelope: v2 });
+  assert.equal(published.status, "published");
+  const manifest = JSON.parse(await readFile(path.join(runRoot, "manifest.json"), "utf8")) as {
+    schema_bundle_version: string;
+  };
+  assert.equal(manifest.schema_bundle_version, "2.2.0");
+  const receipt = JSON.parse(
+    await readFile(
+      path.join(runRoot, `.store/operations/artifact-${published.operationKey.slice(7)}.json`),
+      "utf8",
+    ),
+  ) as { schema_version: string };
+  assert.equal(receipt.schema_version, "startup_opportunity.artifact_store_operation.v2");
 });
 
 test("Event and Decision JSONL appends validate refs, identity, and idempotent replay", async (context) => {

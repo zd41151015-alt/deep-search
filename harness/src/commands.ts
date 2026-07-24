@@ -1,6 +1,6 @@
 import { type DoctorReport, inspectRepository } from "./repository-contract.js";
 
-const HELP = `Startup Opportunity Research Harness (G0.3)
+const HELP = `Startup Opportunity Research Harness (G0.4)
 
 Usage:
   npm run harness -- help
@@ -10,17 +10,25 @@ Usage:
   npm run harness -- load-run --run-id ID
   npm run harness -- record-evidence --run-id ID --unit-id ID --url URL --research-goal GOAL --content-file FILE
   npm run harness -- checkpoint-run --file FILE
+  npm run harness -- validate-plan --bundle FILE [--json]
+  npm run harness -- analyze-gaps --file FILE [--json]
+  npm run harness -- validate-adaptation --bundle FILE [--json]
+  npm run harness -- apply-plan-revision --file FILE [--runs-root DIR] [--json]
 
 Commands:
-  help               Show the implemented G0.3 command surface.
+  help               Show the implemented G0.4 command surface.
   doctor             Validate repository, toolchain, Skill, agent, Harness, and test contracts.
   validate-artifact  Validate one document, a typed document bundle, or the schema bundle itself.
   create-run         Create a confined Run and its initial checkpoint.
   load-run           Validate, reconcile, and reopen a persisted Run.
   record-evidence    Persist raw evidence with canonical hashes and deterministic deduplication.
   checkpoint-run     Publish an immutable checkpoint from a JSON input document.
+  validate-plan      Validate Planning Context v2 and full Research Plan semantics.
+  analyze-gaps       Build a deterministic machine-observable Gap Snapshot draft.
+  validate-adaptation Validate v2 closed actions against current Run/Plan state.
+  apply-plan-revision Apply validated actions through CAS and immutable Plan Revision receipts.
 
-Store validity is mechanical only. Plan policy, research, and reporting commands remain unavailable.
+Validation and Store success are mechanical only. Research and reporting commands remain unavailable.
 `;
 
 export function printHelp(

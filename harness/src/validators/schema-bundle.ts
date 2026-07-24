@@ -3,8 +3,8 @@ import path from "node:path";
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsImport from "ajv-formats";
 
-export const SCHEMA_BUNDLE_VERSION = "2.1.0" as const;
-export const SCHEMA_BUNDLE_MANIFEST_PATH = "harness/schemas/bundle.v2.1.json" as const;
+export const SCHEMA_BUNDLE_VERSION = "2.2.0" as const;
+export const SCHEMA_BUNDLE_MANIFEST_PATH = "harness/schemas/bundle.v2.2.json" as const;
 
 export interface ValidationIssue {
   readonly code: string;
@@ -23,7 +23,7 @@ interface SchemaManifestEntry {
 
 interface SchemaBundleManifest {
   readonly schema_version: "startup_opportunity.schema_bundle.v2";
-  readonly schema_bundle_version: typeof SCHEMA_BUNDLE_VERSION;
+  readonly schema_bundle_version: string;
   readonly json_schema_dialect: "https://json-schema.org/draft/2020-12/schema";
   readonly schemas: readonly SchemaManifestEntry[];
 }
@@ -34,7 +34,7 @@ interface LoadedSchema {
 }
 
 export interface LoadedSchemaBundle {
-  readonly version: typeof SCHEMA_BUNDLE_VERSION;
+  readonly version: string;
   readonly manifest: SchemaBundleManifest;
   readonly schemas: ReadonlyMap<string, LoadedSchema>;
   readonly validators: ReadonlyMap<string, ValidateFunction>;
@@ -80,7 +80,7 @@ function hasExactlyKeys(value: Record<string, unknown>, expected: readonly strin
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 
-function parseManifest(value: unknown): SchemaBundleManifest {
+function parseManifest(value: unknown, expectedVersion: string): SchemaBundleManifest {
   const errors: ValidationIssue[] = [];
   if (!isRecord(value)) {
     throw new SchemaBundleError([
@@ -107,7 +107,7 @@ function parseManifest(value: unknown): SchemaBundleManifest {
       issue("bundle.invalid_version", "/schema_version", "unexpected bundle schema version"),
     );
   }
-  if (value.schema_bundle_version !== SCHEMA_BUNDLE_VERSION) {
+  if (value.schema_bundle_version !== expectedVersion) {
     errors.push(
       issue("bundle.invalid_version", "/schema_bundle_version", "unexpected bundle version"),
     );
@@ -268,9 +268,16 @@ export function sortIssues(issues: readonly ValidationIssue[]): readonly Validat
   );
 }
 
-export async function loadSchemaBundle(root = process.cwd()): Promise<LoadedSchemaBundle> {
-  const manifestPath = path.join(root, SCHEMA_BUNDLE_MANIFEST_PATH);
-  const manifest = parseManifest(JSON.parse(await readFile(manifestPath, "utf8")) as unknown);
+export async function loadSchemaBundle(
+  root = process.cwd(),
+  manifestRelativePath: string = SCHEMA_BUNDLE_MANIFEST_PATH,
+  expectedVersion: string = SCHEMA_BUNDLE_VERSION,
+): Promise<LoadedSchemaBundle> {
+  const manifestPath = path.join(root, manifestRelativePath);
+  const manifest = parseManifest(
+    JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
+    expectedVersion,
+  );
   const schemaDirectory = path.dirname(manifestPath);
   const loadedSchemas = await Promise.all(
     manifest.schemas.map(async (entry) => {
@@ -347,7 +354,7 @@ export async function loadSchemaBundle(root = process.cwd()): Promise<LoadedSche
       }
       validators.set(entry.document_schema_version, validator);
     }
-    return { version: SCHEMA_BUNDLE_VERSION, manifest, schemas, validators };
+    return { version: manifest.schema_bundle_version, manifest, schemas, validators };
   } catch (error) {
     const message = error instanceof Error ? error.message : "schema compilation failed";
     throw new SchemaBundleError([issue("bundle.compile_failed", "/schemas", message)]);
@@ -356,9 +363,11 @@ export async function loadSchemaBundle(root = process.cwd()): Promise<LoadedSche
 
 export async function inspectSchemaBundle(
   root = process.cwd(),
+  manifestRelativePath: string = SCHEMA_BUNDLE_MANIFEST_PATH,
+  expectedVersion: string = SCHEMA_BUNDLE_VERSION,
 ): Promise<SchemaBundleInspectionResult> {
   try {
-    const bundle = await loadSchemaBundle(root);
+    const bundle = await loadSchemaBundle(root, manifestRelativePath, expectedVersion);
     return {
       schemaVersion: "startup_opportunity.schema_bundle_validation_result.v1",
       schemaBundleVersion: bundle.version,

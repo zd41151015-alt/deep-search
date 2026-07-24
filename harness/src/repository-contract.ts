@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-export const SKELETON_VERSION = "g0.3" as const;
+export const SKELETON_VERSION = "g0.4" as const;
 
 export const IMPLEMENTATION_STACK = {
   language: "TypeScript 7.0.2",
@@ -27,10 +27,6 @@ export const CUSTOM_AGENT_PATHS = [
 ] as const;
 
 export const RESERVED_SKILL_COMMANDS = {
-  "validate-plan": "G0.4",
-  "analyze-gaps": "G0.4",
-  "validate-adaptation": "G0.4",
-  "apply-plan-revision": "G0.4",
   "calculate-comparison": "G2.4",
   "calculate-sensitivity": "G2.4",
   "audit-traceability": "G1.4",
@@ -46,9 +42,14 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
   "load-run",
   "record-evidence",
   "checkpoint-run",
+  "validate-plan",
+  "analyze-gaps",
+  "validate-adaptation",
+  "apply-plan-revision",
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v2.2.json",
   "harness/schemas/bundle.v2.1.json",
   "harness/schemas/bundle.v2.json",
   "harness/schemas/v1/bundle.json",
@@ -71,6 +72,9 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v2/planning-context-v2.schema.json",
   "harness/schemas/v2/ai-trigger-source-attestation.schema.json",
   "harness/schemas/v2/ai-trigger-source-binding-policy.schema.json",
+  "harness/schemas/v3/artifact-envelope.schema.json",
+  "harness/schemas/v3/document-bundle.schema.json",
+  "harness/schemas/v3/plan-revision-apply-policy.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
@@ -79,6 +83,14 @@ export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/planning-contract-identities.ts",
   "harness/src/validators/planning-contract-validator.ts",
   "harness/src/validators/validate-artifact-command.ts",
+  "harness/src/adaptation/contracts.ts",
+  "harness/src/adaptation/plan-validator.ts",
+  "harness/src/adaptation/gap-analyzer.ts",
+  "harness/src/adaptation/adaptation-validator.ts",
+  "harness/src/adaptation/apply-policy.ts",
+  "harness/src/adaptation/plan-transformer.ts",
+  "harness/src/adaptation/plan-runtime.ts",
+  "harness/src/adaptation/adaptation-commands.ts",
 ] as const;
 
 export const STORE_SOURCE_PATHS = [
@@ -118,6 +130,7 @@ export const RESPONSIBILITY_PATHS = [
   "harness/src/reporting/README.md",
   "harness/policies/adaptation.v1.json",
   "harness/policies/ai-trigger-source-binding.v1.json",
+  "harness/policies/plan-revision-apply.v1.json",
   "tests/fixtures/README.md",
   "tests/evals/README.md",
   "runs/.gitkeep",

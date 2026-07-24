@@ -23,7 +23,10 @@ import { StoreError } from "./store-error.js";
 export type ArtifactFaultBoundary = "after_intent" | "after_temp_write" | "after_publish";
 
 export interface FormalArtifactEnvelope extends Record<string, unknown> {
-  readonly schema_version: "startup_opportunity.artifact_envelope.v1";
+  readonly schema_version:
+    | "startup_opportunity.artifact_envelope.v1"
+    | "startup_opportunity.artifact_envelope.v2"
+    | "startup_opportunity.artifact_envelope.v3";
   readonly artifact_type: string;
   readonly artifact_path: string;
   readonly run_id: string;
@@ -35,7 +38,9 @@ export interface FormalArtifactEnvelope extends Record<string, unknown> {
 }
 
 interface ArtifactOperationReceipt {
-  readonly schema_version: "startup_opportunity.artifact_store_operation.v1";
+  readonly schema_version:
+    | "startup_opportunity.artifact_store_operation.v1"
+    | "startup_opportunity.artifact_store_operation.v2";
   readonly operation_key: string;
   readonly run_id: string;
   readonly artifact_path: string;
@@ -72,7 +77,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isEnvelope(value: unknown): value is FormalArtifactEnvelope {
   return (
     isRecord(value) &&
-    value.schema_version === "startup_opportunity.artifact_envelope.v1" &&
+    (value.schema_version === "startup_opportunity.artifact_envelope.v1" ||
+      value.schema_version === "startup_opportunity.artifact_envelope.v2" ||
+      value.schema_version === "startup_opportunity.artifact_envelope.v3") &&
     typeof value.artifact_path === "string" &&
     typeof value.run_id === "string" &&
     typeof value.artifact_type === "string" &&
@@ -125,7 +132,8 @@ function validateArtifactReceipt(
       "content_hash",
       "envelope",
     ]) ||
-    value.schema_version !== "startup_opportunity.artifact_store_operation.v1" ||
+    (value.schema_version !== "startup_opportunity.artifact_store_operation.v1" &&
+      value.schema_version !== "startup_opportunity.artifact_store_operation.v2") ||
     !isSha256(value.operation_key) ||
     value.run_id !== runId ||
     !isEnvelope(value.envelope)
@@ -135,9 +143,14 @@ function validateArtifactReceipt(
     });
   }
   const receipt = value as unknown as ArtifactOperationReceipt;
+  const expectedReceiptVersion =
+    receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v1"
+      ? "startup_opportunity.artifact_store_operation.v1"
+      : "startup_opportunity.artifact_store_operation.v2";
   const expectedFilename = `artifact-${sha256Hex(receipt.operation_key)}.json`;
   if (
     filename !== expectedFilename ||
+    receipt.schema_version !== expectedReceiptVersion ||
     receipt.operation_key !== expectedArtifactOperationKey(receipt.envelope) ||
     receipt.artifact_path !== receipt.envelope.artifact_path ||
     receipt.artifact_type !== receipt.envelope.artifact_type ||
@@ -328,7 +341,10 @@ export class ArtifactStore {
     const stableOperationKey = computedOperationKey;
     const operationHex = sha256Hex(stableOperationKey);
     const receipt: ArtifactOperationReceipt = {
-      schema_version: "startup_opportunity.artifact_store_operation.v1",
+      schema_version:
+        input.envelope.schema_version === "startup_opportunity.artifact_envelope.v1"
+          ? "startup_opportunity.artifact_store_operation.v1"
+          : "startup_opportunity.artifact_store_operation.v2",
       operation_key: stableOperationKey,
       run_id: input.runId,
       artifact_path: input.envelope.artifact_path,
@@ -585,8 +601,9 @@ export class ArtifactStore {
       documents.splice(existingIndex, 1);
     }
     documents.push({ path: envelope.artifact_path, document: envelope });
+    const bundleVersion = inputBundleVersion(envelope.schema_version);
     const bundleResult = this.validator.validateDocumentBundle({
-      schema_version: "startup_opportunity.document_bundle.v1",
+      schema_version: bundleVersion,
       documents,
     });
     if (!bundleResult.valid) {
@@ -597,4 +614,18 @@ export class ArtifactStore {
       });
     }
   }
+}
+
+function inputBundleVersion(
+  envelopeVersion: FormalArtifactEnvelope["schema_version"],
+):
+  | "startup_opportunity.document_bundle.v1"
+  | "startup_opportunity.document_bundle.v2"
+  | "startup_opportunity.document_bundle.v3" {
+  if (envelopeVersion === "startup_opportunity.artifact_envelope.v1") {
+    return "startup_opportunity.document_bundle.v1";
+  }
+  return envelopeVersion === "startup_opportunity.artifact_envelope.v2"
+    ? "startup_opportunity.document_bundle.v2"
+    : "startup_opportunity.document_bundle.v3";
 }

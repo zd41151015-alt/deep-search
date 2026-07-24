@@ -103,7 +103,8 @@ function effectiveDocuments(value: unknown): readonly EffectiveDocument[] {
     const version = entry.document.schema_version;
     if (
       (version === "startup_opportunity.artifact_envelope.v1" ||
-        version === "startup_opportunity.artifact_envelope.v2") &&
+        version === "startup_opportunity.artifact_envelope.v2" ||
+        version === "startup_opportunity.artifact_envelope.v3") &&
       typeof entry.document.artifact_type === "string" &&
       isRecord(entry.document.document)
     ) {
@@ -279,6 +280,16 @@ export class PlanningContractEvaluator {
       (document) =>
         document.schemaVersion === this.triggerSourcePolicy.contract_versions.planning_context,
     );
+    const referencedContextParents = new Set(
+      planningContexts.flatMap((context) =>
+        typeof context.document.parent_context_ref === "string"
+          ? [context.document.parent_context_ref]
+          : [],
+      ),
+    );
+    const leafPlanningContexts = planningContexts.filter(
+      (context) => !referencedContextParents.has(context.path),
+    );
     if (planningContexts.length === 0) {
       errors.push(
         contractIssue(
@@ -287,17 +298,17 @@ export class PlanningContractEvaluator {
           "policy validation requires exactly one Planning Context",
         ),
       );
-    } else if (planningContexts.length > 1) {
+    } else if (leafPlanningContexts.length !== 1) {
       errors.push(
         contractIssue(
           "contract.planning_context_ambiguous",
           "",
-          "policy validation accepts one Planning Context at a time",
+          "policy validation requires one unambiguous leaf Planning Context",
         ),
       );
     }
 
-    const context = planningContexts[0];
+    const context = leafPlanningContexts[0];
     let manifest: EffectiveDocument | null = null;
     let plan: EffectiveDocument | null = null;
     if (context !== undefined) {
@@ -488,6 +499,11 @@ export class PlanningContractEvaluator {
       }
     }
 
+    const candidateStage = context?.document.validation_stage === "candidate_revision";
+    const decisionBasePlan =
+      candidateStage && typeof plan?.document.parent_plan_ref === "string"
+        ? refTarget(documentsByPath, plan.document.parent_plan_ref)
+        : plan;
     for (const decision of documents.filter((document) =>
       document.schemaVersion.startsWith("startup_opportunity.adaptation_decision."),
     )) {
@@ -503,12 +519,12 @@ export class PlanningContractEvaluator {
         continue;
       }
       if (
-        plan !== null &&
-        (decision.document.based_on_plan_ref !== plan.path ||
-          decision.document.run_id !== plan.document.run_id ||
+        decisionBasePlan !== null &&
+        (decision.document.based_on_plan_ref !== decisionBasePlan.path ||
+          decision.document.run_id !== decisionBasePlan.document.run_id ||
           decision.document.run_id !== manifest?.document.run_id ||
-          manifest?.document.current_plan_ref !== plan.path ||
-          manifest.document.plan_revision !== plan.document.revision)
+          manifest?.document.current_plan_ref !== decisionBasePlan.path ||
+          manifest.document.plan_revision !== decisionBasePlan.document.revision)
       ) {
         errors.push(
           contractIssue(
@@ -627,7 +643,11 @@ export class PlanningContractEvaluator {
 export async function createPlanningContractEvaluator(
   root = process.cwd(),
 ): Promise<PlanningContractEvaluator> {
-  const artifactValidator = await createArtifactValidator(root);
+  const artifactValidator = await createArtifactValidator(
+    root,
+    "harness/schemas/bundle.v2.1.json",
+    "2.1.0",
+  );
   const policy = JSON.parse(
     await readFile(path.join(root, ADAPTATION_POLICY_PATH), "utf8"),
   ) as unknown;

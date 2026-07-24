@@ -4,7 +4,6 @@ import { coverageKey, planningRunStateHash } from "./planning-contract-identitie
 import {
   type LoadedSchemaBundle,
   loadSchemaBundle,
-  type SCHEMA_BUNDLE_VERSION,
   sortIssues,
   type ValidationIssue,
 } from "./schema-bundle.js";
@@ -16,7 +15,7 @@ export const DOCUMENT_BUNDLE_VALIDATION_RESULT_VERSION =
 
 export interface ArtifactValidationResult {
   readonly schemaVersion: typeof ARTIFACT_VALIDATION_RESULT_VERSION;
-  readonly schemaBundleVersion: typeof SCHEMA_BUNDLE_VERSION;
+  readonly schemaBundleVersion: string;
   readonly valid: boolean;
   readonly documentPath: string | null;
   readonly artifactSchemaVersion: string | null;
@@ -31,13 +30,14 @@ export interface DocumentBundleEntry {
 export interface DocumentBundle {
   readonly schema_version:
     | "startup_opportunity.document_bundle.v1"
-    | "startup_opportunity.document_bundle.v2";
+    | "startup_opportunity.document_bundle.v2"
+    | "startup_opportunity.document_bundle.v3";
   readonly documents: readonly DocumentBundleEntry[];
 }
 
 export interface DocumentBundleValidationResult {
   readonly schemaVersion: typeof DOCUMENT_BUNDLE_VALIDATION_RESULT_VERSION;
-  readonly schemaBundleVersion: typeof SCHEMA_BUNDLE_VERSION;
+  readonly schemaBundleVersion: string;
   readonly valid: boolean;
   readonly bundleErrors: readonly ValidationIssue[];
   readonly documents: readonly ArtifactValidationResult[];
@@ -337,7 +337,8 @@ function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
   const version = schemaVersionOf(entry.document) ?? "";
   if (
     version !== "startup_opportunity.artifact_envelope.v1" &&
-    version !== "startup_opportunity.artifact_envelope.v2"
+    version !== "startup_opportunity.artifact_envelope.v2" &&
+    version !== "startup_opportunity.artifact_envelope.v3"
   ) {
     return { path: entry.path, schemaVersion: version, document: entry.document, envelope: null };
   }
@@ -630,7 +631,13 @@ export class ArtifactValidator {
           );
         }
       }
-      referenceErrors.push(...this.checkLineage(source, documentsByPath));
+      referenceErrors.push(
+        ...this.checkLineage(
+          source,
+          documentsByPath,
+          input.schema_version !== "startup_opportunity.document_bundle.v3",
+        ),
+      );
     }
 
     const sortedReferenceErrors = sortIssues(referenceErrors);
@@ -654,6 +661,7 @@ export class ArtifactValidator {
   private checkLineage(
     source: EffectiveDocument,
     documentsByPath: ReadonlyMap<string, EffectiveDocument>,
+    enforceLivePlanningBinding: boolean,
   ): readonly ValidationIssue[] {
     const errors: ValidationIssue[] = [];
     const revision = source.document.revision;
@@ -702,7 +710,15 @@ export class ArtifactValidator {
         const manifest = targetByRef(documentsByPath, manifestBinding.manifest_ref);
         const plan = targetByRef(documentsByPath, planBinding.plan_ref);
         if (manifest?.schemaVersion === "startup_opportunity.run_manifest.v1") {
-          const actualRunState = {
+          const boundRunState = {
+            manifest_ref: manifestBinding.manifest_ref as string,
+            manifest_schema_version: manifest.schemaVersion,
+            run_id: manifestBinding.run_id as string,
+            mode: manifestBinding.mode as string,
+            current_plan_ref: manifestBinding.current_plan_ref as string | null,
+            current_plan_revision: manifestBinding.current_plan_revision as number,
+          };
+          const liveRunState = {
             manifest_ref: manifestBinding.manifest_ref as string,
             manifest_schema_version: manifest.schemaVersion,
             run_id: manifest.document.run_id as string,
@@ -737,9 +753,11 @@ export class ArtifactValidator {
             );
           }
           if (
-            manifestBinding.current_plan_ref !== manifest.document.current_plan_ref ||
-            manifestBinding.current_plan_revision !== manifest.document.plan_revision ||
-            manifestBinding.run_state_hash !== planningRunStateHash(actualRunState)
+            (enforceLivePlanningBinding &&
+              (manifestBinding.current_plan_ref !== manifest.document.current_plan_ref ||
+                manifestBinding.current_plan_revision !== manifest.document.plan_revision)) ||
+            manifestBinding.run_state_hash !==
+              planningRunStateHash(enforceLivePlanningBinding ? liveRunState : boundRunState)
           ) {
             errors.push(
               referenceIssue(
@@ -781,35 +799,40 @@ export class ArtifactValidator {
             );
           }
           const stage = source.document.validation_stage;
-          const manifest = targetByRef(documentsByPath, manifestBinding.manifest_ref);
-          if (manifest?.schemaVersion === "startup_opportunity.run_manifest.v1") {
-            const currentPlanRef = manifest.document.current_plan_ref;
-            const currentRevision = manifest.document.plan_revision;
-            const targetPlanRef = planBinding.plan_ref;
-            const validStage =
-              (stage === "initial_plan" &&
-                currentPlanRef === null &&
-                currentRevision === 0 &&
-                plan.document.revision === 1 &&
-                plan.document.parent_plan_ref === null) ||
-              (stage === "current_plan" &&
-                currentPlanRef === targetPlanRef &&
-                currentRevision === plan.document.revision) ||
-              (stage === "candidate_revision" &&
-                typeof currentPlanRef === "string" &&
-                plan.document.parent_plan_ref === currentPlanRef &&
-                typeof currentRevision === "number" &&
-                plan.document.revision === currentRevision + 1);
-            if (!validStage) {
-              errors.push(
-                referenceIssue(
-                  "reference.planning_context_stage_mismatch",
-                  `${source.path}#/validation_stage`,
-                  "Planning Context validation stage does not match Run and plan lineage",
-                  { stage },
-                ),
-              );
-            }
+          const currentPlanRef =
+            enforceLivePlanningBinding &&
+            manifest?.schemaVersion === "startup_opportunity.run_manifest.v1"
+              ? manifest.document.current_plan_ref
+              : manifestBinding.current_plan_ref;
+          const currentRevision =
+            enforceLivePlanningBinding &&
+            manifest?.schemaVersion === "startup_opportunity.run_manifest.v1"
+              ? manifest.document.plan_revision
+              : manifestBinding.current_plan_revision;
+          const targetPlanRef = planBinding.plan_ref;
+          const validStage =
+            (stage === "initial_plan" &&
+              currentPlanRef === null &&
+              currentRevision === 0 &&
+              plan.document.revision === 1 &&
+              plan.document.parent_plan_ref === null) ||
+            (stage === "current_plan" &&
+              currentPlanRef === targetPlanRef &&
+              currentRevision === plan.document.revision) ||
+            (stage === "candidate_revision" &&
+              typeof currentPlanRef === "string" &&
+              plan.document.parent_plan_ref === currentPlanRef &&
+              typeof currentRevision === "number" &&
+              plan.document.revision === currentRevision + 1);
+          if (!validStage) {
+            errors.push(
+              referenceIssue(
+                "reference.planning_context_stage_mismatch",
+                `${source.path}#/validation_stage`,
+                "Planning Context validation stage does not match its bound Run state and plan lineage",
+                { stage },
+              ),
+            );
           }
         }
       }
@@ -1017,6 +1040,10 @@ export class ArtifactValidator {
   }
 }
 
-export async function createArtifactValidator(root = process.cwd()): Promise<ArtifactValidator> {
-  return new ArtifactValidator(await loadSchemaBundle(root));
+export async function createArtifactValidator(
+  root = process.cwd(),
+  manifestRelativePath?: string,
+  expectedVersion?: string,
+): Promise<ArtifactValidator> {
+  return new ArtifactValidator(await loadSchemaBundle(root, manifestRelativePath, expectedVersion));
 }

@@ -1,4 +1,50 @@
 export {
+  runAnalyzeGaps,
+  runApplyPlanRevision,
+  runValidateAdaptation,
+  runValidatePlan,
+} from "./adaptation/adaptation-commands.js";
+export {
+  ADAPTATION_VALIDATION_RESULT_VERSION,
+  AdaptationPolicyValidator,
+  type AdaptationValidationResult,
+  createAdaptationPolicyValidator,
+} from "./adaptation/adaptation-validator.js";
+export {
+  loadPlanRevisionApplyPolicy,
+  PLAN_REVISION_APPLY_POLICY_PATH,
+  type PlanRevisionApplyPolicy,
+} from "./adaptation/apply-policy.js";
+export {
+  type AnalyzeGapsInput,
+  createGapAnalyzer,
+  GAP_ANALYSIS_RESULT_VERSION,
+  type GapAnalysisResult,
+  GapAnalyzer,
+  type MachineGapCheck,
+} from "./adaptation/gap-analyzer.js";
+export {
+  type ApplyPlanRevisionInput,
+  createPlanRevisionRuntime,
+  currentPlanningRunStateHash,
+  PLAN_APPLY_RESULT_VERSION,
+  type PlanApplyFaultBoundary,
+  type PlanApplyResult,
+  type PlanOperationRecoveryResult,
+  PlanRevisionRuntime,
+} from "./adaptation/plan-runtime.js";
+export {
+  type AdaptationInputDocument,
+  type PlanTransformationResult,
+  transformPlan,
+} from "./adaptation/plan-transformer.js";
+export {
+  createPlanSemanticValidator,
+  PLAN_VALIDATION_RESULT_VERSION,
+  PlanSemanticValidator,
+  type PlanValidationResult,
+} from "./adaptation/plan-validator.js";
+export {
   ArtifactStore,
   type FormalArtifactEnvelope,
   type PublishArtifactInput,

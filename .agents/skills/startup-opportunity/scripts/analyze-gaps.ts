@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --import tsx
 
-import { rejectReservedCommand } from "../../../../harness/src/reserved-command.js";
+import { runAnalyzeGaps } from "../../../../harness/src/adaptation/adaptation-commands.js";
 
-rejectReservedCommand("analyze-gaps");
+process.exitCode = await runAnalyzeGaps(process.argv.slice(2));

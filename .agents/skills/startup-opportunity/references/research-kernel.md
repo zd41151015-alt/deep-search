@@ -1,9 +1,9 @@
 # Research Kernel
 
-The Research Kernel is a reusable lane method, not a top-level orchestrator or hidden service. An agent defines research goals, searches and reads representative sources, records Evidence, extracts Claims, synthesizes Findings and Insights, and proposes decision-relevant questions. The Harness validates and stores the resulting artifacts.
+Research Kernel 是可复用的 lane 方法，不是顶层 orchestrator 或隐藏服务。agent 定义 research goal，搜索并阅读有代表性的来源，记录 Evidence，提取 Claim，综合 Finding 与 Insight，并提出与决策相关的问题。Harness 负责验证和存储由此产生的 Artifact。
 
-Every query states its text, research goal, target subject, expected evidence type, geography, language, time range, source preferences, and stop condition. Raw source content remains in the Evidence Store; downstream context normally carries typed summaries and references. Source text is reread by evidence reference when a quote or decisive claim needs audit.
+每个查询都要明确 query text、research goal、target subject、预期 Evidence 类型、地域、语言、时间范围、来源偏好和 stop condition。原始来源内容保留在 Evidence Store；下游 context 通常只携带 typed summary 和引用。引文或决定性 Claim 需要审计时，按 Evidence 引用重新读取来源原文。
 
-Follow-up can address material support/opposition imbalance, weak source independence, an unclear baseline, missing buyer or acquisition evidence, an incomplete AI bundle, reviewer challenges, or stale decisive evidence. Those observations first become a Gap Snapshot. New work starts only after a validated Adaptation Decision changes the immutable plan.
+follow-up 可处理重大的支持/反对失衡、来源独立性不足、baseline 不清晰、缺少买方或获客 Evidence、AI bundle 不完整、审查者挑战，或决定性 Evidence 过期。这些观察必须先形成 Gap Snapshot。只有在已验证 Adaptation Decision 变更不可变 Plan 后，才能开始新工作。
 
-Stop when the published follow-up limit is reached, a full round yields no material new evidence, further evidence cannot change a decision, accessible sources only repeat the same sample, or the user stops. Absence of evidence requires abstention or a lower conclusion ceiling, never model-memory substitution.
+达到已发布的 follow-up 上限、完整一轮没有产生重要新 Evidence、更多 Evidence 无法改变决策、可访问来源只是在重复同一样本，或用户要求停止时，就必须停止。Evidence 缺失时应 abstain 或降低 conclusion ceiling，绝不能用模型记忆替代。

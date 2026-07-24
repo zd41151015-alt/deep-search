@@ -1,6 +1,10 @@
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  type PlanOperationRecoveryResult,
+  recoverPlanRevisionOperationsLocked,
+} from "../adaptation/plan-runtime.js";
+import {
   ArtifactStore,
   type FormalArtifactEnvelope,
   type PublishArtifactInput,
@@ -119,6 +123,7 @@ export interface LoadRunResult {
   readonly ignoredInvalidCheckpointPaths: readonly string[];
   readonly logRepairs: readonly JsonlRepairResult[];
   readonly evidenceRecovery: EvidenceRecoveryResult;
+  readonly planOperationRecovery: PlanOperationRecoveryResult;
   readonly orphanActiveUnits: readonly string[];
 }
 
@@ -320,13 +325,46 @@ export class RunStore {
     }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
-      const result = await this.artifacts.publishLocked(runRoot, input);
       const manifest = await this.readManifest(runRoot);
-      const artifactRefs = [...new Set([...manifest.artifact_refs, result.artifactPath])].sort();
+      const plannedArtifact = await this.classifyPlannedArtifact(
+        runRoot,
+        manifest,
+        input.envelope.artifact_path,
+      );
+      if (
+        plannedArtifact.expectedArtifactType !== null &&
+        plannedArtifact.expectedArtifactType !== input.envelope.artifact_type
+      ) {
+        throw new StoreError(
+          "artifact.unit_schema_mismatch",
+          "unit output must use its exact required_artifact_schema",
+          {
+            artifactPath: input.envelope.artifact_path,
+            expected: plannedArtifact.expectedArtifactType,
+            actual: input.envelope.artifact_type,
+          },
+        );
+      }
+      const result = await this.artifacts.publishLocked(runRoot, input);
+      const ignoredLate = plannedArtifact.ignoredLate;
+      const artifactRefs = ignoredLate
+        ? manifest.artifact_refs.filter((ref) => ref !== result.artifactPath)
+        : [...new Set([...manifest.artifact_refs, result.artifactPath])].sort();
+      const ignoredLateArtifactRefs = ignoredLate
+        ? [...new Set([...manifest.ignored_late_artifact_refs, result.artifactPath])].sort()
+        : manifest.ignored_late_artifact_refs.filter((ref) => ref !== result.artifactPath);
       await this.writeManifest(runRoot, {
         ...manifest,
-        updated_at: input.envelope.created_at,
+        updated_at:
+          Date.parse(input.envelope.created_at) > Date.parse(manifest.updated_at)
+            ? input.envelope.created_at
+            : manifest.updated_at,
+        schema_bundle_version:
+          input.envelope.schema_version === "startup_opportunity.artifact_envelope.v1"
+            ? manifest.schema_bundle_version
+            : "2.2.0",
         artifact_refs: artifactRefs,
+        ignored_late_artifact_refs: ignoredLateArtifactRefs,
       });
       return result;
     });
@@ -435,7 +473,10 @@ export class RunStore {
       belief_summary: input.beliefSummary,
     };
     const envelope: FormalArtifactEnvelope = {
-      schema_version: "startup_opportunity.artifact_envelope.v1",
+      schema_version:
+        manifest.schema_bundle_version === "2.2.0"
+          ? "startup_opportunity.artifact_envelope.v3"
+          : "startup_opportunity.artifact_envelope.v1",
       artifact_type: "startup_opportunity.checkpoint.v1",
       artifact_path: checkpointRef,
       run_id: input.runId,
@@ -482,6 +523,13 @@ export class RunStore {
       await this.logs.repair(runRoot, runId, "events.jsonl"),
       await this.logs.repair(runRoot, runId, "decisions.jsonl"),
     ];
+    const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
+      runRoot,
+      runId,
+      this.validator,
+      this.artifacts,
+      this.logs,
+    );
     await this.validateLogRefs(runRoot, "events.jsonl");
     await this.validateLogRefs(runRoot, "decisions.jsonl");
     const currentManifest = await this.readManifest(runRoot);
@@ -496,7 +544,11 @@ export class RunStore {
     for (const entry of formalDocuments.filter((item) => !item.path.startsWith("checkpoints/"))) {
       if (
         !isRecord(entry.document) ||
-        entry.document.schema_version !== "startup_opportunity.artifact_envelope.v1"
+        ![
+          "startup_opportunity.artifact_envelope.v1",
+          "startup_opportunity.artifact_envelope.v2",
+          "startup_opportunity.artifact_envelope.v3",
+        ].includes(String(entry.document.schema_version))
       ) {
         throw new StoreError("recovery.invalid_artifact", "formal artifact is not an envelope", {
           path: entry.path,
@@ -547,16 +599,35 @@ export class RunStore {
           Date.parse(candidate) > Date.parse(latestTime) ? candidate : latestTime,
         snapshot.updated_at,
       );
-    const recoveredManifest: RunManifest = {
+    const provisionalManifest: RunManifest = {
       ...snapshot,
       updated_at: latestArtifactTime,
-      artifact_refs: [...new Set([...snapshot.artifact_refs, ...formalArtifactPaths])].sort(),
       checkpoint_ref: latest.path,
+    };
+    const ignoredLateArtifactPaths: string[] = [];
+    const currentArtifactPaths: string[] = [];
+    for (const artifactPath of formalArtifactPaths) {
+      if (
+        (await this.classifyPlannedArtifact(runRoot, provisionalManifest, artifactPath)).ignoredLate
+      ) {
+        ignoredLateArtifactPaths.push(artifactPath);
+      } else {
+        currentArtifactPaths.push(artifactPath);
+      }
+    }
+    const recoveredManifest: RunManifest = {
+      ...provisionalManifest,
+      artifact_refs: [...new Set([...snapshot.artifact_refs, ...currentArtifactPaths])]
+        .filter((ref) => !ignoredLateArtifactPaths.includes(ref))
+        .sort(),
+      ignored_late_artifact_refs: [
+        ...new Set([...snapshot.ignored_late_artifact_refs, ...ignoredLateArtifactPaths]),
+      ].sort(),
     };
     this.validateManifest(recoveredManifest);
     await this.assertManifestRefsExist(runRoot, recoveredManifest);
     const bundle = this.validator.validateDocumentBundle({
-      schema_version: "startup_opportunity.document_bundle.v1",
+      schema_version: "startup_opportunity.document_bundle.v3",
       documents: [
         { path: "manifest.json", document: recoveredManifest },
         ...formalDocuments.filter((entry) => !invalidCheckpoints.includes(entry.path)),
@@ -602,12 +673,14 @@ export class RunStore {
         ) ||
         evidenceRecovery.truncatedBytes > 0 ||
         evidenceRecovery.replayedEvidenceIds.length > 0 ||
-        evidenceRecovery.recoveredRawContentRefs.length > 0,
+        evidenceRecovery.recoveredRawContentRefs.length > 0 ||
+        planOperationRecovery.completedOperationKeys.length > 0,
       lastValidCheckpointRef: latest.path,
       recoveredArtifactPaths: artifactRecovery.recoveredArtifactPaths,
       ignoredInvalidCheckpointPaths: invalidCheckpoints.sort(),
       logRepairs,
       evidenceRecovery,
+      planOperationRecovery,
       orphanActiveUnits: currentManifest.active_units,
     };
   }
@@ -623,7 +696,11 @@ export class RunStore {
   }> {
     if (
       !isRecord(entry.document) ||
-      entry.document.schema_version !== "startup_opportunity.artifact_envelope.v1"
+      ![
+        "startup_opportunity.artifact_envelope.v1",
+        "startup_opportunity.artifact_envelope.v2",
+        "startup_opportunity.artifact_envelope.v3",
+      ].includes(String(entry.document.schema_version))
     ) {
       throw new StoreError("checkpoint.invalid", "checkpoint is not a formal envelope", {
         path: entry.path,
@@ -730,6 +807,65 @@ export class RunStore {
         await this.assertPathRefExists(runRoot, ref);
       }
     }
+  }
+
+  private async classifyPlannedArtifact(
+    runRoot: string,
+    manifest: RunManifest,
+    artifactPath: string,
+  ): Promise<{ readonly ignoredLate: boolean; readonly expectedArtifactType: string | null }> {
+    if (manifest.current_plan_ref === null) {
+      return { ignoredLate: false, expectedArtifactType: null };
+    }
+    let storedPlan: unknown;
+    try {
+      storedPlan = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, manifest.current_plan_ref), "utf8"),
+      ) as unknown;
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) {
+        return { ignoredLate: false, expectedArtifactType: null };
+      }
+      throw error;
+    }
+    if (!isRecord(storedPlan)) {
+      return { ignoredLate: false, expectedArtifactType: null };
+    }
+    const plan =
+      (storedPlan.schema_version === "startup_opportunity.artifact_envelope.v1" ||
+        storedPlan.schema_version === "startup_opportunity.artifact_envelope.v2" ||
+        storedPlan.schema_version === "startup_opportunity.artifact_envelope.v3") &&
+      isRecord(storedPlan.document)
+        ? storedPlan.document
+        : storedPlan;
+    if (!Array.isArray(plan.waves)) {
+      return { ignoredLate: false, expectedArtifactType: null };
+    }
+    for (const wave of plan.waves) {
+      if (!isRecord(wave) || !Array.isArray(wave.units)) {
+        continue;
+      }
+      for (const unit of wave.units) {
+        if (
+          !isRecord(unit) ||
+          unit.output_path !== artifactPath ||
+          typeof unit.unit_id !== "string"
+        ) {
+          continue;
+        }
+        return {
+          ignoredLate:
+            manifest.invalidated_units.includes(unit.unit_id) ||
+            manifest.cancelled_units.includes(unit.unit_id) ||
+            manifest.superseded_units.includes(unit.unit_id),
+          expectedArtifactType:
+            typeof unit.required_artifact_schema === "string"
+              ? unit.required_artifact_schema
+              : null,
+        };
+      }
+    }
+    return { ignoredLate: false, expectedArtifactType: null };
   }
 
   private isPathRef(ref: string): boolean {

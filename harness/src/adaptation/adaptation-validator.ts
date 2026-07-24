@@ -1,0 +1,483 @@
+import { canonicalJson } from "../artifact-store/canonical.js";
+import { sortIssues, type ValidationIssue } from "../validators/schema-bundle.js";
+import {
+  documentMap,
+  effectiveDocuments,
+  fragmentOf,
+  isRecord,
+  leafPlanningContexts,
+  statusOfUnit,
+  targetByRef,
+  unitById,
+  unitEntries,
+} from "./contracts.js";
+import {
+  createPlanSemanticValidator,
+  type PlanSemanticValidator,
+  type PlanValidationResult,
+} from "./plan-validator.js";
+
+export const ADAPTATION_VALIDATION_RESULT_VERSION =
+  "startup_opportunity.adaptation_validation_result.v1" as const;
+
+export interface AdaptationValidationResult {
+  readonly schemaVersion: typeof ADAPTATION_VALIDATION_RESULT_VERSION;
+  readonly valid: boolean;
+  readonly planValidation: PlanValidationResult;
+  readonly adaptationRefs: readonly string[];
+  readonly adaptationErrors: readonly ValidationIssue[];
+}
+
+function issue(
+  code: string,
+  instancePath: string,
+  message: string,
+  details: Readonly<Record<string, unknown>> = {},
+): ValidationIssue {
+  return {
+    code,
+    keyword: "adaptation",
+    instancePath,
+    schemaPath: "",
+    message,
+    details,
+  };
+}
+
+function gapByRef(
+  documents: ReturnType<typeof documentMap>,
+  ref: string,
+): { readonly snapshot: Record<string, unknown>; readonly gap: Record<string, unknown> } | null {
+  const snapshot = targetByRef(documents, ref);
+  const gapId = fragmentOf(ref);
+  if (
+    snapshot?.schemaVersion !== "startup_opportunity.gap_snapshot.v1" ||
+    gapId === null ||
+    !Array.isArray(snapshot.document.gaps)
+  ) {
+    return null;
+  }
+  const gap = snapshot.document.gaps.find(
+    (candidate) => isRecord(candidate) && candidate.gap_id === gapId,
+  );
+  return isRecord(gap) ? { snapshot: snapshot.document, gap } : null;
+}
+
+function targetUnitId(decision: Record<string, unknown>): string | null {
+  const ref = decision.target_unit_ref;
+  return typeof ref === "string" ? fragmentOf(ref) : null;
+}
+
+const FOLLOWUP_ACTIONS = new Set(["add_unit", "retry_unit", "supersede_unit"]);
+
+export class AdaptationPolicyValidator {
+  constructor(private readonly plans: PlanSemanticValidator) {}
+
+  validateDocumentBundle(value: unknown): AdaptationValidationResult {
+    const planValidation = this.plans.validateDocumentBundle(value);
+    const documents = effectiveDocuments(value);
+    const byPath = documentMap(value);
+    const context = leafPlanningContexts(value)[0];
+    const targetBinding = context?.document.target_plan_binding;
+    const plan = isRecord(targetBinding) ? targetByRef(byPath, targetBinding.plan_ref) : null;
+    const manifestBinding = context?.document.manifest_binding;
+    const manifest = isRecord(manifestBinding)
+      ? targetByRef(byPath, manifestBinding.manifest_ref)
+      : null;
+    const decisions = documents
+      .filter((document) => document.schemaVersion === "startup_opportunity.adaptation_decision.v2")
+      .sort((left, right) => left.path.localeCompare(right.path));
+    const errors: ValidationIssue[] = [];
+    const occupiedTargets = new Map<string, string>();
+    const newUnitIds = new Map<string, string>();
+    const newOutputPaths = new Map<string, string>();
+    const coveredGapRefs = new Set<string>();
+
+    if (decisions.length === 0) {
+      errors.push(
+        issue("adaptation.decision_missing", "", "at least one v2 Adaptation Decision is required"),
+      );
+    }
+    const identities = new Map<string, string>();
+    for (const decision of decisions) {
+      const identity = `${String(decision.document.adaptation_id)}\0${String(decision.document.based_on_plan_ref)}`;
+      const previous = identities.get(identity);
+      const content = canonicalJson(decision.document);
+      if (previous !== undefined && previous !== content) {
+        errors.push(
+          issue(
+            "adaptation.identity_conflict",
+            decision.path,
+            "adaptation identity is reused with different content",
+            {
+              adaptationId: decision.document.adaptation_id,
+            },
+          ),
+        );
+      }
+      identities.set(identity, content);
+      for (const gapRef of Array.isArray(decision.document.trigger_gap_refs)
+        ? decision.document.trigger_gap_refs
+        : []) {
+        if (typeof gapRef === "string") {
+          coveredGapRefs.add(gapRef);
+        }
+      }
+      if (typeof decision.document.target_unit_ref === "string") {
+        const prior = occupiedTargets.get(decision.document.target_unit_ref);
+        if (prior !== undefined) {
+          errors.push(
+            issue(
+              "adaptation.target_conflict",
+              decision.path,
+              "multiple decisions in one validation batch target the same unit",
+              { targetUnitRef: decision.document.target_unit_ref, priorDecisionRef: prior },
+            ),
+          );
+        }
+        occupiedTargets.set(decision.document.target_unit_ref, decision.path);
+      }
+      if (isRecord(decision.document.target_unit)) {
+        for (const [field, value, index] of [
+          ["unit_id", decision.document.target_unit.unit_id, newUnitIds],
+          ["output_path", decision.document.target_unit.output_path, newOutputPaths],
+        ] as const) {
+          if (typeof value !== "string") {
+            continue;
+          }
+          const prior = index.get(value);
+          if (prior !== undefined) {
+            errors.push(
+              issue(
+                `adaptation.target_${field}_batch_conflict`,
+                decision.path,
+                `multiple decisions declare the same target ${field}`,
+                { value, priorDecisionRef: prior },
+              ),
+            );
+          }
+          index.set(value, decision.path);
+        }
+      }
+      if (
+        plan?.schemaVersion === "startup_opportunity.research_plan.v1" &&
+        manifest?.schemaVersion === "startup_opportunity.run_manifest.v1"
+      ) {
+        this.validateDecision(
+          decision.path,
+          decision.document,
+          plan.path,
+          plan.document,
+          manifest.document,
+          byPath,
+          errors,
+        );
+      }
+    }
+
+    if (plan?.schemaVersion === "startup_opportunity.research_plan.v1") {
+      for (const snapshot of documents.filter(
+        (document) =>
+          document.schemaVersion === "startup_opportunity.gap_snapshot.v1" &&
+          document.document.based_on_plan_ref === plan.path,
+      )) {
+        for (const gap of Array.isArray(snapshot.document.gaps) ? snapshot.document.gaps : []) {
+          if (!isRecord(gap) || typeof gap.gap_id !== "string") {
+            continue;
+          }
+          const decisionRelevant =
+            gap.severity === "blocking" ||
+            (Array.isArray(gap.decision_impact) && gap.decision_impact.length > 0);
+          const ref = `${snapshot.path}#${gap.gap_id}`;
+          if (decisionRelevant && !coveredGapRefs.has(ref)) {
+            errors.push(
+              issue(
+                "adaptation.gap_uncovered",
+                ref,
+                "every current decision-relevant gap requires an explicit disposition",
+              ),
+            );
+          }
+        }
+      }
+    }
+
+    const adaptationErrors = sortIssues(errors);
+    return {
+      schemaVersion: ADAPTATION_VALIDATION_RESULT_VERSION,
+      valid: planValidation.valid && adaptationErrors.length === 0,
+      planValidation,
+      adaptationRefs: decisions.map((decision) => decision.path),
+      adaptationErrors,
+    };
+  }
+
+  private validateDecision(
+    decisionPath: string,
+    decision: Record<string, unknown>,
+    planPath: string,
+    plan: Record<string, unknown>,
+    manifest: Record<string, unknown>,
+    documents: ReturnType<typeof documentMap>,
+    errors: ValidationIssue[],
+  ): void {
+    const action = String(decision.action ?? "");
+    const unitId = targetUnitId(decision);
+    const target = unitId === null ? undefined : unitById(plan, unitId);
+    const state = unitId === null ? "none" : statusOfUnit(manifest, unitId);
+    const triggerRefs = Array.isArray(decision.trigger_gap_refs)
+      ? decision.trigger_gap_refs.filter((ref): ref is string => typeof ref === "string")
+      : [];
+    const impacts = new Set(
+      Array.isArray(decision.expected_decision_impact)
+        ? decision.expected_decision_impact.filter(
+            (impact): impact is string => typeof impact === "string",
+          )
+        : [],
+    );
+    const gaps = triggerRefs.map((ref) => gapByRef(documents, ref));
+
+    for (const [index, resolved] of gaps.entries()) {
+      if (resolved === null) {
+        errors.push(
+          issue(
+            "adaptation.gap_missing",
+            `${decisionPath}#/trigger_gap_refs/${index}`,
+            "trigger gap does not resolve",
+          ),
+        );
+        continue;
+      }
+      if (
+        resolved.snapshot.run_id !== manifest.run_id ||
+        resolved.snapshot.based_on_plan_ref !== planPath
+      ) {
+        errors.push(
+          issue(
+            "adaptation.gap_stale",
+            `${decisionPath}#/trigger_gap_refs/${index}`,
+            "trigger gap is not based on the current Run plan",
+          ),
+        );
+      }
+      const gapImpacts = Array.isArray(resolved.gap.decision_impact)
+        ? resolved.gap.decision_impact.filter(
+            (impact): impact is string => typeof impact === "string",
+          )
+        : [];
+      if (!gapImpacts.some((impact) => impacts.has(impact))) {
+        errors.push(
+          issue(
+            "adaptation.decision_impact_mismatch",
+            `${decisionPath}#/expected_decision_impact`,
+            "decision impact does not cover its trigger gap",
+            {
+              gapRef: triggerRefs[index],
+            },
+          ),
+        );
+      }
+    }
+
+    if (
+      typeof decision.target_unit_ref === "string" &&
+      !decision.target_unit_ref.startsWith(`${planPath}#`)
+    ) {
+      errors.push(
+        issue(
+          "adaptation.target_not_current_plan",
+          `${decisionPath}#/target_unit_ref`,
+          "target unit must belong to the current plan",
+        ),
+      );
+    }
+    const newUnit = isRecord(decision.target_unit) ? decision.target_unit : null;
+    if (newUnit !== null) {
+      const newId = String(newUnit.unit_id ?? "");
+      const existingOutput = unitEntries(plan).find(
+        (entry) => entry.unit.output_path === newUnit.output_path,
+      );
+      if (unitById(plan, newId) !== undefined) {
+        errors.push(
+          issue(
+            "adaptation.target_unit_id_conflict",
+            `${decisionPath}#/target_unit/unit_id`,
+            "new unit id already exists in the current plan",
+            { unitId: newId },
+          ),
+        );
+      }
+      if (existingOutput !== undefined) {
+        errors.push(
+          issue(
+            "adaptation.target_output_conflict",
+            `${decisionPath}#/target_unit/output_path`,
+            "new unit output path already belongs to current plan work",
+            { owner: existingOutput.unit.unit_id },
+          ),
+        );
+      }
+      for (const dependency of Array.isArray(newUnit.depends_on) ? newUnit.depends_on : []) {
+        if (typeof dependency === "string" && unitById(plan, dependency) === undefined) {
+          errors.push(
+            issue(
+              "adaptation.target_dependency_missing",
+              `${decisionPath}#/target_unit/depends_on`,
+              "new unit dependency is missing from the current plan",
+              { dependency },
+            ),
+          );
+        }
+      }
+    }
+
+    const followup = plan.followup_policy;
+    if (
+      FOLLOWUP_ACTIONS.has(action) &&
+      isRecord(followup) &&
+      typeof followup.max_followup_rounds === "number" &&
+      typeof manifest.followup_round === "number" &&
+      manifest.followup_round >= followup.max_followup_rounds
+    ) {
+      errors.push(
+        issue(
+          "adaptation.followup_limit_reached",
+          decisionPath,
+          "plan-changing follow-up exceeds the published maximum",
+          {
+            followupRound: manifest.followup_round,
+            maxFollowupRounds: followup.max_followup_rounds,
+          },
+        ),
+      );
+    }
+
+    const requireState = (allowed: readonly string[]): void => {
+      if (target === undefined || !allowed.includes(state)) {
+        errors.push(
+          issue(
+            "adaptation.target_state_not_allowed",
+            `${decisionPath}#/target_unit_ref`,
+            "target unit state does not allow this action",
+            { action, state, allowed },
+          ),
+        );
+      }
+    };
+
+    switch (action) {
+      case "add_unit":
+        if (newUnit?.attempt !== 1 || newUnit.supersedes_unit_ref !== null) {
+          errors.push(
+            issue(
+              "adaptation.add_unit_lineage_invalid",
+              `${decisionPath}#/target_unit`,
+              "add_unit must create attempt one without supersede lineage",
+            ),
+          );
+        }
+        break;
+      case "cancel_unit":
+        requireState(["active"]);
+        break;
+      case "skip_unit":
+      case "reprioritize_unit":
+        requireState(["pending"]);
+        if (target?.unit.plan_disposition !== "enabled") {
+          errors.push(
+            issue(
+              "adaptation.target_disposition_not_enabled",
+              `${decisionPath}#/target_unit_ref`,
+              "pending target must still be enabled",
+            ),
+          );
+        }
+        break;
+      case "retry_unit":
+        requireState(["failed"]);
+        if (
+          target === undefined ||
+          newUnit === null ||
+          newUnit.supersedes_unit_ref !== decision.target_unit_ref ||
+          newUnit.unit_type !== target.unit.unit_type ||
+          newUnit.attempt !== Number(target.unit.attempt) + 1 ||
+          newUnit.output_path === target.unit.output_path
+        ) {
+          errors.push(
+            issue(
+              "adaptation.retry_lineage_invalid",
+              `${decisionPath}#/target_unit`,
+              "retry must preserve type, advance attempt, reference the failed unit, and use a new output path",
+            ),
+          );
+        }
+        break;
+      case "supersede_unit":
+        requireState(["pending", "active"]);
+        if (newUnit === null || newUnit.supersedes_unit_ref !== decision.target_unit_ref) {
+          errors.push(
+            issue(
+              "adaptation.supersede_lineage_invalid",
+              `${decisionPath}#/target_unit`,
+              "superseding unit must reference the replaced unit",
+            ),
+          );
+        }
+        break;
+      case "continue_existing_plan":
+        requireState(["pending", "active"]);
+        break;
+      case "request_clarification":
+        if (
+          !["planned", "researching", "synthesizing", "reviewing"].includes(String(manifest.status))
+        ) {
+          errors.push(
+            issue(
+              "adaptation.clarification_state_not_allowed",
+              decisionPath,
+              "current Run state cannot enter clarification",
+              { status: manifest.status },
+            ),
+          );
+        }
+        break;
+      case "stop_followup": {
+        const hasStopBasis = gaps.some(
+          (resolved) =>
+            resolved !== null &&
+            ((Array.isArray(resolved.snapshot.stop_signals) &&
+              resolved.snapshot.stop_signals.length > 0) ||
+              resolved.gap.gap_type === "no_material_new_evidence" ||
+              resolved.gap.gap_type === "source_repetition"),
+        );
+        if (!hasStopBasis) {
+          errors.push(
+            issue(
+              "adaptation.stop_basis_missing",
+              decisionPath,
+              "stop_followup requires a closed stop signal or stop gap",
+            ),
+          );
+        }
+        break;
+      }
+      case "terminate_insufficient_evidence":
+        if (!gaps.some((resolved) => resolved !== null && resolved.gap.severity === "blocking")) {
+          errors.push(
+            issue(
+              "adaptation.termination_basis_missing",
+              decisionPath,
+              "termination requires a blocking evidence gap",
+            ),
+          );
+        }
+        break;
+    }
+  }
+}
+
+export async function createAdaptationPolicyValidator(
+  root = process.cwd(),
+): Promise<AdaptationPolicyValidator> {
+  return new AdaptationPolicyValidator(await createPlanSemanticValidator(root));
+}

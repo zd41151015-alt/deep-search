@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --import tsx
 
-import { rejectReservedCommand } from "../../../../harness/src/reserved-command.js";
+import { runValidatePlan } from "../../../../harness/src/adaptation/adaptation-commands.js";
 
-rejectReservedCommand("validate-plan");
+process.exitCode = await runValidatePlan(process.argv.slice(2));

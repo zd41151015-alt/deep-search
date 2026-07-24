@@ -40,7 +40,7 @@ test("repository doctor accepts the committed foundation contract", async () => 
     true,
     JSON.stringify(report.checks.filter((check) => check.status === "fail")),
   );
-  assert.equal(report.skeletonVersion, "g0.3");
+  assert.equal(report.skeletonVersion, "g0.4");
   assert.equal(report.stack.runtime, "Node.js 24.18.x LTS");
   assert.ok(report.checks.length > REQUIRED_REPOSITORY_PATHS.length);
 });
@@ -53,7 +53,7 @@ test("Skill metadata and progressive references are structurally valid", async (
 
   assert.equal(metadata.name, "startup-opportunity");
   assert.equal(typeof metadata.description, "string");
-  assert.ok((metadata.description as string).includes("startup"));
+  assert.ok((metadata.description as string).includes("Startup Opportunity"));
   for (const referencePath of SKILL_REFERENCE_PATHS) {
     assert.ok(skill.includes(`references/${path.basename(referencePath)}`));
     assert.ok((await read(referencePath)).trim().length > 100);
@@ -89,7 +89,7 @@ test("Skill doctor script is runnable and reports the skeleton contract", () => 
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout) as { ok?: boolean; skeletonVersion?: string };
   assert.equal(report.ok, true);
-  assert.equal(report.skeletonVersion, "g0.3");
+  assert.equal(report.skeletonVersion, "g0.4");
 });
 
 test("downstream Skill scripts fail closed and name their owning slice", () => {
@@ -110,7 +110,7 @@ test("downstream Skill scripts fail closed and name their owning slice", () => {
       schemaVersion: "startup_opportunity.reserved_command.v1",
       command,
       status: "unavailable",
-      reason: "not_implemented_in_g0.3",
+      reason: "not_implemented_in_g0.4",
       plannedSlice,
     });
   }
