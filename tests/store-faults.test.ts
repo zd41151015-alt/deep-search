@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -125,6 +125,43 @@ test("complete corrupt JSONL in the middle fails closed", async (context) => {
   );
 });
 
+test("reopen rejects a duplicate complete Event id even when bytes are identical", async (context) => {
+  const { runRoot, runStore } = await setup(context, "duplicate-event-id");
+  const eventsPath = path.join(runRoot, "events.jsonl");
+  const firstLine = (await readFile(eventsPath, "utf8")).split("\n").find(Boolean);
+  assert.ok(firstLine);
+  await appendFile(eventsPath, `${firstLine}\n`);
+
+  await assert.rejects(
+    runStore.load("duplicate-event-id"),
+    (error: unknown) => error instanceof StoreError && error.code === "log.duplicate_id",
+  );
+});
+
+test("reopen rejects a duplicate complete Decision id even when bytes are identical", async (context) => {
+  const { runRoot, runStore } = await setup(context, "duplicate-decision-id");
+  const decision = {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: "decision_duplicate_001",
+    run_id: "duplicate-decision-id",
+    decision_type: "initial_belief_recorded",
+    timestamp: "2026-07-23T12:05:00Z",
+    actor: "main_agent",
+    reason: "Create a Decision before duplicating its complete JSONL record.",
+    artifact_refs: [],
+  };
+  await runStore.appendDecision("duplicate-decision-id", decision);
+  const decisionsPath = path.join(runRoot, "decisions.jsonl");
+  const firstLine = (await readFile(decisionsPath, "utf8")).split("\n").find(Boolean);
+  assert.ok(firstLine);
+  await appendFile(decisionsPath, `${firstLine}\n`);
+
+  await assert.rejects(
+    runStore.load("duplicate-decision-id"),
+    (error: unknown) => error instanceof StoreError && error.code === "log.duplicate_id",
+  );
+});
+
 test("Evidence recovery publishes raw temp and replays its manifest receipt", async (context) => {
   const { evidenceStore, runRoot, runStore } = await setup(context, "evidence-recovery");
   await assert.rejects(
@@ -173,5 +210,50 @@ test("Evidence JSONL tail corruption is truncated and replayed from immutable re
     (JSON.parse((await readFile(manifestPath, "utf8")).trim()) as { evidence_id: string })
       .evidence_id,
     recorded.record.evidence_id,
+  );
+});
+
+test("Evidence recovery rejects a corrupted operation identity without appending a replacement", async (context) => {
+  const { evidenceStore, runRoot, runStore } = await setup(context, "evidence-identity");
+  await evidenceStore.record({
+    runId: "evidence-identity",
+    unitId: "source_unit_001",
+    url: "https://example.com/identity",
+    researchGoal: "Validate the Evidence mechanical identity contract.",
+    rawContent: "identity bytes",
+    recordedAt: "2026-07-23T12:09:00Z",
+  });
+  const manifestPath = path.join(runRoot, "evidence/manifest.jsonl");
+  const record = JSON.parse((await readFile(manifestPath, "utf8")).trim()) as Record<
+    string,
+    unknown
+  >;
+  record.operation_key = "not-a-sha256-operation-key";
+  await writeFile(manifestPath, `${JSON.stringify(record)}\n`);
+
+  await assert.rejects(
+    runStore.load("evidence-identity"),
+    (error: unknown) => error instanceof StoreError && error.code === "evidence.invalid_record",
+  );
+  assert.equal((await readFile(manifestPath, "utf8")).trim().split("\n").length, 1);
+});
+
+test("Evidence recovery rejects duplicate complete stable identities", async (context) => {
+  const { evidenceStore, runRoot, runStore } = await setup(context, "evidence-duplicate");
+  await evidenceStore.record({
+    runId: "evidence-duplicate",
+    unitId: "source_unit_001",
+    url: "https://example.com/duplicate",
+    researchGoal: "Validate Evidence identity uniqueness.",
+    rawContent: "duplicate identity bytes",
+    recordedAt: "2026-07-23T12:10:00Z",
+  });
+  const manifestPath = path.join(runRoot, "evidence/manifest.jsonl");
+  const firstLine = (await readFile(manifestPath, "utf8")).trim();
+  await appendFile(manifestPath, `${firstLine}\n`);
+
+  await assert.rejects(
+    runStore.load("evidence-duplicate"),
+    (error: unknown) => error instanceof StoreError && error.code === "evidence.duplicate_identity",
   );
 });

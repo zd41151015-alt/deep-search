@@ -2,7 +2,7 @@
 
 > **状态**: IN_PROGRESS / G0_FOUNDATION_IN_PROGRESS
 > **当前 Gate**: G0 Foundation Harness=`IN_PROGRESS`；G1-G4=`NOT_READY`
-> **下一独立会话**: G0.4 Plan / Adaptation Runtime
+> **下一独立会话**: G0.3 repair candidate 中控复验；G0.4 仅保持 READY 建议
 > **最后更新**: 2026-07-23
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
 
@@ -103,6 +103,7 @@ last effective operation
 | `NOT_READY` | 上游 Gate 未完成，禁止开始 |
 | `READY` | 依赖满足，可以创建唯一施工任务 |
 | `IN_PROGRESS` | 当前切片正在施工，尚未满足退出条件 |
+| `REPAIR_CANDIDATE_PENDING_ACCEPTANCE` | 被拒绝候选已定向修复并提交，等待中控独立复验 |
 | `EXIT_CANDIDATE_PENDING_INDEPENDENT_REGRESSION` | 实现候选已提交，等待独立整体回归 |
 | `BLOCKED_BY_SPEC` | RFC/contract 存在不可唯一决定的阻塞 |
 | `BLOCKED_BY_ENV` | 工具链、平台或外部依赖持续阻塞 |
@@ -173,7 +174,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- | --- |
 | W0 | Repository、toolchain、Skill/agent/Harness skeleton、测试入口 | `DONE` |
 | W1 | Schema bundle、reference validator、artifact envelopes | `DONE` |
-| W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `DONE` |
+| W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `REPAIR_CANDIDATE_PENDING_ACCEPTANCE` |
 | W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `READY` |
 | W4 | Assess domain contracts、research branches、matrix、audit/review/report | `NOT_READY` |
 | W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `NOT_READY` |
@@ -186,7 +187,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- | --- | --- |
 | G0.1 | Repository / Toolchain / Skill Skeleton | `DONE` | 冻结单一实现工具链和 lockfile；替换占位 README；建立 `AGENTS.md`、Skill references/scripts、custom agent、Harness/test 目录；最小 lint/typecheck/test 命令可运行；只建 skeleton，不提前实现 G0.2+ 业务逻辑 |
 | G0.2 | Core Artifact Schema Bundle | `DONE` | artifact envelope、Run Manifest、Research Plan、Gap Snapshot、Adaptation Decision、Event/Decision、Checkpoint closed schemas；positive/negative fixtures；deterministic schema validation |
-| G0.3 | Run / Artifact Store and Recovery | `DONE` | create/load run、atomic artifact publish、refs/hash、event/decision append、checkpoint、reopen/recovery、path traversal/write-conflict/idempotency fixtures |
+| G0.3 | Run / Artifact Store and Recovery | `REPAIR_CANDIDATE_PENDING_ACCEPTANCE` | create/load run、atomic artifact publish、refs/hash、event/decision append、checkpoint、reopen/recovery、path traversal/write-conflict/idempotency fixtures |
 | G0.4 | Plan / Adaptation Runtime | `READY` | plan validator、machine gap draft、adaptation validator、immutable plan revision、stale-base/CAS、retry/supersede/late artifact、crash-boundary fixtures |
 | G0.R | Independent Foundation Whole-Gate Regression | `NOT_READY` | 从 clean G0 candidate 独立重放全部 G0 tests、negative/fault/crash fixtures、determinism、git diff/check；通过后 G0=`DONE` |
 
@@ -234,12 +235,12 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | `none`（G0.3 原子提交后交回中控验收） |
-| Current slice | `G0.4` (`READY`，未开始) |
-| Expected base | G0.3 原子提交 `PENDING_G0_3_ATOMIC_COMMIT`；其 parent 必须为 `da820615af2c2b821cdb46a9130286e3e9575f59` |
+| Active task | G0.3 定向返修；repair commit 完成后交回中控复验 |
+| Current slice | `G0.3` (`REPAIR_CANDIDATE_PENDING_ACCEPTANCE`)；G0.4 未开始 |
+| Expected base | rejected candidate `bcf84cdbda1d5e16c8ec039548ee2ef487d054ff`；repair commit `PENDING_G0_3_REPAIR_COMMIT` 的 parent 必须为该提交 |
 | Consecutive state-query failures | `0` |
-| Last effective operation | `g0_3_exit_recorded` |
-| Next allowed action | 中控验收 G0.3 commit/parent/clean status 后创建 G0.4 独立施工任务；不得进入 G1 或 G0.R |
+| Last effective operation | `g0_3_repair_candidate_recorded` |
+| Next allowed action | 中控独立复验 G0.3 repair commit；通过后才可建议创建 G0.4 独立施工任务，不得在本任务进入 G0.4、G1 或 G0.R |
 
 ## 已完成切片与证据
 
@@ -247,7 +248,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- | --- | --- |
 | G0.1 Repository / Toolchain / Skill Skeleton | `DONE` | `4fb428d54ea1656fe8a15ffdc1d4e963d4a4609e` | `4033ae504219bfc6d616d76a1b2c44143e83cb42` |
 | G0.2 Core Artifact Schema Bundle | `DONE` | `da820615af2c2b821cdb46a9130286e3e9575f59` | `4fb428d54ea1656fe8a15ffdc1d4e963d4a4609e` |
-| G0.3 Run / Artifact Store and Recovery | `DONE` | `PENDING_G0_3_ATOMIC_COMMIT` | `da820615af2c2b821cdb46a9130286e3e9575f59` |
+| G0.3 rejected implementation candidate | `REJECTED_BY_CONTROLLER` | `bcf84cdbda1d5e16c8ec039548ee2ef487d054ff` | `da820615af2c2b821cdb46a9130286e3e9575f59` |
+| G0.3 repair candidate | `REPAIR_CANDIDATE_PENDING_ACCEPTANCE` | `PENDING_G0_3_REPAIR_COMMIT` | `bcf84cdbda1d5e16c8ec039548ee2ef487d054ff` |
 
 G0.1 交付物：
 
@@ -312,15 +314,15 @@ G0.3 交付物：
 - 实现 checkpoint/reopen/recovery：验证 formal envelope schema、canonical hash、refs、manifest snapshot、current plan revision/lineage 和引用存在；完成有 receipt 的 temp publish、对账 publish 后未索引 artifact、补写缺失 checkpoint event、处理 manifest/checkpoint divergence，并回退到最后有效 checkpoint。
 - 实现 Evidence Store substrate：HTTP(S) canonical URL、canonical source hash、raw content hash、full-hash stable evidence id、`(canonical_url, content_hash, research_goal)` operation key、immutable raw path、dedup 和 receipt recovery。没有发布或私自选择 G1.2 完整 Evidence business schema、provenance judgment、Claim/Finding/Insight 语义。
 - `create-run`、`load-run`、`record-evidence`、`checkpoint-run` 的 Harness/Skill 入口真实运行；G0.4 及下游 8 个命令继续结构化 fail-closed。
-- 新增 3 个 committed Store 输入 fixtures 和 21 个 G0.3 测试：10 个 store/CLI、6 个 fault、5 个 recovery；测试使用真实临时 filesystem 并检查文件字节、manifest/log/checkpoint/reopen 结果。保留 G0.1/G0.2 18 个回归，总计 39 个测试。
+- 保留 3 个 committed Store 输入 fixtures，并扩展为 31 个 G0.3 测试：10 个 store/CLI、10 个 fault、11 个 recovery；测试使用真实临时 filesystem 并检查文件字节、manifest/log/checkpoint/reopen 结果。保留 G0.1/G0.2 18 个回归，总计 49 个测试。
 
 G0.3 存储、hash 与恢复决策：
 
 - G0.2 schema bundle `1.0.0` 保持原样；Store operation receipt 与 Evidence substrate record 使用独立、内部机械版本，不冒充 formal research artifact schema，因此没有无版本 schema 改写或迁移。
 - Formal envelope `content_hash` 只覆盖 canonical `document`，不包含 envelope metadata 或 hash 字段本身；array 顺序保留，object key 按 code unit 递归排序，非 JSON value 拒绝。
 - Immutable publish 使用同 Run、同 filesystem 的 synced temp 和 exclusive hard-link publication，避免 POSIX rename 覆盖既有 formal path；manifest current index 使用 synced temp + atomic replace，并由 checkpoint snapshot 提供恢复锚点。
-- Operation receipt 在 publish/append 前固定 operation key 与内容；crash 后只有 receipt 与 bytes/hash 一致才完成发布或 append。无 receipt 的残留 temp 删除；中间 JSONL corruption、non-checkpoint formal artifact hash 冲突和引用/lineage 不闭合 fail closed。
-- 最新 checkpoint hash/schema/ref 无效时不覆盖旧 checkpoint，reopen 使用按 `created_at + path` 确定的最后有效 snapshot；已 atomic publish 但未进 manifest 的普通 formal artifact只补入 `artifact_refs`，不会在 G0.3 私自设为 current plan。
+- Operation receipt 在 publish/append 前固定 canonical operation key 与内容；reopen 在 receipt-driven 写入前校验 exact shape、filename hash、operation key、Run/log/path/id、metadata 和完整 payload/envelope 一致性。无 receipt 的残留 temp 删除；duplicate identity、receipt drift、中间 JSONL corruption、non-checkpoint formal artifact hash 冲突和引用/lineage 不闭合 fail closed。
+- 非 initial checkpoint 的 `created_at` 必须严格晚于 current manifest 和最后一个 valid published checkpoint 的 durable timestamp；initial checkpoint 可等于 Run creation time。Reopen 只从该严格序列的最后有效 snapshot 继续；最新 checkpoint hash/schema/ref 无效时不覆盖旧 checkpoint。
 - Reopen 报告 orphan active units，但 retry、supersede、late artifact 和 current-plan CAS/Plan Revision 完成或回滚语义仍由 G0.4 决定。
 
 G0.3 验证证据（Node.js `24.18.0` / npm `11.16.0`）：
@@ -330,17 +332,25 @@ G0.3 验证证据（Node.js `24.18.0` / npm `11.16.0`）：
 | `npm ci` | PASS；18 packages installed from package-lock v3；0 vulnerabilities |
 | `npm run lint` | PASS；Biome checked 83 files，0 diagnostics |
 | `npm run typecheck` | PASS；`tsc --noEmit` |
-| `npm test` | PASS；39 tests，39 passed，0 failed/skipped/todo |
+| `npm test` | PASS；49 tests，49 passed，0 failed/skipped/todo |
 | `npm run validate:schemas` | PASS；bundle `1.0.0`，10 schemas，9 document validators，0 unresolved refs |
 | `npm run validate:fixtures` | PASS；9 tests，9 passed |
 | `npm run validate:store` | PASS；10 tests，10 passed |
-| `npm run test:faults` | PASS；6 tests，6 passed |
-| `npm run test:recovery` | PASS；5 tests，5 passed |
+| `npm run test:faults` | PASS；10 tests，10 passed |
+| `npm run test:recovery` | PASS；11 tests，11 passed |
 | `npm run verify:skeleton` | PASS；G0.3 required paths、单一 lockfile、package metadata 和 Node runtime checks 通过 |
 | `npm audit` | PASS；0 vulnerabilities |
 | `git diff --check` | PASS；提交前复核 |
 
-提交后 `git status --short` 必须为空；实际 G0.3 commit hash、parent 和 clean status 在本切片最终回报中给出，不通过 amend/rebase 回写占位。
+G0.3 定向返修验收证据：
+
+- 中控复现 1：candidate 接受早于 Run/current durable time 的 checkpoint，成功后 reopen 回滚。Repair 在发布前对 current manifest 与所有 valid published checkpoint 做只读 durable-order 检查，stale/equal 结构化拒绝；覆盖成功后立即 reopen、stale/equal、publish 后 direct equal retry、`after_checkpoint_publish` 和 `after_manifest_update`。
+- 中控复现 2：candidate 未校验 Evidence manifest 的机械 identity，损坏 operation key 后 reopen 保留坏记录并补写正确记录。Repair 对 manifest/receipt 的 canonical URL、source/content hash、raw ref、Run/unit/goal/timestamp、stable evidence id、canonical tuple operation key、filename 和唯一性完整 fail closed；损坏记录测试确认未追加 replacement。
+- 中控复现 3：candidate 接受完整重复 Event/Decision id。Repair 对两类 JSONL 强制 ID 唯一与 receipt filename/key/run/log/record/payload 一致；相同完整重复记录报 `log.duplicate_id`，不同内容同 ID 报 conflict，既有尾部截断和中间损坏语义保持。
+- Receipt 最小负例覆盖 Artifact metadata drift、Evidence filename hash drift 和 JSONL record-id drift；所有 identity 校验在同类 receipt-driven publish/append 前完成。
+- `bcf84cdbda1d5e16c8ec039548ee2ef487d054ff` 记录为 rejected candidate；本次 follow-up 为 `PENDING_G0_3_REPAIR_COMMIT`，parent 固定为 `bcf84cdbda1d5e16c8ec039548ee2ef487d054ff`，不 amend/rebase 回写占位。
+
+提交后 `git status --short` 必须为空；实际 repair commit hash、parent 和 clean status在本切片最终回报中给出。
 
 ## 当前阻塞与风险
 

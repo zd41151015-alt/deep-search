@@ -2,6 +2,7 @@ import { open, readdir, readFile, rm, stat, truncate } from "node:fs/promises";
 import { publishTemp, removeTemp, writeSyncedTemp } from "../artifact-store/atomic-file.js";
 import {
   canonicalJson,
+  isSha256,
   operationKey,
   sha256Bytes,
   sha256Hex,
@@ -89,11 +90,157 @@ function assertNonEmpty(value: string, field: string): void {
   }
 }
 
-function parseManifest(contents: Buffer): {
+function pathBasename(relativePath: string): string {
+  return relativePath.split("/").at(-1) ?? "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactlyKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return (
+    actual.length === sortedExpected.length &&
+    actual.every((key, index) => key === sortedExpected[index])
+  );
+}
+
+function expectedEvidenceOperationKey(
+  canonicalUrl: string,
+  contentHash: string,
+  researchGoal: string,
+): string {
+  return operationKey("record_evidence", {
+    canonical_url: canonicalUrl,
+    content_hash: contentHash,
+    research_goal: researchGoal,
+  });
+}
+
+function invalidEvidenceRecord(
+  message: string,
+  details: Readonly<Record<string, unknown>> = {},
+): never {
+  throw new StoreError("evidence.invalid_record", message, details);
+}
+
+function validateEvidenceRecord(value: unknown, runId: string): EvidenceStoreRecord {
+  if (
+    !isRecord(value) ||
+    !hasExactlyKeys(value, [
+      "schema_version",
+      "evidence_id",
+      "run_id",
+      "unit_id",
+      "canonical_url",
+      "source_hash",
+      "content_hash",
+      "research_goal",
+      "raw_content_ref",
+      "operation_key",
+      "recorded_at",
+    ]) ||
+    value.schema_version !== "startup_opportunity.evidence_store_record.v1" ||
+    value.run_id !== runId ||
+    typeof value.unit_id !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.unit_id) ||
+    typeof value.canonical_url !== "string" ||
+    typeof value.research_goal !== "string" ||
+    value.research_goal.trim().length === 0 ||
+    typeof value.recorded_at !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+      value.recorded_at,
+    ) ||
+    !Number.isFinite(Date.parse(value.recorded_at)) ||
+    !isSha256(value.source_hash) ||
+    !isSha256(value.content_hash) ||
+    !isSha256(value.operation_key) ||
+    typeof value.evidence_id !== "string" ||
+    typeof value.raw_content_ref !== "string"
+  ) {
+    return invalidEvidenceRecord(
+      "Evidence substrate record shape or primitive identity is invalid",
+    );
+  }
+  let canonicalUrl: string;
+  try {
+    canonicalUrl = canonicalizeSourceUrl(value.canonical_url);
+  } catch {
+    return invalidEvidenceRecord("Evidence canonical URL is invalid");
+  }
+  const operationHex = sha256Hex(value.operation_key);
+  const contentHex = sha256Hex(value.content_hash);
+  if (
+    canonicalUrl !== value.canonical_url ||
+    value.source_hash !== sha256Bytes(canonicalUrl) ||
+    value.operation_key !==
+      expectedEvidenceOperationKey(canonicalUrl, value.content_hash, value.research_goal) ||
+    value.evidence_id !== `ev_${operationHex}` ||
+    value.raw_content_ref !== `evidence/raw/sha256-${contentHex}.bin`
+  ) {
+    return invalidEvidenceRecord("Evidence substrate stable identity fields are inconsistent", {
+      evidenceId: value.evidence_id,
+    });
+  }
+  return value as unknown as EvidenceStoreRecord;
+}
+
+function validateEvidenceReceipt(
+  value: unknown,
+  filename: string,
+  runId: string,
+): EvidenceOperationReceipt {
+  if (
+    !isRecord(value) ||
+    !hasExactlyKeys(value, ["schema_version", "operation_key", "record"]) ||
+    value.schema_version !== "startup_opportunity.evidence_store_operation.v1" ||
+    !isSha256(value.operation_key)
+  ) {
+    throw new StoreError("recovery.invalid_operation", "Evidence operation receipt is invalid", {
+      path: `.store/operations/${filename}`,
+    });
+  }
+  let record: EvidenceStoreRecord;
+  try {
+    record = validateEvidenceRecord(value.record, runId);
+  } catch (error) {
+    throw new StoreError(
+      "recovery.invalid_operation",
+      "Evidence receipt contains an invalid record",
+      {
+        path: `.store/operations/${filename}`,
+        cause: error instanceof StoreError ? error.code : "evidence.invalid_record",
+      },
+    );
+  }
+  const expectedFilename = `evidence-${sha256Hex(value.operation_key)}.json`;
+  if (
+    filename !== expectedFilename ||
+    value.operation_key !== record.operation_key ||
+    value.operation_key !==
+      expectedEvidenceOperationKey(record.canonical_url, record.content_hash, record.research_goal)
+  ) {
+    throw new StoreError(
+      "recovery.invalid_operation",
+      "Evidence receipt identity differs from its filename or record",
+      { path: `.store/operations/${filename}` },
+    );
+  }
+  return value as unknown as EvidenceOperationReceipt;
+}
+
+function parseManifest(
+  contents: Buffer,
+  runId: string,
+): {
   readonly records: EvidenceStoreRecord[];
   readonly validBytes: number;
 } {
   const records: EvidenceStoreRecord[] = [];
+  const operationKeys = new Set<string>();
+  const evidenceIds = new Set<string>();
   let offset = 0;
   let validBytes = 0;
   while (offset < contents.length) {
@@ -103,9 +250,9 @@ function parseManifest(contents: Buffer): {
     }
     const line = contents.subarray(offset, newline).toString("utf8");
     if (line.length > 0) {
-      let value: EvidenceStoreRecord;
+      let value: unknown;
       try {
-        value = JSON.parse(line) as EvidenceStoreRecord;
+        value = JSON.parse(line) as unknown;
       } catch {
         throw new StoreError(
           "evidence.corrupt_manifest",
@@ -113,18 +260,17 @@ function parseManifest(contents: Buffer): {
           { offset },
         );
       }
-      if (
-        value.schema_version !== "startup_opportunity.evidence_store_record.v1" ||
-        typeof value.evidence_id !== "string" ||
-        typeof value.operation_key !== "string"
-      ) {
+      const record = validateEvidenceRecord(value, runId);
+      if (operationKeys.has(record.operation_key) || evidenceIds.has(record.evidence_id)) {
         throw new StoreError(
-          "evidence.corrupt_manifest",
-          "evidence manifest contains an invalid record",
-          { offset },
+          "evidence.duplicate_identity",
+          "Evidence manifest contains a duplicate operation key or stable id",
+          { offset, evidenceId: record.evidence_id },
         );
       }
-      records.push(value);
+      operationKeys.add(record.operation_key);
+      evidenceIds.add(record.evidence_id);
+      records.push(record);
     }
     validBytes = newline + 1;
     offset = newline + 1;
@@ -160,13 +306,18 @@ export class EvidenceStore {
         ? Buffer.from(input.rawContent, "utf8")
         : Buffer.from(input.rawContent);
     const contentHash = sha256Bytes(rawBytes);
-    const stableOperationKey =
-      input.operationKey ??
-      operationKey("record_evidence", {
-        canonical_url: canonicalUrl,
-        content_hash: contentHash,
-        research_goal: input.researchGoal,
-      });
+    const stableOperationKey = expectedEvidenceOperationKey(
+      canonicalUrl,
+      contentHash,
+      input.researchGoal,
+    );
+    if (input.operationKey !== undefined && input.operationKey !== stableOperationKey) {
+      throw new StoreError(
+        "operation.key_mismatch",
+        "Evidence operation key must match the canonical source/content/goal tuple",
+        { expected: stableOperationKey, actual: input.operationKey },
+      );
+    }
     const operationHex = sha256Hex(stableOperationKey);
     const contentHex = sha256Hex(contentHash);
     let record: EvidenceStoreRecord = {
@@ -182,6 +333,7 @@ export class EvidenceStore {
       operation_key: stableOperationKey,
       recorded_at: input.recordedAt ?? new Date().toISOString(),
     };
+    record = validateEvidenceRecord(record, input.runId);
     const receipt: EvidenceOperationReceipt = {
       schema_version: "startup_opportunity.evidence_store_operation.v1",
       operation_key: stableOperationKey,
@@ -195,15 +347,12 @@ export class EvidenceStore {
     const receiptPath = `.store/operations/evidence-${operationHex}.json`;
     const receiptFile = await resolveRunPath(runRoot, receiptPath, { createParents: true });
     try {
-      const existing = JSON.parse(await readFile(receiptFile, "utf8")) as EvidenceOperationReceipt;
-      if (
-        existing.schema_version !== "startup_opportunity.evidence_store_operation.v1" ||
-        existing.operation_key !== stableOperationKey ||
-        existing.record.run_id !== input.runId ||
-        existing.record.canonical_url !== canonicalUrl ||
-        existing.record.content_hash !== contentHash ||
-        existing.record.research_goal !== input.researchGoal
-      ) {
+      const existing = validateEvidenceReceipt(
+        JSON.parse(await readFile(receiptFile, "utf8")) as unknown,
+        pathBasename(receiptPath),
+        input.runId,
+      );
+      if (existing.operation_key !== stableOperationKey) {
         throw new StoreError(
           "write.operation_conflict",
           "operation key was previously used with different evidence content",
@@ -246,7 +395,7 @@ export class EvidenceStore {
 
     const manifestFile = await resolveRunPath(runRoot, "evidence/manifest.jsonl");
     const contents = await readFile(manifestFile);
-    const parsed = parseManifest(contents);
+    const parsed = parseManifest(contents, input.runId);
     if (parsed.validBytes !== contents.length) {
       throw new StoreError("evidence.corrupt_tail", "repair evidence manifest before appending");
     }
@@ -278,24 +427,13 @@ export class EvidenceStore {
   async recoverLocked(runRoot: string, runId: string): Promise<EvidenceRecoveryResult> {
     const manifestFile = await resolveRunPath(runRoot, "evidence/manifest.jsonl");
     const manifestContents = await readFile(manifestFile);
-    const parsed = parseManifest(manifestContents);
+    const parsed = parseManifest(manifestContents, runId);
     const truncatedBytes = manifestContents.length - parsed.validBytes;
     if (truncatedBytes > 0) {
       await truncate(manifestFile, parsed.validBytes);
     }
     const records = [...parsed.records];
     for (const record of records) {
-      if (
-        record.run_id !== runId ||
-        record.source_hash !== sha256Bytes(record.canonical_url) ||
-        canonicalizeSourceUrl(record.canonical_url) !== record.canonical_url
-      ) {
-        throw new StoreError(
-          "evidence.corrupt_manifest",
-          "evidence record identity or source hash is invalid",
-          { evidenceId: record.evidence_id },
-        );
-      }
       const raw = await readFile(await resolveRunPath(runRoot, record.raw_content_ref));
       if (sha256Bytes(raw) !== record.content_hash) {
         throw new StoreError("artifact.hash_mismatch", "stored evidence raw bytes do not match", {
@@ -310,23 +448,44 @@ export class EvidenceStore {
     const operationDirectory = await resolveRunPath(runRoot, ".store/operations", {
       createParents: true,
     });
+    const receiptsByOperationKey = new Map<string, EvidenceOperationReceipt>();
     for (const entry of (await readdir(operationDirectory)).sort()) {
       if (!entry.startsWith("evidence-") || !entry.endsWith(".json")) {
         continue;
       }
       const receiptPath = `.store/operations/${entry}`;
-      const receipt = JSON.parse(
-        await readFile(await resolveRunPath(runRoot, receiptPath), "utf8"),
-      ) as EvidenceOperationReceipt;
-      if (
-        receipt.schema_version !== "startup_opportunity.evidence_store_operation.v1" ||
-        receipt.record.run_id !== runId ||
-        receipt.operation_key !== receipt.record.operation_key
-      ) {
-        throw new StoreError("recovery.invalid_operation", "evidence operation is invalid", {
+      const receipt = validateEvidenceReceipt(
+        JSON.parse(await readFile(await resolveRunPath(runRoot, receiptPath), "utf8")) as unknown,
+        entry,
+        runId,
+      );
+      if (receiptsByOperationKey.has(receipt.operation_key)) {
+        throw new StoreError("recovery.invalid_operation", "Evidence operation is duplicated", {
           path: receiptPath,
+          operationKey: receipt.operation_key,
         });
       }
+      receiptsByOperationKey.set(receipt.operation_key, receipt);
+    }
+    for (const record of records) {
+      const receipt = receiptsByOperationKey.get(record.operation_key);
+      if (!receipt || canonicalJson(receipt.record) !== canonicalJson(record)) {
+        throw new StoreError(
+          "recovery.missing_operation",
+          "Evidence record does not have one matching operation receipt",
+          { evidenceId: record.evidence_id, operationKey: record.operation_key },
+        );
+      }
+    }
+
+    const operations: {
+      readonly receipt: EvidenceOperationReceipt;
+      readonly receiptPath: string;
+      readonly rawTempPath: string;
+      readonly action: "complete" | "recover" | "discard";
+    }[] = [];
+    for (const receipt of receiptsByOperationKey.values()) {
+      const receiptPath = `.store/operations/evidence-${sha256Hex(receipt.operation_key)}.json`;
       const operationHex = sha256Hex(receipt.operation_key);
       const rawTempPath = `.store/temp/evidence-${operationHex}.raw.tmp`;
       const rawTarget = await resolveRunPath(runRoot, receipt.record.raw_content_ref, {
@@ -345,6 +504,7 @@ export class EvidenceStore {
             path: receipt.record.raw_content_ref,
           });
         }
+        operations.push({ receipt, receiptPath, rawTempPath, action: "complete" });
       } catch (error) {
         if (!isNodeError(error, "ENOENT")) {
           throw error;
@@ -357,15 +517,12 @@ export class EvidenceStore {
               path: rawTempPath,
             });
           }
-          retainedTemps.add(rawTempPath.split("/").at(-1) ?? "");
-          await publishTemp(runRoot, rawTempPath, receipt.record.raw_content_ref);
-          recoveredRaw.push(receipt.record.raw_content_ref);
+          operations.push({ receipt, receiptPath, rawTempPath, action: "recover" });
         } catch (tempError) {
           if (!isNodeError(tempError, "ENOENT")) {
             throw tempError;
           }
-          await rm(await resolveRunPath(runRoot, receiptPath), { force: true });
-          continue;
+          operations.push({ receipt, receiptPath, rawTempPath, action: "discard" });
         }
       }
       const existing = records.find((record) => record.operation_key === receipt.operation_key);
@@ -374,10 +531,21 @@ export class EvidenceStore {
           operationKey: receipt.operation_key,
         });
       }
-      if (!existing) {
-        await appendRecord(manifestFile, receipt.record);
-        records.push(receipt.record);
-        replayed.push(receipt.record.evidence_id);
+    }
+
+    for (const operation of operations) {
+      if (operation.action === "recover") {
+        retainedTemps.add(operation.rawTempPath.split("/").at(-1) ?? "");
+        await publishTemp(runRoot, operation.rawTempPath, operation.receipt.record.raw_content_ref);
+        recoveredRaw.push(operation.receipt.record.raw_content_ref);
+      } else if (operation.action === "discard") {
+        await rm(await resolveRunPath(runRoot, operation.receiptPath), { force: true });
+        continue;
+      }
+      if (!records.some((record) => record.operation_key === operation.receipt.operation_key)) {
+        await appendRecord(manifestFile, operation.receipt.record);
+        records.push(operation.receipt.record);
+        replayed.push(operation.receipt.record.evidence_id);
       }
     }
 

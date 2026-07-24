@@ -2,7 +2,13 @@ import { readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ArtifactValidator, DocumentBundleEntry } from "../validators/artifact-validator.js";
 import { publishTemp, removeTemp, writeSyncedTemp } from "./atomic-file.js";
-import { canonicalContentHash, canonicalJson, operationKey, sha256Hex } from "./canonical.js";
+import {
+  canonicalContentHash,
+  canonicalJson,
+  isSha256,
+  operationKey,
+  sha256Hex,
+} from "./canonical.js";
 import {
   isNodeError,
   openRunDirectory,
@@ -73,6 +79,78 @@ function isEnvelope(value: unknown): value is FormalArtifactEnvelope {
     typeof value.content_hash === "string" &&
     isRecord(value.document)
   );
+}
+
+function hasExactlyKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return (
+    actual.length === sortedExpected.length &&
+    actual.every((key, index) => key === sortedExpected[index])
+  );
+}
+
+function expectedArtifactOperationKey(envelope: FormalArtifactEnvelope): string {
+  if (
+    envelope.artifact_type === "startup_opportunity.checkpoint.v1" &&
+    typeof envelope.document.checkpoint_id === "string"
+  ) {
+    return operationKey("checkpoint_run", {
+      run_id: envelope.run_id,
+      checkpoint_id: envelope.document.checkpoint_id,
+      content_hash: envelope.content_hash,
+    });
+  }
+  return operationKey("publish_artifact", {
+    run_id: envelope.run_id,
+    artifact_path: envelope.artifact_path,
+    artifact_type: envelope.artifact_type,
+    content_hash: envelope.content_hash,
+  });
+}
+
+function validateArtifactReceipt(
+  value: unknown,
+  filename: string,
+  runId: string,
+): ArtifactOperationReceipt {
+  if (
+    !isRecord(value) ||
+    !hasExactlyKeys(value, [
+      "schema_version",
+      "operation_key",
+      "run_id",
+      "artifact_path",
+      "artifact_type",
+      "content_hash",
+      "envelope",
+    ]) ||
+    value.schema_version !== "startup_opportunity.artifact_store_operation.v1" ||
+    !isSha256(value.operation_key) ||
+    value.run_id !== runId ||
+    !isEnvelope(value.envelope)
+  ) {
+    throw new StoreError("recovery.invalid_operation", "artifact operation receipt is invalid", {
+      path: `.store/operations/${filename}`,
+    });
+  }
+  const receipt = value as unknown as ArtifactOperationReceipt;
+  const expectedFilename = `artifact-${sha256Hex(receipt.operation_key)}.json`;
+  if (
+    filename !== expectedFilename ||
+    receipt.operation_key !== expectedArtifactOperationKey(receipt.envelope) ||
+    receipt.artifact_path !== receipt.envelope.artifact_path ||
+    receipt.artifact_type !== receipt.envelope.artifact_type ||
+    receipt.content_hash !== receipt.envelope.content_hash ||
+    receipt.run_id !== receipt.envelope.run_id
+  ) {
+    throw new StoreError(
+      "recovery.invalid_operation",
+      "artifact receipt identity differs from its filename or envelope",
+      { path: `.store/operations/${filename}` },
+    );
+  }
+  return receipt;
 }
 
 function assertFault(boundary: ArtifactFaultBoundary, requested?: ArtifactFaultBoundary): void {
@@ -239,13 +317,15 @@ export class ArtifactStore {
     this.validateEnvelopeBoundary(input.runId, input.envelope);
     await this.validateEnvelopeReferences(runRoot, input.envelope);
 
-    const computedOperationKey = operationKey("publish_artifact", {
-      run_id: input.runId,
-      artifact_path: input.envelope.artifact_path,
-      artifact_type: input.envelope.artifact_type,
-      content_hash: input.envelope.content_hash,
-    });
-    const stableOperationKey = input.operationKey ?? computedOperationKey;
+    const computedOperationKey = expectedArtifactOperationKey(input.envelope);
+    if (input.operationKey !== undefined && input.operationKey !== computedOperationKey) {
+      throw new StoreError(
+        "operation.key_mismatch",
+        "artifact operation key must match the canonical publication identity",
+        { expected: computedOperationKey, actual: input.operationKey },
+      );
+    }
+    const stableOperationKey = computedOperationKey;
     const operationHex = sha256Hex(stableOperationKey);
     const receipt: ArtifactOperationReceipt = {
       schema_version: "startup_opportunity.artifact_store_operation.v1",
@@ -328,27 +408,21 @@ export class ArtifactStore {
     const tempDirectory = await resolveRunPath(runRoot, ".store/temp", { createParents: true });
     const recovered: string[] = [];
     const retainedTemps = new Set<string>();
+    const operations: {
+      readonly receiptPath: string;
+      readonly receipt: ArtifactOperationReceipt;
+      readonly tempPath: string;
+      readonly action: "complete" | "recover" | "discard" | "ignore_invalid_checkpoint";
+    }[] = [];
     for (const entry of (await readdir(operationDirectory)).sort()) {
       if (!entry.startsWith("artifact-") || !entry.endsWith(".json")) {
         continue;
       }
       const receiptPath = `.store/operations/${entry}`;
-      const receipt = JSON.parse(
+      const receiptValue = JSON.parse(
         await readFile(await resolveRunPath(runRoot, receiptPath), "utf8"),
-      ) as ArtifactOperationReceipt;
-      if (
-        receipt.schema_version !== "startup_opportunity.artifact_store_operation.v1" ||
-        receipt.run_id !== runId ||
-        !isEnvelope(receipt.envelope)
-      ) {
-        throw new StoreError(
-          "recovery.invalid_operation",
-          "artifact operation receipt is invalid",
-          {
-            path: receiptPath,
-          },
-        );
-      }
+      ) as unknown;
+      const receipt = validateArtifactReceipt(receiptValue, entry, runId);
       this.validateEnvelopeBoundary(runId, receipt.envelope);
       const hex = sha256Hex(receipt.operation_key);
       const tempPath = `.store/temp/artifact-${hex}.publish.tmp`;
@@ -357,12 +431,19 @@ export class ArtifactStore {
         const current = JSON.parse(await readFile(target, "utf8")) as unknown;
         if (canonicalJson(current) !== canonicalJson(receipt.envelope)) {
           if (receipt.artifact_path.startsWith("checkpoints/")) {
+            operations.push({
+              receiptPath,
+              receipt,
+              tempPath,
+              action: "ignore_invalid_checkpoint",
+            });
             continue;
           }
           throw new StoreError("write.conflict", "published artifact differs from operation", {
             path: receipt.artifact_path,
           });
         }
+        operations.push({ receiptPath, receipt, tempPath, action: "complete" });
         continue;
       } catch (error) {
         if (!isNodeError(error, "ENOENT")) {
@@ -378,14 +459,22 @@ export class ArtifactStore {
             path: tempPath,
           });
         }
-        retainedTemps.add(path.basename(tempPath));
-        await publishTemp(runRoot, tempPath, receipt.artifact_path);
-        recovered.push(receipt.artifact_path);
+        operations.push({ receiptPath, receipt, tempPath, action: "recover" });
       } catch (error) {
         if (!isNodeError(error, "ENOENT")) {
           throw error;
         }
-        await rm(await resolveRunPath(runRoot, receiptPath), { force: true });
+        operations.push({ receiptPath, receipt, tempPath, action: "discard" });
+      }
+    }
+
+    for (const operation of operations) {
+      if (operation.action === "recover") {
+        retainedTemps.add(path.basename(operation.tempPath));
+        await publishTemp(runRoot, operation.tempPath, operation.receipt.artifact_path);
+        recovered.push(operation.receipt.artifact_path);
+      } else if (operation.action === "discard") {
+        await rm(await resolveRunPath(runRoot, operation.receiptPath), { force: true });
       }
     }
 

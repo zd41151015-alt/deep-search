@@ -9,7 +9,6 @@ import {
   createArtifactValidator,
   EvidenceStore,
   type FormalArtifactEnvelope,
-  operationKey,
   RunStore,
   StoreError,
 } from "../harness/src/index.js";
@@ -86,12 +85,7 @@ test("create and reopen persist a complete initial Run boundary idempotently", a
 test("formal publication validates canonical hash, updates manifest, and replays idempotently", async (context) => {
   const { runRoot, store } = await setup(context);
   const envelope = await eventEnvelope("store-test");
-  const stableKey = operationKey("fixture_publish", { id: "fixture_event_001" });
-  const first = await store.publishArtifact({
-    runId: "store-test",
-    envelope,
-    operationKey: stableKey,
-  });
+  const first = await store.publishArtifact({ runId: "store-test", envelope });
   assert.equal(first.status, "published");
   assert.deepEqual(
     JSON.parse(await readFile(path.join(runRoot, envelope.artifact_path), "utf8")),
@@ -102,11 +96,7 @@ test("formal publication validates canonical hash, updates manifest, and replays
   };
   assert.deepEqual(manifest.artifact_refs, [envelope.artifact_path]);
 
-  const replay = await store.publishArtifact({
-    runId: "store-test",
-    envelope,
-    operationKey: stableKey,
-  });
+  const replay = await store.publishArtifact({ runId: "store-test", envelope });
   assert.equal(replay.status, "idempotent_replay");
 });
 
@@ -173,15 +163,18 @@ test("formal publication rejects hash, reference, operation-key, and occupied-pa
     (error: unknown) => error instanceof StoreError && error.code === "reference.missing",
   );
 
-  const stableKey = operationKey("fixture_publish", { id: "conflict" });
-  await store.publishArtifact({ runId: "store-test", envelope: valid, operationKey: stableKey });
+  const published = await store.publishArtifact({ runId: "store-test", envelope: valid });
   const changed = await eventEnvelope("store-test", valid.artifact_path, {
     event_id: "fixture_event_002",
     reason: "Different content must not replace the formal path.",
   });
   await assert.rejects(
-    store.publishArtifact({ runId: "store-test", envelope: changed, operationKey: stableKey }),
-    (error: unknown) => error instanceof StoreError && error.code === "write.operation_conflict",
+    store.publishArtifact({
+      runId: "store-test",
+      envelope: changed,
+      operationKey: published.operationKey,
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "operation.key_mismatch",
   );
   await assert.rejects(
     store.publishArtifact({ runId: "store-test", envelope: changed }),
@@ -278,7 +271,7 @@ test("Evidence Store canonicalizes source identity, stores real bytes, deduplica
       operationKey: first.record.operation_key,
       recordedAt: "2026-07-23T12:20:00Z",
     }),
-    (error: unknown) => error instanceof StoreError && error.code.startsWith("write."),
+    (error: unknown) => error instanceof StoreError && error.code === "operation.key_mismatch",
   );
 });
 

@@ -1,6 +1,6 @@
 import { open, readdir, readFile, truncate } from "node:fs/promises";
 import { publishTemp, writeSyncedTemp } from "../artifact-store/atomic-file.js";
-import { canonicalJson, operationKey, sha256Hex } from "../artifact-store/canonical.js";
+import { canonicalJson, isSha256, operationKey, sha256Hex } from "../artifact-store/canonical.js";
 import { isNodeError, resolveRunPath } from "../artifact-store/path-policy.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
@@ -28,6 +28,27 @@ function recordId(record: Record<string, unknown>): string {
   return id;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactlyKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return (
+    actual.length === sortedExpected.length &&
+    actual.every((key, index) => key === sortedExpected[index])
+  );
+}
+
+function expectedLogOperationKey(
+  runId: string,
+  logPath: "events.jsonl" | "decisions.jsonl",
+  record: Record<string, unknown>,
+): string {
+  return operationKey("append_jsonl", { run_id: runId, log_path: logPath, record });
+}
+
 function parseCompleteLines(
   contents: Buffer,
   logPath: string,
@@ -36,6 +57,7 @@ function parseCompleteLines(
   readonly validBytes: number;
 } {
   const records: Record<string, unknown>[] = [];
+  const recordsById = new Map<string, Record<string, unknown>>();
   let validBytes = 0;
   let offset = 0;
   while (offset < contents.length) {
@@ -45,12 +67,9 @@ function parseCompleteLines(
     }
     const line = contents.subarray(offset, newline).toString("utf8");
     if (line.length > 0) {
+      let value: unknown;
       try {
-        const value = JSON.parse(line) as unknown;
-        if (typeof value !== "object" || value === null || Array.isArray(value)) {
-          throw new Error("record is not an object");
-        }
-        records.push(value as Record<string, unknown>);
+        value = JSON.parse(line) as unknown;
       } catch (error) {
         throw new StoreError("log.corrupt_middle", "JSONL contains a corrupt complete record", {
           path: logPath,
@@ -58,6 +77,23 @@ function parseCompleteLines(
           reason: error instanceof Error ? error.message : "invalid JSON",
         });
       }
+      if (!isRecord(value)) {
+        throw new StoreError("log.corrupt_middle", "JSONL complete record is not an object", {
+          path: logPath,
+          offset,
+        });
+      }
+      const id = recordId(value);
+      const previous = recordsById.get(id);
+      if (previous) {
+        throw new StoreError(
+          canonicalJson(previous) === canonicalJson(value) ? "log.duplicate_id" : "log.id_conflict",
+          "JSONL contains a duplicate record id",
+          { path: logPath, recordId: id, offset },
+        );
+      }
+      recordsById.set(id, value);
+      records.push(value);
     }
     validBytes = newline + 1;
     offset = newline + 1;
@@ -113,9 +149,14 @@ export class JsonlStore {
         path: logPath,
       });
     }
-    const stableOperationKey =
-      suppliedOperationKey ??
-      operationKey("append_jsonl", { run_id: runId, log_path: logPath, record });
+    const stableOperationKey = expectedLogOperationKey(runId, logPath, record);
+    if (suppliedOperationKey !== undefined && suppliedOperationKey !== stableOperationKey) {
+      throw new StoreError(
+        "operation.key_mismatch",
+        "JSONL operation key must match the canonical record identity",
+        { expected: stableOperationKey, actual: suppliedOperationKey },
+      );
+    }
     const hex = sha256Hex(stableOperationKey);
     const receipt: LogOperationReceipt = {
       schema_version: "startup_opportunity.jsonl_operation.v1",
@@ -176,22 +217,75 @@ export class JsonlStore {
     }
 
     const records = [...parsed.records];
+    const receiptsByRecordId = new Map<string, LogOperationReceipt>();
     const operations = await resolveRunPath(runRoot, ".store/operations", { createParents: true });
     const replayed: string[] = [];
     for (const entry of (await readdir(operations)).sort()) {
       if (!entry.startsWith("log-") || !entry.endsWith(".json")) {
         continue;
       }
-      const receipt = JSON.parse(
-        await readFile(`${operations}/${entry}`, "utf8"),
-      ) as LogOperationReceipt;
+      const value = JSON.parse(await readFile(`${operations}/${entry}`, "utf8")) as unknown;
       if (
-        receipt.schema_version !== "startup_opportunity.jsonl_operation.v1" ||
-        receipt.run_id !== runId ||
-        receipt.log_path !== logPath
+        !isRecord(value) ||
+        !hasExactlyKeys(value, [
+          "schema_version",
+          "operation_key",
+          "run_id",
+          "log_path",
+          "record_id",
+          "record",
+        ]) ||
+        value.schema_version !== "startup_opportunity.jsonl_operation.v1" ||
+        !isSha256(value.operation_key) ||
+        value.run_id !== runId ||
+        (value.log_path !== "events.jsonl" && value.log_path !== "decisions.jsonl") ||
+        !isRecord(value.record)
       ) {
+        throw new StoreError("recovery.invalid_operation", "JSONL operation receipt is invalid", {
+          path: `.store/operations/${entry}`,
+        });
+      }
+      const receipt = value as unknown as LogOperationReceipt;
+      const expectedFilename = `log-${sha256Hex(receipt.operation_key)}.json`;
+      let payloadRecordId: string;
+      try {
+        payloadRecordId = recordId(receipt.record);
+      } catch {
+        throw new StoreError(
+          "recovery.invalid_operation",
+          "JSONL receipt payload has no valid record id",
+          { path: `.store/operations/${entry}` },
+        );
+      }
+      if (
+        entry !== expectedFilename ||
+        receipt.record_id !== payloadRecordId ||
+        receipt.operation_key !==
+          expectedLogOperationKey(receipt.run_id, receipt.log_path, receipt.record)
+      ) {
+        throw new StoreError(
+          "recovery.invalid_operation",
+          "JSONL receipt identity differs from its filename or record",
+          { path: `.store/operations/${entry}` },
+        );
+      }
+      const validation = this.validator.validateDocument(receipt.record, receipt.log_path);
+      if (!validation.valid || receipt.record.run_id !== runId) {
+        throw new StoreError("recovery.invalid_operation", "JSONL receipt record is invalid", {
+          path: `.store/operations/${entry}`,
+          errors: validation.errors,
+        });
+      }
+      if (receipt.log_path !== logPath) {
         continue;
       }
+      if (receiptsByRecordId.has(receipt.record_id)) {
+        throw new StoreError("recovery.invalid_operation", "record id has multiple receipts", {
+          path: `.store/operations/${entry}`,
+          recordId: receipt.record_id,
+        });
+      }
+      receiptsByRecordId.set(receipt.record_id, receipt);
       const matching = records.find((record) => recordId(record) === receipt.record_id);
       if (matching && canonicalJson(matching) !== canonicalJson(receipt.record)) {
         throw new StoreError("write.conflict", "JSONL operation conflicts with stored record", {
@@ -199,14 +293,20 @@ export class JsonlStore {
           recordId: receipt.record_id,
         });
       }
-      if (!matching) {
-        const validation = this.validator.validateDocument(receipt.record, logPath);
-        if (!validation.valid) {
-          throw new StoreError("recovery.invalid_operation", "JSONL operation record is invalid", {
-            path: logPath,
-            errors: validation.errors,
-          });
-        }
+    }
+    for (const record of records) {
+      const id = recordId(record);
+      const receipt = receiptsByRecordId.get(id);
+      if (!receipt || canonicalJson(receipt.record) !== canonicalJson(record)) {
+        throw new StoreError(
+          "recovery.missing_operation",
+          "JSONL record does not have one matching operation receipt",
+          { path: logPath, recordId: id },
+        );
+      }
+    }
+    for (const receipt of receiptsByRecordId.values()) {
+      if (!records.some((record) => recordId(record) === receipt.record_id)) {
         await appendBytes(filename, `${canonicalJson(receipt.record)}\n`);
         records.push(receipt.record);
         replayed.push(receipt.record_id);

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -71,6 +71,75 @@ test("checkpoint publish without manifest update recovers to the newest valid sn
   assert.equal(reopened.lastValidCheckpointRef, "checkpoints/checkpoint-second.json");
   assert.equal(reopened.manifest.checkpoint_ref, "checkpoints/checkpoint-second.json");
   assert.ok(reopened.recovered);
+});
+
+test("a successful checkpoint remains current on immediate reopen", async (context) => {
+  const { store } = await setup(context, "checkpoint-success-reopen");
+  const input = await checkpointInput(
+    "checkpoint-success-reopen",
+    "checkpoint_second",
+    "2026-07-23T12:10:00Z",
+  );
+  const checkpoint = await store.checkpoint(input);
+  assert.equal(checkpoint.status, "published");
+
+  const reopened = await store.load("checkpoint-success-reopen");
+  assert.equal(reopened.recovered, false);
+  assert.equal(reopened.lastValidCheckpointRef, "checkpoints/checkpoint-second.json");
+  assert.equal(reopened.manifest.checkpoint_ref, "checkpoints/checkpoint-second.json");
+});
+
+test("checkpoint publication rejects stale and equal durable timestamps", async (context) => {
+  const { runRoot, store } = await setup(context, "checkpoint-time-order");
+  for (const [checkpointId, createdAt] of [
+    ["checkpoint_stale", "2026-07-23T11:00:00Z"],
+    ["checkpoint_equal", "2026-07-23T12:00:00Z"],
+  ] as const) {
+    await assert.rejects(
+      store.checkpoint(await checkpointInput("checkpoint-time-order", checkpointId, createdAt)),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "checkpoint.non_monotonic_time",
+    );
+    await assert.rejects(
+      readFile(path.join(runRoot, `checkpoints/${checkpointId.replaceAll("_", "-")}.json`)),
+    );
+  }
+  const manifest = JSON.parse(await readFile(path.join(runRoot, "manifest.json"), "utf8")) as {
+    checkpoint_ref: string;
+  };
+  assert.equal(manifest.checkpoint_ref, "checkpoints/checkpoint-initial.json");
+});
+
+test("an equal checkpoint retry after publish crash is rejected against recovered durable order", async (context) => {
+  const { runRoot, store } = await setup(context, "checkpoint-crash-equal-retry");
+  const published = await checkpointInput(
+    "checkpoint-crash-equal-retry",
+    "checkpoint_second",
+    "2026-07-23T12:10:00Z",
+  );
+  await assert.rejects(
+    store.checkpoint({ ...published, faultAt: "after_checkpoint_publish" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+
+  await assert.rejects(
+    store.checkpoint(
+      await checkpointInput(
+        "checkpoint-crash-equal-retry",
+        "checkpoint_equal_retry",
+        published.createdAt,
+      ),
+    ),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "checkpoint.non_monotonic_time",
+  );
+  const manifest = JSON.parse(await readFile(path.join(runRoot, "manifest.json"), "utf8")) as {
+    checkpoint_ref: string;
+  };
+  assert.equal(manifest.checkpoint_ref, "checkpoints/checkpoint-initial.json");
+  await assert.rejects(readFile(path.join(runRoot, "checkpoints/checkpoint-equal-retry.json")));
+  const reopened = await store.load("checkpoint-crash-equal-retry");
+  assert.equal(reopened.manifest.checkpoint_ref, "checkpoints/checkpoint-second.json");
 });
 
 test("manifest update without checkpoint event is reconciled idempotently", async (context) => {
@@ -210,5 +279,94 @@ test("publication rejects a plan revision with broken parent lineage", async (co
     (error: unknown) =>
       error instanceof StoreError &&
       (error.code === "reference.missing" || error.code === "artifact.reference_invalid"),
+  );
+});
+
+test("Artifact recovery rejects receipt filename and envelope metadata drift", async (context) => {
+  const { runRoot, store } = await setup(context, "artifact-receipt-drift");
+  const document = {
+    schema_version: "startup_opportunity.event.v1",
+    event_id: "artifact_receipt_event",
+    run_id: "artifact-receipt-drift",
+    event_type: "decision_context_written",
+    timestamp: "2026-07-23T12:05:00Z",
+    actor: "harness",
+    reason: "Publish a formal artifact before corrupting its receipt.",
+    artifact_refs: [],
+  };
+  const envelope: FormalArtifactEnvelope = {
+    schema_version: "startup_opportunity.artifact_envelope.v1",
+    artifact_type: "startup_opportunity.event.v1",
+    artifact_path: "events/artifact-receipt-event.json",
+    run_id: "artifact-receipt-drift",
+    created_at: "2026-07-23T12:05:00Z",
+    producer_role: "harness",
+    input_refs: [],
+    content_hash: canonicalContentHash(document),
+    document,
+  };
+  await store.publishArtifact({ runId: "artifact-receipt-drift", envelope });
+  const operations = path.join(runRoot, ".store/operations");
+  const receiptName = (await readdir(operations)).find((entry) => entry.startsWith("artifact-"));
+  assert.ok(receiptName);
+  const receiptPath = path.join(operations, receiptName);
+  const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
+  receipt.artifact_path = "events/drifted.json";
+  await writeFile(receiptPath, `${canonicalJson(receipt)}\n`);
+
+  await assert.rejects(
+    store.load("artifact-receipt-drift"),
+    (error: unknown) => error instanceof StoreError && error.code === "recovery.invalid_operation",
+  );
+});
+
+test("Evidence recovery rejects a receipt stored under the wrong operation-key filename", async (context) => {
+  const { runRoot, runsRoot, store } = await setup(context, "evidence-receipt-drift");
+  const { EvidenceStore } = await import("../harness/src/index.js");
+  await new EvidenceStore(runsRoot).record({
+    runId: "evidence-receipt-drift",
+    unitId: "unit_001",
+    url: "https://example.com/receipt",
+    researchGoal: "Exercise receipt filename integrity.",
+    rawContent: "receipt bytes",
+    recordedAt: "2026-07-23T12:05:00Z",
+  });
+  const operations = path.join(runRoot, ".store/operations");
+  const receiptName = (await readdir(operations)).find((entry) => entry.startsWith("evidence-"));
+  assert.ok(receiptName);
+  await rename(
+    path.join(operations, receiptName),
+    path.join(operations, `evidence-${"0".repeat(64)}.json`),
+  );
+
+  await assert.rejects(
+    store.load("evidence-receipt-drift"),
+    (error: unknown) => error instanceof StoreError && error.code === "recovery.invalid_operation",
+  );
+});
+
+test("JSONL recovery rejects receipt record-id drift", async (context) => {
+  const { runRoot, store } = await setup(context, "log-receipt-drift");
+  const operations = path.join(runRoot, ".store/operations");
+  const logReceipts = (await readdir(operations)).filter((entry) => entry.startsWith("log-"));
+  let mutated = false;
+  for (const receiptName of logReceipts) {
+    const receiptPath = path.join(operations, receiptName);
+    const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as {
+      record_id: string;
+      record: { event_type?: string };
+    };
+    if (receipt.record.event_type === "run_created") {
+      receipt.record_id = "drifted_record_id";
+      await writeFile(receiptPath, `${canonicalJson(receipt)}\n`);
+      mutated = true;
+      break;
+    }
+  }
+  assert.equal(mutated, true);
+
+  await assert.rejects(
+    store.load("log-receipt-drift"),
+    (error: unknown) => error instanceof StoreError && error.code === "recovery.invalid_operation",
   );
 });

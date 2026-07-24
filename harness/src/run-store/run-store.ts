@@ -24,7 +24,7 @@ import {
 import { withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { type EvidenceRecoveryResult, EvidenceStore } from "../evidence-store/evidence-store.js";
-import type { ArtifactValidator } from "../validators/artifact-validator.js";
+import type { ArtifactValidator, DocumentBundleEntry } from "../validators/artifact-validator.js";
 import { type JsonlRepairResult, JsonlStore } from "./jsonl-store.js";
 
 export type RunMode = "opportunity_discovery" | "concept_evidence_assessment";
@@ -312,6 +312,12 @@ export class RunStore {
   }
 
   async publishArtifact(input: PublishArtifactInput): Promise<PublishArtifactResult> {
+    if (input.envelope.artifact_type === "startup_opportunity.checkpoint.v1") {
+      throw new StoreError(
+        "checkpoint.dedicated_entry_required",
+        "checkpoints must use the monotonic checkpoint operation",
+      );
+    }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       const result = await this.artifacts.publishLocked(runRoot, input);
@@ -366,6 +372,40 @@ export class RunStore {
     input: CheckpointRunInput,
   ): Promise<CheckpointRunResult> {
     const manifest = await this.readManifest(runRoot);
+    const checkpointTime = Date.parse(input.createdAt);
+    const currentTime = Date.parse(manifest.updated_at);
+    let latestCheckpointTime: number | null = null;
+    for (const entry of (await this.artifacts.listFormalDocuments(runRoot)).filter((item) =>
+      item.path.startsWith("checkpoints/"),
+    )) {
+      try {
+        const checkpoint = await this.validateCheckpointEntry(runRoot, input.runId, entry);
+        const candidate = Date.parse(String(checkpoint.document.created_at));
+        latestCheckpointTime = Math.max(latestCheckpointTime ?? candidate, candidate);
+      } catch {
+        // Invalid checkpoints are handled by reopen and cannot define durable order.
+      }
+    }
+    const durableTime = Math.max(currentTime, latestCheckpointTime ?? currentTime);
+    const initialCheckpoint = manifest.checkpoint_ref === null && latestCheckpointTime === null;
+    if (
+      !Number.isFinite(checkpointTime) ||
+      !Number.isFinite(currentTime) ||
+      !Number.isFinite(durableTime) ||
+      (initialCheckpoint ? checkpointTime < durableTime : checkpointTime <= durableTime)
+    ) {
+      throw new StoreError(
+        "checkpoint.non_monotonic_time",
+        "checkpoint created_at must advance the durable Run timestamp",
+        {
+          checkpointCreatedAt: input.createdAt,
+          currentUpdatedAt: manifest.updated_at,
+          latestCheckpointAt:
+            latestCheckpointTime === null ? null : new Date(latestCheckpointTime).toISOString(),
+          initialCheckpoint,
+        },
+      );
+    }
     const checkpointRef = `checkpoints/${input.checkpointId.replaceAll("_", "-")}.json`;
     validateArtifactRef(checkpointRef);
     const snapshot: RunManifest = {
@@ -408,11 +448,6 @@ export class RunStore {
     const published = await this.artifacts.publishLocked(runRoot, {
       runId: input.runId,
       envelope,
-      operationKey: operationKey("checkpoint_run", {
-        run_id: input.runId,
-        checkpoint_id: input.checkpointId,
-        content_hash: envelope.content_hash,
-      }),
     });
     if (input.faultAt === "after_checkpoint_publish") {
       throw new StoreError("fault.injected", "injected failure after checkpoint publish");
@@ -475,21 +510,8 @@ export class RunStore {
     }
 
     for (const entry of formalDocuments.filter((item) => item.path.startsWith("checkpoints/"))) {
-      if (
-        !isRecord(entry.document) ||
-        entry.document.schema_version !== "startup_opportunity.artifact_envelope.v1"
-      ) {
-        invalidCheckpoints.push(entry.path);
-        continue;
-      }
-      const envelope = entry.document as FormalArtifactEnvelope;
       try {
-        await this.artifacts.validateStoredEnvelope(runRoot, runId, envelope);
-        const document = checkpointDocument(envelope);
-        if (!document || document.manifest_snapshot === undefined) {
-          throw new StoreError("checkpoint.invalid", "checkpoint document is missing its snapshot");
-        }
-        validCheckpoints.push({ path: entry.path, envelope, document });
+        validCheckpoints.push(await this.validateCheckpointEntry(runRoot, runId, entry));
       } catch {
         invalidCheckpoints.push(entry.path);
       }
@@ -588,6 +610,48 @@ export class RunStore {
       evidenceRecovery,
       orphanActiveUnits: currentManifest.active_units,
     };
+  }
+
+  private async validateCheckpointEntry(
+    runRoot: string,
+    runId: string,
+    entry: DocumentBundleEntry,
+  ): Promise<{
+    readonly path: string;
+    readonly envelope: FormalArtifactEnvelope;
+    readonly document: Record<string, unknown>;
+  }> {
+    if (
+      !isRecord(entry.document) ||
+      entry.document.schema_version !== "startup_opportunity.artifact_envelope.v1"
+    ) {
+      throw new StoreError("checkpoint.invalid", "checkpoint is not a formal envelope", {
+        path: entry.path,
+      });
+    }
+    const envelope = entry.document as FormalArtifactEnvelope;
+    await this.artifacts.validateStoredEnvelope(runRoot, runId, envelope);
+    const document = checkpointDocument(envelope);
+    if (!document || document.manifest_snapshot === undefined) {
+      throw new StoreError("checkpoint.invalid", "checkpoint document is missing its snapshot");
+    }
+    const checkpointTime = Date.parse(String(document.created_at));
+    const snapshot = document.manifest_snapshot;
+    if (
+      !isRecord(snapshot) ||
+      envelope.created_at !== document.created_at ||
+      snapshot.updated_at !== document.created_at ||
+      snapshot.checkpoint_ref !== entry.path ||
+      !Number.isFinite(checkpointTime) ||
+      checkpointTime < Date.parse(String(snapshot.created_at))
+    ) {
+      throw new StoreError(
+        "checkpoint.invalid_order",
+        "checkpoint time and manifest snapshot identity are inconsistent",
+        { path: entry.path },
+      );
+    }
+    return { path: entry.path, envelope, document };
   }
 
   private async readManifest(runRoot: string): Promise<RunManifest> {

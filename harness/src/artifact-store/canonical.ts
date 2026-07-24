@@ -61,3 +61,7 @@ export function sha256Hex(value: string): string {
   }
   return match[1];
 }
+
+export function isSha256(value: unknown): value is string {
+  return typeof value === "string" && /^sha256:[a-f0-9]{64}$/.test(value);
+}
