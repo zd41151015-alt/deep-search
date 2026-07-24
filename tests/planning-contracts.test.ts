@@ -129,8 +129,9 @@ test("Planning Context binds current Run/Plan state and drives complete AI cover
   const { valid } = await loadFixtures();
   const result = evaluator.validateDocumentBundle(valid);
   assert.equal(result.valid, true, JSON.stringify(allIssues(result)));
-  assert.equal(result.schemaBundleVersion, "2.0.0");
+  assert.equal(result.schemaBundleVersion, "2.1.0");
   assert.equal(result.policyVersion, "1.0.0");
+  assert.equal(result.triggerSourcePolicyVersion, "1.0.0");
 
   const nonAi = structuredClone(valid) as {
     documents: { path: string; document: Record<string, unknown> }[];
@@ -150,6 +151,9 @@ test("Planning Context binds current Run/Plan state and drives complete AI cover
     },
     required_dimensions: [],
   };
+  nonAi.documents = nonAi.documents.filter(
+    (entry) => entry.path !== "plans/ai-trigger-source.r1.json",
+  );
   assert.equal(evaluator.validateDocumentBundle(nonAi).valid, true);
 });
 
@@ -157,13 +161,40 @@ test("Planning Context negatives reject missing/wrong triggers and stale Run/Pla
   const evaluator = await createPlanningContractEvaluator(repositoryRoot);
   const { valid, negative } = await loadFixtures();
   const cases = negative.filter((fixture) => fixture.category === "planning_context");
-  assert.equal(cases.length, 9);
+  assert.equal(cases.length, 17);
   for (const fixture of cases) {
     assertExpectedIssues(
       evaluator.validateDocumentBundle(applyMutations(valid, fixture.mutations)),
       fixture,
     );
   }
+});
+
+test("fake or missing AI trigger source binding fails closed", async () => {
+  const evaluator = await createPlanningContractEvaluator(repositoryRoot);
+  const { valid } = await loadFixtures();
+  const invalid = structuredClone(valid) as {
+    documents: { path: string; document: Record<string, unknown> }[];
+  };
+  const context = invalid.documents.find(
+    (entry) => entry.path === "plans/planning-context.r1.json",
+  );
+  assert.ok(context);
+  const coverage = context.document.ai_mandatory_coverage as Record<string, unknown>;
+  const basis = coverage.basis as Record<string, unknown>;
+  basis.source_ref = "missing/source.json";
+  basis.source_schema_version = "startup_opportunity.fake_source.v1";
+  basis.source_content_hash = `sha256:${"b".repeat(64)}`;
+
+  const result = evaluator.validateDocumentBundle(invalid);
+  assert.equal(result.valid, false);
+  assert.equal(result.documentBundle.valid, false);
+  assert.ok(
+    result.documentBundle.referenceErrors.some((issue) => issue.code === "reference.missing"),
+  );
+  assert.ok(
+    result.contractErrors.some((issue) => issue.code === "contract.ai_trigger_source_missing"),
+  );
 });
 
 test("closed mode policy accepts only exact declared tuples and future output schema ids", async () => {

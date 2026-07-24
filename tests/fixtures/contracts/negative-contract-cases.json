@@ -111,6 +111,160 @@
     ]
   },
   {
+    "case_id": "planning-ai-trigger-source-missing",
+    "category": "planning_context",
+    "mutations": [{ "op": "remove_document", "index": 7 }],
+    "expected": [
+      { "surface": "reference", "code": "reference.missing" },
+      { "surface": "contract", "code": "contract.ai_trigger_source_missing" }
+    ]
+  },
+  {
+    "case_id": "planning-ai-trigger-source-ref-wrong",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 2, "document", "ai_mandatory_coverage", "basis", "source_ref"],
+        "value": "adaptations/gap-snapshots/gap-buyer.r1.json"
+      }
+    ],
+    "expected": [
+      { "surface": "reference", "code": "reference.type_mismatch" },
+      { "surface": "contract", "code": "contract.ai_trigger_source_schema_mismatch" }
+    ]
+  },
+  {
+    "case_id": "planning-ai-trigger-source-schema-wrong",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": [
+          "documents",
+          2,
+          "document",
+          "ai_mandatory_coverage",
+          "basis",
+          "source_schema_version"
+        ],
+        "value": "startup_opportunity.fake_source.v1"
+      }
+    ],
+    "expected": [
+      { "surface": "schema", "keyword": "const" },
+      { "surface": "contract", "code": "contract.ai_trigger_source_schema_mismatch" }
+    ]
+  },
+  {
+    "case_id": "planning-ai-trigger-source-hash-wrong",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": [
+          "documents",
+          2,
+          "document",
+          "ai_mandatory_coverage",
+          "basis",
+          "source_content_hash"
+        ],
+        "value": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.ai_trigger_source_hash_stale" }]
+  },
+  {
+    "case_id": "planning-ai-trigger-source-subject-mismatch",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 7, "document", "subject_ref"],
+        "value": "opportunity_999"
+      },
+      {
+        "op": "set",
+        "path": [
+          "documents",
+          2,
+          "document",
+          "ai_mandatory_coverage",
+          "basis",
+          "source_content_hash"
+        ],
+        "value": "sha256:39ba49a44a309c03debcc830f506baefbe052aafb7b5b871251600efd021fb17"
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.ai_trigger_source_subject_mismatch" }]
+  },
+  {
+    "case_id": "planning-ai-trigger-source-content-stale",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 7, "document", "created_at"],
+        "value": "2026-07-23T00:20:31Z"
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.ai_trigger_source_hash_stale" }]
+  },
+  {
+    "case_id": "planning-ai-trigger-source-binding-stale",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 7, "document", "planning_context_binding", "context_revision"],
+        "value": 2
+      },
+      {
+        "op": "set",
+        "path": [
+          "documents",
+          2,
+          "document",
+          "ai_mandatory_coverage",
+          "basis",
+          "source_content_hash"
+        ],
+        "value": "sha256:44f8f0b078aecf39f861354ec8a85b00616358212e70d630778a73081e8db9d1"
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.ai_trigger_source_binding_stale" }]
+  },
+  {
+    "case_id": "planning-ai-trigger-source-trigger-mismatch",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 7, "document", "trigger", "signal"],
+        "value": "assessment_profile"
+      },
+      {
+        "op": "set",
+        "path": ["documents", 7, "document", "trigger", "declared_value"],
+        "value": "ai"
+      },
+      {
+        "op": "set",
+        "path": [
+          "documents",
+          2,
+          "document",
+          "ai_mandatory_coverage",
+          "basis",
+          "source_content_hash"
+        ],
+        "value": "sha256:ed135316c79c5b29e34d793107deb71a12a556189078c2b97069a830d9105ef6"
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.ai_trigger_source_trigger_mismatch" }]
+  },
+  {
     "case_id": "mode-phase-unit-tuple-illegal",
     "category": "mode_policy",
     "mutations": [

@@ -76,6 +76,7 @@ export {
 export type { PlanningContractValidationResult } from "./validators/planning-contract-validator.js";
 export {
   ADAPTATION_POLICY_PATH,
+  AI_TRIGGER_SOURCE_POLICY_PATH,
   createPlanningContractEvaluator,
   PLANNING_CONTRACT_RESULT_VERSION,
   PlanningContractEvaluator,

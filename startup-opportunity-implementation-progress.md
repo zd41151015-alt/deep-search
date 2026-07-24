@@ -235,11 +235,11 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | G0.4 contract 修正规范提交候选；等待中控验收，不是 G0.4 runtime implementation |
-| Current slice | `G0.4 implementation=READY`；尚未启动；G0.R、G1-G4 未开放 |
-| Expected base | contract 修正候选 `<G0.4_CONTRACT_FIX_COMMIT>`；parent=`da820811d0fa7495fd28dc127e1d1ff91adbdc97` |
+| Active task | G0.4 AI trigger source-binding contract follow-up；等待中控验收，不是 G0.4 runtime implementation |
+| Current slice | `G0.4 implementation=READY` 但受中控验收 gate 约束；尚未启动；G0.R、G1-G4 未开放 |
+| Expected base | follow-up 候选 `<G0.4_AI_TRIGGER_SOURCE_FIX_COMMIT>`；parent=`30b31754684ee83cc132ee4d3362307b98e27e23` |
 | Consecutive state-query failures | `0` |
-| Last effective operation | `g0_4_contract_fix_candidate_recorded` |
+| Last effective operation | `g0_4_ai_trigger_source_followup_recorded` |
 | Next allowed action | 中控从 clean candidate 独立验收 contract/version/tests；接受后只能创建 G0.4 implementation，不能创建 G0.R 或开放 G1 |
 
 ## 已完成切片与证据
@@ -419,29 +419,29 @@ G0.4 启动期按强制施工协议完整阅读 RFC、账本并建立 schema/pol
 | `npm audit` | PASS；0 vulnerabilities |
 | G0.4 专项 | NOT RUN；实现被 contract 缺口阻塞，当前专项数量为 0，不得冒充 PASS |
 
-## G0.4 contract 修正交付
+## G0.4 初始 contract 修正候选
 
 本次提交只修正规范与 versioned contracts，不实现 G0.4 runtime。交付版本：
 
-- 保留 `harness/schemas/v1` / schema bundle `1.0.0` immutable，默认发布兼容读取超集 schema bundle `2.0.0`：16 schemas、15 document validators。
+- 保留 `harness/schemas/v1` / schema bundle `1.0.0` immutable；初始候选曾默认发布兼容读取超集 schema bundle `2.0.0`：16 schemas、15 document validators。
 - 新增 `startup_opportunity.planning_context.v1`，包含 immutable context revision、Run/Plan identity/ref/hash/revision、`initial_plan | current_plan | candidate_revision` stale rules，以及 closed AI mandatory trigger。它只表达 G0 planning context，不包含 G3 business artifact。
 - 新增 `startup_opportunity.coverage_attestation.v1` 和 canonical `coverage_key`/唯一 relation；新增 `startup_opportunity.adaptation_decision.v2`，要求 `continue_existing_plan.coverage_attestation_ref` 与 `retry_unit.retry_basis`。
 - 发布 `startup_opportunity.adaptation_policy.v1` / policy `1.0.0`：5 个 mode/phase、49 个 exact unit tuples、23 个 unit types、4 个 `future_declared` output schema ids。Plan 可以声明 policy 已知但尚未安装的 output schema；Artifact validation/publish 仍要求 installed schema 和 compatible envelope。
 - 新增 `artifact_envelope.v2` 与 `document_bundle.v2`；v1 documents 和 Adaptation Decision v1 继续 schema-compatible read。Adaptation Decision v1 不能进入 policy `1.0.0` execution，必须由 main Agent 发布带 provenance 的 v2 proposal。
 - `PlanningContractEvaluator` 只读验证显式 bundle；不扫描 Run、不写状态、不调度 unit、不接通任何 reserved G0.4 CLI。
 
-四项阻塞的机械消除：
+初始候选对四项阻塞的处理：
 
 | 原阻塞 | Contract 结果 |
 | --- | --- |
-| AI trigger 缺失 | Planning Context 必填 `required | not_required` trigger；Run/Plan binding 和六维 subject aggregate 可机械验证，missing/wrong/stale 均拒绝 |
+| AI trigger 缺失 | 候选要求 Planning Context 必填 `required | not_required` trigger，但 `source_ref/source_schema_version/source_content_hash` 只有 shape；后续独立复现证明 fake/missing source 仍会通过，因此本行未真正闭合 |
 | mode allowlist 缺失 | `adaptation.v1.json` 是 exact mode/phase/type/role/schema tuple 的唯一数据源；`future_declared` 只影响 plan declaration |
 | coverage 无法判断 | Main Agent 发布 semantic attestation；Harness 只验证 canonical key、exact relation/ref/subject/goal、pending/active state、plan lineage/stale |
 | partial retry 无映射 | G0.4 retry 只认 `manifest.failed_units`；completed/active/pending/partial 均 fail closed，partial adapter 延后到 owning G1/G2 schema/policy |
 
 Contract fixture 交付：1 个完整正例 bundle、1 个 future-declared Artifact publish 负例和 21 个 mutation 负例，覆盖 missing/wrong trigger、stale Run/Plan identity/ref/hash/revision、非法 tuple、current plan 与 Adaptation target 未声明 output schema、coverage key/ref/subject/state、retry completed/active/partial 和 v1 read-compatible/policy-rejected。
 
-提交占位：`<G0.4_CONTRACT_FIX_COMMIT>`；parent 必须为 `da820811d0fa7495fd28dc127e1d1ff91adbdc97`。提交后由中控从 clean tree 独立验收；只有验收接受后才能启动 `G0.4 implementation=READY`。本提交不把 G0.4 标记 `DONE`，不开放 G0.R 或 G1。
+初始候选提交：`30b31754684ee83cc132ee4d3362307b98e27e23`；parent=`da820811d0fa7495fd28dc127e1d1ff91adbdc97`。中控因下述 AI trigger source-binding 漏检拒绝该候选；提交与测试记录保留，不 amend/rebase/reset。
 
 ### Contract 修正验证证据
 
@@ -462,10 +462,44 @@ Contract fixture 交付：1 个完整正例 bundle、1 个 future-declared Artif
 | `npm audit` | PASS；0 vulnerabilities |
 | `git diff --check` | PASS；提交前复核 |
 
+## G0.4 AI trigger source-binding follow-up
+
+中控对 `30b31754684ee83cc132ee4d3362307b98e27e23` 的独立最小复现：在正例 Planning Context 中把 `source_ref` 改为 `missing/source.json`、`source_schema_version` 改为 `startup_opportunity.fake_source.v1`、`source_content_hash` 改为 64 个 `b`，旧 `PlanningContractEvaluator` 仍返回 `valid=true`、`documentBundle.valid=true`、空 contract/reference errors。根因是 Planning Context v1 只校验三个字段的 shape，没有 source identity、存在性、schema、canonical hash 或 stale binding。
+
+Follow-up contract 交付：
+
+- 保留 bundle `1.0.0`、bundle `2.0.0`、Planning Context v1、adaptation policy `1.0.0` 及全部 v1 schemas immutable；默认新增兼容读取超集 bundle `2.1.0`：19 schemas、18 document validators。
+- 发布 `startup_opportunity.planning_context.v2` 与 `startup_opportunity.ai_trigger_source_attestation.v1`。Planning Context v1 只读兼容，不能进入新 planning policy validation；v2 的 required trigger 只允许 installed attestation schema。
+- 发布 `startup_opportunity.ai_trigger_source_binding_policy.v1` / `1.0.0`，用 exact ref/schema/version/canonical hash 绑定 `adaptation.v1.json`，固定 `explicit_document_bundle_path` resolution、`canonical_json_sha256.v1` 和 8 个 exact Run/mode/context revision/subject/trigger bindings，并将 future-declared trigger source 固定为 `forbidden`。
+- Reference evaluator 只从调用方显式 Document Bundle 解析 whole-document `source_ref`；不使用 fragment、CLI flag、路径启发式、Run 扫描、自由文本或隐藏 LLM。Planning evaluator 继续校验 source canonical hash 与 exact bindings，任一 source 内容或 binding 变化都使旧 Planning Context stale。
+- 正例 bundle 新增一个 source attestation；mutation 负例从 21 增至 29，新增 missing source、wrong ref/schema/hash、subject mismatch、source content stale、context revision stale 和 trigger mismatch。中控的原三字段最小复现另有独立 test，现稳定返回 invalid。
+- 同步确认 G0.3 Store 的 `FormalArtifactEnvelope`、operation receipt recovery 和 publish reference bundle 仍为 v1-only。`artifact_envelope.v2` schema-valid 只表示可做显式 contract validation；真实 `RunStore.publishArtifact` regression 证明它在当前 `document_bundle.v1` reference-validation boundary 以 `artifact.reference_invalid` fail closed。本 follow-up 不实现 v2 Store runtime。
+
+Follow-up 提交占位：`<G0.4_AI_TRIGGER_SOURCE_FIX_COMMIT>`；parent 必须为 `30b31754684ee83cc132ee4d3362307b98e27e23`。只有中控从 clean tree 接受后才能恢复 G0.4 implementation；不得标记 G0.4 `DONE`、创建 G0.R 或开放 G1。
+
+### Follow-up 验证证据
+
+以下结果使用 Node.js `24.18.0` / npm `11.16.0` 在 follow-up 最终提交前真实重放：
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm ci` | PASS；18 packages installed，19 packages audited，0 vulnerabilities |
+| `npm run lint` | PASS；Biome checked 102 files，0 diagnostics |
+| `npm run typecheck` | PASS；`tsc --noEmit` |
+| `npm test` | PASS；59 tests，59 passed，0 failed/skipped/todo |
+| `npm run validate:schemas` | PASS；bundle `2.1.0`，19 schemas，18 document validators，0 unresolved refs |
+| `npm run validate:fixtures` | PASS；18 tests，18 passed；9 个 contract tests 覆盖 1 个完整正例、29 个 mutation 负例、原最小复现和 future Artifact boundary |
+| `npm run validate:store` | PASS；11 tests，11 passed；包含 v2 Store publish fail-closed regression |
+| `npm run test:faults` | PASS；10 tests，10 passed |
+| `npm run test:recovery` | PASS；11 tests，11 passed |
+| `npm run verify:skeleton` | PASS；required paths、单一 lockfile、package metadata 和 Node `24.18.0` runtime checks 通过 |
+| `npm audit` | PASS；0 vulnerabilities |
+| `git diff --check` | PASS；提交前复核 |
+
 ## 当前阻塞与风险
 
 - G0.3 Store 成功只证明机械持久化、hash/ref/index/checkpoint/recovery 合同；不证明 Evidence 充分、业务 policy 通过、decision ready 或 G0 Foundation 完成。
-- 上述四项 `BLOCKED_BY_SPEC` 已由 contract 修正候选机械消除；G0.4 runtime 仍未开始。Research Plan DAG validator、Gap analyzer、Adaptation runtime validator、CAS/idempotent Plan Revision apply、retry/supersede/late-artifact runtime 均保持未实现，对应 Skill 入口继续结构化失败，不能被调用方转成成功或 mock artifact。
+- 初始候选的 AI trigger source-binding 漏检由 follow-up contract 修复，当前等待中控独立验收；G0.4 runtime 仍未开始。Research Plan DAG validator、Gap analyzer、Adaptation runtime validator、CAS/idempotent Plan Revision apply、retry/supersede/late-artifact runtime 均保持未实现，对应 Skill 入口继续结构化失败，不能被调用方转成成功或 mock artifact。
 - G0.3 Evidence substrate 不包含完整 Evidence Record、origin/provenance/freshness/independence/bias 或 Claim/Finding/Insight；这些仍由 G1.2 拥有，不得从 raw record 推导研究结论。
 - `discover`、`assess`、comparison 和 reporting 只有职责/reference 落点，没有业务闭环；G1-G4 保持 `NOT_READY`。
 - 目标 runtime 是精确 Node.js `24.18.0`；PATH 上其他 Node 版本会被 engine guard 或 repository doctor 拒绝，开发者需先切换版本。

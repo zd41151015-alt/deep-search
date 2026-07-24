@@ -267,6 +267,37 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.research_plan.v1",
         ),
       ];
+    case "startup_opportunity.planning_context.v2": {
+      const aiCoverage = document.ai_mandatory_coverage;
+      const basis = isRecord(aiCoverage) ? aiCoverage.basis : null;
+      return [
+        ...optionalRef(document, "parent_context_ref", "startup_opportunity.planning_context.v2"),
+        ...nestedRef(
+          document,
+          "manifest_binding",
+          "manifest_ref",
+          "startup_opportunity.run_manifest.v1",
+        ),
+        ...nestedRef(
+          document,
+          "target_plan_binding",
+          "plan_ref",
+          "startup_opportunity.research_plan.v1",
+        ),
+        ...(isRecord(aiCoverage) &&
+        aiCoverage.status === "required" &&
+        isRecord(basis) &&
+        typeof basis.source_ref === "string"
+          ? [
+              {
+                instancePath: "/ai_mandatory_coverage/basis/source_ref",
+                ref: basis.source_ref,
+                expectedSchemaVersions: ["startup_opportunity.ai_trigger_source_attestation.v1"],
+              },
+            ]
+          : []),
+      ];
+    }
     case "startup_opportunity.coverage_attestation.v1":
       return [
         ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
@@ -627,7 +658,10 @@ export class ArtifactValidator {
     const errors: ValidationIssue[] = [];
     const revision = source.document.revision;
 
-    if (source.schemaVersion === "startup_opportunity.planning_context.v1") {
+    if (
+      source.schemaVersion === "startup_opportunity.planning_context.v1" ||
+      source.schemaVersion === "startup_opportunity.planning_context.v2"
+    ) {
       const contextRevision = source.document.revision;
       const pathRevision = planningContextRevisionFromPath(source.path);
       if (typeof contextRevision === "number" && pathRevision !== contextRevision) {
@@ -648,7 +682,7 @@ export class ArtifactValidator {
       ) {
         const parent = documentsByPath.get(parentContextRef);
         if (
-          parent?.schemaVersion === "startup_opportunity.planning_context.v1" &&
+          parent?.schemaVersion === source.schemaVersion &&
           (parent.document.revision !== contextRevision - 1 ||
             parent.document.context_id !== source.document.context_id)
         ) {

@@ -49,6 +49,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v2.1.json",
   "harness/schemas/bundle.v2.json",
   "harness/schemas/v1/bundle.json",
   "harness/schemas/v1/definitions.schema.json",
@@ -67,6 +68,9 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v2/adaptation-decision.schema.json",
   "harness/schemas/v2/artifact-envelope.schema.json",
   "harness/schemas/v2/document-bundle.schema.json",
+  "harness/schemas/v2/planning-context-v2.schema.json",
+  "harness/schemas/v2/ai-trigger-source-attestation.schema.json",
+  "harness/schemas/v2/ai-trigger-source-binding-policy.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
@@ -113,6 +117,7 @@ export const RESPONSIBILITY_PATHS = [
   "harness/src/comparison/README.md",
   "harness/src/reporting/README.md",
   "harness/policies/adaptation.v1.json",
+  "harness/policies/ai-trigger-source-binding.v1.json",
   "tests/fixtures/README.md",
   "tests/evals/README.md",
   "runs/.gitkeep",

@@ -14,7 +14,7 @@
         "updated_at": "2026-07-23T00:20:00Z",
         "skill_version": "1.0.0",
         "policy_version": "1.0.0",
-        "schema_bundle_version": "2.0.0",
+        "schema_bundle_version": "2.1.0",
         "git_commit": null,
         "current_phase": "enrichment",
         "current_plan_ref": "plans/research-plan.r1.json",
@@ -148,7 +148,7 @@
     {
       "path": "plans/planning-context.r1.json",
       "document": {
-        "schema_version": "startup_opportunity.planning_context.v1",
+        "schema_version": "startup_opportunity.planning_context.v2",
         "context_id": "planning_context_001",
         "revision": 1,
         "parent_context_ref": null,
@@ -179,9 +179,9 @@
             "signal": "uses_ai",
             "declared_value": "true",
             "subject_ref": "opportunity_001",
-            "source_ref": "opportunity_001",
-            "source_schema_version": "startup_opportunity.opportunity_thesis.v1",
-            "source_content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "source_ref": "plans/ai-trigger-source.r1.json",
+            "source_schema_version": "startup_opportunity.ai_trigger_source_attestation.v1",
+            "source_content_hash": "sha256:4e0f304dd8d802a16a15330dd111eccf69d0589214e402a1e9cc5b8e5f66cc24"
           },
           "required_dimensions": [
             "capability_frontier",
@@ -310,6 +310,27 @@
         "success_condition": "新 attempt 产出独立 output revision",
         "requested_by": "main_agent",
         "created_at": "2026-07-23T00:24:00Z"
+      }
+    },
+    {
+      "path": "plans/ai-trigger-source.r1.json",
+      "document": {
+        "schema_version": "startup_opportunity.ai_trigger_source_attestation.v1",
+        "attestation_id": "ai_trigger_source_001",
+        "run_id": "run_contract_001",
+        "mode": "opportunity_discovery",
+        "planning_context_binding": {
+          "context_id": "planning_context_001",
+          "context_revision": 1
+        },
+        "subject_ref": "opportunity_001",
+        "trigger": {
+          "trigger_version": "startup_opportunity.ai_mandatory_coverage_trigger.v1",
+          "signal": "uses_ai",
+          "declared_value": "true"
+        },
+        "producer_role": "main_agent",
+        "created_at": "2026-07-23T00:20:30Z"
       }
     }
   ]

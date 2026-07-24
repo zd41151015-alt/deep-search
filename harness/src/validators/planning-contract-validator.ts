@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { canonicalContentHash } from "../artifact-store/canonical.js";
 import type {
   ArtifactValidationResult,
   DocumentBundleValidationResult,
@@ -8,8 +9,10 @@ import { type ArtifactValidator, createArtifactValidator } from "./artifact-vali
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
 export const ADAPTATION_POLICY_PATH = "harness/policies/adaptation.v1.json" as const;
+export const AI_TRIGGER_SOURCE_POLICY_PATH =
+  "harness/policies/ai-trigger-source-binding.v1.json" as const;
 export const PLANNING_CONTRACT_RESULT_VERSION =
-  "startup_opportunity.planning_contract_validation_result.v1" as const;
+  "startup_opportunity.planning_contract_validation_result.v2" as const;
 
 interface UnitRule {
   readonly mode: string;
@@ -34,6 +37,23 @@ interface AdaptationPolicy extends Record<string, unknown> {
   readonly unit_rules: readonly UnitRule[];
 }
 
+interface AiTriggerSourceBindingPolicy extends Record<string, unknown> {
+  readonly schema_version: "startup_opportunity.ai_trigger_source_binding_policy.v1";
+  readonly policy_version: "1.0.0";
+  readonly compatible_schema_bundle_versions: readonly string[];
+  readonly base_adaptation_policy_binding: {
+    readonly policy_ref: string;
+    readonly schema_version: string;
+    readonly policy_version: string;
+    readonly content_hash: string;
+  };
+  readonly contract_versions: {
+    readonly planning_context: string;
+    readonly source_attestation: string;
+    readonly trigger: string;
+  };
+}
+
 interface EffectiveDocument {
   readonly path: string;
   readonly schemaVersion: string;
@@ -44,9 +64,11 @@ export interface PlanningContractValidationResult {
   readonly schemaVersion: typeof PLANNING_CONTRACT_RESULT_VERSION;
   readonly schemaBundleVersion: string;
   readonly policyVersion: string;
+  readonly triggerSourcePolicyVersion: string;
   readonly valid: boolean;
   readonly documentBundle: DocumentBundleValidationResult;
   readonly policyValidation: ArtifactValidationResult;
+  readonly triggerSourcePolicyValidation: ArtifactValidationResult;
   readonly contractErrors: readonly ValidationIssue[];
 }
 
@@ -173,6 +195,8 @@ export class PlanningContractEvaluator {
     private readonly artifactValidator: ArtifactValidator,
     private readonly policy: AdaptationPolicy,
     private readonly policyValidation: ArtifactValidationResult,
+    private readonly triggerSourcePolicy: AiTriggerSourceBindingPolicy,
+    private readonly triggerSourcePolicyValidation: ArtifactValidationResult,
   ) {}
 
   validateDocumentBundle(value: unknown): PlanningContractValidationResult {
@@ -180,6 +204,36 @@ export class PlanningContractEvaluator {
     const documents = effectiveDocuments(value);
     const documentsByPath = new Map(documents.map((document) => [document.path, document]));
     const errors: ValidationIssue[] = [];
+
+    const basePolicyBinding = this.triggerSourcePolicy.base_adaptation_policy_binding;
+    if (
+      basePolicyBinding.policy_ref !== ADAPTATION_POLICY_PATH ||
+      basePolicyBinding.schema_version !== this.policy.schema_version ||
+      basePolicyBinding.policy_version !== this.policy.policy_version ||
+      basePolicyBinding.content_hash !== canonicalContentHash(this.policy)
+    ) {
+      errors.push(
+        contractIssue(
+          "contract.ai_trigger_policy_base_mismatch",
+          "/base_adaptation_policy_binding",
+          "AI trigger source policy does not bind the loaded closed adaptation policy",
+        ),
+      );
+    }
+    if (
+      !this.triggerSourcePolicy.compatible_schema_bundle_versions.includes(
+        documentBundle.schemaBundleVersion,
+      )
+    ) {
+      errors.push(
+        contractIssue(
+          "contract.ai_trigger_policy_bundle_unsupported",
+          "/compatible_schema_bundle_versions",
+          "AI trigger source policy does not support the selected schema bundle",
+          { schemaBundleVersion: documentBundle.schemaBundleVersion },
+        ),
+      );
+    }
 
     const policyTupleKeys = new Set<string>();
     const schemaCatalog = new Map<string, SchemaCatalogEntry>();
@@ -222,7 +276,8 @@ export class PlanningContractEvaluator {
     }
 
     const planningContexts = documents.filter(
-      (document) => document.schemaVersion === "startup_opportunity.planning_context.v1",
+      (document) =>
+        document.schemaVersion === this.triggerSourcePolicy.contract_versions.planning_context,
     );
     if (planningContexts.length === 0) {
       errors.push(
@@ -295,6 +350,107 @@ export class PlanningContractEvaluator {
         if (isRecord(aiCoverage) && aiCoverage.status === "required") {
           const basis = aiCoverage.basis;
           const subjectRef = isRecord(basis) ? basis.subject_ref : null;
+          const sourceRef = isRecord(basis) ? basis.source_ref : null;
+          const source = refTarget(documentsByPath, sourceRef);
+          const expectedSourceSchema =
+            this.triggerSourcePolicy.contract_versions.source_attestation;
+
+          if (typeof sourceRef !== "string" || sourceRef.includes("#") || source === null) {
+            errors.push(
+              contractIssue(
+                "contract.ai_trigger_source_missing",
+                `${context.path}#/ai_mandatory_coverage/basis/source_ref`,
+                "AI trigger source_ref must resolve to one explicit whole document",
+                { sourceRef },
+              ),
+            );
+          } else {
+            if (
+              !isRecord(basis) ||
+              basis.source_schema_version !== expectedSourceSchema ||
+              source.schemaVersion !== expectedSourceSchema ||
+              source.schemaVersion !== basis.source_schema_version
+            ) {
+              errors.push(
+                contractIssue(
+                  "contract.ai_trigger_source_schema_mismatch",
+                  `${context.path}#/ai_mandatory_coverage/basis/source_schema_version`,
+                  "AI trigger source schema must exactly match the installed attestation contract",
+                  {
+                    actualDocumentSchema: source.schemaVersion,
+                    declaredSchema: isRecord(basis) ? basis.source_schema_version : null,
+                    expectedSchema: expectedSourceSchema,
+                  },
+                ),
+              );
+            }
+
+            const actualSourceHash = canonicalContentHash(source.document);
+            if (!isRecord(basis) || basis.source_content_hash !== actualSourceHash) {
+              errors.push(
+                contractIssue(
+                  "contract.ai_trigger_source_hash_stale",
+                  `${context.path}#/ai_mandatory_coverage/basis/source_content_hash`,
+                  "AI trigger source content changed after the Planning Context binding",
+                  {
+                    actual: actualSourceHash,
+                    declared: isRecord(basis) ? basis.source_content_hash : null,
+                  },
+                ),
+              );
+            }
+
+            const contextBinding = source.document.planning_context_binding;
+            if (
+              source.document.run_id !== context.document.run_id ||
+              source.document.mode !== context.document.mode ||
+              !isRecord(contextBinding) ||
+              contextBinding.context_id !== context.document.context_id ||
+              contextBinding.context_revision !== context.document.revision
+            ) {
+              errors.push(
+                contractIssue(
+                  "contract.ai_trigger_source_binding_stale",
+                  `${source.path}#/planning_context_binding`,
+                  "AI trigger source does not bind the current Run, mode, and Planning Context revision",
+                ),
+              );
+            }
+
+            if (!isRecord(basis) || source.document.subject_ref !== basis.subject_ref) {
+              errors.push(
+                contractIssue(
+                  "contract.ai_trigger_source_subject_mismatch",
+                  `${source.path}#/subject_ref`,
+                  "AI trigger source and Planning Context subject_ref differ",
+                  {
+                    contextSubjectRef: isRecord(basis) ? basis.subject_ref : null,
+                    sourceSubjectRef: source.document.subject_ref,
+                  },
+                ),
+              );
+            }
+
+            const sourceTrigger = source.document.trigger;
+            if (
+              !isRecord(basis) ||
+              !isRecord(sourceTrigger) ||
+              sourceTrigger.trigger_version !== aiCoverage.trigger_version ||
+              sourceTrigger.trigger_version !==
+                this.triggerSourcePolicy.contract_versions.trigger ||
+              sourceTrigger.signal !== basis.signal ||
+              sourceTrigger.declared_value !== basis.declared_value
+            ) {
+              errors.push(
+                contractIssue(
+                  "contract.ai_trigger_source_trigger_mismatch",
+                  `${source.path}#/trigger`,
+                  "AI trigger source and Planning Context trigger declaration differ",
+                ),
+              );
+            }
+          }
+
           const coveredDimensions = new Set<string>();
           for (const unit of unitEntries(plan.document)) {
             if (
@@ -454,9 +610,15 @@ export class PlanningContractEvaluator {
       schemaVersion: PLANNING_CONTRACT_RESULT_VERSION,
       schemaBundleVersion: documentBundle.schemaBundleVersion,
       policyVersion: this.policy.policy_version,
-      valid: documentBundle.valid && this.policyValidation.valid && contractErrors.length === 0,
+      triggerSourcePolicyVersion: this.triggerSourcePolicy.policy_version,
+      valid:
+        documentBundle.valid &&
+        this.policyValidation.valid &&
+        this.triggerSourcePolicyValidation.valid &&
+        contractErrors.length === 0,
       documentBundle,
       policyValidation: this.policyValidation,
+      triggerSourcePolicyValidation: this.triggerSourcePolicyValidation,
       contractErrors,
     };
   }
@@ -473,9 +635,23 @@ export async function createPlanningContractEvaluator(
   if (!policyValidation.valid || !isRecord(policy)) {
     throw new Error(`adaptation policy is invalid: ${JSON.stringify(policyValidation.errors)}`);
   }
+  const triggerSourcePolicy = JSON.parse(
+    await readFile(path.join(root, AI_TRIGGER_SOURCE_POLICY_PATH), "utf8"),
+  ) as unknown;
+  const triggerSourcePolicyValidation = artifactValidator.validateDocument(
+    triggerSourcePolicy,
+    AI_TRIGGER_SOURCE_POLICY_PATH,
+  );
+  if (!triggerSourcePolicyValidation.valid || !isRecord(triggerSourcePolicy)) {
+    throw new Error(
+      `AI trigger source policy is invalid: ${JSON.stringify(triggerSourcePolicyValidation.errors)}`,
+    );
+  }
   return new PlanningContractEvaluator(
     artifactValidator,
     policy as AdaptationPolicy,
     policyValidation,
+    triggerSourcePolicy as AiTriggerSourceBindingPolicy,
+    triggerSourcePolicyValidation,
   );
 }
