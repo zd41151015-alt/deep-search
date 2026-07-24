@@ -275,6 +275,19 @@ function gapSnapshot(
   };
 }
 
+function triggerEvent(runId: string, eventId: string): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.event.v1",
+    event_id: eventId,
+    run_id: runId,
+    event_type: "artifact_validation_failed",
+    timestamp: "2026-07-24T12:08:00Z",
+    actor: "harness",
+    reason: "The explicit event triggered deterministic gap analysis.",
+    artifact_refs: [],
+  };
+}
+
 function retryDecision(runId: string): Record<string, unknown> {
   return {
     schema_version: "startup_opportunity.adaptation_decision.v2",
@@ -472,6 +485,17 @@ async function setupPersistedRun(
   };
 }
 
+async function planApplyBoundaryState(runRoot: string) {
+  return {
+    manifest: await readFile(path.join(runRoot, "manifest.json"), "utf8"),
+    plans: (await readdir(path.join(runRoot, "plans"))).sort(),
+    checkpoints: (await readdir(path.join(runRoot, "checkpoints"))).sort(),
+    planReceipts: (await readdir(path.join(runRoot, ".store/operations")))
+      .filter((name) => name.startsWith("plan-revision-"))
+      .sort(),
+  };
+}
+
 function candidateFor(
   setup: Awaited<ReturnType<typeof setupPersistedRun>>,
   createdAt = "2026-07-24T12:08:00Z",
@@ -630,6 +654,121 @@ test("Gap analyzer emits only deterministic machine-observable gaps and stop sig
   assert.ok(invalid.errors.some((error) => error.code === "gap.reference_missing"));
 });
 
+test("Gap cycle identity binds base Plan, exact event, and observed Artifact hashes", async () => {
+  const runId = "gap-cycle-identity";
+  const plan = basePlan(runId);
+  const runManifest = manifest(runId, plan);
+  const planningContext = context(runManifest, plan, {
+    path: CONTEXT_REF,
+    revision: 1,
+    parentRef: null,
+    stage: "current_plan",
+    createdAt: "2026-07-24T12:03:00Z",
+  });
+  const firstEventRef = "events.jsonl";
+  const secondEventRef = "events/gap-trigger-two.json";
+  const wrongTypeEventRef = "events/wrong-trigger-type.json";
+  const firstEvent = triggerEvent(runId, "gap_trigger_one");
+  const secondEvent = triggerEvent(runId, "gap_trigger_two");
+  const wrongTypeDocument = {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: "wrong_trigger_type",
+    run_id: runId,
+    decision_type: "plan_change_requested_by_user",
+    timestamp: "2026-07-24T12:08:00Z",
+    actor: "main_agent",
+    reason: "This valid Decision must not be accepted as an Event.",
+    artifact_refs: [],
+  };
+  const currentBundle = bundle(
+    runManifest,
+    plan,
+    planningContext,
+    gapSnapshot(runId),
+    retryDecision(runId),
+    [
+      { path: firstEventRef, document: firstEvent },
+      { path: secondEventRef, document: secondEvent },
+      { path: wrongTypeEventRef, document: wrongTypeDocument },
+    ],
+  );
+  const analyzer = await createGapAnalyzer(repositoryRoot);
+  const input = {
+    documentBundle: currentBundle,
+    snapshotId: "gap_event_cycle_001",
+    createdAt: "2026-07-24T12:09:00Z",
+    triggerKind: "artifact_validation_failed" as const,
+    phase: "enrichment",
+    waveId: null,
+    triggerEventRef: `${firstEventRef}#gap_trigger_one`,
+    observedArtifactRefs: [`${GAP_REF}#gap_runtime_001`],
+    materialNewEvidenceObserved: true,
+  };
+  const first = analyzer.analyze(input);
+  const replay = analyzer.analyze(input);
+  assert.equal(first.valid, true, JSON.stringify(first.errors));
+  assert.equal(first.snapshot?.snapshot_cycle_key, replay.snapshot?.snapshot_cycle_key);
+  assert.equal(first.snapshot?.revision, 1);
+
+  const secondEventCycle = analyzer.analyze({
+    ...input,
+    snapshotId: "gap_event_cycle_002",
+    triggerEventRef: secondEventRef,
+  });
+  assert.equal(secondEventCycle.valid, true, JSON.stringify(secondEventCycle.errors));
+  assert.notEqual(
+    secondEventCycle.snapshot?.snapshot_cycle_key,
+    first.snapshot?.snapshot_cycle_key,
+  );
+  assert.equal(secondEventCycle.snapshot?.revision, 1);
+
+  const changedPlanBundle = clone(currentBundle);
+  const changedPlan = changedPlanBundle.documents.find((entry) => entry.path === PLAN_REF)
+    ?.document as Record<string, unknown>;
+  const questions = changedPlan.research_questions as Record<string, unknown>[];
+  assert.ok(questions[0]);
+  questions[0].question = "Which changed base Plan identity governs this same event?";
+  const changedContext = changedPlanBundle.documents.find((entry) => entry.path === CONTEXT_REF)
+    ?.document as Record<string, unknown>;
+  const targetBinding = changedContext.target_plan_binding as Record<string, unknown>;
+  targetBinding.plan_content_hash = canonicalContentHash(changedPlan);
+  const changedPlanCycle = analyzer.analyze({
+    ...input,
+    documentBundle: changedPlanBundle,
+    snapshotId: "gap_event_cycle_003",
+  });
+  assert.equal(changedPlanCycle.valid, true, JSON.stringify(changedPlanCycle.errors));
+  assert.notEqual(
+    changedPlanCycle.snapshot?.snapshot_cycle_key,
+    first.snapshot?.snapshot_cycle_key,
+  );
+  assert.equal(changedPlanCycle.snapshot?.revision, 1);
+
+  const wrongEventType = analyzer.analyze({ ...input, triggerEventRef: wrongTypeEventRef });
+  assert.equal(wrongEventType.valid, false);
+  assert.ok(
+    wrongEventType.errors.some((error) => error.code === "gap.trigger_event_type_mismatch"),
+  );
+
+  const missingEventFragment = analyzer.analyze({
+    ...input,
+    triggerEventRef: `${firstEventRef}#missing_event`,
+  });
+  assert.equal(missingEventFragment.valid, false);
+  assert.ok(
+    missingEventFragment.errors.some((error) => error.code === "gap.reference_fragment_missing"),
+  );
+
+  const missingObservedFragment = analyzer.analyze({
+    ...input,
+    observedArtifactRefs: [`${GAP_REF}#missing_gap`],
+  });
+  assert.equal(missingObservedFragment.valid, false);
+  assert.ok(
+    missingObservedFragment.errors.some((error) => error.code === "gap.reference_fragment_missing"),
+  );
+});
+
 test("Adaptation validator accepts all closed actions and rejects retry outside failed_units", async () => {
   const scenario = JSON.parse(
     await readFile(
@@ -752,6 +891,73 @@ test("Adaptation validator accepts all closed actions and rejects retry outside 
       (error) => error.code === "contract.retry_target_not_failed",
     ),
   );
+});
+
+test("Plan apply rejects an in-memory Gap Snapshot that differs from disk before writes", async (contextTest) => {
+  const setup = await setupPersistedRun(contextTest, "runtime-gap-bundle-tamper");
+  const tamperedBundle = clone(setup.adaptationBundle);
+  const gap = tamperedBundle.documents.find((entry) => entry.path === GAP_REF)?.document;
+  const gaps = gap?.gaps as Record<string, unknown>[];
+  const triggeredBy = gaps[0]?.triggered_by as Record<string, unknown>;
+  triggeredBy.detail = "Caller-only tampering must not become policy input.";
+  const before = await planApplyBoundaryState(setup.runRoot);
+  const { candidateBundle } = candidateFor(setup);
+
+  await assert.rejects(
+    (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+      runId: "runtime-gap-bundle-tamper",
+      adaptationBundle: tamperedBundle,
+      adaptationRefs: [DECISION_REF],
+      candidateBundle,
+      createdAt: "2026-07-24T12:08:00Z",
+      checkpointCreatedAt: "2026-07-24T12:09:00Z",
+      nextStep: "Reject caller-only Gap content.",
+      beliefSummary: {
+        current_belief: "Only immutable stored policy inputs may be applied.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Does the bundle match disk exactly?",
+      },
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "adaptation.stored_content_mismatch",
+  );
+  assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+});
+
+test("Plan apply rejects an in-memory Planning Context that differs from disk before writes", async (contextTest) => {
+  const setup = await setupPersistedRun(contextTest, "runtime-context-bundle-tamper");
+  const tamperedBundle = clone(setup.adaptationBundle);
+  const planningContext = tamperedBundle.documents.find(
+    (entry) => entry.path === CONTEXT_REF,
+  )?.document;
+  assert.ok(planningContext);
+  planningContext.created_at = "2026-07-24T12:03:01Z";
+  const before = await planApplyBoundaryState(setup.runRoot);
+  const { candidateBundle } = candidateFor(setup);
+
+  await assert.rejects(
+    (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+      runId: "runtime-context-bundle-tamper",
+      adaptationBundle: tamperedBundle,
+      adaptationRefs: [DECISION_REF],
+      candidateBundle,
+      createdAt: "2026-07-24T12:08:00Z",
+      checkpointCreatedAt: "2026-07-24T12:09:00Z",
+      nextStep: "Reject caller-only Planning Context content.",
+      beliefSummary: {
+        current_belief: "Only immutable stored policy inputs may be applied.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Does the bundle match disk exactly?",
+      },
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "adaptation.stored_content_mismatch",
+  );
+  assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
 });
 
 test("Plan Revision apply is CAS-safe, immutable, and idempotent on a real Run", async (contextTest) => {

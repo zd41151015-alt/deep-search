@@ -23,7 +23,19 @@
     "operation_content_conflict",
     "retry_non_failed",
     "partial_retry",
-    "candidate_transform_mismatch"
+    "candidate_transform_mismatch",
+    "gap_snapshot_disk_mismatch",
+    "planning_context_disk_mismatch"
+  ],
+  "gap_cycle_identity_cases": [
+    "same_input_stable",
+    "different_event_ref_new_cycle",
+    "different_base_plan_new_cycle"
+  ],
+  "negative_gap_reference_cases": [
+    "trigger_event_wrong_document_type",
+    "trigger_event_missing_fragment",
+    "observed_artifact_missing_fragment"
   ],
   "crash_boundaries": [
     "after_intent",

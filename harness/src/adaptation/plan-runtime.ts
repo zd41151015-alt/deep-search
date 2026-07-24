@@ -22,7 +22,7 @@ import {
   createAdaptationPolicyValidator,
 } from "./adaptation-validator.js";
 import { loadPlanRevisionApplyPolicy } from "./apply-policy.js";
-import { documentMap, effectiveDocuments, isRecord } from "./contracts.js";
+import { documentMap, type EffectiveDocument, effectiveDocuments, isRecord } from "./contracts.js";
 import {
   type AdaptationInputDocument,
   type PlanTransformationResult,
@@ -420,6 +420,63 @@ async function storedEffectiveDocument(
     : value;
 }
 
+function isFormalArtifactEnvelope(value: unknown): value is FormalArtifactEnvelope {
+  return (
+    isRecord(value) &&
+    (value.schema_version === "startup_opportunity.artifact_envelope.v1" ||
+      value.schema_version === "startup_opportunity.artifact_envelope.v2" ||
+      value.schema_version === "startup_opportunity.artifact_envelope.v3") &&
+    typeof value.artifact_type === "string" &&
+    typeof value.artifact_path === "string" &&
+    typeof value.run_id === "string" &&
+    isRecord(value.document)
+  );
+}
+
+async function assertAdaptationBundleMatchesStoredArtifacts(
+  runRoot: string,
+  runId: string,
+  documents: readonly EffectiveDocument[],
+  artifacts: ArtifactStore,
+): Promise<void> {
+  for (const supplied of [...documents]
+    .filter((document) => document.path !== "manifest.json")
+    .sort((left, right) => left.path.localeCompare(right.path))) {
+    let stored: unknown;
+    try {
+      stored = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, supplied.path), "utf8"),
+      ) as unknown;
+    } catch (_error) {
+      throw new StoreError(
+        "adaptation.stored_artifact_missing",
+        "adaptation bundle document has no readable immutable stored Artifact",
+        { artifactPath: supplied.path },
+      );
+    }
+    if (!isFormalArtifactEnvelope(stored)) {
+      throw new StoreError(
+        "adaptation.stored_artifact_invalid",
+        "adaptation bundle document does not resolve to a formal Artifact envelope",
+        { artifactPath: supplied.path },
+      );
+    }
+    await artifacts.validateStoredEnvelope(runRoot, runId, stored);
+    if (
+      stored.artifact_path !== supplied.path ||
+      stored.artifact_type !== supplied.schemaVersion ||
+      canonicalJson(stored.document) !== canonicalJson(supplied.document) ||
+      (supplied.envelope !== null && canonicalJson(stored) !== canonicalJson(supplied.envelope))
+    ) {
+      throw new StoreError(
+        "adaptation.stored_content_mismatch",
+        "adaptation bundle document differs from its immutable stored Artifact",
+        { artifactPath: supplied.path },
+      );
+    }
+  }
+}
+
 async function publishReceipt(
   runRoot: string,
   receipt: PlanOperationReceipt,
@@ -686,6 +743,12 @@ export class PlanRevisionRuntime {
       );
       validateReceiptDocuments(existingReceipt, this.validator, this.artifacts);
       await validateReceiptSources(runRoot, existingReceipt);
+      await assertAdaptationBundleMatchesStoredArtifacts(
+        runRoot,
+        input.runId,
+        bundleDocuments,
+        this.artifacts,
+      );
       const expectedHashes = selectedDecisions.map((decision) =>
         canonicalContentHash(decision.document),
       );
@@ -813,6 +876,12 @@ export class PlanRevisionRuntime {
         "adaptation bundle does not bind the on-disk current plan",
       );
     }
+    await assertAdaptationBundleMatchesStoredArtifacts(
+      runRoot,
+      input.runId,
+      bundleDocuments,
+      this.artifacts,
+    );
     const patchedBundle: DocumentBundle = {
       ...input.adaptationBundle,
       documents: input.adaptationBundle.documents.map((entry) =>
