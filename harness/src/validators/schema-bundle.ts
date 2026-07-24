@@ -3,8 +3,8 @@ import path from "node:path";
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsImport from "ajv-formats";
 
-export const SCHEMA_BUNDLE_VERSION = "1.0.0" as const;
-export const SCHEMA_BUNDLE_MANIFEST_PATH = "harness/schemas/v1/bundle.json" as const;
+export const SCHEMA_BUNDLE_VERSION = "2.0.0" as const;
+export const SCHEMA_BUNDLE_MANIFEST_PATH = "harness/schemas/bundle.v2.json" as const;
 
 export interface ValidationIssue {
   readonly code: string;
@@ -22,7 +22,7 @@ interface SchemaManifestEntry {
 }
 
 interface SchemaBundleManifest {
-  readonly schema_version: "startup_opportunity.schema_bundle.v1";
+  readonly schema_version: "startup_opportunity.schema_bundle.v2";
   readonly schema_bundle_version: typeof SCHEMA_BUNDLE_VERSION;
   readonly json_schema_dialect: "https://json-schema.org/draft/2020-12/schema";
   readonly schemas: readonly SchemaManifestEntry[];
@@ -102,7 +102,7 @@ function parseManifest(value: unknown): SchemaBundleManifest {
       }),
     );
   }
-  if (value.schema_version !== "startup_opportunity.schema_bundle.v1") {
+  if (value.schema_version !== "startup_opportunity.schema_bundle.v2") {
     errors.push(
       issue("bundle.invalid_version", "/schema_version", "unexpected bundle schema version"),
     );
@@ -139,7 +139,10 @@ function parseManifest(value: unknown): SchemaBundleManifest {
       ) {
         errors.push(issue("bundle.invalid_id", `${instancePath}/id`, "schema id is not local"));
       }
-      if (typeof entry.file !== "string" || !/^[a-z][a-z0-9-]*\.schema\.json$/.test(entry.file)) {
+      if (
+        typeof entry.file !== "string" ||
+        !/^v[1-9][0-9]*\/[a-z][a-z0-9-]*\.schema\.json$/.test(entry.file)
+      ) {
         errors.push(
           issue("bundle.invalid_path", `${instancePath}/file`, "invalid schema filename"),
         );

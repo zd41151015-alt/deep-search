@@ -1,0 +1,316 @@
+{
+  "schema_version": "startup_opportunity.document_bundle.v2",
+  "documents": [
+    {
+      "path": "manifest.json",
+      "document": {
+        "schema_version": "startup_opportunity.run_manifest.v1",
+        "run_id": "run_contract_001",
+        "mode": "opportunity_discovery",
+        "status": "researching",
+        "status_before_clarification": null,
+        "parent_run_id": null,
+        "created_at": "2026-07-23T00:00:00Z",
+        "updated_at": "2026-07-23T00:20:00Z",
+        "skill_version": "1.0.0",
+        "policy_version": "1.0.0",
+        "schema_bundle_version": "2.0.0",
+        "git_commit": null,
+        "current_phase": "enrichment",
+        "current_plan_ref": "plans/research-plan.r1.json",
+        "plan_revision": 1,
+        "followup_round": 0,
+        "latest_gap_snapshot_ref": "adaptations/gap-snapshots/gap-buyer.r1.json",
+        "pending_adaptation_refs": [],
+        "validated_adaptation_refs": [],
+        "rejected_adaptation_refs": [],
+        "applied_adaptation_refs": [],
+        "completed_units": [],
+        "active_units": [],
+        "failed_units": ["acquisition_failed"],
+        "invalidated_units": [],
+        "skipped_units": [],
+        "cancelled_units": [],
+        "superseded_units": [],
+        "ignored_late_artifact_refs": [],
+        "artifact_refs": [],
+        "checkpoint_ref": null,
+        "limitations": []
+      }
+    },
+    {
+      "path": "plans/research-plan.r1.json",
+      "document": {
+        "schema_version": "startup_opportunity.research_plan.v1",
+        "plan_id": "plan_contract_001",
+        "run_id": "run_contract_001",
+        "mode": "opportunity_discovery",
+        "revision": 1,
+        "parent_plan_ref": null,
+        "triggered_by_adaptation_refs": [],
+        "created_at": "2026-07-23T00:05:00Z",
+        "research_questions": [
+          {
+            "question_id": "rq_buyer_001",
+            "question": "买单与 AI mandatory coverage 是否足以支持当前判断？",
+            "decision_impact": "可能改变 hard gate",
+            "uncertainty": "high",
+            "expected_information_gain": "high",
+            "stop_condition": "取得独立信号或确认来源不可得"
+          }
+        ],
+        "candidate_retention_policy": {
+          "minimum_evidence_requirement": "至少一个非模型推断 Claim",
+          "candidate_retention_threshold": "通过 pre-kill",
+          "candidate_diversity_policy": ["保留不同 buyer model"],
+          "counterfactual_candidate_requirement": true
+        },
+        "exploration_policy": {
+          "require_seed_independent_demand_unit": true,
+          "require_counterfactual_unit": true,
+          "initial_hypotheses_are_questions_not_truth": true,
+          "separate_generation_and_evaluation_sources": true,
+          "freeze_thesis_before_enrichment": true,
+          "require_independent_challenger_queries": true
+        },
+        "waves": [
+          {
+            "wave_id": "wave_enrichment_1",
+            "depends_on": [],
+            "units": [
+              {
+                "unit_id": "ai_bundle_opportunity_001",
+                "unit_type": "ai_capability_evidence",
+                "plan_disposition": "enabled",
+                "priority_band": "blocking",
+                "attempt": 1,
+                "supersedes_unit_ref": null,
+                "research_goal": "覆盖 opportunity_001 的六个 AI mandatory planning dimensions",
+                "input_refs": ["opportunity_001"],
+                "agent_role": "lane-researcher",
+                "output_path": "artifacts/lanes/ai_bundle_opportunity_001.json",
+                "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1",
+                "source_preferences": [],
+                "required_outputs": ["dimension_results"],
+                "stop_conditions": [],
+                "required_dimensions": [
+                  "capability_frontier",
+                  "cost_and_deployment",
+                  "workflow_and_human_boundary",
+                  "ecosystem_and_platform",
+                  "data_and_evaluation",
+                  "adoption_and_trust"
+                ]
+              },
+              {
+                "unit_id": "buyer_existing",
+                "unit_type": "buyer_language",
+                "plan_disposition": "enabled",
+                "priority_band": "high",
+                "attempt": 1,
+                "supersedes_unit_ref": null,
+                "research_goal": "判断 opportunity_001 的 buyer、payer 和 purchase trigger",
+                "input_refs": ["opportunity_001"],
+                "agent_role": "lane-researcher",
+                "output_path": "artifacts/lanes/buyer_existing.json",
+                "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1",
+                "source_preferences": [],
+                "required_outputs": ["buyer_purchase_language"],
+                "stop_conditions": []
+              },
+              {
+                "unit_id": "acquisition_failed",
+                "unit_type": "acquisition",
+                "plan_disposition": "enabled",
+                "priority_band": "normal",
+                "attempt": 1,
+                "supersedes_unit_ref": null,
+                "research_goal": "判断 opportunity_001 的第一批用户获取路径",
+                "input_refs": ["opportunity_001"],
+                "agent_role": "lane-researcher",
+                "output_path": "artifacts/lanes/acquisition_failed.json",
+                "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1",
+                "source_preferences": [],
+                "required_outputs": ["acquisition_hypotheses"],
+                "stop_conditions": []
+              }
+            ]
+          }
+        ],
+        "adaptation_policy_ref": "harness/policies/adaptation.v1.json",
+        "followup_policy": {
+          "max_followup_rounds": 2,
+          "require_decision_relevance": true,
+          "stop_when_no_material_new_evidence": true
+        }
+      }
+    },
+    {
+      "path": "plans/planning-context.r1.json",
+      "document": {
+        "schema_version": "startup_opportunity.planning_context.v1",
+        "context_id": "planning_context_001",
+        "revision": 1,
+        "parent_context_ref": null,
+        "run_id": "run_contract_001",
+        "mode": "opportunity_discovery",
+        "phase": "enrichment",
+        "validation_stage": "current_plan",
+        "manifest_binding": {
+          "manifest_ref": "manifest.json",
+          "manifest_schema_version": "startup_opportunity.run_manifest.v1",
+          "run_id": "run_contract_001",
+          "mode": "opportunity_discovery",
+          "current_plan_ref": "plans/research-plan.r1.json",
+          "current_plan_revision": 1,
+          "run_state_hash": "sha256:754958ac66737e068bde0efbae49989e0705c4856a0d22f39eb0e5d95e536b13"
+        },
+        "target_plan_binding": {
+          "plan_ref": "plans/research-plan.r1.json",
+          "plan_schema_version": "startup_opportunity.research_plan.v1",
+          "plan_id": "plan_contract_001",
+          "plan_revision": 1,
+          "plan_content_hash": "sha256:adfa9628dbc59d873c9173af0edf7fec47b09df7f9526d3d3dda2d79a7769a1b"
+        },
+        "ai_mandatory_coverage": {
+          "status": "required",
+          "trigger_version": "startup_opportunity.ai_mandatory_coverage_trigger.v1",
+          "basis": {
+            "signal": "uses_ai",
+            "declared_value": "true",
+            "subject_ref": "opportunity_001",
+            "source_ref": "opportunity_001",
+            "source_schema_version": "startup_opportunity.opportunity_thesis.v1",
+            "source_content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "required_dimensions": [
+            "capability_frontier",
+            "cost_and_deployment",
+            "workflow_and_human_boundary",
+            "ecosystem_and_platform",
+            "data_and_evaluation",
+            "adoption_and_trust"
+          ]
+        },
+        "producer_role": "main_agent",
+        "created_at": "2026-07-23T00:21:00Z"
+      }
+    },
+    {
+      "path": "adaptations/gap-snapshots/gap-buyer.r1.json",
+      "document": {
+        "schema_version": "startup_opportunity.gap_snapshot.v1",
+        "snapshot_id": "gap_buyer_snapshot_001",
+        "snapshot_cycle_key": "enrichment:buyer:001",
+        "run_id": "run_contract_001",
+        "based_on_plan_ref": "plans/research-plan.r1.json",
+        "revision": 1,
+        "parent_snapshot_ref": null,
+        "created_at": "2026-07-23T00:18:00Z",
+        "trigger_kind": "wave_completed",
+        "trigger_event_ref": null,
+        "phase": "enrichment",
+        "wave_id": "wave_enrichment_1",
+        "observed_artifact_refs": ["artifacts/lanes/initial.json"],
+        "gaps": [
+          {
+            "gap_id": "gap_buyer_001",
+            "subject_ref": "opportunity_001",
+            "gap_type": "buyer_evidence_insufficient",
+            "detection_mode": "agent_semantic",
+            "triggered_by": {
+              "judgment_ref": "judgment_buyer_001",
+              "decision_sufficiency": "insufficient",
+              "independent_source_count": 0
+            },
+            "decision_impact": ["hard_gate"],
+            "severity": "blocking",
+            "basis_refs": ["judgment_buyer_001"],
+            "evidence_refs": [],
+            "recommended_unit_types": ["buyer_language"]
+          }
+        ],
+        "material_new_evidence_observed": true,
+        "unresolved_decision_relevant_questions": ["rq_buyer_001"],
+        "stop_signals": []
+      }
+    },
+    {
+      "path": "adaptations/coverage/coverage-buyer-001.json",
+      "document": {
+        "schema_version": "startup_opportunity.coverage_attestation.v1",
+        "coverage_key": "sha256:2207c5d234d62190dff79662faab5847abcf93f98594177c911a2645dc60ed74",
+        "relation": "same_subject_and_semantically_equivalent_research_goal",
+        "run_id": "run_contract_001",
+        "based_on_plan_ref": "plans/research-plan.r1.json",
+        "based_on_plan_revision": 1,
+        "based_on_plan_hash": "sha256:adfa9628dbc59d873c9173af0edf7fec47b09df7f9526d3d3dda2d79a7769a1b",
+        "gap_ref": "adaptations/gap-snapshots/gap-buyer.r1.json#gap_buyer_001",
+        "subject_ref": "opportunity_001",
+        "target_unit_ref": "plans/research-plan.r1.json#buyer_existing",
+        "gap_research_goal": "判断 opportunity_001 的 buyer、payer 和 purchase trigger",
+        "target_research_goal": "判断 opportunity_001 的 buyer、payer 和 purchase trigger",
+        "semantic_equivalence_declared": true,
+        "declared_by": "main_agent",
+        "created_at": "2026-07-23T00:22:00Z"
+      }
+    },
+    {
+      "path": "adaptations/decisions/adapt-continue-001.json",
+      "document": {
+        "schema_version": "startup_opportunity.adaptation_decision.v2",
+        "adaptation_id": "adapt_continue_001",
+        "run_id": "run_contract_001",
+        "based_on_plan_ref": "plans/research-plan.r1.json",
+        "trigger_gap_refs": ["adaptations/gap-snapshots/gap-buyer.r1.json#gap_buyer_001"],
+        "action": "continue_existing_plan",
+        "target_unit_ref": "plans/research-plan.r1.json#buyer_existing",
+        "coverage_attestation_ref": "adaptations/coverage/coverage-buyer-001.json",
+        "reason": "现有 pending unit 已覆盖该 subject 和 research goal",
+        "expected_decision_impact": ["hard_gate"],
+        "success_condition": "取得独立买单证据或确认来源不可得",
+        "requested_by": "main_agent",
+        "created_at": "2026-07-23T00:23:00Z"
+      }
+    },
+    {
+      "path": "adaptations/decisions/adapt-retry-001.json",
+      "document": {
+        "schema_version": "startup_opportunity.adaptation_decision.v2",
+        "adaptation_id": "adapt_retry_001",
+        "run_id": "run_contract_001",
+        "based_on_plan_ref": "plans/research-plan.r1.json",
+        "trigger_gap_refs": ["adaptations/gap-snapshots/gap-buyer.r1.json#gap_buyer_001"],
+        "action": "retry_unit",
+        "target_unit_ref": "plans/research-plan.r1.json#acquisition_failed",
+        "target_unit": {
+          "unit_id": "acquisition_failed_retry_2",
+          "unit_type": "acquisition",
+          "plan_disposition": "enabled",
+          "priority_band": "high",
+          "attempt": 2,
+          "supersedes_unit_ref": "plans/research-plan.r1.json#acquisition_failed",
+          "research_goal": "重试 opportunity_001 的第一批用户获取路径研究",
+          "input_refs": ["opportunity_001"],
+          "agent_role": "lane-researcher",
+          "output_path": "artifacts/lanes/acquisition_failed.retry-2.json",
+          "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1",
+          "source_preferences": [],
+          "required_outputs": ["acquisition_hypotheses"],
+          "stop_conditions": []
+        },
+        "retry_basis": {
+          "kind": "manifest_failed_unit",
+          "manifest_ref": "manifest.json",
+          "unit_id": "acquisition_failed",
+          "manifest_state": "failed"
+        },
+        "reason": "Run Manifest 明确记录前一 attempt 失败",
+        "expected_decision_impact": ["next_action"],
+        "success_condition": "新 attempt 产出独立 output revision",
+        "requested_by": "main_agent",
+        "created_at": "2026-07-23T00:24:00Z"
+      }
+    }
+  ]
+}

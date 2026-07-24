@@ -67,6 +67,19 @@ export {
   createArtifactValidator,
   DOCUMENT_BUNDLE_VALIDATION_RESULT_VERSION,
 } from "./validators/artifact-validator.js";
+export {
+  type CoverageIdentity,
+  coverageKey,
+  type PlanningRunStateIdentity,
+  planningRunStateHash,
+} from "./validators/planning-contract-identities.js";
+export type { PlanningContractValidationResult } from "./validators/planning-contract-validator.js";
+export {
+  ADAPTATION_POLICY_PATH,
+  createPlanningContractEvaluator,
+  PLANNING_CONTRACT_RESULT_VERSION,
+  PlanningContractEvaluator,
+} from "./validators/planning-contract-validator.js";
 export type {
   LoadedSchemaBundle,
   SchemaBundleInspectionResult,

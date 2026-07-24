@@ -1,4 +1,6 @@
 import type { ErrorObject } from "ajv";
+import { canonicalContentHash } from "../artifact-store/canonical.js";
+import { coverageKey, planningRunStateHash } from "./planning-contract-identities.js";
 import {
   type LoadedSchemaBundle,
   loadSchemaBundle,
@@ -27,7 +29,9 @@ export interface DocumentBundleEntry {
 }
 
 export interface DocumentBundle {
-  readonly schema_version: "startup_opportunity.document_bundle.v1";
+  readonly schema_version:
+    | "startup_opportunity.document_bundle.v1"
+    | "startup_opportunity.document_bundle.v2";
   readonly documents: readonly DocumentBundleEntry[];
 }
 
@@ -50,7 +54,7 @@ interface EffectiveDocument {
 interface ReferenceRequirement {
   readonly instancePath: string;
   readonly ref: string;
-  readonly expectedSchemaVersion: string;
+  readonly expectedSchemaVersions: readonly string[];
   readonly expectedIdField?: string;
 }
 
@@ -104,7 +108,7 @@ function referenceIssue(
 function refsFromArray(
   document: Record<string, unknown>,
   field: string,
-  expectedSchemaVersion: string,
+  expectedSchemaVersion: string | readonly string[],
   expectedIdField?: string,
 ): readonly ReferenceRequirement[] {
   const value = document[field];
@@ -117,7 +121,10 @@ function refsFromArray(
           {
             instancePath: `/${field}/${index}`,
             ref,
-            expectedSchemaVersion,
+            expectedSchemaVersions:
+              typeof expectedSchemaVersion === "string"
+                ? [expectedSchemaVersion]
+                : expectedSchemaVersion,
             ...(expectedIdField === undefined ? {} : { expectedIdField }),
           },
         ]
@@ -128,7 +135,7 @@ function refsFromArray(
 function optionalRef(
   document: Record<string, unknown>,
   field: string,
-  expectedSchemaVersion: string,
+  expectedSchemaVersion: string | readonly string[],
   expectedIdField?: string,
 ): readonly ReferenceRequirement[] {
   const ref = document[field];
@@ -139,7 +146,30 @@ function optionalRef(
     {
       instancePath: `/${field}`,
       ref,
-      expectedSchemaVersion,
+      expectedSchemaVersions:
+        typeof expectedSchemaVersion === "string" ? [expectedSchemaVersion] : expectedSchemaVersion,
+      ...(expectedIdField === undefined ? {} : { expectedIdField }),
+    },
+  ];
+}
+
+function nestedRef(
+  document: Record<string, unknown>,
+  objectField: string,
+  refField: string,
+  expectedSchemaVersion: string | readonly string[],
+  expectedIdField?: string,
+): readonly ReferenceRequirement[] {
+  const object = document[objectField];
+  if (!isRecord(object) || typeof object[refField] !== "string") {
+    return [];
+  }
+  return [
+    {
+      instancePath: `/${objectField}/${refField}`,
+      ref: object[refField],
+      expectedSchemaVersions:
+        typeof expectedSchemaVersion === "string" ? [expectedSchemaVersion] : expectedSchemaVersion,
       ...(expectedIdField === undefined ? {} : { expectedIdField }),
     },
   ];
@@ -152,36 +182,31 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       return [
         ...optionalRef(document, "current_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "latest_gap_snapshot_ref", "startup_opportunity.gap_snapshot.v1"),
-        ...refsFromArray(
-          document,
-          "pending_adaptation_refs",
+        ...refsFromArray(document, "pending_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
-        ),
-        ...refsFromArray(
-          document,
-          "validated_adaptation_refs",
+          "startup_opportunity.adaptation_decision.v2",
+        ]),
+        ...refsFromArray(document, "validated_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
-        ),
-        ...refsFromArray(
-          document,
-          "rejected_adaptation_refs",
+          "startup_opportunity.adaptation_decision.v2",
+        ]),
+        ...refsFromArray(document, "rejected_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
-        ),
-        ...refsFromArray(
-          document,
-          "applied_adaptation_refs",
+          "startup_opportunity.adaptation_decision.v2",
+        ]),
+        ...refsFromArray(document, "applied_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
-        ),
+          "startup_opportunity.adaptation_decision.v2",
+        ]),
         ...optionalRef(document, "checkpoint_ref", "startup_opportunity.checkpoint.v1"),
       ];
     case "startup_opportunity.research_plan.v1":
       return [
         ...optionalRef(document, "parent_plan_ref", "startup_opportunity.research_plan.v1"),
-        ...refsFromArray(
-          document,
-          "triggered_by_adaptation_refs",
+        ...refsFromArray(document, "triggered_by_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
-        ),
+          "startup_opportunity.adaptation_decision.v2",
+        ]),
       ];
     case "startup_opportunity.gap_snapshot.v1":
       return [
@@ -205,20 +230,66 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "decision_id",
         ),
       ];
+    case "startup_opportunity.adaptation_decision.v2":
+      return [
+        ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromArray(
+          document,
+          "trigger_gap_refs",
+          "startup_opportunity.gap_snapshot.v1",
+          "gap_id",
+        ),
+        ...optionalRef(
+          document,
+          "coverage_attestation_ref",
+          "startup_opportunity.coverage_attestation.v1",
+        ),
+        ...optionalRef(
+          document,
+          "user_decision_ref",
+          "startup_opportunity.decision.v1",
+          "decision_id",
+        ),
+      ];
+    case "startup_opportunity.planning_context.v1":
+      return [
+        ...optionalRef(document, "parent_context_ref", "startup_opportunity.planning_context.v1"),
+        ...nestedRef(
+          document,
+          "manifest_binding",
+          "manifest_ref",
+          "startup_opportunity.run_manifest.v1",
+        ),
+        ...nestedRef(
+          document,
+          "target_plan_binding",
+          "plan_ref",
+          "startup_opportunity.research_plan.v1",
+        ),
+      ];
+    case "startup_opportunity.coverage_attestation.v1":
+      return [
+        ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(document, "gap_ref", "startup_opportunity.gap_snapshot.v1", "gap_id"),
+        ...optionalRef(
+          document,
+          "target_unit_ref",
+          "startup_opportunity.research_plan.v1",
+          "unit_id",
+        ),
+      ];
     case "startup_opportunity.checkpoint.v1":
       return [
         ...optionalRef(document, "current_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "latest_gap_snapshot_ref", "startup_opportunity.gap_snapshot.v1"),
-        ...refsFromArray(
-          document,
-          "applied_adaptation_refs",
+        ...refsFromArray(document, "applied_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
-        ),
-        ...refsFromArray(
-          document,
-          "pending_adaptation_refs",
+          "startup_opportunity.adaptation_decision.v2",
+        ]),
+        ...refsFromArray(document, "pending_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
-        ),
+          "startup_opportunity.adaptation_decision.v2",
+        ]),
         ...refsFromArray(
           document,
           "unresolved_gap_refs",
@@ -233,7 +304,10 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
 
 function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
   const version = schemaVersionOf(entry.document) ?? "";
-  if (version !== "startup_opportunity.artifact_envelope.v1") {
+  if (
+    version !== "startup_opportunity.artifact_envelope.v1" &&
+    version !== "startup_opportunity.artifact_envelope.v2"
+  ) {
     return { path: entry.path, schemaVersion: version, document: entry.document, envelope: null };
   }
   const artifactType = entry.document.artifact_type;
@@ -254,13 +328,25 @@ function fragmentIdExists(
   if (target.document[expectedIdField] === fragment) {
     return true;
   }
-  if (expectedIdField !== "gap_id") {
-    return false;
+  if (expectedIdField === "gap_id") {
+    const gaps = target.document.gaps;
+    return (
+      Array.isArray(gaps) && gaps.some((gap) => isRecord(gap) && gap[expectedIdField] === fragment)
+    );
   }
-  const gaps = target.document.gaps;
-  return (
-    Array.isArray(gaps) && gaps.some((gap) => isRecord(gap) && gap[expectedIdField] === fragment)
-  );
+  if (expectedIdField === "unit_id") {
+    const waves = target.document.waves;
+    return (
+      Array.isArray(waves) &&
+      waves.some(
+        (wave) =>
+          isRecord(wave) &&
+          Array.isArray(wave.units) &&
+          wave.units.some((unit) => isRecord(unit) && unit[expectedIdField] === fragment),
+      )
+    );
+  }
+  return false;
 }
 
 function planRevisionFromPath(value: string): number | null {
@@ -273,6 +359,55 @@ function snapshotRevisionFromPath(value: string): number | null {
     /^adaptations\/gap-snapshots\/[A-Za-z0-9][A-Za-z0-9._-]*\.r([1-9][0-9]*)\.json$/,
   );
   return match?.[1] === undefined ? null : Number.parseInt(match[1], 10);
+}
+
+function planningContextRevisionFromPath(value: string): number | null {
+  const match = value.match(/^plans\/planning-context\.r([1-9][0-9]*)\.json$/);
+  return match?.[1] === undefined ? null : Number.parseInt(match[1], 10);
+}
+
+function targetByRef(
+  documentsByPath: ReadonlyMap<string, EffectiveDocument>,
+  ref: unknown,
+): EffectiveDocument | null {
+  if (typeof ref !== "string") {
+    return null;
+  }
+  return documentsByPath.get(ref.split("#", 1)[0] ?? "") ?? null;
+}
+
+function recordById(
+  document: Record<string, unknown>,
+  collection: "gaps" | "units",
+  idField: "gap_id" | "unit_id",
+  id: string,
+): Record<string, unknown> | null {
+  if (collection === "gaps") {
+    const gaps = document.gaps;
+    if (!Array.isArray(gaps)) {
+      return null;
+    }
+    return (
+      (gaps.find((gap) => isRecord(gap) && gap[idField] === id) as
+        | Record<string, unknown>
+        | undefined) ?? null
+    );
+  }
+
+  const waves = document.waves;
+  if (!Array.isArray(waves)) {
+    return null;
+  }
+  for (const wave of waves) {
+    if (!isRecord(wave) || !Array.isArray(wave.units)) {
+      continue;
+    }
+    const unit = wave.units.find((candidate) => isRecord(candidate) && candidate[idField] === id);
+    if (isRecord(unit)) {
+      return unit;
+    }
+  }
+  return null;
 }
 
 export class ArtifactValidator {
@@ -412,13 +547,13 @@ export class ArtifactValidator {
               "typed reference target is missing",
               {
                 ref: requirement.ref,
-                expectedSchemaVersion: requirement.expectedSchemaVersion,
+                expectedSchemaVersions: requirement.expectedSchemaVersions,
               },
             ),
           );
           continue;
         }
-        if (target.schemaVersion !== requirement.expectedSchemaVersion) {
+        if (!requirement.expectedSchemaVersions.includes(target.schemaVersion)) {
           referenceErrors.push(
             referenceIssue(
               "reference.type_mismatch",
@@ -426,7 +561,7 @@ export class ArtifactValidator {
               "typed reference target has the wrong schema version",
               {
                 ref: requirement.ref,
-                expectedSchemaVersion: requirement.expectedSchemaVersion,
+                expectedSchemaVersions: requirement.expectedSchemaVersions,
                 actualSchemaVersion: target.schemaVersion,
               },
             ),
@@ -491,6 +626,253 @@ export class ArtifactValidator {
   ): readonly ValidationIssue[] {
     const errors: ValidationIssue[] = [];
     const revision = source.document.revision;
+
+    if (source.schemaVersion === "startup_opportunity.planning_context.v1") {
+      const contextRevision = source.document.revision;
+      const pathRevision = planningContextRevisionFromPath(source.path);
+      if (typeof contextRevision === "number" && pathRevision !== contextRevision) {
+        errors.push(
+          referenceIssue(
+            "reference.path_revision_mismatch",
+            source.path,
+            "Planning Context path does not match document revision",
+            { pathRevision, documentRevision: contextRevision },
+          ),
+        );
+      }
+      const parentContextRef = source.document.parent_context_ref;
+      if (
+        typeof contextRevision === "number" &&
+        contextRevision > 1 &&
+        typeof parentContextRef === "string"
+      ) {
+        const parent = documentsByPath.get(parentContextRef);
+        if (
+          parent?.schemaVersion === "startup_opportunity.planning_context.v1" &&
+          (parent.document.revision !== contextRevision - 1 ||
+            parent.document.context_id !== source.document.context_id)
+        ) {
+          errors.push(
+            referenceIssue(
+              "reference.planning_context_lineage_mismatch",
+              `${source.path}#/parent_context_ref`,
+              "parent Planning Context must be the preceding revision of the same context",
+              { parentContextRef, contextRevision },
+            ),
+          );
+        }
+      }
+      const manifestBinding = source.document.manifest_binding;
+      const planBinding = source.document.target_plan_binding;
+      if (isRecord(manifestBinding) && isRecord(planBinding)) {
+        const manifest = targetByRef(documentsByPath, manifestBinding.manifest_ref);
+        const plan = targetByRef(documentsByPath, planBinding.plan_ref);
+        if (manifest?.schemaVersion === "startup_opportunity.run_manifest.v1") {
+          const actualRunState = {
+            manifest_ref: manifestBinding.manifest_ref as string,
+            manifest_schema_version: manifest.schemaVersion,
+            run_id: manifest.document.run_id as string,
+            mode: manifest.document.mode as string,
+            current_plan_ref: manifest.document.current_plan_ref as string | null,
+            current_plan_revision: manifest.document.plan_revision as number,
+          };
+          if (
+            source.document.run_id !== manifest.document.run_id ||
+            manifestBinding.run_id !== manifest.document.run_id
+          ) {
+            errors.push(
+              referenceIssue(
+                "reference.planning_context_run_mismatch",
+                `${source.path}#/manifest_binding/run_id`,
+                "Planning Context and Run Manifest identities differ",
+                {},
+              ),
+            );
+          }
+          if (
+            source.document.mode !== manifest.document.mode ||
+            manifestBinding.mode !== manifest.document.mode
+          ) {
+            errors.push(
+              referenceIssue(
+                "reference.planning_context_mode_mismatch",
+                `${source.path}#/manifest_binding/mode`,
+                "Planning Context and Run Manifest modes differ",
+                {},
+              ),
+            );
+          }
+          if (
+            manifestBinding.current_plan_ref !== manifest.document.current_plan_ref ||
+            manifestBinding.current_plan_revision !== manifest.document.plan_revision ||
+            manifestBinding.run_state_hash !== planningRunStateHash(actualRunState)
+          ) {
+            errors.push(
+              referenceIssue(
+                "reference.planning_context_stale_run",
+                `${source.path}#/manifest_binding/run_state_hash`,
+                "Planning Context Run binding is stale",
+                {
+                  currentPlanRef: manifest.document.current_plan_ref,
+                  currentPlanRevision: manifest.document.plan_revision,
+                },
+              ),
+            );
+          }
+        }
+        if (plan?.schemaVersion === "startup_opportunity.research_plan.v1") {
+          if (
+            planBinding.plan_id !== plan.document.plan_id ||
+            planBinding.plan_revision !== plan.document.revision ||
+            source.document.run_id !== plan.document.run_id ||
+            source.document.mode !== plan.document.mode
+          ) {
+            errors.push(
+              referenceIssue(
+                "reference.planning_context_stale_plan_identity",
+                `${source.path}#/target_plan_binding`,
+                "Planning Context target plan identity or revision is stale",
+                {},
+              ),
+            );
+          }
+          if (planBinding.plan_content_hash !== canonicalContentHash(plan.document)) {
+            errors.push(
+              referenceIssue(
+                "reference.planning_context_stale_plan_hash",
+                `${source.path}#/target_plan_binding/plan_content_hash`,
+                "Planning Context target plan hash is stale",
+                {},
+              ),
+            );
+          }
+          const stage = source.document.validation_stage;
+          const manifest = targetByRef(documentsByPath, manifestBinding.manifest_ref);
+          if (manifest?.schemaVersion === "startup_opportunity.run_manifest.v1") {
+            const currentPlanRef = manifest.document.current_plan_ref;
+            const currentRevision = manifest.document.plan_revision;
+            const targetPlanRef = planBinding.plan_ref;
+            const validStage =
+              (stage === "initial_plan" &&
+                currentPlanRef === null &&
+                currentRevision === 0 &&
+                plan.document.revision === 1 &&
+                plan.document.parent_plan_ref === null) ||
+              (stage === "current_plan" &&
+                currentPlanRef === targetPlanRef &&
+                currentRevision === plan.document.revision) ||
+              (stage === "candidate_revision" &&
+                typeof currentPlanRef === "string" &&
+                plan.document.parent_plan_ref === currentPlanRef &&
+                typeof currentRevision === "number" &&
+                plan.document.revision === currentRevision + 1);
+            if (!validStage) {
+              errors.push(
+                referenceIssue(
+                  "reference.planning_context_stage_mismatch",
+                  `${source.path}#/validation_stage`,
+                  "Planning Context validation stage does not match Run and plan lineage",
+                  { stage },
+                ),
+              );
+            }
+          }
+        }
+      }
+    }
+
+    if (source.schemaVersion === "startup_opportunity.coverage_attestation.v1") {
+      const planRef = source.document.based_on_plan_ref;
+      const gapRef = source.document.gap_ref;
+      const targetUnitRef = source.document.target_unit_ref;
+      const plan = targetByRef(documentsByPath, planRef);
+      const gapSnapshot = targetByRef(documentsByPath, gapRef);
+      const gapId = typeof gapRef === "string" ? gapRef.split("#", 2)[1] : undefined;
+      const unitId = typeof targetUnitRef === "string" ? targetUnitRef.split("#", 2)[1] : undefined;
+      const gap =
+        gapSnapshot?.schemaVersion === "startup_opportunity.gap_snapshot.v1" && gapId !== undefined
+          ? recordById(gapSnapshot.document, "gaps", "gap_id", gapId)
+          : null;
+      const unit =
+        plan?.schemaVersion === "startup_opportunity.research_plan.v1" && unitId !== undefined
+          ? recordById(plan.document, "units", "unit_id", unitId)
+          : null;
+
+      if (plan?.schemaVersion === "startup_opportunity.research_plan.v1") {
+        if (
+          source.document.based_on_plan_revision !== plan.document.revision ||
+          source.document.based_on_plan_hash !== canonicalContentHash(plan.document) ||
+          source.document.run_id !== plan.document.run_id
+        ) {
+          errors.push(
+            referenceIssue(
+              "reference.coverage_stale_plan",
+              `${source.path}#/based_on_plan_hash`,
+              "Coverage Attestation plan binding is stale",
+              {},
+            ),
+          );
+        }
+      }
+      if (
+        gap !== null &&
+        (source.document.subject_ref !== gap.subject_ref ||
+          source.document.run_id !== gapSnapshot?.document.run_id ||
+          gapSnapshot?.document.based_on_plan_ref !== planRef)
+      ) {
+        errors.push(
+          referenceIssue(
+            "reference.coverage_subject_mismatch",
+            `${source.path}#/subject_ref`,
+            "Coverage Attestation subject or gap plan differs from the referenced gap",
+            {},
+          ),
+        );
+      }
+      if (
+        unit !== null &&
+        (source.document.target_research_goal !== unit.research_goal ||
+          !Array.isArray(unit.input_refs) ||
+          !unit.input_refs.includes(source.document.subject_ref))
+      ) {
+        errors.push(
+          referenceIssue(
+            "reference.coverage_unit_mismatch",
+            `${source.path}#/target_unit_ref`,
+            "Coverage Attestation target goal or subject ref differs from the plan unit",
+            {},
+          ),
+        );
+      }
+      const identityFields = [
+        "schema_version",
+        "relation",
+        "run_id",
+        "based_on_plan_ref",
+        "based_on_plan_revision",
+        "based_on_plan_hash",
+        "gap_ref",
+        "subject_ref",
+        "target_unit_ref",
+        "gap_research_goal",
+        "target_research_goal",
+      ] as const;
+      if (identityFields.every((field) => source.document[field] !== undefined)) {
+        const identity = Object.fromEntries(
+          identityFields.map((field) => [field, source.document[field]]),
+        ) as unknown as Parameters<typeof coverageKey>[0];
+        if (source.document.coverage_key !== coverageKey(identity)) {
+          errors.push(
+            referenceIssue(
+              "reference.coverage_key_mismatch",
+              `${source.path}#/coverage_key`,
+              "coverage_key does not match the canonical attestation identity",
+              {},
+            ),
+          );
+        }
+      }
+    }
     if (source.schemaVersion === "startup_opportunity.research_plan.v1") {
       const pathRevision = planRevisionFromPath(source.path);
       if (typeof revision === "number" && pathRevision !== revision) {

@@ -1049,6 +1049,61 @@ Research Plan 是一次 Run 的受约束执行计划，不是通用 Graph IR。�
 }
 ```
 
+#### 12.2.1 Planning Context 与版本选择
+
+`startup_opportunity.research_plan.v1` 保持已发布 shape，不增加隐藏 flag 或自由解释字段。自 schema bundle `2.0.0` 起，任何进入 Plan/adaptation 语义校验的 plan 必须同时提供 immutable `startup_opportunity.planning_context.v1`；Planning Context 是 G0 planning control artifact，不是 G3 AI business artifact，也不定义 Opportunity Thesis、Concept Hypothesis、AI evaluation 或 result schema。
+
+Planning Context 至少机械表达：
+
+```text
+context_id
+revision / parent_context_ref
+run_id / mode / phase
+validation_stage
+manifest_binding
+  manifest_ref / manifest_schema_version
+  run_id / mode
+  current_plan_ref / current_plan_revision
+  run_state_hash
+target_plan_binding
+  plan_ref / plan_schema_version
+  plan_id / plan_revision / plan_content_hash
+ai_mandatory_coverage
+  status                  required | not_required
+  trigger_version
+  basis
+  required_dimensions
+producer_role             main_agent
+created_at
+```
+
+Planning Context 使用 `plans/planning-context.r<N>.json`；revision 1 的 parent 为 `null`，后续 revision 必须回连同一 `context_id` 的前一 revision。trigger、source binding、Run 或 Plan binding 变化时发布下一 revision，不原地覆盖。
+
+Hash 使用 G0.3 已冻结的 canonical JSON：object key 按 code unit 递归排序、array 顺序保留、UTF-8 后计算 SHA-256。`run_state_hash` 的输入唯一为：
+
+```json
+{
+  "manifest_ref": "manifest.json",
+  "manifest_schema_version": "startup_opportunity.run_manifest.v1",
+  "run_id": "2026-07-23-pet-care",
+  "mode": "opportunity_discovery",
+  "current_plan_ref": "plans/research-plan.r2.json",
+  "current_plan_revision": 2
+}
+```
+
+示例中的值都取自 manifest 原始 JSON type；`current_plan_revision` 是 integer，不是字符串。
+
+`plan_content_hash` 覆盖完整 target Research Plan document。Validator 必须按 `validation_stage` 机械区分：
+
+- `initial_plan`：manifest current plan 为 `null`/revision `0`，target 是 revision 1 且没有 parent。
+- `current_plan`：manifest current plan ref/revision 与 target exact match。
+- `candidate_revision`：manifest current plan 是 target parent，target revision 等于 current revision + 1。
+
+任一 Run id/mode、manifest ref、current plan ref/revision、plan id/ref/revision/hash 或 lineage 不一致都视为 stale，不能依赖 CLI flag、文件名猜测或聊天状态补齐。
+
+`ai_mandatory_coverage` 始终存在。`required` 只接受 main Agent 声明的 `uses_ai=true`，或 `assessment_profile=ai | regulated_ai`；声明必须保存 source ref、source schema version、source content hash 和 subject ref，并要求固定六维 coverage。`not_required` 只接受 `signal=none` 且 required dimensions 为空。Harness 校验声明 shape、bindings、subject ref 和 plan aggregate，不自行读取自然语言或发布 G3 business schema 来猜测 trigger。若业务输入变化使声明失效，必须发布新的 Planning Context revision。
+
 ### 12.3 Plan allowlist
 
 Planner 只能选择已发布的 `unit_type`：
@@ -1093,20 +1148,43 @@ adoption_and_trust
 
 Planner 可以创建多个具有不同 unit id 的 `ai_capability_evidence` unit 并行覆盖这些维度，也可以在一个 unit 中覆盖多个维度。单个 unit 可以只承担部分 dimensions，但 `uses_ai=true` 或 AI assessment profile 的 plan aggregate 必须覆盖全部六类；只有业务上确实无关的维度才能显式 `not_applicable`。Result 必须为每个 required dimension 返回独立的 `JudgmentAssessment`、artifact refs 和 `covered | insufficient_evidence | not_applicable` 状态，不得用一段综合文字掩盖缺失维度。
 
+全局 `unit_type` vocabulary 不等于 mode allowlist。`harness/policies/adaptation.v1.json` 以 `startup_opportunity.adaptation_policy.v1` / policy `1.0.0` 发布唯一 closed mapping，key 为 exact：
+
+```text
+mode + phase + unit_type + agent_role + required_artifact_schema
+```
+
+首版 phase 只允许：
+
+| mode | phase | output contract family |
+| --- | --- | --- |
+| `opportunity_discovery` | `discovery` | `startup_opportunity.discovery_lane_result.v1` |
+| `opportunity_discovery` | `enrichment` | `startup_opportunity.enrichment_branch_result.v1` |
+| `opportunity_discovery` | `review` | `startup_opportunity.adversarial_review.v1` |
+| `concept_evidence_assessment` | `assessment` | `startup_opportunity.concept_evidence_assessment_branch_result.v1` |
+| `concept_evidence_assessment` | `review` | `startup_opportunity.adversarial_review.v1` |
+
+每个 phase 下允许的 unit type 和 role 由上述 versioned policy 的完整 `unit_rules` 数组唯一决定；代码、fixture 和 prompt 不得维护第二份 allowlist。Policy 的 `artifact_schema_catalog` 将 output schema 标为 `installed | future_declared`。G0.4 Plan validator 可以接受 exact tuple 已声明的 `future_declared` schema id，使 G1/G2 owning slice 尚未发布时仍可验证计划合同；这只表示 plan declaration 合法，不表示对应 Artifact 可产出或发布。
+
+正式 Artifact publish 始终要求该 `artifact_type` 已安装在所选 schema bundle、document 通过对应 JSON Schema，并由兼容 Artifact Envelope 明确允许。`future_declared`、unknown 或仅存在于 policy 的 schema id 在 Artifact publish 时必须 fail closed。Owning slice 发布业务 schema 时必须同时发布兼容 bundle/envelope 或显式 adapter，不能把 policy declaration 当作 schema installation。
+
 ### 12.4 Plan validator
 
 确定性 validator 至少检查：
 
+- 明确选择 schema bundle `2.0.0`、adaptation policy `1.0.0` 和一个通过 schema/reference validation 的 Planning Context；缺失 context 或仍使用旧 policy 入口时 fail closed。
+- Planning Context 的 Run/Plan identity、ref、canonical hash、revision、validation stage 和 lineage 当前有效；任何 stale binding 拒绝。
 - unit id 和 output path 唯一。
 - unit 的 `plan_disposition` 使用 `enabled | skipped | cancelled | superseded`；运行时 `active/completed/failed` 状态只保存在 manifest/events，不混入计划语义。
 - `priority_band` 使用 `low | normal | high | blocking`，只影响满足依赖后的调度次序，不允许绕过 wave dependency。
 - retry/supersede unit 的 attempt、前序 unit ref 和新 output path 完整，lineage 不形成循环。
 - 所有 dependency 指向已声明 wave/unit。
 - 不存在循环依赖。
-- unit type、agent role 和 schema 在 allowlist 中。
+- `mode + phase + unit_type + agent_role + required_artifact_schema` exact tuple 存在于 versioned policy；未声明 tuple 或 output schema 拒绝。
+- policy 标记为 `future_declared` 的 output schema 只在 Plan validation 中允许；Artifact validation/publish 仍要求 schema 已安装并通过校验。
 - output path 位于当前 Run 内且没有跨 unit 写冲突。
 - discover 和 assess 只能使用各自允许的 unit 组合。
-- AI mandatory bundle 在 `uses_ai=true` 或 AI assessment profile 下完整。
+- AI mandatory bundle 只由 Planning Context 的 versioned trigger 驱动；`required` 时，与同一 subject ref 相连的 enabled `ai_capability_evidence` units aggregate 必须覆盖固定六维，`not_required` 时不凭自由文本追加 trigger。
 - 每个 `ai_capability_evidence` unit 的 required dimensions 使用 closed values，且 result 对每个维度都有 coverage status、判断引用和缺口说明。
 - mandatory AI dimension 缺失、只有低等级证据或错误标记为 `not_applicable` 时，plan/result validation 失败或进入 `insufficient_evidence`。
 - counter-evidence unit 没有被省略。
@@ -1262,15 +1340,46 @@ terminate_insufficient_evidence
 
 用户直接 pause/cancel Run 属于生命周期控制，写 decision/event 和 checkpoint，不创建伪造的 Plan Revision。用户要求“停止继续搜索并按现有证据出报告”则使用 `stop_followup`，同时保留未解决 gap 和 limitation。
 
+Schema bundle `2.0.0` 为 policy validation 发布 `startup_opportunity.adaptation_decision.v2`。v2 保留 v1 actions，但作出两项 closed strengthening：
+
+- `continue_existing_plan` 必须增加 `coverage_attestation_ref`，指向 `startup_opportunity.coverage_attestation.v1`。
+- `retry_unit` 必须增加 `retry_basis={kind: manifest_failed_unit, manifest_ref: manifest.json, unit_id, manifest_state: failed}`。
+
+`adaptation_decision.v1` 继续由 schema bundle `2.0.0` 兼容读取和审计，不原地改写；它不能进入 policy `1.0.0` 的语义校验或 apply。需要继续执行的 v1 proposal 必须由 main Agent 基于原 Gap Snapshot 发布新的 v2 decision，使用新 adaptation id 并保留 provenance；不能把 v1 内容静默当作 v2。
+
+Coverage attestation 把开放式语义责任和 Harness 责任分开。Main Agent 负责声明 gap research goal 与 target unit `research_goal` 在同一 subject 下语义等价；Harness 不使用 substring、embedding、LLM 或其他启发式解释文本。Formal relation 唯一为：
+
+```text
+same_subject_and_semantically_equivalent_research_goal
+```
+
+`coverage_key` 是以下 exact identity 的 canonical JSON SHA-256；不包含 created_at，但任何 identity 字段变化都生成不同 key：
+
+```text
+schema_version
+relation
+run_id
+based_on_plan_ref
+based_on_plan_revision
+based_on_plan_hash
+gap_ref
+subject_ref
+target_unit_ref
+gap_research_goal
+target_research_goal
+```
+
+Harness 只验证 schema/relation version、canonical key、same-Run exact refs、gap subject、target unit input refs、target unit exact research goal、current plan hash/revision/lineage，以及 target unit 为 pending 或 active。Pending 唯一表示 plan 中 `plan_disposition=enabled` 且 unit 不在 manifest 的 active 或任一 terminal/status set；active 唯一来自 `manifest.active_units`。Agent 的 semantic equivalence declaration 可以被 audit/review 挑战，但确定性 Harness 不重新作语义判断。
+
 动作语义：
 
 - `add_unit` 只能从 unit allowlist 创建具有唯一 id 和 output path 的新 unit。
 - `cancel_unit` 用于仍在运行但已失效的 unit；停止是 best effort，late artifact 标记为 ignored，不进入 fan-in。
 - `skip_unit` 只作用于尚未启动的 unit，并保存跳过原因和 decision impact。
 - `reprioritize_unit` 只改变同一 wave 或后续 wave 的调度优先级，不改变依赖和研究语义。
-- `retry_unit` 必须创建新的 attempt/output revision，不覆盖失败或 partial artifact。
+- `retry_unit` 在 G0.4 只允许 target unit exact membership 于 `manifest.failed_units`，并创建新的 attempt/output revision；completed、active、pending、invalidated、skipped、cancelled 或 superseded unit 均拒绝。
 - `supersede_unit` 用新 unit 替代因 scope 或输入变化而无效的 pending/active unit，并保留 lineage。
-- `continue_existing_plan` 必须引用已经覆盖该 gap 的 pending/active unit，不创建 Plan Revision，用于显式说明无需新增动作。
+- `continue_existing_plan` 必须引用通过上述 Coverage Attestation 声明确实覆盖同一 subject/research goal 的 pending/active unit，不创建 Plan Revision，用于显式说明无需新增动作。
 - `request_clarification` 只在缺口无法从当前证据解决且用户答案会实质改变结果时进入 `needs_clarification`。
 - `stop_followup` 表示当前 limitation 被接受或继续研究不再有决策价值，不等于证据充分。
 - `terminate_insufficient_evidence` 只在决定性缺口无法解决且结论合同要求 abstain 时使用。
@@ -1279,16 +1388,19 @@ terminate_insufficient_evidence
 
 Harness 在应用动作前必须确定性检查：
 
+- Planning Context、schema bundle、policy、Adaptation Decision 和 Coverage Attestation 使用 policy 声明的 exact versions；兼容读取版本不能自动进入新语义执行。
 - Gap Snapshot、gap、artifact 和 evidence refs 存在且属于当前 Run。
 - `based_on_plan_ref` 等于 manifest 当前 plan，避免基于过期计划并发修改。
-- action 在当前 mode、phase 和 published adaptation policy 中允许。
-- 新 unit 的 type、role、schema、path、dependency 和 source policy 通过 Plan validator。
+- Planning Context 的 Run/Plan ref/hash/revision 未 stale，action 在其 current mode/phase 和 published adaptation policy 中允许。
+- 新 unit 的 exact mode/phase/type/role/schema tuple、path、dependency 和 source policy 通过 Plan validator；`future_declared` 只允许 plan declaration，不允许 Artifact publish。
 - action 没有修改 mode、primary market/language、comparison profile、权限或正式 schema。
 - follow-up 没有超过最大轮数，且声明了 decision impact 和 success/stop condition。
 - completed unit 和已被下游 checkpoint 引用的 artifact 没有被删除或覆盖。
-- cancel/skip/retry/supersede 的目标状态允许该动作，且不会造成未解释的 mandatory dimension 缺失。
-- 每个 blocking 或 decision-relevant gap 在 checkpoint 前至少被一个 validated decision 覆盖；`continue_existing_plan` 的现有 unit 必须确实覆盖同一 subject 和研究目标。
+- cancel/skip/supersede 的目标状态允许该动作，且不会造成未解释的 mandatory dimension 缺失；`retry_unit` 的唯一机械前置是 target exact membership 于 Run Manifest `failed_units`。
+- 每个 blocking 或 decision-relevant gap 在 checkpoint 前至少被一个 validated decision 覆盖；`continue_existing_plan` 必须提供 canonical Coverage Attestation，target 只能是同一 current plan 的 pending/active unit。
 - 相同 `adaptation_id + based_on_plan_ref` 重放时幂等；内容不同但 id 相同时拒绝。
+
+G0.4 不解释 branch `partial`，也不把 partial 映射到 completed、failed 或其他 manifest set。Partial artifact retry 在 policy `1.0.0` 固定为 `fail_closed`；只有 owning G1/G2 branch schema 发布后，才能通过新的 versioned adapter/policy 明确 branch status、unit identity、可重试条件和迁移规则。没有该 adapter 时，`partial_artifact` 等 retry basis literal、仅存在 partial branch artifact 但不在 `failed_units` 的 target，以及调用方私自映射出的 failed 状态一律拒绝。
 
 校验通过写入 `adaptation_validated`；校验失败写入 `adaptation_rejected`，保存具体字段、policy rule 和修订要求，不改变当前计划。需要用户决定时才暂停；一般 schema 或 policy 错误由主 Agent 修订提案后重新提交。
 
@@ -3690,8 +3802,11 @@ startup_opportunity.decision_context.v1
 startup_opportunity.run_manifest.v1
 startup_opportunity.scope_frame.v1
 startup_opportunity.research_plan.v1
+startup_opportunity.planning_context.v1
 startup_opportunity.gap_snapshot.v1
 startup_opportunity.adaptation_decision.v1
+startup_opportunity.adaptation_decision.v2
+startup_opportunity.coverage_attestation.v1
 startup_opportunity.seed_probe.v1
 startup_opportunity.opportunity_space_map.v1
 startup_opportunity.solution_space_map.v1
@@ -3797,8 +3912,10 @@ decision context -> concept frame -> evidence assessment plan r1
 | Decision Context | decision_to_make、decision question、venture goal、初始判断、最终决策所有者和 assumptions |
 | Scope Frame | mode、market/language、profile、约束、assumptions 和高影响 open questions |
 | Research Plan | revision/parent/adaptation lineage、allowlist、依赖无环、output ownership、seed-independent/counterfactual unit、generation/evaluation source separation、frozen-thesis boundary、retention/diversity 和 stop policy |
+| Planning Context | immutable revision、Run/Plan identity/ref/hash/revision、validation stage、AI mandatory trigger、subject/source binding 和 stale rejection |
 | Gap Snapshot | base plan、observed artifact refs、closed gap type、detection mode、trigger data、decision impact、severity、basis/evidence refs 和 stop signals |
-| Adaptation Decision | base plan、gap refs、closed action、目标 unit/state、decision impact、success/stop condition、policy boundary、幂等和 revision applicability |
+| Adaptation Decision | v2 base plan、gap refs、closed action、目标 unit/state、decision impact、success/stop condition、coverage/retry strengthening、policy boundary、幂等和 revision applicability；v1 只兼容读取 |
+| Coverage Attestation | exact relation、canonical coverage_key、Run/Plan/gap/unit refs、subject、target research goal、pending/active state、plan lineage 和 stale conditions；语义等价由 main Agent 声明 |
 | User Language Map | verbatim quote、source location、geo/language、功能词剔除和 quote provenance |
 | Solution Failure Map | baseline、failure scene、next action、migration signal 和用户语言引用 |
 | Judgment Assessment | signal、support/opposition refs、evidence tier、representativeness、independence、decision sufficiency、insufficiency reason 和 what-would-change-it |
@@ -3830,6 +3947,13 @@ ignored_late
 superseded_by_scope_change
 superseded_by_adaptation
 ```
+
+这里的 `partial` 是 owning G1/G2 branch Artifact 的结果语义，不是 G0 Run Manifest unit state。Schema bundle `2.0.0` 和 policy `1.0.0` 不发布 partial-to-unit adapter：
+
+- Fan-in 在对应 branch schema 已安装后可以读取并保留 `partial_branch_refs` 及其 decision impact。
+- G0.4 `retry_unit` 不能以 partial branch 为前置，只认 `manifest.failed_units`。
+- Owning slice 若未来允许 partial retry，必须发布 versioned branch schema adapter 和新 policy，明确 branch ref、unit/attempt identity、目标 manifest transition、stale/hash 和重复应用规则。
+- 在此之前不得把 partial 私自写入 `completed_units`、`failed_units` 或另一个集合；任何这种映射都 fail closed。
 
 Fan-in 不要求所有 branch 成功才继续，但必须显式记录：
 
@@ -4243,6 +4367,15 @@ Manifest 记录版本或内容 hash。恢复 Run 时如果当前定义与 manife
 - 方法或比较逻辑变化会改变结论时，默认使用旧版本快照或创建 continuation Run。
 - 无法取得旧定义时暂停并向用户说明，不静默使用最新文件重算历史结论。
 
+G0 planning contract 的具体选择规则：
+
+- Schema bundle `1.0.0`、`research_plan.v1`、`adaptation_decision.v1` 和 `artifact_envelope.v1` 保持 immutable、可读取、可用于既有 G0.2/G0.3 Store/recovery 对账；不回填新字段。
+- Schema bundle `2.0.0` 是 `1.0.0` 的兼容读取超集，新增 `planning_context.v1`、`coverage_attestation.v1`、`adaptation_decision.v2`、`adaptation_policy.v1`、`artifact_envelope.v2` 和 `document_bundle.v2`。
+- 新 G0.4 policy validation 必须选择 bundle `2.0.0` + policy `1.0.0` + Planning Context v1 + Adaptation Decision v2。Research Plan 和 Run Manifest 继续使用 v1 shape，由 Planning Context 提供新增 binding，不无版本改写已发布 schema。
+- 既有 manifest 仍声明 bundle `1.0.0` 时可以 schema validate、load 和 recover，但不得执行 G0.4 adaptation。恢复执行前必须通过明确 migration event/decision 将 Run 选择更新为 bundle `2.0.0`、发布 Planning Context，并重新验证 current plan；无法满足时暂停。
+- Adaptation Decision v1 只读兼容；需要执行时由 main Agent 发布新的 v2 proposal 和 provenance，不自动迁移 id/content。Planning Context 或 Coverage Attestation stale 时发布新 revision/attestation，不覆盖旧 artifact。
+- Policy 中的 `future_declared` output schema 不构成 migration 或 installation。Owning slice 发布 schema 后必须声明兼容 bundle/envelope/adapter；否则旧 plan tuple 可以继续读取，但对应 Artifact publish 仍拒绝。
+
 ### 28.2 幂等和重复交付
 
 - `create-run` 对同一个显式 run id 不重复创建。
@@ -4334,6 +4467,10 @@ source repetition stop
 
 ### 29.3 数据驱动动态扩展
 
+- 每次 G0.4 Plan/adaptation validation 都有 versioned Planning Context；缺失/错误 AI trigger，或 stale Run/Plan identity/ref/hash/revision 必须 deterministic reject。
+- Exact mode/phase/unit type/agent role/output schema tuple 来自一个 versioned closed policy；policy 明确声明的 future output schema 可以进入 plan，但 schema 未安装或 envelope 不兼容时 Artifact publish 必须拒绝。
+- `continue_existing_plan` 使用 main Agent 声明的 canonical Coverage Attestation；Harness 验证 exact coverage_key/relation、subject/ref、pending/active state、plan lineage 和 stale 条件，不用字符串或隐藏 LLM 判断语义等价。
+- G0.4 `retry_unit` 只接受 Run Manifest `failed_units`；completed/active/pending 和 partial artifact 均拒绝。Partial retry 只有 owning branch schema 的 versioned adapter/policy 发布后才能启用。
 - 每个通过校验的 research wave 都产生 Gap Snapshot，即使结果是没有 decision-relevant gap 或只存在 stop signal。
 - 用户 scope/优先级变化、validation failure 和 adversarial review challenge 可以产生 event-driven Gap Snapshot，不需要等待 wave 结束。
 - 每个 decision-relevant gap 在 checkpoint 前都有 validated disposition；已有 unit 覆盖时使用 `continue_existing_plan`，不存在隐式忽略。

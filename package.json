@@ -14,7 +14,7 @@
     "lint": "biome check .",
     "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "validate:fixtures": "node --import tsx --test tests/schema-validation.test.ts",
+    "validate:fixtures": "node --import tsx --test tests/schema-validation.test.ts tests/planning-contracts.test.ts",
     "validate:schemas": "tsx harness/src/cli.ts validate-artifact --schema-bundle --json",
     "validate:store": "node --import tsx --test tests/store.test.ts tests/store-cli.test.ts",
     "test:faults": "node --import tsx --test tests/store-faults.test.ts",

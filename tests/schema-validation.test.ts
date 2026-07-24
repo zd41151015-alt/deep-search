@@ -115,20 +115,20 @@ function matchesSchemaIssue(issue: ValidationIssue, expected: ExpectedSchemaIssu
 test("published schema bundle is closed, versioned, and internally resolvable", async () => {
   const result = await inspectSchemaBundle(repositoryRoot);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
-  assert.equal(result.schemaBundleVersion, "1.0.0");
-  assert.equal(result.schemaCount, 10);
-  assert.equal(result.documentSchemaCount, 9);
+  assert.equal(result.schemaBundleVersion, "2.0.0");
+  assert.equal(result.schemaCount, 16);
+  assert.equal(result.documentSchemaCount, 15);
   assert.deepEqual(result.errors, []);
 });
 
 test("schema bundle inspection rejects an unresolved internal reference", async (context) => {
   const copyRoot = await mkdtemp(path.join(tmpdir(), "startup-opportunity-schema-bundle-"));
   context.after(() => rm(copyRoot, { recursive: true, force: true }));
-  const source = path.join(repositoryRoot, "harness/schemas/v1");
-  const target = path.join(copyRoot, "harness/schemas/v1");
+  const source = path.join(repositoryRoot, "harness/schemas");
+  const target = path.join(copyRoot, "harness/schemas");
   await cp(source, target, { recursive: true });
 
-  const eventSchemaPath = path.join(target, "event.schema.json");
+  const eventSchemaPath = path.join(target, "v1/event.schema.json");
   const eventSchema = await readJson<Record<string, unknown>>(eventSchemaPath);
   const properties = eventSchema.properties as Record<string, Record<string, unknown>>;
   properties.artifact_refs = { $ref: "missing.schema.json#/$defs/artifactRefArray" };

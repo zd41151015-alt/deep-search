@@ -1,0 +1,271 @@
+[
+  {
+    "case_id": "planning-context-missing",
+    "category": "planning_context",
+    "mutations": [{ "op": "remove_document", "index": 2 }],
+    "expected": [{ "surface": "contract", "code": "contract.planning_context_missing" }]
+  },
+  {
+    "case_id": "planning-trigger-missing",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "delete",
+        "path": ["documents", 2, "document", "ai_mandatory_coverage"]
+      }
+    ],
+    "expected": [{ "surface": "schema", "keyword": "required" }]
+  },
+  {
+    "case_id": "planning-trigger-wrong",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 2, "document", "ai_mandatory_coverage", "basis", "signal"],
+        "value": "none"
+      }
+    ],
+    "expected": [{ "surface": "schema", "keyword": "const" }]
+  },
+  {
+    "case_id": "planning-stale-run-ref",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 2, "document", "manifest_binding", "manifest_ref"],
+        "value": "manifest-old.json"
+      }
+    ],
+    "expected": [{ "surface": "schema", "keyword": "const" }]
+  },
+  {
+    "case_id": "planning-stale-run-identity",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 2, "document", "manifest_binding", "run_id"],
+        "value": "run_contract_stale"
+      }
+    ],
+    "expected": [{ "surface": "reference", "code": "reference.planning_context_run_mismatch" }]
+  },
+  {
+    "case_id": "planning-stale-run-hash",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 2, "document", "manifest_binding", "run_state_hash"],
+        "value": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "expected": [{ "surface": "reference", "code": "reference.planning_context_stale_run" }]
+  },
+  {
+    "case_id": "planning-stale-plan-ref",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 2, "document", "target_plan_binding", "plan_ref"],
+        "value": "plans/research-plan.r2.json"
+      }
+    ],
+    "expected": [{ "surface": "reference", "code": "reference.missing" }]
+  },
+  {
+    "case_id": "planning-stale-plan-hash",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 2, "document", "target_plan_binding", "plan_content_hash"],
+        "value": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "expected": [
+      {
+        "surface": "reference",
+        "code": "reference.planning_context_stale_plan_hash"
+      }
+    ]
+  },
+  {
+    "case_id": "planning-stale-plan-revision",
+    "category": "planning_context",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 2, "document", "target_plan_binding", "plan_revision"],
+        "value": 2
+      }
+    ],
+    "expected": [
+      {
+        "surface": "reference",
+        "code": "reference.planning_context_stale_plan_identity"
+      }
+    ]
+  },
+  {
+    "case_id": "mode-phase-unit-tuple-illegal",
+    "category": "mode_policy",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 2, "document", "phase"],
+        "value": "discovery"
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.unit_tuple_not_allowed" }]
+  },
+  {
+    "case_id": "mode-policy-output-schema-undeclared",
+    "category": "mode_policy",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 1, "document", "waves", 0, "units", 1, "required_artifact_schema"],
+        "value": "startup_opportunity.undeclared_branch_result.v1"
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.unit_tuple_not_allowed" }]
+  },
+  {
+    "case_id": "mode-policy-agent-role-illegal",
+    "category": "mode_policy",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 1, "document", "waves", 0, "units", 1, "agent_role"],
+        "value": "evidence-auditor"
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.unit_tuple_not_allowed" }]
+  },
+  {
+    "case_id": "mode-policy-adaptation-target-schema-undeclared",
+    "category": "mode_policy",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 6, "document", "target_unit", "required_artifact_schema"],
+        "value": "startup_opportunity.undeclared_branch_result.v1"
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.target_unit_tuple_not_allowed" }]
+  },
+  {
+    "case_id": "coverage-key-forged",
+    "category": "coverage",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 4, "document", "coverage_key"],
+        "value": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "expected": [{ "surface": "reference", "code": "reference.coverage_key_mismatch" }]
+  },
+  {
+    "case_id": "coverage-relation-target-mismatch",
+    "category": "coverage",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 5, "document", "target_unit_ref"],
+        "value": "plans/research-plan.r1.json#ai_bundle_opportunity_001"
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.coverage_relation_mismatch" }]
+  },
+  {
+    "case_id": "coverage-subject-mismatch",
+    "category": "coverage",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 4, "document", "subject_ref"],
+        "value": "opportunity_999"
+      }
+    ],
+    "expected": [{ "surface": "reference", "code": "reference.coverage_subject_mismatch" }]
+  },
+  {
+    "case_id": "coverage-target-completed",
+    "category": "coverage",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 0, "document", "completed_units"],
+        "value": ["buyer_existing"]
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.coverage_target_state_not_allowed" }]
+  },
+  {
+    "case_id": "retry-target-completed",
+    "category": "retry",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 0, "document", "failed_units"],
+        "value": []
+      },
+      {
+        "op": "set",
+        "path": ["documents", 0, "document", "completed_units"],
+        "value": ["acquisition_failed"]
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.retry_target_not_failed" }]
+  },
+  {
+    "case_id": "retry-target-active",
+    "category": "retry",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 0, "document", "failed_units"],
+        "value": []
+      },
+      {
+        "op": "set",
+        "path": ["documents", 0, "document", "active_units"],
+        "value": ["acquisition_failed"]
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.retry_target_not_failed" }]
+  },
+  {
+    "case_id": "retry-partial-artifact-fail-closed",
+    "category": "retry",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 6, "document", "retry_basis", "kind"],
+        "value": "partial_artifact"
+      }
+    ],
+    "expected": [{ "surface": "schema", "keyword": "const" }]
+  },
+  {
+    "case_id": "adaptation-v1-read-compatible-policy-rejected",
+    "category": "versioning",
+    "mutations": [
+      {
+        "op": "set",
+        "path": ["documents", 5, "document", "schema_version"],
+        "value": "startup_opportunity.adaptation_decision.v1"
+      },
+      {
+        "op": "delete",
+        "path": ["documents", 5, "document", "coverage_attestation_ref"]
+      }
+    ],
+    "expected": [{ "surface": "contract", "code": "contract.adaptation_version_unsupported" }]
+  }
+]

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v2/document-bundle.schema.json",
+  "title": "Startup Opportunity Validation Document Bundle v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "documents"],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.document_bundle.v2" },
+    "documents": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "document"],
+        "properties": {
+          "path": { "$ref": "../v1/definitions.schema.json#/$defs/artifactPath" },
+          "document": {
+            "type": "object",
+            "required": ["schema_version"],
+            "properties": {
+              "schema_version": {
+                "$ref": "../v1/definitions.schema.json#/$defs/schemaVersion"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

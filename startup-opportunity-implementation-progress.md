@@ -2,7 +2,7 @@
 
 > **状态**: IN_PROGRESS / G0_FOUNDATION_IN_PROGRESS
 > **当前 Gate**: G0 Foundation Harness=`IN_PROGRESS`；G1-G4=`NOT_READY`
-> **下一独立会话**: G0.4 contract 修正规范会话；修复下述 `BLOCKED_BY_SPEC` 后才能恢复施工
+> **下一独立会话**: 中控验收本次 contract 修正提交后，恢复 G0.4 implementation；验收前不得创建 G0.R 或开放 G1
 > **最后更新**: 2026-07-23
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
 
@@ -175,7 +175,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | W0 | Repository、toolchain、Skill/agent/Harness skeleton、测试入口 | `DONE` |
 | W1 | Schema bundle、reference validator、artifact envelopes | `DONE` |
 | W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `DONE` |
-| W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `BLOCKED_BY_SPEC` |
+| W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `IN_PROGRESS`；contract 已修正，runtime 未实现 |
 | W4 | Assess domain contracts、research branches、matrix、audit/review/report | `NOT_READY` |
 | W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `NOT_READY` |
 | W6 | AI mandatory bundle 和 gates | `NOT_READY` |
@@ -188,7 +188,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | G0.1 | Repository / Toolchain / Skill Skeleton | `DONE` | 冻结单一实现工具链和 lockfile；替换占位 README；建立 `AGENTS.md`、Skill references/scripts、custom agent、Harness/test 目录；最小 lint/typecheck/test 命令可运行；只建 skeleton，不提前实现 G0.2+ 业务逻辑 |
 | G0.2 | Core Artifact Schema Bundle | `DONE` | artifact envelope、Run Manifest、Research Plan、Gap Snapshot、Adaptation Decision、Event/Decision、Checkpoint closed schemas；positive/negative fixtures；deterministic schema validation |
 | G0.3 | Run / Artifact Store and Recovery | `DONE` | create/load run、atomic artifact publish、refs/hash、event/decision append、checkpoint、reopen/recovery、path traversal/write-conflict/idempotency fixtures |
-| G0.4 | Plan / Adaptation Runtime | `BLOCKED_BY_SPEC` | plan validator、machine gap draft、adaptation validator、immutable plan revision、stale-base/CAS、retry/supersede/late artifact、crash-boundary fixtures |
+| G0.4 implementation | Plan / Adaptation Runtime | `READY` | plan validator、machine gap draft、adaptation validator、immutable plan revision、stale-base/CAS、retry/supersede/late artifact、crash-boundary fixtures |
 | G0.R | Independent Foundation Whole-Gate Regression | `NOT_READY` | 从 clean G0 candidate 独立重放全部 G0 tests、negative/fault/crash fixtures、determinism、git diff/check；通过后 G0=`DONE` |
 
 ## G1 Concept Evidence Assessment 施工切片
@@ -235,12 +235,12 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | G0.4 独立施工；启动期 contract audit 发现 `BLOCKED_BY_SPEC`，未进入生产代码编辑 |
-| Current slice | `G0.4` (`BLOCKED_BY_SPEC`)；G0.R、G1-G4 未开放 |
-| Expected base | accepted G0.3 repair `004ecc088027166a53ec44a647bb2a5564eeeba0`；parent=`bcf84cdbda1d5e16c8ec039548ee2ef487d054ff` |
+| Active task | G0.4 contract 修正规范提交候选；等待中控验收，不是 G0.4 runtime implementation |
+| Current slice | `G0.4 implementation=READY`；尚未启动；G0.R、G1-G4 未开放 |
+| Expected base | contract 修正候选 `<G0.4_CONTRACT_FIX_COMMIT>`；parent=`da820811d0fa7495fd28dc127e1d1ff91adbdc97` |
 | Consecutive state-query failures | `0` |
-| Last effective operation | `g0_4_blocked_by_spec_recorded` |
-| Next allowed action | 独立修正 RFC 和相关已发布 contract，唯一化 G0.4 语义；修正被接受前不得恢复 G0.4、创建 G0.R 或开放 G1 |
+| Last effective operation | `g0_4_contract_fix_candidate_recorded` |
+| Next allowed action | 中控从 clean candidate 独立验收 contract/version/tests；接受后只能创建 G0.4 implementation，不能创建 G0.R 或开放 G1 |
 
 ## 已完成切片与证据
 
@@ -352,7 +352,9 @@ G0.3 定向返修验收证据：
 
 `004ecc088027166a53ec44a647bb2a5564eeeba0` 验收时工作树 clean；G0.4 以该提交为唯一施工基线。
 
-## G0.4 `BLOCKED_BY_SPEC`
+## G0.4 `BLOCKED_BY_SPEC` 历史记录
+
+以下四个最小复现是 `main@da820811` 的阻塞事实，保留用于说明本次 contract 修正必须解决的输入；它们不再表示下述修正候选的当前状态。
 
 G0.4 启动期按强制施工协议完整阅读 RFC、账本并建立 schema/policy/Store/CLI/test 引用索引后，发现以下语义无法由 RFC 与已发布 G0.2 contract 唯一决定。施工不得通过内部常量、fixture 或未发布 policy 私自选择答案。
 
@@ -389,7 +391,9 @@ G0.4 启动期按强制施工协议完整阅读 RFC、账本并建立 schema/pol
 
 规范修正必须定义 partial 到 G0 Manifest 状态的机械映射或明确将 partial retry 延后到拥有 branch schema 的切片，同时保持 G0.4 fail-closed。
 
-### 阻塞边界
+### 原阻塞边界
+
+以下边界记录阻塞发现时的仓库状态，不覆盖后文的 contract 修正交付：
 
 - 未创建 `harness/policies/adaptation.v1.json`，未实现或接通 G0.4 CLI/Skill scripts，未修改 G0.2 schemas 或 G0.3 Store。
 - 未开始 prompt/Skill 业务说明中文化；该改动仍须与恢复后的完整 G0.4 实现、tests 和账本形成同一原子提交，避免产生不符合用户要求的部分候选。
@@ -415,10 +419,53 @@ G0.4 启动期按强制施工协议完整阅读 RFC、账本并建立 schema/pol
 | `npm audit` | PASS；0 vulnerabilities |
 | G0.4 专项 | NOT RUN；实现被 contract 缺口阻塞，当前专项数量为 0，不得冒充 PASS |
 
+## G0.4 contract 修正交付
+
+本次提交只修正规范与 versioned contracts，不实现 G0.4 runtime。交付版本：
+
+- 保留 `harness/schemas/v1` / schema bundle `1.0.0` immutable，默认发布兼容读取超集 schema bundle `2.0.0`：16 schemas、15 document validators。
+- 新增 `startup_opportunity.planning_context.v1`，包含 immutable context revision、Run/Plan identity/ref/hash/revision、`initial_plan | current_plan | candidate_revision` stale rules，以及 closed AI mandatory trigger。它只表达 G0 planning context，不包含 G3 business artifact。
+- 新增 `startup_opportunity.coverage_attestation.v1` 和 canonical `coverage_key`/唯一 relation；新增 `startup_opportunity.adaptation_decision.v2`，要求 `continue_existing_plan.coverage_attestation_ref` 与 `retry_unit.retry_basis`。
+- 发布 `startup_opportunity.adaptation_policy.v1` / policy `1.0.0`：5 个 mode/phase、49 个 exact unit tuples、23 个 unit types、4 个 `future_declared` output schema ids。Plan 可以声明 policy 已知但尚未安装的 output schema；Artifact validation/publish 仍要求 installed schema 和 compatible envelope。
+- 新增 `artifact_envelope.v2` 与 `document_bundle.v2`；v1 documents 和 Adaptation Decision v1 继续 schema-compatible read。Adaptation Decision v1 不能进入 policy `1.0.0` execution，必须由 main Agent 发布带 provenance 的 v2 proposal。
+- `PlanningContractEvaluator` 只读验证显式 bundle；不扫描 Run、不写状态、不调度 unit、不接通任何 reserved G0.4 CLI。
+
+四项阻塞的机械消除：
+
+| 原阻塞 | Contract 结果 |
+| --- | --- |
+| AI trigger 缺失 | Planning Context 必填 `required | not_required` trigger；Run/Plan binding 和六维 subject aggregate 可机械验证，missing/wrong/stale 均拒绝 |
+| mode allowlist 缺失 | `adaptation.v1.json` 是 exact mode/phase/type/role/schema tuple 的唯一数据源；`future_declared` 只影响 plan declaration |
+| coverage 无法判断 | Main Agent 发布 semantic attestation；Harness 只验证 canonical key、exact relation/ref/subject/goal、pending/active state、plan lineage/stale |
+| partial retry 无映射 | G0.4 retry 只认 `manifest.failed_units`；completed/active/pending/partial 均 fail closed，partial adapter 延后到 owning G1/G2 schema/policy |
+
+Contract fixture 交付：1 个完整正例 bundle、1 个 future-declared Artifact publish 负例和 21 个 mutation 负例，覆盖 missing/wrong trigger、stale Run/Plan identity/ref/hash/revision、非法 tuple、current plan 与 Adaptation target 未声明 output schema、coverage key/ref/subject/state、retry completed/active/partial 和 v1 read-compatible/policy-rejected。
+
+提交占位：`<G0.4_CONTRACT_FIX_COMMIT>`；parent 必须为 `da820811d0fa7495fd28dc127e1d1ff91adbdc97`。提交后由中控从 clean tree 独立验收；只有验收接受后才能启动 `G0.4 implementation=READY`。本提交不把 G0.4 标记 `DONE`，不开放 G0.R 或 G1。
+
+### Contract 修正验证证据
+
+以下结果必须使用 Node.js `24.18.0` / npm `11.16.0` 在最终提交前真实重放；数量以本节最终记录为准，不沿用历史 G0.3 数字。
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm ci` | PASS；18 packages installed，19 packages audited，0 vulnerabilities |
+| `npm run lint` | PASS；Biome checked 97 files，0 diagnostics |
+| `npm run typecheck` | PASS；`tsc --noEmit` |
+| `npm test` | PASS；57 tests，57 passed，0 failed/skipped/todo |
+| `npm run validate:schemas` | PASS；bundle `2.0.0`，16 schemas，15 document validators，0 unresolved refs |
+| `npm run validate:fixtures` | PASS；17 tests，17 passed；8 个 contract tests 覆盖 1 个完整正例、21 个 mutation 负例和 future Artifact publish boundary |
+| `npm run validate:store` | PASS；10 tests，10 passed |
+| `npm run test:faults` | PASS；10 tests，10 passed |
+| `npm run test:recovery` | PASS；11 tests，11 passed |
+| `npm run verify:skeleton` | PASS；required paths、单一 lockfile、package metadata 和 Node `24.18.0` runtime checks 通过 |
+| `npm audit` | PASS；0 vulnerabilities |
+| `git diff --check` | PASS；提交前复核 |
+
 ## 当前阻塞与风险
 
 - G0.3 Store 成功只证明机械持久化、hash/ref/index/checkpoint/recovery 合同；不证明 Evidence 充分、业务 policy 通过、decision ready 或 G0 Foundation 完成。
-- G0.4 被上述四项规范缺口阻塞；Research Plan DAG/mode/AI coverage validator、Gap analyzer、Adaptation policy、CAS/idempotent Plan Revision apply、retry/supersede/late-artifact runtime 均未开始，对应 Skill 入口继续结构化失败，不能被调用方转成成功或 mock artifact。
+- 上述四项 `BLOCKED_BY_SPEC` 已由 contract 修正候选机械消除；G0.4 runtime 仍未开始。Research Plan DAG validator、Gap analyzer、Adaptation runtime validator、CAS/idempotent Plan Revision apply、retry/supersede/late-artifact runtime 均保持未实现，对应 Skill 入口继续结构化失败，不能被调用方转成成功或 mock artifact。
 - G0.3 Evidence substrate 不包含完整 Evidence Record、origin/provenance/freshness/independence/bias 或 Claim/Finding/Insight；这些仍由 G1.2 拥有，不得从 raw record 推导研究结论。
 - `discover`、`assess`、comparison 和 reporting 只有职责/reference 落点，没有业务闭环；G1-G4 保持 `NOT_READY`。
 - 目标 runtime 是精确 Node.js `24.18.0`；PATH 上其他 Node 版本会被 engine guard 或 repository doctor 拒绝，开发者需先切换版本。

@@ -49,6 +49,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v2.json",
   "harness/schemas/v1/bundle.json",
   "harness/schemas/v1/definitions.schema.json",
   "harness/schemas/v1/artifact-envelope.schema.json",
@@ -60,11 +61,19 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v1/decision.schema.json",
   "harness/schemas/v1/checkpoint.schema.json",
   "harness/schemas/v1/document-bundle.schema.json",
+  "harness/schemas/v2/planning-context.schema.json",
+  "harness/schemas/v2/coverage-attestation.schema.json",
+  "harness/schemas/v2/adaptation-policy.schema.json",
+  "harness/schemas/v2/adaptation-decision.schema.json",
+  "harness/schemas/v2/artifact-envelope.schema.json",
+  "harness/schemas/v2/document-bundle.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/schema-bundle.ts",
   "harness/src/validators/artifact-validator.ts",
+  "harness/src/validators/planning-contract-identities.ts",
+  "harness/src/validators/planning-contract-validator.ts",
   "harness/src/validators/validate-artifact-command.ts",
 ] as const;
 
@@ -103,6 +112,7 @@ export const RESPONSIBILITY_PATHS = [
   "harness/src/adaptation/README.md",
   "harness/src/comparison/README.md",
   "harness/src/reporting/README.md",
+  "harness/policies/adaptation.v1.json",
   "tests/fixtures/README.md",
   "tests/evals/README.md",
   "runs/.gitkeep",

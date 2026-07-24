@@ -1,0 +1,481 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import type {
+  ArtifactValidationResult,
+  DocumentBundleValidationResult,
+} from "./artifact-validator.js";
+import { type ArtifactValidator, createArtifactValidator } from "./artifact-validator.js";
+import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
+
+export const ADAPTATION_POLICY_PATH = "harness/policies/adaptation.v1.json" as const;
+export const PLANNING_CONTRACT_RESULT_VERSION =
+  "startup_opportunity.planning_contract_validation_result.v1" as const;
+
+interface UnitRule {
+  readonly mode: string;
+  readonly phase: string;
+  readonly unit_type: string;
+  readonly agent_role: string;
+  readonly required_artifact_schema: string;
+}
+
+interface SchemaCatalogEntry {
+  readonly schema_id: string;
+  readonly availability: "installed" | "future_declared";
+  readonly owning_slice: string;
+}
+
+interface AdaptationPolicy extends Record<string, unknown> {
+  readonly schema_version: "startup_opportunity.adaptation_policy.v1";
+  readonly policy_version: "1.0.0";
+  readonly compatible_schema_bundle_versions: readonly string[];
+  readonly phase_catalog: readonly { readonly mode: string; readonly phase: string }[];
+  readonly artifact_schema_catalog: readonly SchemaCatalogEntry[];
+  readonly unit_rules: readonly UnitRule[];
+}
+
+interface EffectiveDocument {
+  readonly path: string;
+  readonly schemaVersion: string;
+  readonly document: Record<string, unknown>;
+}
+
+export interface PlanningContractValidationResult {
+  readonly schemaVersion: typeof PLANNING_CONTRACT_RESULT_VERSION;
+  readonly schemaBundleVersion: string;
+  readonly policyVersion: string;
+  readonly valid: boolean;
+  readonly documentBundle: DocumentBundleValidationResult;
+  readonly policyValidation: ArtifactValidationResult;
+  readonly contractErrors: readonly ValidationIssue[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function contractIssue(
+  code: string,
+  instancePath: string,
+  message: string,
+  details: Readonly<Record<string, unknown>> = {},
+): ValidationIssue {
+  return {
+    code,
+    keyword: "contract",
+    instancePath,
+    schemaPath: "",
+    message,
+    details,
+  };
+}
+
+function effectiveDocuments(value: unknown): readonly EffectiveDocument[] {
+  if (!isRecord(value) || !Array.isArray(value.documents)) {
+    return [];
+  }
+  return value.documents.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry.path !== "string" || !isRecord(entry.document)) {
+      return [];
+    }
+    const version = entry.document.schema_version;
+    if (
+      (version === "startup_opportunity.artifact_envelope.v1" ||
+        version === "startup_opportunity.artifact_envelope.v2") &&
+      typeof entry.document.artifact_type === "string" &&
+      isRecord(entry.document.document)
+    ) {
+      return [
+        {
+          path: entry.path,
+          schemaVersion: entry.document.artifact_type,
+          document: entry.document.document,
+        },
+      ];
+    }
+    return [
+      {
+        path: entry.path,
+        schemaVersion: typeof version === "string" ? version : "",
+        document: entry.document,
+      },
+    ];
+  });
+}
+
+function unitEntries(plan: Record<string, unknown>): readonly Record<string, unknown>[] {
+  if (!Array.isArray(plan.waves)) {
+    return [];
+  }
+  return plan.waves.flatMap((wave) =>
+    isRecord(wave) && Array.isArray(wave.units)
+      ? wave.units.filter((unit): unit is Record<string, unknown> => isRecord(unit))
+      : [],
+  );
+}
+
+function refTarget(
+  documents: ReadonlyMap<string, EffectiveDocument>,
+  ref: unknown,
+): EffectiveDocument | null {
+  if (typeof ref !== "string") {
+    return null;
+  }
+  return documents.get(ref.split("#", 1)[0] ?? "") ?? null;
+}
+
+function unitTarget(
+  documents: ReadonlyMap<string, EffectiveDocument>,
+  ref: unknown,
+): { readonly plan: EffectiveDocument; readonly unit: Record<string, unknown> } | null {
+  if (typeof ref !== "string") {
+    return null;
+  }
+  const [planPath = "", unitId] = ref.split("#", 2);
+  const plan = documents.get(planPath);
+  if (plan?.schemaVersion !== "startup_opportunity.research_plan.v1" || unitId === undefined) {
+    return null;
+  }
+  const unit = unitEntries(plan.document).find((candidate) => candidate.unit_id === unitId);
+  return unit === undefined ? null : { plan, unit };
+}
+
+function tupleKey(rule: UnitRule): string {
+  return [
+    rule.mode,
+    rule.phase,
+    rule.unit_type,
+    rule.agent_role,
+    rule.required_artifact_schema,
+  ].join("\0");
+}
+
+function statusOfUnit(manifest: Record<string, unknown>, unitId: string): string {
+  const stateFields = [
+    ["completed_units", "completed"],
+    ["active_units", "active"],
+    ["failed_units", "failed"],
+    ["invalidated_units", "invalidated"],
+    ["skipped_units", "skipped"],
+    ["cancelled_units", "cancelled"],
+    ["superseded_units", "superseded"],
+  ] as const;
+  for (const [field, state] of stateFields) {
+    if (Array.isArray(manifest[field]) && manifest[field].includes(unitId)) {
+      return state;
+    }
+  }
+  return "pending";
+}
+
+export class PlanningContractEvaluator {
+  constructor(
+    private readonly artifactValidator: ArtifactValidator,
+    private readonly policy: AdaptationPolicy,
+    private readonly policyValidation: ArtifactValidationResult,
+  ) {}
+
+  validateDocumentBundle(value: unknown): PlanningContractValidationResult {
+    const documentBundle = this.artifactValidator.validateDocumentBundle(value);
+    const documents = effectiveDocuments(value);
+    const documentsByPath = new Map(documents.map((document) => [document.path, document]));
+    const errors: ValidationIssue[] = [];
+
+    const policyTupleKeys = new Set<string>();
+    const schemaCatalog = new Map<string, SchemaCatalogEntry>();
+    for (const entry of this.policy.artifact_schema_catalog) {
+      if (schemaCatalog.has(entry.schema_id)) {
+        errors.push(
+          contractIssue(
+            "contract.policy_duplicate_schema",
+            "/artifact_schema_catalog",
+            "policy artifact schema ids must be unique",
+            { schemaId: entry.schema_id },
+          ),
+        );
+      }
+      schemaCatalog.set(entry.schema_id, entry);
+    }
+    for (const rule of this.policy.unit_rules) {
+      const key = tupleKey(rule);
+      if (policyTupleKeys.has(key)) {
+        errors.push(
+          contractIssue(
+            "contract.policy_duplicate_tuple",
+            "/unit_rules",
+            "policy unit tuples must be unique",
+            { key },
+          ),
+        );
+      }
+      policyTupleKeys.add(key);
+      if (!schemaCatalog.has(rule.required_artifact_schema)) {
+        errors.push(
+          contractIssue(
+            "contract.policy_undeclared_output_schema",
+            "/unit_rules",
+            "policy tuple references an undeclared output schema",
+            { schemaId: rule.required_artifact_schema },
+          ),
+        );
+      }
+    }
+
+    const planningContexts = documents.filter(
+      (document) => document.schemaVersion === "startup_opportunity.planning_context.v1",
+    );
+    if (planningContexts.length === 0) {
+      errors.push(
+        contractIssue(
+          "contract.planning_context_missing",
+          "",
+          "policy validation requires exactly one Planning Context",
+        ),
+      );
+    } else if (planningContexts.length > 1) {
+      errors.push(
+        contractIssue(
+          "contract.planning_context_ambiguous",
+          "",
+          "policy validation accepts one Planning Context at a time",
+        ),
+      );
+    }
+
+    const context = planningContexts[0];
+    let manifest: EffectiveDocument | null = null;
+    let plan: EffectiveDocument | null = null;
+    if (context !== undefined) {
+      const manifestBinding = context.document.manifest_binding;
+      const planBinding = context.document.target_plan_binding;
+      if (isRecord(manifestBinding)) {
+        manifest = refTarget(documentsByPath, manifestBinding.manifest_ref);
+      }
+      if (isRecord(planBinding)) {
+        plan = refTarget(documentsByPath, planBinding.plan_ref);
+      }
+      const mode = context.document.mode;
+      const phase = context.document.phase;
+      const phaseAllowed = this.policy.phase_catalog.some(
+        (entry) => entry.mode === mode && entry.phase === phase,
+      );
+      if (!phaseAllowed) {
+        errors.push(
+          contractIssue(
+            "contract.mode_phase_not_allowed",
+            `${context.path}#/phase`,
+            "Planning Context mode and phase are not declared by policy",
+            { mode, phase },
+          ),
+        );
+      }
+
+      if (plan?.schemaVersion === "startup_opportunity.research_plan.v1") {
+        for (const unit of unitEntries(plan.document)) {
+          const rule: UnitRule = {
+            mode: String(mode),
+            phase: String(phase),
+            unit_type: String(unit.unit_type),
+            agent_role: String(unit.agent_role),
+            required_artifact_schema: String(unit.required_artifact_schema),
+          };
+          if (!policyTupleKeys.has(tupleKey(rule))) {
+            errors.push(
+              contractIssue(
+                "contract.unit_tuple_not_allowed",
+                `${plan.path}#${String(unit.unit_id)}`,
+                "unit mode/phase/type/role/output-schema tuple is not declared by policy",
+                { ...rule },
+              ),
+            );
+          }
+        }
+
+        const aiCoverage = context.document.ai_mandatory_coverage;
+        if (isRecord(aiCoverage) && aiCoverage.status === "required") {
+          const basis = aiCoverage.basis;
+          const subjectRef = isRecord(basis) ? basis.subject_ref : null;
+          const coveredDimensions = new Set<string>();
+          for (const unit of unitEntries(plan.document)) {
+            if (
+              unit.unit_type !== "ai_capability_evidence" ||
+              unit.plan_disposition !== "enabled" ||
+              !Array.isArray(unit.input_refs) ||
+              !unit.input_refs.includes(subjectRef) ||
+              !Array.isArray(unit.required_dimensions)
+            ) {
+              continue;
+            }
+            for (const dimension of unit.required_dimensions) {
+              if (typeof dimension === "string") {
+                coveredDimensions.add(dimension);
+              }
+            }
+          }
+          const requiredDimensions = Array.isArray(aiCoverage.required_dimensions)
+            ? aiCoverage.required_dimensions
+            : [];
+          const missing = requiredDimensions.filter(
+            (dimension) => typeof dimension === "string" && !coveredDimensions.has(dimension),
+          );
+          if (missing.length > 0) {
+            errors.push(
+              contractIssue(
+                "contract.ai_mandatory_coverage_missing",
+                `${context.path}#/ai_mandatory_coverage`,
+                "AI mandatory coverage is incomplete for the declared subject",
+                { missing },
+              ),
+            );
+          }
+        }
+      }
+    }
+
+    for (const decision of documents.filter((document) =>
+      document.schemaVersion.startsWith("startup_opportunity.adaptation_decision."),
+    )) {
+      if (decision.schemaVersion !== "startup_opportunity.adaptation_decision.v2") {
+        errors.push(
+          contractIssue(
+            "contract.adaptation_version_unsupported",
+            decision.path,
+            "schema-compatible v1 decisions require migration before policy validation",
+            { actual: decision.schemaVersion },
+          ),
+        );
+        continue;
+      }
+      if (
+        plan !== null &&
+        (decision.document.based_on_plan_ref !== plan.path ||
+          decision.document.run_id !== plan.document.run_id ||
+          decision.document.run_id !== manifest?.document.run_id ||
+          manifest?.document.current_plan_ref !== plan.path ||
+          manifest.document.plan_revision !== plan.document.revision)
+      ) {
+        errors.push(
+          contractIssue(
+            "contract.adaptation_stale_plan",
+            `${decision.path}#/based_on_plan_ref`,
+            "Adaptation Decision is not based on the manifest current plan",
+          ),
+        );
+      }
+
+      const targetUnit = decision.document.target_unit;
+      if (isRecord(targetUnit) && context !== undefined) {
+        const targetRule: UnitRule = {
+          mode: String(context.document.mode),
+          phase: String(context.document.phase),
+          unit_type: String(targetUnit.unit_type),
+          agent_role: String(targetUnit.agent_role),
+          required_artifact_schema: String(targetUnit.required_artifact_schema),
+        };
+        if (!policyTupleKeys.has(tupleKey(targetRule))) {
+          errors.push(
+            contractIssue(
+              "contract.target_unit_tuple_not_allowed",
+              `${decision.path}#/target_unit`,
+              "Adaptation target unit tuple is not declared by policy",
+              { ...targetRule },
+            ),
+          );
+        }
+      }
+
+      if (decision.document.action === "continue_existing_plan") {
+        const coverage = refTarget(documentsByPath, decision.document.coverage_attestation_ref);
+        const target = unitTarget(documentsByPath, decision.document.target_unit_ref);
+        if (
+          coverage?.schemaVersion !== "startup_opportunity.coverage_attestation.v1" ||
+          target === null ||
+          coverage.document.target_unit_ref !== decision.document.target_unit_ref ||
+          coverage.document.based_on_plan_ref !== decision.document.based_on_plan_ref ||
+          !Array.isArray(decision.document.trigger_gap_refs) ||
+          !decision.document.trigger_gap_refs.includes(coverage.document.gap_ref)
+        ) {
+          errors.push(
+            contractIssue(
+              "contract.coverage_relation_mismatch",
+              `${decision.path}#/coverage_attestation_ref`,
+              "continue_existing_plan does not exactly match its coverage attestation",
+            ),
+          );
+        } else if (manifest !== null) {
+          const unitId = String(target.unit.unit_id);
+          const state = statusOfUnit(manifest.document, unitId);
+          const pending = state === "pending" && target.unit.plan_disposition === "enabled";
+          if (!pending && state !== "active") {
+            errors.push(
+              contractIssue(
+                "contract.coverage_target_state_not_allowed",
+                `${decision.path}#/target_unit_ref`,
+                "coverage target must be a pending or active unit",
+                { state },
+              ),
+            );
+          }
+        }
+      }
+
+      if (decision.document.action === "retry_unit") {
+        const target = unitTarget(documentsByPath, decision.document.target_unit_ref);
+        const retryBasis = decision.document.retry_basis;
+        const targetUnitId = target === null ? null : String(target.unit.unit_id);
+        const state =
+          manifest === null || targetUnitId === null
+            ? "unresolved"
+            : statusOfUnit(manifest.document, targetUnitId);
+        if (
+          target === null ||
+          manifest === null ||
+          !isRecord(retryBasis) ||
+          retryBasis.kind !== "manifest_failed_unit" ||
+          retryBasis.manifest_ref !== manifest.path ||
+          retryBasis.unit_id !== targetUnitId ||
+          retryBasis.manifest_state !== "failed" ||
+          state !== "failed"
+        ) {
+          errors.push(
+            contractIssue(
+              "contract.retry_target_not_failed",
+              `${decision.path}#/retry_basis`,
+              "retry_unit requires exact membership in Run Manifest failed_units",
+              { state },
+            ),
+          );
+        }
+      }
+    }
+
+    const contractErrors = sortIssues(errors);
+    return {
+      schemaVersion: PLANNING_CONTRACT_RESULT_VERSION,
+      schemaBundleVersion: documentBundle.schemaBundleVersion,
+      policyVersion: this.policy.policy_version,
+      valid: documentBundle.valid && this.policyValidation.valid && contractErrors.length === 0,
+      documentBundle,
+      policyValidation: this.policyValidation,
+      contractErrors,
+    };
+  }
+}
+
+export async function createPlanningContractEvaluator(
+  root = process.cwd(),
+): Promise<PlanningContractEvaluator> {
+  const artifactValidator = await createArtifactValidator(root);
+  const policy = JSON.parse(
+    await readFile(path.join(root, ADAPTATION_POLICY_PATH), "utf8"),
+  ) as unknown;
+  const policyValidation = artifactValidator.validateDocument(policy, ADAPTATION_POLICY_PATH);
+  if (!policyValidation.valid || !isRecord(policy)) {
+    throw new Error(`adaptation policy is invalid: ${JSON.stringify(policyValidation.errors)}`);
+  }
+  return new PlanningContractEvaluator(
+    artifactValidator,
+    policy as AdaptationPolicy,
+    policyValidation,
+  );
+}
