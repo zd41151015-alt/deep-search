@@ -2,7 +2,7 @@
 
 > **状态**: IN_PROGRESS / G0_FOUNDATION_IN_PROGRESS
 > **当前 Gate**: G0 Foundation Harness=`IN_PROGRESS`；G1-G4=`NOT_READY`
-> **下一独立会话**: G0.3 Run / Artifact Store and Recovery
+> **下一独立会话**: G0.4 Plan / Adaptation Runtime
 > **最后更新**: 2026-07-23
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
 
@@ -173,8 +173,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- | --- |
 | W0 | Repository、toolchain、Skill/agent/Harness skeleton、测试入口 | `DONE` |
 | W1 | Schema bundle、reference validator、artifact envelopes | `DONE` |
-| W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `READY` |
-| W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `NOT_READY` |
+| W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `DONE` |
+| W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `READY` |
 | W4 | Assess domain contracts、research branches、matrix、audit/review/report | `NOT_READY` |
 | W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `NOT_READY` |
 | W6 | AI mandatory bundle 和 gates | `NOT_READY` |
@@ -186,8 +186,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- | --- | --- |
 | G0.1 | Repository / Toolchain / Skill Skeleton | `DONE` | 冻结单一实现工具链和 lockfile；替换占位 README；建立 `AGENTS.md`、Skill references/scripts、custom agent、Harness/test 目录；最小 lint/typecheck/test 命令可运行；只建 skeleton，不提前实现 G0.2+ 业务逻辑 |
 | G0.2 | Core Artifact Schema Bundle | `DONE` | artifact envelope、Run Manifest、Research Plan、Gap Snapshot、Adaptation Decision、Event/Decision、Checkpoint closed schemas；positive/negative fixtures；deterministic schema validation |
-| G0.3 | Run / Artifact Store and Recovery | `READY` | create/load run、atomic artifact publish、refs/hash、event/decision append、checkpoint、reopen/recovery、path traversal/write-conflict/idempotency fixtures |
-| G0.4 | Plan / Adaptation Runtime | `NOT_READY` | plan validator、machine gap draft、adaptation validator、immutable plan revision、stale-base/CAS、retry/supersede/late artifact、crash-boundary fixtures |
+| G0.3 | Run / Artifact Store and Recovery | `DONE` | create/load run、atomic artifact publish、refs/hash、event/decision append、checkpoint、reopen/recovery、path traversal/write-conflict/idempotency fixtures |
+| G0.4 | Plan / Adaptation Runtime | `READY` | plan validator、machine gap draft、adaptation validator、immutable plan revision、stale-base/CAS、retry/supersede/late artifact、crash-boundary fixtures |
 | G0.R | Independent Foundation Whole-Gate Regression | `NOT_READY` | 从 clean G0 candidate 独立重放全部 G0 tests、negative/fault/crash fixtures、determinism、git diff/check；通过后 G0=`DONE` |
 
 ## G1 Concept Evidence Assessment 施工切片
@@ -234,19 +234,20 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | `none`（G0.2 原子提交后交回中控验收） |
-| Current slice | `G0.3` (`READY`，未开始) |
-| Expected base | `PENDING_G0_2_ATOMIC_COMMIT`；其 parent 必须为 `4fb428d54ea1656fe8a15ffdc1d4e963d4a4609e` |
+| Active task | `none`（G0.3 原子提交后交回中控验收） |
+| Current slice | `G0.4` (`READY`，未开始) |
+| Expected base | G0.3 原子提交 `PENDING_G0_3_ATOMIC_COMMIT`；其 parent 必须为 `da820615af2c2b821cdb46a9130286e3e9575f59` |
 | Consecutive state-query failures | `0` |
-| Last effective operation | `g0_2_exit_recorded` |
-| Next allowed action | 中控验收 G0.2 commit/parent/clean status 后创建 G0.3 独立施工任务；不得开始 G0.4 |
+| Last effective operation | `g0_3_exit_recorded` |
+| Next allowed action | 中控验收 G0.3 commit/parent/clean status 后创建 G0.4 独立施工任务；不得进入 G1 或 G0.R |
 
 ## 已完成切片与证据
 
 | 切片 | 状态 | Commit | Parent |
 | --- | --- | --- | --- |
 | G0.1 Repository / Toolchain / Skill Skeleton | `DONE` | `4fb428d54ea1656fe8a15ffdc1d4e963d4a4609e` | `4033ae504219bfc6d616d76a1b2c44143e83cb42` |
-| G0.2 Core Artifact Schema Bundle | `DONE` | `PENDING_G0_2_ATOMIC_COMMIT` | `4fb428d54ea1656fe8a15ffdc1d4e963d4a4609e` |
+| G0.2 Core Artifact Schema Bundle | `DONE` | `da820615af2c2b821cdb46a9130286e3e9575f59` | `4fb428d54ea1656fe8a15ffdc1d4e963d4a4609e` |
+| G0.3 Run / Artifact Store and Recovery | `DONE` | `PENDING_G0_3_ATOMIC_COMMIT` | `da820615af2c2b821cdb46a9130286e3e9575f59` |
 
 G0.1 交付物：
 
@@ -302,10 +303,50 @@ G0.2 验证证据（Node.js `24.18.0` / npm `11.16.0`）：
 
 提交后 `git status --short` 必须为空；实际 G0.2 commit hash、parent 和 clean status 在本切片最终回报中给出，不通过 amend/rebase 回写占位。
 
+G0.3 交付物：
+
+- 实现 Run Store 的 create/load/reopen：严格校验 run id 和 Run-relative path，拒绝绝对路径、`..`、反斜杠混淆、symlink escape、跨 Run document/ref；每个新 Run 具有 schema-valid manifest、Event/Decision/Evidence JSONL、目录边界和初始 immutable checkpoint。
+- 实现 formal Artifact Store：对 `document` 的递归键排序 UTF-8 canonical JSON 计算 SHA-256；同 Run temp 写入、G0.2 schema/typed-reference 和额外 artifact/input ref 存在性检查、fsync、no-replace atomic publish；formal path 不覆盖，相同 operation key/content 幂等，不同内容或占用 path 冲突。
+- 明确 `manifest.json` 是 schema-valid、原子替换的当前索引，不是 immutable formal publish path；checkpoint 保存 immutable manifest snapshot。Adaptation/unit status 集合在写入和 reopen 时强制互斥。
+- 实现 schema-valid Event/Decision JSONL append 和 immutable operation receipt；每条记录由已发布 schema 强制 timestamp、actor、reason、artifact refs。恢复只截断不完整尾部；完整损坏记录或 ID/content 冲突 fail closed。
+- 实现 checkpoint/reopen/recovery：验证 formal envelope schema、canonical hash、refs、manifest snapshot、current plan revision/lineage 和引用存在；完成有 receipt 的 temp publish、对账 publish 后未索引 artifact、补写缺失 checkpoint event、处理 manifest/checkpoint divergence，并回退到最后有效 checkpoint。
+- 实现 Evidence Store substrate：HTTP(S) canonical URL、canonical source hash、raw content hash、full-hash stable evidence id、`(canonical_url, content_hash, research_goal)` operation key、immutable raw path、dedup 和 receipt recovery。没有发布或私自选择 G1.2 完整 Evidence business schema、provenance judgment、Claim/Finding/Insight 语义。
+- `create-run`、`load-run`、`record-evidence`、`checkpoint-run` 的 Harness/Skill 入口真实运行；G0.4 及下游 8 个命令继续结构化 fail-closed。
+- 新增 3 个 committed Store 输入 fixtures 和 21 个 G0.3 测试：10 个 store/CLI、6 个 fault、5 个 recovery；测试使用真实临时 filesystem 并检查文件字节、manifest/log/checkpoint/reopen 结果。保留 G0.1/G0.2 18 个回归，总计 39 个测试。
+
+G0.3 存储、hash 与恢复决策：
+
+- G0.2 schema bundle `1.0.0` 保持原样；Store operation receipt 与 Evidence substrate record 使用独立、内部机械版本，不冒充 formal research artifact schema，因此没有无版本 schema 改写或迁移。
+- Formal envelope `content_hash` 只覆盖 canonical `document`，不包含 envelope metadata 或 hash 字段本身；array 顺序保留，object key 按 code unit 递归排序，非 JSON value 拒绝。
+- Immutable publish 使用同 Run、同 filesystem 的 synced temp 和 exclusive hard-link publication，避免 POSIX rename 覆盖既有 formal path；manifest current index 使用 synced temp + atomic replace，并由 checkpoint snapshot 提供恢复锚点。
+- Operation receipt 在 publish/append 前固定 operation key 与内容；crash 后只有 receipt 与 bytes/hash 一致才完成发布或 append。无 receipt 的残留 temp 删除；中间 JSONL corruption、non-checkpoint formal artifact hash 冲突和引用/lineage 不闭合 fail closed。
+- 最新 checkpoint hash/schema/ref 无效时不覆盖旧 checkpoint，reopen 使用按 `created_at + path` 确定的最后有效 snapshot；已 atomic publish 但未进 manifest 的普通 formal artifact只补入 `artifact_refs`，不会在 G0.3 私自设为 current plan。
+- Reopen 报告 orphan active units，但 retry、supersede、late artifact 和 current-plan CAS/Plan Revision 完成或回滚语义仍由 G0.4 决定。
+
+G0.3 验证证据（Node.js `24.18.0` / npm `11.16.0`）：
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm ci` | PASS；18 packages installed from package-lock v3；0 vulnerabilities |
+| `npm run lint` | PASS；Biome checked 83 files，0 diagnostics |
+| `npm run typecheck` | PASS；`tsc --noEmit` |
+| `npm test` | PASS；39 tests，39 passed，0 failed/skipped/todo |
+| `npm run validate:schemas` | PASS；bundle `1.0.0`，10 schemas，9 document validators，0 unresolved refs |
+| `npm run validate:fixtures` | PASS；9 tests，9 passed |
+| `npm run validate:store` | PASS；10 tests，10 passed |
+| `npm run test:faults` | PASS；6 tests，6 passed |
+| `npm run test:recovery` | PASS；5 tests，5 passed |
+| `npm run verify:skeleton` | PASS；G0.3 required paths、单一 lockfile、package metadata 和 Node runtime checks 通过 |
+| `npm audit` | PASS；0 vulnerabilities |
+| `git diff --check` | PASS；提交前复核 |
+
+提交后 `git status --short` 必须为空；实际 G0.3 commit hash、parent 和 clean status 在本切片最终回报中给出，不通过 amend/rebase 回写占位。
+
 ## 当前阻塞与风险
 
-- G0.2 schema/reference validation 只证明结构和显式 bundle 引用闭合；它不证明 artifact 已发布、Evidence 充分、业务 policy 通过、decision ready 或 G0 Foundation 完成。
-- G0.3 Run/Artifact/Evidence Store、event/decision append、hash/atomic publish、checkpoint/recovery 与 G0.4 adaptation runtime 均未开始；对应 Skill 入口继续结构化失败，不能被调用方转成成功或 mock artifact。
+- G0.3 Store 成功只证明机械持久化、hash/ref/index/checkpoint/recovery 合同；不证明 Evidence 充分、业务 policy 通过、decision ready 或 G0 Foundation 完成。
+- G0.4 Research Plan DAG/mode/AI coverage validator、Gap analyzer、Adaptation policy、CAS/idempotent Plan Revision apply、retry/supersede/late-artifact runtime 均未开始；对应 Skill 入口继续结构化失败，不能被调用方转成成功或 mock artifact。
+- G0.3 Evidence substrate 不包含完整 Evidence Record、origin/provenance/freshness/independence/bias 或 Claim/Finding/Insight；这些仍由 G1.2 拥有，不得从 raw record 推导研究结论。
 - `discover`、`assess`、comparison 和 reporting 只有职责/reference 落点，没有业务闭环；G1-G4 保持 `NOT_READY`。
 - 目标 runtime 是精确 Node.js `24.18.0`；PATH 上其他 Node 版本会被 engine guard 或 repository doctor 拒绝，开发者需先切换版本。
 - Codex task status 工具可能暂时不可用；中控按三次失败后的多证据降级规则处理，不能仅凭超时判断任务失败。

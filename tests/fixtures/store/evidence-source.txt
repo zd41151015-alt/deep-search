@@ -1,0 +1,1 @@
+Fixture source bytes for deterministic Evidence Store hashing and recovery.

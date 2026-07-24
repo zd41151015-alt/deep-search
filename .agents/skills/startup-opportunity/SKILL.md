@@ -9,7 +9,7 @@ Use this Skill as the single repo-local entry for Startup Opportunity research. 
 
 ## Current Execution Gate
 
-Run `npm run harness -- doctor --json` before relying on this repository. At G0.2, repository inspection plus closed core schema and typed-reference validation are implemented. Do not create a Run, publish an artifact, dispatch research, or claim that `discover`, `assess`, `resume`, or `status` completed. Reserved scripts exit non-zero and identify the future slice that owns their implementation.
+Run `npm run harness -- doctor --json` before relying on this repository. At G0.3, closed core schema/reference validation plus confined Run creation/reopen, formal artifact publication, Event/Decision append, Evidence raw-content deduplication, checkpointing, and crash recovery are implemented. These deterministic Store entries do not dispatch research and do not make `discover`, `assess`, `resume`, or `status` completed research actions. Downstream reserved scripts exit non-zero and identify their owning slice.
 
 ## Action Routing
 
@@ -39,4 +39,4 @@ Run `npm run harness -- doctor --json` before relying on this repository. At G0.
 
 ## Script Surface
 
-`scripts/doctor.ts` and `scripts/validate-artifact.ts` are operational in G0.2. `validate-artifact` accepts one JSON document, an explicitly supplied typed document bundle, or the schema bundle self-check; schema success is not publication, evidence sufficiency, decision readiness, or a completed research action. The remaining RFC-named scripts deliberately fail closed until the ledger opens their owning slice. A non-zero reserved-command response is not a Harness failure and must not be converted into a mock artifact or success result.
+`scripts/doctor.ts`, `validate-artifact.ts`, `create-run.ts`, `load-run.ts`, `record-evidence.ts`, and `checkpoint-run.ts` are operational in G0.3. Store success is not evidence sufficiency, decision readiness, or a completed research action. `record-evidence` currently persists only the G0 substrate, not the G1.2 Evidence judgment contract. Remaining RFC-named scripts deliberately fail closed until the ledger opens their owning slice; callers must not convert that failure into a mock artifact or success result.

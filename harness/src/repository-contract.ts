@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-export const SKELETON_VERSION = "g0.2" as const;
+export const SKELETON_VERSION = "g0.3" as const;
 
 export const IMPLEMENTATION_STACK = {
   language: "TypeScript 7.0.2",
@@ -27,14 +27,10 @@ export const CUSTOM_AGENT_PATHS = [
 ] as const;
 
 export const RESERVED_SKILL_COMMANDS = {
-  "create-run": "G0.3",
-  "load-run": "G0.3",
   "validate-plan": "G0.4",
   "analyze-gaps": "G0.4",
   "validate-adaptation": "G0.4",
   "apply-plan-revision": "G0.4",
-  "record-evidence": "G0.3",
-  "checkpoint-run": "G0.3",
   "calculate-comparison": "G2.4",
   "calculate-sensitivity": "G2.4",
   "audit-traceability": "G1.4",
@@ -43,7 +39,14 @@ export const RESERVED_SKILL_COMMANDS = {
 
 export type ReservedSkillCommand = keyof typeof RESERVED_SKILL_COMMANDS;
 
-export const IMPLEMENTED_SKILL_COMMANDS = ["doctor", "validate-artifact"] as const;
+export const IMPLEMENTED_SKILL_COMMANDS = [
+  "doctor",
+  "validate-artifact",
+  "create-run",
+  "load-run",
+  "record-evidence",
+  "checkpoint-run",
+] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v1/bundle.json",
@@ -63,6 +66,19 @@ export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/schema-bundle.ts",
   "harness/src/validators/artifact-validator.ts",
   "harness/src/validators/validate-artifact-command.ts",
+] as const;
+
+export const STORE_SOURCE_PATHS = [
+  "harness/src/artifact-store/atomic-file.ts",
+  "harness/src/artifact-store/canonical.ts",
+  "harness/src/artifact-store/path-policy.ts",
+  "harness/src/artifact-store/run-lock.ts",
+  "harness/src/artifact-store/store-error.ts",
+  "harness/src/artifact-store/artifact-store.ts",
+  "harness/src/run-store/jsonl-store.ts",
+  "harness/src/run-store/run-store.ts",
+  "harness/src/run-store/store-commands.ts",
+  "harness/src/evidence-store/evidence-store.ts",
 ] as const;
 
 export const SKILL_SCRIPT_PATHS = [
@@ -107,6 +123,7 @@ export const REQUIRED_REPOSITORY_PATHS = [
   ...RESPONSIBILITY_PATHS,
   ...SCHEMA_BUNDLE_PATHS,
   ...VALIDATOR_SOURCE_PATHS,
+  ...STORE_SOURCE_PATHS,
 ] as const;
 
 const FORBIDDEN_LOCKFILES = [

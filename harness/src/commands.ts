@@ -1,18 +1,26 @@
 import { type DoctorReport, inspectRepository } from "./repository-contract.js";
 
-const HELP = `Startup Opportunity Research Harness (G0.2)
+const HELP = `Startup Opportunity Research Harness (G0.3)
 
 Usage:
   npm run harness -- help
   npm run harness -- doctor [--json]
   npm run harness -- validate-artifact (--file FILE | --bundle FILE | --schema-bundle) [--json]
+  npm run harness -- create-run --run-id ID --mode MODE [--created-at TIME]
+  npm run harness -- load-run --run-id ID
+  npm run harness -- record-evidence --run-id ID --unit-id ID --url URL --research-goal GOAL --content-file FILE
+  npm run harness -- checkpoint-run --file FILE
 
 Commands:
-  help               Show the implemented G0.2 command surface.
+  help               Show the implemented G0.3 command surface.
   doctor             Validate repository, toolchain, Skill, agent, Harness, and test contracts.
   validate-artifact  Validate one document, a typed document bundle, or the schema bundle itself.
+  create-run         Create a confined Run and its initial checkpoint.
+  load-run           Validate, reconcile, and reopen a persisted Run.
+  record-evidence    Persist raw evidence with canonical hashes and deterministic deduplication.
+  checkpoint-run     Publish an immutable checkpoint from a JSON input document.
 
-Schema validity is structural only. Store, policy, research, and reporting commands remain unavailable.
+Store validity is mechanical only. Plan policy, research, and reporting commands remain unavailable.
 `;
 
 export function printHelp(

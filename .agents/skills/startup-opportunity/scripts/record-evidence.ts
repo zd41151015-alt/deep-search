@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --import tsx
 
-import { rejectReservedCommand } from "../../../../harness/src/reserved-command.js";
+import { runRecordEvidence } from "../../../../harness/src/run-store/store-commands.js";
 
-rejectReservedCommand("record-evidence");
+process.exitCode = await runRecordEvidence(process.argv.slice(2));

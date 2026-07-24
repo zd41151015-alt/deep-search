@@ -1,0 +1,15 @@
+{
+  "run_id": "fixture-run",
+  "checkpoint_id": "checkpoint_fixture_002",
+  "created_at": "2026-07-23T12:10:00Z",
+  "next_step": "Continue from the next safe boundary.",
+  "belief_summary": {
+    "current_belief": "No research conclusion has been formed.",
+    "evidence_that_changed_belief": [],
+    "unchanged_assumptions": [],
+    "remaining_disagreement": [],
+    "next_decision_relevant_question": "What decision-relevant artifact should be written next?"
+  },
+  "unresolved_gap_refs": [],
+  "input_refs": []
+}

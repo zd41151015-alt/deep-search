@@ -1,4 +1,24 @@
+export {
+  ArtifactStore,
+  type FormalArtifactEnvelope,
+  type PublishArtifactInput,
+  type PublishArtifactResult,
+} from "./artifact-store/artifact-store.js";
+export {
+  canonicalContentHash,
+  canonicalJson,
+  operationKey,
+  sha256Bytes,
+} from "./artifact-store/canonical.js";
+export { StoreError, storeErrorResult } from "./artifact-store/store-error.js";
 export { printHelp, runDoctor } from "./commands.js";
+export {
+  canonicalizeSourceUrl,
+  EvidenceStore,
+  type EvidenceStoreRecord,
+  type RecordEvidenceInput,
+  type RecordEvidenceResult,
+} from "./evidence-store/evidence-store.js";
 export type {
   DoctorCheck,
   DoctorReport,
@@ -15,8 +35,26 @@ export {
   SKELETON_VERSION,
   SKILL_REFERENCE_PATHS,
   SKILL_SCRIPT_PATHS,
+  STORE_SOURCE_PATHS,
   VALIDATOR_SOURCE_PATHS,
 } from "./repository-contract.js";
+export {
+  type BeliefSummary,
+  type CheckpointRunInput,
+  type CheckpointRunResult,
+  type CreateRunInput,
+  type CreateRunResult,
+  type LoadRunResult,
+  type RunManifest,
+  type RunMode,
+  RunStore,
+} from "./run-store/run-store.js";
+export {
+  runCheckpointRun,
+  runCreateRun,
+  runLoadRun,
+  runRecordEvidence,
+} from "./run-store/store-commands.js";
 export type {
   ArtifactValidationResult,
   DocumentBundle,

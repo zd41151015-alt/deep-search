@@ -13,7 +13,7 @@
 - Chat messages and subagent completion summaries are not formal artifacts.
 - Never fabricate evidence references, URLs, user quotes, market data, or successful external validation.
 - A subagent writes only its assigned output path and Evidence Store operations; it must not edit another lane's output, the current plan, manifest, comparison policy, decision brief, or report.
-- Persist user scope or candidate corrections in `decisions.jsonl` when the relevant Run Store slice exists.
+- Persist user scope or candidate corrections through the G0.3 `decisions.jsonl` append contract.
 - Runtime plan changes must follow Gap Snapshot -> Adaptation Decision -> policy validation -> immutable Plan Revision. Never overwrite the current plan directly.
 - Do not execute or track interviews, landing pages, deposits, advertising, paid experiments, MVP tests, or other external validation actions.
 - When report outputs exist, `report.json`, `decision-brief.md`, and `report.md` must pass schema, traceability, freshness, and consistency checks before delivery.
@@ -24,3 +24,4 @@
 - Run `npm run lint`, `npm run typecheck`, `npm test`, `npm run validate:schemas`, `npm run validate:fixtures`, and `npm run verify:skeleton` for repository/toolchain/schema changes.
 - Add production behavior only in the slice that owns it. A directory, empty schema, mock-only path, or deferred-command entry is not evidence that a downstream Gate is complete.
 - Keep generated output under ignored paths such as `dist/`; do not commit research raw data or secrets.
+- Treat `manifest.json` as the atomically replaced current index; publish formal envelopes and checkpoints immutably, and recover only from validated on-disk state.

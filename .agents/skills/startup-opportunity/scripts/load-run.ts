@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --import tsx
 
-import { rejectReservedCommand } from "../../../../harness/src/reserved-command.js";
+import { runLoadRun } from "../../../../harness/src/run-store/store-commands.js";
 
-rejectReservedCommand("load-run");
+process.exitCode = await runLoadRun(process.argv.slice(2));

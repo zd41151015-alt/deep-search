@@ -1,0 +1,10 @@
+{
+  "schema_version": "startup_opportunity.event.v1",
+  "event_id": "fixture_event_001",
+  "run_id": "fixture-run",
+  "event_type": "decision_context_written",
+  "timestamp": "2026-07-23T12:05:00Z",
+  "actor": "harness",
+  "reason": "A fixture formal artifact was published.",
+  "artifact_refs": []
+}

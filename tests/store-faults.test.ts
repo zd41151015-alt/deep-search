@@ -1,0 +1,177 @@
+import assert from "node:assert/strict";
+import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test, { type TestContext } from "node:test";
+import { fileURLToPath } from "node:url";
+import {
+  ArtifactStore,
+  canonicalContentHash,
+  createArtifactValidator,
+  EvidenceStore,
+  type FormalArtifactEnvelope,
+  RunStore,
+  StoreError,
+} from "../harness/src/index.js";
+
+const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+
+async function setup(context: TestContext, runId: string) {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-fault-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const validator = await createArtifactValidator(repositoryRoot);
+  const runStore = new RunStore(runsRoot, validator);
+  await runStore.create({
+    runId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-23T12:00:00Z",
+  });
+  return {
+    root,
+    runsRoot,
+    runRoot: path.join(runsRoot, runId),
+    runStore,
+    artifactStore: new ArtifactStore(runsRoot, validator),
+    evidenceStore: new EvidenceStore(runsRoot),
+  };
+}
+
+function eventEnvelope(runId: string, id: string, timestamp: string): FormalArtifactEnvelope {
+  const document = {
+    schema_version: "startup_opportunity.event.v1",
+    event_id: id,
+    run_id: runId,
+    event_type: "decision_context_written",
+    timestamp,
+    actor: "harness",
+    reason: "Fault injection fixture artifact.",
+    artifact_refs: [],
+  };
+  return {
+    schema_version: "startup_opportunity.artifact_envelope.v1",
+    artifact_type: "startup_opportunity.event.v1",
+    artifact_path: `events/${id.replaceAll("_", "-")}.json`,
+    run_id: runId,
+    created_at: timestamp,
+    producer_role: "harness",
+    input_refs: [],
+    content_hash: canonicalContentHash(document),
+    document,
+  };
+}
+
+test("reopen completes a validated artifact left at the temporary-file crash boundary", async (context) => {
+  const { artifactStore, runRoot, runStore } = await setup(context, "temp-recovery");
+  const envelope = eventEnvelope("temp-recovery", "temp_event_001", "2026-07-23T12:05:00Z");
+  await assert.rejects(
+    artifactStore.publish({ runId: "temp-recovery", envelope, faultAt: "after_temp_write" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  await assert.rejects(readFile(path.join(runRoot, envelope.artifact_path)));
+
+  const reopened = await runStore.load("temp-recovery");
+  assert.deepEqual(reopened.recoveredArtifactPaths, [envelope.artifact_path]);
+  assert.ok(reopened.manifest.artifact_refs.includes(envelope.artifact_path));
+  assert.equal(
+    (JSON.parse(await readFile(path.join(runRoot, envelope.artifact_path), "utf8")) as object) !==
+      null,
+    true,
+  );
+});
+
+test("reopen indexes an atomically published artifact after pre-manifest process failure", async (context) => {
+  const { runRoot, runStore } = await setup(context, "publish-recovery");
+  const envelope = eventEnvelope("publish-recovery", "published_event_001", "2026-07-23T12:06:00Z");
+  await assert.rejects(
+    runStore.publishArtifact({
+      runId: "publish-recovery",
+      envelope,
+      faultAt: "after_publish",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const before = JSON.parse(await readFile(path.join(runRoot, "manifest.json"), "utf8")) as {
+    artifact_refs: string[];
+  };
+  assert.deepEqual(before.artifact_refs, []);
+
+  const reopened = await runStore.load("publish-recovery");
+  assert.ok(reopened.recovered);
+  assert.deepEqual(reopened.manifest.artifact_refs, [envelope.artifact_path]);
+});
+
+test("reopen truncates a damaged JSONL tail without discarding complete records", async (context) => {
+  const { runRoot, runStore } = await setup(context, "jsonl-tail");
+  const eventsPath = path.join(runRoot, "events.jsonl");
+  const before = await readFile(eventsPath, "utf8");
+  await appendFile(eventsPath, '{"schema_version":"startup_opportunity.event.v1"');
+
+  const reopened = await runStore.load("jsonl-tail");
+  assert.ok(reopened.recovered);
+  assert.ok((reopened.logRepairs[0]?.truncatedBytes ?? 0) > 0);
+  assert.equal(await readFile(eventsPath, "utf8"), before);
+});
+
+test("complete corrupt JSONL in the middle fails closed", async (context) => {
+  const { runRoot, runStore } = await setup(context, "jsonl-middle");
+  const eventsPath = path.join(runRoot, "events.jsonl");
+  const before = await readFile(eventsPath, "utf8");
+  await appendFile(eventsPath, "{not-json}\n");
+  await appendFile(eventsPath, before);
+  await assert.rejects(
+    runStore.load("jsonl-middle"),
+    (error: unknown) => error instanceof StoreError && error.code === "log.corrupt_middle",
+  );
+});
+
+test("Evidence recovery publishes raw temp and replays its manifest receipt", async (context) => {
+  const { evidenceStore, runRoot, runStore } = await setup(context, "evidence-recovery");
+  await assert.rejects(
+    evidenceStore.record({
+      runId: "evidence-recovery",
+      unitId: "source_unit_001",
+      url: "https://example.com/source#fragment",
+      researchGoal: "Preserve source bytes across a crash.",
+      rawContent: "recoverable evidence bytes",
+      recordedAt: "2026-07-23T12:07:00Z",
+      faultAt: "after_intent",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  assert.equal((await readFile(path.join(runRoot, "evidence/manifest.jsonl"), "utf8")).length, 0);
+
+  const reopened = await runStore.load("evidence-recovery");
+  assert.equal(reopened.evidenceRecovery.replayedEvidenceIds.length, 1);
+  assert.equal(reopened.evidenceRecovery.recoveredRawContentRefs.length, 1);
+  const record = JSON.parse(
+    (await readFile(path.join(runRoot, "evidence/manifest.jsonl"), "utf8")).trim(),
+  ) as { raw_content_ref: string };
+  assert.equal(
+    await readFile(path.join(runRoot, record.raw_content_ref), "utf8"),
+    "recoverable evidence bytes",
+  );
+});
+
+test("Evidence JSONL tail corruption is truncated and replayed from immutable receipt", async (context) => {
+  const { evidenceStore, runRoot, runStore } = await setup(context, "evidence-tail");
+  const recorded = await evidenceStore.record({
+    runId: "evidence-tail",
+    unitId: "source_unit_001",
+    url: "https://example.com/source",
+    researchGoal: "Test Evidence JSONL recovery.",
+    rawContent: "evidence bytes",
+    recordedAt: "2026-07-23T12:08:00Z",
+  });
+  const manifestPath = path.join(runRoot, "evidence/manifest.jsonl");
+  await appendFile(manifestPath, "{partial");
+
+  const reopened = await runStore.load("evidence-tail");
+  assert.ok(reopened.evidenceRecovery.truncatedBytes > 0);
+  assert.equal((await readFile(manifestPath, "utf8")).trim().split("\n").length, 1);
+  assert.equal(
+    (JSON.parse((await readFile(manifestPath, "utf8")).trim()) as { evidence_id: string })
+      .evidence_id,
+    recorded.record.evidence_id,
+  );
+});
