@@ -277,6 +277,61 @@ function taskFor(
   return isRecord(lineage) ? targetByRef(documentsByPath, lineage.task_ref) : null;
 }
 
+function directParentRefs(entry: ResearchBranchDocument): readonly string[] {
+  const lineage = entry.document.lineage;
+  const taskRef = isRecord(lineage) ? strings([lineage.task_ref]) : [];
+  switch (entry.schemaVersion) {
+    case "startup_opportunity.research_task.v1":
+      return [
+        ...strings([
+          entry.document.target_subject_ref,
+          entry.document.scope_frame_ref,
+          entry.document.research_plan_ref,
+          entry.document.assessment_plan_ref,
+          entry.document.supersedes_task_ref,
+        ]),
+        ...strings(entry.document.input_refs),
+      ];
+    case "startup_opportunity.evidence.v1": {
+      const binding = entry.document.mechanical_binding;
+      return [...taskRef, ...(isRecord(binding) ? strings([binding.substrate_record_ref]) : [])];
+    }
+    case "startup_opportunity.claim.v1":
+      return [...taskRef, ...strings(entry.document.evidence_refs)];
+    case "startup_opportunity.finding.v1":
+      return [
+        ...taskRef,
+        ...strings(entry.document.claim_refs),
+        ...strings(entry.document.opposing_claim_refs),
+      ];
+    case "startup_opportunity.insight.v1":
+      return [...taskRef, ...strings(entry.document.finding_refs)];
+    case "startup_opportunity.source_manifest.v1":
+      return [...taskRef, ...strings(entry.document.accepted_evidence_refs)];
+    default:
+      return [];
+  }
+}
+
+function checkEnvelopeInputRefs(entry: ResearchBranchDocument, errors: ValidationIssue[]): void {
+  if (entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.v5") {
+    return;
+  }
+  const envelopeRefs = new Set(strings(entry.envelope.input_refs));
+  for (const parentRef of [...new Set(directParentRefs(entry))].sort()) {
+    if (!envelopeRefs.has(parentRef)) {
+      errors.push(
+        issue(
+          "research_contract.input_ref_missing",
+          `${entry.path}#/input_refs`,
+          "formal envelope omits a direct typed parent ref",
+          { parentRef },
+        ),
+      );
+    }
+  }
+}
+
 function checkEvidence(
   evidence: ResearchBranchDocument,
   documentsByPath: ReadonlyMap<string, ResearchBranchDocument>,
@@ -610,6 +665,11 @@ function checkBranch(
       .map(idOf)
       .filter((id): id is string => id !== null),
   );
+  const evidenceById = new Map(
+    linked
+      .filter((entry) => entry.schemaVersion === "startup_opportunity.evidence.v1")
+      .map((entry) => [idOf(entry), entry]),
+  );
   const claims = linked.filter((entry) => entry.schemaVersion === "startup_opportunity.claim.v1");
   const claimById = new Map(claims.map((entry) => [idOf(entry), entry]));
   if (strings(branch.document.evidence_refs).some((id) => !evidenceIds.has(id))) {
@@ -638,13 +698,77 @@ function checkBranch(
       }
     }
   }
-  checkTypedParents(
+  const branchFindings = checkTypedParents(
     branch,
     strings(branch.document.finding_refs),
     "startup_opportunity.finding.v1",
     documentsByPath,
     errors,
   );
+  const insightFindingRefs = new Set(
+    insights.flatMap((insight) => strings(insight.document.finding_refs)),
+  );
+  const unreachableFindings = strings(branch.document.finding_refs).filter(
+    (ref) => !insightFindingRefs.has(ref),
+  );
+  const branchClaimRefs = new Set(
+    branchFindings.flatMap((finding) => [
+      ...strings(finding.document.claim_refs),
+      ...strings(finding.document.opposing_claim_refs),
+    ]),
+  );
+  const unreachableClaimIds = [
+    ...strings(branch.document.supporting_claim_refs),
+    ...strings(branch.document.opposing_claim_refs),
+  ].filter((id) => {
+    const claim = claimById.get(id);
+    return claim === undefined || !branchClaimRefs.has(claim.path);
+  });
+  const reachableEvidenceRefs = new Set(
+    [...branchClaimRefs].flatMap((ref) => {
+      const claim = documentsByPath.get(ref);
+      return claim?.schemaVersion === "startup_opportunity.claim.v1"
+        ? strings(claim.document.evidence_refs)
+        : [];
+    }),
+  );
+  const unreachableEvidenceIds = strings(branch.document.evidence_refs).filter((id) => {
+    const evidence = evidenceById.get(id);
+    return evidence === undefined || !reachableEvidenceRefs.has(evidence.path);
+  });
+  if (
+    unreachableFindings.length > 0 ||
+    unreachableClaimIds.length > 0 ||
+    unreachableEvidenceIds.length > 0
+  ) {
+    errors.push(
+      issue(
+        "research_contract.branch_chain_incomplete",
+        branch.path,
+        "Branch Result refs do not form a closed Insight -> Finding -> Claim -> Evidence chain",
+        {
+          unreachableClaimIds,
+          unreachableEvidenceIds,
+          unreachableFindings,
+        },
+      ),
+    );
+  }
+  const acceptedEvidenceRefs = new Set(strings(sourceManifest.document.accepted_evidence_refs));
+  const unacceptedEvidenceIds = strings(branch.document.evidence_refs).filter((id) => {
+    const evidence = evidenceById.get(id);
+    return evidence === undefined || !acceptedEvidenceRefs.has(evidence.path);
+  });
+  if (unacceptedEvidenceIds.length > 0) {
+    errors.push(
+      issue(
+        "research_contract.source_manifest_incomplete",
+        `${branch.path}#/evidence_refs`,
+        "Branch Result Evidence is not accepted by its Source Manifest",
+        { unacceptedEvidenceIds },
+      ),
+    );
+  }
   sameLineage(sourceManifest, task, errors);
   for (const insight of insights) {
     sameLineage(insight, task, errors);
@@ -716,6 +840,7 @@ export function validateResearchBranchContract(
         ),
       );
     }
+    checkEnvelopeInputRefs(entry, errors);
   }
   for (const task of documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.research_task.v1",

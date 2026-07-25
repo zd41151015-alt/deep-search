@@ -361,6 +361,7 @@ export class RunStore {
           },
         );
       }
+      this.assertBranchPublicationTransition(manifest, input.envelope, plannedArtifact.ignoredLate);
       const result = await this.artifacts.publishLocked(runRoot, input);
       if (taskPublicationMode === "replay") {
         return result;
@@ -422,6 +423,7 @@ export class RunStore {
             },
           );
         }
+        this.assertBranchPublicationTransition(manifest, envelope, planned.ignoredLate);
         classifications.set(envelope.artifact_path, planned);
       }
       const result = await this.artifacts.publishBundleLocked(runRoot, input);
@@ -554,6 +556,7 @@ export class RunStore {
     envelope: FormalArtifactEnvelope,
     ignoredLate: boolean,
   ): RunManifest {
+    this.assertBranchPublicationTransition(manifest, envelope, ignoredLate);
     const adapter = this.validator.publicationAdapter(envelope.schema_version);
     const artifactRefs = ignoredLate
       ? manifest.artifact_refs.filter((ref) => ref !== envelope.artifact_path)
@@ -620,6 +623,64 @@ export class RunStore {
     }
     this.validateManifest(next);
     return next;
+  }
+
+  private assertBranchPublicationTransition(
+    manifest: RunManifest,
+    envelope: FormalArtifactEnvelope,
+    ignoredLate: boolean,
+  ): void {
+    if (
+      envelope.schema_version !== "startup_opportunity.artifact_envelope.v5" ||
+      envelope.artifact_type !==
+        "startup_opportunity.concept_evidence_assessment_branch_result.v1" ||
+      typeof envelope.document.unit_id !== "string" ||
+      typeof envelope.document.branch_status !== "string"
+    ) {
+      return;
+    }
+    const unitId = envelope.document.unit_id;
+    const statusFields = [
+      "completed_units",
+      "active_units",
+      "failed_units",
+      "invalidated_units",
+      "skipped_units",
+      "cancelled_units",
+      "superseded_units",
+    ] as const;
+    const existingState = statusFields.find((field) => manifest[field].includes(unitId));
+    const target =
+      this.validator.publicationPolicy.document.branch_status_adapter[
+        envelope.document.branch_status
+      ];
+    const allowedStates =
+      target === "completed_units"
+        ? ["active_units", "completed_units"]
+        : target === "failed_units"
+          ? ["active_units", "failed_units"]
+          : target === "cancelled_units_existing"
+            ? ["cancelled_units"]
+            : target === "skipped_units_existing"
+              ? ["skipped_units"]
+              : target === "superseded_units_existing"
+                ? ["superseded_units"]
+                : target === "ignored_late_artifact_refs"
+                  ? ["invalidated_units", "skipped_units", "cancelled_units", "superseded_units"]
+                  : [];
+    const expectsIgnoredLate = !["completed_units", "failed_units"].includes(String(target));
+    if (!allowedStates.includes(existingState ?? "") || ignoredLate !== expectsIgnoredLate) {
+      throw new StoreError(
+        "artifact.branch_transition_invalid",
+        "branch publication status does not match the existing Run unit state",
+        {
+          branchStatus: envelope.document.branch_status,
+          existingState: existingState ?? null,
+          ignoredLate,
+          unitId,
+        },
+      );
+    }
   }
 
   private moveUnit(
@@ -1164,6 +1225,7 @@ export class RunStore {
         return {
           ignoredLate:
             manifest.invalidated_units.includes(unit.unit_id) ||
+            manifest.skipped_units.includes(unit.unit_id) ||
             manifest.cancelled_units.includes(unit.unit_id) ||
             manifest.superseded_units.includes(unit.unit_id),
           expectedArtifactType:

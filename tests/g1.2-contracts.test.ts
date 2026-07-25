@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   canonicalContentHash,
+  canonicalJson,
   createArtifactValidator,
   EvidenceStore,
   type EvidenceStoreRecordV2,
@@ -50,6 +51,72 @@ async function setup(context: TestContext, runId = G12_RUN_ID) {
     createdAt: G12_BASE_TIME,
   });
   return { runsRoot, runRoot: path.join(runsRoot, runId), validator, store };
+}
+
+async function snapshotTree(root: string): Promise<Readonly<Record<string, string>>> {
+  const snapshot: Record<string, string> = {};
+  const visit = async (directory: string, prefix = ""): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolute, relative);
+      } else if (entry.isFile()) {
+        snapshot[relative] = (await readFile(absolute)).toString("base64");
+      }
+    }
+  };
+  await visit(root);
+  return Object.fromEntries(
+    Object.entries(snapshot).sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+async function prepareSingleBranch(context: TestContext, runId = G12_RUN_ID) {
+  const state = await setup(context, runId);
+  const base = await baseFixture();
+  const initial = initialFixtureEnvelopes(base);
+  await state.store.publishArtifactBundle({ runId, envelopes: initial });
+  const branch = G12_BRANCHES[0];
+  assert.ok(branch);
+  const task = taskEnvelope(base, branch, 2);
+  await state.store.publishArtifact({ runId, envelope: task });
+  const evidenceStore = new EvidenceStore(state.runsRoot);
+  const researchGoal = String(task.document.research_goal);
+  const publicRecord = await evidenceStore.record({
+    runId,
+    unitId: branch.unitId,
+    researchGoal,
+    source: { kind: "public_url", canonical_url: "https://synthetic.invalid/state-support" },
+    rawContent: "SYNTHETIC STATE SUPPORT BYTES; NOT MARKET EVIDENCE.",
+    recordedAt: "2026-07-24T20:20:00Z",
+  });
+  const userRecord = await evidenceStore.record({
+    runId,
+    unitId: branch.unitId,
+    researchGoal,
+    source: {
+      kind: "user_provided",
+      canonical_uri: "urn:startup-opportunity:user-provided:state-oppose",
+    },
+    rawContent: "SYNTHETIC STATE OPPOSING BYTES; NOT MARKET EVIDENCE.",
+    recordedAt: "2026-07-24T20:21:00Z",
+  });
+  const envelopes = branchResearchEnvelopes(
+    branch,
+    [publicRecord.record, userRecord.record],
+    0,
+  ).map((envelope) => ({
+    ...envelope,
+    run_id: runId,
+    document: { ...envelope.document, run_id: runId },
+  }));
+  for (const envelope of envelopes) {
+    (envelope as unknown as Record<string, unknown>).content_hash = canonicalContentHash(
+      envelope.document,
+    );
+  }
+  return { ...state, base, initial, branch, task, envelopes };
 }
 
 async function publishVerticalFixture(context: TestContext) {
@@ -364,6 +431,370 @@ test("research chain rejects substrate drift, cross-task lineage, and v4 branch 
     (error: unknown) =>
       error instanceof StoreError && error.code === "artifact.adapter_blocked_type",
   );
+});
+
+test("research chain closes formal input refs and Source Manifest Evidence coverage", async (context) => {
+  const state = await publishVerticalFixture(context);
+  const documents = [...state.initial, ...state.tasks, ...state.branchBundles.flat()].map(
+    (entry) => ({ path: entry.artifact_path, document: structuredClone(entry) }),
+  );
+  const exactRecords = [...state.records.values()].flatMap((pair) =>
+    pair.map((record) => ({
+      ref: `evidence/manifest.jsonl#${record.evidence_id}`,
+      document: record,
+    })),
+  );
+  const validBundle = {
+    schema_version: "startup_opportunity.document_bundle.v5",
+    documents,
+    exact_records: exactRecords,
+  };
+  assert.equal(state.validator.validateDocumentBundle(validBundle).valid, true);
+
+  const missingEnvelopeInput = structuredClone(validBundle);
+  const claimEnvelope = missingEnvelopeInput.documents.find(
+    (entry) =>
+      entry.document.artifact_type === "startup_opportunity.claim.v1" &&
+      entry.document.document.stance === "support",
+  );
+  assert.ok(claimEnvelope);
+  const mutableClaimEnvelope = claimEnvelope.document as unknown as {
+    input_refs: string[];
+    document: { lineage: { task_ref: string } };
+  };
+  mutableClaimEnvelope.input_refs = [mutableClaimEnvelope.document.lineage.task_ref];
+  const inputDrift = state.validator.validateDocumentBundle(missingEnvelopeInput);
+  assert.equal(inputDrift.valid, false);
+  assert.ok(
+    inputDrift.referenceErrors.some(
+      (entry) => entry.code === "research_contract.input_ref_missing",
+    ),
+  );
+
+  const incompleteSourceManifest = structuredClone(validBundle);
+  const sourceManifestEnvelope = incompleteSourceManifest.documents.find(
+    (entry) =>
+      entry.path === "evidence/source-manifests/unit_demand.json" &&
+      entry.document.artifact_type === "startup_opportunity.source_manifest.v1",
+  );
+  assert.ok(sourceManifestEnvelope);
+  const accepted = sourceManifestEnvelope.document.document.accepted_evidence_refs as string[];
+  sourceManifestEnvelope.document.document.accepted_evidence_refs = accepted.slice(1);
+  (sourceManifestEnvelope.document as unknown as Record<string, unknown>).content_hash =
+    canonicalContentHash(sourceManifestEnvelope.document.document);
+  const sourceDrift = state.validator.validateDocumentBundle(incompleteSourceManifest);
+  assert.equal(sourceDrift.valid, false);
+  assert.ok(
+    sourceDrift.referenceErrors.some(
+      (entry) => entry.code === "research_contract.source_manifest_incomplete",
+    ),
+  );
+
+  const brokenChain = structuredClone(validBundle);
+  const demandFinding = brokenChain.documents.find(
+    (entry) => entry.path === "findings/unit_demand.json",
+  );
+  const demandBranch = brokenChain.documents.find(
+    (entry) => entry.path === "artifacts/lanes/demand.json",
+  );
+  assert.ok(demandFinding);
+  assert.ok(demandBranch);
+  const orphanFinding = structuredClone(demandFinding);
+  orphanFinding.path = "findings/unit_demand-orphan.json";
+  (orphanFinding.document as unknown as Record<string, unknown>).artifact_path = orphanFinding.path;
+  orphanFinding.document.document.finding_id = "finding_unit_demand_orphan";
+  (orphanFinding.document as unknown as Record<string, unknown>).content_hash =
+    canonicalContentHash(orphanFinding.document.document);
+  brokenChain.documents.push(orphanFinding);
+  demandBranch.document.document.finding_refs = [orphanFinding.path];
+  (demandBranch.document as unknown as Record<string, unknown>).content_hash = canonicalContentHash(
+    demandBranch.document.document,
+  );
+  const chainDrift = state.validator.validateDocumentBundle(brokenChain);
+  assert.equal(chainDrift.valid, false);
+  assert.ok(
+    chainDrift.referenceErrors.some(
+      (entry) => entry.code === "research_contract.branch_chain_incomplete",
+    ),
+  );
+
+  const crossRun = structuredClone(validBundle);
+  const crossRunClaim = crossRun.documents.find(
+    (entry) => entry.path === "claims/unit_demand-support.json",
+  );
+  assert.ok(crossRunClaim);
+  crossRunClaim.document.document.run_id = "run_g1_2_foreign_001";
+  (crossRunClaim.document as unknown as Record<string, unknown>).run_id = "run_g1_2_foreign_001";
+  (crossRunClaim.document as unknown as Record<string, unknown>).content_hash =
+    canonicalContentHash(crossRunClaim.document.document);
+  const crossRunResult = state.validator.validateDocumentBundle(crossRun);
+  assert.equal(crossRunResult.valid, false);
+  assert.ok(
+    crossRunResult.referenceErrors.some((entry) => entry.code === "reference.run_mismatch"),
+  );
+
+  const crossAttempt = structuredClone(validBundle);
+  const crossAttemptClaim = crossAttempt.documents.find(
+    (entry) => entry.path === "claims/unit_demand-support.json",
+  );
+  assert.ok(crossAttemptClaim);
+  (crossAttemptClaim.document.document.lineage as Record<string, unknown>).attempt = 2;
+  (crossAttemptClaim.document as unknown as Record<string, unknown>).content_hash =
+    canonicalContentHash(crossAttemptClaim.document.document);
+  const crossAttemptResult = state.validator.validateDocumentBundle(crossAttempt);
+  assert.equal(crossAttemptResult.valid, false);
+  assert.ok(
+    crossAttemptResult.referenceErrors.some(
+      (entry) => entry.code === "research_contract.lineage_mismatch",
+    ),
+  );
+
+  const duplicateIdentity = structuredClone(validBundle);
+  const duplicatedEvidence = structuredClone(
+    duplicateIdentity.documents.find(
+      (entry) => entry.document.artifact_type === "startup_opportunity.evidence.v1",
+    ),
+  );
+  assert.ok(duplicatedEvidence);
+  duplicatedEvidence.path = `evidence/records/ev_${"f".repeat(64)}.json`;
+  (duplicatedEvidence.document as unknown as Record<string, unknown>).artifact_path =
+    duplicatedEvidence.path;
+  duplicateIdentity.documents.push(duplicatedEvidence);
+  const duplicateIdentityResult = state.validator.validateDocumentBundle(duplicateIdentity);
+  assert.equal(duplicateIdentityResult.valid, false);
+  assert.ok(
+    duplicateIdentityResult.referenceErrors.some(
+      (entry) => entry.code === "research_contract.duplicate_identity",
+    ),
+  );
+
+  const duplicatePath = structuredClone(validBundle);
+  const duplicatedClaim = structuredClone(
+    duplicatePath.documents.find((entry) => entry.path === "claims/unit_demand-support.json"),
+  );
+  assert.ok(duplicatedClaim);
+  duplicatedClaim.document.document.claim_id = "claim_unit_demand_support_duplicate";
+  (duplicatedClaim.document as unknown as Record<string, unknown>).content_hash =
+    canonicalContentHash(duplicatedClaim.document.document);
+  duplicatePath.documents.push(duplicatedClaim);
+  const duplicatePathResult = state.validator.validateDocumentBundle(duplicatePath);
+  assert.equal(duplicatePathResult.valid, false);
+  assert.ok(
+    duplicatePathResult.referenceErrors.some((entry) => entry.code === "reference.duplicate_path"),
+  );
+});
+
+test("partial and failed branches produce stable terminal Manifest classifications", async (context) => {
+  for (const [status, expectedField] of [
+    ["partial", "completed_units"],
+    ["failed", "failed_units"],
+  ] as const) {
+    await context.test(status, async (child) => {
+      const state = await prepareSingleBranch(child);
+      const envelopes = structuredClone(state.envelopes);
+      const branchEnvelope = envelopes.find(
+        (entry) =>
+          entry.artifact_type ===
+          "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+      );
+      assert.ok(branchEnvelope);
+      (branchEnvelope.document as Record<string, unknown>).branch_status = status;
+      (branchEnvelope as unknown as Record<string, unknown>).content_hash = canonicalContentHash(
+        branchEnvelope.document,
+      );
+      await state.store.publishArtifactBundle({ runId: G12_RUN_ID, envelopes });
+      const reopened = await state.store.load(G12_RUN_ID);
+      assert.ok(reopened.manifest[expectedField].includes(state.branch.unitId));
+      assert.ok(!reopened.manifest.active_units.includes(state.branch.unitId));
+    });
+  }
+});
+
+test("active branch cannot self-authorize superseded or ignored-late state", async (context) => {
+  for (const status of ["superseded_by_adaptation", "ignored_late"] as const) {
+    await context.test(status, async (child) => {
+      const state = await prepareSingleBranch(child);
+      const envelopes = structuredClone(state.envelopes);
+      const branchEnvelope = envelopes.find(
+        (entry) =>
+          entry.artifact_type ===
+          "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+      );
+      assert.ok(branchEnvelope);
+      (branchEnvelope.document as Record<string, unknown>).branch_status = status;
+      (branchEnvelope as unknown as Record<string, unknown>).content_hash = canonicalContentHash(
+        branchEnvelope.document,
+      );
+      const before = await snapshotTree(state.runRoot);
+      await assert.rejects(
+        state.store.publishArtifactBundle({ runId: G12_RUN_ID, envelopes }),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "artifact.branch_transition_invalid",
+      );
+      assert.deepEqual(await snapshotTree(state.runRoot), before);
+    });
+  }
+});
+
+test("existing superseded and invalidated units keep late Branch results out of current refs", async (context) => {
+  for (const [branchStatus, stateField] of [
+    ["superseded_by_adaptation", "superseded_units"],
+    ["ignored_late", "invalidated_units"],
+  ] as const) {
+    await context.test(branchStatus, async (child) => {
+      const state = await prepareSingleBranch(child);
+      const manifestPath = path.join(state.runRoot, "manifest.json");
+      const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+      const statusFields = [
+        "completed_units",
+        "active_units",
+        "failed_units",
+        "invalidated_units",
+        "skipped_units",
+        "cancelled_units",
+        "superseded_units",
+      ];
+      for (const field of statusFields) {
+        manifest[field] = field === stateField ? [state.branch.unitId] : [];
+      }
+      manifest.updated_at = "2026-07-24T20:30:00Z";
+      await writeFile(manifestPath, `${canonicalJson(manifest)}\n`);
+      await state.store.checkpoint({
+        runId: G12_RUN_ID,
+        checkpointId: `checkpoint_${branchStatus}`,
+        createdAt: "2026-07-24T20:31:00Z",
+        nextStep: "Keep the synthetic late Branch Result outside the current artifact set.",
+        beliefSummary: {
+          current_belief: "Only the late-result classification contract is under test.",
+          evidence_that_changed_belief: [],
+          unchanged_assumptions: ["No market Evidence was collected."],
+          remaining_disagreement: [],
+          next_decision_relevant_question: "Does reopen preserve late-result classification?",
+        },
+      });
+      const envelopes = structuredClone(state.envelopes);
+      const branchEnvelope = envelopes.find(
+        (entry) =>
+          entry.artifact_type ===
+          "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+      );
+      assert.ok(branchEnvelope);
+      (branchEnvelope.document as Record<string, unknown>).branch_status = branchStatus;
+      (branchEnvelope as unknown as Record<string, unknown>).content_hash = canonicalContentHash(
+        branchEnvelope.document,
+      );
+      await state.store.publishArtifactBundle({ runId: G12_RUN_ID, envelopes });
+      const afterPublish = await state.store.load(G12_RUN_ID);
+      assert.ok(afterPublish.manifest[stateField].includes(state.branch.unitId));
+      assert.ok(!afterPublish.manifest.artifact_refs.includes(state.branch.outputPath));
+      assert.ok(afterPublish.manifest.ignored_late_artifact_refs.includes(state.branch.outputPath));
+      const beforeReplay = await snapshotTree(state.runRoot);
+      const replay = await state.store.publishArtifactBundle({ runId: G12_RUN_ID, envelopes });
+      assert.equal(replay.status, "idempotent_replay");
+      assert.deepEqual(await snapshotTree(state.runRoot), beforeReplay);
+      const reopened = await state.store.load(G12_RUN_ID);
+      assert.ok(!reopened.manifest.artifact_refs.includes(state.branch.outputPath));
+      assert.ok(reopened.manifest.ignored_late_artifact_refs.includes(state.branch.outputPath));
+    });
+  }
+});
+
+test("legacy v1 and materialized v2 Evidence records coexist and share only raw bytes", async (context) => {
+  const { runsRoot, store } = await setup(context, "run_g1_2_coexist_001");
+  const evidence = new EvidenceStore(runsRoot);
+  const common = {
+    runId: "run_g1_2_coexist_001",
+    unitId: "unit_coexist",
+    researchGoal: "Synthetic v1/v2 coexistence contract only.",
+    rawContent: "SYNTHETIC COEXISTENCE BYTES",
+    recordedAt: "2026-07-24T20:10:00Z",
+  } as const;
+  const legacy = await evidence.record({
+    ...common,
+    url: "https://synthetic.invalid/coexist#legacy",
+  });
+  const materialized = await evidence.record({
+    ...common,
+    source: { kind: "public_url", canonical_url: "https://synthetic.invalid/coexist" },
+  });
+  assert.notEqual(legacy.record.evidence_id, materialized.record.evidence_id);
+  assert.equal(legacy.record.raw_content_ref, materialized.record.raw_content_ref);
+  const reopened = await store.load(common.runId);
+  assert.equal(reopened.evidenceRecovery.replayedEvidenceIds.length, 0);
+  const records = (
+    await readFile(path.join(runsRoot, common.runId, "evidence/manifest.jsonl"), "utf8")
+  )
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as { schema_version: string });
+  assert.deepEqual(records.map((record) => record.schema_version).sort(), [
+    "startup_opportunity.evidence_store_record.v1",
+    "startup_opportunity.evidence_store_record.v2",
+  ]);
+});
+
+test("Evidence receipt cross-task drift fails reopen before any recovery write", async (context) => {
+  const { runsRoot, runRoot, store } = await setup(context, "run_g1_2_receipt_drift_001");
+  const evidence = new EvidenceStore(runsRoot);
+  const recorded = await evidence.record({
+    runId: "run_g1_2_receipt_drift_001",
+    unitId: "unit_receipt_original",
+    researchGoal: "Synthetic receipt drift contract only.",
+    source: { kind: "public_url", canonical_url: "https://synthetic.invalid/receipt-drift" },
+    rawContent: "SYNTHETIC RECEIPT DRIFT BYTES",
+    recordedAt: "2026-07-24T20:10:00Z",
+  });
+  const operationEntry = (await readdir(path.join(runRoot, ".store/operations"))).find((entry) =>
+    entry.startsWith("evidence-"),
+  );
+  assert.ok(operationEntry);
+  const receiptPath = path.join(runRoot, ".store/operations", operationEntry);
+  const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as {
+    record: { unit_id: string; evidence_id: string };
+  };
+  assert.equal(receipt.record.evidence_id, recorded.record.evidence_id);
+  receipt.record.unit_id = "unit_receipt_foreign";
+  await writeFile(receiptPath, `${JSON.stringify(receipt)}\n`);
+  const before = await snapshotTree(runRoot);
+  await assert.rejects(
+    store.load("run_g1_2_receipt_drift_001"),
+    (error: unknown) => error instanceof StoreError && error.code === "recovery.missing_operation",
+  );
+  assert.deepEqual(await snapshotTree(runRoot), before);
+});
+
+test("unsupported envelope version fails before changing Run bytes", async (context) => {
+  const { runRoot, store } = await setup(context, "run_g1_2_unsupported_001");
+  const document = {
+    schema_version: "startup_opportunity.event.v1",
+    event_id: "g1_2_unsupported_001",
+    run_id: "run_g1_2_unsupported_001",
+    event_type: "decision_context_written",
+    timestamp: "2026-07-24T20:10:00Z",
+    actor: "harness",
+    reason: "Synthetic unsupported envelope fixture.",
+    artifact_refs: [],
+  };
+  const before = await snapshotTree(runRoot);
+  await assert.rejects(
+    store.publishArtifact({
+      runId: document.run_id,
+      envelope: {
+        schema_version: "startup_opportunity.artifact_envelope.v6",
+        artifact_type: document.schema_version,
+        artifact_path: "artifacts/unsupported.json",
+        run_id: document.run_id,
+        created_at: document.timestamp,
+        producer_role: "harness",
+        input_refs: [],
+        content_hash: canonicalContentHash(document),
+        document,
+      } as unknown as FormalArtifactEnvelope,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "artifact.envelope_unsupported",
+  );
+  assert.deepEqual(await snapshotTree(runRoot), before);
 });
 
 test("v2 Evidence receipt recovers raw publication after an injected crash", async (context) => {
