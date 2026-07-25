@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v5/definitions.schema.json",
+  "$defs": {
+    "nonEmptyString": { "$ref": "../v1/definitions.schema.json#/$defs/nonEmptyString" },
+    "identifier": { "$ref": "../v1/definitions.schema.json#/$defs/identifier" },
+    "runId": { "$ref": "../v1/definitions.schema.json#/$defs/runId" },
+    "timestamp": { "$ref": "../v1/definitions.schema.json#/$defs/timestamp" },
+    "sha256": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
+    "artifactRef": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRef" },
+    "artifactRefArray": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRefArray" },
+    "uniqueStringArray": { "$ref": "../v1/definitions.schema.json#/$defs/uniqueStringArray" },
+    "assessmentDimension": { "$ref": "../v4/definitions.schema.json#/$defs/assessmentDimension" },
+    "assessmentPlanRef": { "$ref": "../v4/definitions.schema.json#/$defs/assessmentPlanRef" },
+    "evidenceTier": { "$ref": "../v4/definitions.schema.json#/$defs/evidenceTier" },
+    "researchTaskRef": {
+      "type": "string",
+      "pattern": "^tasks/[A-Za-z0-9][A-Za-z0-9._-]*\\.attempt-[1-9][0-9]*\\.json$"
+    },
+    "evidenceRecordRef": {
+      "type": "string",
+      "pattern": "^evidence/records/ev_[a-f0-9]{64}\\.json$"
+    },
+    "evidenceSubstrateRef": {
+      "type": "string",
+      "pattern": "^evidence/manifest\\.jsonl#ev_[a-f0-9]{64}$"
+    },
+    "claimRef": {
+      "type": "string",
+      "pattern": "^claims/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+    },
+    "findingRef": {
+      "type": "string",
+      "pattern": "^findings/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+    },
+    "insightRef": {
+      "type": "string",
+      "pattern": "^insights/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+    },
+    "sourceManifestRef": {
+      "type": "string",
+      "pattern": "^evidence/source-manifests/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_ref",
+        "attempt",
+        "concept_hypothesis_ref",
+        "scope_frame_ref",
+        "research_plan_ref",
+        "assessment_plan_ref"
+      ],
+      "properties": {
+        "task_ref": { "$ref": "#/$defs/researchTaskRef" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "concept_hypothesis_ref": { "$ref": "#/$defs/artifactRef" },
+        "scope_frame_ref": { "$ref": "#/$defs/artifactRef" },
+        "research_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
+        "assessment_plan_ref": { "$ref": "#/$defs/assessmentPlanRef" }
+      }
+    },
+    "canonicalSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "canonical_url"],
+          "properties": {
+            "kind": { "const": "public_url" },
+            "canonical_url": { "type": "string", "format": "uri", "pattern": "^https?://" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "canonical_uri"],
+          "properties": {
+            "kind": { "const": "user_provided" },
+            "canonical_uri": {
+              "type": "string",
+              "pattern": "^urn:startup-opportunity:user-provided:[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

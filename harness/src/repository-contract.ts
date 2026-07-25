@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-export const SKELETON_VERSION = "g1.1" as const;
+export const SKELETON_VERSION = "g1.2" as const;
 
 export const IMPLEMENTATION_STACK = {
   language: "TypeScript 7.0.2",
@@ -41,6 +41,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
   "create-run",
   "load-run",
   "record-evidence",
+  "publish-artifact",
   "checkpoint-run",
   "validate-plan",
   "analyze-gaps",
@@ -49,6 +50,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v4.json",
   "harness/schemas/bundle.v3.json",
   "harness/schemas/bundle.v2.2.json",
   "harness/schemas/bundle.v2.1.json",
@@ -90,12 +92,24 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v4/concept-evidence-assessment.schema.json",
   "harness/schemas/v4/artifact-envelope.schema.json",
   "harness/schemas/v4/document-bundle.schema.json",
+  "harness/schemas/v5/definitions.schema.json",
+  "harness/schemas/v5/evidence-substrate-record.schema.json",
+  "harness/schemas/v5/research-task.schema.json",
+  "harness/schemas/v5/evidence.schema.json",
+  "harness/schemas/v5/claim.schema.json",
+  "harness/schemas/v5/finding.schema.json",
+  "harness/schemas/v5/insight.schema.json",
+  "harness/schemas/v5/source-manifest.schema.json",
+  "harness/schemas/v5/research-publication-policy.schema.json",
+  "harness/schemas/v5/artifact-envelope.schema.json",
+  "harness/schemas/v5/document-bundle.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/schema-bundle.ts",
   "harness/src/validators/artifact-validator.ts",
   "harness/src/validators/assess-domain-validator.ts",
+  "harness/src/validators/research-branch-validator.ts",
   "harness/src/validators/planning-contract-identities.ts",
   "harness/src/validators/planning-contract-validator.ts",
   "harness/src/validators/validate-artifact-command.ts",
@@ -116,6 +130,7 @@ export const STORE_SOURCE_PATHS = [
   "harness/src/artifact-store/run-lock.ts",
   "harness/src/artifact-store/store-error.ts",
   "harness/src/artifact-store/artifact-store.ts",
+  "harness/src/artifact-store/publication-policy.ts",
   "harness/src/run-store/jsonl-store.ts",
   "harness/src/run-store/run-store.ts",
   "harness/src/run-store/store-commands.ts",
@@ -147,7 +162,9 @@ export const RESPONSIBILITY_PATHS = [
   "harness/policies/adaptation.v1.json",
   "harness/policies/ai-trigger-source-binding.v1.json",
   "harness/policies/plan-revision-apply.v1.json",
+  "harness/policies/research-publication.v1.json",
   "tests/fixtures/README.md",
+  "tests/fixtures/g1.2/README.md",
   "tests/evals/README.md",
   "runs/.gitkeep",
 ] as const;

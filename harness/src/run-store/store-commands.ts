@@ -152,6 +152,8 @@ export async function runRecordEvidence(
       "--run-id",
       "--unit-id",
       "--url",
+      "--source-url",
+      "--source-uri",
       "--research-goal",
       "--content-file",
       "--recorded-at",
@@ -161,15 +163,83 @@ export async function runRecordEvidence(
     const store = new EvidenceStore(roots(parsed, repositoryRoot));
     const recordedAt = parsed.values.get("--recorded-at");
     const suppliedOperationKey = parsed.values.get("--operation-key");
-    return store.record({
+    const legacyUrl = parsed.values.get("--url");
+    const sourceUrl = parsed.values.get("--source-url");
+    const sourceUri = parsed.values.get("--source-uri");
+    const sourceCount = [legacyUrl, sourceUrl, sourceUri].filter(
+      (value) => value !== undefined,
+    ).length;
+    if (sourceCount !== 1) {
+      throw new StoreError(
+        "command.invalid_arguments",
+        "record-evidence requires exactly one of --url, --source-url, or --source-uri",
+      );
+    }
+    const common = {
       runId: required(parsed, "--run-id"),
       unitId: required(parsed, "--unit-id"),
-      url: required(parsed, "--url"),
       researchGoal: required(parsed, "--research-goal"),
       rawContent: await readFile(required(parsed, "--content-file")),
       ...(recordedAt === undefined ? {} : { recordedAt }),
       ...(suppliedOperationKey === undefined ? {} : { operationKey: suppliedOperationKey }),
+    };
+    if (legacyUrl !== undefined) {
+      return store.record({ ...common, url: legacyUrl });
+    }
+    return store.record({
+      ...common,
+      source:
+        sourceUrl !== undefined
+          ? { kind: "public_url", canonical_url: sourceUrl }
+          : { kind: "user_provided", canonical_uri: sourceUri ?? "" },
     });
+  });
+}
+
+export async function runPublishArtifact(
+  args: readonly string[],
+  repositoryRoot = process.cwd(),
+): Promise<number> {
+  return runCommand(async () => {
+    const parsed = parseArguments(args);
+    rejectUnknown(parsed, ["--file", "--runs-root"]);
+    const value = JSON.parse(await readFile(required(parsed, "--file"), "utf8")) as unknown;
+    const validator = await createArtifactValidator(repositoryRoot);
+    const store = new RunStore(roots(parsed, repositoryRoot), validator);
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new StoreError("command.invalid_arguments", "artifact input must be a JSON object");
+    }
+    const document = value as Record<string, unknown>;
+    if (Array.isArray(document.documents)) {
+      const envelopes = document.documents.map((entry) => {
+        if (
+          !entry ||
+          typeof entry !== "object" ||
+          Array.isArray(entry) ||
+          !("document" in entry) ||
+          !entry.document ||
+          typeof entry.document !== "object" ||
+          Array.isArray(entry.document)
+        ) {
+          throw new StoreError(
+            "command.invalid_arguments",
+            "publication bundle entries must contain formal envelopes",
+          );
+        }
+        return entry.document as import("../artifact-store/artifact-store.js").FormalArtifactEnvelope;
+      });
+      const runIds = [...new Set(envelopes.map((envelope) => envelope.run_id))];
+      if (runIds.length !== 1 || runIds[0] === undefined) {
+        throw new StoreError(
+          "command.invalid_arguments",
+          "publication bundle envelopes must belong to one Run",
+        );
+      }
+      return store.publishArtifactBundle({ runId: runIds[0], envelopes });
+    }
+    const envelope =
+      document as import("../artifact-store/artifact-store.js").FormalArtifactEnvelope;
+    return store.publishArtifact({ runId: envelope.run_id, envelope });
   });
 }
 

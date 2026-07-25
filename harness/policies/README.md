@@ -6,4 +6,6 @@
 
 `plan-revision-apply.v1.json` 固定 operation identity、add/retry/supersede placement、non-revision action、late Artifact 和 partial retry 行为，并以 canonical hash 绑定前述 accepted policy。G0.4 runtime 只执行这些 closed choice。
 
+`research-publication.v1.json` 固定 envelope v1-v5 到 Document Bundle、receipt、manifest bundle 的 adapter，v4 branch block、v2 substrate 与 materialized Evidence 分层、traceability 方向、task lifecycle 和 branch status mapping。它不包含 research quality inference、agent dispatch、network access、G1.3 plan adaptation 或 G1.4 report gate。
+
 Policy 不是通用规则引擎，不包含任意表达式、可执行 workflow code 或运行时用户调权。

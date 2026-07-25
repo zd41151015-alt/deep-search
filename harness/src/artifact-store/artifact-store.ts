@@ -1,5 +1,6 @@
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { EvidenceStore } from "../evidence-store/evidence-store.js";
 import { JsonlStore } from "../run-store/jsonl-store.js";
 import type { ArtifactValidator, DocumentBundleEntry } from "../validators/artifact-validator.js";
 import { publishTemp, removeTemp, writeSyncedTemp } from "./atomic-file.js";
@@ -27,7 +28,9 @@ export interface FormalArtifactEnvelope extends Record<string, unknown> {
   readonly schema_version:
     | "startup_opportunity.artifact_envelope.v1"
     | "startup_opportunity.artifact_envelope.v2"
-    | "startup_opportunity.artifact_envelope.v3";
+    | "startup_opportunity.artifact_envelope.v3"
+    | "startup_opportunity.artifact_envelope.v4"
+    | "startup_opportunity.artifact_envelope.v5";
   readonly artifact_type: string;
   readonly artifact_path: string;
   readonly run_id: string;
@@ -41,7 +44,9 @@ export interface FormalArtifactEnvelope extends Record<string, unknown> {
 interface ArtifactOperationReceipt {
   readonly schema_version:
     | "startup_opportunity.artifact_store_operation.v1"
-    | "startup_opportunity.artifact_store_operation.v2";
+    | "startup_opportunity.artifact_store_operation.v2"
+    | "startup_opportunity.artifact_store_operation.v3"
+    | "startup_opportunity.artifact_store_operation.v4";
   readonly operation_key: string;
   readonly run_id: string;
   readonly artifact_path: string;
@@ -66,6 +71,18 @@ export interface PublishArtifactResult {
   readonly status: "published" | "idempotent_replay";
 }
 
+export interface PublishArtifactBundleInput {
+  readonly runId: string;
+  readonly envelopes: readonly FormalArtifactEnvelope[];
+}
+
+export interface PublishArtifactBundleResult {
+  readonly schemaVersion: "startup_opportunity.artifact_bundle_publish_result.v1";
+  readonly runId: string;
+  readonly status: "published" | "idempotent_replay";
+  readonly artifacts: readonly PublishArtifactResult[];
+}
+
 export interface ArtifactRecoveryResult {
   readonly recoveredArtifactPaths: readonly string[];
   readonly removedTemporaryPaths: readonly string[];
@@ -75,6 +92,8 @@ const STORE_ENVELOPE_VERSIONS = new Set<string>([
   "startup_opportunity.artifact_envelope.v1",
   "startup_opportunity.artifact_envelope.v2",
   "startup_opportunity.artifact_envelope.v3",
+  "startup_opportunity.artifact_envelope.v4",
+  "startup_opportunity.artifact_envelope.v5",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -84,9 +103,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isEnvelope(value: unknown): value is FormalArtifactEnvelope {
   return (
     isRecord(value) &&
-    (value.schema_version === "startup_opportunity.artifact_envelope.v1" ||
-      value.schema_version === "startup_opportunity.artifact_envelope.v2" ||
-      value.schema_version === "startup_opportunity.artifact_envelope.v3") &&
+    STORE_ENVELOPE_VERSIONS.has(String(value.schema_version)) &&
     typeof value.artifact_path === "string" &&
     typeof value.run_id === "string" &&
     typeof value.artifact_type === "string" &&
@@ -139,8 +156,12 @@ function validateArtifactReceipt(
       "content_hash",
       "envelope",
     ]) ||
-    (value.schema_version !== "startup_opportunity.artifact_store_operation.v1" &&
-      value.schema_version !== "startup_opportunity.artifact_store_operation.v2") ||
+    ![
+      "startup_opportunity.artifact_store_operation.v1",
+      "startup_opportunity.artifact_store_operation.v2",
+      "startup_opportunity.artifact_store_operation.v3",
+      "startup_opportunity.artifact_store_operation.v4",
+    ].includes(String(value.schema_version)) ||
     !isSha256(value.operation_key) ||
     value.run_id !== runId ||
     !isEnvelope(value.envelope)
@@ -153,7 +174,12 @@ function validateArtifactReceipt(
   const expectedReceiptVersion =
     receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v1"
       ? "startup_opportunity.artifact_store_operation.v1"
-      : "startup_opportunity.artifact_store_operation.v2";
+      : receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v2" ||
+          receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v3"
+        ? "startup_opportunity.artifact_store_operation.v2"
+        : receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v4"
+          ? "startup_opportunity.artifact_store_operation.v3"
+          : "startup_opportunity.artifact_store_operation.v4";
   const expectedFilename = `artifact-${sha256Hex(receipt.operation_key)}.json`;
   if (
     filename !== expectedFilename ||
@@ -322,12 +348,14 @@ async function assertReferenceExists(
 
 export class ArtifactStore {
   private readonly logs: JsonlStore;
+  private readonly evidence: EvidenceStore;
 
   constructor(
     private readonly runsRoot: string,
     private readonly validator: ArtifactValidator,
   ) {
     this.logs = new JsonlStore(validator);
+    this.evidence = new EvidenceStore(runsRoot);
   }
 
   async publish(input: PublishArtifactInput): Promise<PublishArtifactResult> {
@@ -336,13 +364,64 @@ export class ArtifactStore {
     return withRunLock(runRoot, () => this.publishLocked(runRoot, input));
   }
 
+  async publishBundle(input: PublishArtifactBundleInput): Promise<PublishArtifactBundleResult> {
+    const runRoot = await openRunDirectory(this.runsRoot, input.runId);
+    return withRunLock(runRoot, () => this.publishBundleLocked(runRoot, input));
+  }
+
+  async publishBundleLocked(
+    runRoot: string,
+    input: PublishArtifactBundleInput,
+  ): Promise<PublishArtifactBundleResult> {
+    validateRunId(input.runId);
+    if (input.envelopes.length < 2) {
+      throw new StoreError(
+        "artifact.bundle_too_small",
+        "multi-envelope publication requires at least two envelopes",
+      );
+    }
+    const paths = input.envelopes.map((envelope) => envelope.artifact_path);
+    if (new Set(paths).size !== paths.length) {
+      throw new StoreError("artifact.bundle_duplicate_path", "publication bundle paths overlap", {
+        paths,
+      });
+    }
+    for (const envelope of input.envelopes) {
+      if (envelope.artifact_type === "startup_opportunity.checkpoint.v1") {
+        throw new StoreError(
+          "checkpoint.dedicated_entry_required",
+          "checkpoints must use the monotonic checkpoint operation",
+        );
+      }
+      this.validateEnvelopeBoundary(input.runId, envelope);
+    }
+    await this.validateEnvelopeSetReferences(runRoot, input.envelopes);
+    const artifacts: PublishArtifactResult[] = [];
+    for (const envelope of [...input.envelopes].sort((left, right) =>
+      left.artifact_path.localeCompare(right.artifact_path),
+    )) {
+      artifacts.push(await this.publishLocked(runRoot, { runId: input.runId, envelope }, true));
+    }
+    return {
+      schemaVersion: "startup_opportunity.artifact_bundle_publish_result.v1",
+      runId: input.runId,
+      status: artifacts.every((artifact) => artifact.status === "idempotent_replay")
+        ? "idempotent_replay"
+        : "published",
+      artifacts,
+    };
+  }
+
   async publishLocked(
     runRoot: string,
     input: PublishArtifactInput,
+    referencesPrevalidated = false,
   ): Promise<PublishArtifactResult> {
     validateRunId(input.runId);
     this.validateEnvelopeBoundary(input.runId, input.envelope);
-    await this.validateEnvelopeReferences(runRoot, input.envelope);
+    if (!referencesPrevalidated) {
+      await this.validateEnvelopeReferences(runRoot, input.envelope);
+    }
 
     const computedOperationKey = expectedArtifactOperationKey(input.envelope);
     if (input.operationKey !== undefined && input.operationKey !== computedOperationKey) {
@@ -355,10 +434,8 @@ export class ArtifactStore {
     const stableOperationKey = computedOperationKey;
     const operationHex = sha256Hex(stableOperationKey);
     const receipt: ArtifactOperationReceipt = {
-      schema_version:
-        input.envelope.schema_version === "startup_opportunity.artifact_envelope.v1"
-          ? "startup_opportunity.artifact_store_operation.v1"
-          : "startup_opportunity.artifact_store_operation.v2",
+      schema_version: this.validator.publicationAdapter(input.envelope.schema_version)
+        .receipt_version,
       operation_key: stableOperationKey,
       run_id: input.runId,
       artifact_path: input.envelope.artifact_path,
@@ -549,17 +626,19 @@ export class ArtifactStore {
   }
 
   validateEnvelopeVersionBoundary(schemaVersion: unknown): void {
-    if (typeof schemaVersion !== "string" || !STORE_ENVELOPE_VERSIONS.has(schemaVersion)) {
-      throw new StoreError(
-        "artifact.envelope_unsupported",
-        "Artifact Store has no published adapter for this envelope version",
-        { schemaVersion },
-      );
-    }
+    this.validator.publicationAdapter(schemaVersion);
   }
 
   validateEnvelopeBoundary(runId: string, envelope: FormalArtifactEnvelope): void {
     this.validateEnvelopeVersionBoundary(envelope.schema_version);
+    const adapter = this.validator.publicationAdapter(envelope.schema_version);
+    if (adapter.blocked_artifact_types.includes(envelope.artifact_type)) {
+      throw new StoreError(
+        "artifact.adapter_blocked_type",
+        "Artifact type is not publishable through this envelope adapter",
+        { envelopeVersion: envelope.schema_version, artifactType: envelope.artifact_type },
+      );
+    }
     const result = this.validator.validateDocument(envelope, envelope.artifact_path);
     if (!result.valid) {
       throw new StoreError("artifact.schema_invalid", "formal artifact envelope is invalid", {
@@ -599,7 +678,11 @@ export class ArtifactStore {
   ): Promise<void> {
     this.validateEnvelopeBoundary(runId, envelope);
     for (const ref of collectPathRefs(envelope)) {
-      await assertReferenceExists(runRoot, ref, envelope, this.logs);
+      if (ref.startsWith("evidence/manifest.jsonl#")) {
+        await this.evidence.readExactRecordLocked(runRoot, runId, ref);
+      } else {
+        await assertReferenceExists(runRoot, ref, envelope, this.logs);
+      }
     }
   }
 
@@ -607,8 +690,32 @@ export class ArtifactStore {
     runRoot: string,
     envelope: FormalArtifactEnvelope,
   ): Promise<void> {
-    for (const ref of collectPathRefs(envelope)) {
-      await assertReferenceExists(runRoot, ref, envelope, this.logs);
+    await this.validateEnvelopeSetReferences(runRoot, [envelope]);
+  }
+
+  private async validateEnvelopeSetReferences(
+    runRoot: string,
+    envelopes: readonly FormalArtifactEnvelope[],
+  ): Promise<void> {
+    const pendingByPath = new Map(envelopes.map((envelope) => [envelope.artifact_path, envelope]));
+    for (const envelope of envelopes) {
+      for (const ref of collectPathRefs(envelope)) {
+        const parsed = validateArtifactRef(ref);
+        const pending = pendingByPath.get(parsed.path);
+        if (pending === undefined) {
+          if (parsed.path === "evidence/manifest.jsonl") {
+            await this.evidence.readExactRecordLocked(runRoot, envelope.run_id, ref);
+          } else {
+            await assertReferenceExists(runRoot, ref, envelope, this.logs);
+          }
+        } else if (parsed.fragment !== null && !fragmentExists(pending, parsed.fragment)) {
+          throw new StoreError(
+            "reference.fragment_missing",
+            "pending publication bundle fragment is missing",
+            { ref },
+          );
+        }
+      }
     }
     const documents = [...(await this.listFormalDocuments(runRoot))];
     try {
@@ -621,20 +728,18 @@ export class ArtifactStore {
         throw error;
       }
     }
-    const existingIndex = documents.findIndex((entry) => entry.path === envelope.artifact_path);
-    if (existingIndex >= 0) {
-      documents.splice(existingIndex, 1);
+    for (const envelope of envelopes) {
+      const existingIndex = documents.findIndex((entry) => entry.path === envelope.artifact_path);
+      if (existingIndex >= 0) {
+        documents.splice(existingIndex, 1);
+      }
+      documents.push({ path: envelope.artifact_path, document: envelope });
     }
-    documents.push({ path: envelope.artifact_path, document: envelope });
     const typedJsonlRefs = documents
       .flatMap((entry) => {
         const effective =
           isRecord(entry.document.document) &&
-          [
-            "startup_opportunity.artifact_envelope.v1",
-            "startup_opportunity.artifact_envelope.v2",
-            "startup_opportunity.artifact_envelope.v3",
-          ].includes(String(entry.document.schema_version))
+          STORE_ENVELOPE_VERSIONS.has(String(entry.document.schema_version))
             ? entry.document.document
             : entry.document;
         return [effective.trigger_event_ref, effective.user_decision_ref];
@@ -654,14 +759,34 @@ export class ArtifactStore {
       }
       exactJsonlRecords.set(
         ref,
-        await this.logs.readExactRecord(runRoot, envelope.run_id, ref, parsed.path),
+        await this.logs.readExactRecord(runRoot, envelopes[0]?.run_id ?? "", ref, parsed.path),
       );
     }
-    const bundleVersion = inputBundleVersion(envelope.schema_version);
+    const envelopeVersions = documents
+      .map((entry) => entry.document.schema_version)
+      .filter((version) => STORE_ENVELOPE_VERSIONS.has(String(version)));
+    const bundleVersion = this.validator.publicationPolicy.highestBundleForEnvelopes(
+      envelopeVersions.length > 0
+        ? envelopeVersions
+        : envelopes.map((envelope) => envelope.schema_version),
+    );
+    if (bundleVersion === "startup_opportunity.document_bundle.v5") {
+      for (const record of await this.evidence.listRecordsLocked(
+        runRoot,
+        envelopes[0]?.run_id ?? "",
+      )) {
+        if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
+          exactJsonlRecords.set(`evidence/manifest.jsonl#${record.evidence_id}`, record);
+        }
+      }
+    }
     const bundleResult = this.validator.validateDocumentBundle(
       {
         schema_version: bundleVersion,
         documents,
+        ...(bundleVersion === "startup_opportunity.document_bundle.v5"
+          ? { exact_records: [] }
+          : {}),
       },
       { exactJsonlRecords },
     );
@@ -673,18 +798,4 @@ export class ArtifactStore {
       });
     }
   }
-}
-
-function inputBundleVersion(
-  envelopeVersion: FormalArtifactEnvelope["schema_version"],
-):
-  | "startup_opportunity.document_bundle.v1"
-  | "startup_opportunity.document_bundle.v2"
-  | "startup_opportunity.document_bundle.v3" {
-  if (envelopeVersion === "startup_opportunity.artifact_envelope.v1") {
-    return "startup_opportunity.document_bundle.v1";
-  }
-  return envelopeVersion === "startup_opportunity.artifact_envelope.v2"
-    ? "startup_opportunity.document_bundle.v2"
-    : "startup_opportunity.document_bundle.v3";
 }

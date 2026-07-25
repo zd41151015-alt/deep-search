@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { canonicalContentHash } from "../harness/src/index.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
@@ -52,6 +53,64 @@ test("Harness and Skill G0.3 entries create, record, checkpoint, and reopen a re
   ]);
   assert.equal(evidence.status, 0, evidence.stderr);
   assert.equal((JSON.parse(evidence.stdout) as { status: string }).status, "recorded");
+
+  const materializedEvidence = runScript("harness/src/cli.ts", [
+    "record-evidence",
+    "--runs-root",
+    runsRoot,
+    "--run-id",
+    runId,
+    "--unit-id",
+    "cli_unit_002",
+    "--source-uri",
+    "urn:startup-opportunity:user-provided:cli-fixture-002",
+    "--research-goal",
+    "Exercise the G1.2 user-provided substrate contract.",
+    "--content-file",
+    "tests/fixtures/store/evidence-source.txt",
+    "--recorded-at",
+    "2026-07-23T12:01:30Z",
+  ]);
+  assert.equal(materializedEvidence.status, 0, materializedEvidence.stderr);
+  assert.equal(
+    (JSON.parse(materializedEvidence.stdout) as { record: { schema_version: string } }).record
+      .schema_version,
+    "startup_opportunity.evidence_store_record.v2",
+  );
+
+  const artifactDocument = {
+    schema_version: "startup_opportunity.event.v1",
+    event_id: "cli_g1_2_artifact_001",
+    run_id: runId,
+    event_type: "decision_context_written",
+    timestamp: "2026-07-23T12:01:45Z",
+    actor: "harness",
+    reason: "Synthetic CLI publication fixture.",
+    artifact_refs: [],
+  };
+  const artifactFile = path.join(root, "artifact-envelope.json");
+  await writeFile(
+    artifactFile,
+    `${JSON.stringify({
+      schema_version: "startup_opportunity.artifact_envelope.v5",
+      artifact_type: artifactDocument.schema_version,
+      artifact_path: "artifacts/cli-g1-2-event.json",
+      run_id: runId,
+      created_at: artifactDocument.timestamp,
+      producer_role: "harness",
+      input_refs: [],
+      content_hash: canonicalContentHash(artifactDocument),
+      document: artifactDocument,
+    })}\n`,
+  );
+  const publication = runScript(".agents/skills/startup-opportunity/scripts/publish-artifact.ts", [
+    "--runs-root",
+    runsRoot,
+    "--file",
+    artifactFile,
+  ]);
+  assert.equal(publication.status, 0, publication.stderr);
+  assert.equal((JSON.parse(publication.stdout) as { status: string }).status, "published");
 
   const checkpointFile = path.join(root, "checkpoint-input.json");
   await writeFile(
@@ -105,6 +164,7 @@ test("G0.3 command entries reject incomplete arguments with structured failure",
     ".agents/skills/startup-opportunity/scripts/create-run.ts",
     ".agents/skills/startup-opportunity/scripts/load-run.ts",
     ".agents/skills/startup-opportunity/scripts/record-evidence.ts",
+    ".agents/skills/startup-opportunity/scripts/publish-artifact.ts",
     ".agents/skills/startup-opportunity/scripts/checkpoint-run.ts",
   ]) {
     const result = runScript(script, []);

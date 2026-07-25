@@ -6,4 +6,6 @@ lane researcher 负责有界来源发现、支持与反对 Claim、Finding、局
 
 每个 subagent 都会收到 task envelope，其中包含 run id、unit id、mode、research goal、input references、唯一允许的 output path、required Artifact schema、required support/opposition stances、工具指引、stop conditions 和 completion-message contract。完成消息只包含 Artifact 路径、验证状态、局限和未解决问题；它不是正式 branch result。
 
+G1.2 task envelope 使用 `tasks/<unit_id>.attempt-<n>.json`，只允许 main agent 发布。lane-researcher 只发布其 task lineage 下的 Evidence、Claim、Finding、Insight、Source Manifest 和唯一 branch output。task publication 只让 Run unit 进入 `active_units`；Harness 不创建 subagent。retry 必须显式 supersede 上一 attempt，`partial` retry 继续 fail closed，late/superseded result 不得回到 current artifact set。
+
 同一 wave 中的 unit 必须相互独立，并拥有唯一 output path。subagent 绝不写入 manifest、Plan、Adaptation Decision、comparison policy、decision brief 或 report。fan-in 只消费已经验证的 Artifact，并保留 `partial`、`failed`、`cancelled`、`skipped`、`ignored-late` 和 `superseded` 状态，不得把缺失工作当作中性 Evidence。

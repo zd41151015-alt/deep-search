@@ -11,6 +11,7 @@ import {
   runCheckpointRun,
   runCreateRun,
   runLoadRun,
+  runPublishArtifact,
   runRecordEvidence,
 } from "./run-store/store-commands.js";
 import { runValidateArtifact } from "./validators/validate-artifact-command.js";
@@ -35,6 +36,9 @@ switch (command) {
     break;
   case "record-evidence":
     process.exitCode = await runRecordEvidence(args);
+    break;
+  case "publish-artifact":
+    process.exitCode = await runPublishArtifact(args);
     break;
   case "checkpoint-run":
     process.exitCode = await runCheckpointRun(args);

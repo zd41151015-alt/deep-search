@@ -6,4 +6,6 @@ Evidence、Claim、Finding、Insight 和 Judgment Assessment 是相互分离的�
 
 已发布的 Research Plan、Gap Snapshot 和 Adaptation Decision 均不可变。被下游引用的 Artifact 必须在新路径修订，不得覆盖。每个 subagent 只拥有一个 branch path；只有 main agent 可以串行更新 manifest index、应用获批 Plan Revision、创建 checkpoint 并组装最终输出。
 
-`manifest.json` 是原子替换的 current index，不是不可变的正式发布路径。checkpoint 包含不可变 manifest snapshot。Event 和 Decision JSONL 记录必须 schema-valid、append-only，并由 operation key 标识；只有不完整尾部可以自动修复。G0.4 通过 v3 control envelope 和 v2 Store receipt 精确支持 Planning Context v2、Adaptation Decision v2、Plan Revision 与 checkpoint，同时保持 v1 envelope/receipt 可 reopen；这不是通用 Store migration。Evidence 存储当前发布不可变原始字节、canonical source/content hash 和去重 substrate record。完整 Evidence provenance、freshness、独立性、偏差、拒绝/不可用、Claim/Finding/Insight 和研究 judgment 仍属于 G1.2。Artifact 验证或发布成功并不能证明研究质量或决策就绪。
+`manifest.json` 是原子替换的 current index，不是不可变的正式发布路径。checkpoint 包含不可变 manifest snapshot。Event、Decision 与 Evidence substrate JSONL 必须 schema-valid、append-only，并由 operation key 标识；只有不完整尾部可以自动修复。G1.2 的 versioned adapter 保持 v1-v4 历史 contract immutable，并为 v4/v5 envelope 分配 receipt v3/v4。v4 branch result 禁止发布；v5 research branch 必须绑定 exact v2 substrate record。
+
+Evidence 的机械层包括 stable id、Run/unit、canonical source、source/content hash、raw ref、operation key 与 timestamp；业务层的 origin、provenance、freshness、independence、bias、tier、role、representativeness 与 limitations 由 Agent 明示。Harness 不从内容推断这些判断。Artifact 验证或发布成功只证明机械 contract，不证明来源真实、研究质量、Evidence 充分或决策就绪。

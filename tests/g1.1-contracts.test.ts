@@ -120,9 +120,9 @@ function hasExpectedIssue(
 test("G1.1 bundle publishes all closed assess document schemas", async () => {
   const result = await inspectSchemaBundle(repositoryRoot);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
-  assert.equal(result.schemaBundleVersion, "3.0.0");
-  assert.equal(result.schemaCount, 36);
-  assert.equal(result.documentSchemaCount, 34);
+  assert.equal(result.schemaBundleVersion, "4.0.0");
+  assert.equal(result.schemaCount, 47);
+  assert.equal(result.documentSchemaCount, 44);
 });
 
 test("complete no-Evidence assess fixture closes schema, refs, identity, branch, fan-in, and matrix contracts", async () => {
@@ -434,24 +434,44 @@ test("G1.1 contract output is byte-stable across repeated validation", async () 
   );
 });
 
-test("existing Store fails closed for v4 until the G1.2 publication adapter is owned", async () => {
+test("G1.2 Store adapter accepts frozen v4 envelopes but blocks v4 branch publication", async () => {
   const validator = await createArtifactValidator(repositoryRoot);
   const artifactStore = new ArtifactStore(path.join(repositoryRoot, "runs"), validator);
   const envelope = await readJson<Record<string, unknown>>(
     path.join(fixtureRoot, "valid-assessment-envelope.json"),
   );
+  assert.doesNotThrow(() =>
+    artifactStore.validateEnvelopeBoundary(
+      "run_assess_contract_001",
+      envelope as unknown as FormalArtifactEnvelope,
+    ),
+  );
+  const base = await readJson<{ documents: { path: string; document: Record<string, unknown> }[] }>(
+    path.join(fixtureRoot, "valid-assess-contract-bundle.json"),
+  );
+  const branch = base.documents.find((entry) => entry.path === "artifacts/lanes/demand.json");
+  assert.ok(branch);
+  const branchEnvelope = {
+    ...envelope,
+    artifact_type: branch.document.schema_version,
+    artifact_path: branch.path,
+    producer_role: "lane_researcher",
+    input_refs: [],
+    content_hash: canonicalContentHash(branch.document),
+    document: branch.document,
+  };
   assert.throws(
     () =>
       artifactStore.validateEnvelopeBoundary(
         "run_assess_contract_001",
-        envelope as unknown as FormalArtifactEnvelope,
+        branchEnvelope as unknown as FormalArtifactEnvelope,
       ),
     (error: unknown) =>
-      error instanceof StoreError && error.code === "artifact.envelope_unsupported",
+      error instanceof StoreError && error.code === "artifact.adapter_blocked_type",
   );
 });
 
-test("RunStore rejects every v4 publication before changing any Run bytes", async (context) => {
+test("RunStore rejects v4 branch publication before changing any Run bytes", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g1-1-store-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const runsRoot = path.join(root, "runs");
@@ -464,31 +484,33 @@ test("RunStore rejects every v4 publication before changing any Run bytes", asyn
     createdAt: "2026-07-24T15:00:00Z",
   });
   const runRoot = path.join(runsRoot, runId);
-  const fixture = await readJson<Record<string, unknown>>(
-    path.join(fixtureRoot, "valid-assessment-envelope.json"),
-  );
-  const document = { ...(fixture.document as Record<string, unknown>), run_id: runId };
+  const base = await readJson<{
+    documents: { path: string; document: Record<string, unknown> }[];
+  }>(path.join(fixtureRoot, "valid-assess-contract-bundle.json"));
+  const branch = base.documents.find((entry) => entry.path === "artifacts/lanes/demand.json");
+  assert.ok(branch);
+  const document = { ...branch.document, run_id: runId };
   const envelope = {
-    ...fixture,
+    schema_version: "startup_opportunity.artifact_envelope.v4",
+    artifact_type: String(branch.document.schema_version),
+    artifact_path: branch.path,
     run_id: runId,
-    document,
+    created_at: "2026-07-24T15:01:00Z",
+    producer_role: "lane_researcher",
+    input_refs: [],
     content_hash: canonicalContentHash(document),
+    document,
   };
   const before = await snapshotTree(runRoot);
-  for (const candidate of [
-    envelope,
-    { ...envelope, artifact_type: "startup_opportunity.checkpoint.v1" },
-  ]) {
-    await assert.rejects(
-      store.publishArtifact({
-        runId,
-        envelope: candidate as unknown as FormalArtifactEnvelope,
-      }),
-      (error: unknown) =>
-        error instanceof StoreError && error.code === "artifact.envelope_unsupported",
-    );
-    assert.deepEqual(await snapshotTree(runRoot), before);
-  }
+  await assert.rejects(
+    store.publishArtifact({
+      runId,
+      envelope: envelope as unknown as FormalArtifactEnvelope,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "artifact.adapter_blocked_type",
+  );
+  assert.deepEqual(await snapshotTree(runRoot), before);
 });
 
 test("Harness CLI validates the complete G1.1 bundle without starting research", () => {
@@ -508,5 +530,5 @@ test("Harness CLI validates the complete G1.1 bundle without starting research",
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const output = JSON.parse(result.stdout) as { valid?: boolean; schemaBundleVersion?: string };
   assert.equal(output.valid, true);
-  assert.equal(output.schemaBundleVersion, "3.0.0");
+  assert.equal(output.schemaBundleVersion, "4.0.0");
 });

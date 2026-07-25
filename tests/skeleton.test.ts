@@ -40,7 +40,7 @@ test("repository doctor accepts the committed foundation contract", async () => 
     true,
     JSON.stringify(report.checks.filter((check) => check.status === "fail")),
   );
-  assert.equal(report.skeletonVersion, "g1.1");
+  assert.equal(report.skeletonVersion, "g1.2");
   assert.equal(report.stack.runtime, "Node.js 24.18.x LTS");
   assert.ok(report.checks.length > REQUIRED_REPOSITORY_PATHS.length);
 });
@@ -89,7 +89,7 @@ test("Skill doctor script is runnable and reports the skeleton contract", () => 
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout) as { ok?: boolean; skeletonVersion?: string };
   assert.equal(report.ok, true);
-  assert.equal(report.skeletonVersion, "g1.1");
+  assert.equal(report.skeletonVersion, "g1.2");
 });
 
 test("downstream Skill scripts fail closed and name their owning slice", () => {
@@ -110,7 +110,7 @@ test("downstream Skill scripts fail closed and name their owning slice", () => {
       schemaVersion: "startup_opportunity.reserved_command.v1",
       command,
       status: "unavailable",
-      reason: "not_implemented_in_g0.4",
+      reason: "not_implemented_in_g1.2",
       plannedSlice,
     });
   }

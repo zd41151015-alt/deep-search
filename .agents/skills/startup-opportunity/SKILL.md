@@ -9,7 +9,7 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 
 ## Current Execution Gate
 
-依赖此仓库前，先运行 `npm run harness -- doctor --json`。G0.4 已实现 closed core schema/reference 验证、受限 Run 创建与 reopen、正式 Artifact 发布、Event/Decision append、Evidence 原始内容去重、checkpoint 与 crash recovery；还实现 Research Plan 语义验证、machine Gap Snapshot draft、Adaptation Decision v2 policy 验证，以及通过 CAS 和不可变 receipt 应用 Plan Revision。这些 deterministic Store/Plan 入口不会分派研究，也不会把 `discover`、`assess`、`resume` 或 `status` 变成已完成的研究动作。下游 reserved script 以非零状态退出并指出其 owning slice。
+依赖此仓库前，先运行 `npm run harness -- doctor --json`。G1.2 已实现 closed schema/reference 验证、受限 Run/reopen、Artifact/Evidence Store、checkpoint/recovery、G0 Plan/Adaptation runtime，以及显式 Research Task、Evidence、Claim、Finding、Insight、Source Manifest 与 branch publication。这些 deterministic 入口只验证、发布和恢复调用方给出的 Artifact；不会分派 agent、调用 LLM、执行 network research，也不会把 `discover`、`assess`、`resume` 或 `status` 变成完整研究动作。G1.3 dynamic adaptation 与 G1.4 audit/review/report 仍不可用。
 
 ## Action Routing
 
@@ -39,4 +39,4 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 
 ## Script Surface
 
-`scripts/doctor.ts`、`validate-artifact.ts`、`create-run.ts`、`load-run.ts`、`record-evidence.ts`、`checkpoint-run.ts`、`validate-plan.ts`、`analyze-gaps.ts`、`validate-adaptation.ts` 和 `apply-plan-revision.ts` 在 G0.4 已可运行。Store 或 Plan/Adaptation 验证成功不代表 Evidence 充分、决策就绪或研究动作已经完成。`record-evidence` 当前只持久化 G0 substrate，不实现 G1.2 Evidence judgment contract。其余 RFC 命名的 script 在进度账本开放其 owning slice 前会刻意 fail closed；调用方不得把该失败转换成 mock Artifact 或成功结果。
+`scripts/doctor.ts`、`validate-artifact.ts`、`create-run.ts`、`load-run.ts`、`record-evidence.ts`、`publish-artifact.ts`、`checkpoint-run.ts`、`validate-plan.ts`、`analyze-gaps.ts`、`validate-adaptation.ts` 和 `apply-plan-revision.ts` 已可运行。`record-evidence --source-url|--source-uri` 只保存显式 bytes 和机械 identity；`publish-artifact` 只发布已形成的 envelope 或 envelope bundle。Store、schema 或 Plan/Adaptation 成功不代表 Evidence 充分、决策就绪或 research 已完成。其余 RFC 命名 script 在 owning slice 开放前继续 fail closed；不得把失败转换成 mock Artifact 或成功结果。

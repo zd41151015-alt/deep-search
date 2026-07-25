@@ -47,6 +47,8 @@ export {
 export {
   ArtifactStore,
   type FormalArtifactEnvelope,
+  type PublishArtifactBundleInput,
+  type PublishArtifactBundleResult,
   type PublishArtifactInput,
   type PublishArtifactResult,
 } from "./artifact-store/artifact-store.js";
@@ -59,9 +61,12 @@ export {
 export { StoreError, storeErrorResult } from "./artifact-store/store-error.js";
 export { printHelp, runDoctor } from "./commands.js";
 export {
+  type CanonicalEvidenceSource,
   canonicalizeSourceUrl,
   EvidenceStore,
   type EvidenceStoreRecord,
+  type EvidenceStoreRecordV2,
+  type EvidenceSubstrateRecord,
   type RecordEvidenceInput,
   type RecordEvidenceResult,
 } from "./evidence-store/evidence-store.js";
@@ -99,6 +104,7 @@ export {
   runCheckpointRun,
   runCreateRun,
   runLoadRun,
+  runPublishArtifact,
   runRecordEvidence,
 } from "./run-store/store-commands.js";
 export type {

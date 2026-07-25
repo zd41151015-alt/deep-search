@@ -1,11 +1,20 @@
 import type { ErrorObject } from "ajv";
 import { canonicalContentHash } from "../artifact-store/canonical.js";
 import {
+  loadResearchPublicationPolicy,
+  type PublicationPolicy,
+  type StorePublicationAdapter,
+} from "../artifact-store/publication-policy.js";
+import {
   type AssessDomainDocument,
   isAssessDomainSchemaVersion,
   validateAssessDomainContract,
 } from "./assess-domain-validator.js";
 import { coverageKey, planningRunStateHash } from "./planning-contract-identities.js";
+import {
+  type ResearchBranchDocument,
+  validateResearchBranchContract,
+} from "./research-branch-validator.js";
 import {
   type LoadedSchemaBundle,
   loadSchemaBundle,
@@ -37,8 +46,13 @@ export interface DocumentBundle {
     | "startup_opportunity.document_bundle.v1"
     | "startup_opportunity.document_bundle.v2"
     | "startup_opportunity.document_bundle.v3"
-    | "startup_opportunity.document_bundle.v4";
+    | "startup_opportunity.document_bundle.v4"
+    | "startup_opportunity.document_bundle.v5";
   readonly documents: readonly DocumentBundleEntry[];
+  readonly exact_records?: readonly {
+    readonly ref: string;
+    readonly document: Record<string, unknown>;
+  }[];
 }
 
 export interface DocumentBundleReferenceContext {
@@ -532,6 +546,87 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.concept_assessment_suggestions.v1",
         ),
       ];
+    case "startup_opportunity.research_task.v1":
+      return [
+        ...optionalRef(document, "target_subject_ref", "startup_opportunity.concept_hypothesis.v1"),
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v1"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(
+          document,
+          "assessment_plan_ref",
+          "startup_opportunity.concept_evidence_assessment_plan.v1",
+        ),
+        ...optionalRef(document, "supersedes_task_ref", "startup_opportunity.research_task.v1"),
+      ];
+    case "startup_opportunity.evidence.v1":
+      return [
+        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v1"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "concept_hypothesis_ref",
+          "startup_opportunity.concept_hypothesis.v1",
+        ),
+        ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v1"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "research_plan_ref",
+          "startup_opportunity.research_plan.v1",
+        ),
+        ...nestedRef(
+          document,
+          "lineage",
+          "assessment_plan_ref",
+          "startup_opportunity.concept_evidence_assessment_plan.v1",
+        ),
+        ...nestedRef(
+          document,
+          "mechanical_binding",
+          "substrate_record_ref",
+          "startup_opportunity.evidence_store_record.v2",
+          "evidence_id",
+        ),
+      ];
+    case "startup_opportunity.claim.v1":
+      return [
+        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v1"),
+        ...refsFromArray(document, "evidence_refs", "startup_opportunity.evidence.v1"),
+      ];
+    case "startup_opportunity.finding.v1":
+      return [
+        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v1"),
+        ...refsFromArray(document, "claim_refs", "startup_opportunity.claim.v1"),
+        ...refsFromArray(document, "opposing_claim_refs", "startup_opportunity.claim.v1"),
+      ];
+    case "startup_opportunity.insight.v1":
+      return [
+        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v1"),
+        ...refsFromArray(document, "finding_refs", "startup_opportunity.finding.v1"),
+      ];
+    case "startup_opportunity.source_manifest.v1":
+      return [
+        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v1"),
+        ...refsFromArray(document, "accepted_evidence_refs", "startup_opportunity.evidence.v1"),
+        ...refsFromNestedArray(
+          document,
+          "canonical_source_groups",
+          "evidence_refs",
+          "startup_opportunity.evidence.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "shared_dataset_groups",
+          "evidence_refs",
+          "startup_opportunity.evidence.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "duplicate_or_syndication_groups",
+          "evidence_refs",
+          "startup_opportunity.evidence.v1",
+        ),
+      ];
     default:
       return [];
   }
@@ -543,7 +638,8 @@ function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
     version !== "startup_opportunity.artifact_envelope.v1" &&
     version !== "startup_opportunity.artifact_envelope.v2" &&
     version !== "startup_opportunity.artifact_envelope.v3" &&
-    version !== "startup_opportunity.artifact_envelope.v4"
+    version !== "startup_opportunity.artifact_envelope.v4" &&
+    version !== "startup_opportunity.artifact_envelope.v5"
   ) {
     return { path: entry.path, schemaVersion: version, document: entry.document, envelope: null };
   }
@@ -619,10 +715,7 @@ function exactJsonlTarget(
   fragment: string | undefined,
   context: DocumentBundleReferenceContext,
 ): EffectiveDocument | null {
-  if (
-    fragment === undefined ||
-    (targetPath !== "events.jsonl" && targetPath !== "decisions.jsonl")
-  ) {
+  if (fragment === undefined) {
     return null;
   }
   const document = context.exactJsonlRecords?.get(requirement.ref);
@@ -671,10 +764,11 @@ function recordById(
   return null;
 }
 
-function validateV4EnvelopeContract(document: unknown): readonly ValidationIssue[] {
+function validateResearchEnvelopeContract(document: unknown): readonly ValidationIssue[] {
   if (
     !isRecord(document) ||
-    document.schema_version !== "startup_opportunity.artifact_envelope.v4" ||
+    (document.schema_version !== "startup_opportunity.artifact_envelope.v4" &&
+      document.schema_version !== "startup_opportunity.artifact_envelope.v5") ||
     !isRecord(document.document)
   ) {
     return [];
@@ -686,7 +780,7 @@ function validateV4EnvelopeContract(document: unknown): readonly ValidationIssue
       keyword: "run_id",
       instancePath: "/run_id",
       schemaPath: "",
-      message: "v4 envelope and document run_id differ",
+      message: "research envelope and document run_id differ",
       details: {
         documentRunId: document.document.run_id,
         envelopeRunId: document.run_id,
@@ -700,7 +794,7 @@ function validateV4EnvelopeContract(document: unknown): readonly ValidationIssue
       keyword: "content_hash",
       instancePath: "/content_hash",
       schemaPath: "",
-      message: "v4 envelope content_hash differs from its canonical document hash",
+      message: "research envelope content_hash differs from its canonical document hash",
       details: { actual: document.content_hash, expected: expectedHash },
     });
   }
@@ -708,7 +802,14 @@ function validateV4EnvelopeContract(document: unknown): readonly ValidationIssue
 }
 
 export class ArtifactValidator {
-  constructor(private readonly bundle: LoadedSchemaBundle) {}
+  constructor(
+    private readonly bundle: LoadedSchemaBundle,
+    readonly publicationPolicy: PublicationPolicy,
+  ) {}
+
+  publicationAdapter(schemaVersion: unknown): StorePublicationAdapter {
+    return this.publicationPolicy.adapterForEnvelope(schemaVersion);
+  }
 
   validateDocument(
     document: unknown,
@@ -758,7 +859,7 @@ export class ArtifactValidator {
 
     const valid = validator(document);
     const errors = valid
-      ? validateV4EnvelopeContract(document)
+      ? validateResearchEnvelopeContract(document)
       : normalizeAjvErrors(validator.errors);
     return {
       schemaVersion: ARTIFACT_VALIDATION_RESULT_VERSION,
@@ -787,6 +888,35 @@ export class ArtifactValidator {
     }
 
     const input = value as unknown as DocumentBundle;
+    const exactJsonlRecords = new Map(referenceContext.exactJsonlRecords ?? []);
+    const exactRecordErrors: ValidationIssue[] = [];
+    for (const [index, record] of (input.exact_records ?? []).entries()) {
+      if (exactJsonlRecords.has(record.ref)) {
+        exactRecordErrors.push(
+          referenceIssue(
+            "reference.duplicate_exact_record",
+            `/exact_records/${index}/ref`,
+            "exact record ref is duplicated",
+            { ref: record.ref },
+          ),
+        );
+      } else {
+        exactJsonlRecords.set(record.ref, record.document);
+      }
+      const fragment = record.ref.split("#", 2)[1];
+      const id =
+        record.document.event_id ?? record.document.decision_id ?? record.document.evidence_id;
+      if (fragment === undefined || fragment !== id) {
+        exactRecordErrors.push(
+          referenceIssue(
+            "reference.exact_record_identity_mismatch",
+            `/exact_records/${index}/ref`,
+            "exact record fragment differs from the record identity",
+            { ref: record.ref, id },
+          ),
+        );
+      }
+    }
     const documents = input.documents.map((entry) =>
       this.validateDocument(entry.document, entry.path),
     );
@@ -839,7 +969,9 @@ export class ArtifactValidator {
     for (const source of effectiveDocuments) {
       for (const requirement of referenceRequirements(source)) {
         const [targetPath = "", fragment] = requirement.ref.split("#", 2);
-        const exactTarget = exactJsonlTarget(requirement, targetPath, fragment, referenceContext);
+        const exactTarget = exactJsonlTarget(requirement, targetPath, fragment, {
+          exactJsonlRecords,
+        });
         const target = exactTarget ?? documentsByPath.get(targetPath);
         const qualifiedPath = `${source.path}#${requirement.instancePath}`;
         if (!target) {
@@ -933,7 +1065,8 @@ export class ArtifactValidator {
     }));
     if (
       assessDocuments.some((entry) => isAssessDomainSchemaVersion(entry.schemaVersion)) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v4"
+      input.schema_version !== "startup_opportunity.document_bundle.v4" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v5"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -946,6 +1079,41 @@ export class ArtifactValidator {
     } else {
       referenceErrors.push(...validateAssessDomainContract(assessDocuments));
     }
+    const researchDocuments: readonly ResearchBranchDocument[] = effectiveDocuments.map(
+      (entry) => ({
+        path: entry.path,
+        schemaVersion: entry.schemaVersion,
+        document: entry.document,
+        envelope: entry.envelope,
+      }),
+    );
+    if (
+      researchDocuments.some(
+        (entry) =>
+          entry.schemaVersion.startsWith("startup_opportunity.research_task.") ||
+          entry.schemaVersion === "startup_opportunity.evidence.v1" ||
+          entry.schemaVersion === "startup_opportunity.claim.v1" ||
+          entry.schemaVersion === "startup_opportunity.finding.v1" ||
+          entry.schemaVersion === "startup_opportunity.insight.v1" ||
+          entry.schemaVersion === "startup_opportunity.source_manifest.v1" ||
+          (entry.schemaVersion ===
+            "startup_opportunity.concept_evidence_assessment_branch_result.v1" &&
+            entry.envelope?.schema_version === "startup_opportunity.artifact_envelope.v5"),
+      ) &&
+      input.schema_version !== "startup_opportunity.document_bundle.v5"
+    ) {
+      referenceErrors.push(
+        referenceIssue(
+          "research_contract.bundle_version_mismatch",
+          "/schema_version",
+          "G1.2 research contracts require document_bundle.v5",
+          { actualSchemaVersion: input.schema_version },
+        ),
+      );
+    } else {
+      referenceErrors.push(...validateResearchBranchContract(researchDocuments, exactJsonlRecords));
+    }
+    referenceErrors.push(...exactRecordErrors);
     const sortedReferenceErrors = sortIssues(referenceErrors);
     const sortedDocuments = [...documents].sort((left, right) =>
       (left.documentPath ?? "").localeCompare(right.documentPath ?? ""),
@@ -1351,5 +1519,6 @@ export async function createArtifactValidator(
   manifestRelativePath?: string,
   expectedVersion?: string,
 ): Promise<ArtifactValidator> {
-  return new ArtifactValidator(await loadSchemaBundle(root, manifestRelativePath, expectedVersion));
+  const bundle = await loadSchemaBundle(root, manifestRelativePath, expectedVersion);
+  return new ArtifactValidator(bundle, await loadResearchPublicationPolicy(root, bundle));
 }

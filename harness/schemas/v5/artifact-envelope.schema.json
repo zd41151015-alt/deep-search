@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v5/artifact-envelope.schema.json",
+  "title": "Startup Opportunity Formal Research Envelope v5",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_path",
+    "run_id",
+    "created_at",
+    "producer_role",
+    "input_refs",
+    "content_hash",
+    "document"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.artifact_envelope.v5" },
+    "artifact_type": {
+      "enum": [
+        "startup_opportunity.run_manifest.v1",
+        "startup_opportunity.research_plan.v1",
+        "startup_opportunity.gap_snapshot.v1",
+        "startup_opportunity.adaptation_decision.v1",
+        "startup_opportunity.adaptation_decision.v2",
+        "startup_opportunity.event.v1",
+        "startup_opportunity.decision.v1",
+        "startup_opportunity.checkpoint.v1",
+        "startup_opportunity.planning_context.v1",
+        "startup_opportunity.planning_context.v2",
+        "startup_opportunity.ai_trigger_source_attestation.v1",
+        "startup_opportunity.coverage_attestation.v1",
+        "startup_opportunity.intake.v1",
+        "startup_opportunity.decision_context.v1",
+        "startup_opportunity.scope_frame.v1",
+        "startup_opportunity.concept_hypothesis.v1",
+        "startup_opportunity.judgment_assessment.v1",
+        "startup_opportunity.concept_evidence_assessment_plan.v1",
+        "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        "startup_opportunity.concept_evidence_assessment_fan_in.v1",
+        "startup_opportunity.hypothesis_evidence_matrix.v1",
+        "startup_opportunity.business_engine_thesis.v1",
+        "startup_opportunity.concept_evidence_assessment.v1",
+        "startup_opportunity.research_task.v1",
+        "startup_opportunity.evidence.v1",
+        "startup_opportunity.claim.v1",
+        "startup_opportunity.finding.v1",
+        "startup_opportunity.insight.v1",
+        "startup_opportunity.source_manifest.v1"
+      ]
+    },
+    "artifact_path": { "$ref": "../v1/definitions.schema.json#/$defs/artifactPath" },
+    "run_id": { "$ref": "../v1/definitions.schema.json#/$defs/runId" },
+    "created_at": { "$ref": "../v1/definitions.schema.json#/$defs/timestamp" },
+    "producer_role": { "$ref": "../v1/definitions.schema.json#/$defs/producerRole" },
+    "input_refs": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRefArray" },
+    "content_hash": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
+    "document": { "type": "object" }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/runManifest" },
+    { "$ref": "#/$defs/researchPlan" },
+    { "$ref": "#/$defs/gapSnapshot" },
+    { "$ref": "#/$defs/adaptationDecisionV1" },
+    { "$ref": "#/$defs/adaptationDecisionV2" },
+    { "$ref": "#/$defs/event" },
+    { "$ref": "#/$defs/decision" },
+    { "$ref": "#/$defs/checkpoint" },
+    { "$ref": "#/$defs/planningContextV1" },
+    { "$ref": "#/$defs/planningContextV2" },
+    { "$ref": "#/$defs/aiTriggerSource" },
+    { "$ref": "#/$defs/coverageAttestation" },
+    { "$ref": "#/$defs/intake" },
+    { "$ref": "#/$defs/decisionContext" },
+    { "$ref": "#/$defs/scopeFrame" },
+    { "$ref": "#/$defs/conceptHypothesis" },
+    { "$ref": "#/$defs/judgmentAssessment" },
+    { "$ref": "#/$defs/assessmentPlan" },
+    { "$ref": "#/$defs/branchResult" },
+    { "$ref": "#/$defs/fanIn" },
+    { "$ref": "#/$defs/evidenceMatrix" },
+    { "$ref": "#/$defs/businessEngine" },
+    { "$ref": "#/$defs/assessment" },
+    { "$ref": "#/$defs/researchTask" },
+    { "$ref": "#/$defs/evidence" },
+    { "$ref": "#/$defs/claim" },
+    { "$ref": "#/$defs/finding" },
+    { "$ref": "#/$defs/insight" },
+    { "$ref": "#/$defs/sourceManifest" }
+  ],
+  "$defs": {
+    "runManifest": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.run_manifest.v1" },
+        "document": { "$ref": "../v1/run-manifest.schema.json" }
+      }
+    },
+    "researchPlan": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.research_plan.v1" },
+        "document": { "$ref": "../v1/research-plan.schema.json" }
+      }
+    },
+    "gapSnapshot": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.gap_snapshot.v1" },
+        "document": { "$ref": "../v1/gap-snapshot.schema.json" }
+      }
+    },
+    "adaptationDecisionV1": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.adaptation_decision.v1" },
+        "document": { "$ref": "../v1/adaptation-decision.schema.json" }
+      }
+    },
+    "adaptationDecisionV2": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.adaptation_decision.v2" },
+        "document": { "$ref": "../v2/adaptation-decision.schema.json" }
+      }
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.event.v1" },
+        "document": { "$ref": "../v1/event.schema.json" }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.decision.v1" },
+        "document": { "$ref": "../v1/decision.schema.json" }
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.checkpoint.v1" },
+        "document": { "$ref": "../v1/checkpoint.schema.json" }
+      }
+    },
+    "planningContextV1": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.planning_context.v1" },
+        "document": { "$ref": "../v2/planning-context.schema.json" }
+      }
+    },
+    "planningContextV2": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.planning_context.v2" },
+        "document": { "$ref": "../v2/planning-context-v2.schema.json" }
+      }
+    },
+    "aiTriggerSource": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.ai_trigger_source_attestation.v1" },
+        "document": { "$ref": "../v2/ai-trigger-source-attestation.schema.json" }
+      }
+    },
+    "coverageAttestation": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.coverage_attestation.v1" },
+        "document": { "$ref": "../v2/coverage-attestation.schema.json" }
+      }
+    },
+    "intake": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.intake.v1" },
+        "document": { "$ref": "../v4/intake.schema.json" }
+      }
+    },
+    "decisionContext": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.decision_context.v1" },
+        "document": { "$ref": "../v4/decision-context.schema.json" }
+      }
+    },
+    "scopeFrame": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.scope_frame.v1" },
+        "document": { "$ref": "../v4/scope-frame.schema.json" }
+      }
+    },
+    "conceptHypothesis": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.concept_hypothesis.v1" },
+        "document": { "$ref": "../v4/concept-hypothesis.schema.json" }
+      }
+    },
+    "judgmentAssessment": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.judgment_assessment.v1" },
+        "document": { "$ref": "../v4/judgment-assessment.schema.json" }
+      }
+    },
+    "assessmentPlan": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.concept_evidence_assessment_plan.v1" },
+        "document": { "$ref": "../v4/concept-evidence-assessment-plan.schema.json" }
+      }
+    },
+    "branchResult": {
+      "type": "object",
+      "properties": {
+        "artifact_type": {
+          "const": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+        },
+        "document": { "$ref": "../v4/concept-evidence-assessment-branch-result.schema.json" }
+      }
+    },
+    "fanIn": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.concept_evidence_assessment_fan_in.v1" },
+        "document": { "$ref": "../v4/concept-evidence-assessment-fan-in.schema.json" }
+      }
+    },
+    "evidenceMatrix": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.hypothesis_evidence_matrix.v1" },
+        "document": { "$ref": "../v4/hypothesis-evidence-matrix.schema.json" }
+      }
+    },
+    "businessEngine": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.business_engine_thesis.v1" },
+        "document": { "$ref": "../v4/business-engine-thesis.schema.json" }
+      }
+    },
+    "assessment": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.concept_evidence_assessment.v1" },
+        "document": { "$ref": "../v4/concept-evidence-assessment.schema.json" }
+      }
+    },
+    "researchTask": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.research_task.v1" },
+        "document": { "$ref": "research-task.schema.json" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.evidence.v1" },
+        "document": { "$ref": "evidence.schema.json" }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.claim.v1" },
+        "document": { "$ref": "claim.schema.json" }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.finding.v1" },
+        "document": { "$ref": "finding.schema.json" }
+      }
+    },
+    "insight": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.insight.v1" },
+        "document": { "$ref": "insight.schema.json" }
+      }
+    },
+    "sourceManifest": {
+      "type": "object",
+      "properties": {
+        "artifact_type": { "const": "startup_opportunity.source_manifest.v1" },
+        "document": { "$ref": "source-manifest.schema.json" }
+      }
+    }
+  }
+}
