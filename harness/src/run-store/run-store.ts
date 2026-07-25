@@ -368,10 +368,16 @@ export class RunStore {
         return result;
       }
       const ignoredLate = plannedArtifact.ignoredLate;
-      await this.writeManifest(
+      const nextManifest = await this.applyPublishedEnvelope(
         runRoot,
-        this.applyPublishedEnvelope(manifest, input.envelope, ignoredLate),
+        manifest,
+        input.envelope,
+        ignoredLate,
+        result.status === "idempotent_replay",
       );
+      if (canonicalJson(nextManifest) !== canonicalJson(manifest)) {
+        await this.writeManifest(runRoot, nextManifest);
+      }
       return result;
     });
   }
@@ -382,6 +388,7 @@ export class RunStore {
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       let manifest = await this.readManifest(runRoot);
+      const originalManifest = manifest;
       const classifications = new Map<
         string,
         { readonly ignoredLate: boolean; readonly expectedArtifactType: string | null }
@@ -428,19 +435,26 @@ export class RunStore {
         classifications.set(envelope.artifact_path, planned);
       }
       const result = await this.artifacts.publishBundleLocked(runRoot, input);
+      const publicationResults = new Map(
+        result.artifacts.map((artifact) => [artifact.artifactPath, artifact.status]),
+      );
       for (const envelope of [...input.envelopes].sort((left, right) =>
         left.artifact_path.localeCompare(right.artifact_path),
       )) {
         if (taskPublicationModes.get(envelope.artifact_path) === "replay") {
           continue;
         }
-        manifest = this.applyPublishedEnvelope(
+        manifest = await this.applyPublishedEnvelope(
+          runRoot,
           manifest,
           envelope,
           classifications.get(envelope.artifact_path)?.ignoredLate ?? false,
+          publicationResults.get(envelope.artifact_path) === "idempotent_replay",
         );
       }
-      await this.writeManifest(runRoot, manifest);
+      if (canonicalJson(manifest) !== canonicalJson(originalManifest)) {
+        await this.writeManifest(runRoot, manifest);
+      }
       return result;
     });
   }
@@ -552,13 +566,18 @@ export class RunStore {
     });
   }
 
-  private applyPublishedEnvelope(
+  private async applyPublishedEnvelope(
+    runRoot: string,
     manifest: RunManifest,
     envelope: FormalArtifactEnvelope,
     ignoredLate: boolean,
-  ): RunManifest {
+    exactReplay: boolean,
+  ): Promise<RunManifest> {
     this.assertBranchPublicationTransition(manifest, envelope, ignoredLate);
     const adapter = this.validator.publicationAdapter(envelope.schema_version);
+    const artifactWasTracked =
+      manifest.artifact_refs.includes(envelope.artifact_path) ||
+      manifest.ignored_late_artifact_refs.includes(envelope.artifact_path);
     const artifactRefs = ignoredLate
       ? manifest.artifact_refs.filter((ref) => ref !== envelope.artifact_path)
       : [...new Set([...manifest.artifact_refs, envelope.artifact_path])].sort();
@@ -627,22 +646,86 @@ export class RunStore {
       envelope.schema_version === "startup_opportunity.artifact_envelope.v6" &&
       envelope.artifact_type === "startup_opportunity.gap_snapshot.v2"
     ) {
-      next = { ...next, latest_gap_snapshot_ref: envelope.artifact_path };
+      const advancesLatest =
+        !exactReplay ||
+        (!artifactWasTracked && (await this.gapReplayAdvancesLatest(runRoot, next, envelope)));
+      if (advancesLatest) {
+        next = { ...next, latest_gap_snapshot_ref: envelope.artifact_path };
+      }
     }
     if (
       !ignoredLate &&
       envelope.schema_version === "startup_opportunity.artifact_envelope.v6" &&
       envelope.artifact_type === "startup_opportunity.adaptation_decision.v3"
     ) {
-      next = {
-        ...next,
-        pending_adaptation_refs: [
-          ...new Set([...next.pending_adaptation_refs, envelope.artifact_path]),
-        ].sort(),
-      };
+      const lifecycleFields = [
+        "pending_adaptation_refs",
+        "validated_adaptation_refs",
+        "rejected_adaptation_refs",
+        "applied_adaptation_refs",
+      ] as const;
+      const alreadyTracked = lifecycleFields.some((field) =>
+        next[field].includes(envelope.artifact_path),
+      );
+      if (!alreadyTracked) {
+        next = {
+          ...next,
+          pending_adaptation_refs: [
+            ...new Set([...next.pending_adaptation_refs, envelope.artifact_path]),
+          ].sort(),
+        };
+      }
     }
     this.validateManifest(next);
     return next;
+  }
+
+  private async gapReplayAdvancesLatest(
+    runRoot: string,
+    manifest: RunManifest,
+    replayedEnvelope: FormalArtifactEnvelope,
+  ): Promise<boolean> {
+    const currentRef = manifest.latest_gap_snapshot_ref;
+    if (currentRef === null) {
+      return true;
+    }
+    if (currentRef === replayedEnvelope.artifact_path) {
+      return false;
+    }
+    const currentValue = JSON.parse(
+      await readFile(await resolveRunPath(runRoot, currentRef), "utf8"),
+    ) as unknown;
+    if (
+      !isRecord(currentValue) ||
+      !STORE_ENVELOPE_VERSIONS.has(String(currentValue.schema_version))
+    ) {
+      throw new StoreError(
+        "manifest.latest_gap_invalid",
+        "latest Gap Snapshot ref does not target a formal envelope",
+        { currentRef },
+      );
+    }
+    const currentEnvelope = currentValue as FormalArtifactEnvelope;
+    await this.artifacts.validateStoredEnvelope(runRoot, manifest.run_id, currentEnvelope);
+    if (
+      currentEnvelope.artifact_path !== currentRef ||
+      !["startup_opportunity.gap_snapshot.v1", "startup_opportunity.gap_snapshot.v2"].includes(
+        currentEnvelope.artifact_type,
+      )
+    ) {
+      throw new StoreError(
+        "manifest.latest_gap_invalid",
+        "latest Gap Snapshot ref targets another Artifact identity",
+        { currentRef, artifactType: currentEnvelope.artifact_type },
+      );
+    }
+    const replayedTime = Date.parse(replayedEnvelope.created_at);
+    const currentTime = Date.parse(currentEnvelope.created_at);
+    return (
+      replayedTime > currentTime ||
+      (replayedTime === currentTime &&
+        replayedEnvelope.artifact_path.localeCompare(currentEnvelope.artifact_path) > 0)
+    );
   }
 
   private assertBranchPublicationTransition(
@@ -969,10 +1052,12 @@ export class RunStore {
         return time === 0 ? left.artifact_path.localeCompare(right.artifact_path) : time;
       });
     for (const envelope of postCheckpointEnvelopes) {
-      recoveredManifest = this.applyPublishedEnvelope(
+      recoveredManifest = await this.applyPublishedEnvelope(
+        runRoot,
         recoveredManifest,
         envelope,
         ignoredLateArtifactPaths.includes(envelope.artifact_path),
+        false,
       );
     }
     this.validateManifest(recoveredManifest);

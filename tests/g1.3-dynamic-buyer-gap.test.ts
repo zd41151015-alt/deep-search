@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -25,6 +25,7 @@ import {
   G13_BUYER_BRANCH,
   type G13FixtureState,
   prepareG13Run,
+  publishAdditionalG13Branch,
   stopDecision,
 } from "./fixtures/g1.3/assessment-adaptation-fixture.js";
 
@@ -51,26 +52,70 @@ function refreshEnvelope(bundle: DocumentBundle, targetPath: string): void {
   }
 }
 
+async function snapshotTree(root: string): Promise<Readonly<Record<string, string>>> {
+  const snapshot: Record<string, string> = {};
+  const visit = async (directory: string, prefix = ""): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolute, relative);
+      } else if (entry.isFile()) {
+        snapshot[relative] = (await readFile(absolute)).toString("base64");
+      }
+    }
+  };
+  await visit(root);
+  return Object.fromEntries(
+    Object.entries(snapshot).sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+const adaptationLifecycleFields = [
+  "pending_adaptation_refs",
+  "validated_adaptation_refs",
+  "rejected_adaptation_refs",
+  "applied_adaptation_refs",
+] as const;
+
+async function moveDecisionLifecycle(
+  state: G13FixtureState,
+  decisionRef: string,
+  target: (typeof adaptationLifecycleFields)[number],
+): Promise<void> {
+  const manifestPath = path.join(state.runRoot, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+  for (const field of adaptationLifecycleFields) {
+    const refs = manifest[field] as string[];
+    manifest[field] = refs.filter((ref) => ref !== decisionRef);
+  }
+  manifest[target] = [...new Set([...(manifest[target] as string[]), decisionRef])].sort();
+  await writeFile(manifestPath, `${canonicalJson(manifest)}\n`);
+}
+
 async function createGap(
   state: G13FixtureState,
   options: {
     readonly snapshotId?: string;
     readonly materialNewEvidenceObserved?: boolean;
     readonly bundle?: DocumentBundle;
+    readonly branch?: typeof G13_BUYER_BRANCH;
+    readonly createdAt?: string;
   } = {},
 ) {
   const currentBundle = options.bundle ?? (await bundleFromRun(state));
+  const branch = options.branch ?? state.branch;
   const result = (await createAssessmentGapAnalyzer(repositoryRoot)).analyze({
     documentBundle: currentBundle,
     snapshotId: options.snapshotId ?? "buyer-gap-current",
-    createdAt: "2026-07-25T16:21:00Z",
+    createdAt: options.createdAt ?? "2026-07-25T16:21:00Z",
     triggerKind: "wave_completed",
     waveId: "assessment_wave_1",
     triggerEventRef: null,
-    dimensionId: state.branch.dimensionId as
+    dimensionId: branch.dimensionId as
       | "buyer_language_and_willingness_to_pay"
       | "acquisition_and_distribution",
-    observedArtifactRefs: [state.branch.outputPath],
+    observedArtifactRefs: [branch.outputPath],
     materialNewEvidenceObserved: options.materialNewEvidenceObserved ?? true,
     limitations: ["Synthetic fixture only; no external validation was performed."],
   });
@@ -88,41 +133,47 @@ async function publishGapAndDecision(
   const { result } = await createGap(state, { materialNewEvidenceObserved });
   const gapPath = result.snapshotPath as string;
   const snapshot = result.snapshot as Record<string, unknown>;
+  const gapEnvelope = formalEnvelope(
+    state.runId,
+    gapPath,
+    snapshot,
+    "startup_opportunity.artifact_envelope.v6",
+    "harness",
+    (snapshot.gaps as Record<string, unknown>[])[0]?.basis_refs as readonly string[],
+    "2026-07-25T16:21:00Z",
+  );
   await state.store.publishArtifact({
     runId: state.runId,
-    envelope: formalEnvelope(
-      state.runId,
-      gapPath,
-      snapshot,
-      "startup_opportunity.artifact_envelope.v6",
-      "harness",
-      (snapshot.gaps as Record<string, unknown>[])[0]?.basis_refs as readonly string[],
-      "2026-07-25T16:21:00Z",
-    ),
+    envelope: gapEnvelope,
   });
   const decision =
     kind === "add"
       ? addUnitDecision(state.runId, gapPath, snapshot)
       : stopDecision(state.runId, gapPath, snapshot);
-  await state.store.publishArtifact({
-    runId: state.runId,
-    envelope: formalEnvelope(
-      state.runId,
-      decision.path,
-      decision.document,
-      "startup_opportunity.artifact_envelope.v6",
-      "main_agent",
-      [
-        `${gapPath}#${String((snapshot.gaps as Record<string, unknown>[])[0]?.gap_id)}`,
-        String(snapshot.based_on_plan_ref),
-        String(snapshot.assessment_plan_ref),
-        String(snapshot.subject_ref),
-        String(snapshot.scope_frame_ref),
-      ],
-      "2026-07-25T16:22:00Z",
-    ),
-  });
-  return { gapPath, snapshot, decision, adaptationBundle: await bundleFromRun(state) };
+  const decisionEnvelope = formalEnvelope(
+    state.runId,
+    decision.path,
+    decision.document,
+    "startup_opportunity.artifact_envelope.v6",
+    "main_agent",
+    [
+      `${gapPath}#${String((snapshot.gaps as Record<string, unknown>[])[0]?.gap_id)}`,
+      String(snapshot.based_on_plan_ref),
+      String(snapshot.assessment_plan_ref),
+      String(snapshot.subject_ref),
+      String(snapshot.scope_frame_ref),
+    ],
+    "2026-07-25T16:22:00Z",
+  );
+  await state.store.publishArtifact({ runId: state.runId, envelope: decisionEnvelope });
+  return {
+    gapPath,
+    snapshot,
+    decision,
+    gapEnvelope,
+    decisionEnvelope,
+    adaptationBundle: await bundleFromRun(state),
+  };
 }
 
 function applyInput(
@@ -204,6 +255,225 @@ test("G1.3 buyer Gap creates exact Research Plan r2 and assessment plan r2 atomi
   assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
   assert.equal(reopened.manifest.plan_revision, 2);
   assert.equal(reopened.manifest.schema_bundle_version, "5.0.0");
+});
+
+test("G1.3 exact Decision replay preserves every existing lifecycle state byte-for-byte", async (context) => {
+  for (const [index, lifecycle] of [
+    "pending_adaptation_refs",
+    "validated_adaptation_refs",
+    "rejected_adaptation_refs",
+  ].entries()) {
+    await context.test(lifecycle, async (subcontext) => {
+      const state = await prepareG13Run(
+        subcontext,
+        repositoryRoot,
+        `run_g1_3_decision_replay_${String(index + 1)}`,
+      );
+      const prepared = await publishGapAndDecision(state);
+      await moveDecisionLifecycle(
+        state,
+        prepared.decision.path,
+        lifecycle as (typeof adaptationLifecycleFields)[number],
+      );
+      const before = await snapshotTree(state.runRoot);
+
+      const replay = await state.store.publishArtifact({
+        runId: state.runId,
+        envelope: prepared.decisionEnvelope,
+      });
+
+      assert.equal(replay.status, "idempotent_replay");
+      assert.deepEqual(await snapshotTree(state.runRoot), before);
+      const manifest = JSON.parse(
+        await readFile(path.join(state.runRoot, "manifest.json"), "utf8"),
+      ) as Record<string, unknown>;
+      for (const field of adaptationLifecycleFields) {
+        assert.equal(
+          (manifest[field] as string[]).includes(prepared.decision.path),
+          field === lifecycle,
+        );
+      }
+    });
+  }
+});
+
+test("G1.3 v6 receipts recover interrupted Gap and Decision Manifest projection", async (context) => {
+  const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_receipt_replay_001");
+  const { result } = await createGap(state);
+  const gapPath = result.snapshotPath as string;
+  const snapshot = result.snapshot as Record<string, unknown>;
+  const gapEnvelope = formalEnvelope(
+    state.runId,
+    gapPath,
+    snapshot,
+    "startup_opportunity.artifact_envelope.v6",
+    "harness",
+    (snapshot.gaps as Record<string, unknown>[])[0]?.basis_refs as readonly string[],
+    "2026-07-25T16:21:00Z",
+  );
+  await assert.rejects(
+    state.store.publishArtifact({
+      runId: state.runId,
+      envelope: gapEnvelope,
+      faultAt: "after_publish",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const beforeGapReplay = JSON.parse(
+    await readFile(path.join(state.runRoot, "manifest.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.ok(!(beforeGapReplay.artifact_refs as string[]).includes(gapPath));
+  assert.equal(beforeGapReplay.latest_gap_snapshot_ref, null);
+  assert.equal(
+    (await state.store.publishArtifact({ runId: state.runId, envelope: gapEnvelope })).status,
+    "idempotent_replay",
+  );
+
+  const decision = addUnitDecision(state.runId, gapPath, snapshot);
+  const decisionEnvelope = formalEnvelope(
+    state.runId,
+    decision.path,
+    decision.document,
+    "startup_opportunity.artifact_envelope.v6",
+    "main_agent",
+    [
+      `${gapPath}#${String((snapshot.gaps as Record<string, unknown>[])[0]?.gap_id)}`,
+      String(snapshot.based_on_plan_ref),
+      String(snapshot.assessment_plan_ref),
+      String(snapshot.subject_ref),
+      String(snapshot.scope_frame_ref),
+    ],
+    "2026-07-25T16:22:00Z",
+  );
+  await assert.rejects(
+    state.store.publishArtifact({
+      runId: state.runId,
+      envelope: decisionEnvelope,
+      faultAt: "after_publish",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const beforeReopen = JSON.parse(
+    await readFile(path.join(state.runRoot, "manifest.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.ok(!(beforeReopen.artifact_refs as string[]).includes(decision.path));
+  assert.ok(!(beforeReopen.pending_adaptation_refs as string[]).includes(decision.path));
+
+  const reopened = await state.store.load(state.runId);
+  assert.equal(reopened.manifest.latest_gap_snapshot_ref, gapPath);
+  assert.ok(reopened.manifest.pending_adaptation_refs.includes(decision.path));
+  const operationDirectory = path.join(state.runRoot, ".store/operations");
+  const receipts = await Promise.all(
+    (await readdir(operationDirectory))
+      .filter((entry) => entry.startsWith("artifact-") && entry.endsWith(".json"))
+      .map(async (entry) =>
+        JSON.parse(await readFile(path.join(operationDirectory, entry), "utf8")),
+      ),
+  );
+  const controlReceipts = receipts.filter((receipt) =>
+    [gapPath, decision.path].includes(String(receipt.artifact_path)),
+  );
+  assert.deepEqual(controlReceipts.map((receipt) => receipt.schema_version).sort(), [
+    "startup_opportunity.artifact_store_operation.v5",
+    "startup_opportunity.artifact_store_operation.v5",
+  ]);
+  const beforeExactReplay = await snapshotTree(state.runRoot);
+  assert.equal(
+    (await state.store.publishArtifact({ runId: state.runId, envelope: decisionEnvelope })).status,
+    "idempotent_replay",
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeExactReplay);
+});
+
+test("G1.3 applied Decision replay is byte-stable through single, bundle, reopen, and conflict", async (context) => {
+  const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_applied_replay_001");
+  const prepared = await publishGapAndDecision(state);
+  const candidate = candidateBundle(prepared.adaptationBundle, prepared.decision);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+  assert.equal((await runtime.apply(applyInput(state, prepared, candidate))).status, "applied");
+  const appliedManifest = (await state.store.load(state.runId)).manifest;
+  assert.ok(appliedManifest.applied_adaptation_refs.includes(prepared.decision.path));
+  assert.ok(!appliedManifest.pending_adaptation_refs.includes(prepared.decision.path));
+  const before = await snapshotTree(state.runRoot);
+
+  const singleReplay = await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: prepared.decisionEnvelope,
+  });
+  assert.equal(singleReplay.status, "idempotent_replay");
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
+
+  const bundleReplay = await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: [prepared.gapEnvelope, prepared.decisionEnvelope],
+  });
+  assert.equal(bundleReplay.status, "idempotent_replay");
+  assert.ok(bundleReplay.artifacts.every((artifact) => artifact.status === "idempotent_replay"));
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
+
+  const reopened = await state.store.load(state.runId);
+  assert.ok(reopened.manifest.applied_adaptation_refs.includes(prepared.decision.path));
+  assert.ok(!reopened.manifest.pending_adaptation_refs.includes(prepared.decision.path));
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
+
+  const conflictingDocument = {
+    ...prepared.decisionEnvelope.document,
+    reason: "Conflicting synthetic replay content must fail closed.",
+  };
+  const conflictingEnvelope = {
+    ...prepared.decisionEnvelope,
+    content_hash: canonicalContentHash(conflictingDocument),
+    document: conflictingDocument,
+  };
+  await assert.rejects(
+    state.store.publishArtifact({ runId: state.runId, envelope: conflictingEnvelope }),
+    (error: unknown) => error instanceof StoreError && error.code === "write.conflict",
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
+});
+
+test("G1.3 historical Gap replay cannot replace a later latest Gap", async (context) => {
+  const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_gap_replay_001");
+  await publishAdditionalG13Branch(state, G13_ACQUISITION_BRANCH);
+  const historical = await publishGapAndDecision(state);
+  const createdAt = "2026-07-25T16:25:00Z";
+  const current = await createGap(state, {
+    branch: G13_ACQUISITION_BRANCH,
+    snapshotId: "acquisition-gap-latest",
+    createdAt,
+  });
+  const currentPath = current.result.snapshotPath as string;
+  const currentSnapshot = current.result.snapshot as Record<string, unknown>;
+  const currentEnvelope = formalEnvelope(
+    state.runId,
+    currentPath,
+    currentSnapshot,
+    "startup_opportunity.artifact_envelope.v6",
+    "harness",
+    (currentSnapshot.gaps as Record<string, unknown>[])[0]?.basis_refs as readonly string[],
+    createdAt,
+  );
+  await state.store.publishArtifact({ runId: state.runId, envelope: currentEnvelope });
+  assert.equal((await state.store.load(state.runId)).manifest.latest_gap_snapshot_ref, currentPath);
+  const before = await snapshotTree(state.runRoot);
+
+  const singleReplay = await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: historical.gapEnvelope,
+  });
+  assert.equal(singleReplay.status, "idempotent_replay");
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
+
+  const bundleReplay = await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: [historical.gapEnvelope, historical.decisionEnvelope],
+  });
+  assert.equal(bundleReplay.status, "idempotent_replay");
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
+
+  const reopened = await state.store.load(state.runId);
+  assert.equal(reopened.manifest.latest_gap_snapshot_ref, currentPath);
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
 });
 
 test("G1.3 acquisition Gap maps only to a bounded acquisition add_unit", async (context) => {
@@ -422,8 +692,8 @@ test("G1.3 contract rejects closed-action, identity, ancestry, and observed Arti
       "utf8",
     ),
   ) as { positive_cases: string[]; negative_cases: string[] };
-  assert.equal(catalog.positive_cases.length, 9);
-  assert.equal(catalog.negative_cases.length, 12);
+  assert.equal(catalog.positive_cases.length, 15);
+  assert.equal(catalog.negative_cases.length, 13);
 
   const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_negative_001");
   const prepared = await publishGapAndDecision(state);

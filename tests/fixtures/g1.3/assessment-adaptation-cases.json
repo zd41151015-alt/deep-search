@@ -7,6 +7,12 @@
     "no_material_new_evidence_stop_followup",
     "no_executable_followup_stop_followup",
     "idempotent_replay",
+    "decision_lifecycle_exact_replay",
+    "applied_decision_single_replay",
+    "applied_decision_bundle_replay",
+    "historical_gap_exact_replay",
+    "replay_reopen_recovery",
+    "v6_control_receipt_recovery",
     "deep_plan_ancestry",
     "concurrent_same_operation",
     "crash_boundary_recovery"
@@ -23,7 +29,8 @@
     "wrong_coverage_key",
     "forged_observed_artifact_hash",
     "drifted_stored_artifact",
-    "operation_key_conflict"
+    "operation_key_conflict",
+    "conflicting_control_artifact_replay"
   ],
   "truthfulness": {
     "synthetic_only": true,

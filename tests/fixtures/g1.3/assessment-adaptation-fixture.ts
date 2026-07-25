@@ -52,7 +52,7 @@ export interface G13FixtureState {
       readonly document: Record<string, unknown>;
     }[];
   };
-  readonly records: readonly [EvidenceStoreRecordV2, EvidenceStoreRecordV2];
+  readonly records: EvidenceStoreRecordV2[];
 }
 
 function clone<T>(value: T): T {
@@ -220,7 +220,8 @@ export async function prepareG13Run(
     "concept-hypothesis.json",
     G13_PLAN_REF,
     G13_ASSESSMENT_PLAN_REF,
-    branch.judgmentRef,
+    G13_BUYER_BRANCH.judgmentRef,
+    G13_ACQUISITION_BRANCH.judgmentRef,
   ]);
   const initial = baseBundle.documents
     .filter((entry) => selectedPaths.has(entry.path))
@@ -294,7 +295,56 @@ export async function prepareG13Run(
       "2026-07-25T16:20:00Z",
     ),
   });
-  return { repositoryRoot, runsRoot, runRoot, runId, branch, store, baseBundle, records };
+  return {
+    repositoryRoot,
+    runsRoot,
+    runRoot,
+    runId,
+    branch,
+    store,
+    baseBundle,
+    records: [...records],
+  };
+}
+
+export async function publishAdditionalG13Branch(
+  state: G13FixtureState,
+  branch: FixtureBranch,
+): Promise<void> {
+  const task = withRun(taskEnvelope(state.baseBundle, branch, 7), state.runId);
+  await state.store.publishArtifact({ runId: state.runId, envelope: task });
+  const evidenceStore = new EvidenceStore(state.runsRoot);
+  const researchGoal = String(task.document.research_goal);
+  const first = await evidenceStore.record({
+    runId: state.runId,
+    unitId: branch.unitId,
+    researchGoal,
+    source: {
+      kind: "public_url",
+      canonical_url: `https://${branch.unitId}.synthetic.invalid/current-signal`,
+    },
+    rawContent: `SYNTHETIC ${branch.unitId} SUPPORT BYTES; NOT MARKET EVIDENCE.`,
+    recordedAt: "2026-07-25T16:12:00Z",
+  });
+  const second = await evidenceStore.record({
+    runId: state.runId,
+    unitId: branch.unitId,
+    researchGoal,
+    source: {
+      kind: "user_provided",
+      canonical_uri: `urn:startup-opportunity:user-provided:g1-3-${branch.unitId}:oppose`,
+    },
+    rawContent: `SYNTHETIC ${branch.unitId} OPPOSING BYTES; NOT MARKET EVIDENCE.`,
+    recordedAt: "2026-07-25T16:13:00Z",
+  });
+  const records = [first.record, second.record] as const;
+  state.records.push(...records);
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: branchResearchEnvelopes(branch, records, 7).map((entry) =>
+      withRun(entry, state.runId),
+    ),
+  });
 }
 
 export function addUnitDecision(
