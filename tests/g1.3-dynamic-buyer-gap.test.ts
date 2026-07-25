@@ -685,6 +685,69 @@ test("G1.3 sufficient and non-executable buyer coverage deterministically stop",
   assert.ok(duplicate.errors.some((error) => error.code === "assessment_gap.coverage_duplicate"));
 });
 
+test("G1.3 rejects fabricated closed stop bases before filesystem publication", async (context) => {
+  const cases = [
+    {
+      id: "coverage_sufficient",
+      coverageStatus: "sufficient",
+      stopSignals: ["coverage_sufficient"],
+    },
+    {
+      id: "no_material_new_evidence",
+      coverageStatus: "insufficient",
+      stopSignals: ["no_material_new_evidence"],
+    },
+    {
+      id: "no_executable_followup",
+      coverageStatus: "no_executable_followup",
+      stopSignals: ["no_executable_followup"],
+    },
+  ] as const;
+
+  for (const [index, fixture] of cases.entries()) {
+    await context.test(fixture.id, async (subcontext) => {
+      const state = await prepareG13Run(
+        subcontext,
+        repositoryRoot,
+        `run_g1_3_forged_stop_${String(index + 1)}`,
+      );
+      const { result } = await createGap(state, {
+        snapshotId: `forged-${fixture.id}`,
+        materialNewEvidenceObserved: true,
+      });
+      const snapshot = clone(result.snapshot as Record<string, unknown>);
+      const gap = (snapshot.gaps as Record<string, unknown>[])[0];
+      assert.ok(gap);
+      gap.gap_type = fixture.id;
+      gap.coverage_status = fixture.coverageStatus;
+      gap.recommended_unit_type = null;
+      gap.followup_status = "stop";
+      gap.severity = "material";
+      snapshot.stop_signals = fixture.stopSignals;
+      const gapPath = result.snapshotPath as string;
+      const envelope = formalEnvelope(
+        state.runId,
+        gapPath,
+        snapshot,
+        "startup_opportunity.artifact_envelope.v6",
+        "harness",
+        gap.basis_refs as readonly string[],
+        "2026-07-25T16:21:00Z",
+      );
+      const before = await snapshotTree(state.runRoot);
+
+      await assert.rejects(
+        state.store.publishArtifact({ runId: state.runId, envelope }),
+        (error: unknown) =>
+          error instanceof StoreError &&
+          error.code === "artifact.reference_invalid" &&
+          JSON.stringify(error.details).includes("assessment_adaptation.gap_semantics_mismatch"),
+      );
+      assert.deepEqual(await snapshotTree(state.runRoot), before);
+    });
+  }
+});
+
 test("G1.3 contract rejects closed-action, identity, ancestry, and observed Artifact drift", async (context) => {
   const catalog = JSON.parse(
     await readFile(
@@ -693,7 +756,7 @@ test("G1.3 contract rejects closed-action, identity, ancestry, and observed Arti
     ),
   ) as { positive_cases: string[]; negative_cases: string[] };
   assert.equal(catalog.positive_cases.length, 15);
-  assert.equal(catalog.negative_cases.length, 13);
+  assert.equal(catalog.negative_cases.length, 16);
 
   const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_negative_001");
   const prepared = await publishGapAndDecision(state);

@@ -1,8 +1,8 @@
 # Startup Opportunity Research Harness 实施进度
 
-> **状态**: G1_IN_PROGRESS / G1.3_EXIT_CANDIDATE_PENDING_INDEPENDENT_REGRESSION
-> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`IN_PROGRESS`（G1.1=`DONE`，G1.2=`DONE`，G1.3=`REPAIR_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`）；G1.4-G1.R 与 G2-G4=`NOT_READY`
-> **下一独立会话**: 只可从 clean G1.3 implementation candidate 创建独立 G1.3 whole-slice regression；本任务不创建下一任务，G1.4-G1.R 仍不可开放
+> **状态**: G1_IN_PROGRESS / G1.3_DONE / G1.4_READY
+> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`IN_PROGRESS`（G1.1-G1.3=`DONE`，唯一 G1.4=`READY`）；G1.R 与 G2-G4=`NOT_READY`
+> **下一独立会话**: 只可从 clean G1.3 independent acceptance commit 开始 G1.4 implementation；本任务不创建 G1.4 或任何下一任务
 > **最后更新**: 2026-07-25
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
 
@@ -163,7 +163,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | Gate | 状态 | 依赖 | 退出证据 |
 | --- | --- | --- | --- |
 | G0 Foundation Harness | `DONE` | RFC v1 | 工具链与仓库骨架、核心 schema、Run/Artifact Store、validator、checkpoint、Gap/Adaptation/Plan Revision、完整 foundation regression |
-| G1 Concept Evidence Assessment | `IN_PROGRESS` | G0 | 单 thesis 从 intake 到 report 的端到端闭环，buyer gap 触发 plan r2，独立 G1 回归；G1.1 与 G1.2 已通过独立验收，G1.3 repair candidate 等待中控验收 |
+| G1 Concept Evidence Assessment | `IN_PROGRESS` | G0 | 单 thesis 从 intake 到 report 的端到端闭环，buyer gap 触发 plan r2，独立 G1 回归；G1.1-G1.3 已通过独立验收，唯一 G1.4 可开始 |
 | G2 Opportunity Discovery | `NOT_READY` | G1 | discovery lanes、Demand/Solution synthesis、pre-kill/enrichment、比较/portfolio 和独立 G2 回归 |
 | G3 AI Bundle | `NOT_READY` | G2 | 六维 AI mandatory bundle、baseline/reliability/data/economics/risk gates 和独立 G3 回归 |
 | G4 Distribution / Operational Exit | `NOT_READY` | G3 | repo-local Skill/agents/hooks/MCP 完整入口、安装与恢复文档、端到端 fixture；Plugin 是否打包按 RFC 条件判断 |
@@ -176,7 +176,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | W1 | Schema bundle、reference validator、artifact envelopes | `DONE` |
 | W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `DONE` |
 | W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `DONE` |
-| W4 | Assess domain contracts、research branches、matrix、audit/review/report | `IN_PROGRESS`（G1.1、G1.2=`DONE`；G1.3=`REPAIR_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`） |
+| W4 | Assess domain contracts、research branches、matrix、audit/review/report | `IN_PROGRESS`（G1.1-G1.3=`DONE`；唯一 G1.4=`READY`） |
 | W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `NOT_READY` |
 | W6 | AI mandatory bundle 和 gates | `NOT_READY` |
 | W7 | Codex Skill、custom agents、hooks/MCP、分发和端到端运营 | `NOT_READY` |
@@ -197,8 +197,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- | --- | --- |
 | G1.1 | Assess Domain Contract | `DONE` | intake、DecisionContext、ScopeFrame、ConceptHypothesis、assessment plan/branch/fan-in、JudgmentAssessment、Evidence Matrix、BusinessEngine、Assessment closed schemas 和 fixtures |
 | G1.2 | Evidence Store / Research Branch Vertical Slice | `DONE` | public/user-provided evidence origin、canonical URL/hash/dedup、Claim/Finding/Insight refs、typed task envelope、至少需求/替代/buyer/counter-evidence branches 的可运行 fixture |
-| G1.3 | Dynamic Buyer-Gap Adaptation | `REPAIR_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE` | plan r1 运行后 buyer gap 形成 Snapshot；validated `add_unit` 生成 plan r2；重复/stale/illegal adaptation 拒绝；无新证据 `stop_followup`；control Artifact exact replay 与 crash/reopen 可恢复 |
-| G1.4 | Audit / Adversarial Review / Assessment / Report | `NOT_READY` | evidence audit、独立 challenger、assessment gate、四类 result、report.json/decision brief/full report 一致性与 traceability |
+| G1.3 | Dynamic Buyer-Gap Adaptation | `DONE` | plan r1 运行后 buyer gap 形成 Snapshot；validated `add_unit` 生成 plan r2；重复/stale/illegal adaptation 拒绝；无新证据 `stop_followup`；control Artifact exact replay 与 crash/reopen 可恢复 |
+| G1.4 | Audit / Adversarial Review / Assessment / Report | `READY` | evidence audit、独立 challenger、assessment gate、四类 result、report.json/decision brief/full report 一致性与 traceability |
 | G1.R | Independent Assess Whole-Gate Regression | `NOT_READY` | 端到端 assess fixture、正反结论、insufficient evidence、动态 adaptation、报告与恢复独立重放；通过后 G1=`DONE` |
 
 ## G2 Opportunity Discovery 施工切片
@@ -235,12 +235,12 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | G1.3 control Artifact replay 定向最小返修；本任务不创建独立 regression 或任何下一任务 |
-| Current slice | `G0 Foundation=DONE`；`G1.1=DONE`；`G1.2=DONE`；`G1.3=REPAIR_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`；G1.4-G1.R 与 G2-G4 保持 `NOT_READY` |
-| Expected base | G1.3 repair 唯一起点为保留原 candidate 的 `main@ae810b91f0a99e33b31a98e48481712d424675a9`，parent=`4295d490894e1b00a0e3f16b76e210ada0b63130` |
+| Active task | none；G1.3 independent acceptance 已完成，本任务不创建 G1.4 或任何下一任务 |
+| Current slice | `G0 Foundation=DONE`；`G1.1-G1.3=DONE`；唯一 `G1.4=READY`；G1.R 与 G2-G4 保持 `NOT_READY` |
+| Expected base | G1.4 唯一起点为本次 G1.3 independent acceptance 的 clean atomic commit，parent=`aba56634ca0feac9328487adb63b846ae1ac7cc8` |
 | Consecutive state-query failures | `0` |
-| Last effective operation | `g1_3_control_artifact_replay_repair_candidate_completed` |
-| Next allowed action | 中控验收 clean G1.3 repair candidate；验收前不得创建独立 regression、开放 G1.4+、G2-G4 或在本任务内创建下一任务 |
+| Last effective operation | `g1_3_independent_acceptance_completed` |
+| Next allowed action | 仅可从 clean G1.3 acceptance commit 创建 G1.4 implementation；不得创建 G1.R、G2-G4 或在本任务内创建下一任务 |
 
 ## 已完成切片与证据
 
@@ -262,7 +262,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | G1.2 Evidence Store / Research Branch implementation candidate | `ACCEPTED_WITH_REGRESSION_REPAIRS` | `c1036b39002d2f1fafaa01bdf9a43c89076cd95f` | `ad9acacaef96fc08ed2f6c7915f2995aa87e58df` |
 | G1.2 Evidence Store / Research Branch independent acceptance | `DONE` | `4295d490894e1b00a0e3f16b76e210ada0b63130` | `c1036b39002d2f1fafaa01bdf9a43c89076cd95f` |
 | G1.3 Dynamic Buyer-Gap Adaptation implementation candidate | `REJECTED_BY_CONTROLLER` | `ae810b91f0a99e33b31a98e48481712d424675a9` | `4295d490894e1b00a0e3f16b76e210ada0b63130` |
-| G1.3 control Artifact replay directed repair | `REPAIR_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE` | `<G1_3_CONTROL_ARTIFACT_REPLAY_REPAIR_COMMIT>` | `ae810b91f0a99e33b31a98e48481712d424675a9` |
+| G1.3 control Artifact replay directed repair | `ACCEPTED_WITH_REGRESSION_REPAIRS` | `aba56634ca0feac9328487adb63b846ae1ac7cc8` | `ae810b91f0a99e33b31a98e48481712d424675a9` |
+| G1.3 Dynamic Buyer-Gap Adaptation independent acceptance | `DONE` | `<G1_3_INDEPENDENT_ACCEPTANCE_COMMIT>` | `aba56634ca0feac9328487adb63b846ae1ac7cc8` |
 
 G0.1 交付物：
 
@@ -1007,9 +1008,57 @@ Candidate commit 为 `ae810b91f0a99e33b31a98e48481712d424675a9`，parent=`4295d4
 - 未进入 G1.4 evidence audit、adversarial review、Assessment gate、Hard Gate、`report.json`、`decision-brief.md`、`report.md` 或 G1.R；未进入 discover/comparison/reporting、G2-G4。
 - G1.3 标记 `REPAIR_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`；G1.4-G1.R 与 G2-G4 全部保持 `NOT_READY`。本任务不创建 regression 或任何下一任务。
 
+## G1.3 Dynamic Buyer-Gap Adaptation Independent Acceptance
+
+本独立验收以 clean `main@aba56634ca0feac9328487adb63b846ae1ac7cc8` 为唯一起点，核对 parent=`ae810b91f0a99e33b31a98e48481712d424675a9`、grandparent=`4295d490894e1b00a0e3f16b76e210ada0b63130`、branch=`main` 与空工作树。完整读取 RFC、本文、`AGENTS.md`、`$startup-opportunity` Skill 及 concept-evidence-assessment/research-kernel/artifact-contracts/lane-catalog references，并使用 `rg` 独立建立 schema/policy、Gap/Decision identity、Run/Artifact Store、Plan runtime、CLI/Skill、fixture/test 与 RFC 引用索引。未依赖实现任务口头结论，未创建 subagent、worktree、Handoff 或下一任务，未 push、amend、rebase 或 reset。
+
+### Whole-slice 审查、独立发现与最小修复
+
+- 独立复核 schema bundle `5.0.0`、`gap_snapshot.v2`、`adaptation_decision.v3`、assessment-adaptation/AI source-binding/research-publication policies、Artifact Envelope/Document Bundle v6 与 v1-v5 compatibility。相对 G1.2 accepted baseline，v1-v5 schemas、既有 bundles/policies 与 package/toolchain bytes 均冻结。
+- 复核 buyer/acquisition Gap Snapshot -> closed `add_unit|stop_followup` Decision -> validated immutable Research Plan r2、assessment plan r2、Planning Context r2 -> Manifest CAS。identity 绑定 exact same-Run、subject、scope、current Research Plan、assessment plan、`coverage_key`、observed Branch Result/hash、Research Task/hash 及 unit/attempt/state lineage。
+- 真实 filesystem regression 覆盖 duplicate、stale、branched ancestry、illegal action/target、wrong Run/subject/scope/coverage、stored Artifact drift、operation conflict、Manifest CAS，以及无 material new Evidence 或无 executable follow-up 的 closed `stop_followup`。冲突内容全部在 formal publish 前 fail closed。
+- 复现并接受 `aba56634` 对原 control Artifact replay 缺陷的修复：v6 Adaptation Decision 在 pending/validated/rejected/applied 任一 lifecycle 状态 exact replay 均不回退 pending；Plan apply 后 single/bundle exact replay byte-stable；historical Gap single/bundle replay 不倒退 `latest_gap_snapshot_ref`；validated v6 receipt 在 Artifact 已发布而 Manifest projection 中断时可恢复；live publication、checkpoint 与 reopen/recovery projection 一致。
+- 独立发现另一个 G1.3 production defect：调用方可把真实 insufficient buyer Branch 的 Gap 改写为 schema-valid `coverage_sufficient`，再生成 `stop_followup`；原 validator 只检查 identity/action mapping，未从 Branch `decision_sufficiency`、`what_would_change_decision`、follow-up limit 和 `material_new_evidence_observed` 重算 closed Gap disposition。修复前最小复现返回 `{"valid":true,"adaptationErrors":[]}`。
+- 最小 production repair 在 `AssessmentAdaptationValidator` 重算并验证 `coverage_sufficient`、`no_material_new_evidence`、`no_executable_followup`、buyer/acquisition executable insufficient Gap、`coverage_status`、`followup_status`、`recommended_unit_type` 与必需 stop signal；不改变 schema/policy bytes，并保留 policy 允许的附加 closed stop signals。新增 deterministic error `assessment_adaptation.gap_semantics_mismatch`。
+- 新增 3 个真实临时 filesystem regression，分别伪造 `coverage_sufficient`、`no_material_new_evidence`、`no_executable_followup` stop basis；每例在 publication 前拒绝，并对完整 Run tree 的 Manifest、formal Artifact、Artifact/Plan receipts、checkpoint 与 reopen/recovery 文件做 base64 byte snapshot，确认失败前后逐字节无变化。G1.3 negative catalog 从 13 增至 16。
+
+### 冻结环境与真实验证
+
+使用 Node.js `24.18.0` 与 npm `11.16.0`；所有 npm 命令均显式通过 `PATH=/opt/homebrew/Cellar/node@24/24.18.0/bin:$PATH npx --yes npm@11.16.0` 执行。
+
+| 命令 | G1.3 independent acceptance 结果 |
+| --- | --- |
+| `npm ci` | PASS；18 packages installed，19 packages audited，0 vulnerabilities |
+| `npm run lint` | PASS；Biome checked 173 files，0 diagnostics |
+| `npm run typecheck` | PASS；`tsc --noEmit`，0 errors |
+| `npm test` | PASS；146 tests，146 passed，0 failed/skipped/todo |
+| `npm run validate:schemas` | PASS；bundle `5.0.0`，54 schemas，51 document validators，0 unresolved refs |
+| `npm run validate:fixtures` | PASS；74 tests，74 passed，0 failed/skipped/todo |
+| `npm run validate:store` | PASS；11 tests，11 passed，0 failed/skipped/todo |
+| `npm run test:faults` | PASS；10 tests，10 passed，0 failed/skipped/todo |
+| `npm run test:recovery` | PASS；11 tests，11 passed，0 failed/skipped/todo |
+| `npm run test:g0.4` | PASS；31 tests，31 passed，0 failed/skipped/todo |
+| `npm run test:g1.1` | PASS；11 tests，11 passed，0 failed/skipped/todo |
+| `npm run test:g1.2` | PASS；20 tests，20 passed，0 failed/skipped/todo |
+| `npm run test:g1.3` | PASS；25 tests，25 passed，0 failed/skipped/todo；含 forged stop-basis 零写入与 control Artifact replay/recovery |
+| `npm run verify:skeleton` | PASS；skeleton `g1.3`，157 doctor checks，0 failed，Node `24.18.0` |
+| `npm run harness -- doctor --json` | PASS；`ok=true`，skeleton `g1.3`，157 checks，0 failed |
+| `npm audit` | PASS；19 packages audited，0 vulnerabilities |
+| frozen blob/diff reconciliation | PASS；相对 `4295d490`，toolchain、`package-lock.json`、AGENTS/RFC、`harness/schemas/v1/`-`v5/`、既有 bundles 与 `adaptation.v1.json`、`ai-trigger-source-binding.v1.json`、`plan-revision-apply.v1.json`、`research-publication.v1.json` 零 diff；相对 `aba56634`，schema/policy、Store/runtime、Skill/AGENTS/RFC 零 diff；`package-lock.json` SHA-256=`5271d765b9d1818ccace29aab770c629704a470c7c6a5827de07ddd4db68682e` |
+| truthfulness / prohibited-scope scan | PASS；仅一个 `package-lock.json`；G1.3 public URLs 仅 `*.synthetic.invalid`，user material 仅保留 `urn:startup-opportunity:user-provided:*`；fixtures 明示 `SYNTHETIC`、`model_inference_only`、`unverified`、limitations 与 `external_validation_claimed=false`；未发现 hidden LLM/network research/subagent/external-validation 或 G1.4+ execution |
+| `git diff --check` | PASS；acceptance commit 前复核 |
+
+### 独立退出结论与禁止边界
+
+- `aba56634ca0feac9328487adb63b846ae1ac7cc8` 的 control Artifact replay repair 已被本次 whole-slice regression 接受；连同上述同 G1.3 Gap semantic 最小修复与 regression evidence，G1.3=`DONE`。
+- 验证只证明 deterministic Gap/Decision/Plan/publication/recovery contract，不证明 Evidence 真实性、质量、独立性、充分性、thesis viability、decision readiness、市场数据或 external validation success。没有伪造 Evidence、URL、用户 quote、市场数据或成功验证。
+- 未执行真实 network research、interview、landing page、deposit、广告、paid experiment、MVP test 或其他 external validation；未建设通用 Workflow Runtime、任意 DAG DSL、daemon、UI 或 DB；未隐藏 LLM，也未重实现 Codex agent loop、permissions 或 thread lifecycle。
+- 未实现或启动 G1.4 evidence audit、adversarial review、Assessment gate、Hard Gate、`report.json`、`decision-brief.md`、`report.md`、G1.R、discover/comparison/reporting 或 G2-G4。未发现 `BLOCKED_BY_SPEC` 或 `BLOCKED_BY_ENV`。
+- G1 保持 `IN_PROGRESS`，W4 保持 `IN_PROGRESS`；唯一 G1.4=`READY`，G1.R 与 G2-G4 保持 `NOT_READY`。本任务不创建 G1.4 或任何下一任务。
+
 ## 当前边界与后续状态
 
 - G0 Foundation 已通过独立 whole-gate regression；当前没有 G0 blocker。
-- G1.1、G1.2 已通过独立 regression 并为 `DONE`；G1.3=`REPAIR_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`，G1.4-G1.R 和 G2-G4 保持 `NOT_READY`。
+- G1.1-G1.3 已通过独立 regression 并为 `DONE`；G1 仍为 `IN_PROGRESS`，唯一 G1.4=`READY`，G1.R 和 G2-G4 保持 `NOT_READY`。
 - `validate-artifact`、Evidence/Artifact Store、RunStore 与 bounded assessment adaptation 已具备 G1.3 deterministic publication/recovery contract；Harness 不执行 research，`assess`/`discover`、audit/comparison/reporting 仍未形成业务闭环。
 - 目标 runtime 是精确 Node.js `24.18.0` 与 npm `11.16.0`；开发者不得用错误版本证据替代冻结验证。

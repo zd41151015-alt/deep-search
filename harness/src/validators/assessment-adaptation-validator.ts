@@ -354,6 +354,81 @@ export function validateAssessmentAdaptationContract(
           ),
         );
       }
+
+      const observedBranches = observed.flatMap((item) => {
+        const branch = documents.get(item.artifact_ref);
+        return branch?.schemaVersion ===
+          "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+          ? [branch.document]
+          : [];
+      });
+      const sufficient =
+        observedBranches.length > 0 &&
+        observedBranches.every((branch) => branch.decision_sufficiency === "sufficient");
+      const followupPolicy = isRecord(assessmentPlan?.document.followup_policy)
+        ? assessmentPlan.document.followup_policy
+        : {};
+      const followupLimitReached =
+        typeof followupPolicy.max_followup_rounds === "number" &&
+        Number(manifest.document.followup_round) >= followupPolicy.max_followup_rounds;
+      const executableChange = observedBranches.some(
+        (branch) => stringArray(branch.what_would_change_decision).length > 0,
+      );
+      const materialNewEvidence = snapshot.document.material_new_evidence_observed === true;
+      const noExecutableFollowup =
+        !sufficient && materialNewEvidence && (followupLimitReached || !executableChange);
+      const expectedGapType = sufficient
+        ? "coverage_sufficient"
+        : !materialNewEvidence
+          ? "no_material_new_evidence"
+          : noExecutableFollowup
+            ? "no_executable_followup"
+            : gap.dimension_id === "buyer_language_and_willingness_to_pay"
+              ? "buyer_evidence_insufficient"
+              : "acquisition_evidence_insufficient";
+      const expectedCoverageStatus = sufficient
+        ? "sufficient"
+        : noExecutableFollowup
+          ? "no_executable_followup"
+          : "insufficient";
+      const expectedFollowupStatus = expectedGapType.endsWith("_insufficient")
+        ? "executable"
+        : "stop";
+      const expectedRecommendedUnit =
+        expectedFollowupStatus === "executable" ? expectedUnitType(expectedGapType) : null;
+      const expectedStopSignals = sufficient
+        ? ["coverage_sufficient"]
+        : !materialNewEvidence
+          ? ["no_material_new_evidence"]
+          : noExecutableFollowup
+            ? [
+                ...(followupLimitReached ? ["max_followup_rounds_reached"] : []),
+                "no_executable_followup",
+              ].sort()
+            : [];
+      const actualStopSignals = stringArray(snapshot.document.stop_signals);
+      if (
+        gap.gap_type !== expectedGapType ||
+        gap.coverage_status !== expectedCoverageStatus ||
+        gap.followup_status !== expectedFollowupStatus ||
+        gap.recommended_unit_type !== expectedRecommendedUnit ||
+        !expectedStopSignals.every((signal) => actualStopSignals.includes(signal))
+      ) {
+        errors.push(
+          issue(
+            "assessment_adaptation.gap_semantics_mismatch",
+            `${snapshot.path}#/gaps/0`,
+            "Gap disposition does not match its observed Branch sufficiency, Evidence, and follow-up state",
+            {
+              expectedCoverageStatus,
+              expectedFollowupStatus,
+              expectedGapType,
+              expectedRecommendedUnit,
+              expectedStopSignals,
+            },
+          ),
+        );
+      }
     }
   }
 

@@ -28,6 +28,9 @@
     "wrong_scope",
     "wrong_coverage_key",
     "forged_observed_artifact_hash",
+    "forged_coverage_sufficient_stop_basis",
+    "forged_no_material_new_evidence_stop_basis",
+    "forged_no_executable_followup_stop_basis",
     "drifted_stored_artifact",
     "operation_key_conflict",
     "conflicting_control_artifact_replay"
