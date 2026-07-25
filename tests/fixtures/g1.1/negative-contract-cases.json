@@ -1,0 +1,368 @@
+{
+  "schema_version": "startup_opportunity.g1_1_negative_fixture_set.v1",
+  "base_fixture": "valid-assess-contract-bundle.json",
+  "cases": [
+    {
+      "case_id": "intake-extra-property",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 0, "document", "external_validation_budget"],
+          "value": 1000
+        }
+      ],
+      "expected": [{ "kind": "document", "keyword": "additionalProperties", "instance_path": "" }]
+    },
+    {
+      "case_id": "intake-action-mode-mismatch",
+      "mutations": [
+        { "op": "set", "path": ["documents", 0, "document", "action"], "value": "discover" }
+      ],
+      "expected": [{ "kind": "document", "keyword": "oneOf" }]
+    },
+    {
+      "case_id": "decision-context-illegal-decision",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 1, "document", "decision_to_make"],
+          "value": "continue_validation"
+        }
+      ],
+      "expected": [{ "kind": "document", "keyword": "enum", "instance_path": "/decision_to_make" }]
+    },
+    {
+      "case_id": "scope-market-drift",
+      "mutations": [{ "op": "set", "path": ["documents", 2, "document", "market"], "value": "US" }],
+      "expected": [{ "kind": "reference", "code": "assess_contract.scope_identity_mismatch" }]
+    },
+    {
+      "case_id": "concept-scope-drift",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 3, "document", "claimed_value"],
+          "value": "另一个价值主张"
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "assess_contract.concept_scope_drift" }]
+    },
+    {
+      "case_id": "cross-run-judgment",
+      "mutations": [
+        { "op": "set", "path": ["documents", 6, "document", "run_id"], "value": "run_foreign_001" }
+      ],
+      "expected": [
+        { "kind": "reference", "code": "reference.run_mismatch" },
+        { "kind": "reference", "code": "assess_contract.run_mismatch" }
+      ]
+    },
+    {
+      "case_id": "assessment-plan-missing-dimension",
+      "mutations": [
+        {
+          "op": "delete_array_item",
+          "path": ["documents", 5, "document", "dimensions"],
+          "index": 0
+        }
+      ],
+      "expected": [
+        { "kind": "document", "keyword": "minItems", "instance_path": "/dimensions" },
+        { "kind": "reference", "code": "assess_contract.mandatory_dimensions_mismatch" }
+      ]
+    },
+    {
+      "case_id": "assessment-plan-duplicate-dimension",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 5, "document", "dimensions", 0, "dimension_id"],
+          "value": "demand_and_behavior"
+        }
+      ],
+      "expected": [
+        { "kind": "reference", "code": "assess_contract.duplicate_dimension" },
+        { "kind": "reference", "code": "assess_contract.mandatory_dimensions_mismatch" }
+      ]
+    },
+    {
+      "case_id": "research-plan-loses-assessment-link",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 4, "document", "waves", 0, "units", 0, "input_refs"],
+          "value": ["concept-hypothesis.json"]
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "assess_contract.dimension_unit_missing" }]
+    },
+    {
+      "case_id": "assessment-plan-path-revision-mismatch",
+      "mutations": [
+        { "op": "set", "path": ["documents", 5, "document", "revision"], "value": 2 },
+        {
+          "op": "set",
+          "path": ["documents", 5, "document", "parent_plan_ref"],
+          "value": "plans/concept-evidence-assessment-plan.r1.json"
+        },
+        {
+          "op": "set",
+          "path": ["documents", 5, "document", "triggered_by_adaptation_refs"],
+          "value": ["adaptations/decisions/adapt-001.json"]
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "assess_contract.path_revision_mismatch" }]
+    },
+    {
+      "case_id": "judgment-illegal-signal",
+      "mutations": [
+        { "op": "set", "path": ["documents", 6, "document", "judgment_signal"], "value": "stale" }
+      ],
+      "expected": [{ "kind": "document", "keyword": "enum", "instance_path": "/judgment_signal" }]
+    },
+    {
+      "case_id": "judgment-sufficiency-without-reason",
+      "mutations": [
+        { "op": "set", "path": ["documents", 6, "document", "insufficiency_reasons"], "value": [] }
+      ],
+      "expected": [
+        { "kind": "document", "keyword": "minItems", "instance_path": "/insufficiency_reasons" }
+      ]
+    },
+    {
+      "case_id": "no-signal-judgment-cannot-be-sufficient",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 6, "document", "decision_sufficiency"],
+          "value": "sufficient"
+        },
+        { "op": "set", "path": ["documents", 6, "document", "insufficiency_reasons"], "value": [] }
+      ],
+      "expected": [
+        { "kind": "document", "keyword": "enum", "instance_path": "/decision_sufficiency" }
+      ]
+    },
+    {
+      "case_id": "no-signal-judgment-requires-specific-reason",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 6, "document", "insufficiency_reasons"],
+          "value": ["low_tier_only"]
+        }
+      ],
+      "expected": [
+        { "kind": "document", "keyword": "contains", "instance_path": "/insufficiency_reasons" }
+      ]
+    },
+    {
+      "case_id": "branch-illegal-status",
+      "mutations": [
+        { "op": "set", "path": ["documents", 16, "document", "branch_status"], "value": "active" }
+      ],
+      "expected": [{ "kind": "document", "keyword": "enum", "instance_path": "/branch_status" }]
+    },
+    {
+      "case_id": "branch-unit-mismatch",
+      "mutations": [
+        { "op": "set", "path": ["documents", 16, "document", "unit_id"], "value": "unit_demand" }
+      ],
+      "expected": [{ "kind": "reference", "code": "assess_contract.branch_unit_mismatch" }]
+    },
+    {
+      "case_id": "branch-finding-ref-fails-closed-before-g1-2",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 16, "document", "finding_refs"],
+          "value": ["artifacts/findings/finding-001.json"]
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "reference.missing" }]
+    },
+    {
+      "case_id": "branch-judgment-dimension-mismatch",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 6, "document", "dimension"],
+          "value": "demand_and_behavior"
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "assess_contract.branch_judgment_mismatch" }]
+    },
+    {
+      "case_id": "branch-decision-not-derived",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 16, "document", "dimension_decision"],
+          "value": "supports"
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "assess_contract.dimension_decision_mismatch" }]
+    },
+    {
+      "case_id": "fan-in-category-overlap",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 26, "document", "partial_branch_refs"],
+          "value": ["artifacts/lanes/target-user.json"]
+        }
+      ],
+      "expected": [
+        { "kind": "reference", "code": "assess_contract.fan_in_category_overlap" },
+        { "kind": "reference", "code": "assess_contract.fan_in_status_mismatch" }
+      ]
+    },
+    {
+      "case_id": "fan-in-uncategorized-branch",
+      "mutations": [
+        {
+          "op": "delete_array_item",
+          "path": ["documents", 26, "document", "completed_branch_refs"],
+          "index": 0
+        }
+      ],
+      "expected": [
+        { "kind": "reference", "code": "assess_contract.fan_in_uncategorized_branch" },
+        { "kind": "reference", "code": "assess_contract.missing_dimension_summary_mismatch" }
+      ]
+    },
+    {
+      "case_id": "fan-in-summary-sufficiency-drift",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 26, "document", "dimension_summaries", 0, "decision_sufficiency"],
+          "value": "blocked"
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "assess_contract.fan_in_summary_mismatch" }]
+    },
+    {
+      "case_id": "ignored-late-branch-cannot-cover-dimension",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 16, "document", "branch_status"],
+          "value": "ignored_late"
+        },
+        {
+          "op": "set",
+          "path": ["documents", 26, "document", "completed_branch_refs"],
+          "value": [
+            "artifacts/lanes/demand.json",
+            "artifacts/lanes/alternatives.json",
+            "artifacts/lanes/competitor.json",
+            "artifacts/lanes/buyer.json",
+            "artifacts/lanes/acquisition.json",
+            "artifacts/lanes/business.json",
+            "artifacts/lanes/delivery.json",
+            "artifacts/lanes/compliance.json",
+            "artifacts/lanes/counter.json"
+          ]
+        },
+        {
+          "op": "set",
+          "path": ["documents", 26, "document", "ignored_late_branch_refs"],
+          "value": ["artifacts/lanes/target-user.json"]
+        }
+      ],
+      "expected": [
+        { "kind": "reference", "code": "assess_contract.fan_in_summary_unusable_branch" },
+        { "kind": "reference", "code": "assess_contract.missing_dimension_summary_mismatch" }
+      ]
+    },
+    {
+      "case_id": "matrix-hypothesis-drift",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 27, "document", "dimensions", 0, "hypothesis"],
+          "value": "改写后的 hypothesis"
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "assess_contract.matrix_hypothesis_mismatch" }]
+    },
+    {
+      "case_id": "matrix-judgment-drift",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 27, "document", "dimensions", 0, "judgment_assessment_refs"],
+          "value": ["judgments/judgment-demand.json"]
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "assess_contract.matrix_fan_in_mismatch" }]
+    },
+    {
+      "case_id": "matrix-decision-not-derived",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 27, "document", "dimensions", 0, "decision"],
+          "value": "supports"
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "assess_contract.matrix_decision_mismatch" }]
+    },
+    {
+      "case_id": "business-engine-wrong-subject-type",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 28, "document", "subject_ref"],
+          "value": "scope-frame.json"
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "reference.type_mismatch" }]
+    },
+    {
+      "case_id": "assessment-result-illegal",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 29, "document", "assessment_result"],
+          "value": "market_validated"
+        }
+      ],
+      "expected": [{ "kind": "document", "keyword": "enum", "instance_path": "/assessment_result" }]
+    },
+    {
+      "case_id": "assessment-matrix-drift",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 29, "document", "dimension_decisions", 0, "decision"],
+          "value": "supports"
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "assess_contract.assessment_matrix_mismatch" }]
+    },
+    {
+      "case_id": "assessment-suggestion-ref-fails-closed-before-g1-4",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 29, "document", "validation_suggestion_refs"],
+          "value": ["artifacts/synthesis/concept-assessment-suggestions.json"]
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "reference.missing" }]
+    },
+    {
+      "case_id": "assess-contract-in-old-bundle",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["schema_version"],
+          "value": "startup_opportunity.document_bundle.v3"
+        }
+      ],
+      "expected": [{ "kind": "reference", "code": "assess_contract.bundle_version_mismatch" }]
+    }
+  ]
+}

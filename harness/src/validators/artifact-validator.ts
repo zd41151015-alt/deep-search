@@ -1,5 +1,10 @@
 import type { ErrorObject } from "ajv";
 import { canonicalContentHash } from "../artifact-store/canonical.js";
+import {
+  type AssessDomainDocument,
+  isAssessDomainSchemaVersion,
+  validateAssessDomainContract,
+} from "./assess-domain-validator.js";
 import { coverageKey, planningRunStateHash } from "./planning-contract-identities.js";
 import {
   type LoadedSchemaBundle,
@@ -31,7 +36,8 @@ export interface DocumentBundle {
   readonly schema_version:
     | "startup_opportunity.document_bundle.v1"
     | "startup_opportunity.document_bundle.v2"
-    | "startup_opportunity.document_bundle.v3";
+    | "startup_opportunity.document_bundle.v3"
+    | "startup_opportunity.document_bundle.v4";
   readonly documents: readonly DocumentBundleEntry[];
 }
 
@@ -177,6 +183,39 @@ function nestedRef(
       ...(expectedIdField === undefined ? {} : { expectedIdField }),
     },
   ];
+}
+
+function refsFromNestedArray(
+  document: Record<string, unknown>,
+  arrayField: string,
+  refField: string,
+  expectedSchemaVersion: string | readonly string[],
+): readonly ReferenceRequirement[] {
+  const values = document[arrayField];
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  return values.flatMap((value, index) => {
+    if (!isRecord(value)) {
+      return [];
+    }
+    const nested = value[refField];
+    const refs = typeof nested === "string" ? [nested] : Array.isArray(nested) ? nested : [];
+    return refs.flatMap((ref, refIndex) =>
+      typeof ref === "string"
+        ? [
+            {
+              instancePath: `/${arrayField}/${index}/${refField}${Array.isArray(nested) ? `/${refIndex}` : ""}`,
+              ref,
+              expectedSchemaVersions:
+                typeof expectedSchemaVersion === "string"
+                  ? [expectedSchemaVersion]
+                  : expectedSchemaVersion,
+            },
+          ]
+        : [],
+    );
+  });
 }
 
 function referenceRequirements(effective: EffectiveDocument): readonly ReferenceRequirement[] {
@@ -332,6 +371,167 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "gap_id",
         ),
       ];
+    case "startup_opportunity.intake.v1":
+      return [
+        ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
+      ];
+    case "startup_opportunity.scope_frame.v1":
+      return [
+        ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
+      ];
+    case "startup_opportunity.concept_hypothesis.v1":
+      return [...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v1")];
+    case "startup_opportunity.judgment_assessment.v1":
+      return [...optionalRef(document, "subject_ref", "startup_opportunity.concept_hypothesis.v1")];
+    case "startup_opportunity.concept_evidence_assessment_plan.v1":
+      return [
+        ...optionalRef(
+          document,
+          "parent_plan_ref",
+          "startup_opportunity.concept_evidence_assessment_plan.v1",
+        ),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(
+          document,
+          "concept_hypothesis_ref",
+          "startup_opportunity.concept_hypothesis.v1",
+        ),
+        ...refsFromArray(document, "triggered_by_adaptation_refs", [
+          "startup_opportunity.adaptation_decision.v1",
+          "startup_opportunity.adaptation_decision.v2",
+        ]),
+      ];
+    case "startup_opportunity.concept_evidence_assessment_branch_result.v1":
+      return [
+        ...optionalRef(
+          document,
+          "concept_hypothesis_ref",
+          "startup_opportunity.concept_hypothesis.v1",
+        ),
+        ...optionalRef(
+          document,
+          "assessment_plan_ref",
+          "startup_opportunity.concept_evidence_assessment_plan.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v1",
+        ),
+        ...refsFromArray(document, "finding_refs", "startup_opportunity.finding.v1"),
+      ];
+    case "startup_opportunity.concept_evidence_assessment_fan_in.v1":
+      return [
+        ...optionalRef(
+          document,
+          "concept_hypothesis_ref",
+          "startup_opportunity.concept_hypothesis.v1",
+        ),
+        ...optionalRef(
+          document,
+          "assessment_plan_ref",
+          "startup_opportunity.concept_evidence_assessment_plan.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "completed_branch_refs",
+          "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "partial_branch_refs",
+          "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "ignored_late_branch_refs",
+          "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "superseded_branch_refs",
+          "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "dimension_summaries",
+          "branch_ref",
+          "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "dimension_summaries",
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v1",
+        ),
+      ];
+    case "startup_opportunity.hypothesis_evidence_matrix.v1":
+      return [
+        ...optionalRef(
+          document,
+          "concept_hypothesis_ref",
+          "startup_opportunity.concept_hypothesis.v1",
+        ),
+        ...optionalRef(
+          document,
+          "assessment_plan_ref",
+          "startup_opportunity.concept_evidence_assessment_plan.v1",
+        ),
+        ...optionalRef(
+          document,
+          "fan_in_ref",
+          "startup_opportunity.concept_evidence_assessment_fan_in.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "dimensions",
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v1",
+        ),
+      ];
+    case "startup_opportunity.business_engine_thesis.v1":
+      return [
+        ...optionalRef(document, "subject_ref", "startup_opportunity.concept_hypothesis.v1"),
+        ...refsFromArray(
+          document,
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v1",
+        ),
+      ];
+    case "startup_opportunity.concept_evidence_assessment.v1":
+      return [
+        ...optionalRef(
+          document,
+          "concept_hypothesis_ref",
+          "startup_opportunity.concept_hypothesis.v1",
+        ),
+        ...optionalRef(
+          document,
+          "assessment_plan_ref",
+          "startup_opportunity.concept_evidence_assessment_plan.v1",
+        ),
+        ...optionalRef(
+          document,
+          "hypothesis_evidence_matrix_ref",
+          "startup_opportunity.hypothesis_evidence_matrix.v1",
+        ),
+        ...optionalRef(
+          document,
+          "business_engine_ref",
+          "startup_opportunity.business_engine_thesis.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "dimension_decisions",
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "validation_suggestion_refs",
+          "startup_opportunity.concept_assessment_suggestions.v1",
+        ),
+      ];
     default:
       return [];
   }
@@ -342,7 +542,8 @@ function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
   if (
     version !== "startup_opportunity.artifact_envelope.v1" &&
     version !== "startup_opportunity.artifact_envelope.v2" &&
-    version !== "startup_opportunity.artifact_envelope.v3"
+    version !== "startup_opportunity.artifact_envelope.v3" &&
+    version !== "startup_opportunity.artifact_envelope.v4"
   ) {
     return { path: entry.path, schemaVersion: version, document: entry.document, envelope: null };
   }
@@ -681,11 +882,32 @@ export class ArtifactValidator {
         ...this.checkLineage(
           source,
           documentsByPath,
-          input.schema_version !== "startup_opportunity.document_bundle.v3",
+          input.schema_version === "startup_opportunity.document_bundle.v1" ||
+            input.schema_version === "startup_opportunity.document_bundle.v2",
         ),
       );
     }
 
+    const assessDocuments: readonly AssessDomainDocument[] = effectiveDocuments.map((entry) => ({
+      path: entry.path,
+      schemaVersion: entry.schemaVersion,
+      document: entry.document,
+    }));
+    if (
+      assessDocuments.some((entry) => isAssessDomainSchemaVersion(entry.schemaVersion)) &&
+      input.schema_version !== "startup_opportunity.document_bundle.v4"
+    ) {
+      referenceErrors.push(
+        referenceIssue(
+          "assess_contract.bundle_version_mismatch",
+          "/schema_version",
+          "G1.1 assess contracts require document_bundle.v4",
+          { actualSchemaVersion: input.schema_version },
+        ),
+      );
+    } else {
+      referenceErrors.push(...validateAssessDomainContract(assessDocuments));
+    }
     const sortedReferenceErrors = sortIssues(referenceErrors);
     const sortedDocuments = [...documents].sort((left, right) =>
       (left.documentPath ?? "").localeCompare(right.documentPath ?? ""),

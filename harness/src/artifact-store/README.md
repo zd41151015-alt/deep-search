@@ -4,4 +4,6 @@ G0.2 publishes the typed artifact-envelope schema and validates its closed metad
 
 G0.4 adds only the versioned compatibility needed by Plan/Adaptation control artifacts: envelope v1 keeps receipt v1, while envelope v2/v3 uses receipt v2 and its matching Document Bundle reference rules. This does not install `future_declared` business schemas or turn the Artifact Store into a generic migration layer.
 
+G1.1 installs v4 Assess schemas for explicit offline validation only. The Store has no v4 publication adapter and rejects such envelopes with `artifact.envelope_unsupported`; durable G1.1 Artifact publication, branch outputs, and Evidence integration remain owned by G1.2.
+
 The envelope `content_hash` basis is the SHA-256 of UTF-8 canonical `document` JSON: object keys are recursively sorted by code unit, arrays keep order, and only JSON values are accepted. The hash excludes envelope metadata, including the `content_hash` field itself. No script response or chat message is accepted as a stored artifact.

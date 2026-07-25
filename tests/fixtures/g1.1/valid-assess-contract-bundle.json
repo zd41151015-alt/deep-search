@@ -1,0 +1,1381 @@
+{
+  "schema_version": "startup_opportunity.document_bundle.v4",
+  "documents": [
+    {
+      "path": "intake.json",
+      "document": {
+        "schema_version": "startup_opportunity.intake.v1",
+        "run_id": "run_assess_contract_001",
+        "action": "assess",
+        "mode": "concept_evidence_assessment",
+        "raw_query": "评估一个消费者家庭协同概念的当前 Evidence",
+        "market": "CN",
+        "language": "zh-CN",
+        "principal": "local_user",
+        "decision_context_ref": "decision-context.json",
+        "attachments": [],
+        "explicit_constraints": {
+          "target_market": "CN",
+          "target_language": "zh-CN",
+          "venture_goal": "durable_small_business",
+          "decision_horizon": "本次 Run 结束时形成当前 Evidence 判断",
+          "target_users": ["家庭协同使用者"]
+        },
+        "created_at": "2026-07-24T12:00:00Z"
+      }
+    },
+    {
+      "path": "decision-context.json",
+      "document": {
+        "schema_version": "startup_opportunity.decision_context.v1",
+        "run_id": "run_assess_contract_001",
+        "decision_to_make": "assess_concept_viability",
+        "decision_question": "该消费者家庭协同概念在当前 Evidence 下是否值得优先关注？",
+        "decision_options": [
+          "prioritize",
+          "investigate_further",
+          "deprioritize",
+          "insufficient_evidence"
+        ],
+        "venture_goal": "durable_small_business",
+        "decision_horizon": "本次 Run 结束时形成当前 Evidence 判断",
+        "founder_advantages": [],
+        "non_negotiable_constraints": ["消费者产品边界"],
+        "team_capability_refs": [],
+        "risk_preferences": [],
+        "initial_belief": "unknown",
+        "favored_hypothesis": null,
+        "assumed_truths": [],
+        "final_decision_owner": "user",
+        "assumptions": [],
+        "open_questions": []
+      }
+    },
+    {
+      "path": "scope-frame.json",
+      "document": {
+        "schema_version": "startup_opportunity.scope_frame.v1",
+        "run_id": "run_assess_contract_001",
+        "mode": "concept_evidence_assessment",
+        "decision_context_ref": "decision-context.json",
+        "product_thesis": "消费者家庭可以通过共享工作流降低协同遗漏",
+        "target_user": ["需要家庭协同的消费者"],
+        "buyer": ["家庭付款者"],
+        "payer": ["家庭付款者"],
+        "entry_scene": "家庭成员需要确认共同任务是否完成时",
+        "claimed_value": "降低重复沟通与遗漏",
+        "current_alternative": ["即时通讯", "备忘录", "维持现状"],
+        "market": "CN",
+        "language": "zh-CN",
+        "delivery_form": "mini_program",
+        "business_model": "subscription",
+        "acquisition_hypothesis": "从家庭协同场景的社区入口触达",
+        "team_constraints": [],
+        "assumptions": [],
+        "unknowns": ["当前没有正式 Evidence"],
+        "kill_criteria": ["当前替代方案已提供足够增量价值"],
+        "assessment_profile": "general"
+      }
+    },
+    {
+      "path": "concept-hypothesis.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_hypothesis.v1",
+        "run_id": "run_assess_contract_001",
+        "concept_hypothesis_id": "concept_assess_001",
+        "scope_frame_ref": "scope-frame.json",
+        "product_thesis": "消费者家庭可以通过共享工作流降低协同遗漏",
+        "target_user": ["需要家庭协同的消费者"],
+        "buyer": ["家庭付款者"],
+        "entry_scene": "家庭成员需要确认共同任务是否完成时",
+        "claimed_value": "降低重复沟通与遗漏",
+        "current_alternative": ["即时通讯", "备忘录", "维持现状"],
+        "delivery_form": "mini_program",
+        "business_model": "subscription",
+        "acquisition_hypothesis": "从家庭协同场景的社区入口触达",
+        "uses_ai": false,
+        "assumptions": [],
+        "unknowns": ["当前没有正式 Evidence"],
+        "kill_criteria": ["当前替代方案已提供足够增量价值"]
+      }
+    },
+    {
+      "path": "plans/research-plan.r1.json",
+      "document": {
+        "schema_version": "startup_opportunity.research_plan.v1",
+        "plan_id": "plan_assess_contract_001",
+        "run_id": "run_assess_contract_001",
+        "mode": "concept_evidence_assessment",
+        "revision": 1,
+        "parent_plan_ref": null,
+        "triggered_by_adaptation_refs": [],
+        "created_at": "2026-07-24T12:01:00Z",
+        "research_questions": [
+          {
+            "question_id": "rq_assess_001",
+            "question": "哪些当前 Evidence 会改变概念优先级？",
+            "decision_impact": "concept assessment",
+            "uncertainty": "high",
+            "expected_information_gain": "high",
+            "stop_condition": "每个 mandatory dimension 都形成 JudgmentAssessment"
+          }
+        ],
+        "candidate_retention_policy": {
+          "minimum_evidence_requirement": "概念评估不生成候选池",
+          "candidate_retention_threshold": "保持单一 ConceptHypothesis identity",
+          "candidate_diversity_policy": ["不适用于单一 thesis assessment"],
+          "counterfactual_candidate_requirement": false
+        },
+        "exploration_policy": {
+          "require_seed_independent_demand_unit": true,
+          "require_counterfactual_unit": true,
+          "initial_hypotheses_are_questions_not_truth": true,
+          "separate_generation_and_evaluation_sources": true,
+          "freeze_thesis_before_enrichment": true,
+          "require_independent_challenger_queries": true
+        },
+        "waves": [
+          {
+            "wave_id": "assessment_wave_1",
+            "depends_on": [],
+            "units": [
+              {
+                "unit_id": "unit_target_user",
+                "unit_type": "audience_pain",
+                "plan_disposition": "enabled",
+                "priority_band": "normal",
+                "attempt": 1,
+                "supersedes_unit_ref": null,
+                "research_goal": "评估 target user 与 JTBD",
+                "input_refs": [
+                  "concept-hypothesis.json",
+                  "plans/concept-evidence-assessment-plan.r1.json"
+                ],
+                "agent_role": "lane-researcher",
+                "output_path": "artifacts/lanes/target-user.json",
+                "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+                "source_preferences": [],
+                "required_outputs": ["judgment_assessment_refs"],
+                "stop_conditions": []
+              },
+              {
+                "unit_id": "unit_demand",
+                "unit_type": "jtbd_workflow",
+                "plan_disposition": "enabled",
+                "priority_band": "normal",
+                "attempt": 1,
+                "supersedes_unit_ref": null,
+                "research_goal": "评估需求与行为",
+                "input_refs": [
+                  "concept-hypothesis.json",
+                  "plans/concept-evidence-assessment-plan.r1.json"
+                ],
+                "agent_role": "lane-researcher",
+                "output_path": "artifacts/lanes/demand.json",
+                "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+                "source_preferences": [],
+                "required_outputs": ["judgment_assessment_refs"],
+                "stop_conditions": []
+              },
+              {
+                "unit_id": "unit_alternatives",
+                "unit_type": "solution_failure",
+                "plan_disposition": "enabled",
+                "priority_band": "normal",
+                "attempt": 1,
+                "supersedes_unit_ref": null,
+                "research_goal": "评估替代方案与失效",
+                "input_refs": [
+                  "concept-hypothesis.json",
+                  "plans/concept-evidence-assessment-plan.r1.json"
+                ],
+                "agent_role": "lane-researcher",
+                "output_path": "artifacts/lanes/alternatives.json",
+                "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+                "source_preferences": [],
+                "required_outputs": ["judgment_assessment_refs"],
+                "stop_conditions": []
+              },
+              {
+                "unit_id": "unit_competitor",
+                "unit_type": "competitor_gap",
+                "plan_disposition": "enabled",
+                "priority_band": "normal",
+                "attempt": 1,
+                "supersedes_unit_ref": null,
+                "research_goal": "评估竞争与差异化",
+                "input_refs": [
+                  "concept-hypothesis.json",
+                  "plans/concept-evidence-assessment-plan.r1.json"
+                ],
+                "agent_role": "lane-researcher",
+                "output_path": "artifacts/lanes/competitor.json",
+                "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+                "source_preferences": [],
+                "required_outputs": ["judgment_assessment_refs"],
+                "stop_conditions": []
+              },
+              {
+                "unit_id": "unit_buyer",
+                "unit_type": "buyer_language",
+                "plan_disposition": "enabled",
+                "priority_band": "normal",
+                "attempt": 1,
+                "supersedes_unit_ref": null,
+                "research_goal": "评估买方语言与付费",
+                "input_refs": [
+                  "concept-hypothesis.json",
+                  "plans/concept-evidence-assessment-plan.r1.json"
+                ],
+                "agent_role": "lane-researcher",
+                "output_path": "artifacts/lanes/buyer.json",
+                "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+                "source_preferences": [],
+                "required_outputs": ["judgment_assessment_refs"],
+                "stop_conditions": []
+              },
+              {
+                "unit_id": "unit_acquisition",
+                "unit_type": "acquisition",
+                "plan_disposition": "enabled",
+                "priority_band": "normal",
+                "attempt": 1,
+                "supersedes_unit_ref": null,
+                "research_goal": "评估获客与分发",
+                "input_refs": [
+                  "concept-hypothesis.json",
+                  "plans/concept-evidence-assessment-plan.r1.json"
+                ],
+                "agent_role": "lane-researcher",
+                "output_path": "artifacts/lanes/acquisition.json",
+                "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+                "source_preferences": [],
+                "required_outputs": ["judgment_assessment_refs"],
+                "stop_conditions": []
+              },
+              {
+                "unit_id": "unit_business",
+                "unit_type": "business_engine",
+                "plan_disposition": "enabled",
+                "priority_band": "normal",
+                "attempt": 1,
+                "supersedes_unit_ref": null,
+                "research_goal": "评估 BusinessEngine 可行性",
+                "input_refs": [
+                  "concept-hypothesis.json",
+                  "plans/concept-evidence-assessment-plan.r1.json"
+                ],
+                "agent_role": "lane-researcher",
+                "output_path": "artifacts/lanes/business.json",
+                "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+                "source_preferences": [],
+                "required_outputs": ["judgment_assessment_refs"],
+                "stop_conditions": []
+              },
+              {
+                "unit_id": "unit_delivery",
+                "unit_type": "delivery_feasibility",
+                "plan_disposition": "enabled",
+                "priority_band": "normal",
+                "attempt": 1,
+                "supersedes_unit_ref": null,
+                "research_goal": "评估交付可行性",
+                "input_refs": [
+                  "concept-hypothesis.json",
+                  "plans/concept-evidence-assessment-plan.r1.json"
+                ],
+                "agent_role": "lane-researcher",
+                "output_path": "artifacts/lanes/delivery.json",
+                "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+                "source_preferences": [],
+                "required_outputs": ["judgment_assessment_refs"],
+                "stop_conditions": []
+              },
+              {
+                "unit_id": "unit_compliance",
+                "unit_type": "compliance_risk",
+                "plan_disposition": "enabled",
+                "priority_band": "normal",
+                "attempt": 1,
+                "supersedes_unit_ref": null,
+                "research_goal": "评估合规与平台风险",
+                "input_refs": [
+                  "concept-hypothesis.json",
+                  "plans/concept-evidence-assessment-plan.r1.json"
+                ],
+                "agent_role": "lane-researcher",
+                "output_path": "artifacts/lanes/compliance.json",
+                "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+                "source_preferences": [],
+                "required_outputs": ["judgment_assessment_refs"],
+                "stop_conditions": []
+              },
+              {
+                "unit_id": "unit_counter",
+                "unit_type": "counter_evidence",
+                "plan_disposition": "enabled",
+                "priority_band": "normal",
+                "attempt": 1,
+                "supersedes_unit_ref": null,
+                "research_goal": "评估反对 Evidence",
+                "input_refs": [
+                  "concept-hypothesis.json",
+                  "plans/concept-evidence-assessment-plan.r1.json"
+                ],
+                "agent_role": "lane-researcher",
+                "output_path": "artifacts/lanes/counter.json",
+                "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+                "source_preferences": [],
+                "required_outputs": ["judgment_assessment_refs"],
+                "stop_conditions": []
+              }
+            ]
+          }
+        ],
+        "adaptation_policy_ref": "harness/policies/adaptation.v1.json",
+        "followup_policy": {
+          "max_followup_rounds": 2,
+          "require_decision_relevance": true,
+          "stop_when_no_material_new_evidence": true
+        }
+      }
+    },
+    {
+      "path": "plans/concept-evidence-assessment-plan.r1.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_evidence_assessment_plan.v1",
+        "assessment_plan_id": "assessment_plan_001",
+        "run_id": "run_assess_contract_001",
+        "revision": 1,
+        "parent_plan_ref": null,
+        "research_plan_ref": "plans/research-plan.r1.json",
+        "triggered_by_adaptation_refs": [],
+        "created_at": "2026-07-24T12:02:00Z",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_profile": "general",
+        "dimensions": [
+          {
+            "dimension_id": "target_user_and_jtbd",
+            "hypothesis": "存在明确 target user 与 JTBD",
+            "decision_impact": ["concept_assessment"],
+            "required_evidence_types": ["public_behavior_proxy"],
+            "supporting_questions": ["谁在什么任务中遇到问题？"],
+            "disconfirming_questions": ["目标任务是否不存在？"],
+            "branch_unit_type": "audience_pain",
+            "stop_condition": "形成 JudgmentAssessment"
+          },
+          {
+            "dimension_id": "demand_and_behavior",
+            "hypothesis": "存在需求与行为信号",
+            "decision_impact": ["concept_assessment"],
+            "required_evidence_types": ["public_behavior_proxy"],
+            "supporting_questions": ["是否存在主动行为？"],
+            "disconfirming_questions": ["信号是否只是媒体热度？"],
+            "branch_unit_type": "jtbd_workflow",
+            "stop_condition": "形成 JudgmentAssessment"
+          },
+          {
+            "dimension_id": "current_alternatives_and_solution_failure",
+            "hypothesis": "当前替代方案存在会触发迁移的失效",
+            "decision_impact": ["concept_assessment"],
+            "required_evidence_types": ["observed_workflow"],
+            "supporting_questions": ["当前方案何时失效？"],
+            "disconfirming_questions": ["当前方案是否已经足够？"],
+            "branch_unit_type": "solution_failure",
+            "stop_condition": "形成 JudgmentAssessment"
+          },
+          {
+            "dimension_id": "competitor_saturation_and_differentiation",
+            "hypothesis": "竞争格局仍有可审计差异",
+            "decision_impact": ["concept_assessment"],
+            "required_evidence_types": ["public_behavior_proxy"],
+            "supporting_questions": ["竞品覆盖了什么？"],
+            "disconfirming_questions": ["差异是否已经被覆盖？"],
+            "branch_unit_type": "competitor_gap",
+            "stop_condition": "形成 JudgmentAssessment"
+          },
+          {
+            "dimension_id": "buyer_language_and_willingness_to_pay",
+            "hypothesis": "买方语言与付费逻辑可识别",
+            "decision_impact": ["hard_gate", "concept_assessment"],
+            "required_evidence_types": ["self_reported_need"],
+            "supporting_questions": ["谁付款以及为何付款？"],
+            "disconfirming_questions": ["愿意使用是否被误当作愿意购买？"],
+            "branch_unit_type": "buyer_language",
+            "stop_condition": "形成 JudgmentAssessment"
+          },
+          {
+            "dimension_id": "acquisition_and_distribution",
+            "hypothesis": "存在可触达的获客与分发路径",
+            "decision_impact": ["hard_gate", "concept_assessment"],
+            "required_evidence_types": ["expert_or_operator_report"],
+            "supporting_questions": ["如何触达第一批用户？"],
+            "disconfirming_questions": ["渠道依赖是否不可接受？"],
+            "branch_unit_type": "acquisition",
+            "stop_condition": "形成 JudgmentAssessment"
+          },
+          {
+            "dimension_id": "business_engine_viability",
+            "hypothesis": "BusinessEngine 基本闭环可以形成",
+            "decision_impact": ["hard_gate", "concept_assessment"],
+            "required_evidence_types": ["expert_or_operator_report"],
+            "supporting_questions": ["定价、留存和服务负担如何闭环？"],
+            "disconfirming_questions": ["决定性字段是否全部 unknown？"],
+            "branch_unit_type": "business_engine",
+            "stop_condition": "形成 JudgmentAssessment"
+          },
+          {
+            "dimension_id": "delivery_feasibility",
+            "hypothesis": "目标交付形态在约束内可行",
+            "decision_impact": ["concept_assessment", "delivery_form"],
+            "required_evidence_types": ["expert_or_operator_report"],
+            "supporting_questions": ["交付形态是否匹配入口？"],
+            "disconfirming_questions": ["权限或工作流是否阻断交付？"],
+            "branch_unit_type": "delivery_feasibility",
+            "stop_condition": "形成 JudgmentAssessment"
+          },
+          {
+            "dimension_id": "compliance_and_platform_risk",
+            "hypothesis": "合规与平台风险有可接受边界",
+            "decision_impact": ["hard_gate", "concept_assessment"],
+            "required_evidence_types": ["expert_or_operator_report"],
+            "supporting_questions": ["有哪些合规和平台边界？"],
+            "disconfirming_questions": ["是否存在不可接受风险？"],
+            "branch_unit_type": "compliance_risk",
+            "stop_condition": "形成 JudgmentAssessment"
+          },
+          {
+            "dimension_id": "counter_evidence",
+            "hypothesis": "最强替代解释不会直接推翻 thesis",
+            "decision_impact": ["concept_assessment"],
+            "required_evidence_types": ["public_behavior_proxy"],
+            "supporting_questions": ["有哪些最强反证？"],
+            "disconfirming_questions": ["核心 thesis 是否已被推翻？"],
+            "branch_unit_type": "counter_evidence",
+            "stop_condition": "形成 JudgmentAssessment"
+          }
+        ],
+        "mandatory_bundles": [],
+        "followup_policy": {
+          "max_followup_rounds": 2,
+          "require_decision_relevance": true,
+          "stop_when_no_material_new_evidence": true
+        },
+        "assessment_gate_version": "1.0.0",
+        "limitations": ["本 fixture 不包含 G1.2 Evidence persistence"]
+      }
+    },
+    {
+      "path": "judgments/judgment-target-user.json",
+      "document": {
+        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "run_id": "run_assess_contract_001",
+        "judgment_id": "judgment_target_user",
+        "subject_ref": "concept-hypothesis.json",
+        "dimension": "target_user_and_jtbd",
+        "judgment_signal": "no_signal",
+        "evidence_tier_summary": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "representativeness": "当前没有正式 Evidence",
+        "independence": "no_source_groups",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "what_would_change_the_decision": ["取得可审计 target user 与 JTBD Evidence"],
+        "valid_as_of": "2026-07-24",
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "judgments/judgment-demand.json",
+      "document": {
+        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "run_id": "run_assess_contract_001",
+        "judgment_id": "judgment_demand",
+        "subject_ref": "concept-hypothesis.json",
+        "dimension": "demand_and_behavior",
+        "judgment_signal": "no_signal",
+        "evidence_tier_summary": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "representativeness": "当前没有正式 Evidence",
+        "independence": "no_source_groups",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "what_would_change_the_decision": ["取得可审计需求与行为 Evidence"],
+        "valid_as_of": "2026-07-24",
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "judgments/judgment-alternatives.json",
+      "document": {
+        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "run_id": "run_assess_contract_001",
+        "judgment_id": "judgment_alternatives",
+        "subject_ref": "concept-hypothesis.json",
+        "dimension": "current_alternatives_and_solution_failure",
+        "judgment_signal": "no_signal",
+        "evidence_tier_summary": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "representativeness": "当前没有正式 Evidence",
+        "independence": "no_source_groups",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "what_would_change_the_decision": ["取得替代方案与失效 Evidence"],
+        "valid_as_of": "2026-07-24",
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "judgments/judgment-competitor.json",
+      "document": {
+        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "run_id": "run_assess_contract_001",
+        "judgment_id": "judgment_competitor",
+        "subject_ref": "concept-hypothesis.json",
+        "dimension": "competitor_saturation_and_differentiation",
+        "judgment_signal": "no_signal",
+        "evidence_tier_summary": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "representativeness": "当前没有正式 Evidence",
+        "independence": "no_source_groups",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "what_would_change_the_decision": ["取得竞品与差异化 Evidence"],
+        "valid_as_of": "2026-07-24",
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "judgments/judgment-buyer.json",
+      "document": {
+        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "run_id": "run_assess_contract_001",
+        "judgment_id": "judgment_buyer",
+        "subject_ref": "concept-hypothesis.json",
+        "dimension": "buyer_language_and_willingness_to_pay",
+        "judgment_signal": "no_signal",
+        "evidence_tier_summary": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "representativeness": "当前没有正式 Evidence",
+        "independence": "no_source_groups",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "what_would_change_the_decision": ["取得买方语言与付费 Evidence"],
+        "valid_as_of": "2026-07-24",
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "judgments/judgment-acquisition.json",
+      "document": {
+        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "run_id": "run_assess_contract_001",
+        "judgment_id": "judgment_acquisition",
+        "subject_ref": "concept-hypothesis.json",
+        "dimension": "acquisition_and_distribution",
+        "judgment_signal": "no_signal",
+        "evidence_tier_summary": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "representativeness": "当前没有正式 Evidence",
+        "independence": "no_source_groups",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "what_would_change_the_decision": ["取得获客与分发 Evidence"],
+        "valid_as_of": "2026-07-24",
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "judgments/judgment-business.json",
+      "document": {
+        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "run_id": "run_assess_contract_001",
+        "judgment_id": "judgment_business",
+        "subject_ref": "concept-hypothesis.json",
+        "dimension": "business_engine_viability",
+        "judgment_signal": "no_signal",
+        "evidence_tier_summary": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "representativeness": "当前没有正式 Evidence",
+        "independence": "no_source_groups",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "what_would_change_the_decision": ["取得 BusinessEngine Evidence"],
+        "valid_as_of": "2026-07-24",
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "judgments/judgment-delivery.json",
+      "document": {
+        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "run_id": "run_assess_contract_001",
+        "judgment_id": "judgment_delivery",
+        "subject_ref": "concept-hypothesis.json",
+        "dimension": "delivery_feasibility",
+        "judgment_signal": "no_signal",
+        "evidence_tier_summary": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "representativeness": "当前没有正式 Evidence",
+        "independence": "no_source_groups",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "what_would_change_the_decision": ["取得交付可行性 Evidence"],
+        "valid_as_of": "2026-07-24",
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "judgments/judgment-compliance.json",
+      "document": {
+        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "run_id": "run_assess_contract_001",
+        "judgment_id": "judgment_compliance",
+        "subject_ref": "concept-hypothesis.json",
+        "dimension": "compliance_and_platform_risk",
+        "judgment_signal": "no_signal",
+        "evidence_tier_summary": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "representativeness": "当前没有正式 Evidence",
+        "independence": "no_source_groups",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "what_would_change_the_decision": ["取得合规与平台风险 Evidence"],
+        "valid_as_of": "2026-07-24",
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "judgments/judgment-counter.json",
+      "document": {
+        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "run_id": "run_assess_contract_001",
+        "judgment_id": "judgment_counter",
+        "subject_ref": "concept-hypothesis.json",
+        "dimension": "counter_evidence",
+        "judgment_signal": "no_signal",
+        "evidence_tier_summary": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "representativeness": "当前没有正式 Evidence",
+        "independence": "no_source_groups",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "what_would_change_the_decision": ["取得独立 counter Evidence"],
+        "valid_as_of": "2026-07-24",
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/lanes/target-user.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        "branch_id": "branch_target_user",
+        "run_id": "run_assess_contract_001",
+        "unit_id": "unit_target_user",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+        "dimension_id": "target_user_and_jtbd",
+        "branch_status": "completed",
+        "research_questions": [],
+        "evidence_refs": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "judgment_assessment_refs": ["judgments/judgment-target-user.json"],
+        "finding_refs": [],
+        "dimension_decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "evidence_quality": "unknown",
+        "uncertainty": "high",
+        "what_would_change_decision": ["取得可审计 Evidence"],
+        "open_questions": [],
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/lanes/demand.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        "branch_id": "branch_demand",
+        "run_id": "run_assess_contract_001",
+        "unit_id": "unit_demand",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+        "dimension_id": "demand_and_behavior",
+        "branch_status": "completed",
+        "research_questions": [],
+        "evidence_refs": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "judgment_assessment_refs": ["judgments/judgment-demand.json"],
+        "finding_refs": [],
+        "dimension_decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "evidence_quality": "unknown",
+        "uncertainty": "high",
+        "what_would_change_decision": ["取得可审计 Evidence"],
+        "open_questions": [],
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/lanes/alternatives.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        "branch_id": "branch_alternatives",
+        "run_id": "run_assess_contract_001",
+        "unit_id": "unit_alternatives",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+        "dimension_id": "current_alternatives_and_solution_failure",
+        "branch_status": "completed",
+        "research_questions": [],
+        "evidence_refs": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "judgment_assessment_refs": ["judgments/judgment-alternatives.json"],
+        "finding_refs": [],
+        "dimension_decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "evidence_quality": "unknown",
+        "uncertainty": "high",
+        "what_would_change_decision": ["取得可审计 Evidence"],
+        "open_questions": [],
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/lanes/competitor.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        "branch_id": "branch_competitor",
+        "run_id": "run_assess_contract_001",
+        "unit_id": "unit_competitor",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+        "dimension_id": "competitor_saturation_and_differentiation",
+        "branch_status": "completed",
+        "research_questions": [],
+        "evidence_refs": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "judgment_assessment_refs": ["judgments/judgment-competitor.json"],
+        "finding_refs": [],
+        "dimension_decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "evidence_quality": "unknown",
+        "uncertainty": "high",
+        "what_would_change_decision": ["取得可审计 Evidence"],
+        "open_questions": [],
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/lanes/buyer.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        "branch_id": "branch_buyer",
+        "run_id": "run_assess_contract_001",
+        "unit_id": "unit_buyer",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+        "dimension_id": "buyer_language_and_willingness_to_pay",
+        "branch_status": "completed",
+        "research_questions": [],
+        "evidence_refs": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "judgment_assessment_refs": ["judgments/judgment-buyer.json"],
+        "finding_refs": [],
+        "dimension_decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "evidence_quality": "unknown",
+        "uncertainty": "high",
+        "what_would_change_decision": ["取得可审计 Evidence"],
+        "open_questions": [],
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/lanes/acquisition.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        "branch_id": "branch_acquisition",
+        "run_id": "run_assess_contract_001",
+        "unit_id": "unit_acquisition",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+        "dimension_id": "acquisition_and_distribution",
+        "branch_status": "completed",
+        "research_questions": [],
+        "evidence_refs": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "judgment_assessment_refs": ["judgments/judgment-acquisition.json"],
+        "finding_refs": [],
+        "dimension_decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "evidence_quality": "unknown",
+        "uncertainty": "high",
+        "what_would_change_decision": ["取得可审计 Evidence"],
+        "open_questions": [],
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/lanes/business.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        "branch_id": "branch_business",
+        "run_id": "run_assess_contract_001",
+        "unit_id": "unit_business",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+        "dimension_id": "business_engine_viability",
+        "branch_status": "completed",
+        "research_questions": [],
+        "evidence_refs": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "judgment_assessment_refs": ["judgments/judgment-business.json"],
+        "finding_refs": [],
+        "dimension_decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "evidence_quality": "unknown",
+        "uncertainty": "high",
+        "what_would_change_decision": ["取得可审计 Evidence"],
+        "open_questions": [],
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/lanes/delivery.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        "branch_id": "branch_delivery",
+        "run_id": "run_assess_contract_001",
+        "unit_id": "unit_delivery",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+        "dimension_id": "delivery_feasibility",
+        "branch_status": "completed",
+        "research_questions": [],
+        "evidence_refs": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "judgment_assessment_refs": ["judgments/judgment-delivery.json"],
+        "finding_refs": [],
+        "dimension_decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "evidence_quality": "unknown",
+        "uncertainty": "high",
+        "what_would_change_decision": ["取得可审计 Evidence"],
+        "open_questions": [],
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/lanes/compliance.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        "branch_id": "branch_compliance",
+        "run_id": "run_assess_contract_001",
+        "unit_id": "unit_compliance",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+        "dimension_id": "compliance_and_platform_risk",
+        "branch_status": "completed",
+        "research_questions": [],
+        "evidence_refs": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "judgment_assessment_refs": ["judgments/judgment-compliance.json"],
+        "finding_refs": [],
+        "dimension_decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "evidence_quality": "unknown",
+        "uncertainty": "high",
+        "what_would_change_decision": ["取得可审计 Evidence"],
+        "open_questions": [],
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/lanes/counter.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        "branch_id": "branch_counter",
+        "run_id": "run_assess_contract_001",
+        "unit_id": "unit_counter",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+        "dimension_id": "counter_evidence",
+        "branch_status": "completed",
+        "research_questions": [],
+        "evidence_refs": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "judgment_assessment_refs": ["judgments/judgment-counter.json"],
+        "finding_refs": [],
+        "dimension_decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "insufficiency_reasons": ["no_signal"],
+        "evidence_quality": "unknown",
+        "uncertainty": "high",
+        "what_would_change_decision": ["取得可审计 Evidence"],
+        "open_questions": [],
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/synthesis/assessment-fan-in.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_evidence_assessment_fan_in.v1",
+        "fan_in_id": "fan_in_assess_001",
+        "run_id": "run_assess_contract_001",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+        "completed_branch_refs": [
+          "artifacts/lanes/target-user.json",
+          "artifacts/lanes/demand.json",
+          "artifacts/lanes/alternatives.json",
+          "artifacts/lanes/competitor.json",
+          "artifacts/lanes/buyer.json",
+          "artifacts/lanes/acquisition.json",
+          "artifacts/lanes/business.json",
+          "artifacts/lanes/delivery.json",
+          "artifacts/lanes/compliance.json",
+          "artifacts/lanes/counter.json"
+        ],
+        "partial_branch_refs": [],
+        "failed_or_missing_branches": [],
+        "skipped_branches": [],
+        "ignored_late_branch_refs": [],
+        "superseded_branch_refs": [],
+        "dimension_summaries": [
+          {
+            "dimension_id": "target_user_and_jtbd",
+            "branch_ref": "artifacts/lanes/target-user.json",
+            "judgment_assessment_refs": ["judgments/judgment-target-user.json"],
+            "decisive_supporting_refs": [],
+            "decisive_opposing_refs": [],
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "what_would_change_the_assessment": ["取得可审计 Evidence"]
+          },
+          {
+            "dimension_id": "demand_and_behavior",
+            "branch_ref": "artifacts/lanes/demand.json",
+            "judgment_assessment_refs": ["judgments/judgment-demand.json"],
+            "decisive_supporting_refs": [],
+            "decisive_opposing_refs": [],
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "what_would_change_the_assessment": ["取得可审计 Evidence"]
+          },
+          {
+            "dimension_id": "current_alternatives_and_solution_failure",
+            "branch_ref": "artifacts/lanes/alternatives.json",
+            "judgment_assessment_refs": ["judgments/judgment-alternatives.json"],
+            "decisive_supporting_refs": [],
+            "decisive_opposing_refs": [],
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "what_would_change_the_assessment": ["取得可审计 Evidence"]
+          },
+          {
+            "dimension_id": "competitor_saturation_and_differentiation",
+            "branch_ref": "artifacts/lanes/competitor.json",
+            "judgment_assessment_refs": ["judgments/judgment-competitor.json"],
+            "decisive_supporting_refs": [],
+            "decisive_opposing_refs": [],
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "what_would_change_the_assessment": ["取得可审计 Evidence"]
+          },
+          {
+            "dimension_id": "buyer_language_and_willingness_to_pay",
+            "branch_ref": "artifacts/lanes/buyer.json",
+            "judgment_assessment_refs": ["judgments/judgment-buyer.json"],
+            "decisive_supporting_refs": [],
+            "decisive_opposing_refs": [],
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "what_would_change_the_assessment": ["取得可审计 Evidence"]
+          },
+          {
+            "dimension_id": "acquisition_and_distribution",
+            "branch_ref": "artifacts/lanes/acquisition.json",
+            "judgment_assessment_refs": ["judgments/judgment-acquisition.json"],
+            "decisive_supporting_refs": [],
+            "decisive_opposing_refs": [],
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "what_would_change_the_assessment": ["取得可审计 Evidence"]
+          },
+          {
+            "dimension_id": "business_engine_viability",
+            "branch_ref": "artifacts/lanes/business.json",
+            "judgment_assessment_refs": ["judgments/judgment-business.json"],
+            "decisive_supporting_refs": [],
+            "decisive_opposing_refs": [],
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "what_would_change_the_assessment": ["取得可审计 Evidence"]
+          },
+          {
+            "dimension_id": "delivery_feasibility",
+            "branch_ref": "artifacts/lanes/delivery.json",
+            "judgment_assessment_refs": ["judgments/judgment-delivery.json"],
+            "decisive_supporting_refs": [],
+            "decisive_opposing_refs": [],
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "what_would_change_the_assessment": ["取得可审计 Evidence"]
+          },
+          {
+            "dimension_id": "compliance_and_platform_risk",
+            "branch_ref": "artifacts/lanes/compliance.json",
+            "judgment_assessment_refs": ["judgments/judgment-compliance.json"],
+            "decisive_supporting_refs": [],
+            "decisive_opposing_refs": [],
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "what_would_change_the_assessment": ["取得可审计 Evidence"]
+          },
+          {
+            "dimension_id": "counter_evidence",
+            "branch_ref": "artifacts/lanes/counter.json",
+            "judgment_assessment_refs": ["judgments/judgment-counter.json"],
+            "decisive_supporting_refs": [],
+            "decisive_opposing_refs": [],
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "what_would_change_the_assessment": ["取得可审计 Evidence"]
+          }
+        ],
+        "missing_mandatory_dimensions": [],
+        "evidence_gaps": ["全部 mandatory dimensions 当前均无正式 Evidence"],
+        "decision_impact_of_gaps": ["concept_assessment"],
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/synthesis/hypothesis-evidence-matrix.json",
+      "document": {
+        "schema_version": "startup_opportunity.hypothesis_evidence_matrix.v1",
+        "matrix_id": "matrix_assess_001",
+        "run_id": "run_assess_contract_001",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+        "fan_in_ref": "artifacts/synthesis/assessment-fan-in.json",
+        "dimensions": [
+          {
+            "dimension_id": "target_user_and_jtbd",
+            "hypothesis": "存在明确 target user 与 JTBD",
+            "supporting_claim_refs": [],
+            "opposing_claim_refs": [],
+            "judgment_assessment_refs": ["judgments/judgment-target-user.json"],
+            "evidence_quality": "unknown",
+            "freshness": "no_evidence",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "uncertainty": "high",
+            "what_would_change_decision": ["取得可审计 Evidence"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "demand_and_behavior",
+            "hypothesis": "存在需求与行为信号",
+            "supporting_claim_refs": [],
+            "opposing_claim_refs": [],
+            "judgment_assessment_refs": ["judgments/judgment-demand.json"],
+            "evidence_quality": "unknown",
+            "freshness": "no_evidence",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "uncertainty": "high",
+            "what_would_change_decision": ["取得可审计 Evidence"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "current_alternatives_and_solution_failure",
+            "hypothesis": "当前替代方案存在会触发迁移的失效",
+            "supporting_claim_refs": [],
+            "opposing_claim_refs": [],
+            "judgment_assessment_refs": ["judgments/judgment-alternatives.json"],
+            "evidence_quality": "unknown",
+            "freshness": "no_evidence",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "uncertainty": "high",
+            "what_would_change_decision": ["取得可审计 Evidence"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "competitor_saturation_and_differentiation",
+            "hypothesis": "竞争格局仍有可审计差异",
+            "supporting_claim_refs": [],
+            "opposing_claim_refs": [],
+            "judgment_assessment_refs": ["judgments/judgment-competitor.json"],
+            "evidence_quality": "unknown",
+            "freshness": "no_evidence",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "uncertainty": "high",
+            "what_would_change_decision": ["取得可审计 Evidence"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "buyer_language_and_willingness_to_pay",
+            "hypothesis": "买方语言与付费逻辑可识别",
+            "supporting_claim_refs": [],
+            "opposing_claim_refs": [],
+            "judgment_assessment_refs": ["judgments/judgment-buyer.json"],
+            "evidence_quality": "unknown",
+            "freshness": "no_evidence",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "uncertainty": "high",
+            "what_would_change_decision": ["取得可审计 Evidence"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "acquisition_and_distribution",
+            "hypothesis": "存在可触达的获客与分发路径",
+            "supporting_claim_refs": [],
+            "opposing_claim_refs": [],
+            "judgment_assessment_refs": ["judgments/judgment-acquisition.json"],
+            "evidence_quality": "unknown",
+            "freshness": "no_evidence",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "uncertainty": "high",
+            "what_would_change_decision": ["取得可审计 Evidence"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "business_engine_viability",
+            "hypothesis": "BusinessEngine 基本闭环可以形成",
+            "supporting_claim_refs": [],
+            "opposing_claim_refs": [],
+            "judgment_assessment_refs": ["judgments/judgment-business.json"],
+            "evidence_quality": "unknown",
+            "freshness": "no_evidence",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "uncertainty": "high",
+            "what_would_change_decision": ["取得可审计 Evidence"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "delivery_feasibility",
+            "hypothesis": "目标交付形态在约束内可行",
+            "supporting_claim_refs": [],
+            "opposing_claim_refs": [],
+            "judgment_assessment_refs": ["judgments/judgment-delivery.json"],
+            "evidence_quality": "unknown",
+            "freshness": "no_evidence",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "uncertainty": "high",
+            "what_would_change_decision": ["取得可审计 Evidence"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "compliance_and_platform_risk",
+            "hypothesis": "合规与平台风险有可接受边界",
+            "supporting_claim_refs": [],
+            "opposing_claim_refs": [],
+            "judgment_assessment_refs": ["judgments/judgment-compliance.json"],
+            "evidence_quality": "unknown",
+            "freshness": "no_evidence",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "uncertainty": "high",
+            "what_would_change_decision": ["取得可审计 Evidence"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "counter_evidence",
+            "hypothesis": "最强替代解释不会直接推翻 thesis",
+            "supporting_claim_refs": [],
+            "opposing_claim_refs": [],
+            "judgment_assessment_refs": ["judgments/judgment-counter.json"],
+            "evidence_quality": "unknown",
+            "freshness": "no_evidence",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "insufficiency_reasons": ["no_signal"],
+            "uncertainty": "high",
+            "what_would_change_decision": ["取得可审计 Evidence"],
+            "limitations": ["未执行 research"]
+          }
+        ],
+        "decisive_evidence_refs": [],
+        "decisive_opposing_refs": [],
+        "critical_gaps": ["全部 mandatory dimensions 当前均无正式 Evidence"],
+        "limitations": ["未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/synthesis/business-engine.json",
+      "document": {
+        "schema_version": "startup_opportunity.business_engine_thesis.v1",
+        "business_engine_id": "business_engine_001",
+        "run_id": "run_assess_contract_001",
+        "subject_ref": "concept-hypothesis.json",
+        "pricing_unit": "unknown",
+        "usage_or_purchase_frequency": "unknown",
+        "retention_or_repeat_trigger": "unknown",
+        "gross_margin_band": "unknown",
+        "service_and_support_burden": "unknown",
+        "cac_hypothesis": "unknown",
+        "payback_logic": "unknown",
+        "reachable_beachhead_market": "unknown",
+        "channel_dependency": [],
+        "growth_loop": "unknown",
+        "minimum_viable_scale": "unknown",
+        "assumptions": [],
+        "supporting_claim_refs": [],
+        "opposing_claim_refs": [],
+        "judgment_assessment_refs": ["judgments/judgment-business.json"],
+        "unknowns": [
+          "pricing_unit",
+          "retention_or_repeat_trigger",
+          "reachable_beachhead_market",
+          "service_and_support_burden"
+        ],
+        "limitations": ["没有非公开经营数据，也未执行 research"]
+      }
+    },
+    {
+      "path": "artifacts/synthesis/concept-evidence-assessment.json",
+      "document": {
+        "schema_version": "startup_opportunity.concept_evidence_assessment.v1",
+        "assessment_id": "assessment_001",
+        "run_id": "run_assess_contract_001",
+        "concept_hypothesis_ref": "concept-hypothesis.json",
+        "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+        "hypothesis_evidence_matrix_ref": "artifacts/synthesis/hypothesis-evidence-matrix.json",
+        "business_engine_ref": "artifacts/synthesis/business-engine.json",
+        "assessment_result": "insufficient_evidence",
+        "evidence_strength_band": "unknown",
+        "dimension_decisions": [
+          {
+            "dimension_id": "target_user_and_jtbd",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "judgment_assessment_refs": ["judgments/judgment-target-user.json"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "demand_and_behavior",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "judgment_assessment_refs": ["judgments/judgment-demand.json"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "current_alternatives_and_solution_failure",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "judgment_assessment_refs": ["judgments/judgment-alternatives.json"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "competitor_saturation_and_differentiation",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "judgment_assessment_refs": ["judgments/judgment-competitor.json"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "buyer_language_and_willingness_to_pay",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "judgment_assessment_refs": ["judgments/judgment-buyer.json"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "acquisition_and_distribution",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "judgment_assessment_refs": ["judgments/judgment-acquisition.json"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "business_engine_viability",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "judgment_assessment_refs": ["judgments/judgment-business.json"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "delivery_feasibility",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "judgment_assessment_refs": ["judgments/judgment-delivery.json"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "compliance_and_platform_risk",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "judgment_assessment_refs": ["judgments/judgment-compliance.json"],
+            "limitations": ["未执行 research"]
+          },
+          {
+            "dimension_id": "counter_evidence",
+            "decision": "insufficient_evidence",
+            "decision_sufficiency": "insufficient",
+            "judgment_assessment_refs": ["judgments/judgment-counter.json"],
+            "limitations": ["未执行 research"]
+          }
+        ],
+        "decisive_evidence_refs": [],
+        "decisive_opposing_refs": [],
+        "critical_gaps": ["全部 mandatory dimensions 当前均无正式 Evidence"],
+        "conditions": [],
+        "kill_criteria": ["当前替代方案已提供足够增量价值"],
+        "recommendation": "当前 desk Evidence 不足，保持 abstention。",
+        "belief_update_summary": {
+          "initial_belief": "unknown",
+          "evidence_that_changed_belief": [],
+          "unchanged_assumptions": [],
+          "remaining_disagreement": [],
+          "final_decision_owner": "user"
+        },
+        "validation_suggestion_refs": [],
+        "limitations": ["该结果只验证 G1.1 static contract，不代表真实研究结论"]
+      }
+    }
+  ]
+}

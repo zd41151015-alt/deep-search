@@ -542,6 +542,18 @@ export class ArtifactStore {
   }
 
   validateEnvelopeBoundary(runId: string, envelope: FormalArtifactEnvelope): void {
+    const storeEnvelopeVersions = new Set<string>([
+      "startup_opportunity.artifact_envelope.v1",
+      "startup_opportunity.artifact_envelope.v2",
+      "startup_opportunity.artifact_envelope.v3",
+    ]);
+    if (!storeEnvelopeVersions.has(envelope.schema_version)) {
+      throw new StoreError(
+        "artifact.envelope_unsupported",
+        "Artifact Store has no published adapter for this envelope version",
+        { schemaVersion: envelope.schema_version },
+      );
+    }
     const result = this.validator.validateDocument(envelope, envelope.artifact_path);
     if (!result.valid) {
       throw new StoreError("artifact.schema_invalid", "formal artifact envelope is invalid", {

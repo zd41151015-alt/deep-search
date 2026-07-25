@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v4/concept-evidence-assessment-fan-in.schema.json",
+  "title": "Startup Opportunity Concept Evidence Assessment Fan-in v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "fan_in_id",
+    "run_id",
+    "concept_hypothesis_ref",
+    "assessment_plan_ref",
+    "completed_branch_refs",
+    "partial_branch_refs",
+    "failed_or_missing_branches",
+    "skipped_branches",
+    "ignored_late_branch_refs",
+    "superseded_branch_refs",
+    "dimension_summaries",
+    "missing_mandatory_dimensions",
+    "evidence_gaps",
+    "decision_impact_of_gaps",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.concept_evidence_assessment_fan_in.v1"
+    },
+    "fan_in_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "concept_hypothesis_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "assessment_plan_ref": { "$ref": "definitions.schema.json#/$defs/assessmentPlanRef" },
+    "completed_branch_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+    "partial_branch_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+    "failed_or_missing_branches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dimension_id", "unit_id", "status", "decision_impact"],
+        "properties": {
+          "dimension_id": { "$ref": "definitions.schema.json#/$defs/assessmentDimension" },
+          "unit_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+          "status": { "enum": ["failed", "missing", "cancelled"] },
+          "decision_impact": {
+            "type": "array",
+            "items": { "$ref": "definitions.schema.json#/$defs/decisionImpact" },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "skipped_branches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dimension_id", "unit_id", "decision_impact"],
+        "properties": {
+          "dimension_id": { "$ref": "definitions.schema.json#/$defs/assessmentDimension" },
+          "unit_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+          "decision_impact": {
+            "type": "array",
+            "items": { "$ref": "definitions.schema.json#/$defs/decisionImpact" },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "ignored_late_branch_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+    "superseded_branch_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+    "dimension_summaries": {
+      "type": "array",
+      "minItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dimension_id",
+          "branch_ref",
+          "judgment_assessment_refs",
+          "decisive_supporting_refs",
+          "decisive_opposing_refs",
+          "decision_sufficiency",
+          "insufficiency_reasons",
+          "what_would_change_the_assessment"
+        ],
+        "properties": {
+          "dimension_id": { "$ref": "definitions.schema.json#/$defs/assessmentDimension" },
+          "branch_ref": {
+            "anyOf": [{ "$ref": "definitions.schema.json#/$defs/artifactRef" }, { "type": "null" }]
+          },
+          "judgment_assessment_refs": {
+            "$ref": "definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "decisive_supporting_refs": {
+            "$ref": "definitions.schema.json#/$defs/evidenceOrClaimRefArray"
+          },
+          "decisive_opposing_refs": {
+            "$ref": "definitions.schema.json#/$defs/evidenceOrClaimRefArray"
+          },
+          "decision_sufficiency": {
+            "$ref": "definitions.schema.json#/$defs/decisionSufficiency"
+          },
+          "insufficiency_reasons": {
+            "$ref": "definitions.schema.json#/$defs/insufficiencyReasons"
+          },
+          "what_would_change_the_assessment": {
+            "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "missing_mandatory_dimensions": {
+      "type": "array",
+      "items": { "$ref": "definitions.schema.json#/$defs/assessmentDimension" },
+      "uniqueItems": true
+    },
+    "evidence_gaps": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "decision_impact_of_gaps": {
+      "type": "array",
+      "items": { "$ref": "definitions.schema.json#/$defs/decisionImpact" },
+      "uniqueItems": true
+    },
+    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+  }
+}

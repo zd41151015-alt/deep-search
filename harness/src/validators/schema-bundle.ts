@@ -3,8 +3,8 @@ import path from "node:path";
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsImport from "ajv-formats";
 
-export const SCHEMA_BUNDLE_VERSION = "2.2.0" as const;
-export const SCHEMA_BUNDLE_MANIFEST_PATH = "harness/schemas/bundle.v2.2.json" as const;
+export const SCHEMA_BUNDLE_VERSION = "3.0.0" as const;
+export const SCHEMA_BUNDLE_MANIFEST_PATH = "harness/schemas/bundle.v3.json" as const;
 
 export interface ValidationIssue {
   readonly code: string;

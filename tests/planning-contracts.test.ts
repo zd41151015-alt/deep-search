@@ -220,9 +220,17 @@ test("closed mode policy accepts only exact declared tuples and future output sc
   assert.ok(
     policy.artifact_schema_catalog.every((entry) => entry.availability === "future_declared"),
   );
+  const installedAssessBranch = policy.artifact_schema_catalog.find(
+    (entry) =>
+      entry.schema_id === "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+  );
+  assert.ok(installedAssessBranch);
+  assert.ok(bundle.validators.has(installedAssessBranch.schema_id));
   assert.ok(
-    policy.artifact_schema_catalog.every((entry) => !bundle.validators.has(entry.schema_id)),
-    "future-declared output schemas must not be installed by the G0 contract bundle",
+    policy.artifact_schema_catalog
+      .filter((entry) => entry.schema_id !== installedAssessBranch.schema_id)
+      .every((entry) => !bundle.validators.has(entry.schema_id)),
+    "schemas owned by downstream slices must remain uninstalled",
   );
 });
 

@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v4/definitions.schema.json",
+  "$defs": {
+    "nonEmptyString": { "$ref": "../v1/definitions.schema.json#/$defs/nonEmptyString" },
+    "identifier": { "$ref": "../v1/definitions.schema.json#/$defs/identifier" },
+    "runId": { "$ref": "../v1/definitions.schema.json#/$defs/runId" },
+    "timestamp": { "$ref": "../v1/definitions.schema.json#/$defs/timestamp" },
+    "artifactRef": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRef" },
+    "artifactRefArray": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRefArray" },
+    "uniqueStringArray": { "$ref": "../v1/definitions.schema.json#/$defs/uniqueStringArray" },
+    "identifierArray": { "$ref": "../v1/definitions.schema.json#/$defs/identifierArray" },
+    "decisionImpact": { "$ref": "../v1/definitions.schema.json#/$defs/decisionImpact" },
+    "adaptationRef": { "$ref": "../v1/definitions.schema.json#/$defs/adaptationRef" },
+    "assessmentDimension": {
+      "enum": [
+        "target_user_and_jtbd",
+        "demand_and_behavior",
+        "current_alternatives_and_solution_failure",
+        "competitor_saturation_and_differentiation",
+        "buyer_language_and_willingness_to_pay",
+        "acquisition_and_distribution",
+        "business_engine_viability",
+        "delivery_feasibility",
+        "compliance_and_platform_risk",
+        "counter_evidence"
+      ]
+    },
+    "assessmentPlanRef": {
+      "type": "string",
+      "pattern": "^plans/concept-evidence-assessment-plan\\.r[1-9][0-9]*\\.json$"
+    },
+    "assessmentProfile": { "enum": ["general", "ai", "regulated_ai"] },
+    "deliveryForm": {
+      "enum": [
+        "native_app",
+        "mini_program",
+        "mobile_web",
+        "PWA",
+        "hybrid_app",
+        "platform_native",
+        "service_assisted"
+      ]
+    },
+    "evidenceTier": {
+      "enum": [
+        "direct_behavior",
+        "transaction_or_commitment",
+        "observed_workflow",
+        "public_behavior_proxy",
+        "self_reported_need",
+        "expert_or_operator_report",
+        "vendor_claim",
+        "media_or_trend_signal",
+        "model_inference_only"
+      ]
+    },
+    "judgmentSignal": {
+      "enum": ["supported", "opposed", "mixed", "no_signal", "source_unavailable", "not_applicable"]
+    },
+    "decisionSufficiency": {
+      "enum": ["sufficient", "insufficient", "blocked", "not_applicable"]
+    },
+    "insufficiencyReason": {
+      "enum": [
+        "no_signal",
+        "conflicting_signal",
+        "source_unavailable",
+        "stale_decisive_evidence",
+        "low_tier_only",
+        "single_source",
+        "missing_required_dimension"
+      ]
+    },
+    "insufficiencyReasons": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/insufficiencyReason" },
+      "uniqueItems": true
+    },
+    "dimensionDecision": {
+      "enum": ["supports", "mixed", "opposes", "insufficient_evidence", "not_applicable"]
+    },
+    "branchStatus": {
+      "enum": [
+        "completed",
+        "partial",
+        "insufficient_evidence",
+        "failed",
+        "cancelled",
+        "skipped",
+        "ignored_late",
+        "superseded_by_scope_change",
+        "superseded_by_adaptation"
+      ]
+    },
+    "uncertainty": { "enum": ["low", "medium", "high", "unknown"] },
+    "evidenceQuality": { "enum": ["low", "medium", "high", "unknown"] },
+    "evidenceOrClaimRefArray": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/identifier" },
+      "uniqueItems": true
+    },
+    "dimensionDecisionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dimension_id",
+        "decision",
+        "decision_sufficiency",
+        "judgment_assessment_refs",
+        "limitations"
+      ],
+      "properties": {
+        "dimension_id": { "$ref": "#/$defs/assessmentDimension" },
+        "decision": { "$ref": "#/$defs/dimensionDecision" },
+        "decision_sufficiency": { "$ref": "#/$defs/decisionSufficiency" },
+        "judgment_assessment_refs": { "$ref": "#/$defs/artifactRefArray" },
+        "limitations": { "$ref": "#/$defs/uniqueStringArray" }
+      }
+    }
+  }
+}

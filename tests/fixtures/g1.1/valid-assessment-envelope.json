@@ -1,0 +1,113 @@
+{
+  "schema_version": "startup_opportunity.artifact_envelope.v4",
+  "artifact_type": "startup_opportunity.concept_evidence_assessment.v1",
+  "artifact_path": "artifacts/synthesis/concept-evidence-assessment.json",
+  "run_id": "run_assess_contract_001",
+  "created_at": "2026-07-24T12:10:00Z",
+  "producer_role": "main_agent",
+  "input_refs": [
+    "concept-hypothesis.json",
+    "plans/concept-evidence-assessment-plan.r1.json",
+    "artifacts/synthesis/hypothesis-evidence-matrix.json",
+    "artifacts/synthesis/business-engine.json"
+  ],
+  "content_hash": "sha256:ee1aa470c8638ac2e471c928e94ec26641d78f6e675cea6ba0a6e0c3127c4294",
+  "document": {
+    "schema_version": "startup_opportunity.concept_evidence_assessment.v1",
+    "assessment_id": "assessment_001",
+    "run_id": "run_assess_contract_001",
+    "concept_hypothesis_ref": "concept-hypothesis.json",
+    "assessment_plan_ref": "plans/concept-evidence-assessment-plan.r1.json",
+    "hypothesis_evidence_matrix_ref": "artifacts/synthesis/hypothesis-evidence-matrix.json",
+    "business_engine_ref": "artifacts/synthesis/business-engine.json",
+    "assessment_result": "insufficient_evidence",
+    "evidence_strength_band": "unknown",
+    "dimension_decisions": [
+      {
+        "dimension_id": "target_user_and_jtbd",
+        "decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "judgment_assessment_refs": ["judgments/judgment-target-user.json"],
+        "limitations": ["未执行 research"]
+      },
+      {
+        "dimension_id": "demand_and_behavior",
+        "decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "judgment_assessment_refs": ["judgments/judgment-demand.json"],
+        "limitations": ["未执行 research"]
+      },
+      {
+        "dimension_id": "current_alternatives_and_solution_failure",
+        "decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "judgment_assessment_refs": ["judgments/judgment-alternatives.json"],
+        "limitations": ["未执行 research"]
+      },
+      {
+        "dimension_id": "competitor_saturation_and_differentiation",
+        "decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "judgment_assessment_refs": ["judgments/judgment-competitor.json"],
+        "limitations": ["未执行 research"]
+      },
+      {
+        "dimension_id": "buyer_language_and_willingness_to_pay",
+        "decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "judgment_assessment_refs": ["judgments/judgment-buyer.json"],
+        "limitations": ["未执行 research"]
+      },
+      {
+        "dimension_id": "acquisition_and_distribution",
+        "decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "judgment_assessment_refs": ["judgments/judgment-acquisition.json"],
+        "limitations": ["未执行 research"]
+      },
+      {
+        "dimension_id": "business_engine_viability",
+        "decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "judgment_assessment_refs": ["judgments/judgment-business.json"],
+        "limitations": ["未执行 research"]
+      },
+      {
+        "dimension_id": "delivery_feasibility",
+        "decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "judgment_assessment_refs": ["judgments/judgment-delivery.json"],
+        "limitations": ["未执行 research"]
+      },
+      {
+        "dimension_id": "compliance_and_platform_risk",
+        "decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "judgment_assessment_refs": ["judgments/judgment-compliance.json"],
+        "limitations": ["未执行 research"]
+      },
+      {
+        "dimension_id": "counter_evidence",
+        "decision": "insufficient_evidence",
+        "decision_sufficiency": "insufficient",
+        "judgment_assessment_refs": ["judgments/judgment-counter.json"],
+        "limitations": ["未执行 research"]
+      }
+    ],
+    "decisive_evidence_refs": [],
+    "decisive_opposing_refs": [],
+    "critical_gaps": ["全部 mandatory dimensions 当前均无正式 Evidence"],
+    "conditions": [],
+    "kill_criteria": ["当前替代方案已提供足够增量价值"],
+    "recommendation": "当前 desk Evidence 不足，保持 abstention。",
+    "belief_update_summary": {
+      "initial_belief": "unknown",
+      "evidence_that_changed_belief": [],
+      "unchanged_assumptions": [],
+      "remaining_disagreement": [],
+      "final_decision_owner": "user"
+    },
+    "validation_suggestion_refs": [],
+    "limitations": ["该结果只验证 G1.1 static contract，不代表真实研究结论"]
+  }
+}

@@ -115,6 +115,12 @@ export {
   DOCUMENT_BUNDLE_VALIDATION_RESULT_VERSION,
 } from "./validators/artifact-validator.js";
 export {
+  ASSESSMENT_DIMENSIONS,
+  type AssessDomainDocument,
+  isAssessDomainSchemaVersion,
+  validateAssessDomainContract,
+} from "./validators/assess-domain-validator.js";
+export {
   type CoverageIdentity,
   coverageKey,
   type PlanningRunStateIdentity,

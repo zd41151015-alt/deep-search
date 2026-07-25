@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-export const SKELETON_VERSION = "g0.4" as const;
+export const SKELETON_VERSION = "g1.1" as const;
 
 export const IMPLEMENTATION_STACK = {
   language: "TypeScript 7.0.2",
@@ -49,6 +49,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v3.json",
   "harness/schemas/bundle.v2.2.json",
   "harness/schemas/bundle.v2.1.json",
   "harness/schemas/bundle.v2.json",
@@ -75,11 +76,26 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v3/artifact-envelope.schema.json",
   "harness/schemas/v3/document-bundle.schema.json",
   "harness/schemas/v3/plan-revision-apply-policy.schema.json",
+  "harness/schemas/v4/definitions.schema.json",
+  "harness/schemas/v4/intake.schema.json",
+  "harness/schemas/v4/decision-context.schema.json",
+  "harness/schemas/v4/scope-frame.schema.json",
+  "harness/schemas/v4/concept-hypothesis.schema.json",
+  "harness/schemas/v4/judgment-assessment.schema.json",
+  "harness/schemas/v4/concept-evidence-assessment-plan.schema.json",
+  "harness/schemas/v4/concept-evidence-assessment-branch-result.schema.json",
+  "harness/schemas/v4/concept-evidence-assessment-fan-in.schema.json",
+  "harness/schemas/v4/hypothesis-evidence-matrix.schema.json",
+  "harness/schemas/v4/business-engine-thesis.schema.json",
+  "harness/schemas/v4/concept-evidence-assessment.schema.json",
+  "harness/schemas/v4/artifact-envelope.schema.json",
+  "harness/schemas/v4/document-bundle.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/schema-bundle.ts",
   "harness/src/validators/artifact-validator.ts",
+  "harness/src/validators/assess-domain-validator.ts",
   "harness/src/validators/planning-contract-identities.ts",
   "harness/src/validators/planning-contract-validator.ts",
   "harness/src/validators/validate-artifact-command.ts",
