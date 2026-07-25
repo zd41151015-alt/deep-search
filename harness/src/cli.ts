@@ -7,6 +7,7 @@ import {
   runValidatePlan,
 } from "./adaptation/adaptation-commands.js";
 import { printHelp, runDoctor } from "./commands.js";
+import { runAuditTraceability, runBuildReport } from "./reporting/report-commands.js";
 import {
   runCheckpointRun,
   runCreateRun,
@@ -54,6 +55,12 @@ switch (command) {
     break;
   case "apply-plan-revision":
     process.exitCode = await runApplyPlanRevision(args);
+    break;
+  case "audit-traceability":
+    process.exitCode = await runAuditTraceability(args);
+    break;
+  case "build-report":
+    process.exitCode = await runBuildReport(args);
     break;
   default:
     process.stderr.write(`Unknown command: ${command}\n`);

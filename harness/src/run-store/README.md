@@ -11,3 +11,5 @@ Publication checks a current Plan-owned output against its exact `required_artif
 G1.2 task envelope publication 只做 `pending -> active` 的 deterministic manifest transition；Harness 不启动或管理 agent。v5 branch 的 `completed`、`partial`、`insufficient_evidence` 进入 `completed_units`，`failed` 进入 `failed_units`，existing cancelled/skipped/superseded/ignored-late 集合按 versioned policy 映射。`partial` retry 仍 fail closed。Reopen 使用磁盘上的 envelope、v2 Evidence exact records 和最新有效 checkpoint 重建同一状态；不会把 late/superseded output 恢复成 current。
 
 G1.3 Plan operation receipt v2 同时绑定 base/result Research Plan 与 assessment plan ref/hash。`add_unit` 的三个 revision control Artifacts 全部验证并发布后才允许 Manifest CAS；`stop_followup` 保留 current plan。Crash/reopen 只完成已验证 receipt 的剩余步骤，stale base、branched ancestry、drift 或 operation-key conflict 均 fail closed。
+
+G1.4 reopen 在 Artifact receipt recovery 后检查 immutable report sidecar，按 report -> brief -> full view -> consistency 的闭合 contract 补齐缺失 derived sidecar 和 materialized view。`report.json` 不作为 formal envelope 重复索引；它与两个 Markdown 文件的冲突 bytes、receipt drift、sidecar/hash drift 都使 reopen fail closed。

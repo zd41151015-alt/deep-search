@@ -30,6 +30,10 @@ import {
 import { withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { type EvidenceRecoveryResult, EvidenceStore } from "../evidence-store/evidence-store.js";
+import {
+  type ReportRecoveryResult,
+  recoverReportOperationsLocked,
+} from "../reporting/report-runtime.js";
 import type { ArtifactValidator, DocumentBundleEntry } from "../validators/artifact-validator.js";
 import { type JsonlRepairResult, JsonlStore } from "./jsonl-store.js";
 
@@ -126,6 +130,7 @@ export interface LoadRunResult {
   readonly logRepairs: readonly JsonlRepairResult[];
   readonly evidenceRecovery: EvidenceRecoveryResult;
   readonly planOperationRecovery: PlanOperationRecoveryResult;
+  readonly reportRecovery: ReportRecoveryResult;
   readonly orphanActiveUnits: readonly string[];
 }
 
@@ -135,6 +140,10 @@ const RUN_DIRECTORIES = [
   "adaptations/gap-snapshots",
   "adaptations/decisions",
   "artifacts/lanes",
+  "artifacts/audits",
+  "artifacts/assessment",
+  "artifacts/traceability",
+  "artifacts/reporting",
   "artifacts/synthesis",
   "artifacts/reviews",
   "artifacts/comparison",
@@ -154,6 +163,7 @@ const STORE_ENVELOPE_VERSIONS = new Set([
   "startup_opportunity.artifact_envelope.v4",
   "startup_opportunity.artifact_envelope.v5",
   "startup_opportunity.artifact_envelope.v6",
+  "startup_opportunity.artifact_envelope.v7",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -933,6 +943,12 @@ export class RunStore {
   private async recoverLocked(runRoot: string, runId: string): Promise<LoadRunResult> {
     const evidenceRecovery = await this.evidence.recoverLocked(runRoot, runId);
     const artifactRecovery = await this.artifacts.recoverLocked(runRoot, runId);
+    const reportRecovery = await recoverReportOperationsLocked(
+      runRoot,
+      runId,
+      this.validator,
+      this.artifacts,
+    );
     const logRepairs = [
       await this.logs.repair(runRoot, runId, "events.jsonl"),
       await this.logs.repair(runRoot, runId, "decisions.jsonl"),
@@ -1098,7 +1114,8 @@ export class RunStore {
     );
     if (
       recoveryBundleVersion === "startup_opportunity.document_bundle.v5" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v6"
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v6" ||
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v7"
     ) {
       for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
         if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
@@ -1111,7 +1128,8 @@ export class RunStore {
         schema_version: recoveryBundleVersion,
         documents: recoveryDocuments,
         ...(recoveryBundleVersion === "startup_opportunity.document_bundle.v5" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v6"
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v6" ||
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v7"
           ? { exact_records: [] }
           : {}),
       },
@@ -1158,13 +1176,16 @@ export class RunStore {
         evidenceRecovery.truncatedBytes > 0 ||
         evidenceRecovery.replayedEvidenceIds.length > 0 ||
         evidenceRecovery.recoveredRawContentRefs.length > 0 ||
-        planOperationRecovery.completedOperationKeys.length > 0,
+        planOperationRecovery.completedOperationKeys.length > 0 ||
+        reportRecovery.recoveredFormalArtifactPaths.length > 0 ||
+        reportRecovery.recoveredMaterializedPaths.length > 0,
       lastValidCheckpointRef: latest.path,
       recoveredArtifactPaths: artifactRecovery.recoveredArtifactPaths,
       ignoredInvalidCheckpointPaths: invalidCheckpoints.sort(),
       logRepairs,
       evidenceRecovery,
       planOperationRecovery,
+      reportRecovery,
       orphanActiveUnits: currentManifest.active_units,
     };
   }

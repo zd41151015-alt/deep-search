@@ -14,6 +14,11 @@ import {
   type AssessmentAdaptationDocument,
   validateAssessmentAdaptationContract,
 } from "./assessment-adaptation-validator.js";
+import {
+  type AssessmentReportingPolicy,
+  loadAssessmentReportingPolicy,
+} from "./assessment-reporting-policy.js";
+import { type G14Document, isG14SchemaVersion, validateG14Contract } from "./g1.4-validator.js";
 import { coverageKey, planningRunStateHash } from "./planning-contract-identities.js";
 import {
   type ResearchBranchDocument,
@@ -52,7 +57,8 @@ export interface DocumentBundle {
     | "startup_opportunity.document_bundle.v3"
     | "startup_opportunity.document_bundle.v4"
     | "startup_opportunity.document_bundle.v5"
-    | "startup_opportunity.document_bundle.v6";
+    | "startup_opportunity.document_bundle.v6"
+    | "startup_opportunity.document_bundle.v7";
   readonly documents: readonly DocumentBundleEntry[];
   readonly exact_records?: readonly {
     readonly ref: string;
@@ -235,6 +241,49 @@ function refsFromNestedArray(
         : [],
     );
   });
+}
+
+function g14CommonRefs(document: Record<string, unknown>): readonly ReferenceRequirement[] {
+  return [
+    ...nestedRef(
+      document,
+      "lineage",
+      "concept_hypothesis_ref",
+      "startup_opportunity.concept_hypothesis.v1",
+    ),
+    ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v1"),
+    ...nestedRef(document, "lineage", "research_plan_ref", "startup_opportunity.research_plan.v1"),
+    ...nestedRef(
+      document,
+      "lineage",
+      "assessment_plan_ref",
+      "startup_opportunity.concept_evidence_assessment_plan.v1",
+    ),
+    ...refsFromNestedArray(document, "input_artifact_hashes", "ref", [
+      "startup_opportunity.run_manifest.v1",
+      "startup_opportunity.research_plan.v1",
+      "startup_opportunity.scope_frame.v1",
+      "startup_opportunity.concept_hypothesis.v1",
+      "startup_opportunity.concept_evidence_assessment_plan.v1",
+      "startup_opportunity.concept_evidence_assessment_fan_in.v1",
+      "startup_opportunity.hypothesis_evidence_matrix.v1",
+      "startup_opportunity.business_engine_thesis.v1",
+      "startup_opportunity.judgment_assessment.v1",
+      "startup_opportunity.research_task.v1",
+      "startup_opportunity.evidence.v1",
+      "startup_opportunity.claim.v1",
+      "startup_opportunity.finding.v1",
+      "startup_opportunity.insight.v1",
+      "startup_opportunity.source_manifest.v1",
+      "startup_opportunity.evidence_audit.v1",
+      "startup_opportunity.adversarial_review.v1",
+      "startup_opportunity.concept_evidence_assessment.v2",
+      "startup_opportunity.traceability.v1",
+      "startup_opportunity.concept_evidence_report.v1",
+      "startup_opportunity.decision_brief.v1",
+      "startup_opportunity.concept_evidence_report_view.v1",
+    ]),
+  ];
 }
 
 function referenceRequirements(effective: EffectiveDocument): readonly ReferenceRequirement[] {
@@ -688,6 +737,270 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.evidence.v1",
         ),
       ];
+    case "startup_opportunity.evidence_audit.v1":
+      return [
+        ...g14CommonRefs(document),
+        ...refsFromArray(
+          document,
+          "source_manifest_refs",
+          "startup_opportunity.source_manifest.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "evidence_reviews",
+          "evidence_ref",
+          "startup_opportunity.evidence.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "evidence_reviews",
+          "source_manifest_ref",
+          "startup_opportunity.source_manifest.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "claim_reviews",
+          "claim_ref",
+          "startup_opportunity.claim.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "claim_reviews",
+          "evidence_refs",
+          "startup_opportunity.evidence.v1",
+        ),
+      ];
+    case "startup_opportunity.adversarial_review.v1":
+      return [
+        ...g14CommonRefs(document),
+        ...optionalRef(
+          document,
+          "hypothesis_evidence_matrix_ref",
+          "startup_opportunity.hypothesis_evidence_matrix.v1",
+        ),
+        ...optionalRef(
+          document,
+          "business_engine_ref",
+          "startup_opportunity.business_engine_thesis.v1",
+        ),
+        ...optionalRef(document, "evidence_audit_ref", "startup_opportunity.evidence_audit.v1"),
+        ...refsFromArray(
+          document,
+          "challenger_source_manifest_refs",
+          "startup_opportunity.source_manifest.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "challenges",
+          "evidence_refs",
+          "startup_opportunity.evidence.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "challenges",
+          "claim_refs",
+          "startup_opportunity.claim.v1",
+        ),
+      ];
+    case "startup_opportunity.concept_evidence_assessment.v2":
+      return [
+        ...g14CommonRefs(document),
+        ...optionalRef(
+          document,
+          "fan_in_ref",
+          "startup_opportunity.concept_evidence_assessment_fan_in.v1",
+        ),
+        ...optionalRef(
+          document,
+          "hypothesis_evidence_matrix_ref",
+          "startup_opportunity.hypothesis_evidence_matrix.v1",
+        ),
+        ...optionalRef(
+          document,
+          "business_engine_ref",
+          "startup_opportunity.business_engine_thesis.v1",
+        ),
+        ...optionalRef(document, "evidence_audit_ref", "startup_opportunity.evidence_audit.v1"),
+        ...optionalRef(
+          document,
+          "adversarial_review_ref",
+          "startup_opportunity.adversarial_review.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "dimension_decisions",
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v1",
+        ),
+        ...refsFromArray(document, "decisive_evidence_refs", [
+          "startup_opportunity.evidence.v1",
+          "startup_opportunity.claim.v1",
+        ]),
+        ...refsFromArray(document, "decisive_opposing_refs", [
+          "startup_opportunity.evidence.v1",
+          "startup_opportunity.claim.v1",
+        ]),
+      ];
+    case "startup_opportunity.traceability.v1":
+      return [
+        ...g14CommonRefs(document),
+        ...optionalRef(
+          document,
+          "assessment_ref",
+          "startup_opportunity.concept_evidence_assessment.v2",
+        ),
+        ...optionalRef(
+          document,
+          "hypothesis_evidence_matrix_ref",
+          "startup_opportunity.hypothesis_evidence_matrix.v1",
+        ),
+        ...optionalRef(
+          document,
+          "business_engine_ref",
+          "startup_opportunity.business_engine_thesis.v1",
+        ),
+        ...optionalRef(document, "evidence_audit_ref", "startup_opportunity.evidence_audit.v1"),
+        ...optionalRef(
+          document,
+          "adversarial_review_ref",
+          "startup_opportunity.adversarial_review.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "chains",
+          "assessment_ref",
+          "startup_opportunity.concept_evidence_assessment.v2",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "chains",
+          "judgment_assessment_ref",
+          "startup_opportunity.judgment_assessment.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "chains",
+          "concept_subject_ref",
+          "startup_opportunity.concept_hypothesis.v1",
+        ),
+        ...refsFromNestedArray(document, "chains", "insight_ref", "startup_opportunity.insight.v1"),
+        ...refsFromNestedArray(document, "chains", "finding_ref", "startup_opportunity.finding.v1"),
+        ...refsFromNestedArray(document, "chains", "claim_ref", "startup_opportunity.claim.v1"),
+        ...refsFromNestedArray(
+          document,
+          "chains",
+          "evidence_ref",
+          "startup_opportunity.evidence.v1",
+        ),
+      ];
+    case "startup_opportunity.concept_evidence_report.v1":
+      return [
+        ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
+        ...optionalRef(document, "concept_frame_ref", "startup_opportunity.scope_frame.v1"),
+        ...optionalRef(
+          document,
+          "concept_hypothesis_ref",
+          "startup_opportunity.concept_hypothesis.v1",
+        ),
+        ...optionalRef(
+          document,
+          "evidence_assessment_plan_ref",
+          "startup_opportunity.concept_evidence_assessment_plan.v1",
+        ),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromArray(document, "plan_lineage_refs", "startup_opportunity.research_plan.v1"),
+        ...refsFromArray(document, "applied_adaptation_refs", [
+          "startup_opportunity.adaptation_decision.v2",
+          "startup_opportunity.adaptation_decision.v3",
+        ]),
+        ...optionalRef(
+          document,
+          "hypothesis_evidence_matrix_ref",
+          "startup_opportunity.hypothesis_evidence_matrix.v1",
+        ),
+        ...optionalRef(
+          document,
+          "adversarial_review_ref",
+          "startup_opportunity.adversarial_review.v1",
+        ),
+        ...optionalRef(document, "evidence_audit_ref", "startup_opportunity.evidence_audit.v1"),
+        ...optionalRef(
+          document,
+          "concept_evidence_assessment_ref",
+          "startup_opportunity.concept_evidence_assessment.v2",
+        ),
+        ...optionalRef(
+          document,
+          "business_engine_ref",
+          "startup_opportunity.business_engine_thesis.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "source_manifest_refs",
+          "startup_opportunity.source_manifest.v1",
+        ),
+        ...optionalRef(document, "traceability_ref", "startup_opportunity.traceability.v1"),
+      ];
+    case "startup_opportunity.decision_brief.v1":
+      return [
+        ...optionalRef(document, "report_ref", "startup_opportunity.concept_evidence_report.v1"),
+        ...optionalRef(
+          document,
+          "assessment_ref",
+          "startup_opportunity.concept_evidence_assessment.v2",
+        ),
+        ...refsFromArray(document, "decisive_supporting_refs", [
+          "startup_opportunity.evidence.v1",
+          "startup_opportunity.claim.v1",
+        ]),
+        ...refsFromArray(document, "decisive_opposing_refs", [
+          "startup_opportunity.evidence.v1",
+          "startup_opportunity.claim.v1",
+        ]),
+      ];
+    case "startup_opportunity.concept_evidence_report_view.v1":
+      return [
+        ...optionalRef(document, "report_ref", "startup_opportunity.concept_evidence_report.v1"),
+        ...optionalRef(
+          document,
+          "assessment_ref",
+          "startup_opportunity.concept_evidence_assessment.v2",
+        ),
+        ...refsFromArray(document, "decisive_supporting_refs", [
+          "startup_opportunity.evidence.v1",
+          "startup_opportunity.claim.v1",
+        ]),
+        ...refsFromArray(document, "decisive_opposing_refs", [
+          "startup_opportunity.evidence.v1",
+          "startup_opportunity.claim.v1",
+        ]),
+      ];
+    case "startup_opportunity.report_consistency_evaluation.v1":
+      return [
+        ...optionalRef(document, "report_ref", "startup_opportunity.concept_evidence_report.v1"),
+        ...optionalRef(document, "decision_brief_ref", "startup_opportunity.decision_brief.v1"),
+        ...optionalRef(
+          document,
+          "report_view_ref",
+          "startup_opportunity.concept_evidence_report_view.v1",
+        ),
+        ...optionalRef(
+          document,
+          "assessment_ref",
+          "startup_opportunity.concept_evidence_assessment.v2",
+        ),
+        ...refsFromNestedArray(document, "input_artifact_hashes", "ref", [
+          "startup_opportunity.concept_evidence_report.v1",
+          "startup_opportunity.decision_brief.v1",
+          "startup_opportunity.concept_evidence_report_view.v1",
+          "startup_opportunity.concept_evidence_assessment.v2",
+        ]),
+      ];
     default:
       return [];
   }
@@ -701,7 +1014,8 @@ function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
     version !== "startup_opportunity.artifact_envelope.v3" &&
     version !== "startup_opportunity.artifact_envelope.v4" &&
     version !== "startup_opportunity.artifact_envelope.v5" &&
-    version !== "startup_opportunity.artifact_envelope.v6"
+    version !== "startup_opportunity.artifact_envelope.v6" &&
+    version !== "startup_opportunity.artifact_envelope.v7"
   ) {
     return { path: entry.path, schemaVersion: version, document: entry.document, envelope: null };
   }
@@ -831,7 +1145,8 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
     !isRecord(document) ||
     (document.schema_version !== "startup_opportunity.artifact_envelope.v4" &&
       document.schema_version !== "startup_opportunity.artifact_envelope.v5" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v6") ||
+      document.schema_version !== "startup_opportunity.artifact_envelope.v6" &&
+      document.schema_version !== "startup_opportunity.artifact_envelope.v7") ||
     !isRecord(document.document)
   ) {
     return [];
@@ -868,6 +1183,7 @@ export class ArtifactValidator {
   constructor(
     private readonly bundle: LoadedSchemaBundle,
     readonly publicationPolicy: PublicationPolicy,
+    readonly assessmentReportingPolicy: AssessmentReportingPolicy,
   ) {}
 
   publicationAdapter(schemaVersion: unknown): StorePublicationAdapter {
@@ -1130,7 +1446,8 @@ export class ArtifactValidator {
       assessDocuments.some((entry) => isAssessDomainSchemaVersion(entry.schemaVersion)) &&
       input.schema_version !== "startup_opportunity.document_bundle.v4" &&
       input.schema_version !== "startup_opportunity.document_bundle.v5" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v6"
+      input.schema_version !== "startup_opportunity.document_bundle.v6" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v7"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -1165,7 +1482,8 @@ export class ArtifactValidator {
             entry.envelope?.schema_version === "startup_opportunity.artifact_envelope.v5"),
       ) &&
       input.schema_version !== "startup_opportunity.document_bundle.v5" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v6"
+      input.schema_version !== "startup_opportunity.document_bundle.v6" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v7"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -1185,6 +1503,27 @@ export class ArtifactValidator {
         document: entry.document,
       }));
     referenceErrors.push(...validateAssessmentAdaptationContract(assessmentAdaptationDocuments));
+    const g14Documents: readonly G14Document[] = effectiveDocuments.map((entry) => ({
+      path: entry.path,
+      schemaVersion: entry.schemaVersion,
+      document: entry.document,
+      envelope: entry.envelope,
+    }));
+    if (
+      g14Documents.some((entry) => isG14SchemaVersion(entry.schemaVersion)) &&
+      input.schema_version !== "startup_opportunity.document_bundle.v7"
+    ) {
+      referenceErrors.push(
+        referenceIssue(
+          "g1_4.bundle_version_mismatch",
+          "/schema_version",
+          "G1.4 audit, review, Assessment, Traceability, and report contracts require document_bundle.v7",
+          { actualSchemaVersion: input.schema_version },
+        ),
+      );
+    } else {
+      referenceErrors.push(...validateG14Contract(g14Documents, this.assessmentReportingPolicy));
+    }
     referenceErrors.push(...exactRecordErrors);
     const sortedReferenceErrors = sortIssues(referenceErrors);
     const sortedDocuments = [...documents].sort((left, right) =>
@@ -1595,5 +1934,9 @@ export async function createArtifactValidator(
   expectedVersion?: string,
 ): Promise<ArtifactValidator> {
   const bundle = await loadSchemaBundle(root, manifestRelativePath, expectedVersion);
-  return new ArtifactValidator(bundle, await loadResearchPublicationPolicy(root, bundle));
+  return new ArtifactValidator(
+    bundle,
+    await loadResearchPublicationPolicy(root, bundle),
+    await loadAssessmentReportingPolicy(root, bundle),
+  );
 }

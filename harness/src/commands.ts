@@ -1,6 +1,6 @@
 import { type DoctorReport, inspectRepository } from "./repository-contract.js";
 
-const HELP = `Startup Opportunity Research Harness (G1.3)
+const HELP = `Startup Opportunity Research Harness (G1.4)
 
 Usage:
   npm run harness -- help
@@ -15,9 +15,11 @@ Usage:
   npm run harness -- analyze-gaps --file FILE [--json]
   npm run harness -- validate-adaptation --bundle FILE [--json]
   npm run harness -- apply-plan-revision --file FILE [--runs-root DIR] [--json]
+  npm run harness -- audit-traceability --bundle FILE [--json]
+  npm run harness -- build-report --file FILE [--runs-root DIR] [--json]
 
 Commands:
-  help               Show the implemented G1.3 command surface.
+  help               Show the implemented G1.4 command surface.
   doctor             Validate repository, toolchain, Skill, agent, Harness, and test contracts.
   validate-artifact  Validate one document, a typed document bundle, or the schema bundle itself.
   create-run         Create a confined Run and its initial checkpoint.
@@ -29,8 +31,10 @@ Commands:
   analyze-gaps       Build a deterministic machine or assessment Gap Snapshot draft.
   validate-adaptation Validate G0 v2 or G1.3 v3 closed actions against current Run/Plan state.
   apply-plan-revision Apply validated actions through CAS and immutable Plan Revision receipts.
+  audit-traceability Validate the closed G1.4 audit/review/Assessment/Traceability/report chain.
+  build-report       Publish a validated report source and deterministically materialize its views.
 
-Validation and Store success are mechanical only. The Harness does not dispatch agents or perform network research. Synthesis, review, comparison, and reporting commands remain unavailable.
+Validation, publication, and report materialization success are mechanical only. The Harness does not dispatch agents or perform network research. Discovery, comparison, and portfolio commands remain unavailable.
 `;
 
 export function printHelp(

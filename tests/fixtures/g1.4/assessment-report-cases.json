@@ -1,0 +1,38 @@
+{
+  "schema_version": "startup_opportunity.g1_4_fixture_catalog.v1",
+  "assessment_results": [
+    "prioritize",
+    "investigate_further",
+    "deprioritize",
+    "insufficient_evidence"
+  ],
+  "negative_cases": [
+    "stale_decisive_evidence",
+    "low_tier_decisive_evidence",
+    "single_source_decisive_claim",
+    "overlapping_challenger_groups",
+    "unavailable_source",
+    "unsupported_claim",
+    "unsupported_quote",
+    "incomplete_ai_bundle",
+    "unresolved_thesis_killing_opposition",
+    "broken_traceability",
+    "report_result_drift",
+    "report_hash_drift",
+    "report_freshness_drift",
+    "report_limitation_drift",
+    "report_counter_evidence_drift",
+    "forbidden_validation_language",
+    "materialized_output_conflict",
+    "receipt_drift",
+    "stored_sidecar_drift",
+    "wrong_run_scope_plan_or_assessment_lineage"
+  ],
+  "truthfulness": {
+    "synthetic_only": true,
+    "allowed_public_url_suffix": ".invalid",
+    "allowed_user_material_prefix": "urn:startup-opportunity:user-provided:",
+    "higher_tier_values_are_gate_scenarios_only": true,
+    "external_validation_claimed": false
+  }
+}

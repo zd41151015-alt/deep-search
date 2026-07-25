@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-export const SKELETON_VERSION = "g1.3" as const;
+export const SKELETON_VERSION = "g1.4" as const;
 
 export const IMPLEMENTATION_STACK = {
   language: "TypeScript 7.0.2",
@@ -29,8 +29,6 @@ export const CUSTOM_AGENT_PATHS = [
 export const RESERVED_SKILL_COMMANDS = {
   "calculate-comparison": "G2.4",
   "calculate-sensitivity": "G2.4",
-  "audit-traceability": "G1.4",
-  "build-report": "G1.4",
 } as const;
 
 export type ReservedSkillCommand = keyof typeof RESERVED_SKILL_COMMANDS;
@@ -47,9 +45,12 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
   "analyze-gaps",
   "validate-adaptation",
   "apply-plan-revision",
+  "audit-traceability",
+  "build-report",
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v6.json",
   "harness/schemas/bundle.v5.json",
   "harness/schemas/bundle.v4.json",
   "harness/schemas/bundle.v3.json",
@@ -111,6 +112,19 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v6/research-publication-policy-v2.schema.json",
   "harness/schemas/v6/artifact-envelope.schema.json",
   "harness/schemas/v6/document-bundle.schema.json",
+  "harness/schemas/v7/definitions.schema.json",
+  "harness/schemas/v7/evidence-audit.schema.json",
+  "harness/schemas/v7/adversarial-review.schema.json",
+  "harness/schemas/v7/concept-evidence-assessment-v2.schema.json",
+  "harness/schemas/v7/traceability.schema.json",
+  "harness/schemas/v7/concept-evidence-report.schema.json",
+  "harness/schemas/v7/decision-brief.schema.json",
+  "harness/schemas/v7/concept-evidence-report-view.schema.json",
+  "harness/schemas/v7/report-consistency-evaluation.schema.json",
+  "harness/schemas/v7/assessment-reporting-policy.schema.json",
+  "harness/schemas/v7/research-publication-policy-v3.schema.json",
+  "harness/schemas/v7/artifact-envelope.schema.json",
+  "harness/schemas/v7/document-bundle.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
@@ -120,6 +134,8 @@ export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/research-branch-validator.ts",
   "harness/src/validators/assessment-adaptation-identities.ts",
   "harness/src/validators/assessment-adaptation-validator.ts",
+  "harness/src/validators/assessment-reporting-policy.ts",
+  "harness/src/validators/g1.4-validator.ts",
   "harness/src/validators/planning-contract-identities.ts",
   "harness/src/validators/planning-contract-validator.ts",
   "harness/src/validators/validate-artifact-command.ts",
@@ -147,6 +163,8 @@ export const STORE_SOURCE_PATHS = [
   "harness/src/run-store/run-store.ts",
   "harness/src/run-store/store-commands.ts",
   "harness/src/evidence-store/evidence-store.ts",
+  "harness/src/reporting/report-runtime.ts",
+  "harness/src/reporting/report-commands.ts",
 ] as const;
 
 export const SKILL_SCRIPT_PATHS = [
@@ -178,10 +196,14 @@ export const RESPONSIBILITY_PATHS = [
   "harness/policies/ai-trigger-source-binding.v2.json",
   "harness/policies/assessment-adaptation.v1.json",
   "harness/policies/research-publication.v2.json",
+  "harness/policies/assessment-reporting.v1.json",
+  "harness/policies/research-publication.v3.json",
   "tests/fixtures/README.md",
   "tests/fixtures/g1.2/README.md",
   "tests/fixtures/g1.3/README.md",
   "tests/fixtures/g1.3/assessment-adaptation-cases.json",
+  "tests/fixtures/g1.4/README.md",
+  "tests/fixtures/g1.4/assessment-report-cases.json",
   "tests/evals/README.md",
   "runs/.gitkeep",
 ] as const;

@@ -10,4 +10,6 @@ Evidence、Claim、Finding、Insight 和 Judgment Assessment 是相互分离的�
 
 G1.3 增加 v6 envelope/document bundle 与 Store receipt v5，既有 adapter bytes 不改写。Gap Snapshot 与 Adaptation Decision 先 immutable publish；合法 `add_unit` 再把 Research Plan r2、assessment plan r2、Planning Context r2 作为一个 pending control bundle 发布，并只在全部验证通过后 CAS 替换 Manifest。Plan operation receipt v2 绑定 base/result Research Plan 与 assessment plan hashes；reopen 只从已验证 on-disk state 恢复，冲突 replay 或 Artifact drift 必须 fail closed。
 
+G1.4 增加 v7 envelope/document bundle 与 receipt v6 adapter，不改写 v1-v6 bytes。Audit、Review、final Assessment、Traceability 与四个 reporting sidecar 都是 same-Run immutable Artifact；`report.json`、`decision-brief.md`、`report.md` 只是由 sidecar 确定性 materialize 的 view。reopen 可从 validated report sidecar 补齐缺失 view/derived sidecar，但不能覆盖冲突 bytes、修补语义或从 chat/task summary 重建结论。
+
 Evidence 的机械层包括 stable id、Run/unit、canonical source、source/content hash、raw ref、operation key 与 timestamp；业务层的 origin、provenance、freshness、independence、bias、tier、role、representativeness 与 limitations 由 Agent 明示。Harness 不从内容推断这些判断。Artifact 验证或发布成功只证明机械 contract，不证明来源真实、研究质量、Evidence 充分或决策就绪。

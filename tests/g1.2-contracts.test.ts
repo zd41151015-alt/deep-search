@@ -190,9 +190,9 @@ async function publishVerticalFixture(context: TestContext) {
 test("G1.2 bundle publishes versioned Evidence Store and research branch schemas", async () => {
   const result = await inspectSchemaBundle(repositoryRoot);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
-  assert.equal(result.schemaBundleVersion, "5.0.0");
-  assert.equal(result.schemaCount, 54);
-  assert.equal(result.documentSchemaCount, 51);
+  assert.equal(result.schemaBundleVersion, "6.0.0");
+  assert.equal(result.schemaCount, 67);
+  assert.equal(result.documentSchemaCount, 63);
 });
 
 test("four synthetic branches publish Evidence -> Claim -> Finding -> Insight and reopen", async (context) => {
@@ -780,7 +780,7 @@ test("unsupported envelope version fails before changing Run bytes", async (cont
     store.publishArtifact({
       runId: document.run_id,
       envelope: {
-        schema_version: "startup_opportunity.artifact_envelope.v7",
+        schema_version: "startup_opportunity.artifact_envelope.v8",
         artifact_type: document.schema_version,
         artifact_path: "artifacts/unsupported.json",
         run_id: document.run_id,

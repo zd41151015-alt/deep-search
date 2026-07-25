@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --import tsx
 
-import { rejectReservedCommand } from "../../../../harness/src/reserved-command.js";
+import { runAuditTraceability } from "../../../../harness/src/reporting/report-commands.js";
 
-rejectReservedCommand("audit-traceability");
+process.exitCode = await runAuditTraceability(process.argv.slice(2));

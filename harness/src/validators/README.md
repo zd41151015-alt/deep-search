@@ -11,3 +11,5 @@
 `ResearchBranchValidator` 只对显式 `document_bundle.v5` 校验 Research Task 与 `Evidence -> Claim -> Finding -> Insight` chain：same-Run/subject/scope/plan/unit/attempt lineage、唯一 path/identity、lane ownership、support/oppose direction、v2 substrate exact binding、Source Manifest 与 Branch Result input closure。引用方向固定为 `Branch Result -> Insight -> Finding -> Claim -> Evidence`。开放语义字段只验证闭集和显式值，不做质量推断；G1.4 Evidence ceiling、Hard Gate、audit/review/report 不在本 validator 内。
 
 `AssessmentAdaptationValidator` 只对显式 `document_bundle.v6` 校验 Gap Snapshot v2 与 Adaptation Decision v3 的 exact current/historical ancestry binding、coverage_key、observed branch/task hashes、unit/attempt state、closed buyer/acquisition target 与 duplicate/stale/branched/forged/replay 边界。它不判断 Evidence 是否真实或充分，不创建任意 DAG，也不执行 G1.4 gate。
+
+`G14Validator` 只对显式 `document_bundle.v7` 执行 same-Run/final Plan/assessment-plan/input-hash/producer binding、Evidence audit ceiling、challenger independence、Hard Gate/closed result、decisive trace chain 和 three-output consistency 校验。它不做语义 research、不修改 Evidence/Claim/Finding/Insight/Judgment/Matrix/Plan，也不把 fixture 成功解释为 Evidence 充分或市场验证。

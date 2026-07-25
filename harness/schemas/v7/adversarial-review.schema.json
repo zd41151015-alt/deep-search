@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v7/adversarial-review.schema.json",
+  "title": "Startup Opportunity Adversarial Review v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "review_id",
+    "run_id",
+    "producer_role",
+    "owned_output_path",
+    "lineage",
+    "input_artifact_hashes",
+    "hypothesis_evidence_matrix_ref",
+    "business_engine_ref",
+    "evidence_audit_ref",
+    "challenger_source_manifest_refs",
+    "source_group_independence",
+    "challenges",
+    "decision_relevant_gaps",
+    "revision_requests",
+    "assessment_challenge",
+    "evaluator_result",
+    "evaluation_issues",
+    "mutates_current_plan",
+    "rewrites_final_report",
+    "valid_as_of",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.adversarial_review.v1" },
+    "review_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "producer_role": { "const": "adversarial_reviewer" },
+    "owned_output_path": {
+      "type": "string",
+      "pattern": "^artifacts/reviews/[A-Za-z0-9._-]+\\.json$"
+    },
+    "lineage": { "$ref": "definitions.schema.json#/$defs/lineage" },
+    "input_artifact_hashes": { "$ref": "definitions.schema.json#/$defs/inputHashes" },
+    "hypothesis_evidence_matrix_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "business_engine_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "evidence_audit_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "challenger_source_manifest_refs": {
+      "$ref": "definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "source_group_independence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generation_groups",
+        "evaluation_groups",
+        "challenger_groups",
+        "generation_evaluation_overlap",
+        "challenger_overlap",
+        "status"
+      ],
+      "properties": {
+        "generation_groups": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        "evaluation_groups": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        "challenger_groups": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        "generation_evaluation_overlap": { "enum": ["none", "low", "high", "unknown"] },
+        "challenger_overlap": { "enum": ["none", "low", "high", "unknown"] },
+        "status": { "enum": ["independent", "limited_overlap", "insufficient_independence"] }
+      }
+    },
+    "challenges": {
+      "type": "array",
+      "minItems": 11,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "challenge_id",
+          "dimension",
+          "status",
+          "summary",
+          "evidence_refs",
+          "claim_refs",
+          "severity",
+          "thesis_killing",
+          "resolved",
+          "limitations"
+        ],
+        "properties": {
+          "challenge_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+          "dimension": {
+            "enum": [
+              "strong_alternatives",
+              "non_consumption",
+              "buyer",
+              "acquisition",
+              "compliance",
+              "migration",
+              "service_burden",
+              "ai_generic_platform_open_source_baseline",
+              "thesis_killing_opposition",
+              "conclusion_flipping_gap",
+              "assessment_challenge"
+            ]
+          },
+          "status": {
+            "enum": ["supported", "not_found", "not_applicable", "insufficient_evidence"]
+          },
+          "summary": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+          "evidence_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+          "claim_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+          "severity": { "enum": ["blocking", "material", "advisory"] },
+          "thesis_killing": { "type": "boolean" },
+          "resolved": { "type": "boolean" },
+          "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+        }
+      }
+    },
+    "decision_relevant_gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gap_id",
+          "summary",
+          "decision_impact",
+          "requires_new_research",
+          "revision_request_ref"
+        ],
+        "properties": {
+          "gap_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+          "summary": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+          "decision_impact": {
+            "enum": ["hard_gate", "concept_assessment", "major_limitation", "next_action"]
+          },
+          "requires_new_research": { "type": "boolean" },
+          "revision_request_ref": {
+            "anyOf": [{ "$ref": "definitions.schema.json#/$defs/identifier" }, { "type": "null" }]
+          }
+        }
+      }
+    },
+    "revision_requests": {
+      "type": "array",
+      "items": { "$ref": "definitions.schema.json#/$defs/revisionRequest" },
+      "uniqueItems": true
+    },
+    "assessment_challenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "challenged_result",
+        "recommended_result",
+        "rationale",
+        "decisive_opposition_refs",
+        "what_would_reverse_challenge"
+      ],
+      "properties": {
+        "challenged_result": { "$ref": "definitions.schema.json#/$defs/assessmentResult" },
+        "recommended_result": { "$ref": "definitions.schema.json#/$defs/assessmentResult" },
+        "rationale": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+        "decisive_opposition_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+        "what_would_reverse_challenge": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        }
+      }
+    },
+    "evaluator_result": { "$ref": "definitions.schema.json#/$defs/evaluatorResult" },
+    "evaluation_issues": {
+      "type": "array",
+      "items": { "$ref": "definitions.schema.json#/$defs/evaluationIssue" },
+      "uniqueItems": true
+    },
+    "mutates_current_plan": { "const": false },
+    "rewrites_final_report": { "const": false },
+    "valid_as_of": { "type": "string", "format": "date" },
+    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+  }
+}

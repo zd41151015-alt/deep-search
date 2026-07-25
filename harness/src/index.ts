@@ -85,6 +85,15 @@ export {
   type RecordEvidenceInput,
   type RecordEvidenceResult,
 } from "./evidence-store/evidence-store.js";
+export { runAuditTraceability, runBuildReport } from "./reporting/report-commands.js";
+export {
+  type BuildReportInput,
+  type BuildReportResult,
+  deriveReportEnvelopes,
+  type ReportFaultBoundary,
+  type ReportRecoveryResult,
+  ReportRuntime,
+} from "./reporting/report-runtime.js";
 export type {
   DoctorCheck,
   DoctorReport,

@@ -1,0 +1,57 @@
+{
+  "schema_version": "startup_opportunity.assessment_reporting_policy.v1",
+  "policy_id": "startup_opportunity.g1_4_assessment_reporting",
+  "policy_version": "1.0.0",
+  "schema_bundle_version": "6.0.0",
+  "assessment_results": [
+    "prioritize",
+    "investigate_further",
+    "deprioritize",
+    "insufficient_evidence"
+  ],
+  "evaluator_results": ["passed", "needs_revision", "insufficient_evidence", "failed"],
+  "decisive_hard_gates": [
+    "target_user_and_jtbd",
+    "baseline_delta",
+    "buyer",
+    "acquisition",
+    "business_engine",
+    "delivery_feasibility",
+    "compliance_boundary",
+    "counter_evidence",
+    "evidence_quality",
+    "source_independence",
+    "freshness",
+    "ai_mandatory_bundle"
+  ],
+  "low_tier_ceiling": "insufficient_evidence_when_decisive",
+  "mandatory_absence_rule": "missing_external_behavior_commitment_or_transaction_is_ceiling_not_opposition",
+  "generation_order": [
+    "validated_artifacts",
+    "report.json",
+    "decision-brief.md",
+    "report.md",
+    "consistency_evaluation"
+  ],
+  "forbidden_report_expressions": [
+    "市场已验证",
+    "验证成功",
+    "成功概率",
+    "market validated",
+    "validated market",
+    "external validation succeeded"
+  ],
+  "external_action_boundary": {
+    "execution_owner": "user",
+    "execution_supported": false,
+    "result_tracking_supported": false,
+    "external_validation_claimed": false
+  },
+  "producer_ownership": {
+    "evidence_audit": "evidence_auditor",
+    "adversarial_review": "adversarial_reviewer",
+    "assessment": "main_agent",
+    "traceability": "harness",
+    "report_views": "harness"
+  }
+}

@@ -10,4 +10,6 @@
 
 `assessment-adaptation.v1.json` 固定 G1.3 buyer/acquisition coverage、`add_unit|stop_followup`、target tuple、follow-up 上限与 immutable assessment plan revision。`ai-trigger-source-binding.v2.json` 只增加对该 policy 的 canonical binding；`research-publication.v2.json` 只增加 v6/receipt v5 adapter。三者不改写既有 policy bytes，也不开放 audit、Assessment gate 或 reporting。
 
+`assessment-reporting.v1.json` 固定 G1.4 四类 Assessment result、evaluator result、十二个 Hard Gates、Evidence ceiling、report generation order、禁用表述与 producer ownership。`research-publication.v3.json` 只增加 v7/document bundle v7/receipt v6 adapter 和 receipt-driven report view contract；它不修改历史 adapter，也不执行 research 或 agent orchestration。
+
 Policy 不是通用规则引擎，不包含任意表达式、可执行 workflow code 或运行时用户调权。

@@ -9,7 +9,7 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 
 ## Current Execution Gate
 
-依赖此仓库前，先运行 `npm run harness -- doctor --json`。G1.3 已实现 closed schema/reference 验证、受限 Run/reopen、Artifact/Evidence Store、checkpoint/recovery、G0 Plan/Adaptation runtime、显式 Research Task/Evidence/Claim/Finding/Insight/Source Manifest/branch publication，以及 buyer/acquisition coverage 的 deterministic dynamic adaptation。这些入口只验证、发布和恢复调用方给出的 Artifact；不会分派 agent、调用 LLM、执行 network research，也不会把 `discover`、`assess`、`resume` 或 `status` 变成完整研究动作。G1.4 audit/adversarial review/Assessment/report 仍不可用。
+依赖此仓库前，先运行 `npm run harness -- doctor --json`。G1.4 已实现 closed schema/reference 验证、受限 Run/reopen、Artifact/Evidence Store、checkpoint/recovery、G0 Plan/Adaptation runtime、显式 Research Task/Evidence/Claim/Finding/Insight/Source Manifest/branch publication、buyer/acquisition dynamic adaptation，以及 Evidence audit、Adversarial Review、Assessment/Hard Gate、Traceability 和 concept report publication/recovery。这些入口只验证、发布、materialize 和恢复调用方给出的 Artifact；不会分派 agent、调用 LLM、执行 network research，也不会把 `discover`、`assess`、`resume` 或 `status` 变成完整研究动作。
 
 ## Action Routing
 
@@ -40,4 +40,4 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 
 ## Script Surface
 
-`scripts/doctor.ts`、`validate-artifact.ts`、`create-run.ts`、`load-run.ts`、`record-evidence.ts`、`publish-artifact.ts`、`checkpoint-run.ts`、`validate-plan.ts`、`analyze-gaps.ts`、`validate-adaptation.ts` 和 `apply-plan-revision.ts` 已可运行。`analyze-gaps` 接受显式 `assessment_gap_analysis_input.v1`，但不替 agent 选择语义或获取 Evidence。`record-evidence --source-url|--source-uri` 只保存显式 bytes 和机械 identity；`publish-artifact` 只发布已形成的 envelope 或 envelope bundle。Store、schema 或 Plan/Adaptation 成功不代表 Evidence 充分、决策就绪或 research 已完成。其余 RFC 命名 script 在 owning slice 开放前继续 fail closed；不得把失败转换成 mock Artifact 或成功结果。
+`scripts/doctor.ts`、`validate-artifact.ts`、`create-run.ts`、`load-run.ts`、`record-evidence.ts`、`publish-artifact.ts`、`checkpoint-run.ts`、`validate-plan.ts`、`analyze-gaps.ts`、`validate-adaptation.ts`、`apply-plan-revision.ts`、`audit-traceability.ts` 和 `build-report.ts` 已可运行。`audit-traceability --bundle` 只审计显式 closed bundle；`build-report --file` 只消费一个已形成的 v7 concept report envelope，按 receipt 顺序发布 sidecar 并 materialize 三个 view。`analyze-gaps` 不替 agent 选择语义或获取 Evidence。Store、schema、Plan/Adaptation、audit 或 report 成功不代表 Evidence 真实/充分、决策就绪、thesis 成立或 research 已完成。其余 RFC 命名 script 在 owning slice 开放前继续 fail closed；不得把失败转换成 mock Artifact 或成功结果。

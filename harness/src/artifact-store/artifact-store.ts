@@ -31,7 +31,8 @@ export interface FormalArtifactEnvelope extends Record<string, unknown> {
     | "startup_opportunity.artifact_envelope.v3"
     | "startup_opportunity.artifact_envelope.v4"
     | "startup_opportunity.artifact_envelope.v5"
-    | "startup_opportunity.artifact_envelope.v6";
+    | "startup_opportunity.artifact_envelope.v6"
+    | "startup_opportunity.artifact_envelope.v7";
   readonly artifact_type: string;
   readonly artifact_path: string;
   readonly run_id: string;
@@ -48,7 +49,8 @@ interface ArtifactOperationReceipt {
     | "startup_opportunity.artifact_store_operation.v2"
     | "startup_opportunity.artifact_store_operation.v3"
     | "startup_opportunity.artifact_store_operation.v4"
-    | "startup_opportunity.artifact_store_operation.v5";
+    | "startup_opportunity.artifact_store_operation.v5"
+    | "startup_opportunity.artifact_store_operation.v6";
   readonly operation_key: string;
   readonly run_id: string;
   readonly artifact_path: string;
@@ -97,6 +99,7 @@ const STORE_ENVELOPE_VERSIONS = new Set<string>([
   "startup_opportunity.artifact_envelope.v4",
   "startup_opportunity.artifact_envelope.v5",
   "startup_opportunity.artifact_envelope.v6",
+  "startup_opportunity.artifact_envelope.v7",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -165,6 +168,7 @@ function validateArtifactReceipt(
       "startup_opportunity.artifact_store_operation.v3",
       "startup_opportunity.artifact_store_operation.v4",
       "startup_opportunity.artifact_store_operation.v5",
+      "startup_opportunity.artifact_store_operation.v6",
     ].includes(String(value.schema_version)) ||
     !isSha256(value.operation_key) ||
     value.run_id !== runId ||
@@ -185,7 +189,9 @@ function validateArtifactReceipt(
           ? "startup_opportunity.artifact_store_operation.v3"
           : receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v5"
             ? "startup_opportunity.artifact_store_operation.v4"
-            : "startup_opportunity.artifact_store_operation.v5";
+            : receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v6"
+              ? "startup_opportunity.artifact_store_operation.v5"
+              : "startup_opportunity.artifact_store_operation.v6";
   const expectedFilename = `artifact-${sha256Hex(receipt.operation_key)}.json`;
   if (
     filename !== expectedFilename ||
@@ -273,7 +279,13 @@ async function listFiles(directory: string, prefix = ""): Promise<readonly strin
   const files: string[] = [];
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (relative === ".store" || relative === "evidence/raw") {
+    if (
+      relative === ".store" ||
+      relative === "evidence/raw" ||
+      relative === "report.json" ||
+      relative === "decision-brief.md" ||
+      relative === "report.md"
+    ) {
       continue;
     }
     if (entry.isSymbolicLink()) {
@@ -778,7 +790,8 @@ export class ArtifactStore {
     );
     if (
       bundleVersion === "startup_opportunity.document_bundle.v5" ||
-      bundleVersion === "startup_opportunity.document_bundle.v6"
+      bundleVersion === "startup_opportunity.document_bundle.v6" ||
+      bundleVersion === "startup_opportunity.document_bundle.v7"
     ) {
       for (const record of await this.evidence.listRecordsLocked(
         runRoot,
@@ -794,7 +807,8 @@ export class ArtifactStore {
         schema_version: bundleVersion,
         documents,
         ...(bundleVersion === "startup_opportunity.document_bundle.v5" ||
-        bundleVersion === "startup_opportunity.document_bundle.v6"
+        bundleVersion === "startup_opportunity.document_bundle.v6" ||
+        bundleVersion === "startup_opportunity.document_bundle.v7"
           ? { exact_records: [] }
           : {}),
       },

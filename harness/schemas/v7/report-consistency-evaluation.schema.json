@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v7/report-consistency-evaluation.schema.json",
+  "title": "Startup Opportunity Report Consistency Evaluation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evaluation_id",
+    "run_id",
+    "producer_role",
+    "owned_output_path",
+    "report_ref",
+    "decision_brief_ref",
+    "report_view_ref",
+    "assessment_ref",
+    "checked_dimensions",
+    "forbidden_expression_matches",
+    "evaluator_result",
+    "evaluation_issues",
+    "input_artifact_hashes",
+    "valid_as_of",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.report_consistency_evaluation.v1" },
+    "evaluation_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "producer_role": { "const": "harness" },
+    "owned_output_path": {
+      "type": "string",
+      "pattern": "^artifacts/reporting/consistency-evaluation\\.r[1-9][0-9]*\\.json$"
+    },
+    "report_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "decision_brief_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "report_view_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "assessment_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "checked_dimensions": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "result",
+          "refs",
+          "hashes",
+          "freshness",
+          "limitations",
+          "counter_evidence",
+          "decision_meaning",
+          "external_action_boundary",
+          "new_conclusions",
+          "market_validation_language",
+          "probability_language"
+        ]
+      },
+      "minItems": 11,
+      "maxItems": 11,
+      "uniqueItems": true
+    },
+    "forbidden_expression_matches": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "evaluator_result": { "$ref": "definitions.schema.json#/$defs/evaluatorResult" },
+    "evaluation_issues": {
+      "type": "array",
+      "items": { "$ref": "definitions.schema.json#/$defs/evaluationIssue" },
+      "uniqueItems": true
+    },
+    "input_artifact_hashes": { "$ref": "definitions.schema.json#/$defs/inputHashes" },
+    "valid_as_of": { "type": "string", "format": "date" },
+    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+  }
+}

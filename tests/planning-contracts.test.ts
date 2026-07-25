@@ -220,15 +220,17 @@ test("closed mode policy accepts only exact declared tuples and future output sc
   assert.ok(
     policy.artifact_schema_catalog.every((entry) => entry.availability === "future_declared"),
   );
-  const installedAssessBranch = policy.artifact_schema_catalog.find(
-    (entry) =>
-      entry.schema_id === "startup_opportunity.concept_evidence_assessment_branch_result.v1",
-  );
-  assert.ok(installedAssessBranch);
-  assert.ok(bundle.validators.has(installedAssessBranch.schema_id));
+  const installedOwnedSchemas = new Set([
+    "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+    "startup_opportunity.adversarial_review.v1",
+  ]);
+  for (const schemaId of installedOwnedSchemas) {
+    assert.ok(policy.artifact_schema_catalog.some((entry) => entry.schema_id === schemaId));
+    assert.ok(bundle.validators.has(schemaId));
+  }
   assert.ok(
     policy.artifact_schema_catalog
-      .filter((entry) => entry.schema_id !== installedAssessBranch.schema_id)
+      .filter((entry) => !installedOwnedSchemas.has(entry.schema_id))
       .every((entry) => !bundle.validators.has(entry.schema_id)),
     "schemas owned by downstream slices must remain uninstalled",
   );

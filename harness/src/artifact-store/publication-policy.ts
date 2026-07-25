@@ -5,7 +5,7 @@ import { canonicalJson } from "./canonical.js";
 import { StoreError } from "./store-error.js";
 
 export const RESEARCH_PUBLICATION_POLICY_PATH =
-  "harness/policies/research-publication.v2.json" as const;
+  "harness/policies/research-publication.v3.json" as const;
 
 export type StoreEnvelopeVersion =
   | "startup_opportunity.artifact_envelope.v1"
@@ -13,7 +13,8 @@ export type StoreEnvelopeVersion =
   | "startup_opportunity.artifact_envelope.v3"
   | "startup_opportunity.artifact_envelope.v4"
   | "startup_opportunity.artifact_envelope.v5"
-  | "startup_opportunity.artifact_envelope.v6";
+  | "startup_opportunity.artifact_envelope.v6"
+  | "startup_opportunity.artifact_envelope.v7";
 
 export type StoreDocumentBundleVersion =
   | "startup_opportunity.document_bundle.v1"
@@ -21,14 +22,16 @@ export type StoreDocumentBundleVersion =
   | "startup_opportunity.document_bundle.v3"
   | "startup_opportunity.document_bundle.v4"
   | "startup_opportunity.document_bundle.v5"
-  | "startup_opportunity.document_bundle.v6";
+  | "startup_opportunity.document_bundle.v6"
+  | "startup_opportunity.document_bundle.v7";
 
 export type ArtifactReceiptVersion =
   | "startup_opportunity.artifact_store_operation.v1"
   | "startup_opportunity.artifact_store_operation.v2"
   | "startup_opportunity.artifact_store_operation.v3"
   | "startup_opportunity.artifact_store_operation.v4"
-  | "startup_opportunity.artifact_store_operation.v5";
+  | "startup_opportunity.artifact_store_operation.v5"
+  | "startup_opportunity.artifact_store_operation.v6";
 
 export interface StorePublicationAdapter {
   readonly envelope_version: StoreEnvelopeVersion;
@@ -40,15 +43,16 @@ export interface StorePublicationAdapter {
 }
 
 export interface ResearchPublicationPolicy {
-  readonly schema_version: "startup_opportunity.research_publication_policy.v2";
-  readonly policy_id: "startup_opportunity.g1_3_research_publication";
-  readonly policy_version: "2.0.0";
-  readonly current_schema_bundle_version: "5.0.0";
+  readonly schema_version: "startup_opportunity.research_publication_policy.v3";
+  readonly policy_id: "startup_opportunity.g1_4_research_publication";
+  readonly policy_version: "3.0.0";
+  readonly current_schema_bundle_version: "6.0.0";
   readonly adapters: readonly StorePublicationAdapter[];
   readonly evidence_contract: Readonly<Record<string, unknown>>;
   readonly traceability_contract: Readonly<Record<string, unknown>>;
   readonly task_lifecycle_contract: Readonly<Record<string, unknown>>;
   readonly branch_status_adapter: Readonly<Record<string, string>>;
+  readonly report_publication_contract: Readonly<Record<string, unknown>>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -101,6 +105,14 @@ const EXPECTED_ADAPTERS: readonly StorePublicationAdapter[] = [
     document_bundle_version: "startup_opportunity.document_bundle.v6",
     receipt_version: "startup_opportunity.artifact_store_operation.v5",
     manifest_schema_bundle_version: "5.0.0",
+    checkpoint_preferred: true,
+    blocked_artifact_types: [],
+  },
+  {
+    envelope_version: "startup_opportunity.artifact_envelope.v7",
+    document_bundle_version: "startup_opportunity.document_bundle.v7",
+    receipt_version: "startup_opportunity.artifact_store_operation.v6",
+    manifest_schema_bundle_version: "6.0.0",
     checkpoint_preferred: true,
     blocked_artifact_types: [],
   },
@@ -164,7 +176,7 @@ export async function loadResearchPublicationPolicy(
   relativePath = RESEARCH_PUBLICATION_POLICY_PATH,
 ): Promise<PublicationPolicy> {
   const value = JSON.parse(await readFile(path.join(root, relativePath), "utf8")) as unknown;
-  const validator = bundle.validators.get("startup_opportunity.research_publication_policy.v2");
+  const validator = bundle.validators.get("startup_opportunity.research_publication_policy.v3");
   if ((validator !== undefined && !validator(value)) || !isRecord(value)) {
     throw new StoreError(
       "publication_policy.invalid",
@@ -176,7 +188,7 @@ export async function loadResearchPublicationPolicy(
   const versions = policy.adapters.map((adapter) => adapter.envelope_version);
   if (
     new Set(versions).size !== versions.length ||
-    versions.length !== 6 ||
+    versions.length !== 7 ||
     canonicalJson(policy.adapters) !== canonicalJson(EXPECTED_ADAPTERS)
   ) {
     throw new StoreError(

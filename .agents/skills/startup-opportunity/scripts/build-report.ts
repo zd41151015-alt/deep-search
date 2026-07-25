@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --import tsx
 
-import { rejectReservedCommand } from "../../../../harness/src/reserved-command.js";
+import { runBuildReport } from "../../../../harness/src/reporting/report-commands.js";
 
-rejectReservedCommand("build-report");
+process.exitCode = await runBuildReport(process.argv.slice(2));
