@@ -112,6 +112,27 @@ function researchUnits(plan: AssessDomainDocument | null): readonly Record<strin
   return records(plan.document.waves).flatMap((wave) => records(wave.units));
 }
 
+function researchPlanDescendsFrom(
+  current: AssessDomainDocument,
+  ancestorRef: string,
+  documentsByPath: ReadonlyMap<string, AssessDomainDocument>,
+): boolean {
+  const visited = new Set<string>();
+  let cursor: AssessDomainDocument | null = current;
+  while (cursor?.schemaVersion === "startup_opportunity.research_plan.v1") {
+    if (visited.has(cursor.path)) {
+      return false;
+    }
+    visited.add(cursor.path);
+    const parentRef = cursor.document.parent_plan_ref;
+    if (parentRef === ancestorRef) {
+      return true;
+    }
+    cursor = targetByRef(documentsByPath, parentRef);
+  }
+  return false;
+}
+
 function mappedJudgmentSignal(decision: unknown): string | null {
   if (decision === "supports") return "supported";
   if (decision === "opposes") return "opposed";
@@ -224,6 +245,25 @@ function validateFraming(
             `${scope.path}#/${field}`,
             `ScopeFrame ${field} differs from intake`,
             { intake: intake.document[field], scope: scope.document[field] },
+          ),
+        );
+      }
+    }
+  }
+
+  if (intake && isRecord(intake.document.explicit_constraints)) {
+    for (const [constraintField, primaryField] of [
+      ["target_market", "market"],
+      ["target_language", "language"],
+    ] as const) {
+      const constraint = intake.document.explicit_constraints[constraintField];
+      if (constraint !== undefined && constraint !== intake.document[primaryField]) {
+        errors.push(
+          issue(
+            "assess_contract.primary_scope_constraint_mismatch",
+            `${intake.path}#/explicit_constraints/${constraintField}`,
+            `explicit ${constraintField} differs from the Run primary ${primaryField}`,
+            { constraint, primary: intake.document[primaryField] },
           ),
         );
       }
@@ -375,6 +415,40 @@ function validateAssessmentPlan(
         ),
       );
     }
+    const parentResearchPlan = targetByRef(documentsByPath, parent?.document.research_plan_ref);
+    if (
+      parent?.schemaVersion === "startup_opportunity.concept_evidence_assessment_plan.v1" &&
+      researchPlan?.schemaVersion === "startup_opportunity.research_plan.v1" &&
+      parentResearchPlan?.schemaVersion === "startup_opportunity.research_plan.v1" &&
+      !researchPlanDescendsFrom(researchPlan, parentResearchPlan.path, documentsByPath)
+    ) {
+      errors.push(
+        issue(
+          "assess_contract.assessment_research_plan_lineage_mismatch",
+          `${plan.path}#/research_plan_ref`,
+          "revised assessment plan must bind a descendant of its parent Research Plan",
+          {
+            parentResearchPlanRef: parentResearchPlan.path,
+            researchPlanRef: researchPlan.path,
+          },
+        ),
+      );
+    }
+    if (researchPlan?.schemaVersion === "startup_opportunity.research_plan.v1") {
+      const missingAdaptationRefs = strings(plan.document.triggered_by_adaptation_refs).filter(
+        (ref) => !strings(researchPlan.document.triggered_by_adaptation_refs).includes(ref),
+      );
+      if (missingAdaptationRefs.length > 0) {
+        errors.push(
+          issue(
+            "assess_contract.assessment_research_plan_lineage_mismatch",
+            `${plan.path}#/triggered_by_adaptation_refs`,
+            "assessment plan adaptations are not present in its Research Plan revision",
+            { missingAdaptationRefs: missingAdaptationRefs.sort() },
+          ),
+        );
+      }
+    }
   }
 }
 
@@ -508,6 +582,23 @@ function validateFanIn(
   documentsByPath: ReadonlyMap<string, AssessDomainDocument>,
   errors: ValidationIssue[],
 ): void {
+  const assessmentPlan = targetByRef(documentsByPath, fanIn.document.assessment_plan_ref);
+  const researchPlan = targetByRef(documentsByPath, assessmentPlan?.document.research_plan_ref);
+  const planDimensions = new Map(
+    records(assessmentPlan?.document.dimensions).map((dimension) => [
+      dimension.dimension_id,
+      dimension,
+    ]),
+  );
+  const planUnits = new Map(researchUnits(researchPlan).map((unit) => [unit.unit_id, unit]));
+  const allBranches = bySchema(
+    documents,
+    "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+  ).filter(
+    (branch) =>
+      branch.document.concept_hypothesis_ref === fanIn.document.concept_hypothesis_ref &&
+      branch.document.assessment_plan_ref === fanIn.document.assessment_plan_ref,
+  );
   const categoryFields = [
     "completed_branch_refs",
     "partial_branch_refs",
@@ -515,7 +606,25 @@ function validateFanIn(
     "superseded_branch_refs",
   ] as const;
   const owners = new Map<string, string>();
+  const unitOwners = new Map<string, string>();
+  const categorizedBranchPaths = new Set<string>();
   const usableBranchRefs = new Set<string>();
+  const usableBranchRefsByDimension = new Map<string, string[]>();
+  const claimUnitCategory = (unitId: string, category: string, instancePath: string): void => {
+    const previous = unitOwners.get(unitId);
+    if (previous !== undefined) {
+      errors.push(
+        issue(
+          "assess_contract.fan_in_category_overlap",
+          instancePath,
+          "branch unit appears in multiple fan-in categories",
+          { unitId, categories: [previous, category].sort() },
+        ),
+      );
+      return;
+    }
+    unitOwners.set(unitId, category);
+  };
   for (const field of categoryFields) {
     for (const ref of strings(fanIn.document[field])) {
       const previous = owners.get(ref);
@@ -535,19 +644,32 @@ function validateFanIn(
       }
       const branch = targetByRef(documentsByPath, ref);
       if (
-        branch?.schemaVersion ===
-          "startup_opportunity.concept_evidence_assessment_branch_result.v1" &&
-        (branch.document.concept_hypothesis_ref !== fanIn.document.concept_hypothesis_ref ||
-          branch.document.assessment_plan_ref !== fanIn.document.assessment_plan_ref)
+        branch?.schemaVersion === "startup_opportunity.concept_evidence_assessment_branch_result.v1"
       ) {
-        errors.push(
-          issue(
-            "assess_contract.fan_in_branch_identity_mismatch",
-            `${fanIn.path}#/${field}`,
-            "fan-in branch belongs to another concept or assessment plan",
-            { ref },
-          ),
-        );
+        if (
+          branch.document.concept_hypothesis_ref !== fanIn.document.concept_hypothesis_ref ||
+          branch.document.assessment_plan_ref !== fanIn.document.assessment_plan_ref
+        ) {
+          errors.push(
+            issue(
+              "assess_contract.fan_in_branch_identity_mismatch",
+              `${fanIn.path}#/${field}`,
+              "fan-in branch belongs to another concept or assessment plan",
+              { ref },
+            ),
+          );
+        } else {
+          categorizedBranchPaths.add(branch.path);
+          if (typeof branch.document.unit_id === "string") {
+            claimUnitCategory(branch.document.unit_id, field, `${fanIn.path}#/${field}`);
+          }
+          if (field === "completed_branch_refs" || field === "partial_branch_refs") {
+            const dimensionId = String(branch.document.dimension_id ?? "");
+            const refs = usableBranchRefsByDimension.get(dimensionId) ?? [];
+            refs.push(ref);
+            usableBranchRefsByDimension.set(dimensionId, refs);
+          }
+        }
       }
       const allowedStatus =
         field === "completed_branch_refs"
@@ -570,17 +692,53 @@ function validateFanIn(
     }
   }
 
-  const allBranches = bySchema(
-    documents,
-    "startup_opportunity.concept_evidence_assessment_branch_result.v1",
-  ).filter(
-    (branch) =>
-      branch.document.concept_hypothesis_ref === fanIn.document.concept_hypothesis_ref &&
-      branch.document.assessment_plan_ref === fanIn.document.assessment_plan_ref,
-  );
+  for (const [field, entries] of [
+    ["failed_or_missing_branches", records(fanIn.document.failed_or_missing_branches)],
+    ["skipped_branches", records(fanIn.document.skipped_branches)],
+  ] as const) {
+    for (const [index, entry] of entries.entries()) {
+      const unitId = String(entry.unit_id ?? "");
+      const dimensionId = String(entry.dimension_id ?? "");
+      const instancePath = `${fanIn.path}#/${field}/${index}`;
+      claimUnitCategory(unitId, field, instancePath);
+      const unit = planUnits.get(unitId);
+      const dimension = planDimensions.get(dimensionId);
+      if (!unit || !dimension || unit.unit_type !== dimension.branch_unit_type) {
+        errors.push(
+          issue(
+            "assess_contract.fan_in_branch_identity_mismatch",
+            instancePath,
+            "fan-in missing/failed/skipped entry does not identify its assessment plan unit",
+            { dimensionId, unitId },
+          ),
+        );
+      }
+      const matchingBranches = allBranches.filter(
+        (branch) =>
+          branch.document.unit_id === unitId && branch.document.dimension_id === dimensionId,
+      );
+      const expectedStatus =
+        field === "skipped_branches" ? "skipped" : entry.status === "missing" ? null : entry.status;
+      for (const branch of matchingBranches) {
+        if (expectedStatus === null || branch.document.branch_status !== expectedStatus) {
+          errors.push(
+            issue(
+              "assess_contract.fan_in_status_mismatch",
+              instancePath,
+              "fan-in missing/failed/skipped category differs from branch status",
+              { branchStatus: branch.document.branch_status, expectedStatus },
+            ),
+          );
+        } else {
+          categorizedBranchPaths.add(branch.path);
+        }
+      }
+    }
+  }
+
   const uncategorized = allBranches
     .map((branch) => branch.path)
-    .filter((path) => !owners.has(path));
+    .filter((path) => !categorizedBranchPaths.has(path));
   if (uncategorized.length > 0) {
     errors.push(
       issue(
@@ -595,12 +753,48 @@ function validateFanIn(
   const summaries = validateDimensionSet(fanIn.path, fanIn.document.dimension_summaries, errors);
   for (const summary of summaries) {
     const branch = targetByRef(documentsByPath, summary.branch_ref);
+    const dimensionId = String(summary.dimension_id ?? "");
+    const usableForDimension = usableBranchRefsByDimension.get(dimensionId) ?? [];
+    if (usableForDimension.length > 1) {
+      errors.push(
+        issue(
+          "assess_contract.fan_in_dimension_overlap",
+          `${fanIn.path}#/dimension_summaries/${dimensionId}/branch_ref`,
+          "multiple usable branches compete for one fan-in dimension summary",
+          { refs: [...usableForDimension].sort() },
+        ),
+      );
+    }
     if (branch && !usableBranchRefs.has(String(summary.branch_ref))) {
       errors.push(
         issue(
           "assess_contract.fan_in_summary_unusable_branch",
           `${fanIn.path}#/dimension_summaries/${String(summary.dimension_id)}/branch_ref`,
           "ignored or superseded branch cannot contribute to a fan-in dimension summary",
+        ),
+      );
+    }
+    if (
+      branch === null &&
+      (strings(summary.judgment_assessment_refs).length > 0 ||
+        strings(summary.decisive_supporting_refs).length > 0 ||
+        strings(summary.decisive_opposing_refs).length > 0)
+    ) {
+      errors.push(
+        issue(
+          "assess_contract.fan_in_summary_without_usable_branch",
+          `${fanIn.path}#/dimension_summaries/${dimensionId}`,
+          "a dimension without a usable branch cannot contribute judgments or decisive refs",
+        ),
+      );
+    }
+    if (branch === null && usableForDimension.length === 1) {
+      errors.push(
+        issue(
+          "assess_contract.fan_in_summary_missing_branch",
+          `${fanIn.path}#/dimension_summaries/${dimensionId}/branch_ref`,
+          "a covered dimension summary must identify its usable branch",
+          { expectedBranchRef: usableForDimension[0] },
         ),
       );
     }
@@ -851,7 +1045,17 @@ export function validateAssessDomainContract(
     if (subject?.schemaVersion !== "startup_opportunity.concept_hypothesis.v1") {
       continue;
     }
-    for (const ref of strings(businessEngine.document.judgment_assessment_refs)) {
+    const judgmentRefs = strings(businessEngine.document.judgment_assessment_refs);
+    if (judgmentRefs.length === 0) {
+      errors.push(
+        issue(
+          "assess_contract.business_engine_judgment_missing",
+          `${businessEngine.path}#/judgment_assessment_refs`,
+          "BusinessEngineThesis requires a business_engine_viability JudgmentAssessment",
+        ),
+      );
+    }
+    for (const ref of judgmentRefs) {
       const judgment = targetByRef(documentsByPath, ref);
       if (
         judgment?.schemaVersion === "startup_opportunity.judgment_assessment.v1" &&

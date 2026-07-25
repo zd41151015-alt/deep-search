@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -12,6 +13,7 @@ import {
   type DocumentBundleValidationResult,
   type FormalArtifactEnvelope,
   inspectSchemaBundle,
+  RunStore,
   StoreError,
   validateAssessDomainContract,
 } from "../harness/src/index.js";
@@ -47,6 +49,27 @@ interface NegativeFixtureSet {
 
 async function readJson<T>(filename: string): Promise<T> {
   return JSON.parse(await readFile(filename, "utf8")) as T;
+}
+
+async function snapshotTree(root: string): Promise<readonly string[]> {
+  const snapshot: string[] = [];
+  async function visit(directory: string, relativeDirectory: string): Promise<void> {
+    const entries = (await readdir(directory, { withFileTypes: true })).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+    for (const entry of entries) {
+      const relativePath = path.posix.join(relativeDirectory, entry.name);
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        snapshot.push(`directory:${relativePath}`);
+        await visit(absolutePath, relativePath);
+      } else {
+        snapshot.push(`file:${relativePath}:${(await readFile(absolutePath)).toString("base64")}`);
+      }
+    }
+  }
+  await visit(root, "");
+  return snapshot;
 }
 
 function containerAt(root: unknown, segments: readonly (string | number)[]): unknown {
@@ -137,7 +160,7 @@ test("complete no-Evidence assess fixture closes schema, refs, identity, branch,
   assert.deepEqual(actualDomainVersions, expectedDomainVersions);
 });
 
-test("v4 envelope is schema-valid and binds the canonical Assessment document hash", async () => {
+test("v4 envelope validates canonical hash, Run identity, and bundle path identity", async () => {
   const validator = await createArtifactValidator(repositoryRoot);
   const envelope = await readJson<Record<string, unknown>>(
     path.join(fixtureRoot, "valid-assessment-envelope.json"),
@@ -151,15 +174,49 @@ test("v4 envelope is schema-valid and binds the canonical Assessment document ha
   const wrongTypeResult = validator.validateDocument(wrongType, "wrong-type-envelope.json");
   assert.equal(wrongTypeResult.valid, false);
   assert.ok(wrongTypeResult.errors.some((entry) => entry.keyword === "oneOf"));
+
+  const wrongHash = structuredClone(envelope);
+  wrongHash.content_hash = `sha256:${"0".repeat(64)}`;
+  const wrongHashResult = validator.validateDocument(wrongHash, "wrong-hash-envelope.json");
+  assert.equal(wrongHashResult.valid, false);
+  assert.ok(
+    wrongHashResult.errors.some((entry) => entry.code === "artifact.content_hash_mismatch"),
+  );
+
+  const wrongRun = structuredClone(envelope);
+  wrongRun.run_id = "run_foreign_001";
+  const wrongRunResult = validator.validateDocument(wrongRun, "wrong-run-envelope.json");
+  assert.equal(wrongRunResult.valid, false);
+  assert.ok(
+    wrongRunResult.errors.some((entry) => entry.code === "reference.envelope_run_mismatch"),
+  );
+
+  const bundle = await readJson<{
+    documents: { path: string; document: Record<string, unknown> }[];
+  }>(path.join(fixtureRoot, "valid-assess-contract-bundle.json"));
+  const assessment = bundle.documents.find(
+    (entry) => entry.path === "artifacts/synthesis/concept-evidence-assessment.json",
+  );
+  assert.ok(assessment);
+  assessment.document = envelope;
+  assert.equal(validator.validateDocumentBundle(bundle).valid, true);
+  assessment.path = "artifacts/synthesis/renamed-assessment.json";
+  const wrongPathResult = validator.validateDocumentBundle(bundle);
+  assert.equal(wrongPathResult.valid, false);
+  assert.ok(
+    wrongPathResult.referenceErrors.some(
+      (entry) => entry.code === "reference.envelope_path_mismatch",
+    ),
+  );
 });
 
-test("31 negative fixtures fail for their declared closed-schema or deterministic contract reason", async () => {
+test("36 negative fixtures fail for their declared closed-schema or deterministic contract reason", async () => {
   const validator = await createArtifactValidator(repositoryRoot);
   const fixtures = await readJson<NegativeFixtureSet>(
     path.join(fixtureRoot, "negative-contract-cases.json"),
   );
   const base = await readJson<unknown>(path.join(fixtureRoot, fixtures.base_fixture));
-  assert.equal(fixtures.cases.length, 31);
+  assert.equal(fixtures.cases.length, 36);
 
   for (const fixture of fixtures.cases) {
     const result = validator.validateDocumentBundle(applyMutations(base, fixture.mutations));
@@ -218,6 +275,150 @@ test("assessment plan lineage accepts consecutive immutable revisions and reject
   );
 });
 
+test("assessment plan revisions reject stale or branched Research Plan ancestry", () => {
+  const followupPolicy = {
+    max_followup_rounds: 2,
+    require_decision_relevance: true,
+    stop_when_no_material_new_evidence: true,
+  };
+  const assessmentPlan = (
+    revision: number,
+    parentPlanRef: string | null,
+    researchPlanRef: string,
+  ) => ({
+    path: `plans/concept-evidence-assessment-plan.r${revision}.json`,
+    schemaVersion: "startup_opportunity.concept_evidence_assessment_plan.v1",
+    document: {
+      run_id: "run_assess_lineage_002",
+      assessment_plan_id: "assessment_plan_lineage_002",
+      revision,
+      parent_plan_ref: parentPlanRef,
+      research_plan_ref: researchPlanRef,
+      triggered_by_adaptation_refs:
+        revision === 1 ? [] : ["adaptations/decisions/adapt-lineage-001.json"],
+      concept_hypothesis_ref: "concept-hypothesis.json",
+      followup_policy: followupPolicy,
+      dimensions: ASSESSMENT_DIMENSIONS.map((dimension_id) => ({
+        dimension_id,
+        branch_unit_type: "bounded_domain_research",
+      })),
+    },
+  });
+  const researchPlan = (
+    revision: number,
+    parentPlanRef: string | null,
+    assessmentPlanRef: string,
+  ) => ({
+    path: `plans/research-plan.r${revision}.json`,
+    schemaVersion: "startup_opportunity.research_plan.v1",
+    document: {
+      run_id: "run_assess_lineage_002",
+      mode: "concept_evidence_assessment",
+      revision,
+      parent_plan_ref: parentPlanRef,
+      triggered_by_adaptation_refs:
+        revision === 1 ? [] : ["adaptations/decisions/adapt-lineage-001.json"],
+      followup_policy: followupPolicy,
+      waves: [
+        {
+          units: [
+            {
+              unit_id: `unit_lineage_${revision}`,
+              unit_type: "bounded_domain_research",
+              plan_disposition: "enabled",
+              input_refs: ["concept-hypothesis.json", assessmentPlanRef],
+              required_artifact_schema:
+                "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  const assessmentR1 = assessmentPlan(1, null, "plans/research-plan.r1.json");
+  const assessmentR2 = assessmentPlan(2, assessmentR1.path, "plans/research-plan.r2.json");
+  const researchR1 = researchPlan(1, null, assessmentR1.path);
+  const researchR2 = researchPlan(2, researchR1.path, assessmentR2.path);
+  const valid = validateAssessDomainContract([assessmentR1, assessmentR2, researchR1, researchR2]);
+  assert.equal(
+    valid.some(
+      (entry) => entry.code === "assess_contract.assessment_research_plan_lineage_mismatch",
+    ),
+    false,
+  );
+
+  const staleAssessment = {
+    ...assessmentR2,
+    document: { ...assessmentR2.document, research_plan_ref: researchR1.path },
+  };
+  assert.ok(
+    validateAssessDomainContract([assessmentR1, staleAssessment, researchR1]).some(
+      (entry) => entry.code === "assess_contract.assessment_research_plan_lineage_mismatch",
+    ),
+  );
+
+  const branchedResearch = {
+    ...researchR2,
+    document: {
+      ...researchR2.document,
+      parent_plan_ref: "plans/research-plan.foreign.json",
+    },
+  };
+  assert.ok(
+    validateAssessDomainContract([assessmentR1, assessmentR2, researchR1, branchedResearch]).some(
+      (entry) => entry.code === "assess_contract.assessment_research_plan_lineage_mismatch",
+    ),
+  );
+});
+
+test("fan-in preserves a formal failed branch as an explicit non-usable category", async () => {
+  const validator = await createArtifactValidator(repositoryRoot);
+  const bundle = await readJson<{
+    documents: { path: string; document: Record<string, unknown> }[];
+  }>(path.join(fixtureRoot, "valid-assess-contract-bundle.json"));
+  const branch = bundle.documents.find(
+    (entry) => entry.path === "artifacts/lanes/target-user.json",
+  );
+  const fanIn = bundle.documents.find(
+    (entry) =>
+      entry.document.schema_version === "startup_opportunity.concept_evidence_assessment_fan_in.v1",
+  );
+  assert.ok(branch);
+  assert.ok(fanIn);
+  branch.document.branch_status = "failed";
+  const fanInDocument = fanIn.document as {
+    completed_branch_refs: string[];
+    failed_or_missing_branches: Record<string, unknown>[];
+    dimension_summaries: Record<string, unknown>[];
+    missing_mandatory_dimensions: string[];
+  };
+  fanInDocument.completed_branch_refs.shift();
+  fanInDocument.failed_or_missing_branches = [
+    {
+      dimension_id: "target_user_and_jtbd",
+      unit_id: "unit_target_user",
+      status: "failed",
+      decision_impact: ["concept_assessment"],
+    },
+  ];
+  fanInDocument.dimension_summaries[0] = {
+    ...fanInDocument.dimension_summaries[0],
+    branch_ref: null,
+    judgment_assessment_refs: [],
+    decisive_supporting_refs: [],
+    decisive_opposing_refs: [],
+  };
+  fanInDocument.missing_mandatory_dimensions = ["target_user_and_jtbd"];
+  bundle.documents = bundle.documents.filter(
+    (entry) =>
+      entry.document.schema_version !== "startup_opportunity.hypothesis_evidence_matrix.v1" &&
+      entry.document.schema_version !== "startup_opportunity.concept_evidence_assessment.v1",
+  );
+  const result = validator.validateDocumentBundle(bundle);
+  assert.equal(result.valid, true, JSON.stringify(result));
+});
+
 test("G1.1 contract output is byte-stable across repeated validation", async () => {
   const validator = await createArtifactValidator(repositoryRoot);
   const fixtures = await readJson<NegativeFixtureSet>(
@@ -248,6 +449,46 @@ test("existing Store fails closed for v4 until the G1.2 publication adapter is o
     (error: unknown) =>
       error instanceof StoreError && error.code === "artifact.envelope_unsupported",
   );
+});
+
+test("RunStore rejects every v4 publication before changing any Run bytes", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g1-1-store-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runId = "run_assess_store_boundary_001";
+  const validator = await createArtifactValidator(repositoryRoot);
+  const store = new RunStore(runsRoot, validator);
+  await store.create({
+    runId,
+    mode: "concept_evidence_assessment",
+    createdAt: "2026-07-24T15:00:00Z",
+  });
+  const runRoot = path.join(runsRoot, runId);
+  const fixture = await readJson<Record<string, unknown>>(
+    path.join(fixtureRoot, "valid-assessment-envelope.json"),
+  );
+  const document = { ...(fixture.document as Record<string, unknown>), run_id: runId };
+  const envelope = {
+    ...fixture,
+    run_id: runId,
+    document,
+    content_hash: canonicalContentHash(document),
+  };
+  const before = await snapshotTree(runRoot);
+  for (const candidate of [
+    envelope,
+    { ...envelope, artifact_type: "startup_opportunity.checkpoint.v1" },
+  ]) {
+    await assert.rejects(
+      store.publishArtifact({
+        runId,
+        envelope: candidate as unknown as FormalArtifactEnvelope,
+      }),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "artifact.envelope_unsupported",
+    );
+    assert.deepEqual(await snapshotTree(runRoot), before);
+  }
 });
 
 test("Harness CLI validates the complete G1.1 bundle without starting research", () => {

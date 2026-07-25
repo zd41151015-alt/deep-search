@@ -671,6 +671,42 @@ function recordById(
   return null;
 }
 
+function validateV4EnvelopeContract(document: unknown): readonly ValidationIssue[] {
+  if (
+    !isRecord(document) ||
+    document.schema_version !== "startup_opportunity.artifact_envelope.v4" ||
+    !isRecord(document.document)
+  ) {
+    return [];
+  }
+  const errors: ValidationIssue[] = [];
+  if (document.run_id !== document.document.run_id) {
+    errors.push({
+      code: "reference.envelope_run_mismatch",
+      keyword: "run_id",
+      instancePath: "/run_id",
+      schemaPath: "",
+      message: "v4 envelope and document run_id differ",
+      details: {
+        documentRunId: document.document.run_id,
+        envelopeRunId: document.run_id,
+      },
+    });
+  }
+  const expectedHash = canonicalContentHash(document.document);
+  if (document.content_hash !== expectedHash) {
+    errors.push({
+      code: "artifact.content_hash_mismatch",
+      keyword: "content_hash",
+      instancePath: "/content_hash",
+      schemaPath: "",
+      message: "v4 envelope content_hash differs from its canonical document hash",
+      details: { actual: document.content_hash, expected: expectedHash },
+    });
+  }
+  return sortIssues(errors);
+}
+
 export class ArtifactValidator {
   constructor(private readonly bundle: LoadedSchemaBundle) {}
 
@@ -721,7 +757,9 @@ export class ArtifactValidator {
     }
 
     const valid = validator(document);
-    const errors = valid ? [] : normalizeAjvErrors(validator.errors);
+    const errors = valid
+      ? validateV4EnvelopeContract(document)
+      : normalizeAjvErrors(validator.errors);
     return {
       schemaVersion: ARTIFACT_VALIDATION_RESULT_VERSION,
       schemaBundleVersion: this.bundle.version,

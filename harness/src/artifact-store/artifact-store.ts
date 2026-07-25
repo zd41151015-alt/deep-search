@@ -71,6 +71,12 @@ export interface ArtifactRecoveryResult {
   readonly removedTemporaryPaths: readonly string[];
 }
 
+const STORE_ENVELOPE_VERSIONS = new Set<string>([
+  "startup_opportunity.artifact_envelope.v1",
+  "startup_opportunity.artifact_envelope.v2",
+  "startup_opportunity.artifact_envelope.v3",
+]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -325,6 +331,7 @@ export class ArtifactStore {
   }
 
   async publish(input: PublishArtifactInput): Promise<PublishArtifactResult> {
+    this.validateEnvelopeVersionBoundary(input.envelope.schema_version);
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, () => this.publishLocked(runRoot, input));
   }
@@ -541,19 +548,18 @@ export class ArtifactStore {
     return documents.sort((left, right) => left.path.localeCompare(right.path));
   }
 
-  validateEnvelopeBoundary(runId: string, envelope: FormalArtifactEnvelope): void {
-    const storeEnvelopeVersions = new Set<string>([
-      "startup_opportunity.artifact_envelope.v1",
-      "startup_opportunity.artifact_envelope.v2",
-      "startup_opportunity.artifact_envelope.v3",
-    ]);
-    if (!storeEnvelopeVersions.has(envelope.schema_version)) {
+  validateEnvelopeVersionBoundary(schemaVersion: unknown): void {
+    if (typeof schemaVersion !== "string" || !STORE_ENVELOPE_VERSIONS.has(schemaVersion)) {
       throw new StoreError(
         "artifact.envelope_unsupported",
         "Artifact Store has no published adapter for this envelope version",
-        { schemaVersion: envelope.schema_version },
+        { schemaVersion },
       );
     }
+  }
+
+  validateEnvelopeBoundary(runId: string, envelope: FormalArtifactEnvelope): void {
+    this.validateEnvelopeVersionBoundary(envelope.schema_version);
     const result = this.validator.validateDocument(envelope, envelope.artifact_path);
     if (!result.valid) {
       throw new StoreError("artifact.schema_invalid", "formal artifact envelope is invalid", {

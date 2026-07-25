@@ -37,6 +37,38 @@
       "expected": [{ "kind": "reference", "code": "assess_contract.scope_identity_mismatch" }]
     },
     {
+      "case_id": "explicit-target-market-drift",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 0, "document", "explicit_constraints", "target_market"],
+          "value": "US"
+        }
+      ],
+      "expected": [
+        {
+          "kind": "reference",
+          "code": "assess_contract.primary_scope_constraint_mismatch"
+        }
+      ]
+    },
+    {
+      "case_id": "explicit-target-language-drift",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 0, "document", "explicit_constraints", "target_language"],
+          "value": "en-US"
+        }
+      ],
+      "expected": [
+        {
+          "kind": "reference",
+          "code": "assess_contract.primary_scope_constraint_mismatch"
+        }
+      ]
+    },
+    {
       "case_id": "concept-scope-drift",
       "mutations": [
         {
@@ -218,6 +250,27 @@
       ]
     },
     {
+      "case_id": "fan-in-unit-category-overlap",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 26, "document", "failed_or_missing_branches"],
+          "value": [
+            {
+              "dimension_id": "target_user_and_jtbd",
+              "unit_id": "unit_target_user",
+              "status": "failed",
+              "decision_impact": ["concept_assessment"]
+            }
+          ]
+        }
+      ],
+      "expected": [
+        { "kind": "reference", "code": "assess_contract.fan_in_category_overlap" },
+        { "kind": "reference", "code": "assess_contract.fan_in_status_mismatch" }
+      ]
+    },
+    {
       "case_id": "fan-in-uncategorized-branch",
       "mutations": [
         {
@@ -277,6 +330,42 @@
       ]
     },
     {
+      "case_id": "ignored-late-judgment-cannot-reenter-summary",
+      "mutations": [
+        {
+          "op": "delete_array_item",
+          "path": ["documents", 26, "document", "completed_branch_refs"],
+          "index": 0
+        },
+        {
+          "op": "set",
+          "path": ["documents", 16, "document", "branch_status"],
+          "value": "ignored_late"
+        },
+        {
+          "op": "set",
+          "path": ["documents", 26, "document", "ignored_late_branch_refs"],
+          "value": ["artifacts/lanes/target-user.json"]
+        },
+        {
+          "op": "set",
+          "path": ["documents", 26, "document", "dimension_summaries", 0, "branch_ref"],
+          "value": null
+        },
+        {
+          "op": "set",
+          "path": ["documents", 26, "document", "missing_mandatory_dimensions"],
+          "value": ["target_user_and_jtbd"]
+        }
+      ],
+      "expected": [
+        {
+          "kind": "reference",
+          "code": "assess_contract.fan_in_summary_without_usable_branch"
+        }
+      ]
+    },
+    {
       "case_id": "matrix-hypothesis-drift",
       "mutations": [
         {
@@ -319,6 +408,22 @@
         }
       ],
       "expected": [{ "kind": "reference", "code": "reference.type_mismatch" }]
+    },
+    {
+      "case_id": "business-engine-judgment-missing",
+      "mutations": [
+        {
+          "op": "set",
+          "path": ["documents", 28, "document", "judgment_assessment_refs"],
+          "value": []
+        }
+      ],
+      "expected": [
+        {
+          "kind": "reference",
+          "code": "assess_contract.business_engine_judgment_missing"
+        }
+      ]
     },
     {
       "case_id": "assessment-result-illegal",

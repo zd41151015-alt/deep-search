@@ -317,6 +317,7 @@ export class RunStore {
   }
 
   async publishArtifact(input: PublishArtifactInput): Promise<PublishArtifactResult> {
+    this.artifacts.validateEnvelopeVersionBoundary(input.envelope.schema_version);
     if (input.envelope.artifact_type === "startup_opportunity.checkpoint.v1") {
       throw new StoreError(
         "checkpoint.dedicated_entry_required",
