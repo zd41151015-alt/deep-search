@@ -12,6 +12,8 @@ import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 export const ADAPTATION_POLICY_PATH = "harness/policies/adaptation.v1.json" as const;
 export const AI_TRIGGER_SOURCE_POLICY_PATH =
   "harness/policies/ai-trigger-source-binding.v1.json" as const;
+export const ASSESSMENT_AI_TRIGGER_SOURCE_POLICY_PATH =
+  "harness/policies/ai-trigger-source-binding.v2.json" as const;
 export const PLANNING_CONTRACT_RESULT_VERSION =
   "startup_opportunity.planning_contract_validation_result.v2" as const;
 
@@ -39,8 +41,10 @@ interface AdaptationPolicy extends Record<string, unknown> {
 }
 
 interface AiTriggerSourceBindingPolicy extends Record<string, unknown> {
-  readonly schema_version: "startup_opportunity.ai_trigger_source_binding_policy.v1";
-  readonly policy_version: "1.0.0";
+  readonly schema_version:
+    | "startup_opportunity.ai_trigger_source_binding_policy.v1"
+    | "startup_opportunity.ai_trigger_source_binding_policy.v2";
+  readonly policy_version: "1.0.0" | "2.0.0";
   readonly compatible_schema_bundle_versions: readonly string[];
   readonly base_adaptation_policy_binding: {
     readonly policy_ref: string;
@@ -105,7 +109,10 @@ function effectiveDocuments(value: unknown): readonly EffectiveDocument[] {
     if (
       (version === "startup_opportunity.artifact_envelope.v1" ||
         version === "startup_opportunity.artifact_envelope.v2" ||
-        version === "startup_opportunity.artifact_envelope.v3") &&
+        version === "startup_opportunity.artifact_envelope.v3" ||
+        version === "startup_opportunity.artifact_envelope.v4" ||
+        version === "startup_opportunity.artifact_envelope.v5" ||
+        version === "startup_opportunity.artifact_envelope.v6") &&
       typeof entry.document.artifact_type === "string" &&
       isRecord(entry.document.document)
     ) {
@@ -199,6 +206,7 @@ export class PlanningContractEvaluator {
     private readonly policyValidation: ArtifactValidationResult,
     private readonly triggerSourcePolicy: AiTriggerSourceBindingPolicy,
     private readonly triggerSourcePolicyValidation: ArtifactValidationResult,
+    private readonly adaptationDecisionVersion = "startup_opportunity.adaptation_decision.v2",
   ) {}
 
   validateDocumentBundle(
@@ -511,13 +519,13 @@ export class PlanningContractEvaluator {
     for (const decision of documents.filter((document) =>
       document.schemaVersion.startsWith("startup_opportunity.adaptation_decision."),
     )) {
-      if (decision.schemaVersion !== "startup_opportunity.adaptation_decision.v2") {
+      if (decision.schemaVersion !== this.adaptationDecisionVersion) {
         errors.push(
           contractIssue(
             "contract.adaptation_version_unsupported",
             decision.path,
-            "schema-compatible v1 decisions require migration before policy validation",
-            { actual: decision.schemaVersion },
+            "Adaptation Decision version is not enabled by the selected planning contract",
+            { actual: decision.schemaVersion, expected: this.adaptationDecisionVersion },
           ),
         );
         continue;
@@ -677,5 +685,38 @@ export async function createPlanningContractEvaluator(
     policyValidation,
     triggerSourcePolicy as AiTriggerSourceBindingPolicy,
     triggerSourcePolicyValidation,
+  );
+}
+
+export async function createAssessmentPlanningContractEvaluator(
+  root = process.cwd(),
+): Promise<PlanningContractEvaluator> {
+  const artifactValidator = await createArtifactValidator(root);
+  const policy = JSON.parse(
+    await readFile(path.join(root, ADAPTATION_POLICY_PATH), "utf8"),
+  ) as unknown;
+  const policyValidation = artifactValidator.validateDocument(policy, ADAPTATION_POLICY_PATH);
+  if (!policyValidation.valid || !isRecord(policy)) {
+    throw new Error(`adaptation policy is invalid: ${JSON.stringify(policyValidation.errors)}`);
+  }
+  const triggerSourcePolicy = JSON.parse(
+    await readFile(path.join(root, ASSESSMENT_AI_TRIGGER_SOURCE_POLICY_PATH), "utf8"),
+  ) as unknown;
+  const triggerSourcePolicyValidation = artifactValidator.validateDocument(
+    triggerSourcePolicy,
+    ASSESSMENT_AI_TRIGGER_SOURCE_POLICY_PATH,
+  );
+  if (!triggerSourcePolicyValidation.valid || !isRecord(triggerSourcePolicy)) {
+    throw new Error(
+      `assessment AI trigger source policy is invalid: ${JSON.stringify(triggerSourcePolicyValidation.errors)}`,
+    );
+  }
+  return new PlanningContractEvaluator(
+    artifactValidator,
+    policy as AdaptationPolicy,
+    policyValidation,
+    triggerSourcePolicy as AiTriggerSourceBindingPolicy,
+    triggerSourcePolicyValidation,
+    "startup_opportunity.adaptation_decision.v3",
   );
 }

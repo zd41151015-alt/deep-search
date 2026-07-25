@@ -120,9 +120,9 @@ function hasExpectedIssue(
 test("G1.1 bundle publishes all closed assess document schemas", async () => {
   const result = await inspectSchemaBundle(repositoryRoot);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
-  assert.equal(result.schemaBundleVersion, "4.0.0");
-  assert.equal(result.schemaCount, 47);
-  assert.equal(result.documentSchemaCount, 44);
+  assert.equal(result.schemaBundleVersion, "5.0.0");
+  assert.equal(result.schemaCount, 54);
+  assert.equal(result.documentSchemaCount, 51);
 });
 
 test("complete no-Evidence assess fixture closes schema, refs, identity, branch, fan-in, and matrix contracts", async () => {
@@ -530,5 +530,5 @@ test("Harness CLI validates the complete G1.1 bundle without starting research",
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const output = JSON.parse(result.stdout) as { valid?: boolean; schemaBundleVersion?: string };
   assert.equal(output.valid, true);
-  assert.equal(output.schemaBundleVersion, "4.0.0");
+  assert.equal(output.schemaBundleVersion, "5.0.0");
 });

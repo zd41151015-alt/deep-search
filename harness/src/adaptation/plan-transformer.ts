@@ -18,6 +18,12 @@ export interface PlanTransformationResult {
   readonly actionNames: readonly string[];
 }
 
+export interface AssessmentPlanTransformationResult {
+  readonly revisionCreated: boolean;
+  readonly planPath: string;
+  readonly plan: Record<string, unknown> | null;
+}
+
 const REVISION_ACTIONS = new Set([
   "add_unit",
   "cancel_unit",
@@ -139,6 +145,16 @@ export function transformPlan(
 ): PlanTransformationResult {
   const sortedDecisions = [...decisions].sort((left, right) => left.path.localeCompare(right.path));
   const adaptationRefs = sortedDecisions.map((decision) => decision.path);
+  const decisionVersions = uniqueSorted(
+    sortedDecisions.map((decision) => String(decision.document.schema_version)),
+  );
+  if (decisionVersions.length !== 1) {
+    throw new StoreError(
+      "adaptation.version_conflict",
+      "one apply operation cannot mix Adaptation Decision contract versions",
+    );
+  }
+  const assessmentAdaptation = decisionVersions[0] === "startup_opportunity.adaptation_decision.v3";
   const actions = sortedDecisions.map((decision) => String(decision.document.action));
   const hasRevisionAction = actions.some((action) => REVISION_ACTIONS.has(action));
   const hasNonRevisionAction = actions.some((action) => NON_REVISION_ACTIONS.has(action));
@@ -159,7 +175,10 @@ export function transformPlan(
     parent_plan_hash: canonicalContentHash(basePlan),
     adaptation_refs: uniqueSorted(adaptationRefs),
   });
-  let nextManifest = appendApplied(manifest, adaptationRefs);
+  let nextManifest = {
+    ...appendApplied(manifest, adaptationRefs),
+    ...(assessmentAdaptation ? { schema_bundle_version: "5.0.0" } : {}),
+  };
 
   if (!hasRevisionAction) {
     const lifecycle = sortedDecisions.filter(
@@ -215,6 +234,17 @@ export function transformPlan(
       ? structuredClone(decision.document.target_unit)
       : null;
     if (action === "add_unit" && newUnit !== null) {
+      if (
+        decision.document.schema_version === "startup_opportunity.adaptation_decision.v3" &&
+        typeof decision.document.candidate_assessment_plan_ref === "string"
+      ) {
+        newUnit.input_refs = uniqueSorted([
+          ...(Array.isArray(newUnit.input_refs)
+            ? newUnit.input_refs.filter((ref): ref is string => typeof ref === "string")
+            : []),
+          decision.document.candidate_assessment_plan_ref,
+        ]);
+      }
       addUnits.push(newUnit);
       continue;
     }
@@ -263,7 +293,7 @@ export function transformPlan(
   );
   nextManifest = {
     ...nextManifest,
-    schema_bundle_version: "2.2.0",
+    schema_bundle_version: assessmentAdaptation ? "5.0.0" : "2.2.0",
     current_plan_ref: planPath,
     plan_revision: revision,
     followup_round:
@@ -279,5 +309,56 @@ export function transformPlan(
     manifest: nextManifest,
     adaptationRefs,
     actionNames: actions,
+  };
+}
+
+export function transformAssessmentPlan(
+  baseAssessmentPlanPath: string,
+  baseAssessmentPlan: Record<string, unknown>,
+  transformedResearchPlanPath: string,
+  decisions: readonly AdaptationInputDocument[],
+  createdAt: string,
+): AssessmentPlanTransformationResult {
+  const sortedDecisions = [...decisions].sort((left, right) => left.path.localeCompare(right.path));
+  const adaptationRefs = sortedDecisions.map((decision) => decision.path);
+  if (
+    sortedDecisions.length === 0 ||
+    sortedDecisions.some(
+      (decision) =>
+        decision.document.schema_version !== "startup_opportunity.adaptation_decision.v3" ||
+        !["add_unit", "stop_followup"].includes(String(decision.document.action)),
+    )
+  ) {
+    throw new StoreError(
+      "adaptation.assessment_action_invalid",
+      "assessment plan transformation requires only closed v3 decisions",
+    );
+  }
+  const revisionCreated = sortedDecisions.some(
+    (decision) => decision.document.action === "add_unit",
+  );
+  if (!revisionCreated) {
+    return { revisionCreated: false, planPath: baseAssessmentPlanPath, plan: null };
+  }
+  const revision = Number(baseAssessmentPlan.revision) + 1;
+  const planPath = `plans/concept-evidence-assessment-plan.r${revision}.json`;
+  if (
+    sortedDecisions.some((decision) => decision.document.candidate_assessment_plan_ref !== planPath)
+  ) {
+    throw new StoreError(
+      "adaptation.assessment_candidate_ref_mismatch",
+      "v3 decision candidate assessment plan ref differs from the deterministic revision path",
+    );
+  }
+  const plan = structuredClone(baseAssessmentPlan);
+  plan.revision = revision;
+  plan.parent_plan_ref = baseAssessmentPlanPath;
+  plan.research_plan_ref = transformedResearchPlanPath;
+  plan.triggered_by_adaptation_refs = uniqueSorted(adaptationRefs);
+  plan.created_at = createdAt;
+  return {
+    revisionCreated: true,
+    planPath,
+    plan: JSON.parse(canonicalJson(plan)) as Record<string, unknown>,
   };
 }

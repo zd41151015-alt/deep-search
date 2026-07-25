@@ -8,4 +8,6 @@
 
 `research-publication.v1.json` 固定 envelope v1-v5 到 Document Bundle、receipt、manifest bundle 的 adapter，v4 branch block、v2 substrate 与 materialized Evidence 分层、traceability 方向、task lifecycle 和 branch status mapping。它不包含 research quality inference、agent dispatch、network access、G1.3 plan adaptation 或 G1.4 report gate。
 
+`assessment-adaptation.v1.json` 固定 G1.3 buyer/acquisition coverage、`add_unit|stop_followup`、target tuple、follow-up 上限与 immutable assessment plan revision。`ai-trigger-source-binding.v2.json` 只增加对该 policy 的 canonical binding；`research-publication.v2.json` 只增加 v6/receipt v5 adapter。三者不改写既有 policy bytes，也不开放 audit、Assessment gate 或 reporting。
+
 Policy 不是通用规则引擎，不包含任意表达式、可执行 workflow code 或运行时用户调权。

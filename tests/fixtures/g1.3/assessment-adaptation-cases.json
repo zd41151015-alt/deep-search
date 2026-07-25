@@ -1,0 +1,36 @@
+{
+  "schema_version": "startup_opportunity.g1_3_fixture_catalog.v1",
+  "positive_cases": [
+    "buyer_gap_add_unit",
+    "acquisition_gap_add_unit",
+    "coverage_sufficient_stop_followup",
+    "no_material_new_evidence_stop_followup",
+    "no_executable_followup_stop_followup",
+    "idempotent_replay",
+    "deep_plan_ancestry",
+    "concurrent_same_operation",
+    "crash_boundary_recovery"
+  ],
+  "negative_cases": [
+    "duplicate_coverage",
+    "stale_base",
+    "branched_assessment_ancestry",
+    "illegal_action",
+    "illegal_target",
+    "wrong_run",
+    "wrong_subject",
+    "wrong_scope",
+    "wrong_coverage_key",
+    "forged_observed_artifact_hash",
+    "drifted_stored_artifact",
+    "operation_key_conflict"
+  ],
+  "truthfulness": {
+    "synthetic_only": true,
+    "allowed_public_url_suffix": ".invalid",
+    "allowed_user_material_prefix": "urn:startup-opportunity:user-provided:",
+    "evidence_tier": "model_inference_only",
+    "evidence_lifecycle_status": "unverified",
+    "external_validation_claimed": false
+  }
+}

@@ -8,4 +8,6 @@ lane researcher 负责有界来源发现、支持与反对 Claim、Finding、局
 
 G1.2 task envelope 使用 `tasks/<unit_id>.attempt-<n>.json`，只允许 main agent 发布。lane-researcher 只发布其 task lineage 下的 Evidence、Claim、Finding、Insight、Source Manifest 和唯一 branch output。task publication 只让 Run unit 进入 `active_units`；Harness 不创建 subagent。retry 必须显式 supersede 上一 attempt，`partial` retry 继续 fail closed，late/superseded result 不得回到 current artifact set。
 
+G1.3 `add_unit` 只能新增一个 `buyer_language` 或 `acquisition` follow-up unit，owner 固定为 `lane-researcher`，必须依赖 Gap Snapshot 中实际观察到的已终止 unit，并使用唯一 output path 与 `concept_evidence_assessment_branch_result.v1`。它不是任意 DAG 入口；`stop_followup` 不创建 unit、retry wave 或 Plan revision。
+
 同一 wave 中的 unit 必须相互独立，并拥有唯一 output path。subagent 绝不写入 manifest、Plan、Adaptation Decision、comparison policy、decision brief 或 report。fan-in 只消费已经验证的 Artifact，并保留 `partial`、`failed`、`cancelled`、`skipped`、`ignored-late` 和 `superseded` 状态，不得把缺失工作当作中性 Evidence。

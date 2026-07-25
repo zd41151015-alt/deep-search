@@ -10,6 +10,10 @@ import {
   isAssessDomainSchemaVersion,
   validateAssessDomainContract,
 } from "./assess-domain-validator.js";
+import {
+  type AssessmentAdaptationDocument,
+  validateAssessmentAdaptationContract,
+} from "./assessment-adaptation-validator.js";
 import { coverageKey, planningRunStateHash } from "./planning-contract-identities.js";
 import {
   type ResearchBranchDocument,
@@ -47,7 +51,8 @@ export interface DocumentBundle {
     | "startup_opportunity.document_bundle.v2"
     | "startup_opportunity.document_bundle.v3"
     | "startup_opportunity.document_bundle.v4"
-    | "startup_opportunity.document_bundle.v5";
+    | "startup_opportunity.document_bundle.v5"
+    | "startup_opportunity.document_bundle.v6";
   readonly documents: readonly DocumentBundleEntry[];
   readonly exact_records?: readonly {
     readonly ref: string;
@@ -238,22 +243,29 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
     case "startup_opportunity.run_manifest.v1":
       return [
         ...optionalRef(document, "current_plan_ref", "startup_opportunity.research_plan.v1"),
-        ...optionalRef(document, "latest_gap_snapshot_ref", "startup_opportunity.gap_snapshot.v1"),
+        ...optionalRef(document, "latest_gap_snapshot_ref", [
+          "startup_opportunity.gap_snapshot.v1",
+          "startup_opportunity.gap_snapshot.v2",
+        ]),
         ...refsFromArray(document, "pending_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
           "startup_opportunity.adaptation_decision.v2",
+          "startup_opportunity.adaptation_decision.v3",
         ]),
         ...refsFromArray(document, "validated_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
           "startup_opportunity.adaptation_decision.v2",
+          "startup_opportunity.adaptation_decision.v3",
         ]),
         ...refsFromArray(document, "rejected_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
           "startup_opportunity.adaptation_decision.v2",
+          "startup_opportunity.adaptation_decision.v3",
         ]),
         ...refsFromArray(document, "applied_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
           "startup_opportunity.adaptation_decision.v2",
+          "startup_opportunity.adaptation_decision.v3",
         ]),
         ...optionalRef(document, "checkpoint_ref", "startup_opportunity.checkpoint.v1"),
       ];
@@ -263,6 +275,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(document, "triggered_by_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
           "startup_opportunity.adaptation_decision.v2",
+          "startup_opportunity.adaptation_decision.v3",
         ]),
       ];
     case "startup_opportunity.gap_snapshot.v1":
@@ -270,6 +283,31 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "parent_snapshot_ref", "startup_opportunity.gap_snapshot.v1"),
         ...optionalRef(document, "trigger_event_ref", "startup_opportunity.event.v1", "event_id"),
+      ];
+    case "startup_opportunity.gap_snapshot.v2":
+      return [
+        ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(document, "parent_snapshot_ref", "startup_opportunity.gap_snapshot.v2"),
+        ...optionalRef(document, "trigger_event_ref", "startup_opportunity.event.v1", "event_id"),
+        ...optionalRef(
+          document,
+          "assessment_plan_ref",
+          "startup_opportunity.concept_evidence_assessment_plan.v1",
+        ),
+        ...optionalRef(document, "subject_ref", "startup_opportunity.concept_hypothesis.v1"),
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v1"),
+        ...refsFromNestedArray(
+          document,
+          "observed_artifacts",
+          "artifact_ref",
+          "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "observed_artifacts",
+          "task_ref",
+          "startup_opportunity.research_task.v1",
+        ),
       ];
     case "startup_opportunity.adaptation_decision.v1":
       return [
@@ -307,6 +345,23 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.decision.v1",
           "decision_id",
         ),
+      ];
+    case "startup_opportunity.adaptation_decision.v3":
+      return [
+        ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromArray(
+          document,
+          "trigger_gap_refs",
+          "startup_opportunity.gap_snapshot.v2",
+          "gap_id",
+        ),
+        ...optionalRef(
+          document,
+          "assessment_plan_ref",
+          "startup_opportunity.concept_evidence_assessment_plan.v1",
+        ),
+        ...optionalRef(document, "subject_ref", "startup_opportunity.concept_hypothesis.v1"),
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v1"),
       ];
     case "startup_opportunity.planning_context.v1":
       return [
@@ -369,19 +424,24 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
     case "startup_opportunity.checkpoint.v1":
       return [
         ...optionalRef(document, "current_plan_ref", "startup_opportunity.research_plan.v1"),
-        ...optionalRef(document, "latest_gap_snapshot_ref", "startup_opportunity.gap_snapshot.v1"),
+        ...optionalRef(document, "latest_gap_snapshot_ref", [
+          "startup_opportunity.gap_snapshot.v1",
+          "startup_opportunity.gap_snapshot.v2",
+        ]),
         ...refsFromArray(document, "applied_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
           "startup_opportunity.adaptation_decision.v2",
+          "startup_opportunity.adaptation_decision.v3",
         ]),
         ...refsFromArray(document, "pending_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
           "startup_opportunity.adaptation_decision.v2",
+          "startup_opportunity.adaptation_decision.v3",
         ]),
         ...refsFromArray(
           document,
           "unresolved_gap_refs",
-          "startup_opportunity.gap_snapshot.v1",
+          ["startup_opportunity.gap_snapshot.v1", "startup_opportunity.gap_snapshot.v2"],
           "gap_id",
         ),
       ];
@@ -413,6 +473,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(document, "triggered_by_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
           "startup_opportunity.adaptation_decision.v2",
+          "startup_opportunity.adaptation_decision.v3",
         ]),
       ];
     case "startup_opportunity.concept_evidence_assessment_branch_result.v1":
@@ -639,7 +700,8 @@ function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
     version !== "startup_opportunity.artifact_envelope.v2" &&
     version !== "startup_opportunity.artifact_envelope.v3" &&
     version !== "startup_opportunity.artifact_envelope.v4" &&
-    version !== "startup_opportunity.artifact_envelope.v5"
+    version !== "startup_opportunity.artifact_envelope.v5" &&
+    version !== "startup_opportunity.artifact_envelope.v6"
   ) {
     return { path: entry.path, schemaVersion: version, document: entry.document, envelope: null };
   }
@@ -768,7 +830,8 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
   if (
     !isRecord(document) ||
     (document.schema_version !== "startup_opportunity.artifact_envelope.v4" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v5") ||
+      document.schema_version !== "startup_opportunity.artifact_envelope.v5" &&
+      document.schema_version !== "startup_opportunity.artifact_envelope.v6") ||
     !isRecord(document.document)
   ) {
     return [];
@@ -1066,7 +1129,8 @@ export class ArtifactValidator {
     if (
       assessDocuments.some((entry) => isAssessDomainSchemaVersion(entry.schemaVersion)) &&
       input.schema_version !== "startup_opportunity.document_bundle.v4" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v5"
+      input.schema_version !== "startup_opportunity.document_bundle.v5" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v6"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -1100,7 +1164,8 @@ export class ArtifactValidator {
             "startup_opportunity.concept_evidence_assessment_branch_result.v1" &&
             entry.envelope?.schema_version === "startup_opportunity.artifact_envelope.v5"),
       ) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v5"
+      input.schema_version !== "startup_opportunity.document_bundle.v5" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v6"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -1113,6 +1178,13 @@ export class ArtifactValidator {
     } else {
       referenceErrors.push(...validateResearchBranchContract(researchDocuments, exactJsonlRecords));
     }
+    const assessmentAdaptationDocuments: readonly AssessmentAdaptationDocument[] =
+      effectiveDocuments.map((entry) => ({
+        path: entry.path,
+        schemaVersion: entry.schemaVersion,
+        document: entry.document,
+      }));
+    referenceErrors.push(...validateAssessmentAdaptationContract(assessmentAdaptationDocuments));
     referenceErrors.push(...exactRecordErrors);
     const sortedReferenceErrors = sortIssues(referenceErrors);
     const sortedDocuments = [...documents].sort((left, right) =>
@@ -1436,7 +1508,10 @@ export class ArtifactValidator {
       }
     }
 
-    if (source.schemaVersion === "startup_opportunity.gap_snapshot.v1") {
+    if (
+      source.schemaVersion === "startup_opportunity.gap_snapshot.v1" ||
+      source.schemaVersion === "startup_opportunity.gap_snapshot.v2"
+    ) {
       const pathRevision = snapshotRevisionFromPath(source.path);
       if (typeof revision === "number" && pathRevision !== revision) {
         errors.push(
@@ -1452,7 +1527,7 @@ export class ArtifactValidator {
       if (typeof revision === "number" && revision > 1 && typeof parentRef === "string") {
         const parent = documentsByPath.get(parentRef);
         if (
-          parent?.schemaVersion === "startup_opportunity.gap_snapshot.v1" &&
+          parent?.schemaVersion === source.schemaVersion &&
           (parent.document.revision !== revision - 1 ||
             parent.document.snapshot_cycle_key !== source.document.snapshot_cycle_key)
         ) {

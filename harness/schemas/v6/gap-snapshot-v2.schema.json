@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v6/gap-snapshot-v2.schema.json",
+  "title": "Startup Opportunity Assessment Gap Snapshot v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "snapshot_cycle_key",
+    "coverage_key",
+    "run_id",
+    "based_on_plan_ref",
+    "based_on_plan_revision",
+    "based_on_plan_hash",
+    "assessment_plan_ref",
+    "assessment_plan_revision",
+    "assessment_plan_hash",
+    "subject_ref",
+    "scope_frame_ref",
+    "scope_frame_hash",
+    "revision",
+    "parent_snapshot_ref",
+    "created_at",
+    "trigger_kind",
+    "trigger_event_ref",
+    "phase",
+    "wave_id",
+    "observed_artifacts",
+    "gaps",
+    "material_new_evidence_observed",
+    "stop_signals",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.gap_snapshot.v2" },
+    "snapshot_id": { "$ref": "../v1/definitions.schema.json#/$defs/identifier" },
+    "snapshot_cycle_key": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
+    "coverage_key": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
+    "run_id": { "$ref": "../v1/definitions.schema.json#/$defs/runId" },
+    "based_on_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
+    "based_on_plan_revision": { "type": "integer", "minimum": 1 },
+    "based_on_plan_hash": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
+    "assessment_plan_ref": { "$ref": "../v4/definitions.schema.json#/$defs/assessmentPlanRef" },
+    "assessment_plan_revision": { "type": "integer", "minimum": 1 },
+    "assessment_plan_hash": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
+    "subject_ref": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRef" },
+    "scope_frame_ref": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRef" },
+    "scope_frame_hash": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "parent_snapshot_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^adaptations/gap-snapshots/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "created_at": { "$ref": "../v1/definitions.schema.json#/$defs/timestamp" },
+    "trigger_kind": { "enum": ["wave_completed", "resume_reconciliation"] },
+    "trigger_event_ref": {
+      "anyOf": [{ "$ref": "../v1/definitions.schema.json#/$defs/eventRef" }, { "type": "null" }]
+    },
+    "phase": { "const": "assessment" },
+    "wave_id": { "$ref": "../v1/definitions.schema.json#/$defs/identifier" },
+    "observed_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_ref",
+          "artifact_type",
+          "content_hash",
+          "task_ref",
+          "task_hash",
+          "unit_id",
+          "attempt",
+          "unit_state",
+          "branch_status"
+        ],
+        "properties": {
+          "artifact_ref": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRef" },
+          "artifact_type": {
+            "const": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+          },
+          "content_hash": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
+          "task_ref": { "$ref": "../v5/definitions.schema.json#/$defs/researchTaskRef" },
+          "task_hash": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
+          "unit_id": { "$ref": "../v1/definitions.schema.json#/$defs/identifier" },
+          "attempt": { "type": "integer", "minimum": 1 },
+          "unit_state": {
+            "enum": [
+              "pending",
+              "active",
+              "completed",
+              "failed",
+              "invalidated",
+              "skipped",
+              "cancelled",
+              "superseded"
+            ]
+          },
+          "branch_status": {
+            "enum": [
+              "completed",
+              "partial",
+              "insufficient_evidence",
+              "failed",
+              "cancelled",
+              "skipped",
+              "ignored_late",
+              "superseded_by_scope_change",
+              "superseded_by_adaptation"
+            ]
+          }
+        }
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gap_id",
+          "coverage_key",
+          "subject_ref",
+          "dimension_id",
+          "gap_type",
+          "detection_mode",
+          "coverage_status",
+          "decision_impact",
+          "severity",
+          "research_goal",
+          "basis_refs",
+          "evidence_refs",
+          "recommended_unit_type",
+          "followup_status",
+          "limitations"
+        ],
+        "properties": {
+          "gap_id": { "$ref": "../v1/definitions.schema.json#/$defs/identifier" },
+          "coverage_key": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
+          "subject_ref": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRef" },
+          "dimension_id": {
+            "enum": ["buyer_language_and_willingness_to_pay", "acquisition_and_distribution"]
+          },
+          "gap_type": {
+            "enum": [
+              "buyer_evidence_insufficient",
+              "acquisition_evidence_insufficient",
+              "coverage_sufficient",
+              "no_material_new_evidence",
+              "no_executable_followup"
+            ]
+          },
+          "detection_mode": { "enum": ["deterministic", "agent_semantic"] },
+          "coverage_status": {
+            "enum": ["insufficient", "sufficient", "no_executable_followup"]
+          },
+          "decision_impact": { "$ref": "../v1/definitions.schema.json#/$defs/decisionImpactArray" },
+          "severity": { "enum": ["blocking", "material", "advisory"] },
+          "research_goal": { "$ref": "../v1/definitions.schema.json#/$defs/nonEmptyString" },
+          "basis_refs": {
+            "type": "array",
+            "items": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRef" },
+            "minItems": 5,
+            "uniqueItems": true
+          },
+          "evidence_refs": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRefArray" },
+          "recommended_unit_type": {
+            "anyOf": [{ "enum": ["buyer_language", "acquisition"] }, { "type": "null" }]
+          },
+          "followup_status": { "enum": ["executable", "stop"] },
+          "limitations": { "$ref": "../v1/definitions.schema.json#/$defs/uniqueStringArray" }
+        }
+      }
+    },
+    "material_new_evidence_observed": { "type": "boolean" },
+    "stop_signals": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "coverage_sufficient",
+          "no_material_new_evidence",
+          "no_executable_followup",
+          "source_repetition",
+          "max_followup_rounds_reached",
+          "limitation_accepted"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "limitations": { "$ref": "../v1/definitions.schema.json#/$defs/uniqueStringArray" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "revision": { "const": 1 } }, "required": ["revision"] },
+      "then": { "properties": { "parent_snapshot_ref": { "type": "null" } } },
+      "else": {
+        "properties": {
+          "parent_snapshot_ref": {
+            "type": "string",
+            "pattern": "^adaptations/gap-snapshots/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "trigger_kind": { "const": "wave_completed" } } },
+      "then": { "properties": { "trigger_event_ref": { "type": "null" } } },
+      "else": {
+        "properties": {
+          "trigger_event_ref": { "$ref": "../v1/definitions.schema.json#/$defs/eventRef" }
+        }
+      }
+    }
+  ]
+}

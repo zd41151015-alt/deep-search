@@ -16,6 +16,18 @@ export {
   type PlanRevisionApplyPolicy,
 } from "./adaptation/apply-policy.js";
 export {
+  type AnalyzeAssessmentGapInput,
+  type AssessmentCoverageDimension,
+  type AssessmentGapAnalysisResult,
+  AssessmentGapAnalyzer,
+  createAssessmentGapAnalyzer,
+} from "./adaptation/assessment-gap-analyzer.js";
+export {
+  ASSESSMENT_ADAPTATION_POLICY_PATH,
+  type AssessmentAdaptationPolicy,
+  loadAssessmentAdaptationPolicy,
+} from "./adaptation/assessment-policy.js";
+export {
   type AnalyzeGapsInput,
   createGapAnalyzer,
   GAP_ANALYSIS_RESULT_VERSION,
@@ -35,10 +47,13 @@ export {
 } from "./adaptation/plan-runtime.js";
 export {
   type AdaptationInputDocument,
+  type AssessmentPlanTransformationResult,
   type PlanTransformationResult,
+  transformAssessmentPlan,
   transformPlan,
 } from "./adaptation/plan-transformer.js";
 export {
+  createAssessmentPlanSemanticValidator,
   createPlanSemanticValidator,
   PLAN_VALIDATION_RESULT_VERSION,
   PlanSemanticValidator,
@@ -127,6 +142,10 @@ export {
   validateAssessDomainContract,
 } from "./validators/assess-domain-validator.js";
 export {
+  type AssessmentAdaptationDocument,
+  validateAssessmentAdaptationContract,
+} from "./validators/assessment-adaptation-validator.js";
+export {
   type CoverageIdentity,
   coverageKey,
   type PlanningRunStateIdentity,
@@ -136,6 +155,8 @@ export type { PlanningContractValidationResult } from "./validators/planning-con
 export {
   ADAPTATION_POLICY_PATH,
   AI_TRIGGER_SOURCE_POLICY_PATH,
+  ASSESSMENT_AI_TRIGGER_SOURCE_POLICY_PATH,
+  createAssessmentPlanningContractEvaluator,
   createPlanningContractEvaluator,
   PLANNING_CONTRACT_RESULT_VERSION,
   PlanningContractEvaluator,

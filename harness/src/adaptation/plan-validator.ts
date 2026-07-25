@@ -2,6 +2,7 @@ import { canonicalJson } from "../artifact-store/canonical.js";
 import type { DocumentBundleReferenceContext } from "../validators/artifact-validator.js";
 import type { PlanningContractValidationResult } from "../validators/planning-contract-validator.js";
 import {
+  createAssessmentPlanningContractEvaluator,
   createPlanningContractEvaluator,
   type PlanningContractEvaluator,
 } from "../validators/planning-contract-validator.js";
@@ -320,7 +321,10 @@ export class PlanSemanticValidator {
 
     const retention = plan.candidate_retention_policy;
     const exploration = plan.exploration_policy;
-    if (!isRecord(retention) || retention.counterfactual_candidate_requirement !== true) {
+    if (
+      plan.mode === "opportunity_discovery" &&
+      (!isRecord(retention) || retention.counterfactual_candidate_requirement !== true)
+    ) {
       errors.push(
         issue(
           "plan.counterfactual_policy_missing",
@@ -439,4 +443,10 @@ export async function createPlanSemanticValidator(
   root = process.cwd(),
 ): Promise<PlanSemanticValidator> {
   return new PlanSemanticValidator(await createPlanningContractEvaluator(root));
+}
+
+export async function createAssessmentPlanSemanticValidator(
+  root = process.cwd(),
+): Promise<PlanSemanticValidator> {
+  return new PlanSemanticValidator(await createAssessmentPlanningContractEvaluator(root));
 }

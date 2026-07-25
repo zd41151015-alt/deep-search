@@ -8,4 +8,6 @@ Evidence、Claim、Finding、Insight 和 Judgment Assessment 是相互分离的�
 
 `manifest.json` 是原子替换的 current index，不是不可变的正式发布路径。checkpoint 包含不可变 manifest snapshot。Event、Decision 与 Evidence substrate JSONL 必须 schema-valid、append-only，并由 operation key 标识；只有不完整尾部可以自动修复。G1.2 的 versioned adapter 保持 v1-v4 历史 contract immutable，并为 v4/v5 envelope 分配 receipt v3/v4。v4 branch result 禁止发布；v5 research branch 必须绑定 exact v2 substrate record。
 
+G1.3 增加 v6 envelope/document bundle 与 Store receipt v5，既有 adapter bytes 不改写。Gap Snapshot 与 Adaptation Decision 先 immutable publish；合法 `add_unit` 再把 Research Plan r2、assessment plan r2、Planning Context r2 作为一个 pending control bundle 发布，并只在全部验证通过后 CAS 替换 Manifest。Plan operation receipt v2 绑定 base/result Research Plan 与 assessment plan hashes；reopen 只从已验证 on-disk state 恢复，冲突 replay 或 Artifact drift 必须 fail closed。
+
 Evidence 的机械层包括 stable id、Run/unit、canonical source、source/content hash、raw ref、operation key 与 timestamp；业务层的 origin、provenance、freshness、independence、bias、tier、role、representativeness 与 limitations 由 Agent 明示。Harness 不从内容推断这些判断。Artifact 验证或发布成功只证明机械 contract，不证明来源真实、研究质量、Evidence 充分或决策就绪。

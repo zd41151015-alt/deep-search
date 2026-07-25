@@ -1,6 +1,6 @@
 import { type DoctorReport, inspectRepository } from "./repository-contract.js";
 
-const HELP = `Startup Opportunity Research Harness (G1.2)
+const HELP = `Startup Opportunity Research Harness (G1.3)
 
 Usage:
   npm run harness -- help
@@ -17,7 +17,7 @@ Usage:
   npm run harness -- apply-plan-revision --file FILE [--runs-root DIR] [--json]
 
 Commands:
-  help               Show the implemented G1.2 command surface.
+  help               Show the implemented G1.3 command surface.
   doctor             Validate repository, toolchain, Skill, agent, Harness, and test contracts.
   validate-artifact  Validate one document, a typed document bundle, or the schema bundle itself.
   create-run         Create a confined Run and its initial checkpoint.
@@ -26,8 +26,8 @@ Commands:
   publish-artifact   Validate and publish one formal envelope or an explicit envelope bundle.
   checkpoint-run     Publish an immutable checkpoint from a JSON input document.
   validate-plan      Validate Planning Context v2 and full Research Plan semantics.
-  analyze-gaps       Build a deterministic machine-observable Gap Snapshot draft.
-  validate-adaptation Validate v2 closed actions against current Run/Plan state.
+  analyze-gaps       Build a deterministic machine or assessment Gap Snapshot draft.
+  validate-adaptation Validate G0 v2 or G1.3 v3 closed actions against current Run/Plan state.
   apply-plan-revision Apply validated actions through CAS and immutable Plan Revision receipts.
 
 Validation and Store success are mechanical only. The Harness does not dispatch agents or perform network research. Synthesis, review, comparison, and reporting commands remain unavailable.

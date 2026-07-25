@@ -29,7 +29,10 @@ export function effectiveDocuments(value: unknown): readonly EffectiveDocument[]
     if (
       (schemaVersion === "startup_opportunity.artifact_envelope.v1" ||
         schemaVersion === "startup_opportunity.artifact_envelope.v2" ||
-        schemaVersion === "startup_opportunity.artifact_envelope.v3") &&
+        schemaVersion === "startup_opportunity.artifact_envelope.v3" ||
+        schemaVersion === "startup_opportunity.artifact_envelope.v4" ||
+        schemaVersion === "startup_opportunity.artifact_envelope.v5" ||
+        schemaVersion === "startup_opportunity.artifact_envelope.v6") &&
       typeof entry.document.artifact_type === "string" &&
       isRecord(entry.document.document)
     ) {

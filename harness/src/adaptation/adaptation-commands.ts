@@ -4,6 +4,10 @@ import { StoreError, storeErrorResult } from "../artifact-store/store-error.js";
 import type { BeliefSummary } from "../run-store/run-store.js";
 import type { DocumentBundle } from "../validators/artifact-validator.js";
 import { createAdaptationPolicyValidator } from "./adaptation-validator.js";
+import {
+  type AnalyzeAssessmentGapInput,
+  createAssessmentGapAnalyzer,
+} from "./assessment-gap-analyzer.js";
 import { isRecord } from "./contracts.js";
 import { type AnalyzeGapsInput, createGapAnalyzer, type MachineGapCheck } from "./gap-analyzer.js";
 import { createPlanRevisionRuntime, type PlanApplyFaultBoundary } from "./plan-runtime.js";
@@ -126,8 +130,27 @@ export async function runAnalyzeGaps(
     const parsed = parseArguments(args);
     rejectUnknown(parsed, ["--file"]);
     const value = await readObject(required(parsed, "--file"));
-    if (value.schema_version !== "startup_opportunity.gap_analysis_input.v1") {
+    if (
+      value.schema_version !== "startup_opportunity.gap_analysis_input.v1" &&
+      value.schema_version !== "startup_opportunity.assessment_gap_analysis_input.v1"
+    ) {
       throw new StoreError("command.invalid_arguments", "gap input schema_version is unsupported");
+    }
+    if (value.schema_version === "startup_opportunity.assessment_gap_analysis_input.v1") {
+      const assessmentInput: AnalyzeAssessmentGapInput = {
+        documentBundle: documentBundle(value.document_bundle),
+        snapshotId: String(value.snapshot_id ?? ""),
+        createdAt: String(value.created_at ?? ""),
+        triggerKind: String(value.trigger_kind ?? "") as AnalyzeAssessmentGapInput["triggerKind"],
+        waveId: String(value.wave_id ?? ""),
+        triggerEventRef:
+          value.trigger_event_ref === null ? null : String(value.trigger_event_ref ?? ""),
+        dimensionId: String(value.dimension_id ?? "") as AnalyzeAssessmentGapInput["dimensionId"],
+        observedArtifactRefs: stringArray(value.observed_artifact_refs, "observed_artifact_refs"),
+        materialNewEvidenceObserved: value.material_new_evidence_observed === true,
+        limitations: stringArray(value.limitations ?? [], "limitations"),
+      };
+      return (await createAssessmentGapAnalyzer(repositoryRoot)).analyze(assessmentInput);
     }
     const checks = Array.isArray(value.machine_checks)
       ? value.machine_checks.map((item) => {

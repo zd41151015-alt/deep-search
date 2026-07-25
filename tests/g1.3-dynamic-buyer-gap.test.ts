@@ -1,0 +1,666 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+import {
+  canonicalContentHash,
+  canonicalJson,
+  createAdaptationPolicyValidator,
+  createAssessmentGapAnalyzer,
+  createAssessmentPlanSemanticValidator,
+  createPlanRevisionRuntime,
+  type DocumentBundle,
+  type PlanApplyFaultBoundary,
+  StoreError,
+  validateAssessmentAdaptationContract,
+} from "../harness/src/index.js";
+import {
+  addUnitDecision,
+  bundleFromRun,
+  candidateBundle,
+  formalEnvelope,
+  G13_ACQUISITION_BRANCH,
+  G13_BUYER_BRANCH,
+  type G13FixtureState,
+  prepareG13Run,
+  stopDecision,
+} from "./fixtures/g1.3/assessment-adaptation-fixture.js";
+
+const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+
+function clone<T>(value: T): T {
+  return structuredClone(value);
+}
+
+function effectiveDocument(bundle: DocumentBundle, targetPath: string): Record<string, unknown> {
+  const entry = bundle.documents.find((candidate) => candidate.path === targetPath);
+  assert.ok(entry, `missing ${targetPath}`);
+  const version = String(entry.document.schema_version);
+  return version.startsWith("startup_opportunity.artifact_envelope.")
+    ? (entry.document.document as Record<string, unknown>)
+    : entry.document;
+}
+
+function refreshEnvelope(bundle: DocumentBundle, targetPath: string): void {
+  const entry = bundle.documents.find((candidate) => candidate.path === targetPath);
+  assert.ok(entry);
+  if (String(entry.document.schema_version).startsWith("startup_opportunity.artifact_envelope.")) {
+    entry.document.content_hash = canonicalContentHash(entry.document.document);
+  }
+}
+
+async function createGap(
+  state: G13FixtureState,
+  options: {
+    readonly snapshotId?: string;
+    readonly materialNewEvidenceObserved?: boolean;
+    readonly bundle?: DocumentBundle;
+  } = {},
+) {
+  const currentBundle = options.bundle ?? (await bundleFromRun(state));
+  const result = (await createAssessmentGapAnalyzer(repositoryRoot)).analyze({
+    documentBundle: currentBundle,
+    snapshotId: options.snapshotId ?? "buyer-gap-current",
+    createdAt: "2026-07-25T16:21:00Z",
+    triggerKind: "wave_completed",
+    waveId: "assessment_wave_1",
+    triggerEventRef: null,
+    dimensionId: state.branch.dimensionId as
+      | "buyer_language_and_willingness_to_pay"
+      | "acquisition_and_distribution",
+    observedArtifactRefs: [state.branch.outputPath],
+    materialNewEvidenceObserved: options.materialNewEvidenceObserved ?? true,
+    limitations: ["Synthetic fixture only; no external validation was performed."],
+  });
+  assert.equal(result.valid, true, JSON.stringify(result));
+  assert.ok(result.snapshotPath);
+  assert.ok(result.snapshot);
+  return { currentBundle, result };
+}
+
+async function publishGapAndDecision(
+  state: G13FixtureState,
+  kind: "add" | "stop" = "add",
+  materialNewEvidenceObserved = true,
+) {
+  const { result } = await createGap(state, { materialNewEvidenceObserved });
+  const gapPath = result.snapshotPath as string;
+  const snapshot = result.snapshot as Record<string, unknown>;
+  await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: formalEnvelope(
+      state.runId,
+      gapPath,
+      snapshot,
+      "startup_opportunity.artifact_envelope.v6",
+      "harness",
+      (snapshot.gaps as Record<string, unknown>[])[0]?.basis_refs as readonly string[],
+      "2026-07-25T16:21:00Z",
+    ),
+  });
+  const decision =
+    kind === "add"
+      ? addUnitDecision(state.runId, gapPath, snapshot)
+      : stopDecision(state.runId, gapPath, snapshot);
+  await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: formalEnvelope(
+      state.runId,
+      decision.path,
+      decision.document,
+      "startup_opportunity.artifact_envelope.v6",
+      "main_agent",
+      [
+        `${gapPath}#${String((snapshot.gaps as Record<string, unknown>[])[0]?.gap_id)}`,
+        String(snapshot.based_on_plan_ref),
+        String(snapshot.assessment_plan_ref),
+        String(snapshot.subject_ref),
+        String(snapshot.scope_frame_ref),
+      ],
+      "2026-07-25T16:22:00Z",
+    ),
+  });
+  return { gapPath, snapshot, decision, adaptationBundle: await bundleFromRun(state) };
+}
+
+function applyInput(
+  state: G13FixtureState,
+  prepared: Awaited<ReturnType<typeof publishGapAndDecision>>,
+  candidate?: DocumentBundle,
+  faultAt?: PlanApplyFaultBoundary,
+) {
+  return {
+    runId: state.runId,
+    adaptationBundle: prepared.adaptationBundle,
+    adaptationRefs: [prepared.decision.path],
+    ...(candidate === undefined ? {} : { candidateBundle: candidate }),
+    createdAt: "2026-07-25T16:23:00Z",
+    checkpointCreatedAt: "2026-07-25T16:24:00Z",
+    nextStep: "Execute only the bounded buyer follow-up unit, or retain the closed limitation.",
+    beliefSummary: {
+      current_belief: "Only synthetic G1.3 mechanics have been exercised.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["No real market Evidence was collected."],
+      remaining_disagreement: ["The buyer thesis remains unverified."],
+      next_decision_relevant_question: "Does bounded real Evidence change the buyer assessment?",
+    },
+    ...(faultAt === undefined ? {} : { faultAt }),
+  } as const;
+}
+
+test("G1.3 buyer Gap creates exact Research Plan r2 and assessment plan r2 atomically", async (context) => {
+  const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_buyer_add_001");
+  const prepared = await publishGapAndDecision(state);
+  const adaptationValidation = (
+    await createAdaptationPolicyValidator(repositoryRoot)
+  ).validateDocumentBundle(prepared.adaptationBundle);
+  assert.equal(adaptationValidation.valid, true, JSON.stringify(adaptationValidation));
+  const candidate = candidateBundle(prepared.adaptationBundle, prepared.decision);
+  const candidateValidation = (
+    await createAssessmentPlanSemanticValidator(repositoryRoot)
+  ).validateDocumentBundle(candidate);
+  assert.equal(candidateValidation.valid, true, JSON.stringify(candidateValidation));
+
+  const basePlanBytes = await readFile(path.join(state.runRoot, "plans/research-plan.r1.json"));
+  const baseAssessmentBytes = await readFile(
+    path.join(state.runRoot, "plans/concept-evidence-assessment-plan.r1.json"),
+  );
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+  const input = applyInput(state, prepared, candidate);
+  const first = await runtime.apply(input).catch((error: unknown) => {
+    if (error instanceof StoreError) {
+      assert.fail(JSON.stringify({ code: error.code, details: error.details }));
+    }
+    throw error;
+  });
+  assert.equal(first.status, "applied");
+  assert.equal(first.revisionCreated, true);
+  assert.equal(first.currentPlanRef, "plans/research-plan.r2.json");
+  assert.equal(first.currentAssessmentPlanRef, "plans/concept-evidence-assessment-plan.r2.json");
+  assert.equal((await runtime.apply(input)).status, "idempotent_replay");
+
+  assert.deepEqual(
+    await readFile(path.join(state.runRoot, "plans/research-plan.r1.json")),
+    basePlanBytes,
+  );
+  assert.deepEqual(
+    await readFile(path.join(state.runRoot, "plans/concept-evidence-assessment-plan.r1.json")),
+    baseAssessmentBytes,
+  );
+  const researchR2 = JSON.parse(
+    await readFile(path.join(state.runRoot, "plans/research-plan.r2.json"), "utf8"),
+  ) as Record<string, unknown>;
+  const assessmentR2 = JSON.parse(
+    await readFile(
+      path.join(state.runRoot, "plans/concept-evidence-assessment-plan.r2.json"),
+      "utf8",
+    ),
+  ) as Record<string, unknown>;
+  assert.equal(researchR2.schema_version, "startup_opportunity.artifact_envelope.v6");
+  assert.equal(assessmentR2.schema_version, "startup_opportunity.artifact_envelope.v6");
+  const reopened = await state.store.load(state.runId);
+  assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
+  assert.equal(reopened.manifest.plan_revision, 2);
+  assert.equal(reopened.manifest.schema_bundle_version, "5.0.0");
+});
+
+test("G1.3 acquisition Gap maps only to a bounded acquisition add_unit", async (context) => {
+  const state = await prepareG13Run(
+    context,
+    repositoryRoot,
+    "run_g1_3_acquisition_add_001",
+    G13_ACQUISITION_BRANCH,
+  );
+  const prepared = await publishGapAndDecision(state);
+  const gap = (prepared.snapshot.gaps as Record<string, unknown>[])[0];
+  assert.equal(gap?.gap_type, "acquisition_evidence_insufficient");
+  assert.equal(gap?.recommended_unit_type, "acquisition");
+  assert.equal(
+    (prepared.decision.document.target_unit as Record<string, unknown>).unit_type,
+    "acquisition",
+  );
+  const validation = (await createAdaptationPolicyValidator(repositoryRoot)).validateDocumentBundle(
+    prepared.adaptationBundle,
+  );
+  assert.equal(validation.valid, true, JSON.stringify(validation));
+  const candidate = candidateBundle(prepared.adaptationBundle, prepared.decision);
+  const candidateValidation = (
+    await createAssessmentPlanSemanticValidator(repositoryRoot)
+  ).validateDocumentBundle(candidate);
+  assert.equal(candidateValidation.valid, true, JSON.stringify(candidateValidation));
+});
+
+test("G1.3 historical Gap and Decision remain valid only through complete Plan ancestry", async (context) => {
+  const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_deep_ancestry_001");
+  const prepared = await publishGapAndDecision(state);
+  const candidate = candidateBundle(prepared.adaptationBundle, prepared.decision);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+  assert.equal((await runtime.apply(applyInput(state, prepared, candidate))).status, "applied");
+
+  const persisted = await bundleFromRun(state);
+  const documents = persisted.documents.map((entry) => {
+    const envelopeVersion = String(entry.document.schema_version);
+    return envelopeVersion.startsWith("startup_opportunity.artifact_envelope.")
+      ? {
+          path: entry.path,
+          schemaVersion: String(entry.document.artifact_type),
+          document: entry.document.document as Record<string, unknown>,
+        }
+      : {
+          path: entry.path,
+          schemaVersion: envelopeVersion,
+          document: entry.document,
+        };
+  });
+  const manifest = documents.find((entry) => entry.path === "manifest.json");
+  const researchR2 = documents.find((entry) => entry.path === "plans/research-plan.r2.json");
+  assert.ok(manifest);
+  assert.ok(researchR2);
+  const researchR3 = clone(researchR2.document);
+  researchR3.revision = 3;
+  researchR3.parent_plan_ref = researchR2.path;
+  researchR3.triggered_by_adaptation_refs = ["adaptations/decisions/synthetic-r3.json"];
+  manifest.document.current_plan_ref = "plans/research-plan.r3.json";
+  manifest.document.plan_revision = 3;
+  const deepAncestry = [
+    ...documents,
+    {
+      path: "plans/research-plan.r3.json",
+      schemaVersion: "startup_opportunity.research_plan.v1",
+      document: researchR3,
+    },
+  ];
+  assert.deepEqual(validateAssessmentAdaptationContract(deepAncestry), []);
+
+  const branched = clone(deepAncestry);
+  const branchedR3 = branched.find((entry) => entry.path === "plans/research-plan.r3.json");
+  assert.ok(branchedR3);
+  branchedR3.document.parent_plan_ref = "plans/research-plan.r1.json";
+  const errors = validateAssessmentAdaptationContract(branched);
+  assert.ok(errors.some((error) => error.code === "assessment_adaptation.plan_stale"));
+  assert.ok(
+    errors.some((error) => error.code === "assessment_adaptation.decision_binding_mismatch"),
+  );
+});
+
+test("G1.3 assessment_gap_analysis_input.v1 is wired through Harness and Skill CLI", async (context) => {
+  const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_cli_gap_001");
+  const inputFile = path.join(path.dirname(state.runsRoot), "assessment-gap-input.json");
+  await writeFile(
+    inputFile,
+    `${canonicalJson({
+      schema_version: "startup_opportunity.assessment_gap_analysis_input.v1",
+      document_bundle: await bundleFromRun(state),
+      snapshot_id: "buyer-gap-cli",
+      created_at: "2026-07-25T16:21:00Z",
+      trigger_kind: "wave_completed",
+      wave_id: "assessment_wave_1",
+      trigger_event_ref: null,
+      dimension_id: "buyer_language_and_willingness_to_pay",
+      observed_artifact_refs: [G13_BUYER_BRANCH.outputPath],
+      material_new_evidence_observed: true,
+      limitations: ["Synthetic CLI fixture only; no external validation was performed."],
+    })}\n`,
+  );
+  for (const script of [
+    "harness/src/cli.ts",
+    ".agents/skills/startup-opportunity/scripts/analyze-gaps.ts",
+  ]) {
+    const args = ["--import", "tsx", script];
+    if (script === "harness/src/cli.ts") {
+      args.push("analyze-gaps");
+    }
+    args.push("--file", inputFile);
+    const result = spawnSync(process.execPath, args, {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, `${script}: ${result.stderr}`);
+    const output = JSON.parse(result.stdout) as {
+      valid?: boolean;
+      snapshot?: { schema_version?: string };
+    };
+    assert.equal(output.valid, true);
+    assert.equal(output.snapshot?.schema_version, "startup_opportunity.gap_snapshot.v2");
+  }
+});
+
+test("G1.3 no-new-Evidence stop_followup closes without an unbounded revision", async (context) => {
+  const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_stop_001");
+  const prepared = await publishGapAndDecision(state, "stop", false);
+  const gap = (prepared.snapshot.gaps as Record<string, unknown>[])[0];
+  assert.equal(gap?.gap_type, "no_material_new_evidence");
+  assert.equal(gap?.followup_status, "stop");
+  const validation = (await createAdaptationPolicyValidator(repositoryRoot)).validateDocumentBundle(
+    prepared.adaptationBundle,
+  );
+  assert.equal(validation.valid, true, JSON.stringify(validation));
+
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+  const input = applyInput(state, prepared);
+  const result = await runtime.apply(input);
+  assert.equal(result.revisionCreated, false);
+  assert.equal(result.currentPlanRef, "plans/research-plan.r1.json");
+  assert.equal(result.currentAssessmentPlanRef, "plans/concept-evidence-assessment-plan.r1.json");
+  assert.equal((await runtime.apply(input)).status, "idempotent_replay");
+  await assert.rejects(readFile(path.join(state.runRoot, "plans/research-plan.r2.json")));
+  await assert.rejects(
+    readFile(path.join(state.runRoot, "plans/concept-evidence-assessment-plan.r2.json")),
+  );
+});
+
+test("G1.3 sufficient and non-executable buyer coverage deterministically stop", async (context) => {
+  const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_stop_matrix_001");
+  const base = await bundleFromRun(state);
+
+  const sufficientBundle = clone(base);
+  const sufficientBranch = effectiveDocument(sufficientBundle, G13_BUYER_BRANCH.outputPath);
+  sufficientBranch.branch_status = "completed";
+  sufficientBranch.dimension_decision = "mixed";
+  sufficientBranch.decision_sufficiency = "sufficient";
+  sufficientBranch.insufficiency_reasons = [];
+  refreshEnvelope(sufficientBundle, G13_BUYER_BRANCH.outputPath);
+  const sufficientJudgment = effectiveDocument(sufficientBundle, G13_BUYER_BRANCH.judgmentRef);
+  sufficientJudgment.judgment_signal = "mixed";
+  sufficientJudgment.supporting_claim_refs = ["claim_unit_buyer_support"];
+  sufficientJudgment.opposing_claim_refs = ["claim_unit_buyer_oppose"];
+  sufficientJudgment.decision_sufficiency = "sufficient";
+  sufficientJudgment.insufficiency_reasons = [];
+  refreshEnvelope(sufficientBundle, G13_BUYER_BRANCH.judgmentRef);
+  const sufficient = await createGap(state, {
+    snapshotId: "buyer-coverage-sufficient",
+    bundle: sufficientBundle,
+  });
+  const sufficientGaps = sufficient.result.snapshot?.gaps as Record<string, unknown>[] | undefined;
+  assert.equal(sufficientGaps?.[0]?.gap_type, "coverage_sufficient");
+  assert.deepEqual(sufficient.result.snapshot?.stop_signals, ["coverage_sufficient"]);
+
+  const exhaustedBundle = clone(base);
+  effectiveDocument(exhaustedBundle, "manifest.json").followup_round = 2;
+  const exhausted = await createGap(state, {
+    snapshotId: "buyer-followup-exhausted",
+    bundle: exhaustedBundle,
+  });
+  const exhaustedGaps = exhausted.result.snapshot?.gaps as Record<string, unknown>[] | undefined;
+  assert.equal(exhaustedGaps?.[0]?.gap_type, "no_executable_followup");
+  assert.deepEqual(exhausted.result.snapshot?.stop_signals, [
+    "max_followup_rounds_reached",
+    "no_executable_followup",
+  ]);
+
+  const duplicateBundle: DocumentBundle = {
+    ...clone(sufficientBundle),
+    documents: [
+      ...sufficientBundle.documents,
+      {
+        path: sufficient.result.snapshotPath as string,
+        document: sufficient.result.snapshot as Record<string, unknown>,
+      },
+    ],
+  };
+  const duplicate = (await createAssessmentGapAnalyzer(repositoryRoot)).analyze({
+    documentBundle: duplicateBundle,
+    snapshotId: "buyer-coverage-duplicate",
+    createdAt: "2026-07-25T16:21:00Z",
+    triggerKind: "wave_completed",
+    waveId: "assessment_wave_1",
+    triggerEventRef: null,
+    dimensionId: "buyer_language_and_willingness_to_pay",
+    observedArtifactRefs: [G13_BUYER_BRANCH.outputPath],
+    materialNewEvidenceObserved: true,
+  });
+  assert.equal(duplicate.valid, false);
+  assert.ok(duplicate.errors.some((error) => error.code === "assessment_gap.coverage_duplicate"));
+});
+
+test("G1.3 contract rejects closed-action, identity, ancestry, and observed Artifact drift", async (context) => {
+  const catalog = JSON.parse(
+    await readFile(
+      path.join(repositoryRoot, "tests/fixtures/g1.3/assessment-adaptation-cases.json"),
+      "utf8",
+    ),
+  ) as { positive_cases: string[]; negative_cases: string[] };
+  assert.equal(catalog.positive_cases.length, 9);
+  assert.equal(catalog.negative_cases.length, 12);
+
+  const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_negative_001");
+  const prepared = await publishGapAndDecision(state);
+  const validator = await createAdaptationPolicyValidator(repositoryRoot);
+  assert.equal(validator.validateDocumentBundle(prepared.adaptationBundle).valid, true);
+
+  const cases: readonly {
+    readonly id: string;
+    readonly mutate: (bundle: DocumentBundle) => void;
+    readonly expectedCode: string;
+  }[] = [
+    {
+      id: "stale_base",
+      mutate: (bundle) => {
+        effectiveDocument(bundle, prepared.decision.path).based_on_plan_revision = 2;
+        refreshEnvelope(bundle, prepared.decision.path);
+      },
+      expectedCode: "assessment_adaptation.decision_binding_mismatch",
+    },
+    {
+      id: "illegal_action",
+      mutate: (bundle) => {
+        effectiveDocument(bundle, prepared.decision.path).action = "retry_unit";
+        refreshEnvelope(bundle, prepared.decision.path);
+      },
+      expectedCode: "schema.enum",
+    },
+    {
+      id: "illegal_target",
+      mutate: (bundle) => {
+        const decision = effectiveDocument(bundle, prepared.decision.path);
+        (decision.target_unit as Record<string, unknown>).unit_type = "acquisition";
+        refreshEnvelope(bundle, prepared.decision.path);
+      },
+      expectedCode: "assessment_adaptation.add_unit_invalid",
+    },
+    {
+      id: "wrong_run",
+      mutate: (bundle) => {
+        effectiveDocument(bundle, prepared.decision.path).run_id = "run_foreign_g1_3";
+        refreshEnvelope(bundle, prepared.decision.path);
+      },
+      expectedCode: "reference.envelope_run_mismatch",
+    },
+    {
+      id: "wrong_subject",
+      mutate: (bundle) => {
+        effectiveDocument(bundle, prepared.decision.path).subject_ref = "scope-frame.json";
+        refreshEnvelope(bundle, prepared.decision.path);
+      },
+      expectedCode: "reference.type_mismatch",
+    },
+    {
+      id: "wrong_scope",
+      mutate: (bundle) => {
+        effectiveDocument(bundle, prepared.decision.path).scope_frame_hash =
+          `sha256:${"0".repeat(64)}`;
+        refreshEnvelope(bundle, prepared.decision.path);
+      },
+      expectedCode: "assessment_adaptation.decision_binding_mismatch",
+    },
+    {
+      id: "wrong_coverage_key",
+      mutate: (bundle) => {
+        effectiveDocument(bundle, prepared.decision.path).coverage_key = `sha256:${"1".repeat(64)}`;
+        refreshEnvelope(bundle, prepared.decision.path);
+      },
+      expectedCode: "assessment_adaptation.decision_binding_mismatch",
+    },
+    {
+      id: "forged_observed_artifact_hash",
+      mutate: (bundle) => {
+        const snapshot = effectiveDocument(bundle, prepared.gapPath);
+        const observation = (snapshot.observed_artifacts as Record<string, unknown>[])[0];
+        assert.ok(observation);
+        observation.content_hash = `sha256:${"2".repeat(64)}`;
+        refreshEnvelope(bundle, prepared.gapPath);
+      },
+      expectedCode: "assessment_adaptation.observed_artifact_mismatch",
+    },
+  ];
+  for (const fixture of cases) {
+    const changed = clone(prepared.adaptationBundle);
+    fixture.mutate(changed);
+    const result = validator.validateDocumentBundle(changed);
+    assert.equal(result.valid, false, `${fixture.id} unexpectedly passed`);
+    const codes = [
+      ...result.planValidation.planningContract.documentBundle.documents.flatMap((entry) =>
+        entry.errors.map((error) => error.code),
+      ),
+      ...result.planValidation.planningContract.documentBundle.referenceErrors.map(
+        (error) => error.code,
+      ),
+      ...result.adaptationErrors.map((error) => error.code),
+    ];
+    assert.ok(codes.includes(fixture.expectedCode), `${fixture.id}: ${JSON.stringify(codes)}`);
+  }
+
+  const originalDecisionEntry = prepared.adaptationBundle.documents.find(
+    (entry) => entry.path === prepared.decision.path,
+  );
+  assert.ok(originalDecisionEntry);
+  const originalDecisionEnvelope = clone(originalDecisionEntry);
+  const duplicateDecisionPath = "adaptations/decisions/add-buyer-followup-duplicate.json";
+  originalDecisionEnvelope.document.artifact_path = duplicateDecisionPath;
+  (originalDecisionEnvelope.document.document as Record<string, unknown>).adaptation_id =
+    "adapt_add_buyer_followup_duplicate";
+  originalDecisionEnvelope.document.content_hash = canonicalContentHash(
+    originalDecisionEnvelope.document.document,
+  );
+  const decisionEnvelope = {
+    path: duplicateDecisionPath,
+    document: originalDecisionEnvelope.document,
+  };
+  const duplicateDecision: DocumentBundle = {
+    ...clone(prepared.adaptationBundle),
+    documents: [...prepared.adaptationBundle.documents, decisionEnvelope],
+  };
+  const duplicateDecisionResult = validator.validateDocumentBundle(duplicateDecision);
+  assert.equal(duplicateDecisionResult.valid, false);
+  assert.ok(
+    duplicateDecisionResult.adaptationErrors.some(
+      (error) => error.code === "adaptation.coverage_duplicate",
+    ),
+  );
+
+  const candidate = candidateBundle(prepared.adaptationBundle, prepared.decision);
+  const branched = clone(candidate);
+  const assessmentR2 = effectiveDocument(
+    branched,
+    "plans/concept-evidence-assessment-plan.r2.json",
+  );
+  assessmentR2.parent_plan_ref = null;
+  const branchedResult = (
+    await createAssessmentPlanSemanticValidator(repositoryRoot)
+  ).validateDocumentBundle(branched);
+  assert.equal(branchedResult.valid, false);
+  assert.ok(
+    branchedResult.planningContract.documentBundle.documents.some((entry) =>
+      entry.errors.some((error) => error.code === "schema.type"),
+    ),
+  );
+});
+
+test("G1.3 runtime rejects stored drift and supplied operation-key conflict before Plan writes", async (context) => {
+  const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_drift_001");
+  const prepared = await publishGapAndDecision(state);
+  const candidate = candidateBundle(prepared.adaptationBundle, prepared.decision);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+  await assert.rejects(
+    runtime.apply({
+      ...applyInput(state, prepared, candidate),
+      operationKey: `sha256:${"0".repeat(64)}`,
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "operation.key_mismatch",
+  );
+  await assert.rejects(readFile(path.join(state.runRoot, "plans/research-plan.r2.json")));
+
+  const storedGap = JSON.parse(
+    await readFile(path.join(state.runRoot, prepared.gapPath), "utf8"),
+  ) as Record<string, unknown>;
+  const storedGapDocument = storedGap.document as Record<string, unknown>;
+  storedGapDocument.limitations = [
+    ...(storedGapDocument.limitations as string[]),
+    "Injected drift for deterministic rejection.",
+  ];
+  storedGap.content_hash = canonicalContentHash(storedGapDocument);
+  await writeFile(path.join(state.runRoot, prepared.gapPath), `${canonicalJson(storedGap)}\n`);
+  await assert.rejects(
+    runtime.apply(applyInput(state, prepared, candidate)),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "adaptation.stored_content_mismatch",
+  );
+  await assert.rejects(readFile(path.join(state.runRoot, "plans/research-plan.r2.json")));
+});
+
+test("G1.3 concurrent same-operation apply is CAS-safe and idempotent", async (context) => {
+  const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_concurrent_001");
+  const prepared = await publishGapAndDecision(state);
+  const candidate = candidateBundle(prepared.adaptationBundle, prepared.decision);
+  const firstRuntime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+  const secondRuntime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+  const results = await Promise.allSettled([
+    firstRuntime.apply(applyInput(state, prepared, candidate)),
+    secondRuntime.apply(applyInput(state, prepared, candidate)),
+  ]);
+  const fulfilled = results.filter(
+    (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof firstRuntime.apply>>> =>
+      result.status === "fulfilled",
+  );
+  const rejected = results.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  assert.ok(fulfilled.some((result) => result.value.status === "applied"));
+  assert.ok(
+    fulfilled.some((result) => result.value.status === "idempotent_replay") ||
+      rejected.some(
+        (result) =>
+          result.reason instanceof StoreError && result.reason.code === "run.write_locked",
+      ),
+  );
+  assert.equal(
+    (await secondRuntime.apply(applyInput(state, prepared, candidate))).status,
+    "idempotent_replay",
+  );
+  assert.equal((await state.store.load(state.runId)).manifest.plan_revision, 2);
+});
+
+test("G1.3 receipt recovery closes every published crash boundary", async (context) => {
+  for (const [index, boundary] of [
+    "after_intent",
+    "after_control_artifacts",
+    "after_manifest_update",
+    "after_checkpoint_publish",
+  ].entries()) {
+    await context.test(boundary, async (subcontext) => {
+      const state = await prepareG13Run(
+        subcontext,
+        repositoryRoot,
+        `run_g1_3_fault_${String(index + 1)}`,
+      );
+      const prepared = await publishGapAndDecision(state);
+      const candidate = candidateBundle(prepared.adaptationBundle, prepared.decision);
+      const runtime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+      await assert.rejects(
+        runtime.apply(applyInput(state, prepared, candidate, boundary as PlanApplyFaultBoundary)),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+      const reopened = await state.store.load(state.runId);
+      if (boundary === "after_intent" || boundary === "after_control_artifacts") {
+        assert.equal(reopened.manifest.plan_revision, 1);
+      } else {
+        assert.equal(reopened.manifest.plan_revision, 2);
+      }
+      const replay = await runtime.apply(applyInput(state, prepared, candidate));
+      assert.equal(replay.status, "idempotent_replay");
+      assert.equal((await state.store.load(state.runId)).manifest.plan_revision, 2);
+    });
+  }
+});

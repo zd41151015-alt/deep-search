@@ -322,6 +322,17 @@ function validateAssessmentPlan(
   const concept = targetByRef(documentsByPath, plan.document.concept_hypothesis_ref);
   const researchPlan = targetByRef(documentsByPath, plan.document.research_plan_ref);
   const scope = concept ? targetByRef(documentsByPath, concept.document.scope_frame_ref) : null;
+  const assessmentPlanAncestryRefs = new Set<string>();
+  let assessmentCursor: AssessDomainDocument | null = plan;
+  while (
+    assessmentCursor?.schemaVersion === "startup_opportunity.concept_evidence_assessment_plan.v1"
+  ) {
+    if (assessmentPlanAncestryRefs.has(assessmentCursor.path)) {
+      break;
+    }
+    assessmentPlanAncestryRefs.add(assessmentCursor.path);
+    assessmentCursor = targetByRef(documentsByPath, assessmentCursor.document.parent_plan_ref);
+  }
 
   if (
     scope?.schemaVersion === "startup_opportunity.scope_frame.v1" &&
@@ -372,7 +383,7 @@ function validateAssessmentPlan(
         unit.unit_type === dimension.branch_unit_type &&
         unit.required_artifact_schema ===
           "startup_opportunity.concept_evidence_assessment_branch_result.v1" &&
-        strings(unit.input_refs).includes(plan.path) &&
+        strings(unit.input_refs).some((ref) => assessmentPlanAncestryRefs.has(ref)) &&
         strings(unit.input_refs).includes(String(plan.document.concept_hypothesis_ref)),
     );
     if (matchingUnits.length === 0) {

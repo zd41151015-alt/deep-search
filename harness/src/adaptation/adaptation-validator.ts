@@ -2,6 +2,10 @@ import { canonicalJson } from "../artifact-store/canonical.js";
 import type { DocumentBundleReferenceContext } from "../validators/artifact-validator.js";
 import { sortIssues, type ValidationIssue } from "../validators/schema-bundle.js";
 import {
+  type AssessmentAdaptationPolicy,
+  loadAssessmentAdaptationPolicy,
+} from "./assessment-policy.js";
+import {
   documentMap,
   effectiveDocuments,
   fragmentOf,
@@ -13,6 +17,7 @@ import {
   unitEntries,
 } from "./contracts.js";
 import {
+  createAssessmentPlanSemanticValidator,
   createPlanSemanticValidator,
   type PlanSemanticValidator,
   type PlanValidationResult,
@@ -72,12 +77,25 @@ function targetUnitId(decision: Record<string, unknown>): string | null {
 const FOLLOWUP_ACTIONS = new Set(["add_unit", "retry_unit", "supersede_unit"]);
 
 export class AdaptationPolicyValidator {
-  constructor(private readonly plans: PlanSemanticValidator) {}
+  constructor(
+    private readonly plans: PlanSemanticValidator,
+    private readonly assessmentPlans: PlanSemanticValidator,
+    private readonly assessmentPolicy: AssessmentAdaptationPolicy,
+  ) {}
 
   validateDocumentBundle(
     value: unknown,
     referenceContext: DocumentBundleReferenceContext = {},
   ): AdaptationValidationResult {
+    if (
+      effectiveDocuments(value).some(
+        (document) =>
+          document.schemaVersion === "startup_opportunity.adaptation_decision.v3" ||
+          document.schemaVersion === "startup_opportunity.gap_snapshot.v2",
+      )
+    ) {
+      return this.validateAssessmentDocumentBundle(value, referenceContext);
+    }
     const planValidation = this.plans.validateDocumentBundle(value, referenceContext);
     const documents = effectiveDocuments(value);
     const byPath = documentMap(value);
@@ -202,6 +220,224 @@ export class AdaptationPolicyValidator {
               ),
             );
           }
+        }
+      }
+    }
+
+    const adaptationErrors = sortIssues(errors);
+    return {
+      schemaVersion: ADAPTATION_VALIDATION_RESULT_VERSION,
+      valid: planValidation.valid && adaptationErrors.length === 0,
+      planValidation,
+      adaptationRefs: decisions.map((decision) => decision.path),
+      adaptationErrors,
+    };
+  }
+
+  private validateAssessmentDocumentBundle(
+    value: unknown,
+    referenceContext: DocumentBundleReferenceContext,
+  ): AdaptationValidationResult {
+    const planValidation = this.assessmentPlans.validateDocumentBundle(value, referenceContext);
+    const documents = effectiveDocuments(value);
+    const byPath = documentMap(value);
+    const context = leafPlanningContexts(value)[0];
+    const targetBinding = context?.document.target_plan_binding;
+    const plan = isRecord(targetBinding) ? targetByRef(byPath, targetBinding.plan_ref) : null;
+    const manifestBinding = context?.document.manifest_binding;
+    const manifest = isRecord(manifestBinding)
+      ? targetByRef(byPath, manifestBinding.manifest_ref)
+      : null;
+    const decisions = documents
+      .filter((document) => document.schemaVersion === "startup_opportunity.adaptation_decision.v3")
+      .sort((left, right) => left.path.localeCompare(right.path));
+    const snapshots = documents.filter(
+      (document) => document.schemaVersion === "startup_opportunity.gap_snapshot.v2",
+    );
+    const errors: ValidationIssue[] = [];
+    if (decisions.length === 0) {
+      errors.push(
+        issue("adaptation.decision_missing", "", "at least one v3 Adaptation Decision is required"),
+      );
+    }
+
+    const identityContent = new Map<string, string>();
+    const coveredGaps = new Map<string, string>();
+    const unitIds = new Map<string, string>();
+    const outputPaths = new Map<string, string>();
+    for (const decision of decisions) {
+      const identity = `${String(decision.document.adaptation_id)}\0${String(decision.document.based_on_plan_ref)}`;
+      const content = canonicalJson(decision.document);
+      const previousContent = identityContent.get(identity);
+      if (previousContent !== undefined && previousContent !== content) {
+        errors.push(
+          issue(
+            "adaptation.identity_conflict",
+            decision.path,
+            "adaptation identity is reused with different content",
+          ),
+        );
+      }
+      identityContent.set(identity, content);
+
+      const gapRef = Array.isArray(decision.document.trigger_gap_refs)
+        ? decision.document.trigger_gap_refs[0]
+        : undefined;
+      if (typeof gapRef === "string") {
+        const priorDecision = coveredGaps.get(gapRef);
+        if (priorDecision !== undefined) {
+          errors.push(
+            issue(
+              "adaptation.coverage_duplicate",
+              decision.path,
+              "one assessment coverage gap cannot receive multiple dispositions",
+              { gapRef, priorDecisionRef: priorDecision },
+            ),
+          );
+        }
+        coveredGaps.set(gapRef, decision.path);
+      }
+
+      const [snapshotPath = "", gapId] = typeof gapRef === "string" ? gapRef.split("#", 2) : [];
+      const snapshot = byPath.get(snapshotPath);
+      const gap =
+        snapshot?.schemaVersion === "startup_opportunity.gap_snapshot.v2" &&
+        Array.isArray(snapshot.document.gaps)
+          ? snapshot.document.gaps.find(
+              (candidate) => isRecord(candidate) && candidate.gap_id === gapId,
+            )
+          : undefined;
+      if (isRecord(gap)) {
+        const impacts = new Set(
+          Array.isArray(decision.document.expected_decision_impact)
+            ? decision.document.expected_decision_impact
+            : [],
+        );
+        if (
+          !Array.isArray(gap.decision_impact) ||
+          !gap.decision_impact.some((impact) => impacts.has(impact))
+        ) {
+          errors.push(
+            issue(
+              "adaptation.decision_impact_mismatch",
+              `${decision.path}#/expected_decision_impact`,
+              "decision impact does not cover its assessment gap",
+            ),
+          );
+        }
+        const action = String(decision.document.action);
+        const rule = this.assessmentPolicy.add_unit_rules.find(
+          (candidate) =>
+            candidate.gap_type === gap.gap_type && candidate.dimension_id === gap.dimension_id,
+        );
+        if (action === "add_unit" && rule === undefined) {
+          errors.push(
+            issue(
+              "adaptation.action_gap_not_allowed",
+              decision.path,
+              "add_unit is not allowed for this closed assessment gap",
+            ),
+          );
+        }
+        if (
+          action === "stop_followup" &&
+          !this.assessmentPolicy.stop_followup_rules.gap_types.includes(String(gap.gap_type)) &&
+          !(
+            Array.isArray(snapshot?.document.stop_signals) &&
+            snapshot.document.stop_signals.some((signal) =>
+              this.assessmentPolicy.stop_followup_rules.stop_signals.includes(String(signal)),
+            )
+          )
+        ) {
+          errors.push(
+            issue(
+              "adaptation.stop_basis_missing",
+              decision.path,
+              "stop_followup has no policy-authorized assessment stop basis",
+            ),
+          );
+        }
+      }
+
+      const target = isRecord(decision.document.target_unit) ? decision.document.target_unit : null;
+      if (target !== null) {
+        for (const [field, value, index] of [
+          ["unit_id", target.unit_id, unitIds],
+          ["output_path", target.output_path, outputPaths],
+        ] as const) {
+          if (typeof value !== "string") {
+            continue;
+          }
+          const prior = index.get(value);
+          if (prior !== undefined) {
+            errors.push(
+              issue(
+                `adaptation.target_${field}_batch_conflict`,
+                decision.path,
+                `multiple decisions declare the same target ${field}`,
+                { value, priorDecisionRef: prior },
+              ),
+            );
+          }
+          index.set(value, decision.path);
+        }
+        if (
+          plan?.schemaVersion === "startup_opportunity.research_plan.v1" &&
+          (unitById(plan.document, String(target.unit_id)) !== undefined ||
+            unitEntries(plan.document).some(
+              (entry) => entry.unit.output_path === target.output_path,
+            ))
+        ) {
+          errors.push(
+            issue(
+              "adaptation.target_conflict",
+              `${decision.path}#/target_unit`,
+              "assessment follow-up unit id or output path already exists in the current plan",
+            ),
+          );
+        }
+      }
+    }
+
+    if (
+      plan?.schemaVersion === "startup_opportunity.research_plan.v1" &&
+      manifest?.schemaVersion === "startup_opportunity.run_manifest.v1"
+    ) {
+      const followup = plan.document.followup_policy;
+      if (
+        decisions.some((decision) => decision.document.action === "add_unit") &&
+        isRecord(followup) &&
+        typeof followup.max_followup_rounds === "number" &&
+        typeof manifest.document.followup_round === "number" &&
+        manifest.document.followup_round >= followup.max_followup_rounds
+      ) {
+        errors.push(
+          issue(
+            "adaptation.followup_limit_reached",
+            "",
+            "assessment add_unit exceeds the published maximum follow-up rounds",
+          ),
+        );
+      }
+    }
+
+    for (const snapshot of snapshots) {
+      if (snapshot.document.based_on_plan_ref !== plan?.path) {
+        continue;
+      }
+      for (const gap of Array.isArray(snapshot.document.gaps) ? snapshot.document.gaps : []) {
+        if (!isRecord(gap) || typeof gap.gap_id !== "string") {
+          continue;
+        }
+        const ref = `${snapshot.path}#${gap.gap_id}`;
+        if (!coveredGaps.has(ref)) {
+          errors.push(
+            issue(
+              "adaptation.gap_uncovered",
+              ref,
+              "every current assessment Gap requires one explicit closed disposition",
+            ),
+          );
         }
       }
     }
@@ -483,5 +719,9 @@ export class AdaptationPolicyValidator {
 export async function createAdaptationPolicyValidator(
   root = process.cwd(),
 ): Promise<AdaptationPolicyValidator> {
-  return new AdaptationPolicyValidator(await createPlanSemanticValidator(root));
+  return new AdaptationPolicyValidator(
+    await createPlanSemanticValidator(root),
+    await createAssessmentPlanSemanticValidator(root),
+    await loadAssessmentAdaptationPolicy(root),
+  );
 }

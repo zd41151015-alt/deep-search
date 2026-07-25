@@ -153,6 +153,7 @@ const STORE_ENVELOPE_VERSIONS = new Set([
   "startup_opportunity.artifact_envelope.v3",
   "startup_opportunity.artifact_envelope.v4",
   "startup_opportunity.artifact_envelope.v5",
+  "startup_opportunity.artifact_envelope.v6",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -621,6 +622,25 @@ export class RunStore {
         next = this.moveUnit(next, envelope.document.unit_id, "superseded_units");
       }
     }
+    if (
+      !ignoredLate &&
+      envelope.schema_version === "startup_opportunity.artifact_envelope.v6" &&
+      envelope.artifact_type === "startup_opportunity.gap_snapshot.v2"
+    ) {
+      next = { ...next, latest_gap_snapshot_ref: envelope.artifact_path };
+    }
+    if (
+      !ignoredLate &&
+      envelope.schema_version === "startup_opportunity.artifact_envelope.v6" &&
+      envelope.artifact_type === "startup_opportunity.adaptation_decision.v3"
+    ) {
+      next = {
+        ...next,
+        pending_adaptation_refs: [
+          ...new Set([...next.pending_adaptation_refs, envelope.artifact_path]),
+        ].sort(),
+      };
+    }
     this.validateManifest(next);
     return next;
   }
@@ -991,7 +1011,10 @@ export class RunStore {
             ),
           ],
     );
-    if (recoveryBundleVersion === "startup_opportunity.document_bundle.v5") {
+    if (
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v5" ||
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v6"
+    ) {
       for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
         if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
           exactJsonlRecords.set(`evidence/manifest.jsonl#${record.evidence_id}`, record);
@@ -1002,7 +1025,8 @@ export class RunStore {
       {
         schema_version: recoveryBundleVersion,
         documents: recoveryDocuments,
-        ...(recoveryBundleVersion === "startup_opportunity.document_bundle.v5"
+        ...(recoveryBundleVersion === "startup_opportunity.document_bundle.v5" ||
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v6"
           ? { exact_records: [] }
           : {}),
       },

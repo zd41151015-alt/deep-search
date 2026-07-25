@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v6/research-publication-policy-v2.schema.json",
+  "title": "Startup Opportunity Research Publication Policy v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "current_schema_bundle_version",
+    "adapters",
+    "evidence_contract",
+    "traceability_contract",
+    "task_lifecycle_contract",
+    "branch_status_adapter"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.research_publication_policy.v2" },
+    "policy_id": { "const": "startup_opportunity.g1_3_research_publication" },
+    "policy_version": { "const": "2.0.0" },
+    "current_schema_bundle_version": { "const": "5.0.0" },
+    "adapters": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "envelope_version",
+          "document_bundle_version",
+          "receipt_version",
+          "manifest_schema_bundle_version",
+          "checkpoint_preferred",
+          "blocked_artifact_types"
+        ],
+        "properties": {
+          "envelope_version": {
+            "enum": [
+              "startup_opportunity.artifact_envelope.v1",
+              "startup_opportunity.artifact_envelope.v2",
+              "startup_opportunity.artifact_envelope.v3",
+              "startup_opportunity.artifact_envelope.v4",
+              "startup_opportunity.artifact_envelope.v5",
+              "startup_opportunity.artifact_envelope.v6"
+            ]
+          },
+          "document_bundle_version": {
+            "enum": [
+              "startup_opportunity.document_bundle.v1",
+              "startup_opportunity.document_bundle.v2",
+              "startup_opportunity.document_bundle.v3",
+              "startup_opportunity.document_bundle.v4",
+              "startup_opportunity.document_bundle.v5",
+              "startup_opportunity.document_bundle.v6"
+            ]
+          },
+          "receipt_version": {
+            "enum": [
+              "startup_opportunity.artifact_store_operation.v1",
+              "startup_opportunity.artifact_store_operation.v2",
+              "startup_opportunity.artifact_store_operation.v3",
+              "startup_opportunity.artifact_store_operation.v4",
+              "startup_opportunity.artifact_store_operation.v5"
+            ]
+          },
+          "manifest_schema_bundle_version": {
+            "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+          },
+          "checkpoint_preferred": { "type": "boolean" },
+          "blocked_artifact_types": {
+            "type": "array",
+            "items": { "$ref": "../v1/definitions.schema.json#/$defs/schemaVersion" },
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "evidence_contract": { "type": "object" },
+    "traceability_contract": { "type": "object" },
+    "task_lifecycle_contract": { "type": "object" },
+    "branch_status_adapter": { "type": "object" }
+  }
+}

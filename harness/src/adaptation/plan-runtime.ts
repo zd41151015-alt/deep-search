@@ -29,10 +29,16 @@ import { loadPlanRevisionApplyPolicy } from "./apply-policy.js";
 import { documentMap, type EffectiveDocument, effectiveDocuments, isRecord } from "./contracts.js";
 import {
   type AdaptationInputDocument,
+  type AssessmentPlanTransformationResult,
   type PlanTransformationResult,
+  transformAssessmentPlan,
   transformPlan,
 } from "./plan-transformer.js";
-import { createPlanSemanticValidator, type PlanSemanticValidator } from "./plan-validator.js";
+import {
+  createAssessmentPlanSemanticValidator,
+  createPlanSemanticValidator,
+  type PlanSemanticValidator,
+} from "./plan-validator.js";
 
 export const PLAN_APPLY_RESULT_VERSION = "startup_opportunity.plan_apply_result.v1" as const;
 
@@ -63,12 +69,15 @@ export interface PlanApplyResult {
   readonly revisionCreated: boolean;
   readonly currentPlanRef: string;
   readonly planRevision: number;
+  readonly currentAssessmentPlanRef: string | null;
   readonly checkpointRef: string;
   readonly adaptationRefs: readonly string[];
 }
 
 interface PlanOperationReceipt {
-  readonly schema_version: "startup_opportunity.plan_revision_operation.v1";
+  readonly schema_version:
+    | "startup_opportunity.plan_revision_operation.v1"
+    | "startup_opportunity.plan_revision_operation.v2";
   readonly operation_key: string;
   readonly run_id: string;
   readonly base_plan_ref: string;
@@ -78,6 +87,10 @@ interface PlanOperationReceipt {
   readonly revision_created: boolean;
   readonly result_plan_ref: string;
   readonly result_plan_hash: string | null;
+  readonly base_assessment_plan_ref?: string;
+  readonly base_assessment_plan_hash?: string;
+  readonly result_assessment_plan_ref?: string;
+  readonly result_assessment_plan_hash?: string | null;
   readonly control_envelopes: readonly FormalArtifactEnvelope[];
   readonly checkpoint_envelope: FormalArtifactEnvelope;
   readonly manifest: RunManifest;
@@ -202,25 +215,39 @@ function envelope(
 }
 
 function validateReceipt(value: unknown, filename: string, runId: string): PlanOperationReceipt {
+  const commonKeys = [
+    "schema_version",
+    "operation_key",
+    "run_id",
+    "base_plan_ref",
+    "base_plan_hash",
+    "adaptation_refs",
+    "adaptation_hashes",
+    "revision_created",
+    "result_plan_ref",
+    "result_plan_hash",
+    "control_envelopes",
+    "checkpoint_envelope",
+    "manifest",
+    "events",
+  ];
+  const assessmentKeys = [
+    "base_assessment_plan_ref",
+    "base_assessment_plan_hash",
+    "result_assessment_plan_ref",
+    "result_assessment_plan_hash",
+  ];
+  const receiptVersion = isRecord(value) ? value.schema_version : null;
   if (
     !isRecord(value) ||
-    !hasExactlyKeys(value, [
-      "schema_version",
-      "operation_key",
-      "run_id",
-      "base_plan_ref",
-      "base_plan_hash",
-      "adaptation_refs",
-      "adaptation_hashes",
-      "revision_created",
-      "result_plan_ref",
-      "result_plan_hash",
-      "control_envelopes",
-      "checkpoint_envelope",
-      "manifest",
-      "events",
-    ]) ||
-    value.schema_version !== "startup_opportunity.plan_revision_operation.v1" ||
+    (receiptVersion !== "startup_opportunity.plan_revision_operation.v1" &&
+      receiptVersion !== "startup_opportunity.plan_revision_operation.v2") ||
+    !hasExactlyKeys(
+      value,
+      receiptVersion === "startup_opportunity.plan_revision_operation.v2"
+        ? [...commonKeys, ...assessmentKeys]
+        : commonKeys,
+    ) ||
     !isSha256(value.operation_key) ||
     value.run_id !== runId ||
     typeof value.base_plan_ref !== "string" ||
@@ -260,7 +287,16 @@ function validateReceipt(value: unknown, filename: string, runId: string): PlanO
     !manifestSetsAreDisjoint(receipt.manifest) ||
     (receipt.revision_created
       ? receipt.result_plan_ref === receipt.base_plan_ref || !isSha256(receipt.result_plan_hash)
-      : receipt.result_plan_ref !== receipt.base_plan_ref || receipt.result_plan_hash !== null)
+      : receipt.result_plan_ref !== receipt.base_plan_ref || receipt.result_plan_hash !== null) ||
+    (receipt.schema_version === "startup_opportunity.plan_revision_operation.v2" &&
+      (typeof receipt.base_assessment_plan_ref !== "string" ||
+        !isSha256(receipt.base_assessment_plan_hash) ||
+        typeof receipt.result_assessment_plan_ref !== "string" ||
+        (receipt.revision_created
+          ? receipt.result_assessment_plan_ref === receipt.base_assessment_plan_ref ||
+            !isSha256(receipt.result_assessment_plan_hash)
+          : receipt.result_assessment_plan_ref !== receipt.base_assessment_plan_ref ||
+            receipt.result_assessment_plan_hash !== null)))
   ) {
     throw new StoreError(
       "recovery.invalid_plan_operation",
@@ -283,6 +319,13 @@ function validateReceiptDocuments(
   const resultPlanEnvelope = receipt.control_envelopes.find(
     (item) => item.artifact_path === receipt.result_plan_ref,
   );
+  const resultAssessmentPlanEnvelope = receipt.control_envelopes.find(
+    (item) => item.artifact_path === receipt.result_assessment_plan_ref,
+  );
+  const expectedEnvelopeVersion =
+    receipt.schema_version === "startup_opportunity.plan_revision_operation.v2"
+      ? "startup_opportunity.artifact_envelope.v6"
+      : "startup_opportunity.artifact_envelope.v3";
   const eventsValid = receipt.events.every((record) => {
     const result = validator.validateDocument(record, "events.jsonl");
     return result.valid && record.run_id === receipt.run_id;
@@ -307,7 +350,7 @@ function validateReceiptDocuments(
     !manifestValidation.valid ||
     !eventsValid ||
     new Set(controlPaths).size !== controlPaths.length ||
-    checkpoint.schema_version !== "startup_opportunity.artifact_envelope.v3" ||
+    checkpoint.schema_version !== expectedEnvelopeVersion ||
     checkpoint.artifact_type !== "startup_opportunity.checkpoint.v1" ||
     checkpoint.artifact_path !== receipt.manifest.checkpoint_ref ||
     checkpoint.created_at !== receipt.manifest.updated_at ||
@@ -328,7 +371,11 @@ function validateReceiptDocuments(
       canonicalJson(receipt.manifest.pending_adaptation_refs) ||
     (receipt.revision_created
       ? resultPlanEnvelope?.artifact_type !== "startup_opportunity.research_plan.v1" ||
-        resultPlanEnvelope.content_hash !== receipt.result_plan_hash
+        resultPlanEnvelope.content_hash !== receipt.result_plan_hash ||
+        (receipt.schema_version === "startup_opportunity.plan_revision_operation.v2" &&
+          (resultAssessmentPlanEnvelope?.artifact_type !==
+            "startup_opportunity.concept_evidence_assessment_plan.v1" ||
+            resultAssessmentPlanEnvelope.content_hash !== receipt.result_assessment_plan_hash))
       : receipt.control_envelopes.length !== 0)
   ) {
     throw new StoreError(
@@ -348,6 +395,15 @@ async function validateReceiptSources(
     const basePlan = await storedEffectiveDocument(runRoot, receipt.base_plan_ref);
     if (canonicalContentHash(basePlan) !== receipt.base_plan_hash) {
       throw new Error("base hash mismatch");
+    }
+    if (receipt.schema_version === "startup_opportunity.plan_revision_operation.v2") {
+      const baseAssessmentPlan = await storedEffectiveDocument(
+        runRoot,
+        receipt.base_assessment_plan_ref as string,
+      );
+      if (canonicalContentHash(baseAssessmentPlan) !== receipt.base_assessment_plan_hash) {
+        throw new Error("base assessment plan hash mismatch");
+      }
     }
     for (const [index, adaptationRef] of receipt.adaptation_refs.entries()) {
       const decision = await storedEffectiveDocument(runRoot, adaptationRef);
@@ -370,7 +426,44 @@ async function validateReceiptSources(
           if (typeof gapRef !== "string") {
             continue;
           }
-          const gap = await storedEffectiveDocument(runRoot, gapRef.split("#", 1)[0] ?? "");
+          const [gapPath = "", gapId] = gapRef.split("#", 2);
+          const gap = await storedEffectiveDocument(runRoot, gapPath);
+          if (receipt.schema_version === "startup_opportunity.plan_revision_operation.v2") {
+            const gapEntry = Array.isArray(gap.gaps)
+              ? gap.gaps.find((candidate) => isRecord(candidate) && candidate.gap_id === gapId)
+              : undefined;
+            if (
+              gap.schema_version !== "startup_opportunity.gap_snapshot.v2" ||
+              !isRecord(gapEntry) ||
+              gap.run_id !== receipt.run_id ||
+              gap.based_on_plan_ref !== receipt.base_plan_ref ||
+              gap.based_on_plan_hash !== receipt.base_plan_hash ||
+              gap.assessment_plan_ref !== receipt.base_assessment_plan_ref ||
+              gap.assessment_plan_hash !== receipt.base_assessment_plan_hash ||
+              decision.coverage_key !== gap.coverage_key ||
+              decision.coverage_key !== gapEntry.coverage_key
+            ) {
+              throw new Error("assessment Gap Snapshot binding mismatch");
+            }
+            for (const observation of Array.isArray(gap.observed_artifacts)
+              ? gap.observed_artifacts
+              : []) {
+              if (!isRecord(observation)) {
+                throw new Error("assessment observation invalid");
+              }
+              const observed = await storedEffectiveDocument(
+                runRoot,
+                String(observation.artifact_ref),
+              );
+              const task = await storedEffectiveDocument(runRoot, String(observation.task_ref));
+              if (
+                canonicalContentHash(observed) !== observation.content_hash ||
+                canonicalContentHash(task) !== observation.task_hash
+              ) {
+                throw new Error("assessment observed Artifact hash mismatch");
+              }
+            }
+          }
           if (typeof gap.trigger_event_ref === "string") {
             await logs.readExactRecord(
               runRoot,
@@ -447,6 +540,9 @@ async function storedEffectiveDocument(
       "startup_opportunity.artifact_envelope.v1",
       "startup_opportunity.artifact_envelope.v2",
       "startup_opportunity.artifact_envelope.v3",
+      "startup_opportunity.artifact_envelope.v4",
+      "startup_opportunity.artifact_envelope.v5",
+      "startup_opportunity.artifact_envelope.v6",
     ].includes(String(value.schema_version))
     ? value.document
     : value;
@@ -457,7 +553,10 @@ function isFormalArtifactEnvelope(value: unknown): value is FormalArtifactEnvelo
     isRecord(value) &&
     (value.schema_version === "startup_opportunity.artifact_envelope.v1" ||
       value.schema_version === "startup_opportunity.artifact_envelope.v2" ||
-      value.schema_version === "startup_opportunity.artifact_envelope.v3") &&
+      value.schema_version === "startup_opportunity.artifact_envelope.v3" ||
+      value.schema_version === "startup_opportunity.artifact_envelope.v4" ||
+      value.schema_version === "startup_opportunity.artifact_envelope.v5" ||
+      value.schema_version === "startup_opportunity.artifact_envelope.v6") &&
     typeof value.artifact_type === "string" &&
     typeof value.artifact_path === "string" &&
     typeof value.run_id === "string" &&
@@ -496,7 +595,8 @@ async function assertAdaptationBundleMatchesStoredArtifacts(
       );
     }
     if (
-      supplied.schemaVersion === "startup_opportunity.gap_snapshot.v1" &&
+      (supplied.schemaVersion === "startup_opportunity.gap_snapshot.v1" ||
+        supplied.schemaVersion === "startup_opportunity.gap_snapshot.v2") &&
       typeof supplied.document.trigger_event_ref === "string"
     ) {
       exactJsonlRecords.set(
@@ -692,12 +792,23 @@ async function completeOperation(
       "current plan matches the result but manifest content differs from the operation receipt",
     );
   }
-  for (const controlEnvelope of receipt.control_envelopes) {
+  if (receipt.control_envelopes.length > 1) {
+    if (
+      (
+        await artifacts.publishBundleLocked(runRoot, {
+          runId: receipt.run_id,
+          envelopes: receipt.control_envelopes,
+        })
+      ).status === "published"
+    ) {
+      changed = true;
+    }
+  } else if (receipt.control_envelopes[0] !== undefined) {
     if (
       (
         await artifacts.publishLocked(runRoot, {
           runId: receipt.run_id,
-          envelope: controlEnvelope,
+          envelope: receipt.control_envelopes[0],
         })
       ).status === "published"
     ) {
@@ -773,6 +884,7 @@ export class PlanRevisionRuntime {
     private readonly runsRoot: string,
     private readonly validator: ArtifactValidator,
     private readonly plans: PlanSemanticValidator,
+    private readonly assessmentPlans: PlanSemanticValidator,
     private readonly adaptations: AdaptationPolicyValidator,
   ) {
     this.artifacts = new ArtifactStore(runsRoot, validator);
@@ -797,15 +909,29 @@ export class PlanRevisionRuntime {
     const selectedRefs = uniqueSorted(input.adaptationRefs);
     const selectedDecisions: AdaptationInputDocument[] = selectedRefs.map((adaptationRef) => {
       const decision = bundleDocuments.find((document) => document.path === adaptationRef);
-      if (decision?.schemaVersion !== "startup_opportunity.adaptation_decision.v2") {
+      if (
+        decision?.schemaVersion !== "startup_opportunity.adaptation_decision.v2" &&
+        decision?.schemaVersion !== "startup_opportunity.adaptation_decision.v3"
+      ) {
         throw new StoreError(
           "adaptation.ref_missing",
-          "selected Adaptation Decision is absent or not v2",
+          "selected Adaptation Decision is absent or unsupported",
           { adaptationRef },
         );
       }
       return { path: adaptationRef, document: decision.document };
     });
+    const decisionVersions = uniqueSorted(
+      selectedDecisions.map((decision) => String(decision.document.schema_version)),
+    );
+    if (decisionVersions.length !== 1) {
+      throw new StoreError(
+        "adaptation.version_conflict",
+        "one apply operation cannot mix Adaptation Decision contract versions",
+      );
+    }
+    const assessmentAdaptation =
+      decisionVersions[0] === "startup_opportunity.adaptation_decision.v3";
     const baseRefs = uniqueSorted(
       selectedDecisions.map((decision) => String(decision.document.based_on_plan_ref)),
     );
@@ -819,6 +945,34 @@ export class PlanRevisionRuntime {
     const suppliedPlan = bundleDocuments.find((document) => document.path === basePlanRef);
     if (suppliedPlan?.schemaVersion !== "startup_opportunity.research_plan.v1") {
       throw new StoreError("apply.base_plan_missing", "adaptation bundle is missing its base plan");
+    }
+    const assessmentPlanRefs = uniqueSorted(
+      selectedDecisions.flatMap((decision) =>
+        typeof decision.document.assessment_plan_ref === "string"
+          ? [decision.document.assessment_plan_ref]
+          : [],
+      ),
+    );
+    if (assessmentAdaptation && assessmentPlanRefs.length !== 1) {
+      throw new StoreError(
+        "adaptation.assessment_base_conflict",
+        "v3 decisions must bind one exact current assessment plan",
+      );
+    }
+    const baseAssessmentPlanRef = assessmentAdaptation ? (assessmentPlanRefs[0] as string) : null;
+    const suppliedAssessmentPlan =
+      baseAssessmentPlanRef === null
+        ? null
+        : bundleDocuments.find((document) => document.path === baseAssessmentPlanRef);
+    if (
+      assessmentAdaptation &&
+      suppliedAssessmentPlan?.schemaVersion !==
+        "startup_opportunity.concept_evidence_assessment_plan.v1"
+    ) {
+      throw new StoreError(
+        "apply.base_assessment_plan_missing",
+        "adaptation bundle is missing its exact base assessment plan",
+      );
     }
     const expectedOperationKey = operationKey("apply_plan_revision", {
       parent_plan_hash: canonicalContentHash(suppliedPlan.document),
@@ -856,6 +1010,11 @@ export class PlanRevisionRuntime {
       if (
         existingReceipt.base_plan_ref !== basePlanRef ||
         existingReceipt.base_plan_hash !== canonicalContentHash(suppliedPlan.document) ||
+        (assessmentAdaptation &&
+          (existingReceipt.schema_version !== "startup_opportunity.plan_revision_operation.v2" ||
+            existingReceipt.base_assessment_plan_ref !== baseAssessmentPlanRef ||
+            existingReceipt.base_assessment_plan_hash !==
+              canonicalContentHash(suppliedAssessmentPlan?.document ?? {}))) ||
         canonicalJson(existingReceipt.adaptation_refs) !== canonicalJson(selectedRefs) ||
         canonicalJson(existingReceipt.adaptation_hashes) !== canonicalJson(expectedHashes)
       ) {
@@ -944,6 +1103,10 @@ export class PlanRevisionRuntime {
     }
 
     const basePlan = await storedEffectiveDocument(runRoot, manifest.current_plan_ref);
+    const baseAssessmentPlan =
+      baseAssessmentPlanRef === null
+        ? null
+        : await storedEffectiveDocument(runRoot, baseAssessmentPlanRef);
     const createdTime = Date.parse(input.createdAt);
     const checkpointTime = Date.parse(input.checkpointCreatedAt);
     if (
@@ -970,7 +1133,11 @@ export class PlanRevisionRuntime {
       suppliedManifest.document.run_id !== manifest.run_id ||
       suppliedManifest.document.current_plan_ref !== manifest.current_plan_ref ||
       suppliedManifest.document.plan_revision !== manifest.plan_revision ||
-      canonicalJson(suppliedPlan.document) !== canonicalJson(basePlan)
+      canonicalJson(suppliedPlan.document) !== canonicalJson(basePlan) ||
+      (assessmentAdaptation &&
+        (suppliedAssessmentPlan == null ||
+          baseAssessmentPlan === null ||
+          canonicalJson(suppliedAssessmentPlan.document) !== canonicalJson(baseAssessmentPlan)))
     ) {
       throw new StoreError(
         "apply.stale_input_bundle",
@@ -1034,8 +1201,29 @@ export class PlanRevisionRuntime {
         "Plan transformer operation identity drifted",
       );
     }
+    const transformedAssessment: AssessmentPlanTransformationResult | null = assessmentAdaptation
+      ? transformAssessmentPlan(
+          baseAssessmentPlanRef as string,
+          baseAssessmentPlan as Record<string, unknown>,
+          transformed.planPath,
+          selectedDecisions,
+          input.createdAt,
+        )
+      : null;
+    if (
+      transformedAssessment !== null &&
+      transformedAssessment.revisionCreated !== transformed.revisionCreated
+    ) {
+      throw new StoreError(
+        "operation.assessment_revision_drift",
+        "Research Plan and assessment plan revision decisions diverged",
+      );
+    }
 
     const controlEnvelopes: FormalArtifactEnvelope[] = [];
+    const controlEnvelopeVersion: FormalArtifactEnvelope["schema_version"] = assessmentAdaptation
+      ? "startup_opportunity.artifact_envelope.v6"
+      : "startup_opportunity.artifact_envelope.v3";
     if (transformed.revisionCreated) {
       if (input.candidateBundle === undefined || transformed.plan === null) {
         throw new StoreError(
@@ -1043,10 +1231,9 @@ export class PlanRevisionRuntime {
           "revision actions require an explicit candidate Planning Context bundle",
         );
       }
-      const candidateValidation = this.plans.validateDocumentBundle(
-        input.candidateBundle,
-        referenceContext,
-      );
+      const candidateValidation = (
+        assessmentAdaptation ? this.assessmentPlans : this.plans
+      ).validateDocumentBundle(input.candidateBundle, referenceContext);
       if (!candidateValidation.valid) {
         throw new StoreError(
           "apply.candidate_plan_invalid",
@@ -1058,6 +1245,10 @@ export class PlanRevisionRuntime {
       }
       const candidateDocuments = documentMap(input.candidateBundle);
       const candidatePlan = candidateDocuments.get(transformed.planPath);
+      const candidateAssessmentPlan =
+        transformedAssessment?.revisionCreated === true
+          ? candidateDocuments.get(transformedAssessment.planPath)
+          : null;
       const candidateContexts = [...candidateDocuments.values()].filter(
         (document) =>
           document.schemaVersion === "startup_opportunity.planning_context.v2" &&
@@ -1067,6 +1258,11 @@ export class PlanRevisionRuntime {
       if (
         candidatePlan?.schemaVersion !== "startup_opportunity.research_plan.v1" ||
         canonicalJson(candidatePlan.document) !== canonicalJson(transformed.plan) ||
+        (transformedAssessment?.revisionCreated === true &&
+          (candidateAssessmentPlan?.schemaVersion !==
+            "startup_opportunity.concept_evidence_assessment_plan.v1" ||
+            canonicalJson(candidateAssessmentPlan.document) !==
+              canonicalJson(transformedAssessment.plan))) ||
         candidateContexts.length !== 1 ||
         candidateContexts[0]?.document.validation_stage !== "candidate_revision"
       ) {
@@ -1078,7 +1274,7 @@ export class PlanRevisionRuntime {
       const context = candidateContexts[0];
       const aiCoverage = context.document.ai_mandatory_coverage;
       const basis = isRecord(aiCoverage) ? aiCoverage.basis : null;
-      if (isRecord(basis) && typeof basis.source_ref === "string") {
+      if (!assessmentAdaptation && isRecord(basis) && typeof basis.source_ref === "string") {
         const source = candidateDocuments.get(basis.source_ref);
         if (source?.schemaVersion !== "startup_opportunity.ai_trigger_source_attestation.v1") {
           throw new StoreError(
@@ -1094,6 +1290,20 @@ export class PlanRevisionRuntime {
             "main_agent",
             [],
             String(source.document.created_at),
+            controlEnvelopeVersion,
+          ),
+        );
+      }
+      if (transformedAssessment?.revisionCreated === true && transformedAssessment.plan !== null) {
+        controlEnvelopes.push(
+          envelope(
+            input.runId,
+            transformedAssessment.planPath,
+            transformedAssessment.plan,
+            "harness",
+            [baseAssessmentPlanRef as string, transformed.planPath, ...transformed.adaptationRefs],
+            input.createdAt,
+            controlEnvelopeVersion,
           ),
         );
       }
@@ -1105,6 +1315,7 @@ export class PlanRevisionRuntime {
           "harness",
           [manifest.current_plan_ref, ...transformed.adaptationRefs],
           input.createdAt,
+          controlEnvelopeVersion,
         ),
         envelope(
           input.runId,
@@ -1114,9 +1325,13 @@ export class PlanRevisionRuntime {
           [
             "manifest.json",
             transformed.planPath,
+            ...(transformedAssessment?.revisionCreated === true
+              ? [transformedAssessment.planPath]
+              : []),
             ...(isRecord(basis) && typeof basis.source_ref === "string" ? [basis.source_ref] : []),
           ],
           String(context.document.created_at),
+          controlEnvelopeVersion,
         ),
       );
     } else if (input.candidateBundle !== undefined) {
@@ -1133,8 +1348,11 @@ export class PlanRevisionRuntime {
     const finalManifest: RunManifest = {
       ...transformed.manifest,
       updated_at: input.checkpointCreatedAt,
-      schema_bundle_version:
-        controlEnvelopes.length > 0 ? "2.2.0" : transformed.manifest.schema_bundle_version,
+      schema_bundle_version: assessmentAdaptation
+        ? "5.0.0"
+        : controlEnvelopes.length > 0
+          ? "2.2.0"
+          : transformed.manifest.schema_bundle_version,
       artifact_refs: uniqueSorted([...transformed.manifest.artifact_refs, ...controlPaths]),
       checkpoint_ref: checkpointRef,
     };
@@ -1174,10 +1392,12 @@ export class PlanRevisionRuntime {
       "harness",
       checkpointDocument.input_refs as readonly string[],
       input.checkpointCreatedAt,
-      "startup_opportunity.artifact_envelope.v3",
+      controlEnvelopeVersion,
     );
     const receipt: PlanOperationReceipt = {
-      schema_version: "startup_opportunity.plan_revision_operation.v1",
+      schema_version: assessmentAdaptation
+        ? "startup_opportunity.plan_revision_operation.v2"
+        : "startup_opportunity.plan_revision_operation.v1",
       operation_key: transformed.operationKey,
       run_id: input.runId,
       base_plan_ref: manifest.current_plan_ref,
@@ -1189,6 +1409,19 @@ export class PlanRevisionRuntime {
       revision_created: transformed.revisionCreated,
       result_plan_ref: transformed.planPath,
       result_plan_hash: transformed.plan === null ? null : canonicalContentHash(transformed.plan),
+      ...(assessmentAdaptation && transformedAssessment !== null
+        ? {
+            base_assessment_plan_ref: baseAssessmentPlanRef as string,
+            base_assessment_plan_hash: canonicalContentHash(
+              baseAssessmentPlan as Record<string, unknown>,
+            ),
+            result_assessment_plan_ref: transformedAssessment.planPath,
+            result_assessment_plan_hash:
+              transformedAssessment.plan === null
+                ? null
+                : canonicalContentHash(transformedAssessment.plan),
+          }
+        : {}),
       control_envelopes: controlEnvelopes,
       checkpoint_envelope: checkpointEnvelope,
       manifest: finalManifest,
@@ -1238,6 +1471,7 @@ export class PlanRevisionRuntime {
       revisionCreated: receipt.revision_created,
       currentPlanRef: receipt.result_plan_ref,
       planRevision: receipt.manifest.plan_revision,
+      currentAssessmentPlanRef: receipt.result_assessment_plan_ref ?? null,
       checkpointRef: receipt.checkpoint_envelope.artifact_path,
       adaptationRefs: receipt.adaptation_refs,
     };
@@ -1296,6 +1530,7 @@ export async function createPlanRevisionRuntime(
     runsRoot,
     validator,
     await createPlanSemanticValidator(root),
+    await createAssessmentPlanSemanticValidator(root),
     await createAdaptationPolicyValidator(root),
   );
 }
