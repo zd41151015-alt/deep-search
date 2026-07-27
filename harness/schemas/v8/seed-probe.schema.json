@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v8/seed-probe.schema.json",
+  "title": "Startup Opportunity Seed Probe v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "seed_probe_id",
+    "revision",
+    "parent_seed_probe_ref",
+    "run_id",
+    "mode",
+    "discovery_profile",
+    "market",
+    "language",
+    "scope_frame_ref",
+    "research_plan_ref",
+    "seed_families",
+    "initial_questions",
+    "unit_contracts",
+    "seed_policy",
+    "input_artifact_hashes",
+    "policy_binding",
+    "evidence_refs",
+    "audit_refs",
+    "source_boundary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.seed_probe.v1" },
+    "seed_probe_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "revision": { "const": 1 },
+    "parent_seed_probe_ref": { "type": "null" },
+    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "mode": { "const": "opportunity_discovery" },
+    "discovery_profile": { "$ref": "definitions.schema.json#/$defs/discoveryProfile" },
+    "market": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "language": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "scope_frame_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "research_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
+    "seed_families": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "direction",
+        "audience",
+        "scenario",
+        "problem",
+        "keyword",
+        "product",
+        "source",
+        "capability",
+        "model_ecosystem"
+      ],
+      "properties": {
+        "direction": { "$ref": "definitions.schema.json#/$defs/seedArray" },
+        "audience": { "$ref": "definitions.schema.json#/$defs/seedArray" },
+        "scenario": { "$ref": "definitions.schema.json#/$defs/seedArray" },
+        "problem": { "$ref": "definitions.schema.json#/$defs/seedArray" },
+        "keyword": { "$ref": "definitions.schema.json#/$defs/seedArray" },
+        "product": { "$ref": "definitions.schema.json#/$defs/seedArray" },
+        "source": { "$ref": "definitions.schema.json#/$defs/seedArray" },
+        "capability": { "$ref": "definitions.schema.json#/$defs/seedArray" },
+        "model_ecosystem": { "$ref": "definitions.schema.json#/$defs/seedArray" }
+      }
+    },
+    "initial_questions": {
+      "type": "array",
+      "minItems": 4,
+      "items": { "$ref": "definitions.schema.json#/$defs/researchQuestion" }
+    },
+    "unit_contracts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seed_independent_demand_task", "counterfactual"],
+      "properties": {
+        "seed_independent_demand_task": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "unit_ref",
+            "unit_id",
+            "input_refs",
+            "reads_scope_only",
+            "consumes_product_seeds",
+            "consumes_capability_seeds"
+          ],
+          "properties": {
+            "unit_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+            "unit_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+            "input_refs": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "items": { "$ref": "definitions.schema.json#/$defs/artifactRef" }
+            },
+            "reads_scope_only": { "const": true },
+            "consumes_product_seeds": { "const": false },
+            "consumes_capability_seeds": { "const": false }
+          }
+        },
+        "counterfactual": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "unit_ref",
+            "unit_id",
+            "counterfactual_dimensions",
+            "independent_from_seed_similarity"
+          ],
+          "properties": {
+            "unit_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+            "unit_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+            "counterfactual_dimensions": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "enum": ["user", "job", "scene", "alternative"] }
+            },
+            "independent_from_seed_similarity": { "const": true }
+          }
+        }
+      }
+    },
+    "seed_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expands_search_entry_only",
+        "may_support_startup_opportunity",
+        "may_support_demand_thesis",
+        "may_affect_scoring",
+        "may_claim_success_probability"
+      ],
+      "properties": {
+        "expands_search_entry_only": { "const": true },
+        "may_support_startup_opportunity": { "const": false },
+        "may_support_demand_thesis": { "const": false },
+        "may_affect_scoring": { "const": false },
+        "may_claim_success_probability": { "const": false }
+      }
+    },
+    "input_artifact_hashes": { "$ref": "definitions.schema.json#/$defs/inputHashes" },
+    "policy_binding": { "$ref": "definitions.schema.json#/$defs/policyBinding" },
+    "evidence_refs": { "type": "array", "maxItems": 0 },
+    "audit_refs": { "type": "array", "maxItems": 0 },
+    "source_boundary": { "$ref": "definitions.schema.json#/$defs/sourceBoundary" },
+    "limitations": {
+      "allOf": [
+        { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        { "type": "array", "minItems": 1 }
+      ]
+    }
+  }
+}

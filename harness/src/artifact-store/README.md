@@ -10,6 +10,8 @@ G1.3 的 `research-publication.v2.json` 增加 envelope v6/document bundle v6/re
 
 G1.4 的 `research-publication.v3.json` 增加 envelope v7/document bundle v7/receipt v6 adapter。Audit/Review/Assessment/Traceability/report sidecar 继续使用同一 immutable envelope/no-replace model；三个 materialized report path 使用独立 receipt，并只从 validated sidecar 确定性恢复。formal 或 materialized drift 均拒绝覆盖。
 
+G2.1 的 `research-publication.v4.json` 增加 envelope v8/document bundle v8/receipt v7 adapter。首次 Seed/Opportunity/Solution map publication 必须在同一个显式 bundle 中通过 closed cross-map validation；每个 path 仍独立 immutable/no-replace，receipt/reopen 验证 exact envelope、canonical hash 和 same-Run identity。G2.2+ artifact types 继续由 adapter fail closed。
+
 `publish-artifact` 接收一个显式 envelope，或至少两个 envelope 的有界 bundle。bundle 先对 pending 与已发布 documents 整体校验，用于处理 Research Plan/Assessment Plan 互引；随后每个 path 仍使用独立 immutable receipt 和 no-replace publication。Harness 不分派 lane、不调用 LLM、不访问网络，也不把 chat/completion message 作为 Artifact。
 
 The envelope `content_hash` basis is the SHA-256 of UTF-8 canonical `document` JSON: object keys are recursively sorted by code unit, arrays keep order, and only JSON values are accepted. The hash excludes envelope metadata, including the `content_hash` field itself. No script response or chat message is accepted as a stored artifact.

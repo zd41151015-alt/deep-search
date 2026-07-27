@@ -18,6 +18,15 @@ import {
   type AssessmentReportingPolicy,
   loadAssessmentReportingPolicy,
 } from "./assessment-reporting-policy.js";
+import {
+  type LoadedDiscoveryMapsPolicy,
+  loadDiscoveryMapsPolicy,
+} from "./discovery-maps-policy.js";
+import {
+  type DiscoveryMapDocument,
+  isDiscoveryMapSchemaVersion,
+  validateDiscoveryMapsContract,
+} from "./discovery-maps-validator.js";
 import { type G14Document, isG14SchemaVersion, validateG14Contract } from "./g1.4-validator.js";
 import { coverageKey, planningRunStateHash } from "./planning-contract-identities.js";
 import {
@@ -58,7 +67,8 @@ export interface DocumentBundle {
     | "startup_opportunity.document_bundle.v4"
     | "startup_opportunity.document_bundle.v5"
     | "startup_opportunity.document_bundle.v6"
-    | "startup_opportunity.document_bundle.v7";
+    | "startup_opportunity.document_bundle.v7"
+    | "startup_opportunity.document_bundle.v8";
   readonly documents: readonly DocumentBundleEntry[];
   readonly exact_records?: readonly {
     readonly ref: string;
@@ -501,6 +511,32 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
     case "startup_opportunity.scope_frame.v1":
       return [
         ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
+      ];
+    case "startup_opportunity.scope_frame.v2":
+      return [
+        ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
+      ];
+    case "startup_opportunity.seed_probe.v1":
+      return [
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+      ];
+    case "startup_opportunity.opportunity_space_map.v1":
+      return [
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "seed_probe_ref", "startup_opportunity.seed_probe.v1"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+      ];
+    case "startup_opportunity.solution_space_map.v1":
+      return [
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "seed_probe_ref", "startup_opportunity.seed_probe.v1"),
+        ...optionalRef(
+          document,
+          "opportunity_space_map_ref",
+          "startup_opportunity.opportunity_space_map.v1",
+        ),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
       ];
     case "startup_opportunity.concept_hypothesis.v1":
       return [...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v1")];
@@ -1015,7 +1051,8 @@ function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
     version !== "startup_opportunity.artifact_envelope.v4" &&
     version !== "startup_opportunity.artifact_envelope.v5" &&
     version !== "startup_opportunity.artifact_envelope.v6" &&
-    version !== "startup_opportunity.artifact_envelope.v7"
+    version !== "startup_opportunity.artifact_envelope.v7" &&
+    version !== "startup_opportunity.artifact_envelope.v8"
   ) {
     return { path: entry.path, schemaVersion: version, document: entry.document, envelope: null };
   }
@@ -1146,7 +1183,8 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
     (document.schema_version !== "startup_opportunity.artifact_envelope.v4" &&
       document.schema_version !== "startup_opportunity.artifact_envelope.v5" &&
       document.schema_version !== "startup_opportunity.artifact_envelope.v6" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v7") ||
+      document.schema_version !== "startup_opportunity.artifact_envelope.v7" &&
+      document.schema_version !== "startup_opportunity.artifact_envelope.v8") ||
     !isRecord(document.document)
   ) {
     return [];
@@ -1184,6 +1222,7 @@ export class ArtifactValidator {
     private readonly bundle: LoadedSchemaBundle,
     readonly publicationPolicy: PublicationPolicy,
     readonly assessmentReportingPolicy: AssessmentReportingPolicy,
+    readonly discoveryMapsPolicy: LoadedDiscoveryMapsPolicy,
   ) {}
 
   publicationAdapter(schemaVersion: unknown): StorePublicationAdapter {
@@ -1447,7 +1486,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v4" &&
       input.schema_version !== "startup_opportunity.document_bundle.v5" &&
       input.schema_version !== "startup_opportunity.document_bundle.v6" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v7"
+      input.schema_version !== "startup_opportunity.document_bundle.v7" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v8"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -1483,7 +1523,8 @@ export class ArtifactValidator {
       ) &&
       input.schema_version !== "startup_opportunity.document_bundle.v5" &&
       input.schema_version !== "startup_opportunity.document_bundle.v6" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v7"
+      input.schema_version !== "startup_opportunity.document_bundle.v7" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v8"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -1523,6 +1564,36 @@ export class ArtifactValidator {
       );
     } else {
       referenceErrors.push(...validateG14Contract(g14Documents, this.assessmentReportingPolicy));
+    }
+    const discoveryDocuments: readonly DiscoveryMapDocument[] = effectiveDocuments.map((entry) => ({
+      path: entry.path,
+      schemaVersion: entry.schemaVersion,
+      document: entry.document,
+      envelope: entry.envelope,
+    }));
+    if (
+      discoveryDocuments.some((entry) => isDiscoveryMapSchemaVersion(entry.schemaVersion)) &&
+      discoveryDocuments.some((entry) =>
+        [
+          "startup_opportunity.seed_probe.v1",
+          "startup_opportunity.opportunity_space_map.v1",
+          "startup_opportunity.solution_space_map.v1",
+        ].includes(entry.schemaVersion),
+      ) &&
+      input.schema_version !== "startup_opportunity.document_bundle.v8"
+    ) {
+      referenceErrors.push(
+        referenceIssue(
+          "g2_1.bundle_version_mismatch",
+          "/schema_version",
+          "G2.1 Seed and space maps require document_bundle.v8",
+          { actualSchemaVersion: input.schema_version },
+        ),
+      );
+    } else {
+      referenceErrors.push(
+        ...validateDiscoveryMapsContract(discoveryDocuments, this.discoveryMapsPolicy),
+      );
     }
     referenceErrors.push(...exactRecordErrors);
     const sortedReferenceErrors = sortIssues(referenceErrors);
@@ -1938,5 +2009,6 @@ export async function createArtifactValidator(
     bundle,
     await loadResearchPublicationPolicy(root, bundle),
     await loadAssessmentReportingPolicy(root, bundle),
+    await loadDiscoveryMapsPolicy(root, bundle),
   );
 }

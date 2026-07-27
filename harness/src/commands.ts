@@ -1,6 +1,6 @@
 import { type DoctorReport, inspectRepository } from "./repository-contract.js";
 
-const HELP = `Startup Opportunity Research Harness (G1.4)
+const HELP = `Startup Opportunity Research Harness (G2.1)
 
 Usage:
   npm run harness -- help
@@ -19,7 +19,7 @@ Usage:
   npm run harness -- build-report --file FILE [--runs-root DIR] [--json]
 
 Commands:
-  help               Show the implemented G1.4 command surface.
+  help               Show the implemented G2.1 command surface.
   doctor             Validate repository, toolchain, Skill, agent, Harness, and test contracts.
   validate-artifact  Validate one document, a typed document bundle, or the schema bundle itself.
   create-run         Create a confined Run and its initial checkpoint.
@@ -34,7 +34,7 @@ Commands:
   audit-traceability Validate the closed G1.4 audit/review/Assessment/Traceability/report chain.
   build-report       Publish a validated report source and deterministically materialize its views.
 
-Validation, publication, and report materialization success are mechanical only. The Harness does not dispatch agents or perform network research. Discovery, comparison, and portfolio commands remain unavailable.
+Validation, publication, recovery, and report materialization success are mechanical only. G2.1 Seed Probe, Opportunity Space Map, and Solution Space Map envelopes may use the generic validation/publication surface. The Harness does not dispatch agents or perform network research. Discover orchestration, discovery lanes/fan-in, thesis synthesis, comparison, and portfolio commands remain unavailable.
 `;
 
 export function printHelp(

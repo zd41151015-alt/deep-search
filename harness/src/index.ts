@@ -155,6 +155,18 @@ export {
   validateAssessmentAdaptationContract,
 } from "./validators/assessment-adaptation-validator.js";
 export {
+  DISCOVERY_MAPS_POLICY_PATH,
+  type DiscoveryMapsPolicy,
+  type DiscoveryProfile,
+  type LoadedDiscoveryMapsPolicy,
+  loadDiscoveryMapsPolicy,
+} from "./validators/discovery-maps-policy.js";
+export {
+  type DiscoveryMapDocument,
+  isDiscoveryMapSchemaVersion,
+  validateDiscoveryMapsContract,
+} from "./validators/discovery-maps-validator.js";
+export {
   type CoverageIdentity,
   coverageKey,
   type PlanningRunStateIdentity,

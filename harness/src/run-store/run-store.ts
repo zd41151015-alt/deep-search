@@ -139,6 +139,7 @@ const RUN_DIRECTORIES = [
   ".store/temp",
   "adaptations/gap-snapshots",
   "adaptations/decisions",
+  "artifacts/discovery",
   "artifacts/lanes",
   "artifacts/audits",
   "artifacts/assessment",
@@ -164,6 +165,7 @@ const STORE_ENVELOPE_VERSIONS = new Set([
   "startup_opportunity.artifact_envelope.v5",
   "startup_opportunity.artifact_envelope.v6",
   "startup_opportunity.artifact_envelope.v7",
+  "startup_opportunity.artifact_envelope.v8",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -614,7 +616,7 @@ export class RunStore {
       next = {
         ...next,
         status: "planned",
-        current_phase: "assessment",
+        current_phase: next.mode === "opportunity_discovery" ? "discovery" : "assessment",
         current_plan_ref: envelope.artifact_path,
         plan_revision: 1,
       };
@@ -1115,7 +1117,8 @@ export class RunStore {
     if (
       recoveryBundleVersion === "startup_opportunity.document_bundle.v5" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v6" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v7"
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v7" ||
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v8"
     ) {
       for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
         if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
@@ -1129,7 +1132,8 @@ export class RunStore {
         documents: recoveryDocuments,
         ...(recoveryBundleVersion === "startup_opportunity.document_bundle.v5" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v6" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v7"
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v7" ||
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v8"
           ? { exact_records: [] }
           : {}),
       },

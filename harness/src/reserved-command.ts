@@ -7,7 +7,7 @@ export function rejectReservedCommand(command: ReservedSkillCommand): never {
       schemaVersion: "startup_opportunity.reserved_command.v1",
       command,
       status: "unavailable",
-      reason: "not_implemented_in_g1.4",
+      reason: "not_implemented_in_g2.1",
       plannedSlice,
     })}\n`,
   );

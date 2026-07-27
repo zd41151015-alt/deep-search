@@ -1,0 +1,50 @@
+{
+  "schema_version": "startup_opportunity.g2_1_synthetic_case_catalog.v1",
+  "fixture_classification": "SYNTHETIC_ONLY_NOT_EVIDENCE",
+  "public_identifiers": [],
+  "user_material_refs": [],
+  "cases": [
+    { "case_id": "profile_seed_missing", "expected_code": "discovery_maps.profile_seed_missing" },
+    { "case_id": "seed_evidence_use", "expected_code": "schema.const" },
+    { "case_id": "seed_scoring_use", "expected_code": "schema.const" },
+    {
+      "case_id": "seed_independent_reads_seed",
+      "expected_code": "discovery_maps.seed_independent_unit_invalid"
+    },
+    {
+      "case_id": "counterfactual_wrong_type",
+      "expected_code": "discovery_maps.counterfactual_unit_invalid"
+    },
+    { "case_id": "solution_neutrality", "expected_code": "schema.const" },
+    { "case_id": "formal_thesis_drift", "expected_code": "schema.const" },
+    { "case_id": "cross_run", "expected_code": "discovery_maps.run_mode_mismatch" },
+    { "case_id": "market_mismatch", "expected_code": "discovery_maps.primary_locale_mismatch" },
+    { "case_id": "language_mismatch", "expected_code": "discovery_maps.primary_locale_mismatch" },
+    { "case_id": "profile_mismatch", "expected_code": "discovery_maps.profile_mismatch" },
+    { "case_id": "ref_mismatch", "expected_code": "discovery_maps.lineage_mismatch" },
+    { "case_id": "path_mismatch", "expected_code": "discovery_maps.path_mismatch" },
+    { "case_id": "hash_mismatch", "expected_code": "discovery_maps.input_hash_mismatch" },
+    {
+      "case_id": "plan_revision_mismatch",
+      "expected_code": "discovery_maps.current_plan_mismatch"
+    },
+    { "case_id": "producer_mismatch", "expected_code": "discovery_maps.envelope_binding_mismatch" },
+    { "case_id": "missing_baseline", "expected_code": "schema.required" },
+    {
+      "case_id": "missing_status_quo",
+      "expected_code": "discovery_maps.solution_breadth_mismatch"
+    },
+    {
+      "case_id": "delivery_form_mismatch",
+      "expected_code": "discovery_maps.delivery_form_mismatch"
+    },
+    { "case_id": "ai_capability_only", "expected_code": "schema.const" },
+    {
+      "case_id": "ai_boundary_missing",
+      "expected_code": "discovery_maps.ai_boundary_field_missing"
+    },
+    { "case_id": "source_boundary_missing", "expected_code": "schema.required" },
+    { "case_id": "audit_ref_forbidden", "expected_code": "schema.maxItems" },
+    { "case_id": "limitation_missing", "expected_code": "schema.minItems" }
+  ]
+}

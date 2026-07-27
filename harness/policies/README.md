@@ -12,4 +12,6 @@
 
 `assessment-reporting.v1.json` 固定 G1.4 四类 Assessment result、evaluator result、十二个 Hard Gates、Evidence ceiling、report generation order、禁用表述与 producer ownership。`research-publication.v3.json` 只增加 v7/document bundle v7/receipt v6 adapter 和 receipt-driven report view contract；它不修改历史 adapter，也不执行 research 或 agent orchestration。
 
+`discovery-maps.v1.json` 固定 G2.1 四种 discovery profile、三张 map path、seed-independent/counterfactual Plan 约束、九类 solution/status-quo breadth、AI capability boundary 和 no-Evidence/no-thesis source boundary。`research-publication.v4.json` 只增加 v8/document bundle v8/receipt v7 adapter，并阻止 G2.2+ artifact types；它不执行 discovery、lane orchestration、LLM 或 network research。
+
 Policy 不是通用规则引擎，不包含任意表达式、可执行 workflow code 或运行时用户调权。

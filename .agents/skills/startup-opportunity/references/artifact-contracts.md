@@ -12,4 +12,6 @@ G1.3 增加 v6 envelope/document bundle 与 Store receipt v5，既有 adapter by
 
 G1.4 增加 v7 envelope/document bundle 与 receipt v6 adapter，不改写 v1-v6 bytes。Audit、Review、final Assessment、Traceability 与四个 reporting sidecar 都是 same-Run immutable Artifact；`report.json`、`decision-brief.md`、`report.md` 只是由 sidecar 确定性 materialize 的 view。reopen 可从 validated report sidecar 补齐缺失 view/derived sidecar，但不能覆盖冲突 bytes、修补语义或从 chat/task summary 重建结论。
 
+G2.1 增加 v8 envelope/document bundle 与 receipt v7 adapter，不改写 v1-v7 bytes。首次 Seed/Opportunity/Solution map publication 必须显式同批通过 same-Run/current discovery Plan/profile/locale/path/ref/hash/producer 和 no-Evidence/no-thesis validation；reopen 只消费 validated on-disk envelope/temp/receipt。G2.2+ artifact type 继续 fail closed，Harness 不从 map 启动 lane、agent 或 research。
+
 Evidence 的机械层包括 stable id、Run/unit、canonical source、source/content hash、raw ref、operation key 与 timestamp；业务层的 origin、provenance、freshness、independence、bias、tier、role、representativeness 与 limitations 由 Agent 明示。Harness 不从内容推断这些判断。Artifact 验证或发布成功只证明机械 contract，不证明来源真实、研究质量、Evidence 充分或决策就绪。

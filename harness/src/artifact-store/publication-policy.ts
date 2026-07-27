@@ -5,7 +5,7 @@ import { canonicalJson } from "./canonical.js";
 import { StoreError } from "./store-error.js";
 
 export const RESEARCH_PUBLICATION_POLICY_PATH =
-  "harness/policies/research-publication.v3.json" as const;
+  "harness/policies/research-publication.v4.json" as const;
 
 export type StoreEnvelopeVersion =
   | "startup_opportunity.artifact_envelope.v1"
@@ -14,7 +14,8 @@ export type StoreEnvelopeVersion =
   | "startup_opportunity.artifact_envelope.v4"
   | "startup_opportunity.artifact_envelope.v5"
   | "startup_opportunity.artifact_envelope.v6"
-  | "startup_opportunity.artifact_envelope.v7";
+  | "startup_opportunity.artifact_envelope.v7"
+  | "startup_opportunity.artifact_envelope.v8";
 
 export type StoreDocumentBundleVersion =
   | "startup_opportunity.document_bundle.v1"
@@ -23,7 +24,8 @@ export type StoreDocumentBundleVersion =
   | "startup_opportunity.document_bundle.v4"
   | "startup_opportunity.document_bundle.v5"
   | "startup_opportunity.document_bundle.v6"
-  | "startup_opportunity.document_bundle.v7";
+  | "startup_opportunity.document_bundle.v7"
+  | "startup_opportunity.document_bundle.v8";
 
 export type ArtifactReceiptVersion =
   | "startup_opportunity.artifact_store_operation.v1"
@@ -31,7 +33,8 @@ export type ArtifactReceiptVersion =
   | "startup_opportunity.artifact_store_operation.v3"
   | "startup_opportunity.artifact_store_operation.v4"
   | "startup_opportunity.artifact_store_operation.v5"
-  | "startup_opportunity.artifact_store_operation.v6";
+  | "startup_opportunity.artifact_store_operation.v6"
+  | "startup_opportunity.artifact_store_operation.v7";
 
 export interface StorePublicationAdapter {
   readonly envelope_version: StoreEnvelopeVersion;
@@ -43,16 +46,17 @@ export interface StorePublicationAdapter {
 }
 
 export interface ResearchPublicationPolicy {
-  readonly schema_version: "startup_opportunity.research_publication_policy.v3";
-  readonly policy_id: "startup_opportunity.g1_4_research_publication";
-  readonly policy_version: "3.0.0";
-  readonly current_schema_bundle_version: "6.0.0";
+  readonly schema_version: "startup_opportunity.research_publication_policy.v4";
+  readonly policy_id: "startup_opportunity.g2_1_research_publication";
+  readonly policy_version: "4.0.0";
+  readonly current_schema_bundle_version: "7.0.0";
   readonly adapters: readonly StorePublicationAdapter[];
   readonly evidence_contract: Readonly<Record<string, unknown>>;
   readonly traceability_contract: Readonly<Record<string, unknown>>;
   readonly task_lifecycle_contract: Readonly<Record<string, unknown>>;
   readonly branch_status_adapter: Readonly<Record<string, string>>;
   readonly report_publication_contract: Readonly<Record<string, unknown>>;
+  readonly discovery_map_contract: Readonly<Record<string, unknown>>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -116,6 +120,23 @@ const EXPECTED_ADAPTERS: readonly StorePublicationAdapter[] = [
     checkpoint_preferred: true,
     blocked_artifact_types: [],
   },
+  {
+    envelope_version: "startup_opportunity.artifact_envelope.v8",
+    document_bundle_version: "startup_opportunity.document_bundle.v8",
+    receipt_version: "startup_opportunity.artifact_store_operation.v7",
+    manifest_schema_bundle_version: "7.0.0",
+    checkpoint_preferred: true,
+    blocked_artifact_types: [
+      "startup_opportunity.discovery_lane_result.v1",
+      "startup_opportunity.discovery_fan_in.v1",
+      "startup_opportunity.demand_thesis.v1",
+      "startup_opportunity.opportunity_thesis.v1",
+      "startup_opportunity.solution_evaluation.v1",
+      "startup_opportunity.opportunity_comparison.v1",
+      "startup_opportunity.sensitivity.v1",
+      "startup_opportunity.portfolio_view.v1",
+    ],
+  },
 ];
 
 export class PublicationPolicy {
@@ -176,7 +197,7 @@ export async function loadResearchPublicationPolicy(
   relativePath = RESEARCH_PUBLICATION_POLICY_PATH,
 ): Promise<PublicationPolicy> {
   const value = JSON.parse(await readFile(path.join(root, relativePath), "utf8")) as unknown;
-  const validator = bundle.validators.get("startup_opportunity.research_publication_policy.v3");
+  const validator = bundle.validators.get("startup_opportunity.research_publication_policy.v4");
   if ((validator !== undefined && !validator(value)) || !isRecord(value)) {
     throw new StoreError(
       "publication_policy.invalid",
@@ -188,7 +209,7 @@ export async function loadResearchPublicationPolicy(
   const versions = policy.adapters.map((adapter) => adapter.envelope_version);
   if (
     new Set(versions).size !== versions.length ||
-    versions.length !== 7 ||
+    versions.length !== 8 ||
     canonicalJson(policy.adapters) !== canonicalJson(EXPECTED_ADAPTERS)
   ) {
     throw new StoreError(

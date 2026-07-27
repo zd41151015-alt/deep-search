@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v8/discovery-maps-policy.schema.json",
+  "title": "Startup Opportunity Discovery Maps Policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "schema_bundle_version",
+    "artifact_contracts",
+    "artifact_paths",
+    "profiles",
+    "plan_contract",
+    "required_solution_classes",
+    "ai_boundary_fields",
+    "source_boundary",
+    "forbidden_formal_artifact_types"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.discovery_maps_policy.v1" },
+    "policy_id": { "const": "startup_opportunity.g2_1_discovery_maps" },
+    "policy_version": { "const": "1.0.0" },
+    "schema_bundle_version": { "const": "7.0.0" },
+    "artifact_contracts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope_frame",
+        "seed_probe",
+        "opportunity_space_map",
+        "solution_space_map",
+        "artifact_envelope",
+        "document_bundle"
+      ],
+      "properties": {
+        "scope_frame": { "const": "startup_opportunity.scope_frame.v2" },
+        "seed_probe": { "const": "startup_opportunity.seed_probe.v1" },
+        "opportunity_space_map": {
+          "const": "startup_opportunity.opportunity_space_map.v1"
+        },
+        "solution_space_map": { "const": "startup_opportunity.solution_space_map.v1" },
+        "artifact_envelope": { "const": "startup_opportunity.artifact_envelope.v8" },
+        "document_bundle": { "const": "startup_opportunity.document_bundle.v8" }
+      }
+    },
+    "artifact_paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seed_probe", "opportunity_space_map", "solution_space_map"],
+      "properties": {
+        "seed_probe": { "const": "artifacts/discovery/seed-probe.r1.json" },
+        "opportunity_space_map": {
+          "const": "artifacts/discovery/opportunity-space-map.r1.json"
+        },
+        "solution_space_map": {
+          "const": "artifacts/discovery/solution-space-map.r1.json"
+        }
+      }
+    },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["general", "industry_first", "ai_first", "hybrid"],
+      "properties": {
+        "general": { "$ref": "#/$defs/profileRule" },
+        "industry_first": { "$ref": "#/$defs/profileRule" },
+        "ai_first": { "$ref": "#/$defs/profileRule" },
+        "hybrid": { "$ref": "#/$defs/profileRule" }
+      }
+    },
+    "plan_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "phase",
+        "seed_independent_unit_types",
+        "counterfactual_unit_type",
+        "required_exploration_flags",
+        "scope_only_input"
+      ],
+      "properties": {
+        "mode": { "const": "opportunity_discovery" },
+        "phase": { "const": "discovery" },
+        "seed_independent_unit_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "user_language_mining",
+              "audience_pain",
+              "jtbd_workflow",
+              "substitute_non_app",
+              "solution_failure"
+            ]
+          }
+        },
+        "counterfactual_unit_type": { "const": "counter_evidence" },
+        "required_exploration_flags": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "require_seed_independent_demand_unit",
+              "require_counterfactual_unit",
+              "initial_hypotheses_are_questions_not_truth",
+              "separate_generation_and_evaluation_sources",
+              "freeze_thesis_before_enrichment",
+              "require_independent_challenger_queries"
+            ]
+          }
+        },
+        "scope_only_input": { "const": true }
+      }
+    },
+    "required_solution_classes": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "ordinary_software",
+          "platform_native",
+          "human_or_service_assisted",
+          "native_app",
+          "mini_program",
+          "mobile_web_or_pwa",
+          "hybrid_app",
+          "ai_assisted",
+          "status_quo"
+        ]
+      }
+    },
+    "ai_boundary_fields": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "capability_frontier",
+          "failure_modes",
+          "human_review_boundaries",
+          "data_and_evaluation_requirements",
+          "provider_landscape",
+          "open_source_landscape",
+          "capability_half_life"
+        ]
+      }
+    },
+    "source_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seeds_are_evidence",
+        "maps_are_formal_theses",
+        "chat_is_artifact",
+        "task_completion_is_artifact",
+        "external_validation_supported"
+      ],
+      "properties": {
+        "seeds_are_evidence": { "const": false },
+        "maps_are_formal_theses": { "const": false },
+        "chat_is_artifact": { "const": false },
+        "task_completion_is_artifact": { "const": false },
+        "external_validation_supported": { "const": false }
+      }
+    },
+    "forbidden_formal_artifact_types": {
+      "type": "array",
+      "minItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "startup_opportunity.discovery_lane_result.v1",
+          "startup_opportunity.discovery_fan_in.v1",
+          "startup_opportunity.demand_thesis.v1",
+          "startup_opportunity.opportunity_thesis.v1",
+          "startup_opportunity.solution_evaluation.v1",
+          "startup_opportunity.opportunity_comparison.v1",
+          "startup_opportunity.sensitivity.v1",
+          "startup_opportunity.portfolio_view.v1"
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "profileRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_seed_families", "ai_boundary_requirement"],
+      "properties": {
+        "required_seed_families": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "direction",
+              "audience",
+              "scenario",
+              "problem",
+              "keyword",
+              "product",
+              "source",
+              "capability",
+              "model_ecosystem"
+            ]
+          }
+        },
+        "ai_boundary_requirement": { "enum": ["optional", "required_as_solution_option"] }
+      }
+    }
+  }
+}

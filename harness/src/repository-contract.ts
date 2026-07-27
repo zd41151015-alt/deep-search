@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-export const SKELETON_VERSION = "g1.4" as const;
+export const SKELETON_VERSION = "g2.1" as const;
 
 export const IMPLEMENTATION_STACK = {
   language: "TypeScript 7.0.2",
@@ -50,6 +50,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v7.json",
   "harness/schemas/bundle.v6.json",
   "harness/schemas/bundle.v5.json",
   "harness/schemas/bundle.v4.json",
@@ -125,6 +126,15 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v7/research-publication-policy-v3.schema.json",
   "harness/schemas/v7/artifact-envelope.schema.json",
   "harness/schemas/v7/document-bundle.schema.json",
+  "harness/schemas/v8/definitions.schema.json",
+  "harness/schemas/v8/scope-frame-v2.schema.json",
+  "harness/schemas/v8/seed-probe.schema.json",
+  "harness/schemas/v8/opportunity-space-map.schema.json",
+  "harness/schemas/v8/solution-space-map.schema.json",
+  "harness/schemas/v8/discovery-maps-policy.schema.json",
+  "harness/schemas/v8/research-publication-policy-v4.schema.json",
+  "harness/schemas/v8/artifact-envelope.schema.json",
+  "harness/schemas/v8/document-bundle.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
@@ -136,6 +146,8 @@ export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/assessment-adaptation-validator.ts",
   "harness/src/validators/assessment-reporting-policy.ts",
   "harness/src/validators/g1.4-validator.ts",
+  "harness/src/validators/discovery-maps-policy.ts",
+  "harness/src/validators/discovery-maps-validator.ts",
   "harness/src/validators/planning-contract-identities.ts",
   "harness/src/validators/planning-contract-validator.ts",
   "harness/src/validators/validate-artifact-command.ts",
@@ -198,12 +210,18 @@ export const RESPONSIBILITY_PATHS = [
   "harness/policies/research-publication.v2.json",
   "harness/policies/assessment-reporting.v1.json",
   "harness/policies/research-publication.v3.json",
+  "harness/policies/discovery-maps.v1.json",
+  "harness/policies/research-publication.v4.json",
   "tests/fixtures/README.md",
   "tests/fixtures/g1.2/README.md",
   "tests/fixtures/g1.3/README.md",
   "tests/fixtures/g1.3/assessment-adaptation-cases.json",
   "tests/fixtures/g1.4/README.md",
   "tests/fixtures/g1.4/assessment-report-cases.json",
+  "tests/fixtures/g2.1/README.md",
+  "tests/fixtures/g2.1/discovery-map-cases.json",
+  "tests/fixtures/g2.1/discovery-maps-fixture.ts",
+  "tests/g2.1-discovery-maps.test.ts",
   "tests/evals/README.md",
   "runs/.gitkeep",
 ] as const;

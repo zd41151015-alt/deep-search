@@ -13,3 +13,5 @@ G1.2 task envelope publication 只做 `pending -> active` 的 deterministic mani
 G1.3 Plan operation receipt v2 同时绑定 base/result Research Plan 与 assessment plan ref/hash。`add_unit` 的三个 revision control Artifacts 全部验证并发布后才允许 Manifest CAS；`stop_followup` 保留 current plan。Crash/reopen 只完成已验证 receipt 的剩余步骤，stale base、branched ancestry、drift 或 operation-key conflict 均 fail closed。
 
 G1.4 reopen 在 Artifact receipt recovery 后检查 immutable report sidecar，按 report -> brief -> full view -> consistency 的闭合 contract 补齐缺失 derived sidecar 和 materialized view。`report.json` 不作为 formal envelope 重复索引；它与两个 Markdown 文件的冲突 bytes、receipt drift、sidecar/hash drift 都使 reopen fail closed。
+
+G2.1 为 Run 增加 `artifacts/discovery/` 路径，并在首个 discovery Research Plan publication 后确定性设置 `current_phase=discovery`。v8 map/checkpoint receipt 参与既有 crash recovery 与 reopen；恢复只消费 validated on-disk envelope/temp/receipt，不从 chat、task completion 或模型记忆重建 map。

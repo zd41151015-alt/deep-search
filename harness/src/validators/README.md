@@ -1,6 +1,6 @@
 # Deterministic Schema And Reference Validator
 
-默认 validator 使用 schema bundle `5.0.0`，同时保留既有 v1-v5 contract bytes。`validate-artifact` 继续只验证显式 document/bundle；不会扫描 Run、启动 Agent、执行 network research 或隐式迁移历史 Artifact。
+默认 validator 使用 schema bundle `7.0.0`，同时保留既有 v1-v7 contract bytes。`validate-artifact` 继续只验证显式 document/bundle；不会扫描 Run、启动 Agent、执行 network research 或隐式迁移历史 Artifact。
 
 `PlanningContractEvaluator` 只读消费显式 Document Bundle、`adaptation.v1.json` 和 AI trigger source-binding policy，返回排序稳定的 contract issue。它机械校验 Planning Context v2 的 source existence/schema/canonical hash/Run/mode/context revision/subject/trigger exact binding、closed unit tuple、AI aggregate coverage、canonical coverage_key/relation、pending/active coverage target 和 Run Manifest failed-only retry。
 
@@ -13,3 +13,5 @@
 `AssessmentAdaptationValidator` 只对显式 `document_bundle.v6` 校验 Gap Snapshot v2 与 Adaptation Decision v3 的 exact current/historical ancestry binding、coverage_key、observed branch/task hashes、unit/attempt state、closed buyer/acquisition target 与 duplicate/stale/branched/forged/replay 边界。它不判断 Evidence 是否真实或充分，不创建任意 DAG，也不执行 G1.4 gate。
 
 `G14Validator` 只对显式 `document_bundle.v7` 执行 same-Run/final Plan/assessment-plan/input-hash/producer binding、Evidence audit ceiling、challenger independence、Hard Gate/closed result、decisive trace chain 和 three-output consistency 校验。它不做语义 research、不修改 Evidence/Claim/Finding/Insight/Judgment/Matrix/Plan，也不把 fixture 成功解释为 Evidence 充分或市场验证。
+
+`DiscoveryMapsValidator` 只对显式 `document_bundle.v8` 执行 G2.1 same-Run/mode/profile/market/language/current Plan/path/ref/hash/producer binding，以及 seed-independent/counterfactual unit、initial question、solution-neutral map、九类 solution/status quo、AI boundary 和 no-Evidence/no-thesis 校验。它不创建 lane/fan-in、Demand/Opportunity Thesis、comparison/report，也不执行 research 或 agent orchestration。

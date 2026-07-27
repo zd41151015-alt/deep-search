@@ -1,0 +1,95 @@
+{
+  "schema_version": "startup_opportunity.discovery_maps_policy.v1",
+  "policy_id": "startup_opportunity.g2_1_discovery_maps",
+  "policy_version": "1.0.0",
+  "schema_bundle_version": "7.0.0",
+  "artifact_contracts": {
+    "scope_frame": "startup_opportunity.scope_frame.v2",
+    "seed_probe": "startup_opportunity.seed_probe.v1",
+    "opportunity_space_map": "startup_opportunity.opportunity_space_map.v1",
+    "solution_space_map": "startup_opportunity.solution_space_map.v1",
+    "artifact_envelope": "startup_opportunity.artifact_envelope.v8",
+    "document_bundle": "startup_opportunity.document_bundle.v8"
+  },
+  "artifact_paths": {
+    "seed_probe": "artifacts/discovery/seed-probe.r1.json",
+    "opportunity_space_map": "artifacts/discovery/opportunity-space-map.r1.json",
+    "solution_space_map": "artifacts/discovery/solution-space-map.r1.json"
+  },
+  "profiles": {
+    "general": {
+      "required_seed_families": ["scenario", "problem"],
+      "ai_boundary_requirement": "optional"
+    },
+    "industry_first": {
+      "required_seed_families": ["direction", "audience", "problem"],
+      "ai_boundary_requirement": "optional"
+    },
+    "ai_first": {
+      "required_seed_families": ["problem", "capability", "model_ecosystem"],
+      "ai_boundary_requirement": "required_as_solution_option"
+    },
+    "hybrid": {
+      "required_seed_families": ["direction", "problem", "capability", "model_ecosystem"],
+      "ai_boundary_requirement": "required_as_solution_option"
+    }
+  },
+  "plan_contract": {
+    "mode": "opportunity_discovery",
+    "phase": "discovery",
+    "seed_independent_unit_types": [
+      "user_language_mining",
+      "audience_pain",
+      "jtbd_workflow",
+      "substitute_non_app",
+      "solution_failure"
+    ],
+    "counterfactual_unit_type": "counter_evidence",
+    "required_exploration_flags": [
+      "require_seed_independent_demand_unit",
+      "require_counterfactual_unit",
+      "initial_hypotheses_are_questions_not_truth",
+      "separate_generation_and_evaluation_sources",
+      "freeze_thesis_before_enrichment",
+      "require_independent_challenger_queries"
+    ],
+    "scope_only_input": true
+  },
+  "required_solution_classes": [
+    "ordinary_software",
+    "platform_native",
+    "human_or_service_assisted",
+    "native_app",
+    "mini_program",
+    "mobile_web_or_pwa",
+    "hybrid_app",
+    "ai_assisted",
+    "status_quo"
+  ],
+  "ai_boundary_fields": [
+    "capability_frontier",
+    "failure_modes",
+    "human_review_boundaries",
+    "data_and_evaluation_requirements",
+    "provider_landscape",
+    "open_source_landscape",
+    "capability_half_life"
+  ],
+  "source_boundary": {
+    "seeds_are_evidence": false,
+    "maps_are_formal_theses": false,
+    "chat_is_artifact": false,
+    "task_completion_is_artifact": false,
+    "external_validation_supported": false
+  },
+  "forbidden_formal_artifact_types": [
+    "startup_opportunity.discovery_lane_result.v1",
+    "startup_opportunity.discovery_fan_in.v1",
+    "startup_opportunity.demand_thesis.v1",
+    "startup_opportunity.opportunity_thesis.v1",
+    "startup_opportunity.solution_evaluation.v1",
+    "startup_opportunity.opportunity_comparison.v1",
+    "startup_opportunity.sensitivity.v1",
+    "startup_opportunity.portfolio_view.v1"
+  ]
+}
