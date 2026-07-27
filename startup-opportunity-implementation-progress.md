@@ -1,8 +1,8 @@
 # Startup Opportunity Research Harness 实施进度
 
-> **状态**: G2_IN_PROGRESS / G2.1_REGRESSION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE
-> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`DONE`（G1.1-G1.4、G1.R=`DONE`）；G2 Opportunity Discovery=`IN_PROGRESS`（仅 G2.1=`REGRESSION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`）；G2.2-G2.R、G3-G4=`NOT_READY`
-> **下一独立会话**: 无已授权下一任务；仅由中控核对 G2.1 regression 原子候选，不开放 G2.2+
+> **状态**: G2_IN_PROGRESS / G2.1_DONE / G2.2_READY
+> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`DONE`（G1.1-G1.4、G1.R=`DONE`）；G2 Opportunity Discovery=`IN_PROGRESS`（G2.1=`DONE`；仅 G2.2=`READY`）；G2.3-G2.R、G3-G4=`NOT_READY`
+> **下一独立会话**: 无已授权下一任务；G2.2 仅为 `READY`，须由中控另行授权，不在本 bookkeeping follow-up 创建
 > **最后更新**: 2026-07-26
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
 
@@ -165,7 +165,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- | --- | --- |
 | G0 Foundation Harness | `DONE` | RFC v1 | 工具链与仓库骨架、核心 schema、Run/Artifact Store、validator、checkpoint、Gap/Adaptation/Plan Revision、完整 foundation regression |
 | G1 Concept Evidence Assessment | `DONE` | G0 | 单 thesis 从 intake 到 report 的端到端闭环，buyer gap 触发 plan r2，独立 G1 whole-gate regression 与中控验收均通过 |
-| G2 Opportunity Discovery | `IN_PROGRESS` | G1 | 仅 G2.1=`REGRESSION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`；discovery lanes、Demand/Solution synthesis、pre-kill/enrichment、比较/portfolio 和独立 G2 regression 尚未完成 |
+| G2 Opportunity Discovery | `IN_PROGRESS` | G1 | G2.1=`DONE`；仅 G2.2=`READY`；Demand/Solution synthesis、pre-kill/enrichment、比较/portfolio 和独立 G2 regression 尚未完成 |
 | G3 AI Bundle | `NOT_READY` | G2 | 六维 AI mandatory bundle、baseline/reliability/data/economics/risk gates 和独立 G3 回归 |
 | G4 Distribution / Operational Exit | `NOT_READY` | G3 | repo-local Skill/agents/hooks/MCP 完整入口、安装与恢复文档、端到端 fixture；Plugin 是否打包按 RFC 条件判断 |
 
@@ -178,7 +178,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `DONE` |
 | W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `DONE` |
 | W4 | Assess domain contracts、research branches、matrix、audit/review/report | `DONE`（G1.1-G1.4、G1.R=`DONE`） |
-| W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `IN_PROGRESS`（仅 G2.1=`REGRESSION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`；G2.2-G2.R=`NOT_READY`） |
+| W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `IN_PROGRESS`（G2.1=`DONE`；仅 G2.2=`READY`；G2.3-G2.R=`NOT_READY`） |
 | W6 | AI mandatory bundle 和 gates | `NOT_READY` |
 | W7 | Codex Skill、custom agents、hooks/MCP、分发和端到端运营 | `NOT_READY` |
 
@@ -206,8 +206,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 
 | 切片 | 内容 | 状态 | 主要退出条件 |
 | --- | --- | --- | --- |
-| G2.1 | Seed / Opportunity / Solution Space Maps | `REGRESSION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE` | general/industry/ai/hybrid profiles、seed-independent 和 counterfactual units、solution-neutral maps、initial questions；独立 inter-map crash/replay regression 已形成候选 |
-| G2.2 | Discovery Lanes / Fan-in | `NOT_READY` | 用户语言、JTBD、替代、solution failure、pre-kill、多样候选保留、partial/failed/skipped/ignored-late fan-in |
+| G2.1 | Seed / Opportunity / Solution Space Maps | `DONE` | general/industry/ai/hybrid profiles、seed-independent 和 counterfactual units、solution-neutral maps、initial questions；独立 inter-map crash/replay regression 与中控验收通过 |
+| G2.2 | Discovery Lanes / Fan-in | `READY` | 用户语言、JTBD、替代、solution failure、pre-kill、多样候选保留、partial/failed/skipped/ignored-late fan-in；尚未创建实现任务 |
 | G2.3 | Demand / Solution / Thesis Synthesis | `NOT_READY` | Demand Thesis 先于 Solution、Baseline、solution evaluation、thesis freeze、dedupe/clustering、generation/evaluation source separation |
 | G2.4 | Enrichment / Business Engine / Comparison | `NOT_READY` | buyer/market/acquisition/feasibility/counter evidence、BusinessEngine、hard gates、四面板、sensitivity、partial order、portfolio/report |
 | G2.R | Independent Discovery Whole-Gate Regression | `NOT_READY` | general/industry/ai/hybrid fixtures、pre-kill skip、candidate diversity、comparison/report 全链独立回归；通过后 G2=`DONE` |
@@ -236,12 +236,12 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | G2.1 independent whole-slice regression 已形成原子候选，等待中控核对；未创建下一任务 |
-| Current slice | `G0 Foundation=DONE`；`G1.1-G1.4=DONE`；`G1.R=DONE`；G1、W4=`DONE`；G2、W5=`IN_PROGRESS`；仅 G2.1=`REGRESSION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`；G2.2-G2.R、G3-G4=`NOT_READY` |
-| Expected base | G2.1 regression parent 必须为 `178df38c343003730c23d05ae57bf968bfef9bec`；被复核 candidate parent=`0525f08aeb127d031ed2e283be2dbd622d5e66c8` |
+| Active task | G2.1 controller-acceptance bookkeeping；regression commit 已接受；未创建 G2.2 或下一任务 |
+| Current slice | `G0 Foundation=DONE`；`G1.1-G1.4=DONE`；`G1.R=DONE`；G1、W4=`DONE`；G2、W5=`IN_PROGRESS`；G2.1=`DONE`；仅 G2.2=`READY`；G2.3-G2.R、G3-G4=`NOT_READY` |
+| Expected base | 本 bookkeeping commit parent 必须为 `b01b309bb477bd448803ed4ccfb63b2c9b40fc0b`；accepted regression parent=`178df38c343003730c23d05ae57bf968bfef9bec` |
 | Consecutive state-query failures | `0` |
-| Last effective operation | `g2_1_regression_candidate_submitted` |
-| Next allowed action | 仅中控核对本 G2.1 regression 原子候选；本任务不创建 G2.2-G2.R 或 G3-G4 |
+| Last effective operation | `g2_1_regression_controller_accepted` |
+| Next allowed action | 仅中控可另行授权 G2.2；本 follow-up 不创建 G2.2、G2.3-G2.R 或 G3-G4 任务 |
 
 ## 已完成切片与证据
 
@@ -267,6 +267,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | G1.3 Dynamic Buyer-Gap Adaptation independent acceptance | `DONE` | `a31502ee3e25ca081c0e5fffd5fdd57ed2e6e6df` | `aba56634ca0feac9328487adb63b846ae1ac7cc8` |
 | G1.4 Audit / Adversarial Review / Assessment / Report implementation candidate | `DONE` | `7dd044fb2ed6ca1ffdc79e633b239faf1940d20e` | `a31502ee3e25ca081c0e5fffd5fdd57ed2e6e6df` |
 | G1.R Independent Assess Whole-Gate Regression | `DONE` | `a30c0967860bf31d26fc959c583f8c5b6b1b4caa` | `7dd044fb2ed6ca1ffdc79e633b239faf1940d20e` |
+| G2.1 Seed / Opportunity / Solution Space Maps implementation candidate | `ACCEPTED` | `178df38c343003730c23d05ae57bf968bfef9bec` | `0525f08aeb127d031ed2e283be2dbd622d5e66c8` |
+| G2.1 Independent Whole-Slice Regression | `DONE` | `b01b309bb477bd448803ed4ccfb63b2c9b40fc0b` | `178df38c343003730c23d05ae57bf968bfef9bec` |
 
 G0.1 交付物：
 
@@ -1223,10 +1225,18 @@ Candidate commit 为 `ae810b91f0a99e33b31a98e48481712d424675a9`，parent=`4295d4
 - 验证只证明 deterministic schema/policy/reference/publication/recovery contract，不证明任何真实 Opportunity、Demand、solution 选择、评分/概率、市场数据、Evidence 质量或 external validation success。未执行 network research、interview、landing page、deposit、广告、paid experiment、MVP test 或其他 external validation。
 - G2.1 只标记 `REGRESSION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`；G2 Opportunity Discovery 与 W5 保持 `IN_PROGRESS`，G2.2-G2.R、G3-G4 保持 `NOT_READY`。本任务不开放 G2.2，不创建任何下一任务。
 
+### 中控独立验收
+
+- authoritative `wait_threads` 返回 cursor=`494f0650-027a-4022-b72f-d7889ae3a4c4:1`、revision=`1`、thread idle、latest turn completed。中控从 clean `main@b01b309bb477bd448803ed4ccfb63b2c9b40fc0b` 核对 parent=`178df38c343003730c23d05ae57bf968bfef9bec`、branch=`main`、空工作树、`git diff --check` 与 Git connectivity，并接受该 G2.1 regression 原子候选；connectivity 仅报告无害 dangling blob。
+- 中控使用 Node.js `24.18.0` / npm `11.16.0` 独立重放 `npm ci`、lint 215 files、typecheck、`npm test` 216/216、schemas 76/71、fixtures 118/118、Store 11/11、faults 10/10、recovery 11/11、G2.1 34/34、doctor/verify 197 checks `ok=true`、`npm audit` 0 vulnerabilities，以及 Git status/diff/check，全部 PASS。
+- 中控确认 regression diff 仅修改 `tests/g2.1-discovery-maps.test.ts`、`tests/fixtures/g2.1/inter-map-crash-worker.ts` 与本文；production、toolchain、`package-lock.json`、schema v1-v7、bundle v1-v6、既有 policy、Skill/agents/RFC bytes 全部冻结。`package-lock.json` SHA-256=`5271d765b9d1818ccace29aab770c629704a470c7c6a5827de07ddd4db68682e`，仓库只有一个 lockfile。
+- 中控重放真实 child-process inter-map 边界：第一张 map/receipt durable 后 exit `86`；reopen 以 `reference.missing` fail closed 且 tree bytes 不变；同一完整 bundle 重放时第一张为 `idempotent_replay`、其余两张确定性补全；checkpoint 与连续 reopen 稳定。未发现 production defect，也未发现伪造 Evidence/URL/quote/市场数据/validation success、network/LLM/agent/subagent/external-validation 或 G2.2+ implementation。
+- 因此 G2.1=`DONE`；G2 Opportunity Discovery 与 W5 继续 `IN_PROGRESS`，仅 G2.2=`READY`。G2.3、G2.4、G2.R、G3-G4 保持 `NOT_READY`。本 bookkeeping follow-up 不创建 G2.2 或任何下一任务。
+
 ## 当前边界与后续状态
 
 - G0 Foundation 已通过独立 whole-gate regression；当前没有 G0 blocker。
 - G1.1-G1.4、G1.R、G1 Concept Evidence Assessment 与 W4 均为 `DONE`；中控已接受 G1.R commit `a30c0967860bf31d26fc959c583f8c5b6b1b4caa`。
-- G2 Opportunity Discovery 与 W5=`IN_PROGRESS`；仅 G2.1=`REGRESSION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`。G2.2-G2.R、G3-G4 继续 `NOT_READY`，中控核对前无已授权下一任务。
+- G2 Opportunity Discovery 与 W5=`IN_PROGRESS`；G2.1=`DONE`，仅 G2.2=`READY`。G2.3、G2.4、G2.R、G3-G4 继续 `NOT_READY`；本 follow-up 未创建下一任务。
 - `validate-artifact`、Evidence/Artifact Store、RunStore、bounded assessment adaptation、audit/traceability、concept report 与 G2.1 maps publication/recovery 已形成 deterministic contract；Harness 不执行 research，discover orchestration、G2.2+ discovery、comparison/portfolio 尚未实现。
 - 目标 runtime 是精确 Node.js `24.18.0` 与 npm `11.16.0`；开发者不得用错误版本证据替代冻结验证。
