@@ -31,6 +31,10 @@ import {
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const caseCatalogPath = path.join(repositoryRoot, "tests/fixtures/g2.1/discovery-map-cases.json");
+const interMapCrashWorkerPath = path.join(
+  repositoryRoot,
+  "tests/fixtures/g2.1/inter-map-crash-worker.ts",
+);
 
 interface SyntheticCase {
   readonly case_id: string;
@@ -337,6 +341,95 @@ test("first map publication is an explicit three-map bundle and exact replay is 
       (receipt) => receipt.schema_version === "startup_opportunity.artifact_store_operation.v7",
     ),
   );
+});
+
+test("same complete bundle deterministically finishes after a real inter-map process exit", async (t) => {
+  const { bundle, runId, runRoot, runsRoot, store } = await prepareRun(
+    t,
+    "hybrid",
+    "inter-map-exit",
+  );
+  const orderedMapRefs = [...G21_MAP_REFS].sort((left, right) => left.localeCompare(right));
+  const firstMapRef = orderedMapRefs[0];
+  assert.ok(firstMapRef);
+
+  const crashed = spawnSync(
+    process.execPath,
+    ["--import", "tsx", interMapCrashWorkerPath, runsRoot, runId, "hybrid"],
+    { cwd: repositoryRoot, encoding: "utf8" },
+  );
+  assert.equal(crashed.signal, null, crashed.stderr);
+  assert.equal(crashed.status, 86, crashed.stderr || crashed.stdout);
+
+  const afterCrash = await snapshotTree(runRoot);
+  assert.ok(afterCrash[firstMapRef], `first map was not durably published: ${firstMapRef}`);
+  for (const missingRef of orderedMapRefs.slice(1)) {
+    assert.equal(afterCrash[missingRef], undefined, `later map unexpectedly exists: ${missingRef}`);
+  }
+  const firstReceiptPath = Object.keys(afterCrash).find((candidate) => {
+    if (!candidate.startsWith(".store/operations/artifact-")) {
+      return false;
+    }
+    const bytes = afterCrash[candidate];
+    if (bytes === undefined) {
+      return false;
+    }
+    const receipt = JSON.parse(Buffer.from(bytes, "base64").toString("utf8")) as Record<
+      string,
+      unknown
+    >;
+    return receipt.artifact_path === firstMapRef;
+  });
+  assert.ok(firstReceiptPath, "first map receipt is missing");
+  const firstMapBytes = afterCrash[firstMapRef];
+  const firstReceiptBytes = afterCrash[firstReceiptPath];
+
+  await assert.rejects(
+    store.load(runId),
+    (error: unknown) => error instanceof StoreError && error.code === "reference.missing",
+  );
+  const afterFailedReopen = await snapshotTree(runRoot);
+  assert.equal(afterFailedReopen[firstMapRef], firstMapBytes);
+  assert.equal(afterFailedReopen[firstReceiptPath], firstReceiptBytes);
+  for (const missingRef of orderedMapRefs.slice(1)) {
+    assert.equal(
+      afterFailedReopen[missingRef],
+      undefined,
+      `reopen synthesized a missing map: ${missingRef}`,
+    );
+  }
+
+  const replay = await store.publishArtifactBundle({
+    runId,
+    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  });
+  assert.equal(replay.status, "published");
+  assert.equal(
+    replay.artifacts.find((artifact) => artifact.artifactPath === firstMapRef)?.status,
+    "idempotent_replay",
+  );
+  const afterReplay = await snapshotTree(runRoot);
+  assert.equal(afterReplay[firstMapRef], firstMapBytes);
+  assert.equal(afterReplay[firstReceiptPath], firstReceiptBytes);
+  assert.ok(G21_MAP_REFS.every((ref) => afterReplay[ref] !== undefined));
+
+  await store.checkpoint({
+    runId,
+    checkpointId: "checkpoint_inter_map_replay",
+    createdAt: "2026-07-26T17:11:00Z",
+    nextStep: "SYNTHETIC await controller acceptance; do not start G2.2.",
+    beliefSummary: {
+      current_belief: "SYNTHETIC map replay proves only deterministic persistence.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["SYNTHETIC no Evidence exists."],
+      remaining_disagreement: ["SYNTHETIC demand remains unknown."],
+      next_decision_relevant_question: "SYNTHETIC should the controller accept G2.1?",
+    },
+    inputRefs: [...G21_MAP_REFS],
+  });
+  const reopened = await store.load(runId);
+  assert.ok(G21_MAP_REFS.every((ref) => reopened.manifest.artifact_refs.includes(ref)));
+  assert.equal((await store.load(runId)).recovered, false);
 });
 
 test("conflicting map replay preserves immutable bytes", async (t) => {
