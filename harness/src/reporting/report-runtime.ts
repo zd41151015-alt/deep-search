@@ -20,7 +20,7 @@ import {
   resolveRunPath,
   validateRunId,
 } from "../artifact-store/path-policy.js";
-import { withRunLock } from "../artifact-store/run-lock.js";
+import { withReportLock, withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { RunStore } from "../run-store/run-store.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
@@ -424,6 +424,66 @@ function materializedBytes(envelope: FormalArtifactEnvelope): {
   return null;
 }
 
+async function assertMaterializedTargetsCompatibleLocked(
+  runRoot: string,
+  envelopes: readonly FormalArtifactEnvelope[],
+): Promise<void> {
+  for (const envelope of envelopes) {
+    const materialized = materializedBytes(envelope);
+    if (materialized === null) {
+      continue;
+    }
+    if (envelope.document.materialized_path !== materialized.targetPath) {
+      throw new StoreError(
+        "report.materialized_path_mismatch",
+        "report sidecar targets another view path",
+        { artifactPath: envelope.artifact_path },
+      );
+    }
+    try {
+      const existing = await readFile(
+        await resolveRunPath(runRoot, materialized.targetPath),
+        "utf8",
+      );
+      if (existing !== materialized.bytes) {
+        throw new StoreError(
+          "report.materialized_conflict",
+          "materialized report bytes differ from sidecar",
+          { targetPath: materialized.targetPath },
+        );
+      }
+    } catch (error) {
+      if (!isNodeError(error, "ENOENT")) {
+        throw error;
+      }
+    }
+  }
+}
+
+async function assertReportBuildCompatibleLocked(
+  runRoot: string,
+  source: FormalArtifactEnvelope,
+  derived: readonly FormalArtifactEnvelope[],
+): Promise<void> {
+  const existingReports = (await reportingEnvelopes(runRoot)).filter(
+    (envelope) => envelope.artifact_type === "startup_opportunity.concept_evidence_report.v1",
+  );
+  const conflictingReport = existingReports.find(
+    (envelope) => canonicalJson(envelope) !== canonicalJson(source),
+  );
+  if (conflictingReport !== undefined) {
+    throw new StoreError(
+      "report.final_revision_conflict",
+      "a different final report revision is already published for this Run",
+      {
+        existingArtifactPath: conflictingReport.artifact_path,
+        candidateArtifactPath: source.artifact_path,
+      },
+    );
+  }
+  await assertMaterializedTargetsCompatibleLocked(runRoot, [source, ...derived]);
+}
+
 function hasExactlyKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
   const actual = Object.keys(value).sort();
   const sortedExpected = [...expected].sort();
@@ -680,62 +740,69 @@ export class ReportRuntime {
       });
     }
     const derived = deriveReportEnvelopes(source);
-    const publicationResults: PublishArtifactResult[] = [];
-    publicationResults.push(
-      await this.store.publishArtifact({ runId: source.run_id, envelope: source }),
-    );
-    if (input.faultAt === "after_report_sidecar") {
-      throw new StoreError("fault.injected", "fault injected after report sidecar");
-    }
-    await this.materialize(source);
-    if (input.faultAt === "after_report_materialization") {
-      throw new StoreError("fault.injected", "fault injected after report materialization");
-    }
-    publicationResults.push(
-      await this.store.publishArtifact({
+    const runRoot = await openRunDirectory(this.runsRoot, source.run_id);
+    return withReportLock(runRoot, async () => {
+      await withRunLock(runRoot, () => assertReportBuildCompatibleLocked(runRoot, source, derived));
+      const publicationResults: PublishArtifactResult[] = [];
+      publicationResults.push(
+        await this.store.publishArtifact({ runId: source.run_id, envelope: source }),
+      );
+      if (input.faultAt === "after_report_sidecar") {
+        throw new StoreError("fault.injected", "fault injected after report sidecar");
+      }
+      await this.materialize(source);
+      if (input.faultAt === "after_report_materialization") {
+        throw new StoreError("fault.injected", "fault injected after report materialization");
+      }
+      publicationResults.push(
+        await this.store.publishArtifact({
+          runId: source.run_id,
+          envelope: derived[0] as FormalArtifactEnvelope,
+        }),
+      );
+      if (input.faultAt === "after_brief_sidecar") {
+        throw new StoreError("fault.injected", "fault injected after decision brief sidecar");
+      }
+      await this.materialize(derived[0] as FormalArtifactEnvelope);
+      if (input.faultAt === "after_brief_materialization") {
+        throw new StoreError(
+          "fault.injected",
+          "fault injected after decision brief materialization",
+        );
+      }
+      publicationResults.push(
+        await this.store.publishArtifact({
+          runId: source.run_id,
+          envelope: derived[1] as FormalArtifactEnvelope,
+        }),
+      );
+      if (input.faultAt === "after_view_sidecar") {
+        throw new StoreError("fault.injected", "fault injected after full report sidecar");
+      }
+      await this.materialize(derived[1] as FormalArtifactEnvelope);
+      if (input.faultAt === "after_view_materialization") {
+        throw new StoreError("fault.injected", "fault injected after full report materialization");
+      }
+      publicationResults.push(
+        await this.store.publishArtifact({
+          runId: source.run_id,
+          envelope: derived[2] as FormalArtifactEnvelope,
+        }),
+      );
+      if (input.faultAt === "after_consistency_sidecar") {
+        throw new StoreError("fault.injected", "fault injected after consistency sidecar");
+      }
+      return {
+        schemaVersion: "startup_opportunity.build_report_result.v1",
         runId: source.run_id,
-        envelope: derived[0] as FormalArtifactEnvelope,
-      }),
-    );
-    if (input.faultAt === "after_brief_sidecar") {
-      throw new StoreError("fault.injected", "fault injected after decision brief sidecar");
-    }
-    await this.materialize(derived[0] as FormalArtifactEnvelope);
-    if (input.faultAt === "after_brief_materialization") {
-      throw new StoreError("fault.injected", "fault injected after decision brief materialization");
-    }
-    publicationResults.push(
-      await this.store.publishArtifact({
-        runId: source.run_id,
-        envelope: derived[1] as FormalArtifactEnvelope,
-      }),
-    );
-    if (input.faultAt === "after_view_sidecar") {
-      throw new StoreError("fault.injected", "fault injected after full report sidecar");
-    }
-    await this.materialize(derived[1] as FormalArtifactEnvelope);
-    if (input.faultAt === "after_view_materialization") {
-      throw new StoreError("fault.injected", "fault injected after full report materialization");
-    }
-    publicationResults.push(
-      await this.store.publishArtifact({
-        runId: source.run_id,
-        envelope: derived[2] as FormalArtifactEnvelope,
-      }),
-    );
-    if (input.faultAt === "after_consistency_sidecar") {
-      throw new StoreError("fault.injected", "fault injected after consistency sidecar");
-    }
-    return {
-      schemaVersion: "startup_opportunity.build_report_result.v1",
-      runId: source.run_id,
-      status: publicationResults.every((entry) => entry.status === "idempotent_replay")
-        ? "idempotent_replay"
-        : "published",
-      formalArtifactPaths: [source.artifact_path, ...derived.map((entry) => entry.artifact_path)],
-      materializedPaths: ["report.json", "decision-brief.md", "report.md"],
-      consistencyEvaluationRef: (derived[2] as FormalArtifactEnvelope).artifact_path,
-    };
+        status: publicationResults.every((entry) => entry.status === "idempotent_replay")
+          ? "idempotent_replay"
+          : "published",
+        formalArtifactPaths: [source.artifact_path, ...derived.map((entry) => entry.artifact_path)],
+        materializedPaths: ["report.json", "decision-brief.md", "report.md"],
+        consistencyEvaluationRef: (derived[2] as FormalArtifactEnvelope).artifact_path,
+      };
+    });
   }
 
   async materialize(

@@ -1,4 +1,5 @@
-import { type FileHandle, open, readFile, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { link, open, readFile, rm } from "node:fs/promises";
 import { canonicalJson } from "./canonical.js";
 import { isNodeError, resolveRunPath } from "./path-policy.js";
 import { StoreError } from "./store-error.js";
@@ -32,29 +33,56 @@ async function removeStaleLock(filename: string): Promise<boolean> {
   return true;
 }
 
-export async function withRunLock<T>(runRoot: string, action: () => Promise<T>): Promise<T> {
-  const filename = await resolveRunPath(runRoot, ".store/write.lock", { createParents: true });
-  let handle: FileHandle | undefined;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      handle = await open(filename, "wx", 0o600);
-      break;
-    } catch (error) {
-      if (!isNodeError(error, "EEXIST") || !(await removeStaleLock(filename))) {
-        throw new StoreError("run.write_locked", "another writer owns the Run", {});
-      }
-    }
-  }
-  if (!handle) {
-    throw new StoreError("run.write_locked", "could not acquire Run writer lock", {});
-  }
+async function withLock<T>(
+  runRoot: string,
+  lockPath: string,
+  errorCode: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const filename = await resolveRunPath(runRoot, lockPath, { createParents: true });
+  const temporary = await resolveRunPath(
+    runRoot,
+    `.store/temp/lock-${process.pid}-${randomUUID()}.tmp`,
+    { createParents: true },
+  );
+  const owner: LockOwner = { pid: process.pid, created_at: new Date().toISOString() };
+  const handle = await open(temporary, "wx", 0o600);
   try {
-    const owner: LockOwner = { pid: process.pid, created_at: new Date().toISOString() };
     await handle.writeFile(`${canonicalJson(owner)}\n`, "utf8");
     await handle.sync();
-    return await action();
   } finally {
     await handle.close();
-    await rm(filename, { force: true });
   }
+  let acquired = false;
+  try {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await link(temporary, filename);
+        acquired = true;
+        break;
+      } catch (error) {
+        if (!isNodeError(error, "EEXIST") || !(await removeStaleLock(filename))) {
+          throw new StoreError(errorCode, "another writer owns the Run operation", {});
+        }
+      }
+    }
+    if (!acquired) {
+      throw new StoreError(errorCode, "could not acquire Run operation lock", {});
+    }
+    await rm(temporary, { force: true });
+    return await action();
+  } finally {
+    await rm(temporary, { force: true });
+    if (acquired) {
+      await rm(filename, { force: true });
+    }
+  }
+}
+
+export async function withRunLock<T>(runRoot: string, action: () => Promise<T>): Promise<T> {
+  return withLock(runRoot, ".store/write.lock", "run.write_locked", action);
+}
+
+export async function withReportLock<T>(runRoot: string, action: () => Promise<T>): Promise<T> {
+  return withLock(runRoot, ".store/report.write.lock", "report.write_locked", action);
 }

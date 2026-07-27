@@ -145,17 +145,29 @@ function validateInputHashes(
   source: G14Document,
   byPath: ReadonlyMap<string, G14Document>,
 ): readonly ValidationIssue[] {
-  const hashes = records(source.document.input_artifact_hashes);
+  const metadata = isRecord(source.document.report_metadata)
+    ? source.document.report_metadata
+    : null;
+  const hashes = [
+    ...records(source.document.input_artifact_hashes).map((binding, index) => ({
+      binding,
+      instancePath: `${source.path}#/input_artifact_hashes/${index}`,
+    })),
+    ...records(metadata?.input_artifact_hashes).map((binding, index) => ({
+      binding,
+      instancePath: `${source.path}#/report_metadata/input_artifact_hashes/${index}`,
+    })),
+  ];
   const errors: ValidationIssue[] = [];
   const seen = new Set<string>();
-  for (const [index, binding] of hashes.entries()) {
+  for (const { binding, instancePath } of hashes) {
     const ref = binding.ref;
     const path = targetPath(ref);
     if (path === null || seen.has(path)) {
       errors.push(
         issue(
           "g1_4.input_hash_duplicate_or_invalid",
-          `${source.path}#/input_artifact_hashes/${index}/ref`,
+          `${instancePath}/ref`,
           "input hash refs must be unique whole-artifact refs",
           { ref },
         ),
@@ -168,7 +180,7 @@ function validateInputHashes(
       errors.push(
         issue(
           "g1_4.input_hash_missing_target",
-          `${source.path}#/input_artifact_hashes/${index}/ref`,
+          `${instancePath}/ref`,
           "input hash target is missing",
           { ref },
         ),
@@ -180,7 +192,7 @@ function validateInputHashes(
       errors.push(
         issue(
           "g1_4.input_hash_mismatch",
-          `${source.path}#/input_artifact_hashes/${index}/content_hash`,
+          `${instancePath}/content_hash`,
           "input hash differs from the canonical target document",
           { ref, actual: binding.content_hash, expected },
         ),
@@ -628,6 +640,56 @@ function validateAssessment(
     );
     return errors;
   }
+  const decisiveSupportingRefs = strings(assessment.document.decisive_evidence_refs);
+  const decisiveOpposingRefs = strings(assessment.document.decisive_opposing_refs);
+  const evidenceIds = (refs: readonly string[]): readonly string[] =>
+    refs
+      .map((ref) => target(byPath, ref)?.document.evidence_id)
+      .filter((id): id is string => typeof id === "string")
+      .sort();
+  addIfDifferent(
+    errors,
+    evidenceIds(decisiveSupportingRefs),
+    [...strings(matrix.document.decisive_evidence_refs)].sort(),
+    "assessment.decisive_matrix_mismatch",
+    `${assessment.path}#/decisive_evidence_refs`,
+    "Assessment decisive supporting Evidence must exactly match the final Matrix",
+  );
+  addIfDifferent(
+    errors,
+    evidenceIds(decisiveOpposingRefs),
+    [...strings(matrix.document.decisive_opposing_refs)].sort(),
+    "assessment.decisive_matrix_mismatch",
+    `${assessment.path}#/decisive_opposing_refs`,
+    "Assessment decisive opposing Evidence must exactly match the final Matrix",
+  );
+  const auditEvidenceReviews = records(audit.document.evidence_reviews);
+  const auditClaimReviews = records(audit.document.claim_reviews);
+  for (const evidenceRef of [
+    ...new Set([...decisiveSupportingRefs, ...decisiveOpposingRefs]),
+  ].sort()) {
+    const matchingEvidenceReviews = auditEvidenceReviews.filter(
+      (entry) => entry.evidence_ref === evidenceRef,
+    );
+    const matchingClaimReviews = auditClaimReviews.filter((entry) =>
+      strings(entry.evidence_refs).includes(evidenceRef),
+    );
+    if (
+      matchingEvidenceReviews.length !== 1 ||
+      matchingEvidenceReviews[0]?.decisive !== true ||
+      matchingClaimReviews.length === 0 ||
+      matchingClaimReviews.some((entry) => entry.decisive !== true)
+    ) {
+      errors.push(
+        issue(
+          "assessment.decisive_audit_mismatch",
+          `${assessment.path}#/decisive_evidence_refs`,
+          "every final decisive Evidence and its Claims must be audited exactly once as decisive",
+          { evidenceRef },
+        ),
+      );
+    }
+  }
   for (const [index, decision] of records(assessment.document.dimension_decisions).entries()) {
     const matrixDimension = records(matrix.document.dimensions).find(
       (entry) => entry.dimension_id === decision.dimension_id,
@@ -742,6 +804,22 @@ function validateTraceability(
   const errors: ValidationIssue[] = [];
   const assessment = target(byPath, traceability.document.assessment_ref);
   const matrix = target(byPath, traceability.document.hypothesis_evidence_matrix_ref);
+  if (
+    assessment?.schemaVersion === "startup_opportunity.concept_evidence_assessment.v2" &&
+    (traceability.document.hypothesis_evidence_matrix_ref !==
+      assessment.document.hypothesis_evidence_matrix_ref ||
+      traceability.document.business_engine_ref !== assessment.document.business_engine_ref ||
+      traceability.document.evidence_audit_ref !== assessment.document.evidence_audit_ref ||
+      traceability.document.adversarial_review_ref !== assessment.document.adversarial_review_ref)
+  ) {
+    errors.push(
+      issue(
+        "traceability.input_binding_mismatch",
+        traceability.path,
+        "Traceability inputs must exactly match the final Assessment inputs",
+      ),
+    );
+  }
   for (const [index, chain] of records(traceability.document.chains).entries()) {
     const judgment = target(byPath, chain.judgment_assessment_ref);
     const concept = target(byPath, chain.concept_subject_ref);
@@ -768,6 +846,7 @@ function validateTraceability(
       finding?.schemaVersion !== "startup_opportunity.finding.v1" ||
       claim?.schemaVersion !== "startup_opportunity.claim.v1" ||
       evidence?.schemaVersion !== "startup_opportunity.evidence.v1" ||
+      chain.assessment_ref !== traceability.document.assessment_ref ||
       matrixDimension === undefined ||
       !strings(matrixDimension.judgment_assessment_refs).includes(
         String(chain.judgment_assessment_ref),
@@ -784,6 +863,28 @@ function validateTraceability(
           "traceability.chain_broken",
           `${traceability.path}#/chains/${index}`,
           "decisive chain does not close report -> brief -> Assessment -> Matrix -> Judgment -> subject -> Insight -> Finding -> Claim -> Evidence",
+        ),
+      );
+    }
+  }
+  if (assessment?.schemaVersion === "startup_opportunity.concept_evidence_assessment.v2") {
+    const supportingRefs = new Set(strings(assessment.document.decisive_evidence_refs));
+    const opposingRefs = new Set(strings(assessment.document.decisive_opposing_refs));
+    const chains = records(traceability.document.chains);
+    const tracedRefs = new Set(chains.map((entry) => entry.evidence_ref));
+    const missingRefs = [...supportingRefs, ...opposingRefs].filter((ref) => !tracedRefs.has(ref));
+    const stanceMismatch = chains.some(
+      (entry) =>
+        (supportingRefs.has(String(entry.evidence_ref)) && entry.stance !== "support") ||
+        (opposingRefs.has(String(entry.evidence_ref)) && entry.stance !== "oppose"),
+    );
+    if (missingRefs.length > 0 || stanceMismatch) {
+      errors.push(
+        issue(
+          "traceability.decisive_evidence_coverage_mismatch",
+          `${traceability.path}#/chains`,
+          "Traceability must cover every final decisive Evidence ref with the declared stance",
+          { missingRefs: missingRefs.sort(), stanceMismatch },
         ),
       );
     }
@@ -866,6 +967,106 @@ function validateReportSet(
       );
       continue;
     }
+    const lineage = isRecord(assessment.document.lineage) ? assessment.document.lineage : {};
+    const audit = target(byPath, report.document.evidence_audit_ref);
+    const expectedJudgmentRefs = records(assessment.document.dimension_decisions)
+      .flatMap((entry) => strings(entry.judgment_assessment_refs))
+      .filter((ref, index, refs) => refs.indexOf(ref) === index)
+      .sort();
+    if (
+      report.document.run_id !== assessment.document.run_id ||
+      report.document.concept_frame_ref !== lineage.scope_frame_ref ||
+      report.document.concept_hypothesis_ref !== lineage.concept_hypothesis_ref ||
+      report.document.research_plan_ref !== lineage.research_plan_ref ||
+      report.document.evidence_assessment_plan_ref !== lineage.assessment_plan_ref ||
+      canonicalJson(report.document.plan_lineage_refs) !==
+        canonicalJson(lineage.plan_lineage_refs) ||
+      canonicalJson(report.document.applied_adaptation_refs) !==
+        canonicalJson(lineage.applied_adaptation_refs) ||
+      report.document.hypothesis_evidence_matrix_ref !==
+        assessment.document.hypothesis_evidence_matrix_ref ||
+      report.document.business_engine_ref !== assessment.document.business_engine_ref ||
+      report.document.evidence_audit_ref !== assessment.document.evidence_audit_ref ||
+      report.document.adversarial_review_ref !== assessment.document.adversarial_review_ref ||
+      traceability.document.assessment_ref !== assessment.path ||
+      canonicalJson([...strings(report.document.judgment_assessment_refs)].sort()) !==
+        canonicalJson(expectedJudgmentRefs) ||
+      audit?.schemaVersion !== "startup_opportunity.evidence_audit.v1" ||
+      !sameStrings(report.document.source_manifest_refs, audit.document.source_manifest_refs)
+    ) {
+      errors.push(
+        issue(
+          "report.final_input_lineage_mismatch",
+          report.path,
+          "report top-level refs must exactly bind the final current Assessment lineage and inputs",
+        ),
+      );
+    }
+    const reportMetadata = isRecord(report.document.report_metadata)
+      ? report.document.report_metadata
+      : {};
+    const reportInputHashRefs = new Set(
+      records(reportMetadata.input_artifact_hashes)
+        .map((binding) => targetPath(binding.ref))
+        .filter((ref): ref is string => ref !== null),
+    );
+    const requiredReportInputHashRefs = [
+      report.document.decision_context_ref,
+      report.document.concept_frame_ref,
+      report.document.concept_hypothesis_ref,
+      report.document.evidence_assessment_plan_ref,
+      report.document.research_plan_ref,
+      report.document.hypothesis_evidence_matrix_ref,
+      report.document.adversarial_review_ref,
+      report.document.evidence_audit_ref,
+      report.document.concept_evidence_assessment_ref,
+      report.document.business_engine_ref,
+      report.document.traceability_ref,
+    ].filter((ref): ref is string => typeof ref === "string");
+    const missingReportInputHashRefs = requiredReportInputHashRefs.filter(
+      (ref) => !reportInputHashRefs.has(ref),
+    );
+    if (missingReportInputHashRefs.length > 0) {
+      errors.push(
+        issue(
+          "report.input_hash_coverage_incomplete",
+          `${report.path}#/report_metadata/input_artifact_hashes`,
+          "report metadata must hash every final direct input",
+          { missingRefs: missingReportInputHashRefs.sort() },
+        ),
+      );
+    }
+    const freshness = isRecord(report.document.freshness_summary)
+      ? report.document.freshness_summary
+      : {};
+    const decisiveReviews = records(audit?.document.evidence_reviews).filter(
+      (entry) => entry.decisive === true,
+    );
+    const freshnessCounts = {
+      current: decisiveReviews.filter((entry) => entry.freshness_status === "current").length,
+      stale: decisiveReviews.filter((entry) => entry.freshness_status === "stale").length,
+      unknown: decisiveReviews.filter(
+        (entry) => entry.freshness_status !== "current" && entry.freshness_status !== "stale",
+      ).length,
+    };
+    if (
+      reportMetadata.valid_as_of !== assessment.document.valid_as_of ||
+      context.valid_as_of !== assessment.document.valid_as_of ||
+      freshness.valid_as_of !== assessment.document.valid_as_of ||
+      freshness.current_decisive_evidence_count !== freshnessCounts.current ||
+      freshness.stale_decisive_evidence_count !== freshnessCounts.stale ||
+      freshness.unknown_freshness_count !== freshnessCounts.unknown ||
+      !sameStrings(report.document.limitations, context.limitations)
+    ) {
+      errors.push(
+        issue(
+          "report.freshness_or_limitation_drift",
+          report.path,
+          "report freshness counts, validity date, or limitations drift from audited final inputs",
+          { freshnessCounts },
+        ),
+      );
+    }
     if (
       context.assessment_result !== assessment.document.assessment_result ||
       context.recommendation_meaning !== assessment.document.recommendation_meaning ||
@@ -898,14 +1099,18 @@ function validateReportSet(
       (entry) => entry.decisive === true,
     );
     const traceChains = records(traceability.document.chains);
+    const decisiveStatementIds = new Set(
+      decisiveStatements.map((statement) => statement.statement_id),
+    );
     for (const statement of decisiveStatements) {
       const expectedIds = traceChains
         .filter((chain) => chain.report_statement_id === statement.statement_id)
         .map((chain) => chain.chain_id)
         .sort();
       if (
+        expectedIds.length === 0 ||
         canonicalJson([...strings(statement.traceability_chain_refs)].sort()) !==
-        canonicalJson(expectedIds)
+          canonicalJson(expectedIds)
       ) {
         errors.push(
           issue(
@@ -916,6 +1121,20 @@ function validateReportSet(
           ),
         );
       }
+    }
+    const coverage = isRecord(traceability.document.coverage) ? traceability.document.coverage : {};
+    if (
+      coverage.decisive_statement_count !== decisiveStatements.length ||
+      coverage.traced_decisive_statement_count !== decisiveStatements.length ||
+      traceChains.some((chain) => !decisiveStatementIds.has(chain.report_statement_id))
+    ) {
+      errors.push(
+        issue(
+          "report.statement_traceability_coverage_mismatch",
+          `${report.path}#/statements`,
+          "Traceability coverage must equal the report's actual decisive statement set",
+        ),
+      );
     }
     const forbiddenMatches = policy.forbidden_report_expressions.filter((expression) =>
       allText(report.document).toLocaleLowerCase().includes(expression.toLocaleLowerCase()),

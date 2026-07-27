@@ -163,6 +163,8 @@ const BRANCHES: readonly FixtureBranch[] = [
 
 const SUPPORT_EVIDENCE_REF = `evidence/records/ev_${"1".repeat(64)}.json`;
 const OPPOSE_EVIDENCE_REF = `evidence/records/ev_${"2".repeat(64)}.json`;
+const SUPPORT_EVIDENCE_REFS = [SUPPORT_EVIDENCE_REF] as const;
+const OPPOSE_EVIDENCE_REFS = [OPPOSE_EVIDENCE_REF] as const;
 const SUPPORT_CLAIM_REF = "claims/unit_demand-support.json";
 const OPPOSE_CLAIM_REF = "claims/unit_demand-oppose.json";
 const FINDING_REF = "findings/unit_demand.json";
@@ -362,9 +364,16 @@ export async function createG14ContractBundle(
     }
     documents.set(entry.artifact_path, clone(entry.document));
   }
+  const supportClaim = documents.get(SUPPORT_CLAIM_REF);
+  const opposeClaim = documents.get(OPPOSE_CLAIM_REF);
+  if (supportClaim === undefined || opposeClaim === undefined) {
+    throw new Error("synthetic independent-source fixture inputs are missing");
+  }
+  supportClaim.evidence_refs = [SUPPORT_EVIDENCE_REF, OPPOSE_EVIDENCE_REF];
+  opposeClaim.evidence_refs = [SUPPORT_EVIDENCE_REF, OPPOSE_EVIDENCE_REF];
 
   const highQuality = result !== "insufficient_evidence";
-  for (const [index, ref] of [SUPPORT_EVIDENCE_REF, OPPOSE_EVIDENCE_REF].entries()) {
+  for (const [index, ref] of [...SUPPORT_EVIDENCE_REFS, ...OPPOSE_EVIDENCE_REFS].entries()) {
     const evidence = documents.get(ref);
     if (evidence === undefined) {
       throw new Error(`missing synthetic Evidence ${ref}`);
@@ -486,7 +495,7 @@ export async function createG14ContractBundle(
     limitations: ["SYNTHETIC BusinessEngine scenario; not operating data."],
   });
 
-  const evidenceRefs = [SUPPORT_EVIDENCE_REF, OPPOSE_EVIDENCE_REF];
+  const evidenceRefs = [...SUPPORT_EVIDENCE_REFS, ...OPPOSE_EVIDENCE_REFS];
   const claimRefs = [SUPPORT_CLAIM_REF, OPPOSE_CLAIM_REF];
   const auditDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.evidence_audit.v1",
@@ -534,12 +543,12 @@ export async function createG14ContractBundle(
         limitations: ["SYNTHETIC evidence quality scenario only."],
       };
     }),
-    claim_reviews: claimRefs.map((ref, index) => ({
+    claim_reviews: claimRefs.map((ref) => ({
       claim_ref: ref,
-      evidence_refs: [evidenceRefs[index]],
-      support_fidelity: "faithful",
+      evidence_refs: [...evidenceRefs],
+      support_fidelity: "not_a_factual_claim",
       quote_fidelity: "not_a_quote",
-      decisive: false,
+      decisive: true,
       limitations: ["No user quote is present."],
     })),
     stance_balance: DIMENSIONS.map((dimension) => ({
@@ -597,7 +606,7 @@ export async function createG14ContractBundle(
       status:
         dimension === "ai_generic_platform_open_source_baseline" ? "not_applicable" : "supported",
       summary: `SYNTHETIC challenge coverage for ${dimension}; no market assertion.`,
-      evidence_refs: dimension === "thesis_killing_opposition" ? [OPPOSE_EVIDENCE_REF] : [],
+      evidence_refs: dimension === "thesis_killing_opposition" ? [...OPPOSE_EVIDENCE_REFS] : [],
       claim_refs: dimension === "thesis_killing_opposition" ? [OPPOSE_CLAIM_REF] : [],
       severity: dimension === "thesis_killing_opposition" ? "blocking" : "advisory",
       thesis_killing: dimension === "thesis_killing_opposition",
@@ -610,7 +619,7 @@ export async function createG14ContractBundle(
       challenged_result: "prioritize",
       recommended_result: result,
       rationale: "The synthetic gate inputs determine only the exercised contract branch.",
-      decisive_opposition_refs: result === "deprioritize" ? [OPPOSE_EVIDENCE_REF] : [],
+      decisive_opposition_refs: result === "deprioritize" ? [...OPPOSE_EVIDENCE_REFS] : [],
       what_would_reverse_challenge: ["Different validated same-scope Evidence and gate inputs."],
     },
     evaluator_result: "passed",
@@ -635,8 +644,8 @@ export async function createG14ContractBundle(
       status,
       decisive: gateId !== "ai_mandatory_bundle",
       reason: `SYNTHETIC ${gateId} gate scenario.`,
-      supporting_refs: highQuality ? [SUPPORT_EVIDENCE_REF] : [],
-      opposing_refs: result === "deprioritize" ? [OPPOSE_EVIDENCE_REF] : [],
+      supporting_refs: highQuality ? [...SUPPORT_EVIDENCE_REFS] : [],
+      opposing_refs: result === "deprioritize" ? [...OPPOSE_EVIDENCE_REFS] : [],
       limitations: ["Mechanical gate input only."],
     };
   });
@@ -683,8 +692,8 @@ export async function createG14ContractBundle(
       limitations: ["SYNTHETIC dimension decision only."],
     })),
     hard_gate_results: gates,
-    decisive_evidence_refs: highQuality ? [SUPPORT_EVIDENCE_REF] : [],
-    decisive_opposing_refs: result === "deprioritize" ? [OPPOSE_EVIDENCE_REF] : [],
+    decisive_evidence_refs: highQuality ? [...SUPPORT_EVIDENCE_REFS] : [],
+    decisive_opposing_refs: result === "deprioritize" ? [...OPPOSE_EVIDENCE_REFS] : [],
     critical_gaps:
       result === "insufficient_evidence"
         ? ["Only low-tier synthetic inputs exist."]
@@ -696,7 +705,7 @@ export async function createG14ContractBundle(
     kill_criteria: ["High-quality opposition can reverse a directional conclusion."],
     belief_update_summary: {
       initial_belief: "No thesis belief is established by a synthetic fixture.",
-      evidence_that_changed_belief: highQuality ? [SUPPORT_EVIDENCE_REF] : [],
+      evidence_that_changed_belief: highQuality ? [...SUPPORT_EVIDENCE_REFS] : [],
       unchanged_assumptions: ["No real market Evidence was collected."],
       remaining_disagreement: ["Thesis viability remains outside this fixture."],
       final_decision_owner: "user",
@@ -710,6 +719,40 @@ export async function createG14ContractBundle(
   };
   documents.set(G14_ASSESSMENT_REF, assessmentDocument);
 
+  const traceabilityChains = [
+    ...SUPPORT_EVIDENCE_REFS.map((evidenceRef, index) => ({
+      chain_id: `trace_chain_decisive_support_${index + 1}`,
+      report_statement_id: "report_statement_decisive_1",
+      decision_brief_section: "decisive_support",
+      assessment_ref: G14_ASSESSMENT_REF,
+      matrix_dimension_ref:
+        "artifacts/synthesis/hypothesis-evidence-matrix.json#demand_and_behavior",
+      judgment_assessment_ref: "judgments/judgment-demand.json",
+      concept_subject_ref: "concept-hypothesis.json",
+      insight_ref: INSIGHT_REF,
+      finding_ref: FINDING_REF,
+      claim_ref: SUPPORT_CLAIM_REF,
+      evidence_ref: evidenceRef,
+      stance: "support",
+    })),
+    ...(result === "deprioritize"
+      ? OPPOSE_EVIDENCE_REFS.map((evidenceRef, index) => ({
+          chain_id: `trace_chain_decisive_oppose_${index + 1}`,
+          report_statement_id: "report_statement_decisive_1",
+          decision_brief_section: "decisive_opposition",
+          assessment_ref: G14_ASSESSMENT_REF,
+          matrix_dimension_ref:
+            "artifacts/synthesis/hypothesis-evidence-matrix.json#demand_and_behavior",
+          judgment_assessment_ref: "judgments/judgment-demand.json",
+          concept_subject_ref: "concept-hypothesis.json",
+          insight_ref: INSIGHT_REF,
+          finding_ref: FINDING_REF,
+          claim_ref: OPPOSE_CLAIM_REF,
+          evidence_ref: evidenceRef,
+          stance: "oppose",
+        }))
+      : []),
+  ];
   const traceabilityDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.traceability.v1",
     traceability_id: "traceability_g1_4_synthetic",
@@ -726,31 +769,15 @@ export async function createG14ContractBundle(
       "judgments/judgment-demand.json",
       INSIGHT_REF,
       FINDING_REF,
-      SUPPORT_CLAIM_REF,
-      SUPPORT_EVIDENCE_REF,
+      ...claimRefs,
+      ...evidenceRefs,
     ]),
     assessment_ref: G14_ASSESSMENT_REF,
     hypothesis_evidence_matrix_ref: "artifacts/synthesis/hypothesis-evidence-matrix.json",
     business_engine_ref: "artifacts/synthesis/business-engine.json",
     evidence_audit_ref: G14_AUDIT_REF,
     adversarial_review_ref: G14_REVIEW_REF,
-    chains: [
-      {
-        chain_id: "trace_chain_decisive_1",
-        report_statement_id: "report_statement_decisive_1",
-        decision_brief_section: "current_recommendation",
-        assessment_ref: G14_ASSESSMENT_REF,
-        matrix_dimension_ref:
-          "artifacts/synthesis/hypothesis-evidence-matrix.json#demand_and_behavior",
-        judgment_assessment_ref: "judgments/judgment-demand.json",
-        concept_subject_ref: "concept-hypothesis.json",
-        insight_ref: INSIGHT_REF,
-        finding_ref: FINDING_REF,
-        claim_ref: SUPPORT_CLAIM_REF,
-        evidence_ref: SUPPORT_EVIDENCE_REF,
-        stance: "support",
-      },
-    ],
+    chains: traceabilityChains,
     coverage: {
       decisive_statement_count: 1,
       traced_decisive_statement_count: 1,
@@ -818,7 +845,7 @@ export async function createG14ContractBundle(
         ? [
             {
               summary: "Synthetic supporting chain for contract validation.",
-              refs: [SUPPORT_EVIDENCE_REF],
+              refs: [...SUPPORT_EVIDENCE_REFS],
             },
           ]
         : [],
@@ -827,7 +854,7 @@ export async function createG14ContractBundle(
           ? [
               {
                 summary: "Synthetic opposition triggers the directional hard fail.",
-                refs: [OPPOSE_EVIDENCE_REF],
+                refs: [...OPPOSE_EVIDENCE_REFS],
               },
             ]
           : [],
@@ -863,7 +890,7 @@ export async function createG14ContractBundle(
         text: "The deterministic gate yields the declared synthetic assessment result.",
         kind: "recommendation",
         decisive: true,
-        traceability_chain_refs: ["trace_chain_decisive_1"],
+        traceability_chain_refs: traceabilityChains.map((entry) => entry.chain_id),
       },
     ],
     freshness_summary: {
@@ -904,8 +931,8 @@ export async function createG14ContractBundle(
       "judgments/judgment-demand.json",
       INSIGHT_REF,
       FINDING_REF,
-      SUPPORT_CLAIM_REF,
-      SUPPORT_EVIDENCE_REF,
+      ...claimRefs,
+      ...evidenceRefs,
     ]),
     envelope(G14_REPORT_REF, reportDocument, "main_agent", [
       "decision-context.json",

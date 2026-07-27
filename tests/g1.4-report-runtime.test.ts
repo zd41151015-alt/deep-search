@@ -100,6 +100,27 @@ interface PreparedRun {
   readonly reportEnvelope: FormalArtifactEnvelope;
 }
 
+function nextReportRevision(source: FormalArtifactEnvelope): FormalArtifactEnvelope {
+  const artifactPath = "artifacts/reporting/report-json.r2.json";
+  const createdAt = "2026-07-25T19:10:00Z";
+  const document = structuredClone(source.document);
+  document.report_id = "concept_evidence_report_g1_4_synthetic_r2";
+  document.owned_output_path = artifactPath;
+  const metadata = document.report_metadata as Record<string, unknown>;
+  metadata.generated_at = createdAt;
+  const sections = document.report_sections as Record<string, unknown>;
+  sections.concept_hypothesis = [
+    "SYNTHETIC r2 report wording; this is not Evidence or external validation.",
+  ];
+  return {
+    ...source,
+    artifact_path: artifactPath,
+    created_at: createdAt,
+    content_hash: canonicalContentHash(document),
+    document,
+  };
+}
+
 async function prepareRun(context: TestContext): Promise<PreparedRun> {
   const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g1-4-"));
   context.after(() => rm(root, { recursive: true, force: true }));
@@ -192,12 +213,29 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
       recordedAt: `2026-07-25T18:${String(index * 2 + 2).padStart(2, "0")}:00Z`,
     });
     const records = [support.record, oppose.record] as const;
+    const evidencePaths = records.map((record) => `evidence/records/${record.evidence_id}.json`);
     await store.publishArtifactBundle({
       runId: G14_RUN_ID,
-      envelopes: branchResearchEnvelopes(branch, records, index).map((envelope) => ({
-        ...envelope,
-        created_at: `2026-07-25T18:${String(20 + index).padStart(2, "0")}:00Z`,
-      })),
+      envelopes: branchResearchEnvelopes(branch, records, index).map((envelope) => {
+        const document = structuredClone(envelope.document);
+        if (
+          branch.unitId === demand.unitId &&
+          envelope.artifact_type === "startup_opportunity.claim.v1"
+        ) {
+          document.evidence_refs = evidencePaths;
+        }
+        return {
+          ...envelope,
+          created_at: `2026-07-25T18:${String(20 + index).padStart(2, "0")}:00Z`,
+          input_refs:
+            branch.unitId === demand.unitId &&
+            envelope.artifact_type === "startup_opportunity.claim.v1"
+              ? [`tasks/${branch.unitId}.attempt-1.json`, ...evidencePaths].sort()
+              : envelope.input_refs,
+          content_hash: canonicalContentHash(document),
+          document,
+        };
+      }),
     });
     if (branch.unitId === demand.unitId) {
       demandRecords = records;
@@ -295,6 +333,150 @@ test("build-report publishes formal sidecars, materializes three outputs, and ex
   const reopened = await state.store.load(G14_RUN_ID);
   assert.equal(reopened.manifest.schema_bundle_version, "6.0.0");
   assert.equal(reopened.lastValidCheckpointRef, "checkpoints/checkpoint-g1-4-report.json");
+  assert.equal(reopened.reportRecovery.recoveredFormalArtifactPaths.length, 0);
+  assert.equal(reopened.reportRecovery.recoveredMaterializedPaths.length, 0);
+});
+
+test("G1.R initializes the RunStore-report runtime cycle in both import orders and reopens", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g1-r-cycle-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const script = `
+    const order = process.env.G1R_IMPORT_ORDER;
+    const runsRoot = process.env.G1R_RUNS_ROOT;
+    if (!order || !runsRoot) throw new Error("missing G1.R child-process input");
+    const runStorePath = "./harness/src/run-store/run-store.ts";
+    const reportRuntimePath = "./harness/src/reporting/report-runtime.ts";
+    const modules = order === "run-first"
+      ? [await import(runStorePath), await import(reportRuntimePath)]
+      : [await import(reportRuntimePath), await import(runStorePath)];
+    const runStoreModule = order === "run-first" ? modules[0] : modules[1];
+    const reportRuntimeModule = order === "run-first" ? modules[1] : modules[0];
+    const { createArtifactValidator } = await import("./harness/src/validators/artifact-validator.ts");
+    const validator = await createArtifactValidator(process.cwd());
+    const store = new runStoreModule.RunStore(runsRoot, validator);
+    const runId = order === "run-first" ? "run_g1_r_cycle_run_first" : "run_g1_r_cycle_report_first";
+    await store.create({
+      runId,
+      mode: "concept_evidence_assessment",
+      createdAt: "2026-07-25T18:00:00Z",
+    });
+    new reportRuntimeModule.ReportRuntime(runsRoot, validator);
+    const reopened = await store.load(runId);
+    process.stdout.write(JSON.stringify({ order, runId: reopened.runId, recovered: reopened.recovered }));
+  `;
+  for (const order of ["run-first", "report-first"] as const) {
+    const runsRoot = path.join(root, order, "runs");
+    const executed = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "--eval", script],
+      {
+        cwd: repositoryRoot,
+        env: { ...process.env, G1R_IMPORT_ORDER: order, G1R_RUNS_ROOT: runsRoot },
+      },
+    );
+    assert.deepEqual(JSON.parse(executed.stdout), {
+      order,
+      runId: order === "run-first" ? "run_g1_r_cycle_run_first" : "run_g1_r_cycle_report_first",
+      recovered: false,
+    });
+  }
+});
+
+test("G1.R rejects a second report revision before writes and preserves reopen", async (context) => {
+  const state = await prepareRun(context);
+  await state.runtime.build({ reportEnvelope: state.reportEnvelope });
+  const before = await snapshotTree(state.runRoot);
+  const revision = nextReportRevision(state.reportEnvelope);
+  await assert.rejects(
+    state.runtime.build({ reportEnvelope: revision }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.final_revision_conflict",
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
+  const reopened = await state.store.load(G14_RUN_ID);
+  assert.equal(reopened.reportRecovery.recoveredFormalArtifactPaths.length, 0);
+  assert.equal(reopened.reportRecovery.recoveredMaterializedPaths.length, 0);
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
+});
+
+test("G1.R rejects r2 after an r1 sidecar-only crash and recovers r1", async (context) => {
+  const state = await prepareRun(context);
+  await assert.rejects(
+    state.runtime.build({
+      reportEnvelope: state.reportEnvelope,
+      faultAt: "after_report_sidecar",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const beforeRevision = await snapshotTree(state.runRoot);
+  const revision = nextReportRevision(state.reportEnvelope);
+  await assert.rejects(
+    state.runtime.build({ reportEnvelope: revision }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.final_revision_conflict",
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeRevision);
+  await assert.rejects(readFile(path.join(state.runRoot, revision.artifact_path)));
+
+  const reopened = await state.store.load(G14_RUN_ID);
+  assert.ok(reopened.reportRecovery.recoveredFormalArtifactPaths.length > 0);
+  assert.ok(reopened.reportRecovery.recoveredMaterializedPaths.length > 0);
+  const materialized = JSON.parse(
+    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.equal(materialized.report_id, state.reportEnvelope.document.report_id);
+  assert.equal(
+    (await state.runtime.build({ reportEnvelope: state.reportEnvelope })).status,
+    "idempotent_replay",
+  );
+});
+
+test("G1.R reclaims legacy incomplete Run and report locks before build and reopen", async (context) => {
+  const state = await prepareRun(context);
+  await writeFile(path.join(state.runRoot, ".store/write.lock"), "");
+  await writeFile(path.join(state.runRoot, ".store/report.write.lock"), "");
+
+  assert.equal(
+    (await state.runtime.build({ reportEnvelope: state.reportEnvelope })).status,
+    "published",
+  );
+  await assert.rejects(readFile(path.join(state.runRoot, ".store/write.lock")));
+  await assert.rejects(readFile(path.join(state.runRoot, ".store/report.write.lock")));
+  const reopened = await state.store.load(G14_RUN_ID);
+  assert.equal(reopened.reportRecovery.recoveredFormalArtifactPaths.length, 0);
+  assert.equal(reopened.reportRecovery.recoveredMaterializedPaths.length, 0);
+});
+
+test("G1.R serializes concurrent report revisions without a losing sidecar", async (context) => {
+  const state = await prepareRun(context);
+  const revision = nextReportRevision(state.reportEnvelope);
+  const candidates = [state.reportEnvelope, revision] as const;
+  const outcomes = await Promise.allSettled(
+    candidates.map((reportEnvelope) => state.runtime.build({ reportEnvelope })),
+  );
+  const winnerIndexes = outcomes
+    .map((outcome, index) => (outcome.status === "fulfilled" ? index : -1))
+    .filter((index) => index >= 0);
+  const loserIndexes = outcomes
+    .map((outcome, index) => (outcome.status === "rejected" ? index : -1))
+    .filter((index) => index >= 0);
+  assert.equal(winnerIndexes.length, 1);
+  assert.equal(loserIndexes.length, 1);
+  const loser = outcomes[loserIndexes[0] as number];
+  assert.ok(loser?.status === "rejected");
+  assert.ok(loser.reason instanceof StoreError);
+  assert.equal(loser.reason.code, "report.write_locked");
+
+  const winner = candidates[winnerIndexes[0] as number];
+  const losingCandidate = candidates[loserIndexes[0] as number];
+  assert.ok(winner);
+  assert.ok(losingCandidate);
+  await assert.rejects(readFile(path.join(state.runRoot, losingCandidate.artifact_path)));
+  const materialized = JSON.parse(
+    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.equal(materialized.report_id, winner.document.report_id);
+  const reopened = await state.store.load(G14_RUN_ID);
   assert.equal(reopened.reportRecovery.recoveredFormalArtifactPaths.length, 0);
   assert.equal(reopened.reportRecovery.recoveredMaterializedPaths.length, 0);
 });
@@ -401,7 +583,8 @@ test("a different report envelope cannot replay into the same immutable path", a
   const before = await snapshotTree(state.runRoot);
   await assert.rejects(
     state.runtime.build({ reportEnvelope: rehashed }),
-    (error: unknown) => error instanceof StoreError && error.code === "write.conflict",
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.final_revision_conflict",
   );
   assert.deepEqual(await snapshotTree(state.runRoot), before);
 });

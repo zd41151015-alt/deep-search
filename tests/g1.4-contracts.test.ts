@@ -19,6 +19,7 @@ import {
   G14_REPORT_REF,
   G14_REVIEW_REF,
   G14_TRACEABILITY_REF,
+  refreshG14Bundle,
 } from "./fixtures/g1.4/assessment-report-fixture.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -98,9 +99,12 @@ test("Evidence audit fails closed for stale, single-source, unavailable, and uns
   const singleAudit = effective(singleSource, G14_AUDIT_REF);
   const singleClaimReview = (singleAudit.claim_reviews as Record<string, unknown>[])[0];
   assert.ok(singleClaimReview);
-  singleClaimReview.decisive = true;
-  rehash(singleSource, G14_AUDIT_REF);
-  assert.ok((await codes(singleSource)).includes("audit.ceiling_mismatch"));
+  const retainedEvidenceRef = String((singleClaimReview.evidence_refs as string[])[0]);
+  singleClaimReview.evidence_refs = [retainedEvidenceRef];
+  effective(singleSource, String(singleClaimReview.claim_ref)).evidence_refs = [
+    retainedEvidenceRef,
+  ];
+  assert.ok((await codes(refreshG14Bundle(singleSource))).includes("audit.ceiling_mismatch"));
 
   const unavailable = await createG14ContractBundle("prioritize");
   const unavailableManifestPath = String(
@@ -159,6 +163,85 @@ test("Evidence audit fails closed for stale, single-source, unavailable, and uns
   const validator = await createArtifactValidator(repositoryRoot);
   const unsupportedResult = validator.validateDocumentBundle(retained);
   assert.equal(unsupportedResult.valid, true, JSON.stringify(unsupportedResult));
+});
+
+test("G1.R closes decisive Audit, Matrix, Traceability, and final-plan lineage bypasses", async () => {
+  const falseDecisive = await createG14ContractBundle("prioritize");
+  const falseClaimReview = (
+    effective(falseDecisive, G14_AUDIT_REF).claim_reviews as Record<string, unknown>[]
+  )[0];
+  assert.ok(falseClaimReview);
+  falseClaimReview.decisive = false;
+  assert.ok(
+    (await codes(refreshG14Bundle(falseDecisive))).includes("assessment.decisive_audit_mismatch"),
+  );
+
+  const matrixDrift = await createG14ContractBundle("prioritize");
+  const matrix = effective(matrixDrift, "artifacts/synthesis/hypothesis-evidence-matrix.json");
+  matrix.decisive_evidence_refs = [];
+  assert.ok(
+    (await codes(refreshG14Bundle(matrixDrift))).includes("assessment.decisive_matrix_mismatch"),
+  );
+
+  const missingTrace = await createG14ContractBundle("prioritize");
+  const traceability = effective(missingTrace, G14_TRACEABILITY_REF);
+  const retainedChains: Record<string, unknown>[] = [];
+  traceability.chains = retainedChains;
+  const report = effective(missingTrace, G14_REPORT_REF);
+  const statement = (report.statements as Record<string, unknown>[])[0];
+  assert.ok(statement);
+  statement.traceability_chain_refs = retainedChains.map((chain) => chain.chain_id);
+  assert.ok(
+    (await codes(refreshG14Bundle(missingTrace))).includes(
+      "traceability.decisive_evidence_coverage_mismatch",
+    ),
+  );
+
+  const lineageBase = await createG14ContractBundle("prioritize");
+  const staleAssessmentPlanRef = "plans/concept-evidence-assessment-plan-stale.r1.json";
+  const staleLineage: DocumentBundle = {
+    ...lineageBase,
+    documents: [
+      ...lineageBase.documents,
+      {
+        path: staleAssessmentPlanRef,
+        document: clone(entry(lineageBase, "plans/concept-evidence-assessment-plan.r1.json")),
+      },
+    ],
+  };
+  const staleReport = effective(staleLineage, G14_REPORT_REF);
+  staleReport.evidence_assessment_plan_ref = staleAssessmentPlanRef;
+  const staleMetadata = staleReport.report_metadata as Record<string, unknown>;
+  staleMetadata.input_artifact_hashes = (
+    staleMetadata.input_artifact_hashes as Record<string, unknown>[]
+  ).map((binding) =>
+    binding.ref === "plans/concept-evidence-assessment-plan.r1.json"
+      ? { ...binding, ref: staleAssessmentPlanRef }
+      : binding,
+  );
+  const lineageCodes = await codes(refreshG14Bundle(staleLineage));
+  assert.ok(lineageCodes.includes("report.final_input_lineage_mismatch"));
+  assert.equal(lineageCodes.includes("reference.type_mismatch"), false);
+});
+
+test("G1.R validates nested report input hashes", async () => {
+  const bundle = await createG14ContractBundle("prioritize");
+  const report = effective(bundle, G14_REPORT_REF);
+  const metadata = report.report_metadata as Record<string, unknown>;
+  const binding = (metadata.input_artifact_hashes as Record<string, unknown>[])[0];
+  assert.ok(binding);
+  binding.content_hash = `sha256:${"0".repeat(64)}`;
+  rehash(bundle, G14_REPORT_REF);
+  assert.ok((await codes(bundle)).includes("g1_4.input_hash_mismatch"));
+
+  const omitted = await createG14ContractBundle("prioritize");
+  const omittedReport = effective(omitted, G14_REPORT_REF);
+  const omittedMetadata = omittedReport.report_metadata as Record<string, unknown>;
+  omittedMetadata.input_artifact_hashes = (
+    omittedMetadata.input_artifact_hashes as Record<string, unknown>[]
+  ).filter((candidate) => candidate.ref !== G14_REVIEW_REF);
+  rehash(omitted, G14_REPORT_REF);
+  assert.ok((await codes(omitted)).includes("report.input_hash_coverage_incomplete"));
 });
 
 test("adversarial review enforces challenger independence and formal revision requests", async () => {
