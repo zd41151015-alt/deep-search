@@ -1,5 +1,6 @@
 import {
   canonicalContentHash,
+  type DiscoveryProfile,
   type DocumentBundle,
   type EvidenceStoreRecordV2,
   type FormalArtifactEnvelope,
@@ -130,7 +131,12 @@ function conversion(
   };
 }
 
-function opportunity(runId: string, id: string, title: string): Record<string, unknown> {
+function opportunity(
+  runId: string,
+  id: string,
+  title: string,
+  profile: DiscoveryProfile,
+): Record<string, unknown> {
   return {
     schema_version: "startup_opportunity.opportunity_thesis.v1",
     opportunity_id: id,
@@ -144,7 +150,7 @@ function opportunity(runId: string, id: string, title: string): Record<string, u
     title,
     description: SYNTHETIC,
     opportunity_thesis: SYNTHETIC,
-    discovery_profile: "general",
+    discovery_profile: profile,
     research_axes: ["industry_demand", "jtbd_workflow", "counter_evidence"],
     demand_thesis_ref: G23_DEMAND,
     selected_solution_ref: G23_SOLUTION,
@@ -222,8 +228,14 @@ export async function createDiscoverySynthesisFixture(
   runId: string,
   substrate: DiscoveryRuntimeSubstrate,
   additionalPlanWaves: readonly Record<string, unknown>[] = [],
+  profile: DiscoveryProfile = "general",
 ): Promise<DocumentBundle> {
-  const bundle = await createDiscoveryRuntimeFixture(runId, substrate, additionalPlanWaves);
+  const bundle = await createDiscoveryRuntimeFixture(
+    runId,
+    substrate,
+    additionalPlanWaves,
+    profile,
+  );
   (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v11";
   const mutable = bundle as unknown as {
     documents: { path: string; document: Record<string, unknown> }[];
@@ -348,7 +360,7 @@ export async function createDiscoverySynthesisFixture(
     selected: false,
     delivery_form: "mobile_web",
     solution_type: "consumer_workflow",
-    uses_ai: false,
+    uses_ai: profile === "ai_first" || profile === "hybrid",
     solution_behavior: SYNTHETIC,
     workflow_change: SYNTHETIC,
     required_capabilities: [],
@@ -402,11 +414,17 @@ export async function createDiscoverySynthesisFixture(
     source_boundary: boundary(),
     limitations: [SYNTHETIC],
   };
-  const opportunityA = opportunity(runId, "opportunity_household", "SYNTHETIC household workflow");
+  const opportunityA = opportunity(
+    runId,
+    "opportunity_household",
+    "SYNTHETIC household workflow",
+    profile,
+  );
   const opportunityB = opportunity(
     runId,
     "opportunity_household_variant",
     "SYNTHETIC household workflow alternate title",
+    profile,
   );
   const snapshot = {
     schema_version: "startup_opportunity.thesis_evaluation_snapshot.v1",

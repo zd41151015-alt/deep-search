@@ -36,7 +36,8 @@ export interface FormalArtifactEnvelope extends Record<string, unknown> {
     | "startup_opportunity.artifact_envelope.v8"
     | "startup_opportunity.artifact_envelope.v10"
     | "startup_opportunity.artifact_envelope.v11"
-    | "startup_opportunity.artifact_envelope.v12";
+    | "startup_opportunity.artifact_envelope.v12"
+    | "startup_opportunity.artifact_envelope.v13";
   readonly artifact_type: string;
   readonly artifact_path: string;
   readonly run_id: string;
@@ -58,7 +59,8 @@ interface ArtifactOperationReceipt {
     | "startup_opportunity.artifact_store_operation.v7"
     | "startup_opportunity.artifact_store_operation.v8"
     | "startup_opportunity.artifact_store_operation.v9"
-    | "startup_opportunity.artifact_store_operation.v10";
+    | "startup_opportunity.artifact_store_operation.v10"
+    | "startup_opportunity.artifact_store_operation.v11";
   readonly operation_key: string;
   readonly run_id: string;
   readonly artifact_path: string;
@@ -112,6 +114,7 @@ const STORE_ENVELOPE_VERSIONS = new Set<string>([
   "startup_opportunity.artifact_envelope.v10",
   "startup_opportunity.artifact_envelope.v11",
   "startup_opportunity.artifact_envelope.v12",
+  "startup_opportunity.artifact_envelope.v13",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -185,6 +188,7 @@ function validateArtifactReceipt(
       "startup_opportunity.artifact_store_operation.v8",
       "startup_opportunity.artifact_store_operation.v9",
       "startup_opportunity.artifact_store_operation.v10",
+      "startup_opportunity.artifact_store_operation.v11",
     ].includes(String(value.schema_version)) ||
     !isSha256(value.operation_key) ||
     value.run_id !== runId ||
@@ -216,7 +220,10 @@ function validateArtifactReceipt(
                     : receipt.envelope.schema_version ===
                         "startup_opportunity.artifact_envelope.v11"
                       ? "startup_opportunity.artifact_store_operation.v9"
-                      : "startup_opportunity.artifact_store_operation.v10";
+                      : receipt.envelope.schema_version ===
+                          "startup_opportunity.artifact_envelope.v12"
+                        ? "startup_opportunity.artifact_store_operation.v10"
+                        : "startup_opportunity.artifact_store_operation.v11";
   const expectedFilename = `artifact-${sha256Hex(receipt.operation_key)}.json`;
   if (
     filename !== expectedFilename ||
@@ -390,7 +397,10 @@ async function assertReferenceExists(
 }
 
 function publicationRank(envelope: FormalArtifactEnvelope): number {
-  if (envelope.schema_version === "startup_opportunity.artifact_envelope.v12") {
+  if (
+    envelope.schema_version === "startup_opportunity.artifact_envelope.v12" ||
+    envelope.schema_version === "startup_opportunity.artifact_envelope.v13"
+  ) {
     const ranks: Readonly<Record<string, number>> = {
       "startup_opportunity.research_task.v3": 10,
       "startup_opportunity.evidence.v3": 20,
@@ -414,6 +424,7 @@ function publicationRank(envelope: FormalArtifactEnvelope): number {
       "startup_opportunity.decision_brief.v2": 101,
       "startup_opportunity.discovery_report_view.v1": 102,
       "startup_opportunity.report_consistency_evaluation.v2": 103,
+      "startup_opportunity.report_consistency_evaluation.v3": 103,
     };
     return ranks[envelope.artifact_type] ?? 199;
   }
@@ -876,7 +887,8 @@ export class ArtifactStore {
       bundleVersion === "startup_opportunity.document_bundle.v8" ||
       bundleVersion === "startup_opportunity.document_bundle.v10" ||
       bundleVersion === "startup_opportunity.document_bundle.v11" ||
-      bundleVersion === "startup_opportunity.document_bundle.v12"
+      bundleVersion === "startup_opportunity.document_bundle.v12" ||
+      bundleVersion === "startup_opportunity.document_bundle.v13"
     ) {
       for (const record of await this.evidence.listRecordsLocked(
         runRoot,
@@ -897,7 +909,8 @@ export class ArtifactStore {
         bundleVersion === "startup_opportunity.document_bundle.v8" ||
         bundleVersion === "startup_opportunity.document_bundle.v10" ||
         bundleVersion === "startup_opportunity.document_bundle.v11" ||
-        bundleVersion === "startup_opportunity.document_bundle.v12"
+        bundleVersion === "startup_opportunity.document_bundle.v12" ||
+        bundleVersion === "startup_opportunity.document_bundle.v13"
           ? { exact_records: [] }
           : {}),
       },

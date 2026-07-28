@@ -1,5 +1,6 @@
 import {
   canonicalContentHash,
+  type DiscoveryProfile,
   type DocumentBundle,
   type EvidenceStoreRecordV2,
   type FormalArtifactEnvelope,
@@ -133,7 +134,7 @@ function envelope(
   producerRole = "main_agent",
 ): FormalArtifactEnvelope {
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v12",
+    schema_version: "startup_opportunity.artifact_envelope.v13",
     artifact_type: String(document.schema_version),
     artifact_path: artifactPath,
     run_id: runId,
@@ -323,6 +324,7 @@ function branch(
   judgments: readonly string[],
   manifestRef: string,
   gates: readonly string[],
+  usesAi: boolean,
 ): Record<string, unknown> {
   return {
     schema_version: "startup_opportunity.enrichment_branch_result.v1",
@@ -365,7 +367,12 @@ function branch(
       gates.map((gate) => ({
         opportunity_ref: opportunityRef,
         gate_id: gate,
-        status: gate.startsWith("ai_") ? "not_applicable" : "insufficient_evidence",
+        status:
+          usesAi && gate === "ai_mandatory_bundle"
+            ? "insufficient_evidence"
+            : gate.startsWith("ai_")
+              ? "not_applicable"
+              : "insufficient_evidence",
         judgment_assessment_refs: [judgments[index] as string],
         rationale: SYNTHETIC,
         limitations: [SYNTHETIC],
@@ -500,6 +507,7 @@ function comparison(
   suffix: "a" | "b",
   judgmentRefs: readonly string[],
   documents: ReadonlyMap<string, Record<string, unknown>>,
+  usesAi: boolean,
 ): Record<string, unknown> {
   const domainRefs = [
     suffix === "a" ? G24_VALUE_A : G24_VALUE_B,
@@ -534,7 +542,12 @@ function comparison(
     compared_at: "2026-07-27T21:21:00Z",
     hard_gate_results: G24_HARD_GATES.map((gate) => ({
       gate_id: gate,
-      status: gate.startsWith("ai_") ? "not_applicable" : "insufficient_evidence",
+      status:
+        usesAi && gate === "ai_mandatory_bundle"
+          ? "insufficient_evidence"
+          : gate.startsWith("ai_")
+            ? "not_applicable"
+            : "insufficient_evidence",
       judgment_assessment_refs: [...judgmentRefs],
       rationale: SYNTHETIC,
       limitations: [SYNTHETIC],
@@ -575,7 +588,9 @@ function comparison(
 export async function createDiscoveryEvaluationFixture(
   runId: string,
   substrate: DiscoveryEvaluationSubstrate,
+  profile: DiscoveryProfile = "general",
 ): Promise<DocumentBundle> {
+  const usesAi = profile === "ai_first" || profile === "hybrid";
   const bundle = await createDiscoverySynthesisFixture(
     runId,
     {
@@ -600,8 +615,9 @@ export async function createDiscoveryEvaluationFixture(
         ],
       },
     ],
+    profile,
   );
-  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v12";
+  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v13";
   const exactRecords = (bundle.exact_records ?? []) as {
     ref: string;
     document: Record<string, unknown>;
@@ -795,6 +811,7 @@ export async function createDiscoveryEvaluationFixture(
       [G24_JUDGMENT_A_SUPPORT, G24_JUDGMENT_B_SUPPORT],
       G24_MANIFEST_SUPPORT,
       supportGates,
+      usesAi,
     ),
   );
   add(
@@ -811,6 +828,7 @@ export async function createDiscoveryEvaluationFixture(
       [G24_JUDGMENT_A_CHALLENGE, G24_JUDGMENT_B_CHALLENGE],
       G24_MANIFEST_CHALLENGE,
       challengeGates,
+      usesAi,
     ),
   );
 
@@ -820,7 +838,12 @@ export async function createDiscoveryEvaluationFixture(
       return {
         opportunity_ref: opportunityRef,
         gate_id: gate,
-        status: gate.startsWith("ai_") ? "not_applicable" : "insufficient_evidence",
+        status:
+          usesAi && gate === "ai_mandatory_bundle"
+            ? "insufficient_evidence"
+            : gate.startsWith("ai_")
+              ? "not_applicable"
+              : "insufficient_evidence",
         source_branch_refs: [support ? G24_BRANCH_SUPPORT : G24_BRANCH_CHALLENGE],
         judgment_assessment_refs: [
           support
@@ -901,6 +924,7 @@ export async function createDiscoveryEvaluationFixture(
       "a",
       [G24_JUDGMENT_A_SUPPORT, G24_JUDGMENT_A_CHALLENGE],
       documents,
+      usesAi,
     ),
   );
   add(
@@ -911,6 +935,7 @@ export async function createDiscoveryEvaluationFixture(
       "b",
       [G24_JUDGMENT_B_SUPPORT, G24_JUDGMENT_B_CHALLENGE],
       documents,
+      usesAi,
     ),
   );
   add(G24_SENSITIVITY, {
@@ -1168,18 +1193,18 @@ export async function createDiscoveryEvaluationFixture(
     limitations: [SYNTHETIC],
   });
 
-  const v12Paths = [...documents.keys()].filter(
+  const v13Paths = [...documents.keys()].filter(
     (path) => !bundle.documents.some((entry) => entry.path === path),
   );
   const createdTimes = new Map<string, string>();
-  v12Paths.forEach((path, index) => {
+  v13Paths.forEach((path, index) => {
     createdTimes.set(
       path,
       new Date(Date.parse("2026-07-27T21:00:00Z") + index * 1000).toISOString(),
     );
   });
   (bundle.documents as { path: string; document: Record<string, unknown> }[]).push(
-    ...v12Paths.map((path) => {
+    ...v13Paths.map((path) => {
       const document = documents.get(path) as Record<string, unknown>;
       const producerRole =
         String(document.schema_version) === "startup_opportunity.research_task.v3"
@@ -1207,7 +1232,7 @@ export async function createDiscoveryEvaluationFixture(
   );
   const manifestEntry = bundle.documents.find((entry) => entry.path === "manifest.json");
   if (manifestEntry !== undefined) {
-    manifestEntry.document.schema_bundle_version = "11.0.0";
+    manifestEntry.document.schema_bundle_version = "12.0.0";
   }
   return bundle;
 }

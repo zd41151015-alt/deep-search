@@ -2353,7 +2353,7 @@ AI baseline and dependency bundle when relevant
 
 完成 enrichment 后再进行全局 hard gate、四面板比较、partial order 和 portfolio view。
 
-`candidate_pre_killed` 可以触发对尚未开始且仅服务该候选的 enrichment unit 执行 `skip_unit`；如果 unit 还服务其他保留候选，则必须保留或由新 unit supersede，不能整支静默删除。`uses_ai=true` 且 mandatory AI bundle 缺失时必须触发 `add_unit`，或在无法补齐时限制结论强度。
+`candidate_pre_killed` 可以触发对尚未开始且仅服务该候选 exact revision 的 enrichment unit 执行 `skip_unit`。versioned discovery adaptation binding 必须要求 Gap `subject_ref` 是 exact typed candidate path、target unit 仍为 pending/enabled、且其 candidate-shaped `input_refs` 只有该 subject；缺少 subject、引用另一 revision 或同时服务 retained/shared candidate 时不得 skip，必须保留或由新 unit supersede。apply、replay、checkpoint/reopen 和 crash recovery 每次都使用同一 binding validator，不能让 transformer 绕过该前置条件。`uses_ai=true` 且 mandatory AI bundle 缺失时必须触发 `add_unit`，或在无法补齐时限制结论强度。
 
 ## 19. 概念证据评估流程
 
@@ -3636,7 +3636,7 @@ proposed -> screened -> recommended
 - 候选生成与评估来源高度重叠且没有独立 challenger evidence 时，限制 evidence strength 和推荐档位。
 - opposing evidence 已经推翻核心需求或迁移动机，进入 `reject`。
 - 高风险行业缺少可接受合规边界，限制推荐档位或拒绝。
-- `uses_ai=true` 但缺少 mandatory AI bundle，进入 `insufficient_evidence`。
+- `uses_ai=true` 但缺少 mandatory AI bundle，进入 `insufficient_evidence`。Evaluator 必须沿 `OpportunityThesis.selected_solution_ref -> SolutionHypothesis.uses_ai` 解析 exact selected solution；不能只信 caller 填写的 gate status。G2 不生成 G3 bundle，缺失时 `ai_mandatory_bundle` 不得写成 `passed` 或 `not_applicable`，opportunity conclusion 与 `decision_tier` 均不得高于 `investigate_further`。
 - 通用模型、平台或开源 baseline 已充分解决核心任务，且没有 workflow、data、distribution 或 outcome 差异，进入 `watchlist` 或 `reject`。
 - AI 高错误成本任务缺少评测、异常检测、人工兜底或责任边界，不能进入强推荐。
 - 关键数据无法合法持续获取，不能把数据壁垒计入正向判断。
@@ -3815,6 +3815,8 @@ reject
 insufficient_evidence
 ```
 
+`decision_tier` 受 comparison、enrichment fan-in、Portfolio 和 first-bet readiness 的 closed ceiling 共同约束。`recommended_first_bet=null` 时最高为 `investigate_further`；`prioritize` 只允许 first bet 与 Portfolio exact 一致、其 comparison 为 `strong_candidate`/`eligible`、全部 hard gate 为 `passed | not_applicable`、fan-in conclusion ceiling 为 `strong_candidate`、四个 panel 均 `sufficient` 且不为 `weak | unknown`，并且 AI mandatory bundle 已完整或确实不适用。上述输入出现混合档位时采用最严格 ceiling；不能用某个 caller recommendation 字段覆盖 Evidence insufficiency。
+
 ## 24. Artifact Contract 与 Evaluator
 
 ### 24.1 Artifact catalog
@@ -3893,6 +3895,7 @@ startup_opportunity.decision_brief.v2
 startup_opportunity.report.v1
 startup_opportunity.discovery_report_view.v1
 startup_opportunity.report_consistency_evaluation.v2
+startup_opportunity.report_consistency_evaluation.v3
 startup_opportunity.concept_frame.v1
 startup_opportunity.concept_hypothesis.v1
 startup_opportunity.concept_evidence_assessment_plan.v1
@@ -3940,9 +3943,9 @@ v9 继续只安装在 deterministic schema/reference/contract validation surface
 
 G2.3 runtime 由 schema bundle `10.0.0`、v11 Envelope/Document Bundle、receipt v9、`discovery-synthesis.v1` 和 `research-publication.v6` 唯一拥有。v11 对 caller-supplied conversion/formal thesis/evaluation/snapshot/merge bundle 做 closed validation，并按 Demand conversion+target -> Baseline conversion+target -> Solution conversion+target -> evaluation -> Opportunity -> snapshot -> merge 的稳定顺序 immutable publish；Manifest 只机械升级到 bundle `10.0.0`。每个 typed synthesis material 必须通过 owning `research_task.v2` 绑定 formal target 的 exact source candidate ancestor；Source Manifest 必须保持 generation/evaluation role、candidate partition 与 canonical source-group overlap disclosure。G2.4 enrichment/comparison/report types 继续由 v11 adapter fail closed。Harness 不合成 thesis 语义、不 dispatch agent、不调用 LLM、不访问网络或执行 external validation；schema/Store success 不代表 Evidence 真实、Evidence 充分、thesis 有效或市场已验证。
 
-G2.4 runtime 由 schema bundle `11.0.0`、v12 Envelope/Document Bundle、receipt v10、`discovery-evaluation.v1` 和 `research-publication.v7` 唯一拥有。`research_task.v3`、Evidence/Claim/Finding/Insight/Judgment/Source Manifest v3、enrichment branch/fan-in、Value Layer、User State、Buyer Language、Business Engine v2、Opportunity Comparison、Sensitivity、Portfolio、Decision Recommendation、Traceability v2 和 discovery report 都必须是调用方显式提供的 same-Run Artifact；Harness 不执行 enrichment research、不生成 hard-gate/panel/partial-order/portfolio 判断。每个 `research_task.v3` 必须精确匹配 current immutable Research Plan 中一个 enabled unit 的 wave/id/type/goal/input/attempt/agent/output path/output schema；仅引用 current Plan 而不存在对应 unit 时，contract validator 与 pending-to-active Store transition 都 fail closed。每个 v3 material 绑定 exact owning task、frozen snapshot、semantic merge、Scope、Plan 和 target opportunities；Evidence 还绑定 exact v2 substrate record。eligible branch 只允许 `completed | partial | insufficient_evidence`，`failed | ignored_late | superseded` 保持显式分类且不能进入 fan-in material closure。
+G2.4 的首版 runtime authority 是 immutable schema bundle `11.0.0`、v12 Envelope/Document Bundle、receipt v10、`discovery-evaluation.v1` 和 `research-publication.v7`；这些已发布 bytes 保持历史兼容且不原地修补。当前定向 repair 另由 schema bundle `12.0.0`、v13 Envelope/Document Bundle、receipt v11、`discovery-evaluation.v2`、`discovery-adaptation-binding.v1`、`report_consistency_evaluation.v3` 和 `research-publication.v8` 唯一拥有。`research_task.v3`、Evidence/Claim/Finding/Insight/Judgment/Source Manifest v3、enrichment branch/fan-in、Value Layer、User State、Buyer Language、Business Engine v2、Opportunity Comparison、Sensitivity、Portfolio、Decision Recommendation、Traceability v2 和 discovery report 都必须是调用方显式提供的 same-Run Artifact；Harness 不执行 enrichment research、不生成 hard-gate/panel/partial-order/portfolio 判断。每个 `research_task.v3` 必须精确匹配 current immutable Research Plan 中一个 enabled unit 的 wave/id/type/goal/input/attempt/agent/output path/output schema；仅引用 current Plan 而不存在对应 unit 时，contract validator 与 pending-to-active Store transition 都 fail closed。每个 v3 material 绑定 exact owning task、frozen snapshot、semantic merge、Scope、Plan 和 target opportunities；Evidence 还绑定 exact v2 substrate record。eligible branch 只允许 `completed | partial | insufficient_evidence`，`failed | ignored_late | superseded` 保持显式分类且不能进入 fan-in material closure。
 
-v12 按 enrichment task -> typed material -> branch -> fan-in -> domain enrichment -> comparison -> sensitivity -> portfolio/recommendation -> traceability -> report 的稳定顺序 immutable publish，并把 task/terminal branch 状态机械投影到 Manifest。late/superseded branch 只进入 ignored refs，checkpoint/reopen 依其 terminal status 保持 non-current；v11 adapter 对 G2.4 types 在任何写入前 fail closed。G3 AI bundle types 继续由 v12 adapter blocked。`build-report` 只从 validated `report.v1` 确定性派生 v12 Decision Brief v2、Discovery Report View 和 Consistency Evaluation v2，再以独立 receipt materialize 三个固定 view；冲突 bytes、source/hash/receipt drift 都 fail closed。`calculate-comparison` 与 `calculate-sensitivity` 只读验证并摘要 caller-supplied Artifact，不生成语义或发布 Artifact。任何 schema、Store、summary 或 report success 都不表示 Evidence 真实/充分、市场验证或商业成功。
+v13 按 enrichment task -> typed material -> branch -> fan-in -> domain enrichment -> comparison -> sensitivity -> portfolio/recommendation -> traceability -> report 的稳定顺序 immutable publish，并把 task/terminal branch 状态机械投影到 Manifest。late/superseded branch 只进入 ignored refs，checkpoint/reopen 依其 terminal status 保持 non-current；v11 adapter 对 G2.4 types 在任何写入前 fail closed，v12 只保留既有 adapter 行为，v13 是 repair 后的 current G2 adapter。G3 AI bundle types 继续由 v13 adapter blocked。Evaluator 必须解析 selected Solution `uses_ai`、强制 missing-G3 AI ceiling、对 recommendation 使用 closed first-bet ceiling，并通过 versioned adaptation binding 阻止 shared candidate unit 被 pre-kill skip。`build-report` 只从 validated `report.v1` 确定性派生 v13 Decision Brief v2、Discovery Report View 和 Consistency Evaluation v3，再以独立 receipt materialize 三个固定 view；Consistency v3 对 structured report、`decision-brief.md` 和 `report.md` 执行 versioned deterministic forbidden-expression scan，validation-success、probability 和 global-score 命中必须在 publication、checkpoint/reopen 和 recovery 前 fail closed。冲突 bytes、source/hash/receipt drift 同样失败。`calculate-comparison` 与 `calculate-sensitivity` 只读验证并摘要 caller-supplied Artifact，不生成语义或发布 Artifact。任何 schema、Store、summary 或 report success 都不表示 Evidence 真实/充分、市场验证或商业成功。
 
 Schema bundle `2.0.0` 中的 `artifact_envelope.v2` 和 `document_bundle.v2` 是 schema/reference validation contracts，不表示 G0.3 Store 已支持 v2 publication。当前 Store 的 `FormalArtifactEnvelope`、operation receipt recovery 和 publish reference bundle 仍固定为 v1；直接提交 v2 envelope 会在 `document_bundle.v1` reference-validation boundary fail closed。只有 G0.4 implementation 另行发布并接通兼容 Store/envelope/receipt migration contract 后，才能声称 v2 Store publish 已启用；本节的 v2 documents 在此之前只用于显式只读 contract validation。
 
@@ -3989,7 +3992,7 @@ decision context -> concept frame -> evidence assessment plan r1
 
 #### Discovery evaluation contract evaluator
 
-检查 enrichment task 与 current enabled Plan unit exact tuple、frozen Snapshot/Merge/Scope/Plan/opportunity closure、v3 material owning-task 与 Evidence substrate exact binding、typed material graph、branch output/status、eligible/excluded fan-in 与 material/hard-gate closure、每个 Judgment 的 opportunity subject、Business Engine/domain subject、全部 hard gates和四个独立 panel、Evidence conclusion ceiling、Sensitivity unordered-pair/scenario closure、Portfolio exclusive partition、Recommendation、Traceability freshness/input hashes，以及 report/brief/view/consistency exact closure。该 evaluator 只验证显式 Artifact、执行 v12 immutable publication/reopen/recovery 和确定性 view materialization；它不执行 research、不生成 Judgment/排名/推荐语义、不访问网络或执行 external validation。
+检查 enrichment task 与 current enabled Plan unit exact tuple、frozen Snapshot/Merge/Scope/Plan/opportunity closure、v3 material owning-task 与 Evidence substrate exact binding、typed material graph、branch output/status、eligible/excluded fan-in 与 material/hard-gate closure、每个 Judgment 的 opportunity subject、Business Engine/domain subject、全部 hard gates和四个独立 panel、Evidence conclusion ceiling、Sensitivity unordered-pair/scenario closure、Portfolio exclusive partition、Recommendation、Traceability freshness/input hashes，以及 report/brief/view/consistency exact closure。v13 evaluator 还必须沿 Opportunity selected Solution 解析 `uses_ai` 并强制 missing-G3 ceiling，以 comparison/fan-in/Portfolio/first-bet readiness 的最严格值限制 `decision_tier`，并以 Consistency v3 扫描 structured report 和两个 rendered views。该 evaluator 只验证显式 Artifact、执行 v13 immutable publication/reopen/recovery 和确定性 view materialization；它不执行 research、不生成 Judgment/排名/推荐语义、不访问网络或执行 external validation。
 
 #### Research quality evaluator
 
@@ -4001,11 +4004,11 @@ decision context -> concept frame -> evidence assessment plan r1
 
 #### Adaptation policy evaluator
 
-检查 Gap Snapshot 的数据依据和 decision impact、Adaptation Decision 的 closed action 和状态前置条件、follow-up 上限、plan lineage、幂等键、scope/mode 边界、mandatory coverage 以及被取消、跳过或 supersede unit 的下游影响。
+检查 Gap Snapshot 的数据依据和 decision impact、Adaptation Decision 的 closed action 和状态前置条件、follow-up 上限、plan lineage、幂等键、scope/mode 边界、mandatory coverage 以及被取消、跳过或 supersede unit 的下游影响。`candidate_pre_killed -> skip_unit` 还必须按 versioned G2 binding 核对 exact candidate subject、pending/enabled target 与 candidate-shaped input closure；共享候选 unit 只能保留或 supersede。
 
 #### Report evaluator
 
-检查 report.json、decision-brief.md 和 report.md 一致性、引用覆盖、限制披露、partial-order 解释和是否错误表达为确定性商业结论或真实市场验证结论。
+检查 report.json、decision-brief.md 和 report.md 一致性、引用覆盖、限制披露、partial-order 解释和是否错误表达为确定性商业结论或真实市场验证结论。Consistency v3 必须重算三个 surface 的 deterministic scan；caller 不能提交空 matches 或固定 `passed` 来覆盖 validation-success、probability 或 global-score 命中。
 
 ### 24.3 关键 Artifact 专用校验
 
@@ -4223,6 +4226,7 @@ limitations
 - 不隐去反证、过期证据或 `desk_research_only`。
 - 概念证据评估不得写成“市场已经验证”；外部验证建议必须声明系统不执行、不追踪。
 - JSON 是结构化事实源，decision brief 和完整 Markdown 是两种决策表达；三者冲突时 evaluator 失败。
+- G2.4 Consistency v3 必须对 JSON 字符串值、Decision Brief Markdown 和完整 Report Markdown 执行同一 versioned deterministic scan；命中 validation-success、统计成功概率或 global-score policy 时 evaluator 结果必须为 `failed`，且不得 publication/materialize/recover 为 current report。
 
 ### 25.5 JSON Report Contract
 

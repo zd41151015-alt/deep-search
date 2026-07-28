@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -29,6 +29,8 @@ const CONTEXT_REF = "plans/planning-context.r1.json";
 const GAP_REF = "adaptations/gap-snapshots/gap-runtime.r1.json";
 const DECISION_REF = "adaptations/decisions/adapt-retry-runtime.json";
 const SUBJECT_REF = "subject_001";
+const PRE_KILL_CANDIDATE_REF = "artifacts/discovery/candidates/candidate_demand.r1.json";
+const RETAINED_SHARED_CANDIDATE_REF = "artifacts/discovery/candidates/candidate_solution.r1.json";
 
 function runScript(script: string, args: readonly string[]) {
   return spawnSync(process.execPath, ["--import", "tsx", script, ...args], {
@@ -376,6 +378,36 @@ function supersedeDecision(runId: string): Record<string, unknown> {
   };
 }
 
+function preKillSkipDecision(runId: string): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.adaptation_decision.v2",
+    adaptation_id: "adapt_pre_kill_skip_runtime_001",
+    run_id: runId,
+    based_on_plan_ref: PLAN_REF,
+    trigger_gap_refs: [`${GAP_REF}#gap_runtime_001`],
+    action: "skip_unit",
+    target_unit_ref: `${PLAN_REF}#value_pending`,
+    reason: "The exact pre-killed candidate is the pending unit's sole candidate input.",
+    expected_decision_impact: ["execution_validity"],
+    success_condition: "The exclusive pending candidate unit remains unstarted.",
+    requested_by: "main_agent",
+    created_at: "2026-07-24T12:05:00Z",
+  };
+}
+
+function setUnitInputRefs(
+  plan: Record<string, unknown>,
+  unitId: string,
+  inputRefs: readonly string[],
+): void {
+  const units = (plan.waves as { units: Record<string, unknown>[] }[]).flatMap(
+    (wave) => wave.units,
+  );
+  const target = units.find((candidate) => candidate.unit_id === unitId);
+  assert.ok(target);
+  target.input_refs = [...inputRefs];
+}
+
 function bundle(
   runManifest: Record<string, unknown>,
   plan: Record<string, unknown>,
@@ -419,7 +451,12 @@ function formalEnvelope(
 async function setupPersistedRun(
   contextTest: TestContext,
   runId: string,
-  action: "retry" | "supersede" = "retry",
+  action:
+    | "retry"
+    | "supersede"
+    | "pre-kill-exact"
+    | "pre-kill-missing"
+    | "pre-kill-shared" = "retry",
   requestedByUser = false,
   eventDriven = false,
 ) {
@@ -434,6 +471,27 @@ async function setupPersistedRun(
     createdAt: "2026-07-24T12:00:00Z",
   });
   const plan = basePlan(runId);
+  if (action === "pre-kill-exact") {
+    setUnitInputRefs(plan, "value_pending", [PRE_KILL_CANDIDATE_REF]);
+  } else if (action === "pre-kill-missing") {
+    setUnitInputRefs(plan, "value_pending", [SUBJECT_REF]);
+  } else if (action === "pre-kill-shared") {
+    setUnitInputRefs(plan, "value_pending", [
+      PRE_KILL_CANDIDATE_REF,
+      RETAINED_SHARED_CANDIDATE_REF,
+    ]);
+  }
+  if (action.startsWith("pre-kill-")) {
+    const refs =
+      action === "pre-kill-shared"
+        ? [PRE_KILL_CANDIDATE_REF, RETAINED_SHARED_CANDIDATE_REF]
+        : [PRE_KILL_CANDIDATE_REF];
+    for (const ref of refs) {
+      const filename = path.join(runsRoot, runId, ref);
+      await mkdir(path.dirname(filename), { recursive: true });
+      await writeFile(filename, "null\n");
+    }
+  }
   await store.publishArtifact({
     runId,
     envelope: formalEnvelope(runId, PLAN_REF, plan),
@@ -451,7 +509,10 @@ async function setupPersistedRun(
     stage: "current_plan",
     createdAt: "2026-07-24T12:03:00Z",
   });
-  const gap = gapSnapshot(runId);
+  const preKill = action.startsWith("pre-kill-");
+  const gap = preKill
+    ? gapSnapshot(runId, "candidate_pre_killed", PRE_KILL_CANDIDATE_REF)
+    : gapSnapshot(runId);
   const triggerEventRecord = eventDriven
     ? triggerEvent(runId, `gap_trigger_${runId.replaceAll("-", "_")}`)
     : null;
@@ -465,7 +526,11 @@ async function setupPersistedRun(
       String(triggerEventRecord.event_id),
     );
   }
-  const decision = action === "retry" ? retryDecision(runId) : supersedeDecision(runId);
+  const decision = preKill
+    ? preKillSkipDecision(runId)
+    : action === "retry"
+      ? retryDecision(runId)
+      : supersedeDecision(runId);
   const userDecision = requestedByUser
     ? userPlanDecision(runId, `decision_${runId.replaceAll("-", "_")}`)
     : null;
@@ -1172,6 +1237,146 @@ test("Adaptation validator accepts all closed actions and rejects retry outside 
       (error) => error.code === "contract.retry_target_not_failed",
     ),
   );
+});
+
+test("candidate pre-kill skips only an exact exclusive pending unit and replays immutably", async (contextTest) => {
+  const runId = "runtime-pre-kill-exact";
+  const setup = await setupPersistedRun(contextTest, runId, "pre-kill-exact");
+  const validator = await createAdaptationPolicyValidator(repositoryRoot);
+  const preflight = validator.validateDocumentBundle(setup.adaptationBundle);
+  assert.equal(preflight.valid, true, JSON.stringify(preflight, null, 2));
+  const { candidateBundle } = candidateFor(setup);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const input = {
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    candidateBundle,
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    nextStep: "Keep the exact pre-killed candidate unit skipped.",
+    beliefSummary: {
+      current_belief: "Only the exclusive candidate unit may be skipped.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Do retained shared-candidate units remain enabled?",
+    },
+  };
+  assert.equal((await runtime.apply(input)).status, "applied");
+  assert.equal((await runtime.apply(input)).status, "idempotent_replay");
+  const reopened = await setup.store.load(runId);
+  assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
+  assert.ok(reopened.manifest.skipped_units.includes("value_pending"));
+  const currentPlan = JSON.parse(
+    await readFile(path.join(setup.runRoot, "plans/research-plan.r2.json"), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const units = (currentPlan.document.waves as { units: Record<string, unknown>[] }[]).flatMap(
+    (wave) => wave.units,
+  );
+  assert.equal(
+    units.find((candidate) => candidate.unit_id === "value_pending")?.plan_disposition,
+    "skipped",
+  );
+});
+
+test("candidate pre-kill rejects missing and shared target bindings before writes", async (t) => {
+  for (const scenario of [
+    {
+      suffix: "missing",
+      action: "pre-kill-missing",
+      expectedCode: "adaptation.pre_kill_candidate_target_mismatch",
+    },
+    {
+      suffix: "shared",
+      action: "pre-kill-shared",
+      expectedCode: "adaptation.pre_kill_shared_candidate_skip_forbidden",
+    },
+  ] as const) {
+    await t.test(scenario.suffix, async (contextTest) => {
+      const runId = `runtime-pre-kill-${scenario.suffix}`;
+      const setup = await setupPersistedRun(contextTest, runId, scenario.action);
+      const result = (await createAdaptationPolicyValidator(repositoryRoot)).validateDocumentBundle(
+        setup.adaptationBundle,
+      );
+      assert.equal(result.valid, false);
+      assert.ok(
+        result.adaptationErrors.some((error) => error.code === scenario.expectedCode),
+        JSON.stringify(result.adaptationErrors, null, 2),
+      );
+      const before = await planApplyBoundaryState(setup.runRoot);
+      const { candidateBundle } = candidateFor(setup);
+      await assert.rejects(
+        (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+          runId,
+          adaptationBundle: setup.adaptationBundle,
+          adaptationRefs: [DECISION_REF],
+          candidateBundle,
+          createdAt: "2026-07-24T12:08:00Z",
+          checkpointCreatedAt: "2026-07-24T12:09:00Z",
+          nextStep: "Reject a candidate pre-kill target that is not exclusive.",
+          beliefSummary: {
+            current_belief: "Shared or unrelated candidate units must remain current.",
+            evidence_that_changed_belief: [],
+            unchanged_assumptions: [],
+            remaining_disagreement: [],
+            next_decision_relevant_question: "Is the exact target candidate the sole input?",
+          },
+        }),
+        (error: unknown) => {
+          if (!(error instanceof StoreError) || error.code !== "adaptation.policy_invalid") {
+            return false;
+          }
+          const validation = error.details.result as
+            | { adaptationErrors?: readonly { code?: string }[] }
+            | undefined;
+          return validation?.adaptationErrors?.some(
+            (candidate) => candidate.code === scenario.expectedCode,
+          );
+        },
+      );
+      assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+      const reopened = await setup.store.load(runId);
+      assert.equal(reopened.manifest.current_plan_ref, PLAN_REF);
+      assert.ok(!reopened.manifest.skipped_units.includes("value_pending"));
+    });
+  }
+});
+
+test("candidate pre-kill crash leaves a pending intent and exact replay completes recovery", async (contextTest) => {
+  const runId = "runtime-pre-kill-crash";
+  const setup = await setupPersistedRun(contextTest, runId, "pre-kill-exact");
+  const { candidateBundle } = candidateFor(setup);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const input = {
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    candidateBundle,
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    nextStep: "Recover the exact candidate pre-kill decision.",
+    beliefSummary: {
+      current_belief: "The pre-kill skip is not current before Plan CAS.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Can the validated intent replay exactly?",
+    },
+    faultAt: "after_intent" as const,
+  };
+  await assert.rejects(
+    runtime.apply(input),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const reopened = await setup.store.load(runId);
+  assert.equal(reopened.manifest.current_plan_ref, PLAN_REF);
+  assert.equal(reopened.planOperationRecovery.pendingOperationKeys.length, 1);
+  const { faultAt: _faultAt, ...replayInput } = input;
+  assert.equal((await runtime.apply(replayInput)).status, "idempotent_replay");
+  const recovered = await setup.store.load(runId);
+  assert.equal(recovered.manifest.current_plan_ref, "plans/research-plan.r2.json");
+  assert.ok(recovered.manifest.skipped_units.includes("value_pending"));
 });
 
 test("Plan apply rejects an in-memory Gap Snapshot that differs from disk before writes", async (contextTest) => {

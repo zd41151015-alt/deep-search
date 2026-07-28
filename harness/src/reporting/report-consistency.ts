@@ -1,0 +1,68 @@
+import { sha256Bytes } from "../artifact-store/canonical.js";
+
+export const REPORT_SCAN_CONTRACT_VERSION =
+  "startup_opportunity.deterministic_forbidden_expression_scan.v1" as const;
+
+export const REPORT_SCAN_SURFACES = ["structured_report", "decision_brief", "report_view"] as const;
+
+export type ReportScanSurface = (typeof REPORT_SCAN_SURFACES)[number];
+
+const FORBIDDEN_RULES = [
+  {
+    id: "market_validation_success",
+    expression:
+      /\b(?:(?:market\s+)?validation\s+(?:has\s+)?(?:succeeded|successful|passed)|validated\s+(?:market|demand))\b/iu,
+  },
+  {
+    id: "probability_claim",
+    expression: /\b(?:success\s+)?probability\b|\b\d+(?:\.\d+)?%\s+(?:likely|chance)\b/iu,
+  },
+  {
+    id: "global_score",
+    expression: /\bglobal[- ]score\b|\boverall\s+score\b/iu,
+  },
+] as const;
+
+export const REPORT_FORBIDDEN_RULE_IDS = FORBIDDEN_RULES.map((rule) => rule.id);
+
+function stringValues(value: unknown): readonly string[] {
+  if (typeof value === "string") {
+    return [value];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap(stringValues);
+  }
+  if (typeof value !== "object" || value === null) {
+    return [];
+  }
+  return Object.values(value).flatMap(stringValues);
+}
+
+function normalized(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/gu, " ").trim();
+}
+
+export function scanReportSurface(surface: ReportScanSurface, value: unknown): readonly string[] {
+  const matches = new Set<string>();
+  for (const candidate of stringValues(value)) {
+    const text = normalized(candidate);
+    for (const rule of FORBIDDEN_RULES) {
+      if (rule.expression.test(text)) {
+        matches.add(`${rule.id}@${surface}:${sha256Bytes(text)}`);
+      }
+    }
+  }
+  return [...matches].sort();
+}
+
+export function scanDiscoveryReportSurfaces(input: {
+  readonly structuredReport: unknown;
+  readonly decisionBrief: string;
+  readonly reportView: string;
+}): readonly string[] {
+  return [
+    ...scanReportSurface("structured_report", input.structuredReport),
+    ...scanReportSurface("decision_brief", input.decisionBrief),
+    ...scanReportSurface("report_view", input.reportView),
+  ].sort();
+}

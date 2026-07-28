@@ -9,6 +9,7 @@ import {
   canonicalContentHash,
   canonicalJson,
   createArtifactValidator,
+  type DiscoveryProfile,
   type DocumentBundle,
   deriveReportEnvelopes,
   EvidenceStore,
@@ -22,12 +23,25 @@ import {
   G21_CORE_REFS,
   G21_MAP_REFS,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
-import { G22_DEMAND_R2, G22_FAN_IN } from "./fixtures/g2.2/discovery-candidate-fixture.js";
+import {
+  G22_DEMAND_R1,
+  G22_DEMAND_R2,
+  G22_FAN_IN,
+  G22_GENERATION_LANE,
+} from "./fixtures/g2.2/discovery-candidate-fixture.js";
+import {
+  G23_MERGE,
+  G23_OPPORTUNITY_A,
+  G23_OPPORTUNITY_B,
+  G23_SOLUTION,
+} from "./fixtures/g2.3/discovery-synthesis-fixture.js";
 import {
   createDiscoveryEvaluationFixture,
   evaluationEnvelope,
+  G24_BRANCH_CHALLENGE,
   G24_BRANCH_SUPPORT,
   G24_COMPARISON_A,
+  G24_COMPARISON_B,
   G24_ENGINE_A,
   G24_EVIDENCE_SUPPORT,
   G24_FAN_IN,
@@ -75,7 +89,11 @@ function refresh(bundle: DocumentBundle, artifactPath: string): void {
   }
 }
 
-async function setup(context: TestContext, suffix: string): Promise<State> {
+async function setup(
+  context: TestContext,
+  suffix: string,
+  profile: DiscoveryProfile = "general",
+): Promise<State> {
   const root = await mkdtemp(path.join(tmpdir(), `startup-opportunity-g2-4-${suffix}-`));
   context.after(() => rm(root, { recursive: true, force: true }));
   const runsRoot = path.join(root, "runs");
@@ -102,12 +120,16 @@ async function setup(context: TestContext, suffix: string): Promise<State> {
         recordedAt: "2026-07-27T20:50:00Z",
       })
     ).record;
-  const bundle = await createDiscoveryEvaluationFixture(runId, {
-    generation: await record("unit_seed_independent_demand", "generation"),
-    evaluation: await record("unit_counterfactual", "evaluation"),
-    support: await record("unit_enrichment_support", "support"),
-    challenge: await record("unit_enrichment_challenge", "challenge"),
-  });
+  const bundle = await createDiscoveryEvaluationFixture(
+    runId,
+    {
+      generation: await record("unit_seed_independent_demand", "generation"),
+      evaluation: await record("unit_counterfactual", "evaluation"),
+      support: await record("unit_enrichment_support", "support"),
+      challenge: await record("unit_enrichment_challenge", "challenge"),
+    },
+    profile,
+  );
   return {
     root,
     runsRoot,
@@ -191,7 +213,7 @@ async function publishThroughSynthesis(state: State): Promise<void> {
 
 async function publishThroughEnrichmentBranches(state: State): Promise<void> {
   await publishThroughSynthesis(state);
-  const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.v12");
+  const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.v13");
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(evaluation, "startup_opportunity.research_task.v3"),
@@ -216,7 +238,7 @@ async function publishThroughEnrichmentBranches(state: State): Promise<void> {
 
 async function publishThroughEvaluation(state: State): Promise<void> {
   await publishThroughEnrichmentBranches(state);
-  const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.v12");
+  const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.v13");
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: evaluation.filter(
@@ -271,6 +293,56 @@ function terminalBranch(
   return { ...candidate, content_hash: canonicalContentHash(candidate.document) };
 }
 
+function setFirstBet(bundle: DocumentBundle, firstBet: string): void {
+  const alternative = firstBet === G23_OPPORTUNITY_A ? G23_OPPORTUNITY_B : G23_OPPORTUNITY_A;
+  const portfolio = effective(bundle, G24_PORTFOLIO);
+  portfolio.recommended_first_bet = firstBet;
+  portfolio.alternative_bets = [alternative];
+  refresh(bundle, G24_PORTFOLIO);
+  const recommendation = effective(bundle, G24_RECOMMENDATION);
+  recommendation.recommended_first_bet = firstBet;
+  recommendation.alternative_bets = [alternative];
+  recommendation.decision_tier = "prioritize";
+  refresh(bundle, G24_RECOMMENDATION);
+  const report = effective(bundle, G24_REPORT);
+  report.top_opportunity_refs = [firstBet];
+  const context = report.curated_judgment_context as Record<string, unknown>;
+  context.recommended_first_bet = firstBet;
+  context.alternative_bets = [alternative];
+  context.decision_tier = "prioritize";
+  const metadata = report.report_metadata as Record<string, unknown>;
+  for (const hash of metadata.input_artifact_hashes as Record<string, unknown>[]) {
+    if (hash.ref === G24_PORTFOLIO || hash.ref === G24_RECOMMENDATION) {
+      hash.content_hash = canonicalContentHash(effective(bundle, String(hash.ref)));
+    }
+  }
+  refresh(bundle, G24_REPORT);
+}
+
+function setAiMandatoryGateStatus(
+  bundle: DocumentBundle,
+  status: "passed" | "not_applicable",
+): void {
+  for (const artifactPath of [G24_BRANCH_SUPPORT, G24_BRANCH_CHALLENGE, G24_FAN_IN]) {
+    const document = effective(bundle, artifactPath);
+    for (const gate of document.hard_gate_inputs as Record<string, unknown>[]) {
+      if (gate.gate_id === "ai_mandatory_bundle") {
+        gate.status = status;
+      }
+    }
+    refresh(bundle, artifactPath);
+  }
+  for (const artifactPath of [G24_COMPARISON_A, G24_COMPARISON_B]) {
+    const document = effective(bundle, artifactPath);
+    for (const gate of document.hard_gate_results as Record<string, unknown>[]) {
+      if (gate.gate_id === "ai_mandatory_bundle") {
+        gate.status = status;
+      }
+    }
+    refresh(bundle, artifactPath);
+  }
+}
+
 test("G2.4 validates closed enrichment, hard gates, comparison, portfolio, and report lineage", async (context) => {
   const state = await setup(context, "contract");
   const validator = await createArtifactValidator(repositoryRoot);
@@ -279,10 +351,138 @@ test("G2.4 validates closed enrichment, hard gates, comparison, portfolio, and r
   assert.equal(
     state.bundle.documents.filter(
       (candidate) =>
-        candidate.document.schema_version === "startup_opportunity.artifact_envelope.v12",
+        candidate.document.schema_version === "startup_opportunity.artifact_envelope.v13",
     ).length,
     34,
   );
+});
+
+test("G2.4 whole-chain fixtures preserve profile, counterfactual, merge, and AI ceilings", async (t) => {
+  for (const profile of ["general", "industry_first", "ai_first", "hybrid"] as const) {
+    await t.test(profile, async (context) => {
+      const state = await setup(context, `profile-${profile}`, profile);
+      const result = state.validator.validateDocumentBundle(state.bundle);
+      assert.equal(result.valid, true, JSON.stringify(result, null, 2));
+      const laneDiversity = effective(state.bundle, G22_GENERATION_LANE)
+        .candidate_diversity_summary as Record<string, unknown>;
+      assert.deepEqual(laneDiversity.counterfactual_candidate_refs, [G22_DEMAND_R1]);
+      const fanInDiversity = effective(state.bundle, G22_FAN_IN)
+        .candidate_diversity_summary as Record<string, unknown>;
+      assert.deepEqual(fanInDiversity.counterfactual_candidate_refs, [G22_DEMAND_R2]);
+      const merge = effective(state.bundle, G23_MERGE);
+      assert.deepEqual(merge.preserved_variants, [G23_OPPORTUNITY_B]);
+      assert.ok(
+        Object.values(merge.candidate_diversity_after_merge as Record<string, unknown>).every(
+          (value) => Array.isArray(value) && value.length > 0,
+        ),
+      );
+      const usesAi = profile === "ai_first" || profile === "hybrid";
+      assert.equal(effective(state.bundle, G23_SOLUTION).uses_ai, usesAi);
+      for (const comparisonRef of [G24_COMPARISON_A, G24_COMPARISON_B]) {
+        const aiGate = (
+          effective(state.bundle, comparisonRef).hard_gate_results as Record<string, unknown>[]
+        ).find((gate) => gate.gate_id === "ai_mandatory_bundle");
+        assert.equal(aiGate?.status, usesAi ? "insufficient_evidence" : "not_applicable");
+      }
+    });
+  }
+});
+
+test("G2.4 rejects AI-selected solutions whose mandatory G3 gate fails open", async (t) => {
+  for (const scenario of [
+    { profile: "ai_first", status: "not_applicable" },
+    { profile: "hybrid", status: "passed" },
+  ] as const) {
+    await t.test(`${scenario.profile}-${scenario.status}`, async (context) => {
+      const state = await setup(context, `ai-gate-${scenario.profile}`, scenario.profile);
+      const bundle = clone(state.bundle);
+      setAiMandatoryGateStatus(bundle, scenario.status);
+      const result = state.validator.validateDocumentBundle(bundle);
+      assert.equal(result.valid, false);
+      assert.ok(
+        result.referenceErrors.some(
+          (error) => error.code === "g2_4.ai_mandatory_bundle_gate_violation",
+        ),
+        JSON.stringify(result.referenceErrors, null, 2),
+      );
+    });
+  }
+
+  await t.test("selected-solution-toggle", async (context) => {
+    const state = await setup(context, "ai-gate-toggle", "general");
+    const bundle = clone(state.bundle);
+    effective(bundle, G23_SOLUTION).uses_ai = true;
+    refresh(bundle, G23_SOLUTION);
+    const result = state.validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, false);
+    assert.ok(
+      result.referenceErrors.some(
+        (error) => error.code === "g2_4.ai_mandatory_bundle_gate_violation",
+      ),
+      JSON.stringify(result.referenceErrors, null, 2),
+    );
+  });
+});
+
+test("G2.4 decision tier obeys null, insufficient, and mixed readiness ceilings", async (context) => {
+  const state = await setup(context, "decision-ceilings");
+  const cases: readonly {
+    readonly name: string;
+    readonly mutate: (bundle: DocumentBundle) => void;
+  }[] = [
+    {
+      name: "null-first-bet",
+      mutate(bundle) {
+        effective(bundle, G24_RECOMMENDATION).decision_tier = "prioritize";
+        refresh(bundle, G24_RECOMMENDATION);
+      },
+    },
+    {
+      name: "insufficient-first-bet",
+      mutate(bundle) {
+        setFirstBet(bundle, G23_OPPORTUNITY_A);
+      },
+    },
+    {
+      name: "mixed-readiness",
+      mutate(bundle) {
+        const fanIn = effective(bundle, G24_FAN_IN);
+        for (const gate of fanIn.hard_gate_inputs as Record<string, unknown>[]) {
+          if (gate.opportunity_ref === G23_OPPORTUNITY_A) {
+            gate.status = String(gate.gate_id).startsWith("ai_") ? "not_applicable" : "passed";
+          }
+        }
+        const ceiling = (fanIn.opportunity_conclusion_ceilings as Record<string, unknown>[]).find(
+          (entry) => entry.opportunity_ref === G23_OPPORTUNITY_A,
+        );
+        assert.ok(ceiling);
+        ceiling.conclusion_ceiling = "strong_candidate";
+        refresh(bundle, G24_FAN_IN);
+        const comparison = effective(bundle, G24_COMPARISON_A);
+        for (const gate of comparison.hard_gate_results as Record<string, unknown>[]) {
+          gate.status = String(gate.gate_id).startsWith("ai_") ? "not_applicable" : "passed";
+        }
+        comparison.hard_gate_outcome = "eligible";
+        const hash = (comparison.input_artifact_hashes as Record<string, unknown>[]).find(
+          (entry) => entry.ref === G24_FAN_IN,
+        );
+        assert.ok(hash);
+        hash.content_hash = canonicalContentHash(fanIn);
+        refresh(bundle, G24_COMPARISON_A);
+        setFirstBet(bundle, G23_OPPORTUNITY_A);
+      },
+    },
+  ];
+  for (const candidate of cases) {
+    const bundle = clone(state.bundle);
+    candidate.mutate(bundle);
+    const result = state.validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, false, candidate.name);
+    assert.ok(
+      result.referenceErrors.some((error) => error.code === "g2_4.decision_tier_ceiling_violation"),
+      `${candidate.name}: ${JSON.stringify(result.referenceErrors, null, 2)}`,
+    );
+  }
 });
 
 test("G2.4 rejects closed contract mutations with deterministic error codes", async (context) => {
@@ -484,6 +684,64 @@ test("G2.4 rejects a discovery brief that drifts from its structured report", as
   );
 });
 
+test("G2.4 forbidden report claims fail closed before publication and remain absent after reopen", async (context) => {
+  const state = await setup(context, "forbidden-report");
+  await publishThroughEvaluation(state);
+  const report = clone(evaluationEnvelope(state.bundle, G24_REPORT));
+  const phrase = "Market validation succeeded with a 95% success probability and global score.";
+  const judgmentContext = report.document.curated_judgment_context as Record<string, unknown>;
+  judgmentContext.current_recommendation = phrase;
+  const sections = report.document.report_sections as Record<string, unknown>;
+  sections.conclusion_summary = [phrase];
+  (report as { content_hash: string }).content_hash = canonicalContentHash(report.document);
+
+  const derived = deriveReportEnvelopes(report);
+  const consistency = derived.find(
+    (candidate) =>
+      candidate.artifact_type === "startup_opportunity.report_consistency_evaluation.v3",
+  );
+  assert.ok(consistency);
+  assert.equal(consistency.document.evaluator_result, "failed");
+  const matches = consistency.document.forbidden_expression_matches as string[];
+  for (const surface of ["structured_report", "decision_brief", "report_view"]) {
+    assert.ok(
+      matches.some((match) => match.includes(`@${surface}:`)),
+      surface,
+    );
+  }
+
+  await assert.rejects(
+    new ReportRuntime(state.runsRoot, state.validator).build({ reportEnvelope: report }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.forbidden_expression_detected",
+  );
+  await assert.rejects(
+    state.store.publishArtifact({ runId: state.runId, envelope: report }),
+    (error: unknown) => error instanceof StoreError && error.code === "artifact.schema_invalid",
+  );
+  const checkpoint = await state.store.checkpoint({
+    runId: state.runId,
+    checkpointId: "checkpoint_forbidden_report_rejected",
+    createdAt: "2026-07-27T22:01:00Z",
+    nextStep: "SYNTHETIC publish only a report revision without forbidden claims.",
+    beliefSummary: {
+      current_belief: "SYNTHETIC forbidden report claims remain unpublished.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["SYNTHETIC no market validation is claimed."],
+      remaining_disagreement: ["SYNTHETIC market truth remains unknown."],
+      next_decision_relevant_question: "SYNTHETIC should a clean report revision be supplied?",
+    },
+    inputRefs: [G24_RECOMMENDATION, G24_TRACEABILITY],
+  });
+  assert.match(checkpoint.checkpointRef, /checkpoint-forbidden-report-rejected/);
+  const reopened = await new RunStore(state.runsRoot, state.validator).load(state.runId);
+  assert.ok(!reopened.manifest.artifact_refs.includes(G24_REPORT));
+  await assert.rejects(
+    readFile(path.join(state.runRoot, G24_REPORT), "utf8"),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT",
+  );
+});
+
 test("G2.4 publishes evaluation artifacts, materializes the discovery report, and replays exactly", async (context) => {
   const state = await setup(context, "publication");
   await publishThroughEvaluation(state);
@@ -501,7 +759,7 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   const replay = await runtime.build({ reportEnvelope: report });
   assert.equal(replay.status, "idempotent_replay");
   const loaded = await state.store.load(state.runId);
-  assert.equal(loaded.manifest.schema_bundle_version, "11.0.0");
+  assert.equal(loaded.manifest.schema_bundle_version, "12.0.0");
   assert.ok(loaded.manifest.artifact_refs.includes(G24_REPORT));
   assert.ok(loaded.manifest.artifact_refs.includes(first.consistencyEvaluationRef));
   assert.match(
@@ -516,18 +774,18 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
         JSON.parse(await readFile(path.join(state.runRoot, ".store/operations", filename), "utf8")),
       ),
   );
-  const v12Paths = new Set(
-    envelopes(state.bundle, "startup_opportunity.artifact_envelope.v12").map(
+  const v13Paths = new Set(
+    envelopes(state.bundle, "startup_opportunity.artifact_envelope.v13").map(
       (candidate) => candidate.artifact_path,
     ),
   );
   assert.ok(
     receipts
-      .filter((receipt) => v12Paths.has(String((receipt as Record<string, unknown>).artifact_path)))
+      .filter((receipt) => v13Paths.has(String((receipt as Record<string, unknown>).artifact_path)))
       .every(
         (receipt) =>
           (receipt as Record<string, unknown>).schema_version ===
-          "startup_opportunity.artifact_store_operation.v10",
+          "startup_opportunity.artifact_store_operation.v11",
       ),
   );
 });
@@ -574,7 +832,7 @@ test("G2.4 checkpoint, reopen, and report fault recovery preserve the validated 
   assert.ok(reopened.manifest.artifact_refs.includes(G24_PORTFOLIO));
 });
 
-test("G2.4 v12 receipt recovery completes an interrupted fan-in publication", async (context) => {
+test("G2.4 v13 receipt recovery completes an interrupted fan-in publication", async (context) => {
   const state = await setup(context, "artifact-fault");
   await publishThroughEnrichmentBranches(state);
   await assert.rejects(
@@ -611,7 +869,7 @@ test("G2.4 branch terminal states project mechanically and keep late or supersed
     await t.test(scenario.suffix, async (context) => {
       const state = await setup(context, `status-${scenario.suffix}`);
       await publishThroughSynthesis(state);
-      const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.v12");
+      const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.v13");
       await state.store.publishArtifactBundle({
         runId: state.runId,
         envelopes: byTypes(evaluation, "startup_opportunity.research_task.v3"),
@@ -679,7 +937,7 @@ test("G2.4 v11 adapter rejects evaluation artifacts before any write", async (co
   );
 });
 
-test("G2.4 audit-traceability and build-report CLI consume explicit v12 artifacts", async (context) => {
+test("G2.4 audit-traceability and build-report CLI consume explicit v13 artifacts", async (context) => {
   const state = await setup(context, "cli");
   const auditBundle = clone(state.bundle);
   const derived = deriveReportEnvelopes(evaluationEnvelope(auditBundle, G24_REPORT));

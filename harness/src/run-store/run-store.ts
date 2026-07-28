@@ -169,6 +169,7 @@ const STORE_ENVELOPE_VERSIONS = new Set([
   "startup_opportunity.artifact_envelope.v10",
   "startup_opportunity.artifact_envelope.v11",
   "startup_opportunity.artifact_envelope.v12",
+  "startup_opportunity.artifact_envelope.v13",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -530,7 +531,8 @@ export class RunStore {
       envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
       envelope.artifact_type === "startup_opportunity.research_task.v2";
     const isEnrichmentTask =
-      envelope.schema_version === "startup_opportunity.artifact_envelope.v12" &&
+      (envelope.schema_version === "startup_opportunity.artifact_envelope.v12" ||
+        envelope.schema_version === "startup_opportunity.artifact_envelope.v13") &&
       envelope.artifact_type === "startup_opportunity.research_task.v3";
     if (!isAssessmentTask && !isDiscoveryTask && !isEnrichmentTask) {
       return "not_task";
@@ -769,7 +771,8 @@ export class RunStore {
         envelope.artifact_type === "startup_opportunity.research_task.v1") ||
         (envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
           envelope.artifact_type === "startup_opportunity.research_task.v2") ||
-        (envelope.schema_version === "startup_opportunity.artifact_envelope.v12" &&
+        ((envelope.schema_version === "startup_opportunity.artifact_envelope.v12" ||
+          envelope.schema_version === "startup_opportunity.artifact_envelope.v13") &&
           envelope.artifact_type === "startup_opportunity.research_task.v3")) &&
       typeof envelope.document.unit_id === "string"
     ) {
@@ -824,7 +827,8 @@ export class RunStore {
     }
     if (
       !ignoredLate &&
-      envelope.schema_version === "startup_opportunity.artifact_envelope.v12" &&
+      (envelope.schema_version === "startup_opportunity.artifact_envelope.v12" ||
+        envelope.schema_version === "startup_opportunity.artifact_envelope.v13") &&
       envelope.artifact_type === "startup_opportunity.enrichment_branch_result.v1" &&
       typeof envelope.document.unit_id === "string" &&
       typeof envelope.document.status === "string"
@@ -1041,7 +1045,8 @@ export class RunStore {
     ignoredLate: boolean,
   ): void {
     if (
-      envelope.schema_version !== "startup_opportunity.artifact_envelope.v12" ||
+      (envelope.schema_version !== "startup_opportunity.artifact_envelope.v12" &&
+        envelope.schema_version !== "startup_opportunity.artifact_envelope.v13") ||
       envelope.artifact_type !== "startup_opportunity.enrichment_branch_result.v1" ||
       typeof envelope.document.unit_id !== "string" ||
       typeof envelope.document.status !== "string"
@@ -1333,7 +1338,8 @@ export class RunStore {
           ? (storedEntry.document as FormalArtifactEnvelope)
           : null;
       const enrichmentTerminalResult =
-        storedEnvelope?.schema_version === "startup_opportunity.artifact_envelope.v12" &&
+        (storedEnvelope?.schema_version === "startup_opportunity.artifact_envelope.v12" ||
+          storedEnvelope?.schema_version === "startup_opportunity.artifact_envelope.v13") &&
         storedEnvelope.artifact_type === "startup_opportunity.enrichment_branch_result.v1" &&
         ["ignored_late", "superseded"].includes(String(storedEnvelope.document.status));
       if (
@@ -1427,7 +1433,8 @@ export class RunStore {
       recoveryBundleVersion === "startup_opportunity.document_bundle.v8" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v10" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v11" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v12"
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v12" ||
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v13"
     ) {
       for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
         if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
@@ -1445,7 +1452,8 @@ export class RunStore {
         recoveryBundleVersion === "startup_opportunity.document_bundle.v8" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v10" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v11" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v12"
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v12" ||
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v13"
           ? { exact_records: [] }
           : {}),
       },

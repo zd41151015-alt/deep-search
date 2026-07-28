@@ -1,4 +1,8 @@
-import { canonicalContentHash, type DocumentBundle } from "../../../harness/src/index.js";
+import {
+  canonicalContentHash,
+  type DiscoveryProfile,
+  type DocumentBundle,
+} from "../../../harness/src/index.js";
 import {
   createDiscoveryMapsFixture,
   fixtureDocument,
@@ -373,7 +377,7 @@ function laneResult(
     suffix: string,
     candidateRef: string,
     value: "retained" | "watchlist" | "rejected",
-    basis: "diversity" | "not_retained",
+    basis: "counterfactual" | "diversity" | "not_retained",
     judgmentRef: string,
   ) => ({
     disposition_id: `${id}_${suffix}`,
@@ -424,7 +428,7 @@ function laneResult(
       },
     ],
     pre_kill_decisions: [
-      disposition("demand", G22_DEMAND_R1, "retained", "diversity", judgmentRefs[0]),
+      disposition("demand", G22_DEMAND_R1, "retained", "counterfactual", judgmentRefs[0]),
       disposition("baseline", G22_BASELINE_R1, "watchlist", "not_retained", judgmentRefs[1]),
       disposition("solution", G22_SOLUTION_R1, "rejected", "not_retained", judgmentRefs[2]),
     ],
@@ -438,7 +442,7 @@ function laneResult(
       covered_buyer_models: [synthetic("candidate buyer")],
       covered_candidate_kinds: ["demand_seed", "baseline_seed", "solution_seed"],
       diversity_retention_refs: [G22_DEMAND_R1],
-      counterfactual_candidate_refs: [],
+      counterfactual_candidate_refs: [G22_DEMAND_R1],
       known_blind_spots: [synthetic("all real research missing")],
     },
     decision_sufficiency_summary: {
@@ -476,8 +480,9 @@ export function fixtureEffective(
 
 export async function createDiscoveryCandidateFixture(
   additionalPlanWaves: readonly Record<string, unknown>[] = [],
+  profile: DiscoveryProfile = "general",
 ): Promise<DocumentBundle> {
-  const bundle = await createDiscoveryMapsFixture("general", G22_RUN_ID, additionalPlanWaves);
+  const bundle = await createDiscoveryMapsFixture(profile, G22_RUN_ID, additionalPlanWaves);
   (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v9";
   const demandR1 = initialCandidate(
     bundle,
@@ -823,7 +828,7 @@ export async function createDiscoveryCandidateFixture(
     candidate_diversity_summary: {
       preserved_dimensions: ["user", "job", "entry_scene", "buyer_model", "candidate_kind"],
       diversity_retention_refs: [G22_DEMAND_R2],
-      counterfactual_candidate_refs: [],
+      counterfactual_candidate_refs: [G22_DEMAND_R2],
       known_blind_spots: [synthetic("all real research absent")],
     },
     evidence_sufficiency_summary: {

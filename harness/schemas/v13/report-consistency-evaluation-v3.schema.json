@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v13/report-consistency-evaluation-v3.schema.json",
+  "title": "Startup Opportunity Discovery Report Consistency Evaluation v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evaluation_id",
+    "run_id",
+    "producer_role",
+    "owned_output_path",
+    "report_ref",
+    "decision_brief_ref",
+    "report_view_ref",
+    "decision_recommendation_ref",
+    "traceability_ref",
+    "checked_dimensions",
+    "scan_contract_version",
+    "scanned_surfaces",
+    "forbidden_expression_matches",
+    "evaluator_result",
+    "evaluation_issues",
+    "input_artifact_hashes",
+    "valid_as_of",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.report_consistency_evaluation.v3" },
+    "evaluation_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
+    "producer_role": { "const": "harness" },
+    "owned_output_path": {
+      "type": "string",
+      "pattern": "^artifacts/reporting/consistency-evaluation\\.r[1-9][0-9]*\\.json$"
+    },
+    "report_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
+    "decision_brief_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
+    "report_view_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
+    "decision_recommendation_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
+    "traceability_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
+    "checked_dimensions": {
+      "type": "array",
+      "minItems": 14,
+      "maxItems": 14,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "decision",
+          "refs",
+          "hashes",
+          "freshness",
+          "limitations",
+          "counter_evidence",
+          "partial_order",
+          "panel_independence",
+          "evidence_ceiling",
+          "external_action_boundary",
+          "new_conclusions",
+          "market_validation_language",
+          "probability_language",
+          "global_score_language"
+        ]
+      }
+    },
+    "scan_contract_version": {
+      "const": "startup_opportunity.deterministic_forbidden_expression_scan.v1"
+    },
+    "scanned_surfaces": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "const": "structured_report" },
+        { "const": "decision_brief" },
+        { "const": "report_view" }
+      ],
+      "items": false
+    },
+    "forbidden_expression_matches": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(market_validation_success|probability_claim|global_score)@(structured_report|decision_brief|report_view):[a-f0-9]{64}$"
+      }
+    },
+    "evaluator_result": { "enum": ["passed", "failed"] },
+    "evaluation_issues": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "../v12/definitions.schema.json#/$defs/evaluationIssue" }
+    },
+    "input_artifact_hashes": { "$ref": "../v12/definitions.schema.json#/$defs/inputHashes" },
+    "valid_as_of": { "type": "string", "format": "date" },
+    "limitations": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "evaluator_result": { "const": "passed" } } },
+      "then": {
+        "properties": {
+          "forbidden_expression_matches": { "type": "array", "maxItems": 0 },
+          "evaluation_issues": { "type": "array", "maxItems": 0 }
+        }
+      },
+      "else": {
+        "properties": {
+          "forbidden_expression_matches": { "type": "array", "minItems": 1 },
+          "evaluation_issues": { "type": "array", "minItems": 1 }
+        }
+      }
+    }
+  ]
+}

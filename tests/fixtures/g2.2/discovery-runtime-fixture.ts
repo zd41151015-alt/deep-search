@@ -1,5 +1,6 @@
 import {
   canonicalContentHash,
+  type DiscoveryProfile,
   type DocumentBundle,
   type EvidenceStoreRecordV2,
   type FormalArtifactEnvelope,
@@ -68,6 +69,7 @@ export async function createDiscoveryRuntimeFixture(
   runId: string,
   substrate: DiscoveryRuntimeSubstrate,
   additionalPlanWaves: readonly Record<string, unknown>[] = [],
+  profile: DiscoveryProfile = "general",
 ): Promise<DocumentBundle> {
   const generationPath = runtimeEvidencePath(substrate.generation);
   const evaluationPath = runtimeEvidencePath(substrate.evaluation);
@@ -87,7 +89,7 @@ export async function createDiscoveryRuntimeFixture(
     ],
   ]);
   const bundle = replaceExactStrings(
-    await createDiscoveryCandidateFixture(additionalPlanWaves),
+    await createDiscoveryCandidateFixture(additionalPlanWaves, profile),
     replacements,
   ) as DocumentBundle;
   (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v10";

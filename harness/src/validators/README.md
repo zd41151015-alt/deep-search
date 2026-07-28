@@ -1,6 +1,6 @@
 # Deterministic Schema And Reference Validator
 
-默认 validator 使用 schema bundle `11.0.0`，同时保留既有 v1-v11 contract bytes。`validate-artifact` 继续只验证显式 document/bundle；不会扫描 Run、启动 Agent、执行 network research 或隐式迁移历史 Artifact。
+默认 validator 使用 schema bundle `12.0.0`，同时保留既有 v1-v12 contract bytes。`validate-artifact` 继续只验证显式 document/bundle；不会扫描 Run、启动 Agent、执行 network research 或隐式迁移历史 Artifact。
 
 `PlanningContractEvaluator` 只读消费显式 Document Bundle、`adaptation.v1.json` 和 AI trigger source-binding policy，返回排序稳定的 contract issue。它机械校验 Planning Context v2 的 source existence/schema/canonical hash/Run/mode/context revision/subject/trigger exact binding、closed unit tuple、AI aggregate coverage、canonical coverage_key/relation、pending/active coverage target 和 Run Manifest failed-only retry。
 
@@ -20,4 +20,4 @@
 
 `DiscoverySynthesisValidator` 对显式 v11 bundle 执行 executable conversion/target 双向 binding、formal target candidate ancestry、typed material task binding、generation/evaluation source separation、Demand-first dependency order、Solution Evaluation exact classification、Opportunity selection lineage、immutable pre-enrichment snapshot 和 non-title semantic merge closure。它不合成 thesis、不判断 Evidence 真实性/充分性，也不开放 G2.4 enrichment/comparison/report。
 
-`DiscoveryEvaluationValidator` 对显式 v12 bundle 执行 task/current enabled Plan unit exact tuple、snapshot/merge、v3 material/substrate、branch/fan-in、domain subject、hard gate/panel、Evidence ceiling、sensitivity/partial order、portfolio/recommendation、traceability/freshness/hash 与 discovery report closure。它不获取 Evidence、不生成 Judgment、panel band、排名或推荐；validation 只证明 contract mechanics。
+`DiscoveryEvaluationValidator` 对历史 v12 或 repaired v13 bundle 执行 task/current enabled Plan unit exact tuple、snapshot/merge、v3 material/substrate、branch/fan-in、domain subject、hard gate/panel、Evidence ceiling、sensitivity/partial order、portfolio/recommendation、traceability/freshness/hash 与 discovery report closure。v13 额外强制 selected Solution AI gate、closed decision tier ceiling 和 Consistency v3 deterministic scan。它不获取 Evidence、不生成 Judgment、panel band、排名或推荐；validation 只证明 contract mechanics。

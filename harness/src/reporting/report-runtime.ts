@@ -24,7 +24,15 @@ import { withReportLock, withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { RunStore } from "../run-store/run-store.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
-import { REQUIRED_REPORT_CONSISTENCY_DIMENSIONS } from "../validators/discovery-evaluation-policy.js";
+import {
+  LEGACY_REPORT_CONSISTENCY_DIMENSIONS,
+  REQUIRED_REPORT_CONSISTENCY_DIMENSIONS,
+} from "../validators/discovery-evaluation-policy.js";
+import {
+  REPORT_SCAN_CONTRACT_VERSION,
+  REPORT_SCAN_SURFACES,
+  scanDiscoveryReportSurfaces,
+} from "./report-consistency.js";
 
 const REPORT_SECTION_ORDER = [
   "assessment_result_and_evidence_strength",
@@ -277,9 +285,12 @@ function formalEnvelope(
   document: Record<string, unknown>,
   inputRefs: readonly string[],
 ): FormalArtifactEnvelope {
-  if (source.schema_version === "startup_opportunity.artifact_envelope.v12") {
+  if (
+    source.schema_version === "startup_opportunity.artifact_envelope.v12" ||
+    source.schema_version === "startup_opportunity.artifact_envelope.v13"
+  ) {
     return {
-      schema_version: "startup_opportunity.artifact_envelope.v12",
+      schema_version: source.schema_version,
       artifact_type: artifactType,
       artifact_path: artifactPath,
       run_id: source.run_id,
@@ -460,8 +471,17 @@ function deriveDiscoveryReportEnvelopes(
     viewDocument,
     [],
   );
+  const repaired = reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v13";
+  const forbiddenExpressionMatches = scanDiscoveryReportSurfaces({
+    structuredReport: report,
+    decisionBrief: briefMarkdown,
+    reportView: reportMarkdown,
+  });
+  const evaluatorResult = forbiddenExpressionMatches.length === 0 ? "passed" : "failed";
   const consistencyDocument: Record<string, unknown> = {
-    schema_version: "startup_opportunity.report_consistency_evaluation.v2",
+    schema_version: repaired
+      ? "startup_opportunity.report_consistency_evaluation.v3"
+      : "startup_opportunity.report_consistency_evaluation.v2",
     evaluation_id: `report_consistency_${revision.replace("r", "")}`,
     run_id: reportEnvelope.run_id,
     producer_role: "harness",
@@ -471,10 +491,23 @@ function deriveDiscoveryReportEnvelopes(
     report_view_ref: reportViewPath,
     decision_recommendation_ref: recommendationRef,
     traceability_ref: traceabilityRef,
-    checked_dimensions: REQUIRED_REPORT_CONSISTENCY_DIMENSIONS,
-    forbidden_expression_matches: [],
-    evaluator_result: "passed",
-    evaluation_issues: [],
+    checked_dimensions: repaired
+      ? REQUIRED_REPORT_CONSISTENCY_DIMENSIONS
+      : LEGACY_REPORT_CONSISTENCY_DIMENSIONS,
+    ...(repaired
+      ? {
+          scan_contract_version: REPORT_SCAN_CONTRACT_VERSION,
+          scanned_surfaces: REPORT_SCAN_SURFACES,
+        }
+      : {}),
+    forbidden_expression_matches: forbiddenExpressionMatches,
+    evaluator_result: evaluatorResult,
+    evaluation_issues: forbiddenExpressionMatches.map((match) => ({
+      code: "forbidden_expression",
+      field: match,
+      artifact_ref: reportEnvelope.artifact_path,
+      revision_request: "Remove the forbidden claim and publish a new immutable report revision.",
+    })),
     input_artifact_hashes: [
       { ref: reportEnvelope.artifact_path, content_hash: reportHash },
       { ref: decisionBriefPath, content_hash: canonicalContentHash(briefDocument) },
@@ -491,18 +524,41 @@ function deriveDiscoveryReportEnvelopes(
     formalEnvelope(
       reportEnvelope,
       consistencyPath,
-      "startup_opportunity.report_consistency_evaluation.v2",
+      repaired
+        ? "startup_opportunity.report_consistency_evaluation.v3"
+        : "startup_opportunity.report_consistency_evaluation.v2",
       consistencyDocument,
       [],
     ),
   ];
 }
 
+function assertDerivedConsistencyPassed(derived: readonly FormalArtifactEnvelope[]): void {
+  const consistency = derived.find((entry) =>
+    [
+      "startup_opportunity.report_consistency_evaluation.v2",
+      "startup_opportunity.report_consistency_evaluation.v3",
+    ].includes(entry.artifact_type),
+  );
+  if (
+    consistency !== undefined &&
+    (consistency.document.evaluator_result !== "passed" ||
+      strings(consistency.document.forbidden_expression_matches).length > 0)
+  ) {
+    throw new StoreError(
+      "report.forbidden_expression_detected",
+      "discovery report contains forbidden validation, probability, or global-score language",
+      { matches: consistency.document.forbidden_expression_matches },
+    );
+  }
+}
+
 export function deriveReportEnvelopes(
   reportEnvelope: FormalArtifactEnvelope,
 ): readonly FormalArtifactEnvelope[] {
   if (
-    reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v12" &&
+    (reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v12" ||
+      reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v13") &&
     reportEnvelope.artifact_type === "startup_opportunity.report.v1" &&
     reportEnvelope.producer_role === "main_agent" &&
     reportEnvelope.document.schema_version === "startup_opportunity.report.v1"
@@ -920,24 +976,29 @@ export async function recoverReportOperationsLocked(
   );
   for (const report of reports) {
     await artifacts.validateStoredEnvelope(runRoot, runId, report);
+    const derived = deriveReportEnvelopes(report);
+    assertDerivedConsistencyPassed(derived);
     const reportMaterialization = await materializeLocked(runRoot, report);
     if (reportMaterialization?.status === "materialized") {
       materializedRecovered.push(reportMaterialization.targetPath);
     }
-    for (const derived of deriveReportEnvelopes(report)) {
+    for (const derivedEnvelope of derived) {
       const existing = envelopes.find(
-        (candidate) => candidate.artifact_path === derived.artifact_path,
+        (candidate) => candidate.artifact_path === derivedEnvelope.artifact_path,
       );
-      if (existing !== undefined && canonicalJson(existing) !== canonicalJson(derived)) {
+      if (existing !== undefined && canonicalJson(existing) !== canonicalJson(derivedEnvelope)) {
         throw new StoreError("report.sidecar_conflict", "derived report sidecar bytes drifted", {
-          artifactPath: derived.artifact_path,
+          artifactPath: derivedEnvelope.artifact_path,
         });
       }
-      const result = await artifacts.publishLocked(runRoot, { runId, envelope: derived });
+      const result = await artifacts.publishLocked(runRoot, {
+        runId,
+        envelope: derivedEnvelope,
+      });
       if (result.status === "published") {
-        formalRecovered.push(derived.artifact_path);
+        formalRecovered.push(derivedEnvelope.artifact_path);
       }
-      const derivedMaterialization = await materializeLocked(runRoot, derived);
+      const derivedMaterialization = await materializeLocked(runRoot, derivedEnvelope);
       if (derivedMaterialization?.status === "materialized") {
         materializedRecovered.push(derivedMaterialization.targetPath);
       }
@@ -976,13 +1037,14 @@ export class ReportRuntime {
 
   async build(input: BuildReportInput): Promise<BuildReportResult> {
     const source = input.reportEnvelope;
+    const derived = deriveReportEnvelopes(source);
+    assertDerivedConsistencyPassed(derived);
     const validation = this.validator.validateDocument(source, source.artifact_path);
     if (!validation.valid) {
       throw new StoreError("report.source_invalid", "report source envelope is invalid", {
         errors: validation.errors,
       });
     }
-    const derived = deriveReportEnvelopes(source);
     const runRoot = await openRunDirectory(this.runsRoot, source.run_id);
     return withReportLock(runRoot, async () => {
       await withRunLock(runRoot, () => assertReportBuildCompatibleLocked(runRoot, source, derived));

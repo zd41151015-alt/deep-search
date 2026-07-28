@@ -139,16 +139,31 @@ export async function runAuditTraceability(
         "startup_opportunity.report.v1",
         "startup_opportunity.decision_brief.v2",
         "startup_opportunity.discovery_report_view.v1",
+      ];
+      const discoveryConsistencyTypes = [
         "startup_opportunity.report_consistency_evaluation.v2",
+        "startup_opportunity.report_consistency_evaluation.v3",
       ];
       const discoveryMode =
         discoveryRequiredTypes.some((type) => (counts.get(type) ?? 0) > 0) ||
-        discoveryReportTypes.some((type) => (counts.get(type) ?? 0) > 0);
+        [...discoveryReportTypes, ...discoveryConsistencyTypes].some(
+          (type) => (counts.get(type) ?? 0) > 0,
+        );
       const requiredTypes = discoveryMode ? discoveryRequiredTypes : conceptRequiredTypes;
       const reportTypes = discoveryMode ? discoveryReportTypes : conceptReportTypes;
-      const reportSetPresent = reportTypes.some((type) => (counts.get(type) ?? 0) > 0);
+      const reportSetPresent = [
+        ...reportTypes,
+        ...(discoveryMode ? discoveryConsistencyTypes : []),
+      ].some((type) => (counts.get(type) ?? 0) > 0);
       const evaluatedTypes = [...requiredTypes, ...(reportSetPresent ? reportTypes : [])];
       const missingTypes = evaluatedTypes.filter((type) => counts.get(type) !== 1);
+      if (
+        discoveryMode &&
+        reportSetPresent &&
+        discoveryConsistencyTypes.reduce((total, type) => total + (counts.get(type) ?? 0), 0) !== 1
+      ) {
+        missingTypes.push(discoveryConsistencyTypes.join(" | "));
+      }
       const valid = validation.valid && missingTypes.length === 0;
       return {
         schemaVersion: "startup_opportunity.traceability_audit_result.v1",

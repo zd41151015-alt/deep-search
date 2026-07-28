@@ -2,7 +2,7 @@
 
 This repository is the repo-backed, deterministic control layer for the Codex-native Startup Opportunity research workflow. Codex owns reasoning, tools, interaction, and subagent sessions; this Harness owns published core Artifact contracts, validated Run state, immutable Artifact publication, the Evidence storage substrate, checkpoints, and bounded Plan/Adaptation mechanics.
 
-The repository has a G2 Opportunity Discovery implementation exit candidate pending independent whole-gate regression. Schema bundle `11.0.0` retains accepted G0-G2.3 contracts and adds caller-supplied G2.4 enrichment, Business Engine, hard gates, four-panel comparison, sensitivity, partial order, portfolio, recommendation, traceability, and discovery reporting through v12 publication with receipt v10. The deterministic Harness validates, publishes, checkpoints, recovers, summarizes validated comparison/sensitivity Artifacts, and materializes report views; it does not dispatch agents, synthesize research or decision semantics, perform network research, or infer provenance, independence, bias, freshness, Evidence quality, or validation success. G3+ remains unavailable.
+The repository has a directed G2 Opportunity Discovery repair candidate pending fresh independent whole-gate regression. Schema bundle `12.0.0` retains immutable G0-G2.4 history and adds the v13/receipt v11 repair adapter: selected-solution AI gate enforcement, closed recommendation ceilings, deterministic three-surface report scanning, and shared-candidate pre-kill protection. The deterministic Harness validates, publishes, checkpoints, recovers, summarizes validated comparison/sensitivity Artifacts, and materializes report views; it does not dispatch agents, synthesize research or decision semantics, perform network research, or infer provenance, independence, bias, freshness, Evidence quality, or validation success. G3+ remains unavailable.
 
 ## Toolchain
 
@@ -38,6 +38,7 @@ npm run test:g1.4
 npm run test:g2.1
 npm run test:g2.2
 npm run test:g2.3
+npm run test:g2.4
 npm run test:recovery
 npm run verify:skeleton
 ```
@@ -69,8 +70,8 @@ npm run harness -- apply-plan-revision --file path/to/apply-input.json --runs-ro
 - `AGENTS.md`: durable repository rules and validation commands.
 - `.agents/skills/startup-opportunity/`: the repo-local Skill, progressive-disclosure references, and explicit script entrypoints.
 - `.codex/agents/`: lane researcher, evidence auditor, and adversarial reviewer role contracts.
-- `harness/src/`: deterministic TypeScript entry, repository contract, schema/reference validators through G2.3, Run/Artifact/Evidence stores, reporting, and bounded Plan/Adaptation runtime.
-- `harness/schemas/`: immutable Draft 2020-12 compatibility bundles plus default bundle `10.0.0`; v11 adds the G2.3 synthesis publication surface without rewriting accepted upstream bytes.
+- `harness/src/`: deterministic TypeScript entry, repository contract, schema/reference validators through G2.4, Run/Artifact/Evidence stores, reporting, and bounded Plan/Adaptation runtime.
+- `harness/schemas/`: immutable Draft 2020-12 compatibility bundles plus default bundle `12.0.0`; v13 adds the G2 repair contracts without rewriting accepted upstream bytes.
 - `harness/policies/`, `harness/templates/`, `harness/evals/`: owned landing zones for later policies, reporting, and non-schema evaluators.
 - `tests/`: executable repository, schema/reference, real-filesystem store, fault, and recovery tests.
 - `runs/`: ignored runtime data boundary; only `.gitkeep` is committed.
@@ -79,6 +80,6 @@ The architecture authority is `startup-opportunity-codex-research-harness.md`. L
 
 ## Current Boundaries
 
-The accepted G0/G1 mechanics, G2.1 maps, G2.2 discovery lane/fan-in runtime, and caller-supplied G2.3 synthesis publication are operational. `validate-artifact` and `publish-artifact` apply their exact versioned envelope/bundle adapters; v11 accepts executable conversion v2 and formal synthesis only after the closed cross-artifact contract passes. This does not make `discover`, `assess`, `resume`, or `status` complete research workflows. `load-run` performs deterministic reopen/recovery; it does not restart agents or infer research judgment. Every downstream reserved script still fails with a machine-readable message naming its owning future slice.
+The accepted G0/G1 mechanics, G2.1 maps, G2.2 discovery lane/fan-in runtime, caller-supplied G2.3 synthesis, and caller-supplied G2.4 evaluation/report publication are operational subject to fresh G2 boundary acceptance. `validate-artifact` and `publish-artifact` apply their exact versioned envelope/bundle adapters; v13 accepts repaired G2.4 publication only after the closed cross-artifact contract passes. This does not make `discover`, `assess`, `resume`, or `status` complete research workflows. `load-run` performs deterministic reopen/recovery; it does not restart agents or infer research judgment.
 
-Formal envelopes are immutable after publication. Their `content_hash` is SHA-256 over canonical `document` JSON. `manifest.json` is the atomically replaced current index; checkpoints preserve immutable snapshots. Receipt v1-v9 map exactly to their published envelope adapters. G2.3 formalization does not mutate pre-thesis candidates and does not establish Evidence sufficiency, external validation, or market success. Evidence Store materialization keeps mechanical substrate fields separate from Agent-attested origin/provenance/freshness/independence/bias fields. Partial retry remains fail closed. No general workflow engine, daemon, UI, database, external validation execution, Plugin, hook, or MCP integration is implemented.
+Formal envelopes are immutable after publication. Their `content_hash` is SHA-256 over canonical `document` JSON. `manifest.json` is the atomically replaced current index; checkpoints preserve immutable snapshots. Receipt v1-v11 map exactly to their published envelope adapters. G2.3 formalization and G2.4 evaluation do not establish Evidence sufficiency, external validation, or market success. Evidence Store materialization keeps mechanical substrate fields separate from Agent-attested origin/provenance/freshness/independence/bias fields. Partial retry remains fail closed. No general workflow engine, daemon, UI, database, external validation execution, Plugin, hook, or MCP integration is implemented.

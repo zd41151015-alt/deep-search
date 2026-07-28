@@ -1,5 +1,14 @@
 import { canonicalContentHash, canonicalJson, sha256Bytes } from "../artifact-store/canonical.js";
-import type { DiscoveryEvaluationPolicy } from "./discovery-evaluation-policy.js";
+import {
+  REPORT_SCAN_CONTRACT_VERSION,
+  REPORT_SCAN_SURFACES,
+  scanDiscoveryReportSurfaces,
+} from "../reporting/report-consistency.js";
+import {
+  DECISION_TIER_ORDER,
+  type DiscoveryEvaluationPolicy,
+  LEGACY_REPORT_CONSISTENCY_DIMENSIONS,
+} from "./discovery-evaluation-policy.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
 export interface DiscoveryEvaluationDocument {
@@ -32,6 +41,7 @@ const EVALUATION_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.decision_brief.v2",
   "startup_opportunity.discovery_report_view.v1",
   "startup_opportunity.report_consistency_evaluation.v2",
+  "startup_opportunity.report_consistency_evaluation.v3",
 ]);
 
 const MATERIAL_SCHEMA_VERSIONS = new Set([
@@ -116,12 +126,15 @@ function validateEnvelope(entry: DiscoveryEvaluationDocument, errors: Validation
   if (!EVALUATION_SCHEMA_VERSIONS.has(entry.schemaVersion)) {
     return;
   }
-  if (entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.v12") {
+  if (
+    entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.v12" &&
+    entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.v13"
+  ) {
     errors.push(
       issue(
         "g2_4.envelope_version_mismatch",
         entry.path,
-        "G2.4 artifacts require artifact_envelope.v12",
+        "G2.4 artifacts require historical v12 or repaired v13 envelopes",
       ),
     );
     return;
@@ -146,6 +159,7 @@ function validateEnvelope(entry: DiscoveryEvaluationDocument, errors: Validation
             "startup_opportunity.decision_brief.v2",
             "startup_opportunity.discovery_report_view.v1",
             "startup_opportunity.report_consistency_evaluation.v2",
+            "startup_opportunity.report_consistency_evaluation.v3",
           ].includes(entry.schemaVersion)
         ? "harness"
         : "lane_researcher";
@@ -605,6 +619,29 @@ function validateHashEntries(
   }
 }
 
+function selectedSolutionUsesAi(
+  opportunityRef: unknown,
+  byPath: ReadonlyMap<string, DiscoveryEvaluationDocument>,
+): { readonly valid: boolean; readonly usesAi: boolean } {
+  const opportunity = target(byPath, opportunityRef);
+  const solution = target(byPath, opportunity?.document.selected_solution_ref);
+  return {
+    valid:
+      opportunity?.schemaVersion === "startup_opportunity.opportunity_thesis.v1" &&
+      solution?.schemaVersion === "startup_opportunity.solution_hypothesis.v1" &&
+      solution.document.run_id === opportunity.document.run_id &&
+      typeof solution.document.uses_ai === "boolean",
+    usesAi: solution?.document.uses_ai === true,
+  };
+}
+
+function tierExceeds(actual: unknown, ceiling: string): boolean {
+  return (
+    DECISION_TIER_ORDER.indexOf(actual as (typeof DECISION_TIER_ORDER)[number]) >
+    DECISION_TIER_ORDER.indexOf(ceiling as (typeof DECISION_TIER_ORDER)[number])
+  );
+}
+
 function validateEvaluationAndReporting(
   entries: readonly DiscoveryEvaluationDocument[],
   byPath: ReadonlyMap<string, DiscoveryEvaluationDocument>,
@@ -706,6 +743,27 @@ function validateEvaluationAndReporting(
           "g2_4.comparison_gate_lineage_mismatch",
           `${comparison.path}#/hard_gate_results`,
           "comparison hard gates must bind every same-opportunity fan-in gate before comparison",
+        ),
+      );
+    }
+    const selectedSolution = selectedSolutionUsesAi(opportunityRef, byPath);
+    if (!selectedSolution.valid) {
+      errors.push(
+        issue(
+          "g2_4.ai_solution_binding_mismatch",
+          `${comparison.path}#/opportunity_ref`,
+          "comparison must resolve its Opportunity to the exact selected Solution uses_ai field",
+        ),
+      );
+    }
+    const aiMandatoryGate = gates.find((gate) => gate.gate_id === "ai_mandatory_bundle");
+    if (selectedSolution.usesAi && aiMandatoryGate?.status !== "insufficient_evidence") {
+      errors.push(
+        issue(
+          "g2_4.ai_mandatory_bundle_gate_violation",
+          `${comparison.path}#/hard_gate_results`,
+          "an AI-selected Solution without a G3 bundle must fail closed as insufficient_evidence",
+          { actualStatus: aiMandatoryGate?.status },
         ),
       );
     }
@@ -859,6 +917,63 @@ function validateEvaluationAndReporting(
       ),
     );
   }
+  if (recommendation !== undefined && portfolio !== undefined) {
+    const firstBet = recommendation.document.recommended_first_bet;
+    let ceiling = "investigate_further";
+    let firstBetReady = false;
+    if (typeof firstBet === "string") {
+      const selectedComparison = comparisons.find(
+        (entry) => entry.document.opportunity_ref === firstBet,
+      );
+      const selectedFanIn = target(byPath, selectedComparison?.document.enrichment_fan_in_ref);
+      const fanInCeiling = records(selectedFanIn?.document.opportunity_conclusion_ceilings).find(
+        (entry) => entry.opportunity_ref === firstBet,
+      )?.conclusion_ceiling;
+      const gates = records(selectedComparison?.document.hard_gate_results);
+      const panels = records(selectedComparison?.document.comparison_panels);
+      const aiMissing = selectedSolutionUsesAi(firstBet, byPath).usesAi;
+      firstBetReady =
+        portfolio.document.recommended_first_bet === firstBet &&
+        selectedComparison?.document.recommendation_band === "strong_candidate" &&
+        selectedComparison.document.hard_gate_outcome === "eligible" &&
+        gates.every((gate) => ["passed", "not_applicable"].includes(String(gate.status))) &&
+        fanInCeiling === "strong_candidate" &&
+        panels.every(
+          (panel) =>
+            panel.decision_sufficiency === "sufficient" &&
+            !["weak", "unknown"].includes(String(panel.band)),
+        ) &&
+        !aiMissing;
+      if (firstBetReady) {
+        ceiling = "prioritize";
+      } else if (
+        selectedComparison?.document.hard_gate_outcome === "reject" ||
+        selectedComparison?.document.recommendation_band === "reject"
+      ) {
+        ceiling = "reject";
+      } else if (
+        selectedComparison?.document.hard_gate_outcome === "watchlist" ||
+        selectedComparison?.document.recommendation_band === "watchlist"
+      ) {
+        ceiling = "watch";
+      }
+    }
+    if (tierExceeds(recommendation.document.decision_tier, ceiling)) {
+      errors.push(
+        issue(
+          "g2_4.decision_tier_ceiling_violation",
+          `${recommendation.path}#/decision_tier`,
+          "decision tier exceeds comparison, fan-in, portfolio, or first-bet readiness",
+          {
+            actual: recommendation.document.decision_tier,
+            ceiling,
+            firstBet: firstBet ?? null,
+            firstBetReady,
+          },
+        ),
+      );
+    }
+  }
 
   const traceability = entries.find(
     (entry) => entry.schemaVersion === "startup_opportunity.traceability.v2",
@@ -982,7 +1097,9 @@ function validateEvaluationAndReporting(
     (entry) => entry.schemaVersion === "startup_opportunity.discovery_report_view.v1",
   );
   const consistency = entries.find(
-    (entry) => entry.schemaVersion === "startup_opportunity.report_consistency_evaluation.v2",
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.report_consistency_evaluation.v2" ||
+      entry.schemaVersion === "startup_opportunity.report_consistency_evaluation.v3",
   );
   const context = reportContext;
   const reportHash = report === undefined ? null : canonicalContentHash(report.document);
@@ -1033,19 +1150,44 @@ function validateEvaluationAndReporting(
       !same(view.document.limitations, context?.limitations) ||
       !same(view.document.external_action_boundary, context?.external_action_boundary) ||
       view.document.markdown_content_hash !== sha256Bytes(String(view.document.markdown)));
+  const forbiddenMatches =
+    report !== undefined && brief !== undefined && view !== undefined
+      ? scanDiscoveryReportSurfaces({
+          structuredReport: report.document,
+          decisionBrief: String(brief.document.markdown),
+          reportView: String(view.document.markdown),
+        })
+      : [];
+  const expectedDimensions =
+    consistency?.schemaVersion === "startup_opportunity.report_consistency_evaluation.v3"
+      ? strings(policy.reporting_contract.consistency_dimensions)
+      : LEGACY_REPORT_CONSISTENCY_DIMENSIONS;
+  const repairedConsistencyMismatch =
+    consistency?.schemaVersion === "startup_opportunity.report_consistency_evaluation.v3" &&
+    (consistency.document.scan_contract_version !== REPORT_SCAN_CONTRACT_VERSION ||
+      !same(consistency.document.scanned_surfaces, REPORT_SCAN_SURFACES) ||
+      !same(consistency.document.forbidden_expression_matches, forbiddenMatches));
+  if (forbiddenMatches.length > 0) {
+    errors.push(
+      issue(
+        "g2_4.forbidden_report_expression",
+        report?.path ?? "artifacts/reporting",
+        "structured report and rendered views must contain no validation-success, probability, or global-score language",
+        { forbiddenMatches },
+      ),
+    );
+  }
   if (
     briefMismatch ||
     viewMismatch ||
+    repairedConsistencyMismatch ||
     (consistency !== undefined &&
       (consistency.document.report_ref !== report?.path ||
         consistency.document.decision_brief_ref !== brief?.path ||
         consistency.document.report_view_ref !== view?.path ||
         consistency.document.decision_recommendation_ref !== recommendation?.path ||
         consistency.document.traceability_ref !== traceability?.path ||
-        !setEqual(
-          strings(consistency.document.checked_dimensions),
-          strings(policy.reporting_contract.consistency_dimensions),
-        ) ||
+        !setEqual(strings(consistency.document.checked_dimensions), expectedDimensions) ||
         consistency.document.evaluator_result !== "passed" ||
         strings(consistency.document.forbidden_expression_matches).length > 0))
   ) {

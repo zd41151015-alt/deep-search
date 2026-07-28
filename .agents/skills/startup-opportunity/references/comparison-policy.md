@@ -6,4 +6,4 @@ Comparison 是决策辅助，不是客观概率模型。先执行 Hard Gate。�
 
 排序使用 pairwise dominance、downside/upside 关系、speed to learn 和 partial order。面向用户的输出可以识别稳健领先组、近乎无法区分的候选，或指出 Evidence 不足以排序。绝不展示伪精确的全局分数或成功概率。
 
-policy 与 profile 均已发布并版本化。用户或 agent 可以通过 Decision Context 选择可用 profile，但不得在 active Run 中重新设置单个维度权重。G2.4 validator 对调用方显式提供的 hard gate、四面板、Evidence ceiling、pairwise/sensitivity、partial order、portfolio 和 recommendation 执行 closed consistency checks。`calculate-comparison` 与 `calculate-sensitivity` 只读验证并摘要这些 Artifact；它们不生成 panel band、Judgment、排名或推荐。
+policy 与 profile 均已发布并版本化。用户或 agent 可以通过 Decision Context 选择可用 profile，但不得在 active Run 中重新设置单个维度权重。G2.4 validator 对调用方显式提供的 hard gate、四面板、Evidence ceiling、pairwise/sensitivity、partial order、portfolio 和 recommendation 执行 closed consistency checks。repair policy 还沿 Opportunity selected Solution 解析 `uses_ai`，在 G3 bundle 缺失时强制 `ai_mandatory_bundle=insufficient_evidence`，并以 comparison、fan-in、Portfolio、first-bet readiness 和 panel sufficiency 的最严格 ceiling 限制 `decision_tier`；null first bet 不得 `prioritize`。`calculate-comparison` 与 `calculate-sensitivity` 只读验证并摘要这些 Artifact；它们不生成 panel band、Judgment、排名或推荐。

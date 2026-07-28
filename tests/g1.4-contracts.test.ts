@@ -62,9 +62,9 @@ async function codes(bundle: DocumentBundle): Promise<readonly string[]> {
 test("default bundle retains G1.4 and validates all four closed Assessment results", async () => {
   const schema = await inspectSchemaBundle(repositoryRoot);
   assert.equal(schema.valid, true, JSON.stringify(schema.errors));
-  assert.equal(schema.schemaBundleVersion, "11.0.0");
-  assert.equal(schema.schemaCount, 135);
-  assert.equal(schema.documentSchemaCount, 127);
+  assert.equal(schema.schemaBundleVersion, "12.0.0");
+  assert.equal(schema.schemaCount, 141);
+  assert.equal(schema.documentSchemaCount, 133);
 
   const validator = await createArtifactValidator(repositoryRoot);
   for (const assessmentResult of [

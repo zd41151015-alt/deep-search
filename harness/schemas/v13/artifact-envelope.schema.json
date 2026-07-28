@@ -1,0 +1,281 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v13/artifact-envelope.schema.json",
+  "title": "Startup Opportunity G2 Repair Artifact Envelope v13",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_path",
+    "run_id",
+    "created_at",
+    "producer_role",
+    "input_refs",
+    "content_hash",
+    "document"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.artifact_envelope.v13" },
+    "artifact_type": {
+      "enum": [
+        "startup_opportunity.research_task.v3",
+        "startup_opportunity.evidence.v3",
+        "startup_opportunity.claim.v3",
+        "startup_opportunity.finding.v3",
+        "startup_opportunity.insight.v3",
+        "startup_opportunity.judgment_assessment.v3",
+        "startup_opportunity.source_manifest.v3",
+        "startup_opportunity.enrichment_branch_result.v1",
+        "startup_opportunity.enrichment_fan_in.v1",
+        "startup_opportunity.value_layer_analysis.v1",
+        "startup_opportunity.user_state_context_model.v1",
+        "startup_opportunity.buyer_purchase_language.v1",
+        "startup_opportunity.business_engine_thesis.v2",
+        "startup_opportunity.opportunity_comparison.v1",
+        "startup_opportunity.sensitivity.v1",
+        "startup_opportunity.portfolio_view.v1",
+        "startup_opportunity.decision_recommendation.v1",
+        "startup_opportunity.traceability.v2",
+        "startup_opportunity.report.v1",
+        "startup_opportunity.decision_brief.v2",
+        "startup_opportunity.discovery_report_view.v1",
+        "startup_opportunity.report_consistency_evaluation.v3",
+        "startup_opportunity.checkpoint.v1"
+      ]
+    },
+    "artifact_path": { "$ref": "../v12/definitions.schema.json#/$defs/artifactPath" },
+    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
+    "created_at": { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+    "producer_role": { "enum": ["main_agent", "lane_researcher", "harness"] },
+    "input_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
+    "content_hash": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" },
+    "document": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "artifact_type": { "const": "startup_opportunity.research_task.v3" } }
+      },
+      "then": {
+        "properties": {
+          "producer_role": { "const": "main_agent" },
+          "document": { "$ref": "../v12/research-task-v3.schema.json" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "enum": [
+              "startup_opportunity.evidence.v3",
+              "startup_opportunity.claim.v3",
+              "startup_opportunity.finding.v3",
+              "startup_opportunity.insight.v3",
+              "startup_opportunity.judgment_assessment.v3",
+              "startup_opportunity.source_manifest.v3",
+              "startup_opportunity.enrichment_branch_result.v1"
+            ]
+          }
+        }
+      },
+      "then": { "properties": { "producer_role": { "const": "lane_researcher" } } }
+    },
+    {
+      "if": { "properties": { "artifact_type": { "const": "startup_opportunity.evidence.v3" } } },
+      "then": { "properties": { "document": { "$ref": "../v12/evidence-v3.schema.json" } } }
+    },
+    {
+      "if": { "properties": { "artifact_type": { "const": "startup_opportunity.claim.v3" } } },
+      "then": { "properties": { "document": { "$ref": "../v12/claim-v3.schema.json" } } }
+    },
+    {
+      "if": { "properties": { "artifact_type": { "const": "startup_opportunity.finding.v3" } } },
+      "then": { "properties": { "document": { "$ref": "../v12/finding-v3.schema.json" } } }
+    },
+    {
+      "if": { "properties": { "artifact_type": { "const": "startup_opportunity.insight.v3" } } },
+      "then": { "properties": { "document": { "$ref": "../v12/insight-v3.schema.json" } } }
+    },
+    {
+      "if": {
+        "properties": { "artifact_type": { "const": "startup_opportunity.judgment_assessment.v3" } }
+      },
+      "then": {
+        "properties": { "document": { "$ref": "../v12/judgment-assessment-v3.schema.json" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "artifact_type": { "const": "startup_opportunity.source_manifest.v3" } }
+      },
+      "then": { "properties": { "document": { "$ref": "../v12/source-manifest-v3.schema.json" } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": { "const": "startup_opportunity.enrichment_branch_result.v1" }
+        }
+      },
+      "then": {
+        "properties": { "document": { "$ref": "../v12/enrichment-branch-result.schema.json" } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "enum": [
+              "startup_opportunity.enrichment_fan_in.v1",
+              "startup_opportunity.value_layer_analysis.v1",
+              "startup_opportunity.user_state_context_model.v1",
+              "startup_opportunity.buyer_purchase_language.v1",
+              "startup_opportunity.business_engine_thesis.v2",
+              "startup_opportunity.opportunity_comparison.v1",
+              "startup_opportunity.sensitivity.v1",
+              "startup_opportunity.portfolio_view.v1",
+              "startup_opportunity.decision_recommendation.v1",
+              "startup_opportunity.traceability.v2",
+              "startup_opportunity.report.v1"
+            ]
+          }
+        }
+      },
+      "then": { "properties": { "producer_role": { "const": "main_agent" } } }
+    },
+    {
+      "if": {
+        "properties": { "artifact_type": { "const": "startup_opportunity.enrichment_fan_in.v1" } }
+      },
+      "then": { "properties": { "document": { "$ref": "../v12/enrichment-fan-in.schema.json" } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": { "const": "startup_opportunity.value_layer_analysis.v1" }
+        }
+      },
+      "then": {
+        "properties": { "document": { "$ref": "../v12/value-layer-analysis.schema.json" } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": { "const": "startup_opportunity.user_state_context_model.v1" }
+        }
+      },
+      "then": {
+        "properties": { "document": { "$ref": "../v12/user-state-context-model.schema.json" } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": { "const": "startup_opportunity.buyer_purchase_language.v1" }
+        }
+      },
+      "then": {
+        "properties": { "document": { "$ref": "../v12/buyer-purchase-language.schema.json" } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": { "const": "startup_opportunity.business_engine_thesis.v2" }
+        }
+      },
+      "then": {
+        "properties": { "document": { "$ref": "../v12/business-engine-thesis-v2.schema.json" } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": { "const": "startup_opportunity.opportunity_comparison.v1" }
+        }
+      },
+      "then": {
+        "properties": { "document": { "$ref": "../v12/opportunity-comparison.schema.json" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "artifact_type": { "const": "startup_opportunity.sensitivity.v1" } }
+      },
+      "then": { "properties": { "document": { "$ref": "../v12/sensitivity.schema.json" } } }
+    },
+    {
+      "if": {
+        "properties": { "artifact_type": { "const": "startup_opportunity.portfolio_view.v1" } }
+      },
+      "then": { "properties": { "document": { "$ref": "../v12/portfolio-view.schema.json" } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": { "const": "startup_opportunity.decision_recommendation.v1" }
+        }
+      },
+      "then": {
+        "properties": { "document": { "$ref": "../v12/decision-recommendation.schema.json" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "artifact_type": { "const": "startup_opportunity.traceability.v2" } }
+      },
+      "then": { "properties": { "document": { "$ref": "../v12/traceability-v2.schema.json" } } }
+    },
+    {
+      "if": { "properties": { "artifact_type": { "const": "startup_opportunity.report.v1" } } },
+      "then": { "properties": { "document": { "$ref": "../v12/discovery-report.schema.json" } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "enum": [
+              "startup_opportunity.decision_brief.v2",
+              "startup_opportunity.discovery_report_view.v1",
+              "startup_opportunity.report_consistency_evaluation.v3",
+              "startup_opportunity.checkpoint.v1"
+            ]
+          }
+        }
+      },
+      "then": { "properties": { "producer_role": { "const": "harness" } } }
+    },
+    {
+      "if": {
+        "properties": { "artifact_type": { "const": "startup_opportunity.decision_brief.v2" } }
+      },
+      "then": { "properties": { "document": { "$ref": "../v12/decision-brief-v2.schema.json" } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": { "const": "startup_opportunity.discovery_report_view.v1" }
+        }
+      },
+      "then": {
+        "properties": { "document": { "$ref": "../v12/discovery-report-view.schema.json" } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": { "const": "startup_opportunity.report_consistency_evaluation.v3" }
+        }
+      },
+      "then": {
+        "properties": { "document": { "$ref": "report-consistency-evaluation-v3.schema.json" } }
+      }
+    },
+    {
+      "if": { "properties": { "artifact_type": { "const": "startup_opportunity.checkpoint.v1" } } },
+      "then": { "properties": { "document": { "$ref": "../v1/checkpoint.schema.json" } } }
+    }
+  ]
+}

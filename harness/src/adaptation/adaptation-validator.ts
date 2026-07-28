@@ -17,6 +17,10 @@ import {
   unitEntries,
 } from "./contracts.js";
 import {
+  type DiscoveryAdaptationBindingPolicy,
+  loadDiscoveryAdaptationBindingPolicy,
+} from "./discovery-adaptation-policy.js";
+import {
   createAssessmentPlanSemanticValidator,
   createPlanSemanticValidator,
   type PlanSemanticValidator,
@@ -81,6 +85,7 @@ export class AdaptationPolicyValidator {
     private readonly plans: PlanSemanticValidator,
     private readonly assessmentPlans: PlanSemanticValidator,
     private readonly assessmentPolicy: AssessmentAdaptationPolicy,
+    private readonly discoveryBindingPolicy: DiscoveryAdaptationBindingPolicy,
   ) {}
 
   validateDocumentBundle(
@@ -632,6 +637,56 @@ export class AdaptationPolicyValidator {
             ),
           );
         }
+        if (action === "skip_unit") {
+          const preKillGaps = gaps.filter(
+            (resolved) =>
+              resolved !== null &&
+              resolved.gap.gap_type === this.discoveryBindingPolicy.trigger_gap_type,
+          );
+          if (preKillGaps.length > 0) {
+            const subjects = [
+              ...new Set(preKillGaps.map((resolved) => String(resolved?.gap.subject_ref ?? ""))),
+            ];
+            const inputRefs = Array.isArray(target?.unit.input_refs)
+              ? target.unit.input_refs.filter((ref): ref is string => typeof ref === "string")
+              : [];
+            const candidatePattern = new RegExp(
+              this.discoveryBindingPolicy.candidate_ref_pattern,
+              "u",
+            );
+            const candidateRefs = inputRefs.filter((ref) => candidatePattern.test(ref));
+            const subject = subjects[0];
+            if (
+              subjects.length !== 1 ||
+              subject === undefined ||
+              !candidatePattern.test(subject) ||
+              !inputRefs.includes(subject)
+            ) {
+              errors.push(
+                issue(
+                  "adaptation.pre_kill_candidate_target_mismatch",
+                  `${decisionPath}#/target_unit_ref`,
+                  "candidate_pre_killed skip must target a pending unit that explicitly consumes the exact candidate revision",
+                  { subjects, inputRefs },
+                ),
+              );
+            }
+            if (
+              candidateRefs.length !== 1 ||
+              subject === undefined ||
+              candidateRefs[0] !== subject
+            ) {
+              errors.push(
+                issue(
+                  "adaptation.pre_kill_shared_candidate_skip_forbidden",
+                  `${decisionPath}#/target_unit_ref`,
+                  "a unit serving retained or other candidates must remain enabled or be superseded",
+                  { subject: subject ?? null, candidateRefs },
+                ),
+              );
+            }
+          }
+        }
         break;
       case "retry_unit":
         requireState(["failed"]);
@@ -723,5 +778,6 @@ export async function createAdaptationPolicyValidator(
     await createPlanSemanticValidator(root),
     await createAssessmentPlanSemanticValidator(root),
     await loadAssessmentAdaptationPolicy(root),
+    await loadDiscoveryAdaptationBindingPolicy(root),
   );
 }

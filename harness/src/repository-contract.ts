@@ -45,6 +45,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v12.json",
   "harness/schemas/bundle.v11.json",
   "harness/schemas/bundle.v10.json",
   "harness/schemas/bundle.v9.json",
@@ -193,6 +194,12 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v12/research-publication-policy-v7.schema.json",
   "harness/schemas/v12/artifact-envelope.schema.json",
   "harness/schemas/v12/document-bundle.schema.json",
+  "harness/schemas/v13/discovery-evaluation-policy-v2.schema.json",
+  "harness/schemas/v13/discovery-adaptation-binding-policy.schema.json",
+  "harness/schemas/v13/report-consistency-evaluation-v3.schema.json",
+  "harness/schemas/v13/research-publication-policy-v8.schema.json",
+  "harness/schemas/v13/artifact-envelope.schema.json",
+  "harness/schemas/v13/document-bundle.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
@@ -212,6 +219,8 @@ export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/discovery-synthesis-validator.ts",
   "harness/src/validators/discovery-evaluation-policy.ts",
   "harness/src/validators/discovery-evaluation-validator.ts",
+  "harness/src/reporting/report-consistency.ts",
+  "harness/src/adaptation/discovery-adaptation-policy.ts",
   "harness/src/validators/planning-contract-identities.ts",
   "harness/src/validators/planning-contract-validator.ts",
   "harness/src/validators/validate-artifact-command.ts",
@@ -279,6 +288,9 @@ export const RESPONSIBILITY_PATHS = [
   "harness/policies/research-publication.v6.json",
   "harness/policies/discovery-evaluation.v1.json",
   "harness/policies/research-publication.v7.json",
+  "harness/policies/discovery-evaluation.v2.json",
+  "harness/policies/discovery-adaptation-binding.v1.json",
+  "harness/policies/research-publication.v8.json",
   "tests/fixtures/README.md",
   "tests/fixtures/g1.2/README.md",
   "tests/fixtures/g1.3/README.md",
