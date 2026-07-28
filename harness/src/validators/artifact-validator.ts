@@ -78,7 +78,8 @@ export interface DocumentBundle {
     | "startup_opportunity.document_bundle.v6"
     | "startup_opportunity.document_bundle.v7"
     | "startup_opportunity.document_bundle.v8"
-    | "startup_opportunity.document_bundle.v9";
+    | "startup_opportunity.document_bundle.v9"
+    | "startup_opportunity.document_bundle.v10";
   readonly documents: readonly DocumentBundleEntry[];
   readonly exact_records?: readonly {
     readonly ref: string;
@@ -1400,6 +1401,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ),
       ];
     case "startup_opportunity.discovery_fan_in.v1":
+    case "startup_opportunity.discovery_fan_in.v2":
       return [
         ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
@@ -1508,7 +1510,10 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "source_candidate_ref",
           "startup_opportunity.discovery_candidate.v1",
         ),
-        ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v1"),
+        ...optionalRef(document, "discovery_fan_in_ref", [
+          "startup_opportunity.discovery_fan_in.v1",
+          "startup_opportunity.discovery_fan_in.v2",
+        ]),
       ];
     default:
       return [];
@@ -1526,7 +1531,8 @@ function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
     version !== "startup_opportunity.artifact_envelope.v6" &&
     version !== "startup_opportunity.artifact_envelope.v7" &&
     version !== "startup_opportunity.artifact_envelope.v8" &&
-    version !== "startup_opportunity.artifact_envelope.v9"
+    version !== "startup_opportunity.artifact_envelope.v9" &&
+    version !== "startup_opportunity.artifact_envelope.v10"
   ) {
     return { path: entry.path, schemaVersion: version, document: entry.document, envelope: null };
   }
@@ -1659,7 +1665,8 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
       document.schema_version !== "startup_opportunity.artifact_envelope.v6" &&
       document.schema_version !== "startup_opportunity.artifact_envelope.v7" &&
       document.schema_version !== "startup_opportunity.artifact_envelope.v8" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v9") ||
+      document.schema_version !== "startup_opportunity.artifact_envelope.v9" &&
+      document.schema_version !== "startup_opportunity.artifact_envelope.v10") ||
     !isRecord(document.document)
   ) {
     return [];
@@ -1964,7 +1971,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v6" &&
       input.schema_version !== "startup_opportunity.document_bundle.v7" &&
       input.schema_version !== "startup_opportunity.document_bundle.v8" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v9"
+      input.schema_version !== "startup_opportunity.document_bundle.v9" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v10"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -2002,7 +2010,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v6" &&
       input.schema_version !== "startup_opportunity.document_bundle.v7" &&
       input.schema_version !== "startup_opportunity.document_bundle.v8" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v9"
+      input.schema_version !== "startup_opportunity.document_bundle.v9" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v10"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -2031,7 +2040,8 @@ export class ArtifactValidator {
     if (
       g14Documents.some((entry) => isG14SchemaVersion(entry.schemaVersion)) &&
       input.schema_version !== "startup_opportunity.document_bundle.v7" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v9"
+      input.schema_version !== "startup_opportunity.document_bundle.v9" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v10"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -2060,7 +2070,8 @@ export class ArtifactValidator {
         ].includes(entry.schemaVersion),
       ) &&
       input.schema_version !== "startup_opportunity.document_bundle.v8" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v9"
+      input.schema_version !== "startup_opportunity.document_bundle.v9" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v10"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -2073,12 +2084,16 @@ export class ArtifactValidator {
     } else {
       referenceErrors.push(
         ...validateDiscoveryMapsContract(
-          input.schema_version === "startup_opportunity.document_bundle.v9"
+          input.schema_version === "startup_opportunity.document_bundle.v9" ||
+            input.schema_version === "startup_opportunity.document_bundle.v10"
             ? discoveryDocuments.filter(
                 (entry) => !isDiscoveryCandidateSchemaVersion(entry.schemaVersion),
               )
             : discoveryDocuments,
           this.discoveryMapsPolicy,
+          input.schema_version === "startup_opportunity.document_bundle.v10"
+            ? ["7.0.0", "9.0.0"]
+            : undefined,
         ),
       );
     }
@@ -2093,7 +2108,8 @@ export class ArtifactValidator {
       discoveryCandidateDocuments.some((entry) =>
         isDiscoveryCandidateSchemaVersion(entry.schemaVersion),
       ) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v9"
+      input.schema_version !== "startup_opportunity.document_bundle.v9" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v10"
     ) {
       referenceErrors.push(
         referenceIssue(

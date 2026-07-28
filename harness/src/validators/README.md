@@ -15,3 +15,5 @@
 `G14Validator` 只对显式 `document_bundle.v7` 执行 same-Run/final Plan/assessment-plan/input-hash/producer binding、Evidence audit ceiling、challenger independence、Hard Gate/closed result、decisive trace chain 和 three-output consistency 校验。它不做语义 research、不修改 Evidence/Claim/Finding/Insight/Judgment/Matrix/Plan，也不把 fixture 成功解释为 Evidence 充分或市场验证。
 
 `DiscoveryMapsValidator` 只对显式 `document_bundle.v8` 执行 G2.1 same-Run/mode/profile/market/language/current Plan/path/ref/hash/producer binding，以及 seed-independent/counterfactual unit、initial question、solution-neutral map、九类 solution/status quo、AI boundary 和 no-Evidence/no-thesis 校验。它不创建 lane/fan-in、Demand/Opportunity Thesis、comparison/report，也不执行 research 或 agent orchestration。
+
+`DiscoveryCandidateValidator` 对显式 v9 contract bundle 或 v10 runtime bundle执行 exact map fragment/revision/hash、candidate immutability、task/material candidate binding、generation/evaluation separation、per-candidate pre-kill Judgment、terminal lane exclusion、fan-in disposition/Judgment closure 与 candidate lineage校验。它不生成 candidate、执行 lane/pre-kill、判断 Evidence 质量或发布 G2.3 thesis。

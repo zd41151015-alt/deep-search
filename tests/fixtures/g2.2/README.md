@@ -14,3 +14,5 @@ Evidence/Judgment, disposition identity/overlap/missing targets, non-candidate f
 separation, candidate material whose task omits the exact source revision, lane/fan-in cross-candidate
 Judgments, fan-in Judgment closure drift, conversion path/parent lineage, and old-bundle fail-closed
 behavior.
+
+`discovery-runtime-fixture.ts` 把同一 accepted contract 物化为 v10 runtime bundle，并用测试中真实 EvidenceStore v2 records 替换固定 substrate identity。它只验证显式 Artifact publication、Manifest projection、checkpoint/reopen/recovery 与 CLI/Skill compatibility，不执行 lane、fan-in orchestration、G2.3 conversion runtime、真实 research 或 external validation。

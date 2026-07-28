@@ -166,6 +166,7 @@ const STORE_ENVELOPE_VERSIONS = new Set([
   "startup_opportunity.artifact_envelope.v6",
   "startup_opportunity.artifact_envelope.v7",
   "startup_opportunity.artifact_envelope.v8",
+  "startup_opportunity.artifact_envelope.v10",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -197,6 +198,22 @@ function assertDisjoint(manifest: RunManifest, fields: readonly string[]): void 
 
 function checkpointDocument(envelope: FormalArtifactEnvelope): Record<string, unknown> | null {
   return envelope.artifact_type === "startup_opportunity.checkpoint.v1" ? envelope.document : null;
+}
+
+function recoveryTransitionRank(envelope: FormalArtifactEnvelope): number {
+  if (
+    envelope.artifact_type === "startup_opportunity.research_task.v1" ||
+    envelope.artifact_type === "startup_opportunity.research_task.v2"
+  ) {
+    return 0;
+  }
+  if (
+    envelope.artifact_type === "startup_opportunity.concept_evidence_assessment_branch_result.v1" ||
+    envelope.artifact_type === "startup_opportunity.discovery_lane_result.v1"
+  ) {
+    return 2;
+  }
+  return 1;
 }
 
 function makeManifest(input: CreateRunInput, createdAt: string): RunManifest {
@@ -375,6 +392,11 @@ export class RunStore {
         );
       }
       this.assertBranchPublicationTransition(manifest, input.envelope, plannedArtifact.ignoredLate);
+      this.assertDiscoveryLanePublicationTransition(
+        manifest,
+        input.envelope,
+        plannedArtifact.ignoredLate,
+      );
       const result = await this.artifacts.publishLocked(runRoot, input);
       if (taskPublicationMode === "replay") {
         return result;
@@ -444,6 +466,7 @@ export class RunStore {
           );
         }
         this.assertBranchPublicationTransition(manifest, envelope, planned.ignoredLate);
+        this.assertDiscoveryLanePublicationTransition(manifest, envelope, planned.ignoredLate);
         classifications.set(envelope.artifact_path, planned);
       }
       const result = await this.artifacts.publishBundleLocked(runRoot, input);
@@ -476,10 +499,13 @@ export class RunStore {
     manifest: RunManifest,
     envelope: FormalArtifactEnvelope,
   ): Promise<"not_task" | "transition" | "replay"> {
-    if (
-      envelope.schema_version !== "startup_opportunity.artifact_envelope.v5" ||
-      envelope.artifact_type !== "startup_opportunity.research_task.v1"
-    ) {
+    const isAssessmentTask =
+      envelope.schema_version === "startup_opportunity.artifact_envelope.v5" &&
+      envelope.artifact_type === "startup_opportunity.research_task.v1";
+    const isDiscoveryTask =
+      envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
+      envelope.artifact_type === "startup_opportunity.research_task.v2";
+    if (!isAssessmentTask && !isDiscoveryTask) {
       return "not_task";
     }
     const unitId = envelope.document.unit_id;
@@ -586,6 +612,7 @@ export class RunStore {
     exactReplay: boolean,
   ): Promise<RunManifest> {
     this.assertBranchPublicationTransition(manifest, envelope, ignoredLate);
+    this.assertDiscoveryLanePublicationTransition(manifest, envelope, ignoredLate);
     const adapter = this.validator.publicationAdapter(envelope.schema_version);
     const artifactWasTracked =
       manifest.artifact_refs.includes(envelope.artifact_path) ||
@@ -623,13 +650,22 @@ export class RunStore {
     }
     if (
       !ignoredLate &&
-      envelope.schema_version === "startup_opportunity.artifact_envelope.v5" &&
-      envelope.artifact_type === "startup_opportunity.research_task.v1" &&
+      ((envelope.schema_version === "startup_opportunity.artifact_envelope.v5" &&
+        envelope.artifact_type === "startup_opportunity.research_task.v1") ||
+        (envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
+          envelope.artifact_type === "startup_opportunity.research_task.v2")) &&
       typeof envelope.document.unit_id === "string"
     ) {
       const unitId = envelope.document.unit_id;
       next = this.moveUnit(next, unitId, "active_units");
-      next = { ...next, status: "researching", current_phase: "assessment" };
+      next = {
+        ...next,
+        status: "researching",
+        current_phase:
+          envelope.artifact_type === "startup_opportunity.research_task.v2"
+            ? "discovery"
+            : "assessment",
+      };
     }
     if (
       !ignoredLate &&
@@ -651,6 +687,21 @@ export class RunStore {
         next = this.moveUnit(next, envelope.document.unit_id, "skipped_units");
       } else if (target === "superseded_units_existing") {
         next = this.moveUnit(next, envelope.document.unit_id, "superseded_units");
+      }
+    }
+    if (
+      !ignoredLate &&
+      envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
+      envelope.artifact_type === "startup_opportunity.discovery_lane_result.v1" &&
+      typeof envelope.document.unit_id === "string" &&
+      typeof envelope.document.status === "string"
+    ) {
+      const target =
+        this.validator.publicationPolicy.document.discovery_lane_status_adapter[
+          envelope.document.status
+        ];
+      if (target === "completed_units" || target === "failed_units") {
+        next = this.moveUnit(next, envelope.document.unit_id, target);
       }
     }
     if (
@@ -790,6 +841,59 @@ export class RunStore {
         "branch publication status does not match the existing Run unit state",
         {
           branchStatus: envelope.document.branch_status,
+          existingState: existingState ?? null,
+          ignoredLate,
+          unitId,
+        },
+      );
+    }
+  }
+
+  private assertDiscoveryLanePublicationTransition(
+    manifest: RunManifest,
+    envelope: FormalArtifactEnvelope,
+    ignoredLate: boolean,
+  ): void {
+    if (
+      envelope.schema_version !== "startup_opportunity.artifact_envelope.v10" ||
+      envelope.artifact_type !== "startup_opportunity.discovery_lane_result.v1" ||
+      typeof envelope.document.unit_id !== "string" ||
+      typeof envelope.document.status !== "string"
+    ) {
+      return;
+    }
+    const unitId = envelope.document.unit_id;
+    const statusFields = [
+      "completed_units",
+      "active_units",
+      "failed_units",
+      "invalidated_units",
+      "skipped_units",
+      "cancelled_units",
+      "superseded_units",
+    ] as const;
+    const existingState = statusFields.find((field) => manifest[field].includes(unitId));
+    const target =
+      this.validator.publicationPolicy.document.discovery_lane_status_adapter[
+        envelope.document.status
+      ];
+    const allowedStates =
+      target === "completed_units"
+        ? ["active_units", "completed_units"]
+        : target === "failed_units"
+          ? ["active_units", "failed_units"]
+          : target === "superseded_units_existing"
+            ? ["superseded_units"]
+            : target === "ignored_late_artifact_refs"
+              ? ["invalidated_units", "skipped_units", "cancelled_units", "superseded_units"]
+              : [];
+    const expectsIgnoredLate = !["completed_units", "failed_units"].includes(String(target));
+    if (!allowedStates.includes(existingState ?? "") || ignoredLate !== expectsIgnoredLate) {
+      throw new StoreError(
+        "artifact.discovery_lane_transition_invalid",
+        "discovery lane publication status does not match the existing Run unit state",
+        {
+          laneStatus: envelope.document.status,
           existingState: existingState ?? null,
           ignoredLate,
           unitId,
@@ -1067,7 +1171,11 @@ export class RunStore {
       .map((entry) => entry.document as FormalArtifactEnvelope)
       .sort((left, right) => {
         const time = Date.parse(left.created_at) - Date.parse(right.created_at);
-        return time === 0 ? left.artifact_path.localeCompare(right.artifact_path) : time;
+        if (time !== 0) {
+          return time;
+        }
+        const rank = recoveryTransitionRank(left) - recoveryTransitionRank(right);
+        return rank === 0 ? left.artifact_path.localeCompare(right.artifact_path) : rank;
       });
     for (const envelope of postCheckpointEnvelopes) {
       recoveredManifest = await this.applyPublishedEnvelope(
@@ -1118,7 +1226,8 @@ export class RunStore {
       recoveryBundleVersion === "startup_opportunity.document_bundle.v5" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v6" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v7" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v8"
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v8" ||
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v10"
     ) {
       for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
         if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
@@ -1133,7 +1242,8 @@ export class RunStore {
         ...(recoveryBundleVersion === "startup_opportunity.document_bundle.v5" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v6" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v7" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v8"
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v8" ||
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v10"
           ? { exact_records: [] }
           : {}),
       },
@@ -1319,6 +1429,14 @@ export class RunStore {
     manifest: RunManifest,
     artifactPath: string,
   ): Promise<{ readonly ignoredLate: boolean; readonly expectedArtifactType: string | null }> {
+    const discoveryTaskClassification = await this.classifyDiscoveryTaskArtifact(
+      runRoot,
+      manifest,
+      artifactPath,
+    );
+    if (discoveryTaskClassification !== null) {
+      return discoveryTaskClassification;
+    }
     if (manifest.current_plan_ref === null) {
       return { ignoredLate: false, expectedArtifactType: null };
     }
@@ -1370,6 +1488,50 @@ export class RunStore {
       }
     }
     return { ignoredLate: false, expectedArtifactType: null };
+  }
+
+  private async classifyDiscoveryTaskArtifact(
+    runRoot: string,
+    manifest: RunManifest,
+    artifactPath: string,
+  ): Promise<{
+    readonly ignoredLate: boolean;
+    readonly expectedArtifactType: string | null;
+  } | null> {
+    const matches = (await this.artifacts.listFormalDocuments(runRoot)).filter((entry) => {
+      const envelope = entry.document;
+      return (
+        envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
+        envelope.artifact_type === "startup_opportunity.research_task.v2" &&
+        isRecord(envelope.document) &&
+        envelope.document.allowed_output_path === artifactPath
+      );
+    });
+    if (matches.length > 1) {
+      throw new StoreError(
+        "artifact.discovery_task_output_ambiguous",
+        "multiple immutable discovery tasks claim the same output path",
+        { artifactPath, taskRefs: matches.map((entry) => entry.path).sort() },
+      );
+    }
+    const match = matches[0];
+    if (match === undefined || !isRecord(match.document.document)) {
+      return null;
+    }
+    const task = match.document.document;
+    const unitId = task.unit_id;
+    if (typeof unitId !== "string") {
+      return null;
+    }
+    return {
+      ignoredLate:
+        manifest.invalidated_units.includes(unitId) ||
+        manifest.skipped_units.includes(unitId) ||
+        manifest.cancelled_units.includes(unitId) ||
+        manifest.superseded_units.includes(unitId),
+      expectedArtifactType:
+        typeof task.required_artifact_schema === "string" ? task.required_artifact_schema : null,
+    };
   }
 
   private isPathRef(ref: string): boolean {

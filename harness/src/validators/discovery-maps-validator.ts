@@ -568,6 +568,9 @@ export function isDiscoveryMapSchemaVersion(schemaVersion: string): boolean {
 export function validateDiscoveryMapsContract(
   documents: readonly DiscoveryMapDocument[],
   loadedPolicy: LoadedDiscoveryMapsPolicy,
+  allowedManifestSchemaBundleVersions: readonly string[] = [
+    loadedPolicy.document.schema_bundle_version,
+  ],
 ): readonly ValidationIssue[] {
   if (!documents.some((entry) => MAP_SCHEMA_VERSIONS.has(entry.schemaVersion))) {
     return [];
@@ -641,7 +644,7 @@ export function validateDiscoveryMapsContract(
     manifest.document.current_plan_ref !== plan.path ||
     manifest.document.plan_revision !== plan.document.revision ||
     manifest.document.current_phase !== "discovery" ||
-    manifest.document.schema_bundle_version !== policy.schema_bundle_version
+    !allowedManifestSchemaBundleVersions.includes(String(manifest.document.schema_bundle_version))
   ) {
     errors.push(
       issue(

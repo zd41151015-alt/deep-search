@@ -190,9 +190,9 @@ async function publishVerticalFixture(context: TestContext) {
 test("G1.2 bundle publishes versioned Evidence Store and research branch schemas", async () => {
   const result = await inspectSchemaBundle(repositoryRoot);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
-  assert.equal(result.schemaBundleVersion, "8.0.0");
-  assert.equal(result.schemaCount, 91);
-  assert.equal(result.documentSchemaCount, 85);
+  assert.equal(result.schemaBundleVersion, "9.0.0");
+  assert.equal(result.schemaCount, 95);
+  assert.equal(result.documentSchemaCount, 89);
 });
 
 test("four synthetic branches publish Evidence -> Claim -> Finding -> Insight and reopen", async (context) => {

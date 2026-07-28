@@ -20,6 +20,7 @@ const CONTRACT_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.source_manifest.v2",
   "startup_opportunity.discovery_lane_result.v1",
   "startup_opportunity.discovery_fan_in.v1",
+  "startup_opportunity.discovery_fan_in.v2",
   "startup_opportunity.discovery_candidate_conversion.v1",
 ]);
 
@@ -34,6 +35,7 @@ const PRODUCER_BY_SCHEMA: Readonly<Record<string, string>> = {
   "startup_opportunity.source_manifest.v2": "lane_researcher",
   "startup_opportunity.discovery_lane_result.v1": "lane_researcher",
   "startup_opportunity.discovery_fan_in.v1": "main_agent",
+  "startup_opportunity.discovery_fan_in.v2": "main_agent",
   "startup_opportunity.discovery_candidate_conversion.v1": "main_agent",
 };
 
@@ -430,7 +432,10 @@ function validateEnvelope(entry: DiscoveryCandidateDocument, errors: ValidationI
   const expectedProducer = PRODUCER_BY_SCHEMA[entry.schemaVersion];
   if (
     entry.envelope === null ||
-    entry.envelope.schema_version !== "startup_opportunity.artifact_envelope.v9" ||
+    ![
+      "startup_opportunity.artifact_envelope.v9",
+      "startup_opportunity.artifact_envelope.v10",
+    ].includes(String(entry.envelope.schema_version)) ||
     entry.envelope.artifact_type !== entry.schemaVersion ||
     entry.envelope.artifact_path !== entry.path ||
     entry.envelope.run_id !== entry.document.run_id ||
@@ -1094,7 +1099,9 @@ export function validateDiscoveryCandidateContract(
     validateLaneResult(lane, documentsByPath, errors);
   }
   for (const fanIn of documents.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.discovery_fan_in.v1",
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.discovery_fan_in.v1" ||
+      entry.schemaVersion === "startup_opportunity.discovery_fan_in.v2",
   )) {
     validateFanIn(fanIn, documentsByPath, candidatesByPath, errors);
   }

@@ -14,4 +14,6 @@
 
 `discovery-maps.v1.json` 固定 G2.1 四种 discovery profile、三张 map path、seed-independent/counterfactual Plan 约束、九类 solution/status-quo breadth、AI capability boundary 和 no-Evidence/no-thesis source boundary。`research-publication.v4.json` 只增加 v8/document bundle v8/receipt v7 adapter，并阻止 G2.2+ artifact types；它不执行 discovery、lane orchestration、LLM 或 network research。
 
+`discovery-candidates.v1.json` 固定方案 A candidate/task/material/lane/fan-in/conversion contract。`research-publication.v5.json` 只增加 v10/document bundle v10/receipt v8 adapter、G2.2 lane status projection与显式 runtime boundary；v9 保持 Store unsupported，G2.3/G2.4 artifact types 保持 blocked。Harness 不 dispatch agent、不执行 lane、pre-kill、LLM、network research 或 external validation。
+
 Policy 不是通用规则引擎，不包含任意表达式、可执行 workflow code 或运行时用户调权。
