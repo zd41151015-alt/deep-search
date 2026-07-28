@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v12/decision-recommendation.schema.json",
+  "title": "Startup Opportunity Decision Recommendation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "recommendation_id",
+    "run_id",
+    "decision_context_ref",
+    "source_snapshot_ref",
+    "comparison_refs",
+    "sensitivity_ref",
+    "recommended_first_bet",
+    "alternative_bets",
+    "rejected_or_watchlist_refs",
+    "decision_tier",
+    "decision_value_band",
+    "uncertainty_band",
+    "decisive_supporting_refs",
+    "decisive_opposing_refs",
+    "decisive_judgment_assessment_refs",
+    "business_engine_refs",
+    "rationale",
+    "critical_unknowns",
+    "what_would_change_the_decision",
+    "recommended_next_action",
+    "belief_update_summary",
+    "validation_suggestion_refs",
+    "portfolio_view_ref",
+    "external_action_boundary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.decision_recommendation.v1" },
+    "recommendation_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "decision_context_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "source_snapshot_ref": { "$ref": "definitions.schema.json#/$defs/snapshotRef" },
+    "comparison_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "definitions.schema.json#/$defs/comparisonRef" }
+    },
+    "sensitivity_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "recommended_first_bet": {
+      "anyOf": [{ "$ref": "definitions.schema.json#/$defs/opportunityRef" }, { "type": "null" }]
+    },
+    "alternative_bets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "definitions.schema.json#/$defs/opportunityRef" }
+    },
+    "rejected_or_watchlist_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "definitions.schema.json#/$defs/opportunityRef" }
+    },
+    "decision_tier": {
+      "enum": ["prioritize", "investigate_further", "watch", "reject", "insufficient_evidence"]
+    },
+    "decision_value_band": { "enum": ["high", "medium", "low", "unknown"] },
+    "uncertainty_band": { "enum": ["low", "medium", "high", "unknown"] },
+    "decisive_supporting_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+    "decisive_opposing_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+    "decisive_judgment_assessment_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "definitions.schema.json#/$defs/enrichmentJudgmentRef" }
+    },
+    "business_engine_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+    "rationale": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "critical_unknowns": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "what_would_change_the_decision": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "recommended_next_action": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "belief_update_summary": { "$ref": "definitions.schema.json#/$defs/beliefUpdate" },
+    "validation_suggestion_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+    "portfolio_view_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "external_action_boundary": { "$ref": "definitions.schema.json#/$defs/externalActionBoundary" },
+    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+  }
+}

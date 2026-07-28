@@ -219,6 +219,7 @@ export function fixtureEnvelope(
 export async function createDiscoveryMapsFixture(
   profile: DiscoveryProfile,
   runId = `g2-1-${profile.replaceAll("_", "-")}-synthetic`,
+  additionalPlanWaves: readonly Record<string, unknown>[] = [],
 ): Promise<DocumentBundle> {
   const policy = JSON.parse(
     await readFile(path.join(repositoryRoot, "harness/policies/discovery-maps.v1.json"), "utf8"),
@@ -347,6 +348,7 @@ export async function createDiscoveryMapsFixture(
           unit(counterfactualUnitId, "counter_evidence", [G21_SCOPE_REF]),
         ],
       },
+      ...structuredClone(additionalPlanWaves),
     ],
     adaptation_policy_ref: "harness/policies/adaptation.v1.json",
     followup_policy: {

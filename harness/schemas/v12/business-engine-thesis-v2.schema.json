@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v12/business-engine-thesis-v2.schema.json",
+  "title": "Startup Opportunity Discovery Business Engine Thesis v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "business_engine_id",
+    "run_id",
+    "subject_ref",
+    "source_snapshot_ref",
+    "enrichment_fan_in_ref",
+    "pricing_unit",
+    "usage_or_purchase_frequency",
+    "retention_or_repeat_trigger",
+    "gross_margin_band",
+    "service_and_support_burden",
+    "cac_hypothesis",
+    "payback_logic",
+    "reachable_beachhead_market",
+    "channel_dependency",
+    "growth_loop",
+    "minimum_viable_scale",
+    "assumptions",
+    "supporting_claim_refs",
+    "opposing_claim_refs",
+    "judgment_assessment_refs",
+    "unknowns",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.business_engine_thesis.v2" },
+    "business_engine_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "subject_ref": { "$ref": "definitions.schema.json#/$defs/opportunityRef" },
+    "source_snapshot_ref": { "$ref": "definitions.schema.json#/$defs/snapshotRef" },
+    "enrichment_fan_in_ref": { "$ref": "definitions.schema.json#/$defs/enrichmentFanInRef" },
+    "pricing_unit": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "usage_or_purchase_frequency": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "retention_or_repeat_trigger": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "gross_margin_band": { "enum": ["low", "medium", "high", "unknown"] },
+    "service_and_support_burden": { "enum": ["low", "medium", "high", "unknown"] },
+    "cac_hypothesis": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "payback_logic": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "reachable_beachhead_market": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "channel_dependency": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "growth_loop": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "minimum_viable_scale": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "assumptions": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "supporting_claim_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "definitions.schema.json#/$defs/enrichmentClaimRef" }
+    },
+    "opposing_claim_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "definitions.schema.json#/$defs/enrichmentClaimRef" }
+    },
+    "judgment_assessment_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "definitions.schema.json#/$defs/enrichmentJudgmentRef" }
+    },
+    "unknowns": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+  }
+}

@@ -69,7 +69,8 @@ function effectiveType(entry: unknown): string | null {
   }
   const document = entry.document;
   if (
-    document.schema_version === "startup_opportunity.artifact_envelope.v7" &&
+    typeof document.schema_version === "string" &&
+    document.schema_version.startsWith("startup_opportunity.artifact_envelope.") &&
     typeof document.artifact_type === "string"
   ) {
     return document.artifact_type;
@@ -117,22 +118,37 @@ export async function runAuditTraceability(
           counts.set(type, (counts.get(type) ?? 0) + 1);
         }
       }
-      const requiredTypes = [
+      const conceptRequiredTypes = [
         "startup_opportunity.evidence_audit.v1",
         "startup_opportunity.adversarial_review.v1",
         "startup_opportunity.concept_evidence_assessment.v2",
         "startup_opportunity.traceability.v1",
       ];
-      const reportTypes = [
+      const conceptReportTypes = [
         "startup_opportunity.concept_evidence_report.v1",
         "startup_opportunity.decision_brief.v1",
         "startup_opportunity.concept_evidence_report_view.v1",
         "startup_opportunity.report_consistency_evaluation.v1",
       ];
+      const discoveryRequiredTypes = [
+        "startup_opportunity.enrichment_fan_in.v1",
+        "startup_opportunity.decision_recommendation.v1",
+        "startup_opportunity.traceability.v2",
+      ];
+      const discoveryReportTypes = [
+        "startup_opportunity.report.v1",
+        "startup_opportunity.decision_brief.v2",
+        "startup_opportunity.discovery_report_view.v1",
+        "startup_opportunity.report_consistency_evaluation.v2",
+      ];
+      const discoveryMode =
+        discoveryRequiredTypes.some((type) => (counts.get(type) ?? 0) > 0) ||
+        discoveryReportTypes.some((type) => (counts.get(type) ?? 0) > 0);
+      const requiredTypes = discoveryMode ? discoveryRequiredTypes : conceptRequiredTypes;
+      const reportTypes = discoveryMode ? discoveryReportTypes : conceptReportTypes;
       const reportSetPresent = reportTypes.some((type) => (counts.get(type) ?? 0) > 0);
-      const missingTypes = [...requiredTypes, ...(reportSetPresent ? reportTypes : [])].filter(
-        (type) => counts.get(type) !== 1,
-      );
+      const evaluatedTypes = [...requiredTypes, ...(reportSetPresent ? reportTypes : [])];
+      const missingTypes = evaluatedTypes.filter((type) => counts.get(type) !== 1);
       const valid = validation.valid && missingTypes.length === 0;
       return {
         schemaVersion: "startup_opportunity.traceability_audit_result.v1",
@@ -140,10 +156,7 @@ export async function runAuditTraceability(
         valid,
         inputPath,
         requiredArtifactCounts: Object.fromEntries(
-          [...requiredTypes, ...(reportSetPresent ? reportTypes : [])].map((type) => [
-            type,
-            counts.get(type) ?? 0,
-          ]),
+          evaluatedTypes.map((type) => [type, counts.get(type) ?? 0]),
         ),
         reportSetEvaluated: reportSetPresent,
         missingOrDuplicateArtifactTypes: missingTypes,

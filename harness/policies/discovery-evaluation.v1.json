@@ -1,0 +1,83 @@
+{
+  "schema_version": "startup_opportunity.discovery_evaluation_policy.v1",
+  "policy_id": "startup_opportunity.g2_4_evaluation",
+  "policy_version": "1.0.0",
+  "schema_bundle_version": "11.0.0",
+  "eligible_branch_statuses": ["completed", "partial", "insufficient_evidence"],
+  "excluded_branch_statuses": ["failed", "ignored_late", "superseded"],
+  "required_hard_gates": [
+    "user_jtbd_entry_scene",
+    "baseline_delta",
+    "buyer_purchase",
+    "business_engine",
+    "source_independence",
+    "generation_evaluation_separation",
+    "opposing_evidence",
+    "compliance_boundary",
+    "ai_mandatory_bundle",
+    "ai_baseline_gap",
+    "ai_reliability",
+    "data_rights",
+    "unit_economics"
+  ],
+  "required_comparison_panels": [
+    "demand_and_market",
+    "solution_and_business",
+    "evidence_strength",
+    "team_fit_and_learning"
+  ],
+  "recommendation_ceiling": {
+    "failed_gate": "reject",
+    "insufficient_gate": "investigate_further",
+    "weak_or_unknown_evidence": "investigate_further",
+    "partial_branch": "investigate_further",
+    "missing_ai_bundle": "investigate_further",
+    "business_engine_unknown": "investigate_further",
+    "external_validation_missing": "no_automatic_downgrade_beyond_evidence_ceiling"
+  },
+  "publication_order": [
+    "enrichment_task",
+    "typed_material",
+    "enrichment_branch",
+    "enrichment_fan_in",
+    "domain_enrichment",
+    "opportunity_comparison",
+    "sensitivity",
+    "portfolio",
+    "decision_recommendation",
+    "traceability",
+    "report"
+  ],
+  "reporting_contract": {
+    "structured_source": "startup_opportunity.report.v1",
+    "materialized_views": ["decision-brief.md", "report.md"],
+    "consistency_required": true,
+    "consistency_dimensions": [
+      "decision",
+      "refs",
+      "hashes",
+      "freshness",
+      "limitations",
+      "counter_evidence",
+      "partial_order",
+      "panel_independence",
+      "evidence_ceiling",
+      "external_action_boundary",
+      "new_conclusions",
+      "market_validation_language",
+      "probability_language"
+    ],
+    "global_score_forbidden": true,
+    "market_validation_claim_forbidden": true
+  },
+  "execution_boundary": {
+    "formal_artifacts_explicit": true,
+    "harness_generated_research": false,
+    "harness_generated_judgment": false,
+    "agent_dispatch": false,
+    "hidden_llm_calls": false,
+    "network_research": false,
+    "external_validation": false,
+    "publication_implies_validation": false
+  }
+}

@@ -18,4 +18,6 @@
 
 `discovery-synthesis.v1.json` 固定 G2.3 executable conversion v2、Demand-first formalization、solution evaluation、source separation、pre-enrichment freeze 和 semantic merge contract。`research-publication.v6.json` 只增加 v11/document bundle v11/receipt v9 adapter与稳定 publication/reopen boundary；v1 conversion 保持 contract-only，G2.4 artifact types 保持 blocked。Harness 不生成 thesis 语义、不调用 LLM、不执行 research 或 external validation，publication 不表示 Evidence 充分或 validation success。
 
+`discovery-evaluation.v1.json` 固定 G2.4 enrichment eligible/excluded branch、十三个 hard gates、四个独立 comparison panel、Evidence ceiling、publication order 与 report boundary。`research-publication.v7.json` 只增加 v12/document bundle v12/receipt v10 adapter、enrichment status projection 和 discovery report recovery；v11 继续 block G2.4 types，v12 继续 block G3 AI bundle。Harness 不生成 enrichment/comparison/recommendation 语义、不调用 LLM、不执行 research 或 external validation。
+
 Policy 不是通用规则引擎，不包含任意表达式、可执行 workflow code 或运行时用户调权。

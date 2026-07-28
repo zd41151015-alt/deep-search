@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v12/finding-v3.schema.json",
+  "title": "Startup Opportunity Enrichment Finding v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "finding_id",
+    "run_id",
+    "unit_id",
+    "lineage",
+    "summary",
+    "claim_refs",
+    "opposing_claim_refs",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.finding.v3" },
+    "finding_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "unit_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "lineage": { "$ref": "definitions.schema.json#/$defs/enrichmentLineage" },
+    "summary": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "claim_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "definitions.schema.json#/$defs/enrichmentClaimRef" }
+    },
+    "opposing_claim_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "definitions.schema.json#/$defs/enrichmentClaimRef" }
+    },
+    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+  }
+}

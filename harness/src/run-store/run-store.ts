@@ -168,6 +168,7 @@ const STORE_ENVELOPE_VERSIONS = new Set([
   "startup_opportunity.artifact_envelope.v8",
   "startup_opportunity.artifact_envelope.v10",
   "startup_opportunity.artifact_envelope.v11",
+  "startup_opportunity.artifact_envelope.v12",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -204,13 +205,15 @@ function checkpointDocument(envelope: FormalArtifactEnvelope): Record<string, un
 function recoveryTransitionRank(envelope: FormalArtifactEnvelope): number {
   if (
     envelope.artifact_type === "startup_opportunity.research_task.v1" ||
-    envelope.artifact_type === "startup_opportunity.research_task.v2"
+    envelope.artifact_type === "startup_opportunity.research_task.v2" ||
+    envelope.artifact_type === "startup_opportunity.research_task.v3"
   ) {
     return 0;
   }
   if (
     envelope.artifact_type === "startup_opportunity.concept_evidence_assessment_branch_result.v1" ||
-    envelope.artifact_type === "startup_opportunity.discovery_lane_result.v1"
+    envelope.artifact_type === "startup_opportunity.discovery_lane_result.v1" ||
+    envelope.artifact_type === "startup_opportunity.enrichment_branch_result.v1"
   ) {
     return 2;
   }
@@ -378,6 +381,10 @@ export class RunStore {
         manifest,
         input.envelope.artifact_path,
       );
+      const ignoredLate =
+        plannedArtifact.ignoredLate ||
+        (input.envelope.artifact_type === "startup_opportunity.enrichment_branch_result.v1" &&
+          ["ignored_late", "superseded"].includes(String(input.envelope.document.status)));
       if (
         plannedArtifact.expectedArtifactType !== null &&
         plannedArtifact.expectedArtifactType !== input.envelope.artifact_type
@@ -392,17 +399,13 @@ export class RunStore {
           },
         );
       }
-      this.assertBranchPublicationTransition(manifest, input.envelope, plannedArtifact.ignoredLate);
-      this.assertDiscoveryLanePublicationTransition(
-        manifest,
-        input.envelope,
-        plannedArtifact.ignoredLate,
-      );
+      this.assertBranchPublicationTransition(manifest, input.envelope, ignoredLate);
+      this.assertDiscoveryLanePublicationTransition(manifest, input.envelope, ignoredLate);
+      this.assertEnrichmentBranchPublicationTransition(manifest, input.envelope, ignoredLate);
       const result = await this.artifacts.publishLocked(runRoot, input);
       if (taskPublicationMode === "replay") {
         return result;
       }
-      const ignoredLate = plannedArtifact.ignoredLate;
       const nextManifest = await this.applyPublishedEnvelope(
         runRoot,
         manifest,
@@ -452,6 +455,13 @@ export class RunStore {
           manifest,
           envelope.artifact_path,
         );
+        const effectiveClassification = {
+          ...planned,
+          ignoredLate:
+            planned.ignoredLate ||
+            (envelope.artifact_type === "startup_opportunity.enrichment_branch_result.v1" &&
+              ["ignored_late", "superseded"].includes(String(envelope.document.status))),
+        };
         if (
           planned.expectedArtifactType !== null &&
           planned.expectedArtifactType !== envelope.artifact_type
@@ -466,9 +476,22 @@ export class RunStore {
             },
           );
         }
-        this.assertBranchPublicationTransition(manifest, envelope, planned.ignoredLate);
-        this.assertDiscoveryLanePublicationTransition(manifest, envelope, planned.ignoredLate);
-        classifications.set(envelope.artifact_path, planned);
+        this.assertBranchPublicationTransition(
+          manifest,
+          envelope,
+          effectiveClassification.ignoredLate,
+        );
+        this.assertDiscoveryLanePublicationTransition(
+          manifest,
+          envelope,
+          effectiveClassification.ignoredLate,
+        );
+        this.assertEnrichmentBranchPublicationTransition(
+          manifest,
+          envelope,
+          effectiveClassification.ignoredLate,
+        );
+        classifications.set(envelope.artifact_path, effectiveClassification);
       }
       const result = await this.artifacts.publishBundleLocked(runRoot, input);
       const publicationResults = new Map(
@@ -506,7 +529,10 @@ export class RunStore {
     const isDiscoveryTask =
       envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
       envelope.artifact_type === "startup_opportunity.research_task.v2";
-    if (!isAssessmentTask && !isDiscoveryTask) {
+    const isEnrichmentTask =
+      envelope.schema_version === "startup_opportunity.artifact_envelope.v12" &&
+      envelope.artifact_type === "startup_opportunity.research_task.v3";
+    if (!isAssessmentTask && !isDiscoveryTask && !isEnrichmentTask) {
       return "not_task";
     }
     const unitId = envelope.document.unit_id;
@@ -535,6 +561,9 @@ export class RunStore {
             taskPlanRef: researchPlanRef,
           },
         );
+      }
+      if (isEnrichmentTask) {
+        await this.assertEnrichmentTaskPlanUnit(runRoot, manifest, envelope);
       }
       return "transition";
     }
@@ -568,6 +597,90 @@ export class RunStore {
       );
     }
     return "replay";
+  }
+
+  private async assertEnrichmentTaskPlanUnit(
+    runRoot: string,
+    manifest: RunManifest,
+    envelope: FormalArtifactEnvelope,
+  ): Promise<void> {
+    const planRef = manifest.current_plan_ref;
+    let storedPlan: unknown;
+    try {
+      storedPlan =
+        planRef === null
+          ? null
+          : (JSON.parse(await readFile(await resolveRunPath(runRoot, planRef), "utf8")) as unknown);
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) {
+        storedPlan = null;
+      } else {
+        throw error;
+      }
+    }
+    const plan =
+      isRecord(storedPlan) &&
+      STORE_ENVELOPE_VERSIONS.has(String(storedPlan.schema_version)) &&
+      isRecord(storedPlan.document)
+        ? storedPlan.document
+        : storedPlan;
+    const unitId = envelope.document.unit_id;
+    let binding: { readonly waveId: unknown; readonly unit: Record<string, unknown> } | null = null;
+    if (isRecord(plan) && Array.isArray(plan.waves)) {
+      for (const wave of plan.waves) {
+        if (!isRecord(wave) || !Array.isArray(wave.units)) {
+          continue;
+        }
+        const unit = wave.units.find(
+          (candidate) => isRecord(candidate) && candidate.unit_id === unitId,
+        );
+        if (isRecord(unit)) {
+          binding = { waveId: wave.wave_id, unit };
+          break;
+        }
+      }
+    }
+    const exactFields: readonly [string, string][] = [
+      ["wave_id", "waveId"],
+      ["unit_type", "unit_type"],
+      ["research_goal", "research_goal"],
+      ["attempt", "attempt"],
+      ["agent_role", "agent_role"],
+      ["allowed_output_path", "output_path"],
+      ["required_artifact_schema", "required_artifact_schema"],
+    ];
+    const mismatchFields = exactFields
+      .filter(
+        ([taskField, unitField]) =>
+          envelope.document[taskField] !==
+          (unitField === "waveId" ? binding?.waveId : binding?.unit[unitField]),
+      )
+      .map(([taskField]) => taskField);
+    const taskInputs = Array.isArray(envelope.document.input_refs)
+      ? envelope.document.input_refs.filter((value): value is string => typeof value === "string")
+      : [];
+    const unitInputs = Array.isArray(binding?.unit.input_refs)
+      ? binding.unit.input_refs.filter((value): value is string => typeof value === "string")
+      : [];
+    if (
+      !isRecord(plan) ||
+      plan.schema_version !== "startup_opportunity.research_plan.v1" ||
+      binding === null ||
+      binding.unit.plan_disposition !== "enabled" ||
+      mismatchFields.length > 0 ||
+      canonicalJson([...taskInputs].sort()) !== canonicalJson([...unitInputs].sort())
+    ) {
+      throw new StoreError(
+        "artifact.task_plan_unit_mismatch",
+        "enrichment task must match one enabled unit in the current immutable Research Plan",
+        {
+          unitId,
+          planRef,
+          planDisposition: binding?.unit.plan_disposition ?? null,
+          mismatchFields,
+        },
+      );
+    }
   }
 
   async checkpoint(input: CheckpointRunInput): Promise<CheckpointRunResult> {
@@ -614,6 +727,7 @@ export class RunStore {
   ): Promise<RunManifest> {
     this.assertBranchPublicationTransition(manifest, envelope, ignoredLate);
     this.assertDiscoveryLanePublicationTransition(manifest, envelope, ignoredLate);
+    this.assertEnrichmentBranchPublicationTransition(manifest, envelope, ignoredLate);
     const adapter = this.validator.publicationAdapter(envelope.schema_version);
     const artifactWasTracked =
       manifest.artifact_refs.includes(envelope.artifact_path) ||
@@ -654,7 +768,9 @@ export class RunStore {
       ((envelope.schema_version === "startup_opportunity.artifact_envelope.v5" &&
         envelope.artifact_type === "startup_opportunity.research_task.v1") ||
         (envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
-          envelope.artifact_type === "startup_opportunity.research_task.v2")) &&
+          envelope.artifact_type === "startup_opportunity.research_task.v2") ||
+        (envelope.schema_version === "startup_opportunity.artifact_envelope.v12" &&
+          envelope.artifact_type === "startup_opportunity.research_task.v3")) &&
       typeof envelope.document.unit_id === "string"
     ) {
       const unitId = envelope.document.unit_id;
@@ -663,7 +779,8 @@ export class RunStore {
         ...next,
         status: "researching",
         current_phase:
-          envelope.artifact_type === "startup_opportunity.research_task.v2"
+          envelope.artifact_type === "startup_opportunity.research_task.v2" ||
+          envelope.artifact_type === "startup_opportunity.research_task.v3"
             ? "discovery"
             : "assessment",
       };
@@ -699,6 +816,21 @@ export class RunStore {
     ) {
       const target =
         this.validator.publicationPolicy.document.discovery_lane_status_adapter[
+          envelope.document.status
+        ];
+      if (target === "completed_units" || target === "failed_units") {
+        next = this.moveUnit(next, envelope.document.unit_id, target);
+      }
+    }
+    if (
+      !ignoredLate &&
+      envelope.schema_version === "startup_opportunity.artifact_envelope.v12" &&
+      envelope.artifact_type === "startup_opportunity.enrichment_branch_result.v1" &&
+      typeof envelope.document.unit_id === "string" &&
+      typeof envelope.document.status === "string"
+    ) {
+      const target =
+        this.validator.publicationPolicy.document.enrichment_branch_status_adapter[
           envelope.document.status
         ];
       if (target === "completed_units" || target === "failed_units") {
@@ -895,6 +1027,59 @@ export class RunStore {
         "discovery lane publication status does not match the existing Run unit state",
         {
           laneStatus: envelope.document.status,
+          existingState: existingState ?? null,
+          ignoredLate,
+          unitId,
+        },
+      );
+    }
+  }
+
+  private assertEnrichmentBranchPublicationTransition(
+    manifest: RunManifest,
+    envelope: FormalArtifactEnvelope,
+    ignoredLate: boolean,
+  ): void {
+    if (
+      envelope.schema_version !== "startup_opportunity.artifact_envelope.v12" ||
+      envelope.artifact_type !== "startup_opportunity.enrichment_branch_result.v1" ||
+      typeof envelope.document.unit_id !== "string" ||
+      typeof envelope.document.status !== "string"
+    ) {
+      return;
+    }
+    const unitId = envelope.document.unit_id;
+    const statusFields = [
+      "completed_units",
+      "active_units",
+      "failed_units",
+      "invalidated_units",
+      "skipped_units",
+      "cancelled_units",
+      "superseded_units",
+    ] as const;
+    const existingState = statusFields.find((field) => manifest[field].includes(unitId));
+    const target =
+      this.validator.publicationPolicy.document.enrichment_branch_status_adapter[
+        envelope.document.status
+      ];
+    const allowedStates =
+      target === "completed_units"
+        ? ["active_units", "completed_units"]
+        : target === "failed_units"
+          ? ["active_units", "failed_units"]
+          : target === "superseded_units_existing"
+            ? ["superseded_units"]
+            : target === "ignored_late_artifact_refs"
+              ? ["invalidated_units", "skipped_units", "cancelled_units", "superseded_units"]
+              : [];
+    const expectsIgnoredLate = !["completed_units", "failed_units"].includes(String(target));
+    if (!allowedStates.includes(existingState ?? "") || ignoredLate !== expectsIgnoredLate) {
+      throw new StoreError(
+        "artifact.enrichment_branch_transition_invalid",
+        "enrichment branch publication status does not match the existing Run unit state",
+        {
+          branchStatus: envelope.document.status,
           existingState: existingState ?? null,
           ignoredLate,
           unitId,
@@ -1140,7 +1325,19 @@ export class RunStore {
     const ignoredLateArtifactPaths: string[] = [];
     const currentArtifactPaths: string[] = [];
     for (const artifactPath of formalArtifactPaths) {
+      const storedEntry = formalDocuments.find((entry) => entry.path === artifactPath);
+      const storedEnvelope =
+        storedEntry !== undefined &&
+        isRecord(storedEntry.document) &&
+        STORE_ENVELOPE_VERSIONS.has(String(storedEntry.document.schema_version))
+          ? (storedEntry.document as FormalArtifactEnvelope)
+          : null;
+      const enrichmentTerminalResult =
+        storedEnvelope?.schema_version === "startup_opportunity.artifact_envelope.v12" &&
+        storedEnvelope.artifact_type === "startup_opportunity.enrichment_branch_result.v1" &&
+        ["ignored_late", "superseded"].includes(String(storedEnvelope.document.status));
       if (
+        enrichmentTerminalResult ||
         (await this.classifyPlannedArtifact(runRoot, provisionalManifest, artifactPath)).ignoredLate
       ) {
         ignoredLateArtifactPaths.push(artifactPath);
@@ -1229,7 +1426,8 @@ export class RunStore {
       recoveryBundleVersion === "startup_opportunity.document_bundle.v7" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v8" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v10" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v11"
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v11" ||
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v12"
     ) {
       for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
         if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
@@ -1246,7 +1444,8 @@ export class RunStore {
         recoveryBundleVersion === "startup_opportunity.document_bundle.v7" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v8" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v10" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v11"
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v11" ||
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v12"
           ? { exact_records: [] }
           : {}),
       },

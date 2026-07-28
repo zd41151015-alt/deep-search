@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --import tsx
 
-import { rejectReservedCommand } from "../../../../harness/src/reserved-command.js";
+import { runCalculateComparison } from "../../../../harness/src/comparison/comparison-commands.js";
 
-rejectReservedCommand("calculate-comparison");
+process.exitCode = await runCalculateComparison(process.argv.slice(2));

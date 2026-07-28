@@ -15,3 +15,5 @@ G1.3 Plan operation receipt v2 同时绑定 base/result Research Plan 与 assess
 G1.4 reopen 在 Artifact receipt recovery 后检查 immutable report sidecar，按 report -> brief -> full view -> consistency 的闭合 contract 补齐缺失 derived sidecar 和 materialized view。`report.json` 不作为 formal envelope 重复索引；它与两个 Markdown 文件的冲突 bytes、receipt drift、sidecar/hash drift 都使 reopen fail closed。
 
 G2.1 为 Run 增加 `artifacts/discovery/` 路径，并在首个 discovery Research Plan publication 后确定性设置 `current_phase=discovery`。v8 map/checkpoint receipt 参与既有 crash recovery 与 reopen；恢复只消费 validated on-disk envelope/temp/receipt，不从 chat、task completion 或模型记忆重建 map。
+
+G2.4 的 v12 Research Task publication 先要求 task 精确匹配 current immutable Plan 中一个 enabled unit 的 wave/id/type/goal/input/attempt/agent/output path/output schema，再做 pending-to-active 投影；eligible enrichment branch 终止 active unit，failed 投影到 failed，ignored-late/superseded 只进入 non-current refs。Reopen 使用 branch 自身的 terminal status 和 validated receipt 重建同一分类，不会因 Plan output projection 缺失而把 late/superseded result 恢复为 current。Discovery report recovery 沿用 immutable sidecar/materialization receipt boundary。

@@ -474,8 +474,10 @@ export function fixtureEffective(
     : entry;
 }
 
-export async function createDiscoveryCandidateFixture(): Promise<DocumentBundle> {
-  const bundle = await createDiscoveryMapsFixture("general", G22_RUN_ID);
+export async function createDiscoveryCandidateFixture(
+  additionalPlanWaves: readonly Record<string, unknown>[] = [],
+): Promise<DocumentBundle> {
+  const bundle = await createDiscoveryMapsFixture("general", G22_RUN_ID, additionalPlanWaves);
   (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v9";
   const demandR1 = initialCandidate(
     bundle,

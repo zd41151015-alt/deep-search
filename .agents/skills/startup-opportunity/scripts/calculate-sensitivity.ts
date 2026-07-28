@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --import tsx
 
-import { rejectReservedCommand } from "../../../../harness/src/reserved-command.js";
+import { runCalculateSensitivity } from "../../../../harness/src/comparison/comparison-commands.js";
 
-rejectReservedCommand("calculate-sensitivity");
+process.exitCode = await runCalculateSensitivity(process.argv.slice(2));

@@ -197,7 +197,7 @@ test("fake or missing AI trigger source binding fails closed", async () => {
   );
 });
 
-test("closed mode policy accepts only exact declared tuples and future output schema ids", async () => {
+test("closed mode policy accepts exact declared tuples and preserves installed owner schemas", async () => {
   const evaluator = await createPlanningContractEvaluator(repositoryRoot);
   const { valid, negative } = await loadFixtures();
   const cases = negative.filter((fixture) => fixture.category === "mode_policy");
@@ -222,6 +222,7 @@ test("closed mode policy accepts only exact declared tuples and future output sc
   );
   const installedOwnedSchemas = new Set([
     "startup_opportunity.discovery_lane_result.v1",
+    "startup_opportunity.enrichment_branch_result.v1",
     "startup_opportunity.concept_evidence_assessment_branch_result.v1",
     "startup_opportunity.adversarial_review.v1",
   ]);
@@ -233,7 +234,7 @@ test("closed mode policy accepts only exact declared tuples and future output sc
     policy.artifact_schema_catalog
       .filter((entry) => !installedOwnedSchemas.has(entry.schema_id))
       .every((entry) => !bundle.validators.has(entry.schema_id)),
-    "schemas owned by downstream slices must remain uninstalled",
+    "only schemas outside completed owning slices may remain uninstalled",
   );
 });
 
@@ -272,14 +273,14 @@ test("retry_unit accepts failed_units only and rejects completed, active, and pa
   assert.equal(evaluator.validateDocumentBundle(valid).valid, true);
 });
 
-test("future-declared output schema is plan-valid but cannot publish as an Artifact", async () => {
+test("installed plan output remains closed while an uninstalled downstream schema cannot publish", async () => {
   const evaluator = await createPlanningContractEvaluator(repositoryRoot);
   const artifactValidator = await createArtifactValidator(repositoryRoot);
   const { valid } = await loadFixtures();
   assert.equal(evaluator.validateDocumentBundle(valid).valid, true);
 
   const rawResult = artifactValidator.validateDocument({
-    schema_version: "startup_opportunity.enrichment_branch_result.v1",
+    schema_version: "startup_opportunity.capability_evidence.v1",
   });
   assert.equal(rawResult.valid, false);
   assert.equal(rawResult.errors[0]?.code, "schema.unknown_version");

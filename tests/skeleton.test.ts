@@ -11,7 +11,6 @@ import {
   CUSTOM_AGENT_PATHS,
   inspectRepository,
   REQUIRED_REPOSITORY_PATHS,
-  RESERVED_SKILL_COMMANDS,
   SKILL_REFERENCE_PATHS,
 } from "../harness/src/index.js";
 
@@ -40,7 +39,7 @@ test("repository doctor accepts the committed foundation contract", async () => 
     true,
     JSON.stringify(report.checks.filter((check) => check.status === "fail")),
   );
-  assert.equal(report.skeletonVersion, "g2.3");
+  assert.equal(report.skeletonVersion, "g2.4");
   assert.equal(report.stack.runtime, "Node.js 24.18.x LTS");
   assert.ok(report.checks.length > REQUIRED_REPOSITORY_PATHS.length);
 });
@@ -89,31 +88,7 @@ test("Skill doctor script is runnable and reports the skeleton contract", () => 
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout) as { ok?: boolean; skeletonVersion?: string };
   assert.equal(report.ok, true);
-  assert.equal(report.skeletonVersion, "g2.3");
-});
-
-test("downstream Skill scripts fail closed and name their owning slice", () => {
-  for (const [command, plannedSlice] of Object.entries(RESERVED_SKILL_COMMANDS)) {
-    const result = spawnSync(
-      process.execPath,
-      ["--import", "tsx", `.agents/skills/startup-opportunity/scripts/${command}.ts`],
-      { cwd: repositoryRoot, encoding: "utf8" },
-    );
-
-    assert.equal(result.status, 2, `${command} unexpectedly succeeded: ${result.stdout}`);
-    const response = JSON.parse(result.stderr) as {
-      command?: string;
-      status?: string;
-      plannedSlice?: string;
-    };
-    assert.deepEqual(response, {
-      schemaVersion: "startup_opportunity.reserved_command.v1",
-      command,
-      status: "unavailable",
-      reason: "not_implemented_in_g2.3",
-      plannedSlice,
-    });
-  }
+  assert.equal(report.skeletonVersion, "g2.4");
 });
 
 test("doctor rejects a missing required entry", async (context) => {

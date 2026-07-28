@@ -76,6 +76,10 @@ export {
 export { StoreError, storeErrorResult } from "./artifact-store/store-error.js";
 export { printHelp, runDoctor } from "./commands.js";
 export {
+  runCalculateComparison,
+  runCalculateSensitivity,
+} from "./comparison/comparison-commands.js";
+export {
   type CanonicalEvidenceSource,
   canonicalizeSourceUrl,
   EvidenceStore,
@@ -97,7 +101,6 @@ export {
 export type {
   DoctorCheck,
   DoctorReport,
-  ReservedSkillCommand,
 } from "./repository-contract.js";
 export {
   CUSTOM_AGENT_PATHS,
@@ -105,7 +108,6 @@ export {
   IMPLEMENTED_SKILL_COMMANDS,
   inspectRepository,
   REQUIRED_REPOSITORY_PATHS,
-  RESERVED_SKILL_COMMANDS,
   SCHEMA_BUNDLE_PATHS,
   SKELETON_VERSION,
   SKILL_REFERENCE_PATHS,

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-export const SKELETON_VERSION = "g2.3" as const;
+export const SKELETON_VERSION = "g2.4" as const;
 
 export const IMPLEMENTATION_STACK = {
   language: "TypeScript 7.0.2",
@@ -26,13 +26,6 @@ export const CUSTOM_AGENT_PATHS = [
   ".codex/agents/adversarial-reviewer.toml",
 ] as const;
 
-export const RESERVED_SKILL_COMMANDS = {
-  "calculate-comparison": "G2.4",
-  "calculate-sensitivity": "G2.4",
-} as const;
-
-export type ReservedSkillCommand = keyof typeof RESERVED_SKILL_COMMANDS;
-
 export const IMPLEMENTED_SKILL_COMMANDS = [
   "doctor",
   "validate-artifact",
@@ -45,11 +38,14 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
   "analyze-gaps",
   "validate-adaptation",
   "apply-plan-revision",
+  "calculate-comparison",
+  "calculate-sensitivity",
   "audit-traceability",
   "build-report",
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v11.json",
   "harness/schemas/bundle.v10.json",
   "harness/schemas/bundle.v9.json",
   "harness/schemas/bundle.v8.json",
@@ -170,6 +166,33 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v11/research-publication-policy-v6.schema.json",
   "harness/schemas/v11/artifact-envelope.schema.json",
   "harness/schemas/v11/document-bundle.schema.json",
+  "harness/schemas/v12/definitions.schema.json",
+  "harness/schemas/v12/research-task-v3.schema.json",
+  "harness/schemas/v12/evidence-v3.schema.json",
+  "harness/schemas/v12/claim-v3.schema.json",
+  "harness/schemas/v12/finding-v3.schema.json",
+  "harness/schemas/v12/insight-v3.schema.json",
+  "harness/schemas/v12/judgment-assessment-v3.schema.json",
+  "harness/schemas/v12/source-manifest-v3.schema.json",
+  "harness/schemas/v12/enrichment-branch-result.schema.json",
+  "harness/schemas/v12/enrichment-fan-in.schema.json",
+  "harness/schemas/v12/value-layer-analysis.schema.json",
+  "harness/schemas/v12/user-state-context-model.schema.json",
+  "harness/schemas/v12/buyer-purchase-language.schema.json",
+  "harness/schemas/v12/business-engine-thesis-v2.schema.json",
+  "harness/schemas/v12/opportunity-comparison.schema.json",
+  "harness/schemas/v12/sensitivity.schema.json",
+  "harness/schemas/v12/portfolio-view.schema.json",
+  "harness/schemas/v12/decision-recommendation.schema.json",
+  "harness/schemas/v12/traceability-v2.schema.json",
+  "harness/schemas/v12/discovery-report.schema.json",
+  "harness/schemas/v12/decision-brief-v2.schema.json",
+  "harness/schemas/v12/discovery-report-view.schema.json",
+  "harness/schemas/v12/report-consistency-evaluation-v2.schema.json",
+  "harness/schemas/v12/discovery-evaluation-policy.schema.json",
+  "harness/schemas/v12/research-publication-policy-v7.schema.json",
+  "harness/schemas/v12/artifact-envelope.schema.json",
+  "harness/schemas/v12/document-bundle.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
@@ -187,6 +210,8 @@ export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/discovery-candidate-validator.ts",
   "harness/src/validators/discovery-synthesis-policy.ts",
   "harness/src/validators/discovery-synthesis-validator.ts",
+  "harness/src/validators/discovery-evaluation-policy.ts",
+  "harness/src/validators/discovery-evaluation-validator.ts",
   "harness/src/validators/planning-contract-identities.ts",
   "harness/src/validators/planning-contract-validator.ts",
   "harness/src/validators/validate-artifact-command.ts",
@@ -222,9 +247,6 @@ export const SKILL_SCRIPT_PATHS = [
   ...IMPLEMENTED_SKILL_COMMANDS.map(
     (command) => `.agents/skills/startup-opportunity/scripts/${command}.ts`,
   ),
-  ...Object.keys(RESERVED_SKILL_COMMANDS).map(
-    (command) => `.agents/skills/startup-opportunity/scripts/${command}.ts`,
-  ),
 ] as const;
 
 export const RESPONSIBILITY_PATHS = [
@@ -255,6 +277,8 @@ export const RESPONSIBILITY_PATHS = [
   "harness/policies/research-publication.v5.json",
   "harness/policies/discovery-synthesis.v1.json",
   "harness/policies/research-publication.v6.json",
+  "harness/policies/discovery-evaluation.v1.json",
+  "harness/policies/research-publication.v7.json",
   "tests/fixtures/README.md",
   "tests/fixtures/g1.2/README.md",
   "tests/fixtures/g1.3/README.md",
@@ -273,6 +297,9 @@ export const RESPONSIBILITY_PATHS = [
   "tests/fixtures/g2.3/README.md",
   "tests/fixtures/g2.3/discovery-synthesis-fixture.ts",
   "tests/g2.3-discovery-synthesis.test.ts",
+  "tests/fixtures/g2.4/README.md",
+  "tests/fixtures/g2.4/discovery-evaluation-fixture.ts",
+  "tests/g2.4-discovery-evaluation.test.ts",
   "tests/evals/README.md",
   "runs/.gitkeep",
 ] as const;
@@ -293,6 +320,7 @@ export const REQUIRED_REPOSITORY_PATHS = [
   ...SCHEMA_BUNDLE_PATHS,
   ...VALIDATOR_SOURCE_PATHS,
   ...STORE_SOURCE_PATHS,
+  "harness/src/comparison/comparison-commands.ts",
 ] as const;
 
 const FORBIDDEN_LOCKFILES = [

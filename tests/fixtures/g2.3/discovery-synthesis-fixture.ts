@@ -221,8 +221,9 @@ function opportunity(runId: string, id: string, title: string): Record<string, u
 export async function createDiscoverySynthesisFixture(
   runId: string,
   substrate: DiscoveryRuntimeSubstrate,
+  additionalPlanWaves: readonly Record<string, unknown>[] = [],
 ): Promise<DocumentBundle> {
-  const bundle = await createDiscoveryRuntimeFixture(runId, substrate);
+  const bundle = await createDiscoveryRuntimeFixture(runId, substrate, additionalPlanWaves);
   (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v11";
   const mutable = bundle as unknown as {
     documents: { path: string; document: Record<string, unknown> }[];

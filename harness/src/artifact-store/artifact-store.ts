@@ -35,7 +35,8 @@ export interface FormalArtifactEnvelope extends Record<string, unknown> {
     | "startup_opportunity.artifact_envelope.v7"
     | "startup_opportunity.artifact_envelope.v8"
     | "startup_opportunity.artifact_envelope.v10"
-    | "startup_opportunity.artifact_envelope.v11";
+    | "startup_opportunity.artifact_envelope.v11"
+    | "startup_opportunity.artifact_envelope.v12";
   readonly artifact_type: string;
   readonly artifact_path: string;
   readonly run_id: string;
@@ -56,7 +57,8 @@ interface ArtifactOperationReceipt {
     | "startup_opportunity.artifact_store_operation.v6"
     | "startup_opportunity.artifact_store_operation.v7"
     | "startup_opportunity.artifact_store_operation.v8"
-    | "startup_opportunity.artifact_store_operation.v9";
+    | "startup_opportunity.artifact_store_operation.v9"
+    | "startup_opportunity.artifact_store_operation.v10";
   readonly operation_key: string;
   readonly run_id: string;
   readonly artifact_path: string;
@@ -109,6 +111,7 @@ const STORE_ENVELOPE_VERSIONS = new Set<string>([
   "startup_opportunity.artifact_envelope.v8",
   "startup_opportunity.artifact_envelope.v10",
   "startup_opportunity.artifact_envelope.v11",
+  "startup_opportunity.artifact_envelope.v12",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -181,6 +184,7 @@ function validateArtifactReceipt(
       "startup_opportunity.artifact_store_operation.v7",
       "startup_opportunity.artifact_store_operation.v8",
       "startup_opportunity.artifact_store_operation.v9",
+      "startup_opportunity.artifact_store_operation.v10",
     ].includes(String(value.schema_version)) ||
     !isSha256(value.operation_key) ||
     value.run_id !== runId ||
@@ -209,7 +213,10 @@ function validateArtifactReceipt(
                   ? "startup_opportunity.artifact_store_operation.v7"
                   : receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v10"
                     ? "startup_opportunity.artifact_store_operation.v8"
-                    : "startup_opportunity.artifact_store_operation.v9";
+                    : receipt.envelope.schema_version ===
+                        "startup_opportunity.artifact_envelope.v11"
+                      ? "startup_opportunity.artifact_store_operation.v9"
+                      : "startup_opportunity.artifact_store_operation.v10";
   const expectedFilename = `artifact-${sha256Hex(receipt.operation_key)}.json`;
   if (
     filename !== expectedFilename ||
@@ -383,6 +390,33 @@ async function assertReferenceExists(
 }
 
 function publicationRank(envelope: FormalArtifactEnvelope): number {
+  if (envelope.schema_version === "startup_opportunity.artifact_envelope.v12") {
+    const ranks: Readonly<Record<string, number>> = {
+      "startup_opportunity.research_task.v3": 10,
+      "startup_opportunity.evidence.v3": 20,
+      "startup_opportunity.claim.v3": 21,
+      "startup_opportunity.finding.v3": 22,
+      "startup_opportunity.insight.v3": 23,
+      "startup_opportunity.judgment_assessment.v3": 24,
+      "startup_opportunity.source_manifest.v3": 25,
+      "startup_opportunity.enrichment_branch_result.v1": 30,
+      "startup_opportunity.enrichment_fan_in.v1": 40,
+      "startup_opportunity.value_layer_analysis.v1": 50,
+      "startup_opportunity.user_state_context_model.v1": 51,
+      "startup_opportunity.buyer_purchase_language.v1": 52,
+      "startup_opportunity.business_engine_thesis.v2": 53,
+      "startup_opportunity.opportunity_comparison.v1": 60,
+      "startup_opportunity.sensitivity.v1": 70,
+      "startup_opportunity.portfolio_view.v1": 80,
+      "startup_opportunity.decision_recommendation.v1": 81,
+      "startup_opportunity.traceability.v2": 90,
+      "startup_opportunity.report.v1": 100,
+      "startup_opportunity.decision_brief.v2": 101,
+      "startup_opportunity.discovery_report_view.v1": 102,
+      "startup_opportunity.report_consistency_evaluation.v2": 103,
+    };
+    return ranks[envelope.artifact_type] ?? 199;
+  }
   if (envelope.schema_version !== "startup_opportunity.artifact_envelope.v11") {
     return 100;
   }
@@ -841,7 +875,8 @@ export class ArtifactStore {
       bundleVersion === "startup_opportunity.document_bundle.v7" ||
       bundleVersion === "startup_opportunity.document_bundle.v8" ||
       bundleVersion === "startup_opportunity.document_bundle.v10" ||
-      bundleVersion === "startup_opportunity.document_bundle.v11"
+      bundleVersion === "startup_opportunity.document_bundle.v11" ||
+      bundleVersion === "startup_opportunity.document_bundle.v12"
     ) {
       for (const record of await this.evidence.listRecordsLocked(
         runRoot,
@@ -861,7 +896,8 @@ export class ArtifactStore {
         bundleVersion === "startup_opportunity.document_bundle.v7" ||
         bundleVersion === "startup_opportunity.document_bundle.v8" ||
         bundleVersion === "startup_opportunity.document_bundle.v10" ||
-        bundleVersion === "startup_opportunity.document_bundle.v11"
+        bundleVersion === "startup_opportunity.document_bundle.v11" ||
+        bundleVersion === "startup_opportunity.document_bundle.v12"
           ? { exact_records: [] }
           : {}),
       },

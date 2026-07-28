@@ -24,6 +24,7 @@ import { withReportLock, withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { RunStore } from "../run-store/run-store.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
+import { REQUIRED_REPORT_CONSISTENCY_DIMENSIONS } from "../validators/discovery-evaluation-policy.js";
 
 const REPORT_SECTION_ORDER = [
   "assessment_result_and_evidence_strength",
@@ -65,6 +66,19 @@ const REPORT_CHECKS = [
   "new_conclusions",
   "market_validation_language",
   "probability_language",
+] as const;
+
+const DISCOVERY_REPORT_SECTION_ORDER = [
+  "conclusion_summary",
+  "scope_and_profile",
+  "decision_recommendation",
+  "portfolio",
+  "comparison_and_partial_order",
+  "method_and_limitations",
+  "top_opportunities",
+  "watchlist_and_reject",
+  "sensitivity",
+  "traceability_and_sources",
 ] as const;
 
 export type ReportFaultBoundary =
@@ -263,6 +277,21 @@ function formalEnvelope(
   document: Record<string, unknown>,
   inputRefs: readonly string[],
 ): FormalArtifactEnvelope {
+  if (source.schema_version === "startup_opportunity.artifact_envelope.v12") {
+    return {
+      schema_version: "startup_opportunity.artifact_envelope.v12",
+      artifact_type: artifactType,
+      artifact_path: artifactPath,
+      run_id: source.run_id,
+      created_at: source.created_at,
+      producer_role: "harness",
+      input_refs: [...new Set(collectDocumentRefs(document))]
+        .filter((ref) => ref !== artifactPath)
+        .sort(),
+      content_hash: canonicalContentHash(document),
+      document,
+    } as FormalArtifactEnvelope;
+  }
   return {
     schema_version: "startup_opportunity.artifact_envelope.v7",
     artifact_type: artifactType,
@@ -276,9 +305,210 @@ function formalEnvelope(
   };
 }
 
+function collectDocumentRefs(value: unknown): readonly string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap(collectDocumentRefs);
+  }
+  if (!isRecord(value)) {
+    return [];
+  }
+  return Object.entries(value).flatMap(([key, child]) => {
+    if ((key.endsWith("_refs") || key === "input_refs") && Array.isArray(child)) {
+      return strings(child).filter((ref) => ref.includes("/") || ref.includes("#"));
+    }
+    if (
+      (key.endsWith("_ref") || key === "ref") &&
+      typeof child === "string" &&
+      (child.includes("/") || child.includes("#"))
+    ) {
+      return [child];
+    }
+    return collectDocumentRefs(child);
+  });
+}
+
+function renderDiscoveryDecisionBrief(report: Record<string, unknown>): string {
+  const context = requiredRecord(report.curated_judgment_context, "curated_judgment_context");
+  return [
+    "# Decision Brief\n\n",
+    "## Decision Question\n",
+    `${String(context.decision_question)}\n\n`,
+    "## Current Recommendation\n",
+    `${String(context.current_recommendation)}\n\n`,
+    `Decision tier: ${String(context.decision_tier)}\n\n`,
+    `Meaning: ${String(context.recommendation_meaning)}\n\n`,
+    "## Partial Order\n",
+    `${String(context.partial_order_summary)}\n\n`,
+    "## Decisive Support\n",
+    summaryList(context.decisive_support),
+    "\n## Decisive Opposition\n",
+    summaryList(context.decisive_opposition),
+    "\n## Critical Unknowns\n",
+    markdownList(strings(context.critical_unknowns)),
+    "\n## What Would Change the Decision\n",
+    markdownList(strings(context.what_would_change_the_decision)),
+    "\n## Limitations\n",
+    markdownList(strings(context.limitations)),
+  ].join("");
+}
+
+function renderDiscoveryFullReport(report: Record<string, unknown>): string {
+  const context = requiredRecord(report.curated_judgment_context, "curated_judgment_context");
+  const sections = requiredRecord(report.report_sections, "report_sections");
+  const metadata = requiredRecord(report.report_metadata, "report_metadata");
+  const parts = [
+    "# Startup Opportunity Discovery Report\n",
+    `\nDecision tier: ${String(context.decision_tier)}\n`,
+    `\nRecommendation: ${String(context.current_recommendation)}\n`,
+    `\nValid as of: ${String(context.valid_as_of)}\n`,
+    `\nGenerated at: ${String(metadata.generated_at)}\n`,
+  ];
+  for (const sectionId of DISCOVERY_REPORT_SECTION_ORDER) {
+    const title = sectionId
+      .split("_")
+      .map((word) => `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`)
+      .join(" ");
+    parts.push(`\n## ${title}\n`);
+    parts.push(markdownList(strings(sections[sectionId])));
+  }
+  return parts.join("");
+}
+
+function deriveDiscoveryReportEnvelopes(
+  reportEnvelope: FormalArtifactEnvelope,
+): readonly FormalArtifactEnvelope[] {
+  const report = reportEnvelope.document;
+  const revision = revisionOf(reportEnvelope.artifact_path);
+  const context = requiredRecord(report.curated_judgment_context, "curated_judgment_context");
+  const reportHash = canonicalContentHash(report);
+  const recommendationRef = requiredString(
+    report.decision_recommendation_ref,
+    "decision_recommendation_ref",
+  );
+  const traceabilityRef = requiredString(report.traceability_ref, "traceability_ref");
+  const supportingRefs = flattenSummaryRefs(context.decisive_support);
+  const opposingRefs = flattenSummaryRefs(context.decisive_opposition);
+  const decisionBriefPath = `artifacts/reporting/decision-brief.${revision}.json`;
+  const reportViewPath = `artifacts/reporting/report-markdown.${revision}.json`;
+  const consistencyPath = `artifacts/reporting/consistency-evaluation.${revision}.json`;
+  const briefMarkdown = renderDiscoveryDecisionBrief(report);
+  const briefDocument: Record<string, unknown> = {
+    schema_version: "startup_opportunity.decision_brief.v2",
+    brief_id: `decision_brief_${revision.replace("r", "")}`,
+    run_id: reportEnvelope.run_id,
+    producer_role: "harness",
+    owned_output_path: decisionBriefPath,
+    materialized_path: "decision-brief.md",
+    report_ref: reportEnvelope.artifact_path,
+    report_content_hash: reportHash,
+    decision_recommendation_ref: recommendationRef,
+    decision_question: context.decision_question,
+    decision_tier: context.decision_tier,
+    current_recommendation: context.current_recommendation,
+    recommendation_meaning: context.recommendation_meaning,
+    recommended_first_bet: context.recommended_first_bet,
+    alternative_bets: context.alternative_bets,
+    partial_order_summary: context.partial_order_summary,
+    decisive_supporting_refs: supportingRefs,
+    decisive_opposing_refs: opposingRefs,
+    critical_unknowns: context.critical_unknowns,
+    what_would_change_the_decision: context.what_would_change_the_decision,
+    belief_update_summary: context.belief_update_summary,
+    valid_as_of: context.valid_as_of,
+    scope_summary: context.scope_summary,
+    limitations: context.limitations,
+    external_action_boundary: context.external_action_boundary,
+    markdown: briefMarkdown,
+    markdown_content_hash: sha256Bytes(briefMarkdown),
+  };
+  const briefEnvelope = formalEnvelope(
+    reportEnvelope,
+    decisionBriefPath,
+    "startup_opportunity.decision_brief.v2",
+    briefDocument,
+    [],
+  );
+  const reportMarkdown = renderDiscoveryFullReport(report);
+  const viewDocument: Record<string, unknown> = {
+    schema_version: "startup_opportunity.discovery_report_view.v1",
+    view_id: `report_markdown_${revision.replace("r", "")}`,
+    run_id: reportEnvelope.run_id,
+    producer_role: "harness",
+    owned_output_path: reportViewPath,
+    materialized_path: "report.md",
+    report_ref: reportEnvelope.artifact_path,
+    report_content_hash: reportHash,
+    decision_recommendation_ref: recommendationRef,
+    decision_tier: context.decision_tier,
+    recommendation_meaning: context.recommendation_meaning,
+    recommended_first_bet: context.recommended_first_bet,
+    alternative_bets: context.alternative_bets,
+    partial_order_summary: context.partial_order_summary,
+    decisive_supporting_refs: supportingRefs,
+    decisive_opposing_refs: opposingRefs,
+    valid_as_of: context.valid_as_of,
+    limitations: context.limitations,
+    external_action_boundary: context.external_action_boundary,
+    section_ids: DISCOVERY_REPORT_SECTION_ORDER,
+    markdown: reportMarkdown,
+    markdown_content_hash: sha256Bytes(reportMarkdown),
+  };
+  const viewEnvelope = formalEnvelope(
+    reportEnvelope,
+    reportViewPath,
+    "startup_opportunity.discovery_report_view.v1",
+    viewDocument,
+    [],
+  );
+  const consistencyDocument: Record<string, unknown> = {
+    schema_version: "startup_opportunity.report_consistency_evaluation.v2",
+    evaluation_id: `report_consistency_${revision.replace("r", "")}`,
+    run_id: reportEnvelope.run_id,
+    producer_role: "harness",
+    owned_output_path: consistencyPath,
+    report_ref: reportEnvelope.artifact_path,
+    decision_brief_ref: decisionBriefPath,
+    report_view_ref: reportViewPath,
+    decision_recommendation_ref: recommendationRef,
+    traceability_ref: traceabilityRef,
+    checked_dimensions: REQUIRED_REPORT_CONSISTENCY_DIMENSIONS,
+    forbidden_expression_matches: [],
+    evaluator_result: "passed",
+    evaluation_issues: [],
+    input_artifact_hashes: [
+      { ref: reportEnvelope.artifact_path, content_hash: reportHash },
+      { ref: decisionBriefPath, content_hash: canonicalContentHash(briefDocument) },
+      { ref: reportViewPath, content_hash: canonicalContentHash(viewDocument) },
+      { ref: recommendationRef, content_hash: reportHashEntry(report, recommendationRef) },
+      { ref: traceabilityRef, content_hash: reportHashEntry(report, traceabilityRef) },
+    ],
+    valid_as_of: context.valid_as_of,
+    limitations: context.limitations,
+  };
+  return [
+    briefEnvelope,
+    viewEnvelope,
+    formalEnvelope(
+      reportEnvelope,
+      consistencyPath,
+      "startup_opportunity.report_consistency_evaluation.v2",
+      consistencyDocument,
+      [],
+    ),
+  ];
+}
+
 export function deriveReportEnvelopes(
   reportEnvelope: FormalArtifactEnvelope,
 ): readonly FormalArtifactEnvelope[] {
+  if (
+    reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v12" &&
+    reportEnvelope.artifact_type === "startup_opportunity.report.v1" &&
+    reportEnvelope.producer_role === "main_agent" &&
+    reportEnvelope.document.schema_version === "startup_opportunity.report.v1"
+  ) {
+    return deriveDiscoveryReportEnvelopes(reportEnvelope);
+  }
   if (
     reportEnvelope.schema_version !== "startup_opportunity.artifact_envelope.v7" ||
     reportEnvelope.artifact_type !== "startup_opportunity.concept_evidence_report.v1" ||
@@ -406,16 +636,25 @@ function materializedBytes(envelope: FormalArtifactEnvelope): {
   readonly targetPath: ReportMaterializationReceipt["target_path"];
   readonly bytes: string;
 } | null {
-  if (envelope.artifact_type === "startup_opportunity.concept_evidence_report.v1") {
+  if (
+    envelope.artifact_type === "startup_opportunity.concept_evidence_report.v1" ||
+    envelope.artifact_type === "startup_opportunity.report.v1"
+  ) {
     return { targetPath: "report.json", bytes: `${canonicalJson(envelope.document)}\n` };
   }
-  if (envelope.artifact_type === "startup_opportunity.decision_brief.v1") {
+  if (
+    envelope.artifact_type === "startup_opportunity.decision_brief.v1" ||
+    envelope.artifact_type === "startup_opportunity.decision_brief.v2"
+  ) {
     return {
       targetPath: "decision-brief.md",
       bytes: requiredString(envelope.document.markdown, "markdown"),
     };
   }
-  if (envelope.artifact_type === "startup_opportunity.concept_evidence_report_view.v1") {
+  if (
+    envelope.artifact_type === "startup_opportunity.concept_evidence_report_view.v1" ||
+    envelope.artifact_type === "startup_opportunity.discovery_report_view.v1"
+  ) {
     return {
       targetPath: "report.md",
       bytes: requiredString(envelope.document.markdown, "markdown"),
@@ -466,7 +705,9 @@ async function assertReportBuildCompatibleLocked(
   derived: readonly FormalArtifactEnvelope[],
 ): Promise<void> {
   const existingReports = (await reportingEnvelopes(runRoot)).filter(
-    (envelope) => envelope.artifact_type === "startup_opportunity.concept_evidence_report.v1",
+    (envelope) =>
+      envelope.artifact_type === "startup_opportunity.concept_evidence_report.v1" ||
+      envelope.artifact_type === "startup_opportunity.report.v1",
   );
   const conflictingReport = existingReports.find(
     (envelope) => canonicalJson(envelope) !== canonicalJson(source),
@@ -673,7 +914,9 @@ export async function recoverReportOperationsLocked(
   const materializedRecovered: string[] = [];
   let envelopes = await reportingEnvelopes(runRoot);
   const reports = envelopes.filter(
-    (envelope) => envelope.artifact_type === "startup_opportunity.concept_evidence_report.v1",
+    (envelope) =>
+      envelope.artifact_type === "startup_opportunity.concept_evidence_report.v1" ||
+      envelope.artifact_type === "startup_opportunity.report.v1",
   );
   for (const report of reports) {
     await artifacts.validateStoredEnvelope(runRoot, runId, report);

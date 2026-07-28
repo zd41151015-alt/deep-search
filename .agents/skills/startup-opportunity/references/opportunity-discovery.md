@@ -1,6 +1,6 @@
 # Opportunity Discovery
 
-`discover` 从宽泛的消费行业、用户群、场景或能力变化创建 `opportunity_discovery` Run。当前 Harness 开放调用方显式提供的 G2.1 maps、G2.2 typed candidate/lane/fan-in 与 G2.3 conversion/formal thesis/evaluation/freeze/merge 的 closed validation/publication/reopen；`discover` orchestration、lane execution、thesis synthesis 以及 G2.4 enrichment/comparison/report 仍不可运行。
+`discover` 从宽泛的消费行业、用户群、场景或能力变化创建 `opportunity_discovery` Run。当前 Harness 开放调用方显式提供的 G2.1 maps、G2.2 typed candidate/lane/fan-in、G2.3 conversion/formal thesis/evaluation/freeze/merge，以及 G2.4 enrichment/Business Engine/comparison/portfolio/report 的 closed validation/publication/reopen；`discover` orchestration、lane execution 和任何 research/thesis/enrichment/comparison 语义生成仍不可运行。
 
 工作流必须从 solution-neutral demand Evidence 开始，依次经过 Demand Thesis、Baseline Option、备选 Solution Hypothesis、选定 solution 和 Opportunity Thesis。产品或 AI seed 只是搜索输入，不是 Startup Opportunity 存在的 Evidence。至少一个 demand unit 必须独立于 seed，且至少一个 unit 必须检验 counterfactual user、job、scene 或 alternative。
 

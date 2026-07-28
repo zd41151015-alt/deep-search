@@ -1,6 +1,6 @@
 import { type DoctorReport, inspectRepository } from "./repository-contract.js";
 
-const HELP = `Startup Opportunity Research Harness (G2.3)
+const HELP = `Startup Opportunity Research Harness (G2.4)
 
 Usage:
   npm run harness -- help
@@ -15,11 +15,13 @@ Usage:
   npm run harness -- analyze-gaps --file FILE [--json]
   npm run harness -- validate-adaptation --bundle FILE [--json]
   npm run harness -- apply-plan-revision --file FILE [--runs-root DIR] [--json]
+  npm run harness -- calculate-comparison --bundle FILE [--json]
+  npm run harness -- calculate-sensitivity --bundle FILE [--json]
   npm run harness -- audit-traceability --bundle FILE [--json]
   npm run harness -- build-report --file FILE [--runs-root DIR] [--json]
 
 Commands:
-  help               Show the implemented G2.3 command surface.
+  help               Show the implemented G2.4 command surface.
   doctor             Validate repository, toolchain, Skill, agent, Harness, and test contracts.
   validate-artifact  Validate one document, a typed document bundle, or the schema bundle itself.
   create-run         Create a confined Run and its initial checkpoint.
@@ -31,10 +33,12 @@ Commands:
   analyze-gaps       Build a deterministic machine or assessment Gap Snapshot draft.
   validate-adaptation Validate G0 v2 or G1.3 v3 closed actions against current Run/Plan state.
   apply-plan-revision Apply validated actions through CAS and immutable Plan Revision receipts.
-  audit-traceability Validate the closed G1.4 audit/review/Assessment/Traceability/report chain.
-  build-report       Publish a validated report source and deterministically materialize its views.
+  calculate-comparison Validate and summarize caller-supplied G2.4 comparison Artifacts.
+  calculate-sensitivity Validate and summarize the caller-supplied G2.4 sensitivity Artifact.
+  audit-traceability Validate a closed G1.4 assessment or G2.4 discovery traceability/report chain.
+  build-report       Publish a validated assessment/discovery report and materialize its views.
 
-Validation, publication, recovery, and report materialization success are mechanical only. G2.1 maps, G2.2 pre-thesis lane/fan-in artifacts, and caller-supplied G2.3 conversion/formal thesis/evaluation/freeze/merge artifacts may use the generic validation/publication surface. The Harness does not dispatch agents, execute lanes, synthesize thesis semantics, perform network research, or infer research judgments. Discover orchestration and G2.4 enrichment/comparison/portfolio/report commands remain unavailable.
+Validation, publication, recovery, comparison/sensitivity summaries, and report materialization success are mechanical only. G2.1-G2.4 caller-supplied Artifacts use the generic validation/publication surface. The Harness does not dispatch agents, execute lanes, synthesize thesis or evaluation semantics, perform network research, infer research judgments, or claim Evidence/market validation success. Discover orchestration and G3+ remain unavailable.
 `;
 
 export function printHelp(

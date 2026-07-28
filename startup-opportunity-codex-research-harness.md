@@ -3837,16 +3837,23 @@ startup_opportunity.opportunity_space_map.v1
 startup_opportunity.solution_space_map.v1
 startup_opportunity.evidence.v1
 startup_opportunity.evidence.v2
+startup_opportunity.evidence.v3
 startup_opportunity.claim.v1
 startup_opportunity.claim.v2
+startup_opportunity.claim.v3
 startup_opportunity.finding.v1
 startup_opportunity.finding.v2
+startup_opportunity.finding.v3
 startup_opportunity.insight.v1
 startup_opportunity.insight.v2
+startup_opportunity.insight.v3
 startup_opportunity.judgment_assessment.v1
 startup_opportunity.judgment_assessment.v2
+startup_opportunity.judgment_assessment.v3
 startup_opportunity.research_task.v2
+startup_opportunity.research_task.v3
 startup_opportunity.source_manifest.v2
+startup_opportunity.source_manifest.v3
 startup_opportunity.discovery_candidate.v1
 startup_opportunity.user_language_map.v1
 startup_opportunity.solution_failure_map.v1
@@ -3874,6 +3881,7 @@ startup_opportunity.value_layer_analysis.v1
 startup_opportunity.user_state_context_model.v1
 startup_opportunity.buyer_purchase_language.v1
 startup_opportunity.business_engine_thesis.v1
+startup_opportunity.business_engine_thesis.v2
 startup_opportunity.opportunity_comparison.v1
 startup_opportunity.sensitivity.v1
 startup_opportunity.decision_recommendation.v1
@@ -3881,7 +3889,10 @@ startup_opportunity.portfolio_view.v1
 startup_opportunity.adversarial_review.v1
 startup_opportunity.validation_suggestions.v1
 startup_opportunity.decision_brief.v1
+startup_opportunity.decision_brief.v2
 startup_opportunity.report.v1
+startup_opportunity.discovery_report_view.v1
+startup_opportunity.report_consistency_evaluation.v2
 startup_opportunity.concept_frame.v1
 startup_opportunity.concept_hypothesis.v1
 startup_opportunity.concept_evidence_assessment_plan.v1
@@ -3892,6 +3903,7 @@ startup_opportunity.concept_evidence_assessment.v1
 startup_opportunity.concept_assessment_suggestions.v1
 startup_opportunity.concept_evidence_report.v1
 startup_opportunity.traceability.v1
+startup_opportunity.traceability.v2
 ```
 
 方案 A 的 immutable contract authority 是 schema bundle `8.0.0`、v9 Envelope/Document Bundle 与 `harness/policies/discovery-candidates.v1.json`。唯一 identity/path/owner 如下：
@@ -3927,6 +3939,10 @@ G2.3 conversion 的唯一映射是 `demand_seed -> demand_thesis.v1`、`baseline
 v9 继续只安装在 deterministic schema/reference/contract validation surface；把 v9 envelope 提交给 Store 必须在写入前以 `artifact.envelope_unsupported` fail closed。G2.2 runtime 另由 schema bundle `9.0.0`、v10 Envelope/Document Bundle、`discovery_fan_in.v2` 和 `research-publication.v5` 唯一拥有：v10 使用 receipt v8，把 task pending-to-active、eligible terminal lane 到 completed/failed、late/superseded lane 到 ignored refs 机械投影到 Manifest，并支持 checkpoint/reopen/recovery；全部 G2.3 types 在 v10 adapter 中继续 blocked。
 
 G2.3 runtime 由 schema bundle `10.0.0`、v11 Envelope/Document Bundle、receipt v9、`discovery-synthesis.v1` 和 `research-publication.v6` 唯一拥有。v11 对 caller-supplied conversion/formal thesis/evaluation/snapshot/merge bundle 做 closed validation，并按 Demand conversion+target -> Baseline conversion+target -> Solution conversion+target -> evaluation -> Opportunity -> snapshot -> merge 的稳定顺序 immutable publish；Manifest 只机械升级到 bundle `10.0.0`。每个 typed synthesis material 必须通过 owning `research_task.v2` 绑定 formal target 的 exact source candidate ancestor；Source Manifest 必须保持 generation/evaluation role、candidate partition 与 canonical source-group overlap disclosure。G2.4 enrichment/comparison/report types 继续由 v11 adapter fail closed。Harness 不合成 thesis 语义、不 dispatch agent、不调用 LLM、不访问网络或执行 external validation；schema/Store success 不代表 Evidence 真实、Evidence 充分、thesis 有效或市场已验证。
+
+G2.4 runtime 由 schema bundle `11.0.0`、v12 Envelope/Document Bundle、receipt v10、`discovery-evaluation.v1` 和 `research-publication.v7` 唯一拥有。`research_task.v3`、Evidence/Claim/Finding/Insight/Judgment/Source Manifest v3、enrichment branch/fan-in、Value Layer、User State、Buyer Language、Business Engine v2、Opportunity Comparison、Sensitivity、Portfolio、Decision Recommendation、Traceability v2 和 discovery report 都必须是调用方显式提供的 same-Run Artifact；Harness 不执行 enrichment research、不生成 hard-gate/panel/partial-order/portfolio 判断。每个 `research_task.v3` 必须精确匹配 current immutable Research Plan 中一个 enabled unit 的 wave/id/type/goal/input/attempt/agent/output path/output schema；仅引用 current Plan 而不存在对应 unit 时，contract validator 与 pending-to-active Store transition 都 fail closed。每个 v3 material 绑定 exact owning task、frozen snapshot、semantic merge、Scope、Plan 和 target opportunities；Evidence 还绑定 exact v2 substrate record。eligible branch 只允许 `completed | partial | insufficient_evidence`，`failed | ignored_late | superseded` 保持显式分类且不能进入 fan-in material closure。
+
+v12 按 enrichment task -> typed material -> branch -> fan-in -> domain enrichment -> comparison -> sensitivity -> portfolio/recommendation -> traceability -> report 的稳定顺序 immutable publish，并把 task/terminal branch 状态机械投影到 Manifest。late/superseded branch 只进入 ignored refs，checkpoint/reopen 依其 terminal status 保持 non-current；v11 adapter 对 G2.4 types 在任何写入前 fail closed。G3 AI bundle types 继续由 v12 adapter blocked。`build-report` 只从 validated `report.v1` 确定性派生 v12 Decision Brief v2、Discovery Report View 和 Consistency Evaluation v2，再以独立 receipt materialize 三个固定 view；冲突 bytes、source/hash/receipt drift 都 fail closed。`calculate-comparison` 与 `calculate-sensitivity` 只读验证并摘要 caller-supplied Artifact，不生成语义或发布 Artifact。任何 schema、Store、summary 或 report success 都不表示 Evidence 真实/充分、市场验证或商业成功。
 
 Schema bundle `2.0.0` 中的 `artifact_envelope.v2` 和 `document_bundle.v2` 是 schema/reference validation contracts，不表示 G0.3 Store 已支持 v2 publication。当前 Store 的 `FormalArtifactEnvelope`、operation receipt recovery 和 publish reference bundle 仍固定为 v1；直接提交 v2 envelope 会在 `document_bundle.v1` reference-validation boundary fail closed。只有 G0.4 implementation 另行发布并接通兼容 Store/envelope/receipt migration contract 后，才能声称 v2 Store publish 已启用；本节的 v2 documents 在此之前只用于显式只读 contract validation。
 
@@ -3970,6 +3986,10 @@ decision context -> concept frame -> evidence assessment plan r1
 #### Discovery synthesis contract evaluator
 
 检查 executable v2 conversion 与 retained/current candidate 的 exact kind/revision/hash、conversion/target 双向 ref/hash、Demand solution-neutrality、Baseline/Solution candidate subject ancestry、每项 formal typed material 的 source-candidate/task binding、generation/evaluation Source Manifest role 与 overlap disclosure、Solution Evaluation exact classification、Opportunity selection lineage、pre-enrichment snapshot closure、created-at/publication dependency order和 semantic merge exact-once closure。该 evaluator 只验证调用方显式 Artifact 并执行 v11 immutable publication/reopen/recovery；它不生成 thesis、判断 Evidence 真实性/充分性、声明 promotion 等于 validation，或开放 G2.4 comparison/report。
+
+#### Discovery evaluation contract evaluator
+
+检查 enrichment task 与 current enabled Plan unit exact tuple、frozen Snapshot/Merge/Scope/Plan/opportunity closure、v3 material owning-task 与 Evidence substrate exact binding、typed material graph、branch output/status、eligible/excluded fan-in 与 material/hard-gate closure、每个 Judgment 的 opportunity subject、Business Engine/domain subject、全部 hard gates和四个独立 panel、Evidence conclusion ceiling、Sensitivity unordered-pair/scenario closure、Portfolio exclusive partition、Recommendation、Traceability freshness/input hashes，以及 report/brief/view/consistency exact closure。该 evaluator 只验证显式 Artifact、执行 v12 immutable publication/reopen/recovery 和确定性 view materialization；它不执行 research、不生成 Judgment/排名/推荐语义、不访问网络或执行 external validation。
 
 #### Research quality evaluator
 
@@ -4072,6 +4092,8 @@ solution_evaluation_required
 G2.2 Scheme A 的 v9 contract-only status boundary 与 v10 runtime status boundary共享同一语义：`completed | partial | insufficient_evidence` 可以作为 reference-only fan-in 输入，其中 partial/insufficient 必须保留 gaps 与 conclusion ceiling；v10 adapter 把三者的 unit 投影到 `completed_units`。`failed` 投影到 `failed_units`；`ignored_late | superseded` 只允许已有 terminal unit state，Artifact 进入 `ignored_late_artifact_refs`，且不得出现在 supporting lane refs、current candidate enrichment basis 或 disposition fan-in。`cancelled | skipped | missing` 没有伪造 lane Artifact，只以 unit id + decision impact 记录。所有 transition 在写 receipt/artifact 前验证，非法 state 以 `artifact.discovery_lane_transition_invalid` 零写入失败；reopen 同时间戳按 task 先于 lane 的稳定顺序重放。
 
 每个 eligible disposition 仍必须逐 candidate 保留 subject-bound Judgment。一个 demand Judgment 不能用于 baseline/solution disposition；fan-in 可以让 subject=r1 的 Judgment支撑 final=r2，但必须显式列出 r1 `source_candidate_refs` 并证明 r2 沿 parent lineage descendant 于 r1。顶层 Judgment refs 只允许各 disposition refs 的 exact closure。
+
+G2.4 enrichment branch 使用收窄的 terminal set `completed | partial | insufficient_evidence | failed | ignored_late | superseded`。前三者可以进入 `enrichment_fan_in.v1.eligible_branch_refs`，并保留其 conclusion ceiling；后三者只能进入 exact excluded classification，不得贡献 Evidence/Claim/Finding/Insight/Judgment/Source Manifest closure。v12 adapter 把 task publication 投影为 active，把 completed/partial/insufficient 投影为 completed、failed 投影为 failed，并让 ignored-late/superseded Artifact 只进入 `ignored_late_artifact_refs`。首次 publication 与 checkpoint recovery 必须使用同一 terminal-status classification，不能因原 Plan 缺少 output projection 而把 late/superseded branch 恢复成 current。
 
 `concept_evidence_assessment_fan_in.v1` 必须按 dimension 汇总 judgment assessment refs、决定性支持和反对证据、缺失 mandatory dimensions、decision sufficiency 和 what would change the assessment。Fan-in 不复制底层 Evidence/Claim 内容，但必须保留这些 refs 和摘要；否则不得进入 comparison 或 assessment gate。
 

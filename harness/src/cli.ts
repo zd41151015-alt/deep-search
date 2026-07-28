@@ -7,6 +7,10 @@ import {
   runValidatePlan,
 } from "./adaptation/adaptation-commands.js";
 import { printHelp, runDoctor } from "./commands.js";
+import {
+  runCalculateComparison,
+  runCalculateSensitivity,
+} from "./comparison/comparison-commands.js";
 import { runAuditTraceability, runBuildReport } from "./reporting/report-commands.js";
 import {
   runCheckpointRun,
@@ -55,6 +59,12 @@ switch (command) {
     break;
   case "apply-plan-revision":
     process.exitCode = await runApplyPlanRevision(args);
+    break;
+  case "calculate-comparison":
+    process.exitCode = await runCalculateComparison(args);
+    break;
+  case "calculate-sensitivity":
+    process.exitCode = await runCalculateSensitivity(args);
     break;
   case "audit-traceability":
     process.exitCode = await runAuditTraceability(args);
