@@ -7,6 +7,8 @@
   "required": [
     "schema_version",
     "run_id",
+    "unit_id",
+    "lineage",
     "judgment_id",
     "subject_ref",
     "dimension",
@@ -26,6 +28,8 @@
   "properties": {
     "schema_version": { "const": "startup_opportunity.judgment_assessment.v2" },
     "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "unit_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "lineage": { "$ref": "definitions.schema.json#/$defs/discoveryLineage" },
     "judgment_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
     "subject_ref": { "$ref": "definitions.schema.json#/$defs/candidateRef" },
     "dimension": {

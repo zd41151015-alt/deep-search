@@ -145,6 +145,17 @@
     "expected_code": "discovery_candidate.source_partition_type_mismatch"
   },
   {
+    "case_id": "candidate-material-task-missing-source-revision",
+    "target_path": "tasks/discovery/unit_seed_independent_demand.attempt-1.json",
+    "field_path": ["target_candidate_refs"],
+    "op": "set",
+    "value": [
+      "artifacts/discovery/candidates/candidate_baseline.r1.json",
+      "artifacts/discovery/candidates/candidate_solution.r1.json"
+    ],
+    "expected_code": "discovery_candidate.enrichment_material_binding_mismatch"
+  },
+  {
     "case_id": "untyped-evidence-target",
     "target_path": "evidence/records/ev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json",
     "target_scope": "envelope",
@@ -182,6 +193,14 @@
     "expected_code": "discovery_candidate.disposition_target_invalid"
   },
   {
+    "case_id": "lane-cross-candidate-judgment",
+    "target_path": "artifacts/discovery/lanes/unit_seed_independent_demand.attempt-1.json",
+    "field_path": ["pre_kill_decisions", 1, "judgment_assessment_refs"],
+    "op": "set",
+    "value": ["judgments/discovery/judgment-demand.json"],
+    "expected_code": "discovery_candidate.lane_judgment_subject_mismatch"
+  },
+  {
     "case_id": "fan-in-noncandidate-target",
     "target_path": "artifacts/discovery/fan-in.r1.json",
     "field_path": ["candidate_dispositions", 0, "candidate_ref"],
@@ -207,6 +226,28 @@
     "op": "set",
     "value": "fan_disposition_demand",
     "expected_code": "discovery_candidate.fan_in_disposition_mismatch"
+  },
+  {
+    "case_id": "fan-in-cross-candidate-judgment",
+    "target_path": "artifacts/discovery/fan-in.r1.json",
+    "field_path": ["candidate_dispositions", 1, "judgment_assessment_refs"],
+    "op": "set",
+    "value": ["judgments/discovery/judgment-demand.json"],
+    "expected_code": "discovery_candidate.fan_in_judgment_subject_mismatch"
+  },
+  {
+    "case_id": "fan-in-judgment-closure-drift",
+    "target_path": "artifacts/discovery/fan-in.r1.json",
+    "field_path": ["judgment_assessment_refs"],
+    "op": "set",
+    "value": [
+      "judgments/discovery/judgment-demand.json",
+      "judgments/discovery/judgment-demand-evaluation.json",
+      "judgments/discovery/judgment-baseline-generation.json",
+      "judgments/discovery/judgment-baseline-evaluation.json",
+      "judgments/discovery/judgment-solution-generation.json"
+    ],
+    "expected_code": "discovery_candidate.fan_in_judgment_closure_mismatch"
   },
   {
     "case_id": "source-overlap-drift",

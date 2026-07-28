@@ -2320,6 +2320,8 @@ limitations
 
 G2.2 采用方案 A：lane 不发布正式 Demand Thesis、Baseline Option 或 Solution Hypothesis。主 Agent 先把 G2.1 map 的一个 exact fragment 物化为 `startup_opportunity.discovery_candidate.v1`；candidate kind 只允许 `demand_seed | baseline_seed | solution_seed`，始终标记 `pre_thesis_unvalidated`。lane 只评估 task 中分配的 typed candidate revision，main Agent 通过新的 immutable revision 合并 Evidence enrichment，并在 G2.3 另行执行显式 conversion。
 
+Candidate rN 的 enrichment 只能吸收相对 rN-1 新增且可解析的 Evidence、Claim、Finding、Insight、Source Manifest 和 Judgment refs。每个新对象的 typed lineage 必须解析到 `research_task.v2`，该 task 的 `target_candidate_refs` 必须包含被 enrichment 的 exact rN-1 path；只面向 sibling/其他 candidate 或另一 revision 的材料不能影响当前 revision。Judgment v2 同时携带该 task lineage，并要求 `subject_ref` exact 等于 rN-1。流程顺序固定为“先对 source revision 形成 Judgment，再生成 enriched revision”，不得反向要求 Judgment 以尚未生成的 rN 为 subject。
+
 ### 18.5 Synthesis 与聚类
 
 先基于 user/job/scene/current alternative/baseline 合并 Demand Thesis，再在同一需求下比较 Solution Hypotheses。不要先按产品标题 embedding 合并，否则容易把同名但不同买单逻辑的机会混在一起。
@@ -2773,6 +2775,8 @@ Counter-evidence 不是普通 lane 的重复搜索。它应主动寻找：
 
 `claims`、`findings`、`insights` 和各类领域对象只保存 typed refs，正式对象仍独立存储。G2.2 的三个 disposition set 只允许引用 `startup_opportunity.discovery_candidate.v1` 的 immutable path/revision；禁止标题字符串、隐式 map path、G2.1 fragment 本身或尚未发布的 G2.3 schema。每个影响保留或淘汰的关键判断必须出现在 `judgment_assessment_refs` 中；`decision_sufficiency_summary` 不得仅由 lane 自报，Evaluator 必须根据引用对象复算其允许进入的最高阶段。
 
+每个 `pre_kill_decisions[*].judgment_assessment_refs` 必须解析为 typed `judgment_assessment.v2`；每个 Judgment 的 `subject_ref` 必须 exact 等于该 decision 的 `candidate_ref`，其 `lineage.task_ref` 必须 exact 等于 lane 的 `task_ref`，且 owning task 必须分配了该 candidate revision。Lane 的 `evidence_lineage.judgment_assessment_refs` 必须包含这些 refs。只面向另一个 candidate 的 Judgment 即使处于同一 Run、同一 lane 或引用相同 Claim，也不得影响当前 disposition。
+
 ### 20.15 Lane 内评分与 Pre-kill
 
 Lane score 是 0-10 triage 信号，不是概率，也不能直接跨 lane 比较：
@@ -2805,6 +2809,7 @@ Lane score 是 0-10 triage 信号，不是概率，也不能直接跨 lane 比�
   "reasons": [],
   "triggered_kill_conditions": [],
   "missing_required_evidence": [],
+  "judgment_assessment_refs": ["judgments/discovery/judgment-demand.json"],
   "highest_allowed_stage": "cross_lane_synthesis",
   "what_would_reverse_decision": []
 }
@@ -3902,6 +3907,8 @@ Candidate 的 `map_lineage` 同时保存 source map ref/schema/id/revision/canon
 
 每个 revision 都是 immutable Artifact。r1 只允许 `initial_materialization`；rN 只允许 `evidence_enrichment | user_correction`，必须绑定 rN-1、声明 exact changed fields，且 Evidence/Claim/Finding/Insight/Judgment/Source Manifest/audit refs 只能追加。`subject`、source partition 和 limitations 可以通过新 revision 明示修订；map identity、candidate kind、Run/Scope/profile/market/language 与 pre-thesis boundary 永远不可改写。用户 correction 仍须先按 G0.3 `decisions.jsonl` append contract 持久化并列入 basis refs。
 
+Append-only 只是必要条件，不构成 candidate-specific binding。每个新增 Evidence/Claim/Finding/Insight/Source Manifest/Judgment ref 必须解析到 owning `research_task.v2`，且 task/lineage 都包含 exact parent candidate revision；新增 Judgment 的 `subject_ref` 还必须 exact 等于该 parent revision。面向其他 candidate 的 typed material、同 identity 的错误 revision 或未绑定 task 的 material 均 fail closed。
+
 Generation 与 evaluation 使用不同 `research_task.v2.source_phase`、typed Evidence `research_phase_role` 和 Source Manifest group；任何 canonical source-group overlap 都必须精确披露。Candidate 或 lane 可以是 `partial`/`insufficient_evidence`，但这只降低 conclusion ceiling；`failed`、`ignored_late`、`superseded` lane result 不能进入 current candidate enrichment 或 fan-in supporting refs。
 
 G2.3 conversion 的唯一映射是 `demand_seed -> demand_thesis.v1`、`baseline_seed -> baseline_option.v1`、`solution_seed -> solution_hypothesis.v1`。它自身使用 immutable revision/path/parent/hash，且要求 fan-in retained/current candidate、exact source revision/hash/kind、typed lineage 与 G2.3 schema/evaluator；在这些尚未安装时固定 `promotion_authorized=false`、`target_published=false`。转换创建新 Artifact，绝不覆盖旧 candidate，也不把转换表述成 Evidence 或 validation success。
@@ -3911,6 +3918,8 @@ v9 当前只安装在 deterministic schema/reference/contract validation surface
 Schema bundle `2.0.0` 中的 `artifact_envelope.v2` 和 `document_bundle.v2` 是 schema/reference validation contracts，不表示 G0.3 Store 已支持 v2 publication。当前 Store 的 `FormalArtifactEnvelope`、operation receipt recovery 和 publish reference bundle 仍固定为 v1；直接提交 v2 envelope 会在 `document_bundle.v1` reference-validation boundary fail closed。只有 G0.4 implementation 另行发布并接通兼容 Store/envelope/receipt migration contract 后，才能声称 v2 Store publish 已启用；本节的 v2 documents 在此之前只用于显式只读 contract validation。
 
 `discovery_fan_in` 和 `concept_evidence_assessment_fan_in` 采用引用式聚合：只保存通过校验的 branch/artifact refs、必要的决策摘要、失败或缺失 branch、evidence gaps 和 limitations，不复制所有 raw evidence。引用式聚合仍必须完整保留证据充分性、反证、pre-kill 和 decision impact 语义。
+
+Discovery fan-in 的每个 disposition Judgment 必须来自其 `supporting_lane_result_refs` 中对同一个 source candidate 的 pre-kill decision；Judgment `subject_ref` 必须 exact 命中 `source_candidate_refs` 中一个 source revision，并可沿 immutable parent lineage 到达最终 `candidate_ref`。最终 r2 因而可以合法消费 subject=r1 的 Judgment。Fan-in 顶层 `judgment_assessment_refs` 必须等于所有 disposition Judgment refs 的去重并集，既不能遗漏也不能藏入无关 Judgment。
 
 Artifact 依赖关系：
 
@@ -3943,7 +3952,7 @@ decision context -> concept frame -> evidence assessment plan r1
 
 #### Pre-thesis Candidate contract evaluator
 
-检查 exact map fragment/ref/hash/revision、same-Run Scope/Plan/profile/market/language、candidate path/parent/hash/append-only enrichment、producer ownership、typed discovery Evidence chain、generation/evaluation separation、disposition identity/exclusivity、reference-only fan-in、terminal lane exclusion和 G2.3 conversion lineage。该 evaluator 只验证 contract，不执行 research 或 Store transition。
+检查 exact map fragment/ref/hash/revision、same-Run Scope/Plan/profile/market/language、candidate path/parent/hash/append-only enrichment、每个新增 material 对 exact source candidate revision 的 task binding、producer ownership、typed discovery Evidence chain、generation/evaluation separation、lane disposition Judgment subject/task binding、fan-in Judgment source/ancestor/closure、disposition identity/exclusivity、reference-only fan-in、terminal lane exclusion和 G2.3 conversion lineage。该 evaluator 只验证 contract，不执行 research 或 Store transition。
 
 #### Research quality evaluator
 
@@ -3974,11 +3983,11 @@ decision context -> concept frame -> evidence assessment plan r1
 | Coverage Attestation | exact relation、canonical coverage_key、Run/Plan/gap/unit refs、subject、target research goal、pending/active state、plan lineage 和 stale conditions；语义等价由 main Agent 声明 |
 | User Language Map | verbatim quote、source location、geo/language、功能词剔除和 quote provenance |
 | Solution Failure Map | baseline、failure scene、next action、migration signal 和用户语言引用 |
-| Judgment Assessment | signal、support/opposition refs、evidence tier、representativeness、independence、decision sufficiency、insufficiency reason 和 what-would-change-it |
-| Pre-thesis Discovery Candidate | kind/subject boundary、exact map fragment、Scope/Plan/profile/locale、immutable path/revision/parent/hash、typed refs、source partition、unvalidated flags 和 limitations |
+| Judgment Assessment | signal、support/opposition refs、evidence tier、representativeness、independence、decision sufficiency、insufficiency reason、what-would-change-it，以及 G2.2 task lineage 与 exact candidate subject |
+| Pre-thesis Discovery Candidate | kind/subject boundary、exact map fragment、Scope/Plan/profile/locale、immutable path/revision/parent/hash、append-only typed refs、每个新增 material 的 exact parent-candidate task binding、source partition、unvalidated flags 和 limitations |
 | Discovery Research Task | assigned candidates、attempt/supersedes、source phase/groups、唯一 lane output、no hidden dispatch/LLM/network 和 completion non-authority |
-| Discovery Lane Result | judgment refs、支持/反对、领域对象 refs、pre-kill、rejected/watchlist/retained candidates、decision sufficiency、diversity summary、open questions 和 limitations |
-| Discovery Fan-in | terminal lane exact classification、eligible/excluded refs、candidate revision lineage、exclusive disposition sets、diversity retention、reference-only 和 no Manifest transition |
+| Discovery Lane Result | subject/task-bound judgment refs、支持/反对、领域对象 refs、pre-kill、rejected/watchlist/retained candidates、decision sufficiency、diversity summary、open questions 和 limitations |
+| Discovery Fan-in | terminal lane exact classification、eligible/excluded refs、candidate revision lineage、per-disposition Judgment source/ancestor binding、顶层 Judgment exact closure、exclusive disposition sets、diversity retention、reference-only 和 no Manifest transition |
 | Candidate Conversion | retained current source candidate、exact revision/hash/kind/fan-in、kind-target mapping、G2.3 prerequisites、source immutability 和 no validation-success claim |
 | Demand Thesis | solution-neutral、user/JTBD/scene/current alternative/loss/buyer/outcome 完整 |
 | Solution Hypothesis | demand/baseline refs、delivery form、workflow change、baseline delta、risks 和 kill criteria |
@@ -4044,6 +4053,8 @@ solution_evaluation_required
 ```
 
 G2.2 Scheme A 使用 v9 contract-only status boundary：`completed | partial | insufficient_evidence` 可以作为 reference-only fan-in 输入，其中 partial/insufficient 必须保留 gaps 与 conclusion ceiling；`failed | ignored_late | superseded` 必须出现在各自 classification 中，但不得出现在 supporting lane refs、current candidate enrichment basis 或 disposition fan-in。`cancelled | skipped | missing` 没有伪造 lane Artifact，只以 unit id + decision impact 记录。该规则不更新 Manifest：既有 partial-to-`completed_units` adapter 只属于已发布 G1 runtime，G2.2 Manifest adapter 仍为未安装，contract validation 本身不得执行任何 state transition。
+
+每个 eligible disposition 仍必须逐 candidate 保留 subject-bound Judgment。一个 demand Judgment 不能用于 baseline/solution disposition；fan-in 可以让 subject=r1 的 Judgment支撑 final=r2，但必须显式列出 r1 `source_candidate_refs` 并证明 r2 沿 parent lineage descendant 于 r1。顶层 Judgment refs 只允许各 disposition refs 的 exact closure。
 
 `concept_evidence_assessment_fan_in.v1` 必须按 dimension 汇总 judgment assessment refs、决定性支持和反对证据、缺失 mandatory dimensions、decision sufficiency 和 what would change the assessment。Fan-in 不复制底层 Evidence/Claim 内容，但必须保留这些 refs 和摘要；否则不得进入 comparison 或 assessment gate。
 

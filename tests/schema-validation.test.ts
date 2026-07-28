@@ -383,7 +383,7 @@ test("G2.2 Scheme A bundle installs a closed pre-thesis candidate contract", asy
     result.documents.filter(
       (entry) => entry.artifactSchemaVersion === "startup_opportunity.artifact_envelope.v9",
     ).length,
-    19,
+    24,
   );
   const candidateKinds = bundle.documents
     .map((entry) => fixtureEffective(bundle, entry.path))
@@ -401,7 +401,7 @@ test("G2.2 blocker mutations fail for their declared deterministic contract code
   const cases = await readJson<readonly G22NegativeCase[]>(
     path.join(g22FixtureRoot, "discovery-candidate-cases.json"),
   );
-  assert.equal(cases.length, 32);
+  assert.equal(cases.length, 36);
 
   for (const fixtureCase of cases) {
     const bundle = await createDiscoveryCandidateFixture();

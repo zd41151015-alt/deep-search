@@ -65,6 +65,8 @@
       "audit_refs"
     ],
     "mutable_enrichment_fields": ["subject", "source_partition", "limitations"],
+    "new_material_requires_exact_source_candidate_task_binding": true,
+    "new_judgment_subject_must_equal_source_candidate": true,
     "in_place_overwrite": false
   },
   "source_separation_contract": {
@@ -78,6 +80,8 @@
     "sets_are_exclusive": true,
     "decision_identity_required": true,
     "typed_candidate_target_required": true,
+    "judgment_subject_equals_candidate_ref": true,
+    "judgment_task_matches_lane_task": true,
     "diversity_retention_explicit": true
   },
   "fan_in_contract": {
@@ -85,7 +89,11 @@
     "eligible_lane_statuses": ["completed", "partial", "insufficient_evidence"],
     "excluded_lane_statuses": ["failed", "ignored_late", "superseded"],
     "missing_work_is_neutral": false,
-    "candidate_revision_upgrade_explicit": true
+    "candidate_revision_upgrade_explicit": true,
+    "judgment_subject_matches_source_candidate_revision": true,
+    "judgment_subject_must_ancestor_final_candidate": true,
+    "judgments_must_come_from_supporting_lane_disposition": true,
+    "top_level_judgment_refs_exact_disposition_closure": true
   },
   "conversion_contract": {
     "owner_slice": "G2.3",

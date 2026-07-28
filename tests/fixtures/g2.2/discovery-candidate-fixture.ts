@@ -26,6 +26,15 @@ export const G22_EVALUATION_CLAIM = "claims/discovery/claim-evaluation.json";
 export const G22_FINDING = "findings/discovery/finding-demand.json";
 export const G22_INSIGHT = "insights/discovery/insight-demand.json";
 export const G22_JUDGMENT = "judgments/discovery/judgment-demand.json";
+export const G22_DEMAND_EVALUATION_JUDGMENT = "judgments/discovery/judgment-demand-evaluation.json";
+export const G22_BASELINE_GENERATION_JUDGMENT =
+  "judgments/discovery/judgment-baseline-generation.json";
+export const G22_BASELINE_EVALUATION_JUDGMENT =
+  "judgments/discovery/judgment-baseline-evaluation.json";
+export const G22_SOLUTION_GENERATION_JUDGMENT =
+  "judgments/discovery/judgment-solution-generation.json";
+export const G22_SOLUTION_EVALUATION_JUDGMENT =
+  "judgments/discovery/judgment-solution-evaluation.json";
 export const G22_GENERATION_MANIFEST = "evidence/source-manifests/discovery/generation.json";
 export const G22_EVALUATION_MANIFEST = "evidence/source-manifests/discovery/evaluation.json";
 export const G22_FAN_IN = "artifacts/discovery/fan-in.r1.json";
@@ -318,6 +327,38 @@ function sourceManifest(
   };
 }
 
+function judgment(
+  id: string,
+  unitId: string,
+  taskRef: string,
+  subjectRef: string,
+  dimension: "demand_signal" | "baseline_failure" | "solution_incremental_value",
+  signal: "supported" | "opposed",
+  claimRef: string,
+): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.judgment_assessment.v2",
+    run_id: G22_RUN_ID,
+    unit_id: unitId,
+    lineage: lineage(taskRef),
+    judgment_id: id,
+    subject_ref: subjectRef,
+    dimension,
+    judgment_signal: signal,
+    evidence_tier_summary: ["model_inference_only"],
+    supporting_refs: signal === "supported" ? [claimRef] : [],
+    opposing_refs: signal === "opposed" ? [claimRef] : [],
+    representativeness: synthetic("not representative"),
+    independence: synthetic("synthetic source group only"),
+    decision_sufficiency: "insufficient",
+    insufficiency_reasons: [synthetic("no real Evidence")],
+    what_would_change_the_decision: [synthetic("independent real sources")],
+    valid_as_of: "2026-07-27",
+    limitations: [synthetic("judgment is fixture-only")],
+    validation_success_claimed: false,
+  };
+}
+
 function laneResult(
   id: string,
   unitId: string,
@@ -326,12 +367,14 @@ function laneResult(
   evidenceRef: string,
   claimRef: string,
   sourceManifestRef: string,
+  judgmentRefs: readonly [string, string, string],
 ): Record<string, unknown> {
   const disposition = (
     suffix: string,
     candidateRef: string,
     value: "retained" | "watchlist" | "rejected",
     basis: "diversity" | "not_retained",
+    judgmentRef: string,
   ) => ({
     disposition_id: `${id}_${suffix}`,
     candidate_ref: candidateRef,
@@ -340,7 +383,7 @@ function laneResult(
     reasons: [synthetic(`${value} triage reason`)],
     triggered_kill_conditions: value === "rejected" ? [synthetic("fixture kill condition")] : [],
     missing_required_evidence: [synthetic("real Evidence absent")],
-    judgment_assessment_refs: [G22_JUDGMENT],
+    judgment_assessment_refs: [judgmentRef],
     highest_allowed_stage:
       value === "retained"
         ? "cross_lane_synthesis"
@@ -366,7 +409,7 @@ function laneResult(
       claim_refs: [claimRef],
       finding_refs: [G22_FINDING],
       insight_refs: [G22_INSIGHT],
-      judgment_assessment_refs: [G22_JUDGMENT],
+      judgment_assessment_refs: [...judgmentRefs],
       source_manifest_refs: [sourceManifestRef],
       audit_refs: [],
     },
@@ -381,9 +424,9 @@ function laneResult(
       },
     ],
     pre_kill_decisions: [
-      disposition("demand", G22_DEMAND_R1, "retained", "diversity"),
-      disposition("baseline", G22_BASELINE_R1, "watchlist", "not_retained"),
-      disposition("solution", G22_SOLUTION_R1, "rejected", "not_retained"),
+      disposition("demand", G22_DEMAND_R1, "retained", "diversity", judgmentRefs[0]),
+      disposition("baseline", G22_BASELINE_R1, "watchlist", "not_retained", judgmentRefs[1]),
+      disposition("solution", G22_SOLUTION_R1, "rejected", "not_retained", judgmentRefs[2]),
     ],
     retained_candidate_refs: [G22_DEMAND_R1],
     watchlist_candidate_refs: [G22_BASELINE_R1],
@@ -575,25 +618,60 @@ export async function createDiscoveryCandidateFixture(): Promise<DocumentBundle>
     confidence_band: "unknown",
     limitations: [synthetic("not a real insight")],
   };
-  const judgment = {
-    schema_version: "startup_opportunity.judgment_assessment.v2",
-    run_id: G22_RUN_ID,
-    judgment_id: "judgment_demand",
-    subject_ref: G22_DEMAND_R1,
-    dimension: "demand_signal",
-    judgment_signal: "mixed",
-    evidence_tier_summary: ["model_inference_only"],
-    supporting_refs: [G22_GENERATION_CLAIM],
-    opposing_refs: [G22_EVALUATION_CLAIM],
-    representativeness: synthetic("not representative"),
-    independence: synthetic("separate synthetic groups only"),
-    decision_sufficiency: "insufficient",
-    insufficiency_reasons: [synthetic("no real Evidence")],
-    what_would_change_the_decision: [synthetic("independent real sources")],
-    valid_as_of: "2026-07-27",
-    limitations: [synthetic("judgment is fixture-only")],
-    validation_success_claimed: false,
-  };
+  const demandGenerationJudgment = judgment(
+    "judgment_demand_generation",
+    "unit_seed_independent_demand",
+    G22_GENERATION_TASK,
+    G22_DEMAND_R1,
+    "demand_signal",
+    "supported",
+    G22_GENERATION_CLAIM,
+  );
+  const demandEvaluationJudgment = judgment(
+    "judgment_demand_evaluation",
+    "unit_counterfactual",
+    G22_EVALUATION_TASK,
+    G22_DEMAND_R1,
+    "demand_signal",
+    "opposed",
+    G22_EVALUATION_CLAIM,
+  );
+  const baselineGenerationJudgment = judgment(
+    "judgment_baseline_generation",
+    "unit_seed_independent_demand",
+    G22_GENERATION_TASK,
+    G22_BASELINE_R1,
+    "baseline_failure",
+    "supported",
+    G22_GENERATION_CLAIM,
+  );
+  const baselineEvaluationJudgment = judgment(
+    "judgment_baseline_evaluation",
+    "unit_counterfactual",
+    G22_EVALUATION_TASK,
+    G22_BASELINE_R1,
+    "baseline_failure",
+    "opposed",
+    G22_EVALUATION_CLAIM,
+  );
+  const solutionGenerationJudgment = judgment(
+    "judgment_solution_generation",
+    "unit_seed_independent_demand",
+    G22_GENERATION_TASK,
+    G22_SOLUTION_R1,
+    "solution_incremental_value",
+    "supported",
+    G22_GENERATION_CLAIM,
+  );
+  const solutionEvaluationJudgment = judgment(
+    "judgment_solution_evaluation",
+    "unit_counterfactual",
+    G22_EVALUATION_TASK,
+    G22_SOLUTION_R1,
+    "solution_incremental_value",
+    "opposed",
+    G22_EVALUATION_CLAIM,
+  );
   const generationManifest = sourceManifest(
     "source_generation",
     "unit_seed_independent_demand",
@@ -618,6 +696,7 @@ export async function createDiscoveryCandidateFixture(): Promise<DocumentBundle>
     G22_GENERATION_EVIDENCE,
     G22_GENERATION_CLAIM,
     G22_GENERATION_MANIFEST,
+    [G22_JUDGMENT, G22_BASELINE_GENERATION_JUDGMENT, G22_SOLUTION_GENERATION_JUDGMENT],
   );
   const evaluationLane = laneResult(
     "lane_evaluation",
@@ -627,13 +706,18 @@ export async function createDiscoveryCandidateFixture(): Promise<DocumentBundle>
     G22_EVALUATION_EVIDENCE,
     G22_EVALUATION_CLAIM,
     G22_EVALUATION_MANIFEST,
+    [
+      G22_DEMAND_EVALUATION_JUDGMENT,
+      G22_BASELINE_EVALUATION_JUDGMENT,
+      G22_SOLUTION_EVALUATION_JUDGMENT,
+    ],
   );
   const fullEvidenceLineage = {
     evidence_refs: [G22_GENERATION_EVIDENCE, G22_EVALUATION_EVIDENCE],
     claim_refs: [G22_GENERATION_CLAIM, G22_EVALUATION_CLAIM],
     finding_refs: [G22_FINDING],
     insight_refs: [G22_INSIGHT],
-    judgment_assessment_refs: [G22_JUDGMENT],
+    judgment_assessment_refs: [G22_JUDGMENT, G22_DEMAND_EVALUATION_JUDGMENT],
     source_manifest_refs: [G22_GENERATION_MANIFEST, G22_EVALUATION_MANIFEST],
     audit_refs: [],
   };
@@ -692,7 +776,7 @@ export async function createDiscoveryCandidateFixture(): Promise<DocumentBundle>
         source_candidate_refs: [G22_DEMAND_R1],
         disposition: "retained",
         supporting_lane_result_refs: [G22_GENERATION_LANE, G22_EVALUATION_LANE],
-        judgment_assessment_refs: [G22_JUDGMENT],
+        judgment_assessment_refs: [G22_JUDGMENT, G22_DEMAND_EVALUATION_JUDGMENT],
         rationale: synthetic("retain only as pre-thesis candidate"),
         limitations: [synthetic("not promoted or validated")],
       },
@@ -702,7 +786,10 @@ export async function createDiscoveryCandidateFixture(): Promise<DocumentBundle>
         source_candidate_refs: [G22_BASELINE_R1],
         disposition: "watchlist",
         supporting_lane_result_refs: [G22_GENERATION_LANE, G22_EVALUATION_LANE],
-        judgment_assessment_refs: [G22_JUDGMENT],
+        judgment_assessment_refs: [
+          G22_BASELINE_GENERATION_JUDGMENT,
+          G22_BASELINE_EVALUATION_JUDGMENT,
+        ],
         rationale: synthetic("watchlist only"),
         limitations: [synthetic("not a formal Baseline Option")],
       },
@@ -712,7 +799,10 @@ export async function createDiscoveryCandidateFixture(): Promise<DocumentBundle>
         source_candidate_refs: [G22_SOLUTION_R1],
         disposition: "rejected",
         supporting_lane_result_refs: [G22_GENERATION_LANE, G22_EVALUATION_LANE],
-        judgment_assessment_refs: [G22_JUDGMENT],
+        judgment_assessment_refs: [
+          G22_SOLUTION_GENERATION_JUDGMENT,
+          G22_SOLUTION_EVALUATION_JUDGMENT,
+        ],
         rationale: synthetic("pre-kill fixture disposition"),
         limitations: [synthetic("not a formal Solution Hypothesis")],
       },
@@ -720,7 +810,14 @@ export async function createDiscoveryCandidateFixture(): Promise<DocumentBundle>
     retained_candidate_refs: [G22_DEMAND_R2],
     watchlist_candidate_refs: [G22_BASELINE_R1],
     rejected_candidate_refs: [G22_SOLUTION_R1],
-    judgment_assessment_refs: [G22_JUDGMENT],
+    judgment_assessment_refs: [
+      G22_JUDGMENT,
+      G22_DEMAND_EVALUATION_JUDGMENT,
+      G22_BASELINE_GENERATION_JUDGMENT,
+      G22_BASELINE_EVALUATION_JUDGMENT,
+      G22_SOLUTION_GENERATION_JUDGMENT,
+      G22_SOLUTION_EVALUATION_JUDGMENT,
+    ],
     candidate_diversity_summary: {
       preserved_dimensions: ["user", "job", "entry_scene", "buyer_model", "candidate_kind"],
       diversity_retention_refs: [G22_DEMAND_R2],
@@ -832,9 +929,39 @@ export async function createDiscoveryCandidateFixture(): Promise<DocumentBundle>
     [G22_INSIGHT, insight, "lane_researcher", [G22_GENERATION_TASK, G22_FINDING]],
     [
       G22_JUDGMENT,
-      judgment,
+      demandGenerationJudgment,
       "lane_researcher",
-      [G22_DEMAND_R1, G22_GENERATION_CLAIM, G22_EVALUATION_CLAIM],
+      [G22_GENERATION_TASK, G22_DEMAND_R1, G22_GENERATION_CLAIM],
+    ],
+    [
+      G22_DEMAND_EVALUATION_JUDGMENT,
+      demandEvaluationJudgment,
+      "lane_researcher",
+      [G22_EVALUATION_TASK, G22_DEMAND_R1, G22_EVALUATION_CLAIM],
+    ],
+    [
+      G22_BASELINE_GENERATION_JUDGMENT,
+      baselineGenerationJudgment,
+      "lane_researcher",
+      [G22_GENERATION_TASK, G22_BASELINE_R1, G22_GENERATION_CLAIM],
+    ],
+    [
+      G22_BASELINE_EVALUATION_JUDGMENT,
+      baselineEvaluationJudgment,
+      "lane_researcher",
+      [G22_EVALUATION_TASK, G22_BASELINE_R1, G22_EVALUATION_CLAIM],
+    ],
+    [
+      G22_SOLUTION_GENERATION_JUDGMENT,
+      solutionGenerationJudgment,
+      "lane_researcher",
+      [G22_GENERATION_TASK, G22_SOLUTION_R1, G22_GENERATION_CLAIM],
+    ],
+    [
+      G22_SOLUTION_EVALUATION_JUDGMENT,
+      solutionEvaluationJudgment,
+      "lane_researcher",
+      [G22_EVALUATION_TASK, G22_SOLUTION_R1, G22_EVALUATION_CLAIM],
     ],
     [
       G22_GENERATION_MANIFEST,
@@ -852,13 +979,29 @@ export async function createDiscoveryCandidateFixture(): Promise<DocumentBundle>
       G22_GENERATION_LANE,
       generationLane,
       "lane_researcher",
-      [G22_GENERATION_TASK, G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1, G22_JUDGMENT],
+      [
+        G22_GENERATION_TASK,
+        G22_DEMAND_R1,
+        G22_BASELINE_R1,
+        G22_SOLUTION_R1,
+        G22_JUDGMENT,
+        G22_BASELINE_GENERATION_JUDGMENT,
+        G22_SOLUTION_GENERATION_JUDGMENT,
+      ],
     ],
     [
       G22_EVALUATION_LANE,
       evaluationLane,
       "lane_researcher",
-      [G22_EVALUATION_TASK, G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1, G22_JUDGMENT],
+      [
+        G22_EVALUATION_TASK,
+        G22_DEMAND_R1,
+        G22_BASELINE_R1,
+        G22_SOLUTION_R1,
+        G22_DEMAND_EVALUATION_JUDGMENT,
+        G22_BASELINE_EVALUATION_JUDGMENT,
+        G22_SOLUTION_EVALUATION_JUDGMENT,
+      ],
     ],
     [
       G22_DEMAND_R2,
@@ -870,7 +1013,19 @@ export async function createDiscoveryCandidateFixture(): Promise<DocumentBundle>
       G22_FAN_IN,
       fanIn,
       "main_agent",
-      [G22_GENERATION_LANE, G22_EVALUATION_LANE, G22_DEMAND_R2, G22_BASELINE_R1, G22_SOLUTION_R1],
+      [
+        G22_GENERATION_LANE,
+        G22_EVALUATION_LANE,
+        G22_DEMAND_R2,
+        G22_BASELINE_R1,
+        G22_SOLUTION_R1,
+        G22_JUDGMENT,
+        G22_DEMAND_EVALUATION_JUDGMENT,
+        G22_BASELINE_GENERATION_JUDGMENT,
+        G22_BASELINE_EVALUATION_JUDGMENT,
+        G22_SOLUTION_GENERATION_JUDGMENT,
+        G22_SOLUTION_EVALUATION_JUDGMENT,
+      ],
     ],
     [G22_CONVERSION, conversion, "main_agent", [G22_DEMAND_R2, G22_FAN_IN]],
   ];

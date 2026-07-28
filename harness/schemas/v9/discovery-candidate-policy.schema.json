@@ -98,6 +98,8 @@
         "parent_hash",
         "append_only_ref_fields",
         "mutable_enrichment_fields",
+        "new_material_requires_exact_source_candidate_task_binding",
+        "new_judgment_subject_must_equal_source_candidate",
         "in_place_overwrite"
       ],
       "properties": {
@@ -118,6 +120,8 @@
           "minItems": 1,
           "uniqueItems": true
         },
+        "new_material_requires_exact_source_candidate_task_binding": { "const": true },
+        "new_judgment_subject_must_equal_source_candidate": { "const": true },
         "in_place_overwrite": { "const": false }
       }
     },
@@ -145,6 +149,8 @@
         "sets_are_exclusive",
         "decision_identity_required",
         "typed_candidate_target_required",
+        "judgment_subject_equals_candidate_ref",
+        "judgment_task_matches_lane_task",
         "diversity_retention_explicit"
       ],
       "properties": {
@@ -158,6 +164,8 @@
         "sets_are_exclusive": { "const": true },
         "decision_identity_required": { "const": true },
         "typed_candidate_target_required": { "const": true },
+        "judgment_subject_equals_candidate_ref": { "const": true },
+        "judgment_task_matches_lane_task": { "const": true },
         "diversity_retention_explicit": { "const": true }
       }
     },
@@ -169,7 +177,11 @@
         "eligible_lane_statuses",
         "excluded_lane_statuses",
         "missing_work_is_neutral",
-        "candidate_revision_upgrade_explicit"
+        "candidate_revision_upgrade_explicit",
+        "judgment_subject_matches_source_candidate_revision",
+        "judgment_subject_must_ancestor_final_candidate",
+        "judgments_must_come_from_supporting_lane_disposition",
+        "top_level_judgment_refs_exact_disposition_closure"
       ],
       "properties": {
         "reference_only": { "const": true },
@@ -188,7 +200,11 @@
           "uniqueItems": true
         },
         "missing_work_is_neutral": { "const": false },
-        "candidate_revision_upgrade_explicit": { "const": true }
+        "candidate_revision_upgrade_explicit": { "const": true },
+        "judgment_subject_matches_source_candidate_revision": { "const": true },
+        "judgment_subject_must_ancestor_final_candidate": { "const": true },
+        "judgments_must_come_from_supporting_lane_disposition": { "const": true },
+        "top_level_judgment_refs_exact_disposition_closure": { "const": true }
       }
     },
     "conversion_contract": {

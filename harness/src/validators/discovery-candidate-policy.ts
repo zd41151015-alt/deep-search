@@ -32,12 +32,18 @@ export interface DiscoveryCandidatePolicy extends Record<string, unknown> {
   readonly revision_contract: {
     readonly append_only_ref_fields: readonly string[];
     readonly mutable_enrichment_fields: readonly string[];
+    readonly new_material_requires_exact_source_candidate_task_binding: true;
+    readonly new_judgment_subject_must_equal_source_candidate: true;
   };
   readonly source_separation_contract: Readonly<Record<string, boolean>>;
   readonly disposition_contract: Readonly<Record<string, unknown>>;
   readonly fan_in_contract: {
     readonly eligible_lane_statuses: readonly string[];
     readonly excluded_lane_statuses: readonly string[];
+    readonly judgment_subject_matches_source_candidate_revision: true;
+    readonly judgment_subject_must_ancestor_final_candidate: true;
+    readonly judgments_must_come_from_supporting_lane_disposition: true;
+    readonly top_level_judgment_refs_exact_disposition_closure: true;
   };
   readonly conversion_contract: {
     readonly path_pattern: "artifacts/discovery/conversions/<candidate_id>.r<revision>.json";
@@ -108,6 +114,14 @@ export async function loadDiscoveryCandidatePolicy(
       canonicalJson(["completed", "partial", "insufficient_evidence"]) ||
     canonicalJson(policy.fan_in_contract.excluded_lane_statuses) !==
       canonicalJson(["failed", "ignored_late", "superseded"]) ||
+    policy.revision_contract.new_material_requires_exact_source_candidate_task_binding !== true ||
+    policy.revision_contract.new_judgment_subject_must_equal_source_candidate !== true ||
+    policy.disposition_contract.judgment_subject_equals_candidate_ref !== true ||
+    policy.disposition_contract.judgment_task_matches_lane_task !== true ||
+    policy.fan_in_contract.judgment_subject_matches_source_candidate_revision !== true ||
+    policy.fan_in_contract.judgment_subject_must_ancestor_final_candidate !== true ||
+    policy.fan_in_contract.judgments_must_come_from_supporting_lane_disposition !== true ||
+    policy.fan_in_contract.top_level_judgment_refs_exact_disposition_closure !== true ||
     policy.publication_boundary.store_v9_adapter_installed !== false ||
     policy.publication_boundary.current_store_bundle_version !== "7.0.0" ||
     policy.manifest_adapter_boundary.g2_2_runtime_adapter_installed !== false

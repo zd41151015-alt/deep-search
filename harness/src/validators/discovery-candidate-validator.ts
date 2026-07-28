@@ -47,6 +47,17 @@ const EVIDENCE_LINEAGE_FIELDS = [
   "audit_refs",
 ] as const;
 
+const MATERIAL_SCHEMA_BY_LINEAGE_FIELD: Readonly<
+  Partial<Record<(typeof EVIDENCE_LINEAGE_FIELDS)[number], string>>
+> = {
+  evidence_refs: "startup_opportunity.evidence.v2",
+  claim_refs: "startup_opportunity.claim.v2",
+  finding_refs: "startup_opportunity.finding.v2",
+  insight_refs: "startup_opportunity.insight.v2",
+  judgment_assessment_refs: "startup_opportunity.judgment_assessment.v2",
+  source_manifest_refs: "startup_opportunity.source_manifest.v2",
+};
+
 const CANDIDATE_CHANGE_FIELDS = [
   "subject",
   ...EVIDENCE_LINEAGE_FIELDS.map((field) => `evidence_lineage.${field}`),
@@ -317,6 +328,58 @@ function validateCandidateRevision(
   }
 }
 
+function validateCandidateEnrichmentBindings(
+  candidate: DiscoveryCandidateDocument,
+  documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
+  candidatesByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
+  errors: ValidationIssue[],
+): void {
+  if (candidate.document.revision === 1) {
+    return;
+  }
+  const parentRef = candidate.document.parent_candidate_ref;
+  const parent = typeof parentRef === "string" ? candidatesByPath.get(parentRef) : undefined;
+  if (parent === undefined) {
+    return;
+  }
+  const parentLineage = evidenceLineage(parent.document);
+  const childLineage = evidenceLineage(candidate.document);
+  for (const field of EVIDENCE_LINEAGE_FIELDS) {
+    const expectedSchema = MATERIAL_SCHEMA_BY_LINEAGE_FIELD[field];
+    if (expectedSchema === undefined) {
+      continue;
+    }
+    const parentRefs = new Set(strings(parentLineage[field]));
+    for (const ref of strings(childLineage[field]).filter((value) => !parentRefs.has(value))) {
+      const material = documentsByPath.get(ref);
+      const lineage = material === undefined ? {} : lineageOf(material.document);
+      const task =
+        typeof lineage.task_ref === "string" ? documentsByPath.get(lineage.task_ref) : undefined;
+      const subjectMismatch =
+        expectedSchema === "startup_opportunity.judgment_assessment.v2" &&
+        material?.document.subject_ref !== parent.path;
+      if (
+        material?.schemaVersion !== expectedSchema ||
+        task?.schemaVersion !== "startup_opportunity.research_task.v2" ||
+        !strings(task.document.target_candidate_refs).includes(parent.path) ||
+        !strings(lineage.candidate_refs).includes(parent.path) ||
+        lineage.scope_frame_ref !== candidate.document.scope_frame_ref ||
+        lineage.research_plan_ref !== candidate.document.research_plan_ref ||
+        subjectMismatch
+      ) {
+        errors.push(
+          issue(
+            "discovery_candidate.enrichment_material_binding_mismatch",
+            `${candidate.path}#/evidence_lineage/${field}`,
+            "new enrichment material must bind the exact source candidate revision through its typed task lineage; Judgment subject must equal that source revision",
+            { field, ref, expectedSchema, sourceCandidateRef: parent.path },
+          ),
+        );
+      }
+    }
+  }
+}
+
 function validateMapLineage(
   candidate: DiscoveryCandidateDocument,
   documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
@@ -426,6 +489,7 @@ function validateDiscoveryLineage(
       "startup_opportunity.claim.v2",
       "startup_opportunity.finding.v2",
       "startup_opportunity.insight.v2",
+      "startup_opportunity.judgment_assessment.v2",
       "startup_opportunity.source_manifest.v2",
     ].includes(entry.schemaVersion)
   ) {
@@ -638,6 +702,27 @@ function validateLaneResult(
         ),
       );
     }
+    for (const judgmentRef of strings(decision.judgment_assessment_refs)) {
+      const judgment = documentsByPath.get(judgmentRef);
+      const judgmentLineage = judgment === undefined ? {} : lineageOf(judgment.document);
+      if (
+        judgment?.schemaVersion !== "startup_opportunity.judgment_assessment.v2" ||
+        judgment.document.subject_ref !== ref ||
+        judgmentLineage.task_ref !== lane.document.task_ref ||
+        !strings(task?.document.target_candidate_refs).includes(ref) ||
+        !strings(judgmentLineage.candidate_refs).includes(ref) ||
+        !strings(evidenceLineage(lane.document).judgment_assessment_refs).includes(judgmentRef)
+      ) {
+        errors.push(
+          issue(
+            "discovery_candidate.lane_judgment_subject_mismatch",
+            `${lane.path}#/pre_kill_decisions`,
+            "each lane pre-kill Judgment must be typed, subject-bound to the affected candidate, and owned by the lane task lineage",
+            { candidateRef: ref, judgmentRef, taskRef: lane.document.task_ref },
+          ),
+        );
+      }
+    }
   }
   const diversity = isRecord(lane.document.candidate_diversity_summary)
     ? lane.document.candidate_diversity_summary
@@ -760,11 +845,36 @@ function validateFanIn(
       ),
     );
   }
+  const dispositionJudgmentRefs = [
+    ...new Set(decisions.flatMap((entry) => strings(entry.judgment_assessment_refs))),
+  ];
+  if (!setEqual(strings(fanIn.document.judgment_assessment_refs), dispositionJudgmentRefs)) {
+    errors.push(
+      issue(
+        "discovery_candidate.fan_in_judgment_closure_mismatch",
+        `${fanIn.path}#/judgment_assessment_refs`,
+        "fan-in top-level Judgment refs must be the exact closure of disposition Judgment refs",
+        { expected: dispositionJudgmentRefs },
+      ),
+    );
+  }
   for (const decision of decisions) {
     const finalRef = String(decision.candidate_ref);
     const finalCandidate = candidatesByPath.get(finalRef);
     const laneRefs = strings(decision.supporting_lane_result_refs);
     const sourceRefs = strings(decision.source_candidate_refs);
+    const supportingLaneJudgmentRefs = new Set(
+      laneRefs.flatMap((ref) => {
+        const lane = documentsByPath.get(ref);
+        return Array.isArray(lane?.document.pre_kill_decisions)
+          ? lane.document.pre_kill_decisions.flatMap((entry) =>
+              isRecord(entry) && sourceRefs.includes(String(entry.candidate_ref))
+                ? strings(entry.judgment_assessment_refs)
+                : [],
+            )
+          : [];
+      }),
+    );
     const laneSources = laneRefs.flatMap((ref) => {
       const lane = documentsByPath.get(ref);
       return Array.isArray(lane?.document.pre_kill_decisions)
@@ -802,6 +912,33 @@ function validateFanIn(
           { finalRef, laneRefs, sourceRefs, excludedBasisRefs },
         ),
       );
+    }
+    for (const judgmentRef of strings(decision.judgment_assessment_refs)) {
+      const judgment = documentsByPath.get(judgmentRef);
+      const subjectRef =
+        typeof judgment?.document.subject_ref === "string"
+          ? judgment.document.subject_ref
+          : undefined;
+      const subjectCandidate =
+        subjectRef === undefined ? undefined : candidatesByPath.get(subjectRef);
+      if (
+        judgment?.schemaVersion !== "startup_opportunity.judgment_assessment.v2" ||
+        subjectRef === undefined ||
+        !sourceRefs.includes(subjectRef) ||
+        subjectCandidate === undefined ||
+        finalCandidate === undefined ||
+        !descendants(finalCandidate, subjectCandidate, candidatesByPath) ||
+        !supportingLaneJudgmentRefs.has(judgmentRef)
+      ) {
+        errors.push(
+          issue(
+            "discovery_candidate.fan_in_judgment_subject_mismatch",
+            `${fanIn.path}#/candidate_dispositions`,
+            "fan-in disposition Judgment must come from a supporting lane, target an exact source candidate revision, and lead by parent lineage to the final candidate",
+            { finalRef, sourceRefs, judgmentRef, subjectRef },
+          ),
+        );
+      }
     }
   }
   const diversity = isRecord(fanIn.document.candidate_diversity_summary)
@@ -942,6 +1079,7 @@ export function validateDiscoveryCandidateContract(
     validateScopeIdentity(candidate, scope, plan, errors);
     validateCandidateSubject(candidate, documentsByPath, errors);
     validateCandidateRevision(candidate, candidatesByPath, errors);
+    validateCandidateEnrichmentBindings(candidate, documentsByPath, candidatesByPath, errors);
     validateMapLineage(candidate, documentsByPath, policy, errors);
     validateSourcePartition(candidate, documentsByPath, errors);
   }
