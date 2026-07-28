@@ -50,6 +50,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v8.json",
   "harness/schemas/bundle.v7.json",
   "harness/schemas/bundle.v6.json",
   "harness/schemas/bundle.v5.json",
@@ -135,6 +136,21 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v8/research-publication-policy-v4.schema.json",
   "harness/schemas/v8/artifact-envelope.schema.json",
   "harness/schemas/v8/document-bundle.schema.json",
+  "harness/schemas/v9/definitions.schema.json",
+  "harness/schemas/v9/discovery-candidate.schema.json",
+  "harness/schemas/v9/research-task-v2.schema.json",
+  "harness/schemas/v9/evidence-v2.schema.json",
+  "harness/schemas/v9/claim-v2.schema.json",
+  "harness/schemas/v9/finding-v2.schema.json",
+  "harness/schemas/v9/insight-v2.schema.json",
+  "harness/schemas/v9/judgment-assessment-v2.schema.json",
+  "harness/schemas/v9/source-manifest-v2.schema.json",
+  "harness/schemas/v9/discovery-lane-result.schema.json",
+  "harness/schemas/v9/discovery-fan-in.schema.json",
+  "harness/schemas/v9/discovery-candidate-conversion.schema.json",
+  "harness/schemas/v9/discovery-candidate-policy.schema.json",
+  "harness/schemas/v9/artifact-envelope.schema.json",
+  "harness/schemas/v9/document-bundle.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
@@ -148,6 +164,8 @@ export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/g1.4-validator.ts",
   "harness/src/validators/discovery-maps-policy.ts",
   "harness/src/validators/discovery-maps-validator.ts",
+  "harness/src/validators/discovery-candidate-policy.ts",
+  "harness/src/validators/discovery-candidate-validator.ts",
   "harness/src/validators/planning-contract-identities.ts",
   "harness/src/validators/planning-contract-validator.ts",
   "harness/src/validators/validate-artifact-command.ts",
@@ -212,6 +230,7 @@ export const RESPONSIBILITY_PATHS = [
   "harness/policies/research-publication.v3.json",
   "harness/policies/discovery-maps.v1.json",
   "harness/policies/research-publication.v4.json",
+  "harness/policies/discovery-candidates.v1.json",
   "tests/fixtures/README.md",
   "tests/fixtures/g1.2/README.md",
   "tests/fixtures/g1.3/README.md",
@@ -222,6 +241,9 @@ export const RESPONSIBILITY_PATHS = [
   "tests/fixtures/g2.1/discovery-map-cases.json",
   "tests/fixtures/g2.1/discovery-maps-fixture.ts",
   "tests/g2.1-discovery-maps.test.ts",
+  "tests/fixtures/g2.2/README.md",
+  "tests/fixtures/g2.2/discovery-candidate-cases.json",
+  "tests/fixtures/g2.2/discovery-candidate-fixture.ts",
   "tests/evals/README.md",
   "runs/.gitkeep",
 ] as const;

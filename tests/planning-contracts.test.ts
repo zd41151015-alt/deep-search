@@ -221,6 +221,7 @@ test("closed mode policy accepts only exact declared tuples and future output sc
     policy.artifact_schema_catalog.every((entry) => entry.availability === "future_declared"),
   );
   const installedOwnedSchemas = new Set([
+    "startup_opportunity.discovery_lane_result.v1",
     "startup_opportunity.concept_evidence_assessment_branch_result.v1",
     "startup_opportunity.adversarial_review.v1",
   ]);

@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v9/evidence-v2.schema.json",
+  "title": "Startup Opportunity Discovery Evidence v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_id",
+    "run_id",
+    "unit_id",
+    "lineage",
+    "source_type",
+    "source_name",
+    "research_goal",
+    "research_phase_role",
+    "geo",
+    "language",
+    "source_group_id",
+    "mechanical_binding",
+    "provenance",
+    "source_assessment",
+    "evidence_tier",
+    "evidence_lifecycle_status",
+    "evidence_role",
+    "representativeness",
+    "valid_as_of",
+    "freshness_policy",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.evidence.v2" },
+    "evidence_id": { "type": "string", "pattern": "^ev_[a-f0-9]{64}$" },
+    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "unit_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "lineage": { "$ref": "definitions.schema.json#/$defs/discoveryLineage" },
+    "source_type": {
+      "enum": [
+        "web_page",
+        "app_store_review",
+        "forum_post",
+        "public_dataset",
+        "public_report",
+        "user_document",
+        "user_existing_record",
+        "synthetic_contract_fixture"
+      ]
+    },
+    "source_name": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "research_goal": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "research_phase_role": {
+      "enum": [
+        "candidate_generation",
+        "candidate_evaluation",
+        "adversarial_challenger",
+        "shared_context"
+      ]
+    },
+    "geo": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "language": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "source_group_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "mechanical_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "substrate_record_ref",
+        "source_hash",
+        "content_hash",
+        "raw_content_ref",
+        "operation_key",
+        "recorded_at"
+      ],
+      "properties": {
+        "substrate_record_ref": {
+          "type": "string",
+          "pattern": "^evidence/manifest\\.jsonl#ev_[a-f0-9]{64}$"
+        },
+        "source_hash": { "$ref": "definitions.schema.json#/$defs/sha256" },
+        "content_hash": { "$ref": "definitions.schema.json#/$defs/sha256" },
+        "raw_content_ref": {
+          "type": "string",
+          "pattern": "^evidence/raw/sha256-[a-f0-9]{64}\\.bin$"
+        },
+        "operation_key": { "$ref": "definitions.schema.json#/$defs/sha256" },
+        "recorded_at": { "$ref": "definitions.schema.json#/$defs/timestamp" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["acquisition_method", "source_owner", "original_creator", "method_notes"],
+      "properties": {
+        "acquisition_method": {
+          "enum": ["public_web_retrieval", "user_provided_import", "synthetic_fixture_only"]
+        },
+        "source_owner": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+        "original_creator": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+        "method_notes": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" }
+      }
+    },
+    "source_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "independence",
+        "canonical_source_group",
+        "shared_dataset_group",
+        "syndication_group",
+        "biases",
+        "bias_notes"
+      ],
+      "properties": {
+        "independence": {
+          "enum": [
+            "primary",
+            "independent_secondary",
+            "dependent_secondary",
+            "shared_underlying_dataset",
+            "unknown"
+          ]
+        },
+        "canonical_source_group": { "$ref": "definitions.schema.json#/$defs/identifier" },
+        "shared_dataset_group": {
+          "anyOf": [{ "$ref": "definitions.schema.json#/$defs/identifier" }, { "type": "null" }]
+        },
+        "syndication_group": {
+          "anyOf": [{ "$ref": "definitions.schema.json#/$defs/identifier" }, { "type": "null" }]
+        },
+        "biases": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "self_selection",
+              "vendor_interest",
+              "sampling_method_unknown",
+              "geographic",
+              "language",
+              "none_identified"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "bias_notes": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" }
+      }
+    },
+    "evidence_tier": { "$ref": "../v4/definitions.schema.json#/$defs/evidenceTier" },
+    "evidence_lifecycle_status": { "enum": ["active", "superseded", "stale", "unverified"] },
+    "evidence_role": { "enum": ["support", "oppose", "context"] },
+    "representativeness": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "valid_as_of": { "type": "string", "format": "date" },
+    "freshness_policy": {
+      "enum": [
+        "revalidate_on_product_or_market_change",
+        "revalidate_on_price_or_policy_change",
+        "revalidate_on_source_update",
+        "immutable_historical_record",
+        "synthetic_fixture_only"
+      ]
+    },
+    "limitations": {
+      "allOf": [
+        { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        { "type": "array", "minItems": 1 }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "source_type": { "const": "synthetic_contract_fixture" } },
+        "required": ["source_type"]
+      },
+      "then": {
+        "properties": {
+          "provenance": {
+            "type": "object",
+            "properties": { "acquisition_method": { "const": "synthetic_fixture_only" } }
+          },
+          "evidence_tier": { "const": "model_inference_only" },
+          "evidence_lifecycle_status": { "const": "unverified" },
+          "freshness_policy": { "const": "synthetic_fixture_only" }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,267 @@
+[
+  {
+    "case_id": "missing-map-fragment",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r1.json",
+    "field_path": ["map_lineage", "fragment_id"],
+    "op": "delete",
+    "expected_code": "discovery_candidate.map_lineage_mismatch"
+  },
+  {
+    "case_id": "wrong-map-fragment-pointer",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r1.json",
+    "field_path": ["map_lineage", "fragment_pointer"],
+    "op": "set",
+    "value": "/initial_demand_hypotheses/1",
+    "expected_code": "discovery_candidate.map_lineage_mismatch"
+  },
+  {
+    "case_id": "wrong-map-ref",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r1.json",
+    "field_path": ["map_lineage", "source_map_ref"],
+    "op": "set",
+    "value": "artifacts/discovery/solution-space-map.r1.json",
+    "expected_code": "discovery_candidate.map_lineage_mismatch"
+  },
+  {
+    "case_id": "wrong-map-hash",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r1.json",
+    "field_path": ["map_lineage", "source_map_content_hash"],
+    "op": "set",
+    "value": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "expected_code": "discovery_candidate.map_lineage_mismatch"
+  },
+  {
+    "case_id": "wrong-map-revision",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r1.json",
+    "field_path": ["map_lineage", "source_map_revision"],
+    "op": "set",
+    "value": 2,
+    "expected_code": "discovery_candidate.map_lineage_mismatch"
+  },
+  {
+    "case_id": "cross-run-candidate",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r1.json",
+    "field_path": ["run_id"],
+    "op": "set",
+    "value": "another-run",
+    "expected_code": "discovery_candidate.scope_identity_mismatch"
+  },
+  {
+    "case_id": "cross-scope-candidate",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r1.json",
+    "field_path": ["scope_frame_ref"],
+    "op": "set",
+    "value": "decision-context.json",
+    "expected_code": "discovery_candidate.scope_identity_mismatch"
+  },
+  {
+    "case_id": "profile-drift",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r1.json",
+    "field_path": ["discovery_profile"],
+    "op": "set",
+    "value": "ai_first",
+    "expected_code": "discovery_candidate.scope_identity_mismatch"
+  },
+  {
+    "case_id": "market-drift",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r1.json",
+    "field_path": ["market"],
+    "op": "set",
+    "value": "SYNTHETIC another market",
+    "expected_code": "discovery_candidate.scope_identity_mismatch"
+  },
+  {
+    "case_id": "language-drift",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r1.json",
+    "field_path": ["language"],
+    "op": "set",
+    "value": "fr",
+    "expected_code": "discovery_candidate.scope_identity_mismatch"
+  },
+  {
+    "case_id": "baseline-demand-kind-drift",
+    "target_path": "artifacts/discovery/candidates/candidate_baseline.r1.json",
+    "field_path": ["subject", "demand_candidate_ref"],
+    "op": "set",
+    "value": "artifacts/discovery/candidates/candidate_baseline.r1.json",
+    "expected_code": "discovery_candidate.subject_kind_mismatch"
+  },
+  {
+    "case_id": "solution-baseline-kind-drift",
+    "target_path": "artifacts/discovery/candidates/candidate_solution.r1.json",
+    "field_path": ["subject", "baseline_candidate_ref"],
+    "op": "set",
+    "value": "artifacts/discovery/candidates/candidate_demand.r1.json",
+    "expected_code": "discovery_candidate.subject_kind_mismatch"
+  },
+  {
+    "case_id": "candidate-parent-drift",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r2.json",
+    "field_path": ["parent_candidate_ref"],
+    "op": "set",
+    "value": "artifacts/discovery/candidates/candidate_baseline.r1.json",
+    "expected_code": "discovery_candidate.parent_revision_mismatch"
+  },
+  {
+    "case_id": "candidate-parent-hash-drift",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r2.json",
+    "field_path": ["parent_content_hash"],
+    "op": "set",
+    "value": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "expected_code": "discovery_candidate.parent_hash_mismatch"
+  },
+  {
+    "case_id": "candidate-ref-removal",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r1.json",
+    "field_path": ["evidence_lineage", "evidence_refs"],
+    "op": "set",
+    "value": [
+      "evidence/records/ev_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.json"
+    ],
+    "expected_code": "discovery_candidate.enrichment_ref_removed"
+  },
+  {
+    "case_id": "candidate-changed-fields-drift",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r2.json",
+    "field_path": ["enrichment", "changed_fields"],
+    "op": "set",
+    "value": [],
+    "expected_code": "discovery_candidate.changed_fields_mismatch"
+  },
+  {
+    "case_id": "candidate-user-correction-missing-decision",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r2.json",
+    "field_path": ["enrichment", "revision_kind"],
+    "op": "set",
+    "value": "user_correction",
+    "expected_code": "discovery_candidate.user_correction_basis_missing"
+  },
+  {
+    "case_id": "candidate-evaluation-source-missing",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r2.json",
+    "field_path": ["source_partition", "evaluation_source_manifest_refs"],
+    "op": "set",
+    "value": [],
+    "expected_code": "discovery_candidate.source_partition_type_mismatch"
+  },
+  {
+    "case_id": "untyped-evidence-target",
+    "target_path": "evidence/records/ev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json",
+    "target_scope": "envelope",
+    "field_path": ["artifact_type"],
+    "op": "set",
+    "value": "startup_opportunity.decision_context.v1",
+    "expected_code": "reference.type_mismatch"
+  },
+  {
+    "case_id": "untyped-judgment-target",
+    "target_path": "judgments/discovery/judgment-demand.json",
+    "target_scope": "envelope",
+    "field_path": ["artifact_type"],
+    "op": "set",
+    "value": "startup_opportunity.decision_context.v1",
+    "expected_code": "reference.type_mismatch"
+  },
+  {
+    "case_id": "lane-disposition-overlap",
+    "target_path": "artifacts/discovery/lanes/unit_seed_independent_demand.attempt-1.json",
+    "field_path": ["watchlist_candidate_refs"],
+    "op": "set",
+    "value": [
+      "artifacts/discovery/candidates/candidate_baseline.r1.json",
+      "artifacts/discovery/candidates/candidate_demand.r1.json"
+    ],
+    "expected_code": "discovery_candidate.lane_disposition_mismatch"
+  },
+  {
+    "case_id": "lane-disposition-missing-target",
+    "target_path": "artifacts/discovery/lanes/unit_seed_independent_demand.attempt-1.json",
+    "field_path": ["pre_kill_decisions", 0, "candidate_ref"],
+    "op": "set",
+    "value": "artifacts/discovery/candidates/missing.r1.json",
+    "expected_code": "discovery_candidate.disposition_target_invalid"
+  },
+  {
+    "case_id": "fan-in-noncandidate-target",
+    "target_path": "artifacts/discovery/fan-in.r1.json",
+    "field_path": ["candidate_dispositions", 0, "candidate_ref"],
+    "op": "set",
+    "value": "evidence/records/ev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json",
+    "expected_code": "reference.type_mismatch"
+  },
+  {
+    "case_id": "fan-in-disposition-overlap",
+    "target_path": "artifacts/discovery/fan-in.r1.json",
+    "field_path": ["watchlist_candidate_refs"],
+    "op": "set",
+    "value": [
+      "artifacts/discovery/candidates/candidate_baseline.r1.json",
+      "artifacts/discovery/candidates/candidate_demand.r2.json"
+    ],
+    "expected_code": "discovery_candidate.fan_in_disposition_mismatch"
+  },
+  {
+    "case_id": "fan-in-duplicate-disposition-id",
+    "target_path": "artifacts/discovery/fan-in.r1.json",
+    "field_path": ["candidate_dispositions", 1, "disposition_id"],
+    "op": "set",
+    "value": "fan_disposition_demand",
+    "expected_code": "discovery_candidate.fan_in_disposition_mismatch"
+  },
+  {
+    "case_id": "source-overlap-drift",
+    "target_path": "artifacts/discovery/candidates/candidate_demand.r2.json",
+    "field_path": ["source_partition", "overlap_source_group_ids"],
+    "op": "set",
+    "value": ["group_generation"],
+    "expected_code": "discovery_candidate.source_overlap_mismatch"
+  },
+  {
+    "case_id": "source-phase-role-drift",
+    "target_path": "evidence/source-manifests/discovery/generation.json",
+    "field_path": ["research_phase_role"],
+    "op": "set",
+    "value": "candidate_evaluation",
+    "expected_code": "discovery_candidate.research_phase_role_mismatch"
+  },
+  {
+    "case_id": "conversion-hash-drift",
+    "target_path": "artifacts/discovery/conversions/candidate_demand.r1.json",
+    "field_path": ["source_candidate_content_hash"],
+    "op": "set",
+    "value": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "expected_code": "discovery_candidate.conversion_lineage_mismatch"
+  },
+  {
+    "case_id": "conversion-target-kind-drift",
+    "target_path": "artifacts/discovery/conversions/candidate_demand.r1.json",
+    "field_path": ["target_schema_version"],
+    "op": "set",
+    "value": "startup_opportunity.solution_hypothesis.v1",
+    "expected_code": "discovery_candidate.conversion_lineage_mismatch"
+  },
+  {
+    "case_id": "conversion-stale-source-revision",
+    "target_path": "artifacts/discovery/conversions/candidate_demand.r1.json",
+    "field_path": ["source_candidate_ref"],
+    "op": "set",
+    "value": "artifacts/discovery/candidates/candidate_demand.r1.json",
+    "expected_code": "discovery_candidate.conversion_lineage_mismatch"
+  },
+  {
+    "case_id": "conversion-revision-parent-drift",
+    "target_path": "artifacts/discovery/conversions/candidate_demand.r1.json",
+    "field_path": ["revision"],
+    "op": "set",
+    "value": 2,
+    "expected_code": "discovery_candidate.conversion_path_revision_mismatch"
+  },
+  {
+    "case_id": "old-bundle-fails-closed",
+    "target_path": "$bundle",
+    "field_path": ["schema_version"],
+    "op": "set",
+    "value": "startup_opportunity.document_bundle.v8",
+    "expected_code": "g2_2_contract.bundle_version_mismatch"
+  }
+]

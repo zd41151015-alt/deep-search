@@ -1,8 +1,8 @@
 # Startup Opportunity Research Harness 实施进度
 
-> **状态**: G2_IN_PROGRESS / G2.1_DONE / G2.2_BLOCKED_BY_SPEC
-> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`DONE`（G1.1-G1.4、G1.R=`DONE`）；G2 Opportunity Discovery=`IN_PROGRESS`（G2.1=`DONE`；G2.2=`BLOCKED_BY_SPEC`）；G2.3-G2.R、G3-G4=`NOT_READY`
-> **下一独立会话**: 无已授权下一任务；必须先由中控授权 RFC/contract 修正，唯一决定 G2.2 retained/watchlist/rejected candidate 的 typed Artifact identity 与 G2.3 lineage，才能恢复 G2.2 implementation
+> **状态**: G2_IN_PROGRESS / G2.1_DONE / G2.2_CONTRACT_CORRECTION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE
+> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`DONE`（G1.1-G1.4、G1.R=`DONE`）；G2 Opportunity Discovery=`IN_PROGRESS`（G2.1=`DONE`；G2.2=`CONTRACT_CORRECTION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`）；G2.3-G2.R、G3-G4=`NOT_READY`
+> **下一独立会话**: 无已授权下一任务；中控必须先独立接受方案 A RFC/contract correction candidate，之后另行决定是否授权 G2.2 runtime implementation；本任务不创建 implementation task
 > **最后更新**: 2026-07-26
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
 
@@ -165,7 +165,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- | --- | --- |
 | G0 Foundation Harness | `DONE` | RFC v1 | 工具链与仓库骨架、核心 schema、Run/Artifact Store、validator、checkpoint、Gap/Adaptation/Plan Revision、完整 foundation regression |
 | G1 Concept Evidence Assessment | `DONE` | G0 | 单 thesis 从 intake 到 report 的端到端闭环，buyer gap 触发 plan r2，独立 G1 whole-gate regression 与中控验收均通过 |
-| G2 Opportunity Discovery | `IN_PROGRESS` | G1 | G2.1=`DONE`；G2.2=`BLOCKED_BY_SPEC`；Demand/Solution synthesis、pre-kill/enrichment、比较/portfolio 和独立 G2 regression 尚未完成 |
+| G2 Opportunity Discovery | `IN_PROGRESS` | G1 | G2.1=`DONE`；G2.2=`CONTRACT_CORRECTION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`；Demand/Solution synthesis、pre-kill/enrichment、比较/portfolio 和独立 G2 regression 尚未完成 |
 | G3 AI Bundle | `NOT_READY` | G2 | 六维 AI mandatory bundle、baseline/reliability/data/economics/risk gates 和独立 G3 回归 |
 | G4 Distribution / Operational Exit | `NOT_READY` | G3 | repo-local Skill/agents/hooks/MCP 完整入口、安装与恢复文档、端到端 fixture；Plugin 是否打包按 RFC 条件判断 |
 
@@ -178,7 +178,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `DONE` |
 | W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `DONE` |
 | W4 | Assess domain contracts、research branches、matrix、audit/review/report | `DONE`（G1.1-G1.4、G1.R=`DONE`） |
-| W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `IN_PROGRESS`（G2.1=`DONE`；G2.2=`BLOCKED_BY_SPEC`；G2.3-G2.R=`NOT_READY`） |
+| W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `IN_PROGRESS`（G2.1=`DONE`；G2.2=`CONTRACT_CORRECTION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`；G2.3-G2.R=`NOT_READY`） |
 | W6 | AI mandatory bundle 和 gates | `NOT_READY` |
 | W7 | Codex Skill、custom agents、hooks/MCP、分发和端到端运营 | `NOT_READY` |
 
@@ -207,7 +207,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | 切片 | 内容 | 状态 | 主要退出条件 |
 | --- | --- | --- | --- |
 | G2.1 | Seed / Opportunity / Solution Space Maps | `DONE` | general/industry/ai/hybrid profiles、seed-independent 和 counterfactual units、solution-neutral maps、initial questions；独立 inter-map crash/replay regression 与中控验收通过 |
-| G2.2 | Discovery Lanes / Fan-in | `BLOCKED_BY_SPEC` | RFC 要求 disposition 引用 typed Demand/Solution，但正式 Demand/Baseline/Solution 由 G2.3 拥有；当前没有 versioned pre-thesis candidate 或 map-fragment adapter，详见本文 G2.2 blocker 记录 |
+| G2.2 | Discovery Lanes / Fan-in | `CONTRACT_CORRECTION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE` | 用户已唯一选择方案 A；bundle `8.0.0` / v9 correction candidate 定义 pre-thesis typed candidate、discovery Evidence chain、lane/fan-in 与 G2.3 conversion lineage，但不实现或开放 runtime；待中控独立接受 |
 | G2.3 | Demand / Solution / Thesis Synthesis | `NOT_READY` | Demand Thesis 先于 Solution、Baseline、solution evaluation、thesis freeze、dedupe/clustering、generation/evaluation source separation |
 | G2.4 | Enrichment / Business Engine / Comparison | `NOT_READY` | buyer/market/acquisition/feasibility/counter evidence、BusinessEngine、hard gates、四面板、sensitivity、partial order、portfolio/report |
 | G2.R | Independent Discovery Whole-Gate Regression | `NOT_READY` | general/industry/ai/hybrid fixtures、pre-kill skip、candidate diversity、comparison/report 全链独立回归；通过后 G2=`DONE` |
@@ -236,12 +236,12 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | G2.2 Discovery Lanes / Fan-in 施工；开工检查发现 typed candidate ownership 无法唯一决定，标记 `BLOCKED_BY_SPEC` |
-| Current slice | `G0 Foundation=DONE`；`G1.1-G1.4=DONE`；`G1.R=DONE`；G1、W4=`DONE`；G2、W5=`IN_PROGRESS`；G2.1=`DONE`；G2.2=`BLOCKED_BY_SPEC`；G2.3-G2.R、G3-G4=`NOT_READY` |
-| Expected base | G2.2 blocker bookkeeping commit parent 必须为 `cbad67e9a2f30aeddfb9943479207068a5c48654`；accepted G2.1 regression=`b01b309bb477bd448803ed4ccfb63b2c9b40fc0b`；其 parent=`178df38c343003730c23d05ae57bf968bfef9bec` |
+| Active task | G2.2 方案 A 独立 RFC/contract correction candidate；只修正 typed candidate authority，不实现 Discovery Lanes / Fan-in runtime |
+| Current slice | `G0 Foundation=DONE`；`G1.1-G1.4=DONE`；`G1.R=DONE`；G1、W4=`DONE`；G2、W5=`IN_PROGRESS`；G2.1=`DONE`；G2.2=`CONTRACT_CORRECTION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`；G2.3-G2.R、G3-G4=`NOT_READY` |
+| Expected base | 本候选唯一基线=`c25e88fad1585d446bdac8dac0a68897eb813256`；其 sole parent=`cbad67e9a2f30aeddfb9943479207068a5c48654` |
 | Consecutive state-query failures | `0` |
-| Last effective operation | `g2_2_blocked_by_spec` |
-| Next allowed action | 仅中控可授权独立 RFC/contract 修正；修正被接受前不得恢复 G2.2、开放 G2.3-G2.R 或进入 G3-G4 |
+| Last effective operation | `g2_2_scheme_a_contract_correction_candidate` |
+| Next allowed action | 仅中控可独立审查并接受/拒绝本方案 A contract correction candidate；接受后仍须另行授权 G2.2 runtime implementation，不能自动开放 G2.3-G2.R 或进入 G3-G4 |
 
 ## 已完成切片与证据
 
@@ -1282,10 +1282,49 @@ Candidate commit 为 `ae810b91f0a99e33b31a98e48481712d424675a9`，parent=`4295d4
 
 验证期间未执行 network research、interview、landing page、deposit、广告、paid experiment、MVP test 或其他 external validation；未生成或伪造 Evidence、URL、用户 quote、市场数据或 validation success。G2 Opportunity Discovery 与 W5 保持 `IN_PROGRESS`；G2.3、G2.4、G2.R、G3-G4 保持 `NOT_READY`，本任务不开放或创建下一任务。
 
+## G2.2 方案 A RFC/contract correction candidate
+
+本施工以 clean `main@c25e88fad1585d446bdac8dac0a68897eb813256` 为唯一基线，核对 sole parent=`cbad67e9a2f30aeddfb9943479207068a5c48654`、branch=`main` 与空工作树。开工前完整读取 RFC、本文、`AGENTS.md`、`$startup-opportunity` Skill，以及 opportunity-discovery、artifact-contracts、research-kernel、lane-catalog references；使用 `rg` 建立 RFC 18.4/20.14-20.15/21/22.1-22.3/24.1-24.4、G2.1 v8 maps、bundle `7.0.0`、Envelope/Document Bundle、Evidence chain、Research Task、adaptation/publication policy、validator、fixtures/tests 和账本索引。未创建 subagent、worktree、Handoff 或下一任务，未 push、amend、rebase 或 reset。
+
+用户唯一选择方案 A：G2.2 发布 `startup_opportunity.discovery_candidate.v1` pre-thesis typed candidate。方案 B/C 未采用；G2.1 map fragment 只作为 exact source lineage，不冒充 typed Demand/Solution；正式 `demand_thesis.v1`、`baseline_option.v1`、`solution_hypothesis.v1` 继续由 G2.3 独占。
+
+### Contract authority 与 blocker 闭合
+
+- 新增 immutable schema bundle `8.0.0`，保留 bundle `7.0.0` 与全部 v1-v8 schema bytes。v9 安装 `discovery_candidate.v1`、discovery `research_task.v2`、Evidence/Claim/Finding/Insight/Judgment/Source Manifest v2、`discovery_lane_result.v1`、`discovery_fan_in.v1`、`discovery_candidate_conversion.v1`、contract-only Envelope/Document Bundle 与 `discovery_candidate_policy.v1`。
+- Candidate identity 只允许 `demand_seed | baseline_seed | solution_seed`，path 固定为 `artifacts/discovery/candidates/<candidate_id>.r<n>.json`。每个 rN 绑定 exact rN-1 ref/hash；Run、Scope、current Plan、profile、market、language、candidate kind、map ref/schema/id/revision/hash、fragment ref/JSON Pointer/id/status/hash 与 pre-thesis flags 不可漂移。Enrichment 只能产生新 revision、声明 exact changed fields，并对 typed Evidence chain/audit refs 执行 append-only 校验。
+- Candidate producer/owner 固定 main Agent/G2.2；Research Task 由 main Agent 物化但 Harness 不 dispatch agent；lane-researcher 只拥有 task 指定的 Evidence chain 与唯一 lane result path；fan-in 由 main Agent拥有。Generation/evaluation 使用不同 task phase、Evidence role 与 Source Manifest group；overlap 必须 exact disclosure。
+- Lane `disposition_id` 唯一，retained/watchlist/rejected sets 必须与 disposition records 精确相等且互斥，target 必须是 assigned typed candidate revision。Diversity/counterfactual retention 必须显式 retention basis。Fan-in reference-only，可显式把 lane candidate 升级到其 descendant revision；`failed | ignored_late | superseded` 不能进入 supporting refs 或 current enrichment basis，partial/insufficient 必须保留 conclusion ceiling。
+- G2.3 conversion 只允许 `demand_seed -> demand_thesis.v1`、`baseline_seed -> baseline_option.v1`、`solution_seed -> solution_hypothesis.v1`，并绑定 retained/current source candidate、exact revision/hash/kind 和 fan-in。当前固定 `promotion_authorized=false`、`target_published=false`；旧 candidate immutable，conversion 不是 Evidence、外部验证或 validation success。
+- v9 仅接入 deterministic validation surface。既有 `research-publication.v4` 与 Store adapters 保持 v1-v8/manifest bundle `7.0.0`；没有 v9 receipt/publication/recovery adapter，`artifact_envelope.v9` 在写入前以 `artifact.envelope_unsupported` fail closed。G2.2 Manifest adapter 也未安装，contract validation 不执行 state transition。
+
+### Fixture 与验证证据
+
+正 fixture 只含明确标记的 `SYNTHETIC ... contract fixture only` 数据，不包含真实 Evidence、URL、用户 quote、市场数据或 validation success。它覆盖三种 candidate kind、exact map fragment、r1->r2 enrichment、两个独立 source phase、typed Evidence-to-Judgment chain、两个 completed lane、exclusive disposition、reference-only fan-in 与 non-executable conversion proposal。
+
+Negative catalog 共 32 个 mutation，覆盖 missing/wrong map fragment/ref/hash/revision、cross-Run/Scope/profile/market/language、subject kind、parent/hash/append-only/changed-fields、Decision-backed user correction、untyped Evidence/Judgment、disposition identity/overlap/missing target、fan-in non-candidate/overlap、source absence/overlap/phase drift、conversion path/parent/hash/kind/current-revision drift和 old bundle fail-closed。专项另覆盖 `partial | insufficient_evidence` 可引用，以及 `failed | ignored_late | superseded` 影响 current candidate 时 fail closed。
+
+首次完整回归发现 `planning-contracts.test.ts` 仍把已由 v9 安装的 `discovery_lane_result.v1` 当作 downstream-uninstalled schema；测试白名单按 G2.2 ownership 精确修正，G2.4 future schema 继续 fail closed。修正后所有最终验收入口重新从头运行并通过。
+
+| 命令 | 方案 A correction candidate 结果 |
+| --- | --- |
+| Frozen doctor（开工前） | PASS；Node `24.18.0`、npm `11.16.0`、skeleton `g2.1`、197/197 checks |
+| G2.2 contract 专项 | PASS；13/13 tests，32/32 blocker/closure mutations，0 failed/skipped/todo |
+| `npm run lint` | PASS；Biome checked 236 files，0 fixes/errors |
+| `npm run typecheck` | PASS；TypeScript `tsc --noEmit`，0 errors |
+| `npm test` | PASS；220/220 tests，0 failed/skipped/todo |
+| `npm run validate:schemas` | PASS；bundle `8.0.0`，91 schemas / 85 document validators，0 errors |
+| `npm run validate:fixtures` | PASS；122/122 tests，0 failed/skipped/todo |
+| `npm run verify:skeleton` | PASS；repository doctor 219/219，Node `24.18.0`，skeleton 仍为 `g2.1` |
+| `git diff --check` / frozen bytes / forbidden-scope scan | PASS；179 frozen upstream paths 0 mismatch，base/worktree digest=`75de294d065d24f851fe7f0c561087c6698a0179b8f9de8eab11e73232baedb1`；无 Store/CLI/Skill/runtime/external-validation 越界 |
+
+风险：本候选只证明 closed contract 可被 deterministic validator执行，不证明 lane research quality、Evidence 真实性、candidate viability、Store publication、Manifest transition 或 G2.3 promotion。默认 validator 识别 bundle `8.0.0`，但 Run/Store 的当前 publication ownership 仍是 `7.0.0`；中控若接受本 contract correction，仍须另行授权 bounded G2.2 runtime implementation。
+
+候选 commit 由包含本账本的同一个原子提交承载；为避免禁止的 amend/self-reference，最终 hash 在任务回执中报告。parent=`c25e88fad1585d446bdac8dac0a68897eb813256`。当前状态只标记 `CONTRACT_CORRECTION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`；不得自行声称中控已接受，不创建 G2.2 implementation task，不开放 G2.3-G2.R 或 G3-G4。
+
 ## 当前边界与后续状态
 
 - G0 Foundation 已通过独立 whole-gate regression；当前没有 G0 blocker。
 - G1.1-G1.4、G1.R、G1 Concept Evidence Assessment 与 W4 均为 `DONE`；中控已接受 G1.R commit `a30c0967860bf31d26fc959c583f8c5b6b1b4caa`。
-- G2 Opportunity Discovery 与 W5=`IN_PROGRESS`；G2.1=`DONE`，G2.2=`BLOCKED_BY_SPEC`。G2.3、G2.4、G2.R、G3-G4 继续 `NOT_READY`；当前没有 `READY` slice，本任务未创建下一任务。
+- G2 Opportunity Discovery 与 W5=`IN_PROGRESS`；G2.1=`DONE`，G2.2=`CONTRACT_CORRECTION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE`。G2.3、G2.4、G2.R、G3-G4 继续 `NOT_READY`；当前没有 `READY` slice，本任务未创建下一任务。
 - `validate-artifact`、Evidence/Artifact Store、RunStore、bounded assessment adaptation、audit/traceability、concept report 与 G2.1 maps publication/recovery 已形成 deterministic contract；Harness 不执行 research，discover orchestration、G2.2+ discovery、comparison/portfolio 尚未实现。
 - 目标 runtime 是精确 Node.js `24.18.0` 与 npm `11.16.0`；开发者不得用错误版本证据替代冻结验证。

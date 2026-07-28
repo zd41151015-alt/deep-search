@@ -2310,15 +2310,15 @@ supporting_claims
 opposing_claims
 findings
 insights
-demand_theses
-baseline_options
-candidate_solution_hypotheses
+typed pre-thesis discovery candidate refs
 pre_kill_decisions
-retained_candidates
+retained / watchlist / rejected candidate refs
 open_questions
 source_manifest
 limitations
 ```
+
+G2.2 采用方案 A：lane 不发布正式 Demand Thesis、Baseline Option 或 Solution Hypothesis。主 Agent 先把 G2.1 map 的一个 exact fragment 物化为 `startup_opportunity.discovery_candidate.v1`；candidate kind 只允许 `demand_seed | baseline_seed | solution_seed`，始终标记 `pre_thesis_unvalidated`。lane 只评估 task 中分配的 typed candidate revision，main Agent 通过新的 immutable revision 合并 Evidence enrichment，并在 G2.3 另行执行显式 conversion。
 
 ### 18.5 Synthesis 与聚类
 
@@ -2741,9 +2741,7 @@ Counter-evidence 不是普通 lane 的重复搜索。它应主动寻找：
   "findings": [],
   "insights": [],
   "task_operating_profile_refs": [],
-  "demand_theses": [],
-  "baseline_options": [],
-  "solution_hypotheses": [],
+  "candidate_refs": [],
   "capability_evidence_refs": [],
   "user_language_refs": [],
   "solution_failure_refs": [],
@@ -2751,9 +2749,9 @@ Counter-evidence 不是普通 lane 的重复搜索。它应主动寻找：
   "scored_candidates": [],
   "kill_conditions": [],
   "pre_kill_decisions": [],
-  "rejected_candidate_refs": [],
-  "watchlist_candidate_refs": [],
-  "retained_candidates": [],
+  "rejected_candidate_refs": ["artifacts/discovery/candidates/<candidate_id>.r<n>.json"],
+  "watchlist_candidate_refs": ["artifacts/discovery/candidates/<candidate_id>.r<n>.json"],
+  "retained_candidate_refs": ["artifacts/discovery/candidates/<candidate_id>.r<n>.json"],
   "candidate_diversity_summary": {
     "covered_users": [],
     "covered_jobs": [],
@@ -2773,7 +2771,7 @@ Counter-evidence 不是普通 lane 的重复搜索。它应主动寻找：
 }
 ```
 
-`claims`、`findings`、`insights` 和各类领域对象可以只保存 refs，正式对象仍独立存储。`retained_candidates`、`rejected_candidate_refs` 和 `watchlist_candidate_refs` 必须引用 typed Demand/Solution 对象，不能把自然语言标题直接当成候选。每个影响保留或淘汰的关键判断必须出现在 `judgment_assessment_refs` 中；`decision_sufficiency_summary` 不得仅由 lane 自报，Evaluator 必须根据引用对象复算其允许进入的最高阶段。
+`claims`、`findings`、`insights` 和各类领域对象只保存 typed refs，正式对象仍独立存储。G2.2 的三个 disposition set 只允许引用 `startup_opportunity.discovery_candidate.v1` 的 immutable path/revision；禁止标题字符串、隐式 map path、G2.1 fragment 本身或尚未发布的 G2.3 schema。每个影响保留或淘汰的关键判断必须出现在 `judgment_assessment_refs` 中；`decision_sufficiency_summary` 不得仅由 lane 自报，Evaluator 必须根据引用对象复算其允许进入的最高阶段。
 
 ### 20.15 Lane 内评分与 Pre-kill
 
@@ -2781,7 +2779,7 @@ Lane score 是 0-10 triage 信号，不是概率，也不能直接跨 lane 比�
 
 ```json
 {
-  "candidate_ref": "demand_001",
+  "candidate_ref": "artifacts/discovery/candidates/demand_001.r1.json",
   "lane_type": "review_mining",
   "score": 7.8,
   "score_dimensions": {
@@ -2801,8 +2799,9 @@ Lane score 是 0-10 triage 信号，不是概率，也不能直接跨 lane 比�
 
 ```json
 {
-  "candidate_ref": "demand_001",
-  "decision": "retain",
+  "disposition_id": "disposition_demand_001_lane_01",
+  "candidate_ref": "artifacts/discovery/candidates/demand_001.r1.json",
+  "disposition": "retained",
   "reasons": [],
   "triggered_kill_conditions": [],
   "missing_required_evidence": [],
@@ -2810,6 +2809,8 @@ Lane score 是 0-10 triage 信号，不是概率，也不能直接跨 lane 比�
   "what_would_reverse_decision": []
 }
 ```
+
+`disposition_id` 在 lane result 内唯一；`disposition` 只允许 `retained | watchlist | rejected`。三个集合必须与 disposition records 精确相等且互斥。多样性保留必须用 `retention_basis=diversity | counterfactual` 显式记录，不能在没有 disposition identity 的情况下把候选塞入 retained set。
 
 Pre-kill 规则：
 
@@ -2870,11 +2871,12 @@ Pre-kill 规则：
 | Seed Probe | scope、plan | `SeedProbe` | Seed 只扩大入口，不直接进入评分或成为先验真值 |
 | Opportunity Space Mapper | scope、seed、初始 evidence | `OpportunitySpaceMap` | 先描述用户、任务、baseline 和 friction，不生成正式机会 |
 | Solution Space Mapper | scope、opportunity map、capability seeds | `SolutionSpaceMap` | 同时包含 ordinary software、platform、human、AI 和 status quo |
+| Pre-thesis Candidate Publisher | validated G2.1 maps、scope、current plan | `DiscoveryCandidate` revisions | 主 Agent 只物化 exact map fragment 与 pre-thesis subject；不得发布正式 Demand/Baseline/Solution |
 | User Language Miner | lane plan、evidence refs | `UserLanguageMap` | quote 必须保留来源；功能词和营销词单独标记 |
 | Solution Failure Mapper | lane plan、evidence refs、baseline refs | `SolutionFailureMap` | 区分功能缺失、真实失败、放弃和迁移动机 |
-| Discovery Lane | LanePlan、scope、maps | `DiscoveryLaneResult` | 支持/反对、pre-kill、多样性和 limitations 必填 |
+| Discovery Lane | ResearchTask v2、scope、maps、typed candidate refs | `DiscoveryLaneResult` | lane-researcher 只写 assigned lane path；支持/反对、pre-kill、多样性和 limitations 必填 |
 | Solution Hypothesis Evaluator | demands、solutions、baselines、capability evidence | `SolutionEvaluation` | 同一需求下显式比较；AI 不是默认 selected solution |
-| Opportunity Thesis Synthesizer | validated lane results、solution evaluation | `OpportunityThesis[]` | 必须回连 demand/solution/baseline 和审计引用 |
+| Opportunity Thesis Synthesizer | validated fan-in、G2.3 candidate conversions、solution evaluation | `OpportunityThesis[]` | G2.3 独占正式 Demand/Baseline/Solution 与 thesis；必须回连 source candidate revision/hash 和审计引用 |
 | Thesis Snapshot Publisher | synthesized thesis、关键假设、kill criteria、generation sources | `ThesisEvaluationSnapshot` | enrichment 前不可变发布；后续变化产生 revision，不静默改写 thesis |
 | Opportunity Clusterer | theses、semantic features | `MergeResult` | 按 user/job/scene/baseline/solution 判断合并，不只看标题相似度 |
 | Judgment Enricher | merged opportunities、evidence gaps | enrichment plan/results | 只补充会影响决策的市场、买单、获客、风险和反证 |
@@ -3027,9 +3029,13 @@ result_tracking_supported = false
 
 ## 22. 领域数据模型
 
+G2.2 不发布本节 22.1-22.3 的正式对象。它只发布 `discovery_candidate.v1`，其 `candidate_kind` 分别为 `demand_seed`、`baseline_seed` 或 `solution_seed`，并保留 `pre_thesis_unvalidated`、exact G2.1 map fragment lineage 和 typed Evidence/Judgment refs。G2.3 conversion 必须从 fan-in 中 retained 的 current candidate revision 生成新 path；旧 candidate 永久不可变，conversion 不构成 Evidence、外部验证或 validation success。
+
 ### 22.1 Demand Thesis
 
 Demand Thesis 必须 solution-neutral：
+
+该 schema 的发布与 synthesis ownership 属于 G2.3。`demand_seed` candidate 即使 solution-neutral 且包含完整 subject 字段，也不能在 G2.2 被称为 Demand Thesis。
 
 ```json
 {
@@ -3082,6 +3088,8 @@ Demand Thesis 必须 solution-neutral：
 
 Baseline Option 是正式对照项，不参加机会 TopN：
 
+该 schema 的发布 ownership 属于 G2.3。`baseline_seed` candidate 必须引用同 Run 的 `demand_seed` candidate，但在 conversion 前仍不是正式 Baseline Option。
+
 ```json
 {
   "schema_version": "startup_opportunity.baseline_option.v1",
@@ -3101,6 +3109,8 @@ Baseline Option 是正式对照项，不参加机会 TopN：
 ### 22.3 Solution Hypothesis
 
 同一个 Demand Thesis 可以有多个候选方案：
+
+该 schema 的发布 ownership 属于 G2.3。`solution_seed` candidate 必须同时引用 typed demand/baseline candidate；G2.2 不得因 map option、AI capability 或 lane score 提前创建正式 Solution Hypothesis。
 
 ```json
 {
@@ -3821,14 +3831,23 @@ startup_opportunity.seed_probe.v1
 startup_opportunity.opportunity_space_map.v1
 startup_opportunity.solution_space_map.v1
 startup_opportunity.evidence.v1
+startup_opportunity.evidence.v2
 startup_opportunity.claim.v1
+startup_opportunity.claim.v2
 startup_opportunity.finding.v1
+startup_opportunity.finding.v2
 startup_opportunity.insight.v1
+startup_opportunity.insight.v2
 startup_opportunity.judgment_assessment.v1
+startup_opportunity.judgment_assessment.v2
+startup_opportunity.research_task.v2
+startup_opportunity.source_manifest.v2
+startup_opportunity.discovery_candidate.v1
 startup_opportunity.user_language_map.v1
 startup_opportunity.solution_failure_map.v1
 startup_opportunity.discovery_lane_result.v1
 startup_opportunity.discovery_fan_in.v1
+startup_opportunity.discovery_candidate_conversion.v1
 startup_opportunity.demand_thesis.v1
 startup_opportunity.baseline_option.v1
 startup_opportunity.solution_hypothesis.v1
@@ -3868,6 +3887,27 @@ startup_opportunity.concept_evidence_report.v1
 startup_opportunity.traceability.v1
 ```
 
+方案 A 的 immutable contract authority 是 schema bundle `8.0.0`、v9 Envelope/Document Bundle 与 `harness/policies/discovery-candidates.v1.json`。唯一 identity/path/owner 如下：
+
+| Contract | Path / revision | producer / owner | 边界 |
+| --- | --- | --- | --- |
+| `discovery_candidate.v1` | `artifacts/discovery/candidates/<candidate_id>.r<n>.json`；rN exact parent=rN-1 + parent canonical hash | main Agent / G2.2 | `demand_seed | baseline_seed | solution_seed`；始终 pre-thesis/unvalidated |
+| `research_task.v2` | `tasks/discovery/<unit_id>.attempt-<n>.json` | main Agent 创建；lane-researcher 执行 | 只授权一个 lane output path；Harness 不 dispatch agent |
+| Evidence/Claim/Finding/Insight/Judgment/Source Manifest v2 | typed discovery paths；绑定 task attempt、candidate refs、Scope、Plan | lane-researcher / assigned lane | source/audit/freshness/representativeness/limitations 必填；chat/completion 不是 Artifact |
+| `discovery_lane_result.v1` | `artifacts/discovery/lanes/<unit_id>.attempt-<n>.json` | lane-researcher / assigned lane | disposition 必须直接引用 task 中的 typed candidate revision |
+| `discovery_fan_in.v1` | `artifacts/discovery/fan-in.r1.json` | main Agent / G2.2 | reference-only；允许显式 candidate revision upgrade，不复制 Evidence 内容 |
+| `discovery_candidate_conversion.v1` | `artifacts/discovery/conversions/<candidate_id>.r<n>.json`；rN exact parent=rN-1 + parent canonical hash | main Agent / G2.3 | 当前仅 contract-only proposal；不得执行、publish target 或声称 promotion/validation |
+
+Candidate 的 `map_lineage` 同时保存 source map ref/schema/id/revision/canonical hash、fragment ref、JSON Pointer、fragment id/status/canonical hash。Evaluator 从 bundle 中重新解析 exact fragment；标题、数组位置的隐式约定或只保存 map path 均失败。Run、Scope ref、current Plan ref、discovery profile、market 和 language 由 Scope Frame 唯一拥有，candidate 不得漂移。
+
+每个 revision 都是 immutable Artifact。r1 只允许 `initial_materialization`；rN 只允许 `evidence_enrichment | user_correction`，必须绑定 rN-1、声明 exact changed fields，且 Evidence/Claim/Finding/Insight/Judgment/Source Manifest/audit refs 只能追加。`subject`、source partition 和 limitations 可以通过新 revision 明示修订；map identity、candidate kind、Run/Scope/profile/market/language 与 pre-thesis boundary 永远不可改写。用户 correction 仍须先按 G0.3 `decisions.jsonl` append contract 持久化并列入 basis refs。
+
+Generation 与 evaluation 使用不同 `research_task.v2.source_phase`、typed Evidence `research_phase_role` 和 Source Manifest group；任何 canonical source-group overlap 都必须精确披露。Candidate 或 lane 可以是 `partial`/`insufficient_evidence`，但这只降低 conclusion ceiling；`failed`、`ignored_late`、`superseded` lane result 不能进入 current candidate enrichment 或 fan-in supporting refs。
+
+G2.3 conversion 的唯一映射是 `demand_seed -> demand_thesis.v1`、`baseline_seed -> baseline_option.v1`、`solution_seed -> solution_hypothesis.v1`。它自身使用 immutable revision/path/parent/hash，且要求 fan-in retained/current candidate、exact source revision/hash/kind、typed lineage 与 G2.3 schema/evaluator；在这些尚未安装时固定 `promotion_authorized=false`、`target_published=false`。转换创建新 Artifact，绝不覆盖旧 candidate，也不把转换表述成 Evidence 或 validation success。
+
+v9 当前只安装在 deterministic schema/reference/contract validation surface。既有 `research-publication.v4`、Store v1-v8 adapters、receipt/reopen 与 Run manifest bundle ownership 均停在 `7.0.0`；没有 v9 Store adapter。把 v9 envelope 提交给 Store 必须在写入前以 `artifact.envelope_unsupported` fail closed。本 contract correction 不实现 lane/fan-in execution、Manifest transition、pre-kill engine、CLI/Skill orchestration 或 G2.3 synthesis。
+
 Schema bundle `2.0.0` 中的 `artifact_envelope.v2` 和 `document_bundle.v2` 是 schema/reference validation contracts，不表示 G0.3 Store 已支持 v2 publication。当前 Store 的 `FormalArtifactEnvelope`、operation receipt recovery 和 publish reference bundle 仍固定为 v1；直接提交 v2 envelope 会在 `document_bundle.v1` reference-validation boundary fail closed。只有 G0.4 implementation 另行发布并接通兼容 Store/envelope/receipt migration contract 后，才能声称 v2 Store publish 已启用；本节的 v2 documents 在此之前只用于显式只读 contract validation。
 
 `discovery_fan_in` 和 `concept_evidence_assessment_fan_in` 采用引用式聚合：只保存通过校验的 branch/artifact refs、必要的决策摘要、失败或缺失 branch、evidence gaps 和 limitations，不复制所有 raw evidence。引用式聚合仍必须完整保留证据充分性、反证、pre-kill 和 decision impact 语义。
@@ -3901,6 +3941,10 @@ decision context -> concept frame -> evidence assessment plan r1
 
 检查 evidence/claim/finding/insight/judgment assessment/demand/solution/baseline refs 存在且关系方向正确。
 
+#### Pre-thesis Candidate contract evaluator
+
+检查 exact map fragment/ref/hash/revision、same-Run Scope/Plan/profile/market/language、candidate path/parent/hash/append-only enrichment、producer ownership、typed discovery Evidence chain、generation/evaluation separation、disposition identity/exclusivity、reference-only fan-in、terminal lane exclusion和 G2.3 conversion lineage。该 evaluator 只验证 contract，不执行 research 或 Store transition。
+
 #### Research quality evaluator
 
 检查 supporting/opposing evidence、judgment signal、来源独立性、representativeness、sample bias、freshness、decision sufficiency、limitations 和 abstention。
@@ -3931,7 +3975,11 @@ decision context -> concept frame -> evidence assessment plan r1
 | User Language Map | verbatim quote、source location、geo/language、功能词剔除和 quote provenance |
 | Solution Failure Map | baseline、failure scene、next action、migration signal 和用户语言引用 |
 | Judgment Assessment | signal、support/opposition refs、evidence tier、representativeness、independence、decision sufficiency、insufficiency reason 和 what-would-change-it |
+| Pre-thesis Discovery Candidate | kind/subject boundary、exact map fragment、Scope/Plan/profile/locale、immutable path/revision/parent/hash、typed refs、source partition、unvalidated flags 和 limitations |
+| Discovery Research Task | assigned candidates、attempt/supersedes、source phase/groups、唯一 lane output、no hidden dispatch/LLM/network 和 completion non-authority |
 | Discovery Lane Result | judgment refs、支持/反对、领域对象 refs、pre-kill、rejected/watchlist/retained candidates、decision sufficiency、diversity summary、open questions 和 limitations |
+| Discovery Fan-in | terminal lane exact classification、eligible/excluded refs、candidate revision lineage、exclusive disposition sets、diversity retention、reference-only 和 no Manifest transition |
+| Candidate Conversion | retained current source candidate、exact revision/hash/kind/fan-in、kind-target mapping、G2.3 prerequisites、source immutability 和 no validation-success claim |
 | Demand Thesis | solution-neutral、user/JTBD/scene/current alternative/loss/buyer/outcome 完整 |
 | Solution Hypothesis | demand/baseline refs、delivery form、workflow change、baseline delta、risks 和 kill criteria |
 | Solution Evaluation | selected/alternatives/rejected、baseline comparison、critical unknowns 和 capability-only signals |
@@ -3994,6 +4042,8 @@ watchlist_candidate_refs
 judgment_assessment_refs
 solution_evaluation_required
 ```
+
+G2.2 Scheme A 使用 v9 contract-only status boundary：`completed | partial | insufficient_evidence` 可以作为 reference-only fan-in 输入，其中 partial/insufficient 必须保留 gaps 与 conclusion ceiling；`failed | ignored_late | superseded` 必须出现在各自 classification 中，但不得出现在 supporting lane refs、current candidate enrichment basis 或 disposition fan-in。`cancelled | skipped | missing` 没有伪造 lane Artifact，只以 unit id + decision impact 记录。该规则不更新 Manifest：既有 partial-to-`completed_units` adapter 只属于已发布 G1 runtime，G2.2 Manifest adapter 仍为未安装，contract validation 本身不得执行任何 state transition。
 
 `concept_evidence_assessment_fan_in.v1` 必须按 dimension 汇总 judgment assessment refs、决定性支持和反对证据、缺失 mandatory dimensions、decision sufficiency 和 what would change the assessment。Fan-in 不复制底层 Evidence/Claim 内容，但必须保留这些 refs 和摘要；否则不得进入 comparison 或 assessment gate。
 

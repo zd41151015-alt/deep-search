@@ -19,6 +19,15 @@ import {
   loadAssessmentReportingPolicy,
 } from "./assessment-reporting-policy.js";
 import {
+  type DiscoveryCandidatePolicy,
+  loadDiscoveryCandidatePolicy,
+} from "./discovery-candidate-policy.js";
+import {
+  type DiscoveryCandidateDocument,
+  isDiscoveryCandidateSchemaVersion,
+  validateDiscoveryCandidateContract,
+} from "./discovery-candidate-validator.js";
+import {
   type LoadedDiscoveryMapsPolicy,
   loadDiscoveryMapsPolicy,
 } from "./discovery-maps-policy.js";
@@ -68,7 +77,8 @@ export interface DocumentBundle {
     | "startup_opportunity.document_bundle.v5"
     | "startup_opportunity.document_bundle.v6"
     | "startup_opportunity.document_bundle.v7"
-    | "startup_opportunity.document_bundle.v8";
+    | "startup_opportunity.document_bundle.v8"
+    | "startup_opportunity.document_bundle.v9";
   readonly documents: readonly DocumentBundleEntry[];
   readonly exact_records?: readonly {
     readonly ref: string;
@@ -251,6 +261,36 @@ function refsFromNestedArray(
         : [],
     );
   });
+}
+
+function refsFromObjectArray(
+  document: Record<string, unknown>,
+  objectField: string,
+  arrayField: string,
+  expectedSchemaVersion: string | readonly string[],
+): readonly ReferenceRequirement[] {
+  const object = document[objectField];
+  if (!isRecord(object)) {
+    return [];
+  }
+  const values = object[arrayField];
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  return values.flatMap((ref, index) =>
+    typeof ref === "string"
+      ? [
+          {
+            instancePath: `/${objectField}/${arrayField}/${index}`,
+            ref,
+            expectedSchemaVersions:
+              typeof expectedSchemaVersion === "string"
+                ? [expectedSchemaVersion]
+                : expectedSchemaVersion,
+          },
+        ]
+      : [],
+  );
 }
 
 function g14CommonRefs(document: Record<string, unknown>): readonly ReferenceRequirement[] {
@@ -1037,6 +1077,439 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.concept_evidence_assessment.v2",
         ]),
       ];
+    case "startup_opportunity.discovery_candidate.v1": {
+      const subject = isRecord(document.subject) ? document.subject : {};
+      const candidateKind = document.candidate_kind;
+      return [
+        ...optionalRef(
+          document,
+          "parent_candidate_ref",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...nestedRef(
+          document,
+          "map_lineage",
+          "source_map_ref",
+          candidateKind === "solution_seed"
+            ? "startup_opportunity.solution_space_map.v1"
+            : "startup_opportunity.opportunity_space_map.v1",
+        ),
+        ...(candidateKind === "baseline_seed" || candidateKind === "solution_seed"
+          ? optionalRef(
+              subject,
+              "demand_candidate_ref",
+              "startup_opportunity.discovery_candidate.v1",
+            )
+          : []),
+        ...(candidateKind === "solution_seed"
+          ? optionalRef(
+              subject,
+              "baseline_candidate_ref",
+              "startup_opportunity.discovery_candidate.v1",
+            )
+          : []),
+        ...refsFromObjectArray(
+          document,
+          "evidence_lineage",
+          "evidence_refs",
+          "startup_opportunity.evidence.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "evidence_lineage",
+          "claim_refs",
+          "startup_opportunity.claim.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "evidence_lineage",
+          "finding_refs",
+          "startup_opportunity.finding.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "evidence_lineage",
+          "insight_refs",
+          "startup_opportunity.insight.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "evidence_lineage",
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "evidence_lineage",
+          "source_manifest_refs",
+          "startup_opportunity.source_manifest.v2",
+        ),
+        ...refsFromObjectArray(document, "evidence_lineage", "audit_refs", [
+          "startup_opportunity.evidence_audit.v1",
+          "startup_opportunity.adversarial_review.v1",
+        ]),
+        ...refsFromObjectArray(
+          document,
+          "source_partition",
+          "generation_source_manifest_refs",
+          "startup_opportunity.source_manifest.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "source_partition",
+          "evaluation_source_manifest_refs",
+          "startup_opportunity.source_manifest.v2",
+        ),
+        ...refsFromObjectArray(document, "enrichment", "basis_refs", [
+          "startup_opportunity.opportunity_space_map.v1",
+          "startup_opportunity.solution_space_map.v1",
+          "startup_opportunity.evidence.v2",
+          "startup_opportunity.claim.v2",
+          "startup_opportunity.finding.v2",
+          "startup_opportunity.insight.v2",
+          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.source_manifest.v2",
+          "startup_opportunity.discovery_lane_result.v1",
+          "startup_opportunity.decision.v1",
+        ]),
+      ];
+    }
+    case "startup_opportunity.research_task.v2":
+      return [
+        ...refsFromArray(
+          document,
+          "target_candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(document, "supersedes_task_ref", "startup_opportunity.research_task.v2"),
+      ];
+    case "startup_opportunity.evidence.v2":
+      return [
+        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v2"),
+        ...refsFromObjectArray(
+          document,
+          "lineage",
+          "candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "research_plan_ref",
+          "startup_opportunity.research_plan.v1",
+        ),
+        ...nestedRef(
+          document,
+          "mechanical_binding",
+          "substrate_record_ref",
+          "startup_opportunity.evidence_store_record.v2",
+          "evidence_id",
+        ),
+      ];
+    case "startup_opportunity.claim.v2":
+      return [
+        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v2"),
+        ...refsFromObjectArray(
+          document,
+          "lineage",
+          "candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "research_plan_ref",
+          "startup_opportunity.research_plan.v1",
+        ),
+        ...refsFromArray(document, "evidence_refs", "startup_opportunity.evidence.v2"),
+      ];
+    case "startup_opportunity.finding.v2":
+      return [
+        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v2"),
+        ...refsFromObjectArray(
+          document,
+          "lineage",
+          "candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "research_plan_ref",
+          "startup_opportunity.research_plan.v1",
+        ),
+        ...refsFromArray(document, "claim_refs", "startup_opportunity.claim.v2"),
+        ...refsFromArray(document, "opposing_claim_refs", "startup_opportunity.claim.v2"),
+      ];
+    case "startup_opportunity.insight.v2":
+      return [
+        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v2"),
+        ...refsFromObjectArray(
+          document,
+          "lineage",
+          "candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "research_plan_ref",
+          "startup_opportunity.research_plan.v1",
+        ),
+        ...refsFromArray(document, "finding_refs", "startup_opportunity.finding.v2"),
+      ];
+    case "startup_opportunity.source_manifest.v2":
+      return [
+        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v2"),
+        ...refsFromObjectArray(
+          document,
+          "lineage",
+          "candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "research_plan_ref",
+          "startup_opportunity.research_plan.v1",
+        ),
+        ...refsFromArray(document, "accepted_evidence_refs", "startup_opportunity.evidence.v2"),
+        ...refsFromNestedArray(
+          document,
+          "canonical_source_groups",
+          "evidence_refs",
+          "startup_opportunity.evidence.v2",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "shared_dataset_groups",
+          "evidence_refs",
+          "startup_opportunity.evidence.v2",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "duplicate_or_syndication_groups",
+          "evidence_refs",
+          "startup_opportunity.evidence.v2",
+        ),
+      ];
+    case "startup_opportunity.judgment_assessment.v2":
+      return [
+        ...optionalRef(document, "subject_ref", "startup_opportunity.discovery_candidate.v1"),
+        ...refsFromArray(document, "supporting_refs", [
+          "startup_opportunity.evidence.v2",
+          "startup_opportunity.claim.v2",
+        ]),
+        ...refsFromArray(document, "opposing_refs", [
+          "startup_opportunity.evidence.v2",
+          "startup_opportunity.claim.v2",
+        ]),
+      ];
+    case "startup_opportunity.discovery_lane_result.v1":
+      return [
+        ...optionalRef(document, "task_ref", "startup_opportunity.research_task.v2"),
+        ...refsFromNestedArray(
+          document,
+          "scored_candidates",
+          "candidate_ref",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "pre_kill_decisions",
+          "candidate_ref",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "pre_kill_decisions",
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v2",
+        ),
+        ...refsFromArray(
+          document,
+          "retained_candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "watchlist_candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "rejected_candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "candidate_diversity_summary",
+          "diversity_retention_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "candidate_diversity_summary",
+          "counterfactual_candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "evidence_lineage",
+          "evidence_refs",
+          "startup_opportunity.evidence.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "evidence_lineage",
+          "claim_refs",
+          "startup_opportunity.claim.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "evidence_lineage",
+          "finding_refs",
+          "startup_opportunity.finding.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "evidence_lineage",
+          "insight_refs",
+          "startup_opportunity.insight.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "evidence_lineage",
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "evidence_lineage",
+          "source_manifest_refs",
+          "startup_opportunity.source_manifest.v2",
+        ),
+      ];
+    case "startup_opportunity.discovery_fan_in.v1":
+      return [
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromObjectArray(
+          document,
+          "lane_result_classification",
+          "completed_refs",
+          "startup_opportunity.discovery_lane_result.v1",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "lane_result_classification",
+          "partial_refs",
+          "startup_opportunity.discovery_lane_result.v1",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "lane_result_classification",
+          "insufficient_evidence_refs",
+          "startup_opportunity.discovery_lane_result.v1",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "lane_result_classification",
+          "failed_refs",
+          "startup_opportunity.discovery_lane_result.v1",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "lane_result_classification",
+          "ignored_late_refs",
+          "startup_opportunity.discovery_lane_result.v1",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "lane_result_classification",
+          "superseded_refs",
+          "startup_opportunity.discovery_lane_result.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "candidate_dispositions",
+          "candidate_ref",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "candidate_dispositions",
+          "source_candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "candidate_dispositions",
+          "supporting_lane_result_refs",
+          "startup_opportunity.discovery_lane_result.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "candidate_dispositions",
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v2",
+        ),
+        ...refsFromArray(
+          document,
+          "retained_candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "watchlist_candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "rejected_candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "candidate_diversity_summary",
+          "diversity_retention_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "candidate_diversity_summary",
+          "counterfactual_candidate_refs",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+      ];
+    case "startup_opportunity.discovery_candidate_conversion.v1":
+      return [
+        ...optionalRef(
+          document,
+          "parent_conversion_ref",
+          "startup_opportunity.discovery_candidate_conversion.v1",
+        ),
+        ...optionalRef(
+          document,
+          "source_candidate_ref",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v1"),
+      ];
     default:
       return [];
   }
@@ -1052,7 +1525,8 @@ function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
     version !== "startup_opportunity.artifact_envelope.v5" &&
     version !== "startup_opportunity.artifact_envelope.v6" &&
     version !== "startup_opportunity.artifact_envelope.v7" &&
-    version !== "startup_opportunity.artifact_envelope.v8"
+    version !== "startup_opportunity.artifact_envelope.v8" &&
+    version !== "startup_opportunity.artifact_envelope.v9"
   ) {
     return { path: entry.path, schemaVersion: version, document: entry.document, envelope: null };
   }
@@ -1184,7 +1658,8 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
       document.schema_version !== "startup_opportunity.artifact_envelope.v5" &&
       document.schema_version !== "startup_opportunity.artifact_envelope.v6" &&
       document.schema_version !== "startup_opportunity.artifact_envelope.v7" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v8") ||
+      document.schema_version !== "startup_opportunity.artifact_envelope.v8" &&
+      document.schema_version !== "startup_opportunity.artifact_envelope.v9") ||
     !isRecord(document.document)
   ) {
     return [];
@@ -1223,6 +1698,7 @@ export class ArtifactValidator {
     readonly publicationPolicy: PublicationPolicy,
     readonly assessmentReportingPolicy: AssessmentReportingPolicy,
     readonly discoveryMapsPolicy: LoadedDiscoveryMapsPolicy,
+    readonly discoveryCandidatePolicy: DiscoveryCandidatePolicy,
   ) {}
 
   publicationAdapter(schemaVersion: unknown): StorePublicationAdapter {
@@ -1487,7 +1963,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v5" &&
       input.schema_version !== "startup_opportunity.document_bundle.v6" &&
       input.schema_version !== "startup_opportunity.document_bundle.v7" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v8"
+      input.schema_version !== "startup_opportunity.document_bundle.v8" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v9"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -1524,7 +2001,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v5" &&
       input.schema_version !== "startup_opportunity.document_bundle.v6" &&
       input.schema_version !== "startup_opportunity.document_bundle.v7" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v8"
+      input.schema_version !== "startup_opportunity.document_bundle.v8" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v9"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -1552,7 +2030,8 @@ export class ArtifactValidator {
     }));
     if (
       g14Documents.some((entry) => isG14SchemaVersion(entry.schemaVersion)) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v7"
+      input.schema_version !== "startup_opportunity.document_bundle.v7" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v9"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -1580,7 +2059,8 @@ export class ArtifactValidator {
           "startup_opportunity.solution_space_map.v1",
         ].includes(entry.schemaVersion),
       ) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v8"
+      input.schema_version !== "startup_opportunity.document_bundle.v8" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v9"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -1592,7 +2072,43 @@ export class ArtifactValidator {
       );
     } else {
       referenceErrors.push(
-        ...validateDiscoveryMapsContract(discoveryDocuments, this.discoveryMapsPolicy),
+        ...validateDiscoveryMapsContract(
+          input.schema_version === "startup_opportunity.document_bundle.v9"
+            ? discoveryDocuments.filter(
+                (entry) => !isDiscoveryCandidateSchemaVersion(entry.schemaVersion),
+              )
+            : discoveryDocuments,
+          this.discoveryMapsPolicy,
+        ),
+      );
+    }
+    const discoveryCandidateDocuments: readonly DiscoveryCandidateDocument[] =
+      effectiveDocuments.map((entry) => ({
+        path: entry.path,
+        schemaVersion: entry.schemaVersion,
+        document: entry.document,
+        envelope: entry.envelope,
+      }));
+    if (
+      discoveryCandidateDocuments.some((entry) =>
+        isDiscoveryCandidateSchemaVersion(entry.schemaVersion),
+      ) &&
+      input.schema_version !== "startup_opportunity.document_bundle.v9"
+    ) {
+      referenceErrors.push(
+        referenceIssue(
+          "g2_2_contract.bundle_version_mismatch",
+          "/schema_version",
+          "Scheme A pre-thesis candidate contracts require document_bundle.v9",
+          { actualSchemaVersion: input.schema_version },
+        ),
+      );
+    } else {
+      referenceErrors.push(
+        ...validateDiscoveryCandidateContract(
+          discoveryCandidateDocuments,
+          this.discoveryCandidatePolicy,
+        ),
       );
     }
     referenceErrors.push(...exactRecordErrors);
@@ -2010,5 +2526,6 @@ export async function createArtifactValidator(
     await loadResearchPublicationPolicy(root, bundle),
     await loadAssessmentReportingPolicy(root, bundle),
     await loadDiscoveryMapsPolicy(root, bundle),
+    await loadDiscoveryCandidatePolicy(root, bundle),
   );
 }

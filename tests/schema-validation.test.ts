@@ -6,15 +6,27 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  canonicalContentHash,
   createArtifactValidator,
+  type DocumentBundleValidationResult,
   inspectSchemaBundle,
+  StoreError,
   type ValidationIssue,
 } from "../harness/src/index.js";
+import {
+  createDiscoveryCandidateFixture,
+  fixtureEffective,
+  fixtureEntry,
+  G22_DEMAND_R2,
+  G22_EVALUATION_LANE,
+  G22_FAN_IN,
+} from "./fixtures/g2.2/discovery-candidate-fixture.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const positiveFixtureRoot = path.join(repositoryRoot, "tests/fixtures/schemas/positive");
 const negativeFixtureRoot = path.join(repositoryRoot, "tests/fixtures/schemas/negative");
 const referenceFixtureRoot = path.join(repositoryRoot, "tests/fixtures/references");
+const g22FixtureRoot = path.join(repositoryRoot, "tests/fixtures/g2.2");
 
 interface Mutation {
   readonly op: "set" | "delete" | "delete_array_item" | "copy";
@@ -48,6 +60,16 @@ interface NegativeReferenceCase {
   readonly base_fixture: string;
   readonly mutations: readonly Mutation[];
   readonly expected_issues: readonly ExpectedReferenceIssue[];
+}
+
+interface G22NegativeCase {
+  readonly case_id: string;
+  readonly target_path: string;
+  readonly target_scope?: "document" | "envelope";
+  readonly field_path: readonly (string | number)[];
+  readonly op: "set" | "delete";
+  readonly value?: unknown;
+  readonly expected_code: string;
 }
 
 async function readJson<T>(filename: string): Promise<T> {
@@ -101,6 +123,34 @@ function applyMutations(base: unknown, mutations: readonly Mutation[]): unknown 
   return result;
 }
 
+function applyG22Mutation(
+  bundle: Awaited<ReturnType<typeof createDiscoveryCandidateFixture>>,
+  mutation: G22NegativeCase,
+): void {
+  const target =
+    mutation.target_path === "$bundle"
+      ? (bundle as unknown as Record<string, unknown>)
+      : mutation.target_scope === "envelope"
+        ? fixtureEntry(bundle, mutation.target_path)
+        : fixtureEffective(bundle, mutation.target_path);
+  const parent = getContainer(target, mutation.field_path.slice(0, -1));
+  const key = mutation.field_path.at(-1);
+  assert.ok(typeof parent === "object" && parent !== null && key !== undefined);
+  if (mutation.op === "delete") {
+    delete (parent as Record<string | number, unknown>)[key];
+  } else {
+    (parent as Record<string | number, unknown>)[key] = structuredClone(mutation.value);
+  }
+}
+
+function allIssueCodes(result: DocumentBundleValidationResult): readonly string[] {
+  return [
+    ...result.bundleErrors.map((entry) => entry.code),
+    ...result.documents.flatMap((entry) => entry.errors.map((error) => error.code)),
+    ...result.referenceErrors.map((entry) => entry.code),
+  ];
+}
+
 function matchesSchemaIssue(issue: ValidationIssue, expected: ExpectedSchemaIssue): boolean {
   return (
     issue.keyword === expected.keyword &&
@@ -115,9 +165,9 @@ function matchesSchemaIssue(issue: ValidationIssue, expected: ExpectedSchemaIssu
 test("published schema bundle is closed, versioned, and internally resolvable", async () => {
   const result = await inspectSchemaBundle(repositoryRoot);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
-  assert.equal(result.schemaBundleVersion, "7.0.0");
-  assert.equal(result.schemaCount, 76);
-  assert.equal(result.documentSchemaCount, 71);
+  assert.equal(result.schemaBundleVersion, "8.0.0");
+  assert.equal(result.schemaCount, 91);
+  assert.equal(result.documentSchemaCount, 85);
   assert.deepEqual(result.errors, []);
 });
 
@@ -308,4 +358,125 @@ test("validator rejects unpublished schema versions and malformed command argume
   assert.equal(invalidCommand.status, 64);
   const response = JSON.parse(invalidCommand.stderr) as { status?: string };
   assert.equal(response.status, "invalid_arguments");
+});
+
+test("G2.2 Scheme A bundle installs a closed pre-thesis candidate contract", async () => {
+  const schema = await inspectSchemaBundle(repositoryRoot);
+  assert.equal(schema.schemaBundleVersion, "8.0.0");
+  assert.equal(schema.schemaCount, 91);
+  assert.equal(schema.documentSchemaCount, 85);
+
+  const validator = await createArtifactValidator(repositoryRoot);
+  const policy = await readJson<Record<string, unknown>>(
+    path.join(repositoryRoot, "harness/policies/discovery-candidates.v1.json"),
+  );
+  const policyResult = validator.validateDocument(
+    policy,
+    "harness/policies/discovery-candidates.v1.json",
+  );
+  assert.equal(policyResult.valid, true, JSON.stringify(policyResult.errors));
+
+  const bundle = await createDiscoveryCandidateFixture();
+  const result = validator.validateDocumentBundle(bundle);
+  assert.equal(result.valid, true, JSON.stringify(result));
+  assert.equal(
+    result.documents.filter(
+      (entry) => entry.artifactSchemaVersion === "startup_opportunity.artifact_envelope.v9",
+    ).length,
+    19,
+  );
+  const candidateKinds = bundle.documents
+    .map((entry) => fixtureEffective(bundle, entry.path))
+    .filter((document) => document.schema_version === "startup_opportunity.discovery_candidate.v1")
+    .map((document) => String(document.candidate_kind));
+  assert.deepEqual([...new Set(candidateKinds)].sort(), [
+    "baseline_seed",
+    "demand_seed",
+    "solution_seed",
+  ]);
+});
+
+test("G2.2 blocker mutations fail for their declared deterministic contract code", async () => {
+  const validator = await createArtifactValidator(repositoryRoot);
+  const cases = await readJson<readonly G22NegativeCase[]>(
+    path.join(g22FixtureRoot, "discovery-candidate-cases.json"),
+  );
+  assert.equal(cases.length, 32);
+
+  for (const fixtureCase of cases) {
+    const bundle = await createDiscoveryCandidateFixture();
+    applyG22Mutation(bundle, fixtureCase);
+    const result = validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, false, `${fixtureCase.case_id} unexpectedly passed`);
+    assert.ok(
+      allIssueCodes(result).includes(fixtureCase.expected_code),
+      `${fixtureCase.case_id} missing ${fixtureCase.expected_code}: ${JSON.stringify(result)}`,
+    );
+  }
+});
+
+test("G2.2 lane terminal classes preserve partial results and exclude failed or late influence", async () => {
+  const validator = await createArtifactValidator(repositoryRoot);
+  const classificationField: Readonly<Record<string, string>> = {
+    partial: "partial_refs",
+    insufficient_evidence: "insufficient_evidence_refs",
+    failed: "failed_refs",
+    ignored_late: "ignored_late_refs",
+    superseded: "superseded_refs",
+  };
+
+  for (const status of Object.keys(classificationField)) {
+    const bundle = await createDiscoveryCandidateFixture();
+    const lane = fixtureEffective(bundle, G22_EVALUATION_LANE);
+    const fanIn = fixtureEffective(bundle, G22_FAN_IN);
+    const classification = fanIn.lane_result_classification as Record<string, unknown>;
+    lane.status = status;
+    classification.completed_refs = [
+      ...(classification.completed_refs as string[]).filter((ref) => ref !== G22_EVALUATION_LANE),
+    ];
+    classification[classificationField[status] ?? ""] = [G22_EVALUATION_LANE];
+
+    const excluded = ["failed", "ignored_late", "superseded"].includes(status);
+    if (excluded) {
+      lane.scored_candidates = [];
+      lane.pre_kill_decisions = [];
+      lane.retained_candidate_refs = [];
+      lane.watchlist_candidate_refs = [];
+      lane.rejected_candidate_refs = [];
+      const decisions = fanIn.candidate_dispositions as Record<string, unknown>[];
+      for (const decision of decisions) {
+        decision.supporting_lane_result_refs = (
+          decision.supporting_lane_result_refs as string[]
+        ).filter((ref) => ref !== G22_EVALUATION_LANE);
+      }
+    }
+
+    fixtureEntry(bundle, G22_EVALUATION_LANE).content_hash = canonicalContentHash(lane);
+    fixtureEntry(bundle, G22_FAN_IN).content_hash = canonicalContentHash(fanIn);
+    const result = validator.validateDocumentBundle(bundle);
+    if (excluded) {
+      assert.equal(result.valid, false, `${status} influenced current candidate unexpectedly`);
+      assert.ok(
+        allIssueCodes(result).includes("discovery_candidate.fan_in_candidate_lineage_mismatch"),
+        JSON.stringify(result),
+      );
+    } else {
+      assert.equal(result.valid, true, `${status}: ${JSON.stringify(result)}`);
+    }
+  }
+});
+
+test("v9 remains validation-only and the installed Store adapter fails closed before publication", async () => {
+  const validator = await createArtifactValidator(repositoryRoot);
+  assert.throws(
+    () => validator.publicationAdapter("startup_opportunity.artifact_envelope.v9"),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "artifact.envelope_unsupported",
+  );
+
+  const candidate = fixtureEntry(await createDiscoveryCandidateFixture(), G22_DEMAND_R2);
+  const result = validator.validateDocument(candidate, G22_DEMAND_R2);
+  assert.equal(result.valid, true, JSON.stringify(result.errors));
+  assert.equal(validator.publicationPolicy.document.current_schema_bundle_version, "7.0.0");
+  assert.equal(validator.publicationPolicy.document.adapters.length, 8);
 });

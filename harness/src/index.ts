@@ -155,6 +155,18 @@ export {
   validateAssessmentAdaptationContract,
 } from "./validators/assessment-adaptation-validator.js";
 export {
+  type CandidateKind,
+  type CandidateKindRule,
+  DISCOVERY_CANDIDATE_POLICY_PATH,
+  type DiscoveryCandidatePolicy,
+  loadDiscoveryCandidatePolicy,
+} from "./validators/discovery-candidate-policy.js";
+export {
+  type DiscoveryCandidateDocument,
+  isDiscoveryCandidateSchemaVersion,
+  validateDiscoveryCandidateContract,
+} from "./validators/discovery-candidate-validator.js";
+export {
   DISCOVERY_MAPS_POLICY_PATH,
   type DiscoveryMapsPolicy,
   type DiscoveryProfile,

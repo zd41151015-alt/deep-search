@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v9/document-bundle.schema.json",
+  "title": "Startup Opportunity G2.2 Contract-only Document Bundle v9",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "documents", "exact_records"],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.document_bundle.v9" },
+    "documents": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "document"],
+        "properties": {
+          "path": { "$ref": "definitions.schema.json#/$defs/artifactPath" },
+          "document": { "type": "object" }
+        }
+      }
+    },
+    "exact_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "document"],
+        "properties": {
+          "ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+          "document": {
+            "oneOf": [
+              { "$ref": "../v5/evidence-substrate-record.schema.json" },
+              { "$ref": "../v1/event.schema.json" },
+              { "$ref": "../v1/decision.schema.json" }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
