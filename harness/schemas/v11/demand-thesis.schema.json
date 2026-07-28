@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v11/demand-thesis.schema.json",
+  "title": "Startup Opportunity Demand Thesis v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "demand_id",
+    "revision",
+    "parent_demand_ref",
+    "parent_content_hash",
+    "run_id",
+    "scope_frame_ref",
+    "research_plan_ref",
+    "discovery_fan_in_ref",
+    "source_conversion_ref",
+    "source_candidate_ref",
+    "solution_neutral",
+    "source_groups",
+    "user",
+    "buyer",
+    "payer",
+    "decision_maker",
+    "job_to_be_done",
+    "workflow_step",
+    "trigger_phrase",
+    "entry_scene",
+    "current_alternatives",
+    "current_ai_workarounds",
+    "failure_and_loss",
+    "task_operating_profile",
+    "execution_constraints",
+    "data_conditions",
+    "outcome_metrics",
+    "supporting_claim_refs",
+    "opposing_claim_refs",
+    "judgment_assessment_refs",
+    "kill_conditions",
+    "audit_refs",
+    "source_boundary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.demand_thesis.v1" },
+    "demand_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "parent_demand_ref": {
+      "anyOf": [{ "$ref": "definitions.schema.json#/$defs/demandRef" }, { "type": "null" }]
+    },
+    "parent_content_hash": { "$ref": "definitions.schema.json#/$defs/nullableHash" },
+    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "scope_frame_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "research_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
+    "discovery_fan_in_ref": { "$ref": "definitions.schema.json#/$defs/fanInRef" },
+    "source_conversion_ref": { "$ref": "definitions.schema.json#/$defs/conversionRef" },
+    "source_candidate_ref": { "$ref": "definitions.schema.json#/$defs/candidateRef" },
+    "solution_neutral": { "const": true },
+    "source_groups": { "$ref": "definitions.schema.json#/$defs/sourceGroups" },
+    "user": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+      "uniqueItems": true
+    },
+    "buyer": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+      "uniqueItems": true
+    },
+    "payer": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+      "uniqueItems": true
+    },
+    "decision_maker": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+      "uniqueItems": true
+    },
+    "job_to_be_done": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "workflow_step": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "trigger_phrase": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "entry_scene": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "current_alternatives": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+      "uniqueItems": true
+    },
+    "current_ai_workarounds": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "failure_and_loss": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "task_operating_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frequency",
+        "volume",
+        "input_modality",
+        "output_modality",
+        "task_variability",
+        "exception_rate",
+        "context_fragmentation",
+        "judgment_intensity"
+      ],
+      "properties": {
+        "frequency": {
+          "enum": ["continuous", "daily", "weekly", "monthly", "episodic", "unknown"]
+        },
+        "volume": { "enum": ["low", "medium", "high", "unknown"] },
+        "input_modality": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        "output_modality": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        "task_variability": { "enum": ["low", "medium", "high", "unknown"] },
+        "exception_rate": { "enum": ["low", "medium", "high", "unknown"] },
+        "context_fragmentation": { "enum": ["low", "medium", "high", "unknown"] },
+        "judgment_intensity": { "enum": ["low", "medium", "high", "unknown"] }
+      }
+    },
+    "execution_constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "latency_tolerance",
+        "quality_threshold",
+        "error_cost",
+        "auditability_requirement",
+        "human_review_tolerance",
+        "privacy_security_constraints"
+      ],
+      "properties": {
+        "latency_tolerance": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+        "quality_threshold": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+        "error_cost": { "enum": ["low", "medium", "high", "critical", "unknown"] },
+        "auditability_requirement": { "enum": ["low", "medium", "high", "unknown"] },
+        "human_review_tolerance": { "enum": ["low", "medium", "high", "unknown"] },
+        "privacy_security_constraints": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        }
+      }
+    },
+    "data_conditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "existing_digital_trace",
+        "context_sources",
+        "possible_ground_truth",
+        "feedback_frequency"
+      ],
+      "properties": {
+        "existing_digital_trace": { "type": "boolean" },
+        "context_sources": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        "possible_ground_truth": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        "feedback_frequency": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" }
+      }
+    },
+    "outcome_metrics": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "supporting_claim_refs": {
+      "type": "array",
+      "items": { "$ref": "../v9/definitions.schema.json#/$defs/claimRef" },
+      "uniqueItems": true
+    },
+    "opposing_claim_refs": {
+      "type": "array",
+      "items": { "$ref": "../v9/definitions.schema.json#/$defs/claimRef" },
+      "uniqueItems": true
+    },
+    "judgment_assessment_refs": {
+      "type": "array",
+      "items": { "$ref": "../v9/definitions.schema.json#/$defs/judgmentRef" },
+      "uniqueItems": true
+    },
+    "kill_conditions": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "audit_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+    "source_boundary": { "$ref": "definitions.schema.json#/$defs/synthesisBoundary" },
+    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "revision": { "const": 1 } }, "required": ["revision"] },
+      "then": {
+        "properties": {
+          "parent_demand_ref": { "type": "null" },
+          "parent_content_hash": { "type": "null" }
+        }
+      },
+      "else": {
+        "properties": {
+          "parent_demand_ref": { "$ref": "definitions.schema.json#/$defs/demandRef" },
+          "parent_content_hash": { "$ref": "definitions.schema.json#/$defs/sha256" }
+        }
+      }
+    }
+  ]
+}

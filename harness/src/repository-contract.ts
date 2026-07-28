@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-export const SKELETON_VERSION = "g2.2" as const;
+export const SKELETON_VERSION = "g2.3" as const;
 
 export const IMPLEMENTATION_STACK = {
   language: "TypeScript 7.0.2",
@@ -50,6 +50,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v10.json",
   "harness/schemas/bundle.v9.json",
   "harness/schemas/bundle.v8.json",
   "harness/schemas/bundle.v7.json",
@@ -156,6 +157,19 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v10/research-publication-policy-v5.schema.json",
   "harness/schemas/v10/artifact-envelope.schema.json",
   "harness/schemas/v10/document-bundle.schema.json",
+  "harness/schemas/v11/definitions.schema.json",
+  "harness/schemas/v11/discovery-candidate-conversion-v2.schema.json",
+  "harness/schemas/v11/demand-thesis.schema.json",
+  "harness/schemas/v11/baseline-option.schema.json",
+  "harness/schemas/v11/solution-hypothesis.schema.json",
+  "harness/schemas/v11/solution-evaluation.schema.json",
+  "harness/schemas/v11/opportunity-thesis.schema.json",
+  "harness/schemas/v11/thesis-evaluation-snapshot.schema.json",
+  "harness/schemas/v11/merge.schema.json",
+  "harness/schemas/v11/discovery-synthesis-policy.schema.json",
+  "harness/schemas/v11/research-publication-policy-v6.schema.json",
+  "harness/schemas/v11/artifact-envelope.schema.json",
+  "harness/schemas/v11/document-bundle.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
@@ -171,6 +185,8 @@ export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/discovery-maps-validator.ts",
   "harness/src/validators/discovery-candidate-policy.ts",
   "harness/src/validators/discovery-candidate-validator.ts",
+  "harness/src/validators/discovery-synthesis-policy.ts",
+  "harness/src/validators/discovery-synthesis-validator.ts",
   "harness/src/validators/planning-contract-identities.ts",
   "harness/src/validators/planning-contract-validator.ts",
   "harness/src/validators/validate-artifact-command.ts",
@@ -237,6 +253,8 @@ export const RESPONSIBILITY_PATHS = [
   "harness/policies/research-publication.v4.json",
   "harness/policies/discovery-candidates.v1.json",
   "harness/policies/research-publication.v5.json",
+  "harness/policies/discovery-synthesis.v1.json",
+  "harness/policies/research-publication.v6.json",
   "tests/fixtures/README.md",
   "tests/fixtures/g1.2/README.md",
   "tests/fixtures/g1.3/README.md",
@@ -252,6 +270,9 @@ export const RESPONSIBILITY_PATHS = [
   "tests/fixtures/g2.2/discovery-candidate-fixture.ts",
   "tests/fixtures/g2.2/discovery-runtime-fixture.ts",
   "tests/g2.2-discovery-runtime.test.ts",
+  "tests/fixtures/g2.3/README.md",
+  "tests/fixtures/g2.3/discovery-synthesis-fixture.ts",
+  "tests/g2.3-discovery-synthesis.test.ts",
   "tests/evals/README.md",
   "runs/.gitkeep",
 ] as const;

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v11/research-publication-policy-v6.schema.json",
+  "title": "Startup Opportunity Research Publication Policy v6",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "current_schema_bundle_version",
+    "adapters",
+    "evidence_contract",
+    "traceability_contract",
+    "task_lifecycle_contract",
+    "branch_status_adapter",
+    "discovery_lane_status_adapter",
+    "report_publication_contract",
+    "discovery_map_contract",
+    "discovery_runtime_contract",
+    "discovery_synthesis_contract"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.research_publication_policy.v6" },
+    "policy_id": { "const": "startup_opportunity.g2_3_research_publication" },
+    "policy_version": { "const": "6.0.0" },
+    "current_schema_bundle_version": { "const": "10.0.0" },
+    "adapters": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "envelope_version",
+          "document_bundle_version",
+          "receipt_version",
+          "manifest_schema_bundle_version",
+          "checkpoint_preferred",
+          "blocked_artifact_types"
+        ],
+        "properties": {
+          "envelope_version": {
+            "type": "string",
+            "pattern": "^startup_opportunity\\.artifact_envelope\\.v[1-9][0-9]*$"
+          },
+          "document_bundle_version": {
+            "type": "string",
+            "pattern": "^startup_opportunity\\.document_bundle\\.v[1-9][0-9]*$"
+          },
+          "receipt_version": {
+            "type": "string",
+            "pattern": "^startup_opportunity\\.artifact_store_operation\\.v[1-9][0-9]*$"
+          },
+          "manifest_schema_bundle_version": {
+            "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+          },
+          "checkpoint_preferred": { "type": "boolean" },
+          "blocked_artifact_types": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "../v1/definitions.schema.json#/$defs/schemaVersion" }
+          }
+        }
+      }
+    },
+    "evidence_contract": { "type": "object" },
+    "traceability_contract": { "type": "object" },
+    "task_lifecycle_contract": { "type": "object" },
+    "branch_status_adapter": { "type": "object" },
+    "discovery_lane_status_adapter": { "type": "object" },
+    "report_publication_contract": { "type": "object" },
+    "discovery_map_contract": { "type": "object" },
+    "discovery_runtime_contract": { "type": "object" },
+    "discovery_synthesis_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_envelope_version",
+        "runtime_document_bundle_version",
+        "conversion_artifact_type",
+        "formal_artifact_types",
+        "explicit_artifact_input_only",
+        "harness_synthesizes_semantics",
+        "source_candidate_mutation",
+        "publication_implies_validation",
+        "recovery"
+      ],
+      "properties": {
+        "runtime_envelope_version": { "const": "startup_opportunity.artifact_envelope.v11" },
+        "runtime_document_bundle_version": { "const": "startup_opportunity.document_bundle.v11" },
+        "conversion_artifact_type": {
+          "const": "startup_opportunity.discovery_candidate_conversion.v2"
+        },
+        "formal_artifact_types": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "explicit_artifact_input_only": { "const": true },
+        "harness_synthesizes_semantics": { "const": false },
+        "source_candidate_mutation": { "const": "forbidden" },
+        "publication_implies_validation": { "const": false },
+        "recovery": { "const": "receipt_driven_fail_closed" }
+      }
+    }
+  }
+}

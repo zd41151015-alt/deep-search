@@ -1,0 +1,711 @@
+import {
+  canonicalContentHash,
+  type DocumentBundle,
+  type EvidenceStoreRecordV2,
+  type FormalArtifactEnvelope,
+} from "../../../harness/src/index.js";
+import { G21_PLAN_REF, G21_SCOPE_REF } from "../g2.1/discovery-maps-fixture.js";
+import {
+  fixtureEffective,
+  fixtureEntry,
+  G22_BASELINE_EVALUATION_JUDGMENT,
+  G22_BASELINE_GENERATION_JUDGMENT,
+  G22_BASELINE_R1,
+  G22_DEMAND_EVALUATION_JUDGMENT,
+  G22_DEMAND_R2,
+  G22_EVALUATION_CLAIM,
+  G22_EVALUATION_LANE,
+  G22_EVALUATION_MANIFEST,
+  G22_FAN_IN,
+  G22_GENERATION_CLAIM,
+  G22_GENERATION_LANE,
+  G22_GENERATION_MANIFEST,
+  G22_INSIGHT,
+  G22_JUDGMENT,
+  G22_SOLUTION_EVALUATION_JUDGMENT,
+  G22_SOLUTION_GENERATION_JUDGMENT,
+  G22_SOLUTION_R1,
+} from "../g2.2/discovery-candidate-fixture.js";
+import {
+  createDiscoveryRuntimeFixture,
+  type DiscoveryRuntimeSubstrate,
+} from "../g2.2/discovery-runtime-fixture.js";
+
+export const G23_DEMAND_CONVERSION = "artifacts/discovery/conversions/candidate_demand.r1.json";
+export const G23_BASELINE_CONVERSION = "artifacts/discovery/conversions/candidate_baseline.r1.json";
+export const G23_SOLUTION_CONVERSION = "artifacts/discovery/conversions/candidate_solution.r1.json";
+export const G23_DEMAND = "artifacts/discovery/demands/demand_household.r1.json";
+export const G23_BASELINE = "artifacts/discovery/baselines/baseline_manual.r1.json";
+export const G23_SOLUTION = "artifacts/discovery/solutions/solution_coordination.r1.json";
+export const G23_EVALUATION =
+  "artifacts/discovery/solution-evaluations/evaluation_household.r1.json";
+export const G23_OPPORTUNITY_A = "artifacts/discovery/opportunities/opportunity_household.r1.json";
+export const G23_OPPORTUNITY_B =
+  "artifacts/discovery/opportunities/opportunity_household_variant.r1.json";
+export const G23_SNAPSHOT = "artifacts/discovery/thesis-snapshots/snapshot_household.r1.json";
+export const G23_MERGE = "artifacts/discovery/merges/merge_household.r1.json";
+
+const SYNTHETIC = "SYNTHETIC G2.3 fixture only; no real Evidence or validation.";
+
+function boundary(): Record<string, unknown> {
+  return {
+    source_candidate_mutated: false,
+    conversion_is_evidence: false,
+    publication_implies_validation: false,
+    external_validation_success_claimed: false,
+    harness_generated_research: false,
+    hidden_llm_calls: false,
+  };
+}
+
+function sourceGroups(): Record<string, unknown> {
+  return {
+    generation_source_manifest_refs: [G22_GENERATION_MANIFEST],
+    evaluation_source_manifest_refs: [G22_EVALUATION_MANIFEST],
+    overlap_disclosures: [],
+  };
+}
+
+function envelope(
+  runId: string,
+  path: string,
+  document: Record<string, unknown>,
+  inputRefs: readonly string[],
+  createdAt: string,
+): FormalArtifactEnvelope {
+  return {
+    schema_version: "startup_opportunity.artifact_envelope.v11",
+    artifact_type: String(document.schema_version),
+    artifact_path: path,
+    run_id: runId,
+    created_at: createdAt,
+    producer_role: "main_agent",
+    input_refs: [...new Set(inputRefs)].sort(),
+    content_hash: canonicalContentHash(document),
+    document,
+  } as FormalArtifactEnvelope;
+}
+
+function conversion(
+  runId: string,
+  id: string,
+  sourceRef: string,
+  kind: "demand_seed" | "baseline_seed" | "solution_seed",
+  revision: number,
+  sourceHash: string,
+  targetType: string,
+  targetRef: string,
+  targetHash: string,
+): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.discovery_candidate_conversion.v2",
+    conversion_id: `conversion_${id}`,
+    revision: 1,
+    parent_conversion_ref: null,
+    parent_content_hash: null,
+    run_id: runId,
+    scope_frame_ref: G21_SCOPE_REF,
+    research_plan_ref: G21_PLAN_REF,
+    source_candidate_ref: sourceRef,
+    source_candidate_schema_version: "startup_opportunity.discovery_candidate.v1",
+    source_candidate_kind: kind,
+    source_candidate_revision: revision,
+    source_candidate_content_hash: sourceHash,
+    discovery_fan_in_ref: G22_FAN_IN,
+    target_schema_version: targetType,
+    target_artifact_ref: targetRef,
+    target_content_hash: targetHash,
+    promotion_preconditions: {
+      source_candidate_is_current_revision: true,
+      source_candidate_is_retained: true,
+      typed_evidence_lineage_valid: true,
+      decision_sufficiency_satisfied: true,
+      target_schema_installed: true,
+      conversion_evaluator_installed: true,
+      promotion_authorized: true,
+    },
+    conversion_status: "promoted_to_formal_artifact",
+    source_boundary: boundary(),
+    limitations: [SYNTHETIC],
+  };
+}
+
+function opportunity(runId: string, id: string, title: string): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.opportunity_thesis.v1",
+    opportunity_id: id,
+    revision: 1,
+    parent_opportunity_ref: null,
+    parent_content_hash: null,
+    run_id: runId,
+    scope_frame_ref: G21_SCOPE_REF,
+    research_plan_ref: G21_PLAN_REF,
+    discovery_fan_in_ref: G22_FAN_IN,
+    title,
+    description: SYNTHETIC,
+    opportunity_thesis: SYNTHETIC,
+    discovery_profile: "general",
+    research_axes: ["industry_demand", "jtbd_workflow", "counter_evidence"],
+    demand_thesis_ref: G23_DEMAND,
+    selected_solution_ref: G23_SOLUTION,
+    alternative_solution_refs: [],
+    baseline_option_ref: G23_BASELINE,
+    solution_evaluation_ref: G23_EVALUATION,
+    selected_delivery_form: "mobile_web",
+    incremental_value_over_baseline: SYNTHETIC,
+    mental_positioning: SYNTHETIC,
+    mental_position_occupation: {
+      status: "unknown",
+      occupied_by: [],
+      white_space: SYNTHETIC,
+      evidence_refs: [],
+    },
+    trigger_phrase: SYNTHETIC,
+    entry_scene: SYNTHETIC,
+    job_to_be_done: SYNTHETIC,
+    buyer: [SYNTHETIC],
+    payer: [SYNTHETIC],
+    decision_maker: [SYNTHETIC],
+    buyer_purchase_language: [SYNTHETIC],
+    marketing_bridge: {
+      user_trigger_phrase: SYNTHETIC,
+      buyer_purchase_phrase: SYNTHETIC,
+      decision_criteria: [SYNTHETIC],
+    },
+    beachhead_segment: SYNTHETIC,
+    entry_wedge: SYNTHETIC,
+    why_now: SYNTHETIC,
+    initial_distribution_channels: [SYNTHETIC],
+    value_layer: {
+      primary: "workflow_outcome",
+      output_value: SYNTHETIC,
+      workflow_value: SYNTHETIC,
+      outcome_metrics: [SYNTHETIC],
+    },
+    user_state_context_model: {
+      state_variables: [SYNTHETIC],
+      context_sources: [SYNTHETIC],
+      state_update_triggers: [SYNTHETIC],
+      feedback_or_ground_truth: [],
+      retention_boundary: SYNTHETIC,
+      privacy_permission_boundary: SYNTHETIC,
+      deletion_export_boundary: SYNTHETIC,
+    },
+    natural_restatement_test: {
+      status: "not_tested",
+      test_prompt: SYNTHETIC,
+      target_user: SYNTHETIC,
+      expected_restatement: SYNTHETIC,
+      success_signal: SYNTHETIC,
+      failure_signal: SYNTHETIC,
+      evidence_refs: [],
+      limitations: [SYNTHETIC],
+    },
+    source_lanes: [G22_GENERATION_LANE, G22_EVALUATION_LANE],
+    supporting_insight_refs: [G22_INSIGHT],
+    opposing_claim_refs: [G22_EVALUATION_CLAIM],
+    judgment_assessment_refs: [G22_JUDGMENT, G22_DEMAND_EVALUATION_JUDGMENT],
+    audit_refs: [],
+    risks: [SYNTHETIC],
+    kill_criteria: [SYNTHETIC],
+    comparison_ref: null,
+    decision_recommendation_ref: null,
+    lifecycle_status: "proposed",
+    valid_as_of: "2026-07-27",
+    freshness_policy: "revalidate_when_decisive_evidence_expires",
+    source_boundary: boundary(),
+    limitations: [SYNTHETIC],
+  };
+}
+
+export async function createDiscoverySynthesisFixture(
+  runId: string,
+  substrate: DiscoveryRuntimeSubstrate,
+): Promise<DocumentBundle> {
+  const bundle = await createDiscoveryRuntimeFixture(runId, substrate);
+  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v11";
+  const mutable = bundle as unknown as {
+    documents: { path: string; document: Record<string, unknown> }[];
+  };
+  const fanIn = fixtureEffective(bundle, G22_FAN_IN);
+  for (const disposition of fanIn.candidate_dispositions as Record<string, unknown>[]) {
+    disposition.disposition = "retained";
+  }
+  fanIn.retained_candidate_refs = [G22_DEMAND_R2, G22_BASELINE_R1, G22_SOLUTION_R1];
+  fanIn.watchlist_candidate_refs = [];
+  fanIn.rejected_candidate_refs = [];
+  (fanIn.candidate_diversity_summary as Record<string, unknown>).diversity_retention_refs = [
+    G22_DEMAND_R2,
+    G22_BASELINE_R1,
+    G22_SOLUTION_R1,
+  ];
+  fanIn.evidence_sufficiency_summary = {
+    status: "sufficient_for_triage",
+    insufficiency_reasons: [],
+    what_would_change_the_decision: [SYNTHETIC],
+  };
+  fanIn.pre_kill_summary = ["SYNTHETIC all three typed candidates retained for G2.3 fixture."];
+  const fanInEnvelope = fixtureEntry(bundle, G22_FAN_IN);
+  fanInEnvelope.content_hash = canonicalContentHash(fanIn);
+
+  const demand = {
+    schema_version: "startup_opportunity.demand_thesis.v1",
+    demand_id: "demand_household",
+    revision: 1,
+    parent_demand_ref: null,
+    parent_content_hash: null,
+    run_id: runId,
+    scope_frame_ref: G21_SCOPE_REF,
+    research_plan_ref: G21_PLAN_REF,
+    discovery_fan_in_ref: G22_FAN_IN,
+    source_conversion_ref: G23_DEMAND_CONVERSION,
+    source_candidate_ref: G22_DEMAND_R2,
+    solution_neutral: true,
+    source_groups: sourceGroups(),
+    user: [SYNTHETIC],
+    buyer: [SYNTHETIC],
+    payer: [SYNTHETIC],
+    decision_maker: [SYNTHETIC],
+    job_to_be_done: SYNTHETIC,
+    workflow_step: SYNTHETIC,
+    trigger_phrase: SYNTHETIC,
+    entry_scene: SYNTHETIC,
+    current_alternatives: [SYNTHETIC],
+    current_ai_workarounds: [],
+    failure_and_loss: SYNTHETIC,
+    task_operating_profile: {
+      frequency: "unknown",
+      volume: "unknown",
+      input_modality: ["unknown"],
+      output_modality: ["unknown"],
+      task_variability: "unknown",
+      exception_rate: "unknown",
+      context_fragmentation: "unknown",
+      judgment_intensity: "unknown",
+    },
+    execution_constraints: {
+      latency_tolerance: "unknown",
+      quality_threshold: "unknown",
+      error_cost: "unknown",
+      auditability_requirement: "unknown",
+      human_review_tolerance: "unknown",
+      privacy_security_constraints: [],
+    },
+    data_conditions: {
+      existing_digital_trace: false,
+      context_sources: [],
+      possible_ground_truth: [],
+      feedback_frequency: "unknown",
+    },
+    outcome_metrics: [SYNTHETIC],
+    supporting_claim_refs: [G22_GENERATION_CLAIM],
+    opposing_claim_refs: [G22_EVALUATION_CLAIM],
+    judgment_assessment_refs: [G22_JUDGMENT, G22_DEMAND_EVALUATION_JUDGMENT],
+    kill_conditions: [SYNTHETIC],
+    audit_refs: [],
+    source_boundary: boundary(),
+    limitations: [SYNTHETIC],
+  };
+  const baseline = {
+    schema_version: "startup_opportunity.baseline_option.v1",
+    baseline_id: "baseline_manual",
+    revision: 1,
+    parent_baseline_ref: null,
+    parent_content_hash: null,
+    run_id: runId,
+    scope_frame_ref: G21_SCOPE_REF,
+    research_plan_ref: G21_PLAN_REF,
+    discovery_fan_in_ref: G22_FAN_IN,
+    source_conversion_ref: G23_BASELINE_CONVERSION,
+    source_candidate_ref: G22_BASELINE_R1,
+    demand_thesis_ref: G23_DEMAND,
+    current_workflow: SYNTHETIC,
+    current_cost: SYNTHETIC,
+    current_failure_modes: [SYNTHETIC],
+    switching_cost: SYNTHETIC,
+    why_users_continue: SYNTHETIC,
+    minimum_incremental_value_required: SYNTHETIC,
+    judgment_assessment_refs: [G22_BASELINE_GENERATION_JUDGMENT, G22_BASELINE_EVALUATION_JUDGMENT],
+    audit_refs: [],
+    source_boundary: boundary(),
+    limitations: [SYNTHETIC],
+  };
+  const solution = {
+    schema_version: "startup_opportunity.solution_hypothesis.v1",
+    solution_id: "solution_coordination",
+    revision: 1,
+    parent_solution_ref: null,
+    parent_content_hash: null,
+    run_id: runId,
+    scope_frame_ref: G21_SCOPE_REF,
+    research_plan_ref: G21_PLAN_REF,
+    discovery_fan_in_ref: G22_FAN_IN,
+    source_conversion_ref: G23_SOLUTION_CONVERSION,
+    source_candidate_ref: G22_SOLUTION_R1,
+    demand_thesis_ref: G23_DEMAND,
+    baseline_option_ref: G23_BASELINE,
+    selected: false,
+    delivery_form: "mobile_web",
+    solution_type: "consumer_workflow",
+    uses_ai: false,
+    solution_behavior: SYNTHETIC,
+    workflow_change: SYNTHETIC,
+    required_capabilities: [],
+    capability_evidence_refs: [],
+    incremental_value_over_baseline: SYNTHETIC,
+    market_motion: "consumer",
+    acquisition_motion: "community",
+    buyer_model: "household_payer",
+    payment_mode: "subscription",
+    expected_outcomes: [SYNTHETIC],
+    risks: [SYNTHETIC],
+    kill_criteria: [SYNTHETIC],
+    supporting_claim_refs: [G22_GENERATION_CLAIM],
+    opposing_claim_refs: [G22_EVALUATION_CLAIM],
+    judgment_assessment_refs: [G22_SOLUTION_GENERATION_JUDGMENT, G22_SOLUTION_EVALUATION_JUDGMENT],
+    audit_refs: [],
+    source_boundary: boundary(),
+    limitations: [SYNTHETIC],
+  };
+  const evaluation = {
+    schema_version: "startup_opportunity.solution_evaluation.v1",
+    evaluation_id: "evaluation_household",
+    revision: 1,
+    parent_evaluation_ref: null,
+    parent_content_hash: null,
+    run_id: runId,
+    scope_frame_ref: G21_SCOPE_REF,
+    research_plan_ref: G21_PLAN_REF,
+    discovery_fan_in_ref: G22_FAN_IN,
+    demand_thesis_ref: G23_DEMAND,
+    baseline_option_ref: G23_BASELINE,
+    solution_hypothesis_refs: [G23_SOLUTION],
+    selected_solution_ref: G23_SOLUTION,
+    alternative_solution_refs: [],
+    rejected_solutions: [],
+    baseline_comparisons: [
+      {
+        solution_ref: G23_SOLUTION,
+        incremental_value: SYNTHETIC,
+        migration_cost: SYNTHETIC,
+        decision: "selected",
+      },
+    ],
+    solution_rationale: SYNTHETIC,
+    critical_unknowns: [SYNTHETIC],
+    capability_only_signals: [],
+    source_groups: sourceGroups(),
+    decision_sufficiency: "sufficient_for_thesis",
+    judgment_assessment_refs: [G22_SOLUTION_GENERATION_JUDGMENT, G22_SOLUTION_EVALUATION_JUDGMENT],
+    audit_refs: [],
+    source_boundary: boundary(),
+    limitations: [SYNTHETIC],
+  };
+  const opportunityA = opportunity(runId, "opportunity_household", "SYNTHETIC household workflow");
+  const opportunityB = opportunity(
+    runId,
+    "opportunity_household_variant",
+    "SYNTHETIC household workflow alternate title",
+  );
+  const snapshot = {
+    schema_version: "startup_opportunity.thesis_evaluation_snapshot.v1",
+    snapshot_id: "snapshot_household",
+    revision: 1,
+    parent_snapshot_ref: null,
+    parent_content_hash: null,
+    run_id: runId,
+    scope_frame_ref: G21_SCOPE_REF,
+    research_plan_ref: G21_PLAN_REF,
+    subject_refs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+    demand_thesis_refs: [G23_DEMAND],
+    solution_hypothesis_refs: [G23_SOLUTION],
+    baseline_option_refs: [G23_BASELINE],
+    solution_evaluation_refs: [G23_EVALUATION],
+    business_model_assumptions: [SYNTHETIC],
+    critical_assumptions: [SYNTHETIC],
+    kill_criteria: [SYNTHETIC],
+    generation_source_groups: [G22_GENERATION_MANIFEST],
+    evaluation_source_groups: [G22_EVALUATION_MANIFEST],
+    evaluation_questions: [SYNTHETIC],
+    frozen_at: "2026-07-27T20:10:00Z",
+    revision_policy: "new_immutable_snapshot_revision_required",
+    enrichment_started: false,
+    source_boundary: boundary(),
+    limitations: [SYNTHETIC],
+  };
+  const merge = {
+    schema_version: "startup_opportunity.merge.v1",
+    merge_id: "merge_household",
+    revision: 1,
+    parent_merge_ref: null,
+    parent_content_hash: null,
+    run_id: runId,
+    scope_frame_ref: G21_SCOPE_REF,
+    research_plan_ref: G21_PLAN_REF,
+    source_snapshot_ref: G23_SNAPSHOT,
+    source_thesis_refs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+    merged_opportunities: [
+      {
+        cluster_id: "cluster_household",
+        canonical_opportunity_ref: G23_OPPORTUNITY_A,
+        member_thesis_refs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+      },
+    ],
+    merge_or_split_decisions: [
+      {
+        decision_id: "decision_merge_household",
+        cluster_id: "cluster_household",
+        decision: "merge",
+        member_thesis_refs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        semantic_basis: {
+          user: SYNTHETIC,
+          job: SYNTHETIC,
+          entry_scene: SYNTHETIC,
+          baseline: SYNTHETIC,
+          solution: SYNTHETIC,
+          buyer_logic: SYNTHETIC,
+          acquisition_or_compliance_boundary: SYNTHETIC,
+        },
+        title_similarity_only: false,
+        rationale: SYNTHETIC,
+      },
+    ],
+    preserved_variants: [G23_OPPORTUNITY_B],
+    candidate_diversity_after_merge: {
+      covered_users: [SYNTHETIC],
+      covered_jobs: [SYNTHETIC],
+      covered_entry_scenes: [SYNTHETIC],
+      covered_buyer_models: [SYNTHETIC],
+      known_blind_spots: [SYNTHETIC],
+    },
+    conflicts: [],
+    audit_refs: [],
+    source_boundary: boundary(),
+    limitations: [SYNTHETIC],
+  };
+
+  const targetDocuments = [
+    [G23_DEMAND, demand],
+    [G23_BASELINE, baseline],
+    [G23_SOLUTION, solution],
+  ] as const;
+  const conversions = [
+    [
+      G23_DEMAND_CONVERSION,
+      conversion(
+        runId,
+        "candidate_demand",
+        G22_DEMAND_R2,
+        "demand_seed",
+        2,
+        canonicalContentHash(fixtureEffective(bundle, G22_DEMAND_R2)),
+        "startup_opportunity.demand_thesis.v1",
+        G23_DEMAND,
+        canonicalContentHash(demand),
+      ),
+    ],
+    [
+      G23_BASELINE_CONVERSION,
+      conversion(
+        runId,
+        "candidate_baseline",
+        G22_BASELINE_R1,
+        "baseline_seed",
+        1,
+        canonicalContentHash(fixtureEffective(bundle, G22_BASELINE_R1)),
+        "startup_opportunity.baseline_option.v1",
+        G23_BASELINE,
+        canonicalContentHash(baseline),
+      ),
+    ],
+    [
+      G23_SOLUTION_CONVERSION,
+      conversion(
+        runId,
+        "candidate_solution",
+        G22_SOLUTION_R1,
+        "solution_seed",
+        1,
+        canonicalContentHash(fixtureEffective(bundle, G22_SOLUTION_R1)),
+        "startup_opportunity.solution_hypothesis.v1",
+        G23_SOLUTION,
+        canonicalContentHash(solution),
+      ),
+    ],
+  ] as const;
+  const entries: FormalArtifactEnvelope[] = [];
+  for (const [path, document] of conversions) {
+    entries.push(
+      envelope(
+        runId,
+        path,
+        document,
+        [
+          G21_SCOPE_REF,
+          G21_PLAN_REF,
+          G22_FAN_IN,
+          String(document.source_candidate_ref),
+          String(document.target_artifact_ref),
+        ],
+        "2026-07-27T20:00:00Z",
+      ),
+    );
+  }
+  const targetInputs = new Map<string, readonly string[]>([
+    [
+      G23_DEMAND,
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        G22_FAN_IN,
+        G23_DEMAND_CONVERSION,
+        G22_DEMAND_R2,
+        G22_GENERATION_MANIFEST,
+        G22_EVALUATION_MANIFEST,
+        G22_GENERATION_CLAIM,
+        G22_EVALUATION_CLAIM,
+        G22_JUDGMENT,
+        G22_DEMAND_EVALUATION_JUDGMENT,
+      ],
+    ],
+    [
+      G23_BASELINE,
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        G22_FAN_IN,
+        G23_BASELINE_CONVERSION,
+        G22_BASELINE_R1,
+        G23_DEMAND,
+        G22_BASELINE_GENERATION_JUDGMENT,
+        G22_BASELINE_EVALUATION_JUDGMENT,
+      ],
+    ],
+    [
+      G23_SOLUTION,
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        G22_FAN_IN,
+        G23_SOLUTION_CONVERSION,
+        G22_SOLUTION_R1,
+        G23_DEMAND,
+        G23_BASELINE,
+        G22_GENERATION_CLAIM,
+        G22_EVALUATION_CLAIM,
+        G22_SOLUTION_GENERATION_JUDGMENT,
+        G22_SOLUTION_EVALUATION_JUDGMENT,
+      ],
+    ],
+  ]);
+  for (const [path, document] of targetDocuments) {
+    entries.push(
+      envelope(runId, path, document, targetInputs.get(path) ?? [], "2026-07-27T20:01:00Z"),
+    );
+  }
+  entries.push(
+    envelope(
+      runId,
+      G23_EVALUATION,
+      evaluation,
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        G22_FAN_IN,
+        G23_DEMAND,
+        G23_BASELINE,
+        G23_SOLUTION,
+        G22_GENERATION_MANIFEST,
+        G22_EVALUATION_MANIFEST,
+        G22_SOLUTION_GENERATION_JUDGMENT,
+        G22_SOLUTION_EVALUATION_JUDGMENT,
+      ],
+      "2026-07-27T20:03:00Z",
+    ),
+    envelope(
+      runId,
+      G23_OPPORTUNITY_A,
+      opportunityA,
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        G22_FAN_IN,
+        G23_DEMAND,
+        G23_BASELINE,
+        G23_SOLUTION,
+        G23_EVALUATION,
+        G22_GENERATION_LANE,
+        G22_EVALUATION_LANE,
+        G22_INSIGHT,
+        G22_EVALUATION_CLAIM,
+        G22_JUDGMENT,
+        G22_DEMAND_EVALUATION_JUDGMENT,
+      ],
+      "2026-07-27T20:05:00Z",
+    ),
+    envelope(
+      runId,
+      G23_OPPORTUNITY_B,
+      opportunityB,
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        G22_FAN_IN,
+        G23_DEMAND,
+        G23_BASELINE,
+        G23_SOLUTION,
+        G23_EVALUATION,
+        G22_GENERATION_LANE,
+        G22_EVALUATION_LANE,
+        G22_INSIGHT,
+        G22_EVALUATION_CLAIM,
+        G22_JUDGMENT,
+        G22_DEMAND_EVALUATION_JUDGMENT,
+      ],
+      "2026-07-27T20:06:00Z",
+    ),
+    envelope(
+      runId,
+      G23_SNAPSHOT,
+      snapshot,
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        G23_OPPORTUNITY_A,
+        G23_OPPORTUNITY_B,
+        G23_DEMAND,
+        G23_BASELINE,
+        G23_SOLUTION,
+        G23_EVALUATION,
+        G22_GENERATION_MANIFEST,
+        G22_EVALUATION_MANIFEST,
+      ],
+      "2026-07-27T20:10:00Z",
+    ),
+    envelope(
+      runId,
+      G23_MERGE,
+      merge,
+      [G21_SCOPE_REF, G21_PLAN_REF, G23_SNAPSHOT, G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+      "2026-07-27T20:11:00Z",
+    ),
+  );
+  mutable.documents.push(
+    ...entries.map((document) => ({
+      path: document.artifact_path,
+      document: document as unknown as Record<string, unknown>,
+    })),
+  );
+  const manifest = fixtureEntry(bundle, "manifest.json");
+  manifest.schema_bundle_version = "10.0.0";
+  return bundle;
+}
+
+export function synthesisEnvelope(
+  bundle: DocumentBundle,
+  artifactPath: string,
+): FormalArtifactEnvelope {
+  return fixtureEntry(bundle, artifactPath) as unknown as FormalArtifactEnvelope;
+}
+
+export type { DiscoveryRuntimeSubstrate, EvidenceStoreRecordV2 };

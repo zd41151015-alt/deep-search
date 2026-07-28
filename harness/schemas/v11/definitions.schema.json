@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v11/definitions.schema.json",
+  "$defs": {
+    "nonEmptyString": { "$ref": "../v1/definitions.schema.json#/$defs/nonEmptyString" },
+    "identifier": { "$ref": "../v1/definitions.schema.json#/$defs/identifier" },
+    "runId": { "$ref": "../v1/definitions.schema.json#/$defs/runId" },
+    "timestamp": { "$ref": "../v1/definitions.schema.json#/$defs/timestamp" },
+    "sha256": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
+    "artifactPath": { "$ref": "../v1/definitions.schema.json#/$defs/artifactPath" },
+    "artifactRef": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRef" },
+    "artifactRefArray": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRefArray" },
+    "uniqueStringArray": { "$ref": "../v1/definitions.schema.json#/$defs/uniqueStringArray" },
+    "discoveryProfile": { "$ref": "../v8/definitions.schema.json#/$defs/discoveryProfile" },
+    "deliveryForm": { "$ref": "../v8/definitions.schema.json#/$defs/deliveryForm" },
+    "candidateRef": { "$ref": "../v9/definitions.schema.json#/$defs/candidateRef" },
+    "fanInRef": {
+      "type": "string",
+      "pattern": "^artifacts/discovery/fan-in\\.r[1-9][0-9]*\\.json$"
+    },
+    "conversionRef": {
+      "type": "string",
+      "pattern": "^artifacts/discovery/conversions/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "demandRef": {
+      "type": "string",
+      "pattern": "^artifacts/discovery/demands/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "baselineRef": {
+      "type": "string",
+      "pattern": "^artifacts/discovery/baselines/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "solutionRef": {
+      "type": "string",
+      "pattern": "^artifacts/discovery/solutions/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "solutionEvaluationRef": {
+      "type": "string",
+      "pattern": "^artifacts/discovery/solution-evaluations/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "opportunityRef": {
+      "type": "string",
+      "pattern": "^artifacts/discovery/opportunities/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "snapshotRef": {
+      "type": "string",
+      "pattern": "^artifacts/discovery/thesis-snapshots/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "mergeRef": {
+      "type": "string",
+      "pattern": "^artifacts/discovery/merges/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "nullableParent": {
+      "anyOf": [{ "$ref": "#/$defs/artifactRef" }, { "type": "null" }]
+    },
+    "nullableHash": {
+      "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+    },
+    "sourceGroups": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generation_source_manifest_refs",
+        "evaluation_source_manifest_refs",
+        "overlap_disclosures"
+      ],
+      "properties": {
+        "generation_source_manifest_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "../v9/definitions.schema.json#/$defs/sourceManifestRef" }
+        },
+        "evaluation_source_manifest_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "../v9/definitions.schema.json#/$defs/sourceManifestRef" }
+        },
+        "overlap_disclosures": { "$ref": "#/$defs/uniqueStringArray" }
+      }
+    },
+    "synthesisBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_candidate_mutated",
+        "conversion_is_evidence",
+        "publication_implies_validation",
+        "external_validation_success_claimed",
+        "harness_generated_research",
+        "hidden_llm_calls"
+      ],
+      "properties": {
+        "source_candidate_mutated": { "const": false },
+        "conversion_is_evidence": { "const": false },
+        "publication_implies_validation": { "const": false },
+        "external_validation_success_claimed": { "const": false },
+        "harness_generated_research": { "const": false },
+        "hidden_llm_calls": { "const": false }
+      }
+    },
+    "revisionBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "parent_ref", "parent_content_hash"],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 1 },
+        "parent_ref": { "$ref": "#/$defs/nullableParent" },
+        "parent_content_hash": { "$ref": "#/$defs/nullableHash" }
+      }
+    }
+  }
+}

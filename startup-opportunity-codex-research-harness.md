@@ -3854,6 +3854,7 @@ startup_opportunity.discovery_lane_result.v1
 startup_opportunity.discovery_fan_in.v1
 startup_opportunity.discovery_fan_in.v2
 startup_opportunity.discovery_candidate_conversion.v1
+startup_opportunity.discovery_candidate_conversion.v2
 startup_opportunity.demand_thesis.v1
 startup_opportunity.baseline_option.v1
 startup_opportunity.solution_hypothesis.v1
@@ -3904,6 +3905,14 @@ startup_opportunity.traceability.v1
 | `discovery_fan_in.v1` | `artifacts/discovery/fan-in.r1.json` | main Agent / G2.2 contract | immutable validation-only contract；reference-only |
 | `discovery_fan_in.v2` | `artifacts/discovery/fan-in.r1.json` | main Agent / G2.2 runtime | reference-only；允许显式 candidate revision upgrade，不复制 Evidence 内容；绑定 installed Manifest adapter |
 | `discovery_candidate_conversion.v1` | `artifacts/discovery/conversions/<candidate_id>.r<n>.json`；rN exact parent=rN-1 + parent canonical hash | main Agent / G2.3 | 当前仅 contract-only proposal；不得执行、publish target 或声称 promotion/validation |
+| `discovery_candidate_conversion.v2` | `artifacts/discovery/conversions/<candidate_id>.r<n>.json`；rN exact parent=rN-1 + parent canonical hash | main Agent / G2.3 runtime | executable conversion；retained/current source candidate 与 formal target 双向绑定 exact ref/schema/revision/hash；不改变 source candidate，不构成 Evidence 或 validation success |
+| `demand_thesis.v1` | `artifacts/discovery/demands/<demand_id>.r<n>.json` | main Agent / G2.3 | solution-neutral；必须先于其 Baseline/Solution 依赖发布 |
+| `baseline_option.v1` | `artifacts/discovery/baselines/<baseline_id>.r<n>.json` | main Agent / G2.3 | 回连 typed demand 与 baseline source candidate ancestry；不参加 TopN |
+| `solution_hypothesis.v1` | `artifacts/discovery/solutions/<solution_id>.r<n>.json` | main Agent / G2.3 | 回连 typed demand/baseline 与 solution source candidate ancestry；selection 由 Solution Evaluation 拥有 |
+| `solution_evaluation.v1` | `artifacts/discovery/solution-evaluations/<evaluation_id>.r<n>.json` | main Agent / G2.3 | 同 Demand/Baseline 下每个 solution exact-once classified，并逐项比较 baseline |
+| `opportunity_thesis.v1` | `artifacts/discovery/opportunities/<opportunity_id>.r<n>.json` | main Agent / G2.3 | exact 反映 selected solution、alternatives、baseline 和 evaluation；comparison/recommendation refs 在 G2.3 固定为 null |
+| `thesis_evaluation_snapshot.v1` | `artifacts/discovery/thesis-snapshots/<snapshot_id>.r<n>.json` | main Agent / G2.3 | enrichment 前冻结 exact thesis/source-group closure；后续变化只能发布新 immutable revision |
+| `merge.v1` | `artifacts/discovery/merges/<merge_id>.r<n>.json` | main Agent / G2.3 | frozen theses exact-once 分类；按 user/job/scene/baseline/solution/buyer/acquisition-compliance 语义合并，不得只看标题 |
 
 Candidate 的 `map_lineage` 同时保存 source map ref/schema/id/revision/canonical hash、fragment ref、JSON Pointer、fragment id/status/canonical hash。Evaluator 从 bundle 中重新解析 exact fragment；标题、数组位置的隐式约定或只保存 map path 均失败。Run、Scope ref、current Plan ref、discovery profile、market 和 language 由 Scope Frame 唯一拥有，candidate 不得漂移。
 
@@ -3913,9 +3922,11 @@ Append-only 只是必要条件，不构成 candidate-specific binding。每个�
 
 Generation 与 evaluation 使用不同 `research_task.v2.source_phase`、typed Evidence `research_phase_role` 和 Source Manifest group；任何 canonical source-group overlap 都必须精确披露。Candidate 或 lane 可以是 `partial`/`insufficient_evidence`，但这只降低 conclusion ceiling；`failed`、`ignored_late`、`superseded` lane result 不能进入 current candidate enrichment 或 fan-in supporting refs。
 
-G2.3 conversion 的唯一映射是 `demand_seed -> demand_thesis.v1`、`baseline_seed -> baseline_option.v1`、`solution_seed -> solution_hypothesis.v1`。它自身使用 immutable revision/path/parent/hash，且要求 fan-in retained/current candidate、exact source revision/hash/kind、typed lineage 与 G2.3 schema/evaluator；在这些尚未安装时固定 `promotion_authorized=false`、`target_published=false`。转换创建新 Artifact，绝不覆盖旧 candidate，也不把转换表述成 Evidence 或 validation success。
+G2.3 conversion 的唯一映射是 `demand_seed -> demand_thesis.v1`、`baseline_seed -> baseline_option.v1`、`solution_seed -> solution_hypothesis.v1`。accepted `discovery_candidate_conversion.v1` bytes 永久保留 contract-only、`promotion_authorized=false`、`target_published=false`；G2.3 runtime 只执行新 `discovery_candidate_conversion.v2`。v2 自身使用 immutable revision/path/parent/hash，要求 fan-in retained/current candidate、exact source revision/hash/kind、typed lineage、installed target schema/evaluator，并与 formal target 双向绑定 exact ref/hash。转换创建新 Artifact，绝不覆盖旧 candidate，也不把转换表述成 Evidence、市场验证或 validation success。
 
-v9 继续只安装在 deterministic schema/reference/contract validation surface；把 v9 envelope 提交给 Store 必须在写入前以 `artifact.envelope_unsupported` fail closed。G2.2 runtime 另由 schema bundle `9.0.0`、v10 Envelope/Document Bundle、`discovery_fan_in.v2` 和 `research-publication.v5` 唯一拥有：v10 使用 receipt v8，把 task pending-to-active、eligible terminal lane 到 completed/failed、late/superseded lane 到 ignored refs 机械投影到 Manifest，并支持 checkpoint/reopen/recovery。Harness 只消费调用方显式 Artifact，不 dispatch agent、不执行 lane/pre-kill、不调用 LLM、不访问网络或执行 external validation；G2.3/G2.4 artifact types 在 v10 adapter 中继续 blocked。
+v9 继续只安装在 deterministic schema/reference/contract validation surface；把 v9 envelope 提交给 Store 必须在写入前以 `artifact.envelope_unsupported` fail closed。G2.2 runtime 另由 schema bundle `9.0.0`、v10 Envelope/Document Bundle、`discovery_fan_in.v2` 和 `research-publication.v5` 唯一拥有：v10 使用 receipt v8，把 task pending-to-active、eligible terminal lane 到 completed/failed、late/superseded lane 到 ignored refs 机械投影到 Manifest，并支持 checkpoint/reopen/recovery；全部 G2.3 types 在 v10 adapter 中继续 blocked。
+
+G2.3 runtime 由 schema bundle `10.0.0`、v11 Envelope/Document Bundle、receipt v9、`discovery-synthesis.v1` 和 `research-publication.v6` 唯一拥有。v11 对 caller-supplied conversion/formal thesis/evaluation/snapshot/merge bundle 做 closed validation，并按 Demand conversion+target -> Baseline conversion+target -> Solution conversion+target -> evaluation -> Opportunity -> snapshot -> merge 的稳定顺序 immutable publish；Manifest 只机械升级到 bundle `10.0.0`。每个 typed synthesis material 必须通过 owning `research_task.v2` 绑定 formal target 的 exact source candidate ancestor；Source Manifest 必须保持 generation/evaluation role、candidate partition 与 canonical source-group overlap disclosure。G2.4 enrichment/comparison/report types 继续由 v11 adapter fail closed。Harness 不合成 thesis 语义、不 dispatch agent、不调用 LLM、不访问网络或执行 external validation；schema/Store success 不代表 Evidence 真实、Evidence 充分、thesis 有效或市场已验证。
 
 Schema bundle `2.0.0` 中的 `artifact_envelope.v2` 和 `document_bundle.v2` 是 schema/reference validation contracts，不表示 G0.3 Store 已支持 v2 publication。当前 Store 的 `FormalArtifactEnvelope`、operation receipt recovery 和 publish reference bundle 仍固定为 v1；直接提交 v2 envelope 会在 `document_bundle.v1` reference-validation boundary fail closed。只有 G0.4 implementation 另行发布并接通兼容 Store/envelope/receipt migration contract 后，才能声称 v2 Store publish 已启用；本节的 v2 documents 在此之前只用于显式只读 contract validation。
 
@@ -3955,6 +3966,10 @@ decision context -> concept frame -> evidence assessment plan r1
 #### Pre-thesis Candidate contract evaluator
 
 检查 exact map fragment/ref/hash/revision、same-Run Scope/Plan/profile/market/language、candidate path/parent/hash/append-only enrichment、每个新增 material 对 exact source candidate revision 的 task binding、producer ownership、typed discovery Evidence chain、generation/evaluation separation、lane disposition Judgment subject/task binding、fan-in Judgment source/ancestor/closure、disposition identity/exclusivity、reference-only fan-in、terminal lane exclusion和 G2.3 conversion lineage。该 evaluator 不执行 research；v9 只读 validation 不改变 Store，v10 publication 仅按 versioned adapter 执行机械 Manifest transition。
+
+#### Discovery synthesis contract evaluator
+
+检查 executable v2 conversion 与 retained/current candidate 的 exact kind/revision/hash、conversion/target 双向 ref/hash、Demand solution-neutrality、Baseline/Solution candidate subject ancestry、每项 formal typed material 的 source-candidate/task binding、generation/evaluation Source Manifest role 与 overlap disclosure、Solution Evaluation exact classification、Opportunity selection lineage、pre-enrichment snapshot closure、created-at/publication dependency order和 semantic merge exact-once closure。该 evaluator 只验证调用方显式 Artifact 并执行 v11 immutable publication/reopen/recovery；它不生成 thesis、判断 Evidence 真实性/充分性、声明 promotion 等于 validation，或开放 G2.4 comparison/report。
 
 #### Research quality evaluator
 

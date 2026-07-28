@@ -9,7 +9,7 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 
 ## Current Execution Gate
 
-依赖此仓库前，先运行 `npm run harness -- doctor --json`。G2.2 已在 G2.1 maps surface 之上实现方案 A pre-thesis candidate、显式 discovery Research Task、typed lane material/result、pre-kill disposition 和 reference-only fan-in 的 closed validation/publication/checkpoint/reopen/recovery。Harness 只接受调用方给出的显式 Artifact；不会分派 agent、调用 LLM、执行 lane 或 network research，也不会自行形成 pre-kill 判断。正式 Demand/Baseline/Solution/Opportunity Thesis、comparison、portfolio 和 discovery report 仍未开放。
+依赖此仓库前，先运行 `npm run harness -- doctor --json`。G2.3 已在 G2.2 runtime 之上实现 executable candidate conversion v2、正式 Demand/Baseline/Solution/Opportunity Thesis、Solution Evaluation、pre-enrichment Thesis Snapshot 和 semantic Merge 的 closed validation/publication/checkpoint/reopen/recovery。Harness 只接受调用方给出的显式 Artifact；不会分派 agent、调用 LLM、执行 lane 或 network research，也不会自行形成 pre-kill、thesis 或 selection 判断。G2.4 enrichment、Business Engine、comparison、portfolio 和 discovery report 仍未开放。
 
 ## Action Routing
 
@@ -40,4 +40,4 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 
 ## Script Surface
 
-`scripts/doctor.ts`、`validate-artifact.ts`、`create-run.ts`、`load-run.ts`、`record-evidence.ts`、`publish-artifact.ts`、`checkpoint-run.ts`、`validate-plan.ts`、`analyze-gaps.ts`、`validate-adaptation.ts`、`apply-plan-revision.ts`、`audit-traceability.ts` 和 `build-report.ts` 已可运行。G2.1 maps 使用显式 v8 envelope；G2.2 runtime 使用显式 v10 envelope、v8 receipt 和 bundle `9.0.0` Manifest adapter，v9 contract envelope 继续 Store fail-closed。调用方负责生成 candidate/task/material/lane/fan-in，generic `publish-artifact` 只做 closed validation 和 immutable publication；没有 `discover` 或 lane execution command。Store、schema、Plan/Adaptation、map、lane/fan-in、audit 或 report 成功不代表 Evidence 真实/充分、决策就绪、thesis 成立或 research 已完成。其余 RFC 命名 script 在 owning slice 开放前继续 fail closed；不得把失败转换成 mock Artifact 或成功结果。
+`scripts/doctor.ts`、`validate-artifact.ts`、`create-run.ts`、`load-run.ts`、`record-evidence.ts`、`publish-artifact.ts`、`checkpoint-run.ts`、`validate-plan.ts`、`analyze-gaps.ts`、`validate-adaptation.ts`、`apply-plan-revision.ts`、`audit-traceability.ts` 和 `build-report.ts` 已可运行。G2.1 maps 使用 v8 envelope；G2.2 runtime 使用 v10 envelope、receipt v8 和 bundle `9.0.0` Manifest adapter；G2.3 caller-supplied synthesis 使用 v11 envelope、receipt v9 和 bundle `10.0.0` adapter。v9 contract envelope 与 conversion v1 继续 Store fail-closed。调用方负责生成 candidate/task/material/lane/fan-in/conversion/thesis/evaluation/snapshot/merge，generic `publish-artifact` 只做 closed validation 和 immutable publication；没有 `discover`、lane execution 或 thesis synthesis command。Store/schema success 不代表 Evidence 真实/充分、决策就绪、thesis 成立、research 完成或 validation success。其余 RFC 命名 script 在 owning slice 开放前继续 fail closed；不得把失败转换成 mock Artifact 或成功结果。

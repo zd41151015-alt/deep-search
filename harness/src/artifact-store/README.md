@@ -14,6 +14,8 @@ G2.1 的 `research-publication.v4.json` 增加 envelope v8/document bundle v8/re
 
 G2.2 的 `research-publication.v5.json` 增加 envelope v10/document bundle v10/receipt v8 adapter。v9 accepted contract envelope 继续在任何写入前 fail closed。v10 只发布调用方显式提供的 pre-thesis candidate、Research Task、typed lane material/result 和 `discovery_fan_in.v2`；task 激活与 terminal lane status 机械投影到 Manifest，late/superseded output 只进入 ignored refs。Checkpoint/reopen 按 task-before-lane 的稳定顺序重放；G2.3+ types 仍 blocked。
 
+G2.3 的 `research-publication.v6.json` 增加 envelope v11/document bundle v11/receipt v9 adapter。accepted conversion v1 与 v10 adapter bytes 不改写；只有 executable conversion v2 和 caller-supplied Demand/Baseline/Solution/Evaluation/Opportunity/Snapshot/Merge 可通过 v11 发布。bundle 先整体校验 conversion-target 循环引用，再按 Demand -> Baseline -> Solution -> evaluation -> Opportunity -> snapshot -> merge 稳定落盘；checkpoint/reopen 只从 validated envelope/receipt/on-disk state恢复。G2.4+ types 仍 blocked。
+
 `publish-artifact` 接收一个显式 envelope，或至少两个 envelope 的有界 bundle。bundle 先对 pending 与已发布 documents 整体校验，用于处理 Research Plan/Assessment Plan 互引；随后每个 path 仍使用独立 immutable receipt 和 no-replace publication。Harness 不分派 lane、不调用 LLM、不访问网络，也不把 chat/completion message 作为 Artifact。
 
 The envelope `content_hash` basis is the SHA-256 of UTF-8 canonical `document` JSON: object keys are recursively sorted by code unit, arrays keep order, and only JSON values are accepted. The hash excludes envelope metadata, including the `content_hash` field itself. No script response or chat message is accepted as a stored artifact.

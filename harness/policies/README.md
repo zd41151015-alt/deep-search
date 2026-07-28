@@ -16,4 +16,6 @@
 
 `discovery-candidates.v1.json` 固定方案 A candidate/task/material/lane/fan-in/conversion contract。`research-publication.v5.json` 只增加 v10/document bundle v10/receipt v8 adapter、G2.2 lane status projection与显式 runtime boundary；v9 保持 Store unsupported，G2.3/G2.4 artifact types 保持 blocked。Harness 不 dispatch agent、不执行 lane、pre-kill、LLM、network research 或 external validation。
 
+`discovery-synthesis.v1.json` 固定 G2.3 executable conversion v2、Demand-first formalization、solution evaluation、source separation、pre-enrichment freeze 和 semantic merge contract。`research-publication.v6.json` 只增加 v11/document bundle v11/receipt v9 adapter与稳定 publication/reopen boundary；v1 conversion 保持 contract-only，G2.4 artifact types 保持 blocked。Harness 不生成 thesis 语义、不调用 LLM、不执行 research 或 external validation，publication 不表示 Evidence 充分或 validation success。
+
 Policy 不是通用规则引擎，不包含任意表达式、可执行 workflow code 或运行时用户调权。

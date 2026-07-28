@@ -36,6 +36,15 @@ import {
   isDiscoveryMapSchemaVersion,
   validateDiscoveryMapsContract,
 } from "./discovery-maps-validator.js";
+import {
+  type DiscoverySynthesisPolicy,
+  loadDiscoverySynthesisPolicy,
+} from "./discovery-synthesis-policy.js";
+import {
+  type DiscoverySynthesisDocument,
+  isDiscoverySynthesisSchemaVersion,
+  validateDiscoverySynthesisContract,
+} from "./discovery-synthesis-validator.js";
 import { type G14Document, isG14SchemaVersion, validateG14Contract } from "./g1.4-validator.js";
 import { coverageKey, planningRunStateHash } from "./planning-contract-identities.js";
 import {
@@ -79,7 +88,8 @@ export interface DocumentBundle {
     | "startup_opportunity.document_bundle.v7"
     | "startup_opportunity.document_bundle.v8"
     | "startup_opportunity.document_bundle.v9"
-    | "startup_opportunity.document_bundle.v10";
+    | "startup_opportunity.document_bundle.v10"
+    | "startup_opportunity.document_bundle.v11";
   readonly documents: readonly DocumentBundleEntry[];
   readonly exact_records?: readonly {
     readonly ref: string;
@@ -1515,6 +1525,268 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.discovery_fan_in.v2",
         ]),
       ];
+    case "startup_opportunity.discovery_candidate_conversion.v2":
+      return [
+        ...optionalRef(
+          document,
+          "parent_conversion_ref",
+          "startup_opportunity.discovery_candidate_conversion.v2",
+        ),
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(
+          document,
+          "source_candidate_ref",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
+        ...optionalRef(document, "target_artifact_ref", [
+          "startup_opportunity.demand_thesis.v1",
+          "startup_opportunity.baseline_option.v1",
+          "startup_opportunity.solution_hypothesis.v1",
+        ]),
+      ];
+    case "startup_opportunity.demand_thesis.v1":
+      return [
+        ...optionalRef(document, "parent_demand_ref", "startup_opportunity.demand_thesis.v1"),
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
+        ...optionalRef(
+          document,
+          "source_conversion_ref",
+          "startup_opportunity.discovery_candidate_conversion.v2",
+        ),
+        ...optionalRef(
+          document,
+          "source_candidate_ref",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "source_groups",
+          "generation_source_manifest_refs",
+          "startup_opportunity.source_manifest.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "source_groups",
+          "evaluation_source_manifest_refs",
+          "startup_opportunity.source_manifest.v2",
+        ),
+        ...refsFromArray(document, "supporting_claim_refs", "startup_opportunity.claim.v2"),
+        ...refsFromArray(document, "opposing_claim_refs", "startup_opportunity.claim.v2"),
+        ...refsFromArray(
+          document,
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v2",
+        ),
+      ];
+    case "startup_opportunity.baseline_option.v1":
+      return [
+        ...optionalRef(document, "parent_baseline_ref", "startup_opportunity.baseline_option.v1"),
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
+        ...optionalRef(
+          document,
+          "source_conversion_ref",
+          "startup_opportunity.discovery_candidate_conversion.v2",
+        ),
+        ...optionalRef(
+          document,
+          "source_candidate_ref",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...optionalRef(document, "demand_thesis_ref", "startup_opportunity.demand_thesis.v1"),
+        ...refsFromArray(
+          document,
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v2",
+        ),
+      ];
+    case "startup_opportunity.solution_hypothesis.v1":
+      return [
+        ...optionalRef(
+          document,
+          "parent_solution_ref",
+          "startup_opportunity.solution_hypothesis.v1",
+        ),
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
+        ...optionalRef(
+          document,
+          "source_conversion_ref",
+          "startup_opportunity.discovery_candidate_conversion.v2",
+        ),
+        ...optionalRef(
+          document,
+          "source_candidate_ref",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...optionalRef(document, "demand_thesis_ref", "startup_opportunity.demand_thesis.v1"),
+        ...optionalRef(document, "baseline_option_ref", "startup_opportunity.baseline_option.v1"),
+        ...refsFromArray(document, "supporting_claim_refs", "startup_opportunity.claim.v2"),
+        ...refsFromArray(document, "opposing_claim_refs", "startup_opportunity.claim.v2"),
+        ...refsFromArray(
+          document,
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v2",
+        ),
+      ];
+    case "startup_opportunity.solution_evaluation.v1":
+      return [
+        ...optionalRef(
+          document,
+          "parent_evaluation_ref",
+          "startup_opportunity.solution_evaluation.v1",
+        ),
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
+        ...optionalRef(document, "demand_thesis_ref", "startup_opportunity.demand_thesis.v1"),
+        ...optionalRef(document, "baseline_option_ref", "startup_opportunity.baseline_option.v1"),
+        ...optionalRef(
+          document,
+          "selected_solution_ref",
+          "startup_opportunity.solution_hypothesis.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "solution_hypothesis_refs",
+          "startup_opportunity.solution_hypothesis.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "alternative_solution_refs",
+          "startup_opportunity.solution_hypothesis.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "rejected_solutions",
+          "solution_ref",
+          "startup_opportunity.solution_hypothesis.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "rejected_solutions",
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "source_groups",
+          "generation_source_manifest_refs",
+          "startup_opportunity.source_manifest.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "source_groups",
+          "evaluation_source_manifest_refs",
+          "startup_opportunity.source_manifest.v2",
+        ),
+        ...refsFromArray(
+          document,
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v2",
+        ),
+      ];
+    case "startup_opportunity.opportunity_thesis.v1":
+      return [
+        ...optionalRef(
+          document,
+          "parent_opportunity_ref",
+          "startup_opportunity.opportunity_thesis.v1",
+        ),
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
+        ...optionalRef(document, "demand_thesis_ref", "startup_opportunity.demand_thesis.v1"),
+        ...optionalRef(
+          document,
+          "selected_solution_ref",
+          "startup_opportunity.solution_hypothesis.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "alternative_solution_refs",
+          "startup_opportunity.solution_hypothesis.v1",
+        ),
+        ...optionalRef(document, "baseline_option_ref", "startup_opportunity.baseline_option.v1"),
+        ...optionalRef(
+          document,
+          "solution_evaluation_ref",
+          "startup_opportunity.solution_evaluation.v1",
+        ),
+        ...refsFromArray(document, "source_lanes", "startup_opportunity.discovery_lane_result.v1"),
+        ...refsFromArray(document, "supporting_insight_refs", "startup_opportunity.insight.v2"),
+        ...refsFromArray(document, "opposing_claim_refs", "startup_opportunity.claim.v2"),
+        ...refsFromArray(
+          document,
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v2",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "mental_position_occupation",
+          "evidence_refs",
+          "startup_opportunity.evidence.v2",
+        ),
+      ];
+    case "startup_opportunity.thesis_evaluation_snapshot.v1":
+      return [
+        ...optionalRef(
+          document,
+          "parent_snapshot_ref",
+          "startup_opportunity.thesis_evaluation_snapshot.v1",
+        ),
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromArray(document, "subject_refs", "startup_opportunity.opportunity_thesis.v1"),
+        ...refsFromArray(document, "demand_thesis_refs", "startup_opportunity.demand_thesis.v1"),
+        ...refsFromArray(
+          document,
+          "solution_hypothesis_refs",
+          "startup_opportunity.solution_hypothesis.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "baseline_option_refs",
+          "startup_opportunity.baseline_option.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "solution_evaluation_refs",
+          "startup_opportunity.solution_evaluation.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "generation_source_groups",
+          "startup_opportunity.source_manifest.v2",
+        ),
+        ...refsFromArray(
+          document,
+          "evaluation_source_groups",
+          "startup_opportunity.source_manifest.v2",
+        ),
+      ];
+    case "startup_opportunity.merge.v1":
+      return [
+        ...optionalRef(document, "parent_merge_ref", "startup_opportunity.merge.v1"),
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(
+          document,
+          "source_snapshot_ref",
+          "startup_opportunity.thesis_evaluation_snapshot.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "source_thesis_refs",
+          "startup_opportunity.opportunity_thesis.v1",
+        ),
+      ];
     default:
       return [];
   }
@@ -1532,7 +1804,8 @@ function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
     version !== "startup_opportunity.artifact_envelope.v7" &&
     version !== "startup_opportunity.artifact_envelope.v8" &&
     version !== "startup_opportunity.artifact_envelope.v9" &&
-    version !== "startup_opportunity.artifact_envelope.v10"
+    version !== "startup_opportunity.artifact_envelope.v10" &&
+    version !== "startup_opportunity.artifact_envelope.v11"
   ) {
     return { path: entry.path, schemaVersion: version, document: entry.document, envelope: null };
   }
@@ -1666,7 +1939,8 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
       document.schema_version !== "startup_opportunity.artifact_envelope.v7" &&
       document.schema_version !== "startup_opportunity.artifact_envelope.v8" &&
       document.schema_version !== "startup_opportunity.artifact_envelope.v9" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v10") ||
+      document.schema_version !== "startup_opportunity.artifact_envelope.v10" &&
+      document.schema_version !== "startup_opportunity.artifact_envelope.v11") ||
     !isRecord(document.document)
   ) {
     return [];
@@ -1706,6 +1980,7 @@ export class ArtifactValidator {
     readonly assessmentReportingPolicy: AssessmentReportingPolicy,
     readonly discoveryMapsPolicy: LoadedDiscoveryMapsPolicy,
     readonly discoveryCandidatePolicy: DiscoveryCandidatePolicy,
+    readonly discoverySynthesisPolicy: DiscoverySynthesisPolicy,
   ) {}
 
   publicationAdapter(schemaVersion: unknown): StorePublicationAdapter {
@@ -1972,7 +2247,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v7" &&
       input.schema_version !== "startup_opportunity.document_bundle.v8" &&
       input.schema_version !== "startup_opportunity.document_bundle.v9" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v10"
+      input.schema_version !== "startup_opportunity.document_bundle.v10" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v11"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -2011,7 +2287,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v7" &&
       input.schema_version !== "startup_opportunity.document_bundle.v8" &&
       input.schema_version !== "startup_opportunity.document_bundle.v9" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v10"
+      input.schema_version !== "startup_opportunity.document_bundle.v10" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v11"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -2041,7 +2318,8 @@ export class ArtifactValidator {
       g14Documents.some((entry) => isG14SchemaVersion(entry.schemaVersion)) &&
       input.schema_version !== "startup_opportunity.document_bundle.v7" &&
       input.schema_version !== "startup_opportunity.document_bundle.v9" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v10"
+      input.schema_version !== "startup_opportunity.document_bundle.v10" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v11"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -2071,7 +2349,8 @@ export class ArtifactValidator {
       ) &&
       input.schema_version !== "startup_opportunity.document_bundle.v8" &&
       input.schema_version !== "startup_opportunity.document_bundle.v9" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v10"
+      input.schema_version !== "startup_opportunity.document_bundle.v10" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v11"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -2085,14 +2364,18 @@ export class ArtifactValidator {
       referenceErrors.push(
         ...validateDiscoveryMapsContract(
           input.schema_version === "startup_opportunity.document_bundle.v9" ||
-            input.schema_version === "startup_opportunity.document_bundle.v10"
+            input.schema_version === "startup_opportunity.document_bundle.v10" ||
+            input.schema_version === "startup_opportunity.document_bundle.v11"
             ? discoveryDocuments.filter(
-                (entry) => !isDiscoveryCandidateSchemaVersion(entry.schemaVersion),
+                (entry) =>
+                  !isDiscoveryCandidateSchemaVersion(entry.schemaVersion) &&
+                  !isDiscoverySynthesisSchemaVersion(entry.schemaVersion),
               )
             : discoveryDocuments,
           this.discoveryMapsPolicy,
-          input.schema_version === "startup_opportunity.document_bundle.v10"
-            ? ["7.0.0", "9.0.0"]
+          input.schema_version === "startup_opportunity.document_bundle.v10" ||
+            input.schema_version === "startup_opportunity.document_bundle.v11"
+            ? ["7.0.0", "9.0.0", "10.0.0"]
             : undefined,
         ),
       );
@@ -2109,7 +2392,8 @@ export class ArtifactValidator {
         isDiscoveryCandidateSchemaVersion(entry.schemaVersion),
       ) &&
       input.schema_version !== "startup_opportunity.document_bundle.v9" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v10"
+      input.schema_version !== "startup_opportunity.document_bundle.v10" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v11"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -2124,6 +2408,35 @@ export class ArtifactValidator {
         ...validateDiscoveryCandidateContract(
           discoveryCandidateDocuments,
           this.discoveryCandidatePolicy,
+        ),
+      );
+    }
+    const discoverySynthesisDocuments: readonly DiscoverySynthesisDocument[] =
+      effectiveDocuments.map((entry) => ({
+        path: entry.path,
+        schemaVersion: entry.schemaVersion,
+        document: entry.document,
+        envelope: entry.envelope,
+      }));
+    if (
+      discoverySynthesisDocuments.some((entry) =>
+        isDiscoverySynthesisSchemaVersion(entry.schemaVersion),
+      ) &&
+      input.schema_version !== "startup_opportunity.document_bundle.v11"
+    ) {
+      referenceErrors.push(
+        referenceIssue(
+          "g2_3_contract.bundle_version_mismatch",
+          "/schema_version",
+          "G2.3 synthesis contracts require document_bundle.v11",
+          { actualSchemaVersion: input.schema_version },
+        ),
+      );
+    } else {
+      referenceErrors.push(
+        ...validateDiscoverySynthesisContract(
+          discoverySynthesisDocuments,
+          this.discoverySynthesisPolicy,
         ),
       );
     }
@@ -2543,5 +2856,6 @@ export async function createArtifactValidator(
     await loadAssessmentReportingPolicy(root, bundle),
     await loadDiscoveryMapsPolicy(root, bundle),
     await loadDiscoveryCandidatePolicy(root, bundle),
+    await loadDiscoverySynthesisPolicy(root, bundle),
   );
 }

@@ -1,6 +1,6 @@
 import { type DoctorReport, inspectRepository } from "./repository-contract.js";
 
-const HELP = `Startup Opportunity Research Harness (G2.2)
+const HELP = `Startup Opportunity Research Harness (G2.3)
 
 Usage:
   npm run harness -- help
@@ -19,7 +19,7 @@ Usage:
   npm run harness -- build-report --file FILE [--runs-root DIR] [--json]
 
 Commands:
-  help               Show the implemented G2.2 command surface.
+  help               Show the implemented G2.3 command surface.
   doctor             Validate repository, toolchain, Skill, agent, Harness, and test contracts.
   validate-artifact  Validate one document, a typed document bundle, or the schema bundle itself.
   create-run         Create a confined Run and its initial checkpoint.
@@ -34,7 +34,7 @@ Commands:
   audit-traceability Validate the closed G1.4 audit/review/Assessment/Traceability/report chain.
   build-report       Publish a validated report source and deterministically materialize its views.
 
-Validation, publication, recovery, and report materialization success are mechanical only. G2.1 maps and G2.2 pre-thesis candidates, explicit Research Tasks, typed lane material/results, and reference-only fan-in may use the generic validation/publication surface. The Harness does not dispatch agents, execute lanes, perform network research, or infer pre-kill decisions. Discover orchestration, thesis synthesis, comparison, and portfolio commands remain unavailable.
+Validation, publication, recovery, and report materialization success are mechanical only. G2.1 maps, G2.2 pre-thesis lane/fan-in artifacts, and caller-supplied G2.3 conversion/formal thesis/evaluation/freeze/merge artifacts may use the generic validation/publication surface. The Harness does not dispatch agents, execute lanes, synthesize thesis semantics, perform network research, or infer research judgments. Discover orchestration and G2.4 enrichment/comparison/portfolio/report commands remain unavailable.
 `;
 
 export function printHelp(
