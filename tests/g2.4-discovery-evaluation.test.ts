@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -63,8 +72,12 @@ const parentProducedV12FixturePath = fileURLToPath(
   new URL("./fixtures/g2.4/parent-produced-document-bundle.v12.json.bytes", import.meta.url),
 );
 const parentProducedV12Hash =
-  "sha256:839afaea562249c395a8a1e052d54563eb6ce8e9b4ea1573e815148767b37f44";
-const parentProducedV12Size = 285_141;
+  "sha256:a08eb3cc38ba099a3fd912cb90d49fe9039507e82fb4eb0c701da08e0176dee6";
+const parentProducedV12Size = 285_157;
+const parentRuntimeCommit = "e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0";
+const crossVersionDriverPath = fileURLToPath(
+  new URL("./helpers/g2.4-v12-runtime-driver.ts", import.meta.url),
+);
 
 interface State {
   readonly root: string;
@@ -78,6 +91,69 @@ interface State {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+async function treeSnapshot(root: string, relative = ""): Promise<Record<string, string>> {
+  const snapshot: Record<string, string> = {};
+  for (const candidate of (await readdir(path.join(root, relative), { withFileTypes: true })).sort(
+    (left, right) => left.name.localeCompare(right.name),
+  )) {
+    const child = path.posix.join(relative, candidate.name);
+    if (candidate.isDirectory()) {
+      Object.assign(snapshot, await treeSnapshot(root, child));
+    } else if (candidate.isFile()) {
+      snapshot[child] = (await readFile(path.join(root, child))).toString("base64");
+    }
+  }
+  return snapshot;
+}
+
+function runtimeOracle(runtimeRoot: string): Record<string, unknown> {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "tests/helpers/g2.4-v12-runtime-driver.ts",
+      "--repository-root",
+      runtimeRoot,
+      "--fixture",
+      parentProducedV12FixturePath,
+    ],
+    {
+      cwd: runtimeRoot,
+      encoding: "utf8",
+      env: process.env,
+      maxBuffer: 4 * 1024 * 1024,
+    },
+  );
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  return JSON.parse(result.stdout.trim()) as Record<string, unknown>;
+}
+
+async function archivedParentRuntime(context: TestContext): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-e68-runtime-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const archivePath = path.join(root, "parent.tar");
+  const runtimeRoot = path.join(root, "repository");
+  await mkdir(runtimeRoot);
+  const archived = spawnSync(
+    "git",
+    ["archive", "--format=tar", "-o", archivePath, parentRuntimeCommit],
+    { cwd: repositoryRoot, encoding: "utf8" },
+  );
+  assert.equal(archived.status, 0, archived.stderr);
+  const extracted = spawnSync("tar", ["-xf", archivePath, "-C", runtimeRoot], {
+    encoding: "utf8",
+  });
+  assert.equal(extracted.status, 0, extracted.stderr);
+  await mkdir(path.join(runtimeRoot, "tests/helpers"), { recursive: true });
+  await copyFile(
+    crossVersionDriverPath,
+    path.join(runtimeRoot, "tests/helpers/g2.4-v12-runtime-driver.ts"),
+  );
+  await symlink(path.join(repositoryRoot, "node_modules"), path.join(runtimeRoot, "node_modules"));
+  return runtimeRoot;
 }
 
 function entry(bundle: DocumentBundle, artifactPath: string): Record<string, unknown> {
@@ -902,7 +978,7 @@ test("G2.4 preserves fixed parent-produced v12 bytes while v13 rejects semantic 
   const legacyResult = state.validator.validateDocumentBundle(state.bundle);
   assert.equal(legacyResult.valid, true, JSON.stringify(legacyResult, null, 2));
   const sourceSubject = effective(state.bundle, G22_SOLUTION_R1).subject as Record<string, unknown>;
-  assert.equal(sourceSubject.uses_ai, false);
+  assert.equal(sourceSubject.uses_ai, true);
   assert.equal(effective(state.bundle, G23_SOLUTION).uses_ai, true);
 
   const repairedState = await setup(context, "v13-semantic-drift", "ai_first");
@@ -984,24 +1060,79 @@ test("G2.4 preserves fixed parent-produced v12 bytes while v13 rejects semantic 
   assert.equal(reopened.recovered, false);
 });
 
+test("G2.4 exact parent builder bytes have identical parent and current runtime lifecycles", async (context) => {
+  const parentRoot = await archivedParentRuntime(context);
+  const parent = runtimeOracle(parentRoot);
+  const current = runtimeOracle(repositoryRoot);
+  assert.deepEqual(current, parent);
+  assert.deepEqual(current, {
+    checkpoint_ref: "checkpoints/checkpoint-parent-v12-oracle.json",
+    fixture_hash: parentProducedV12Hash,
+    fixture_size: parentProducedV12Size,
+    manifest_schema_bundle_version: "11.0.0",
+    recovered_report: true,
+    reopened_recovered: false,
+    report_current: true,
+    tree_digest: "sha256:07fcfd7a5982fdee09ca899b95eecc8cae47177f6d9ed95a99ba99d8563d3dd6",
+    tree_file_count: 181,
+    v12_receipt_count: 34,
+    v12_receipt_versions: ["startup_opportunity.artifact_store_operation.v10"],
+    validation_codes: [],
+  });
+});
+
 test("G2.4 forbidden-expression rules cover every formal surface and separator variant", async (context) => {
-  const cases = [
-    { rule: "market_validation_success", value: "validation-success achieved" },
-    { rule: "market_validation_success", value: "achieved market_validation" },
-    { rule: "market_validation_success", value: "market-validation succeeded" },
-    { rule: "probability_claim", value: "success_probability is 95 percent" },
-    { rule: "probability_claim", value: "95_percent probability" },
-    { rule: "probability_claim", value: "probability_of_success=95%" },
-    { rule: "global_score", value: "global_score" },
-    { rule: "global_score", value: "global-score" },
-    { rule: "global_score", value: "overall score" },
+  const propertyClasses = [
+    {
+      rule: "market_validation_success",
+      tokenOrders: [
+        ["market", "validation", "succeeded"],
+        ["succeeded", "market", "validation"],
+        ["validation", "success"],
+        ["success", "validation"],
+      ],
+    },
+    {
+      rule: "probability_claim",
+      tokenOrders: [
+        ["success", "probability"],
+        ["probability", "success"],
+        ["probability", "of", "success"],
+        ["success", "of", "probability"],
+        ["probability", "95", "percent"],
+        ["95", "percent", "probability"],
+        ["chance", "95", "percent"],
+        ["95", "percent", "chance"],
+      ],
+    },
+    {
+      rule: "global_score",
+      tokenOrders: [
+        ["global", "score"],
+        ["score", "global"],
+        ["overall", "score"],
+        ["score", "overall"],
+      ],
+    },
   ] as const;
   for (const surface of ["structured_report", "decision_brief", "report_view"] as const) {
-    for (const candidate of cases) {
-      const matches = scanReportSurface(surface, candidate.value);
-      assert.ok(matches.some((match) => match.startsWith(`${candidate.rule}@${surface}:`)));
+    for (const property of propertyClasses) {
+      for (const tokens of property.tokenOrders) {
+        const normalizedMatches = new Set<string>();
+        for (const separator of [" ", "-", "_"] as const) {
+          const matches = scanReportSurface(surface, tokens.join(separator));
+          const match = matches.find((candidate) =>
+            candidate.startsWith(`${property.rule}@${surface}:`),
+          );
+          assert.ok(match, `${property.rule}:${surface}:${tokens.join(separator)}`);
+          normalizedMatches.add(match);
+        }
+        assert.equal(normalizedMatches.size, 1, `${property.rule}:${surface}:${tokens.join("|")}`);
+      }
     }
   }
+  assert.deepEqual(scanReportSurface("report_view", "local score remains unknown"), []);
+  assert.deepEqual(scanReportSurface("structured_report", "market validation remains pending"), []);
 
   const state = await setup(context, "surface-boundary");
   const report = evaluationEnvelope(state.bundle, G24_REPORT);
@@ -1080,6 +1211,185 @@ test("G2.4 forbidden sidecar fails before receipt and remains absent through che
   const reopened = await new RunStore(state.runsRoot, state.validator).load(state.runId);
   assert.ok(!reopened.manifest.artifact_refs.includes(sidecar.artifact_path));
   assert.equal(reopened.recovered, false);
+});
+
+test("G2.4 reverse-order report mutations fail before every formal lifecycle write", async (context) => {
+  const state = await setup(context, "reverse-order-zero-write");
+  await publishThroughEvaluation(state);
+  await state.store.checkpoint({
+    runId: state.runId,
+    checkpointId: "checkpoint_before_reverse_order_mutations",
+    createdAt: "2026-07-27T22:00:00Z",
+    nextStep: "SYNTHETIC reject forbidden report language before any formal write.",
+    beliefSummary: {
+      current_belief: "SYNTHETIC report contract mechanics only.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["SYNTHETIC no validation success is claimed."],
+      remaining_disagreement: ["SYNTHETIC market truth remains unknown."],
+      next_decision_relevant_question: "SYNTHETIC should a clean report be supplied?",
+    },
+    inputRefs: [G24_RECOMMENDATION, G24_TRACEABILITY],
+  });
+  const baselineTree = await treeSnapshot(state.runRoot);
+  const reverseCases = [
+    { rule: "market_validation_success", phrase: "success_validation" },
+    { rule: "probability_claim", phrase: "chance-95-percent" },
+    { rule: "global_score", phrase: "score_global" },
+  ] as const;
+  const reportFaults = [
+    "after_report_sidecar",
+    "after_report_materialization",
+    "after_brief_sidecar",
+    "after_brief_materialization",
+    "after_view_sidecar",
+    "after_view_materialization",
+    "after_consistency_sidecar",
+  ] as const;
+
+  for (const candidate of reverseCases) {
+    const report = clone(evaluationEnvelope(state.bundle, G24_REPORT));
+    const judgmentContext = report.document.curated_judgment_context as Record<string, unknown>;
+    judgmentContext.current_recommendation = candidate.phrase;
+    (report as { content_hash: string }).content_hash = canonicalContentHash(report.document);
+    const validation = state.validator.validateDocument(report, report.artifact_path);
+    assert.equal(validation.valid, false, candidate.rule);
+    assert.ok(
+      validation.errors.some(
+        (error) =>
+          error.code === "g2_4.forbidden_report_expression" &&
+          JSON.stringify(error.details).includes(`${candidate.rule}@structured_report:`),
+      ),
+      JSON.stringify(validation.errors, null, 2),
+    );
+    await assert.rejects(
+      state.store.publishArtifact({
+        runId: state.runId,
+        envelope: report,
+        faultAt: "after_intent",
+      }),
+      (error: unknown) => error instanceof StoreError && error.code === "artifact.schema_invalid",
+    );
+    for (const faultAt of reportFaults) {
+      await assert.rejects(
+        new ReportRuntime(state.runsRoot, state.validator).build({
+          reportEnvelope: report,
+          faultAt,
+        }),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "report.forbidden_expression_detected",
+      );
+      assert.deepEqual(
+        await treeSnapshot(state.runRoot),
+        baselineTree,
+        `${candidate.rule}:${faultAt}`,
+      );
+    }
+
+    const derived = deriveReportEnvelopes(evaluationEnvelope(state.bundle, G24_REPORT));
+    for (const artifactType of [
+      "startup_opportunity.decision_brief.v2",
+      "startup_opportunity.discovery_report_view.v1",
+    ]) {
+      const sidecar = clone(
+        derived.find((entry) => entry.artifact_type === artifactType) as FormalArtifactEnvelope,
+      );
+      const surface =
+        artifactType === "startup_opportunity.decision_brief.v2" ? "decision_brief" : "report_view";
+      sidecar.document.markdown = candidate.phrase;
+      sidecar.document.markdown_content_hash = sha256Bytes(candidate.phrase);
+      (sidecar as { content_hash: string }).content_hash = canonicalContentHash(sidecar.document);
+      const sidecarValidation = state.validator.validateDocument(sidecar, sidecar.artifact_path);
+      assert.equal(sidecarValidation.valid, false, `${candidate.rule}:${surface}`);
+      assert.ok(
+        sidecarValidation.errors.some(
+          (error) =>
+            error.code === "g2_4.forbidden_report_expression" &&
+            JSON.stringify(error.details).includes(`${candidate.rule}@${surface}:`),
+        ),
+        JSON.stringify(sidecarValidation.errors, null, 2),
+      );
+      await assert.rejects(
+        state.store.publishArtifact({
+          runId: state.runId,
+          envelope: sidecar,
+          faultAt: "after_intent",
+        }),
+        (error: unknown) => error instanceof StoreError && error.code === "artifact.schema_invalid",
+      );
+      assert.deepEqual(
+        await treeSnapshot(state.runRoot),
+        baselineTree,
+        `${candidate.rule}:${surface}`,
+      );
+    }
+  }
+
+  const reopened = await new RunStore(state.runsRoot, state.validator).load(state.runId);
+  assert.equal(reopened.recovered, false);
+  assert.ok(!reopened.manifest.artifact_refs.includes(G24_REPORT));
+  for (const artifactPath of [
+    G24_REPORT,
+    "artifacts/reporting/decision-brief.r1.json",
+    "artifacts/reporting/report-markdown.r1.json",
+    "artifacts/reporting/consistency-evaluation.r1.json",
+    "report.json",
+    "decision-brief.md",
+    "report.md",
+  ]) {
+    assert.ok(!(artifactPath in (await treeSnapshot(state.runRoot))), artifactPath);
+  }
+  assert.deepEqual(await treeSnapshot(state.runRoot), baselineTree);
+});
+
+test("G2.4 report scan dispatch preserves v12 while v13 rejects the same mutation", async (context) => {
+  const legacyState = await setupParentProducedV12(context);
+  const legacyReport = clone(evaluationEnvelope(legacyState.bundle, G24_REPORT));
+  const legacyContext = legacyReport.document.curated_judgment_context as Record<string, unknown>;
+  legacyContext.current_recommendation = "score_global";
+  (legacyReport as { content_hash: string }).content_hash = canonicalContentHash(
+    legacyReport.document,
+  );
+  assert.equal(
+    legacyState.validator.validateDocument(legacyReport, legacyReport.artifact_path).valid,
+    true,
+  );
+  const legacyConsistency = deriveReportEnvelopes(legacyReport).find(
+    (candidate) =>
+      candidate.artifact_type === "startup_opportunity.report_consistency_evaluation.v2",
+  );
+  assert.ok(legacyConsistency);
+  assert.equal(legacyConsistency.document.evaluator_result, "passed");
+  assert.deepEqual(legacyConsistency.document.forbidden_expression_matches, []);
+
+  const repairedState = await setup(context, "v13-report-scan-dispatch", "ai_first");
+  const repairedReport = clone(evaluationEnvelope(repairedState.bundle, G24_REPORT));
+  const repairedContext = repairedReport.document.curated_judgment_context as Record<
+    string,
+    unknown
+  >;
+  repairedContext.current_recommendation = "score_global";
+  (repairedReport as { content_hash: string }).content_hash = canonicalContentHash(
+    repairedReport.document,
+  );
+  const repairedValidation = repairedState.validator.validateDocument(
+    repairedReport,
+    repairedReport.artifact_path,
+  );
+  assert.equal(repairedValidation.valid, false);
+  assert.ok(
+    repairedValidation.errors.some((error) => error.code === "g2_4.forbidden_report_expression"),
+  );
+  const repairedConsistency = deriveReportEnvelopes(repairedReport).find(
+    (candidate) =>
+      candidate.artifact_type === "startup_opportunity.report_consistency_evaluation.v3",
+  );
+  assert.ok(repairedConsistency);
+  assert.equal(repairedConsistency.document.evaluator_result, "failed");
+  assert.ok(
+    (repairedConsistency.document.forbidden_expression_matches as string[]).some((match) =>
+      match.startsWith("global_score@structured_report:"),
+    ),
+  );
 });
 
 test("G2.4 rejects closed contract mutations with deterministic error codes", async (context) => {

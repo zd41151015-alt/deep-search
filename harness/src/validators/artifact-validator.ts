@@ -5,7 +5,10 @@ import {
   type PublicationPolicy,
   type StorePublicationAdapter,
 } from "../artifact-store/publication-policy.js";
-import { scanReportSurface } from "../reporting/report-consistency.js";
+import {
+  requiresDeterministicReportScan,
+  scanReportSurface,
+} from "../reporting/report-consistency.js";
 import {
   type AssessDomainDocument,
   isAssessDomainSchemaVersion,
@@ -2696,13 +2699,14 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
     });
   }
   const surface =
+    requiresDeterministicReportScan(document.schema_version) &&
     document.artifact_type === "startup_opportunity.report.v1" &&
     document.document.schema_version === "startup_opportunity.report.v1"
       ? "structured_report"
-      : document.schema_version === "startup_opportunity.artifact_envelope.v13" &&
+      : requiresDeterministicReportScan(document.schema_version) &&
           document.artifact_type === "startup_opportunity.decision_brief.v2"
         ? "decision_brief"
-        : document.schema_version === "startup_opportunity.artifact_envelope.v13" &&
+        : requiresDeterministicReportScan(document.schema_version) &&
             document.artifact_type === "startup_opportunity.discovery_report_view.v1"
           ? "report_view"
           : null;

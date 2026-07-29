@@ -7,20 +7,24 @@ export const REPORT_SCAN_SURFACES = ["structured_report", "decision_brief", "rep
 
 export type ReportScanSurface = (typeof REPORT_SCAN_SURFACES)[number];
 
+export function requiresDeterministicReportScan(envelopeSchemaVersion: unknown): boolean {
+  return envelopeSchemaVersion === "startup_opportunity.artifact_envelope.v13";
+}
+
 const FORBIDDEN_RULES = [
   {
     id: "market_validation_success",
     expression:
-      /\b(?:(?:market|demand)\s+(?:has\s+)?(?:been\s+)?validated|(?:market|demand)\s+validation\s+(?:has\s+)?(?:succeeded|successful|passed|achieved)|validation\s+(?:success|succeeded|successful|passed|achieved)|(?:succeeded|successful|passed|achieved)\s+(?:market\s+|demand\s+)?validation|validated\s+(?:market|demand))\b/iu,
+      /\b(?:(?:market|demand)\s+(?:has\s+)?(?:been\s+)?validated|validated\s+(?:market|demand)|(?:market|demand)\s+validation\s+(?:has\s+)?(?:been\s+)?(?:success|succeeded|successful|passed|achieved)|validation\s+(?:success|succeeded|successful|passed|achieved)|(?:success|succeeded|successful|passed|achieved)\s+(?:(?:market|demand)\s+)?validation)\b/iu,
   },
   {
     id: "probability_claim",
     expression:
-      /\b(?:success\s+probability|probability\s+of\s+success|probability\s*(?:is|=)?\s*\d+(?:\.\d+)?\s*(?:%|percent)|\d+(?:\.\d+)?\s*(?:%|percent)\s+(?:success\s+probability|probability|likely|chance))\b/iu,
+      /\b(?:success\s+(?:of\s+)?probability|probability\s+(?:of\s+)?success|chance\s+of\s+success|probability\s*(?:is|=)?\s*\d+(?:\.\d+)?\s*(?:%|percent)|(?:chance|likely)\s*(?:is|=)?\s*\d+(?:\.\d+)?\s*(?:%|percent)|\d+(?:\.\d+)?\s*(?:%|percent)\s+(?:success\s+probability|probability(?:\s+of\s+success)?|likely|chance))\b/iu,
   },
   {
     id: "global_score",
-    expression: /\bglobal[- ]score\b|\boverall\s+score\b/iu,
+    expression: /\b(?:global\s+score|score\s+global|overall\s+score|score\s+overall)\b/iu,
   },
 ] as const;
 

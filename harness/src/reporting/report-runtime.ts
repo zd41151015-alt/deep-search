@@ -31,6 +31,7 @@ import {
 import {
   REPORT_SCAN_CONTRACT_VERSION,
   REPORT_SCAN_SURFACES,
+  requiresDeterministicReportScan,
   scanDiscoveryReportSurfaces,
 } from "./report-consistency.js";
 
@@ -471,12 +472,14 @@ function deriveDiscoveryReportEnvelopes(
     viewDocument,
     [],
   );
-  const repaired = reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v13";
-  const forbiddenExpressionMatches = scanDiscoveryReportSurfaces({
-    structuredReport: report,
-    decisionBrief: briefMarkdown,
-    reportView: reportMarkdown,
-  });
+  const repaired = requiresDeterministicReportScan(reportEnvelope.schema_version);
+  const forbiddenExpressionMatches = repaired
+    ? scanDiscoveryReportSurfaces({
+        structuredReport: report,
+        decisionBrief: briefMarkdown,
+        reportView: reportMarkdown,
+      })
+    : [];
   const evaluatorResult = forbiddenExpressionMatches.length === 0 ? "passed" : "failed";
   const consistencyDocument: Record<string, unknown> = {
     schema_version: repaired

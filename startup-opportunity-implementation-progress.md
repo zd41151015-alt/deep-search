@@ -1,11 +1,11 @@
 # Startup Opportunity Research Harness 实施进度
 
-> **状态**: G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION / G2.1_DONE / G2.2-G2.4_REPAIRED_PENDING_WHOLE_GATE_REGRESSION
-> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`DONE`；G2 Opportunity Discovery=`G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION`（G2.1=`DONE`；G2.2-G2.4=`REPAIRED_PENDING_WHOLE_GATE_REGRESSION`）；G2.R、G3-G4=`NOT_READY`
-> **下一独立会话**: 从本次 clean repair candidate 创建 fresh independent whole-G2 regression；candidate 不得由 regression 修改，通过前不得开放 G3
+> **状态**: G2_NON_CONVERGENT_SYSTEMIC_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW / G2.1_DONE / G2.2-G2.4_REPAIRED_PENDING_GATE_DECISION
+> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`DONE`；G2 Opportunity Discovery=`G2_NON_CONVERGENT_SYSTEMIC_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW`（G2.1=`DONE`；G2.2-G2.4=`REPAIRED_PENDING_GATE_DECISION`）；G2.R、G3-G4=`NOT_READY`
+> **下一独立会话**: 中控先审查 fixed-v3 audit、invariant-to-test matrix、systemic repair 与 shadow preflight；不得立即创建或建议下一次 acceptance，通过前不得开放 G3
 > **最后更新**: 2026-07-29
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
-> **固定规则集**: `fixed_ruleset_id=startup-opportunity-controller-fixed-v2`
+> **固定规则集**: `fixed_ruleset_id=startup-opportunity-controller-fixed-v3`（supersedes `startup-opportunity-controller-fixed-v2`）
 
 ## 文档职责
 
@@ -37,7 +37,8 @@ RFC 第 30 节只维护稳定阶段；本文件维护详细、可变的施工切
 - 只有 Artifact identity/ownership、不兼容持久化 schema、公共 API 或不可逆数据语义无法唯一决定时才允许 `BLOCKED_BY_SPEC`。可逆内部实现由 worker 按既有模式保守决定并继续。
 - 中控只协调、授权 Gate 顺序和验收 Gate 边界；有写入任务 active 时保持只读。所有施工直接使用 clean local `main` 和连续 commit chain，不创建 worktree/Handoff，不 push、amend、rebase 或 reset。
 - G3 与 G4 分别继续采用“每 Gate 一个连续 worker + Gate 末一次 independent whole-gate regression”；不得按其 Gx.y 恢复逐 slice task、acceptance、regression 或 bookkeeping-only 往返。
-- `startup-opportunity-controller-fixed-v2` 下，Stage 主 worker 始终是 tracked files、Git index、账本和 commit 的唯一写入者/集成者。仅当子任务依赖独立、职责清晰且没有共享写入冲突时，最多可启动两个只读 subagent 做 authority/code 索引、影响面分析、对抗审查、负例设计、candidate diff 审查或隔离测试；它们不得修改 tracked files/index/账本/automation、不得 commit、创建 descendant 或开启下游 Stage。schema/identity migration、代码生成与共享 build/cache 操作保持串行；并行结束后主 worker 必须核对 Git status/diff。
+- `startup-opportunity-controller-fixed-v3` supersedes fixed-v2。Stage 主 worker 始终是 tracked files、Git index、账本和 commit 的唯一写入者/集成者；最多两个依赖独立、无共享写冲突的只读 subagent 只能做 authority/code 索引、影响分析、对抗审查、负例设计、candidate diff 审查或隔离测试，不得修改 tracked files/index/账本/automation、commit、创建 descendant 或开启下游 Stage。schema/identity migration、代码生成与共享 build/cache 操作保持串行；并行结束后主 worker必须核对 Git status/diff。
+- fixed-v3 下，同一 Gate 连续出现四次有效 independent boundary `FAIL` 时必须进入 `NON_CONVERGENT_AUDIT`：累计全部 historical findings 与 `NOT_RUN`，建立 authority -> invariant -> real entry/artifact/lifecycle -> mutation/property -> provenance oracle -> stable error/zero-write -> owner -> shadow evidence 矩阵，分类验收基线遗漏、共同架构根因、fixture/oracle 失真和规范歧义。审计闭合且无 spec blocker 后只能做 matrix-driven systemic repair 与 repository-external shadow preflight；不得把当前反例孤立返修，也不得立即创建或建议下一次 acceptance。
 - 禁止伪造 Evidence/URL/用户 quote/市场数据/validation success、未经授权的 external validation、通用 Workflow Runtime/DAG DSL/daemon/UI/DB、隐藏 LLM 或重实现 Codex agent loop/permissions/thread lifecycle。
 
 ## 强制施工协议
@@ -69,8 +70,8 @@ Gate 全部 slice 完成时，worker 必须重放 whole-gate 受影响回归、�
 1. 没有 active task 且存在已授权 Gate-level 工作时，创建一个本地 worker，并在规则中写明该 Gate 的允许 slice 顺序和禁止边界。
 2. 当前 worker 为 `active/inProgress` 时视为正常；它可以在同一 Gate 内连续提交多个 slice。中控不发送逐 slice acceptance、不开重复任务、不修改仓库。
 3. 当前 worker 明确 `failed/error/cancelled/stopped` 或异常 idle 且未完成时，只向原任务发送一次保留现有改动的定向恢复或返修消息。
-4. Contract repair candidate 或整个 Gate implementation candidate completed 后，检查提交、parent、工作树、账本和测试证据；不合格时让原 worker 返修，合格的 contract repair 才解除对应门禁，合格的 Gate candidate 才进入唯一一次 independent whole-gate regression。
-5. 不为 slice completion 创建 acceptance 或 bookkeeping-only task。Gate 内下一 slice 由同一 worker 按已授权顺序继续；仅整个 Gate 末尾创建一次独立 whole-gate regression，回归通过前不得开放下一 Gate。
+4. Contract repair candidate 或整个 Gate implementation candidate completed 后，检查提交、parent、工作树、账本和测试证据；不合格时让原 worker 返修。累计有效 boundary `FAIL` 未达到 fixed-v3 阈值时才按普通 fresh regression 流程处理；达到四次时先强制完成 `NON_CONVERGENT_AUDIT`、systemic repair、matrix closure 与 repository-external shadow preflight，不得直接再建 acceptance。
+5. 不为 slice completion 创建 acceptance 或 bookkeeping-only task。Gate 内下一 slice 由同一 worker 按已授权顺序继续；仅整个 Gate 末尾创建一次独立 whole-gate regression。non-convergent candidate 必须先由中控审查 audit/systemic evidence，再决定是否以及何时允许新的 fresh boundary acceptance；回归通过前不得开放下一 Gate。
 6. 连续两次状态查询卡住只记录 `UNKNOWN`，不干预；连续第三次仍卡住时尝试其他精确任务状态入口。仍不可用时，使用 Git、相关进程、账本/测试证据至少两类一致信号进行 `INFERRED` 推断；证据冲突保持 `UNKNOWN`。
 7. 不使用额外的 600 秒门禁；每次定时 heartbeat 最多执行一次正常状态检查。普通 active/unknown 检查不算有效操作。
 
@@ -114,6 +115,7 @@ last effective operation
 | `IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION` | 连续 Gate stream 中的 slice 已形成原子提交；不逐 slice 验收，等待整个 Gate exit candidate 的独立回归 |
 | `EXIT_CANDIDATE_PENDING_INDEPENDENT_REGRESSION` | 实现候选已提交，等待独立整体回归 |
 | `G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION` | G2 boundary acceptance FAIL 已由原 Stage worker定向修复并提交；等待新的独立 whole-G2 regression，G3 仍关闭 |
+| `G2_NON_CONVERGENT_SYSTEMIC_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW` | G2 累计四次有效 boundary FAIL 后，原 Stage worker已完成 fixed-v3 audit、matrix-driven systemic repair 与 repository-external shadow preflight；中控先审查收敛证据，不得立即创建下一次 acceptance，G3仍关闭 |
 | `REGRESSION_CANDIDATE_PENDING_CONTROLLER_ACCEPTANCE` | 独立 whole-gate regression 已形成原子候选，等待中控核对提交、证据与边界；Gate 尚未由中控标记 `DONE` |
 | `BLOCKED_BY_SPEC` | RFC/contract 存在不可唯一决定的阻塞 |
 | `BLOCKED_BY_ENV` | 工具链、平台或外部依赖持续阻塞 |
@@ -174,7 +176,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- | --- | --- |
 | G0 Foundation Harness | `DONE` | RFC v1 | 工具链与仓库骨架、核心 schema、Run/Artifact Store、validator、checkpoint、Gap/Adaptation/Plan Revision、完整 foundation regression |
 | G1 Concept Evidence Assessment | `DONE` | G0 | 单 thesis 从 intake 到 report 的端到端闭环，buyer gap 触发 plan r2，独立 G1 whole-gate regression 与中控验收均通过 |
-| G2 Opportunity Discovery | `G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION` | G1 | G2.1=`DONE`；G2.2-G2.4 已完成 acceptance-directed repair；等待 fresh independent whole-G2 regression |
+| G2 Opportunity Discovery | `G2_NON_CONVERGENT_SYSTEMIC_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW` | G1 | G2.1=`DONE`；G2.2-G2.4 已完成 fixed-v3 systemic repair；等待中控审查 audit/matrix/shadow evidence，G2.R仍关闭 |
 | G3 AI Bundle | `NOT_READY` | G2 | 六维 AI mandatory bundle、baseline/reliability/data/economics/risk gates 和独立 G3 回归 |
 | G4 Distribution / Operational Exit | `NOT_READY` | G3 | repo-local Skill/agents/hooks/MCP 完整入口、安装与恢复文档、端到端 fixture；Plugin 是否打包按 RFC 条件判断 |
 
@@ -187,7 +189,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `DONE` |
 | W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `DONE` |
 | W4 | Assess domain contracts、research branches、matrix、audit/review/report | `DONE`（G1.1-G1.4、G1.R=`DONE`） |
-| W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION`（G2.1=`DONE`；G2.2-G2.4=`REPAIRED_PENDING_WHOLE_GATE_REGRESSION`；G2.R=`NOT_READY`） |
+| W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `G2_NON_CONVERGENT_SYSTEMIC_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW`（G2.1=`DONE`；G2.2-G2.4=`REPAIRED_PENDING_GATE_DECISION`；G2.R=`NOT_READY`） |
 | W6 | AI mandatory bundle 和 gates | `NOT_READY` |
 | W7 | Codex Skill、custom agents、hooks/MCP、分发和端到端运营 | `NOT_READY` |
 
@@ -245,12 +247,12 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | 原 G2 Construction Stage 主 task 已形成第三个 acceptance-directed repair candidate；唯一 local 写入者，未启用 subagent |
-| Current slice | G2.1=`DONE`；G2.2-G2.4=`REPAIRED_PENDING_WHOLE_GATE_REGRESSION`；G2=`G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION`；G2.R、G3-G4=`NOT_READY` |
-| Expected base | rejected candidate=`e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0`；repair commit sole parent 必须 exact 等于该 commit |
+| Active task | 原 G2 Construction Stage 主 task 已完成 fixed-v3 `NON_CONVERGENT_AUDIT`、systemic repair 与 shadow preflight；唯一 local 写入者，启用 2 个只读审计 subagent，均未写文件/Git/账本/automation |
+| Current slice | G2.1=`DONE`；G2.2-G2.4=`REPAIRED_PENDING_GATE_DECISION`；G2=`G2_NON_CONVERGENT_SYSTEMIC_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW`；G2.R、G3-G4=`NOT_READY` |
+| Expected base | rejected candidate=`230064e707622c9296dec3bbecb725d9f7b6b691`；systemic repair commit sole parent 必须 exact 等于该 commit |
 | Consecutive state-query failures | `0` |
-| Last effective operation | replacement fresh independent acceptance task `019fac4a-24f1-7163-b985-84bfac2cb417` 对 `e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0` 判定 `FAIL`；原 Stage worker已闭合两个 blocker 并完成本地 whole-G2/full regression |
-| Next allowed action | 第三个 repair commit clean 后创建 fresh independent whole-G2 regression；regression 不修改 candidate，PASS 前不得进入 G3 |
+| Last effective operation | fresh acceptance `019facbe-2b39-71e2-9ef7-3d9576717f18` 对 `230064e707622c9296dec3bbecb725d9f7b6b691` 判定 `FAIL`；G2 有效 boundary FAIL 累计 4，`019fac2b...` 仅 systemError 不计数；原 Stage worker按 fixed-v3 完成 non-convergent systemic repair |
+| Next allowed action | 中控只读审查本次 audit/matrix/systemic repair/shadow evidence；不得立即创建或建议下一次 acceptance，不得开放 G3 |
 
 ## 已完成切片与证据
 
@@ -285,7 +287,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | G2.4 rejected implementation exit candidate | `REJECTED_BY_CONTROLLER` | `3dbe755db2dd88603a15e20c1c30c3c369ab7651` | `a8a42b9b29b4b5ca317ab8a346b39a5d4c39bfef` |
 | G2 first acceptance-directed repair candidate | `REJECTED_BY_CONTROLLER` | `3a5e51d4c334fa8f7b1eee69518bb0b0756d0922` | `3dbe755db2dd88603a15e20c1c30c3c369ab7651` |
 | G2 second acceptance-directed repair candidate | `REJECTED_BY_CONTROLLER` | `e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0` | `3a5e51d4c334fa8f7b1eee69518bb0b0756d0922` |
-| G2 third acceptance-directed repair candidate | `G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION` | `<G2_THIRD_ACCEPTANCE_DIRECTED_REPAIR_COMMIT>` | `e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0` |
+| G2 third acceptance-directed repair candidate | `REJECTED_BY_CONTROLLER` | `230064e707622c9296dec3bbecb725d9f7b6b691` | `e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0` |
+| G2 fixed-v3 non-convergent systemic repair candidate | `PENDING_CONTROLLER_REVIEW` | `<G2_NON_CONVERGENT_SYSTEMIC_REPAIR_COMMIT>` | `230064e707622c9296dec3bbecb725d9f7b6b691` |
 
 G0.1 交付物：
 
@@ -1546,7 +1549,7 @@ Fixture 全部显式标记 synthetic/no real Evidence；成功只证明 contract
 ### 两项定向闭合
 
 - 移除 `validateHistoricalDiscoveryContracts` 全局 boolean bypass。已验证 `plan_revision_operation.v3` receipt 现在向 Artifact validator 传递 exact historical Plan ref/hash/revision 与 bound candidate refs；G2.1/G2.2 各自只在该 binding 与 durable Plan/candidate/map lineage 闭合时构造只读 historical Manifest/Plan view，并始终执行完整 domain validator。合法 r1/r2 双 Plan apply、pending replay 与 reopen 保持通过；map profile 漂移或未被 receipt 绑定的 solution candidate profile 漂移即使同步重算 Envelope hash、Artifact operation key、receipt filename/content 和 durable bytes，也分别在 replay 以 `artifact.reference_invalid`、在 reopen 以 `recovery.reference_invalid` fail closed。
-- `synthesis.solution_candidate_semantic_drift` 只对 `document_bundle.v13` 生效；v11/v12 保留 parent validator behavior。仓库新增 parent runtime 真实生成的固定 v12 bundle bytes，size=`285141`、SHA-256=`839afaea562249c395a8a1e052d54563eb6ce8e9b4ea1573e815148767b37f44`，不从当前 repaired fixture 反向构造。该 fixture 闭合 validation、immutable v12 publication、v10 receipt、Manifest `11.0.0`、`after_temp_write` recovery、checkpoint 与 reopen；v13 的 uses-ai/solution semantic drift 继续以同一稳定 code 拒绝。
+- `synthesis.solution_candidate_semantic_drift` 只对 `document_bundle.v13` 生效；v11/v12 保留 parent validator behavior。该 candidate 当时把 size=`285141`、SHA-256=`839afaea562249c395a8a1e052d54563eb6ce8e9b4ea1573e815148767b37f44` 记录为 parent-produced v12 fixture；第四次 acceptance 后已确定性证伪：它不是 exact parent builder bytes，在 `e68be2d` validation 以 `synthesis.solution_candidate_semantic_drift` 失败，其 publication、v10 receipt、Manifest、checkpoint、recovery、reopen 均为 `NOT_RUN`。本段不得继续作为兼容性证据；current replacement 与双运行时结果见后续 fixed-v3 audit 节。
 
 ### 验证、冻结与风险
 
@@ -1555,7 +1558,7 @@ Fixture 全部显式标记 synthetic/no real Evidence；成功只证明 contract
 | 命令 | Third acceptance-directed repair candidate 结果 |
 | --- | --- |
 | `npm run test:g0.4` | PASS；56/56 tests；新增 5 个 historical Plan cases，覆盖合法双 Plan、G2.1/G2.2 receipt-resigned drift 的 reopen/pending replay；0 failed/skipped/todo |
-| G2.1 / G2.2 / G2.3 / G2.4 专项 | PASS；34/34、10/10、6/6、29/29 tests；固定 parent v12 bytes、v10 receipt/recovery/checkpoint/reopen 与 v13 drift rejection 闭合；0 failed/skipped/todo |
+| G2.1 / G2.2 / G2.3 / G2.4 专项 | 当时 PASS；34/34、10/10、6/6、29/29 tests，0 failed/skipped/todo；但 G2.4 的 `839...` fixture provenance 和所谓 parent lifecycle 后续被证伪，不能作为 current acceptance evidence |
 | `npm run test:g1.3` / `test:g1.4` / `validate:store` | PASS；25/25、36/36、11/11 tests；0 failed/skipped/todo |
 | `npm run test:faults` / `npm run test:recovery` | PASS；10/10、11/11 tests；0 failed/skipped/todo |
 | `npm test` | PASS；289/289 tests，0 failed/skipped/todo |
@@ -1569,10 +1572,74 @@ Fixture 全部显式标记 synthetic/no real Evidence；成功只证明 contract
 
 本返修不修改或新增任何 schema/policy JSON authority，不改变 package/toolchain bytes，也不实现 G3、external validation、network research、agent/LLM dispatch、通用 Workflow Runtime、DAG DSL、daemon、UI 或 DB。所有 synthetic fixture 只证明 deterministic contract/runtime compatibility，不构成 Evidence、candidate viability、市场验证或 validation success。原子 repair commit 使用本节占位避免 self-reference，sole parent 必须为 `e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0`；状态仍仅为 `G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION`，G2.R、G3-G4 保持 `NOT_READY`。
 
+该历史 third repair candidate 最终 commit=`230064e707622c9296dec3bbecb725d9f7b6b691`。fresh independent acceptance `019facbe-2b39-71e2-9ef7-3d9576717f18` 后续统一判定 `FAIL`：三个正式 report surface 均漏扫 `score global|score-global|score_global`，且 `839...` fixture provenance 及其 parent lifecycle 声明可确定性证伪。至此 G2 连续有效 boundary FAIL 累计为 4：`019fa7fa...`、`019fa881...`、`019fac4a...`、`019facbe...`；`019fac2b...` 仅 systemError、无统一结论，不计数。fixed-v3 强制进入 `NON_CONVERGENT_AUDIT`，不得继续点状返修或立即创建下一次 acceptance。
+
+## G2 fixed-v3 NON_CONVERGENT_AUDIT 与 systemic repair candidate
+
+本次以 `230064e707622c9296dec3bbecb725d9f7b6b691` 为 exact sole parent，`fixed_ruleset_id=startup-opportunity-controller-fixed-v3`。原 G2 Construction Stage 主 task 继续是唯一 tracked-files、Git index、账本与 commit 写入者；两个只读 subagent `audit_history_matrix`、`audit_report_oracles` 只做历史矩阵、regex/real-entry、fixture/provenance 和 cross-version oracle 审查，未修改任何文件、Git、账本或 automation，未 commit 或创建 descendant。主 worker在审计结束并明确 `NOT_BLOCKED_BY_SPEC` 前未编辑生产代码。
+
+### 四次 FAIL 汇总与根因分类
+
+- 第一次 `019fa7fa...` / `3dbe755`：AI mandatory gate、Recommendation ceiling、固定 report consistency `passed`、shared pre-kill 和缺失四 profile/diversity chain 五项；AI、基础 ceiling、shared binding、profile/diversity 已修复，report finding 后续以新 property class 复发。
+- 第二次 `019fa881...` / `3a5e51d`：typed candidate binding、lower fan-in ceiling、三个 report boundary、v12/v13 evaluation dispatch 和伪 profile chain 五项；typed binding、strictest ceiling、profile chain 已修复，v12 dispatch 与 report finding分别进入后续 cross-version/property 审计。
+- 第三次 `019fac4a...` / `e68be2d`：v3 receipt 全局跳过 G2.1/G2.2 domain validation、synthesis semantic check 倒灌 v12 两项；exact historical Plan view 与 v13-only synthesis 已修复并被第四轮确认，所谓 parent fixture 证据后续被证伪。
+- 第四次 `019facbe...` / `230064e`：reverse-order global score 三 surface fail-open、`839...` 非 exact parent builder bytes 两项；均为本次 systemic repair 的 open 输入。
+- 验收基线遗漏：上位 baseline 已明确 real entry、正反 token order、三 separator、三 surface、pre-write zero-write、exact parent bytes 与 parent runtime；施工 preflight 没有把它机械化为完整 property/mutation matrix，普通 suite 的 PASS 因此不能覆盖遗漏。
+- 共同架构根因：lexical policy 由已知例句 regex 手工枚举；单 Artifact、bundle、Store、ReportRuntime、recovery 的 version/lifecycle dispatch 分散；compatibility test 只调用 current runtime。历史 boolean bypass、v12 semantic drift 与本次 report scan version drift 都属于这个族，而不是独立 typo。
+- fixture/oracle 失真：`839afaea...` / 285141 bytes 内 source candidate `uses_ai=false`、formal Solution `uses_ai=true`，在 producer parent `e68be2d` validation 必然报 `synthesis.solution_candidate_semantic_drift`；其 publication/v10 receipt/Manifest/checkpoint/recovery/reopen 全部 `NOT_RUN`。G0.4 “parent receipt v1”和 G2.3 “frozen synthesis index”等 current-runtime compatibility tests 也不得升级表述为 parent-produced byte oracle。
+- 规范歧义：无。RFC 2356、3948、3991、3995、4011、4229 与已发布 v1/v2 policy 已唯一规定 exact historical Plan validation、v13-only repaired semantics、三个 formal surface、反向语序和 pre-write zero-write；无需新 schema/policy 或业务语义选择，结论为 `NOT_BLOCKED_BY_SPEC`。
+
+### Invariant-to-test matrix
+
+| ID | 上位 authority 与 invariant | 真实 entry / Artifact / lifecycle | mutation/property 与历史 finding | 既有 coverage / blind spot | fixture / provenance oracle | expected fail-closed / zero-write | repair owner / shadow evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H1 | RFC 3948/3995；evaluation policy v2：selected Solution `uses_ai` 决定 missing-G3 ceiling | Bundle validator；Opportunity -> Solution -> hard gate -> Comparison/Report | AI/hybrid `uses_ai=true` × passed/not_applicable；`019fa7fa`/`3dbe755` | 已覆盖三种 selected-solution mutation；无 current blind spot | 四 profile exact map/candidate/conversion/formal Solution refs+hashes | `g2_4.ai_mandatory_bundle_gate_violation`；publication zero-write | evaluation validator；G2.4 profile/AI table与 shadow `32/32` PASS |
+| H2 | RFC 3948/3995；decision tier 取 strictest closed ceiling | Fan-in -> Comparison/panels/gates -> Portfolio/first bet -> Recommendation | insufficient/mixed/null first bet；`019fa7fa`/`3dbe755` | 后续 H7 暴露 lower fan-in遗漏；现已闭合 all tiers | exact fan-in/comparison/portfolio refs+hashes | `g2_4.decision_tier_ceiling_violation`；report不可发布 | evaluation validator；两组 table-driven ceiling tests PASS |
+| H3 | RFC 4011/4229；Consistency v3 不能由 caller 固定 `passed` | structured report + brief + full report；ReportRuntime/build/checkpoint/reopen | validation/probability/global-score；`019fa7fa`/`3dbe755` | 原 runtime 固定 `[]/passed`；修后仍有 H8/H13 property blind spot | v13 explicit report envelope与 derived sidecars | validator `g2_4.forbidden_report_expression`；Store `artifact.schema_invalid`；runtime `report.forbidden_expression_detected`；4 formal/3 materialized/receipts/Manifest zero-write | report scanner/runtime/Artifact validator；完整 tree snapshot与 7 fault boundaries PASS |
+| H4 | RFC 2356/4007；pre-kill 只能 skip exact exclusive pending candidate unit | adaptation validate/apply/v3 receipt/replay/crash/reopen | shared candidate unit；`019fa7fa`/`3dbe755` | H6 后续暴露 path-only；当前 shared/missing均覆盖 | exact candidate Envelope+Plan+unit inputs | `adaptation.pre_kill_shared_candidate_skip_forbidden`；Plan/receipt/Manifest zero-write | adaptation/plan runtime；G0.4 `56/56` PASS |
+| H5 | RFC 3948；profile/diversity 必须贯穿 G2.2+ | candidate -> lane/fan-in -> merge -> report | 仅 general、counterfactual empty；`019fa7fa`/`3dbe755` | H10 后续暴露 G2.3 直接翻 AI；当前逐阶段闭合 | general/industry/AI/hybrid owned map fragments | profile/diversity lineage drift fail closed；无错误 profile publication | fixture builders + map/candidate/synthesis/evaluation validators；四 profile test PASS |
+| H6 | RFC 2356/4007；pre-kill subject 是 exact typed candidate revision | validate/apply、parent-produced v1/v2与 v3 receipt、replay/recovery | missing/null/non-envelope/wrong type/Run/Plan/hash/revision；`019fa881...`/`3a5e51d` | 当前 malformed matrix与 durable drift闭合 | durable candidate document+Envelope hash、base Plan ref/hash/revision | `adaptation.pre_kill_candidate_binding_invalid`；任何 receipt/Artifact/Manifest write 前失败 | adaptation/plan runtime；G0.4 malformed/replay matrix PASS |
+| H7 | RFC 3948/3995；lower fan-in ceiling也进入 strictest Recommendation | fan-in reject -> comparison insufficient -> recommendation | five fan-in tiers × comparison/gate/panel/portfolio；`019fa881...`/`3a5e51d` | 原 H2 只测 comparison；当前全 tier table闭合 | fan-in conclusion ceiling exact ref/hash | `g2_4.decision_tier_ceiling_violation`；无 Recommendation/report write | evaluation validator；strictest tier table PASS |
+| H8 | RFC 4011/4229；三个 surface 是独立 pre-write boundary | generic Store direct structured/brief/view；checkpoint/recovery/reopen | hyphen/underscore/语序 variant；`019fa881...`/`3a5e51d` | 原只测一个复合正向句与部分文件不存在；未比较 whole tree | derived v13 sidecars重算 markdown/content hashes | 同 H3 stable codes；Artifact receipt、materialization receipt/file、Manifest完整 tree byte-identical | Artifact validator + report runtime；三 surface × 三 rule reverse cases PASS |
+| H9 | RFC 3948/3995；v12 使用 frozen evaluation v1，v13 才使用 v2 | bundle validation/publication/v10 receipt/Manifest11/checkpoint/reopen | same AI gate mutation across v12/v13；`019fa881...`/`3a5e51d` | evaluator dispatch已闭合；本次补 report scan同一集中 version predicate | document bundle/envelope version + published policy adapter | v12保持历史结果；v13 AI/report mutation fail closed | Artifact/evaluation/report dispatch；v12/v13 same-mutation test PASS |
+| H10 | RFC 3948；AI semantics 必须从 AI map fragment进入 typed candidate | G2.1 map -> G2.2 candidate -> G2.3 conversion/Solution -> Opportunity -> G2.4 report | G2.2 ordinary/false、G2.3直接翻 AI；`019fa881...`/`3a5e51d` | 当前四 profile逐阶段 refs/hash/semantic差异闭合 | profile-owned exact map fragment/ref/hash/revision | candidate/synthesis semantic drift stable code；无伪 profile report | fixture builders + synthesis validator；四 profile chain PASS |
+| H11 | RFC 2356；receipt只授权 exact historical Plan view，domain validators永远执行 | completed `RunStore.load`、pending `after_intent` replay | re-signed G2.1 map drift、unbound G2.2 candidate drift；`019fac4a...`/`e68be2d` | 当前无 global boolean bypass；第四轮明确重放通过 | v3 receipt exact Plan ref/hash/revision/bound candidates | replay `artifact.reference_invalid`；reopen `recovery.reference_invalid`；无 recovery write | Artifact validator/RunStore；G0.4 historical matrix PASS |
+| H12 | RFC 3991；Solution semantic preservation只属于 v13 repair | synthesis bundle validate + v12 publication lifecycle | source/formal `uses_ai` drift across v11/v12/v13；`019fac4a...`/`e68be2d` | version dispatch已修；旧 `839...` oracle失真由 H14替换 | identical mutation + bundle version；exact a08 clean bytes | v11/v12 frozen behavior；v13 `synthesis.solution_candidate_semantic_drift` | synthesis/Artifact validator；v13 drift + a08 dual-runtime PASS |
+| H13 | RFC 4011/4229 与开工 baseline；三 rule正反 order/三 separator/三 surface | pure scanner、direct Artifact/Store、ReportRuntime 7 faults、checkpoint/load | `score global|score-global|score_global`；`019facbe...`/`230064e` | 原 scanner只 forward examples；现为 rule × order × separator × surface property cross | normalized text stable hash `<rule>@<surface>:<sha256>`；v13 explicit Artifacts | H3 stable codes；每次拒绝前后完整 Run tree byte-identical | report-consistency + centralized v13 predicate；repo内/仓库外 G2.4 `32/32` PASS |
+| H14 | immutable compatibility：parent-produced必须闭合 producer commit/invocation/bytes/runtime | exact builder -> validation -> staged publication -> v10 receipt -> Manifest11 -> fault recovery -> checkpoint/reopen | `839...` false provenance；`019facbe...`/`230064e` | 旧 test仅 current runtime且 parent lifecycle `NOT_RUN`；已删除 self-oracle | `e68be2d` `setup(...,"cross-version-v12","ai_first") -> legacyV12` exact `a08eb3...` / 285157 bytes | parent/current均 valid；34 个 v12 receipts全为 v10；Manifest `11.0.0`；recovery/reopen PASS；相同 final tree digest | `git archive` parent executor + current executor；tree 181 files、digest `sha256:07fcfd7a5982fdee09ca899b95eecc8cae47177f6d9ed95a99ba99d8563d3dd6` |
+
+### Systemic repair 与 shadow evidence
+
+- `report-consistency.ts` 保留 NFKC 与 `_/-/space` 统一 normalization，但三条 rule 都按双向 token order 关闭 property class：market validation success、probability/success/chance、global/overall score。相同 tokens 的三 separator 必须产生同一个 normalized match hash；非禁止的 pending/local wording仍保持不命中。
+- 单一 `requiresDeterministicReportScan` predicate 同时约束单 Artifact validator 与 ReportRuntime；只有 envelope v13 执行 Consistency v3 scan，v12继续生成冻结 Consistency v2 `passed/[]`，不把 repaired semantics倒灌历史版本。
+- committed fixture替换为 exact parent builder output `a08eb3cc38ba099a3fd912cb90d49fe9039507e82fb4eb0c701da08e0176dee6` / 285157 bytes。cross-version driver在无 worktree 的 `e68be2d` `git archive` 与当前源码树中分别重建 exact bytes并执行完整 lifecycle；两侧输出及最终 tree digest exact 相同。
+- formal boundary tests对每条 rule使用此前漏过的 reverse/separator形式，覆盖 structured report、独立 decision brief、独立 full report、generic Store `after_intent`、ReportRuntime全部 7 fault boundaries、checkpoint后 load/reopen；每次拒绝前后比较完整 base64 Run tree，确认 4 formal Artifacts、3 materialized outputs、receipts和Manifest均零新增。
+- repository-external shadow candidate从 `230064e` archive起步，只覆盖本次 candidate diff，并显式使用原 Git object database重放 parent executor；G2.4 `32/32` PASS，0 failed/skipped/todo。该 shadow是 candidate preflight，不是 independent boundary acceptance，也不授权 G3。
+
+全部命令使用 Node.js `24.18.0` / npm `11.16.0`：
+
+| 命令 | fixed-v3 systemic repair 结果 |
+| --- | --- |
+| `npm run test:g0.4` | PASS；56/56，historical exact Plan/domain、typed pre-kill、apply/replay/crash/reopen；0 failed/skipped/todo |
+| G2.1 / G2.2 / G2.3 / G2.4 专项 | PASS；34/34、10/10、6/6、32/32；0 failed/skipped/todo |
+| `npm run test:g1.3` / `test:g1.4` / `validate:store` | PASS；25/25、36/36、11/11；0 failed/skipped/todo |
+| `npm run test:faults` / `npm run test:recovery` | PASS；10/10、11/11；0 failed/skipped/todo |
+| repository-external shadow G2.4 | PASS；32/32；parent/current exact a08 builder+lifecycle与 full candidate preflight；0 failed/skipped/todo |
+| `npm test` | PASS；292/292，0 failed/skipped/todo |
+| `npm run validate:fixtures` | PASS；170/170，0 failed/skipped/todo |
+| `npm run validate:schemas` | PASS；bundle `12.0.0`，141 schemas / 133 document validators，0 errors |
+| `npm run lint` / `npm run typecheck` | PASS；Biome checked 311 files，0 fixes/errors；`tsc --noEmit` 0 errors |
+| `npm run verify:skeleton` / frozen doctor | PASS；repository doctor 296/296，Node `24.18.0` |
+| frozen bytes / toolchain / forbidden scope / `git diff --check` | PASS；相对 `230064e` 的 175 个既有 schema/policy JSON paths 零差异，content+path manifest digest=`d8aa725756c996f2c9474cd88a34dbd66f5c6520129a1b902d47d4a9153e9a91`；`package.json`、`package-lock.json`、`.node-version`、`.npmrc`、`tsconfig.json` 零差异；生产代码无 process/network/LLM/external-validation/G3/Workflow Runtime/DAG/daemon/UI/DB surface；whitespace clean |
+
+本次没有修改 RFC 业务语义，也没有修改或新增 schema/policy JSON authority；现有 RFC 与 published authority 已唯一消解 findings。残余风险保持显式：deterministic lexical grammar只能执行已发布 rule，不替代 Evidence truth/quality audit；`git archive` differential oracle要求 producer commit object仍可用；未来若改变 report grammar、receipt/Plan ownership或历史版本行为，必须发布新 versioned authority，不能扩张 v13 predicate或恢复 boolean bypass。
+
+本 candidate 不实现或执行 G3、network research、interview、landing page、deposit、advertising、paid experiment、MVP test、其他 external validation、agent/LLM dispatch、通用 Workflow Runtime/DAG DSL/daemon/UI/DB。所有 fixture均为 synthetic/unverified，只证明 deterministic mechanics，不构成 Evidence、市场验证、validation success、candidate viability或商业成功。原子 commit使用占位避免 self-reference，sole parent必须为 `230064e707622c9296dec3bbecb725d9f7b6b691`；状态仅为 `G2_NON_CONVERGENT_SYSTEMIC_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW`，不得自称 G2 `DONE`，不得创建/建议 immediate acceptance，不得开放 G2.R 或 G3。
+
 ## 当前边界与后续状态
 
 - G0 Foundation 已通过独立 whole-gate regression；当前没有 G0 blocker。
 - G1.1-G1.4、G1.R、G1 Concept Evidence Assessment 与 W4 均为 `DONE`；中控已接受 G1.R commit `a30c0967860bf31d26fc959c583f8c5b6b1b4caa`。
-- G2 Opportunity Discovery 与 W5=`G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION`；G2.1=`DONE`，G2.2-G2.4=`REPAIRED_PENDING_WHOLE_GATE_REGRESSION`。G2.R、G3-G4 继续 `NOT_READY`；fresh independent whole-G2 regression PASS 前不得开放 G3。
+- G2 Opportunity Discovery 与 W5=`G2_NON_CONVERGENT_SYSTEMIC_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW`；G2.1=`DONE`，G2.2-G2.4=`REPAIRED_PENDING_GATE_DECISION`。G2.R、G3-G4 继续 `NOT_READY`；中控审查 audit/matrix/systemic repair/shadow evidence 前不得创建下一次 acceptance，boundary PASS 前不得开放 G3。
 - `validate-artifact`、Evidence/Artifact Store、RunStore、bounded assessment adaptation、audit/traceability、concept/discovery report、G2.1 maps、G2.2 candidate/lane/fan-in、G2.3 caller-supplied synthesis 与 G2.4 caller-supplied evaluation/report publication/recovery 已形成 deterministic surface；Harness 不执行 research、synthesis、enrichment 或 comparison 语义生成，discover orchestration 仍未开放。
 - 目标 runtime 是精确 Node.js `24.18.0` 与 npm `11.16.0`；开发者不得用错误版本证据替代冻结验证。
