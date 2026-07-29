@@ -1,6 +1,6 @@
 # Deterministic Schema And Reference Validator
 
-默认 validator 使用 schema bundle `14.0.0`，同时保留既有 v1-v14 contract bytes。`validate-artifact` 继续只验证显式 document/bundle；不会扫描 Run、启动 Agent、执行 network research 或隐式迁移历史 Artifact。
+默认 validator 使用 schema bundle `15.0.0`，同时保留既有 v1-v15 contract bytes。`validate-artifact` 继续只验证显式 document/bundle；不会扫描 Run、启动 Agent、执行 network research 或隐式迁移历史 Artifact。
 
 `PlanningContractEvaluator` 只读消费显式 Document Bundle、`adaptation.v1.json` 和 AI trigger source-binding policy，返回排序稳定的 contract issue。它机械校验 Planning Context v2 的 source existence/schema/canonical hash/Run/mode/context revision/subject/trigger exact binding、closed unit tuple、AI aggregate coverage、canonical coverage_key/relation、pending/active coverage target 和 Run Manifest failed-only retry。
 
@@ -20,6 +20,8 @@
 
 `DiscoverySynthesisValidator` 对显式 v11 bundle 执行 executable conversion/target 双向 binding、formal target candidate ancestry、typed material task binding、generation/evaluation source separation、Demand-first dependency order、Solution Evaluation exact classification、Opportunity selection lineage、immutable pre-enrichment snapshot 和 non-title semantic merge closure。它不合成 thesis、不判断 Evidence 真实性/充分性，也不开放 G2.4 enrichment/comparison/report。
 
-`DiscoveryEvaluationValidator` 对历史 v12 或 repaired v13 bundle 执行 task/current enabled Plan unit exact tuple、snapshot/merge、v3 material/substrate、branch/fan-in、domain subject、hard gate/panel、Evidence ceiling、sensitivity/partial order、portfolio/recommendation、traceability/freshness/hash 与 discovery report closure。v13 额外强制 selected Solution AI gate、closed decision tier ceiling 和 Consistency v3 deterministic scan。它不获取 Evidence、不生成 Judgment、panel band、排名或推荐；validation 只证明 contract mechanics。
+`DiscoveryEvaluationValidator` 对历史 v12、repaired v13-v15 或 G3-bound v16 bundle 执行 task/current enabled Plan unit exact tuple、snapshot/merge、v3 material/substrate、branch/fan-in、domain subject、hard gate/panel、Evidence ceiling、sensitivity/partial order、portfolio/recommendation、traceability/freshness/hash 与 discovery report closure。v12固定使用policy v1，v13-v15固定使用v2，只有v16使用v3；它不获取 Evidence、不生成 Judgment、panel band、排名或推荐。
 
 `AiBundleValidator` 从 v14 bundle 开始验证 caller-supplied G3.1 Artifact 的 exact Opportunity/selected `uses_ai=true` Solution/trigger lineage、三类 baseline、representative evaluation声明、reliability/failure/human boundary、data rights/ground truth/feedback/portability 和 freshness window。它不运行 benchmark、不判断 Evidence 真实性或质量、不生成 baseline/Judgment，也不访问 network、agent 或 LLM。
+
+v16 时 `AiBundleValidator` 还验证 caller-supplied mandatory bundle的exact七类输入/hash、固定六维顺序与计数、source-unavailable状态、freshness/continuation聚合及consumer binding。selected `uses_ai=false` 必须显式 `not_required`；AI bundle missing/incomplete/desk-only/stale时不得支持prioritize。Harness不自动补全bundle、coverage、Evidence或结论。

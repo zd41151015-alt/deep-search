@@ -9,7 +9,7 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 
 ## Current Execution Gate
 
-依赖此仓库前，先运行 `npm run harness -- doctor --json`。G2.4 已在 G2.1-G2.3 runtime 之上实现 caller-supplied enrichment task/material/branch/fan-in、Business Engine、hard gate、四面板 comparison、sensitivity、partial order、portfolio、recommendation、traceability 与 discovery report 的 closed validation/publication/checkpoint/reopen/recovery。Harness 只接受调用方给出的显式 Artifact；不会分派 agent、调用 LLM、执行 lane 或 network research，也不会自行形成 pre-kill、thesis、hard-gate、comparison 或 recommendation 判断。G3 AI mandatory bundle 仍未开放。
+依赖此仓库前，先运行 `npm run harness -- doctor --json`。G2.4 已实现 caller-supplied discovery evaluation/report lifecycle；G3.1-G3.3已形成等待whole-Stage boundary review的caller-supplied AI baseline/reliability/data/economics/commoditization/trust/mandatory-bundle deterministic surface。Harness不会分派agent、调用LLM、执行lane、benchmark或network research，也不会自行形成coverage、baseline、comparison、recommendation或AI bundle判断。
 
 ## Action Routing
 
@@ -40,4 +40,4 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 
 ## Script Surface
 
-`scripts/doctor.ts`、`validate-artifact.ts`、`create-run.ts`、`load-run.ts`、`record-evidence.ts`、`publish-artifact.ts`、`checkpoint-run.ts`、`validate-plan.ts`、`analyze-gaps.ts`、`validate-adaptation.ts`、`apply-plan-revision.ts`、`calculate-comparison.ts`、`calculate-sensitivity.ts`、`audit-traceability.ts` 和 `build-report.ts` 已可运行。G2.1 maps 使用 v8 envelope；G2.2 runtime 使用 v10 envelope/receipt v8/bundle `9.0.0`；G2.3 synthesis 使用 v11/receipt v9/bundle `10.0.0`；G2.4 repair adapter 使用 v13/receipt v11/bundle `12.0.0`，并保留 immutable v12/receipt v10/bundle `11.0.0` 历史 adapter。v9 contract envelope、conversion v1、v11 对 G2.4 types 与 v13 对 G3 AI types 继续 Store fail-closed。v13 强制 selected Solution `uses_ai`/missing-G3 ceiling、first-bet decision ceiling、三表面 report forbidden-expression scan 和 candidate pre-kill shared-unit binding。调用方负责生成全部研究、candidate、thesis、enrichment、comparison、portfolio 与 recommendation 语义；generic `publish-artifact` 只做 closed validation 和 immutable publication。comparison/sensitivity 命令只读验证并摘要显式 Artifact，`build-report` 只确定性派生 views；没有 `discover`、lane execution、thesis/enrichment synthesis 或 hidden judgment command。Store/schema success 不代表 Evidence 真实/充分、决策就绪、research 完成或 validation success。
+`scripts/doctor.ts`、`validate-artifact.ts`、`create-run.ts`、`load-run.ts`、`record-evidence.ts`、`publish-artifact.ts`、`checkpoint-run.ts`、`validate-plan.ts`、`analyze-gaps.ts`、`validate-adaptation.ts`、`apply-plan-revision.ts`、`calculate-comparison.ts`、`calculate-sensitivity.ts`、`audit-traceability.ts` 和 `build-report.ts` 已可运行。G2.4保留immutable v12/v1与v13/v2 evaluation语义；v14/receipt v12、v15/receipt v13、v16/receipt v14分别安装G3.1、G3.2与G3.3 caller-supplied contract，只有document bundle v16 dispatch evaluation policy v3。`build-report`只确定性派生并继承v16 binding；没有research、benchmark、agent/LLM dispatch或hidden judgment command。Store/schema success不代表Evidence真实/充分、决策就绪、research完成、产品可行或validation success。

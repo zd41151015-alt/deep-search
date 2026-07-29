@@ -288,8 +288,19 @@ function formalEnvelope(
 ): FormalArtifactEnvelope {
   if (
     source.schema_version === "startup_opportunity.artifact_envelope.v12" ||
-    source.schema_version === "startup_opportunity.artifact_envelope.v13"
+    source.schema_version === "startup_opportunity.artifact_envelope.v13" ||
+    source.schema_version === "startup_opportunity.artifact_envelope.v16"
   ) {
+    const inputRefs = [...new Set(collectDocumentRefs(document))]
+      .filter((ref) => ref !== artifactPath)
+      .sort();
+    if (
+      source.schema_version === "startup_opportunity.artifact_envelope.v16" &&
+      isRecord(source.ai_bundle_binding)
+    ) {
+      inputRefs.push(...collectDocumentRefs(source.ai_bundle_binding));
+      inputRefs.sort();
+    }
     return {
       schema_version: source.schema_version,
       artifact_type: artifactType,
@@ -297,11 +308,12 @@ function formalEnvelope(
       run_id: source.run_id,
       created_at: source.created_at,
       producer_role: "harness",
-      input_refs: [...new Set(collectDocumentRefs(document))]
-        .filter((ref) => ref !== artifactPath)
-        .sort(),
+      input_refs: [...new Set(inputRefs)].sort(),
       content_hash: canonicalContentHash(document),
       document,
+      ...(source.schema_version === "startup_opportunity.artifact_envelope.v16"
+        ? { ai_bundle_binding: source.ai_bundle_binding }
+        : {}),
     } as FormalArtifactEnvelope;
   }
   return {
@@ -561,7 +573,8 @@ export function deriveReportEnvelopes(
 ): readonly FormalArtifactEnvelope[] {
   if (
     (reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v12" ||
-      reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v13") &&
+      reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v13" ||
+      reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v16") &&
     reportEnvelope.artifact_type === "startup_opportunity.report.v1" &&
     reportEnvelope.producer_role === "main_agent" &&
     reportEnvelope.document.schema_version === "startup_opportunity.report.v1"

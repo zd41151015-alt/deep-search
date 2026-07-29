@@ -128,13 +128,14 @@ function validateEnvelope(entry: DiscoveryEvaluationDocument, errors: Validation
   }
   if (
     entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.v12" &&
-    entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.v13"
+    entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.v13" &&
+    entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.v16"
   ) {
     errors.push(
       issue(
         "g2_4.envelope_version_mismatch",
         entry.path,
-        "G2.4 artifacts require historical v12 or repaired v13 envelopes",
+        "G2.4 artifacts require historical v12, repaired v13, or G3-bound v16 envelopes",
       ),
     );
     return;
@@ -173,7 +174,11 @@ function validateEnvelope(entry: DiscoveryEvaluationDocument, errors: Validation
       ),
     );
   }
-  const expectedInputRefs = [...new Set(collectRefs(entry.document))]
+  const bindingRefs =
+    entry.envelope.schema_version === "startup_opportunity.artifact_envelope.v16"
+      ? collectRefs(entry.envelope.ai_bundle_binding)
+      : [];
+  const expectedInputRefs = [...new Set([...collectRefs(entry.document), ...bindingRefs])]
     .filter((ref) => ref !== entry.path)
     .sort();
   if (!setEqual(strings(entry.envelope.input_refs), expectedInputRefs)) {
@@ -728,7 +733,8 @@ function validateEvaluationAndReporting(
   errors: ValidationIssue[],
 ): void {
   const repairedPolicy =
-    policy.schema_version === "startup_opportunity.discovery_evaluation_policy.v2";
+    policy.schema_version === "startup_opportunity.discovery_evaluation_policy.v2" ||
+    policy.schema_version === "startup_opportunity.discovery_evaluation_policy.v3";
   const fanIns = entries.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.enrichment_fan_in.v1",
   );

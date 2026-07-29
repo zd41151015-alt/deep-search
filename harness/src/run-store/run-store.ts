@@ -172,6 +172,7 @@ const STORE_ENVELOPE_VERSIONS = new Set([
   "startup_opportunity.artifact_envelope.v13",
   "startup_opportunity.artifact_envelope.v14",
   "startup_opportunity.artifact_envelope.v15",
+  "startup_opportunity.artifact_envelope.v16",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1467,7 +1468,8 @@ export class RunStore {
       recoveryBundleVersion === "startup_opportunity.document_bundle.v12" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v13" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v14" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v15"
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v15" ||
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v16"
     ) {
       for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
         if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
@@ -1488,7 +1490,8 @@ export class RunStore {
         recoveryBundleVersion === "startup_opportunity.document_bundle.v12" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v13" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v14" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v15"
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v15" ||
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v16"
           ? { exact_records: [] }
           : {}),
       },

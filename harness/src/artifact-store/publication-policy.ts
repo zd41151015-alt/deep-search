@@ -5,7 +5,7 @@ import { canonicalContentHash, canonicalJson } from "./canonical.js";
 import { StoreError } from "./store-error.js";
 
 export const RESEARCH_PUBLICATION_POLICY_PATH =
-  "harness/policies/research-publication.v10.json" as const;
+  "harness/policies/research-publication.v11.json" as const;
 
 export type StoreEnvelopeVersion =
   | "startup_opportunity.artifact_envelope.v1"
@@ -21,7 +21,8 @@ export type StoreEnvelopeVersion =
   | "startup_opportunity.artifact_envelope.v12"
   | "startup_opportunity.artifact_envelope.v13"
   | "startup_opportunity.artifact_envelope.v14"
-  | "startup_opportunity.artifact_envelope.v15";
+  | "startup_opportunity.artifact_envelope.v15"
+  | "startup_opportunity.artifact_envelope.v16";
 
 export type StoreDocumentBundleVersion =
   | "startup_opportunity.document_bundle.v1"
@@ -37,7 +38,8 @@ export type StoreDocumentBundleVersion =
   | "startup_opportunity.document_bundle.v12"
   | "startup_opportunity.document_bundle.v13"
   | "startup_opportunity.document_bundle.v14"
-  | "startup_opportunity.document_bundle.v15";
+  | "startup_opportunity.document_bundle.v15"
+  | "startup_opportunity.document_bundle.v16";
 
 export type ArtifactReceiptVersion =
   | "startup_opportunity.artifact_store_operation.v1"
@@ -52,7 +54,8 @@ export type ArtifactReceiptVersion =
   | "startup_opportunity.artifact_store_operation.v10"
   | "startup_opportunity.artifact_store_operation.v11"
   | "startup_opportunity.artifact_store_operation.v12"
-  | "startup_opportunity.artifact_store_operation.v13";
+  | "startup_opportunity.artifact_store_operation.v13"
+  | "startup_opportunity.artifact_store_operation.v14";
 
 export interface StorePublicationAdapter {
   readonly envelope_version: StoreEnvelopeVersion;
@@ -67,7 +70,8 @@ export interface ResearchPublicationPolicy {
   readonly schema_version:
     | "startup_opportunity.research_publication_policy.v8"
     | "startup_opportunity.research_publication_policy.v9"
-    | "startup_opportunity.research_publication_policy.v10";
+    | "startup_opportunity.research_publication_policy.v10"
+    | "startup_opportunity.research_publication_policy.v11";
   readonly policy_id: string;
   readonly policy_version: string;
   readonly current_schema_bundle_version: string;
@@ -86,6 +90,7 @@ export interface ResearchPublicationPolicy {
   readonly discovery_adaptation_binding_contract: Readonly<Record<string, unknown>>;
   readonly ai_baseline_contract?: Readonly<Record<string, unknown>>;
   readonly ai_economics_contract?: Readonly<Record<string, unknown>>;
+  readonly ai_mandatory_bundle_contract?: Readonly<Record<string, unknown>>;
 }
 
 interface ResearchPublicationPolicyOverlayV9 {
@@ -116,6 +121,21 @@ interface ResearchPublicationPolicyOverlayV10 {
   };
   readonly adapter: StorePublicationAdapter;
   readonly ai_economics_contract: Readonly<Record<string, unknown>>;
+}
+
+interface ResearchPublicationPolicyOverlayV11 {
+  readonly schema_version: "startup_opportunity.research_publication_policy.v11";
+  readonly policy_id: "startup_opportunity.g3_3_research_publication";
+  readonly policy_version: "11.0.0";
+  readonly current_schema_bundle_version: "15.0.0";
+  readonly base_policy_binding: {
+    readonly policy_ref: "harness/policies/research-publication.v10.json";
+    readonly schema_version: "startup_opportunity.research_publication_policy.v10";
+    readonly policy_version: "10.0.0";
+    readonly content_hash: string;
+  };
+  readonly adapter: StorePublicationAdapter;
+  readonly ai_mandatory_bundle_contract: Readonly<Record<string, unknown>>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -299,6 +319,14 @@ const EXPECTED_ADAPTERS: readonly StorePublicationAdapter[] = [
     checkpoint_preferred: true,
     blocked_artifact_types: ["startup_opportunity.ai_mandatory_bundle.v1"],
   },
+  {
+    envelope_version: "startup_opportunity.artifact_envelope.v16",
+    document_bundle_version: "startup_opportunity.document_bundle.v16",
+    receipt_version: "startup_opportunity.artifact_store_operation.v14",
+    manifest_schema_bundle_version: "15.0.0",
+    checkpoint_preferred: true,
+    blocked_artifact_types: [],
+  },
 ];
 
 export class PublicationPolicy {
@@ -385,7 +413,8 @@ export async function loadResearchPublicationPolicy(
     }
     if (
       schemaVersion !== "startup_opportunity.research_publication_policy.v9" &&
-      schemaVersion !== "startup_opportunity.research_publication_policy.v10"
+      schemaVersion !== "startup_opportunity.research_publication_policy.v10" &&
+      schemaVersion !== "startup_opportunity.research_publication_policy.v11"
     ) {
       throw new StoreError(
         "publication_policy.invalid",
@@ -395,7 +424,8 @@ export async function loadResearchPublicationPolicy(
     }
     const overlay = value as unknown as
       | ResearchPublicationPolicyOverlayV9
-      | ResearchPublicationPolicyOverlayV10;
+      | ResearchPublicationPolicyOverlayV10
+      | ResearchPublicationPolicyOverlayV11;
     const binding = overlay.base_policy_binding;
     const expectedBinding =
       schemaVersion === "startup_opportunity.research_publication_policy.v9"
@@ -404,11 +434,17 @@ export async function loadResearchPublicationPolicy(
             schema_version: "startup_opportunity.research_publication_policy.v8",
             policy_version: "8.0.0",
           }
-        : {
-            policy_ref: "harness/policies/research-publication.v9.json",
-            schema_version: "startup_opportunity.research_publication_policy.v9",
-            policy_version: "9.0.0",
-          };
+        : schemaVersion === "startup_opportunity.research_publication_policy.v10"
+          ? {
+              policy_ref: "harness/policies/research-publication.v9.json",
+              schema_version: "startup_opportunity.research_publication_policy.v9",
+              policy_version: "9.0.0",
+            }
+          : {
+              policy_ref: "harness/policies/research-publication.v10.json",
+              schema_version: "startup_opportunity.research_publication_policy.v10",
+              policy_version: "10.0.0",
+            };
     if (
       binding.policy_ref !== expectedBinding.policy_ref ||
       binding.schema_version !== expectedBinding.schema_version ||
@@ -451,18 +487,24 @@ export async function loadResearchPublicationPolicy(
           ai_baseline_contract: (overlay as ResearchPublicationPolicyOverlayV9)
             .ai_baseline_contract,
         }
-      : {
-          ...common,
-          ai_economics_contract: (overlay as ResearchPublicationPolicyOverlayV10)
-            .ai_economics_contract,
-        };
+      : schemaVersion === "startup_opportunity.research_publication_policy.v10"
+        ? {
+            ...common,
+            ai_economics_contract: (overlay as ResearchPublicationPolicyOverlayV10)
+              .ai_economics_contract,
+          }
+        : {
+            ...common,
+            ai_mandatory_bundle_contract: (overlay as ResearchPublicationPolicyOverlayV11)
+              .ai_mandatory_bundle_contract,
+          };
   }
 
   const policy = await expandPolicy(relativePath);
   const versions = policy.adapters.map((adapter) => adapter.envelope_version);
   if (
     new Set(versions).size !== versions.length ||
-    versions.length !== 14 ||
+    versions.length !== 15 ||
     canonicalJson(policy.adapters) !== canonicalJson(EXPECTED_ADAPTERS)
   ) {
     throw new StoreError(

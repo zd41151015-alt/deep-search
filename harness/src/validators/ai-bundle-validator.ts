@@ -1,3 +1,4 @@
+import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import type { ValidationIssue } from "./schema-bundle.js";
 
 const G3_1_SCHEMA_VERSIONS = new Set([
@@ -13,10 +14,40 @@ const G3_2_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.ai_adoption_trust.v1",
 ]);
 
+const REQUIRED_DIMENSIONS = [
+  "capability_frontier",
+  "cost_and_deployment",
+  "workflow_and_human_boundary",
+  "ecosystem_and_platform",
+  "data_and_evaluation",
+  "adoption_and_trust",
+] as const;
+
+const MANDATORY_INPUTS = [
+  ["capability_evidence_ref", "startup_opportunity.capability_evidence.v1"],
+  ["benchmark_ref", "startup_opportunity.ai_capability_benchmark.v1"],
+  ["reliability_ref", "startup_opportunity.ai_evaluation_reliability.v1"],
+  ["data_dependency_ref", "startup_opportunity.ai_data_dependency.v1"],
+  ["economics_ref", "startup_opportunity.ai_inference_unit_economics.v1"],
+  ["commoditization_ref", "startup_opportunity.capability_commoditization_risk.v1"],
+  ["adoption_trust_ref", "startup_opportunity.ai_adoption_trust.v1"],
+] as const;
+
+const CONSUMER_SCHEMA_VERSIONS = new Set([
+  "startup_opportunity.opportunity_comparison.v1",
+  "startup_opportunity.decision_recommendation.v1",
+  "startup_opportunity.traceability.v2",
+  "startup_opportunity.report.v1",
+  "startup_opportunity.decision_brief.v2",
+  "startup_opportunity.discovery_report_view.v1",
+  "startup_opportunity.report_consistency_evaluation.v3",
+]);
+
 export interface AiBundleDocument {
   readonly path: string;
   readonly schemaVersion: string;
   readonly document: Record<string, unknown>;
+  readonly envelope?: Record<string, unknown> | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -86,6 +117,7 @@ export function isAiBundleSchemaVersion(schemaVersion: string): boolean {
 
 export function validateAiBundleContract(
   documents: readonly AiBundleDocument[],
+  validateMandatoryCoverage = false,
 ): readonly ValidationIssue[] {
   const errors: ValidationIssue[] = [];
   const byPath = new Map(documents.map((entry) => [entry.path, entry]));
@@ -378,6 +410,463 @@ export function validateAiBundleContract(
           ),
         );
       }
+    }
+  }
+
+  if (!validateMandatoryCoverage) {
+    return errors;
+  }
+
+  const mandatoryBundles = documents.filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.ai_mandatory_bundle.v1",
+  );
+  if (mandatoryBundles.length > 1) {
+    errors.push(
+      issue(
+        "g3.mandatory_bundle_cardinality",
+        "/documents",
+        "a v16 document bundle may contain at most one AI mandatory bundle for the selected subject",
+        { count: mandatoryBundles.length },
+      ),
+    );
+  }
+
+  const mandatory = mandatoryBundles[0];
+  if (mandatory !== undefined) {
+    const mandatoryLineage = lineage(mandatory.document);
+    const opportunity = byPath.get(String(mandatoryLineage?.opportunity_ref ?? ""));
+    const solution = byPath.get(String(mandatoryLineage?.selected_solution_ref ?? ""));
+    if (
+      mandatoryLineage === null ||
+      mandatoryLineage.subject_ref !== mandatoryLineage.opportunity_ref ||
+      opportunity?.schemaVersion !== "startup_opportunity.opportunity_thesis.v1" ||
+      opportunity.document.selected_solution_ref !== mandatoryLineage.selected_solution_ref ||
+      solution?.schemaVersion !== "startup_opportunity.solution_hypothesis.v1" ||
+      solution.document.uses_ai !== true
+    ) {
+      errors.push(
+        issue(
+          "g3.mandatory_subject_lineage_mismatch",
+          `${mandatory.path}#/lineage`,
+          "AI mandatory bundle must bind the exact Opportunity and its selected uses_ai=true Solution",
+        ),
+      );
+    }
+    const refs = isRecord(mandatory.document.artifact_refs) ? mandatory.document.artifact_refs : {};
+    const resolvedInputs: AiBundleDocument[] = [];
+    for (const [field, expectedVersion] of MANDATORY_INPUTS) {
+      const ref = String(refs[field] ?? "");
+      const target = byPath.get(ref);
+      if (target?.schemaVersion !== expectedVersion) {
+        errors.push(
+          issue(
+            "g3.mandatory_input_mismatch",
+            `${mandatory.path}#/artifact_refs/${field}`,
+            "AI mandatory bundle input has the wrong artifact type or is missing",
+            { expectedVersion, actualVersion: target?.schemaVersion ?? null, ref },
+          ),
+        );
+      } else {
+        resolvedInputs.push(target);
+        errors.push(...sameLineage(mandatory, target));
+      }
+    }
+
+    const hashEntries = Array.isArray(mandatory.document.input_artifact_hashes)
+      ? mandatory.document.input_artifact_hashes.filter(isRecord)
+      : [];
+    const expectedRefs = MANDATORY_INPUTS.map(([field]) => String(refs[field] ?? "")).sort();
+    const actualRefs = hashEntries.map((entry) => String(entry.ref)).sort();
+    if (
+      new Set(actualRefs).size !== actualRefs.length ||
+      canonicalJson(actualRefs) !== canonicalJson(expectedRefs)
+    ) {
+      errors.push(
+        issue(
+          "g3.mandatory_input_hash_set_mismatch",
+          `${mandatory.path}#/input_artifact_hashes`,
+          "AI mandatory bundle must hash each exact specialized input once",
+          { expectedRefs, actualRefs },
+        ),
+      );
+    }
+    for (const hashEntry of hashEntries) {
+      const target = byPath.get(String(hashEntry.ref));
+      if (
+        target !== undefined &&
+        hashEntry.content_hash !== canonicalContentHash(target.document)
+      ) {
+        errors.push(
+          issue(
+            "g3.mandatory_input_hash_mismatch",
+            `${mandatory.path}#/input_artifact_hashes`,
+            "AI mandatory bundle input hash differs from the canonical immutable Artifact",
+            { ref: hashEntry.ref },
+          ),
+        );
+      }
+    }
+
+    const dimensionResults = Array.isArray(mandatory.document.dimension_results)
+      ? mandatory.document.dimension_results.filter(isRecord)
+      : [];
+    const dimensions = dimensionResults.map((result) => String(result.dimension));
+    if (canonicalJson(dimensions) !== canonicalJson(REQUIRED_DIMENSIONS)) {
+      errors.push(
+        issue(
+          "g3.mandatory_dimension_mismatch",
+          `${mandatory.path}#/dimension_results`,
+          "AI mandatory bundle must preserve the trigger's fixed six-dimension order",
+          { required: REQUIRED_DIMENSIONS, actual: dimensions },
+        ),
+      );
+    }
+    const counts = {
+      covered: dimensionResults.filter((result) => result.coverage_status === "covered").length,
+      insufficient_evidence: dimensionResults.filter(
+        (result) => result.coverage_status === "insufficient_evidence",
+      ).length,
+      not_applicable: dimensionResults.filter(
+        (result) => result.coverage_status === "not_applicable",
+      ).length,
+      total: dimensionResults.length,
+    };
+    if (canonicalJson(mandatory.document.coverage_summary) !== canonicalJson(counts)) {
+      errors.push(
+        issue(
+          "g3.mandatory_coverage_summary_mismatch",
+          `${mandatory.path}#/coverage_summary`,
+          "AI mandatory bundle coverage summary must equal the six dimension results",
+          { expected: counts },
+        ),
+      );
+    }
+    for (const result of dimensionResults) {
+      const refsForDimension = strings(result.artifact_refs);
+      if (result.coverage_status === "covered" && refsForDimension.length === 0) {
+        errors.push(
+          issue(
+            "g3.covered_dimension_without_artifact",
+            `${mandatory.path}#/dimension_results`,
+            "covered dimensions require at least one specialized Artifact ref",
+            { dimension: result.dimension },
+          ),
+        );
+      }
+      if (
+        (result.source_unavailable === true &&
+          result.coverage_status !== "insufficient_evidence") ||
+        (result.coverage_status === "not_applicable" &&
+          (result.source_unavailable === true || result.not_applicable_reason === null))
+      ) {
+        errors.push(
+          issue(
+            "g3.coverage_status_invalid",
+            `${mandatory.path}#/dimension_results`,
+            "source unavailability means insufficient_evidence; not_applicable requires a domain reason",
+            { dimension: result.dimension },
+          ),
+        );
+      }
+      if (
+        result.coverage_status === "insufficient_evidence" &&
+        result.source_unavailable !== true &&
+        strings(result.limitations).length === 0
+      ) {
+        errors.push(
+          issue(
+            "g3.insufficient_evidence_undisclosed",
+            `${mandatory.path}#/dimension_results`,
+            "insufficient_evidence requires a limitation or source-unavailable disclosure",
+            { dimension: result.dimension },
+          ),
+        );
+      }
+      for (const ref of refsForDimension) {
+        if (!expectedRefs.includes(ref)) {
+          errors.push(
+            issue(
+              "g3.dimension_artifact_outside_bundle",
+              `${mandatory.path}#/dimension_results`,
+              "dimension coverage may cite only the mandatory bundle's exact specialized inputs",
+              { dimension: result.dimension, ref },
+            ),
+          );
+        }
+      }
+    }
+
+    const anyInputDeskOnly = resolvedInputs.some(
+      (entry) => entry.document.research_mode === "desk_research_only",
+    );
+    const inputFreshness = resolvedInputs.map((entry) =>
+      isRecord(entry.document.freshness) ? entry.document.freshness.status : "unknown",
+    );
+    const aggregateFreshness = inputFreshness.includes("stale")
+      ? "stale"
+      : inputFreshness.includes("unknown")
+        ? "unknown"
+        : "current";
+    const mandatoryFreshness = isRecord(mandatory.document.freshness)
+      ? mandatory.document.freshness
+      : {};
+    const validAsOfValues = resolvedInputs
+      .map((entry) =>
+        isRecord(entry.document.freshness) ? String(entry.document.freshness.valid_as_of) : "",
+      )
+      .filter((value) => Number.isFinite(Date.parse(value)))
+      .sort();
+    const expiresAtValues = resolvedInputs
+      .map((entry) =>
+        isRecord(entry.document.freshness) ? String(entry.document.freshness.expires_at) : "",
+      )
+      .filter((value) => Number.isFinite(Date.parse(value)))
+      .sort();
+    const aggregateValidAsOf = validAsOfValues.at(-1);
+    const aggregateExpiresAt = expiresAtValues[0];
+    if (
+      mandatoryFreshness.status !== aggregateFreshness ||
+      mandatoryFreshness.valid_as_of !== aggregateValidAsOf ||
+      mandatoryFreshness.expires_at !== aggregateExpiresAt
+    ) {
+      errors.push(
+        issue(
+          "g3.mandatory_freshness_mismatch",
+          `${mandatory.path}#/freshness/status`,
+          "AI mandatory bundle freshness must be the strictest specialized input freshness",
+          {
+            expected: {
+              status: aggregateFreshness,
+              valid_as_of: aggregateValidAsOf,
+              expires_at: aggregateExpiresAt,
+            },
+            actual: mandatoryFreshness,
+          },
+        ),
+      );
+    }
+    const expectedStatus =
+      aggregateFreshness !== "current"
+        ? "stale"
+        : anyInputDeskOnly || mandatory.document.research_mode === "desk_research_only"
+          ? "desk_research_only"
+          : counts.insufficient_evidence > 0
+            ? "incomplete"
+            : "complete";
+    if (mandatory.document.bundle_status !== expectedStatus) {
+      errors.push(
+        issue(
+          "g3.mandatory_status_mismatch",
+          `${mandatory.path}#/bundle_status`,
+          "AI mandatory bundle status must follow coverage, research mode, and freshness",
+          { expected: expectedStatus, actual: mandatory.document.bundle_status },
+        ),
+      );
+    }
+    const continuation = isRecord(mandatory.document.continuation)
+      ? mandatory.document.continuation
+      : {};
+    const expectedReason =
+      expectedStatus === "complete"
+        ? "none"
+        : expectedStatus === "stale" && aggregateFreshness === "unknown"
+          ? "unknown_freshness"
+          : expectedStatus;
+    if (
+      continuation.required !== (expectedStatus !== "complete") ||
+      continuation.reason !== expectedReason
+    ) {
+      errors.push(
+        issue(
+          "g3.mandatory_continuation_mismatch",
+          `${mandatory.path}#/continuation`,
+          "stale, incomplete, desk-only, or unknown-freshness bundles require explicit continuation",
+          { expectedReason },
+        ),
+      );
+    }
+    if (
+      expectedStatus !== "complete" &&
+      mandatory.document.conclusion_ceiling === "prioritize_allowed"
+    ) {
+      errors.push(
+        issue(
+          "g3.mandatory_conclusion_ceiling_too_high",
+          `${mandatory.path}#/conclusion_ceiling`,
+          "degraded AI mandatory bundle states cannot allow prioritize",
+          { bundleStatus: expectedStatus },
+        ),
+      );
+    }
+  }
+
+  const consumers = documents.filter(
+    (entry) =>
+      entry.envelope?.schema_version === "startup_opportunity.artifact_envelope.v16" &&
+      CONSUMER_SCHEMA_VERSIONS.has(entry.schemaVersion),
+  );
+  let firstBinding: Record<string, unknown> | null = null;
+  for (const consumer of consumers) {
+    const binding = isRecord(consumer.envelope?.ai_bundle_binding)
+      ? consumer.envelope.ai_bundle_binding
+      : null;
+    if (binding === null) {
+      errors.push(
+        issue(
+          "g3.consumer_binding_missing",
+          `${consumer.path}#/ai_bundle_binding`,
+          "v16 evaluation and report consumers require an explicit AI bundle binding",
+        ),
+      );
+      continue;
+    }
+    if (firstBinding === null) {
+      firstBinding = binding;
+    } else if (canonicalJson(firstBinding) !== canonicalJson(binding)) {
+      errors.push(
+        issue(
+          "g3.consumer_binding_mismatch",
+          `${consumer.path}#/ai_bundle_binding`,
+          "all v16 comparison, recommendation, traceability, report, and derived consumers must share one exact binding",
+        ),
+      );
+    }
+    const opportunity = byPath.get(String(binding.subject_ref));
+    const solution = byPath.get(String(binding.selected_solution_ref));
+    if (
+      opportunity?.schemaVersion !== "startup_opportunity.opportunity_thesis.v1" ||
+      opportunity.document.selected_solution_ref !== binding.selected_solution_ref ||
+      solution?.schemaVersion !== "startup_opportunity.solution_hypothesis.v1"
+    ) {
+      errors.push(
+        issue(
+          "g3.consumer_lineage_mismatch",
+          `${consumer.path}#/ai_bundle_binding`,
+          "consumer binding must resolve the exact Opportunity and selected Solution",
+        ),
+      );
+      continue;
+    }
+    const usesAi = solution.document.uses_ai === true;
+    if (
+      consumer.schemaVersion === "startup_opportunity.opportunity_comparison.v1" &&
+      consumer.document.opportunity_ref !== binding.subject_ref
+    ) {
+      errors.push(
+        issue(
+          "g3.consumer_lineage_mismatch",
+          `${consumer.path}#/ai_bundle_binding/subject_ref`,
+          "comparison binding subject must equal the compared Opportunity",
+        ),
+      );
+    }
+    if (!usesAi) {
+      if (
+        binding.status !== "not_required" ||
+        binding.coverage_state !== "not_required" ||
+        binding.conclusion_ceiling !== "not_required" ||
+        binding.bundle_ref !== null ||
+        binding.bundle_content_hash !== null ||
+        typeof binding.not_required_reason !== "string"
+      ) {
+        errors.push(
+          issue(
+            "g3.non_ai_binding_invalid",
+            `${consumer.path}#/ai_bundle_binding`,
+            "a selected uses_ai=false Solution requires an explicit not_required binding",
+          ),
+        );
+      }
+      continue;
+    }
+
+    if (binding.status === "missing") {
+      if (
+        binding.coverage_state !== "missing" ||
+        binding.bundle_ref !== null ||
+        binding.bundle_content_hash !== null ||
+        binding.conclusion_ceiling === "prioritize_allowed" ||
+        binding.conclusion_ceiling === "not_required" ||
+        binding.not_required_reason !== null
+      ) {
+        errors.push(
+          issue(
+            "g3.missing_bundle_binding_invalid",
+            `${consumer.path}#/ai_bundle_binding`,
+            "a missing AI bundle requires null identity and a degraded conclusion ceiling",
+          ),
+        );
+      }
+    } else if (binding.status === "bound") {
+      const target = byPath.get(String(binding.bundle_ref));
+      if (
+        target?.schemaVersion !== "startup_opportunity.ai_mandatory_bundle.v1" ||
+        binding.bundle_content_hash !==
+          (target === undefined ? null : canonicalContentHash(target.document)) ||
+        binding.coverage_state !== target?.document.bundle_status ||
+        binding.conclusion_ceiling !== target?.document.conclusion_ceiling ||
+        binding.not_required_reason !== null ||
+        !strings(consumer.envelope?.input_refs).includes(String(binding.bundle_ref))
+      ) {
+        errors.push(
+          issue(
+            "g3.bound_bundle_identity_mismatch",
+            `${consumer.path}#/ai_bundle_binding`,
+            "bound consumer must bind the exact mandatory bundle ref, hash, status, ceiling, and input ref",
+          ),
+        );
+      } else {
+        const targetLineage = lineage(target.document);
+        if (
+          targetLineage === null ||
+          target.document.run_id !== consumer.document.run_id ||
+          targetLineage.subject_ref !== binding.subject_ref ||
+          targetLineage.opportunity_ref !== binding.subject_ref ||
+          targetLineage.selected_solution_ref !== binding.selected_solution_ref ||
+          targetLineage.trigger_version !== binding.trigger_version
+        ) {
+          errors.push(
+            issue(
+              "g3.consumer_lineage_mismatch",
+              `${consumer.path}#/ai_bundle_binding`,
+              "consumer binding and mandatory bundle must share exact Run and trigger lineage",
+            ),
+          );
+        }
+      }
+    } else {
+      errors.push(
+        issue(
+          "g3.ai_binding_status_invalid",
+          `${consumer.path}#/ai_bundle_binding/status`,
+          "a selected uses_ai=true Solution requires bound or missing status",
+        ),
+      );
+    }
+
+    const degraded =
+      binding.status === "missing" ||
+      ["incomplete", "desk_research_only", "stale"].includes(String(binding.coverage_state));
+    const actualDecision =
+      consumer.schemaVersion === "startup_opportunity.opportunity_comparison.v1"
+        ? consumer.document.recommendation_band
+        : consumer.schemaVersion === "startup_opportunity.decision_recommendation.v1" ||
+            consumer.schemaVersion === "startup_opportunity.decision_brief.v2" ||
+            consumer.schemaVersion === "startup_opportunity.discovery_report_view.v1"
+          ? consumer.document.decision_tier
+          : consumer.schemaVersion === "startup_opportunity.report.v1" &&
+              isRecord(consumer.document.curated_judgment_context)
+            ? consumer.document.curated_judgment_context.decision_tier
+            : null;
+    if (degraded && ["strong_candidate", "prioritize"].includes(String(actualDecision))) {
+      errors.push(
+        issue(
+          "g3.consumer_conclusion_ceiling_violation",
+          `${consumer.path}#/ai_bundle_binding/conclusion_ceiling`,
+          "missing, incomplete, desk-only, or stale AI coverage cannot support prioritize",
+          { actualDecision },
+        ),
+      );
     }
   }
   return errors;

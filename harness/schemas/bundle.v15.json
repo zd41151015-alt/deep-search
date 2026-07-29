@@ -1,0 +1,38 @@
+{
+  "schema_version": "startup_opportunity.schema_bundle.v3",
+  "schema_bundle_version": "15.0.0",
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "base_bundle": "bundle.v14.json",
+  "schemas": [
+    {
+      "id": "https://startup-opportunity.local/schemas/v16/ai-bundle-definitions.schema.json",
+      "file": "v16/ai-bundle-definitions.schema.json",
+      "document_schema_version": null
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v16/ai-mandatory-bundle.schema.json",
+      "file": "v16/ai-mandatory-bundle.schema.json",
+      "document_schema_version": "startup_opportunity.ai_mandatory_bundle.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v16/discovery-evaluation-policy-v3.schema.json",
+      "file": "v16/discovery-evaluation-policy-v3.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_evaluation_policy.v3"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v16/research-publication-policy-v11.schema.json",
+      "file": "v16/research-publication-policy-v11.schema.json",
+      "document_schema_version": "startup_opportunity.research_publication_policy.v11"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v16/artifact-envelope.schema.json",
+      "file": "v16/artifact-envelope.schema.json",
+      "document_schema_version": "startup_opportunity.artifact_envelope.v16"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v16/document-bundle.schema.json",
+      "file": "v16/document-bundle.schema.json",
+      "document_schema_version": "startup_opportunity.document_bundle.v16"
+    }
+  ]
+}

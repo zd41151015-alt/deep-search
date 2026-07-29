@@ -8,7 +8,10 @@ export const REPORT_SCAN_SURFACES = ["structured_report", "decision_brief", "rep
 export type ReportScanSurface = (typeof REPORT_SCAN_SURFACES)[number];
 
 export function requiresDeterministicReportScan(envelopeSchemaVersion: unknown): boolean {
-  return envelopeSchemaVersion === "startup_opportunity.artifact_envelope.v13";
+  return (
+    envelopeSchemaVersion === "startup_opportunity.artifact_envelope.v13" ||
+    envelopeSchemaVersion === "startup_opportunity.artifact_envelope.v16"
+  );
 }
 
 const FORBIDDEN_RULES = [

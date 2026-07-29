@@ -7,8 +7,12 @@ import {
 import { G23_OPPORTUNITY_A, G23_SOLUTION } from "../g2.3/discovery-synthesis-fixture.js";
 import {
   createDiscoveryEvaluationFixture,
+  G24_COMPARISON_A,
   G24_EVIDENCE_SUPPORT,
   G24_JUDGMENT_A_SUPPORT,
+  G24_RECOMMENDATION,
+  G24_REPORT,
+  G24_TRACEABILITY,
 } from "../g2.4/discovery-evaluation-fixture.js";
 
 export const G31_BENCHMARK = "artifacts/ai/benchmark-household.r1.json";
@@ -18,6 +22,7 @@ export const G31_CAPABILITY = "artifacts/ai/capability-household.r1.json";
 export const G32_ECONOMICS = "artifacts/ai/economics-household.r1.json";
 export const G32_COMMODITIZATION = "artifacts/ai/commoditization-household.r1.json";
 export const G32_TRUST = "artifacts/ai/adoption-trust-household.r1.json";
+export const G33_MANDATORY_BUNDLE = "artifacts/ai/mandatory-bundle-household.r1.json";
 
 export interface G3FixtureSubstrate {
   readonly generation: EvidenceStoreRecordV2;
@@ -60,7 +65,8 @@ function envelope(
   createdAt: string,
   schemaVersion:
     | "startup_opportunity.artifact_envelope.v14"
-    | "startup_opportunity.artifact_envelope.v15" = "startup_opportunity.artifact_envelope.v14",
+    | "startup_opportunity.artifact_envelope.v15"
+    | "startup_opportunity.artifact_envelope.v16" = "startup_opportunity.artifact_envelope.v14",
 ): FormalArtifactEnvelope {
   return {
     schema_version: schemaVersion,
@@ -478,6 +484,138 @@ export async function createG32AiBundleFixture(
       ) as unknown as Record<string, unknown>,
     })),
   );
+  return bundle;
+}
+
+export async function createG33AiBundleFixture(
+  runId: string,
+  substrate: G3FixtureSubstrate,
+): Promise<DocumentBundle> {
+  const bundle = await createG32AiBundleFixture(runId, substrate);
+  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v16";
+  const manifest = bundle.documents.find((entry) => entry.path === "manifest.json");
+  if (manifest !== undefined) {
+    manifest.document.schema_bundle_version = "15.0.0";
+  }
+
+  const artifactRefs = {
+    capability_evidence_ref: G31_CAPABILITY,
+    benchmark_ref: G31_BENCHMARK,
+    reliability_ref: G31_RELIABILITY,
+    data_dependency_ref: G31_DATA,
+    economics_ref: G32_ECONOMICS,
+    commoditization_ref: G32_COMMODITIZATION,
+    adoption_trust_ref: G32_TRUST,
+  };
+  const inputRefs = Object.values(artifactRefs);
+  const mandatoryBundle = {
+    schema_version: "startup_opportunity.ai_mandatory_bundle.v1",
+    bundle_id: "mandatory_bundle_household",
+    run_id: runId,
+    lineage: lineage(),
+    research_mode: "desk_research_only",
+    artifact_refs: artifactRefs,
+    input_artifact_hashes: inputRefs.map((ref) => ({
+      ref,
+      content_hash: canonicalContentHash(g3Envelope(bundle, ref).document),
+    })),
+    dimension_results: [
+      ["capability_frontier", [G31_CAPABILITY, G31_BENCHMARK]],
+      ["cost_and_deployment", [G32_ECONOMICS]],
+      ["workflow_and_human_boundary", [G31_RELIABILITY]],
+      ["ecosystem_and_platform", [G32_COMMODITIZATION]],
+      ["data_and_evaluation", [G31_DATA, G31_CAPABILITY]],
+      ["adoption_and_trust", [G32_TRUST]],
+    ].map(([dimension, refs]) => ({
+      dimension,
+      coverage_status: "covered",
+      artifact_refs: refs,
+      rationale: SYNTHETIC,
+      limitations: [SYNTHETIC],
+      source_unavailable: false,
+      not_applicable_reason: null,
+    })),
+    coverage_summary: {
+      covered: 6,
+      insufficient_evidence: 0,
+      not_applicable: 0,
+      total: 6,
+    },
+    bundle_status: "desk_research_only",
+    freshness: freshness(),
+    continuation: {
+      required: true,
+      reason: "desk_research_only",
+      action: SYNTHETIC,
+    },
+    conclusion_ceiling: "insufficient_evidence",
+    source_boundary: sourceBoundary(),
+    limitations: [SYNTHETIC],
+  };
+  (bundle.documents as { path: string; document: Record<string, unknown> }[]).push({
+    path: G33_MANDATORY_BUNDLE,
+    document: envelope(
+      runId,
+      G33_MANDATORY_BUNDLE,
+      mandatoryBundle,
+      "2026-07-29T01:20:00Z",
+      "startup_opportunity.artifact_envelope.v16",
+    ) as unknown as Record<string, unknown>,
+  });
+
+  const binding = {
+    status: "bound",
+    trigger_version: "startup_opportunity.ai_mandatory_coverage_trigger.v1",
+    subject_ref: G23_OPPORTUNITY_A,
+    selected_solution_ref: G23_SOLUTION,
+    bundle_ref: G33_MANDATORY_BUNDLE,
+    bundle_content_hash: canonicalContentHash(mandatoryBundle),
+    coverage_state: "desk_research_only",
+    conclusion_ceiling: "insufficient_evidence",
+    not_required_reason: null,
+  };
+  for (const artifactPath of [G24_COMPARISON_A, G24_RECOMMENDATION, G24_TRACEABILITY, G24_REPORT]) {
+    const consumer = g3Envelope(bundle, artifactPath);
+    (consumer as { schema_version: string }).schema_version =
+      "startup_opportunity.artifact_envelope.v16";
+    consumer.ai_bundle_binding = structuredClone(binding);
+    (consumer as { input_refs: readonly string[] }).input_refs = [
+      ...new Set([...consumer.input_refs, G23_OPPORTUNITY_A, G23_SOLUTION, G33_MANDATORY_BUNDLE]),
+    ].sort();
+  }
+  return bundle;
+}
+
+export async function createG33NonAiBindingFixture(
+  runId: string,
+  substrate: G3FixtureSubstrate,
+): Promise<DocumentBundle> {
+  const bundle = await createDiscoveryEvaluationFixture(runId, substrate, "general");
+  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v16";
+  const manifest = bundle.documents.find((entry) => entry.path === "manifest.json");
+  if (manifest !== undefined) {
+    manifest.document.schema_bundle_version = "15.0.0";
+  }
+  const binding = {
+    status: "not_required",
+    trigger_version: "startup_opportunity.ai_mandatory_coverage_trigger.v1",
+    subject_ref: G23_OPPORTUNITY_A,
+    selected_solution_ref: G23_SOLUTION,
+    bundle_ref: null,
+    bundle_content_hash: null,
+    coverage_state: "not_required",
+    conclusion_ceiling: "not_required",
+    not_required_reason: "SYNTHETIC selected Solution has uses_ai=false.",
+  };
+  for (const artifactPath of [G24_COMPARISON_A, G24_RECOMMENDATION, G24_TRACEABILITY, G24_REPORT]) {
+    const consumer = g3Envelope(bundle, artifactPath);
+    (consumer as { schema_version: string }).schema_version =
+      "startup_opportunity.artifact_envelope.v16";
+    consumer.ai_bundle_binding = structuredClone(binding);
+    (consumer as { input_refs: readonly string[] }).input_refs = [
+      ...new Set([...consumer.input_refs, G23_OPPORTUNITY_A, G23_SOLUTION]),
+    ].sort();
+  }
   return bundle;
 }
 

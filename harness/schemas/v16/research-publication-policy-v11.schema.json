@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v16/research-publication-policy-v11.schema.json",
+  "title": "Startup Opportunity G3.3 Research Publication Policy v11",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "current_schema_bundle_version",
+    "base_policy_binding",
+    "adapter",
+    "ai_mandatory_bundle_contract"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.research_publication_policy.v11" },
+    "policy_id": { "const": "startup_opportunity.g3_3_research_publication" },
+    "policy_version": { "const": "11.0.0" },
+    "current_schema_bundle_version": { "const": "15.0.0" },
+    "base_policy_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_ref", "schema_version", "policy_version", "content_hash"],
+      "properties": {
+        "policy_ref": { "const": "harness/policies/research-publication.v10.json" },
+        "schema_version": { "const": "startup_opportunity.research_publication_policy.v10" },
+        "policy_version": { "const": "10.0.0" },
+        "content_hash": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" }
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "envelope_version",
+        "document_bundle_version",
+        "receipt_version",
+        "manifest_schema_bundle_version",
+        "checkpoint_preferred",
+        "blocked_artifact_types"
+      ],
+      "properties": {
+        "envelope_version": { "const": "startup_opportunity.artifact_envelope.v16" },
+        "document_bundle_version": { "const": "startup_opportunity.document_bundle.v16" },
+        "receipt_version": { "const": "startup_opportunity.artifact_store_operation.v14" },
+        "manifest_schema_bundle_version": { "const": "15.0.0" },
+        "checkpoint_preferred": { "const": true },
+        "blocked_artifact_types": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "ai_mandatory_bundle_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installed_artifact_type",
+        "trigger_version",
+        "consumer_binding_required",
+        "caller_supplied_only",
+        "research_execution",
+        "network_access",
+        "hidden_model_calls"
+      ],
+      "properties": {
+        "installed_artifact_type": { "const": "startup_opportunity.ai_mandatory_bundle.v1" },
+        "trigger_version": {
+          "const": "startup_opportunity.ai_mandatory_coverage_trigger.v1"
+        },
+        "consumer_binding_required": { "const": true },
+        "caller_supplied_only": { "const": true },
+        "research_execution": { "const": false },
+        "network_access": { "const": false },
+        "hidden_model_calls": { "const": false }
+      }
+    }
+  }
+}
