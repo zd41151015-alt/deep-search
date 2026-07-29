@@ -15,6 +15,9 @@ export const G31_BENCHMARK = "artifacts/ai/benchmark-household.r1.json";
 export const G31_RELIABILITY = "artifacts/ai/reliability-household.r1.json";
 export const G31_DATA = "artifacts/ai/data-dependency-household.r1.json";
 export const G31_CAPABILITY = "artifacts/ai/capability-household.r1.json";
+export const G32_ECONOMICS = "artifacts/ai/economics-household.r1.json";
+export const G32_COMMODITIZATION = "artifacts/ai/commoditization-household.r1.json";
+export const G32_TRUST = "artifacts/ai/adoption-trust-household.r1.json";
 
 export interface G3FixtureSubstrate {
   readonly generation: EvidenceStoreRecordV2;
@@ -55,9 +58,12 @@ function envelope(
   artifactPath: string,
   document: Record<string, unknown>,
   createdAt: string,
+  schemaVersion:
+    | "startup_opportunity.artifact_envelope.v14"
+    | "startup_opportunity.artifact_envelope.v15" = "startup_opportunity.artifact_envelope.v14",
 ): FormalArtifactEnvelope {
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v14",
+    schema_version: schemaVersion,
     artifact_type: String(document.schema_version),
     artifact_path: artifactPath,
     run_id: runId,
@@ -295,6 +301,180 @@ export async function createG3AiBundleFixture(
         path,
         document,
         new Date(Date.parse("2026-07-29T01:00:00Z") + index * 1000).toISOString(),
+      ) as unknown as Record<string, unknown>,
+    })),
+  );
+  return bundle;
+}
+
+export async function createG32AiBundleFixture(
+  runId: string,
+  substrate: G3FixtureSubstrate,
+): Promise<DocumentBundle> {
+  const bundle = await createG3AiBundleFixture(runId, substrate);
+  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v15";
+  const manifest = bundle.documents.find((entry) => entry.path === "manifest.json");
+  if (manifest !== undefined) {
+    manifest.document.schema_bundle_version = "14.0.0";
+  }
+
+  const economics = {
+    schema_version: "startup_opportunity.ai_inference_unit_economics.v1",
+    economics_id: "economics_household",
+    run_id: runId,
+    lineage: lineage(),
+    research_mode: "desk_research_only",
+    capability_evidence_ref: G31_CAPABILITY,
+    benchmark_ref: G31_BENCHMARK,
+    scope_boundary: {
+      cost_scope: "product_inference_only",
+      harness_execution_cost_included: false,
+      agent_execution_cost_included: false,
+    },
+    volume_scenarios: [
+      {
+        scenario_id: "synthetic_low_volume",
+        monthly_product_units: 0,
+        peak_concurrency: 0,
+        assumption: SYNTHETIC,
+      },
+    ],
+    unit_cost_model: {
+      currency: "USD",
+      estimate_status: "unknown",
+      provider_cost_per_unit: 0,
+      infrastructure_cost_per_unit: 0,
+      human_review_cost_per_unit: 0,
+      total_cost_per_unit: 0,
+      measurement_basis: SYNTHETIC,
+    },
+    latency_and_deployment: {
+      p95_latency_ms: 0,
+      latency_status: "unknown",
+      deployment_modes: ["provider_cloud"],
+      deployment_constraints: [SYNTHETIC],
+    },
+    product_economics: {
+      revenue_basis: SYNTHETIC,
+      gross_margin_status: "unknown",
+      sensitivity_drivers: [SYNTHETIC],
+      service_burden: "unknown",
+    },
+    kill_boundary: {
+      status: "unknown",
+      conditions: [SYNTHETIC],
+    },
+    conclusion_ceiling: "insufficient_evidence",
+    ceiling_reasons: [SYNTHETIC],
+    evidence_refs: [G24_EVIDENCE_SUPPORT],
+    judgment_assessment_refs: [G24_JUDGMENT_A_SUPPORT],
+    freshness: freshness(),
+    source_boundary: sourceBoundary(),
+    limitations: [SYNTHETIC],
+  };
+  const substitution = {
+    status: "unknown",
+    time_horizon: "unknown",
+    impact: "unknown",
+    boundary: SYNTHETIC,
+  };
+  const commoditization = {
+    schema_version: "startup_opportunity.capability_commoditization_risk.v1",
+    risk_id: "commoditization_household",
+    run_id: runId,
+    lineage: lineage(),
+    research_mode: "desk_research_only",
+    capability_evidence_ref: G31_CAPABILITY,
+    data_dependency_ref: G31_DATA,
+    provider_substitution: substitution,
+    platform_native_substitution: structuredClone(substitution),
+    open_source_substitution: structuredClone(substitution),
+    provider_portability: {
+      status: "unknown",
+      switching_cost: "unknown",
+      dependency_boundary: SYNTHETIC,
+    },
+    platform_bundle_risk: {
+      risk_level: "unknown",
+      bundle_path: SYNTHETIC,
+      migration_response: SYNTHETIC,
+    },
+    capability_half_life: {
+      estimate_band: "unknown",
+      revalidate_by: "2026-08-29T00:00:00Z",
+      rationale: SYNTHETIC,
+    },
+    defensibility_beyond_model_access: {
+      status: "unknown",
+      sources: ["unknown"],
+      boundary: SYNTHETIC,
+    },
+    overall_risk: "unknown",
+    conclusion_ceiling: "insufficient_evidence",
+    ceiling_reasons: [SYNTHETIC],
+    evidence_refs: [G24_EVIDENCE_SUPPORT],
+    judgment_assessment_refs: [G24_JUDGMENT_A_SUPPORT],
+    freshness: freshness(),
+    source_boundary: sourceBoundary(),
+    limitations: [SYNTHETIC],
+  };
+  const trust = {
+    schema_version: "startup_opportunity.ai_adoption_trust.v1",
+    trust_id: "trust_household",
+    run_id: runId,
+    lineage: lineage(),
+    research_mode: "desk_research_only",
+    capability_evidence_ref: G31_CAPABILITY,
+    reliability_ref: G31_RELIABILITY,
+    data_dependency_ref: G31_DATA,
+    adoption_friction: {
+      level: "unknown",
+      drivers: [SYNTHETIC],
+      mitigations: [SYNTHETIC],
+    },
+    consumer_trust: { status: "unknown", boundary: SYNTHETIC },
+    explainability: { status: "unknown", boundary: SYNTHETIC },
+    accountability: {
+      status: "unknown",
+      owner: SYNTHETIC,
+      escalation_boundary: SYNTHETIC,
+    },
+    safety_and_privacy: {
+      risk_level: "unknown",
+      controls_status: "unknown",
+      residual_risks: [SYNTHETIC],
+    },
+    regulated_ai_boundary: {
+      applicability: "unclear",
+      jurisdictions: [SYNTHETIC],
+      obligations: [SYNTHETIC],
+      human_oversight_required: true,
+      boundary: SYNTHETIC,
+    },
+    workflow_entry_status: "unknown",
+    conclusion_ceiling: "insufficient_evidence",
+    ceiling_reasons: [SYNTHETIC],
+    evidence_refs: [G24_EVIDENCE_SUPPORT],
+    judgment_assessment_refs: [G24_JUDGMENT_A_SUPPORT],
+    freshness: freshness(),
+    source_boundary: sourceBoundary(),
+    limitations: [SYNTHETIC],
+  };
+
+  const documents = [
+    [G32_ECONOMICS, economics],
+    [G32_COMMODITIZATION, commoditization],
+    [G32_TRUST, trust],
+  ] as const;
+  (bundle.documents as { path: string; document: Record<string, unknown> }[]).push(
+    ...documents.map(([path, document], index) => ({
+      path,
+      document: envelope(
+        runId,
+        path,
+        document,
+        new Date(Date.parse("2026-07-29T01:10:00Z") + index * 1000).toISOString(),
+        "startup_opportunity.artifact_envelope.v15",
       ) as unknown as Record<string, unknown>,
     })),
   );

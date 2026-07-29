@@ -12,9 +12,9 @@
   "scripts": {
     "harness": "tsx harness/src/cli.ts",
     "lint": "biome check .",
-    "test": "node --import tsx --test tests/g0.4-runtime.test.ts tests/g1.1-contracts.test.ts tests/g1.2-contracts.test.ts tests/g1.3-dynamic-buyer-gap.test.ts tests/g1.4-contracts.test.ts tests/g1.4-report-runtime.test.ts tests/g2.1-discovery-maps.test.ts tests/g2.2-discovery-runtime.test.ts tests/g2.3-discovery-synthesis.test.ts tests/g2.4-discovery-evaluation.test.ts tests/g3.1-ai-contracts.test.ts tests/planning-contracts.test.ts tests/schema-validation.test.ts tests/skeleton.test.ts tests/store-cli.test.ts tests/store-faults.test.ts tests/store-recovery.test.ts tests/store.test.ts",
+    "test": "node --import tsx --test tests/g0.4-runtime.test.ts tests/g1.1-contracts.test.ts tests/g1.2-contracts.test.ts tests/g1.3-dynamic-buyer-gap.test.ts tests/g1.4-contracts.test.ts tests/g1.4-report-runtime.test.ts tests/g2.1-discovery-maps.test.ts tests/g2.2-discovery-runtime.test.ts tests/g2.3-discovery-synthesis.test.ts tests/g2.4-discovery-evaluation.test.ts tests/g3.1-ai-contracts.test.ts tests/g3.2-ai-economics.test.ts tests/planning-contracts.test.ts tests/schema-validation.test.ts tests/skeleton.test.ts tests/store-cli.test.ts tests/store-faults.test.ts tests/store-recovery.test.ts tests/store.test.ts",
     "typecheck": "tsc --noEmit",
-    "validate:fixtures": "node --import tsx --test tests/schema-validation.test.ts tests/planning-contracts.test.ts tests/g1.1-contracts.test.ts tests/g1.2-contracts.test.ts tests/g1.3-dynamic-buyer-gap.test.ts tests/g1.4-contracts.test.ts tests/g2.1-discovery-maps.test.ts tests/g2.2-discovery-runtime.test.ts tests/g2.3-discovery-synthesis.test.ts tests/g2.4-discovery-evaluation.test.ts tests/g3.1-ai-contracts.test.ts",
+    "validate:fixtures": "node --import tsx --test tests/schema-validation.test.ts tests/planning-contracts.test.ts tests/g1.1-contracts.test.ts tests/g1.2-contracts.test.ts tests/g1.3-dynamic-buyer-gap.test.ts tests/g1.4-contracts.test.ts tests/g2.1-discovery-maps.test.ts tests/g2.2-discovery-runtime.test.ts tests/g2.3-discovery-synthesis.test.ts tests/g2.4-discovery-evaluation.test.ts tests/g3.1-ai-contracts.test.ts tests/g3.2-ai-economics.test.ts",
     "validate:schemas": "tsx harness/src/cli.ts validate-artifact --schema-bundle --json",
     "validate:store": "node --import tsx --test tests/store.test.ts tests/store-cli.test.ts",
     "test:faults": "node --import tsx --test tests/store-faults.test.ts",
@@ -28,6 +28,7 @@
     "test:g2.3": "node --import tsx --test tests/g2.3-discovery-synthesis.test.ts",
     "test:g2.4": "node --import tsx --test tests/g2.4-discovery-evaluation.test.ts",
     "test:g3.1": "node --import tsx --test tests/g3.1-ai-contracts.test.ts",
+    "test:g3.2": "node --import tsx --test tests/g3.2-ai-economics.test.ts",
     "test:recovery": "node --import tsx --test tests/store-recovery.test.ts",
     "verify:skeleton": "tsx harness/src/cli.ts doctor"
   },

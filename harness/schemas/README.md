@@ -1,6 +1,6 @@
 # Core Schema Bundle
 
-既有 bundles 继续作为 immutable compatibility bundles。默认 `bundle.v13.json` 使用 composed bundle manifest v3 显式继承 immutable `bundle.v12.json`，只新增 v14 G3.1 AI contract、Envelope/Document Bundle 和 publication policy v9 schema，共 149 个 schemas、140 个 document validators。base manifest 与全部 v1-v13 schema/policy bytes 不做无版本改写；bundle composition 只接受本地单一 base chain，并在 compile 前检查 cycle、duplicate id/path/version 与全部 `$ref`。
+既有 bundles 继续作为 immutable compatibility bundles。默认 `bundle.v14.json` 使用 composed bundle manifest v3 显式继承 immutable `bundle.v13.json`，只新增 v15 G3.2 economics/commoditization/trust contract、Envelope/Document Bundle 和 publication policy v10 schema，共 155 个 schemas、146 个 document validators。base manifest 与全部 v1-v14 schema/policy bytes 不做无版本改写；bundle composition 只接受本地单一 base chain，并在 compile 前检查 cycle、duplicate id/path/version 与全部 `$ref`。
 
 G2.2 runtime 继续通过 v10/receipt v8 adapter 发布显式 candidate/lane/fan-in Artifact；v9 仍为 validation-only。G2.3 通过 v11/receipt v9 adapter 发布调用方显式给出的 executable conversion、formal thesis、solution evaluation、pre-enrichment snapshot 和 semantic merge。G2.4 repair 通过 v13/receipt v11 adapter 发布显式 enrichment/comparison/portfolio/report Artifact。G3.1 通过 v14/receipt v12 adapter发布 caller-supplied capability、三类 baseline benchmark、reliability/human boundary 与 data dependency Artifact；v13 保持对这些类型 fail closed。
 

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v15/research-publication-policy-v10.schema.json",
+  "title": "Startup Opportunity G3.2 Research Publication Policy v10",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "current_schema_bundle_version",
+    "base_policy_binding",
+    "adapter",
+    "ai_economics_contract"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.research_publication_policy.v10" },
+    "policy_id": { "const": "startup_opportunity.g3_2_research_publication" },
+    "policy_version": { "const": "10.0.0" },
+    "current_schema_bundle_version": { "const": "14.0.0" },
+    "base_policy_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_ref", "schema_version", "policy_version", "content_hash"],
+      "properties": {
+        "policy_ref": { "const": "harness/policies/research-publication.v9.json" },
+        "schema_version": { "const": "startup_opportunity.research_publication_policy.v9" },
+        "policy_version": { "const": "9.0.0" },
+        "content_hash": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" }
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "envelope_version",
+        "document_bundle_version",
+        "receipt_version",
+        "manifest_schema_bundle_version",
+        "checkpoint_preferred",
+        "blocked_artifact_types"
+      ],
+      "properties": {
+        "envelope_version": { "const": "startup_opportunity.artifact_envelope.v15" },
+        "document_bundle_version": { "const": "startup_opportunity.document_bundle.v15" },
+        "receipt_version": { "const": "startup_opportunity.artifact_store_operation.v13" },
+        "manifest_schema_bundle_version": { "const": "14.0.0" },
+        "checkpoint_preferred": { "const": true },
+        "blocked_artifact_types": {
+          "type": "array",
+          "prefixItems": [{ "const": "startup_opportunity.ai_mandatory_bundle.v1" }],
+          "minItems": 1,
+          "maxItems": 1,
+          "items": false
+        }
+      }
+    },
+    "ai_economics_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installed_artifact_types",
+        "product_inference_cost_only",
+        "harness_execution_cost_excluded",
+        "caller_supplied_only",
+        "research_execution",
+        "network_access",
+        "hidden_model_calls"
+      ],
+      "properties": {
+        "installed_artifact_types": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "startup_opportunity.ai_inference_unit_economics.v1" },
+            { "const": "startup_opportunity.capability_commoditization_risk.v1" },
+            { "const": "startup_opportunity.ai_adoption_trust.v1" }
+          ],
+          "minItems": 3,
+          "maxItems": 3,
+          "items": false
+        },
+        "product_inference_cost_only": { "const": true },
+        "harness_execution_cost_excluded": { "const": true },
+        "caller_supplied_only": { "const": true },
+        "research_execution": { "const": false },
+        "network_access": { "const": false },
+        "hidden_model_calls": { "const": false }
+      }
+    }
+  }
+}

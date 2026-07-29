@@ -24,4 +24,6 @@
 
 `research-publication.v9.json` 以 canonical content hash 显式绑定 immutable v8 base policy，并只追加 v14/document bundle v14/receipt v12 adapter。它安装 G3.1 caller-supplied capability/benchmark/reliability/data Artifact，继续阻止 G3.2 economics/commoditization/trust 与 G3.3 mandatory bundle；Harness 不执行 benchmark、research、network、agent 或 model 调用。
 
+`research-publication.v10.json` 以 canonical content hash 显式绑定 immutable v9 overlay，并只追加 v15/document bundle v15/receipt v13 adapter。它安装 G3.2 caller-supplied product inference economics、provider/platform/open-source substitution、capability half-life 和 adoption/trust Artifact，继续阻止 G3.3 mandatory bundle；产品推理成本与 Harness/agent 执行成本保持显式隔离。
+
 Policy 不是通用规则引擎，不包含任意表达式、可执行 workflow code 或运行时用户调权。

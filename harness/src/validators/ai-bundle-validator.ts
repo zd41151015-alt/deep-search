@@ -7,6 +7,12 @@ const G3_1_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.ai_data_dependency.v1",
 ]);
 
+const G3_2_SCHEMA_VERSIONS = new Set([
+  "startup_opportunity.ai_inference_unit_economics.v1",
+  "startup_opportunity.capability_commoditization_risk.v1",
+  "startup_opportunity.ai_adoption_trust.v1",
+]);
+
 export interface AiBundleDocument {
   readonly path: string;
   readonly schemaVersion: string;
@@ -73,9 +79,7 @@ function sameLineage(
 export function isAiBundleSchemaVersion(schemaVersion: string): boolean {
   return (
     G3_1_SCHEMA_VERSIONS.has(schemaVersion) ||
-    schemaVersion === "startup_opportunity.ai_inference_unit_economics.v1" ||
-    schemaVersion === "startup_opportunity.capability_commoditization_risk.v1" ||
-    schemaVersion === "startup_opportunity.ai_adoption_trust.v1" ||
+    G3_2_SCHEMA_VERSIONS.has(schemaVersion) ||
     schemaVersion === "startup_opportunity.ai_mandatory_bundle.v1"
   );
 }
@@ -85,7 +89,11 @@ export function validateAiBundleContract(
 ): readonly ValidationIssue[] {
   const errors: ValidationIssue[] = [];
   const byPath = new Map(documents.map((entry) => [entry.path, entry]));
-  const aiDocuments = documents.filter((entry) => G3_1_SCHEMA_VERSIONS.has(entry.schemaVersion));
+  const aiDocuments = documents.filter(
+    (entry) =>
+      G3_1_SCHEMA_VERSIONS.has(entry.schemaVersion) ||
+      G3_2_SCHEMA_VERSIONS.has(entry.schemaVersion),
+  );
 
   for (const entry of aiDocuments) {
     const boundLineage = lineage(entry.document);
@@ -207,6 +215,169 @@ export function validateAiBundleContract(
           "reliability assessment must bind the capability set's exact benchmark",
         ),
       );
+    }
+  }
+
+  for (const entry of aiDocuments.filter((candidate) =>
+    G3_2_SCHEMA_VERSIONS.has(candidate.schemaVersion),
+  )) {
+    const capability = byPath.get(String(entry.document.capability_evidence_ref));
+    if (capability?.schemaVersion !== "startup_opportunity.capability_evidence.v1") {
+      errors.push(
+        issue(
+          "g3.economics_input_mismatch",
+          `${entry.path}#/capability_evidence_ref`,
+          "G3.2 artifacts must bind an exact capability evidence artifact",
+        ),
+      );
+      continue;
+    }
+    errors.push(...sameLineage(entry, capability));
+
+    const targets: readonly [string, string][] =
+      entry.schemaVersion === "startup_opportunity.ai_inference_unit_economics.v1"
+        ? [["benchmark_ref", "startup_opportunity.ai_capability_benchmark.v1"]]
+        : entry.schemaVersion === "startup_opportunity.capability_commoditization_risk.v1"
+          ? [["data_dependency_ref", "startup_opportunity.ai_data_dependency.v1"]]
+          : [
+              ["reliability_ref", "startup_opportunity.ai_evaluation_reliability.v1"],
+              ["data_dependency_ref", "startup_opportunity.ai_data_dependency.v1"],
+            ];
+    for (const [field, expectedVersion] of targets) {
+      const target = byPath.get(String(entry.document[field]));
+      if (target?.schemaVersion !== expectedVersion) {
+        errors.push(
+          issue(
+            "g3.economics_input_mismatch",
+            `${entry.path}#/${field}`,
+            "G3.2 input has the wrong artifact type",
+            { expectedVersion, actualVersion: target?.schemaVersion ?? null },
+          ),
+        );
+      } else {
+        errors.push(...sameLineage(entry, target));
+      }
+    }
+
+    if (
+      entry.schemaVersion === "startup_opportunity.ai_inference_unit_economics.v1" &&
+      entry.document.benchmark_ref !== capability.document.benchmark_ref
+    ) {
+      errors.push(
+        issue(
+          "g3.economics_input_mismatch",
+          `${entry.path}#/benchmark_ref`,
+          "inference economics must bind the capability set's exact benchmark",
+        ),
+      );
+    }
+    if (
+      entry.schemaVersion === "startup_opportunity.capability_commoditization_risk.v1" &&
+      entry.document.data_dependency_ref !== capability.document.data_dependency_ref
+    ) {
+      errors.push(
+        issue(
+          "g3.economics_input_mismatch",
+          `${entry.path}#/data_dependency_ref`,
+          "commoditization risk must bind the capability set's exact data dependency",
+        ),
+      );
+    }
+    if (
+      entry.schemaVersion === "startup_opportunity.ai_adoption_trust.v1" &&
+      (entry.document.reliability_ref !== capability.document.reliability_ref ||
+        entry.document.data_dependency_ref !== capability.document.data_dependency_ref)
+    ) {
+      errors.push(
+        issue(
+          "g3.economics_input_mismatch",
+          `${entry.path}#/reliability_ref`,
+          "adoption and trust must bind the capability set's exact reliability and data artifacts",
+        ),
+      );
+    }
+
+    const ceiling = entry.document.conclusion_ceiling;
+    const freshness = isRecord(entry.document.freshness) ? entry.document.freshness : {};
+    if (
+      ceiling === "prioritize_allowed" &&
+      (entry.document.research_mode === "desk_research_only" || freshness.status !== "current")
+    ) {
+      errors.push(
+        issue(
+          "g3.conclusion_ceiling_too_high",
+          `${entry.path}#/conclusion_ceiling`,
+          "desk-research-only or non-current AI economics/trust artifacts cannot allow prioritize",
+        ),
+      );
+    }
+    if (entry.schemaVersion === "startup_opportunity.ai_inference_unit_economics.v1") {
+      const cost = isRecord(entry.document.unit_cost_model) ? entry.document.unit_cost_model : {};
+      const product = isRecord(entry.document.product_economics)
+        ? entry.document.product_economics
+        : {};
+      const kill = isRecord(entry.document.kill_boundary) ? entry.document.kill_boundary : {};
+      if (kill.status === "triggered" && ceiling !== "reject") {
+        errors.push(
+          issue(
+            "g3.conclusion_ceiling_mismatch",
+            `${entry.path}#/conclusion_ceiling`,
+            "a triggered inference-economics kill boundary requires a reject ceiling",
+          ),
+        );
+      }
+      if (
+        ceiling === "prioritize_allowed" &&
+        (cost.estimate_status === "unknown" || product.gross_margin_status === "unknown")
+      ) {
+        errors.push(
+          issue(
+            "g3.conclusion_ceiling_too_high",
+            `${entry.path}#/conclusion_ceiling`,
+            "unknown unit-cost or gross-margin status cannot allow prioritize",
+          ),
+        );
+      }
+    }
+    if (
+      entry.schemaVersion === "startup_opportunity.capability_commoditization_risk.v1" &&
+      ceiling === "prioritize_allowed" &&
+      entry.document.overall_risk === "unknown"
+    ) {
+      errors.push(
+        issue(
+          "g3.conclusion_ceiling_too_high",
+          `${entry.path}#/conclusion_ceiling`,
+          "unknown commoditization risk cannot allow prioritize",
+        ),
+      );
+    }
+    if (entry.schemaVersion === "startup_opportunity.ai_adoption_trust.v1") {
+      const regulated = isRecord(entry.document.regulated_ai_boundary)
+        ? entry.document.regulated_ai_boundary
+        : {};
+      if (entry.document.workflow_entry_status === "blocked" && ceiling !== "reject") {
+        errors.push(
+          issue(
+            "g3.conclusion_ceiling_mismatch",
+            `${entry.path}#/conclusion_ceiling`,
+            "a blocked trust workflow boundary requires a reject ceiling",
+          ),
+        );
+      }
+      if (
+        ceiling === "prioritize_allowed" &&
+        (entry.document.workflow_entry_status !== "allowed" ||
+          regulated.applicability === "unclear")
+      ) {
+        errors.push(
+          issue(
+            "g3.conclusion_ceiling_too_high",
+            `${entry.path}#/conclusion_ceiling`,
+            "conditional/unknown workflow entry or unclear regulated-AI applicability cannot allow prioritize",
+          ),
+        );
+      }
     }
   }
   return errors;
