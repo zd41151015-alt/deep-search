@@ -112,7 +112,14 @@ export interface DocumentBundle {
 
 export interface DocumentBundleReferenceContext {
   readonly exactJsonlRecords?: ReadonlyMap<string, Record<string, unknown>>;
-  readonly validateHistoricalDiscoveryContracts?: boolean;
+  readonly historicalDiscoveryPlanBindings?: readonly HistoricalDiscoveryPlanBinding[];
+}
+
+export interface HistoricalDiscoveryPlanBinding {
+  readonly planRef: string;
+  readonly planHash: string;
+  readonly planRevision: number;
+  readonly candidateRefs: readonly string[];
 }
 
 export interface DocumentBundleValidationResult {
@@ -2417,6 +2424,124 @@ function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
   };
 }
 
+function historicalDiscoveryView(
+  documents: readonly EffectiveDocument[],
+  bindings: readonly HistoricalDiscoveryPlanBinding[],
+  owner: "g2_1" | "g2_2_contract",
+): {
+  readonly documents: readonly EffectiveDocument[];
+  readonly errors: readonly ValidationIssue[];
+} {
+  if (bindings.length === 0) {
+    return { documents, errors: [] };
+  }
+  const candidates = new Map(
+    documents
+      .filter((entry) => entry.schemaVersion === "startup_opportunity.discovery_candidate.v1")
+      .map((entry) => [entry.path, entry]),
+  );
+  const maps = new Set(
+    documents
+      .filter((entry) =>
+        [
+          "startup_opportunity.seed_probe.v1",
+          "startup_opportunity.opportunity_space_map.v1",
+          "startup_opportunity.solution_space_map.v1",
+        ].includes(entry.schemaVersion),
+      )
+      .map((entry) => entry.path),
+  );
+  const requiredPlanRefs = new Set(
+    documents
+      .filter((entry) =>
+        owner === "g2_1"
+          ? maps.has(entry.path)
+          : entry.schemaVersion === "startup_opportunity.discovery_candidate.v1",
+      )
+      .flatMap((entry) =>
+        typeof entry.document.research_plan_ref === "string"
+          ? [entry.document.research_plan_ref]
+          : [],
+      ),
+  );
+  if (requiredPlanRefs.size !== 1) {
+    return { documents, errors: [] };
+  }
+  const [requiredPlanRef] = requiredPlanRefs;
+  const matching = bindings.filter((binding) => {
+    if (
+      binding.planRef !== requiredPlanRef ||
+      typeof binding.planRef !== "string" ||
+      typeof binding.planHash !== "string" ||
+      !Number.isInteger(binding.planRevision) ||
+      binding.planRevision < 1 ||
+      binding.candidateRefs.length === 0 ||
+      new Set(binding.candidateRefs).size !== binding.candidateRefs.length
+    ) {
+      return false;
+    }
+    return binding.candidateRefs.some((candidateRef) => {
+      const candidate = candidates.get(candidateRef);
+      if (candidate?.document.research_plan_ref !== binding.planRef) {
+        return false;
+      }
+      if (owner === "g2_2_contract") {
+        return true;
+      }
+      const lineage = candidate.document.map_lineage;
+      return isRecord(lineage) && maps.has(String(lineage.source_map_ref));
+    });
+  });
+  const plan = documents.find(
+    (entry) =>
+      entry.path === requiredPlanRef &&
+      entry.schemaVersion === "startup_opportunity.research_plan.v1",
+  );
+  const revisions = new Set(matching.map((binding) => binding.planRevision));
+  const hashes = new Set(matching.map((binding) => binding.planHash));
+  if (
+    plan === undefined ||
+    matching.length === 0 ||
+    revisions.size !== 1 ||
+    hashes.size !== 1 ||
+    canonicalContentHash(plan.document) !== matching[0]?.planHash ||
+    plan.document.revision !== matching[0]?.planRevision
+  ) {
+    return {
+      documents,
+      errors: [
+        referenceIssue(
+          `${owner}.historical_plan_binding_invalid`,
+          "/documents",
+          "historical discovery validation requires one exact receipt-bound Plan view",
+          { requiredPlanRef, matchingBindings: matching.length },
+        ),
+      ],
+    };
+  }
+  return {
+    documents: documents
+      .filter(
+        (entry) =>
+          entry.schemaVersion !== "startup_opportunity.research_plan.v1" ||
+          entry.path === requiredPlanRef,
+      )
+      .map((entry) =>
+        entry.path === "manifest.json"
+          ? {
+              ...entry,
+              document: {
+                ...entry.document,
+                current_plan_ref: requiredPlanRef,
+                plan_revision: matching[0]?.planRevision,
+              },
+            }
+          : entry,
+      ),
+    errors: [],
+  };
+}
+
 function fragmentIdExists(
   target: EffectiveDocument,
   fragment: string,
@@ -2967,12 +3092,17 @@ export class ArtifactValidator {
     } else {
       referenceErrors.push(...validateG14Contract(g14Documents, this.assessmentReportingPolicy));
     }
-    const discoveryDocuments: readonly DiscoveryMapDocument[] = effectiveDocuments.map((entry) => ({
-      path: entry.path,
-      schemaVersion: entry.schemaVersion,
-      document: entry.document,
-      envelope: entry.envelope,
-    }));
+    const historicalBindings = referenceContext.historicalDiscoveryPlanBindings ?? [];
+    const discoveryView = historicalDiscoveryView(effectiveDocuments, historicalBindings, "g2_1");
+    referenceErrors.push(...discoveryView.errors);
+    const discoveryDocuments: readonly DiscoveryMapDocument[] = discoveryView.documents.map(
+      (entry) => ({
+        path: entry.path,
+        schemaVersion: entry.schemaVersion,
+        document: entry.document,
+        envelope: entry.envelope,
+      }),
+    );
     if (
       discoveryDocuments.some((entry) => isDiscoveryMapSchemaVersion(entry.schemaVersion)) &&
       discoveryDocuments.some((entry) =>
@@ -2997,7 +3127,7 @@ export class ArtifactValidator {
           { actualSchemaVersion: input.schema_version },
         ),
       );
-    } else if (referenceContext.validateHistoricalDiscoveryContracts !== false) {
+    } else {
       referenceErrors.push(
         ...validateDiscoveryMapsContract(
           input.schema_version === "startup_opportunity.document_bundle.v9" ||
@@ -3022,8 +3152,14 @@ export class ArtifactValidator {
         ),
       );
     }
+    const discoveryCandidateView = historicalDiscoveryView(
+      effectiveDocuments,
+      historicalBindings,
+      "g2_2_contract",
+    );
+    referenceErrors.push(...discoveryCandidateView.errors);
     const discoveryCandidateDocuments: readonly DiscoveryCandidateDocument[] =
-      effectiveDocuments.map((entry) => ({
+      discoveryCandidateView.documents.map((entry) => ({
         path: entry.path,
         schemaVersion: entry.schemaVersion,
         document: entry.document,
@@ -3047,7 +3183,7 @@ export class ArtifactValidator {
           { actualSchemaVersion: input.schema_version },
         ),
       );
-    } else if (referenceContext.validateHistoricalDiscoveryContracts !== false) {
+    } else {
       referenceErrors.push(
         ...validateDiscoveryCandidateContract(
           discoveryCandidateDocuments,
@@ -3083,6 +3219,7 @@ export class ArtifactValidator {
         ...validateDiscoverySynthesisContract(
           discoverySynthesisDocuments,
           this.discoverySynthesisPolicy,
+          input.schema_version === "startup_opportunity.document_bundle.v13",
         ),
       );
     }

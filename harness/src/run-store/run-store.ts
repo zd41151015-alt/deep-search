@@ -1478,8 +1478,7 @@ export class RunStore {
       },
       {
         exactJsonlRecords,
-        validateHistoricalDiscoveryContracts:
-          planOperationRecovery.candidateBoundOperationKeys.length === 0,
+        historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
       },
     );
     if (!bundle.valid) {

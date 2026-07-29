@@ -2,7 +2,11 @@ import { readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { EvidenceStore } from "../evidence-store/evidence-store.js";
 import { JsonlStore } from "../run-store/jsonl-store.js";
-import type { ArtifactValidator, DocumentBundleEntry } from "../validators/artifact-validator.js";
+import type {
+  ArtifactValidator,
+  DocumentBundleEntry,
+  DocumentBundleReferenceContext,
+} from "../validators/artifact-validator.js";
 import { publishTemp, removeTemp, writeSyncedTemp } from "./atomic-file.js";
 import {
   canonicalContentHash,
@@ -481,7 +485,7 @@ export class ArtifactStore {
   async publishBundleLocked(
     runRoot: string,
     input: PublishArtifactBundleInput,
-    validateHistoricalDiscoveryContracts = true,
+    referenceContext: DocumentBundleReferenceContext = {},
   ): Promise<PublishArtifactBundleResult> {
     validateRunId(input.runId);
     if (input.envelopes.length < 2) {
@@ -505,11 +509,7 @@ export class ArtifactStore {
       }
       this.validateEnvelopeBoundary(input.runId, envelope);
     }
-    await this.validateEnvelopeSetReferences(
-      runRoot,
-      input.envelopes,
-      validateHistoricalDiscoveryContracts,
-    );
+    await this.validateEnvelopeSetReferences(runRoot, input.envelopes, referenceContext);
     const artifacts: PublishArtifactResult[] = [];
     for (const envelope of [...input.envelopes].sort((left, right) => {
       const rank = publicationRank(left) - publicationRank(right);
@@ -811,7 +811,7 @@ export class ArtifactStore {
   private async validateEnvelopeSetReferences(
     runRoot: string,
     envelopes: readonly FormalArtifactEnvelope[],
-    validateHistoricalDiscoveryContracts = true,
+    referenceContext: DocumentBundleReferenceContext = {},
   ): Promise<void> {
     const pendingByPath = new Map(envelopes.map((envelope) => [envelope.artifact_path, envelope]));
     for (const envelope of envelopes) {
@@ -920,7 +920,7 @@ export class ArtifactStore {
           ? { exact_records: [] }
           : {}),
       },
-      { exactJsonlRecords, validateHistoricalDiscoveryContracts },
+      { ...referenceContext, exactJsonlRecords },
     );
     if (!bundleResult.valid) {
       throw new StoreError("artifact.reference_invalid", "formal artifact references are invalid", {

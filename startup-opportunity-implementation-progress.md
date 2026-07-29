@@ -3,7 +3,7 @@
 > **状态**: G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION / G2.1_DONE / G2.2-G2.4_REPAIRED_PENDING_WHOLE_GATE_REGRESSION
 > **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`DONE`；G2 Opportunity Discovery=`G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION`（G2.1=`DONE`；G2.2-G2.4=`REPAIRED_PENDING_WHOLE_GATE_REGRESSION`）；G2.R、G3-G4=`NOT_READY`
 > **下一独立会话**: 从本次 clean repair candidate 创建 fresh independent whole-G2 regression；candidate 不得由 regression 修改，通过前不得开放 G3
-> **最后更新**: 2026-07-28
+> **最后更新**: 2026-07-29
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
 > **固定规则集**: `fixed_ruleset_id=startup-opportunity-controller-fixed-v2`
 
@@ -245,12 +245,12 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | 原 G2 Construction Stage 主 task 已形成第二个 acceptance-directed repair candidate；唯一 local 写入者，未启用 subagent |
+| Active task | 原 G2 Construction Stage 主 task 已形成第三个 acceptance-directed repair candidate；唯一 local 写入者，未启用 subagent |
 | Current slice | G2.1=`DONE`；G2.2-G2.4=`REPAIRED_PENDING_WHOLE_GATE_REGRESSION`；G2=`G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION`；G2.R、G3-G4=`NOT_READY` |
-| Expected base | rejected candidate=`3a5e51d4c334fa8f7b1eee69518bb0b0756d0922`；repair commit sole parent 必须 exact 等于该 commit |
+| Expected base | rejected candidate=`e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0`；repair commit sole parent 必须 exact 等于该 commit |
 | Consecutive state-query failures | `0` |
-| Last effective operation | fresh independent G2.R 对 `3a5e51d4c334fa8f7b1eee69518bb0b0756d0922` 判定 `FAIL`；原 Stage worker 已闭合新的五项 finding 并完成本地 whole-G2/full regression |
-| Next allowed action | repair commit clean 后创建 fresh independent whole-G2 regression；regression 不修改 candidate，PASS 前不得进入 G3 |
+| Last effective operation | replacement fresh independent acceptance task `019fac4a-24f1-7163-b985-84bfac2cb417` 对 `e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0` 判定 `FAIL`；原 Stage worker已闭合两个 blocker 并完成本地 whole-G2/full regression |
+| Next allowed action | 第三个 repair commit clean 后创建 fresh independent whole-G2 regression；regression 不修改 candidate，PASS 前不得进入 G3 |
 
 ## 已完成切片与证据
 
@@ -284,7 +284,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | G2.3 Demand / Solution / Thesis Synthesis runtime | `IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION` | `a8a42b9b29b4b5ca317ab8a346b39a5d4c39bfef` | `3d9b720d938184517d089ecf5dd6235526f24f50` |
 | G2.4 rejected implementation exit candidate | `REJECTED_BY_CONTROLLER` | `3dbe755db2dd88603a15e20c1c30c3c369ab7651` | `a8a42b9b29b4b5ca317ab8a346b39a5d4c39bfef` |
 | G2 first acceptance-directed repair candidate | `REJECTED_BY_CONTROLLER` | `3a5e51d4c334fa8f7b1eee69518bb0b0756d0922` | `3dbe755db2dd88603a15e20c1c30c3c369ab7651` |
-| G2 second acceptance-directed repair candidate | `G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION` | `<G2_SECOND_ACCEPTANCE_DIRECTED_REPAIR_COMMIT>` | `3a5e51d4c334fa8f7b1eee69518bb0b0756d0922` |
+| G2 second acceptance-directed repair candidate | `REJECTED_BY_CONTROLLER` | `e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0` | `3a5e51d4c334fa8f7b1eee69518bb0b0756d0922` |
+| G2 third acceptance-directed repair candidate | `G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION` | `<G2_THIRD_ACCEPTANCE_DIRECTED_REPAIR_COMMIT>` | `e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0` |
 
 G0.1 交付物：
 
@@ -1535,6 +1536,38 @@ Fixture 全部显式标记 synthetic/no real Evidence；成功只证明 contract
 残余风险保持显式：G3 mandatory bundle 尚未实现，AI/hybrid 只能机械降级为 insufficient evidence；lexical forbidden-expression rules 不能替代 Evidence/语义 audit；candidate-bound Plan revision 对 G2.1/G2.2 historical single-Plan cardinality 的定向豁免依赖 immutable Artifact 与 Plan receipts，future authority 若改变 historical validation ownership，必须发布新的 versioned migration contract。任何 PASS 都只证明 deterministic contract/runtime 边界，不证明 Evidence 真实/充分、candidate viability、市场验证或商业成功。
 
 本返修不实现或执行 G3、external validation、network research、agent/LLM dispatch、通用 Workflow Runtime、DAG DSL、daemon、UI 或 DB。原子 repair commit 使用本节占位避免 self-reference，sole parent 必须为 `3a5e51d4c334fa8f7b1eee69518bb0b0756d0922`；状态仅为 `G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION`，G2.R、G3-G4 保持 `NOT_READY`，不得自称 G2 `DONE` 或开放 G3。
+
+该历史 second repair candidate 最终 commit=`e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0`。replacement fresh independent boundary acceptance task `019fac4a-24f1-7163-b985-84bfac2cb417` 后续统一判定 `FAIL`：v3 receipt 的全局 boolean bypass 跳过了 G2.1/G2.2 domain validation，且新增 synthesis semantic check 未按 v12/v13 分流。本节 PASS 只能作为 rejected candidate 的历史入口证据；其中“豁免 historical domain pass”的实现结论已被证明错误，不得继续作为 current recovery contract。
+
+## G2 replacement acceptance third directed repair candidate
+
+本返修以 rejected candidate `e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0` 为 exact sole parent，`fixed_ruleset_id=startup-opportunity-controller-fixed-v2`。replacement fresh independent acceptance task `019fac4a-24f1-7163-b985-84bfac2cb417` 的结论为 `FAIL`；原 G2 Construction Stage 主 task 继续作为唯一 tracked-files、Git index、账本与 commit 写入者。未创建替代 worker、subagent、worktree、Handoff、automation 或下游 task，未 push、amend、rebase 或 reset。
+
+### 两项定向闭合
+
+- 移除 `validateHistoricalDiscoveryContracts` 全局 boolean bypass。已验证 `plan_revision_operation.v3` receipt 现在向 Artifact validator 传递 exact historical Plan ref/hash/revision 与 bound candidate refs；G2.1/G2.2 各自只在该 binding 与 durable Plan/candidate/map lineage 闭合时构造只读 historical Manifest/Plan view，并始终执行完整 domain validator。合法 r1/r2 双 Plan apply、pending replay 与 reopen 保持通过；map profile 漂移或未被 receipt 绑定的 solution candidate profile 漂移即使同步重算 Envelope hash、Artifact operation key、receipt filename/content 和 durable bytes，也分别在 replay 以 `artifact.reference_invalid`、在 reopen 以 `recovery.reference_invalid` fail closed。
+- `synthesis.solution_candidate_semantic_drift` 只对 `document_bundle.v13` 生效；v11/v12 保留 parent validator behavior。仓库新增 parent runtime 真实生成的固定 v12 bundle bytes，size=`285141`、SHA-256=`839afaea562249c395a8a1e052d54563eb6ce8e9b4ea1573e815148767b37f44`，不从当前 repaired fixture 反向构造。该 fixture 闭合 validation、immutable v12 publication、v10 receipt、Manifest `11.0.0`、`after_temp_write` recovery、checkpoint 与 reopen；v13 的 uses-ai/solution semantic drift 继续以同一稳定 code 拒绝。
+
+### 验证、冻结与风险
+
+全部命令使用 Node.js `24.18.0` / npm `11.16.0`：
+
+| 命令 | Third acceptance-directed repair candidate 结果 |
+| --- | --- |
+| `npm run test:g0.4` | PASS；56/56 tests；新增 5 个 historical Plan cases，覆盖合法双 Plan、G2.1/G2.2 receipt-resigned drift 的 reopen/pending replay；0 failed/skipped/todo |
+| G2.1 / G2.2 / G2.3 / G2.4 专项 | PASS；34/34、10/10、6/6、29/29 tests；固定 parent v12 bytes、v10 receipt/recovery/checkpoint/reopen 与 v13 drift rejection 闭合；0 failed/skipped/todo |
+| `npm run test:g1.3` / `test:g1.4` / `validate:store` | PASS；25/25、36/36、11/11 tests；0 failed/skipped/todo |
+| `npm run test:faults` / `npm run test:recovery` | PASS；10/10、11/11 tests；0 failed/skipped/todo |
+| `npm test` | PASS；289/289 tests，0 failed/skipped/todo |
+| `npm run validate:fixtures` | PASS；167/167 tests，0 failed/skipped/todo |
+| `npm run validate:schemas` | PASS；bundle `12.0.0`，141 schemas / 133 document validators，0 errors |
+| `npm run lint` / `npm run typecheck` | PASS；Biome checked 310 files，0 fixes/errors；`tsc --noEmit` 0 errors |
+| `npm run verify:skeleton` / frozen doctor | PASS；repository doctor 296/296，Node `24.18.0` |
+| frozen bytes / forbidden-scope / `git diff --check` | PASS；相对 `e68be2d` 的 175 个 schema/policy JSON paths 零差异，base authority tree digest=`8978917f632439e128f2b529fd7100a6f72f7af4fb1bc260961453c1485780d5`；`package.json`、`package-lock.json`、`.node-version`、`.npmrc`、`tsconfig.json` 零差异；无 G3/Skill/agent/runs、network/LLM/external-validation/Workflow Runtime/DAG/daemon/UI/DB 越界；whitespace clean |
+
+残余风险保持显式：historical Plan selection 是 validated v3 receipt 的内部 recovery context，future receipt/version 若改变 Plan/candidate ownership 必须发布新 migration contract，不能恢复 boolean skip；固定 v12 fixture 保证已知 parent bytes/behavior，不能替代对所有未来历史 Run 的无限兼容证明。G3 mandatory bundle 仍未实现，任何 AI/hybrid 结论继续受 insufficient-evidence ceiling。
+
+本返修不修改或新增任何 schema/policy JSON authority，不改变 package/toolchain bytes，也不实现 G3、external validation、network research、agent/LLM dispatch、通用 Workflow Runtime、DAG DSL、daemon、UI 或 DB。所有 synthetic fixture 只证明 deterministic contract/runtime compatibility，不构成 Evidence、candidate viability、市场验证或 validation success。原子 repair commit 使用本节占位避免 self-reference，sole parent 必须为 `e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0`；状态仍仅为 `G2_REPAIR_CANDIDATE_PENDING_FRESH_INDEPENDENT_REGRESSION`，G2.R、G3-G4 保持 `NOT_READY`。
 
 ## 当前边界与后续状态
 

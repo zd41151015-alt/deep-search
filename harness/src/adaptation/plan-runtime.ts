@@ -18,6 +18,7 @@ import type {
   ArtifactValidator,
   DocumentBundle,
   DocumentBundleReferenceContext,
+  HistoricalDiscoveryPlanBinding,
 } from "../validators/artifact-validator.js";
 import { createArtifactValidator } from "../validators/artifact-validator.js";
 import { planningRunStateHash } from "../validators/planning-contract-identities.js";
@@ -114,6 +115,36 @@ export interface PlanOperationRecoveryResult {
   readonly completedOperationKeys: readonly string[];
   readonly pendingOperationKeys: readonly string[];
   readonly candidateBoundOperationKeys: readonly string[];
+  readonly historicalDiscoveryPlanBindings: readonly HistoricalDiscoveryPlanBinding[];
+}
+
+function historicalDiscoveryPlanBindings(
+  receipt: PlanOperationReceipt,
+): readonly HistoricalDiscoveryPlanBinding[] {
+  if (
+    receipt.schema_version !== "startup_opportunity.plan_revision_operation.v3" ||
+    receipt.candidate_bindings === undefined
+  ) {
+    return [];
+  }
+  const revisions = new Set(receipt.candidate_bindings.map((binding) => binding.plan_revision));
+  if (revisions.size !== 1) {
+    throw new StoreError(
+      "recovery.invalid_plan_operation",
+      "candidate-bound Plan receipt contains inconsistent historical Plan revisions",
+      { operationKey: receipt.operation_key },
+    );
+  }
+  return [
+    {
+      planRef: receipt.base_plan_ref,
+      planHash: receipt.base_plan_hash,
+      planRevision: receipt.candidate_bindings[0]?.plan_revision ?? 0,
+      candidateRefs: uniqueSorted(
+        receipt.candidate_bindings.map((binding) => binding.candidate_ref),
+      ),
+    },
+  ];
 }
 
 function uniqueSorted(values: readonly string[]): readonly string[] {
@@ -966,7 +997,9 @@ async function completeOperation(
             runId: receipt.run_id,
             envelopes: receipt.control_envelopes,
           },
-          receipt.schema_version !== "startup_opportunity.plan_revision_operation.v3",
+          {
+            historicalDiscoveryPlanBindings: historicalDiscoveryPlanBindings(receipt),
+          },
         )
       ).status === "published"
     ) {
@@ -1679,6 +1712,7 @@ export async function recoverPlanRevisionOperationsLocked(
   const completed: string[] = [];
   const pending: string[] = [];
   const candidateBound: string[] = [];
+  const historicalBindings: HistoricalDiscoveryPlanBinding[] = [];
   for (const filename of (await readdir(directory)).sort()) {
     if (!filename.startsWith("plan-revision-") || !filename.endsWith(".json")) {
       continue;
@@ -1692,6 +1726,7 @@ export async function recoverPlanRevisionOperationsLocked(
     await validateReceiptSources(runRoot, receipt, logs, artifacts);
     if (receipt.schema_version === "startup_opportunity.plan_revision_operation.v3") {
       candidateBound.push(receipt.operation_key);
+      historicalBindings.push(...historicalDiscoveryPlanBindings(receipt));
     }
     const current = await readManifest(runRoot, validator);
     if (current.current_plan_ref === receipt.result_plan_ref) {
@@ -1712,6 +1747,9 @@ export async function recoverPlanRevisionOperationsLocked(
     completedOperationKeys: completed.sort(),
     pendingOperationKeys: pending.sort(),
     candidateBoundOperationKeys: candidateBound.sort(),
+    historicalDiscoveryPlanBindings: historicalBindings.sort((left, right) =>
+      left.planRef.localeCompare(right.planRef),
+    ),
   };
 }
 

@@ -59,6 +59,12 @@ import {
 } from "./fixtures/g2.4/discovery-evaluation-fixture.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const parentProducedV12FixturePath = fileURLToPath(
+  new URL("./fixtures/g2.4/parent-produced-document-bundle.v12.json.bytes", import.meta.url),
+);
+const parentProducedV12Hash =
+  "sha256:839afaea562249c395a8a1e052d54563eb6ce8e9b4ea1573e815148767b37f44";
+const parentProducedV12Size = 285_141;
 
 interface State {
   readonly root: string;
@@ -130,18 +136,6 @@ function refreshAllInputHashes(bundle: DocumentBundle): void {
   }
 }
 
-function legacyV12(bundle: DocumentBundle): DocumentBundle {
-  const legacy = clone(bundle);
-  (legacy as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v12";
-  for (const candidate of legacy.documents) {
-    if (candidate.document.schema_version === "startup_opportunity.artifact_envelope.v13") {
-      candidate.document.schema_version = "startup_opportunity.artifact_envelope.v12";
-    }
-  }
-  effective(legacy, "manifest.json").schema_bundle_version = "11.0.0";
-  return legacy;
-}
-
 async function setup(
   context: TestContext,
   suffix: string,
@@ -183,6 +177,58 @@ async function setup(
     },
     profile,
   );
+  return {
+    root,
+    runsRoot,
+    runRoot: path.join(runsRoot, runId),
+    runId,
+    store,
+    validator,
+    bundle,
+  };
+}
+
+async function setupParentProducedV12(context: TestContext): Promise<State> {
+  const bytes = await readFile(parentProducedV12FixturePath);
+  assert.equal(bytes.length, parentProducedV12Size);
+  assert.equal(sha256Bytes(bytes), parentProducedV12Hash);
+  const bundle = JSON.parse(bytes.toString("utf8")) as DocumentBundle;
+  const runId = String(effective(bundle, "manifest.json").run_id);
+  assert.equal(runId, "g2-4-cross-version-v12-synthetic");
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-parent-v12-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const validator = await createArtifactValidator(repositoryRoot);
+  const store = new RunStore(runsRoot, validator);
+  await store.create({
+    runId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-27T17:00:00Z",
+  });
+  const evidence = new EvidenceStore(runsRoot);
+  const records = new Map<string, Record<string, unknown>>();
+  for (const [unitId, label] of [
+    ["unit_seed_independent_demand", "generation"],
+    ["unit_counterfactual", "evaluation"],
+    ["unit_enrichment_support", "support"],
+    ["unit_enrichment_challenge", "challenge"],
+  ] as const) {
+    const result = await evidence.record({
+      runId,
+      unitId,
+      source: {
+        kind: "user_provided",
+        canonical_uri: `urn:startup-opportunity:user-provided:cross-version-v12-${label}`,
+      },
+      researchGoal: `SYNTHETIC ${label} substrate; not Evidence.`,
+      rawContent: `SYNTHETIC ${label} bytes; not Evidence.`,
+      recordedAt: "2026-07-27T20:50:00Z",
+    });
+    records.set(`evidence/manifest.jsonl#${result.record.evidence_id}`, result.record);
+  }
+  for (const expected of bundle.exact_records ?? []) {
+    assert.deepEqual(records.get(expected.ref), expected.document, expected.ref);
+  }
   return {
     root,
     runsRoot,
@@ -840,9 +886,7 @@ test("G2.4 decision tier uses the strictest fan-in, comparison, gate, panel, and
   assertAtAndAbove("mixed-watch-and-insufficient", mixed, "insufficient_evidence");
 
   setDecisionTier(mixed, "investigate_further");
-  const recoveryValidation = state.validator.validateDocumentBundle(mixed, {
-    validateHistoricalDiscoveryContracts: false,
-  });
+  const recoveryValidation = state.validator.validateDocumentBundle(mixed);
   assert.equal(recoveryValidation.valid, false);
   assert.ok(
     recoveryValidation.referenceErrors.some(
@@ -852,33 +896,46 @@ test("G2.4 decision tier uses the strictest fan-in, comparison, gate, panel, and
   );
 });
 
-test("G2.4 v12 keeps frozen v1 evaluation while v13 applies repaired v2 gates", async (context) => {
-  const state = await setup(context, "legacy-v12", "ai_first");
-  const legacy = legacyV12(state.bundle);
-  setAiMandatoryGateStatus(legacy, "not_applicable");
-  refreshAllInputHashes(legacy);
-  const legacyResult = state.validator.validateDocumentBundle(legacy);
+test("G2.4 preserves fixed parent-produced v12 bytes while v13 rejects semantic drift", async (context) => {
+  const state = await setupParentProducedV12(context);
+  assert.equal(state.bundle.schema_version, "startup_opportunity.document_bundle.v12");
+  const legacyResult = state.validator.validateDocumentBundle(state.bundle);
   assert.equal(legacyResult.valid, true, JSON.stringify(legacyResult, null, 2));
+  const sourceSubject = effective(state.bundle, G22_SOLUTION_R1).subject as Record<string, unknown>;
+  assert.equal(sourceSubject.uses_ai, false);
+  assert.equal(effective(state.bundle, G23_SOLUTION).uses_ai, true);
 
-  const repaired = clone(state.bundle);
-  setAiMandatoryGateStatus(repaired, "not_applicable");
+  const repairedState = await setup(context, "v13-semantic-drift", "ai_first");
+  const repaired = clone(repairedState.bundle);
+  effective(repaired, G23_SOLUTION).uses_ai = false;
   refreshAllInputHashes(repaired);
-  const repairedResult = state.validator.validateDocumentBundle(repaired);
+  const repairedResult = repairedState.validator.validateDocumentBundle(repaired);
   assert.equal(repairedResult.valid, false);
   assert.ok(
     repairedResult.referenceErrors.some(
-      (error) => error.code === "g2_4.ai_mandatory_bundle_gate_violation",
+      (error) => error.code === "synthesis.solution_candidate_semantic_drift",
     ),
+    JSON.stringify(repairedResult.referenceErrors, null, 2),
   );
 
-  const legacyState: State = { ...state, bundle: legacy };
-  const legacyEnvelopes = envelopes(legacy, "startup_opportunity.artifact_envelope.v12").filter(
-    (envelope) => envelope.artifact_type !== "startup_opportunity.report.v1",
-  );
+  const legacyEnvelopes = envelopes(state.bundle, "startup_opportunity.artifact_envelope.v12");
   const legacyBytes = new Map(
     legacyEnvelopes.map((envelope) => [envelope.artifact_path, canonicalJson(envelope)]),
   );
-  await publishThroughEvaluation(legacyState);
+  await publishThroughEvaluation(state);
+  const reportEnvelope = evaluationEnvelope(state.bundle, G24_REPORT);
+  await assert.rejects(
+    state.store.publishArtifact({
+      runId: state.runId,
+      envelope: reportEnvelope,
+      faultAt: "after_temp_write",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const recovered = await state.store.load(state.runId);
+  assert.ok(recovered.recoveredArtifactPaths.includes(G24_REPORT));
+  assert.ok(recovered.manifest.artifact_refs.includes(G24_REPORT));
+  assert.equal(recovered.manifest.schema_bundle_version, "11.0.0");
   for (const [artifactPath, expected] of legacyBytes) {
     assert.equal(
       canonicalJson(JSON.parse(await readFile(path.join(state.runRoot, artifactPath), "utf8"))),
@@ -905,9 +962,9 @@ test("G2.4 v12 keeps frozen v1 evaluation while v13 applies repaired v2 gates", 
           "startup_opportunity.artifact_store_operation.v10",
       ),
   );
-  const checkpoint = await legacyState.store.checkpoint({
-    runId: legacyState.runId,
-    checkpointId: "checkpoint_legacy_v12",
+  const checkpoint = await state.store.checkpoint({
+    runId: state.runId,
+    checkpointId: "checkpoint_parent_produced_v12",
     createdAt: "2026-07-27T22:01:00Z",
     nextStep: "SYNTHETIC preserve the frozen v12 evaluation adapter.",
     beliefSummary: {
@@ -919,10 +976,11 @@ test("G2.4 v12 keeps frozen v1 evaluation while v13 applies repaired v2 gates", 
     },
     inputRefs: [G24_RECOMMENDATION, G24_TRACEABILITY],
   });
-  assert.match(checkpoint.checkpointRef, /legacy-v12/);
+  assert.match(checkpoint.checkpointRef, /parent-produced-v12/);
   const reopened = await new RunStore(state.runsRoot, state.validator).load(state.runId);
   assert.equal(reopened.manifest.schema_bundle_version, "11.0.0");
   assert.ok(reopened.manifest.artifact_refs.includes(G24_RECOMMENDATION));
+  assert.ok(reopened.manifest.artifact_refs.includes(G24_REPORT));
   assert.equal(reopened.recovered, false);
 });
 

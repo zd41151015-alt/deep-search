@@ -684,6 +684,7 @@ function validateConversions(
 function validateFormalLineage(
   byPath: ReadonlyMap<string, DiscoverySynthesisDocument>,
   candidatesByPath: ReadonlyMap<string, DiscoverySynthesisDocument>,
+  enforceCandidateSemanticPreservation: boolean,
   errors: ValidationIssue[],
 ): void {
   const demands = [...byPath.values()].filter(
@@ -780,6 +781,7 @@ function validateFormalLineage(
       );
     }
     if (
+      enforceCandidateSemanticPreservation &&
       source?.document.candidate_kind === "solution_seed" &&
       (solution.document.uses_ai !== subject.uses_ai ||
         solution.document.solution_type !== subject.solution_class ||
@@ -990,6 +992,7 @@ export function isDiscoverySynthesisSchemaVersion(schemaVersion: string): boolea
 export function validateDiscoverySynthesisContract(
   documents: readonly DiscoverySynthesisDocument[],
   policy: DiscoverySynthesisPolicy,
+  enforceCandidateSemanticPreservation = true,
 ): readonly ValidationIssue[] {
   if (!documents.some((entry) => SYNTHESIS_SCHEMA_VERSIONS.has(entry.schemaVersion))) {
     return [];
@@ -1044,7 +1047,7 @@ export function validateDiscoverySynthesisContract(
     }
   }
   validateConversions(documents, byPath, candidates, fanIn, policy, errors);
-  validateFormalLineage(byPath, candidatesByPath, errors);
+  validateFormalLineage(byPath, candidatesByPath, enforceCandidateSemanticPreservation, errors);
   validateMaterialCandidateBindings(synthesis, byPath, candidatesByPath, errors);
   validateSolutionEvaluations(byPath, errors);
   validateThesesSnapshotsAndMerge(byPath, errors);

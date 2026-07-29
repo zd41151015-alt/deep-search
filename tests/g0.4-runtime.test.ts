@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
+import { sha256Hex } from "../harness/src/artifact-store/canonical.js";
 import {
   type ApplyPlanRevisionInput,
   canonicalContentHash,
@@ -28,6 +29,7 @@ import {
   fixtureEnvelope,
   G21_CORE_REFS,
   G21_MAP_REFS,
+  G21_SOLUTION_REF,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import {
   createDiscoveryRuntimeFixture,
@@ -720,6 +722,63 @@ async function planReceiptFile(runRoot: string): Promise<string> {
   return path.join(operationDirectory, receiptName);
 }
 
+async function rewriteStoredArtifactAndReceipt(
+  runRoot: string,
+  artifactPath: string,
+  mutate: (document: Record<string, unknown>) => void,
+): Promise<void> {
+  const operations = path.join(runRoot, ".store/operations");
+  let receiptFile: string | null = null;
+  let receipt: Record<string, unknown> | null = null;
+  for (const filename of (await readdir(operations)).sort()) {
+    if (!filename.startsWith("artifact-") || !filename.endsWith(".json")) {
+      continue;
+    }
+    const candidate = JSON.parse(await readFile(path.join(operations, filename), "utf8")) as Record<
+      string,
+      unknown
+    >;
+    if (candidate.artifact_path === artifactPath) {
+      receiptFile = path.join(operations, filename);
+      receipt = candidate;
+      break;
+    }
+  }
+  assert.ok(receiptFile, artifactPath);
+  assert.ok(receipt, artifactPath);
+  const envelope = clone(receipt.envelope as Record<string, unknown>);
+  const document = envelope.document as Record<string, unknown>;
+  mutate(document);
+  envelope.content_hash = canonicalContentHash(document);
+  const nextOperationKey = operationKey("publish_artifact", {
+    run_id: envelope.run_id,
+    artifact_path: envelope.artifact_path,
+    artifact_type: envelope.artifact_type,
+    content_hash: envelope.content_hash,
+  });
+  const nextReceipt = {
+    ...receipt,
+    operation_key: nextOperationKey,
+    content_hash: envelope.content_hash,
+    envelope,
+  };
+  const nextReceiptFile = path.join(operations, `artifact-${sha256Hex(nextOperationKey)}.json`);
+  await writeFile(path.join(runRoot, artifactPath), `${canonicalJson(envelope)}\n`);
+  await writeFile(nextReceiptFile, `${canonicalJson(nextReceipt)}\n`);
+  if (receiptFile !== nextReceiptFile) {
+    await rm(receiptFile);
+  }
+}
+
+function storeReferenceCodes(error: StoreError): readonly string[] {
+  const referenceErrors = error.details.referenceErrors;
+  return Array.isArray(referenceErrors)
+    ? referenceErrors.flatMap((entry) =>
+        typeof entry === "object" && entry !== null && "code" in entry ? [String(entry.code)] : [],
+      )
+    : [];
+}
+
 function candidateFor(
   setup: Awaited<ReturnType<typeof setupPersistedRun>>,
   createdAt = "2026-07-24T12:08:00Z",
@@ -1384,6 +1443,76 @@ test("candidate pre-kill skips only an exact exclusive pending unit and replays 
     units.find((candidate) => candidate.unit_id === "value_pending")?.plan_disposition,
     "skipped",
   );
+  assert.deepEqual(reopened.planOperationRecovery.historicalDiscoveryPlanBindings, [
+    {
+      planRef: PLAN_REF,
+      planHash: canonicalContentHash(setup.plan),
+      planRevision: 1,
+      candidateRefs: [PRE_KILL_CANDIDATE_REF],
+    },
+  ]);
+});
+
+test("candidate-bound historical Plan views always revalidate G2.1 maps and G2.2 candidates", async (t) => {
+  for (const scenario of [
+    {
+      name: "g2-1-map-profile-drift",
+      artifactPath: G21_SOLUTION_REF,
+      expectedDomainCode: "discovery_maps.profile_mismatch",
+      mutate: (document: Record<string, unknown>) => {
+        document.discovery_profile = "industry_first";
+      },
+    },
+    {
+      name: "g2-2-unbound-candidate-profile-drift",
+      artifactPath: RETAINED_SHARED_CANDIDATE_REF,
+      expectedDomainCode: "discovery_candidate.scope_identity_mismatch",
+      mutate: (document: Record<string, unknown>) => {
+        document.discovery_profile = "industry_first";
+      },
+    },
+  ] as const) {
+    await t.test(`${scenario.name}-reopen`, async (contextTest) => {
+      const runId = `runtime-historical-${scenario.name}-reopen`;
+      const setup = await setupPersistedRun(contextTest, runId, "pre-kill-exact");
+      const { candidateBundle } = candidateFor(setup, PRE_KILL_APPLY_AT, PRE_KILL_CONTEXT_AT);
+      await (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply(
+        preKillApplyInput(setup, candidateBundle),
+      );
+      await rewriteStoredArtifactAndReceipt(setup.runRoot, scenario.artifactPath, scenario.mutate);
+      await assert.rejects(setup.store.load(runId), (error: unknown) => {
+        return (
+          error instanceof StoreError &&
+          error.code === "recovery.reference_invalid" &&
+          storeReferenceCodes(error).includes(scenario.expectedDomainCode)
+        );
+      });
+    });
+
+    await t.test(`${scenario.name}-pending-replay`, async (contextTest) => {
+      const runId = `runtime-historical-${scenario.name}-replay`;
+      const setup = await setupPersistedRun(contextTest, runId, "pre-kill-exact");
+      const { candidateBundle } = candidateFor(setup, PRE_KILL_APPLY_AT, PRE_KILL_CONTEXT_AT);
+      const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+      const input = preKillApplyInput(setup, candidateBundle, { faultAt: "after_intent" });
+      await assert.rejects(
+        runtime.apply(input),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+      await rewriteStoredArtifactAndReceipt(setup.runRoot, scenario.artifactPath, scenario.mutate);
+      const { faultAt: _faultAt, ...replayInput } = input;
+      await assert.rejects(runtime.apply(replayInput), (error: unknown) => {
+        return (
+          error instanceof StoreError &&
+          error.code === "artifact.reference_invalid" &&
+          storeReferenceCodes(error).includes(scenario.expectedDomainCode)
+        );
+      });
+      assert.ok(
+        !(await readdir(path.join(setup.runRoot, "plans"))).includes("research-plan.r2.json"),
+      );
+    });
+  }
 });
 
 test("candidate pre-kill rejects malformed typed candidate bindings before every write", async (t) => {
