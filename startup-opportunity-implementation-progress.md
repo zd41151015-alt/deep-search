@@ -1,11 +1,11 @@
 # Startup Opportunity Research Harness 实施进度
 
-> **状态**: G2_H14_ARCHIVE_PORTABILITY_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW / G2.1_DONE / G2.2-G2.4_REPAIRED_PENDING_GATE_DECISION
-> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`DONE`；G2 Opportunity Discovery=`G2_H14_ARCHIVE_PORTABILITY_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW`（G2.1=`DONE`；G2.2-G2.4=`REPAIRED_PENDING_GATE_DECISION`）；G2.R、G3-G4=`NOT_READY`
-> **下一独立会话**: 中控只读审查 fixed-v4 H14 archive-portability repair candidate；本 worker 不创建或建议下一次 acceptance，通过前不得开放 G3
+> **状态**: G2_DONE / G3_IN_PROGRESS / G3.1_IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION
+> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`DONE`；G2 Opportunity Discovery=`DONE`；G3 AI Bundle Construction=`IN_PROGRESS`（G3.1=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`；G3.2-G3.3按同一连续 worker顺序施工）；G4=`NOT_READY`
+> **下一动作**: 同一 G3 Stage 主 worker从 clean G3.1 原子提交连续施工 G3.2；不做逐 slice acceptance，不开放 G4
 > **最后更新**: 2026-07-29
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
-> **固定规则集**: `fixed_ruleset_id=startup-opportunity-controller-fixed-v4`（supersedes `startup-opportunity-controller-fixed-v3`）
+> **固定规则集**: `fixed_ruleset_id=startup-opportunity-controller-fixed-v5`（supersedes fixed-v4；G3 全 Stage 禁止 subagent）
 
 ## 文档职责
 
@@ -177,8 +177,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- | --- | --- |
 | G0 Foundation Harness | `DONE` | RFC v1 | 工具链与仓库骨架、核心 schema、Run/Artifact Store、validator、checkpoint、Gap/Adaptation/Plan Revision、完整 foundation regression |
 | G1 Concept Evidence Assessment | `DONE` | G0 | 单 thesis 从 intake 到 report 的端到端闭环，buyer gap 触发 plan r2，独立 G1 whole-gate regression 与中控验收均通过 |
-| G2 Opportunity Discovery | `G2_H14_ARCHIVE_PORTABILITY_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW` | G1 | G2.1=`DONE`；G2.2-G2.4 已完成 fixed-v4 H14 archive-portability repair；等待中控只读审查，G2.R仍关闭 |
-| G3 AI Bundle | `NOT_READY` | G2 | 六维 AI mandatory bundle、baseline/reliability/data/economics/risk gates 和独立 G3 回归 |
+| G2 Opportunity Discovery | `DONE` | G1 | fresh independent fixed-v5 whole-boundary acceptance `019fada4-6e70-7ce1-8b0e-2756ef0a9f20` 对 candidate `6d09cc7` 统一 PASS；H1-H14闭合 |
+| G3 AI Bundle Construction | `IN_PROGRESS` | G2 | G3.1 caller-supplied baseline/reliability/data contract 已实现；同一 worker继续 G3.2-G3.3，Stage末形成一次 clean candidate preflight |
 | G4 Distribution / Operational Exit | `NOT_READY` | G3 | repo-local Skill/agents/hooks/MCP 完整入口、安装与恢复文档、端到端 fixture；Plugin 是否打包按 RFC 条件判断 |
 
 ## 工作包总览
@@ -190,8 +190,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | W2 | Run Store、Artifact/Evidence Store、events/decisions/checkpoint/recovery | `DONE` |
 | W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `DONE` |
 | W4 | Assess domain contracts、research branches、matrix、audit/review/report | `DONE`（G1.1-G1.4、G1.R=`DONE`） |
-| W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `G2_H14_ARCHIVE_PORTABILITY_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW`（G2.1=`DONE`；G2.2-G2.4=`REPAIRED_PENDING_GATE_DECISION`；G2.R=`NOT_READY`） |
-| W6 | AI mandatory bundle 和 gates | `NOT_READY` |
+| W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `DONE`（fixed-v5 whole-boundary acceptance 对 `6d09cc7` 统一 PASS） |
+| W6 | AI mandatory bundle 和 gates | `IN_PROGRESS`（G3.1=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`；G3.2-G3.3连续施工） |
 | W7 | Codex Skill、custom agents、hooks/MCP、分发和端到端运营 | `NOT_READY` |
 
 ## G0 Foundation Harness 施工切片
@@ -219,16 +219,16 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | 切片 | 内容 | 状态 | 主要退出条件 |
 | --- | --- | --- | --- |
 | G2.1 | Seed / Opportunity / Solution Space Maps | `DONE` | general/industry/ai/hybrid profiles、seed-independent 和 counterfactual units、solution-neutral maps、initial questions；独立 inter-map crash/replay regression 与中控验收通过 |
-| G2.2 | Discovery Lanes / Fan-in | `REPAIRED_PENDING_WHOLE_GATE_REGRESSION` | accepted v9/v10 bytes 保持 immutable；candidate diversity fixture 与 exact pre-kill shared-unit adaptation binding 已纳入 repair regression surface |
-| G2.3 | Demand / Solution / Thesis Synthesis | `REPAIRED_PENDING_WHOLE_GATE_REGRESSION` | v11/receipt v9 bytes 保持 immutable；general/industry/AI/hybrid candidate-to-thesis-to-report profile chain 已纳入 repair regression surface |
-| G2.4 | Enrichment / Business Engine / Comparison | `REPAIRED_PENDING_WHOLE_GATE_REGRESSION` | v13/receipt v11 repair adapter 已闭合 selected-solution AI gate、decision ceiling、Consistency v3 scan 与 Store/recovery compatibility；等待 fresh independent regression |
-| G2.R | Independent Discovery Whole-Gate Regression | `NOT_READY` | general/industry/ai/hybrid fixtures、pre-kill skip、candidate diversity、comparison/report 全链独立回归；通过后 G2=`DONE` |
+| G2.2 | Discovery Lanes / Fan-in | `DONE` | accepted v9/v10 bytes 保持 immutable；candidate diversity fixture 与 exact pre-kill shared-unit adaptation binding 已通过 fixed-v5 boundary acceptance |
+| G2.3 | Demand / Solution / Thesis Synthesis | `DONE` | v11/receipt v9 bytes 保持 immutable；general/industry/AI/hybrid candidate-to-thesis-to-report profile chain 已通过 fixed-v5 boundary acceptance |
+| G2.4 | Enrichment / Business Engine / Comparison | `DONE` | v13/receipt v11 repair adapter 的 selected-solution AI gate、decision ceiling、Consistency v3 scan 与 Store/recovery compatibility 已通过 fixed-v5 boundary acceptance |
+| G2.R | Independent Discovery Whole-Gate Regression | `DONE` | task `019fada4-6e70-7ce1-8b0e-2756ef0a9f20` 对 candidate `6d09cc7` 统一 PASS；H1-H14闭合 |
 
 ## G3 AI Bundle 施工切片
 
 | 切片 | 内容 | 状态 | 主要退出条件 |
 | --- | --- | --- | --- |
-| G3.1 | AI Baseline / Reliability / Data Contracts | `NOT_READY` | generic model、platform、open-source baseline；代表性 evaluation、failure/human boundary、data rights/feedback、portability |
+| G3.1 | AI Baseline / Reliability / Data Contracts | `IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION` | generic model、platform、open-source baseline；代表性 evaluation、failure/human boundary、data rights/feedback、portability |
 | G3.2 | AI Economics / Commoditization / Trust Gates | `NOT_READY` | product inference economics、bundle/substitution risk、capability half-life、adoption/trust、regulated-AI boundary |
 | G3.3 | Mandatory Bundle Dynamic Coverage | `NOT_READY` | `uses_ai=true` 自动补齐六维 unit；not_applicable/insufficient 分离；缺失 bundle 限制结论；freshness continuation |
 | G3.R | Independent AI Whole-Gate Regression | `NOT_READY` | technical、data、human review、economics、provider、trust 全 fixture 和动态 coverage 独立回归；通过后 G3=`DONE` |
@@ -248,12 +248,12 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | 原 G2 Construction Stage 主 task执行 fixed-v4 第五次 FAIL 的 H14 archive-portability repair；唯一 local 写入者。本 finding局限于共享测试文件，依赖不独立且无需额外 authority/code 索引，故未启用 subagent |
-| Current slice | G2.1=`DONE`；G2.2-G2.4=`REPAIRED_PENDING_GATE_DECISION`；G2=`G2_H14_ARCHIVE_PORTABILITY_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW`；G2.R、G3-G4=`NOT_READY` |
-| Expected base | rejected candidate=`a0362b9cb2b1d013f7b0ec5614c2d5010ac91349`；H14 repair commit sole parent 必须 exact 等于该 commit |
+| Active task | G3 Construction Stage 唯一主写入 worker按 fixed-v5连续完成 G3.1-G3.3；不创建 subagent、worktree或 Handoff |
+| Current slice | G2=`DONE`；G3=`IN_PROGRESS`；G3.1=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`，同一 worker继续 G3.2；G4=`NOT_READY` |
+| Expected base | accepted G2 candidate=`6d09cc7afbe2a3638f627f5e2fe4fe90412c683c`；第一个 G3.1 implementation commit sole parent 必须 exact 等于该 commit |
 | Consecutive state-query failures | `0` |
-| Last effective operation | fresh acceptance `019fad45-f1f2-7663-a59e-4c4be6e03e4e` 对 `a0362b9cb2b1d013f7b0ec5614c2d5010ac91349` 判定统一 `FAIL`；G2 有效 boundary FAIL 累计 5；原 Stage worker按 fixed-v4 完成 ordinary-functional H14 archive-portability repair 与 compliant shadow preflight |
-| Next allowed action | 中控只读审查 fixed-v4 classification、exact parent、H14 portability、H1-H14 retained closure 与 shadow evidence；本 worker不创建或建议下一次 acceptance，不得开放 G3 |
+| Last effective operation | fresh independent fixed-v5 whole-boundary acceptance `019fada4-6e70-7ce1-8b0e-2756ef0a9f20` 对 `6d09cc7` 统一 PASS；G2=`DONE`，历史连续 FAIL count 清零，G3已开放 |
+| Next allowed action | 当前唯一 worker连续完成 G3.1-G3.3、内部修复、原子提交与 Stage candidate preflight；不逐 slice等待验收，不标 G3 `DONE`，不开放 G4 |
 
 ## 已完成切片与证据
 
@@ -290,7 +290,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | G2 second acceptance-directed repair candidate | `REJECTED_BY_CONTROLLER` | `e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0` | `3a5e51d4c334fa8f7b1eee69518bb0b0756d0922` |
 | G2 third acceptance-directed repair candidate | `REJECTED_BY_CONTROLLER` | `230064e707622c9296dec3bbecb725d9f7b6b691` | `e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0` |
 | G2 fixed-v3 non-convergent systemic repair candidate | `REJECTED_BY_CONTROLLER` | `a0362b9cb2b1d013f7b0ec5614c2d5010ac91349` | `230064e707622c9296dec3bbecb725d9f7b6b691` |
-| G2 fixed-v4 H14 archive portability repair candidate | `PENDING_CONTROLLER_REVIEW` | `<G2_H14_ARCHIVE_PORTABILITY_REPAIR_COMMIT>` | `a0362b9cb2b1d013f7b0ec5614c2d5010ac91349` |
+| G2 fixed-v4 H14 archive portability repair candidate | `ACCEPTED` | `6d09cc7afbe2a3638f627f5e2fe4fe90412c683c` | `a0362b9cb2b1d013f7b0ec5614c2d5010ac91349` |
 
 G0.1 交付物：
 
@@ -1671,10 +1671,28 @@ Fixture 全部显式标记 synthetic/no real Evidence；成功只证明 contract
 
 本返修不实现或执行 G3、network research、interview、landing page、deposit、advertising、paid experiment、MVP test、其他 external validation、agent/LLM dispatch、通用 Workflow Runtime/DAG DSL/daemon/UI/DB。所有 fixture仍是 synthetic/unverified，只证明 deterministic mechanics，不构成 Evidence、市场验证、validation success、candidate viability或商业成功。原子 commit使用占位避免 self-reference，sole parent必须为 `a0362b9cb2b1d013f7b0ec5614c2d5010ac91349`；状态仅为 `G2_H14_ARCHIVE_PORTABILITY_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW`，不得自称 G2 `DONE`，不得创建或建议下一次 acceptance，不得开放 G2.R 或 G3。
 
+## G3 fixed-v5 Construction Stage
+
+当前 G3 Stage 以 accepted G2 candidate `6d09cc7afbe2a3638f627f5e2fe4fe90412c683c` 为 exact sole parent，`fixed_ruleset_id=startup-opportunity-controller-fixed-v5`。fresh independent whole-boundary acceptance task `019fada4-6e70-7ce1-8b0e-2756ef0a9f20` 已对该 candidate 给出统一 `PASS`，H1-H14闭合、required `NOT_RUN=0`、required `SECURITY_VALIDATION_NOT_RUN=0`；因此 G2=`DONE`，历史连续 FAIL count 在 Stage 切换时清零，G3成为唯一 active Stage，G4=`NOT_READY`。本 Stage 不创建 subagent、worktree、Handoff或下游 task；同一主 worker是 tracked files、Git index、账本与 commit 的唯一写入者。
+
+### G3.1 AI baseline / reliability / data contracts
+
+- 新增 composed schema bundle manifest v3：bundle `13.0.0` 显式继承 immutable bundle `12.0.0`，只追加 v14 schema。loader对 local base path、cycle、duplicate id/file/document version、完整 `$ref` 做确定性检查；不修改任何既有 schema/policy JSON bytes。
+- 新增 caller-supplied `capability_evidence.v1`、`ai_capability_benchmark.v1`、`ai_evaluation_reliability.v1` 与 `ai_data_dependency.v1`。合同固定 generic model、platform-native、open-source 三类 baseline，代表性/limited/desk-research-only声明，quality/latency/failure/human boundary，以及 data rights、ground truth、feedback、provider portability、privacy/deletion/export边界。
+- `AiBundleValidator` 验证 exact Opportunity subject -> selected Solution `uses_ai=true` -> versioned trigger lineage、每个 required dimension恰好一个 result、specialized Artifact type与同 lineage、reliability exact benchmark binding、freshness window。Harness不运行 benchmark/research、不生成 baseline/Judgment或 Evidence、不调用 agent/LLM、不访问 network。
+- publication policy v9以 canonical hash绑定 immutable v8 base并只追加 v14/document bundle v14/receipt v12 adapter；v13继续对 G3类型 fail closed，v14继续 block G3.2 economics/commoditization/trust与G3.3 mandatory bundle。ArtifactStore/RunStore已安装 v14/receipt v12 validation、publication rank、checkpoint/reopen/recovery dispatch。
+- fixture全部标记 `SYNTHETIC` / `unverified`；representative benchmark只证明 deterministic mechanics，不构成真实 Evidence、外部 validation、成功 benchmark、产品可行或市场成功。
+
+本 slice 专项与受影响验证均使用 Node.js `24.18.0` / npm `11.16.0`：`test:g3.1` PASS 7/7；`validate:fixtures` PASS 177/177；`validate:schemas` PASS（bundle `13.0.0`，149 schemas / 140 document validators）；`typecheck` 与 `lint` PASS；`test:g2.4` PASS 32/32；`validate:store` PASS 11/11；`test:faults` PASS 10/10；`test:recovery` PASS 11/11；schema-validation PASS 13/13；G1.1 PASS 11/11、G1.2 PASS 20/20、G2.1 PASS 34/34；上述完成项均为 0 failed/skipped/todo。首次并发 `validate:fixtures` 暴露旧 test对 default bundle `12.0.0`/141/133及12 adapters的 current-default断言，已随实现更新为 `13.0.0`/149/140及13 adapters；旧 planning validator只安装 bundle v2.1/v5，publication overlay loader现仅在该旧 bundle安装 base policy schema时做 schema校验，并始终核对 canonical base hash，从而保留旧 adapter contract且避免把 v14 schema倒灌历史 bundle。后续完整 `validate:fixtures` 已通过；完整 full quality入口仍在 G3 Stage candidate preflight重放。
+
+fixed-v5 security-sensitive mapping：Artifact/receipt/Manifest identity与 persistent current-state保护只使用静态源码 `loadManifestChain`、`loadResearchPublicationPolicy`、`validateArtifactReceipt`、`validateEnvelopeBoundary`、`RunStore.recoverLocked`，以及仓库已有 `store-faults` 10/10、`store-recovery` 11/11输出；没有设计新的动态对抗 probe。新 v9 base-policy hash mismatch与v12 receipt异常保护状态为 `SECURITY_VALIDATION_NOT_RUN(reason=fixed-v5 forbids a new dynamic identity/integrity adversarial probe; static invariant and existing-test mapping only)`。data-rights/privacy字段的异常 authority-state分支为 `SECURITY_VALIDATION_NOT_RUN(reason=only ordinary closed-shape coverage is permitted in G3 construction; no protected-state mutation was constructed)`；不得将这些 NOT_RUN记作 PASS。
+
+G3.1 原子提交使用占位避免 self-reference，sole parent必须为 `6d09cc7afbe2a3638f627f5e2fe4fe90412c683c`。G3.1状态仅为 `IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`；同一 worker连续进入 G3.2，不逐 slice等待验收，不标 G3 `DONE`，不开放 G4。
+
 ## 当前边界与后续状态
 
 - G0 Foundation 已通过独立 whole-gate regression；当前没有 G0 blocker。
 - G1.1-G1.4、G1.R、G1 Concept Evidence Assessment 与 W4 均为 `DONE`；中控已接受 G1.R commit `a30c0967860bf31d26fc959c583f8c5b6b1b4caa`。
-- G2 Opportunity Discovery 与 W5=`G2_H14_ARCHIVE_PORTABILITY_REPAIR_CANDIDATE_PENDING_CONTROLLER_REVIEW`；G2.1=`DONE`，G2.2-G2.4=`REPAIRED_PENDING_GATE_DECISION`。G2.R、G3-G4继续 `NOT_READY`；当前只等待中控审查 fixed-v4 classification、exact parent、H14 archive portability、H1-H14与 shadow evidence，boundary PASS前不得开放 G3。
-- `validate-artifact`、Evidence/Artifact Store、RunStore、bounded assessment adaptation、audit/traceability、concept/discovery report、G2.1 maps、G2.2 candidate/lane/fan-in、G2.3 caller-supplied synthesis 与 G2.4 caller-supplied evaluation/report publication/recovery 已形成 deterministic surface；Harness 不执行 research、synthesis、enrichment 或 comparison 语义生成，discover orchestration 仍未开放。
+- G2 Opportunity Discovery 与 W5=`DONE`；fixed-v5 fresh independent acceptance `019fada4-6e70-7ce1-8b0e-2756ef0a9f20` 对 `6d09cc7` 统一 PASS。G3=`IN_PROGRESS`，G3.1=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`，同一 worker继续 G3.2-G3.3；G4=`NOT_READY`。
+- `validate-artifact`、Evidence/Artifact Store、RunStore、bounded assessment adaptation、audit/traceability、concept/discovery report、G2.1 maps、G2.2 candidate/lane/fan-in、G2.3 caller-supplied synthesis、G2.4 caller-supplied evaluation/report以及G3.1 caller-supplied AI baseline/reliability/data validation/publication已形成 deterministic surface；Harness不执行research/benchmark，不生成语义判断，不调用LLM或agent，不访问network。
 - 目标 runtime 是精确 Node.js `24.18.0` 与 npm `11.16.0`；开发者不得用错误版本证据替代冻结验证。

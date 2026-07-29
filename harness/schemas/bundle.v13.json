@@ -1,0 +1,48 @@
+{
+  "schema_version": "startup_opportunity.schema_bundle.v3",
+  "schema_bundle_version": "13.0.0",
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "base_bundle": "bundle.v12.json",
+  "schemas": [
+    {
+      "id": "https://startup-opportunity.local/schemas/v14/ai-contract-definitions.schema.json",
+      "file": "v14/ai-contract-definitions.schema.json",
+      "document_schema_version": null
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v14/capability-evidence.schema.json",
+      "file": "v14/capability-evidence.schema.json",
+      "document_schema_version": "startup_opportunity.capability_evidence.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v14/ai-capability-benchmark.schema.json",
+      "file": "v14/ai-capability-benchmark.schema.json",
+      "document_schema_version": "startup_opportunity.ai_capability_benchmark.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v14/ai-evaluation-reliability.schema.json",
+      "file": "v14/ai-evaluation-reliability.schema.json",
+      "document_schema_version": "startup_opportunity.ai_evaluation_reliability.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v14/ai-data-dependency.schema.json",
+      "file": "v14/ai-data-dependency.schema.json",
+      "document_schema_version": "startup_opportunity.ai_data_dependency.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v14/research-publication-policy-v9.schema.json",
+      "file": "v14/research-publication-policy-v9.schema.json",
+      "document_schema_version": "startup_opportunity.research_publication_policy.v9"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v14/artifact-envelope.schema.json",
+      "file": "v14/artifact-envelope.schema.json",
+      "document_schema_version": "startup_opportunity.artifact_envelope.v14"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v14/document-bundle.schema.json",
+      "file": "v14/document-bundle.schema.json",
+      "document_schema_version": "startup_opportunity.document_bundle.v14"
+    }
+  ]
+}

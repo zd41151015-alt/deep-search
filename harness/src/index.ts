@@ -133,6 +133,11 @@ export {
   runPublishArtifact,
   runRecordEvidence,
 } from "./run-store/store-commands.js";
+export {
+  type AiBundleDocument,
+  isAiBundleSchemaVersion,
+  validateAiBundleContract,
+} from "./validators/ai-bundle-validator.js";
 export type {
   ArtifactValidationResult,
   DocumentBundle,

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-export const SKELETON_VERSION = "g2.4" as const;
+export const SKELETON_VERSION = "g3.1" as const;
 
 export const IMPLEMENTATION_STACK = {
   language: "TypeScript 7.0.2",
@@ -45,6 +45,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v13.json",
   "harness/schemas/bundle.v12.json",
   "harness/schemas/bundle.v11.json",
   "harness/schemas/bundle.v10.json",
@@ -200,11 +201,20 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v13/research-publication-policy-v8.schema.json",
   "harness/schemas/v13/artifact-envelope.schema.json",
   "harness/schemas/v13/document-bundle.schema.json",
+  "harness/schemas/v14/ai-contract-definitions.schema.json",
+  "harness/schemas/v14/capability-evidence.schema.json",
+  "harness/schemas/v14/ai-capability-benchmark.schema.json",
+  "harness/schemas/v14/ai-evaluation-reliability.schema.json",
+  "harness/schemas/v14/ai-data-dependency.schema.json",
+  "harness/schemas/v14/research-publication-policy-v9.schema.json",
+  "harness/schemas/v14/artifact-envelope.schema.json",
+  "harness/schemas/v14/document-bundle.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/schema-bundle.ts",
   "harness/src/validators/artifact-validator.ts",
+  "harness/src/validators/ai-bundle-validator.ts",
   "harness/src/validators/assess-domain-validator.ts",
   "harness/src/validators/research-branch-validator.ts",
   "harness/src/validators/assessment-adaptation-identities.ts",
@@ -291,6 +301,7 @@ export const RESPONSIBILITY_PATHS = [
   "harness/policies/discovery-evaluation.v2.json",
   "harness/policies/discovery-adaptation-binding.v1.json",
   "harness/policies/research-publication.v8.json",
+  "harness/policies/research-publication.v9.json",
   "tests/fixtures/README.md",
   "tests/fixtures/g1.2/README.md",
   "tests/fixtures/g1.3/README.md",
@@ -312,6 +323,9 @@ export const RESPONSIBILITY_PATHS = [
   "tests/fixtures/g2.4/README.md",
   "tests/fixtures/g2.4/discovery-evaluation-fixture.ts",
   "tests/g2.4-discovery-evaluation.test.ts",
+  "tests/fixtures/g3/README.md",
+  "tests/fixtures/g3/ai-bundle-fixture.ts",
+  "tests/g3.1-ai-contracts.test.ts",
   "tests/evals/README.md",
   "runs/.gitkeep",
 ] as const;

@@ -22,4 +22,6 @@
 
 `discovery-evaluation.v2.json` 以新版本增加 selected Solution `uses_ai`/missing-G3 gate、first-bet decision ceiling 和 Consistency v3 三表面 scan contract。`discovery-adaptation-binding.v1.json` 固定 `candidate_pre_killed -> skip_unit` 的 exact candidate/pending/exclusive-input 前置条件；共享候选 unit 必须保留或 supersede。`research-publication.v8.json` 只增加 v13/document bundle v13/receipt v11 adapter；全部旧 policy bytes 不改写，v13 继续 block G3 types。
 
+`research-publication.v9.json` 以 canonical content hash 显式绑定 immutable v8 base policy，并只追加 v14/document bundle v14/receipt v12 adapter。它安装 G3.1 caller-supplied capability/benchmark/reliability/data Artifact，继续阻止 G3.2 economics/commoditization/trust 与 G3.3 mandatory bundle；Harness 不执行 benchmark、research、network、agent 或 model 调用。
+
 Policy 不是通用规则引擎，不包含任意表达式、可执行 workflow code 或运行时用户调权。

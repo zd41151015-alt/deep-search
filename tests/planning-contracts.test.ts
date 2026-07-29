@@ -273,17 +273,28 @@ test("retry_unit accepts failed_units only and rejects completed, active, and pa
   assert.equal(evaluator.validateDocumentBundle(valid).valid, true);
 });
 
-test("installed plan output remains closed while an uninstalled downstream schema cannot publish", async () => {
+test("installed G3.1 output remains closed and older adapters cannot publish it", async () => {
   const evaluator = await createPlanningContractEvaluator(repositoryRoot);
   const artifactValidator = await createArtifactValidator(repositoryRoot);
+  const legacyValidator = await createArtifactValidator(
+    repositoryRoot,
+    "harness/schemas/bundle.v12.json",
+    "12.0.0",
+  );
   const { valid } = await loadFixtures();
   assert.equal(evaluator.validateDocumentBundle(valid).valid, true);
 
-  const rawResult = artifactValidator.validateDocument({
+  const legacyResult = legacyValidator.validateDocument({
     schema_version: "startup_opportunity.capability_evidence.v1",
   });
-  assert.equal(rawResult.valid, false);
-  assert.equal(rawResult.errors[0]?.code, "schema.unknown_version");
+  assert.equal(legacyResult.valid, false);
+  assert.equal(legacyResult.errors[0]?.code, "schema.unknown_version");
+
+  const currentResult = artifactValidator.validateDocument({
+    schema_version: "startup_opportunity.capability_evidence.v1",
+  });
+  assert.equal(currentResult.valid, false);
+  assert.ok(currentResult.errors.some((issue) => issue.keyword === "required"));
 
   const envelope = await readJson(path.join(fixtureRoot, "future-declared-artifact-envelope.json"));
   const envelopeResult = artifactValidator.validateDocument(envelope);

@@ -273,7 +273,7 @@ test("all four G2.1 discovery profiles validate as closed synthetic map bundles"
     const bundle = await createDiscoveryMapsFixture(profile);
     const result = validator.validateDocumentBundle(bundle);
     assert.equal(result.valid, true, `${profile}: ${JSON.stringify(result)}`);
-    assert.equal(result.schemaBundleVersion, "12.0.0");
+    assert.equal(result.schemaBundleVersion, "13.0.0");
     assert.equal(fixtureDocument(bundle, G21_SEED_REF).discovery_profile, profile);
   }
 });
@@ -622,7 +622,7 @@ test("generic CLI validates explicit G2.1 bundles while discover orchestration r
   assert.equal(validated.status, 0, validated.stderr || validated.stdout);
   const result = JSON.parse(validated.stdout) as Record<string, unknown>;
   assert.equal(result.valid, true);
-  assert.equal(result.schemaBundleVersion, "12.0.0");
+  assert.equal(result.schemaBundleVersion, "13.0.0");
 
   const discover = spawnSync(
     process.execPath,

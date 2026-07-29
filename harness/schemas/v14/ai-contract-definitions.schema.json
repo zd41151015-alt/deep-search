@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v14/ai-contract-definitions.schema.json",
+  "title": "Startup Opportunity G3 AI Contract Definitions",
+  "$defs": {
+    "dimension": {
+      "enum": [
+        "capability_frontier",
+        "cost_and_deployment",
+        "workflow_and_human_boundary",
+        "ecosystem_and_platform",
+        "data_and_evaluation",
+        "adoption_and_trust"
+      ]
+    },
+    "coverageStatus": {
+      "enum": ["covered", "insufficient_evidence", "not_applicable"]
+    },
+    "freshnessStatus": {
+      "enum": ["current", "stale", "unknown"]
+    },
+    "researchMode": {
+      "enum": ["representative_evaluation", "limited_evaluation", "desk_research_only"]
+    },
+    "sourceBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "caller_supplied_artifact",
+        "harness_generated_research",
+        "harness_generated_judgment",
+        "hidden_llm_calls",
+        "agent_dispatch",
+        "network_access",
+        "external_validation_claimed"
+      ],
+      "properties": {
+        "caller_supplied_artifact": { "const": true },
+        "harness_generated_research": { "const": false },
+        "harness_generated_judgment": { "const": false },
+        "hidden_llm_calls": { "const": false },
+        "agent_dispatch": { "const": false },
+        "network_access": { "const": false },
+        "external_validation_claimed": { "const": false }
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject_ref", "opportunity_ref", "selected_solution_ref", "trigger_version"],
+      "properties": {
+        "subject_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
+        "opportunity_ref": { "$ref": "../v12/definitions.schema.json#/$defs/opportunityRef" },
+        "selected_solution_ref": { "$ref": "../v11/definitions.schema.json#/$defs/solutionRef" },
+        "trigger_version": {
+          "const": "startup_opportunity.ai_mandatory_coverage_trigger.v1"
+        }
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valid_as_of", "expires_at", "status"],
+      "properties": {
+        "valid_as_of": { "type": "string", "format": "date-time" },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "status": { "$ref": "#/$defs/freshnessStatus" }
+      }
+    },
+    "assessmentRefs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "../v12/definitions.schema.json#/$defs/enrichmentJudgmentRef" }
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "../v12/definitions.schema.json#/$defs/enrichmentEvidenceRef" }
+    }
+  }
+}
