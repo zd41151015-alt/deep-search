@@ -75,6 +75,7 @@ const parentProducedV12Hash =
   "sha256:a08eb3cc38ba099a3fd912cb90d49fe9039507e82fb4eb0c701da08e0176dee6";
 const parentProducedV12Size = 285_157;
 const parentRuntimeCommit = "e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0";
+const parentRuntimeGitSourceEnvironmentVariable = "STARTUP_OPPORTUNITY_H14_PARENT_GIT_SOURCE";
 const crossVersionDriverPath = fileURLToPath(
   new URL("./helpers/g2.4-v12-runtime-driver.ts", import.meta.url),
 );
@@ -131,16 +132,41 @@ function runtimeOracle(runtimeRoot: string): Record<string, unknown> {
   return JSON.parse(result.stdout.trim()) as Record<string, unknown>;
 }
 
+function parentRuntimeGitSource(): string {
+  const configured = process.env[parentRuntimeGitSourceEnvironmentVariable]?.trim();
+  const source = configured === undefined || configured.length === 0 ? repositoryRoot : configured;
+  const resolved = path.resolve(source);
+  const probe = spawnSync(
+    "git",
+    ["-C", resolved, "cat-file", "-e", `${parentRuntimeCommit}^{commit}`],
+    {
+      encoding: "utf8",
+    },
+  );
+  assert.equal(
+    probe.status,
+    0,
+    [
+      `${parentRuntimeGitSourceEnvironmentVariable} must name a Git repository containing`,
+      `the exact H14 producer commit ${parentRuntimeCommit}.`,
+      `Candidate archives do not contain Git metadata; provide the producer object source explicitly.`,
+      probe.stderr.trim(),
+    ].join(" "),
+  );
+  return resolved;
+}
+
 async function archivedParentRuntime(context: TestContext): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-e68-runtime-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const archivePath = path.join(root, "parent.tar");
   const runtimeRoot = path.join(root, "repository");
   await mkdir(runtimeRoot);
+  const producerGitSource = parentRuntimeGitSource();
   const archived = spawnSync(
     "git",
-    ["archive", "--format=tar", "-o", archivePath, parentRuntimeCommit],
-    { cwd: repositoryRoot, encoding: "utf8" },
+    ["-C", producerGitSource, "archive", "--format=tar", "-o", archivePath, parentRuntimeCommit],
+    { encoding: "utf8" },
   );
   assert.equal(archived.status, 0, archived.stderr);
   const extracted = spawnSync("tar", ["-xf", archivePath, "-C", runtimeRoot], {
