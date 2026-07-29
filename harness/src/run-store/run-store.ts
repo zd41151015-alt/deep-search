@@ -176,6 +176,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function highestSchemaBundleVersion(current: string, candidate: string | null): string {
+  if (candidate === null) {
+    return current;
+  }
+  const parts = (value: string): readonly number[] => value.split(".").map((part) => Number(part));
+  const left = parts(current);
+  const right = parts(candidate);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const leftPart = left[index] ?? 0;
+    const rightPart = right[index] ?? 0;
+    if (leftPart !== rightPart) {
+      return rightPart > leftPart ? candidate : current;
+    }
+  }
+  return current;
+}
+
 function assertDisjoint(manifest: RunManifest, fields: readonly string[]): void {
   const owner = new Map<string, string>();
   for (const field of fields) {
@@ -746,8 +763,10 @@ export class RunStore {
         Date.parse(envelope.created_at) > Date.parse(manifest.updated_at)
           ? envelope.created_at
           : manifest.updated_at,
-      schema_bundle_version:
-        adapter.manifest_schema_bundle_version ?? manifest.schema_bundle_version,
+      schema_bundle_version: highestSchemaBundleVersion(
+        manifest.schema_bundle_version,
+        adapter.manifest_schema_bundle_version,
+      ),
       artifact_refs: artifactRefs,
       ignored_late_artifact_refs: ignoredLateArtifactRefs,
     };
@@ -1457,7 +1476,11 @@ export class RunStore {
           ? { exact_records: [] }
           : {}),
       },
-      { exactJsonlRecords },
+      {
+        exactJsonlRecords,
+        validateHistoricalDiscoveryContracts:
+          planOperationRecovery.candidateBoundOperationKeys.length === 0,
+      },
     );
     if (!bundle.valid) {
       throw new StoreError(

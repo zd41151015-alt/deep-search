@@ -519,22 +519,48 @@ export async function createDiscoveryCandidateFixture(
       minimum_incremental_value_required: synthetic("unknown incremental value threshold"),
     },
   );
+  const solutionProfile = {
+    general: {
+      pointer: "/solution_candidates/0",
+      solutionClass: "ordinary_software",
+      deliveryForms: ["mobile_web"],
+      usesAi: false,
+    },
+    industry_first: {
+      pointer: "/solution_candidates/1",
+      solutionClass: "platform_native",
+      deliveryForms: ["platform_native"],
+      usesAi: false,
+    },
+    ai_first: {
+      pointer: "/solution_candidates/7",
+      solutionClass: "ai_assisted",
+      deliveryForms: ["mobile_web"],
+      usesAi: true,
+    },
+    hybrid: {
+      pointer: "/solution_candidates/7",
+      solutionClass: "ai_assisted",
+      deliveryForms: ["mobile_web"],
+      usesAi: true,
+    },
+  }[profile];
   const solutionR1 = initialCandidate(
     bundle,
     "candidate_solution",
     "solution_seed",
     G21_SOLUTION_REF,
-    "/solution_candidates/0",
+    solutionProfile.pointer,
     "candidate_id",
     {
       demand_candidate_ref: G22_DEMAND_R1,
       baseline_candidate_ref: G22_BASELINE_R1,
-      solution_class: "ordinary_software",
-      description: synthetic("possible ordinary software option"),
-      delivery_forms: ["mobile_web"],
+      solution_class: solutionProfile.solutionClass,
+      description: synthetic(`possible ${profile} ${solutionProfile.solutionClass} option`),
+      delivery_forms: solutionProfile.deliveryForms,
       workflow_change: synthetic("possible workflow change"),
       incremental_value_hypothesis: synthetic("unknown baseline delta"),
-      uses_ai: false,
+      uses_ai: solutionProfile.usesAi,
       kill_criteria: [synthetic("baseline remains sufficient")],
     },
   );

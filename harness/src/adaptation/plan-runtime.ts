@@ -77,7 +77,8 @@ export interface PlanApplyResult {
 interface PlanOperationReceipt {
   readonly schema_version:
     | "startup_opportunity.plan_revision_operation.v1"
-    | "startup_opportunity.plan_revision_operation.v2";
+    | "startup_opportunity.plan_revision_operation.v2"
+    | "startup_opportunity.plan_revision_operation.v3";
   readonly operation_key: string;
   readonly run_id: string;
   readonly base_plan_ref: string;
@@ -91,15 +92,28 @@ interface PlanOperationReceipt {
   readonly base_assessment_plan_hash?: string;
   readonly result_assessment_plan_ref?: string;
   readonly result_assessment_plan_hash?: string | null;
+  readonly candidate_bindings?: readonly PlanCandidateBinding[];
   readonly control_envelopes: readonly FormalArtifactEnvelope[];
   readonly checkpoint_envelope: FormalArtifactEnvelope;
   readonly manifest: RunManifest;
   readonly events: readonly Record<string, unknown>[];
 }
 
+interface PlanCandidateBinding {
+  readonly candidate_ref: string;
+  readonly candidate_schema_version: "startup_opportunity.discovery_candidate.v1";
+  readonly candidate_envelope_version: string;
+  readonly candidate_content_hash: string;
+  readonly candidate_envelope_hash: string;
+  readonly run_id: string;
+  readonly research_plan_ref: string;
+  readonly plan_revision: number;
+}
+
 export interface PlanOperationRecoveryResult {
   readonly completedOperationKeys: readonly string[];
   readonly pendingOperationKeys: readonly string[];
+  readonly candidateBoundOperationKeys: readonly string[];
 }
 
 function uniqueSorted(values: readonly string[]): readonly string[] {
@@ -237,16 +251,20 @@ function validateReceipt(value: unknown, filename: string, runId: string): PlanO
     "result_assessment_plan_ref",
     "result_assessment_plan_hash",
   ];
+  const candidateKeys = ["candidate_bindings"];
   const receiptVersion = isRecord(value) ? value.schema_version : null;
   if (
     !isRecord(value) ||
     (receiptVersion !== "startup_opportunity.plan_revision_operation.v1" &&
-      receiptVersion !== "startup_opportunity.plan_revision_operation.v2") ||
+      receiptVersion !== "startup_opportunity.plan_revision_operation.v2" &&
+      receiptVersion !== "startup_opportunity.plan_revision_operation.v3") ||
     !hasExactlyKeys(
       value,
       receiptVersion === "startup_opportunity.plan_revision_operation.v2"
         ? [...commonKeys, ...assessmentKeys]
-        : commonKeys,
+        : receiptVersion === "startup_opportunity.plan_revision_operation.v3"
+          ? [...commonKeys, ...candidateKeys]
+          : commonKeys,
     ) ||
     !isSha256(value.operation_key) ||
     value.run_id !== runId ||
@@ -259,7 +277,9 @@ function validateReceipt(value: unknown, filename: string, runId: string): PlanO
     !Array.isArray(value.control_envelopes) ||
     !isRecord(value.checkpoint_envelope) ||
     !isRecord(value.manifest) ||
-    !Array.isArray(value.events)
+    !Array.isArray(value.events) ||
+    (receiptVersion === "startup_opportunity.plan_revision_operation.v3" &&
+      !Array.isArray(value.candidate_bindings))
   ) {
     throw new StoreError("recovery.invalid_plan_operation", "Plan operation receipt is invalid", {
       filename,
@@ -296,7 +316,30 @@ function validateReceipt(value: unknown, filename: string, runId: string): PlanO
           ? receipt.result_assessment_plan_ref === receipt.base_assessment_plan_ref ||
             !isSha256(receipt.result_assessment_plan_hash)
           : receipt.result_assessment_plan_ref !== receipt.base_assessment_plan_ref ||
-            receipt.result_assessment_plan_hash !== null)))
+            receipt.result_assessment_plan_hash !== null))) ||
+    (receipt.schema_version === "startup_opportunity.plan_revision_operation.v3" &&
+      (receipt.candidate_bindings?.length === 0 ||
+        receipt.candidate_bindings?.some(
+          (binding) =>
+            !isRecord(binding) ||
+            !hasExactlyKeys(binding, [
+              "candidate_ref",
+              "candidate_schema_version",
+              "candidate_envelope_version",
+              "candidate_content_hash",
+              "candidate_envelope_hash",
+              "run_id",
+              "research_plan_ref",
+              "plan_revision",
+            ]) ||
+            binding.candidate_schema_version !== "startup_opportunity.discovery_candidate.v1" ||
+            binding.run_id !== runId ||
+            binding.research_plan_ref !== receipt.base_plan_ref ||
+            !Number.isInteger(binding.plan_revision) ||
+            binding.plan_revision < 1 ||
+            !isSha256(binding.candidate_content_hash) ||
+            !isSha256(binding.candidate_envelope_hash),
+        )))
   ) {
     throw new StoreError(
       "recovery.invalid_plan_operation",
@@ -390,6 +433,7 @@ async function validateReceiptSources(
   runRoot: string,
   receipt: PlanOperationReceipt,
   logs: JsonlStore,
+  artifacts: ArtifactStore,
 ): Promise<void> {
   try {
     const basePlan = await storedEffectiveDocument(runRoot, receipt.base_plan_ref);
@@ -404,6 +448,27 @@ async function validateReceiptSources(
       if (canonicalContentHash(baseAssessmentPlan) !== receipt.base_assessment_plan_hash) {
         throw new Error("base assessment plan hash mismatch");
       }
+    }
+    for (const binding of receipt.candidate_bindings ?? []) {
+      const stored = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, binding.candidate_ref), "utf8"),
+      ) as unknown;
+      if (
+        !isFormalArtifactEnvelope(stored) ||
+        stored.schema_version !== binding.candidate_envelope_version ||
+        stored.artifact_type !== binding.candidate_schema_version ||
+        stored.artifact_path !== binding.candidate_ref ||
+        stored.run_id !== binding.run_id ||
+        stored.document.run_id !== binding.run_id ||
+        stored.document.research_plan_ref !== binding.research_plan_ref ||
+        stored.content_hash !== binding.candidate_content_hash ||
+        canonicalContentHash(stored) !== binding.candidate_envelope_hash ||
+        canonicalContentHash(stored.document) !== binding.candidate_content_hash ||
+        Number(basePlan.revision) !== binding.plan_revision
+      ) {
+        throw new Error("candidate binding mismatch");
+      }
+      artifacts.validateEnvelopeBoundary(receipt.run_id, stored);
     }
     for (const [index, adaptationRef] of receipt.adaptation_refs.entries()) {
       const decision = await storedEffectiveDocument(runRoot, adaptationRef);
@@ -536,14 +601,9 @@ async function storedEffectiveDocument(
     });
   }
   return isRecord(value.document) &&
-    [
-      "startup_opportunity.artifact_envelope.v1",
-      "startup_opportunity.artifact_envelope.v2",
-      "startup_opportunity.artifact_envelope.v3",
-      "startup_opportunity.artifact_envelope.v4",
-      "startup_opportunity.artifact_envelope.v5",
-      "startup_opportunity.artifact_envelope.v6",
-    ].includes(String(value.schema_version))
+    /^startup_opportunity\.artifact_envelope\.v(?:[1-9]|1[0-3])$/u.test(
+      String(value.schema_version),
+    )
     ? value.document
     : value;
 }
@@ -551,17 +611,117 @@ async function storedEffectiveDocument(
 function isFormalArtifactEnvelope(value: unknown): value is FormalArtifactEnvelope {
   return (
     isRecord(value) &&
-    (value.schema_version === "startup_opportunity.artifact_envelope.v1" ||
-      value.schema_version === "startup_opportunity.artifact_envelope.v2" ||
-      value.schema_version === "startup_opportunity.artifact_envelope.v3" ||
-      value.schema_version === "startup_opportunity.artifact_envelope.v4" ||
-      value.schema_version === "startup_opportunity.artifact_envelope.v5" ||
-      value.schema_version === "startup_opportunity.artifact_envelope.v6") &&
+    /^startup_opportunity\.artifact_envelope\.v(?:[1-9]|1[0-3])$/u.test(
+      String(value.schema_version),
+    ) &&
     typeof value.artifact_type === "string" &&
     typeof value.artifact_path === "string" &&
     typeof value.run_id === "string" &&
     isRecord(value.document)
   );
+}
+
+function preKillCandidateBindings(
+  documents: readonly EffectiveDocument[],
+  decisions: readonly AdaptationInputDocument[],
+  runId: string,
+  planRef: string,
+  planRevision: number,
+): readonly PlanCandidateBinding[] {
+  const byPath = new Map(documents.map((document) => [document.path, document]));
+  const subjects = new Set<string>();
+  for (const decision of decisions) {
+    for (const gapRef of Array.isArray(decision.document.trigger_gap_refs)
+      ? decision.document.trigger_gap_refs
+      : []) {
+      if (typeof gapRef !== "string") {
+        continue;
+      }
+      const [gapPath = "", gapId] = gapRef.split("#", 2);
+      const snapshot = byPath.get(gapPath);
+      const gap = Array.isArray(snapshot?.document.gaps)
+        ? snapshot.document.gaps.find(
+            (candidate) => isRecord(candidate) && candidate.gap_id === gapId,
+          )
+        : undefined;
+      if (isRecord(gap) && gap.gap_type === "candidate_pre_killed") {
+        if (typeof gap.subject_ref !== "string") {
+          throw new StoreError(
+            "adaptation.pre_kill_candidate_binding_invalid",
+            "candidate_pre_killed has no exact typed candidate subject",
+          );
+        }
+        subjects.add(gap.subject_ref);
+      }
+    }
+  }
+  return [...subjects].sort().map((candidateRef) => {
+    const candidate = byPath.get(candidateRef);
+    const envelopeValue = candidate?.envelope;
+    if (
+      candidate?.schemaVersion !== "startup_opportunity.discovery_candidate.v1" ||
+      envelopeValue === null ||
+      !isFormalArtifactEnvelope(envelopeValue) ||
+      envelopeValue.artifact_path !== candidateRef ||
+      envelopeValue.artifact_type !== "startup_opportunity.discovery_candidate.v1" ||
+      envelopeValue.run_id !== runId ||
+      candidate.document.run_id !== runId ||
+      candidate.document.research_plan_ref !== planRef ||
+      envelopeValue.content_hash !== canonicalContentHash(candidate.document)
+    ) {
+      throw new StoreError(
+        "adaptation.pre_kill_candidate_binding_invalid",
+        "candidate_pre_killed must bind the exact same-Run typed candidate envelope and current Plan revision",
+        { candidateRef, planRef, planRevision },
+      );
+    }
+    return {
+      candidate_ref: candidateRef,
+      candidate_schema_version: "startup_opportunity.discovery_candidate.v1",
+      candidate_envelope_version: envelopeValue.schema_version,
+      candidate_content_hash: envelopeValue.content_hash,
+      candidate_envelope_hash: canonicalContentHash(envelopeValue),
+      run_id: runId,
+      research_plan_ref: planRef,
+      plan_revision: planRevision,
+    };
+  });
+}
+
+async function assertStoredCandidateBindings(
+  runRoot: string,
+  bindings: readonly PlanCandidateBinding[],
+  artifacts: ArtifactStore,
+): Promise<void> {
+  for (const binding of bindings) {
+    try {
+      const stored = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, binding.candidate_ref), "utf8"),
+      ) as unknown;
+      if (
+        !isFormalArtifactEnvelope(stored) ||
+        stored.schema_version !== binding.candidate_envelope_version ||
+        stored.artifact_type !== binding.candidate_schema_version ||
+        stored.artifact_path !== binding.candidate_ref ||
+        stored.run_id !== binding.run_id ||
+        stored.document.run_id !== binding.run_id ||
+        stored.document.research_plan_ref !== binding.research_plan_ref ||
+        stored.content_hash !== binding.candidate_content_hash ||
+        canonicalContentHash(stored.document) !== binding.candidate_content_hash ||
+        canonicalContentHash(stored) !== binding.candidate_envelope_hash
+      ) {
+        throw new Error("candidate binding mismatch");
+      }
+      artifacts.validateEnvelopeBoundary(binding.run_id, stored);
+      await artifacts.validateStoredEnvelope(runRoot, binding.run_id, stored);
+    } catch (_error) {
+      throw new StoreError(
+        "adaptation.pre_kill_candidate_binding_invalid",
+        "candidate_pre_killed durable candidate bytes differ from the exact typed binding",
+        { candidateRef: binding.candidate_ref },
+      );
+    }
+  }
 }
 
 async function assertAdaptationBundleMatchesStoredArtifacts(
@@ -772,12 +932,17 @@ async function completeOperation(
   if (canonicalJson(current) === canonicalJson(receipt.manifest)) {
     await validateStoredControlEnvelopes(runRoot, receipt, artifacts);
     assertFault("after_control_artifacts", faultAt);
+    await artifacts.validateStoredEnvelope(runRoot, receipt.run_id, receipt.checkpoint_envelope);
     if (
       (
-        await artifacts.publishLocked(runRoot, {
-          runId: receipt.run_id,
-          envelope: receipt.checkpoint_envelope,
-        })
+        await artifacts.publishLocked(
+          runRoot,
+          {
+            runId: receipt.run_id,
+            envelope: receipt.checkpoint_envelope,
+          },
+          true,
+        )
       ).status === "published"
     ) {
       changed = true;
@@ -795,10 +960,14 @@ async function completeOperation(
   if (receipt.control_envelopes.length > 1) {
     if (
       (
-        await artifacts.publishBundleLocked(runRoot, {
-          runId: receipt.run_id,
-          envelopes: receipt.control_envelopes,
-        })
+        await artifacts.publishBundleLocked(
+          runRoot,
+          {
+            runId: receipt.run_id,
+            envelopes: receipt.control_envelopes,
+          },
+          receipt.schema_version !== "startup_opportunity.plan_revision_operation.v3",
+        )
       ).status === "published"
     ) {
       changed = true;
@@ -819,12 +988,17 @@ async function completeOperation(
   await writeManifest(runRoot, receipt.manifest, validator);
   changed = true;
   assertFault("after_manifest_update", faultAt);
+  await artifacts.validateStoredEnvelope(runRoot, receipt.run_id, receipt.checkpoint_envelope);
   if (
     (
-      await artifacts.publishLocked(runRoot, {
-        runId: receipt.run_id,
-        envelope: receipt.checkpoint_envelope,
-      })
+      await artifacts.publishLocked(
+        runRoot,
+        {
+          runId: receipt.run_id,
+          envelope: receipt.checkpoint_envelope,
+        },
+        true,
+      )
     ).status === "published"
   ) {
     changed = true;
@@ -946,6 +1120,13 @@ export class PlanRevisionRuntime {
     if (suppliedPlan?.schemaVersion !== "startup_opportunity.research_plan.v1") {
       throw new StoreError("apply.base_plan_missing", "adaptation bundle is missing its base plan");
     }
+    const candidateBindings = preKillCandidateBindings(
+      bundleDocuments,
+      selectedDecisions,
+      input.runId,
+      basePlanRef,
+      Number(suppliedPlan.document.revision),
+    );
     const assessmentPlanRefs = uniqueSorted(
       selectedDecisions.flatMap((decision) =>
         typeof decision.document.assessment_plan_ref === "string"
@@ -996,7 +1177,7 @@ export class PlanRevisionRuntime {
         input.runId,
       );
       validateReceiptDocuments(existingReceipt, this.validator, this.artifacts);
-      await validateReceiptSources(runRoot, existingReceipt, this.logs);
+      await validateReceiptSources(runRoot, existingReceipt, this.logs, this.artifacts);
       await assertAdaptationBundleMatchesStoredArtifacts(
         runRoot,
         input.runId,
@@ -1016,7 +1197,9 @@ export class PlanRevisionRuntime {
             existingReceipt.base_assessment_plan_hash !==
               canonicalContentHash(suppliedAssessmentPlan?.document ?? {}))) ||
         canonicalJson(existingReceipt.adaptation_refs) !== canonicalJson(selectedRefs) ||
-        canonicalJson(existingReceipt.adaptation_hashes) !== canonicalJson(expectedHashes)
+        canonicalJson(existingReceipt.adaptation_hashes) !== canonicalJson(expectedHashes) ||
+        (existingReceipt.schema_version === "startup_opportunity.plan_revision_operation.v3" &&
+          canonicalJson(existingReceipt.candidate_bindings) !== canonicalJson(candidateBindings))
       ) {
         throw new StoreError(
           "write.operation_conflict",
@@ -1101,6 +1284,8 @@ export class PlanRevisionRuntime {
         throw error;
       }
     }
+
+    await assertStoredCandidateBindings(runRoot, candidateBindings, this.artifacts);
 
     const basePlan = await storedEffectiveDocument(runRoot, manifest.current_plan_ref);
     const baseAssessmentPlan =
@@ -1350,9 +1535,11 @@ export class PlanRevisionRuntime {
       updated_at: input.checkpointCreatedAt,
       schema_bundle_version: assessmentAdaptation
         ? "5.0.0"
-        : controlEnvelopes.length > 0
-          ? "2.2.0"
-          : transformed.manifest.schema_bundle_version,
+        : candidateBindings.length > 0
+          ? "9.0.0"
+          : controlEnvelopes.length > 0
+            ? "2.2.0"
+            : transformed.manifest.schema_bundle_version,
       artifact_refs: uniqueSorted([...transformed.manifest.artifact_refs, ...controlPaths]),
       checkpoint_ref: checkpointRef,
     };
@@ -1397,7 +1584,9 @@ export class PlanRevisionRuntime {
     const receipt: PlanOperationReceipt = {
       schema_version: assessmentAdaptation
         ? "startup_opportunity.plan_revision_operation.v2"
-        : "startup_opportunity.plan_revision_operation.v1",
+        : candidateBindings.length > 0
+          ? "startup_opportunity.plan_revision_operation.v3"
+          : "startup_opportunity.plan_revision_operation.v1",
       operation_key: transformed.operationKey,
       run_id: input.runId,
       base_plan_ref: manifest.current_plan_ref,
@@ -1422,6 +1611,7 @@ export class PlanRevisionRuntime {
                 : canonicalContentHash(transformedAssessment.plan),
           }
         : {}),
+      ...(candidateBindings.length > 0 ? { candidate_bindings: candidateBindings } : {}),
       control_envelopes: controlEnvelopes,
       checkpoint_envelope: checkpointEnvelope,
       manifest: finalManifest,
@@ -1488,6 +1678,7 @@ export async function recoverPlanRevisionOperationsLocked(
   const directory = await resolveRunPath(runRoot, ".store/operations", { createParents: true });
   const completed: string[] = [];
   const pending: string[] = [];
+  const candidateBound: string[] = [];
   for (const filename of (await readdir(directory)).sort()) {
     if (!filename.startsWith("plan-revision-") || !filename.endsWith(".json")) {
       continue;
@@ -1498,7 +1689,10 @@ export async function recoverPlanRevisionOperationsLocked(
       runId,
     );
     validateReceiptDocuments(receipt, validator, artifacts);
-    await validateReceiptSources(runRoot, receipt, logs);
+    await validateReceiptSources(runRoot, receipt, logs, artifacts);
+    if (receipt.schema_version === "startup_opportunity.plan_revision_operation.v3") {
+      candidateBound.push(receipt.operation_key);
+    }
     const current = await readManifest(runRoot, validator);
     if (current.current_plan_ref === receipt.result_plan_ref) {
       if (await completeOperation(runRoot, receipt, artifacts, logs, validator)) {
@@ -1517,6 +1711,7 @@ export async function recoverPlanRevisionOperationsLocked(
   return {
     completedOperationKeys: completed.sort(),
     pendingOperationKeys: pending.sort(),
+    candidateBoundOperationKeys: candidateBound.sort(),
   };
 }
 

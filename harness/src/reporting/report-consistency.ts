@@ -11,11 +11,12 @@ const FORBIDDEN_RULES = [
   {
     id: "market_validation_success",
     expression:
-      /\b(?:(?:market\s+)?validation\s+(?:has\s+)?(?:succeeded|successful|passed)|validated\s+(?:market|demand))\b/iu,
+      /\b(?:(?:market|demand)\s+(?:has\s+)?(?:been\s+)?validated|(?:market|demand)\s+validation\s+(?:has\s+)?(?:succeeded|successful|passed|achieved)|validation\s+(?:success|succeeded|successful|passed|achieved)|(?:succeeded|successful|passed|achieved)\s+(?:market\s+|demand\s+)?validation|validated\s+(?:market|demand))\b/iu,
   },
   {
     id: "probability_claim",
-    expression: /\b(?:success\s+)?probability\b|\b\d+(?:\.\d+)?%\s+(?:likely|chance)\b/iu,
+    expression:
+      /\b(?:success\s+probability|probability\s+of\s+success|probability\s*(?:is|=)?\s*\d+(?:\.\d+)?\s*(?:%|percent)|\d+(?:\.\d+)?\s*(?:%|percent)\s+(?:success\s+probability|probability|likely|chance))\b/iu,
   },
   {
     id: "global_score",
@@ -39,7 +40,7 @@ function stringValues(value: unknown): readonly string[] {
 }
 
 function normalized(value: string): string {
-  return value.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  return value.normalize("NFKC").replace(/[_-]+/gu, " ").replace(/\s+/gu, " ").trim();
 }
 
 export function scanReportSurface(surface: ReportScanSurface, value: unknown): readonly string[] {

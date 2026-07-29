@@ -642,12 +642,93 @@ function tierExceeds(actual: unknown, ceiling: string): boolean {
   );
 }
 
+function strictestTier(values: readonly string[]): string {
+  return values.reduce((strictest, candidate) => {
+    const strictestIndex = DECISION_TIER_ORDER.indexOf(
+      strictest as (typeof DECISION_TIER_ORDER)[number],
+    );
+    const candidateIndex = DECISION_TIER_ORDER.indexOf(
+      candidate as (typeof DECISION_TIER_ORDER)[number],
+    );
+    return candidateIndex >= 0 && candidateIndex < strictestIndex ? candidate : strictest;
+  }, "prioritize");
+}
+
+function fanInTier(value: unknown): string {
+  return (
+    (
+      {
+        strong_candidate: "prioritize",
+        investigate_further: "investigate_further",
+        watchlist: "watch",
+        reject: "reject",
+        insufficient_evidence: "insufficient_evidence",
+      } as Readonly<Record<string, string>>
+    )[String(value)] ?? "reject"
+  );
+}
+
+function comparisonTier(comparison: DiscoveryEvaluationDocument | undefined): string {
+  if (comparison === undefined) {
+    return "reject";
+  }
+  const outcomeTier =
+    (
+      {
+        eligible: "prioritize",
+        watchlist: "watch",
+        reject: "reject",
+        insufficient_evidence: "insufficient_evidence",
+      } as Readonly<Record<string, string>>
+    )[String(comparison.document.hard_gate_outcome)] ?? "reject";
+  const bandTier =
+    (
+      {
+        strong_candidate: "prioritize",
+        investigate_further: "investigate_further",
+        watchlist: "watch",
+        reject: "reject",
+      } as Readonly<Record<string, string>>
+    )[String(comparison.document.recommendation_band)] ?? "reject";
+  return strictestTier([outcomeTier, bandTier]);
+}
+
+function gateTier(gates: readonly Record<string, unknown>[]): string {
+  if (gates.some((gate) => gate.status === "failed")) {
+    return "reject";
+  }
+  if (gates.some((gate) => gate.status === "insufficient_evidence")) {
+    return "insufficient_evidence";
+  }
+  return gates.every((gate) => ["passed", "not_applicable"].includes(String(gate.status)))
+    ? "prioritize"
+    : "reject";
+}
+
+function panelTier(panels: readonly Record<string, unknown>[]): string {
+  if (panels.some((panel) => panel.decision_sufficiency === "insufficient")) {
+    return "insufficient_evidence";
+  }
+  if (
+    panels.some(
+      (panel) =>
+        panel.decision_sufficiency !== "sufficient" ||
+        ["weak", "unknown", "not_applicable"].includes(String(panel.band)),
+    )
+  ) {
+    return "investigate_further";
+  }
+  return "prioritize";
+}
+
 function validateEvaluationAndReporting(
   entries: readonly DiscoveryEvaluationDocument[],
   byPath: ReadonlyMap<string, DiscoveryEvaluationDocument>,
   policy: DiscoveryEvaluationPolicy,
   errors: ValidationIssue[],
 ): void {
+  const repairedPolicy =
+    policy.schema_version === "startup_opportunity.discovery_evaluation_policy.v2";
   const fanIns = entries.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.enrichment_fan_in.v1",
   );
@@ -746,26 +827,28 @@ function validateEvaluationAndReporting(
         ),
       );
     }
-    const selectedSolution = selectedSolutionUsesAi(opportunityRef, byPath);
-    if (!selectedSolution.valid) {
-      errors.push(
-        issue(
-          "g2_4.ai_solution_binding_mismatch",
-          `${comparison.path}#/opportunity_ref`,
-          "comparison must resolve its Opportunity to the exact selected Solution uses_ai field",
-        ),
-      );
-    }
-    const aiMandatoryGate = gates.find((gate) => gate.gate_id === "ai_mandatory_bundle");
-    if (selectedSolution.usesAi && aiMandatoryGate?.status !== "insufficient_evidence") {
-      errors.push(
-        issue(
-          "g2_4.ai_mandatory_bundle_gate_violation",
-          `${comparison.path}#/hard_gate_results`,
-          "an AI-selected Solution without a G3 bundle must fail closed as insufficient_evidence",
-          { actualStatus: aiMandatoryGate?.status },
-        ),
-      );
+    if (repairedPolicy) {
+      const selectedSolution = selectedSolutionUsesAi(opportunityRef, byPath);
+      if (!selectedSolution.valid) {
+        errors.push(
+          issue(
+            "g2_4.ai_solution_binding_mismatch",
+            `${comparison.path}#/opportunity_ref`,
+            "comparison must resolve its Opportunity to the exact selected Solution uses_ai field",
+          ),
+        );
+      }
+      const aiMandatoryGate = gates.find((gate) => gate.gate_id === "ai_mandatory_bundle");
+      if (selectedSolution.usesAi && aiMandatoryGate?.status !== "insufficient_evidence") {
+        errors.push(
+          issue(
+            "g2_4.ai_mandatory_bundle_gate_violation",
+            `${comparison.path}#/hard_gate_results`,
+            "an AI-selected Solution without a G3 bundle must fail closed as insufficient_evidence",
+            { actualStatus: aiMandatoryGate?.status },
+          ),
+        );
+      }
     }
     const panels = records(comparison.document.comparison_panels);
     if (
@@ -917,9 +1000,9 @@ function validateEvaluationAndReporting(
       ),
     );
   }
-  if (recommendation !== undefined && portfolio !== undefined) {
+  if (repairedPolicy && recommendation !== undefined && portfolio !== undefined) {
     const firstBet = recommendation.document.recommended_first_bet;
-    let ceiling = "investigate_further";
+    let ceiling = typeof firstBet === "string" ? "prioritize" : "investigate_further";
     let firstBetReady = false;
     if (typeof firstBet === "string") {
       const selectedComparison = comparisons.find(
@@ -932,6 +1015,14 @@ function validateEvaluationAndReporting(
       const gates = records(selectedComparison?.document.hard_gate_results);
       const panels = records(selectedComparison?.document.comparison_panels);
       const aiMissing = selectedSolutionUsesAi(firstBet, byPath).usesAi;
+      const componentCeilings = [
+        comparisonTier(selectedComparison),
+        fanInTier(fanInCeiling),
+        gateTier(gates),
+        panelTier(panels),
+        aiMissing ? "investigate_further" : "prioritize",
+      ];
+      ceiling = strictestTier(componentCeilings);
       firstBetReady =
         portfolio.document.recommended_first_bet === firstBet &&
         selectedComparison?.document.recommendation_band === "strong_candidate" &&
@@ -944,18 +1035,8 @@ function validateEvaluationAndReporting(
             !["weak", "unknown"].includes(String(panel.band)),
         ) &&
         !aiMissing;
-      if (firstBetReady) {
-        ceiling = "prioritize";
-      } else if (
-        selectedComparison?.document.hard_gate_outcome === "reject" ||
-        selectedComparison?.document.recommendation_band === "reject"
-      ) {
-        ceiling = "reject";
-      } else if (
-        selectedComparison?.document.hard_gate_outcome === "watchlist" ||
-        selectedComparison?.document.recommendation_band === "watchlist"
-      ) {
-        ceiling = "watch";
+      if (!firstBetReady) {
+        ceiling = strictestTier([ceiling, "investigate_further"]);
       }
     }
     if (tierExceeds(recommendation.document.decision_tier, ceiling)) {
@@ -1151,7 +1232,7 @@ function validateEvaluationAndReporting(
       !same(view.document.external_action_boundary, context?.external_action_boundary) ||
       view.document.markdown_content_hash !== sha256Bytes(String(view.document.markdown)));
   const forbiddenMatches =
-    report !== undefined && brief !== undefined && view !== undefined
+    repairedPolicy && report !== undefined && brief !== undefined && view !== undefined
       ? scanDiscoveryReportSurfaces({
           structuredReport: report.document,
           decisionBrief: String(brief.document.markdown),

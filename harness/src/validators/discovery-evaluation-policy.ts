@@ -11,23 +11,36 @@ import type { LoadedSchemaBundle } from "./schema-bundle.js";
 
 export const DISCOVERY_EVALUATION_POLICY_PATH =
   "harness/policies/discovery-evaluation.v2.json" as const;
+export const LEGACY_DISCOVERY_EVALUATION_POLICY_PATH =
+  "harness/policies/discovery-evaluation.v1.json" as const;
 
-export interface DiscoveryEvaluationPolicy extends Record<string, unknown> {
-  readonly schema_version: "startup_opportunity.discovery_evaluation_policy.v2";
+interface DiscoveryEvaluationPolicyBase extends Record<string, unknown> {
   readonly policy_id: "startup_opportunity.g2_4_evaluation";
-  readonly policy_version: "2.0.0";
-  readonly schema_bundle_version: "12.0.0";
   readonly eligible_branch_statuses: readonly string[];
   readonly excluded_branch_statuses: readonly string[];
   readonly required_hard_gates: readonly string[];
   readonly required_comparison_panels: readonly string[];
   readonly recommendation_ceiling: Readonly<Record<string, string>>;
-  readonly ai_solution_gate_contract: Readonly<Record<string, unknown>>;
-  readonly decision_tier_ceiling: Readonly<Record<string, unknown>>;
   readonly publication_order: readonly string[];
   readonly reporting_contract: Readonly<Record<string, unknown>>;
   readonly execution_boundary: Readonly<Record<string, unknown>>;
 }
+
+export interface DiscoveryEvaluationPolicyV1 extends DiscoveryEvaluationPolicyBase {
+  readonly schema_version: "startup_opportunity.discovery_evaluation_policy.v1";
+  readonly policy_version: "1.0.0";
+  readonly schema_bundle_version: "11.0.0";
+}
+
+export interface DiscoveryEvaluationPolicyV2 extends DiscoveryEvaluationPolicyBase {
+  readonly schema_version: "startup_opportunity.discovery_evaluation_policy.v2";
+  readonly policy_version: "2.0.0";
+  readonly schema_bundle_version: "12.0.0";
+  readonly ai_solution_gate_contract: Readonly<Record<string, unknown>>;
+  readonly decision_tier_ceiling: Readonly<Record<string, unknown>>;
+}
+
+export type DiscoveryEvaluationPolicy = DiscoveryEvaluationPolicyV1 | DiscoveryEvaluationPolicyV2;
 
 export const REQUIRED_HARD_GATES = [
   "user_jtbd_entry_scene",
@@ -112,10 +125,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function loadDiscoveryEvaluationPolicy(
   root: string,
   bundle: LoadedSchemaBundle,
-  relativePath = DISCOVERY_EVALUATION_POLICY_PATH,
+  relativePath: string = DISCOVERY_EVALUATION_POLICY_PATH,
 ): Promise<DiscoveryEvaluationPolicy> {
   const value = JSON.parse(await readFile(path.join(root, relativePath), "utf8")) as unknown;
-  const validator = bundle.validators.get("startup_opportunity.discovery_evaluation_policy.v2");
+  const expectedSchemaVersion =
+    relativePath === LEGACY_DISCOVERY_EVALUATION_POLICY_PATH
+      ? "startup_opportunity.discovery_evaluation_policy.v1"
+      : "startup_opportunity.discovery_evaluation_policy.v2";
+  const validator = bundle.validators.get(expectedSchemaVersion);
   if ((validator !== undefined && !validator(value)) || !isRecord(value)) {
     throw new StoreError(
       "discovery_evaluation_policy.invalid",
@@ -124,7 +141,7 @@ export async function loadDiscoveryEvaluationPolicy(
     );
   }
   const policy = value as DiscoveryEvaluationPolicy;
-  if (
+  const commonInvalid =
     canonicalJson(policy.eligible_branch_statuses) !==
       canonicalJson(["completed", "partial", "insufficient_evidence"]) ||
     canonicalJson(policy.excluded_branch_statuses) !==
@@ -133,31 +150,43 @@ export async function loadDiscoveryEvaluationPolicy(
     canonicalJson(policy.required_comparison_panels) !==
       canonicalJson(REQUIRED_COMPARISON_PANELS) ||
     canonicalJson(policy.publication_order) !== canonicalJson(PUBLICATION_ORDER) ||
-    policy.ai_solution_gate_contract.selected_solution_field !== "selected_solution_ref" ||
-    policy.ai_solution_gate_contract.ai_usage_field !== "uses_ai" ||
-    policy.ai_solution_gate_contract.mandatory_gate_id !== "ai_mandatory_bundle" ||
-    policy.ai_solution_gate_contract.missing_bundle_status !== "insufficient_evidence" ||
-    policy.ai_solution_gate_contract.missing_bundle_decision_tier_ceiling !==
-      "investigate_further" ||
-    policy.ai_solution_gate_contract.g3_bundle_generated_by_g2 !== false ||
-    canonicalJson(policy.decision_tier_ceiling.tier_order) !== canonicalJson(DECISION_TIER_ORDER) ||
-    policy.decision_tier_ceiling.no_first_bet_ceiling !== "investigate_further" ||
-    canonicalJson(policy.decision_tier_ceiling.first_bet_ready_requirements) !==
-      canonicalJson(FIRST_BET_READY_REQUIREMENTS) ||
-    policy.decision_tier_ceiling.mixed_inputs_use_strictest_ceiling !== true ||
     policy.execution_boundary.harness_generated_research !== false ||
     policy.execution_boundary.harness_generated_judgment !== false ||
     policy.execution_boundary.publication_implies_validation !== false ||
     policy.reporting_contract.global_score_forbidden !== true ||
+    policy.reporting_contract.market_validation_claim_forbidden !== true;
+  const repairedInvalid =
+    policy.schema_version === "startup_opportunity.discovery_evaluation_policy.v2" &&
+    (policy.ai_solution_gate_contract.selected_solution_field !== "selected_solution_ref" ||
+      policy.ai_solution_gate_contract.ai_usage_field !== "uses_ai" ||
+      policy.ai_solution_gate_contract.mandatory_gate_id !== "ai_mandatory_bundle" ||
+      policy.ai_solution_gate_contract.missing_bundle_status !== "insufficient_evidence" ||
+      policy.ai_solution_gate_contract.missing_bundle_decision_tier_ceiling !==
+        "investigate_further" ||
+      policy.ai_solution_gate_contract.g3_bundle_generated_by_g2 !== false ||
+      canonicalJson(policy.decision_tier_ceiling.tier_order) !==
+        canonicalJson(DECISION_TIER_ORDER) ||
+      policy.decision_tier_ceiling.no_first_bet_ceiling !== "investigate_further" ||
+      canonicalJson(policy.decision_tier_ceiling.first_bet_ready_requirements) !==
+        canonicalJson(FIRST_BET_READY_REQUIREMENTS) ||
+      policy.decision_tier_ceiling.mixed_inputs_use_strictest_ceiling !== true ||
+      policy.execution_boundary.harness_generated_research !== false ||
+      policy.execution_boundary.harness_generated_judgment !== false ||
+      policy.execution_boundary.publication_implies_validation !== false ||
+      policy.reporting_contract.global_score_forbidden !== true ||
+      canonicalJson(policy.reporting_contract.consistency_dimensions) !==
+        canonicalJson(REQUIRED_REPORT_CONSISTENCY_DIMENSIONS) ||
+      policy.reporting_contract.market_validation_claim_forbidden !== true ||
+      policy.reporting_contract.scan_contract_version !== REPORT_SCAN_CONTRACT_VERSION ||
+      canonicalJson(policy.reporting_contract.scan_surfaces) !==
+        canonicalJson(REPORT_SCAN_SURFACES) ||
+      canonicalJson(policy.reporting_contract.forbidden_rule_ids) !==
+        canonicalJson(REPORT_FORBIDDEN_RULE_IDS));
+  const legacyInvalid =
+    policy.schema_version === "startup_opportunity.discovery_evaluation_policy.v1" &&
     canonicalJson(policy.reporting_contract.consistency_dimensions) !==
-      canonicalJson(REQUIRED_REPORT_CONSISTENCY_DIMENSIONS) ||
-    policy.reporting_contract.market_validation_claim_forbidden !== true ||
-    policy.reporting_contract.scan_contract_version !== REPORT_SCAN_CONTRACT_VERSION ||
-    canonicalJson(policy.reporting_contract.scan_surfaces) !==
-      canonicalJson(REPORT_SCAN_SURFACES) ||
-    canonicalJson(policy.reporting_contract.forbidden_rule_ids) !==
-      canonicalJson(REPORT_FORBIDDEN_RULE_IDS)
-  ) {
+      canonicalJson(LEGACY_REPORT_CONSISTENCY_DIMENSIONS);
+  if (commonInvalid || repairedInvalid || legacyInvalid) {
     throw new StoreError(
       "discovery_evaluation_policy.invalid",
       "discovery evaluation policy differs from the closed G2.4 contract",

@@ -260,6 +260,10 @@ export async function createDiscoverySynthesisFixture(
   fanIn.pre_kill_summary = ["SYNTHETIC all three typed candidates retained for G2.3 fixture."];
   const fanInEnvelope = fixtureEntry(bundle, G22_FAN_IN);
   fanInEnvelope.content_hash = canonicalContentHash(fanIn);
+  const sourceSolutionSubject = fixtureEffective(bundle, G22_SOLUTION_R1).subject as Record<
+    string,
+    unknown
+  >;
 
   const demand = {
     schema_version: "startup_opportunity.demand_thesis.v1",
@@ -358,10 +362,10 @@ export async function createDiscoverySynthesisFixture(
     demand_thesis_ref: G23_DEMAND,
     baseline_option_ref: G23_BASELINE,
     selected: false,
-    delivery_form: "mobile_web",
-    solution_type: "consumer_workflow",
-    uses_ai: profile === "ai_first" || profile === "hybrid",
-    solution_behavior: SYNTHETIC,
+    delivery_form: String((sourceSolutionSubject.delivery_forms as string[])[0]),
+    solution_type: String(sourceSolutionSubject.solution_class),
+    uses_ai: sourceSolutionSubject.uses_ai,
+    solution_behavior: String(sourceSolutionSubject.description),
     workflow_change: SYNTHETIC,
     required_capabilities: [],
     capability_evidence_refs: [],
@@ -426,6 +430,8 @@ export async function createDiscoverySynthesisFixture(
     "SYNTHETIC household workflow alternate title",
     profile,
   );
+  opportunityA.selected_delivery_form = solution.delivery_form;
+  opportunityB.selected_delivery_form = solution.delivery_form;
   const snapshot = {
     schema_version: "startup_opportunity.thesis_evaluation_snapshot.v1",
     snapshot_id: "snapshot_household",

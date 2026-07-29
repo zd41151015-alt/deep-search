@@ -779,6 +779,21 @@ function validateFormalLineage(
         ),
       );
     }
+    if (
+      source?.document.candidate_kind === "solution_seed" &&
+      (solution.document.uses_ai !== subject.uses_ai ||
+        solution.document.solution_type !== subject.solution_class ||
+        !Array.isArray(subject.delivery_forms) ||
+        !subject.delivery_forms.includes(solution.document.delivery_form))
+    ) {
+      errors.push(
+        issue(
+          "synthesis.solution_candidate_semantic_drift",
+          solution.path,
+          "formal Solution must preserve uses_ai, solution class, and delivery form from its exact typed candidate revision",
+        ),
+      );
+    }
   }
   if (demands.some((entry) => entry.document.solution_neutral !== true)) {
     errors.push(

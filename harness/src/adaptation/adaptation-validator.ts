@@ -1,5 +1,9 @@
 import { canonicalJson } from "../artifact-store/canonical.js";
-import type { DocumentBundleReferenceContext } from "../validators/artifact-validator.js";
+import {
+  type ArtifactValidator,
+  createArtifactValidator,
+  type DocumentBundleReferenceContext,
+} from "../validators/artifact-validator.js";
 import { sortIssues, type ValidationIssue } from "../validators/schema-bundle.js";
 import {
   type AssessmentAdaptationPolicy,
@@ -86,6 +90,7 @@ export class AdaptationPolicyValidator {
     private readonly assessmentPlans: PlanSemanticValidator,
     private readonly assessmentPolicy: AssessmentAdaptationPolicy,
     private readonly discoveryBindingPolicy: DiscoveryAdaptationBindingPolicy,
+    private readonly artifacts: ArtifactValidator,
   ) {}
 
   validateDocumentBundle(
@@ -101,8 +106,20 @@ export class AdaptationPolicyValidator {
     ) {
       return this.validateAssessmentDocumentBundle(value, referenceContext);
     }
-    const planValidation = this.plans.validateDocumentBundle(value, referenceContext);
     const documents = effectiveDocuments(value);
+    const planningValue =
+      isRecord(value) && Array.isArray(value.documents)
+        ? {
+            ...value,
+            documents: value.documents.filter(
+              (entry) =>
+                !isRecord(entry) ||
+                !isRecord(entry.document) ||
+                entry.document.artifact_type !== "startup_opportunity.discovery_candidate.v1",
+            ),
+          }
+        : value;
+    const planValidation = this.plans.validateDocumentBundle(planningValue, referenceContext);
     const byPath = documentMap(value);
     const context = leafPlanningContexts(value)[0];
     const targetBinding = context?.document.target_plan_binding;
@@ -656,6 +673,11 @@ export class AdaptationPolicyValidator {
             );
             const candidateRefs = inputRefs.filter((ref) => candidatePattern.test(ref));
             const subject = subjects[0];
+            const candidate = subject === undefined ? undefined : documents.get(subject);
+            const candidateValidation =
+              candidate?.envelope === null || candidate?.envelope === undefined
+                ? null
+                : this.artifacts.validateDocument(candidate.envelope, candidate.path);
             if (
               subjects.length !== 1 ||
               subject === undefined ||
@@ -668,6 +690,33 @@ export class AdaptationPolicyValidator {
                   `${decisionPath}#/target_unit_ref`,
                   "candidate_pre_killed skip must target a pending unit that explicitly consumes the exact candidate revision",
                   { subjects, inputRefs },
+                ),
+              );
+            }
+            if (
+              subject === undefined ||
+              candidate?.schemaVersion !== "startup_opportunity.discovery_candidate.v1" ||
+              candidate.envelope === null ||
+              candidate.envelope.artifact_path !== subject ||
+              candidate.envelope.artifact_type !== "startup_opportunity.discovery_candidate.v1" ||
+              candidateValidation?.valid !== true ||
+              candidate.envelope.run_id !== plan.run_id ||
+              candidate.document.run_id !== plan.run_id ||
+              candidate.document.research_plan_ref !== planPath
+            ) {
+              errors.push(
+                issue(
+                  "adaptation.pre_kill_candidate_binding_invalid",
+                  `${decisionPath}#/trigger_gap_refs`,
+                  "candidate_pre_killed must resolve the exact same-Run typed candidate envelope bound to the current Plan revision",
+                  {
+                    subject: subject ?? null,
+                    candidateSchemaVersion: candidate?.schemaVersion ?? null,
+                    candidateRunId: candidate?.document.run_id ?? null,
+                    candidatePlanRef: candidate?.document.research_plan_ref ?? null,
+                    expectedRunId: plan.run_id,
+                    expectedPlanRef: planPath,
+                  },
                 ),
               );
             }
@@ -779,5 +828,6 @@ export async function createAdaptationPolicyValidator(
     await createAssessmentPlanSemanticValidator(root),
     await loadAssessmentAdaptationPolicy(root),
     await loadDiscoveryAdaptationBindingPolicy(root),
+    await createArtifactValidator(root),
   );
 }

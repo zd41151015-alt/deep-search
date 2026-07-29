@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  type ApplyPlanRevisionInput,
   canonicalContentHash,
   canonicalJson,
   coverageKey,
@@ -15,6 +16,7 @@ import {
   createPlanRevisionRuntime,
   createPlanSemanticValidator,
   type DocumentBundle,
+  EvidenceStore,
   type FormalArtifactEnvelope,
   operationKey,
   planningRunStateHash,
@@ -22,6 +24,15 @@ import {
   StoreError,
   transformPlan,
 } from "../harness/src/index.js";
+import {
+  fixtureEnvelope,
+  G21_CORE_REFS,
+  G21_MAP_REFS,
+} from "./fixtures/g2.1/discovery-maps-fixture.js";
+import {
+  createDiscoveryRuntimeFixture,
+  runtimeEnvelope,
+} from "./fixtures/g2.2/discovery-runtime-fixture.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const PLAN_REF = "plans/research-plan.r1.json";
@@ -31,6 +42,9 @@ const DECISION_REF = "adaptations/decisions/adapt-retry-runtime.json";
 const SUBJECT_REF = "subject_001";
 const PRE_KILL_CANDIDATE_REF = "artifacts/discovery/candidates/candidate_demand.r1.json";
 const RETAINED_SHARED_CANDIDATE_REF = "artifacts/discovery/candidates/candidate_solution.r1.json";
+const PRE_KILL_APPLY_AT = "2026-07-28T12:08:00Z";
+const PRE_KILL_CONTEXT_AT = "2026-07-28T12:08:30Z";
+const PRE_KILL_CHECKPOINT_AT = "2026-07-28T12:09:00Z";
 
 function runScript(script: string, args: readonly string[]) {
   return spawnSync(process.execPath, ["--import", "tsx", script, ...args], {
@@ -191,7 +205,7 @@ function context(
       parent_context_ref: options.parentRef,
       run_id: runManifest.run_id,
       mode: runManifest.mode,
-      phase: "enrichment",
+      phase: runManifest.current_phase,
       validation_stage: options.stage,
       manifest_binding: {
         manifest_ref: "manifest.json",
@@ -395,19 +409,6 @@ function preKillSkipDecision(runId: string): Record<string, unknown> {
   };
 }
 
-function setUnitInputRefs(
-  plan: Record<string, unknown>,
-  unitId: string,
-  inputRefs: readonly string[],
-): void {
-  const units = (plan.waves as { units: Record<string, unknown>[] }[]).flatMap(
-    (wave) => wave.units,
-  );
-  const target = units.find((candidate) => candidate.unit_id === unitId);
-  assert.ok(target);
-  target.input_refs = [...inputRefs];
-}
-
 function bundle(
   runManifest: Record<string, unknown>,
   plan: Record<string, unknown>,
@@ -434,9 +435,10 @@ function formalEnvelope(
   artifactPath: string,
   document: Record<string, unknown>,
   inputRefs: readonly string[] = [],
+  version: FormalArtifactEnvelope["schema_version"] = "startup_opportunity.artifact_envelope.v3",
 ): FormalArtifactEnvelope {
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v3",
+    schema_version: version,
     artifact_type: String(document.schema_version),
     artifact_path: artifactPath,
     run_id: runId,
@@ -470,35 +472,100 @@ async function setupPersistedRun(
     mode: "opportunity_discovery",
     createdAt: "2026-07-24T12:00:00Z",
   });
-  const plan = basePlan(runId);
-  if (action === "pre-kill-exact") {
-    setUnitInputRefs(plan, "value_pending", [PRE_KILL_CANDIDATE_REF]);
-  } else if (action === "pre-kill-missing") {
-    setUnitInputRefs(plan, "value_pending", [SUBJECT_REF]);
-  } else if (action === "pre-kill-shared") {
-    setUnitInputRefs(plan, "value_pending", [
-      PRE_KILL_CANDIDATE_REF,
-      RETAINED_SHARED_CANDIDATE_REF,
-    ]);
+  const preKill = action.startsWith("pre-kill-");
+  let discoveryBundle: DocumentBundle | null = null;
+  let plan: Record<string, unknown>;
+  if (preKill) {
+    const evidence = new EvidenceStore(runsRoot);
+    const record = async (unitId: string, label: string) =>
+      (
+        await evidence.record({
+          runId,
+          unitId,
+          source: {
+            kind: "user_provided",
+            canonical_uri: `urn:startup-opportunity:user-provided:${runId}-${label}`,
+          },
+          researchGoal: `SYNTHETIC ${label} pre-kill binding substrate; not Evidence.`,
+          rawContent: `SYNTHETIC ${label} bytes; not Evidence or validation.`,
+          recordedAt: "2026-07-24T12:00:30Z",
+        })
+      ).record;
+    const targetInputRefs =
+      action === "pre-kill-missing"
+        ? [SUBJECT_REF]
+        : action === "pre-kill-shared"
+          ? [PRE_KILL_CANDIDATE_REF, RETAINED_SHARED_CANDIDATE_REF]
+          : [PRE_KILL_CANDIDATE_REF];
+    discoveryBundle = await createDiscoveryRuntimeFixture(
+      runId,
+      {
+        generation: await record("unit_seed_independent_demand", "generation"),
+        evaluation: await record("unit_counterfactual", "evaluation"),
+      },
+      [
+        {
+          wave_id: "wave_enrichment",
+          depends_on: ["wave_discovery_synthetic"],
+          units: [
+            {
+              unit_id: "value_pending",
+              unit_type: "counter_evidence",
+              plan_disposition: "enabled",
+              priority_band: "high",
+              attempt: 1,
+              supersedes_unit_ref: null,
+              research_goal: "SYNTHETIC candidate-specific enrichment remains pending.",
+              input_refs: targetInputRefs,
+              agent_role: "lane-researcher",
+              output_path: "artifacts/discovery/enrichment/pre-kill-target.json",
+              required_artifact_schema: "startup_opportunity.discovery_lane_result.v1",
+              source_preferences: ["SYNTHETIC no source preference."],
+              required_outputs: ["SYNTHETIC typed branch result."],
+              stop_conditions: ["SYNTHETIC pre-kill decision."],
+            },
+          ],
+        },
+      ],
+    );
+    const bootstrapManifest = (await store.load(runId)).manifest as unknown as Record<
+      string,
+      unknown
+    >;
+    bootstrapManifest.current_plan_ref = PLAN_REF;
+    bootstrapManifest.plan_revision = 1;
+    bootstrapManifest.current_phase = "discovery";
+    bootstrapManifest.schema_bundle_version = "9.0.0";
+    await writeFile(
+      path.join(runsRoot, runId, "manifest.json"),
+      `${canonicalJson(bootstrapManifest)}\n`,
+    );
+    await store.publishArtifactBundle({
+      runId,
+      envelopes: [
+        ...G21_CORE_REFS.map((ref) => fixtureEnvelope(discoveryBundle as DocumentBundle, ref)),
+        ...G21_MAP_REFS.map((ref) => fixtureEnvelope(discoveryBundle as DocumentBundle, ref)),
+        ...[
+          PRE_KILL_CANDIDATE_REF,
+          "artifacts/discovery/candidates/candidate_baseline.r1.json",
+          RETAINED_SHARED_CANDIDATE_REF,
+        ].map((ref) => runtimeEnvelope(discoveryBundle as DocumentBundle, ref)),
+      ],
+    });
+    plan = runtimeEnvelope(discoveryBundle, PLAN_REF).document;
+  } else {
+    plan = basePlan(runId);
+    await store.publishArtifact({
+      runId,
+      envelope: formalEnvelope(runId, PLAN_REF, plan),
+    });
   }
-  if (action.startsWith("pre-kill-")) {
-    const refs =
-      action === "pre-kill-shared"
-        ? [PRE_KILL_CANDIDATE_REF, RETAINED_SHARED_CANDIDATE_REF]
-        : [PRE_KILL_CANDIDATE_REF];
-    for (const ref of refs) {
-      const filename = path.join(runsRoot, runId, ref);
-      await mkdir(path.dirname(filename), { recursive: true });
-      await writeFile(filename, "null\n");
-    }
-  }
-  await store.publishArtifact({
-    runId,
-    envelope: formalEnvelope(runId, PLAN_REF, plan),
-  });
   const runRoot = path.join(runsRoot, runId);
   const persistedManifest = manifest(runId, plan);
-  persistedManifest.artifact_refs = [PLAN_REF];
+  const storeManifest = (await store.load(runId)).manifest;
+  persistedManifest.schema_bundle_version = preKill ? "9.0.0" : "2.2.0";
+  persistedManifest.current_phase = preKill ? "discovery" : "enrichment";
+  persistedManifest.artifact_refs = preKill ? storeManifest.artifact_refs : [PLAN_REF];
   persistedManifest.latest_gap_snapshot_ref = null;
   persistedManifest.pending_adaptation_refs = [];
   await writeFile(path.join(runRoot, "manifest.json"), `${canonicalJson(persistedManifest)}\n`);
@@ -509,7 +576,6 @@ async function setupPersistedRun(
     stage: "current_plan",
     createdAt: "2026-07-24T12:03:00Z",
   });
-  const preKill = action.startsWith("pre-kill-");
   const gap = preKill
     ? gapSnapshot(runId, "candidate_pre_killed", PRE_KILL_CANDIDATE_REF)
     : gapSnapshot(runId);
@@ -550,10 +616,13 @@ async function setupPersistedRun(
   }
   await store.publishArtifact({
     runId,
-    envelope: formalEnvelope(runId, GAP_REF, gap, [
-      PLAN_REF,
-      ...(triggerEventRecord === null ? [] : [String(gap.trigger_event_ref)]),
-    ]),
+    envelope: formalEnvelope(
+      runId,
+      GAP_REF,
+      gap,
+      [PLAN_REF, ...(triggerEventRecord === null ? [] : [String(gap.trigger_event_ref)])],
+      undefined,
+    ),
   });
   if (userDecision !== null) {
     await store.appendDecision(runId, userDecision);
@@ -571,9 +640,9 @@ async function setupPersistedRun(
   ) as Record<string, unknown>;
   beforeCheckpoint.latest_gap_snapshot_ref = GAP_REF;
   beforeCheckpoint.pending_adaptation_refs = [DECISION_REF];
-  beforeCheckpoint.completed_units = ["counter_completed"];
-  beforeCheckpoint.active_units = ["buyer_active"];
-  beforeCheckpoint.failed_units = ["acquisition_failed"];
+  beforeCheckpoint.completed_units = preKill ? [] : ["counter_completed"];
+  beforeCheckpoint.active_units = preKill ? [] : ["buyer_active"];
+  beforeCheckpoint.failed_units = preKill ? [] : ["acquisition_failed"];
   beforeCheckpoint.updated_at = "2026-07-24T12:06:00Z";
   await writeFile(path.join(runRoot, "manifest.json"), `${canonicalJson(beforeCheckpoint)}\n`);
   await store.checkpoint({
@@ -602,6 +671,14 @@ async function setupPersistedRun(
   };
   const adaptationBundle = bundle(currentManifest, plan, planningContext, gap, decision, [
     checkpointEntry,
+    ...(discoveryBundle === null
+      ? []
+      : [
+          {
+            path: PRE_KILL_CANDIDATE_REF,
+            document: runtimeEnvelope(discoveryBundle, PRE_KILL_CANDIDATE_REF),
+          },
+        ]),
     ...(userDecision === null ? [] : [{ path: "decisions.jsonl", document: userDecision }]),
     ...(triggerEventRecord === null
       ? []
@@ -634,9 +711,19 @@ async function planApplyBoundaryState(runRoot: string) {
   };
 }
 
+async function planReceiptFile(runRoot: string): Promise<string> {
+  const operationDirectory = path.join(runRoot, ".store/operations");
+  const receiptName = (await readdir(operationDirectory)).find((name) =>
+    name.startsWith("plan-revision-"),
+  );
+  assert.ok(receiptName);
+  return path.join(operationDirectory, receiptName);
+}
+
 function candidateFor(
   setup: Awaited<ReturnType<typeof setupPersistedRun>>,
   createdAt = "2026-07-24T12:08:00Z",
+  candidateContextCreatedAt = "2026-07-24T12:08:30Z",
 ) {
   const transformed = transformPlan(
     PLAN_REF,
@@ -651,7 +738,7 @@ function candidateFor(
     revision: 2,
     parentRef: CONTEXT_REF,
     stage: "candidate_revision",
-    createdAt: "2026-07-24T12:08:30Z",
+    createdAt: candidateContextCreatedAt,
   });
   const candidateBundle: DocumentBundle = {
     schema_version: "startup_opportunity.document_bundle.v2",
@@ -673,6 +760,40 @@ function candidateFor(
     ],
   };
   return { transformed, candidateBundle };
+}
+
+function preKillApplyInput(
+  setup: Awaited<ReturnType<typeof setupPersistedRun>>,
+  candidateBundle: DocumentBundle,
+  overrides: Partial<ApplyPlanRevisionInput> = {},
+): ApplyPlanRevisionInput {
+  return {
+    runId: String(setup.currentManifest.run_id),
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    candidateBundle,
+    createdAt: PRE_KILL_APPLY_AT,
+    checkpointCreatedAt: PRE_KILL_CHECKPOINT_AT,
+    nextStep: "Keep the exact pre-killed candidate unit skipped.",
+    beliefSummary: {
+      current_belief: "Only the exact immutable candidate binding may authorize the skip.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Does the candidate binding still match durable state?",
+    },
+    ...overrides,
+  };
+}
+
+function mutableBundleEntry(bundleValue: DocumentBundle, entryPath: string) {
+  const entry = bundleValue.documents.find((candidate) => candidate.path === entryPath);
+  assert.ok(entry);
+  return entry as { path: string; document: Record<string, unknown> };
+}
+
+function mutablePreKillEnvelope(bundleValue: DocumentBundle): Record<string, unknown> {
+  return mutableBundleEntry(bundleValue, PRE_KILL_CANDIDATE_REF).document;
 }
 
 async function publishSecondJsonlBackedPair(setup: Awaited<ReturnType<typeof setupPersistedRun>>) {
@@ -1245,24 +1366,9 @@ test("candidate pre-kill skips only an exact exclusive pending unit and replays 
   const validator = await createAdaptationPolicyValidator(repositoryRoot);
   const preflight = validator.validateDocumentBundle(setup.adaptationBundle);
   assert.equal(preflight.valid, true, JSON.stringify(preflight, null, 2));
-  const { candidateBundle } = candidateFor(setup);
+  const { candidateBundle } = candidateFor(setup, PRE_KILL_APPLY_AT, PRE_KILL_CONTEXT_AT);
   const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
-  const input = {
-    runId,
-    adaptationBundle: setup.adaptationBundle,
-    adaptationRefs: [DECISION_REF],
-    candidateBundle,
-    createdAt: "2026-07-24T12:08:00Z",
-    checkpointCreatedAt: "2026-07-24T12:09:00Z",
-    nextStep: "Keep the exact pre-killed candidate unit skipped.",
-    beliefSummary: {
-      current_belief: "Only the exclusive candidate unit may be skipped.",
-      evidence_that_changed_belief: [],
-      unchanged_assumptions: [],
-      remaining_disagreement: [],
-      next_decision_relevant_question: "Do retained shared-candidate units remain enabled?",
-    },
-  };
+  const input = preKillApplyInput(setup, candidateBundle);
   assert.equal((await runtime.apply(input)).status, "applied");
   assert.equal((await runtime.apply(input)).status, "idempotent_replay");
   const reopened = await setup.store.load(runId);
@@ -1278,6 +1384,101 @@ test("candidate pre-kill skips only an exact exclusive pending unit and replays 
     units.find((candidate) => candidate.unit_id === "value_pending")?.plan_disposition,
     "skipped",
   );
+});
+
+test("candidate pre-kill rejects malformed typed candidate bindings before every write", async (t) => {
+  const scenarios: readonly {
+    readonly name: string;
+    readonly mutate: (bundleValue: DocumentBundle) => void;
+  }[] = [
+    {
+      name: "missing-envelope",
+      mutate: (bundleValue) => {
+        const entries = bundleValue.documents as {
+          path: string;
+          document: Record<string, unknown>;
+        }[];
+        const index = entries.findIndex((entry) => entry.path === PRE_KILL_CANDIDATE_REF);
+        assert.notEqual(index, -1);
+        entries.splice(index, 1);
+      },
+    },
+    {
+      name: "null-envelope",
+      mutate: (bundleValue) => {
+        mutableBundleEntry(bundleValue, PRE_KILL_CANDIDATE_REF).document = null as never;
+      },
+    },
+    {
+      name: "non-envelope",
+      mutate: (bundleValue) => {
+        const entry = mutableBundleEntry(bundleValue, PRE_KILL_CANDIDATE_REF);
+        const envelopeValue = entry.document;
+        assert.ok(typeof envelopeValue.document === "object" && envelopeValue.document !== null);
+        entry.document = clone(envelopeValue.document as Record<string, unknown>);
+      },
+    },
+    {
+      name: "wrong-artifact-type",
+      mutate: (bundleValue) => {
+        mutablePreKillEnvelope(bundleValue).artifact_type =
+          "startup_opportunity.solution_hypothesis.v1";
+      },
+    },
+    {
+      name: "wrong-run",
+      mutate: (bundleValue) => {
+        mutablePreKillEnvelope(bundleValue).run_id = "runtime-pre-kill-another-run";
+      },
+    },
+    {
+      name: "wrong-plan",
+      mutate: (bundleValue) => {
+        const envelopeValue = mutablePreKillEnvelope(bundleValue);
+        const document = envelopeValue.document as Record<string, unknown>;
+        document.research_plan_ref = "plans/research-plan.r9.json";
+        envelopeValue.content_hash = canonicalContentHash(document);
+      },
+    },
+    {
+      name: "wrong-content-hash",
+      mutate: (bundleValue) => {
+        mutablePreKillEnvelope(bundleValue).content_hash = `sha256:${"0".repeat(64)}`;
+      },
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async (contextTest) => {
+      const runId = `runtime-pre-kill-binding-${scenario.name}`;
+      const setup = await setupPersistedRun(contextTest, runId, "pre-kill-exact");
+      const malformed = clone(setup.adaptationBundle);
+      scenario.mutate(malformed);
+      const validation = (
+        await createAdaptationPolicyValidator(repositoryRoot)
+      ).validateDocumentBundle(malformed);
+      assert.equal(validation.valid, false);
+      assert.ok(
+        validation.adaptationErrors.some(
+          (error) => error.code === "adaptation.pre_kill_candidate_binding_invalid",
+        ),
+        JSON.stringify(validation, null, 2),
+      );
+
+      const before = await planApplyBoundaryState(setup.runRoot);
+      const { candidateBundle } = candidateFor(setup, PRE_KILL_APPLY_AT, PRE_KILL_CONTEXT_AT);
+      await assert.rejects(
+        (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+          ...preKillApplyInput(setup, candidateBundle),
+          adaptationBundle: malformed,
+        }),
+        (error: unknown) =>
+          error instanceof StoreError &&
+          error.code === "adaptation.pre_kill_candidate_binding_invalid",
+      );
+      assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+    });
+  }
 });
 
 test("candidate pre-kill rejects missing and shared target bindings before writes", async (t) => {
@@ -1305,15 +1506,15 @@ test("candidate pre-kill rejects missing and shared target bindings before write
         JSON.stringify(result.adaptationErrors, null, 2),
       );
       const before = await planApplyBoundaryState(setup.runRoot);
-      const { candidateBundle } = candidateFor(setup);
+      const { candidateBundle } = candidateFor(setup, PRE_KILL_APPLY_AT, PRE_KILL_CONTEXT_AT);
       await assert.rejects(
         (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
           runId,
           adaptationBundle: setup.adaptationBundle,
           adaptationRefs: [DECISION_REF],
           candidateBundle,
-          createdAt: "2026-07-24T12:08:00Z",
-          checkpointCreatedAt: "2026-07-24T12:09:00Z",
+          createdAt: PRE_KILL_APPLY_AT,
+          checkpointCreatedAt: PRE_KILL_CHECKPOINT_AT,
           nextStep: "Reject a candidate pre-kill target that is not exclusive.",
           beliefSummary: {
             current_belief: "Shared or unrelated candidate units must remain current.",
@@ -1346,15 +1547,15 @@ test("candidate pre-kill rejects missing and shared target bindings before write
 test("candidate pre-kill crash leaves a pending intent and exact replay completes recovery", async (contextTest) => {
   const runId = "runtime-pre-kill-crash";
   const setup = await setupPersistedRun(contextTest, runId, "pre-kill-exact");
-  const { candidateBundle } = candidateFor(setup);
+  const { candidateBundle } = candidateFor(setup, PRE_KILL_APPLY_AT, PRE_KILL_CONTEXT_AT);
   const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
   const input = {
     runId,
     adaptationBundle: setup.adaptationBundle,
     adaptationRefs: [DECISION_REF],
     candidateBundle,
-    createdAt: "2026-07-24T12:08:00Z",
-    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    createdAt: PRE_KILL_APPLY_AT,
+    checkpointCreatedAt: PRE_KILL_CHECKPOINT_AT,
     nextStep: "Recover the exact candidate pre-kill decision.",
     beliefSummary: {
       current_belief: "The pre-kill skip is not current before Plan CAS.",
@@ -1377,6 +1578,154 @@ test("candidate pre-kill crash leaves a pending intent and exact replay complete
   const recovered = await setup.store.load(runId);
   assert.equal(recovered.manifest.current_plan_ref, "plans/research-plan.r2.json");
   assert.ok(recovered.manifest.skipped_units.includes("value_pending"));
+});
+
+test("candidate pre-kill rejects a durable null candidate before creating a receipt", async (contextTest) => {
+  const runId = "runtime-pre-kill-durable-null";
+  const setup = await setupPersistedRun(contextTest, runId, "pre-kill-exact");
+  const validation = (await createAdaptationPolicyValidator(repositoryRoot)).validateDocumentBundle(
+    setup.adaptationBundle,
+  );
+  assert.equal(validation.valid, true, JSON.stringify(validation, null, 2));
+  await writeFile(path.join(setup.runRoot, PRE_KILL_CANDIDATE_REF), "null\n");
+  const before = await planApplyBoundaryState(setup.runRoot);
+  const { candidateBundle } = candidateFor(setup, PRE_KILL_APPLY_AT, PRE_KILL_CONTEXT_AT);
+  await assert.rejects(
+    (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply(
+      preKillApplyInput(setup, candidateBundle),
+    ),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "adaptation.pre_kill_candidate_binding_invalid",
+  );
+  assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+});
+
+test("candidate pre-kill receipt revalidates candidate, Plan, and binding revision", async (t) => {
+  const scenarios: readonly {
+    readonly name: string;
+    readonly applied: boolean;
+    readonly reopenCode: "write.conflict" | "recovery.invalid_plan_operation";
+    readonly mutate: (
+      setup: Awaited<ReturnType<typeof setupPersistedRun>>,
+      receiptPath: string,
+    ) => Promise<void>;
+  }[] = [
+    {
+      name: "applied-candidate-null",
+      applied: true,
+      reopenCode: "write.conflict",
+      mutate: async (setup) => {
+        await writeFile(path.join(setup.runRoot, PRE_KILL_CANDIDATE_REF), "null\n");
+      },
+    },
+    {
+      name: "pending-candidate-envelope-drift",
+      applied: false,
+      reopenCode: "write.conflict",
+      mutate: async (setup) => {
+        const candidatePath = path.join(setup.runRoot, PRE_KILL_CANDIDATE_REF);
+        const envelopeValue = JSON.parse(await readFile(candidatePath, "utf8")) as Record<
+          string,
+          unknown
+        >;
+        envelopeValue.producer_role = "harness";
+        await writeFile(candidatePath, `${canonicalJson(envelopeValue)}\n`);
+      },
+    },
+    {
+      name: "pending-base-plan-hash-drift",
+      applied: false,
+      reopenCode: "write.conflict",
+      mutate: async (setup) => {
+        const planPath = path.join(setup.runRoot, PLAN_REF);
+        const envelopeValue = JSON.parse(await readFile(planPath, "utf8")) as Record<
+          string,
+          unknown
+        >;
+        const document = envelopeValue.document as Record<string, unknown>;
+        document.created_at = "2026-07-24T12:01:01Z";
+        envelopeValue.content_hash = canonicalContentHash(document);
+        await writeFile(planPath, `${canonicalJson(envelopeValue)}\n`);
+      },
+    },
+    {
+      name: "pending-binding-plan-revision-drift",
+      applied: false,
+      reopenCode: "recovery.invalid_plan_operation",
+      mutate: async (_setup, receiptPath) => {
+        const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
+        const bindings = receipt.candidate_bindings as Record<string, unknown>[];
+        assert.ok(bindings[0]);
+        bindings[0].plan_revision = 2;
+        await writeFile(receiptPath, `${canonicalJson(receipt)}\n`);
+      },
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async (contextTest) => {
+      const runId = `runtime-pre-kill-receipt-${scenario.name}`;
+      const setup = await setupPersistedRun(contextTest, runId, "pre-kill-exact");
+      const { candidateBundle } = candidateFor(setup, PRE_KILL_APPLY_AT, PRE_KILL_CONTEXT_AT);
+      const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+      const input = preKillApplyInput(setup, candidateBundle, {
+        ...(scenario.applied ? {} : { faultAt: "after_intent" as const }),
+      });
+      if (scenario.applied) {
+        assert.equal((await runtime.apply(input)).status, "applied");
+      } else {
+        await assert.rejects(
+          runtime.apply(input),
+          (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+        );
+      }
+      const receiptPath = await planReceiptFile(setup.runRoot);
+      await scenario.mutate(setup, receiptPath);
+      const { faultAt: _faultAt, ...replayInput } = input;
+      await assert.rejects(
+        runtime.apply(replayInput),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "recovery.invalid_plan_operation",
+      );
+      await assert.rejects(
+        setup.store.load(runId),
+        (error: unknown) => error instanceof StoreError && error.code === scenario.reopenCode,
+      );
+    });
+  }
+});
+
+test("parent receipt v1 remains replayable and recoverable without candidate binding", async (contextTest) => {
+  const runId = "runtime-parent-receipt-v1";
+  const setup = await setupPersistedRun(contextTest, runId);
+  const { candidateBundle } = candidateFor(setup);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const input = {
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    candidateBundle,
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    nextStep: "Preserve the parent receipt behavior.",
+    beliefSummary: {
+      current_belief: "The parent v1 receipt remains the authority for this replay.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Does legacy replay remain byte-compatible?",
+    },
+  };
+  assert.equal((await runtime.apply(input)).status, "applied");
+  const receipt = JSON.parse(
+    await readFile(await planReceiptFile(setup.runRoot), "utf8"),
+  ) as Record<string, unknown>;
+  assert.equal(receipt.schema_version, "startup_opportunity.plan_revision_operation.v1");
+  assert.equal("candidate_bindings" in receipt, false);
+  assert.equal((await runtime.apply(input)).status, "idempotent_replay");
+  const reopened = await setup.store.load(runId);
+  assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
+  assert.deepEqual(reopened.planOperationRecovery.candidateBoundOperationKeys, []);
 });
 
 test("Plan apply rejects an in-memory Gap Snapshot that differs from disk before writes", async (contextTest) => {

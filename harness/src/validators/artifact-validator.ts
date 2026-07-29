@@ -30,6 +30,7 @@ import {
 } from "./discovery-candidate-validator.js";
 import {
   type DiscoveryEvaluationPolicy,
+  LEGACY_DISCOVERY_EVALUATION_POLICY_PATH,
   loadDiscoveryEvaluationPolicy,
 } from "./discovery-evaluation-policy.js";
 import {
@@ -111,6 +112,7 @@ export interface DocumentBundle {
 
 export interface DocumentBundleReferenceContext {
   readonly exactJsonlRecords?: ReadonlyMap<string, Record<string, unknown>>;
+  readonly validateHistoricalDiscoveryContracts?: boolean;
 }
 
 export interface DocumentBundleValidationResult {
@@ -2568,19 +2570,29 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
       details: { actual: document.content_hash, expected: expectedHash },
     });
   }
-  if (
+  const surface =
     document.artifact_type === "startup_opportunity.report.v1" &&
     document.document.schema_version === "startup_opportunity.report.v1"
-  ) {
-    const forbiddenMatches = scanReportSurface("structured_report", document.document);
+      ? "structured_report"
+      : document.schema_version === "startup_opportunity.artifact_envelope.v13" &&
+          document.artifact_type === "startup_opportunity.decision_brief.v2"
+        ? "decision_brief"
+        : document.schema_version === "startup_opportunity.artifact_envelope.v13" &&
+            document.artifact_type === "startup_opportunity.discovery_report_view.v1"
+          ? "report_view"
+          : null;
+  if (surface !== null) {
+    const scanValue =
+      surface === "structured_report" ? document.document : document.document.markdown;
+    const forbiddenMatches = scanReportSurface(surface, scanValue);
     if (forbiddenMatches.length > 0) {
       errors.push({
         code: "g2_4.forbidden_report_expression",
         keyword: "report_consistency",
-        instancePath: "/document",
+        instancePath: surface === "structured_report" ? "/document" : "/document/markdown",
         schemaPath: "",
         message:
-          "structured discovery report contains forbidden validation, probability, or score language",
+          "formal discovery report surface contains forbidden validation, probability, or score language",
         details: { forbiddenMatches },
       });
     }
@@ -2597,6 +2609,7 @@ export class ArtifactValidator {
     readonly discoveryCandidatePolicy: DiscoveryCandidatePolicy,
     readonly discoverySynthesisPolicy: DiscoverySynthesisPolicy,
     readonly discoveryEvaluationPolicy: DiscoveryEvaluationPolicy,
+    readonly legacyDiscoveryEvaluationPolicy: DiscoveryEvaluationPolicy,
   ) {}
 
   publicationAdapter(schemaVersion: unknown): StorePublicationAdapter {
@@ -2984,7 +2997,7 @@ export class ArtifactValidator {
           { actualSchemaVersion: input.schema_version },
         ),
       );
-    } else {
+    } else if (referenceContext.validateHistoricalDiscoveryContracts !== false) {
       referenceErrors.push(
         ...validateDiscoveryMapsContract(
           input.schema_version === "startup_opportunity.document_bundle.v9" ||
@@ -3034,7 +3047,7 @@ export class ArtifactValidator {
           { actualSchemaVersion: input.schema_version },
         ),
       );
-    } else {
+    } else if (referenceContext.validateHistoricalDiscoveryContracts !== false) {
       referenceErrors.push(
         ...validateDiscoveryCandidateContract(
           discoveryCandidateDocuments,
@@ -3099,7 +3112,9 @@ export class ArtifactValidator {
       referenceErrors.push(
         ...validateDiscoveryEvaluationContract(
           discoveryEvaluationDocuments,
-          this.discoveryEvaluationPolicy,
+          input.schema_version === "startup_opportunity.document_bundle.v12"
+            ? this.legacyDiscoveryEvaluationPolicy
+            : this.discoveryEvaluationPolicy,
           exactJsonlRecords,
         ),
       );
@@ -3522,5 +3537,6 @@ export async function createArtifactValidator(
     await loadDiscoveryCandidatePolicy(root, bundle),
     await loadDiscoverySynthesisPolicy(root, bundle),
     await loadDiscoveryEvaluationPolicy(root, bundle),
+    await loadDiscoveryEvaluationPolicy(root, bundle, LEGACY_DISCOVERY_EVALUATION_POLICY_PATH),
   );
 }

@@ -17,23 +17,28 @@ import {
   ReportRuntime,
   RunStore,
   StoreError,
+  sha256Bytes,
 } from "../harness/src/index.js";
+import { scanReportSurface } from "../harness/src/reporting/report-consistency.js";
 import {
   fixtureEnvelope,
   G21_CORE_REFS,
   G21_MAP_REFS,
+  G21_SOLUTION_REF,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import {
   G22_DEMAND_R1,
   G22_DEMAND_R2,
   G22_FAN_IN,
   G22_GENERATION_LANE,
+  G22_SOLUTION_R1,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
   G23_MERGE,
   G23_OPPORTUNITY_A,
   G23_OPPORTUNITY_B,
   G23_SOLUTION,
+  G23_SOLUTION_CONVERSION,
 } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
 import {
   createDiscoveryEvaluationFixture,
@@ -87,6 +92,54 @@ function refresh(bundle: DocumentBundle, artifactPath: string): void {
   if (String(outer.schema_version).startsWith("startup_opportunity.artifact_envelope.")) {
     outer.content_hash = canonicalContentHash(outer.document as Record<string, unknown>);
   }
+}
+
+function refreshAllInputHashes(bundle: DocumentBundle): void {
+  for (let pass = 0; pass < bundle.documents.length; pass += 1) {
+    let changed = false;
+    for (const candidate of bundle.documents) {
+      const document = effective(bundle, candidate.path);
+      const hashLists = [
+        document.input_artifact_hashes,
+        (document.report_metadata as Record<string, unknown> | undefined)?.input_artifact_hashes,
+      ];
+      for (const hashes of hashLists) {
+        if (!Array.isArray(hashes)) {
+          continue;
+        }
+        for (const binding of hashes) {
+          if (!binding || typeof binding !== "object" || !("ref" in binding)) {
+            continue;
+          }
+          const ref = String(binding.ref);
+          if (!bundle.documents.some((entry) => entry.path === ref)) {
+            continue;
+          }
+          const expected = canonicalContentHash(effective(bundle, ref));
+          if (binding.content_hash !== expected) {
+            binding.content_hash = expected;
+            changed = true;
+          }
+        }
+      }
+      refresh(bundle, candidate.path);
+    }
+    if (!changed) {
+      return;
+    }
+  }
+}
+
+function legacyV12(bundle: DocumentBundle): DocumentBundle {
+  const legacy = clone(bundle);
+  (legacy as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v12";
+  for (const candidate of legacy.documents) {
+    if (candidate.document.schema_version === "startup_opportunity.artifact_envelope.v13") {
+      candidate.document.schema_version = "startup_opportunity.artifact_envelope.v12";
+    }
+  }
+  effective(legacy, "manifest.json").schema_bundle_version = "11.0.0";
+  return legacy;
 }
 
 async function setup(
@@ -213,7 +266,10 @@ async function publishThroughSynthesis(state: State): Promise<void> {
 
 async function publishThroughEnrichmentBranches(state: State): Promise<void> {
   await publishThroughSynthesis(state);
-  const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.v13");
+  const evaluation = [
+    ...envelopes(state.bundle, "startup_opportunity.artifact_envelope.v12"),
+    ...envelopes(state.bundle, "startup_opportunity.artifact_envelope.v13"),
+  ];
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(evaluation, "startup_opportunity.research_task.v3"),
@@ -238,7 +294,10 @@ async function publishThroughEnrichmentBranches(state: State): Promise<void> {
 
 async function publishThroughEvaluation(state: State): Promise<void> {
   await publishThroughEnrichmentBranches(state);
-  const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.v13");
+  const evaluation = [
+    ...envelopes(state.bundle, "startup_opportunity.artifact_envelope.v12"),
+    ...envelopes(state.bundle, "startup_opportunity.artifact_envelope.v13"),
+  ];
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: evaluation.filter(
@@ -317,6 +376,78 @@ function setFirstBet(bundle: DocumentBundle, firstBet: string): void {
     }
   }
   refresh(bundle, G24_REPORT);
+  const reportEnvelope = entry(bundle, G24_REPORT);
+  reportEnvelope.input_refs = [
+    ...new Set([
+      ...(reportEnvelope.input_refs as string[]).filter((ref) => ref !== alternative),
+      firstBet,
+    ]),
+  ].sort();
+}
+
+type DecisionTier =
+  | "reject"
+  | "insufficient_evidence"
+  | "watch"
+  | "investigate_further"
+  | "prioritize";
+
+function setDecisionTier(bundle: DocumentBundle, tier: DecisionTier): void {
+  effective(bundle, G24_RECOMMENDATION).decision_tier = tier;
+  const report = effective(bundle, G24_REPORT);
+  (report.curated_judgment_context as Record<string, unknown>).decision_tier = tier;
+  refreshAllInputHashes(bundle);
+}
+
+function opportunityFanInCeiling(bundle: DocumentBundle): Record<string, unknown> {
+  const ceiling = (
+    effective(bundle, G24_FAN_IN).opportunity_conclusion_ceilings as Record<string, unknown>[]
+  ).find((candidate) => candidate.opportunity_ref === G23_OPPORTUNITY_A);
+  assert.ok(ceiling);
+  return ceiling;
+}
+
+function setOpportunityGateStatus(
+  bundle: DocumentBundle,
+  gateId: string,
+  status: "passed" | "not_applicable" | "failed" | "insufficient_evidence",
+): void {
+  const fanGate = (
+    effective(bundle, G24_FAN_IN).hard_gate_inputs as Record<string, unknown>[]
+  ).find(
+    (candidate) => candidate.opportunity_ref === G23_OPPORTUNITY_A && candidate.gate_id === gateId,
+  );
+  const comparisonGate = (
+    effective(bundle, G24_COMPARISON_A).hard_gate_results as Record<string, unknown>[]
+  ).find((candidate) => candidate.gate_id === gateId);
+  assert.ok(fanGate && comparisonGate);
+  fanGate.status = status;
+  comparisonGate.status = status;
+}
+
+function makeFirstBetReady(bundle: DocumentBundle): void {
+  const fanIn = effective(bundle, G24_FAN_IN);
+  for (const gate of fanIn.hard_gate_inputs as Record<string, unknown>[]) {
+    if (gate.opportunity_ref === G23_OPPORTUNITY_A) {
+      gate.status = String(gate.gate_id).startsWith("ai_") ? "not_applicable" : "passed";
+    }
+  }
+  opportunityFanInCeiling(bundle).conclusion_ceiling = "strong_candidate";
+  refresh(bundle, G24_FAN_IN);
+
+  const comparison = effective(bundle, G24_COMPARISON_A);
+  for (const gate of comparison.hard_gate_results as Record<string, unknown>[]) {
+    gate.status = String(gate.gate_id).startsWith("ai_") ? "not_applicable" : "passed";
+  }
+  comparison.hard_gate_outcome = "eligible";
+  comparison.recommendation_band = "strong_candidate";
+  for (const panel of comparison.comparison_panels as Record<string, unknown>[]) {
+    panel.band = "medium";
+    panel.decision_sufficiency = "sufficient";
+  }
+  refresh(bundle, G24_COMPARISON_A);
+  setFirstBet(bundle, G23_OPPORTUNITY_A);
+  refreshAllInputHashes(bundle);
 }
 
 function setAiMandatoryGateStatus(
@@ -358,6 +489,14 @@ test("G2.4 validates closed enrichment, hard gates, comparison, portfolio, and r
 });
 
 test("G2.4 whole-chain fixtures preserve profile, counterfactual, merge, and AI ceilings", async (t) => {
+  const profileSemantics = new Map<
+    DiscoveryProfile,
+    {
+      readonly solutionClass: string;
+      readonly deliveryForms: readonly string[];
+      readonly usesAi: boolean;
+    }
+  >();
   for (const profile of ["general", "industry_first", "ai_first", "hybrid"] as const) {
     await t.test(profile, async (context) => {
       const state = await setup(context, `profile-${profile}`, profile);
@@ -377,7 +516,41 @@ test("G2.4 whole-chain fixtures preserve profile, counterfactual, merge, and AI 
         ),
       );
       const usesAi = profile === "ai_first" || profile === "hybrid";
-      assert.equal(effective(state.bundle, G23_SOLUTION).uses_ai, usesAi);
+      const solutionMap = effective(state.bundle, G21_SOLUTION_REF);
+      const candidate = effective(state.bundle, G22_SOLUTION_R1);
+      const candidateLineage = candidate.map_lineage as Record<string, unknown>;
+      const candidateSubject = candidate.subject as Record<string, unknown>;
+      const sourcePointer = String(candidateLineage.fragment_pointer);
+      const sourceIndex = Number(sourcePointer.split("/").at(-1));
+      const sourceFragment = (solutionMap.solution_candidates as Record<string, unknown>[])[
+        sourceIndex
+      ] as Record<string, unknown>;
+      assert.equal(candidateLineage.source_map_ref, G21_SOLUTION_REF);
+      assert.equal(candidateLineage.fragment_content_hash, canonicalContentHash(sourceFragment));
+      assert.equal(candidateSubject.solution_class, sourceFragment.solution_class);
+      assert.equal(candidateSubject.uses_ai, sourceFragment.uses_ai);
+      assert.equal(candidate.discovery_profile, profile);
+      const conversion = effective(state.bundle, G23_SOLUTION_CONVERSION);
+      const formalSolution = effective(state.bundle, G23_SOLUTION);
+      assert.equal(conversion.source_candidate_ref, G22_SOLUTION_R1);
+      assert.equal(conversion.source_candidate_revision, candidate.revision);
+      assert.equal(conversion.source_candidate_content_hash, canonicalContentHash(candidate));
+      assert.equal(conversion.target_artifact_ref, G23_SOLUTION);
+      assert.equal(conversion.target_content_hash, canonicalContentHash(formalSolution));
+      assert.equal(formalSolution.source_conversion_ref, G23_SOLUTION_CONVERSION);
+      assert.equal(formalSolution.source_candidate_ref, G22_SOLUTION_R1);
+      assert.equal(formalSolution.uses_ai, usesAi);
+      assert.equal(formalSolution.uses_ai, candidateSubject.uses_ai);
+      assert.equal(effective(state.bundle, G23_OPPORTUNITY_A).selected_solution_ref, G23_SOLUTION);
+      assert.deepEqual(effective(state.bundle, G24_REPORT).comparison_refs, [
+        G24_COMPARISON_A,
+        G24_COMPARISON_B,
+      ]);
+      profileSemantics.set(profile, {
+        solutionClass: String(candidateSubject.solution_class),
+        deliveryForms: [...(candidateSubject.delivery_forms as string[])],
+        usesAi,
+      });
       for (const comparisonRef of [G24_COMPARISON_A, G24_COMPARISON_B]) {
         const aiGate = (
           effective(state.bundle, comparisonRef).hard_gate_results as Record<string, unknown>[]
@@ -386,6 +559,11 @@ test("G2.4 whole-chain fixtures preserve profile, counterfactual, merge, and AI 
       }
     });
   }
+  assert.notDeepEqual(profileSemantics.get("general"), profileSemantics.get("industry_first"));
+  assert.equal(profileSemantics.get("general")?.usesAi, false);
+  assert.equal(profileSemantics.get("industry_first")?.usesAi, false);
+  assert.equal(profileSemantics.get("ai_first")?.usesAi, true);
+  assert.equal(profileSemantics.get("hybrid")?.usesAi, true);
 });
 
 test("G2.4 rejects AI-selected solutions whose mandatory G3 gate fails open", async (t) => {
@@ -472,6 +650,25 @@ test("G2.4 decision tier obeys null, insufficient, and mixed readiness ceilings"
         setFirstBet(bundle, G23_OPPORTUNITY_A);
       },
     },
+    {
+      name: "fan-in-reject",
+      mutate(bundle) {
+        const fanIn = effective(bundle, G24_FAN_IN);
+        const fanCeiling = (
+          fanIn.opportunity_conclusion_ceilings as Record<string, unknown>[]
+        ).find((entry) => entry.opportunity_ref === G23_OPPORTUNITY_A);
+        assert.ok(fanCeiling);
+        fanCeiling.conclusion_ceiling = "reject";
+        refresh(bundle, G24_FAN_IN);
+        refreshAllInputHashes(bundle);
+        setFirstBet(bundle, G23_OPPORTUNITY_A);
+        effective(bundle, G24_RECOMMENDATION).decision_tier = "investigate_further";
+        const report = effective(bundle, G24_REPORT);
+        (report.curated_judgment_context as Record<string, unknown>).decision_tier =
+          "investigate_further";
+        refreshAllInputHashes(bundle);
+      },
+    },
   ];
   for (const candidate of cases) {
     const bundle = clone(state.bundle);
@@ -483,6 +680,348 @@ test("G2.4 decision tier obeys null, insufficient, and mixed readiness ceilings"
       `${candidate.name}: ${JSON.stringify(result.referenceErrors, null, 2)}`,
     );
   }
+});
+
+test("G2.4 decision tier uses the strictest fan-in, comparison, gate, panel, and portfolio ceiling", async (context) => {
+  const state = await setup(context, "decision-ceiling-matrix");
+  const ready = clone(state.bundle);
+  makeFirstBetReady(ready);
+  assert.equal(
+    state.validator.validateDocumentBundle(ready).valid,
+    true,
+    JSON.stringify(state.validator.validateDocumentBundle(ready), null, 2),
+  );
+
+  const nextTier: Readonly<Partial<Record<DecisionTier, DecisionTier>>> = {
+    reject: "insufficient_evidence",
+    insufficient_evidence: "watch",
+    watch: "investigate_further",
+    investigate_further: "prioritize",
+  };
+  const assertAtAndAbove = (name: string, source: DocumentBundle, ceiling: DecisionTier): void => {
+    const legal = clone(source);
+    setDecisionTier(legal, ceiling);
+    const legalResult = state.validator.validateDocumentBundle(legal);
+    assert.equal(legalResult.valid, true, `${name} legal: ${JSON.stringify(legalResult, null, 2)}`);
+    const over = nextTier[ceiling];
+    if (over === undefined) {
+      return;
+    }
+    const invalid = clone(source);
+    setDecisionTier(invalid, over);
+    const invalidResult = state.validator.validateDocumentBundle(invalid);
+    assert.equal(invalidResult.valid, false, `${name} over-ceiling`);
+    assert.ok(
+      invalidResult.referenceErrors.some(
+        (error) => error.code === "g2_4.decision_tier_ceiling_violation",
+      ),
+      `${name}: ${JSON.stringify(invalidResult.referenceErrors, null, 2)}`,
+    );
+  };
+
+  for (const candidate of [
+    { fan: "reject", band: "reject", tier: "reject" },
+    {
+      fan: "insufficient_evidence",
+      band: "investigate_further",
+      tier: "insufficient_evidence",
+    },
+    { fan: "watchlist", band: "watchlist", tier: "watch" },
+    {
+      fan: "investigate_further",
+      band: "investigate_further",
+      tier: "investigate_further",
+    },
+    { fan: "strong_candidate", band: "strong_candidate", tier: "prioritize" },
+  ] as const) {
+    const bundle = clone(ready);
+    opportunityFanInCeiling(bundle).conclusion_ceiling = candidate.fan;
+    effective(bundle, G24_COMPARISON_A).recommendation_band = candidate.band;
+    refreshAllInputHashes(bundle);
+    assertAtAndAbove(`fan-in-${candidate.fan}`, bundle, candidate.tier);
+  }
+
+  for (const candidate of [
+    {
+      name: "comparison-reject",
+      gate: "failed",
+      outcome: "reject",
+      band: "reject",
+      tier: "reject",
+    },
+    {
+      name: "comparison-insufficient",
+      gate: "insufficient_evidence",
+      outcome: "insufficient_evidence",
+      band: "investigate_further",
+      tier: "insufficient_evidence",
+    },
+    {
+      name: "comparison-watch",
+      gate: "passed",
+      outcome: "watchlist",
+      band: "watchlist",
+      tier: "watch",
+    },
+    {
+      name: "comparison-investigate",
+      gate: "passed",
+      outcome: "eligible",
+      band: "investigate_further",
+      tier: "investigate_further",
+    },
+    {
+      name: "comparison-prioritize",
+      gate: "passed",
+      outcome: "eligible",
+      band: "strong_candidate",
+      tier: "prioritize",
+    },
+  ] as const) {
+    const bundle = clone(ready);
+    setOpportunityGateStatus(bundle, "user_jtbd_entry_scene", candidate.gate);
+    const comparison = effective(bundle, G24_COMPARISON_A);
+    comparison.hard_gate_outcome = candidate.outcome;
+    comparison.recommendation_band = candidate.band;
+    refreshAllInputHashes(bundle);
+    assertAtAndAbove(candidate.name, bundle, candidate.tier);
+  }
+
+  for (const candidate of [
+    {
+      name: "panel-insufficient",
+      sufficiency: "insufficient",
+      band: "unknown",
+      tier: "insufficient_evidence",
+    },
+    { name: "panel-partial", sufficiency: "partial", band: "medium", tier: "investigate_further" },
+    { name: "panel-sufficient", sufficiency: "sufficient", band: "medium", tier: "prioritize" },
+  ] as const) {
+    const bundle = clone(ready);
+    const comparison = effective(bundle, G24_COMPARISON_A);
+    const panel = (comparison.comparison_panels as Record<string, unknown>[])[0] as Record<
+      string,
+      unknown
+    >;
+    panel.decision_sufficiency = candidate.sufficiency;
+    panel.band = candidate.band;
+    if (candidate.tier === "insufficient_evidence") {
+      comparison.recommendation_band = "investigate_further";
+    }
+    refreshAllInputHashes(bundle);
+    assertAtAndAbove(candidate.name, bundle, candidate.tier);
+  }
+
+  const nullFirstBet = clone(state.bundle);
+  assertAtAndAbove("portfolio-null-first-bet", nullFirstBet, "investigate_further");
+
+  const portfolioMismatch = clone(ready);
+  effective(portfolioMismatch, G24_PORTFOLIO).recommended_first_bet = G23_OPPORTUNITY_B;
+  refreshAllInputHashes(portfolioMismatch);
+  setDecisionTier(portfolioMismatch, "prioritize");
+  const mismatchResult = state.validator.validateDocumentBundle(portfolioMismatch);
+  assert.equal(mismatchResult.valid, false);
+  assert.ok(
+    mismatchResult.referenceErrors.some(
+      (error) => error.code === "g2_4.decision_tier_ceiling_violation",
+    ),
+    JSON.stringify(mismatchResult.referenceErrors, null, 2),
+  );
+
+  const mixed = clone(ready);
+  opportunityFanInCeiling(mixed).conclusion_ceiling = "watchlist";
+  effective(mixed, G24_COMPARISON_A).recommendation_band = "watchlist";
+  const mixedPanel = (
+    effective(mixed, G24_COMPARISON_A).comparison_panels as Record<string, unknown>[]
+  )[0] as Record<string, unknown>;
+  mixedPanel.decision_sufficiency = "insufficient";
+  mixedPanel.band = "unknown";
+  refreshAllInputHashes(mixed);
+  assertAtAndAbove("mixed-watch-and-insufficient", mixed, "insufficient_evidence");
+
+  setDecisionTier(mixed, "investigate_further");
+  const recoveryValidation = state.validator.validateDocumentBundle(mixed, {
+    validateHistoricalDiscoveryContracts: false,
+  });
+  assert.equal(recoveryValidation.valid, false);
+  assert.ok(
+    recoveryValidation.referenceErrors.some(
+      (error) => error.code === "g2_4.decision_tier_ceiling_violation",
+    ),
+    JSON.stringify(recoveryValidation.referenceErrors, null, 2),
+  );
+});
+
+test("G2.4 v12 keeps frozen v1 evaluation while v13 applies repaired v2 gates", async (context) => {
+  const state = await setup(context, "legacy-v12", "ai_first");
+  const legacy = legacyV12(state.bundle);
+  setAiMandatoryGateStatus(legacy, "not_applicable");
+  refreshAllInputHashes(legacy);
+  const legacyResult = state.validator.validateDocumentBundle(legacy);
+  assert.equal(legacyResult.valid, true, JSON.stringify(legacyResult, null, 2));
+
+  const repaired = clone(state.bundle);
+  setAiMandatoryGateStatus(repaired, "not_applicable");
+  refreshAllInputHashes(repaired);
+  const repairedResult = state.validator.validateDocumentBundle(repaired);
+  assert.equal(repairedResult.valid, false);
+  assert.ok(
+    repairedResult.referenceErrors.some(
+      (error) => error.code === "g2_4.ai_mandatory_bundle_gate_violation",
+    ),
+  );
+
+  const legacyState: State = { ...state, bundle: legacy };
+  const legacyEnvelopes = envelopes(legacy, "startup_opportunity.artifact_envelope.v12").filter(
+    (envelope) => envelope.artifact_type !== "startup_opportunity.report.v1",
+  );
+  const legacyBytes = new Map(
+    legacyEnvelopes.map((envelope) => [envelope.artifact_path, canonicalJson(envelope)]),
+  );
+  await publishThroughEvaluation(legacyState);
+  for (const [artifactPath, expected] of legacyBytes) {
+    assert.equal(
+      canonicalJson(JSON.parse(await readFile(path.join(state.runRoot, artifactPath), "utf8"))),
+      expected,
+      artifactPath,
+    );
+  }
+  const operationReceipts = await Promise.all(
+    (await readdir(path.join(state.runRoot, ".store/operations")))
+      .filter((filename) => filename.startsWith("artifact-"))
+      .map(async (filename) =>
+        JSON.parse(await readFile(path.join(state.runRoot, ".store/operations", filename), "utf8")),
+      ),
+  );
+  const legacyPaths = new Set(legacyEnvelopes.map((envelope) => envelope.artifact_path));
+  assert.ok(
+    operationReceipts
+      .filter((receipt) =>
+        legacyPaths.has(String((receipt as Record<string, unknown>).artifact_path)),
+      )
+      .every(
+        (receipt) =>
+          (receipt as Record<string, unknown>).schema_version ===
+          "startup_opportunity.artifact_store_operation.v10",
+      ),
+  );
+  const checkpoint = await legacyState.store.checkpoint({
+    runId: legacyState.runId,
+    checkpointId: "checkpoint_legacy_v12",
+    createdAt: "2026-07-27T22:01:00Z",
+    nextStep: "SYNTHETIC preserve the frozen v12 evaluation adapter.",
+    beliefSummary: {
+      current_belief: "SYNTHETIC historical contract behavior only.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["SYNTHETIC no validation success is claimed."],
+      remaining_disagreement: ["SYNTHETIC market truth remains unknown."],
+      next_decision_relevant_question: "SYNTHETIC should a v13 revision be supplied?",
+    },
+    inputRefs: [G24_RECOMMENDATION, G24_TRACEABILITY],
+  });
+  assert.match(checkpoint.checkpointRef, /legacy-v12/);
+  const reopened = await new RunStore(state.runsRoot, state.validator).load(state.runId);
+  assert.equal(reopened.manifest.schema_bundle_version, "11.0.0");
+  assert.ok(reopened.manifest.artifact_refs.includes(G24_RECOMMENDATION));
+  assert.equal(reopened.recovered, false);
+});
+
+test("G2.4 forbidden-expression rules cover every formal surface and separator variant", async (context) => {
+  const cases = [
+    { rule: "market_validation_success", value: "validation-success achieved" },
+    { rule: "market_validation_success", value: "achieved market_validation" },
+    { rule: "market_validation_success", value: "market-validation succeeded" },
+    { rule: "probability_claim", value: "success_probability is 95 percent" },
+    { rule: "probability_claim", value: "95_percent probability" },
+    { rule: "probability_claim", value: "probability_of_success=95%" },
+    { rule: "global_score", value: "global_score" },
+    { rule: "global_score", value: "global-score" },
+    { rule: "global_score", value: "overall score" },
+  ] as const;
+  for (const surface of ["structured_report", "decision_brief", "report_view"] as const) {
+    for (const candidate of cases) {
+      const matches = scanReportSurface(surface, candidate.value);
+      assert.ok(matches.some((match) => match.startsWith(`${candidate.rule}@${surface}:`)));
+    }
+  }
+
+  const state = await setup(context, "surface-boundary");
+  const report = evaluationEnvelope(state.bundle, G24_REPORT);
+  const derived = deriveReportEnvelopes(report);
+  for (const artifactType of [
+    "startup_opportunity.decision_brief.v2",
+    "startup_opportunity.discovery_report_view.v1",
+  ]) {
+    const envelope = clone(
+      derived.find(
+        (candidate) => candidate.artifact_type === artifactType,
+      ) as FormalArtifactEnvelope,
+    );
+    envelope.document.markdown =
+      "validation_success achieved with global_score and success_probability.";
+    envelope.document.markdown_content_hash = sha256Bytes(String(envelope.document.markdown));
+    (envelope as { content_hash: string }).content_hash = canonicalContentHash(envelope.document);
+    const validation = state.validator.validateDocument(envelope, envelope.artifact_path);
+    assert.equal(validation.valid, false);
+    assert.ok(validation.errors.some((error) => error.code === "g2_4.forbidden_report_expression"));
+    await assert.rejects(
+      state.store.publishArtifact({ runId: state.runId, envelope }),
+      (error: unknown) => error instanceof StoreError && error.code === "artifact.schema_invalid",
+    );
+    await assert.rejects(
+      readFile(path.join(state.runRoot, envelope.artifact_path), "utf8"),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT",
+    );
+  }
+});
+
+test("G2.4 forbidden sidecar fails before receipt and remains absent through checkpoint recovery", async (context) => {
+  const state = await setup(context, "forbidden-sidecar-recovery");
+  await publishThroughEvaluation(state);
+  await state.store.checkpoint({
+    runId: state.runId,
+    checkpointId: "checkpoint_before_forbidden_sidecar",
+    createdAt: "2026-07-27T22:00:00Z",
+    nextStep: "SYNTHETIC reject any forbidden report sidecar before publication.",
+    beliefSummary: {
+      current_belief: "SYNTHETIC report sidecars remain caller-supplied and unvalidated as truth.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["SYNTHETIC no validation success is claimed."],
+      remaining_disagreement: ["SYNTHETIC market truth remains unknown."],
+      next_decision_relevant_question: "SYNTHETIC should a clean report be supplied?",
+    },
+    inputRefs: [G24_RECOMMENDATION, G24_TRACEABILITY],
+  });
+  const report = evaluationEnvelope(state.bundle, G24_REPORT);
+  const sidecar = clone(
+    deriveReportEnvelopes(report).find(
+      (candidate) => candidate.artifact_type === "startup_opportunity.decision_brief.v2",
+    ) as FormalArtifactEnvelope,
+  );
+  sidecar.document.markdown =
+    "Market-validation succeeded with success_probability and global-score.";
+  sidecar.document.markdown_content_hash = sha256Bytes(String(sidecar.document.markdown));
+  (sidecar as { content_hash: string }).content_hash = canonicalContentHash(sidecar.document);
+  const operationsBefore = (await readdir(path.join(state.runRoot, ".store/operations"))).sort();
+  await assert.rejects(
+    state.store.publishArtifact({
+      runId: state.runId,
+      envelope: sidecar,
+      faultAt: "after_intent",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "artifact.schema_invalid",
+  );
+  assert.deepEqual(
+    (await readdir(path.join(state.runRoot, ".store/operations"))).sort(),
+    operationsBefore,
+  );
+  await assert.rejects(
+    readFile(path.join(state.runRoot, sidecar.artifact_path), "utf8"),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT",
+  );
+  const reopened = await new RunStore(state.runsRoot, state.validator).load(state.runId);
+  assert.ok(!reopened.manifest.artifact_refs.includes(sidecar.artifact_path));
+  assert.equal(reopened.recovered, false);
 });
 
 test("G2.4 rejects closed contract mutations with deterministic error codes", async (context) => {

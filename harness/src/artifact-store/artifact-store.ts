@@ -481,6 +481,7 @@ export class ArtifactStore {
   async publishBundleLocked(
     runRoot: string,
     input: PublishArtifactBundleInput,
+    validateHistoricalDiscoveryContracts = true,
   ): Promise<PublishArtifactBundleResult> {
     validateRunId(input.runId);
     if (input.envelopes.length < 2) {
@@ -504,7 +505,11 @@ export class ArtifactStore {
       }
       this.validateEnvelopeBoundary(input.runId, envelope);
     }
-    await this.validateEnvelopeSetReferences(runRoot, input.envelopes);
+    await this.validateEnvelopeSetReferences(
+      runRoot,
+      input.envelopes,
+      validateHistoricalDiscoveryContracts,
+    );
     const artifacts: PublishArtifactResult[] = [];
     for (const envelope of [...input.envelopes].sort((left, right) => {
       const rank = publicationRank(left) - publicationRank(right);
@@ -806,6 +811,7 @@ export class ArtifactStore {
   private async validateEnvelopeSetReferences(
     runRoot: string,
     envelopes: readonly FormalArtifactEnvelope[],
+    validateHistoricalDiscoveryContracts = true,
   ): Promise<void> {
     const pendingByPath = new Map(envelopes.map((envelope) => [envelope.artifact_path, envelope]));
     for (const envelope of envelopes) {
@@ -914,7 +920,7 @@ export class ArtifactStore {
           ? { exact_records: [] }
           : {}),
       },
-      { exactJsonlRecords },
+      { exactJsonlRecords, validateHistoricalDiscoveryContracts },
     );
     if (!bundleResult.valid) {
       throw new StoreError("artifact.reference_invalid", "formal artifact references are invalid", {
