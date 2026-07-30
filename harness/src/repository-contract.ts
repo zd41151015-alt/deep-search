@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-export const SKELETON_VERSION = "g4.1" as const;
+export const SKELETON_VERSION = "g4.3" as const;
 
 export const IMPLEMENTATION_STACK = {
   language: "TypeScript 7.0.2",
@@ -30,7 +30,15 @@ export const CODEX_INTEGRATION_PATHS = [
   ".codex/config.toml",
   ".codex/hooks.json",
   ".codex/hooks/research-guard.ts",
+  "docs/operations.md",
+  "docs/sample-runs.md",
+  "docs/plugin-decision.md",
   "harness/src/mcp/evidence-server.ts",
+  "tests/g4-integration.test.ts",
+  "tests/g4-operational.test.ts",
+  "tests/g4-clean-checkout.test.ts",
+  "tests/fixtures/g4/README.md",
+  "tests/fixtures/g4/synthetic-evidence.txt",
 ] as const;
 
 export const IMPLEMENTED_SKILL_COMMANDS = [

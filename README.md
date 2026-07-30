@@ -1,26 +1,94 @@
 # Startup Opportunity Research Harness
 
-This repository is the repo-backed, deterministic control layer for the Codex-native Startup Opportunity research workflow. Codex owns reasoning, tools, interaction, and subagent sessions; this Harness owns published core Artifact contracts, validated Run state, immutable Artifact publication, the Evidence storage substrate, checkpoints, and bounded Plan/Adaptation mechanics.
+This repository is the repo-backed control layer for evidence-based Startup Opportunity research in Codex. Codex owns reasoning, interaction, tools, and subagent sessions. The deterministic Harness owns Run state, immutable Artifact publication, Evidence storage, validation, plan adaptation, checkpoints, recovery, comparison, and report consistency.
 
-The repository has a directed G2 Opportunity Discovery repair candidate pending fresh independent whole-gate regression. Schema bundle `12.0.0` retains immutable G0-G2.4 history and adds the v13/receipt v11 repair adapter: selected-solution AI gate enforcement, closed recommendation ceilings, deterministic three-surface report scanning, and shared-candidate pre-kill protection. The deterministic Harness validates, publishes, checkpoints, recovers, summarizes validated comparison/sensitivity Artifacts, and materializes report views; it does not dispatch agents, synthesize research or decision semantics, perform network research, or infer provenance, independence, bias, freshness, Evidence quality, or validation success. G3+ remains unavailable.
+Formal research enters through the repo-local `$startup-opportunity` Skill. The same Skill and project configuration are used from Codex Desktop, CLI, and IDE integrations.
 
-## Toolchain
+## Install
 
-The only implementation stack is:
-
-- TypeScript `7.0.2` on Node.js `24.18.x` LTS.
-- npm `11.16.x`.
-- `package-lock.json` lockfile v3.
-
-Use a version manager that reads `.node-version`, or put the Homebrew Node 24 binary first on `PATH`. Then install exactly the locked dependency graph:
+The implementation stack is frozen to TypeScript `7.0.2`, Node.js `24.18.x`, npm `11.16.x`, and the single npm lockfile v3. Use a version manager that reads `.node-version`, then install the exact dependency graph and validate the checkout:
 
 ```sh
 npm ci
+npm run harness -- doctor --json
 ```
 
-The repository enables npm engine checks, so an unsupported Node/npm pair fails during installation instead of silently creating a second baseline.
+The repository enables npm engine checks. Installation fails when the active Node/npm pair is outside the frozen versions.
 
-## Development Commands
+Codex loads `.codex/config.toml`, the three project agents, optional hooks, and the local Evidence MCP server only for a trusted project. The MCP server uses stdio, receives no credentials, exposes only `record_evidence` and `get_evidence_manifest`, and cannot fetch a URL or form a research judgment.
+
+See [Operations](docs/operations.md) for clean-checkout setup, trust, hooks-disabled operation, recovery, and surface-specific launch notes.
+
+## Use
+
+Invoke the Skill in Codex and provide one explicit action:
+
+```text
+$startup-opportunity
+
+action: discover
+query: pet care apps for households in one primary market
+```
+
+```text
+$startup-opportunity
+
+action: assess
+query: Should independent travelers use a conflict checker before booking an itinerary?
+```
+
+```text
+$startup-opportunity
+
+action: resume
+run_id: RUN_ID
+instruction: Reopen from the latest validated checkpoint.
+```
+
+```text
+$startup-opportunity
+
+action: status
+run_id: RUN_ID
+```
+
+`discover` creates an `opportunity_discovery` Run and `assess` creates a `concept_evidence_assessment` Run. `resume` explicitly validates and reconciles persisted state. `status` is read-only and never starts a subagent. If action selection would change the output contract, Codex must clarify before creating a Run.
+
+[Sample Runs](docs/sample-runs.md) provides executable, synthetic walkthroughs. Its `.invalid` sources and fixture text are unverified and are not Evidence truth, market data, external validation, or product viability claims.
+
+## Explicit Harness
+
+Hooks and MCP improve guardrails and handoff ergonomics, but neither is a correctness dependency. The explicit entrypoints remain available when hooks are disabled or the local MCP server is unavailable:
+
+```sh
+npm run harness -- help
+npm run harness -- doctor --json
+npm run harness -- create-run --run-id RUN_ID --mode concept_evidence_assessment
+npm run harness -- status-run --run-id RUN_ID
+npm run harness -- load-run --run-id RUN_ID
+npm run harness -- record-evidence --run-id RUN_ID --unit-id UNIT_ID --source-url URL --research-goal GOAL --content-file FILE
+npm run harness -- validate-artifact --file path/to/document.json --json
+npm run harness -- validate-plan --bundle path/to/document-bundle.json --json
+npm run harness -- publish-artifact --file path/to/envelope-or-bundle.json
+npm run harness -- checkpoint-run --file path/to/checkpoint-input.json
+npm run harness -- analyze-gaps --file path/to/gap-analysis-input.json --json
+npm run harness -- validate-adaptation --bundle path/to/document-bundle.json --json
+npm run harness -- apply-plan-revision --file path/to/apply-input.json --json
+npm run harness -- calculate-comparison --bundle path/to/document-bundle.json --json
+npm run harness -- calculate-sensitivity --bundle path/to/document-bundle.json --json
+npm run harness -- audit-traceability --bundle path/to/document-bundle.json --json
+npm run harness -- build-report --file path/to/build-report-input.json --json
+```
+
+Command success proves mechanical validity only. It does not establish Evidence truth, sufficiency, market demand, recommendation readiness, external validation, or startup success.
+
+## Recovery
+
+Run data lives under `runs/<run_id>/` and is ignored by Git. `manifest.json` is the atomically replaced current index; plans, formal envelopes, checkpoints, and operation receipts are immutable. Reopen only through `load-run`, which validates durable state, repairs supported incomplete tails, reconciles completed operations, and fails closed on integrity conflicts. Completed Runs are not rewritten in place; use a continuation Run for refreshed Evidence or a changed decision.
+
+## Development
+
+Use the frozen runtime for every command:
 
 ```sh
 npm run lint
@@ -30,56 +98,21 @@ npm run validate:schemas
 npm run validate:fixtures
 npm run validate:store
 npm run test:faults
-npm run test:g0.4
-npm run test:g1.1
-npm run test:g1.2
-npm run test:g1.3
-npm run test:g1.4
-npm run test:g2.1
-npm run test:g2.2
-npm run test:g2.3
-npm run test:g2.4
 npm run test:recovery
+npm run test:g4
+npm run test:g4:clean
 npm run verify:skeleton
 ```
 
-The Harness entry is also directly inspectable:
+The architecture authority is `startup-opportunity-codex-research-harness.md`. Implementation state and accepted verification evidence live in `startup-opportunity-implementation-progress.md`.
 
-```sh
-npm run harness -- help
-npm run harness -- doctor --json
-npm run harness -- validate-artifact --schema-bundle --json
-npm run harness -- validate-artifact --file path/to/document.json --json
-npm run harness -- validate-artifact --bundle path/to/document-bundle.json --json
-npm run harness -- create-run --run-id RUN_ID --mode concept_evidence_assessment
-npm run harness -- load-run --run-id RUN_ID
-npm run harness -- record-evidence --run-id RUN_ID --unit-id UNIT_ID --source-url URL --research-goal GOAL --content-file FILE
-npm run harness -- record-evidence --run-id RUN_ID --unit-id UNIT_ID --source-uri URN --research-goal GOAL --content-file FILE
-npm run harness -- publish-artifact --file path/to/envelope-or-envelope-bundle.json
-npm run harness -- checkpoint-run --file path/to/checkpoint-input.json
-npm run harness -- validate-plan --bundle path/to/document-bundle.json --json
-npm run harness -- analyze-gaps --file path/to/gap-analysis-input.json --json
-npm run harness -- validate-adaptation --bundle path/to/document-bundle.json --json
-npm run harness -- apply-plan-revision --file path/to/apply-input.json --runs-root path/to/runs --json
-```
+## Boundaries
 
-`doctor` verifies required files, ownership documents, the single lockfile rule, and frozen package metadata. `validate-artifact` preserves the versioned schema/reference contracts. G0.4 commands return structured success or failure and consume only explicit files and validated Run state; they do not make hidden model calls. Store success proves mechanical persistence only; Plan/Adaptation success proves only closed mechanical preconditions. Neither establishes Evidence sufficiency, decision readiness, research completion, or Gate completion.
-
-## Repository Layout
-
-- `AGENTS.md`: durable repository rules and validation commands.
-- `.agents/skills/startup-opportunity/`: the repo-local Skill, progressive-disclosure references, and explicit script entrypoints.
-- `.codex/agents/`: lane researcher, evidence auditor, and adversarial reviewer role contracts.
-- `harness/src/`: deterministic TypeScript entry, repository contract, schema/reference validators through G2.4, Run/Artifact/Evidence stores, reporting, and bounded Plan/Adaptation runtime.
-- `harness/schemas/`: immutable Draft 2020-12 compatibility bundles plus default bundle `12.0.0`; v13 adds the G2 repair contracts without rewriting accepted upstream bytes.
-- `harness/policies/`, `harness/templates/`, `harness/evals/`: owned landing zones for later policies, reporting, and non-schema evaluators.
-- `tests/`: executable repository, schema/reference, real-filesystem store, fault, and recovery tests.
-- `runs/`: ignored runtime data boundary; only `.gitkeep` is committed.
-
-The architecture authority is `startup-opportunity-codex-research-harness.md`. Live slice status, accepted commits, verification evidence, and the only allowed next slice live in `startup-opportunity-implementation-progress.md`.
-
-## Current Boundaries
-
-The accepted G0/G1 mechanics, G2.1 maps, G2.2 discovery lane/fan-in runtime, caller-supplied G2.3 synthesis, and caller-supplied G2.4 evaluation/report publication are operational subject to fresh G2 boundary acceptance. `validate-artifact` and `publish-artifact` apply their exact versioned envelope/bundle adapters; v13 accepts repaired G2.4 publication only after the closed cross-artifact contract passes. This does not make `discover`, `assess`, `resume`, or `status` complete research workflows. `load-run` performs deterministic reopen/recovery; it does not restart agents or infer research judgment.
-
-Formal envelopes are immutable after publication. Their `content_hash` is SHA-256 over canonical `document` JSON. `manifest.json` is the atomically replaced current index; checkpoints preserve immutable snapshots. Receipt v1-v11 map exactly to their published envelope adapters. G2.3 formalization and G2.4 evaluation do not establish Evidence sufficiency, external validation, or market success. Evidence Store materialization keeps mechanical substrate fields separate from Agent-attested origin/provenance/freshness/independence/bias fields. Partial retry remains fail closed. No general workflow engine, daemon, UI, database, external validation execution, Plugin, hook, or MCP integration is implemented.
+- The Harness never dispatches agents, calls an LLM, executes research lanes, benchmarks a model, accesses the network, or synthesizes open-ended judgments.
+- Chat replies and subagent completion summaries are not formal Artifacts.
+- External sources used by formal Claims must enter the Evidence Store with explicit provenance and limitations.
+- Hooks do not route modes, advance state, retry work, or synthesize reports.
+- The MCP adapter does not judge an opportunity, recommend a product, or replace Codex permissions and thread lifecycle.
+- The system does not execute interviews, landing pages, deposits, advertising, paid experiments, MVP tests, or other external validation.
+- No general workflow runtime, DAG DSL, daemon, UI, or database is part of this repository.
+- G4 remains a Construction Stage candidate until an independent whole-G4 boundary acceptance is completed by the controller.

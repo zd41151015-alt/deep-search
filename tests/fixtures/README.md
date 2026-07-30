@@ -23,3 +23,5 @@ G0.3 adds three committed Store input fixtures plus real temporary-filesystem te
 `g2.3/` 复用 G2.2 synthetic lineage，覆盖 executable conversion v2、Demand/Baseline/Solution/Opportunity formal targets、Solution Evaluation、pre-enrichment Snapshot、semantic Merge、v11 staged publication/receipt/checkpoint/reopen/recovery 和 v10 fail-closed。它不合成 thesis 语义或声称 promotion/validation success。
 
 `g2.4/` 在初始 immutable Plan 中声明两个 enrichment units，并增加 exact task/unit binding、四个 Evidence substrate、v3 typed material、branch/fan-in、每个 opportunity 的 Value/State/Buyer/Business Engine、hard gate、四面板 comparison、sensitivity/partial order、portfolio/recommendation、traceability/freshness 和 discovery report。Runtime tests 覆盖 unplanned task fail-closed、v12 receipt/Manifest/terminal status/reopen、report view recovery、comparison/sensitivity/audit/build-report CLI/Skill 与 v11 fail-closed；全部内容明确为 synthetic/unverified，不构成真实 Evidence 或市场验证。
+
+`g4/` 提供单一明确标记为 `SYNTHETIC / UNVERIFIED` 的 caller-supplied Evidence bytes，用于repo-local Skill/config/hooks/MCP、hooks-disabled显式CLI、恢复与clean-checkout普通功能验证。它只绑定`.invalid` source，不执行network research或external validation，也不构成Evidence truth、市场数据、recommendation或产品可行性。

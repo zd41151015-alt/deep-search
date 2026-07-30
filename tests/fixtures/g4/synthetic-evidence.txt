@@ -1,0 +1,3 @@
+SYNTHETIC / UNVERIFIED G4 fixture bytes.
+This content exercises deterministic Evidence handoff only.
+It is not Evidence truth, market data, a user quote, or external validation.

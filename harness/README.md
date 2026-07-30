@@ -1,7 +1,17 @@
 # Deterministic Harness
 
-This tree contains repository-controlled mechanics for Startup Opportunity research. It may validate, persist, version, compare, checkpoint, and render typed artifacts, but it never performs open-ended research judgment or hidden model calls.
+`harness/` contains repository-controlled mechanics for Startup Opportunity research. It validates, persists, versions, compares, checkpoints, recovers, and renders caller-supplied typed Artifacts. It never performs open-ended research, hidden model calls, agent dispatch, network access, benchmark execution, or recommendation synthesis.
 
-G3.3 默认加载 schema bundle `15.0.0`。既有 schema/policy bytes 保持 immutable；v16 Envelope/Document Bundle、receipt v14、publication policy v11 与 evaluation policy v3只追加 caller-supplied mandatory AI bundle、固定六维 coverage 和 consumer binding。missing、incomplete、desk-research-only 或 stale coverage 必须显式降级；Harness 不生成 bundle/research/benchmark/语义判断，不访问 network，也不调用或派发 agent/LLM。
+The public entry is:
 
-The public developer entry is `npm run harness -- <command>`. G2 and G3 caller-supplied Artifacts use `validate-artifact`, `record-evidence`, `publish-artifact`, `checkpoint-run`, and `load-run`; G2.4 also opens read-only `calculate-comparison`, `calculate-sensitivity`, discovery-aware `audit-traceability`, and deterministic `build-report`. The Harness does not start lanes, obtain Evidence, synthesize research/evaluation semantics, infer dispositions, or make research judgments.
+```sh
+npm run harness -- <command>
+```
+
+Run `npm run harness -- help` for the complete command list and `npm run harness -- doctor --json` before relying on a checkout. `create-run`, read-only `status-run`, recovery-oriented `load-run`, Evidence/Artifact publication, plan validation/adaptation, comparison, traceability, report materialization, and checkpoints all consume explicit inputs and validated on-disk state.
+
+The G4 local Evidence MCP adapter is a narrow transport over the existing `EvidenceStore` API. `record_evidence` persists caller-supplied bytes; `get_evidence_manifest` returns validated substrate records. The server does not fetch a source, infer provenance, evaluate Evidence quality, form a Claim, or dispatch an agent. Its stdio registration and approval policy live in `.codex/config.toml`.
+
+Project hooks are optional lifecycle guardrails. They do not write formal `events.jsonl`, route mode, create plans, advance Run status, retry work, or build reports. Disabling hooks leaves all explicit Skill and Harness commands available.
+
+Schema bundle `15.0.0`, immutable v1-v16 envelopes/document bundles, receipts, and policies preserve the accepted G0-G3 contracts. G4 adds operational integration and documentation without changing those Artifact identities or persistence schemas. Mechanical success never proves Evidence truth, sufficiency, external validation, market demand, decision readiness, or product viability.
