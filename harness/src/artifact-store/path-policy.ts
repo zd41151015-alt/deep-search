@@ -94,6 +94,24 @@ export async function createRunDirectory(runsRoot: string, runId: string): Promi
 export async function openRunDirectory(runsRoot: string, runId: string): Promise<string> {
   validateRunId(runId);
   const root = await prepareRunsRoot(runsRoot);
+  return openRunDirectoryWithinRoot(root, runId);
+}
+
+export async function openRunDirectoryReadOnly(runsRoot: string, runId: string): Promise<string> {
+  validateRunId(runId);
+  const rootStat = await statOrNull(runsRoot);
+  if (!rootStat) {
+    throw new StoreError("run.not_found", "run does not exist", { runId });
+  }
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new StoreError("path.unsafe_runs_root", "runs root must be a real directory", {
+      runsRoot,
+    });
+  }
+  return openRunDirectoryWithinRoot(await realpath(runsRoot), runId);
+}
+
+async function openRunDirectoryWithinRoot(root: string, runId: string): Promise<string> {
   const target = path.join(root, runId);
   const stat = await statOrNull(target);
   if (!stat) {

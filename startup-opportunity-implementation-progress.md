@@ -1869,3 +1869,27 @@ RFC 10.3三项触发条件逐项判断：当前不需要跨仓库安装、不需
 | ordinary / security NOT_RUN | required ordinary`NOT_RUN=0`。MCP permission、hook trust/tool filter以及Run/Artifact identity/integrity/current-state异常分支只使用静态source/config与existing Store/fault/recovery mapping；`SECURITY_VALIDATION_NOT_RUN(reason=G4 fixed rules forbid new dynamic permission-bypass, hook-trust, tool-filter, identity, integrity, and current-state adversarial probes; static source and existing tests only)`；不得据此声明security PASS |
 
 G4.2/G4.3实现、docs、fixtures、tests与本账本形成一个原子提交（使用占位避免self-reference），其sole parent必须为`dfd89dcd20cc2e54c9cac80ec98afb2b3c3ab23e`。完成后G4仍为`IN_PROGRESS` Construction exit candidate；不标`DONE`，不执行或建议G4.R。
+
+### G4 first whole-boundary FAIL directed repair
+
+Fresh independent acceptance task `019fb1f3-9e4a-7d00-8239-28dcba107a08` 对 candidate `780f67c0f8a17a8505ac45fb8fcac6a34e31f8a7` 给出统一`FAIL`；这是G4第一次有效whole-boundary FAIL，连续计数=`1`。Acceptance记录P0/P2均无、ordinary required `NOT_RUN=0`，Plugin decision=`REPO_LOCAL_NOT_PACKAGED`正确，schema/policy目录无差异，synthetic fixtures继续明确`SYNTHETIC / UNVERIFIED`；这些既有证据保留，但不覆盖以下两个P1 blocker，也不构成security PASS。
+
+- `P1-G4-001` classification=`ordinary functional/current-state`。Authority为RFC 9.2的`status`从manifest读取且只读契约。原生产链`RunStore.status -> openRunDirectory -> prepareRunsRoot`会在runs root不存在时执行递归创建。本repair新增只读Run opener，不调用`prepareRunsRoot`或任何写API；不存在的runs root与不存在的Run保持既有`run.not_found`语义，存在Run的manifest validation、`load`恢复及其writer路径不变。永久ordinary test `tests/g4-integration.test.ts`的`status reports a missing Run without creating the absent runs root`验证调用前后父目录条目不变、runs root仍不存在并返回`run.not_found`；这是普通缺失资源边界，不构造认证、授权、信任、身份、完整性、凭证或持久化authority异常。
+- `P1-G4-002` classification=`SECURITY_SENSITIVE_VALIDATION, deterministic static finding`。Authority为RFC 10.2 MCP工具过滤/权限边界与RFC 14.4 auditor/reviewer只读边界。生产链`.codex/config.toml -> get_evidence_manifest(readOnlyHint=true) -> EvidenceStore.listRecords`现在只经过只读Run opener和validated manifest parser，不调用`withRunLock`，因此该只读路径不创建、取得或清理writer lock；`record`、recovery和其他writer路径继续使用原锁语义。静态proof映射到既有`tests/g4-integration.test.ts`合法in-memory MCP manifest读取，以及既有Store、fault、recovery suites；未新增或执行permission、current-state、lock、stale-lock、权限绕过或其他security-sensitive动态probe。`SECURITY_VALIDATION_NOT_RUN(reason=fixed-v7 directed repair forbids new dynamic permission, current-state, lock, stale-lock, bypass, identity, or integrity probes; the read-only production invariant is repaired by static source and mapped only to existing legal MCP and Store/fault/recovery tests)`；不得据此声明security PASS。
+
+#### directed repair shadow preflight
+
+全部命令使用Node.js`24.18.0`、npm`11.16.0`、TypeScript`7.0.2`与唯一package-lock v3，串行自然结束；没有运行security动态分支。该preflight只是主worker shadow evidence，不是formal boundary PASS。
+
+| 命令 / 边界 | directed repair结果 |
+| --- | --- |
+| `npm run test:g4.1` / `npm run test:g4` | PASS 5/5与7/7，全部0 failed/cancelled/skipped/todo；新增且只新增上述ordinary缺失runs-root status测试 |
+| `npm run validate:store` / `npm run test:faults` / `npm run test:recovery` | PASS existing tests 11/11、10/10、11/11，全部0 failed/cancelled/skipped/todo；只作为合法路径与static/existing-test security mapping，不扩张为异常分支PASS |
+| frozen doctor / `npm run verify:skeleton` | PASS 342/342与342/342；`ok=true`、skeleton=`g4.3`、frozen runtime和repo-local contract闭合 |
+| `npm run lint` / `npm run typecheck` | final PASS；lint检查350 files、0 errors/fixes，typecheck 0 errors；首次lint只检出一个函数签名format差异，修正后最终命令自然通过 |
+| `npm test` | PASS 348/348，0 failed/cancelled/skipped/todo；完整重放G0-G4 ordinary及existing fault/recovery入口 |
+| `npm run validate:schemas` / `npm run validate:fixtures` | PASS；schema bundle`15.0.0`、161 schemas / 151 document validators、0 errors；fixtures 221/221、0 failed/cancelled/skipped/todo |
+| `npm run test:g4:clean` | PASS 1/1、0 failed/cancelled/skipped/todo；candidate snapshot真实`npm ci`后install、frozen runtime、doctor、hook、Skill/CLI status/Evidence/load-recovery与stdio MCP入口闭合 |
+| diff / scope / NOT_RUN | `git diff --check` PASS；相对`780f67c`全部schema/policy JSON和package/toolchain bytes零修改，synthetic fixtures bytes零修改，Plugin保持`REPO_LOCAL_NOT_PACKAGED`；ordinary required `NOT_RUN=0`，security分支仅保留上述`SECURITY_VALIDATION_NOT_RUN(reason)`，0新增动态security probe |
+
+本directed repair commit使用账本占位避免self-reference，必须是`780f67c0f8a17a8505ac45fb8fcac6a34e31f8a7`的clean sole child。完成后G4继续为`IN_PROGRESS`；不标`DONE`，不开放下游Gate，不执行或建议acceptance。

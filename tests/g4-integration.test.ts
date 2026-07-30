@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,7 +13,7 @@ import {
   evaluatePreToolUse,
   evaluateStop,
 } from "../.codex/hooks/research-guard.js";
-import { createArtifactValidator, RunStore } from "../harness/src/index.js";
+import { createArtifactValidator, RunStore, StoreError } from "../harness/src/index.js";
 import { createEvidenceMcpServer } from "../harness/src/mcp/evidence-server.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -24,9 +24,7 @@ async function createSyntheticRun(): Promise<{
   readonly runId: string;
   readonly store: RunStore;
 }> {
-  const root = await import("node:fs/promises").then(({ mkdtemp }) =>
-    mkdtemp(path.join(tmpdir(), "startup-opportunity-g4-")),
-  );
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g4-"));
   const runsRoot = path.join(root, "runs");
   const runId = "g4-synthetic-unverified";
   const store = new RunStore(runsRoot, await createArtifactValidator(repositoryRoot));
@@ -126,6 +124,24 @@ test("status reads a validated manifest without mutating the Run", async (contex
   assert.equal(script.status, 0, script.stderr);
   assert.equal(JSON.parse(script.stdout).schemaVersion, "startup_opportunity.status_run_result.v1");
   assert.equal(await readFile(path.join(runRoot, "manifest.json"), "utf8"), beforeManifest);
+});
+
+test("status reports a missing Run without creating the absent runs root", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g4-missing-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const beforeEntries = await readdir(root);
+  const store = new RunStore(runsRoot, await createArtifactValidator(repositoryRoot));
+
+  await assert.rejects(
+    store.status("g4-missing-run"),
+    (error: unknown) => error instanceof StoreError && error.code === "run.not_found",
+  );
+
+  await assert.rejects(stat(runsRoot), (error: unknown) => {
+    return error instanceof Error && "code" in error && error.code === "ENOENT";
+  });
+  assert.deepEqual(await readdir(root), beforeEntries);
 });
 
 test("Evidence MCP records and lists synthetic unverified caller-supplied bytes", async (context) => {

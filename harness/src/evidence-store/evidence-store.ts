@@ -10,6 +10,7 @@ import {
 import {
   isNodeError,
   openRunDirectory,
+  openRunDirectoryReadOnly,
   resolveRunPath,
   validateRunId,
 } from "../artifact-store/path-policy.js";
@@ -607,8 +608,8 @@ export class EvidenceStore {
 
   async listRecords(runId: string): Promise<readonly EvidenceSubstrateRecord[]> {
     validateRunId(runId);
-    const runRoot = await openRunDirectory(this.runsRoot, runId);
-    return withRunLock(runRoot, () => this.listRecordsLocked(runRoot, runId));
+    const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
+    return this.listRecordsLocked(runRoot, runId);
   }
 
   async readExactRecordLocked(

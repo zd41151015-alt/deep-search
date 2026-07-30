@@ -23,6 +23,7 @@ import {
   createRunDirectory,
   isNodeError,
   openRunDirectory,
+  openRunDirectoryReadOnly,
   resolveRunPath,
   validateArtifactRef,
   validateRunId,
@@ -389,7 +390,7 @@ export class RunStore {
 
   async status(runId: string): Promise<StatusRunResult> {
     validateRunId(runId);
-    const runRoot = await openRunDirectory(this.runsRoot, runId);
+    const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
     return {
       schemaVersion: "startup_opportunity.status_run_result.v1",
       runId,
