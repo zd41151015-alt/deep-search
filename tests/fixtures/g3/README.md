@@ -6,9 +6,11 @@ real Evidence, an executed external validation, a successful benchmark, product 
 success.
 
 G3.2 economics, substitution, half-life, regulated-AI, and trust values are caller-supplied
-unknown/desk-research-only assumptions. They prove closed contract and conclusion-ceiling mechanics
-only.
+unknown assumptions. The default variant is desk-research-only; the G3.3 complete variant changes
+only synthetic contract states needed to exercise the v3 first-bet path. Neither variant establishes
+real-world sufficiency. They prove closed contract and conclusion-ceiling mechanics only.
 
 G3.3 mandatory bundle and v16 consumer bindings are also caller-supplied synthetic values. The
 fixture exercises fixed six-dimension aggregation, missing/stale continuation ceilings,
-not-required non-AI dispatch, report derivation, publication, checkpoint, and clean reopen only.
+not-required non-AI dispatch, a synthetic complete positive path, report derivation, publication,
+checkpoint, and clean reopen only.

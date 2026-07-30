@@ -21,9 +21,14 @@ import {
   G21_MAP_REFS,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import { G22_DEMAND_R2, G22_FAN_IN } from "./fixtures/g2.2/discovery-candidate-fixture.js";
-import { G24_RECOMMENDATION, G24_REPORT } from "./fixtures/g2.4/discovery-evaluation-fixture.js";
+import {
+  G24_COMPARISON_A,
+  G24_RECOMMENDATION,
+  G24_REPORT,
+} from "./fixtures/g2.4/discovery-evaluation-fixture.js";
 import {
   createG33AiBundleFixture,
+  createG33CompleteAiBundleFixture,
   createG33NonAiBindingFixture,
   G32_ECONOMICS,
   G33_MANDATORY_BUNDLE,
@@ -120,6 +125,27 @@ test("G3.3 validates fixed six-dimension mandatory coverage and explicit consume
   );
   assert.equal(mandatory.bundle_status, "desk_research_only");
   assert.equal(mandatory.conclusion_ceiling, "insufficient_evidence");
+});
+
+test("G3.3 complete bundle permits the v3 first-bet path when every other ceiling is ready", async () => {
+  const runId = "g3-3-complete-synthetic";
+  const bundle = await createG33CompleteAiBundleFixture(runId, {
+    generation: record(runId, "unit_seed_independent_demand", "a"),
+    evaluation: record(runId, "unit_counterfactual", "b"),
+    support: record(runId, "unit_enrichment_support", "c"),
+    challenge: record(runId, "unit_enrichment_challenge", "d"),
+  });
+  const validator = await createArtifactValidator(repositoryRoot);
+  const result = validator.validateDocumentBundle(bundle);
+  assert.equal(result.valid, true, JSON.stringify(allErrors(result), null, 2));
+
+  const mandatory = g3Envelope(bundle, G33_MANDATORY_BUNDLE).document;
+  assert.equal(mandatory.bundle_status, "complete");
+  assert.equal(mandatory.conclusion_ceiling, "prioritize_allowed");
+  const comparison = g3Envelope(bundle, G24_COMPARISON_A);
+  assert.equal(binding(comparison).coverage_state, "complete");
+  assert.equal(comparison.document.recommendation_band, "strong_candidate");
+  assert.equal(g3Envelope(bundle, G24_RECOMMENDATION).document.decision_tier, "prioritize");
 });
 
 test("G3.3 coverage aggregation distinguishes insufficient evidence from not applicable", async (t) => {

@@ -4,12 +4,18 @@ import {
   type EvidenceStoreRecordV2,
   type FormalArtifactEnvelope,
 } from "../../../harness/src/index.js";
-import { G23_OPPORTUNITY_A, G23_SOLUTION } from "../g2.3/discovery-synthesis-fixture.js";
+import {
+  G23_OPPORTUNITY_A,
+  G23_OPPORTUNITY_B,
+  G23_SOLUTION,
+} from "../g2.3/discovery-synthesis-fixture.js";
 import {
   createDiscoveryEvaluationFixture,
   G24_COMPARISON_A,
   G24_EVIDENCE_SUPPORT,
+  G24_FAN_IN,
   G24_JUDGMENT_A_SUPPORT,
+  G24_PORTFOLIO,
   G24_RECOMMENDATION,
   G24_REPORT,
   G24_TRACEABILITY,
@@ -582,6 +588,126 @@ export async function createG33AiBundleFixture(
     (consumer as { input_refs: readonly string[] }).input_refs = [
       ...new Set([...consumer.input_refs, G23_OPPORTUNITY_A, G23_SOLUTION, G33_MANDATORY_BUNDLE]),
     ].sort();
+  }
+  return bundle;
+}
+
+function effectiveFixtureDocument(bundle: DocumentBundle, artifactPath: string) {
+  const outer = g3Envelope(bundle, artifactPath) as unknown as Record<string, unknown>;
+  return String(outer.schema_version).startsWith("startup_opportunity.artifact_envelope.")
+    ? (outer.document as Record<string, unknown>)
+    : outer;
+}
+
+function refreshFixtureEnvelope(bundle: DocumentBundle, artifactPath: string): void {
+  const outer = g3Envelope(bundle, artifactPath) as unknown as Record<string, unknown>;
+  if (String(outer.schema_version).startsWith("startup_opportunity.artifact_envelope.")) {
+    outer.content_hash = canonicalContentHash(outer.document as Record<string, unknown>);
+  }
+}
+
+function refreshAllFixtureHashes(bundle: DocumentBundle): void {
+  for (let pass = 0; pass < bundle.documents.length; pass += 1) {
+    let changed = false;
+    for (const candidate of bundle.documents) {
+      const document = effectiveFixtureDocument(bundle, candidate.path);
+      const hashLists = [
+        document.input_artifact_hashes,
+        (document.report_metadata as Record<string, unknown> | undefined)?.input_artifact_hashes,
+      ];
+      for (const hashes of hashLists) {
+        if (!Array.isArray(hashes)) {
+          continue;
+        }
+        for (const binding of hashes) {
+          if (!binding || typeof binding !== "object" || !("ref" in binding)) {
+            continue;
+          }
+          const ref = String(binding.ref);
+          if (!bundle.documents.some((entry) => entry.path === ref)) {
+            continue;
+          }
+          const expected = canonicalContentHash(effectiveFixtureDocument(bundle, ref));
+          if (binding.content_hash !== expected) {
+            binding.content_hash = expected;
+            changed = true;
+          }
+        }
+      }
+      refreshFixtureEnvelope(bundle, candidate.path);
+    }
+    if (!changed) {
+      return;
+    }
+  }
+}
+
+export async function createG33CompleteAiBundleFixture(
+  runId: string,
+  substrate: G3FixtureSubstrate,
+): Promise<DocumentBundle> {
+  const bundle = await createG33AiBundleFixture(runId, substrate);
+  for (const artifactPath of [G32_ECONOMICS, G32_COMMODITIZATION, G32_TRUST]) {
+    g3Envelope(bundle, artifactPath).document.research_mode = "limited_evaluation";
+  }
+
+  const mandatory = g3Envelope(bundle, G33_MANDATORY_BUNDLE).document;
+  mandatory.research_mode = "limited_evaluation";
+  mandatory.bundle_status = "complete";
+  mandatory.continuation = { required: false, reason: "none", action: SYNTHETIC };
+  mandatory.conclusion_ceiling = "prioritize_allowed";
+
+  const fanIn = g3Envelope(bundle, G24_FAN_IN).document;
+  for (const gate of fanIn.hard_gate_inputs as Record<string, unknown>[]) {
+    if (gate.opportunity_ref === G23_OPPORTUNITY_A) {
+      gate.status = "passed";
+    }
+  }
+  const fanInCeiling = (fanIn.opportunity_conclusion_ceilings as Record<string, unknown>[]).find(
+    (entry) => entry.opportunity_ref === G23_OPPORTUNITY_A,
+  );
+  if (fanInCeiling === undefined) {
+    throw new Error("missing G3 complete fixture fan-in ceiling");
+  }
+  fanInCeiling.conclusion_ceiling = "strong_candidate";
+
+  const comparison = g3Envelope(bundle, G24_COMPARISON_A).document;
+  for (const gate of comparison.hard_gate_results as Record<string, unknown>[]) {
+    gate.status = "passed";
+  }
+  comparison.hard_gate_outcome = "eligible";
+  comparison.recommendation_band = "strong_candidate";
+  for (const panel of comparison.comparison_panels as Record<string, unknown>[]) {
+    panel.band = "medium";
+    panel.decision_sufficiency = "sufficient";
+  }
+
+  const portfolio = g3Envelope(bundle, G24_PORTFOLIO).document;
+  portfolio.recommended_first_bet = G23_OPPORTUNITY_A;
+  portfolio.alternative_bets = [G23_OPPORTUNITY_B];
+  const recommendation = g3Envelope(bundle, G24_RECOMMENDATION).document;
+  recommendation.recommended_first_bet = G23_OPPORTUNITY_A;
+  recommendation.alternative_bets = [G23_OPPORTUNITY_B];
+  recommendation.decision_tier = "prioritize";
+  const reportEnvelope = g3Envelope(bundle, G24_REPORT);
+  const report = reportEnvelope.document;
+  report.top_opportunity_refs = [G23_OPPORTUNITY_A];
+  const context = report.curated_judgment_context as Record<string, unknown>;
+  context.recommended_first_bet = G23_OPPORTUNITY_A;
+  context.alternative_bets = [G23_OPPORTUNITY_B];
+  context.decision_tier = "prioritize";
+  (reportEnvelope as { input_refs: readonly string[] }).input_refs = [
+    ...new Set(reportEnvelope.input_refs.filter((ref) => ref !== G23_OPPORTUNITY_B)),
+  ].sort();
+
+  refreshAllFixtureHashes(bundle);
+  const mandatoryHash = canonicalContentHash(mandatory);
+  for (const artifactPath of [G24_COMPARISON_A, G24_RECOMMENDATION, G24_TRACEABILITY, G24_REPORT]) {
+    const consumer = g3Envelope(bundle, artifactPath);
+    const binding = consumer.ai_bundle_binding as Record<string, unknown>;
+    binding.bundle_content_hash = mandatoryHash;
+    binding.coverage_state = "complete";
+    binding.conclusion_ceiling = "prioritize_allowed";
   }
   return bundle;
 }

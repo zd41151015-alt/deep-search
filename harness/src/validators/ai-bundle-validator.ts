@@ -748,6 +748,15 @@ export function validateAiBundleContract(
       continue;
     }
     const usesAi = solution.document.uses_ai === true;
+    const mandatoryLineage = mandatory === undefined ? null : lineage(mandatory.document);
+    const matchingMandatoryPresent =
+      mandatory !== undefined &&
+      mandatoryLineage !== null &&
+      mandatory.document.run_id === consumer.document.run_id &&
+      mandatoryLineage.subject_ref === binding.subject_ref &&
+      mandatoryLineage.opportunity_ref === binding.subject_ref &&
+      mandatoryLineage.selected_solution_ref === binding.selected_solution_ref &&
+      mandatoryLineage.trigger_version === binding.trigger_version;
     if (
       consumer.schemaVersion === "startup_opportunity.opportunity_comparison.v1" &&
       consumer.document.opportunity_ref !== binding.subject_ref
@@ -782,6 +791,7 @@ export function validateAiBundleContract(
 
     if (binding.status === "missing") {
       if (
+        matchingMandatoryPresent ||
         binding.coverage_state !== "missing" ||
         binding.bundle_ref !== null ||
         binding.bundle_content_hash !== null ||
@@ -793,7 +803,7 @@ export function validateAiBundleContract(
           issue(
             "g3.missing_bundle_binding_invalid",
             `${consumer.path}#/ai_bundle_binding`,
-            "a missing AI bundle requires null identity and a degraded conclusion ceiling",
+            "a missing AI bundle requires exact bundle absence, null identity, and a degraded conclusion ceiling",
           ),
         );
       }

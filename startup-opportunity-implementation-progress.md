@@ -248,12 +248,12 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | G3 Construction Stage 唯一主写入 worker按 fixed-v5连续完成 G3.1-G3.3；不创建 subagent、worktree或 Handoff |
-| Current slice | G2=`DONE`；G3=`IN_PROGRESS`；G3.1-G3.3=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`；G4=`NOT_READY` |
-| Expected base | accepted G2=`6d09cc7afbe2a3638f627f5e2fe4fe90412c683c`；G3.1=`bed46a4a9f4d977155b68e4d5fbbed6929d9cf55`；G3.2=`4d727dfa5fd60bb06c73ccdf553ef47acce9e1f8`；G3.3 candidate必须为其clean sole child |
+| Active task | G3第一次有效whole-boundary FAIL后，唯一主写入 worker按 fixed-v5修复两个implementable P1；`PD-G3-001`保持blocking；不创建 subagent、worktree或 Handoff |
+| Current slice | G2=`DONE`；G3=`FIRST_FAIL_REPAIR_CANDIDATE_WITH_PD_BLOCKER`；G3.1-G3.3=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`；G4=`NOT_READY` |
+| Expected base | failed G3 candidate=`b54fd76e341cd96c95642d30ecd21a47ea0685df`；repair candidate必须为其clean sole child；accepted G2 -> `bed46a4` -> `4d727df` -> `b54fd76`历史不得改写 |
 | Consecutive state-query failures | `0` |
-| Last effective operation | G3.3 v16/bundle `15.0.0`/receipt v14/publication v11/evaluation v3实现、内部修复与whole-Stage candidate preflight已完成；commit identity以Git为准 |
-| Next allowed action | 当前唯一 worker形成clean G3.3原子提交后停止；不自称boundary PASS，不标G3 `DONE`，不开放G4 |
+| Last effective operation | acceptance task `019fb0ad-c6f6-7553-b91d-f2bbde2c2f17`统一FAIL后，两个implementable P1的bounded repair与candidate preflight已完成；G3有效boundary FAIL count=`1` |
+| Next allowed action | 当前唯一 worker形成以`b54fd76`为sole parent的clean repair原子提交后停止；`PD-G3-001`仍blocking；不自称boundary PASS，不标G3 `DONE`，不开放G4 |
 
 ## 已完成切片与证据
 
@@ -1749,10 +1749,36 @@ fixed-v5 security-sensitive mapping：bound consumer bundle hash、publication v
 
 G3.3原子提交使用占位避免self-reference，sole parent必须为`4d727dfa5fd60bb06c73ccdf553ef47acce9e1f8`。完成whole-Stage preflight后，G3.1-G3.3仍只标`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`，G3不得标`DONE`，G4保持`NOT_READY`。
 
+#### G3 first whole-boundary FAIL directed repair candidate
+
+Fresh independent acceptance task `019fb0ad-c6f6-7553-b91d-f2bbde2c2f17` 对 candidate `b54fd76e341cd96c95642d30ecd21a47ea0685df` 给出统一 `FAIL`；这是 G3 第一次有效 whole-boundary FAIL，连续计数=`1`。Acceptance 的全部动态命令均 PASS，但形成 `P1-G3-001`、`P1-G3-002` 与 `PD-G3-001` 三个 blocker。本返修只实施前两个可修 finding；`PD-G3-001` 依据 fixed-v5 C1/C5/C6 与本节 G3.3 security mapping 继续保持 `SECURITY_SENSITIVE` blocking，fixed-v5 不提供 retrospective waiver。不得删除、淡化、重分类、复现、推导或动态复验该 deviation，也不得把草稿删除或结果不计入证据表述为修复。
+
+- `P1-G3-001` classification=`ordinary functional`。`discovery-evaluation-validator.ts` 现在只在 evaluation policy v3读取 consumer binding：`bound + complete` 的 AI Solution 使 `ai_mandatory_bundle` gate为`passed`，degraded AI bundle仍为`insufficient_evidence`，non-AI `not_required`为`not_applicable`；recommendation ceiling与first-bet readiness采用同一v3状态。v12 evaluation v1与v13-v15 v2语义不变，其他G2/G3 hard gate、panel、fan-in与first-bet ceiling不弱化。新增 `createG33CompleteAiBundleFixture` 与永久ordinary positive test，显式构造synthetic/unverified complete contract state，并证明只有其他边界也ready时v3才允许`prioritize`；不声称真实Evidence、benchmark truth、外部validation、产品可行或市场成功。
+- `P1-G3-002` classification=`SECURITY_SENSITIVE_VALIDATION (exact bundle identity / consumer integrity)`。`validateAiBundleContract` 的静态生产逻辑现在先核对mandatory bundle与consumer的exact Run、subject、selected Solution及trigger lineage；exact matching mandatory bundle存在时，consumer `binding.status=missing`必定产生`g3.missing_bundle_binding_invalid`。没有新增或执行动态identity/integrity负向probe、异常authority-state变体或保护绕过。Invariant映射到现有 `tests/g3.3-ai-mandatory-bundle.test.ts` 的合法bound/missing/non-AI/report/publication/reopen路径、`tests/store-faults.test.ts` 10/10与`tests/store-recovery.test.ts` 11/11；这些既有测试输出和静态proof不扩张为新异常分支的PASS。`SECURITY_VALIDATION_NOT_RUN(reason=fixed-v5 forbids constructing a new dynamic exact-bundle identity/integrity adversarial state; production invariant is repaired by static source and mapped only to existing tests)`。
+- `PD-G3-001` classification=`SECURITY_SENSITIVE process blocker`，状态仍为`BLOCKING`。本账本只保留finding ID、authority和静态blocking结论，不保存或重述被禁止步骤。G3仍不得标`DONE`，G4仍为`NOT_READY`。
+
+Repair candidate验证全部使用Node.js `24.18.0`、npm `11.16.0`、TypeScript `7.0.2`与唯一package-lock v3。需要tsx IPC的命令在managed sandbox内曾因`listen EPERM`无法启动，随后在允许的本地冻结环境重跑并明确exit 0；该sandbox限制不记作candidate failure。所有H14-capable命令均显式使用`STARTUP_OPPORTUNITY_H14_PARENT_GIT_SOURCE=/Users/chelaile/IdeaProjects/deep-search`，且exact producer Git source包含required parent object。
+
+| 命令 / 边界 | Directed repair candidate结果 |
+| --- | --- |
+| frozen doctor / `npm run verify:skeleton` | PASS；doctor `ok=true`、skeleton=`g3.3`，冻结runtime与repository contract闭合 |
+| `test:g3.1` / `test:g3.2` / `test:g3.3` | PASS；分别7/7、10/10、13/13；全部0 failed/cancelled/skipped/todo |
+| `test:g2.4` | PASS 32/32，0 failed/cancelled/skipped/todo；v12 v1、v13-v15 v2兼容与H14 parent/current lifecycle保持闭合 |
+| `npm run validate:fixtures` | PASS 200/200，0 failed/cancelled/skipped/todo |
+| `npm run validate:schemas` | PASS；bundle `15.0.0`、161 schemas / 151 document validators，0 errors |
+| `npm run lint` / `npm run typecheck` | PASS；Biome checked 343 files、0 fixes/errors；`tsc --noEmit` 0 errors |
+| `npm run validate:store` | PASS 11/11，0 failed/cancelled/skipped/todo |
+| `npm run test:faults` / `npm run test:recovery` | PASS existing tests 10/10与11/11，全部0 failed/cancelled/skipped/todo；只作existing-test mapping，未新增security-sensitive probe |
+| `npm test` | PASS 322/322，0 failed/cancelled/skipped/todo；新增计数仅来自complete bundle ordinary positive path，完整重放G0-G3、report/store/fault/recovery与H14入口 |
+| ordinary / security NOT_RUN | required ordinary `NOT_RUN=0`；上述P1 identity异常分支与既有G3 bundle/policy/receipt/Manifest integrity/current-state、protected data-rights/privacy/trust异常分支继续逐项`SECURITY_VALIDATION_NOT_RUN(reason)`，不得记PASS；`PD-G3-001`继续blocking |
+| bytes / lineage / scope | repair base=`b54fd76e341cd96c95642d30ecd21a47ea0685df`、parent=`4d727dfa5fd60bb06c73ccdf553ef47acce9e1f8`；全部既有schema/policy JSON、package/toolchain bytes零修改；无network/research/LLM/agent/external-validation/G4/Workflow Runtime/DAG/daemon/UI/DB新增面；`git diff --check` PASS |
+
+本 repair commit 使用账本占位避免self-reference，必须是 `b54fd76e341cd96c95642d30ecd21a47ea0685df` 的clean sole child。主worker preflight不是正式boundary PASS；`PD-G3-001`仍阻止G3自动完成。本 worker停止于clean repair candidate，不创建或建议acceptance，不开放G4。
+
 ## 当前边界与后续状态
 
 - G0 Foundation 已通过独立 whole-gate regression；当前没有 G0 blocker。
 - G1.1-G1.4、G1.R、G1 Concept Evidence Assessment 与 W4 均为 `DONE`；中控已接受 G1.R commit `a30c0967860bf31d26fc959c583f8c5b6b1b4caa`。
-- G2 Opportunity Discovery 与 W5=`DONE`；fixed-v5 fresh independent acceptance `019fada4-6e70-7ce1-8b0e-2756ef0a9f20` 对 `6d09cc7` 统一 PASS。G3=`IN_PROGRESS`，G3.1-G3.3=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`；G4=`NOT_READY`。
+- G2 Opportunity Discovery 与 W5=`DONE`；fixed-v5 fresh independent acceptance `019fada4-6e70-7ce1-8b0e-2756ef0a9f20` 对 `6d09cc7` 统一 PASS。G3第一次有效whole-boundary acceptance `019fb0ad-c6f6-7553-b91d-f2bbde2c2f17` 对 `b54fd76` 统一FAIL，count=`1`；两个implementable P1已形成repair candidate，`PD-G3-001`仍blocking。G3不为`DONE`，G3.1-G3.3=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`；G4=`NOT_READY`。
 - `validate-artifact`、Evidence/Artifact Store、RunStore、bounded assessment adaptation、audit/traceability、concept/discovery report、G2.1 maps、G2.2 candidate/lane/fan-in、G2.3 caller-supplied synthesis、G2.4 caller-supplied evaluation/report以及G3.1-G3.3 caller-supplied AI baseline/reliability/data/economics/commoditization/trust/mandatory-bundle validation/publication已形成 deterministic surface；Harness不执行research/benchmark，不生成语义判断，不调用LLM或agent，不访问network。
 - 目标 runtime 是精确 Node.js `24.18.0` 与 npm `11.16.0`；开发者不得用错误版本证据替代冻结验证。

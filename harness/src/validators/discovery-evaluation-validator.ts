@@ -640,6 +640,18 @@ function selectedSolutionUsesAi(
   };
 }
 
+function aiBundleCompleteOrNotRequired(
+  comparison: DiscoveryEvaluationDocument | undefined,
+  usesAi: boolean,
+): boolean {
+  const binding = isRecord(comparison?.envelope?.ai_bundle_binding)
+    ? comparison.envelope.ai_bundle_binding
+    : null;
+  return usesAi
+    ? binding?.status === "bound" && binding.coverage_state === "complete"
+    : binding?.status === "not_required" && binding.coverage_state === "not_required";
+}
+
 function tierExceeds(actual: unknown, ceiling: string): boolean {
   return (
     DECISION_TIER_ORDER.indexOf(actual as (typeof DECISION_TIER_ORDER)[number]) >
@@ -734,6 +746,8 @@ function validateEvaluationAndReporting(
 ): void {
   const repairedPolicy =
     policy.schema_version === "startup_opportunity.discovery_evaluation_policy.v2" ||
+    policy.schema_version === "startup_opportunity.discovery_evaluation_policy.v3";
+  const currentPolicy =
     policy.schema_version === "startup_opportunity.discovery_evaluation_policy.v3";
   const fanIns = entries.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.enrichment_fan_in.v1",
@@ -845,13 +859,21 @@ function validateEvaluationAndReporting(
         );
       }
       const aiMandatoryGate = gates.find((gate) => gate.gate_id === "ai_mandatory_bundle");
-      if (selectedSolution.usesAi && aiMandatoryGate?.status !== "insufficient_evidence") {
+      const expectedAiGateStatus = selectedSolution.usesAi
+        ? currentPolicy && aiBundleCompleteOrNotRequired(comparison, true)
+          ? "passed"
+          : "insufficient_evidence"
+        : "not_applicable";
+      if (
+        (currentPolicy || selectedSolution.usesAi) &&
+        aiMandatoryGate?.status !== expectedAiGateStatus
+      ) {
         errors.push(
           issue(
             "g2_4.ai_mandatory_bundle_gate_violation",
             `${comparison.path}#/hard_gate_results`,
-            "an AI-selected Solution without a G3 bundle must fail closed as insufficient_evidence",
-            { actualStatus: aiMandatoryGate?.status },
+            "AI mandatory gate status must follow complete, degraded, or not-required bundle coverage",
+            { expectedStatus: expectedAiGateStatus, actualStatus: aiMandatoryGate?.status },
           ),
         );
       }
@@ -1020,13 +1042,16 @@ function validateEvaluationAndReporting(
       )?.conclusion_ceiling;
       const gates = records(selectedComparison?.document.hard_gate_results);
       const panels = records(selectedComparison?.document.comparison_panels);
-      const aiMissing = selectedSolutionUsesAi(firstBet, byPath).usesAi;
+      const selectedSolution = selectedSolutionUsesAi(firstBet, byPath);
+      const aiBundleReady = currentPolicy
+        ? aiBundleCompleteOrNotRequired(selectedComparison, selectedSolution.usesAi)
+        : !selectedSolution.usesAi;
       const componentCeilings = [
         comparisonTier(selectedComparison),
         fanInTier(fanInCeiling),
         gateTier(gates),
         panelTier(panels),
-        aiMissing ? "investigate_further" : "prioritize",
+        aiBundleReady ? "prioritize" : "investigate_further",
       ];
       ceiling = strictestTier(componentCeilings);
       firstBetReady =
@@ -1040,7 +1065,7 @@ function validateEvaluationAndReporting(
             panel.decision_sufficiency === "sufficient" &&
             !["weak", "unknown"].includes(String(panel.band)),
         ) &&
-        !aiMissing;
+        aiBundleReady;
       if (!firstBetReady) {
         ceiling = strictestTier([ceiling, "investigate_further"]);
       }
