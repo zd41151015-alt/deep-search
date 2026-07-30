@@ -33,6 +33,15 @@ const MANDATORY_INPUTS = [
   ["adoption_trust_ref", "startup_opportunity.ai_adoption_trust.v1"],
 ] as const;
 
+const AI_CONCLUSION_CEILING_ORDER = [
+  "reject",
+  "insufficient_evidence",
+  "investigate_further_only",
+  "prioritize_allowed",
+] as const;
+
+type AiConclusionCeiling = (typeof AI_CONCLUSION_CEILING_ORDER)[number];
+
 const CONSUMER_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.opportunity_comparison.v1",
   "startup_opportunity.decision_recommendation.v1",
@@ -74,6 +83,114 @@ function strings(value: unknown): readonly string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string")
     : [];
+}
+
+function strictestAiConclusionCeiling(values: readonly AiConclusionCeiling[]): AiConclusionCeiling {
+  return values.reduce<AiConclusionCeiling>(
+    (strictest, candidate) =>
+      AI_CONCLUSION_CEILING_ORDER.indexOf(candidate) <
+      AI_CONCLUSION_CEILING_ORDER.indexOf(strictest)
+        ? candidate
+        : strictest,
+    "prioritize_allowed",
+  );
+}
+
+function mappedCeiling(
+  value: unknown,
+  prioritizeValues: readonly string[],
+  investigateValues: readonly string[],
+): AiConclusionCeiling {
+  if (prioritizeValues.includes(String(value))) {
+    return "prioritize_allowed";
+  }
+  if (investigateValues.includes(String(value))) {
+    return "investigate_further_only";
+  }
+  return "insufficient_evidence";
+}
+
+function specializedInputCeiling(entry: AiBundleDocument): AiConclusionCeiling {
+  const ceilings: AiConclusionCeiling[] = [];
+  const freshness = isRecord(entry.document.freshness) ? entry.document.freshness : {};
+  if (entry.document.research_mode === "desk_research_only" || freshness.status !== "current") {
+    ceilings.push("insufficient_evidence");
+  }
+
+  const explicitCeiling = entry.document.conclusion_ceiling;
+  if (
+    typeof explicitCeiling === "string" &&
+    AI_CONCLUSION_CEILING_ORDER.includes(explicitCeiling as AiConclusionCeiling)
+  ) {
+    ceilings.push(explicitCeiling as AiConclusionCeiling);
+  }
+
+  if (entry.schemaVersion === "startup_opportunity.capability_evidence.v1") {
+    const results = Array.isArray(entry.document.dimension_results)
+      ? entry.document.dimension_results.filter(isRecord)
+      : [];
+    ceilings.push(
+      results.some((result) => result.coverage_status === "insufficient_evidence")
+        ? "insufficient_evidence"
+        : "prioritize_allowed",
+    );
+  }
+
+  if (entry.schemaVersion === "startup_opportunity.ai_capability_benchmark.v1") {
+    const candidate = isRecord(entry.document.product_candidate_result)
+      ? entry.document.product_candidate_result
+      : {};
+    const representativeness = isRecord(entry.document.representativeness)
+      ? entry.document.representativeness
+      : {};
+    ceilings.push(
+      mappedCeiling(candidate.incremental_value_status, ["demonstrated"], ["partial"]),
+      mappedCeiling(representativeness.status, ["representative"], ["limited"]),
+    );
+  }
+
+  if (entry.schemaVersion === "startup_opportunity.ai_evaluation_reliability.v1") {
+    const reliability = isRecord(entry.document.technical_reliability)
+      ? entry.document.technical_reliability
+      : {};
+    const humanBoundary = isRecord(entry.document.human_boundary)
+      ? entry.document.human_boundary
+      : {};
+    ceilings.push(
+      mappedCeiling(reliability.status, ["sufficient"], ["partial"]),
+      mappedCeiling(reliability.evaluation_feasibility, ["feasible"], ["partial"]),
+      mappedCeiling(
+        humanBoundary.mode,
+        ["human_in_the_loop", "human_on_the_loop", "automation_allowed"],
+        [],
+      ),
+    );
+  }
+
+  if (entry.schemaVersion === "startup_opportunity.ai_data_dependency.v1") {
+    const requirements = Array.isArray(entry.document.data_requirements)
+      ? entry.document.data_requirements.filter(isRecord)
+      : [];
+    const groundTruth = isRecord(entry.document.ground_truth) ? entry.document.ground_truth : {};
+    const feedback = isRecord(entry.document.feedback_loop) ? entry.document.feedback_loop : {};
+    const portability = isRecord(entry.document.provider_portability)
+      ? entry.document.provider_portability
+      : {};
+    ceilings.push(
+      ...requirements.map((requirement) =>
+        mappedCeiling(requirement.availability, ["available"], ["partial"]),
+      ),
+      mappedCeiling(groundTruth.status, ["available"], ["partial"]),
+      mappedCeiling(feedback.status, ["available"], ["limited"]),
+      mappedCeiling(
+        portability.status,
+        ["provider_independent", "portable_with_cost"],
+        ["provider_locked"],
+      ),
+    );
+  }
+
+  return strictestAiConclusionCeiling(ceilings.length === 0 ? ["prioritize_allowed"] : ceilings);
 }
 
 function lineage(document: Record<string, unknown>): Record<string, unknown> | null {
@@ -685,16 +802,29 @@ export function validateAiBundleContract(
         ),
       );
     }
-    if (
-      expectedStatus !== "complete" &&
-      mandatory.document.conclusion_ceiling === "prioritize_allowed"
-    ) {
+    const inputCeilings = resolvedInputs.map((entry) => ({
+      ref: entry.path,
+      ceiling: specializedInputCeiling(entry),
+    }));
+    const expectedCeiling = strictestAiConclusionCeiling([
+      ...inputCeilings.map((entry) => entry.ceiling),
+      counts.insufficient_evidence > 0 ||
+      aggregateFreshness !== "current" ||
+      mandatory.document.research_mode === "desk_research_only"
+        ? "insufficient_evidence"
+        : "prioritize_allowed",
+    ]);
+    if (mandatory.document.conclusion_ceiling !== expectedCeiling) {
       errors.push(
         issue(
-          "g3.mandatory_conclusion_ceiling_too_high",
+          "g3.mandatory_conclusion_ceiling_mismatch",
           `${mandatory.path}#/conclusion_ceiling`,
-          "degraded AI mandatory bundle states cannot allow prioritize",
-          { bundleStatus: expectedStatus },
+          "AI mandatory bundle conclusion ceiling must equal the strictest specialized input and bundle-state ceiling",
+          {
+            expected: expectedCeiling,
+            actual: mandatory.document.conclusion_ceiling,
+            inputCeilings,
+          },
         ),
       );
     }
@@ -856,7 +986,8 @@ export function validateAiBundleContract(
 
     const degraded =
       binding.status === "missing" ||
-      ["incomplete", "desk_research_only", "stale"].includes(String(binding.coverage_state));
+      ["incomplete", "desk_research_only", "stale"].includes(String(binding.coverage_state)) ||
+      (binding.status === "bound" && binding.conclusion_ceiling !== "prioritize_allowed");
     const actualDecision =
       consumer.schemaVersion === "startup_opportunity.opportunity_comparison.v1"
         ? consumer.document.recommendation_band
@@ -873,7 +1004,7 @@ export function validateAiBundleContract(
         issue(
           "g3.consumer_conclusion_ceiling_violation",
           `${consumer.path}#/ai_bundle_binding/conclusion_ceiling`,
-          "missing, incomplete, desk-only, or stale AI coverage cannot support prioritize",
+          "missing, incomplete, desk-only, stale, or specialized-input-limited AI coverage cannot support prioritize",
           { actualDecision },
         ),
       );

@@ -648,7 +648,9 @@ function aiBundleCompleteOrNotRequired(
     ? comparison.envelope.ai_bundle_binding
     : null;
   return usesAi
-    ? binding?.status === "bound" && binding.coverage_state === "complete"
+    ? binding?.status === "bound" &&
+        binding.coverage_state === "complete" &&
+        binding.conclusion_ceiling === "prioritize_allowed"
     : binding?.status === "not_required" && binding.coverage_state === "not_required";
 }
 

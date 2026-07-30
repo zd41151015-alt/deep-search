@@ -22,7 +22,12 @@ import {
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import { G22_DEMAND_R2, G22_FAN_IN } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
+  G23_OPPORTUNITY_A,
+  G23_OPPORTUNITY_B,
+} from "./fixtures/g2.3/discovery-synthesis-fixture.js";
+import {
   G24_COMPARISON_A,
+  G24_PORTFOLIO,
   G24_RECOMMENDATION,
   G24_REPORT,
 } from "./fixtures/g2.4/discovery-evaluation-fixture.js";
@@ -30,10 +35,17 @@ import {
   createG33AiBundleFixture,
   createG33CompleteAiBundleFixture,
   createG33NonAiBindingFixture,
+  G31_BENCHMARK,
+  G31_CAPABILITY,
+  G31_DATA,
+  G31_RELIABILITY,
+  G32_COMMODITIZATION,
   G32_ECONOMICS,
+  G32_TRUST,
   G33_MANDATORY_BUNDLE,
   g3Envelope,
   refreshG3Envelope,
+  refreshG33FixtureHashes,
 } from "./fixtures/g3/ai-bundle-fixture.js";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -60,6 +72,16 @@ function record(runId: string, unitId: string, fill: string): EvidenceStoreRecor
 async function fixture(suffix: string): Promise<DocumentBundle> {
   const runId = `g3-3-${suffix}-synthetic`;
   return createG33AiBundleFixture(runId, {
+    generation: record(runId, "unit_seed_independent_demand", "a"),
+    evaluation: record(runId, "unit_counterfactual", "b"),
+    support: record(runId, "unit_enrichment_support", "c"),
+    challenge: record(runId, "unit_enrichment_challenge", "d"),
+  });
+}
+
+async function completeFixture(suffix: string): Promise<DocumentBundle> {
+  const runId = `g3-3-complete-${suffix}-synthetic`;
+  return createG33CompleteAiBundleFixture(runId, {
     generation: record(runId, "unit_seed_independent_demand", "a"),
     evaluation: record(runId, "unit_counterfactual", "b"),
     support: record(runId, "unit_enrichment_support", "c"),
@@ -105,6 +127,14 @@ function updateBoundBundleHash(bundle: DocumentBundle): void {
   }
 }
 
+function setBoundConclusionCeiling(bundle: DocumentBundle, ceiling: string): void {
+  g3Envelope(bundle, G33_MANDATORY_BUNDLE).document.conclusion_ceiling = ceiling;
+  for (const consumer of v16Consumers(bundle)) {
+    binding(consumer).conclusion_ceiling = ceiling;
+  }
+  refreshG33FixtureHashes(bundle);
+}
+
 test("G3.3 validates fixed six-dimension mandatory coverage and explicit consumer binding", async () => {
   const validator = await createArtifactValidator(repositoryRoot);
   const bundle = await fixture("valid");
@@ -128,13 +158,7 @@ test("G3.3 validates fixed six-dimension mandatory coverage and explicit consume
 });
 
 test("G3.3 complete bundle permits the v3 first-bet path when every other ceiling is ready", async () => {
-  const runId = "g3-3-complete-synthetic";
-  const bundle = await createG33CompleteAiBundleFixture(runId, {
-    generation: record(runId, "unit_seed_independent_demand", "a"),
-    evaluation: record(runId, "unit_counterfactual", "b"),
-    support: record(runId, "unit_enrichment_support", "c"),
-    challenge: record(runId, "unit_enrichment_challenge", "d"),
-  });
+  const bundle = await completeFixture("valid");
   const validator = await createArtifactValidator(repositoryRoot);
   const result = validator.validateDocumentBundle(bundle);
   assert.equal(result.valid, true, JSON.stringify(allErrors(result), null, 2));
@@ -146,6 +170,180 @@ test("G3.3 complete bundle permits the v3 first-bet path when every other ceilin
   assert.equal(binding(comparison).coverage_state, "complete");
   assert.equal(comparison.document.recommendation_band, "strong_candidate");
   assert.equal(g3Envelope(bundle, G24_RECOMMENDATION).document.decision_tier, "prioritize");
+});
+
+test("G3.3 mandatory ceiling aggregates each specialized input and uses the strictest value", async (t) => {
+  const mutations: readonly {
+    readonly name: string;
+    readonly artifactPath: string;
+    readonly expected: string;
+    readonly mutate: (document: Record<string, unknown>) => void;
+  }[] = [
+    {
+      name: "capability",
+      artifactPath: G31_CAPABILITY,
+      expected: "insufficient_evidence",
+      mutate(document) {
+        const result = (document.dimension_results as Record<string, unknown>[])[0];
+        assert.ok(result);
+        result.coverage_status = "insufficient_evidence";
+      },
+    },
+    {
+      name: "benchmark",
+      artifactPath: G31_BENCHMARK,
+      expected: "investigate_further_only",
+      mutate(document) {
+        (document.product_candidate_result as Record<string, unknown>).incremental_value_status =
+          "partial";
+      },
+    },
+    {
+      name: "reliability",
+      artifactPath: G31_RELIABILITY,
+      expected: "investigate_further_only",
+      mutate(document) {
+        (document.technical_reliability as Record<string, unknown>).status = "partial";
+      },
+    },
+    {
+      name: "data",
+      artifactPath: G31_DATA,
+      expected: "investigate_further_only",
+      mutate(document) {
+        (document.ground_truth as Record<string, unknown>).status = "partial";
+      },
+    },
+    {
+      name: "economics",
+      artifactPath: G32_ECONOMICS,
+      expected: "investigate_further_only",
+      mutate(document) {
+        document.conclusion_ceiling = "investigate_further_only";
+      },
+    },
+    {
+      name: "commoditization",
+      artifactPath: G32_COMMODITIZATION,
+      expected: "investigate_further_only",
+      mutate(document) {
+        document.conclusion_ceiling = "investigate_further_only";
+      },
+    },
+    {
+      name: "adoption-trust",
+      artifactPath: G32_TRUST,
+      expected: "investigate_further_only",
+      mutate(document) {
+        document.conclusion_ceiling = "investigate_further_only";
+      },
+    },
+  ];
+
+  for (const mutation of mutations) {
+    await t.test(mutation.name, async () => {
+      const validator = await createArtifactValidator(repositoryRoot);
+      const bundle = await completeFixture(`single-${mutation.name}`);
+      mutation.mutate(g3Envelope(bundle, mutation.artifactPath).document);
+      refreshG33FixtureHashes(bundle);
+      const result = validator.validateDocumentBundle(bundle);
+      const mismatch = allErrors(result).find(
+        (error) => error.code === "g3.mandatory_conclusion_ceiling_mismatch",
+      );
+      assert.equal(result.valid, false);
+      assert.ok(mismatch);
+      assert.equal(mismatch.details.expected, mutation.expected);
+    });
+  }
+
+  await t.test("multiple-inputs-use-strictest", async () => {
+    const validator = await createArtifactValidator(repositoryRoot);
+    const bundle = await completeFixture("multiple");
+    g3Envelope(bundle, G32_ECONOMICS).document.conclusion_ceiling = "investigate_further_only";
+    g3Envelope(bundle, G32_COMMODITIZATION).document.conclusion_ceiling = "reject";
+    refreshG33FixtureHashes(bundle);
+    const result = validator.validateDocumentBundle(bundle);
+    const mismatch = allErrors(result).find(
+      (error) => error.code === "g3.mandatory_conclusion_ceiling_mismatch",
+    );
+    assert.equal(result.valid, false);
+    assert.ok(mismatch);
+    assert.equal(mismatch.details.expected, "reject");
+  });
+});
+
+test("G3.3 complete coverage cannot override a specialized-input ceiling", async () => {
+  const validator = await createArtifactValidator(repositoryRoot);
+  const bundle = await completeFixture("specialized-ceiling");
+  g3Envelope(bundle, G32_ECONOMICS).document.conclusion_ceiling = "investigate_further_only";
+  setBoundConclusionCeiling(bundle, "investigate_further_only");
+  const result = validator.validateDocumentBundle(bundle);
+  assert.equal(result.valid, false);
+  assert.ok(codes(result).includes("g3.consumer_conclusion_ceiling_violation"));
+  assert.ok(codes(result).includes("g2_4.ai_mandatory_bundle_gate_violation"));
+  assert.ok(codes(result).includes("g2_4.decision_tier_ceiling_violation"));
+});
+
+test("G3.3 complete AI readiness remains capped by other first-bet requirements", async (t) => {
+  const mutations: readonly {
+    readonly name: string;
+    readonly mutate: (bundle: DocumentBundle) => void;
+  }[] = [
+    {
+      name: "hard-gate",
+      mutate(bundle) {
+        const gates = g3Envelope(bundle, G24_COMPARISON_A).document.hard_gate_results as Record<
+          string,
+          unknown
+        >[];
+        const gate = gates.find((entry) => entry.gate_id === "business_engine");
+        assert.ok(gate);
+        gate.status = "insufficient_evidence";
+      },
+    },
+    {
+      name: "comparison-panel",
+      mutate(bundle) {
+        const panel = (
+          g3Envelope(bundle, G24_COMPARISON_A).document.comparison_panels as Record<
+            string,
+            unknown
+          >[]
+        )[0];
+        assert.ok(panel);
+        panel.band = "weak";
+        panel.decision_sufficiency = "insufficient";
+      },
+    },
+    {
+      name: "portfolio-first-bet",
+      mutate(bundle) {
+        const portfolio = g3Envelope(bundle, G24_PORTFOLIO).document;
+        portfolio.recommended_first_bet = null;
+        portfolio.alternative_bets = [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B];
+      },
+    },
+    {
+      name: "recommendation-first-bet",
+      mutate(bundle) {
+        const recommendation = g3Envelope(bundle, G24_RECOMMENDATION).document;
+        recommendation.recommended_first_bet = null;
+        recommendation.alternative_bets = [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B];
+      },
+    },
+  ];
+
+  for (const mutation of mutations) {
+    await t.test(mutation.name, async () => {
+      const validator = await createArtifactValidator(repositoryRoot);
+      const bundle = await completeFixture(`other-${mutation.name}`);
+      mutation.mutate(bundle);
+      refreshG33FixtureHashes(bundle);
+      const result = validator.validateDocumentBundle(bundle);
+      assert.equal(result.valid, false);
+      assert.ok(codes(result).includes("g2_4.decision_tier_ceiling_violation"));
+    });
+  }
 });
 
 test("G3.3 coverage aggregation distinguishes insufficient evidence from not applicable", async (t) => {
@@ -267,6 +465,56 @@ test("G3.3 stale aggregation requires continuation and propagates to consumers",
   assert.equal(result.valid, true, JSON.stringify(allErrors(result), null, 2));
 });
 
+test("G3.3 incomplete, desk-only, and stale bundle states retain the AI ceiling", async (t) => {
+  await t.test("incomplete", async () => {
+    const validator = await createArtifactValidator(repositoryRoot);
+    const bundle = await completeFixture("incomplete");
+    const mandatory = g3Envelope(bundle, G33_MANDATORY_BUNDLE).document;
+    const dimension = (mandatory.dimension_results as Record<string, unknown>[])[0];
+    assert.ok(dimension);
+    dimension.coverage_status = "insufficient_evidence";
+    (mandatory.coverage_summary as Record<string, unknown>).covered = 5;
+    (mandatory.coverage_summary as Record<string, unknown>).insufficient_evidence = 1;
+    mandatory.bundle_status = "incomplete";
+    mandatory.continuation = { required: true, reason: "incomplete", action: "SYNTHETIC" };
+    for (const consumer of v16Consumers(bundle)) {
+      binding(consumer).coverage_state = "incomplete";
+    }
+    setBoundConclusionCeiling(bundle, "insufficient_evidence");
+    const result = validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, false);
+    assert.ok(codes(result).includes("g3.consumer_conclusion_ceiling_violation"));
+  });
+
+  await t.test("desk-research-only", async () => {
+    const validator = await createArtifactValidator(repositoryRoot);
+    const bundle = await fixture("desk-ceiling");
+    g3Envelope(bundle, G24_RECOMMENDATION).document.decision_tier = "prioritize";
+    refreshG33FixtureHashes(bundle);
+    const result = validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, false);
+    assert.ok(codes(result).includes("g3.consumer_conclusion_ceiling_violation"));
+  });
+
+  await t.test("stale", async () => {
+    const validator = await createArtifactValidator(repositoryRoot);
+    const bundle = await completeFixture("stale-ceiling");
+    (g3Envelope(bundle, G32_ECONOMICS).document.freshness as Record<string, unknown>).status =
+      "stale";
+    const mandatory = g3Envelope(bundle, G33_MANDATORY_BUNDLE).document;
+    (mandatory.freshness as Record<string, unknown>).status = "stale";
+    mandatory.bundle_status = "stale";
+    mandatory.continuation = { required: true, reason: "stale", action: "SYNTHETIC" };
+    for (const consumer of v16Consumers(bundle)) {
+      binding(consumer).coverage_state = "stale";
+    }
+    setBoundConclusionCeiling(bundle, "insufficient_evidence");
+    const result = validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, false);
+    assert.ok(codes(result).includes("g3.consumer_conclusion_ceiling_violation"));
+  });
+});
+
 test("G3.3 report derivation keeps the exact binding on all v16 sidecars", async () => {
   const validator = await createArtifactValidator(repositoryRoot);
   const bundle = await fixture("report");
@@ -292,6 +540,14 @@ test("G3.3 report derivation keeps the exact binding on all v16 sidecars", async
 
 test("G3.3 version dispatch freezes v12-v15 and installs v16 receipt v14", async () => {
   const validator = await createArtifactValidator(repositoryRoot);
+  assert.equal(
+    validator.legacyDiscoveryEvaluationPolicy.schema_version,
+    "startup_opportunity.discovery_evaluation_policy.v1",
+  );
+  assert.equal(
+    validator.repairedDiscoveryEvaluationPolicy.schema_version,
+    "startup_opportunity.discovery_evaluation_policy.v2",
+  );
   assert.deepEqual(
     validator.publicationAdapter("startup_opportunity.artifact_envelope.v15")
       .blocked_artifact_types,

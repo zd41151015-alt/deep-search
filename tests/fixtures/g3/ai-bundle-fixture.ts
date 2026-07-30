@@ -642,14 +642,107 @@ function refreshAllFixtureHashes(bundle: DocumentBundle): void {
   }
 }
 
+export function refreshG33FixtureHashes(bundle: DocumentBundle): void {
+  refreshAllFixtureHashes(bundle);
+  const mandatory = g3Envelope(bundle, G33_MANDATORY_BUNDLE).document;
+  const mandatoryHash = canonicalContentHash(mandatory);
+  for (const artifactPath of [G24_COMPARISON_A, G24_RECOMMENDATION, G24_TRACEABILITY, G24_REPORT]) {
+    const consumer = g3Envelope(bundle, artifactPath);
+    const binding = consumer.ai_bundle_binding as Record<string, unknown>;
+    binding.bundle_content_hash = mandatoryHash;
+  }
+}
+
 export async function createG33CompleteAiBundleFixture(
   runId: string,
   substrate: G3FixtureSubstrate,
 ): Promise<DocumentBundle> {
   const bundle = await createG33AiBundleFixture(runId, substrate);
-  for (const artifactPath of [G32_ECONOMICS, G32_COMMODITIZATION, G32_TRUST]) {
-    g3Envelope(bundle, artifactPath).document.research_mode = "limited_evaluation";
+  const benchmark = g3Envelope(bundle, G31_BENCHMARK).document;
+  (benchmark.product_candidate_result as Record<string, unknown>).incremental_value_status =
+    "demonstrated";
+  const representativeness = benchmark.representativeness as Record<string, unknown>;
+  representativeness.status = "representative";
+  representativeness.known_gaps = [];
+
+  const reliability = g3Envelope(bundle, G31_RELIABILITY).document;
+  const technicalReliability = reliability.technical_reliability as Record<string, unknown>;
+  technicalReliability.status = "sufficient";
+  technicalReliability.error_cost = "medium";
+  technicalReliability.evaluation_feasibility = "feasible";
+  for (const failure of reliability.failure_modes as Record<string, unknown>[]) {
+    failure.detectability = "reliable";
   }
+  (reliability.monitoring_boundary as Record<string, unknown>).unmonitored_failures = [];
+
+  const data = g3Envelope(bundle, G31_DATA).document;
+  for (const requirement of data.data_requirements as Record<string, unknown>[]) {
+    requirement.rights_basis = "explicit_permission";
+    requirement.availability = "available";
+  }
+  (data.ground_truth as Record<string, unknown>).status = "available";
+  const feedback = data.feedback_loop as Record<string, unknown>;
+  feedback.status = "available";
+  feedback.moat_status = "credible";
+  (data.provider_portability as Record<string, unknown>).status = "provider_independent";
+  const privacy = data.privacy_boundary as Record<string, unknown>;
+  privacy.risk_level = "low";
+  privacy.deletion_status = "supported";
+  privacy.export_status = "supported";
+
+  const economics = g3Envelope(bundle, G32_ECONOMICS).document;
+  economics.research_mode = "limited_evaluation";
+  (economics.unit_cost_model as Record<string, unknown>).estimate_status = "bounded_estimate";
+  const latency = economics.latency_and_deployment as Record<string, unknown>;
+  latency.latency_status = "within_boundary";
+  const productEconomics = economics.product_economics as Record<string, unknown>;
+  productEconomics.gross_margin_status = "viable";
+  productEconomics.service_burden = "low";
+  (economics.kill_boundary as Record<string, unknown>).status = "not_triggered";
+  economics.conclusion_ceiling = "prioritize_allowed";
+
+  const commoditization = g3Envelope(bundle, G32_COMMODITIZATION).document;
+  commoditization.research_mode = "limited_evaluation";
+  for (const field of [
+    "provider_substitution",
+    "platform_native_substitution",
+    "open_source_substitution",
+  ]) {
+    const substitution = commoditization[field] as Record<string, unknown>;
+    substitution.status = "not_available";
+    substitution.time_horizon = "over_12_months";
+    substitution.impact = "low";
+  }
+  const commoditizationPortability = commoditization.provider_portability as Record<
+    string,
+    unknown
+  >;
+  commoditizationPortability.status = "provider_independent";
+  commoditizationPortability.switching_cost = "low";
+  (commoditization.platform_bundle_risk as Record<string, unknown>).risk_level = "low";
+  (commoditization.capability_half_life as Record<string, unknown>).estimate_band =
+    "over_24_months";
+  const defensibility = commoditization.defensibility_beyond_model_access as Record<
+    string,
+    unknown
+  >;
+  defensibility.status = "credible";
+  defensibility.sources = ["workflow_state"];
+  commoditization.overall_risk = "low";
+  commoditization.conclusion_ceiling = "prioritize_allowed";
+
+  const trust = g3Envelope(bundle, G32_TRUST).document;
+  trust.research_mode = "limited_evaluation";
+  (trust.adoption_friction as Record<string, unknown>).level = "low";
+  (trust.consumer_trust as Record<string, unknown>).status = "acceptable";
+  (trust.explainability as Record<string, unknown>).status = "acceptable";
+  (trust.accountability as Record<string, unknown>).status = "assigned";
+  const safety = trust.safety_and_privacy as Record<string, unknown>;
+  safety.risk_level = "low";
+  safety.controls_status = "adequate";
+  (trust.regulated_ai_boundary as Record<string, unknown>).applicability = "not_regulated";
+  trust.workflow_entry_status = "allowed";
+  trust.conclusion_ceiling = "prioritize_allowed";
 
   const mandatory = g3Envelope(bundle, G33_MANDATORY_BUNDLE).document;
   mandatory.research_mode = "limited_evaluation";
@@ -700,15 +793,13 @@ export async function createG33CompleteAiBundleFixture(
     ...new Set(reportEnvelope.input_refs.filter((ref) => ref !== G23_OPPORTUNITY_B)),
   ].sort();
 
-  refreshAllFixtureHashes(bundle);
-  const mandatoryHash = canonicalContentHash(mandatory);
   for (const artifactPath of [G24_COMPARISON_A, G24_RECOMMENDATION, G24_TRACEABILITY, G24_REPORT]) {
     const consumer = g3Envelope(bundle, artifactPath);
     const binding = consumer.ai_bundle_binding as Record<string, unknown>;
-    binding.bundle_content_hash = mandatoryHash;
     binding.coverage_state = "complete";
     binding.conclusion_ceiling = "prioritize_allowed";
   }
+  refreshG33FixtureHashes(bundle);
   return bundle;
 }
 
