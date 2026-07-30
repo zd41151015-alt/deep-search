@@ -605,6 +605,12 @@ export class EvidenceStore {
     return withRunLock(runRoot, () => this.readExactRecordLocked(runRoot, runId, ref));
   }
 
+  async listRecords(runId: string): Promise<readonly EvidenceSubstrateRecord[]> {
+    validateRunId(runId);
+    const runRoot = await openRunDirectory(this.runsRoot, runId);
+    return withRunLock(runRoot, () => this.listRecordsLocked(runRoot, runId));
+  }
+
   async readExactRecordLocked(
     runRoot: string,
     runId: string,

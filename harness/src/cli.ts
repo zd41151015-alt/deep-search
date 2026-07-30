@@ -18,6 +18,7 @@ import {
   runLoadRun,
   runPublishArtifact,
   runRecordEvidence,
+  runStatusRun,
 } from "./run-store/store-commands.js";
 import { runValidateArtifact } from "./validators/validate-artifact-command.js";
 
@@ -38,6 +39,9 @@ switch (command) {
     break;
   case "load-run":
     process.exitCode = await runLoadRun(args);
+    break;
+  case "status-run":
+    process.exitCode = await runStatusRun(args);
     break;
   case "record-evidence":
     process.exitCode = await runRecordEvidence(args);

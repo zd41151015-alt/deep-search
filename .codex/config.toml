@@ -1,0 +1,22 @@
+[agents]
+max_concurrent_threads_per_session = 6
+
+[features]
+hooks = true
+
+[mcp_servers.startup_opportunity_evidence]
+command = "node"
+args = ["--import", "tsx", "harness/src/mcp/evidence-server.ts"]
+cwd = "."
+enabled = true
+required = false
+enabled_tools = ["record_evidence", "get_evidence_manifest"]
+default_tools_approval_mode = "writes"
+startup_timeout_sec = 15
+tool_timeout_sec = 60
+
+[mcp_servers.startup_opportunity_evidence.tools.record_evidence]
+approval_mode = "prompt"
+
+[mcp_servers.startup_opportunity_evidence.tools.get_evidence_manifest]
+approval_mode = "auto"

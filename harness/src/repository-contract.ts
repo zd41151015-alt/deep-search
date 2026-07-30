@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-export const SKELETON_VERSION = "g3.3" as const;
+export const SKELETON_VERSION = "g4.1" as const;
 
 export const IMPLEMENTATION_STACK = {
   language: "TypeScript 7.0.2",
@@ -26,10 +26,18 @@ export const CUSTOM_AGENT_PATHS = [
   ".codex/agents/adversarial-reviewer.toml",
 ] as const;
 
+export const CODEX_INTEGRATION_PATHS = [
+  ".codex/config.toml",
+  ".codex/hooks.json",
+  ".codex/hooks/research-guard.ts",
+  "harness/src/mcp/evidence-server.ts",
+] as const;
+
 export const IMPLEMENTED_SKILL_COMMANDS = [
   "doctor",
   "validate-artifact",
   "create-run",
+  "status-run",
   "load-run",
   "record-evidence",
   "publish-artifact",
@@ -361,6 +369,7 @@ export const REQUIRED_REPOSITORY_PATHS = [
   ...SKILL_REFERENCE_PATHS,
   ...SKILL_SCRIPT_PATHS,
   ...CUSTOM_AGENT_PATHS,
+  ...CODEX_INTEGRATION_PATHS,
   ...RESPONSIBILITY_PATHS,
   ...SCHEMA_BUNDLE_PATHS,
   ...VALIDATOR_SOURCE_PATHS,

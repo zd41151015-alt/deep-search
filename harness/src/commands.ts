@@ -1,6 +1,6 @@
 import { type DoctorReport, inspectRepository } from "./repository-contract.js";
 
-const HELP = `Startup Opportunity Research Harness (G2.4)
+const HELP = `Startup Opportunity Research Harness (G4.1)
 
 Usage:
   npm run harness -- help
@@ -8,6 +8,7 @@ Usage:
   npm run harness -- validate-artifact (--file FILE | --bundle FILE | --schema-bundle) [--json]
   npm run harness -- create-run --run-id ID --mode MODE [--created-at TIME]
   npm run harness -- load-run --run-id ID
+  npm run harness -- status-run --run-id ID
   npm run harness -- record-evidence --run-id ID --unit-id ID (--url URL | --source-url URL | --source-uri URN) --research-goal GOAL --content-file FILE
   npm run harness -- publish-artifact --file FILE [--runs-root DIR]
   npm run harness -- checkpoint-run --file FILE
@@ -21,11 +22,12 @@ Usage:
   npm run harness -- build-report --file FILE [--runs-root DIR] [--json]
 
 Commands:
-  help               Show the implemented G2.4 command surface.
+  help               Show the implemented deterministic Harness command surface.
   doctor             Validate repository, toolchain, Skill, agent, Harness, and test contracts.
   validate-artifact  Validate one document, a typed document bundle, or the schema bundle itself.
   create-run         Create a confined Run and its initial checkpoint.
   load-run           Validate, reconcile, and reopen a persisted Run.
+  status-run         Read and validate current Run manifest state without recovery or mutation.
   record-evidence    Persist raw evidence with canonical hashes and deterministic deduplication.
   publish-artifact   Validate and publish one formal envelope or an explicit envelope bundle.
   checkpoint-run     Publish an immutable checkpoint from a JSON input document.
@@ -38,7 +40,7 @@ Commands:
   audit-traceability Validate a closed G1.4 assessment or G2.4 discovery traceability/report chain.
   build-report       Publish a validated assessment/discovery report and materialize its views.
 
-Validation, publication, recovery, comparison/sensitivity summaries, and report materialization success are mechanical only. G2.1-G2.4 caller-supplied Artifacts use the generic validation/publication surface. The Harness does not dispatch agents, execute lanes, synthesize thesis or evaluation semantics, perform network research, infer research judgments, or claim Evidence/market validation success. Discover orchestration and G3+ remain unavailable.
+Validation, publication, recovery, comparison/sensitivity summaries, and report materialization success are mechanical only. Caller-supplied Artifacts use the generic validation/publication surface. The Harness does not dispatch agents, execute lanes, synthesize thesis or evaluation semantics, perform network research, infer research judgments, or claim Evidence/market validation success.
 `;
 
 export function printHelp(

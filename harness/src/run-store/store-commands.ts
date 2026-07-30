@@ -142,6 +142,20 @@ export async function runLoadRun(
   });
 }
 
+export async function runStatusRun(
+  args: readonly string[],
+  repositoryRoot = process.cwd(),
+): Promise<number> {
+  return runCommand(async () => {
+    const parsed = parseArguments(args);
+    rejectUnknown(parsed, ["--run-id", "--runs-root"]);
+    const validator = await createArtifactValidator(repositoryRoot);
+    return new RunStore(roots(parsed, repositoryRoot), validator).status(
+      required(parsed, "--run-id"),
+    );
+  });
+}
+
 export async function runRecordEvidence(
   args: readonly string[],
   repositoryRoot = process.cwd(),

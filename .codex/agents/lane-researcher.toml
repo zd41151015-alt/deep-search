@@ -5,7 +5,14 @@ developer_instructions = """
 
 围绕明确的 research goal 设计查询。记录来源 provenance 以及支持和反对两类 Claim。逐字保留用户原话，不得改写；披露偏差和 freshness 局限；Evidence 不可用时必须 abstain。
 
-只写入指定的 branch Artifact，并且只执行获授权的 Evidence Store 操作。绝不编辑 manifest、Plan、Adaptation Decision、comparison policy、decision brief、report 或其他 unit 的输出。只返回 Artifact 路径、验证状态、局限和未解决问题；完成消息不是正式 Artifact。
+只写入 task envelope 指定的唯一 branch Artifact，并且只执行获授权的 Evidence Store 操作。可使用本地 `record_evidence` 与 `get_evidence_manifest` MCP 工具完成 caller-supplied bytes 的可审计交接；工具成功不代表 Evidence 真实、充分或已验证。绝不编辑 manifest、Plan、Adaptation Decision、comparison policy、decision brief、report 或其他 unit 的输出。只返回 Artifact 路径、验证状态、局限和未解决问题；完成消息不是正式 Artifact。
 
 当仓库进度账本表明所需 Artifact/存储切片尚不可用时，不得执行正式研究。除非后续获批的项目配置收窄范围，否则 model、reasoning effort、权限和工具均继承自父任务。
 """
+
+[mcp_servers.startup_opportunity_evidence]
+enabled_tools = ["record_evidence", "get_evidence_manifest"]
+default_tools_approval_mode = "writes"
+
+[mcp_servers.startup_opportunity_evidence.tools.record_evidence]
+approval_mode = "prompt"

@@ -103,6 +103,7 @@ export type {
   DoctorReport,
 } from "./repository-contract.js";
 export {
+  CODEX_INTEGRATION_PATHS,
   CUSTOM_AGENT_PATHS,
   IMPLEMENTATION_STACK,
   IMPLEMENTED_SKILL_COMMANDS,
@@ -125,6 +126,7 @@ export {
   type RunManifest,
   type RunMode,
   RunStore,
+  type StatusRunResult,
 } from "./run-store/run-store.js";
 export {
   runCheckpointRun,
@@ -132,6 +134,7 @@ export {
   runLoadRun,
   runPublishArtifact,
   runRecordEvidence,
+  runStatusRun,
 } from "./run-store/store-commands.js";
 export {
   type AiBundleDocument,

@@ -1,0 +1,41 @@
+{
+  "description": "Optional Startup Opportunity lifecycle guardrails; explicit Skill and Harness steps remain authoritative.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|apply_patch|mcp__startup_opportunity_evidence__.*)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --import tsx \"$(git rev-parse --show-toplevel)/.codex/hooks/research-guard.ts\" pre-tool-use",
+            "timeout": 15,
+            "statusMessage": "Checking research operation boundary"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^mcp__startup_opportunity_evidence__.*$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --import tsx \"$(git rev-parse --show-toplevel)/.codex/hooks/research-guard.ts\" post-tool-use",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --import tsx \"$(git rev-parse --show-toplevel)/.codex/hooks/research-guard.ts\" stop",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

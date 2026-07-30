@@ -134,6 +134,12 @@ export interface LoadRunResult {
   readonly orphanActiveUnits: readonly string[];
 }
 
+export interface StatusRunResult {
+  readonly schemaVersion: "startup_opportunity.status_run_result.v1";
+  readonly runId: string;
+  readonly manifest: RunManifest;
+}
+
 const RUN_DIRECTORIES = [
   ".store/operations",
   ".store/temp",
@@ -379,6 +385,16 @@ export class RunStore {
   async load(runId: string): Promise<LoadRunResult> {
     const runRoot = await openRunDirectory(this.runsRoot, runId);
     return withRunLock(runRoot, () => this.recoverLocked(runRoot, runId));
+  }
+
+  async status(runId: string): Promise<StatusRunResult> {
+    validateRunId(runId);
+    const runRoot = await openRunDirectory(this.runsRoot, runId);
+    return {
+      schemaVersion: "startup_opportunity.status_run_result.v1",
+      runId,
+      manifest: await this.readManifest(runRoot),
+    };
   }
 
   async publishArtifact(input: PublishArtifactInput): Promise<PublishArtifactResult> {

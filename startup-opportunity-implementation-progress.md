@@ -1,9 +1,9 @@
 # Startup Opportunity Research Harness 实施进度
 
-> **状态**: G2_DONE / G3_CONVERGENCE_REPAIR_CANDIDATE / G3.1-G3.3_IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION
-> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`DONE`；G2 Opportunity Discovery=`DONE`；G3 AI Bundle Construction=`IN_PROGRESS`（G3.1-G3.3=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`）；G4=`NOT_READY`
-> **下一动作**: fixed-v7 C4 convergence repair 的 clean sole-child candidate 提交后停止；shadow acceptance 仅为主 worker preflight，不标 G3 `DONE`，不开放 G4，不创建或建议 acceptance
-> **最后更新**: 2026-07-29
+> **状态**: G0-G3_DONE / G4_CONSTRUCTION_IN_PROGRESS / G4.1_IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION
+> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`DONE`；G2 Opportunity Discovery=`DONE`；G3 AI Bundle Construction=`DONE`；G4 Distribution / Operational Exit=`IN_PROGRESS`（G4.1=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`，G4.2施工中）
+> **下一动作**: 同一 G4 主写入 worker 连续完成 G4.2 Documentation / Installation / End-to-End Fixtures 与 G4.3 Plugin Decision；Stage 末只形成 clean whole-G4 shadow preflight candidate，不自行标 G4 `DONE` 或执行 G4.R
+> **最后更新**: 2026-07-30
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
 > **固定规则集**: `fixed_ruleset_id=startup-opportunity-controller-fixed-v7`（supersedes fixed-v6/fixed-v5；immutable block SHA-256=`2279bb7a315c39a51cc215f26c0fc4c2fb46b5756a7e42cee0f331c2fe8af1f5`；G3 全 Stage 禁止 subagent）
 
@@ -178,8 +178,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | G0 Foundation Harness | `DONE` | RFC v1 | 工具链与仓库骨架、核心 schema、Run/Artifact Store、validator、checkpoint、Gap/Adaptation/Plan Revision、完整 foundation regression |
 | G1 Concept Evidence Assessment | `DONE` | G0 | 单 thesis 从 intake 到 report 的端到端闭环，buyer gap 触发 plan r2，独立 G1 whole-gate regression 与中控验收均通过 |
 | G2 Opportunity Discovery | `DONE` | G1 | fresh independent fixed-v5 whole-boundary acceptance `019fada4-6e70-7ce1-8b0e-2756ef0a9f20` 对 candidate `6d09cc7` 统一 PASS；H1-H14闭合 |
-| G3 AI Bundle Construction | `IN_PROGRESS` | G2 | G3.1-G3.3 caller-supplied AI contracts、mandatory coverage与lifecycle已形成clean Stage candidate，等待whole-Stage boundary判定 |
-| G4 Distribution / Operational Exit | `NOT_READY` | G3 | repo-local Skill/agents/hooks/MCP 完整入口、安装与恢复文档、端到端 fixture；Plugin 是否打包按 RFC 条件判断 |
+| G3 AI Bundle Construction | `DONE` | G2 | fresh independent acceptance task `019fb188-5754-7430-859d-6f00303ea95f` 对 exact candidate `e00f71333e115a37cfcaf45590943e975d408ab4` unified PASS；`P1-G3-002`只保留静态/existing-test coverage，`PD-G3-001=REMEDIATED_NON_BLOCKING` |
+| G4 Distribution / Operational Exit | `IN_PROGRESS` | G3 | G4.1 repo-local Skill/agents/hooks/MCP 已实现并通过主 worker专项；继续 G4.2/G4.3 后执行 whole-G4 shadow preflight |
 
 ## 工作包总览
 
@@ -191,8 +191,8 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | W3 | Research Plan、Gap Snapshot、Adaptation Decision、Plan Revision | `DONE` |
 | W4 | Assess domain contracts、research branches、matrix、audit/review/report | `DONE`（G1.1-G1.4、G1.R=`DONE`） |
 | W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `DONE`（fixed-v5 whole-boundary acceptance 对 `6d09cc7` 统一 PASS） |
-| W6 | AI mandatory bundle 和 gates | `IN_PROGRESS`（G3.1-G3.3=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`） |
-| W7 | Codex Skill、custom agents、hooks/MCP、分发和端到端运营 | `NOT_READY` |
+| W6 | AI mandatory bundle 和 gates | `DONE`（fresh independent G3 acceptance unified PASS） |
+| W7 | Codex Skill、custom agents、hooks/MCP、分发和端到端运营 | `IN_PROGRESS`（G4.1已实现；G4.2施工中） |
 
 ## G0 Foundation Harness 施工切片
 
@@ -228,17 +228,17 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 
 | 切片 | 内容 | 状态 | 主要退出条件 |
 | --- | --- | --- | --- |
-| G3.1 | AI Baseline / Reliability / Data Contracts | `IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION` | generic model、platform、open-source baseline；代表性 evaluation、failure/human boundary、data rights/feedback、portability |
-| G3.2 | AI Economics / Commoditization / Trust Gates | `IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION` | product inference economics、bundle/substitution risk、capability half-life、adoption/trust、regulated-AI boundary |
-| G3.3 | Mandatory Bundle Dynamic Coverage | `IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION` | versioned trigger驱动caller显式六维coverage；not_applicable/insufficient分离；缺失bundle限制结论；freshness continuation |
-| G3.R | Independent AI Whole-Gate Regression | `NOT_READY` | technical、data、human review、economics、provider、trust 全 fixture 和动态 coverage 独立回归；通过后 G3=`DONE` |
+| G3.1 | AI Baseline / Reliability / Data Contracts | `DONE` | generic model、platform、open-source baseline；代表性 evaluation、failure/human boundary、data rights/feedback、portability |
+| G3.2 | AI Economics / Commoditization / Trust Gates | `DONE` | product inference economics、bundle/substitution risk、capability half-life、adoption/trust、regulated-AI boundary |
+| G3.3 | Mandatory Bundle Dynamic Coverage | `DONE` | versioned trigger驱动caller显式六维coverage；not_applicable/insufficient分离；缺失bundle限制结论；freshness continuation |
+| G3.R | Independent AI Whole-Gate Regression | `DONE` | task `019fb188-5754-7430-859d-6f00303ea95f` 对 `e00f71333e115a37cfcaf45590943e975d408ab4` unified PASS，无未解决 P0/P1/P2 |
 
 ## G4 Distribution / Operational Exit 施工切片
 
 | 切片 | 内容 | 状态 | 主要退出条件 |
 | --- | --- | --- | --- |
-| G4.1 | Repo-local Skill / Agent / Hook / MCP Integration | `NOT_READY` | `$startup-opportunity` discover/assess/resume/status 路由；三类 agent；hook 降级可运行；MCP evidence adapter 边界 |
-| G4.2 | Documentation / Installation / End-to-End Fixtures | `NOT_READY` | README、安装/使用/恢复、sample runs、clean checkout 验证、Codex 桌面/CLI/IDE 一致入口 |
+| G4.1 | Repo-local Skill / Agent / Hook / MCP Integration | `IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION` | `$startup-opportunity` discover/assess/resume/status 路由；三类 agent；hook 降级可运行；MCP evidence adapter 边界 |
+| G4.2 | Documentation / Installation / End-to-End Fixtures | `IN_PROGRESS` | README、安装/使用/恢复、sample runs、clean checkout 验证、Codex 桌面/CLI/IDE 一致入口 |
 | G4.3 | Plugin Decision and Packaging | `NOT_READY` | 只有满足跨仓库分发条件才打包 Plugin；否则记录 repo-local operational exit，不为完成 Gate 强行引入 Plugin |
 | G4.R | Independent Operational Exit Regression | `NOT_READY` | 从 clean checkout 执行核心入口、恢复、报告和边界扫描；给出 repo-local release candidate 或明确 blocker |
 
@@ -248,12 +248,12 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
 | Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | G3第二次有效whole-boundary FAIL后，唯一主写入 worker按 fixed-v7 C4执行`CONVERGENCE_REPAIR`；不创建 subagent、worktree、replacement或Handoff |
-| Current slice | G2=`DONE`；G3=`CONVERGENCE_REPAIR_CANDIDATE`；G3.1-G3.3=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`；G4=`NOT_READY` |
-| Expected base | exact repair base=`1e8969aced3376f8e4415ee6e32d75f4ae244a2b`、parent=`b54fd76e341cd96c95642d30ecd21a47ea0685df`；repair candidate必须为`1e8969a`的clean sole child；accepted G2 -> `bed46a4` -> `4d727df` -> `b54fd76` -> `1e8969a`历史不得改写 |
+| Active task | task `019fb1ac-db2b-7593-88d4-547467bb94b4`；唯一 G4 Construction Stage 主写入 worker连续执行G4.1 -> G4.2 -> G4.3；不创建subagent/worktree/Handoff |
+| Current slice | G0-G3=`DONE`；G4.1=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`；G4.2=`IN_PROGRESS`；G4.3/G4.R尚未执行 |
+| Expected base | exact accepted G3 candidate=`e00f71333e115a37cfcaf45590943e975d408ab4`、parent=`1e8969aced3376f8e4415ee6e32d75f4ae244a2b`；G4原子提交必须形成连续clean descendants，历史不得改写 |
 | Consecutive state-query failures | `0` |
-| Last effective operation | acceptance task `019fb12a-1c7b-7250-8f74-d190a213bbe4`对`1e8969a`统一FAIL；G3连续有效boundary FAIL count=`2`；P1-G3-003 ordinary convergence repair与同边界shadow preflight已形成candidate证据 |
-| Next allowed action | 当前唯一worker形成`1e8969a`的clean sole-child repair原子提交后停止；不把shadow preflight称为boundary PASS，不标G3 `DONE`，不开放G4，不创建或建议acceptance |
+| Last effective operation | fresh independent G3 acceptance task `019fb188-5754-7430-859d-6f00303ea95f` 对 `e00f713` unified PASS；G3=`DONE`；授权同一主worker连续施工整个G4 Stage |
+| Next allowed action | G4.1原子提交后同一worker立即继续G4.2/G4.3；Stage末执行whole-G4 shadow preflight并停止，不自行标G4 `DONE`、不执行或建议G4.R |
 
 ## 已完成切片与证据
 
@@ -1817,6 +1817,26 @@ fixed-v7 security mapping继续记录：bundle/policy/receipt/Manifest/Plan iden
 
 - G0 Foundation 已通过独立 whole-gate regression；当前没有 G0 blocker。
 - G1.1-G1.4、G1.R、G1 Concept Evidence Assessment 与 W4 均为 `DONE`；中控已接受 G1.R commit `a30c0967860bf31d26fc959c583f8c5b6b1b4caa`。
-- G2 Opportunity Discovery 与 W5=`DONE`；fixed-v5 fresh independent acceptance `019fada4-6e70-7ce1-8b0e-2756ef0a9f20` 对 `6d09cc7` 统一PASS。G3两次连续有效whole-boundary acceptance对`b54fd76`与`1e8969a`均统一FAIL，count=`2`；fixed-v7 C4 convergence repair已形成candidate与shadow证据，`PD-G3-001`按fixed-v7 C7为`REMEDIATED_NON_BLOCKING`。G3不为`DONE`，G3.1-G3.3=`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`；G4=`NOT_READY`。
-- `validate-artifact`、Evidence/Artifact Store、RunStore、bounded assessment adaptation、audit/traceability、concept/discovery report、G2.1 maps、G2.2 candidate/lane/fan-in、G2.3 caller-supplied synthesis、G2.4 caller-supplied evaluation/report以及G3.1-G3.3 caller-supplied AI baseline/reliability/data/economics/commoditization/trust/mandatory-bundle validation/publication已形成 deterministic surface；Harness不执行research/benchmark，不生成语义判断，不调用LLM或agent，不访问network。
+- G2 Opportunity Discovery 与 W5=`DONE`；fixed-v5 fresh independent acceptance `019fada4-6e70-7ce1-8b0e-2756ef0a9f20` 对 `6d09cc7` 统一PASS。G3 fresh independent acceptance `019fb188-5754-7430-859d-6f00303ea95f` 对 exact candidate `e00f71333e115a37cfcaf45590943e975d408ab4` unified PASS；G3/W6=`DONE`，无未解决P0/P1/P2；`P1-G3-002`只保留静态/existing-test coverage，`PD-G3-001=REMEDIATED_NON_BLOCKING`。
+- `validate-artifact`、Evidence/Artifact Store、RunStore、bounded assessment adaptation、audit/traceability、concept/discovery report、G2.1-G3.3 caller-supplied deterministic surface以及G4.1 repo-local Skill/agents/hooks/MCP adapter已实现；Harness不执行research/benchmark，不生成语义判断，不调用LLM/agent，不访问network。G4.1只标`IMPLEMENTED_PENDING_WHOLE_GATE_REGRESSION`，G4仍为`IN_PROGRESS`。
 - 目标 runtime 是精确 Node.js `24.18.0` 与 npm `11.16.0`；开发者不得用错误版本证据替代冻结验证。
+
+## G4 Construction Stage
+
+### G4.1 Repo-local Skill / Agent / Hook / MCP Integration candidate
+
+本切片以exact accepted G3 candidate `e00f71333e115a37cfcaf45590943e975d408ab4`为parent起点。`$startup-opportunity`现在明确执行discover/assess新Run、resume恢复与status只读路由；新增`status-run`只读Harness/Skill入口。三类custom agent保留typed envelope与唯一output ownership，lane researcher可记录/读取Evidence manifest，auditor/reviewer只能读取manifest；completion summary继续不是正式Artifact。
+
+项目`.codex/config.toml`只注册repo-local stdio Evidence adapter并使用tool allow-list/approval mode；adapter仅接收caller-supplied bytes、调用既有Evidence Store和读取validated manifest，不fetch URL、不判断机会、不形成recommendation、不调用LLM/agent或接管Codex权限/thread lifecycle。Pre/Post/Stop hooks只提供可选机械guardrail/提示；不写正式`events.jsonl`，禁用后Skill与Harness显式步骤仍是完整正确性路径。
+
+| 命令 / 边界 | G4.1 candidate结果 |
+| --- | --- |
+| `npm run test:g4.1` | PASS 4/4，0 failed/cancelled/skipped/todo；覆盖config/hooks/agent tool filter、ordinary hook继续、只读status、in-memory MCP caller-supplied Evidence交接 |
+| frozen doctor | PASS；`ok=true`、skeleton=`g4.1`，新增config/hooks/MCP/status script均纳入repository contract |
+| `npm run validate:store` / `npm run test:recovery` | PASS existing tests 11/11与11/11，全部0 failed/cancelled/skipped/todo |
+| `npm run typecheck` | PASS；`tsc --noEmit` 0 errors |
+| `npm test` | PASS 345/345，0 failed/cancelled/skipped/todo；完整重放G0-G4.1 |
+| dependency / scope | 官方`@modelcontextprotocol/sdk@1.30.0`与显式`zod@4.4.3`使用唯一npm lockfile精确锁定；无第二package manager/lockfile/语言，无network tool、external validation、Workflow Runtime/DAG/daemon/UI/DB |
+| ordinary / security NOT_RUN | required ordinary `NOT_RUN=0`。MCP权限、hook trust、tool filter、Run identity/integrity/current-state异常分支不构造新动态probe；只使用静态源码/config与既有Store/fault/recovery mapping。`SECURITY_VALIDATION_NOT_RUN(reason=G4 fixed rules permit only static source and existing-test mapping for MCP permission, hook trust, tool-filter, identity, integrity, and current-state branches)`；不得据此声明security PASS |
+
+G4.1实现、tests与本账本形成一个原子提交（使用占位避免self-reference），其sole parent必须为`e00f71333e115a37cfcaf45590943e975d408ab4`。该提交后同一worker连续进入G4.2，不等待逐slice验收；G4整体仍为`IN_PROGRESS`。
