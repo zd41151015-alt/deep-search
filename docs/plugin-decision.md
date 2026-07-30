@@ -2,7 +2,7 @@
 
 ## Decision
 
-G4 exits as a repo-local integration candidate. It does not package a Codex Plugin.
+The G4 operational decision is `REPO_LOCAL_NOT_PACKAGED`. Exact candidate `060029fbcfc6e4b543873642b7e3657c67c913af` received an independent whole-G4 PASS, and it does not package a Codex Plugin. The current documentation descendant does not change this packaging decision and remains subject to fresh independent whole-G4 acceptance created by the controller.
 
 ## RFC Criteria
 
@@ -13,6 +13,8 @@ G4 exits as a repo-local integration candidate. It does not package a Codex Plug
 | Provide stable versioned distribution and a shared team entry | No cross-team distribution or marketplace lifecycle is requested. | Not met |
 
 Creating a Plugin only to mark G4 complete would add a second installation/versioning surface without a consumer. The committed `.agents/`, `.codex/`, Harness, docs, and lockfile already form the auditable repo-local unit required by the RFC.
+
+This decision closes only the repo-local packaging question. It is not evidence that the project-wide RFC sections 29 and 30 completion scope is complete.
 
 ## Invariants
 

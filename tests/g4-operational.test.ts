@@ -17,13 +17,14 @@ function runScript(script: string, args: readonly string[], input?: string) {
   });
 }
 
-test("operations, sample, and Plugin decision documents share one repo-local entry", async () => {
-  const [readme, operations, samples, pluginDecision, fixture] = await Promise.all([
+test("operations, sample, Plugin, and current-state documents share one repo-local entry", async () => {
+  const [readme, operations, samples, pluginDecision, fixture, progress] = await Promise.all([
     readFile(path.join(repositoryRoot, "README.md"), "utf8"),
     readFile(path.join(repositoryRoot, "docs/operations.md"), "utf8"),
     readFile(path.join(repositoryRoot, "docs/sample-runs.md"), "utf8"),
     readFile(path.join(repositoryRoot, "docs/plugin-decision.md"), "utf8"),
     readFile(path.join(repositoryRoot, "tests/fixtures/g4/synthetic-evidence.txt"), "utf8"),
+    readFile(path.join(repositoryRoot, "startup-opportunity-implementation-progress.md"), "utf8"),
   ]);
 
   for (const action of ["discover", "assess", "resume", "status"]) {
@@ -39,7 +40,22 @@ test("operations, sample, and Plugin decision documents share one repo-local ent
   assert.match(samples, /example\.invalid/);
   assert.match(fixture, /SYNTHETIC \/ UNVERIFIED/);
   assert.match(pluginDecision, /does not package a Codex Plugin/);
+  assert.match(pluginDecision, /REPO_LOCAL_NOT_PACKAGED/);
   assert.match(pluginDecision, /No cross-team distribution/);
+  assert.match(readme, /060029fbcfc6e4b543873642b7e3657c67c913af/);
+  assert.match(readme, /project-wide RFC sections 29 and 30 completion scope/);
+  assert.doesNotMatch(readme, /G4 remains a Construction Stage candidate/);
+  for (const retainedRecord of [
+    "019fb221-9101-7d63-8f33-6bbc2740bd37",
+    "cafe973d-042e-459d-a509-4be7e48156e4:3",
+    "P1-G4-001",
+    "P1-G4-002",
+    "P1-G4-003",
+    "SECURITY_VALIDATION_NOT_RUN",
+    "PROJECT_WIDE_COMPLETION_SCOPE_AUDIT_NOT_RUN",
+  ]) {
+    assert.ok(progress.includes(retainedRecord), retainedRecord);
+  }
   await assert.rejects(access(path.join(repositoryRoot, ".codex-plugin/plugin.json")));
 });
 
