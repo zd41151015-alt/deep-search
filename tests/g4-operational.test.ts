@@ -43,18 +43,29 @@ test("operations, sample, Plugin, and current-state documents share one repo-loc
   assert.match(pluginDecision, /REPO_LOCAL_NOT_PACKAGED/);
   assert.match(pluginDecision, /No cross-team distribution/);
   assert.match(readme, /060029fbcfc6e4b543873642b7e3657c67c913af/);
-  assert.match(readme, /project-wide RFC sections 29 and 30 completion scope/);
+  assert.match(readme, /fresh independent delta-aware G4 acceptance/);
+  assert.match(readme, /G0-G4 closes the RFC's complete first-version implementation objective/);
   assert.doesNotMatch(readme, /G4 remains a Construction Stage candidate/);
   for (const retainedRecord of [
+    "019fb1f3-9e4a-7d00-8239-28dcba107a08",
     "019fb221-9101-7d63-8f33-6bbc2740bd37",
     "cafe973d-042e-459d-a509-4be7e48156e4:3",
     "P1-G4-001",
     "P1-G4-002",
     "P1-G4-003",
     "SECURITY_VALIDATION_NOT_RUN",
-    "PROJECT_WIDE_COMPLETION_SCOPE_AUDIT_NOT_RUN",
+    "REPO_LOCAL_NOT_PACKAGED",
+    "startup-opportunity-controller-project-v2",
+    "1594a37e8840f2eee1b2c006588b723a81f06076c0887430208c2f66b5c92da1",
   ]) {
     assert.ok(progress.includes(retainedRecord), retainedRecord);
+  }
+  assert.match(progress, /fresh independent delta-aware G4 acceptance/);
+  assert.match(progress, /G0-G4.*首版implementation objective/);
+  assert.match(progress, /automation.*`PAUSED`.*保留/);
+  for (const document of [readme, pluginDecision, progress]) {
+    assert.doesNotMatch(document, /PROJECT_WIDE_COMPLETION_SCOPE_AUDIT_NOT_RUN/);
+    assert.doesNotMatch(document, /separate independent completion-scope audit/);
   }
   await assert.rejects(access(path.join(repositoryRoot, ".codex-plugin/plugin.json")));
 });

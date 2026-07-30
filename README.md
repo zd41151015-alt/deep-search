@@ -115,5 +115,6 @@ The architecture authority is `startup-opportunity-codex-research-harness.md`. I
 - The MCP adapter does not judge an opportunity, recommend a product, or replace Codex permissions and thread lifecycle.
 - The system does not execute interviews, landing pages, deposits, advertising, paid experiments, MVP tests, or other external validation.
 - No general workflow runtime, DAG DSL, daemon, UI, or database is part of this repository.
-- The repo-local G4 operational exit received an independent PASS for exact candidate `060029fbcfc6e4b543873642b7e3657c67c913af`. This documentation/current-state repair is a direct descendant and requires a fresh independent whole-G4 acceptance created by the controller before it replaces that accepted candidate.
-- The G4 result covers only the repo-local operational exit. It does not establish that the project-wide RFC sections 29 and 30 completion scope is complete; that requires a separate independent completion-scope audit.
+- Exact candidate `060029fbcfc6e4b543873642b7e3657c67c913af` received an independent whole-G4 PASS. The current documentation descendant awaits fresh independent delta-aware G4 acceptance.
+- If that delta passes, G0-G4 closes the RFC's complete first-version implementation objective. The controller then performs only a read-only closure check and sets the retained automation to `PAUSED`; there is no defined G5 or separate completion-scope audit.
+- Implementation closure does not establish Evidence truth, completed research or external validation, market demand, product viability, recommendation readiness, or startup success.

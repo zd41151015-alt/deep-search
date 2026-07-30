@@ -1,11 +1,11 @@
 # Startup Opportunity Research Harness 实施进度
 
-> **状态**: G0-G3_DONE / G4_REPO_LOCAL_OPERATIONAL_EXIT_DONE_AT_060029F / P1-G4-003_DOCUMENTATION_REPAIR_CANDIDATE_PENDING_FRESH_WHOLE_G4_ACCEPTANCE / PROJECT_WIDE_COMPLETION_SCOPE_AUDIT_NOT_RUN
-> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`DONE`；G2 Opportunity Discovery=`DONE`；G3 AI Bundle Construction=`DONE`；G4 Distribution / Operational Exit在exact accepted candidate `060029fbcfc6e4b543873642b7e3657c67c913af`上=`DONE`；当前P1-G4-003只修复文档/current-state，新的direct descendant仍待controller fresh whole-G4 acceptance
-> **下一动作**: 当前主worker形成`060029f`的direct-child P1-G4-003文档原子提交并停止；controller随后对新candidate创建fresh independent whole-G4 acceptance。该边界重新闭合后，仍须另行执行独立project-wide RFC sections 29/30 completion-scope audit，才能判断整个方案是否完成；automation保持`ACTIVE`
+> **状态**: G0-G3_DONE / G4_DONE_AT_ACCEPTED_060029F / P1-G4-003_DOCUMENTATION_DESCENDANT_PENDING_FRESH_DELTA_AWARE_G4_ACCEPTANCE
+> **当前 Gate**: G0 Foundation Harness=`DONE`；G1 Concept Evidence Assessment=`DONE`；G2 Opportunity Discovery=`DONE`；G3 AI Bundle Construction=`DONE`；G4 Distribution / Operational Exit在exact accepted candidate `060029fbcfc6e4b543873642b7e3657c67c913af`上=`DONE`；当前documentation descendant仍待controller fresh independent delta-aware G4 acceptance
+> **下一动作**: 当前主worker形成`dca8070ad693eff6612185a0581451405e99f746`的direct-child documentation correction commit并停止；controller随后对新candidate创建fresh independent delta-aware G4 acceptance。通过后G0-G4即闭合本RFC首版implementation objective；controller只执行read-only closure check，并将automation设为`PAUSED`且保留定义
 > **最后更新**: 2026-07-30
 > **规范权威**: `startup-opportunity-codex-research-harness.md`
-> **固定规则集**: `fixed_ruleset_id=startup-opportunity-controller-fixed-v7`（supersedes fixed-v6/fixed-v5；immutable block SHA-256=`2279bb7a315c39a51cc215f26c0fc4c2fb46b5756a7e42cee0f331c2fe8af1f5`；G3 全 Stage 禁止 subagent）
+> **当前项目规则集**: `project_ruleset_id=startup-opportunity-controller-project-v2`；immutable project block SHA-256=`1594a37e8840f2eee1b2c006588b723a81f06076c0887430208c2f66b5c92da1`；历史Stage规则集、finding与`NOT_RUN`记录继续保留在下文
 
 ## 文档职责
 
@@ -179,7 +179,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | G1 Concept Evidence Assessment | `DONE` | G0 | 单 thesis 从 intake 到 report 的端到端闭环，buyer gap 触发 plan r2，独立 G1 whole-gate regression 与中控验收均通过 |
 | G2 Opportunity Discovery | `DONE` | G1 | fresh independent fixed-v5 whole-boundary acceptance `019fada4-6e70-7ce1-8b0e-2756ef0a9f20` 对 candidate `6d09cc7` 统一 PASS；H1-H14闭合 |
 | G3 AI Bundle Construction | `DONE` | G2 | fresh independent acceptance task `019fb188-5754-7430-859d-6f00303ea95f` 对 exact candidate `e00f71333e115a37cfcaf45590943e975d408ab4` unified PASS；`P1-G3-002`只保留静态/existing-test coverage，`PD-G3-001=REMEDIATED_NON_BLOCKING` |
-| G4 Distribution / Operational Exit | `DONE` at accepted `060029f`；current documentation descendant pending fresh acceptance | G3 | fresh acceptance task `019fb221-9101-7d63-8f33-6bbc2740bd37` 对exact `060029fbcfc6e4b543873642b7e3657c67c913af` unified PASS，P0/P1/P2=`0/0/0`；仅闭合repo-local operational exit，不代表project-wide completion |
+| G4 Distribution / Operational Exit | `DONE` at accepted `060029f`；current documentation descendant pending fresh delta acceptance | G3 | fresh acceptance task `019fb221-9101-7d63-8f33-6bbc2740bd37` 对exact `060029fbcfc6e4b543873642b7e3657c67c913af` unified PASS，P0/P1/P2=`0/0/0`；G4是RFC首版Construction scope的最后Stage，无已定义G5 |
 
 ## 工作包总览
 
@@ -192,7 +192,7 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | W4 | Assess domain contracts、research branches、matrix、audit/review/report | `DONE`（G1.1-G1.4、G1.R=`DONE`） |
 | W5 | Discovery lanes、maps、synthesis、enrichment、comparison/portfolio | `DONE`（fixed-v5 whole-boundary acceptance 对 `6d09cc7` 统一 PASS） |
 | W6 | AI mandatory bundle 和 gates | `DONE`（fresh independent G3 acceptance unified PASS） |
-| W7 | Codex Skill、custom agents、hooks/MCP、分发和端到端运营 | `DONE` at accepted `060029f`；当前P1-G4-003 documentation descendant待fresh whole-G4 acceptance |
+| W7 | Codex Skill、custom agents、hooks/MCP、分发和端到端运营 | `DONE` at accepted `060029f`；当前documentation descendant待fresh delta-aware G4 acceptance |
 
 ## G0 Foundation Harness 施工切片
 
@@ -238,22 +238,22 @@ G0.1 的真实 clean 起点更新为 `main@4033ae5`；不得再把 `62e02b7` 当
 | 切片 | 内容 | 状态 | 主要退出条件 |
 | --- | --- | --- | --- |
 | G4.1 | Repo-local Skill / Agent / Hook / MCP Integration | `DONE` | repo-local Skill的discover/assess/resume/status路由、三类agent、hook降级和MCP Evidence adapter边界已由accepted `060029f`覆盖 |
-| G4.2 | Documentation / Installation / End-to-End Fixtures | `DONE` at accepted `060029f`；P1-G4-003 repair pending fresh acceptance | README、安装/使用/恢复、sample runs、clean checkout、Codex桌面/CLI/IDE一致入口；本次只修正用户入口与施工状态 |
+| G4.2 | Documentation / Installation / End-to-End Fixtures | `DONE` at accepted `060029f`；current correction pending fresh delta acceptance | README、安装/使用/恢复、sample runs、clean checkout、Codex桌面/CLI/IDE一致入口；本次只修正用户入口与施工状态 |
 | G4.3 | Plugin Decision and Packaging | `DONE` | RFC 10.3三项分发条件均未满足；decision=`REPO_LOCAL_NOT_PACKAGED`，不创建Plugin packaging或第二安装面 |
-| G4.R | Independent Operational Exit Regression | `DONE` for exact `060029f` | task `019fb221-9101-7d63-8f33-6bbc2740bd37`、final cursor `cafe973d-042e-459d-a509-4be7e48156e4:3` unified PASS，P0/P1/P2=`0/0/0`；current documentation descendant仍需fresh whole-G4 acceptance |
+| G4.R | Independent Operational Exit Regression | `DONE` for exact `060029f` | task `019fb221-9101-7d63-8f33-6bbc2740bd37`、final cursor `cafe973d-042e-459d-a509-4be7e48156e4:3` unified PASS，P0/P1/P2=`0/0/0`；current documentation descendant仍需fresh delta-aware G4 acceptance |
 
 ## 当前中控状态
 
 | 字段 | 当前值 |
 | --- | --- |
 | Controller thread | `019f91c5-be6f-7fc2-bf87-7f8418f49a8f` |
-| Automation | `startup-opportunity-research-harness`；10-minute heartbeat；`ACTIVE` |
-| Active task | task `019fb1ac-db2b-7593-88d4-547467bb94b4`；原唯一G4 local/main主写入worker执行ordinary P1-G4-003 documentation/current-state repair；不创建subagent/worktree/Handoff |
-| Current slice | G0-G3=`DONE`；G4.1-G4.3、G4.R与W7在accepted `060029f`上=`DONE`；P1-G4-003 documentation repair candidate待fresh whole-G4 acceptance；project-wide completion-scope audit=`NOT_RUN` |
-| Expected base | exact `060029fbcfc6e4b543873642b7e3657c67c913af`，parent=`780f67c0f8a17a8505ac45fb8fcac6a34e31f8a7`；P1-G4-003必须形成`060029f`的clean direct child，历史不得改写 |
+| Automation | `startup-opportunity-research-harness`；10-minute heartbeat；当前`ACTIVE`等待delta acceptance；闭合后由controller设为`PAUSED`并保留定义 |
+| Active task | task `019fb1ac-db2b-7593-88d4-547467bb94b4`；原唯一G4 local/main主写入worker执行ordinary documentation/current-state correction；不创建subagent/worktree/Handoff |
+| Current slice | G0-G3=`DONE`；G4.1-G4.3、G4.R与W7在accepted `060029f`上=`DONE`；current documentation descendant待fresh independent delta-aware G4 acceptance |
+| Expected base | exact `dca8070ad693eff6612185a0581451405e99f746`，parent=`060029fbcfc6e4b543873642b7e3657c67c913af`；本correction必须形成`dca8070`的clean direct child，历史不得改写 |
 | Consecutive state-query failures | `0` |
-| Last effective operation | fresh post-repair acceptance task `019fb221-9101-7d63-8f33-6bbc2740bd37`对exact `060029f` unified PASS；final cursor=`cafe973d-042e-459d-a509-4be7e48156e4:3`，P0/P1/P2=`0/0/0`。Controller completion-scope判断已纠正，automation fixed-v7当前区保持恢复后的`ACTIVE`状态 |
-| Next allowed action | 当前worker提交P1-G4-003 direct-child文档repair并停止；由controller对新candidate创建fresh independent whole-G4 acceptance。通过后只允许另行开展独立project-wide RFC sections 29/30 completion-scope audit；不得仅凭G4 PASS或automation mutable state宣布整个方案完成，不得删除automation |
+| Last effective operation | `dca8070ad693eff6612185a0581451405e99f746`记录了accepted `060029f`，但错误增加了独立completion audit前置；current project-v2结论确认RFC第30节G0-G4就是完整首版Construction scope，且没有已定义G5 |
+| Next allowed action | 当前worker提交`dca8070` direct-child documentation correction并停止；由controller对新candidate创建fresh independent delta-aware G4 acceptance。通过后G0-G4闭合本RFC首版implementation objective；controller只读核对并将automation设为`PAUSED`、保留定义，不创建额外completion audit worker |
 
 ## 已完成切片与证据
 
@@ -1819,7 +1819,7 @@ fixed-v7 security mapping继续记录：bundle/policy/receipt/Manifest/Plan iden
 - G1.1-G1.4、G1.R、G1 Concept Evidence Assessment 与 W4 均为 `DONE`；中控已接受 G1.R commit `a30c0967860bf31d26fc959c583f8c5b6b1b4caa`。
 - G2 Opportunity Discovery 与 W5=`DONE`；fixed-v5 fresh independent acceptance `019fada4-6e70-7ce1-8b0e-2756ef0a9f20` 对 `6d09cc7` 统一PASS。G3 fresh independent acceptance `019fb188-5754-7430-859d-6f00303ea95f` 对 exact candidate `e00f71333e115a37cfcaf45590943e975d408ab4` unified PASS；G3/W6=`DONE`，无未解决P0/P1/P2；`P1-G3-002`只保留静态/existing-test coverage，`PD-G3-001=REMEDIATED_NON_BLOCKING`。
 - `validate-artifact`、Evidence/Artifact Store、RunStore、bounded assessment adaptation、audit/traceability、concept/discovery report、G2.1-G3.3 caller-supplied deterministic surface以及G4.1-G4.3 repo-local integration/docs/fixtures/Plugin decision已实现；Harness不执行research/benchmark，不生成语义判断，不调用LLM/agent，不访问network。Fresh task `019fb221-9101-7d63-8f33-6bbc2740bd37`已对exact `060029fbcfc6e4b543873642b7e3657c67c913af`给出whole-G4 unified PASS，G4.1-G4.3、G4.R与W7在该accepted candidate上均为`DONE`。
-- G4只闭合repo-local operational exit；整个方案是否满足RFC sections 29/30的完整目标与验收面仍为`PROJECT_WIDE_COMPLETION_SCOPE_AUDIT_NOT_RUN`。Automation保持`ACTIVE`，不得把G4 PASS或automation mutable state单独等同于整个方案完成。
+- RFC第30节映射的G0-G4是完整首版Construction scope，G4是最后Stage且没有已定义G5。Exact `060029f`已通过whole-G4 acceptance；current documentation descendant通过fresh delta-aware G4 acceptance后，G0-G4即闭合本RFC首版implementation objective，controller随后只做read-only closure check并将automation设为`PAUSED`、保留定义。
 - 目标 runtime 是精确 Node.js `24.18.0` 与 npm `11.16.0`；开发者不得用错误版本证据替代冻结验证。
 
 ## G4 Construction Stage
@@ -1901,18 +1901,19 @@ Fresh independent acceptance task `019fb221-9101-7d63-8f33-6bbc2740bd37` 对exac
 
 `P1-G4-003` classification=`ordinary documentation/current-state`。根README、Plugin decision与本账本的current-state字段在上述PASS后仍把G4描述为Construction candidate、`IN_PROGRESS`和G4.R=`NOT_READY`，导致repo-local用户入口与施工状态不闭合。本repair只同步accepted evidence、G4.1-G4.3/G4.R/W7状态、active task、expected base、last operation和next action；不修改Skill、agent、hook、MCP、Harness、schema、policy、package/toolchain或synthetic fixture bytes。
 
-Acceptance scope被明确限制为repo-local operational exit。它不证明Evidence truth、research完成、external validation、市场需求、产品可行性、recommendation readiness或startup success，也不证明RFC sections 29/30的project-wide completion scope已经完整施工和验收。`PROJECT_WIDE_COMPLETION_SCOPE_AUDIT_NOT_RUN(reason=whole-G4 acceptance covers repo-local operational exit only; a separate independent RFC sections 29/30 completion-scope audit has not run)`。Automation fixed-v7当前区保持恢复后的`ACTIVE`状态；本repair不删除或修改automation，不创建research Run、formal research Artifact、network research、真实外部MCP调用、external validation或security动态probe。
+Current project-v2结论纠正了`dca8070`新增的completion-scope语义：RFC第30节映射的G0-G4就是本方案完整首版Construction scope，G4是最后Stage，无已定义G5，也不创建独立project-wide completion audit worker。Current documentation descendant仍待fresh independent delta-aware G4 acceptance；通过后G0-G4闭合首版implementation objective，controller只做read-only closure check并将automation设为`PAUSED`、保留定义。该闭合不证明Evidence truth、research完成、external validation、市场需求、产品可行性、recommendation readiness或startup success，也不得扩张为general security PASS。Automation在本correction期间保持`ACTIVE`；本worker不删除或修改automation，不创建research Run、formal research Artifact、network research、真实外部MCP调用、external validation或security动态probe。
 
 #### P1-G4-003 affected documentation preflight
 
-全部命令使用Node.js`24.18.0`、npm`11.16.0`、TypeScript`7.0.2`与唯一package-lock v3。该preflight只验证ordinary docs/reference/current-state与既有G4合法路径；不是fresh whole-G4 boundary PASS，也不是project-wide completion-scope audit。
+全部命令使用Node.js`24.18.0`、npm`11.16.0`、TypeScript`7.0.2`与唯一package-lock v3。该preflight只验证ordinary docs/reference/current-state与既有G4合法路径；不是fresh delta-aware G4 boundary PASS或controller closure check。
 
 | 命令 / 边界 | P1-G4-003结果 |
 | --- | --- |
-| `npm run test:g4` | PASS 7/7，0 failed/cancelled/skipped/todo；永久ordinary docs test检查README/Plugin/current-state一致、accepted task/cursor、P1-G4-001/002/003、既有security `NOT_RUN`和project-wide audit `NOT_RUN`保留 |
+| `node --import tsx --test tests/g4-operational.test.ts` | PASS 2/2，0 failed/cancelled/skipped/todo；直接ordinary documentation/current-state专项 |
+| `npm run test:g4` | PASS 7/7，0 failed/cancelled/skipped/todo；永久ordinary docs test检查README/Plugin/current-state一致、accepted task/cursor、first FAIL、P1-G4-001/002/003、既有security `NOT_RUN`、project-v2规则集和automation closure状态 |
 | `npm run test:g4:clean` | PASS 1/1，0 failed/cancelled/skipped/todo；candidate snapshot install与显式Skill/CLI/recovery/stdio MCP合法入口继续闭合 |
 | frozen doctor / `npm run verify:skeleton` | PASS 342/342与342/342；`ok=true`、skeleton=`g4.3`、README/Plugin/Skill/reference repository contract闭合 |
 | `npm run lint` / `npm run typecheck` | PASS；Biome检查350 files、0 errors/fixes；`tsc --noEmit` 0 errors |
 | `git diff --check` / scope / status | PASS；只修改README、Plugin decision、施工账本和ordinary G4 docs test；Skill、agent、hook、MCP、Harness、schema/policy、package/toolchain与synthetic fixture bytes零修改，提交前仅4个预期tracked文件变化 |
 
-本P1-G4-003 documentation repair必须形成`060029fbcfc6e4b543873642b7e3657c67c913af`的clean direct-child原子commit，并同时包含README、Plugin decision、permanent ordinary docs test与本账本。提交后状态为`REPAIR_CANDIDATE_PENDING_ACCEPTANCE`；当前worker停止，由controller对新candidate创建fresh independent whole-G4 acceptance。该acceptance闭合后，后续仍只能由独立project-wide RFC sections 29/30 completion-scope audit判断整个方案是否完成；本worker不创建acceptance，不删除automation。
+本ordinary documentation correction必须形成`dca8070ad693eff6612185a0581451405e99f746`的clean direct-child原子commit，并同时包含README、Plugin decision、permanent ordinary docs test与本账本。提交后current descendant仍待fresh independent delta-aware G4 acceptance；当前worker停止且不创建acceptance。该delta通过后G0-G4即闭合本RFC首版implementation objective；controller只做read-only closure check并将automation设为`PAUSED`、保留定义，本worker不修改automation。
