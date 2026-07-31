@@ -1,4 +1,5 @@
 import { canonicalContentHash, operationKey, sha256Hex } from "../artifact-store/canonical.js";
+import { formalArtifactFragmentExists } from "../validators/artifact-ref-resolver.js";
 import type { DocumentBundle } from "../validators/artifact-validator.js";
 import {
   type ArtifactValidator,
@@ -96,55 +97,8 @@ function pathLikeRef(ref: string): boolean {
   return targetPath.includes("/") || targetPath.endsWith(".json") || targetPath.endsWith(".jsonl");
 }
 
-const DIRECT_FRAGMENT_FIELDS: Readonly<Record<string, readonly string[]>> = {
-  "startup_opportunity.adaptation_decision.v1": ["adaptation_id"],
-  "startup_opportunity.adaptation_decision.v2": ["adaptation_id"],
-  "startup_opportunity.ai_trigger_source_attestation.v1": ["attestation_id"],
-  "startup_opportunity.checkpoint.v1": ["checkpoint_id"],
-  "startup_opportunity.coverage_attestation.v1": ["coverage_key"],
-  "startup_opportunity.decision.v1": ["decision_id"],
-  "startup_opportunity.event.v1": ["event_id"],
-  "startup_opportunity.gap_snapshot.v1": ["snapshot_id"],
-  "startup_opportunity.planning_context.v1": ["context_id"],
-  "startup_opportunity.planning_context.v2": ["context_id"],
-  "startup_opportunity.research_plan.v1": ["plan_id"],
-};
-
 function fragmentExists(target: EffectiveDocument, fragment: string): boolean {
-  if (
-    (DIRECT_FRAGMENT_FIELDS[target.schemaVersion] ?? []).some(
-      (field) => target.document[field] === fragment,
-    )
-  ) {
-    return true;
-  }
-  if (target.schemaVersion === "startup_opportunity.gap_snapshot.v1") {
-    return (
-      Array.isArray(target.document.gaps) &&
-      target.document.gaps.some((gap) => isRecord(gap) && gap.gap_id === fragment)
-    );
-  }
-  if (target.schemaVersion !== "startup_opportunity.research_plan.v1") {
-    return false;
-  }
-  if (
-    Array.isArray(target.document.research_questions) &&
-    target.document.research_questions.some(
-      (question) => isRecord(question) && question.question_id === fragment,
-    )
-  ) {
-    return true;
-  }
-  return (
-    Array.isArray(target.document.waves) &&
-    target.document.waves.some(
-      (wave) =>
-        isRecord(wave) &&
-        (wave.wave_id === fragment ||
-          (Array.isArray(wave.units) &&
-            wave.units.some((unit) => isRecord(unit) && unit.unit_id === fragment))),
-    )
-  );
+  return formalArtifactFragmentExists(target, fragment);
 }
 
 export class GapAnalyzer {

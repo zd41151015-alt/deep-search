@@ -118,6 +118,7 @@ export {
 } from "./repository-contract.js";
 export {
   type BeliefSummary,
+  type BuildValidationContextResult,
   type CheckpointRunInput,
   type CheckpointRunResult,
   type CreateRunInput,
@@ -151,6 +152,7 @@ export type {
 export {
   ARTIFACT_VALIDATION_RESULT_VERSION,
   ArtifactValidator,
+  artifactRefsForDocument,
   createArtifactValidator,
   DOCUMENT_BUNDLE_VALIDATION_RESULT_VERSION,
 } from "./validators/artifact-validator.js";

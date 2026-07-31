@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -80,6 +80,57 @@ test("create and reopen persist a complete initial Run boundary idempotently", a
   assert.equal(replay.status, "idempotent_replay");
   assert.equal(replay.manifest.created_at, "2026-07-23T12:00:00Z");
   assert.equal(runsRoot, path.dirname(runRoot));
+});
+
+test("create validates before visibility and atomically discards failed staging Runs", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-create-atomic-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const validator = await createArtifactValidator(repositoryRoot);
+  const store = new RunStore(runsRoot, validator);
+  const runId = "atomic-create-test";
+
+  await assert.rejects(
+    store.create({
+      runId,
+      mode: "opportunity_discovery",
+      createdAt: "not-a-timestamp",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "manifest.schema_invalid",
+  );
+  assert.deepEqual(await readdir(root), []);
+
+  await assert.rejects(
+    store.create({
+      runId,
+      mode: "opportunity_discovery",
+      createdAt: "2026-07-30T12:00:00Z",
+      faultAt: "before_publish",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const failedEntries = await readdir(runsRoot);
+  assert.ok(!failedEntries.includes(runId));
+  assert.ok(!failedEntries.some((entry) => entry.startsWith(`.create-${runId}-`)));
+
+  const created = await store.create({
+    runId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-30T12:00:00Z",
+  });
+  assert.equal(created.status, "created");
+  assert.equal((await store.load(runId)).manifest.run_id, runId);
+
+  const incompleteRunId = "preexisting-incomplete-run";
+  await mkdir(path.join(runsRoot, incompleteRunId));
+  await assert.rejects(
+    store.create({
+      runId: incompleteRunId,
+      mode: "opportunity_discovery",
+      createdAt: "2026-07-30T12:01:00Z",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "run.incomplete",
+  );
 });
 
 test("formal publication validates canonical hash, updates manifest, and replays idempotently", async (context) => {

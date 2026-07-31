@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import {
   type PlanOperationRecoveryResult,
@@ -12,7 +12,12 @@ import {
   type PublishArtifactInput,
   type PublishArtifactResult,
 } from "../artifact-store/artifact-store.js";
-import { atomicReplace, publishTemp, writeSyncedTemp } from "../artifact-store/atomic-file.js";
+import {
+  atomicReplace,
+  publishTemp,
+  syncDirectory,
+  writeSyncedTemp,
+} from "../artifact-store/atomic-file.js";
 import {
   canonicalContentHash,
   canonicalJson,
@@ -20,7 +25,6 @@ import {
   sha256Hex,
 } from "../artifact-store/canonical.js";
 import {
-  createRunDirectory,
   isNodeError,
   openRunDirectory,
   openRunDirectoryReadOnly,
@@ -28,14 +32,20 @@ import {
   validateArtifactRef,
   validateRunId,
 } from "../artifact-store/path-policy.js";
-import { withRunLock } from "../artifact-store/run-lock.js";
+import { withRunCreationLock, withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { type EvidenceRecoveryResult, EvidenceStore } from "../evidence-store/evidence-store.js";
 import {
   type ReportRecoveryResult,
   recoverReportOperationsLocked,
 } from "../reporting/report-runtime.js";
-import type { ArtifactValidator, DocumentBundleEntry } from "../validators/artifact-validator.js";
+import {
+  type ArtifactValidator,
+  artifactRefsForDocument,
+  type DocumentBundle,
+  type DocumentBundleEntry,
+  type DocumentBundleReferenceContext,
+} from "../validators/artifact-validator.js";
 import { type JsonlRepairResult, JsonlStore } from "./jsonl-store.js";
 
 export type RunMode = "opportunity_discovery" | "concept_evidence_assessment";
@@ -83,6 +93,7 @@ export interface CreateRunInput {
   readonly skillVersion?: string;
   readonly policyVersion?: string;
   readonly gitCommit?: string | null;
+  readonly faultAt?: "before_publish";
 }
 
 export interface CreateRunResult {
@@ -141,6 +152,12 @@ export interface StatusRunResult {
   readonly manifest: RunManifest;
   readonly continuationRunIds: readonly string[];
   readonly derivedExecutionDisposition: "current" | "continued" | "terminal";
+}
+
+export interface BuildValidationContextResult {
+  readonly schemaVersion: "startup_opportunity.validation_context.v1";
+  readonly bundle: DocumentBundle;
+  readonly referenceContext: DocumentBundleReferenceContext;
 }
 
 const RUN_DIRECTORIES = [
@@ -311,45 +328,9 @@ export class RunStore {
         });
       }
     }
-    let runRoot: string;
-    try {
-      runRoot = await createRunDirectory(this.runsRoot, input.runId);
-    } catch (error) {
-      if (!(error instanceof StoreError) || error.code !== "run.already_exists") {
-        throw error;
-      }
-      const loaded = await this.load(input.runId);
-      if (
-        loaded.manifest.mode !== input.mode ||
-        loaded.manifest.parent_run_id !== (input.parentRunId ?? null) ||
-        loaded.manifest.skill_version !== (input.skillVersion ?? "1.0.0") ||
-        loaded.manifest.policy_version !== (input.policyVersion ?? "1.0.0")
-      ) {
-        throw new StoreError("write.conflict", "existing Run has different create parameters", {
-          runId: input.runId,
-        });
-      }
-      return {
-        schemaVersion: "startup_opportunity.create_run_result.v1",
-        status: "idempotent_replay",
-        runId: input.runId,
-        manifest: loaded.manifest,
-        checkpointRef: loaded.lastValidCheckpointRef,
-      };
-    }
-
-    for (const directory of RUN_DIRECTORIES) {
-      await mkdir(path.join(runRoot, directory), { recursive: true });
-    }
-    for (const logPath of ["events.jsonl", "decisions.jsonl", "evidence/manifest.jsonl"] as const) {
-      const temporary = `.store/temp/create-${logPath.replaceAll("/", "-")}.tmp`;
-      await writeSyncedTemp(runRoot, temporary, "");
-      await publishTemp(runRoot, temporary, logPath);
-    }
     const createdAt = input.createdAt ?? new Date().toISOString();
     const manifest = makeManifest(input, createdAt);
-    await this.writeManifest(runRoot, manifest);
-
+    this.validateManifest(manifest);
     const event = {
       schema_version: "startup_opportunity.event.v1",
       event_id: `run_created_${sha256Hex(operationKey("run_created", { run_id: input.runId }))}`,
@@ -360,29 +341,103 @@ export class RunStore {
       reason: "The deterministic Run Store created the Run boundary.",
       artifact_refs: [],
     };
-    await this.logs.appendValidated(runRoot, input.runId, "events.jsonl", event);
-    const checkpoint = await this.checkpointLocked(runRoot, {
-      runId: input.runId,
-      checkpointId: "checkpoint_initial",
-      createdAt,
-      nextStep: "Write and validate DecisionContext.",
-      beliefSummary: {
-        current_belief: "No research belief has been recorded.",
-        evidence_that_changed_belief: [],
-        unchanged_assumptions: [],
-        remaining_disagreement: [],
-        next_decision_relevant_question: "What decision should this Run answer?",
-      },
-      inputRefs: [`events.jsonl#${event.event_id}`],
+    const eventValidation = this.validator.validateDocument(event, "events.jsonl");
+    if (!eventValidation.valid) {
+      throw new StoreError("run.initial_event_invalid", "initial Run Event is not schema-valid", {
+        errors: eventValidation.errors,
+      });
+    }
+
+    return withRunCreationLock(this.runsRoot, input.runId, async (runsRoot) => {
+      const target = path.join(runsRoot, input.runId);
+      try {
+        await lstat(target);
+        let loaded: LoadRunResult;
+        try {
+          loaded = await this.load(input.runId);
+        } catch (error) {
+          if (
+            isNodeError(error, "ENOENT") ||
+            (error instanceof StoreError && error.code === "path.parent_missing")
+          ) {
+            throw new StoreError(
+              "run.incomplete",
+              "existing Run boundary is missing required durable state",
+              { runId: input.runId },
+            );
+          }
+          throw error;
+        }
+        if (
+          loaded.manifest.mode !== input.mode ||
+          loaded.manifest.parent_run_id !== (input.parentRunId ?? null) ||
+          loaded.manifest.skill_version !== (input.skillVersion ?? "1.0.0") ||
+          loaded.manifest.policy_version !== (input.policyVersion ?? "1.0.0")
+        ) {
+          throw new StoreError("write.conflict", "existing Run has different create parameters", {
+            runId: input.runId,
+          });
+        }
+        return {
+          schemaVersion: "startup_opportunity.create_run_result.v1",
+          status: "idempotent_replay",
+          runId: input.runId,
+          manifest: loaded.manifest,
+          checkpointRef: loaded.lastValidCheckpointRef,
+        };
+      } catch (error) {
+        if (!isNodeError(error, "ENOENT")) {
+          throw error;
+        }
+      }
+
+      const stagingRoot = await mkdtemp(path.join(runsRoot, `.create-${input.runId}-`));
+      try {
+        for (const directory of RUN_DIRECTORIES) {
+          await mkdir(path.join(stagingRoot, directory), { recursive: true });
+        }
+        for (const logPath of [
+          "events.jsonl",
+          "decisions.jsonl",
+          "evidence/manifest.jsonl",
+        ] as const) {
+          const temporary = `.store/temp/create-${logPath.replaceAll("/", "-")}.tmp`;
+          await writeSyncedTemp(stagingRoot, temporary, "");
+          await publishTemp(stagingRoot, temporary, logPath);
+        }
+        await this.writeManifest(stagingRoot, manifest);
+        await this.logs.appendValidated(stagingRoot, input.runId, "events.jsonl", event);
+        const checkpoint = await this.checkpointLocked(stagingRoot, {
+          runId: input.runId,
+          checkpointId: "checkpoint_initial",
+          createdAt,
+          nextStep: "Write and validate DecisionContext.",
+          beliefSummary: {
+            current_belief: "No research belief has been recorded.",
+            evidence_that_changed_belief: [],
+            unchanged_assumptions: [],
+            remaining_disagreement: [],
+            next_decision_relevant_question: "What decision should this Run answer?",
+          },
+          inputRefs: [`events.jsonl#${event.event_id}`],
+        });
+        const finalManifest = await this.readManifest(stagingRoot);
+        if (input.faultAt === "before_publish") {
+          throw new StoreError("fault.injected", "injected failure before atomic Run publication");
+        }
+        await rename(stagingRoot, target);
+        await syncDirectory(runsRoot);
+        return {
+          schemaVersion: "startup_opportunity.create_run_result.v1",
+          status: "created",
+          runId: input.runId,
+          manifest: finalManifest,
+          checkpointRef: checkpoint.checkpointRef,
+        };
+      } finally {
+        await rm(stagingRoot, { recursive: true, force: true });
+      }
     });
-    const finalManifest = await this.readManifest(runRoot);
-    return {
-      schemaVersion: "startup_opportunity.create_run_result.v1",
-      status: "created",
-      runId: input.runId,
-      manifest: finalManifest,
-      checkpointRef: checkpoint.checkpointRef,
-    };
   }
 
   async load(runId: string): Promise<LoadRunResult> {
@@ -424,6 +479,136 @@ export class RunStore {
             ? "terminal"
             : "current",
     };
+  }
+
+  async buildValidationContext(
+    runId: string,
+    input: DocumentBundle,
+  ): Promise<BuildValidationContextResult> {
+    validateRunId(runId);
+    const inputValidation = this.validator.validateDocument(input);
+    if (!inputValidation.valid) {
+      throw new StoreError(
+        "validation_context.bundle_invalid",
+        "validation context input is not a schema-valid Document Bundle",
+        { errors: inputValidation.errors },
+      );
+    }
+    const runRoot = await openRunDirectory(this.runsRoot, runId);
+    return withRunLock(runRoot, async () => {
+      const manifest = await this.readManifest(runRoot);
+      const stored = new Map(
+        (await this.artifacts.listFormalDocuments(runRoot)).map((entry) => [entry.path, entry]),
+      );
+      const selected = new Map<string, DocumentBundleEntry>();
+      const reservedLogs = new Set(["events.jsonl", "decisions.jsonl", "evidence/manifest.jsonl"]);
+      for (const entry of input.documents) {
+        if (reservedLogs.has(entry.path)) {
+          continue;
+        }
+        if (selected.has(entry.path)) {
+          throw new StoreError(
+            "validation_context.duplicate_path",
+            "validation context input contains a duplicate document path",
+            { path: entry.path },
+          );
+        }
+        selected.set(entry.path, entry);
+      }
+
+      const effective = (document: Record<string, unknown>): Record<string, unknown> =>
+        STORE_ENVELOPE_VERSIONS.has(String(document.schema_version)) && isRecord(document.document)
+          ? document.document
+          : document;
+      const addAuthority = async (entry: DocumentBundleEntry): Promise<void> => {
+        const supplied = selected.get(entry.path);
+        const authorityDocument = effective(entry.document);
+        if (
+          supplied !== undefined &&
+          canonicalJson(effective(supplied.document)) !== canonicalJson(authorityDocument)
+        ) {
+          throw new StoreError(
+            "validation_context.authority_conflict",
+            "caller-supplied document differs from validated Run authority",
+            { path: entry.path },
+          );
+        }
+        if (
+          STORE_ENVELOPE_VERSIONS.has(String(entry.document.schema_version)) &&
+          isRecord(entry.document.document)
+        ) {
+          await this.artifacts.validateStoredEnvelope(
+            runRoot,
+            runId,
+            entry.document as FormalArtifactEnvelope,
+          );
+        }
+        const validation = this.validator.validateDocument(authorityDocument, entry.path);
+        if (!validation.valid) {
+          throw new StoreError(
+            "validation_context.stored_document_invalid",
+            "stored validation-context document is not schema-valid",
+            { path: entry.path, errors: validation.errors },
+          );
+        }
+        selected.set(entry.path, { path: entry.path, document: authorityDocument });
+      };
+
+      await addAuthority({ path: "manifest.json", document: manifest });
+      const exactRecords = new Map<string, Record<string, unknown>>();
+      const processed = new Set<string>();
+      while (true) {
+        const next = [...selected.values()]
+          .sort((left, right) => left.path.localeCompare(right.path))
+          .find((entry) => !processed.has(entry.path));
+        if (next === undefined) {
+          break;
+        }
+        processed.add(next.path);
+        for (const ref of artifactRefsForDocument(next)) {
+          const parsed = validateArtifactRef(ref);
+          if (parsed.path === "events.jsonl" || parsed.path === "decisions.jsonl") {
+            exactRecords.set(
+              ref,
+              await this.logs.readExactRecord(runRoot, runId, ref, parsed.path),
+            );
+            continue;
+          }
+          if (parsed.path === "evidence/manifest.jsonl") {
+            exactRecords.set(
+              ref,
+              (await this.evidence.readExactRecordLocked(runRoot, runId, ref)) as Record<
+                string,
+                unknown
+              >,
+            );
+            continue;
+          }
+          if (parsed.path === "manifest.json") {
+            continue;
+          }
+          const authority = stored.get(parsed.path);
+          if (authority !== undefined) {
+            await addAuthority(authority);
+          }
+        }
+      }
+
+      return {
+        schemaVersion: "startup_opportunity.validation_context.v1",
+        bundle: {
+          schema_version: input.schema_version,
+          documents: [...selected.values()].sort((left, right) =>
+            left.path.localeCompare(right.path),
+          ),
+        },
+        referenceContext: {
+          exactJsonlRecords: new Map(
+            [...exactRecords.entries()].sort(([left], [right]) => left.localeCompare(right)),
+          ),
+        },
+      };
+    });
   }
 
   async publishArtifact(input: PublishArtifactInput): Promise<PublishArtifactResult> {

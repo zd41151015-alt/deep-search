@@ -9,7 +9,12 @@ import {
   operationKey,
   sha256Hex,
 } from "../artifact-store/canonical.js";
-import { openRunDirectory, resolveRunPath, validateRunId } from "../artifact-store/path-policy.js";
+import {
+  isNodeError,
+  openRunDirectory,
+  resolveRunPath,
+  validateRunId,
+} from "../artifact-store/path-policy.js";
 import { withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { type JsonlStore, JsonlStore as RuntimeJsonlStore } from "../run-store/jsonl-store.js";
@@ -652,6 +657,26 @@ function isFormalArtifactEnvelope(value: unknown): value is FormalArtifactEnvelo
   );
 }
 
+async function storedFormalEnvelope(
+  runRoot: string,
+  runId: string,
+  artifactRef: string,
+  artifacts: ArtifactStore,
+): Promise<FormalArtifactEnvelope> {
+  const stored = JSON.parse(
+    await readFile(await resolveRunPath(runRoot, artifactRef), "utf8"),
+  ) as unknown;
+  if (!isFormalArtifactEnvelope(stored) || stored.artifact_path !== artifactRef) {
+    throw new StoreError(
+      "adaptation.stored_artifact_invalid",
+      "selected Adaptation Decision does not resolve to its formal envelope",
+      { artifactPath: artifactRef },
+    );
+  }
+  await artifacts.validateStoredEnvelope(runRoot, runId, stored);
+  return stored;
+}
+
 function preKillCandidateBindings(
   documents: readonly EffectiveDocument[],
   decisions: readonly AdaptationInputDocument[],
@@ -970,10 +995,18 @@ async function assertNoDivergentPendingOperation(
     );
     validateReceiptDocuments(receipt, validator, artifacts);
     await validateReceiptSources(runRoot, receipt, logs, artifacts);
+    const completed = await planOperationCompletionIsDurable(
+      runRoot,
+      manifest,
+      receipt,
+      artifacts,
+      logs,
+    );
     if (
       receipt.operation_key !== expectedOperationKey &&
       receipt.base_plan_ref === basePlanRef &&
-      manifest.current_plan_ref === receipt.base_plan_ref
+      manifest.current_plan_ref === receipt.base_plan_ref &&
+      !completed
     ) {
       throw new StoreError(
         "apply.pending_operation_conflict",
@@ -986,6 +1019,77 @@ async function assertNoDivergentPendingOperation(
       );
     }
   }
+}
+
+async function planOperationCompletionIsDurable(
+  runRoot: string,
+  manifest: RunManifest,
+  receipt: PlanOperationReceipt,
+  artifacts: ArtifactStore,
+  logs: JsonlStore,
+): Promise<boolean> {
+  if (
+    receipt.revision_created ||
+    !receipt.adaptation_refs.every((ref) => manifest.applied_adaptation_refs.includes(ref)) ||
+    receipt.adaptation_refs.some(
+      (ref) =>
+        manifest.pending_adaptation_refs.includes(ref) ||
+        manifest.validated_adaptation_refs.includes(ref) ||
+        manifest.rejected_adaptation_refs.includes(ref),
+    )
+  ) {
+    return false;
+  }
+
+  for (const expected of [...receipt.control_envelopes, receipt.checkpoint_envelope]) {
+    let stored: unknown;
+    try {
+      stored = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, expected.artifact_path), "utf8"),
+      ) as unknown;
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) {
+        return false;
+      }
+      throw error;
+    }
+    if (canonicalJson(stored) !== canonicalJson(expected)) {
+      throw new StoreError(
+        "recovery.plan_operation_completion_conflict",
+        "completed Plan operation Artifact differs from its immutable receipt",
+        { operationKey: receipt.operation_key, artifactPath: expected.artifact_path },
+      );
+    }
+    await artifacts.validateStoredEnvelope(runRoot, receipt.run_id, expected);
+  }
+
+  for (const expected of receipt.events) {
+    let stored: Record<string, unknown>;
+    try {
+      stored = await logs.readExactRecord(
+        runRoot,
+        receipt.run_id,
+        `events.jsonl#${String(expected.event_id)}`,
+        "events.jsonl",
+      );
+    } catch (error) {
+      if (
+        isNodeError(error, "ENOENT") ||
+        (error instanceof StoreError && error.code === "reference.fragment_missing")
+      ) {
+        return false;
+      }
+      throw error;
+    }
+    if (canonicalJson(stored) !== canonicalJson(expected)) {
+      throw new StoreError(
+        "recovery.plan_operation_completion_conflict",
+        "completed Plan operation Event differs from its immutable receipt",
+        { operationKey: receipt.operation_key, eventId: expected.event_id },
+      );
+    }
+  }
+  return true;
 }
 
 async function appendOperationEvents(
@@ -1491,6 +1595,14 @@ export class PlanRevisionRuntime {
       this.artifacts,
       this.logs,
     );
+    const storedDecisionEnvelopes = new Map(
+      await Promise.all(
+        selectedRefs.map(
+          async (ref) =>
+            [ref, await storedFormalEnvelope(runRoot, input.runId, ref, this.artifacts)] as const,
+        ),
+      ),
+    );
     const planReferenceContext: DocumentBundleReferenceContext =
       candidateBindings.length === 0
         ? referenceContext
@@ -1509,9 +1621,15 @@ export class PlanRevisionRuntime {
           };
     const patchedBundle: DocumentBundle = {
       ...input.adaptationBundle,
-      documents: input.adaptationBundle.documents.map((entry) =>
-        entry.path === "manifest.json" ? { path: "manifest.json", document: manifest } : entry,
-      ),
+      documents: input.adaptationBundle.documents.map((entry) => {
+        if (entry.path === "manifest.json") {
+          return { path: "manifest.json", document: manifest };
+        }
+        const storedDecision = storedDecisionEnvelopes.get(entry.path);
+        return storedDecision === undefined
+          ? entry
+          : { path: entry.path, document: storedDecision };
+      }),
     };
     const adaptationValidation = this.adaptations.validateDocumentBundle(
       patchedBundle,

@@ -389,6 +389,55 @@ function retryDecision(runId: string): Record<string, unknown> {
   };
 }
 
+function stopFollowupDecision(runId: string): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.adaptation_decision.v2",
+    adaptation_id: "adapt_stop_followup_runtime_001",
+    run_id: runId,
+    based_on_plan_ref: PLAN_REF,
+    trigger_gap_refs: [`${GAP_REF}#gap_runtime_001`],
+    action: "stop_followup",
+    reason: "No material new evidence remains in the bounded follow-up cycle.",
+    expected_decision_impact: ["execution_validity"],
+    stop_condition: "The explicit no-new-evidence stop signal is present.",
+    requested_by: "main_agent",
+    created_at: "2026-07-24T12:05:00Z",
+  };
+}
+
+function clarificationDecision(runId: string): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.adaptation_decision.v2",
+    adaptation_id: "adapt_request_clarification_runtime_001",
+    run_id: runId,
+    based_on_plan_ref: PLAN_REF,
+    trigger_gap_refs: [`${GAP_REF}#gap_runtime_001`],
+    action: "request_clarification",
+    clarification_question: "Which explicit scope should the Run use?",
+    reason: "The unresolved scope changes the decision-relevant research boundary.",
+    expected_decision_impact: ["execution_validity"],
+    success_condition: "The user supplies the missing scope value.",
+    requested_by: "main_agent",
+    created_at: "2026-07-24T12:05:00Z",
+  };
+}
+
+function terminationDecision(runId: string): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.adaptation_decision.v2",
+    adaptation_id: "adapt_terminate_runtime_001",
+    run_id: runId,
+    based_on_plan_ref: PLAN_REF,
+    trigger_gap_refs: [`${GAP_REF}#gap_runtime_001`],
+    action: "terminate_insufficient_evidence",
+    reason: "The blocking evidence gap cannot be resolved within the bounded Run.",
+    expected_decision_impact: ["execution_validity"],
+    stop_condition: "No bounded follow-up remains available.",
+    requested_by: "main_agent",
+    created_at: "2026-07-24T12:05:00Z",
+  };
+}
+
 function supersedeDecision(runId: string): Record<string, unknown> {
   return {
     schema_version: "startup_opportunity.adaptation_decision.v2",
@@ -476,6 +525,9 @@ async function setupPersistedRun(
   action:
     | "retry"
     | "supersede"
+    | "stop-followup"
+    | "request-clarification"
+    | "terminate-unclosed"
     | "pre-kill-exact"
     | "pre-kill-missing"
     | "pre-kill-shared"
@@ -594,6 +646,9 @@ async function setupPersistedRun(
   persistedManifest.artifact_refs = discoveryBacked ? storeManifest.artifact_refs : [PLAN_REF];
   persistedManifest.latest_gap_snapshot_ref = null;
   persistedManifest.pending_adaptation_refs = [];
+  if (action === "terminate-unclosed") {
+    persistedManifest.followup_round = 2;
+  }
   await writeFile(path.join(runRoot, "manifest.json"), `${canonicalJson(persistedManifest)}\n`);
   const planningContext = context(persistedManifest, plan, {
     path: CONTEXT_REF,
@@ -604,9 +659,11 @@ async function setupPersistedRun(
   });
   const gap = preKill
     ? gapSnapshot(runId, "candidate_pre_killed", PRE_KILL_CANDIDATE_REF)
-    : action === "post-g2-add"
-      ? gapSnapshot(runId, "evidence_insufficient", PRE_KILL_CANDIDATE_REF)
-      : gapSnapshot(runId);
+    : action === "stop-followup"
+      ? gapSnapshot(runId, "no_material_new_evidence", PLAN_REF)
+      : action === "post-g2-add"
+        ? gapSnapshot(runId, "evidence_insufficient", PRE_KILL_CANDIDATE_REF)
+        : gapSnapshot(runId);
   if (action === "post-g2-add") {
     const gapEntry = (gap.gaps as Record<string, unknown>[])[0];
     assert.ok(gapEntry);
@@ -627,11 +684,17 @@ async function setupPersistedRun(
   }
   const decision = preKill
     ? preKillSkipDecision(runId)
-    : action === "retry"
-      ? retryDecision(runId)
-      : action === "supersede"
-        ? supersedeDecision(runId)
-        : retryDecision(runId);
+    : action === "stop-followup"
+      ? stopFollowupDecision(runId)
+      : action === "request-clarification"
+        ? clarificationDecision(runId)
+        : action === "terminate-unclosed"
+          ? terminationDecision(runId)
+          : action === "retry"
+            ? retryDecision(runId)
+            : action === "supersede"
+              ? supersedeDecision(runId)
+              : retryDecision(runId);
   if (action === "post-g2-add") {
     decision.adaptation_id = "adapt_add_post_g2";
     decision.action = "add_unit";
@@ -691,6 +754,7 @@ async function setupPersistedRun(
     envelope: formalEnvelope(runId, DECISION_REF, decision, [
       PLAN_REF,
       GAP_REF,
+      ...(action === "terminate-unclosed" ? [CONTEXT_REF] : []),
       ...(userDecision === null ? [] : [String(decision.user_decision_ref)]),
     ]),
   });
@@ -1185,6 +1249,126 @@ test("Gap analyzer emits only deterministic machine-observable gaps and stop sig
   });
   assert.equal(invalid.valid, false);
   assert.ok(invalid.errors.some((error) => error.code === "gap.reference_missing"));
+
+  const questionFragment = analyzer.analyze({
+    ...input,
+    materialNewEvidenceObserved: true,
+    machineChecks: [
+      {
+        checkId: "question_fragment_check",
+        gapType: "mandatory_dimension_missing",
+        subjectRef: `${PLAN_REF}#rq_runtime_001`,
+        basisRefs: [`${PLAN_REF}#rq_runtime_001`],
+        decisionImpact: ["execution_validity"],
+        severity: "material",
+        recommendedUnitTypes: [],
+        detail: "The exact research question remains decision-relevant.",
+      },
+    ],
+  });
+  assert.equal(questionFragment.valid, true, JSON.stringify(questionFragment.errors));
+  const missingQuestionFragment = analyzer.analyze({
+    ...input,
+    machineChecks: [
+      {
+        checkId: "missing_question_fragment_check",
+        gapType: "mandatory_dimension_missing",
+        subjectRef: `${PLAN_REF}#rq_missing`,
+        basisRefs: [`${PLAN_REF}#rq_missing`],
+        decisionImpact: ["execution_validity"],
+        severity: "material",
+        recommendedUnitTypes: [],
+        detail: "The missing research question must fail closed.",
+      },
+    ],
+  });
+  assert.ok(
+    missingQuestionFragment.errors.some((error) => error.code === "gap.reference_fragment_missing"),
+  );
+});
+
+test("run_id validation context assembles persisted authority and exact records", async (contextTest) => {
+  const runId = "runtime-validation-context";
+  const setup = await setupPersistedRun(contextTest, runId, "retry", false, true);
+  const semanticBundle: DocumentBundle = {
+    schema_version: "startup_opportunity.document_bundle.v2",
+    documents: [{ path: PLAN_REF, document: setup.plan }, setup.planningContext],
+  };
+  const assembled = await setup.store.buildValidationContext(runId, semanticBundle);
+  assert.ok(assembled.bundle.documents.some((entry) => entry.path === "manifest.json"));
+  assert.ok(
+    assembled.bundle.documents.some((entry) => entry.path === setup.currentManifest.checkpoint_ref),
+  );
+  assert.equal(
+    assembled.referenceContext.exactJsonlRecords?.has(String(setup.gap.trigger_event_ref)),
+    true,
+  );
+  const artifactValidation = (await createArtifactValidator(repositoryRoot)).validateDocumentBundle(
+    assembled.bundle,
+    assembled.referenceContext,
+  );
+  assert.equal(artifactValidation.valid, true, JSON.stringify(artifactValidation, null, 2));
+  const validation = (await createPlanSemanticValidator(repositoryRoot)).validateDocumentBundle(
+    assembled.bundle,
+    assembled.referenceContext,
+  );
+  assert.equal(validation.valid, true, JSON.stringify(validation, null, 2));
+
+  const driftedBundle = clone(semanticBundle);
+  const driftedPlan = driftedBundle.documents.find((entry) => entry.path === PLAN_REF)?.document;
+  assert.ok(driftedPlan);
+  driftedPlan.stop_conditions = ["Caller-supplied bytes must not replace Run authority."];
+  await assert.rejects(
+    setup.store.buildValidationContext(runId, driftedBundle),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "validation_context.authority_conflict",
+  );
+
+  const inputPath = path.join(setup.root, "semantic-plan-bundle.json");
+  await writeFile(inputPath, `${canonicalJson(semanticBundle)}\n`);
+  const cli = runScript(path.join(repositoryRoot, "harness/src/cli.ts"), [
+    "validate-plan",
+    "--bundle",
+    inputPath,
+    "--run-id",
+    runId,
+    "--runs-root",
+    setup.runsRoot,
+    "--json",
+  ]);
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.equal((JSON.parse(cli.stdout) as Record<string, unknown>).valid, true);
+});
+
+test("Store and Gap analysis share exact Plan question fragment semantics", async (contextTest) => {
+  const runId = "runtime-plan-question-fragment";
+  const setup = await setupPersistedRun(contextTest, runId);
+  const probe = triggerEvent(runId, "plan_question_fragment_probe");
+  const probePath = "artifacts/audits/plan-question-fragment.json";
+  await setup.store.publishArtifact({
+    runId,
+    envelope: formalEnvelope(runId, probePath, probe, [`${PLAN_REF}#rq_runtime_001`]),
+  });
+  assert.equal(
+    (
+      JSON.parse(await readFile(path.join(setup.runRoot, probePath), "utf8")) as Record<
+        string,
+        unknown
+      >
+    ).artifact_path,
+    probePath,
+  );
+
+  const missingPath = "artifacts/audits/missing-plan-question-fragment.json";
+  const missing = triggerEvent(runId, "missing_plan_question_fragment_probe");
+  await assert.rejects(
+    setup.store.publishArtifact({
+      runId,
+      envelope: formalEnvelope(runId, missingPath, missing, [`${PLAN_REF}#rq_missing`]),
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "reference.fragment_missing",
+  );
+  await assert.rejects(readFile(path.join(setup.runRoot, missingPath), "utf8"));
 });
 
 test("Gap cycle identity binds base Plan, exact event, and observed Artifact hashes", async () => {
@@ -2020,6 +2204,199 @@ test("a divergent lifecycle operation cannot cross an unresolved Plan intent", a
   );
   assert.equal((await setup.store.status(runId)).manifest.status, "researching");
   assert.equal((await runtime.apply(retryInput)).status, "idempotent_replay");
+});
+
+test("a completed no-revision operation does not block the next same-Plan adaptation", async (contextTest) => {
+  const runId = "runtime-completed-no-revision";
+  const setup = await setupPersistedRun(contextTest, runId, "stop-followup");
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const first = await runtime.apply({
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    nextStep: "Observe a later decision-relevant Gap on the same Plan.",
+    beliefSummary: {
+      current_belief: "The first bounded follow-up has stopped.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Does a later Gap require another disposition?",
+    },
+  });
+  assert.equal(first.revisionCreated, false);
+  assert.equal(first.currentPlanRef, PLAN_REF);
+
+  const nextGapRef = "adaptations/gap-snapshots/gap-runtime.r2.json";
+  const nextGap = clone(setup.gap);
+  nextGap.snapshot_id = "gap_runtime_snapshot_002";
+  nextGap.revision = 2;
+  nextGap.parent_snapshot_ref = GAP_REF;
+  nextGap.created_at = "2026-07-24T12:10:00Z";
+  const nextGapEntry = (nextGap.gaps as Record<string, unknown>[])[0];
+  assert.ok(nextGapEntry);
+  nextGapEntry.gap_id = "gap_runtime_002";
+  await setup.store.publishArtifact({
+    runId,
+    envelope: formalEnvelope(
+      runId,
+      nextGapRef,
+      nextGap,
+      [PLAN_REF],
+      "startup_opportunity.artifact_envelope.v5",
+    ),
+  });
+
+  const nextDecisionRef = "adaptations/decisions/adapt-stop-followup-runtime-2.json";
+  const nextDecision = clone(setup.decision);
+  nextDecision.adaptation_id = "adapt_stop_followup_runtime_002";
+  nextDecision.trigger_gap_refs = [`${nextGapRef}#gap_runtime_002`];
+  nextDecision.reason = "The later bounded cycle also reached its explicit stop signal.";
+  nextDecision.created_at = "2026-07-24T12:11:00Z";
+  await setup.store.publishArtifact({
+    runId,
+    envelope: formalEnvelope(
+      runId,
+      nextDecisionRef,
+      nextDecision,
+      [PLAN_REF, nextGapRef],
+      "startup_opportunity.artifact_envelope.v5",
+    ),
+  });
+
+  const currentManifest = (await setup.store.status(runId)).manifest;
+  const checkpointRef = currentManifest.checkpoint_ref;
+  assert.ok(checkpointRef);
+  const checkpointEnvelope = JSON.parse(
+    await readFile(path.join(setup.runRoot, checkpointRef), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const nextBundle: DocumentBundle = {
+    schema_version: "startup_opportunity.document_bundle.v2",
+    documents: [
+      { path: "manifest.json", document: currentManifest },
+      { path: PLAN_REF, document: setup.plan },
+      setup.planningContext,
+      { path: GAP_REF, document: setup.gap },
+      { path: DECISION_REF, document: setup.decision },
+      { path: nextGapRef, document: nextGap },
+      { path: nextDecisionRef, document: nextDecision },
+      { path: checkpointRef, document: checkpointEnvelope.document },
+    ],
+  };
+  const second = await runtime.apply({
+    runId,
+    adaptationBundle: nextBundle,
+    adaptationRefs: [nextDecisionRef],
+    createdAt: "2026-07-24T12:12:00Z",
+    checkpointCreatedAt: "2026-07-24T12:13:00Z",
+    nextStep: "Continue only if a future Gap changes the decision boundary.",
+    beliefSummary: {
+      current_belief: "Both bounded follow-up cycles have explicit stop signals.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "What new Evidence would change the decision?",
+    },
+  });
+  assert.equal(second.status, "applied");
+  assert.equal(second.revisionCreated, false);
+  assert.deepEqual((await setup.store.load(runId)).manifest.applied_adaptation_refs, [
+    DECISION_REF,
+    nextDecisionRef,
+  ]);
+});
+
+test("a completed clarification operation remains complete across user Decision and resume", async (contextTest) => {
+  const runId = "runtime-completed-clarification";
+  const setup = await setupPersistedRun(contextTest, runId, "request-clarification");
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const input = {
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    nextStep: "Wait for the exact user scope Decision before resume reconciliation.",
+    beliefSummary: {
+      current_belief: "The Run cannot safely infer the missing scope.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Which scope boundary did the user choose?",
+    },
+  };
+  const applied = await runtime.apply(input);
+  assert.equal(applied.revisionCreated, false);
+  const paused = await setup.store.status(runId);
+  assert.equal(paused.manifest.status, "needs_clarification");
+  assert.equal(paused.manifest.status_before_clarification, "researching");
+
+  await setup.store.appendDecision(runId, {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: "clarification_scope_received",
+    run_id: runId,
+    decision_type: "scope_changed_by_user",
+    timestamp: "2026-07-24T12:10:00Z",
+    actor: "user",
+    reason: "The user supplied the explicit scope needed for later reconciliation.",
+    artifact_refs: [DECISION_REF],
+  });
+  const resumed = await setup.store.load(runId);
+  assert.equal(resumed.planOperationRecovery.pendingOperationKeys.length, 0);
+  assert.equal(resumed.manifest.status, "needs_clarification");
+  assert.equal((await runtime.apply(input)).status, "idempotent_replay");
+});
+
+test("termination basis closure is identical for bare and enveloped Decisions", async (contextTest) => {
+  for (const representation of ["bare", "enveloped"] as const) {
+    await contextTest.test(representation, async (subcontext) => {
+      const runId = `runtime-termination-closure-${representation}`;
+      const setup = await setupPersistedRun(subcontext, runId, "terminate-unclosed");
+      const adaptationBundle = clone(setup.adaptationBundle);
+      if (representation === "enveloped") {
+        const decisionEntry = adaptationBundle.documents.find(
+          (entry) => entry.path === DECISION_REF,
+        );
+        assert.ok(decisionEntry);
+        (decisionEntry as { document: Record<string, unknown> }).document = JSON.parse(
+          await readFile(path.join(setup.runRoot, DECISION_REF), "utf8"),
+        ) as FormalArtifactEnvelope;
+      }
+      const before = await planApplyBoundaryState(setup.runRoot);
+      await assert.rejects(
+        (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+          runId,
+          adaptationBundle,
+          adaptationRefs: [DECISION_REF],
+          createdAt: "2026-07-24T12:08:00Z",
+          checkpointCreatedAt: "2026-07-24T12:09:00Z",
+          nextStep: "Reject termination whose formal inputs exceed the latest Gap basis.",
+          beliefSummary: {
+            current_belief: "Termination authority must remain closed by the latest Gap.",
+            evidence_that_changed_belief: [],
+            unchanged_assumptions: [],
+            remaining_disagreement: [],
+            next_decision_relevant_question: "Are all termination inputs Gap-bound?",
+          },
+        }),
+        (error: unknown) => {
+          if (!(error instanceof StoreError) || error.code !== "adaptation.policy_invalid") {
+            return false;
+          }
+          const result = error.details.result as {
+            adaptationErrors?: readonly { code?: string }[];
+          };
+          return Boolean(
+            result.adaptationErrors?.some(
+              (issue) => issue.code === "adaptation.termination_basis_unclosed",
+            ),
+          );
+        },
+      );
+      assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+    });
+  }
 });
 
 test("candidate pre-kill rejects a durable null candidate before creating a receipt", async (contextTest) => {

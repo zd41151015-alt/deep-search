@@ -107,16 +107,27 @@ export class AdaptationPolicyValidator {
       return this.validateAssessmentDocumentBundle(value, referenceContext);
     }
     const documents = effectiveDocuments(value);
+    const effectiveByPath = new Map(documents.map((document) => [document.path, document]));
     const planningValue =
       isRecord(value) && Array.isArray(value.documents)
         ? {
             ...value,
-            documents: value.documents.filter(
-              (entry) =>
-                !isRecord(entry) ||
-                !isRecord(entry.document) ||
-                entry.document.artifact_type !== "startup_opportunity.discovery_candidate.v1",
-            ),
+            documents: value.documents
+              .filter(
+                (entry) =>
+                  !isRecord(entry) ||
+                  !isRecord(entry.document) ||
+                  entry.document.artifact_type !== "startup_opportunity.discovery_candidate.v1",
+              )
+              .map((entry) => {
+                if (!isRecord(entry) || typeof entry.path !== "string") {
+                  return entry;
+                }
+                const effective = effectiveByPath.get(entry.path);
+                return effective?.envelope === null || effective === undefined
+                  ? entry
+                  : { ...entry, document: effective.document };
+              }),
           }
         : value;
     const planValidation = this.plans.validateDocumentBundle(planningValue, referenceContext);
@@ -128,14 +139,52 @@ export class AdaptationPolicyValidator {
     const manifest = isRecord(manifestBinding)
       ? targetByRef(byPath, manifestBinding.manifest_ref)
       : null;
-    const decisions = documents
+    const decisionDocuments = documents
       .filter((document) => document.schemaVersion === "startup_opportunity.adaptation_decision.v2")
       .sort((left, right) => left.path.localeCompare(right.path));
+    const terminalDecisionRefs =
+      manifest?.schemaVersion === "startup_opportunity.run_manifest.v1"
+        ? new Set<string>([
+            ...(Array.isArray(manifest.document.applied_adaptation_refs)
+              ? manifest.document.applied_adaptation_refs.filter(
+                  (ref): ref is string => typeof ref === "string",
+                )
+              : []),
+            ...(Array.isArray(manifest.document.rejected_adaptation_refs)
+              ? manifest.document.rejected_adaptation_refs.filter(
+                  (ref): ref is string => typeof ref === "string",
+                )
+              : []),
+          ])
+        : null;
+    const decisions =
+      terminalDecisionRefs === null
+        ? decisionDocuments
+        : decisionDocuments.filter((decision) => !terminalDecisionRefs.has(decision.path));
     const errors: ValidationIssue[] = [];
     const occupiedTargets = new Map<string, string>();
     const newUnitIds = new Map<string, string>();
     const newOutputPaths = new Map<string, string>();
     const coveredGapRefs = new Set<string>();
+    if (
+      manifest?.schemaVersion === "startup_opportunity.run_manifest.v1" &&
+      Array.isArray(manifest.document.applied_adaptation_refs)
+    ) {
+      const appliedRefs = new Set(
+        manifest.document.applied_adaptation_refs.filter(
+          (ref): ref is string => typeof ref === "string",
+        ),
+      );
+      for (const decision of decisionDocuments.filter((entry) => appliedRefs.has(entry.path))) {
+        for (const gapRef of Array.isArray(decision.document.trigger_gap_refs)
+          ? decision.document.trigger_gap_refs
+          : []) {
+          if (typeof gapRef === "string") {
+            coveredGapRefs.add(gapRef);
+          }
+        }
+      }
+    }
 
     if (decisions.length === 0) {
       errors.push(

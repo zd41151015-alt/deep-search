@@ -31,18 +31,20 @@
 - `PARTIALLY_FIXED_CODE`：当前工作树修复了部分路径，但仍有明确残余问题或表示依赖。
 - `FIXED_CODE_TESTED`：当前工作树已有生产代码和永久回归测试，尚未由修复后的真实 Run 验证。
 
-工程修复任务 `019fb5bb-d63f-7720-b506-30adcad957f5` 已完成 `POST-G4-003..010` 的候选实现，并在冻结 Node `24.18.0` / npm `11.16.0` 环境通过 `npm test` 354/354、`validate:fixtures` 223/223、store/fault/recovery 11/11、10/10、11/11，以及 lint、typecheck、schema validation、doctor 和 H14。当前改动尚未提交，正式 research Run bytes 没有更新；因此以下“已修复”只表示代码与测试状态，不表示真实 Run 已验证。
+工程修复任务 `019fb5bb-d63f-7720-b506-30adcad957f5` 已完成 `POST-G4-003..010` 的候选实现，并在冻结 Node `24.18.0` / npm `11.16.0` 环境通过 `npm test` 354/354、`validate:fixtures` 223/223、store/fault/recovery 11/11、10/10、11/11，以及 lint、typecheck、schema validation、doctor 和 H14。该批候选与接手时已有维修已由 `c4b025a` 建立基线提交；本轮 P0 维修仍在当前 working tree，正式 research Run bytes 没有更新。因此以下“已修复”只表示代码与测试状态，不表示真实 Run 已验证。
+
+本轮 P0 维修在同一冻结工具链下通过 `npm test` 362/362、`validate:fixtures` 223/223、store/fault/recovery 12/12、10/10、11/11，以及 lint、typecheck、schema validation 161 schemas、repository doctor 和 `git diff --check`。验证只使用 synthetic fixtures 和临时目录，没有执行正式市场调研、外部验证或旧 Run 迁移。
 
 | 工程 finding | 本文条目 | 当前修复状态 | 代码审计结论 |
 | --- | --- | --- | --- |
-| `POST-G4-001` | `RR-ENG-001` | `UNRESOLVED` | Create Run 仍未改为 staging + atomic publish |
-| `POST-G4-002` | `RR-ENG-002` | `UNRESOLVED` | 仍缺少基于 `run_id` 的公共闭包装配入口 |
+| `POST-G4-001` | `RR-ENG-001` | `FIXED_CODE_TESTED` | Create Run 已在隐藏 staging 中完整构建，并通过同 Run ID 创建锁和 atomic rename 发布 |
+| `POST-G4-002` | `RR-ENG-002` | `FIXED_CODE_TESTED` | `RunStore.buildValidationContext` 和 `validate-plan --run-id` 已自动装配 validated Run authority 与 exact records |
 | `POST-G4-003` | `RR-ENG-003` | `FIXED_CODE_TESTED` | 仅 Planning Context leaf 绑定 live Manifest，历史 revision 使用 immutable binding |
-| `POST-G4-004` | `RR-ENG-004` | `PARTIALLY_FIXED_CODE` | Plan output path 已修；Gap analyzer 与 Store 的 Plan question fragment resolver 仍不一致 |
+| `POST-G4-004` | `RR-ENG-004` | `FIXED_CODE_TESTED` | Plan output path 与共享 typed fragment resolver 均已有跨层正负回归 |
 | `POST-G4-005` | `RR-ENG-007` | `FIXED_CODE_TESTED` | ordinary post-G2 revision 已从 durable candidates 建立 v3 historical binding |
-| `POST-G4-006` | `RR-ENG-007`、`RR-ENG-011` | `PARTIALLY_FIXED_CODE` | divergent operation 已 fail closed，但 completed no-revision receipt 仍会被误判为 pending |
+| `POST-G4-006` | `RR-ENG-007`、`RR-ENG-011` | `FIXED_CODE_TESTED` | divergent pending operation 继续 fail closed；completed no-revision receipt 由 durable lifecycle/checkpoint/control/event 闭包识别 |
 | `POST-G4-007` | `RR-ENG-008` | `FIXED_CODE_TESTED` | v5 Gap v1 / Decision v2 已投影 Manifest lifecycle；旧正式 Run 不会被追溯改写 |
-| `POST-G4-008` | `RR-DISC-008`、`RR-ENG-012` | `PARTIALLY_FIXED_CODE` | follow-up-available guard 已修；termination basis closure 仍可被 bare Decision 表示跳过 |
+| `POST-G4-008` | `RR-DISC-008`、`RR-ENG-012` | `FIXED_CODE_TESTED` | follow-up-available guard 与 apply preflight 的正式 Decision Envelope hydration 均已有回归 |
 | `POST-G4-009` | `RR-ENG-009` | `PARTIALLY_FIXED_CODE` | freshness/stance 已重算，ISO 日期边界已校验；opaque `time_coverage` 仍不可确定性验证 |
 | `POST-G4-010` | `RR-ENG-010` | `PARTIALLY_FIXED_CODE` | `status-run` 已派生 continuation；parent Manifest 仍是 `planned`，child 读取错误还会被静默忽略 |
 
@@ -112,6 +114,8 @@
 - 任意失败不得占用 Run ID 或留下可见半成品。
 - 相同合法请求可以安全重试；错误必须分类为稳定的领域错误。
 
+当前修复状态：`FIXED_CODE_TESTED`。Create Run 在公开 Run 路径出现前完成 Manifest、initial Event、checkpoint 和目录结构校验，通过按 Run ID 隔离的创建锁串行化发布，并以同一 filesystem 内的 atomic rename 发布；校验失败和 `before_publish` fault 均不会占用 Run ID 或留下 staging 目录。Store 回归覆盖合法重试、失败清理和预存不完整目录的稳定 `run.incomplete` 错误。
+
 ### RR-ENG-002 缺少基于 run_id 的验证闭包装配
 
 状态：`CONFIRMED_RUNTIME`
@@ -124,6 +128,8 @@
 - 自动读取 validated current Manifest、checkpoint 和 exact append-only records。
 - 调用方只提供待验证的语义 Artifact，不手工复制持久化 authority。
 - 增加真实 `create-run -> publish core -> validate plan` 端到端测试。
+
+当前修复状态：`FIXED_CODE_TESTED`。`RunStore.buildValidationContext(run_id, bundle)` 会读取并校验 current Manifest、传递闭包中的正式 Artifact、checkpoint 和 exact Event/Decision/Evidence records；正式 Store Envelope 在验证后以 typed bare document 进入原版本 bundle，exact records 通过 `DocumentBundleReferenceContext` 传递，不会向不支持该字段的 v2 bundle 注入额外属性。`validate-plan --run-id [--runs-root]` 已接入，并有 authority drift negative test 和 CLI 端到端回归。
 
 ### RR-ENG-003 Planning Context 生命周期冲突
 
@@ -154,7 +160,7 @@
 - fragment 语义必须由统一 resolver 定义，不能由 analyzer 与 Store 各自维护不同集合。
 - 增加从 Plan 到 Task、Gap、publish 的跨层 negative fixtures。
 
-当前修复状态：`PARTIALLY_FIXED_CODE`。Plan 已对 discovery/enrichment 的 `unit_id + attempt` canonical output path 做语义校验；Gap analyzer 接受 `question_id` 而 Artifact Store 不识别该 fragment 的问题仍存在。
+当前修复状态：`FIXED_CODE_TESTED`。Plan 已对 discovery/enrichment 的 `unit_id + attempt` canonical output path 做语义校验；Gap analyzer、Artifact validator 与 Artifact Store 现复用同一个 typed fragment resolver，Plan `question_id` 的 analyze/publish 正例和 missing fragment 反例均有永久回归。
 
 ### RR-ENG-005 Agent dispatch 未批量并行
 
@@ -232,7 +238,7 @@ Lane/Fan-in 阶段已经观察到的具体后果包括：
 - 存在 unresolved Plan operation 时不得进入研究终态；若无法恢复，必须以显式工程阻塞状态关闭该 operation，而不是把它转写为研究证据不足。
 - 增加 `post-G2 add_unit -> plan r2 -> task materialization -> reopen` 和发布失败恢复的端到端测试。
 
-当前修复状态：`FIXED_CODE_TESTED`。ordinary post-G2 Plan revision 的 durable candidate binding 和 exact replay 已有实现及测试，真正 pending 的 divergent operation 也会在新写入前拒绝。原真实 Run 的 legacy v1 receipt 不要求向后迁移；`RR-ENG-011` 是新 pending 判定对 completed no-revision operation 的独立误判问题。
+当前修复状态：`FIXED_CODE_TESTED`。ordinary post-G2 Plan revision 的 durable candidate binding 和 exact replay 已有实现及测试，真正 pending 的 divergent operation 也会在新写入前拒绝；`RR-ENG-011` 已进一步让 completed no-revision operation 不再被归类为 pending。原真实 Run 的 legacy v1 receipt 不要求向后迁移。
 
 ### RR-ENG-008 Gap 与 Adaptation 生命周期投影不完整
 
@@ -295,6 +301,8 @@ Lane/Fan-in 阶段已经观察到的具体后果包括：
 - 增加 `stop_followup -> later Gap -> next legal adaptation` 与 `request_clarification -> user decision -> resume` 回归链路。
 - 不得通过放宽 selected Decision batch 或跳过 immutable receipt 校验来解决该问题。
 
+当前修复状态：`FIXED_CODE_TESTED`。pending 扫描会验证 receipt 的 Manifest lifecycle、checkpoint、control Artifact 和 exact Event durable completion；真正 crashed intent 仍阻止 divergent apply。回归覆盖 `stop_followup -> later same-Plan Gap -> next adaptation`，以及 `request_clarification -> user Decision -> load-run resume boundary`，同时保持 exact replay 幂等和 immutable receipt 校验。
+
 ### RR-ENG-012 Termination basis closure 依赖 Decision 是否以 Envelope 表示
 
 状态：`CONFIRMED_CODE`
@@ -309,6 +317,8 @@ Lane/Fan-in 阶段已经观察到的具体后果包括：
 - termination basis closure 必须校验正式 Decision 的 input refs、reason 所依赖的 typed subjects，以及 latest Gap lineage。
 - bare Decision 与 formal envelope 对同一已发布 decision 必须产生完全相同的 policy 结果，增加等价性测试。
 - 未闭合 termination 不得生成 receipt、checkpoint、Manifest 变化或 terminal report。
+
+当前修复状态：`FIXED_CODE_TESTED`。apply preflight 会从 Store 读取、验证并注入 selected Decision 的正式 Envelope，再执行 policy validation；planning validation 使用等价 typed document 视图，因此 Envelope 不会改变 Plan 语义结果。bare 与 enveloped Decision 的同一未闭合 termination 均以 `adaptation.termination_basis_unclosed` 拒绝，且 receipt、checkpoint、Manifest 和 report sidecar 均保持不变。
 
 ## 5. Discovery 工作流问题
 
@@ -467,7 +477,7 @@ fan-in 的机械成功不应被理解为下一阶段可执行。当前统一的 
 - 缺少 retained `solution_seed` 时，默认动作是进入有界 solution generation/evaluation wave；只有该 wave 已执行、明确越界或预算耗尽后，才能据此终止。
 - 终止前重新生成 Gap Snapshot，记录 follow-up 执行结果、stop signals、剩余缺口和下一步验证；不得复用已被后续失败改变语境的旧 Gap。
 
-当前修复状态：`PARTIALLY_FIXED_CODE`。当前 policy 已拒绝在仍有预算、存在 recommended unit、已有 material Evidence 且无 stop signal 时直接终止；但 method-boundary 表达、solution generation/evaluation 衔接、latest Gap 重建，以及 `RR-ENG-012` 的表示无关 closure 尚未完成。
+当前修复状态：`PARTIALLY_FIXED_CODE`。当前 policy 已拒绝在仍有预算、存在 recommended unit、已有 material Evidence 且无 stop signal 时直接终止，`RR-ENG-012` 的表示无关 closure 也已修复；method-boundary 表达、solution generation/evaluation 衔接和 latest Gap 重建仍未完成。
 
 ## 6. Assessment 工作流静态审计
 
@@ -677,13 +687,13 @@ Decision Brief 至少回答：
 6. `RR-ENG-009` 中 freshness/stance 重算和 ISO time-bound 校验。
 7. `RR-ENG-010` 中 `status-run` continuation derived disposition。
 
-### P0：完成可信运行边界
+### 本轮已完成的 P0 代码修复
 
-1. `RR-ENG-001` Create Run staging + atomic publish。
-2. `RR-ENG-002` 基于 run_id 的验证闭包装配。
-3. `RR-ENG-004` 统一 Gap analyzer、Artifact validator 和 Store fragment resolver。
-4. `RR-ENG-011` completed no-revision receipt 与真正 pending intent 的区分。
-5. `RR-ENG-012` 表示无关的 termination basis closure。
+1. `RR-ENG-001` Create Run staging + atomic publish：`FIXED_CODE_TESTED`。
+2. `RR-ENG-002` 基于 run_id 的验证闭包装配：`FIXED_CODE_TESTED`。
+3. `RR-ENG-004` 统一 Gap analyzer、Artifact validator 和 Store fragment resolver：`FIXED_CODE_TESTED`。
+4. `RR-ENG-011` completed no-revision receipt 与真正 pending intent 的区分：`FIXED_CODE_TESTED`。
+5. `RR-ENG-012` 表示无关的 termination basis closure：`FIXED_CODE_TESTED`。
 
 ### P1：保证用户一定收到决策产品
 
@@ -756,8 +766,8 @@ Decision Brief 至少回答：
 
 ## 11. 下一步
 
-1. 先修复 `RR-ENG-011/012`，并完成 `RR-ENG-001/002/004` 的剩余 P0 闭包，避免把当前候选实现误标为全量完成。
-2. 为其余 P1 项形成最小、可排序的 repair slices，按依赖和风险顺序实施，并在每项完成后更新本文的修复状态与验证证据。
+1. 五项 P0 已达到 `FIXED_CODE_TESTED`；下一优先项是为 `RR-UX-001/004` 发布不依赖未执行 comparison/portfolio 的 Discovery terminal report source contract，再接入共享 reporting finalizer。
+2. 为其余 P1 项形成最小、可排序的 repair slices，按依赖和风险顺序实施，并在每项完成后更新本文的修复状态与验证证据；不得用完整 Discovery report schema 伪造提前终止时尚未产生的 Artifact。
 3. P0 与终态 Brief 完成后，重放同一 discovery 场景，验证 `FIXED_CODE_TESTED` 项、时间、追加调研和交付质量。
 4. 新真实 discovery Run 通过后，再把相应条目标记为真实运行已修复；旧 Run 不属于修复或迁移范围，可在不再需要复盘证据时删除。
 5. 再执行一个窄范围真实 assessment Run，验证十维执行模型和 early-kill 设计。

@@ -1,8 +1,12 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { StoreError, storeErrorResult } from "../artifact-store/store-error.js";
-import type { BeliefSummary } from "../run-store/run-store.js";
-import type { DocumentBundle } from "../validators/artifact-validator.js";
+import { type BeliefSummary, RunStore } from "../run-store/run-store.js";
+import {
+  createArtifactValidator,
+  type DocumentBundle,
+  type DocumentBundleReferenceContext,
+} from "../validators/artifact-validator.js";
 import { createAdaptationPolicyValidator } from "./adaptation-validator.js";
 import {
   type AnalyzeAssessmentGapInput,
@@ -104,9 +108,29 @@ export async function runValidatePlan(
 ): Promise<number> {
   return runCommand(async () => {
     const parsed = parseArguments(args);
-    rejectUnknown(parsed, ["--bundle"]);
-    const bundle = documentBundle(await readObject(required(parsed, "--bundle")));
-    return (await createPlanSemanticValidator(repositoryRoot)).validateDocumentBundle(bundle);
+    rejectUnknown(parsed, ["--bundle", "--run-id", "--runs-root"]);
+    let bundle = documentBundle(await readObject(required(parsed, "--bundle")));
+    let referenceContext: DocumentBundleReferenceContext = {};
+    const runId = parsed.values.get("--run-id");
+    if (runId === undefined && parsed.values.has("--runs-root")) {
+      throw new StoreError(
+        "command.invalid_arguments",
+        "--runs-root requires --run-id for validation-context assembly",
+      );
+    }
+    if (runId !== undefined) {
+      const artifactValidator = await createArtifactValidator(repositoryRoot);
+      const assembled = await new RunStore(
+        parsed.values.get("--runs-root") ?? path.join(repositoryRoot, "runs"),
+        artifactValidator,
+      ).buildValidationContext(runId, bundle);
+      bundle = assembled.bundle;
+      referenceContext = assembled.referenceContext;
+    }
+    return (await createPlanSemanticValidator(repositoryRoot)).validateDocumentBundle(
+      bundle,
+      referenceContext,
+    );
   });
 }
 

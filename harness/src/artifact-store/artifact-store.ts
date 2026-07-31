@@ -2,6 +2,7 @@ import { readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { EvidenceStore } from "../evidence-store/evidence-store.js";
 import { JsonlStore } from "../run-store/jsonl-store.js";
+import { storedArtifactFragmentExists } from "../validators/artifact-ref-resolver.js";
 import type {
   ArtifactValidator,
   DocumentBundleEntry,
@@ -357,24 +358,6 @@ async function listFiles(directory: string, prefix = ""): Promise<readonly strin
   return files;
 }
 
-function fragmentExists(value: unknown, fragment: string): boolean {
-  if (Array.isArray(value)) {
-    return value.some((item) => fragmentExists(item, fragment));
-  }
-  if (!isRecord(value)) {
-    return false;
-  }
-  if (
-    value.event_id === fragment ||
-    value.decision_id === fragment ||
-    value.gap_id === fragment ||
-    value.checkpoint_id === fragment
-  ) {
-    return true;
-  }
-  return Object.values(value).some((child) => fragmentExists(child, fragment));
-}
-
 async function assertReferenceExists(
   runRoot: string,
   ref: string,
@@ -383,7 +366,7 @@ async function assertReferenceExists(
 ): Promise<void> {
   const parsed = validateArtifactRef(ref);
   if (parsed.path === pending.artifact_path) {
-    if (parsed.fragment !== null && !fragmentExists(pending, parsed.fragment)) {
+    if (parsed.fragment !== null && !storedArtifactFragmentExists(pending, parsed.fragment)) {
       throw new StoreError("reference.fragment_missing", "pending artifact fragment is missing", {
         ref,
       });
@@ -412,7 +395,7 @@ async function assertReferenceExists(
   if (parsed.fragment === null) {
     return;
   }
-  const exists = fragmentExists(
+  const exists = storedArtifactFragmentExists(
     JSON.parse(await readFile(filename, "utf8")) as unknown,
     parsed.fragment,
   );
@@ -856,7 +839,10 @@ export class ArtifactStore {
           } else {
             await assertReferenceExists(runRoot, ref, envelope, this.logs);
           }
-        } else if (parsed.fragment !== null && !fragmentExists(pending, parsed.fragment)) {
+        } else if (
+          parsed.fragment !== null &&
+          !storedArtifactFragmentExists(pending, parsed.fragment)
+        ) {
           throw new StoreError(
             "reference.fragment_missing",
             "pending publication bundle fragment is missing",

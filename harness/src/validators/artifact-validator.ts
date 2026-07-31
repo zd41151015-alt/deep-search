@@ -14,6 +14,7 @@ import {
   isAiBundleSchemaVersion,
   validateAiBundleContract,
 } from "./ai-bundle-validator.js";
+import { formalArtifactFragmentExists } from "./artifact-ref-resolver.js";
 import {
   type AssessDomainDocument,
   isAssessDomainSchemaVersion,
@@ -2528,6 +2529,25 @@ function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
   };
 }
 
+export function artifactRefsForDocument(entry: DocumentBundleEntry): readonly string[] {
+  const effective = unwrapDocument(entry);
+  const envelopeRefs =
+    effective.envelope !== null && Array.isArray(effective.envelope.input_refs)
+      ? effective.envelope.input_refs.filter((ref): ref is string => typeof ref === "string")
+      : [];
+  return [
+    ...new Set([
+      ...referenceRequirements(effective).map((requirement) => requirement.ref),
+      ...envelopeRefs,
+    ]),
+  ]
+    .filter((ref) => {
+      const target = ref.split("#", 1)[0] ?? "";
+      return target.includes("/") || target.endsWith(".json") || target.endsWith(".jsonl");
+    })
+    .sort();
+}
+
 function historicalDiscoveryView(
   documents: readonly EffectiveDocument[],
   bindings: readonly HistoricalDiscoveryPlanBinding[],
@@ -2651,28 +2671,7 @@ function fragmentIdExists(
   fragment: string,
   expectedIdField: string,
 ): boolean {
-  if (target.document[expectedIdField] === fragment) {
-    return true;
-  }
-  if (expectedIdField === "gap_id") {
-    const gaps = target.document.gaps;
-    return (
-      Array.isArray(gaps) && gaps.some((gap) => isRecord(gap) && gap[expectedIdField] === fragment)
-    );
-  }
-  if (expectedIdField === "unit_id") {
-    const waves = target.document.waves;
-    return (
-      Array.isArray(waves) &&
-      waves.some(
-        (wave) =>
-          isRecord(wave) &&
-          Array.isArray(wave.units) &&
-          wave.units.some((unit) => isRecord(unit) && unit[expectedIdField] === fragment),
-      )
-    );
-  }
-  return false;
+  return formalArtifactFragmentExists(target, fragment, expectedIdField);
 }
 
 function planRevisionFromPath(value: string): number | null {

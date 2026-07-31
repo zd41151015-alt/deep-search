@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { link, open, readFile, rm } from "node:fs/promises";
-import { canonicalJson } from "./canonical.js";
-import { isNodeError, resolveRunPath } from "./path-policy.js";
+import { canonicalJson, operationKey, sha256Hex } from "./canonical.js";
+import { isNodeError, prepareRunsRoot, resolveRunPath, validateRunId } from "./path-policy.js";
 import { StoreError } from "./store-error.js";
 
 interface LockOwner {
@@ -81,6 +81,17 @@ async function withLock<T>(
 
 export async function withRunLock<T>(runRoot: string, action: () => Promise<T>): Promise<T> {
   return withLock(runRoot, ".store/write.lock", "run.write_locked", action);
+}
+
+export async function withRunCreationLock<T>(
+  runsRoot: string,
+  runId: string,
+  action: (validatedRunsRoot: string) => Promise<T>,
+): Promise<T> {
+  validateRunId(runId);
+  const root = await prepareRunsRoot(runsRoot);
+  const lockId = sha256Hex(operationKey("create_run_lock", { run_id: runId }));
+  return withLock(root, `.create-locks/${lockId}.lock`, "run.create_locked", () => action(root));
 }
 
 export async function withReportLock<T>(runRoot: string, action: () => Promise<T>): Promise<T> {
