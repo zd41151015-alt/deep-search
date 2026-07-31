@@ -70,6 +70,7 @@ export async function createDiscoveryRuntimeFixture(
   substrate: DiscoveryRuntimeSubstrate,
   additionalPlanWaves: readonly Record<string, unknown>[] = [],
   profile: DiscoveryProfile = "general",
+  canonicalPlanOutputPaths = false,
 ): Promise<DocumentBundle> {
   const generationPath = runtimeEvidencePath(substrate.generation);
   const evaluationPath = runtimeEvidencePath(substrate.evaluation);
@@ -92,6 +93,20 @@ export async function createDiscoveryRuntimeFixture(
     await createDiscoveryCandidateFixture(additionalPlanWaves, profile),
     replacements,
   ) as DocumentBundle;
+  if (canonicalPlanOutputPaths) {
+    const plan = fixtureEffective(bundle, "plans/research-plan.r1.json");
+    for (const wave of plan.waves as { units: Record<string, unknown>[] }[]) {
+      for (const unit of wave.units) {
+        if (unit.required_artifact_schema === "startup_opportunity.discovery_lane_result.v1") {
+          unit.output_path = `artifacts/discovery/lanes/${String(unit.unit_id)}.attempt-${String(unit.attempt)}.json`;
+        } else if (
+          unit.required_artifact_schema === "startup_opportunity.enrichment_branch_result.v1"
+        ) {
+          unit.output_path = `artifacts/discovery/enrichment/branches/${String(unit.unit_id)}.attempt-${String(unit.attempt)}.json`;
+        }
+      }
+    }
+  }
   (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v10";
 
   const mutable = bundle as unknown as {

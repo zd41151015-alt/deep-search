@@ -719,6 +719,58 @@ function preKillCandidateBindings(
   });
 }
 
+async function durableDiscoveryCandidateBindings(
+  runRoot: string,
+  manifest: RunManifest,
+  runId: string,
+  planRef: string,
+  planRevision: number,
+  artifacts: ArtifactStore,
+): Promise<readonly PlanCandidateBinding[]> {
+  const bindings: PlanCandidateBinding[] = [];
+  for (const candidateRef of manifest.artifact_refs
+    .filter((ref) => ref.startsWith("artifacts/discovery/candidates/"))
+    .sort()) {
+    try {
+      const stored = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, candidateRef), "utf8"),
+      ) as unknown;
+      if (
+        !isFormalArtifactEnvelope(stored) ||
+        stored.artifact_type !== "startup_opportunity.discovery_candidate.v1" ||
+        stored.artifact_path !== candidateRef ||
+        stored.run_id !== runId ||
+        stored.document.run_id !== runId ||
+        stored.content_hash !== canonicalContentHash(stored.document)
+      ) {
+        throw new Error("candidate envelope mismatch");
+      }
+      artifacts.validateEnvelopeBoundary(runId, stored);
+      await artifacts.validateStoredEnvelope(runRoot, runId, stored);
+      if (stored.document.research_plan_ref !== planRef) {
+        continue;
+      }
+      bindings.push({
+        candidate_ref: candidateRef,
+        candidate_schema_version: "startup_opportunity.discovery_candidate.v1",
+        candidate_envelope_version: stored.schema_version,
+        candidate_content_hash: stored.content_hash,
+        candidate_envelope_hash: canonicalContentHash(stored),
+        run_id: runId,
+        research_plan_ref: planRef,
+        plan_revision: planRevision,
+      });
+    } catch (_error) {
+      throw new StoreError(
+        "adaptation.discovery_candidate_binding_invalid",
+        "durable discovery candidate bytes cannot establish an exact historical Plan binding",
+        { candidateRef, planRef, planRevision },
+      );
+    }
+  }
+  return bindings;
+}
+
 async function assertStoredCandidateBindings(
   runRoot: string,
   bindings: readonly PlanCandidateBinding[],
@@ -894,6 +946,46 @@ async function publishReceipt(
   await writeSyncedTemp(runRoot, temporary, `${canonicalJson(receipt)}\n`);
   await publishTemp(runRoot, temporary, relativePath);
   return "created";
+}
+
+async function assertNoDivergentPendingOperation(
+  runRoot: string,
+  runId: string,
+  manifest: RunManifest,
+  basePlanRef: string,
+  expectedOperationKey: string,
+  validator: ArtifactValidator,
+  artifacts: ArtifactStore,
+  logs: JsonlStore,
+): Promise<void> {
+  const directory = await resolveRunPath(runRoot, ".store/operations", { createParents: true });
+  for (const filename of (await readdir(directory)).sort()) {
+    if (!filename.startsWith("plan-revision-") || !filename.endsWith(".json")) {
+      continue;
+    }
+    const receipt = validateReceipt(
+      JSON.parse(await readFile(path.join(directory, filename), "utf8")) as unknown,
+      filename,
+      runId,
+    );
+    validateReceiptDocuments(receipt, validator, artifacts);
+    await validateReceiptSources(runRoot, receipt, logs, artifacts);
+    if (
+      receipt.operation_key !== expectedOperationKey &&
+      receipt.base_plan_ref === basePlanRef &&
+      manifest.current_plan_ref === receipt.base_plan_ref
+    ) {
+      throw new StoreError(
+        "apply.pending_operation_conflict",
+        "another Plan operation intent must be replayed before applying a divergent operation",
+        {
+          pendingOperationKey: receipt.operation_key,
+          requestedOperationKey: expectedOperationKey,
+          basePlanRef,
+        },
+      );
+    }
+  }
 }
 
 async function appendOperationEvents(
@@ -1153,13 +1245,26 @@ export class PlanRevisionRuntime {
     if (suppliedPlan?.schemaVersion !== "startup_opportunity.research_plan.v1") {
       throw new StoreError("apply.base_plan_missing", "adaptation bundle is missing its base plan");
     }
-    const candidateBindings = preKillCandidateBindings(
+    const preKillBindings = preKillCandidateBindings(
       bundleDocuments,
       selectedDecisions,
       input.runId,
       basePlanRef,
       Number(suppliedPlan.document.revision),
     );
+    let candidateBindings =
+      preKillBindings.length > 0
+        ? preKillBindings
+        : assessmentAdaptation
+          ? []
+          : await durableDiscoveryCandidateBindings(
+              runRoot,
+              manifest,
+              input.runId,
+              basePlanRef,
+              Number(suppliedPlan.document.revision),
+              this.artifacts,
+            );
     const assessmentPlanRefs = uniqueSorted(
       selectedDecisions.flatMap((decision) =>
         typeof decision.document.assessment_plan_ref === "string"
@@ -1241,6 +1346,12 @@ export class PlanRevisionRuntime {
         );
       }
       if (
+        existingReceipt.schema_version === "startup_opportunity.plan_revision_operation.v1" &&
+        preKillBindings.length === 0
+      ) {
+        candidateBindings = [];
+      }
+      if (
         canonicalJson(existingReceipt.events) !==
         canonicalJson(
           createEvents(
@@ -1318,6 +1429,17 @@ export class PlanRevisionRuntime {
       }
     }
 
+    await assertNoDivergentPendingOperation(
+      runRoot,
+      input.runId,
+      manifest,
+      basePlanRef,
+      expectedOperationKey,
+      this.validator,
+      this.artifacts,
+      this.logs,
+    );
+
     await assertStoredCandidateBindings(runRoot, candidateBindings, this.artifacts);
 
     const basePlan = await storedEffectiveDocument(runRoot, manifest.current_plan_ref);
@@ -1369,6 +1491,22 @@ export class PlanRevisionRuntime {
       this.artifacts,
       this.logs,
     );
+    const planReferenceContext: DocumentBundleReferenceContext =
+      candidateBindings.length === 0
+        ? referenceContext
+        : {
+            ...referenceContext,
+            historicalDiscoveryPlanBindings: [
+              {
+                planRef: basePlanRef,
+                planHash: canonicalContentHash(basePlan),
+                planRevision: Number(basePlan.revision),
+                candidateRefs: uniqueSorted(
+                  candidateBindings.map((binding) => binding.candidate_ref),
+                ),
+              },
+            ],
+          };
     const patchedBundle: DocumentBundle = {
       ...input.adaptationBundle,
       documents: input.adaptationBundle.documents.map((entry) =>
@@ -1451,7 +1589,7 @@ export class PlanRevisionRuntime {
       }
       const candidateValidation = (
         assessmentAdaptation ? this.assessmentPlans : this.plans
-      ).validateDocumentBundle(input.candidateBundle, referenceContext);
+      ).validateDocumentBundle(input.candidateBundle, planReferenceContext);
       if (!candidateValidation.valid) {
         throw new StoreError(
           "apply.candidate_plan_invalid",

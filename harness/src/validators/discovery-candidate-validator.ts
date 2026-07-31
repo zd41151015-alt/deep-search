@@ -609,6 +609,97 @@ function validateSourcePartition(
   }
 }
 
+function validateSourceManifestSummary(
+  sourceManifest: DiscoveryCandidateDocument,
+  documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
+  errors: ValidationIssue[],
+): void {
+  const evidence = strings(sourceManifest.document.accepted_evidence_refs)
+    .map((ref) => documentsByPath.get(ref))
+    .filter(
+      (entry): entry is DiscoveryCandidateDocument =>
+        entry?.schemaVersion === "startup_opportunity.evidence.v2",
+    );
+  if (evidence.length !== strings(sourceManifest.document.accepted_evidence_refs).length) {
+    return;
+  }
+  const expectedFreshness = {
+    active: 0,
+    stale: 0,
+    unverified: 0,
+    superseded: 0,
+  };
+  for (const entry of evidence) {
+    const status = entry.document.evidence_lifecycle_status;
+    if (
+      status === "active" ||
+      status === "stale" ||
+      status === "unverified" ||
+      status === "superseded"
+    ) {
+      expectedFreshness[status] += 1;
+    }
+  }
+  if (
+    canonicalJson(sourceManifest.document.freshness_summary) !== canonicalJson(expectedFreshness)
+  ) {
+    errors.push(
+      issue(
+        "discovery_candidate.source_manifest_freshness_mismatch",
+        `${sourceManifest.path}#/freshness_summary`,
+        "Source Manifest freshness counts must be recomputed from accepted Evidence lifecycle state",
+        { expectedFreshness },
+      ),
+    );
+  }
+
+  const expectedStances = [
+    ...new Set(
+      evidence
+        .map((entry) => entry.document.evidence_role)
+        .filter((role): role is string => typeof role === "string"),
+    ),
+  ].sort();
+  if (!setEqual(strings(sourceManifest.document.stance_coverage), expectedStances)) {
+    errors.push(
+      issue(
+        "discovery_candidate.source_manifest_stance_mismatch",
+        `${sourceManifest.path}#/stance_coverage`,
+        "Source Manifest stance coverage must equal accepted Evidence roles",
+        { expectedStances },
+      ),
+    );
+  }
+
+  const evidenceDates = evidence
+    .map((entry) => entry.document.valid_as_of)
+    .filter((value): value is string => typeof value === "string")
+    .sort();
+  const declaredDates = strings(sourceManifest.document.time_coverage)
+    .flatMap((entry) => [...entry.matchAll(/\b\d{4}-\d{2}-\d{2}\b/gu)].map((match) => match[0]))
+    .filter((value): value is string => value !== undefined)
+    .sort();
+  if (
+    declaredDates.length > 0 &&
+    evidenceDates.length > 0 &&
+    (declaredDates[0] !== evidenceDates[0] || declaredDates.at(-1) !== evidenceDates.at(-1))
+  ) {
+    errors.push(
+      issue(
+        "discovery_candidate.source_manifest_time_coverage_mismatch",
+        `${sourceManifest.path}#/time_coverage`,
+        "Source Manifest declared date bounds must equal accepted Evidence valid_as_of bounds",
+        {
+          expectedMin: evidenceDates[0],
+          expectedMax: evidenceDates.at(-1),
+          declaredMin: declaredDates[0],
+          declaredMax: declaredDates.at(-1),
+        },
+      ),
+    );
+  }
+}
+
 function validateTask(
   task: DiscoveryCandidateDocument,
   documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
@@ -1092,6 +1183,11 @@ export function validateDiscoveryCandidateContract(
     (entry) => entry.schemaVersion === "startup_opportunity.research_task.v2",
   )) {
     validateTask(task, documentsByPath, scope, plan, errors);
+  }
+  for (const sourceManifest of documents.filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.source_manifest.v2",
+  )) {
+    validateSourceManifestSummary(sourceManifest, documentsByPath, errors);
   }
   for (const lane of documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.discovery_lane_result.v1",

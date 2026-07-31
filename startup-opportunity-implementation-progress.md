@@ -1917,3 +1917,39 @@ Current project-v2结论纠正了`dca8070`新增的completion-scope语义：RFC�
 | `git diff --check` / scope / status | PASS；只修改README、Plugin decision、施工账本和ordinary G4 docs test；Skill、agent、hook、MCP、Harness、schema/policy、package/toolchain与synthetic fixture bytes零修改，提交前仅4个预期tracked文件变化 |
 
 本ordinary documentation correction必须形成`dca8070ad693eff6612185a0581451405e99f746`的clean direct-child原子commit，并同时包含README、Plugin decision、permanent ordinary docs test与本账本。提交后current descendant仍待fresh independent delta-aware G4 acceptance；当前worker停止且不创建acceptance。该delta通过后G0-G4即闭合本RFC首版implementation objective；controller只做read-only closure check并将automation设为`PAUSED`、保留定义，本worker不修改automation。
+
+### Post-G4 production Run repair: POST-G4-003..010
+
+真实`opportunity_discovery` Run复盘在已登记的`POST-G4-001/002`之外确认了八个额外运行时问题。本slice以`main@f11dd02cc12ec17d803b30e690d33d92ff0e4482`为基线，只修复`POST-G4-003..010`；不实现或宣称`POST-G4-001/002`已完成，不修改或恢复任何正式research Run。该任务是Harness代码修复，不触发`$startup-opportunity` Skill，不执行research、network access、LLM/agent dispatch或external validation。
+
+| Finding / classification | 修复后的确定性不变量 | Production / permanent test mapping |
+| --- | --- | --- |
+| `POST-G4-003` / ordinary lifecycle | Planning Context lineage中只有未被后继引用的leaf Context绑定live Manifest；历史祖先继续校验自己的immutable Run/Plan binding，不因当前Plan推进而变stale | `artifact-validator.ts::checkLineage`；`historical Planning Contexts retain their own bound state while only the leaf is live` |
+| `POST-G4-004` / ordinary cross-layer contract | Plan中`discovery_lane_result.v1`与`enrichment_branch_result.v1`的`output_path`必须编码exact `unit_id + attempt`并等于下游正式路径 | `plan-validator.ts::canonicalOutputPath`；G0.4 Plan negative；planning fixture使用正式路径；H14冻结builder保持原字节并由current-runtime fixture显式opt-in |
+| `POST-G4-005` / Plan candidate-binding integrity | 普通post-G2 Plan revision从validated durable Manifest candidates构造v3 receipt binding；reopen恢复base Plan的exact historical candidate view，旧v1 receipt不追补新binding | `plan-runtime.ts::durableDiscoveryCandidateBindings`与`historicalDiscoveryPlanBindings`；ordinary post-G2 add-unit、candidate drift/reopen、legacy v1 replay tests |
+| `POST-G4-006` / operation intent integrity | 同一current base Plan存在另一immutable receipt intent时，divergent operation在任何新写入前拒绝；只有exact operation-key replay可完成该intent | `plan-runtime.ts::assertNoDivergentPendingOperation`；pending divergent lifecycle rejection、intent crash/exact replay、concurrent/idempotent既有测试 |
+| `POST-G4-007` / ordinary versioned projection | v5 envelope承载的Gap v1与Decision v2和v6现行版本一样投影Manifest lifecycle，fault后reopen保持latest/pending状态 | `run-store.ts::projectArtifact`；`v5 Gap and Decision publication and recovery project Manifest lifecycle` |
+| `POST-G4-008` / ordinary decision/reference closure | 仍有预算、material Evidence且无stop signal的可执行follow-up不能被`terminate_insufficient_evidence`绕过；termination envelope的每个input ref必须由Plan、trigger Gap basis或exact user Decision闭合 | `adaptation-validator.ts::validateDecision`；follow-up-available与unclosed-input negative tests，预算耗尽positive path |
+| `POST-G4-009` / ordinary derived Evidence summary | Source Manifest v2的freshness counts与stance coverage必须从accepted Evidence v2重算；一旦声明ISO日期，声明边界必须等于accepted Evidence `valid_as_of`最小/最大值；历史opaque coverage string保持可读 | `discovery-candidate-validator.ts::validateSourceManifestSummary`；freshness/stance/time三项negative tests与G2.2 positive fixture |
+| `POST-G4-010` / ordinary read-only current-state | `status-run`只读扫描validated child Manifests，返回排序后的`continuationRunIds`与`current/continued/terminal`派生disposition；不改写parent/child Manifest bytes | `run-store.ts::status`；continued parent/current child byte-stability test与既有missing-runs-root只读测试 |
+
+本slice不修改任何已发布schema/policy JSON、package/toolchain或正式Run bytes；不改变v12 parent-produced fixture oracle，不新增package manager、lockfile、implementation language、Plugin、Workflow Runtime、DAG、daemon、UI或DB。Synthetic fixtures只证明deterministic contract/runtime behavior，不构成Evidence、research结果、市场验证或产品可行性。
+
+Plan receipt、candidate binding、Artifact/Manifest identity、recovery及跨Run current-state异常分支只使用静态源码和仓库既有测试映射；本slice没有构造新的protected-authority或security adversarial state。`SECURITY_VALIDATION_NOT_RUN(reason=Post-G4 repair permits static source and existing-test mapping only for Plan/receipt/candidate/Artifact/Manifest identity, integrity, recovery, and protected current-state branches; no new dynamic security adversarial variant was constructed)`；不得把ordinary合法路径、caller-supplied closed-bundle negative或既有fault/recovery输出扩张为general security PASS。Required ordinary `NOT_RUN=0`。
+
+#### POST-G4-003..010 repair preflight
+
+全部正式命令使用Node.js`24.18.0`、npm`11.16.0`、TypeScript`7.0.2`与唯一package-lock v3。系统默认Node.js`26.5.0`的doctor拒绝结果只用于识别环境漂移，不计入candidate证据；正式结果全部来自`/private/tmp`中的精确冻结工具链，仓库依赖和tracked bytes未因此改变。
+
+| 命令 / 边界 | Repair结果 |
+| --- | --- |
+| focused Planning / G0.4 / G1.3 / G2.2 / G4 | PASS 10/10、59/59、25/25、10/10、8/8；全部0 failed/cancelled/skipped/todo |
+| `npm run validate:store` / `npm run test:faults` / `npm run test:recovery` | PASS existing suites 11/11、10/10、11/11；全部0 failed/cancelled/skipped/todo；仅作ordinary regression和上述static/existing-test mapping |
+| H14 exact parent/current lifecycle | PASS 1/1；parent-produced v12 builder bytes、181-file tree digest与v10 receipt lifecycle保持闭合 |
+| `npm run lint` / `npm run typecheck` | PASS；Biome检查350 files、0 fixes/errors；`tsc --noEmit` 0 errors |
+| `npm test` | PASS 354/354，0 failed/cancelled/skipped/todo；完整重放G0-G4、H14、Store/fault/recovery入口 |
+| `npm run validate:fixtures` / `npm run validate:schemas` | PASS 223/223；schema bundle`15.0.0`、161 schemas / 151 document validators、0 errors |
+| frozen doctor / `npm run verify:skeleton` | PASS；runtime=`24.18.0`、skeleton=`g4.3`、单一lockfile与repo-local contract闭合 |
+| diff / scope | `git diff --check` PASS；schema/policy JSON、package/toolchain、正式Run bytes零修改；用户自有untracked复盘backlog保持未修改且不纳入repair |
+
+本节记录的是主worker repair preflight，不是新的formal whole-G4 acceptance，也不重新打开或改变G0-G4 Gate完成状态。候选未在本任务中commit、push、创建PR或修改automation。

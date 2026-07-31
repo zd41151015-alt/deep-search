@@ -20,6 +20,7 @@ import {
   G22_DEMAND_R2,
   G22_EVALUATION_LANE,
   G22_FAN_IN,
+  G22_GENERATION_MANIFEST,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -394,6 +395,36 @@ test("G2.2 Scheme A bundle installs a closed pre-thesis candidate contract", asy
     "demand_seed",
     "solution_seed",
   ]);
+});
+
+test("G2.2 Source Manifest summaries are derived from accepted Evidence", async () => {
+  const validator = await createArtifactValidator(repositoryRoot);
+  for (const scenario of [
+    {
+      field: "freshness_summary",
+      value: { active: 1, stale: 0, unverified: 0, superseded: 0 },
+      code: "discovery_candidate.source_manifest_freshness_mismatch",
+    },
+    {
+      field: "stance_coverage",
+      value: ["oppose"],
+      code: "discovery_candidate.source_manifest_stance_mismatch",
+    },
+    {
+      field: "time_coverage",
+      value: ["2026-07-27..2027-01-01"],
+      code: "discovery_candidate.source_manifest_time_coverage_mismatch",
+    },
+  ] as const) {
+    const bundle = await createDiscoveryCandidateFixture();
+    const sourceManifest = fixtureEffective(bundle, G22_GENERATION_MANIFEST);
+    sourceManifest[scenario.field] = structuredClone(scenario.value);
+    fixtureEntry(bundle, G22_GENERATION_MANIFEST).content_hash =
+      canonicalContentHash(sourceManifest);
+    const result = validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, false, scenario.field);
+    assert.ok(allIssueCodes(result).includes(scenario.code), JSON.stringify(result));
+  }
 });
 
 test("G2.2 blocker mutations fail for their declared deterministic contract code", async () => {

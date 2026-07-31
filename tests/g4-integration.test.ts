@@ -105,6 +105,8 @@ test("status reads a validated manifest without mutating the Run", async (contex
 
   assert.equal(result.schemaVersion, "startup_opportunity.status_run_result.v1");
   assert.equal(result.manifest.mode, "concept_evidence_assessment");
+  assert.deepEqual(result.continuationRunIds, []);
+  assert.equal(result.derivedExecutionDisposition, "current");
   assert.equal(await readFile(path.join(runRoot, "manifest.json"), "utf8"), beforeManifest);
   assert.deepEqual((await readdir(runRoot, { recursive: true })).sort(), beforeEntries);
 
@@ -124,6 +126,40 @@ test("status reads a validated manifest without mutating the Run", async (contex
   assert.equal(script.status, 0, script.stderr);
   assert.equal(JSON.parse(script.stdout).schemaVersion, "startup_opportunity.status_run_result.v1");
   assert.equal(await readFile(path.join(runRoot, "manifest.json"), "utf8"), beforeManifest);
+});
+
+test("status derives a continued parent from validated child manifests without mutation", async (context) => {
+  const fixture = await createSyntheticRun();
+  context.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const childRunId = `${fixture.runId}-continuation`;
+  await fixture.store.create({
+    runId: childRunId,
+    mode: "concept_evidence_assessment",
+    parentRunId: fixture.runId,
+    createdAt: "2026-07-30T01:05:00Z",
+  });
+  const before = await Promise.all(
+    [fixture.runId, childRunId].map((runId) =>
+      readFile(path.join(fixture.runsRoot, runId, "manifest.json"), "utf8"),
+    ),
+  );
+
+  const parentStatus = await fixture.store.status(fixture.runId);
+  const childStatus = await fixture.store.status(childRunId);
+
+  assert.equal(parentStatus.manifest.status, "created");
+  assert.deepEqual(parentStatus.continuationRunIds, [childRunId]);
+  assert.equal(parentStatus.derivedExecutionDisposition, "continued");
+  assert.deepEqual(childStatus.continuationRunIds, []);
+  assert.equal(childStatus.derivedExecutionDisposition, "current");
+  assert.deepEqual(
+    await Promise.all(
+      [fixture.runId, childRunId].map((runId) =>
+        readFile(path.join(fixture.runsRoot, runId, "manifest.json"), "utf8"),
+      ),
+    ),
+    before,
+  );
 });
 
 test("status reports a missing Run without creating the absent runs root", async (context) => {

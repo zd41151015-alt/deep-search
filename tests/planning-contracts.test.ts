@@ -4,10 +4,12 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  canonicalContentHash,
   createArtifactValidator,
   createPlanningContractEvaluator,
   loadSchemaBundle,
   type PlanningContractValidationResult,
+  planningRunStateHash,
 } from "../harness/src/index.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -155,6 +157,70 @@ test("Planning Context binds current Run/Plan state and drives complete AI cover
     (entry) => entry.path !== "plans/ai-trigger-source.r1.json",
   );
   assert.equal(evaluator.validateDocumentBundle(nonAi).valid, true);
+});
+
+test("historical Planning Contexts retain their own bound state while only the leaf is live", async () => {
+  const validator = await createArtifactValidator(repositoryRoot);
+  const { valid } = await loadFixtures();
+  const historical = structuredClone(valid) as {
+    schema_version: string;
+    documents: { path: string; document: Record<string, unknown> }[];
+  };
+  historical.documents = historical.documents.filter(
+    (entry) =>
+      entry.document.schema_version !== "startup_opportunity.coverage_attestation.v1" &&
+      entry.path !== "adaptations/decisions/adapt-continue-001.json",
+  );
+  const manifest = historical.documents.find((entry) => entry.path === "manifest.json")?.document;
+  const planR1 = historical.documents.find(
+    (entry) => entry.path === "plans/research-plan.r1.json",
+  )?.document;
+  const contextR1 = historical.documents.find(
+    (entry) => entry.path === "plans/planning-context.r1.json",
+  )?.document;
+  assert.ok(manifest && planR1 && contextR1);
+
+  const planR2 = structuredClone(planR1);
+  planR2.revision = 2;
+  planR2.parent_plan_ref = "plans/research-plan.r1.json";
+  planR2.triggered_by_adaptation_refs = ["adaptations/decisions/adapt-retry-001.json"];
+  planR2.created_at = "2026-07-24T12:06:00Z";
+  historical.documents.push({ path: "plans/research-plan.r2.json", document: planR2 });
+
+  manifest.current_plan_ref = "plans/research-plan.r2.json";
+  manifest.plan_revision = 2;
+  manifest.updated_at = "2026-07-24T12:07:00Z";
+  const contextR2 = structuredClone(contextR1);
+  contextR2.revision = 2;
+  contextR2.parent_context_ref = "plans/planning-context.r1.json";
+  contextR2.created_at = "2026-07-24T12:06:30Z";
+  contextR2.manifest_binding = {
+    manifest_ref: "manifest.json",
+    manifest_schema_version: "startup_opportunity.run_manifest.v1",
+    run_id: manifest.run_id,
+    mode: manifest.mode,
+    current_plan_ref: "plans/research-plan.r2.json",
+    current_plan_revision: 2,
+    run_state_hash: planningRunStateHash({
+      manifest_ref: "manifest.json",
+      manifest_schema_version: "startup_opportunity.run_manifest.v1",
+      run_id: String(manifest.run_id),
+      mode: String(manifest.mode),
+      current_plan_ref: "plans/research-plan.r2.json",
+      current_plan_revision: 2,
+    }),
+  };
+  contextR2.target_plan_binding = {
+    plan_ref: "plans/research-plan.r2.json",
+    plan_schema_version: "startup_opportunity.research_plan.v1",
+    plan_id: planR2.plan_id,
+    plan_revision: 2,
+    plan_content_hash: canonicalContentHash(planR2),
+  };
+  historical.documents.push({ path: "plans/planning-context.r2.json", document: contextR2 });
+
+  const result = validator.validateDocumentBundle(historical);
+  assert.equal(result.valid, true, JSON.stringify(result.referenceErrors));
 });
 
 test("Planning Context negatives reject missing/wrong triggers and stale Run/Plan bindings", async () => {

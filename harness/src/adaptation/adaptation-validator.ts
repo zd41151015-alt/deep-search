@@ -210,6 +210,7 @@ export class AdaptationPolicyValidator {
         this.validateDecision(
           decision.path,
           decision.document,
+          decision.envelope,
           plan.path,
           plan.document,
           manifest.document,
@@ -477,6 +478,7 @@ export class AdaptationPolicyValidator {
   private validateDecision(
     decisionPath: string,
     decision: Record<string, unknown>,
+    decisionEnvelope: Record<string, unknown> | null,
     planPath: string,
     plan: Record<string, unknown>,
     manifest: Record<string, unknown>,
@@ -805,8 +807,11 @@ export class AdaptationPolicyValidator {
         }
         break;
       }
-      case "terminate_insufficient_evidence":
-        if (!gaps.some((resolved) => resolved !== null && resolved.gap.severity === "blocking")) {
+      case "terminate_insufficient_evidence": {
+        const blockingGaps = gaps.filter(
+          (resolved) => resolved !== null && resolved.gap.severity === "blocking",
+        );
+        if (blockingGaps.length === 0) {
           errors.push(
             issue(
               "adaptation.termination_basis_missing",
@@ -815,7 +820,86 @@ export class AdaptationPolicyValidator {
             ),
           );
         }
+        const followupAvailable = blockingGaps.some((resolved) => {
+          if (resolved === null) {
+            return false;
+          }
+          const recommended = Array.isArray(resolved.gap.recommended_unit_types)
+            ? resolved.gap.recommended_unit_types
+            : typeof resolved.gap.recommended_unit_type === "string"
+              ? [resolved.gap.recommended_unit_type]
+              : [];
+          const stopSignals = Array.isArray(resolved.snapshot.stop_signals)
+            ? resolved.snapshot.stop_signals
+            : [];
+          return (
+            recommended.length > 0 &&
+            resolved.snapshot.material_new_evidence_observed === true &&
+            stopSignals.length === 0 &&
+            isRecord(followup) &&
+            typeof followup.max_followup_rounds === "number" &&
+            typeof manifest.followup_round === "number" &&
+            manifest.followup_round < followup.max_followup_rounds
+          );
+        });
+        if (followupAvailable) {
+          errors.push(
+            issue(
+              "adaptation.termination_followup_available",
+              decisionPath,
+              "termination cannot bypass an executable bounded follow-up",
+            ),
+          );
+        }
+        if (decisionEnvelope !== null && Array.isArray(decisionEnvelope.input_refs)) {
+          const allowedRefs = new Set<string>([planPath]);
+          for (const [index, resolved] of gaps.entries()) {
+            if (resolved === null) {
+              continue;
+            }
+            const triggerRef = triggerRefs[index];
+            if (triggerRef !== undefined) {
+              allowedRefs.add(triggerRef);
+              allowedRefs.add(triggerRef.split("#", 1)[0] ?? triggerRef);
+            }
+            for (const ref of [
+              ...(Array.isArray(resolved.gap.basis_refs) ? resolved.gap.basis_refs : []),
+              ...(Array.isArray(resolved.gap.evidence_refs) ? resolved.gap.evidence_refs : []),
+              ...(Array.isArray(resolved.snapshot.observed_artifact_refs)
+                ? resolved.snapshot.observed_artifact_refs
+                : []),
+              ...(isRecord(resolved.gap.triggered_by) &&
+              Array.isArray(resolved.gap.triggered_by.observed_artifact_refs)
+                ? resolved.gap.triggered_by.observed_artifact_refs
+                : []),
+            ]) {
+              if (typeof ref === "string") {
+                allowedRefs.add(ref);
+              }
+            }
+            if (typeof resolved.snapshot.trigger_event_ref === "string") {
+              allowedRefs.add(resolved.snapshot.trigger_event_ref);
+            }
+          }
+          if (typeof decision.user_decision_ref === "string") {
+            allowedRefs.add(decision.user_decision_ref);
+          }
+          const unboundRefs = decisionEnvelope.input_refs.filter(
+            (ref): ref is string => typeof ref === "string" && !allowedRefs.has(ref),
+          );
+          if (unboundRefs.length > 0) {
+            errors.push(
+              issue(
+                "adaptation.termination_basis_unclosed",
+                `${decisionPath}#/input_refs`,
+                "termination inputs must be closed by the trigger Gap basis",
+                { unboundRefs: [...new Set(unboundRefs)].sort() },
+              ),
+            );
+          }
+        }
         break;
+      }
     }
   }
 }

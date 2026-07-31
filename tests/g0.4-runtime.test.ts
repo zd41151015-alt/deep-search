@@ -124,20 +124,38 @@ function basePlan(runId: string): Record<string, unknown> {
         wave_id: "wave_runtime_1",
         depends_on: [],
         units: [
-          unit("counter_completed", "counter_evidence", "artifacts/lanes/counter-completed.json"),
-          unit("acquisition_failed", "acquisition", "artifacts/lanes/acquisition-failed.json"),
+          unit(
+            "counter_completed",
+            "counter_evidence",
+            "artifacts/discovery/enrichment/branches/counter_completed.attempt-1.json",
+          ),
+          unit(
+            "acquisition_failed",
+            "acquisition",
+            "artifacts/discovery/enrichment/branches/acquisition_failed.attempt-1.json",
+          ),
         ],
       },
       {
         wave_id: "wave_runtime_2",
         depends_on: ["wave_runtime_1"],
         units: [
-          unit("buyer_active", "buyer_language", "artifacts/lanes/buyer-active.json", {
-            depends_on: ["counter_completed"],
-          }),
-          unit("value_pending", "value_layer", "artifacts/lanes/value-pending.json", {
-            depends_on: ["counter_completed"],
-          }),
+          unit(
+            "buyer_active",
+            "buyer_language",
+            "artifacts/discovery/enrichment/branches/buyer_active.attempt-1.json",
+            {
+              depends_on: ["counter_completed"],
+            },
+          ),
+          unit(
+            "value_pending",
+            "value_layer",
+            "artifacts/discovery/enrichment/branches/value_pending.attempt-1.json",
+            {
+              depends_on: ["counter_completed"],
+            },
+          ),
         ],
       },
     ],
@@ -351,7 +369,7 @@ function retryDecision(runId: string): Record<string, unknown> {
     target_unit: unit(
       "acquisition_retry_2",
       "acquisition",
-      "artifacts/lanes/acquisition-failed.retry-2.json",
+      "artifacts/discovery/enrichment/branches/acquisition_retry_2.attempt-2.json",
       {
         attempt: 2,
         supersedes_unit_ref: `${PLAN_REF}#acquisition_failed`,
@@ -383,8 +401,8 @@ function supersedeDecision(runId: string): Record<string, unknown> {
     target_unit: unit(
       "buyer_superseding",
       "buyer_language",
-      "artifacts/lanes/buyer-superseding.json",
-      { supersedes_unit_ref: `${PLAN_REF}#buyer_active` },
+      "artifacts/discovery/enrichment/branches/buyer_superseding.attempt-2.json",
+      { attempt: 2, supersedes_unit_ref: `${PLAN_REF}#buyer_active` },
     ),
     reason: "The active unit must be replaced by an immutable successor.",
     expected_decision_impact: ["execution_validity"],
@@ -460,7 +478,8 @@ async function setupPersistedRun(
     | "supersede"
     | "pre-kill-exact"
     | "pre-kill-missing"
-    | "pre-kill-shared" = "retry",
+    | "pre-kill-shared"
+    | "post-g2-add" = "retry",
   requestedByUser = false,
   eventDriven = false,
 ) {
@@ -475,9 +494,10 @@ async function setupPersistedRun(
     createdAt: "2026-07-24T12:00:00Z",
   });
   const preKill = action.startsWith("pre-kill-");
+  const discoveryBacked = preKill || action === "post-g2-add";
   let discoveryBundle: DocumentBundle | null = null;
   let plan: Record<string, unknown>;
-  if (preKill) {
+  if (discoveryBacked) {
     const evidence = new EvidenceStore(runsRoot);
     const record = async (unitId: string, label: string) =>
       (
@@ -494,11 +514,13 @@ async function setupPersistedRun(
         })
       ).record;
     const targetInputRefs =
-      action === "pre-kill-missing"
-        ? [SUBJECT_REF]
-        : action === "pre-kill-shared"
-          ? [PRE_KILL_CANDIDATE_REF, RETAINED_SHARED_CANDIDATE_REF]
-          : [PRE_KILL_CANDIDATE_REF];
+      action === "post-g2-add"
+        ? [PRE_KILL_CANDIDATE_REF]
+        : action === "pre-kill-missing"
+          ? [SUBJECT_REF]
+          : action === "pre-kill-shared"
+            ? [PRE_KILL_CANDIDATE_REF, RETAINED_SHARED_CANDIDATE_REF]
+            : [PRE_KILL_CANDIDATE_REF];
     discoveryBundle = await createDiscoveryRuntimeFixture(
       runId,
       {
@@ -520,7 +542,7 @@ async function setupPersistedRun(
               research_goal: "SYNTHETIC candidate-specific enrichment remains pending.",
               input_refs: targetInputRefs,
               agent_role: "lane-researcher",
-              output_path: "artifacts/discovery/enrichment/pre-kill-target.json",
+              output_path: "artifacts/discovery/lanes/value_pending.attempt-1.json",
               required_artifact_schema: "startup_opportunity.discovery_lane_result.v1",
               source_preferences: ["SYNTHETIC no source preference."],
               required_outputs: ["SYNTHETIC typed branch result."],
@@ -529,6 +551,8 @@ async function setupPersistedRun(
           ],
         },
       ],
+      "general",
+      true,
     );
     const bootstrapManifest = (await store.load(runId)).manifest as unknown as Record<
       string,
@@ -565,9 +589,9 @@ async function setupPersistedRun(
   const runRoot = path.join(runsRoot, runId);
   const persistedManifest = manifest(runId, plan);
   const storeManifest = (await store.load(runId)).manifest;
-  persistedManifest.schema_bundle_version = preKill ? "9.0.0" : "2.2.0";
-  persistedManifest.current_phase = preKill ? "discovery" : "enrichment";
-  persistedManifest.artifact_refs = preKill ? storeManifest.artifact_refs : [PLAN_REF];
+  persistedManifest.schema_bundle_version = discoveryBacked ? "9.0.0" : "2.2.0";
+  persistedManifest.current_phase = discoveryBacked ? "discovery" : "enrichment";
+  persistedManifest.artifact_refs = discoveryBacked ? storeManifest.artifact_refs : [PLAN_REF];
   persistedManifest.latest_gap_snapshot_ref = null;
   persistedManifest.pending_adaptation_refs = [];
   await writeFile(path.join(runRoot, "manifest.json"), `${canonicalJson(persistedManifest)}\n`);
@@ -580,7 +604,14 @@ async function setupPersistedRun(
   });
   const gap = preKill
     ? gapSnapshot(runId, "candidate_pre_killed", PRE_KILL_CANDIDATE_REF)
-    : gapSnapshot(runId);
+    : action === "post-g2-add"
+      ? gapSnapshot(runId, "evidence_insufficient", PRE_KILL_CANDIDATE_REF)
+      : gapSnapshot(runId);
+  if (action === "post-g2-add") {
+    const gapEntry = (gap.gaps as Record<string, unknown>[])[0];
+    assert.ok(gapEntry);
+    gapEntry.recommended_unit_types = ["counter_evidence"];
+  }
   const triggerEventRecord = eventDriven
     ? triggerEvent(runId, `gap_trigger_${runId.replaceAll("-", "_")}`)
     : null;
@@ -598,7 +629,33 @@ async function setupPersistedRun(
     ? preKillSkipDecision(runId)
     : action === "retry"
       ? retryDecision(runId)
-      : supersedeDecision(runId);
+      : action === "supersede"
+        ? supersedeDecision(runId)
+        : retryDecision(runId);
+  if (action === "post-g2-add") {
+    decision.adaptation_id = "adapt_add_post_g2";
+    decision.action = "add_unit";
+    delete decision.target_unit_ref;
+    delete decision.retry_basis;
+    decision.target_unit = {
+      unit_id: "post_g2_followup",
+      unit_type: "counter_evidence",
+      plan_disposition: "enabled",
+      priority_band: "high",
+      attempt: 1,
+      supersedes_unit_ref: null,
+      research_goal: "SYNTHETIC post-G2 follow-up remains unvalidated.",
+      input_refs: [PRE_KILL_CANDIDATE_REF],
+      depends_on: [],
+      agent_role: "lane-researcher",
+      output_path: "artifacts/discovery/lanes/post_g2_followup.attempt-1.json",
+      required_artifact_schema: "startup_opportunity.discovery_lane_result.v1",
+      source_preferences: [],
+      required_outputs: ["SYNTHETIC typed discovery result."],
+      stop_conditions: ["SYNTHETIC bounded follow-up only."],
+    };
+    decision.success_condition = "The added unit publishes one typed discovery result.";
+  }
   const userDecision = requestedByUser
     ? userPlanDecision(runId, `decision_${runId.replaceAll("-", "_")}`)
     : null;
@@ -642,9 +699,9 @@ async function setupPersistedRun(
   ) as Record<string, unknown>;
   beforeCheckpoint.latest_gap_snapshot_ref = GAP_REF;
   beforeCheckpoint.pending_adaptation_refs = [DECISION_REF];
-  beforeCheckpoint.completed_units = preKill ? [] : ["counter_completed"];
-  beforeCheckpoint.active_units = preKill ? [] : ["buyer_active"];
-  beforeCheckpoint.failed_units = preKill ? [] : ["acquisition_failed"];
+  beforeCheckpoint.completed_units = discoveryBacked ? [] : ["counter_completed"];
+  beforeCheckpoint.active_units = discoveryBacked ? [] : ["buyer_active"];
+  beforeCheckpoint.failed_units = discoveryBacked ? [] : ["acquisition_failed"];
   beforeCheckpoint.updated_at = "2026-07-24T12:06:00Z";
   await writeFile(path.join(runRoot, "manifest.json"), `${canonicalJson(beforeCheckpoint)}\n`);
   await store.checkpoint({
@@ -1044,6 +1101,19 @@ test("Plan semantic validation enforces DAG, output uniqueness, policy tuple, an
       .planErrors.some((error) => error.code === "plan.output_path_conflict"),
   );
 
+  const legacyOutput = clone(validBundle);
+  const legacyOutputPlan = legacyOutput.documents.find((entry) => entry.path === PLAN_REF)
+    ?.document as Record<string, unknown>;
+  const legacyOutputUnit = (legacyOutputPlan.waves as { units: Record<string, unknown>[] }[])[0]
+    ?.units[0];
+  assert.ok(legacyOutputUnit);
+  legacyOutputUnit.output_path = "artifacts/lanes/counter-completed.json";
+  assert.ok(
+    validator
+      .validateDocumentBundle(legacyOutput)
+      .planErrors.some((error) => error.code === "plan.output_path_contract_mismatch"),
+  );
+
   const tuple = clone(validBundle);
   const tuplePlan = tuple.documents.find((entry) => entry.path === PLAN_REF)?.document as Record<
     string,
@@ -1322,7 +1392,11 @@ test("Adaptation validator accepts all closed actions and rejects retry outside 
     delete decision.success_condition;
     const extras: { path: string; document: Record<string, unknown> }[] = [];
     if (action === "add_unit") {
-      decision.target_unit = unit("added_unit", "acquisition", "artifacts/lanes/added-unit.json");
+      decision.target_unit = unit(
+        "added_unit",
+        "acquisition",
+        "artifacts/discovery/enrichment/branches/added_unit.attempt-1.json",
+      );
       decision.success_condition = "The new unit resolves the explicit gap.";
     } else if (action === "cancel_unit") {
       decision.target_unit_ref = `${PLAN_REF}#buyer_active`;
@@ -1341,8 +1415,8 @@ test("Adaptation validator accepts all closed actions and rejects retry outside 
       decision.target_unit = unit(
         "buyer_superseding",
         "buyer_language",
-        "artifacts/lanes/buyer-superseding.json",
-        { supersedes_unit_ref: `${PLAN_REF}#buyer_active` },
+        "artifacts/discovery/enrichment/branches/buyer_superseding.attempt-2.json",
+        { attempt: 2, supersedes_unit_ref: `${PLAN_REF}#buyer_active` },
       );
       decision.success_condition = "The replacement unit produces a new output.";
     } else if (action === "continue_existing_plan") {
@@ -1382,6 +1456,7 @@ test("Adaptation validator accepts all closed actions and rejects retry outside 
       decision.stop_condition = "The explicit no-new-evidence stop signal is present.";
     } else if (action === "terminate_insufficient_evidence") {
       decision.stop_condition = "The blocking gap cannot be resolved under current scope.";
+      runManifest.followup_round = 2;
     }
     const planningContext = context(runManifest, plan, {
       path: CONTEXT_REF,
@@ -1417,6 +1492,113 @@ test("Adaptation validator accepts all closed actions and rejects retry outside 
       (error) => error.code === "contract.retry_target_not_failed",
     ),
   );
+
+  const terminateRunId = "adapt-terminate-followup-available";
+  const terminatePlan = basePlan(terminateRunId);
+  const terminateManifest = manifest(terminateRunId, terminatePlan);
+  const terminateContext = context(terminateManifest, terminatePlan, {
+    path: CONTEXT_REF,
+    revision: 1,
+    parentRef: null,
+    stage: "current_plan",
+    createdAt: "2026-07-24T12:03:00Z",
+  });
+  const terminateGap = gapSnapshot(terminateRunId);
+  const terminateDecision = retryDecision(terminateRunId);
+  terminateDecision.action = "terminate_insufficient_evidence";
+  terminateDecision.stop_condition = "The blocking gap cannot be resolved under current scope.";
+  delete terminateDecision.target_unit_ref;
+  delete terminateDecision.target_unit;
+  delete terminateDecision.retry_basis;
+  delete terminateDecision.success_condition;
+  const available = validator.validateDocumentBundle(
+    bundle(terminateManifest, terminatePlan, terminateContext, terminateGap, terminateDecision),
+  );
+  assert.ok(
+    available.adaptationErrors.some(
+      (error) => error.code === "adaptation.termination_followup_available",
+    ),
+  );
+  const unclosed = bundle(
+    terminateManifest,
+    terminatePlan,
+    terminateContext,
+    terminateGap,
+    terminateDecision,
+  );
+  const unclosedDecision = unclosed.documents.find((entry) => entry.path === DECISION_REF) as
+    | { path: string; document: Record<string, unknown> }
+    | undefined;
+  assert.ok(unclosedDecision);
+  unclosedDecision.document = formalEnvelope(
+    terminateRunId,
+    DECISION_REF,
+    terminateDecision,
+    [PLAN_REF, GAP_REF, CONTEXT_REF],
+    "startup_opportunity.artifact_envelope.v5",
+  );
+  assert.ok(
+    validator
+      .validateDocumentBundle(unclosed)
+      .adaptationErrors.some((error) => error.code === "adaptation.termination_basis_unclosed"),
+  );
+  terminateManifest.followup_round = 2;
+  assert.equal(
+    validator.validateDocumentBundle(
+      bundle(terminateManifest, terminatePlan, terminateContext, terminateGap, terminateDecision),
+    ).valid,
+    true,
+  );
+});
+
+test("v5 Gap and Decision publication and recovery project Manifest lifecycle", async (contextTest) => {
+  const runId = "runtime-v5-control-projection";
+  const setup = await setupPersistedRun(contextTest, runId);
+  const gapPath = "adaptations/gap-snapshots/gap-runtime-v5.r2.json";
+  const gap = clone(setup.gap);
+  gap.snapshot_id = "gap_runtime_snapshot_v5";
+  gap.revision = 2;
+  gap.parent_snapshot_ref = GAP_REF;
+  gap.created_at = "2026-07-24T12:08:00Z";
+  const gapEntry = (gap.gaps as Record<string, unknown>[])[0];
+  assert.ok(gapEntry);
+  gapEntry.gap_id = "gap_runtime_v5";
+  const gapEnvelope = formalEnvelope(
+    runId,
+    gapPath,
+    gap,
+    [PLAN_REF],
+    "startup_opportunity.artifact_envelope.v5",
+  );
+  await assert.rejects(
+    setup.store.publishArtifact({ runId, envelope: gapEnvelope, faultAt: "after_publish" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  assert.equal((await setup.store.load(runId)).manifest.latest_gap_snapshot_ref, gapPath);
+
+  const decisionPath = "adaptations/decisions/adapt-retry-runtime-v5.json";
+  const decision = retryDecision(runId);
+  decision.adaptation_id = "adapt_retry_runtime_v5";
+  decision.trigger_gap_refs = [`${gapPath}#gap_runtime_v5`];
+  decision.created_at = "2026-07-24T12:09:00Z";
+  const decisionEnvelope = formalEnvelope(
+    runId,
+    decisionPath,
+    decision,
+    [PLAN_REF, gapPath],
+    "startup_opportunity.artifact_envelope.v5",
+  );
+  await assert.rejects(
+    setup.store.publishArtifact({
+      runId,
+      envelope: decisionEnvelope,
+      faultAt: "after_publish",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const reopened = await setup.store.load(runId);
+  assert.equal(reopened.manifest.latest_gap_snapshot_ref, gapPath);
+  assert.ok(reopened.manifest.pending_adaptation_refs.includes(decisionPath));
 });
 
 test("candidate pre-kill skips only an exact exclusive pending unit and replays immutably", async (contextTest) => {
@@ -1707,6 +1889,137 @@ test("candidate pre-kill crash leaves a pending intent and exact replay complete
   const recovered = await setup.store.load(runId);
   assert.equal(recovered.manifest.current_plan_ref, "plans/research-plan.r2.json");
   assert.ok(recovered.manifest.skipped_units.includes("value_pending"));
+});
+
+test("ordinary post-G2 add_unit receipts bind every durable base-Plan candidate", async (contextTest) => {
+  const runId = "runtime-post-g2-add";
+  const setup = await setupPersistedRun(contextTest, runId, "post-g2-add");
+  const { candidateBundle } = candidateFor(setup, PRE_KILL_APPLY_AT, PRE_KILL_CONTEXT_AT);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const result = await runtime.apply({
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    candidateBundle,
+    createdAt: PRE_KILL_APPLY_AT,
+    checkpointCreatedAt: PRE_KILL_CHECKPOINT_AT,
+    nextStep: "Run the bounded post-G2 follow-up unit.",
+    beliefSummary: {
+      current_belief: "The durable G2 candidates remain bound to the base Plan.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Does the follow-up change the candidate set?",
+    },
+  });
+  assert.equal(result.status, "applied");
+
+  const receipt = JSON.parse(
+    await readFile(await planReceiptFile(setup.runRoot), "utf8"),
+  ) as Record<string, unknown>;
+  assert.equal(receipt.schema_version, "startup_opportunity.plan_revision_operation.v3");
+  const bindings = receipt.candidate_bindings as Record<string, unknown>[];
+  assert.deepEqual(
+    bindings.map((binding) => binding.candidate_ref),
+    [
+      "artifacts/discovery/candidates/candidate_baseline.r1.json",
+      PRE_KILL_CANDIDATE_REF,
+      RETAINED_SHARED_CANDIDATE_REF,
+    ],
+  );
+
+  const reopened = await setup.store.load(runId);
+  assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
+  assert.deepEqual(reopened.planOperationRecovery.historicalDiscoveryPlanBindings, [
+    {
+      planRef: PLAN_REF,
+      planHash: canonicalContentHash(setup.plan),
+      planRevision: 1,
+      candidateRefs: [
+        "artifacts/discovery/candidates/candidate_baseline.r1.json",
+        PRE_KILL_CANDIDATE_REF,
+        RETAINED_SHARED_CANDIDATE_REF,
+      ],
+    },
+  ]);
+});
+
+test("a divergent lifecycle operation cannot cross an unresolved Plan intent", async (contextTest) => {
+  const runId = "runtime-pending-operation-conflict";
+  const setup = await setupPersistedRun(contextTest, runId);
+  const terminateRef = "adaptations/decisions/adapt-terminate-runtime.json";
+  const terminate = retryDecision(runId);
+  terminate.adaptation_id = "adapt_terminate_runtime";
+  terminate.action = "terminate_insufficient_evidence";
+  terminate.created_at = "2026-07-24T12:07:30Z";
+  terminate.stop_condition = "The blocking gap cannot be resolved under the current scope.";
+  delete terminate.target_unit_ref;
+  delete terminate.target_unit;
+  delete terminate.retry_basis;
+  delete terminate.success_condition;
+  await setup.store.publishArtifact({
+    runId,
+    envelope: formalEnvelope(runId, terminateRef, terminate, [PLAN_REF, GAP_REF]),
+  });
+  const manifestWithBothDecisions = (await setup.store.status(runId)).manifest as unknown as Record<
+    string,
+    unknown
+  >;
+  const terminateBundle = bundle(
+    manifestWithBothDecisions,
+    setup.plan,
+    setup.planningContext,
+    setup.gap,
+    terminate,
+    [setup.checkpointEntry],
+  );
+  (
+    terminateBundle.documents.find((entry) => entry.path === DECISION_REF) as { path: string }
+  ).path = terminateRef;
+
+  const { candidateBundle } = candidateFor(setup);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const retryInput = {
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    candidateBundle,
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    nextStep: "Resolve the retry intent before any lifecycle change.",
+    beliefSummary: {
+      current_belief: "The failed unit has one pending retry intent.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Can the exact retry replay?",
+    },
+  };
+  await assert.rejects(
+    runtime.apply({ ...retryInput, faultAt: "after_intent" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  await assert.rejects(
+    runtime.apply({
+      runId,
+      adaptationBundle: terminateBundle,
+      adaptationRefs: [terminateRef],
+      createdAt: "2026-07-24T12:10:00Z",
+      checkpointCreatedAt: "2026-07-24T12:11:00Z",
+      nextStep: "Do not terminate across an unresolved Plan intent.",
+      beliefSummary: {
+        current_belief: "The prior retry intent remains unresolved.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Was the pending intent resolved?",
+      },
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "apply.pending_operation_conflict",
+  );
+  assert.equal((await setup.store.status(runId)).manifest.status, "researching");
+  assert.equal((await runtime.apply(retryInput)).status, "idempotent_replay");
 });
 
 test("candidate pre-kill rejects a durable null candidate before creating a receipt", async (contextTest) => {

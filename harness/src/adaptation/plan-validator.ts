@@ -90,6 +90,22 @@ function waveAncestors(
   return result;
 }
 
+function canonicalOutputPath(unit: Record<string, unknown>): string | null {
+  const unitId = unit.unit_id;
+  const attempt = unit.attempt;
+  if (typeof unitId !== "string" || typeof attempt !== "number") {
+    return null;
+  }
+  switch (unit.required_artifact_schema) {
+    case "startup_opportunity.discovery_lane_result.v1":
+      return `artifacts/discovery/lanes/${unitId}.attempt-${attempt}.json`;
+    case "startup_opportunity.enrichment_branch_result.v1":
+      return `artifacts/discovery/enrichment/branches/${unitId}.attempt-${attempt}.json`;
+    default:
+      return null;
+  }
+}
+
 export class PlanSemanticValidator {
   constructor(private readonly contracts: PlanningContractEvaluator) {}
 
@@ -201,6 +217,21 @@ export class PlanSemanticValidator {
     for (const [index, entry] of entries.entries()) {
       const unitId = String(entry.unit.unit_id ?? "");
       const outputPath = String(entry.unit.output_path ?? "");
+      const expectedOutputPath = canonicalOutputPath(entry.unit);
+      if (expectedOutputPath !== null && outputPath !== expectedOutputPath) {
+        errors.push(
+          issue(
+            "plan.output_path_contract_mismatch",
+            `${planPath}#${unitId}`,
+            "unit output path does not match its installed artifact contract",
+            {
+              outputPath,
+              expectedOutputPath,
+              requiredArtifactSchema: entry.unit.required_artifact_schema,
+            },
+          ),
+        );
+      }
       if (unitIds.has(unitId)) {
         errors.push(
           issue("plan.duplicate_unit_id", `${planPath}#${unitId}`, "unit ids must be unique", {

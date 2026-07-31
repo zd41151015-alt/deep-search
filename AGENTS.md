@@ -3,7 +3,7 @@
 ## Scope
 
 - This repository implements the domain-specific Startup Opportunity Research Harness described in `startup-opportunity-codex-research-harness.md`.
-- Read `startup-opportunity-implementation-progress.md` before implementation work. Only the single `READY` slice may advance.
+- `startup-opportunity-implementation-progress.md` is the historical construction ledger. Consult it only when tracing implementation history or accepted verification evidence; its former Gate, controller, and `READY` slice state does not gate maintenance, bug fixes, or later product iteration.
 - Keep the implementation on the frozen TypeScript 7.0.2 / Node.js 24.18 / npm 11.16 stack. Do not add another package manager, lockfile, or implementation language.
 - The deterministic Harness must not make hidden LLM calls or reimplement Codex's agent loop, permissions, or thread lifecycle.
 

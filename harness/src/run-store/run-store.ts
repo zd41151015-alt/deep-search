@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   type PlanOperationRecoveryResult,
@@ -139,6 +139,8 @@ export interface StatusRunResult {
   readonly schemaVersion: "startup_opportunity.status_run_result.v1";
   readonly runId: string;
   readonly manifest: RunManifest;
+  readonly continuationRunIds: readonly string[];
+  readonly derivedExecutionDisposition: "current" | "continued" | "terminal";
 }
 
 const RUN_DIRECTORIES = [
@@ -391,10 +393,36 @@ export class RunStore {
   async status(runId: string): Promise<StatusRunResult> {
     validateRunId(runId);
     const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
+    const manifest = await this.readManifest(runRoot);
+    const continuationRunIds: string[] = [];
+    for (const entry of await readdir(this.runsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name === runId) {
+        continue;
+      }
+      try {
+        validateRunId(entry.name);
+        const childRoot = await openRunDirectoryReadOnly(this.runsRoot, entry.name);
+        const child = await this.readManifest(childRoot);
+        if (child.parent_run_id === runId) {
+          continuationRunIds.push(child.run_id);
+        }
+      } catch {
+        // Only validated child manifests participate in the derived read-only projection.
+      }
+    }
+    continuationRunIds.sort();
+    const terminalStatuses = new Set(["completed", "failed", "insufficient_evidence", "cancelled"]);
     return {
       schemaVersion: "startup_opportunity.status_run_result.v1",
       runId,
-      manifest: await this.readManifest(runRoot),
+      manifest,
+      continuationRunIds,
+      derivedExecutionDisposition:
+        continuationRunIds.length > 0
+          ? "continued"
+          : terminalStatuses.has(manifest.status)
+            ? "terminal"
+            : "current",
     };
   }
 
@@ -888,8 +916,10 @@ export class RunStore {
     }
     if (
       !ignoredLate &&
-      envelope.schema_version === "startup_opportunity.artifact_envelope.v6" &&
-      envelope.artifact_type === "startup_opportunity.gap_snapshot.v2"
+      ((envelope.schema_version === "startup_opportunity.artifact_envelope.v5" &&
+        envelope.artifact_type === "startup_opportunity.gap_snapshot.v1") ||
+        (envelope.schema_version === "startup_opportunity.artifact_envelope.v6" &&
+          envelope.artifact_type === "startup_opportunity.gap_snapshot.v2"))
     ) {
       const advancesLatest =
         !exactReplay ||
@@ -900,8 +930,10 @@ export class RunStore {
     }
     if (
       !ignoredLate &&
-      envelope.schema_version === "startup_opportunity.artifact_envelope.v6" &&
-      envelope.artifact_type === "startup_opportunity.adaptation_decision.v3"
+      ((envelope.schema_version === "startup_opportunity.artifact_envelope.v5" &&
+        envelope.artifact_type === "startup_opportunity.adaptation_decision.v2") ||
+        (envelope.schema_version === "startup_opportunity.artifact_envelope.v6" &&
+          envelope.artifact_type === "startup_opportunity.adaptation_decision.v3"))
     ) {
       const lifecycleFields = [
         "pending_adaptation_refs",

@@ -2962,6 +2962,23 @@ export class ArtifactValidator {
     const effectiveDocuments = input.documents.map(unwrapDocument);
     const referenceErrors: ValidationIssue[] = [];
     const documentsByPath = new Map<string, EffectiveDocument>();
+    const planningContexts = effectiveDocuments.filter(
+      (document) =>
+        document.schemaVersion === "startup_opportunity.planning_context.v1" ||
+        document.schemaVersion === "startup_opportunity.planning_context.v2",
+    );
+    const referencedPlanningContextPaths = new Set(
+      planningContexts.flatMap((context) =>
+        typeof context.document.parent_context_ref === "string"
+          ? [context.document.parent_context_ref]
+          : [],
+      ),
+    );
+    const livePlanningContextPaths = new Set(
+      planningContexts
+        .filter((context) => !referencedPlanningContextPaths.has(context.path))
+        .map((context) => context.path),
+    );
 
     for (const effective of effectiveDocuments) {
       if (documentsByPath.has(effective.path)) {
@@ -3091,8 +3108,11 @@ export class ArtifactValidator {
         ...this.checkLineage(
           source,
           documentsByPath,
-          input.schema_version === "startup_opportunity.document_bundle.v1" ||
-            input.schema_version === "startup_opportunity.document_bundle.v2",
+          (input.schema_version === "startup_opportunity.document_bundle.v1" ||
+            input.schema_version === "startup_opportunity.document_bundle.v2") &&
+            ((source.schemaVersion !== "startup_opportunity.planning_context.v1" &&
+              source.schemaVersion !== "startup_opportunity.planning_context.v2") ||
+              livePlanningContextPaths.has(source.path)),
         ),
       );
     }
