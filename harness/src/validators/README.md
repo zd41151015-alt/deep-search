@@ -1,6 +1,6 @@
 # Deterministic Schema And Reference Validator
 
-默认 validator 使用 schema bundle `15.0.0`，同时保留既有 v1-v15 contract bytes。`validate-artifact` 继续只验证显式 document/bundle；不会扫描 Run、启动 Agent、执行 network research 或隐式迁移历史 Artifact。
+默认 validator 使用 schema bundle `16.0.0`，同时保留既有 v1-v16 contract bytes。`validate-artifact` 继续只验证显式 document/bundle；不会扫描 Run、启动 Agent、执行 network research 或隐式迁移历史 Artifact。
 
 `PlanningContractEvaluator` 只读消费显式 Document Bundle、`adaptation.v1.json` 和 AI trigger source-binding policy，返回排序稳定的 contract issue。它机械校验 Planning Context v2 的 source existence/schema/canonical hash/Run/mode/context revision/subject/trigger exact binding、closed unit tuple、AI aggregate coverage、canonical coverage_key/relation、pending/active coverage target 和 Run Manifest failed-only retry。
 
@@ -25,3 +25,5 @@
 `AiBundleValidator` 从 v14 bundle 开始验证 caller-supplied G3.1 Artifact 的 exact Opportunity/selected `uses_ai=true` Solution/trigger lineage、三类 baseline、representative evaluation声明、reliability/failure/human boundary、data rights/ground truth/feedback/portability 和 freshness window。它不运行 benchmark、不判断 Evidence 真实性或质量、不生成 baseline/Judgment，也不访问 network、agent 或 LLM。
 
 v16 时 `AiBundleValidator` 还验证 caller-supplied mandatory bundle的exact七类输入/hash、固定六维顺序与计数、source-unavailable状态、freshness/continuation聚合及consumer binding。selected `uses_ai=false` 必须显式 `not_required`；AI bundle missing/incomplete/desk-only/stale时不得支持prioritize。Harness不自动补全bundle、coverage、Evidence或结论。
+
+v17 的 terminal reporting validator 要求一个 main-agent structured source，分别校验 execution completeness、research conclusion 和 runtime health；source readability、Evidence strength、方向成熟度、可测试产品假设、验证顺序、freshness 和 external-action boundary 都保持显式。Decision Brief v3、terminal report view 和 Consistency v4 必须是该 source 的确定性投影。Harness 不推断或补写研究结论。

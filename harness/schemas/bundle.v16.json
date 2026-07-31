@@ -1,0 +1,43 @@
+{
+  "schema_version": "startup_opportunity.schema_bundle.v3",
+  "schema_bundle_version": "16.0.0",
+  "base_bundle": "bundle.v15.json",
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "schemas": [
+    {
+      "id": "https://startup-opportunity.local/schemas/v17/terminal-report-source.schema.json",
+      "file": "v17/terminal-report-source.schema.json",
+      "document_schema_version": "startup_opportunity.terminal_report_source.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v17/decision-brief-v3.schema.json",
+      "file": "v17/decision-brief-v3.schema.json",
+      "document_schema_version": "startup_opportunity.decision_brief.v3"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v17/terminal-report-view.schema.json",
+      "file": "v17/terminal-report-view.schema.json",
+      "document_schema_version": "startup_opportunity.terminal_report_view.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v17/report-consistency-evaluation-v4.schema.json",
+      "file": "v17/report-consistency-evaluation-v4.schema.json",
+      "document_schema_version": "startup_opportunity.report_consistency_evaluation.v4"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v17/research-publication-policy-v12.schema.json",
+      "file": "v17/research-publication-policy-v12.schema.json",
+      "document_schema_version": "startup_opportunity.research_publication_policy.v12"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v17/artifact-envelope.schema.json",
+      "file": "v17/artifact-envelope.schema.json",
+      "document_schema_version": "startup_opportunity.artifact_envelope.v17"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v17/document-bundle.schema.json",
+      "file": "v17/document-bundle.schema.json",
+      "document_schema_version": "startup_opportunity.document_bundle.v17"
+    }
+  ]
+}

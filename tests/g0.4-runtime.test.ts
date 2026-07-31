@@ -519,6 +519,78 @@ function formalEnvelope(
   };
 }
 
+function terminalReportSource(runId: string): FormalArtifactEnvelope {
+  const artifactPath = "artifacts/reporting/terminal-report-source.r1.json";
+  const auditRefs = [DECISION_REF, GAP_REF, PLAN_REF].sort();
+  const document: Record<string, unknown> = {
+    schema_version: "startup_opportunity.terminal_report_source.v1",
+    report_id: "terminal_report_runtime_1",
+    run_id: runId,
+    mode: "opportunity_discovery",
+    research_language: "zh-CN",
+    producer_role: "main_agent",
+    owned_output_path: artifactPath,
+    materialized_path: "report.json",
+    generated_at: "2026-07-24T12:09:30Z",
+    terminal_outcome: "insufficient_evidence",
+    decision_question: "SYNTHETIC: should the bounded discovery continue?",
+    execution: {
+      completeness: "partial",
+      completed_stages: ["initial discovery wave"],
+      incomplete_stages: [
+        {
+          stage: "opportunity synthesis",
+          cause: "evidence_ceiling",
+          detail: "SYNTHETIC evidence did not justify downstream opportunity synthesis.",
+          conclusion_impact: "No opportunity may be prioritized from this partial execution.",
+          related_refs: [GAP_REF],
+        },
+      ],
+      required_followups: [
+        {
+          followup_id: "bounded_followup",
+          status: "legally_closed",
+          detail: "The latest Gap closed the bounded follow-up under the current scope.",
+          related_refs: [GAP_REF],
+        },
+      ],
+      pending_operation_refs: [],
+    },
+    research_conclusion: {
+      outcome: "insufficient_evidence",
+      current_recommendation: "暂缓形成或排序创业机会。",
+      meaning: "当前只完成初轮发现，证据不足以支持机会结论。",
+      evidence_strength: "insufficient",
+      allowed_claim: "初轮发现已完成，但后续机会综合未执行。",
+    },
+    runtime_health: { status: "healthy", issues: [] },
+    directions: [],
+    sources: [],
+    ordered_validation_plan: [],
+    freshness: {
+      earliest_valid_as_of: null,
+      latest_valid_as_of: null,
+      summary: "SYNTHETIC runtime contract test cites no market Evidence.",
+    },
+    limitations: ["SYNTHETIC contract test; no real market research or validation."],
+    external_action_boundary: {
+      execution_owner: "user",
+      execution_supported: false,
+      result_tracking_supported: false,
+      external_validation_claimed: false,
+    },
+    audit_refs: auditRefs,
+  };
+  const source = formalEnvelope(
+    runId,
+    artifactPath,
+    document,
+    auditRefs,
+    "startup_opportunity.artifact_envelope.v17",
+  );
+  return { ...source, created_at: "2026-07-24T12:09:30Z" };
+}
+
 async function setupPersistedRun(
   contextTest: TestContext,
   runId: string,
@@ -527,6 +599,7 @@ async function setupPersistedRun(
     | "supersede"
     | "stop-followup"
     | "request-clarification"
+    | "terminate"
     | "terminate-unclosed"
     | "pre-kill-exact"
     | "pre-kill-missing"
@@ -646,7 +719,7 @@ async function setupPersistedRun(
   persistedManifest.artifact_refs = discoveryBacked ? storeManifest.artifact_refs : [PLAN_REF];
   persistedManifest.latest_gap_snapshot_ref = null;
   persistedManifest.pending_adaptation_refs = [];
-  if (action === "terminate-unclosed") {
+  if (action === "terminate" || action === "terminate-unclosed") {
     persistedManifest.followup_round = 2;
   }
   await writeFile(path.join(runRoot, "manifest.json"), `${canonicalJson(persistedManifest)}\n`);
@@ -688,7 +761,7 @@ async function setupPersistedRun(
       ? stopFollowupDecision(runId)
       : action === "request-clarification"
         ? clarificationDecision(runId)
-        : action === "terminate-unclosed"
+        : action === "terminate" || action === "terminate-unclosed"
           ? terminationDecision(runId)
           : action === "retry"
             ? retryDecision(runId)
@@ -2204,6 +2277,127 @@ test("a divergent lifecycle operation cannot cross an unresolved Plan intent", a
   );
   assert.equal((await setup.store.status(runId)).manifest.status, "researching");
   assert.equal((await runtime.apply(retryInput)).status, "idempotent_replay");
+});
+
+test("terminal adaptation requires and materializes a validated main-agent decision brief", async (contextTest) => {
+  const runId = "runtime-terminal-finalizer";
+  const setup = await setupPersistedRun(contextTest, runId, "terminate");
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const baseInput = {
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    nextStep: "Deliver the validated terminal Decision Brief.",
+    beliefSummary: {
+      current_belief: "SYNTHETIC evidence remains insufficient after the bounded cycle.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["No market validation is claimed."],
+      remaining_disagreement: ["A concrete opportunity remains unproven."],
+      next_decision_relevant_question: "What evidence would justify resuming research?",
+    },
+  };
+  const before = await planApplyBoundaryState(setup.runRoot);
+  await assert.rejects(
+    runtime.apply(baseInput),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "apply.terminal_report_source_required",
+  );
+  assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+
+  const input = { ...baseInput, terminalReportEnvelope: terminalReportSource(runId) };
+  const result = await runtime.apply(input);
+  assert.equal(result.status, "applied");
+  assert.equal(result.terminalReport?.status, "published");
+  const terminalStatus = await setup.store.status(runId);
+  assert.equal(terminalStatus.manifest.status, "insufficient_evidence");
+  assert.equal(
+    terminalStatus.terminalReportDisposition,
+    "ready",
+    JSON.stringify(terminalStatus, null, 2),
+  );
+  const brief = await readFile(path.join(setup.runRoot, "decision-brief.md"), "utf8");
+  assert.match(brief, /暂缓形成或排序创业机会/);
+  assert.doesNotMatch(brief, /insufficient_evidence/);
+
+  const replay = await runtime.apply(input);
+  assert.equal(replay.status, "idempotent_replay");
+  assert.equal(replay.terminalReport?.status, "idempotent_replay");
+});
+
+test("terminal report publication fault recovers from the immutable source on reopen", async (contextTest) => {
+  const runId = "runtime-terminal-report-fault";
+  const setup = await setupPersistedRun(contextTest, runId, "terminate");
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  await assert.rejects(
+    runtime.apply({
+      runId,
+      adaptationBundle: setup.adaptationBundle,
+      adaptationRefs: [DECISION_REF],
+      terminalReportEnvelope: terminalReportSource(runId),
+      terminalReportFaultAt: "after_report_sidecar",
+      createdAt: "2026-07-24T12:08:00Z",
+      checkpointCreatedAt: "2026-07-24T12:09:00Z",
+      nextStep: "Recover terminal materialization from the immutable source.",
+      beliefSummary: {
+        current_belief: "The terminal source is durable before view recovery.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Can reopen complete every derived view?",
+      },
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const interrupted = await setup.store.status(runId);
+  assert.equal(interrupted.manifest.status, "insufficient_evidence");
+  assert.equal(interrupted.terminalReportDisposition, "missing");
+  const reopened = await setup.store.load(runId);
+  assert.ok(
+    reopened.reportRecovery.recoveredFormalArtifactPaths.includes(
+      "artifacts/reporting/decision-brief.r1.json",
+    ),
+  );
+  assert.equal(
+    (await readFile(path.join(setup.runRoot, "decision-brief.md"), "utf8")).length > 0,
+    true,
+  );
+  assert.equal((await setup.store.status(runId)).terminalReportDisposition, "ready");
+});
+
+test("post-manifest terminal fault is visible until exact replay finalizes delivery", async (contextTest) => {
+  const runId = "runtime-terminal-plan-fault";
+  const setup = await setupPersistedRun(contextTest, runId, "terminate");
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const input = {
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    terminalReportEnvelope: terminalReportSource(runId),
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    nextStep: "Replay terminal delivery after the Plan operation fault.",
+    beliefSummary: {
+      current_belief: "The terminal Plan state and terminal delivery are distinct.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Did the terminal finalizer complete?",
+    },
+  };
+  await assert.rejects(
+    runtime.apply({ ...input, faultAt: "after_manifest_update" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const interrupted = await setup.store.status(runId);
+  assert.equal(interrupted.derivedExecutionDisposition, "terminal");
+  assert.equal(interrupted.terminalReportDisposition, "missing");
+
+  const replay = await runtime.apply(input);
+  assert.equal(replay.status, "idempotent_replay");
+  assert.equal(replay.terminalReport?.status, "published");
+  assert.equal((await setup.store.status(runId)).terminalReportDisposition, "ready");
 });
 
 test("a completed no-revision operation does not block the next same-Plan adaptation", async (contextTest) => {

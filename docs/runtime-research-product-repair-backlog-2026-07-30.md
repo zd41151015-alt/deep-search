@@ -35,6 +35,8 @@
 
 本轮 P0 维修在同一冻结工具链下通过 `npm test` 362/362、`validate:fixtures` 223/223、store/fault/recovery 12/12、10/10、11/11，以及 lint、typecheck、schema validation 161 schemas、repository doctor 和 `git diff --check`。验证只使用 synthetic fixtures 和临时目录，没有执行正式市场调研、外部验证或旧 Run 迁移。
 
+本轮 terminal reporting P1 批次新增 schema bundle `16.0.0`、v17 terminal source/Brief/view/Consistency contract、publication v12/receipt v15、共享 Report Runtime finalizer 和 terminal apply/status 集成。永久回归覆盖中文 primary brief、内部枚举翻译、可读来源、产品假设与验证顺序、虚假完成/freshness/derived drift 拒绝、合法 termination 缺失 source 零写入拒绝、Plan/report fault replay/reopen，以及 `terminalReportDisposition` 的 `missing -> ready` 转换。该批在冻结工具链下通过 `npm test` 368/368、`validate:fixtures` 223/223、lint、typecheck、schema validation 168 schemas 和 skeleton doctor；仍未经过新真实 Run，因此以下 `FIXED_CODE_TESTED` 不表示真实研究验证。
+
 | 工程 finding | 本文条目 | 当前修复状态 | 代码审计结论 |
 | --- | --- | --- | --- |
 | `POST-G4-001` | `RR-ENG-001` | `FIXED_CODE_TESTED` | Create Run 已在隐藏 staging 中完整构建，并通过同 Run ID 创建锁和 atomic rename 发布 |
@@ -129,7 +131,7 @@
 - 调用方只提供待验证的语义 Artifact，不手工复制持久化 authority。
 - 增加真实 `create-run -> publish core -> validate plan` 端到端测试。
 
-当前修复状态：`FIXED_CODE_TESTED`。`RunStore.buildValidationContext(run_id, bundle)` 会读取并校验 current Manifest、传递闭包中的正式 Artifact、checkpoint 和 exact Event/Decision/Evidence records；正式 Store Envelope 在验证后以 typed bare document 进入原版本 bundle，exact records 通过 `DocumentBundleReferenceContext` 传递，不会向不支持该字段的 v2 bundle 注入额外属性。`validate-plan --run-id [--runs-root]` 已接入，并有 authority drift negative test 和 CLI 端到端回归。
+当前修复状态：`FIXED_CODE_TESTED`。`RunStore.buildValidationContext(run_id, bundle)` 会读取并校验 current Manifest、传递闭包中的正式 Artifact、checkpoint 和 exact Event/Decision/Evidence records；v1-v16 Store Envelope 在验证后以 typed bare document 进入原版本 bundle，v17 为 terminal producer/version 校验保留正式 Envelope 身份。exact records 通过 `DocumentBundleReferenceContext` 传递，不会向不支持该字段的 v2 bundle 注入额外属性。`validate-plan --run-id [--runs-root]` 已接入，并有 authority drift、v17 Envelope closure negative test 和 CLI 端到端回归。
 
 ### RR-ENG-003 Planning Context 生命周期冲突
 
@@ -580,6 +582,8 @@ Assessment 已覆盖 `prioritize`、`investigate_further`、`deprioritize` 和 `
 - primary brief 只保留人类可读来源名和链接；内部 refs 移入审计附录。
 - 把机器枚举翻译为明确行动建议。
 
+当前修复状态：`FIXED_CODE_TESTED`。Decision Brief v3 由共享 terminal source 确定性派生，按 `research_language` 本地化标题、标签和枚举；primary brief 使用来源名称、URL、有效日期、stance/strength 和具体 claim，内部 refs 只进入审计附录。永久测试覆盖中文 `insufficient_evidence`、raw enum/boolean 不泄漏、三视图一致性与 reopen recovery；新真实 assessment Run 仍由 `RR-ASSESS-006` 验证。
+
 ### RR-ASSESS-006 需要真实 Run 验证
 
 状态：`NEEDS_REAL_RUN`
@@ -615,6 +619,8 @@ Assessment 已覆盖 `prioritize`、`investigate_further`、`deprioritize` 和 `
 - Brief 必须先回答“现在应该做什么”，再解释证据。
 - 没有可投资机会也是合法结论，但必须说明下一步验证优先级。
 
+当前修复状态：`FIXED_CODE_TESTED`。v17 `terminal_report_source.v1` 不依赖未执行的 comparison/portfolio，可用于 Discovery 或 Assessment 的完整/提前收口。正式 `terminate_insufficient_evidence` apply 在任何 receipt/Manifest 写入前要求显式 main-agent source，随后复用既有 immutable sidecar、三路径 materialization、consistency scan、exact replay 和 reopen recovery。缺失 source 的合法 termination 零写入拒绝；Plan/report fault 均有永久恢复测试。Harness 不生成研究判断。
+
 ### RR-UX-002 JSON 是审计层，不是用户入口
 
 状态：`CONFIRMED_RUNTIME`
@@ -638,6 +644,8 @@ Decision Brief 至少回答：
 - JSON path、content hash、schema version 和完整 refs 保留在审计附录，不进入主要结论段落。
 - 用户不打开任何 JSON，也能理解方向为何保留、为何暂缓、为何淘汰以及结论的可信边界。
 
+当前修复状态：`FIXED_CODE_TESTED`。Decision Brief v3 是 materialized primary view，先给当前动作与结论含义，再展示每个方向的可读 Evidence 支持/反证、strength、未知项和 freshness；JSON path、schema/hash 和完整 refs 留在 `report.json` 与 Brief 审计附录。测试断言主要结论段不出现内部 `artifacts/` 路径。
+
 ### RR-UX-003 结论必须具体到可测试产品假设
 
 状态：`CONFIRMED_RUNTIME`
@@ -658,6 +666,8 @@ Decision Brief 至少回答：
 - 输出明确的方向优先级和比较理由；不能只并列列出多个模糊需求区。
 - 下一步必须是有顺序的验证计划，说明先验证什么、为何先验证、通过/失败信号是什么，以及结果如何改变继续、暂缓或淘汰决定。
 
+当前修复状态：`FIXED_CODE_TESTED`。terminal source/Brief v3 强制区分 problem space、demand hypothesis、solution seed、testable product hypothesis 和 supported opportunity thesis；每个方向包含优先级、目标用户、窄场景、当前替代、产品形态、核心价值、风险、首个可测试假设和比较理由。`ordered_validation_plan` 要求连续顺序、why-now、pass/fail signal 和 decision effect，并对用户自主管理的外部验证保持不执行/不跟踪边界。
+
 ### RR-UX-004 最终回复混淆研究完成、证据结论和工程阻塞
 
 状态：`CONFIRMED_RUNTIME`
@@ -674,6 +684,8 @@ Decision Brief 至少回答：
 - 最终聊天回复必须从已验证 terminal report source 派生，结论强度不得高于正式 Artifact；聊天消息不能替代缺失的 Decision Brief。
 - 部分完成时，首屏先说明“已完成什么、未完成什么、为什么未完成”，再给出当前仍可成立的业务判断和恢复后的下一步。
 - 对本次场景，合格措辞应为：“初轮 discovery 已完成；buyer/acquisition follow-up 和 solution generation/evaluation 尚未完成，Run 因 Harness 故障提前收口。当前只能保留两个待验证需求区，不能形成、排序或推荐 Startup Opportunity。”
+
+当前修复状态：`FIXED_CODE_TESTED`。terminal source、Brief 和完整 report 分别呈现 `execution`、`research_conclusion` 与 `runtime_health`；false completion、blocked runtime 下的强结论、伪 freshness 和 derived drift 均 fail closed。`status-run` 新增 `terminalReportDisposition` 与稳定 `terminalReportIssues`，因此 post-Manifest 故障窗口会显示 `terminal + missing`，精确重放并完成正式 Brief 后才显示 `ready`。最终聊天仍必须由 main agent 从该已验证 source/Brief 摘要，不能替代 Artifact。
 
 ## 8. 建议修复顺序
 
@@ -697,11 +709,11 @@ Decision Brief 至少回答：
 
 ### P1：保证用户一定收到决策产品
 
-1. `RR-UX-001` 复用 Assessment 报告闭环，为 Discovery 增加 early-exit terminal report，并让所有终态进入 reporting finalizer。
-2. `RR-UX-004` 如实区分执行完整度、研究结论和工程阻塞。
-3. `RR-UX-002` JSON 降为审计附录，并在正文提供可读来源和证据强弱。
-4. `RR-ASSESS-005` 和 discovery report 的本地化、枚举翻译、可读来源。
-5. `RR-UX-003` 报告固定输出具体、可测试的产品假设和有顺序的行动建议。
+1. `RR-UX-001`：`FIXED_CODE_TESTED`。
+2. `RR-UX-004`：`FIXED_CODE_TESTED`。
+3. `RR-UX-002`：`FIXED_CODE_TESTED`。
+4. `RR-ASSESS-005`：`FIXED_CODE_TESTED`。
+5. `RR-UX-003`：`FIXED_CODE_TESTED`。
 
 ### P1：修复研究方法和关键路径
 
@@ -766,8 +778,8 @@ Decision Brief 至少回答：
 
 ## 11. 下一步
 
-1. 五项 P0 已达到 `FIXED_CODE_TESTED`；下一优先项是为 `RR-UX-001/004` 发布不依赖未执行 comparison/portfolio 的 Discovery terminal report source contract，再接入共享 reporting finalizer。
-2. 为其余 P1 项形成最小、可排序的 repair slices，按依赖和风险顺序实施，并在每项完成后更新本文的修复状态与验证证据；不得用完整 Discovery report schema 伪造提前终止时尚未产生的 Artifact。
-3. P0 与终态 Brief 完成后，重放同一 discovery 场景，验证 `FIXED_CODE_TESTED` 项、时间、追加调研和交付质量。
+1. 五项 P0 与 terminal Brief P1 已达到 `FIXED_CODE_TESTED`；下一优先项是公开、版本化的 declarative compiler/orchestrator surface，以及其依赖的 Discovery readiness、Gap 和 execution model 修复。
+2. 为其余 P1/P2 项形成最小、可排序的 repair slices，按依赖和风险顺序实施，并在每项完成后更新本文的修复状态与验证证据。
+3. P0 与终态 Brief 已完成，可在剩余关键路径修复闭合后重放同一 discovery 场景，验证 `FIXED_CODE_TESTED` 项、时间、追加调研和交付质量。
 4. 新真实 discovery Run 通过后，再把相应条目标记为真实运行已修复；旧 Run 不属于修复或迁移范围，可在不再需要复盘证据时删除。
 5. 再执行一个窄范围真实 assessment Run，验证十维执行模型和 early-kill 设计。

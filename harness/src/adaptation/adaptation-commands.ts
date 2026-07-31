@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import type { FormalArtifactEnvelope } from "../artifact-store/artifact-store.js";
 import { StoreError, storeErrorResult } from "../artifact-store/store-error.js";
+import type { ReportFaultBoundary } from "../reporting/report-runtime.js";
 import { type BeliefSummary, RunStore } from "../run-store/run-store.js";
 import {
   createArtifactValidator,
@@ -253,6 +255,15 @@ export async function runApplyPlanRevision(
       ...(typeof value.operation_key === "string" ? { operationKey: value.operation_key } : {}),
       ...(typeof value.fault_at === "string"
         ? { faultAt: value.fault_at as PlanApplyFaultBoundary }
+        : {}),
+      ...(isRecord(value.terminal_report_envelope)
+        ? {
+            terminalReportEnvelope:
+              value.terminal_report_envelope as unknown as FormalArtifactEnvelope,
+          }
+        : {}),
+      ...(typeof value.terminal_report_fault_at === "string"
+        ? { terminalReportFaultAt: value.terminal_report_fault_at as ReportFaultBoundary }
         : {}),
     });
   });

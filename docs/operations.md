@@ -42,7 +42,7 @@ Evidence can use `record-evidence` directly when MCP is disabled. Artifact valid
 
 ## Run Recovery
 
-`status-run` reads and schema-validates the current manifest without recovery or mutation. Use it for `action: status`.
+`status-run` reads and schema-validates the current manifest without recovery or mutation. Use it for `action: status`. For terminal Runs, require `terminalReportDisposition=ready` and an empty `terminalReportIssues` list before presenting delivery as complete; `missing` and `invalid` distinguish report delivery from the raw execution disposition.
 
 `load-run` is the recovery boundary for `action: resume`. It acquires the Run lock, validates manifest/checkpoint/plan lineage, verifies Evidence and Artifact receipts and hashes, repairs only supported incomplete JSONL tails and completed operation intents, reconciles orphan active units, and returns the last valid checkpoint. Integrity conflicts fail closed.
 

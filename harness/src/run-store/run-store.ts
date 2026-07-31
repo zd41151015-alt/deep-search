@@ -46,6 +46,7 @@ import {
   type DocumentBundleEntry,
   type DocumentBundleReferenceContext,
 } from "../validators/artifact-validator.js";
+import { validateTerminalReportingContract } from "../validators/terminal-reporting-validator.js";
 import { type JsonlRepairResult, JsonlStore } from "./jsonl-store.js";
 
 export type RunMode = "opportunity_discovery" | "concept_evidence_assessment";
@@ -152,6 +153,8 @@ export interface StatusRunResult {
   readonly manifest: RunManifest;
   readonly continuationRunIds: readonly string[];
   readonly derivedExecutionDisposition: "current" | "continued" | "terminal";
+  readonly terminalReportDisposition: "not_required" | "missing" | "invalid" | "ready";
+  readonly terminalReportIssues: readonly string[];
 }
 
 export interface BuildValidationContextResult {
@@ -199,6 +202,7 @@ const STORE_ENVELOPE_VERSIONS = new Set([
   "startup_opportunity.artifact_envelope.v14",
   "startup_opportunity.artifact_envelope.v15",
   "startup_opportunity.artifact_envelope.v16",
+  "startup_opportunity.artifact_envelope.v17",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -467,6 +471,9 @@ export class RunStore {
     }
     continuationRunIds.sort();
     const terminalStatuses = new Set(["completed", "failed", "insufficient_evidence", "cancelled"]);
+    const terminalReportStatus = terminalStatuses.has(manifest.status)
+      ? await this.terminalReportStatus(runId, runRoot, manifest)
+      : { disposition: "not_required" as const, issues: [] };
     return {
       schemaVersion: "startup_opportunity.status_run_result.v1",
       runId,
@@ -478,7 +485,114 @@ export class RunStore {
           : terminalStatuses.has(manifest.status)
             ? "terminal"
             : "current",
+      terminalReportDisposition: terminalReportStatus.disposition,
+      terminalReportIssues: terminalReportStatus.issues,
     };
+  }
+
+  private async terminalReportStatus(
+    runId: string,
+    runRoot: string,
+    manifest: RunManifest,
+  ): Promise<{
+    readonly disposition: StatusRunResult["terminalReportDisposition"];
+    readonly issues: readonly string[];
+  }> {
+    const requiredTypes = [
+      "startup_opportunity.terminal_report_source.v1",
+      "startup_opportunity.decision_brief.v3",
+      "startup_opportunity.terminal_report_view.v1",
+      "startup_opportunity.report_consistency_evaluation.v4",
+    ] as const;
+    const formal = await this.artifacts.listFormalDocuments(runRoot);
+    const reporting = requiredTypes.map((artifactType) =>
+      formal.filter(
+        (entry) =>
+          isRecord(entry.document) &&
+          entry.document.artifact_type === artifactType &&
+          isRecord(entry.document.document),
+      ),
+    );
+    if (reporting.some((entries) => entries.length === 0)) {
+      return { disposition: "missing", issues: ["terminal_report.artifact_missing"] };
+    }
+    if (reporting.some((entries) => entries.length !== 1)) {
+      return { disposition: "invalid", issues: ["terminal_report.artifact_cardinality"] };
+    }
+    const entries = reporting.flat();
+    try {
+      const terminalDocuments = entries.map((entry) => {
+        const envelope = entry.document as FormalArtifactEnvelope;
+        return {
+          path: entry.path,
+          schemaVersion: envelope.artifact_type,
+          document: envelope.document,
+          envelope,
+        };
+      });
+      for (const document of terminalDocuments) {
+        await this.artifacts.validateStoredEnvelope(
+          runRoot,
+          runId,
+          document.envelope as FormalArtifactEnvelope,
+        );
+      }
+      const terminalIssues = validateTerminalReportingContract([
+        {
+          path: "manifest.json",
+          schemaVersion: manifest.schema_version,
+          document: manifest,
+          envelope: null,
+        },
+        ...terminalDocuments,
+      ]);
+      if (terminalIssues.length > 0) {
+        return {
+          disposition: "invalid",
+          issues: terminalIssues.map((issue) => issue.code),
+        };
+      }
+      const effective = entries.map((entry) => entry.document.document as Record<string, unknown>);
+      const source = effective.find(
+        (document) => document.schema_version === "startup_opportunity.terminal_report_source.v1",
+      );
+      const brief = effective.find(
+        (document) => document.schema_version === "startup_opportunity.decision_brief.v3",
+      );
+      const view = effective.find(
+        (document) => document.schema_version === "startup_opportunity.terminal_report_view.v1",
+      );
+      if (
+        source === undefined ||
+        typeof brief?.markdown !== "string" ||
+        typeof view?.markdown !== "string"
+      ) {
+        return { disposition: "invalid", issues: ["terminal_report.document_shape"] };
+      }
+      const expected = new Map([
+        ["report.json", `${canonicalJson(source)}\n`],
+        ["decision-brief.md", brief.markdown],
+        ["report.md", view.markdown],
+      ]);
+      for (const [relativePath, bytes] of expected) {
+        if ((await readFile(await resolveRunPath(runRoot, relativePath), "utf8")) !== bytes) {
+          return {
+            disposition: "invalid",
+            issues: [`terminal_report.materialized_drift:${relativePath}`],
+          };
+        }
+      }
+      return { disposition: "ready", issues: [] };
+    } catch (error) {
+      return isNodeError(error, "ENOENT")
+        ? { disposition: "missing", issues: ["terminal_report.materialized_missing"] }
+        : {
+            disposition: "invalid",
+            issues: [
+              error instanceof StoreError ? error.code : "terminal_report.status_validation_failed",
+            ],
+          };
+    }
   }
 
   async buildValidationContext(
@@ -551,7 +665,13 @@ export class RunStore {
             { path: entry.path, errors: validation.errors },
           );
         }
-        selected.set(entry.path, { path: entry.path, document: authorityDocument });
+        selected.set(entry.path, {
+          path: entry.path,
+          document:
+            entry.document.schema_version === "startup_opportunity.artifact_envelope.v17"
+              ? entry.document
+              : authorityDocument,
+        });
       };
 
       await addAuthority({ path: "manifest.json", document: manifest });
@@ -601,6 +721,20 @@ export class RunStore {
           documents: [...selected.values()].sort((left, right) =>
             left.path.localeCompare(right.path),
           ),
+          ...(input.schema_version === "startup_opportunity.document_bundle.v5" ||
+          input.schema_version === "startup_opportunity.document_bundle.v6" ||
+          input.schema_version === "startup_opportunity.document_bundle.v7" ||
+          input.schema_version === "startup_opportunity.document_bundle.v8" ||
+          input.schema_version === "startup_opportunity.document_bundle.v10" ||
+          input.schema_version === "startup_opportunity.document_bundle.v11" ||
+          input.schema_version === "startup_opportunity.document_bundle.v12" ||
+          input.schema_version === "startup_opportunity.document_bundle.v13" ||
+          input.schema_version === "startup_opportunity.document_bundle.v14" ||
+          input.schema_version === "startup_opportunity.document_bundle.v15" ||
+          input.schema_version === "startup_opportunity.document_bundle.v16" ||
+          input.schema_version === "startup_opportunity.document_bundle.v17"
+            ? { exact_records: [] }
+            : {}),
         },
         referenceContext: {
           exactJsonlRecords: new Map(
@@ -1703,7 +1837,8 @@ export class RunStore {
       recoveryBundleVersion === "startup_opportunity.document_bundle.v13" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v14" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v15" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v16"
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v16" ||
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v17"
     ) {
       for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
         if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
@@ -1725,7 +1860,8 @@ export class RunStore {
         recoveryBundleVersion === "startup_opportunity.document_bundle.v13" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v14" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v15" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v16"
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v16" ||
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v17"
           ? { exact_records: [] }
           : {}),
       },

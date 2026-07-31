@@ -34,6 +34,7 @@ import {
   requiresDeterministicReportScan,
   scanDiscoveryReportSurfaces,
 } from "./report-consistency.js";
+import { deriveTerminalReportDocuments } from "./terminal-reporting.js";
 
 const REPORT_SECTION_ORDER = [
   "assessment_result_and_evidence_strength",
@@ -289,13 +290,15 @@ function formalEnvelope(
   if (
     source.schema_version === "startup_opportunity.artifact_envelope.v12" ||
     source.schema_version === "startup_opportunity.artifact_envelope.v13" ||
-    source.schema_version === "startup_opportunity.artifact_envelope.v16"
+    source.schema_version === "startup_opportunity.artifact_envelope.v16" ||
+    source.schema_version === "startup_opportunity.artifact_envelope.v17"
   ) {
     const inputRefs = [...new Set(collectDocumentRefs(document))]
       .filter((ref) => ref !== artifactPath)
       .sort();
     if (
-      source.schema_version === "startup_opportunity.artifact_envelope.v16" &&
+      (source.schema_version === "startup_opportunity.artifact_envelope.v16" ||
+        source.schema_version === "startup_opportunity.artifact_envelope.v17") &&
       isRecord(source.ai_bundle_binding)
     ) {
       inputRefs.push(...collectDocumentRefs(source.ai_bundle_binding));
@@ -553,6 +556,7 @@ function assertDerivedConsistencyPassed(derived: readonly FormalArtifactEnvelope
     [
       "startup_opportunity.report_consistency_evaluation.v2",
       "startup_opportunity.report_consistency_evaluation.v3",
+      "startup_opportunity.report_consistency_evaluation.v4",
     ].includes(entry.artifact_type),
   );
   if (
@@ -571,6 +575,22 @@ function assertDerivedConsistencyPassed(derived: readonly FormalArtifactEnvelope
 export function deriveReportEnvelopes(
   reportEnvelope: FormalArtifactEnvelope,
 ): readonly FormalArtifactEnvelope[] {
+  if (
+    reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v17" &&
+    reportEnvelope.artifact_type === "startup_opportunity.terminal_report_source.v1" &&
+    reportEnvelope.producer_role === "main_agent" &&
+    reportEnvelope.document.schema_version === "startup_opportunity.terminal_report_source.v1"
+  ) {
+    return deriveTerminalReportDocuments(reportEnvelope).map((derived) =>
+      formalEnvelope(
+        reportEnvelope,
+        derived.artifactPath,
+        derived.artifactType,
+        derived.document,
+        [],
+      ),
+    );
+  }
   if (
     (reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v12" ||
       reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v13" ||
@@ -710,13 +730,15 @@ function materializedBytes(envelope: FormalArtifactEnvelope): {
 } | null {
   if (
     envelope.artifact_type === "startup_opportunity.concept_evidence_report.v1" ||
-    envelope.artifact_type === "startup_opportunity.report.v1"
+    envelope.artifact_type === "startup_opportunity.report.v1" ||
+    envelope.artifact_type === "startup_opportunity.terminal_report_source.v1"
   ) {
     return { targetPath: "report.json", bytes: `${canonicalJson(envelope.document)}\n` };
   }
   if (
     envelope.artifact_type === "startup_opportunity.decision_brief.v1" ||
-    envelope.artifact_type === "startup_opportunity.decision_brief.v2"
+    envelope.artifact_type === "startup_opportunity.decision_brief.v2" ||
+    envelope.artifact_type === "startup_opportunity.decision_brief.v3"
   ) {
     return {
       targetPath: "decision-brief.md",
@@ -725,7 +747,8 @@ function materializedBytes(envelope: FormalArtifactEnvelope): {
   }
   if (
     envelope.artifact_type === "startup_opportunity.concept_evidence_report_view.v1" ||
-    envelope.artifact_type === "startup_opportunity.discovery_report_view.v1"
+    envelope.artifact_type === "startup_opportunity.discovery_report_view.v1" ||
+    envelope.artifact_type === "startup_opportunity.terminal_report_view.v1"
   ) {
     return {
       targetPath: "report.md",
@@ -779,7 +802,8 @@ async function assertReportBuildCompatibleLocked(
   const existingReports = (await reportingEnvelopes(runRoot)).filter(
     (envelope) =>
       envelope.artifact_type === "startup_opportunity.concept_evidence_report.v1" ||
-      envelope.artifact_type === "startup_opportunity.report.v1",
+      envelope.artifact_type === "startup_opportunity.report.v1" ||
+      envelope.artifact_type === "startup_opportunity.terminal_report_source.v1",
   );
   const conflictingReport = existingReports.find(
     (envelope) => canonicalJson(envelope) !== canonicalJson(source),
@@ -988,7 +1012,8 @@ export async function recoverReportOperationsLocked(
   const reports = envelopes.filter(
     (envelope) =>
       envelope.artifact_type === "startup_opportunity.concept_evidence_report.v1" ||
-      envelope.artifact_type === "startup_opportunity.report.v1",
+      envelope.artifact_type === "startup_opportunity.report.v1" ||
+      envelope.artifact_type === "startup_opportunity.terminal_report_source.v1",
   );
   for (const report of reports) {
     await artifacts.validateStoredEnvelope(runRoot, runId, report);

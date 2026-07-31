@@ -61,6 +61,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v16.json",
   "harness/schemas/bundle.v15.json",
   "harness/schemas/bundle.v14.json",
   "harness/schemas/bundle.v13.json",
@@ -239,6 +240,13 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v16/research-publication-policy-v11.schema.json",
   "harness/schemas/v16/artifact-envelope.schema.json",
   "harness/schemas/v16/document-bundle.schema.json",
+  "harness/schemas/v17/terminal-report-source.schema.json",
+  "harness/schemas/v17/decision-brief-v3.schema.json",
+  "harness/schemas/v17/terminal-report-view.schema.json",
+  "harness/schemas/v17/report-consistency-evaluation-v4.schema.json",
+  "harness/schemas/v17/research-publication-policy-v12.schema.json",
+  "harness/schemas/v17/artifact-envelope.schema.json",
+  "harness/schemas/v17/document-bundle.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
@@ -260,6 +268,7 @@ export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/discovery-evaluation-policy.ts",
   "harness/src/validators/discovery-evaluation-validator.ts",
   "harness/src/reporting/report-consistency.ts",
+  "harness/src/validators/terminal-reporting-validator.ts",
   "harness/src/adaptation/discovery-adaptation-policy.ts",
   "harness/src/validators/planning-contract-identities.ts",
   "harness/src/validators/planning-contract-validator.ts",
@@ -290,6 +299,7 @@ export const STORE_SOURCE_PATHS = [
   "harness/src/evidence-store/evidence-store.ts",
   "harness/src/reporting/report-runtime.ts",
   "harness/src/reporting/report-commands.ts",
+  "harness/src/reporting/terminal-reporting.ts",
 ] as const;
 
 export const SKILL_SCRIPT_PATHS = [
@@ -335,6 +345,7 @@ export const RESPONSIBILITY_PATHS = [
   "harness/policies/research-publication.v10.json",
   "harness/policies/discovery-evaluation.v3.json",
   "harness/policies/research-publication.v11.json",
+  "harness/policies/research-publication.v12.json",
   "tests/fixtures/README.md",
   "tests/fixtures/g1.2/README.md",
   "tests/fixtures/g1.3/README.md",

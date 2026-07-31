@@ -17,6 +17,11 @@ import {
 } from "../artifact-store/path-policy.js";
 import { withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import {
+  type BuildReportResult,
+  type ReportFaultBoundary,
+  ReportRuntime,
+} from "../reporting/report-runtime.js";
 import { type JsonlStore, JsonlStore as RuntimeJsonlStore } from "../run-store/jsonl-store.js";
 import type { BeliefSummary, RunManifest } from "../run-store/run-store.js";
 import type {
@@ -65,6 +70,8 @@ export interface ApplyPlanRevisionInput {
   readonly beliefSummary: BeliefSummary;
   readonly operationKey?: string;
   readonly faultAt?: PlanApplyFaultBoundary;
+  readonly terminalReportEnvelope?: FormalArtifactEnvelope;
+  readonly terminalReportFaultAt?: ReportFaultBoundary;
 }
 
 export interface PlanApplyResult {
@@ -78,6 +85,7 @@ export interface PlanApplyResult {
   readonly currentAssessmentPlanRef: string | null;
   readonly checkpointRef: string;
   readonly adaptationRefs: readonly string[];
+  readonly terminalReport: BuildReportResult | null;
 }
 
 interface PlanOperationReceipt {
@@ -1282,6 +1290,7 @@ function createEvents(
 export class PlanRevisionRuntime {
   private readonly artifacts: ArtifactStore;
   private readonly logs: JsonlStore;
+  private readonly reports: ReportRuntime;
 
   constructor(
     private readonly runsRoot: string,
@@ -1292,12 +1301,61 @@ export class PlanRevisionRuntime {
   ) {
     this.artifacts = new ArtifactStore(runsRoot, validator);
     this.logs = new RuntimeJsonlStore(validator);
+    this.reports = new ReportRuntime(runsRoot, validator);
   }
 
   async apply(input: ApplyPlanRevisionInput): Promise<PlanApplyResult> {
     validateRunId(input.runId);
+    const selected = effectiveDocuments(input.adaptationBundle).filter((document) =>
+      input.adaptationRefs.includes(document.path),
+    );
+    const requiresTerminalReport = selected.some(
+      (document) => document.document.action === "terminate_insufficient_evidence",
+    );
+    if (!requiresTerminalReport && input.terminalReportEnvelope !== undefined) {
+      throw new StoreError(
+        "apply.unexpected_terminal_report_source",
+        "non-terminal adaptation cannot publish a terminal report source",
+      );
+    }
+    if (input.terminalReportFaultAt !== undefined && input.terminalReportEnvelope === undefined) {
+      throw new StoreError(
+        "apply.unexpected_terminal_report_fault",
+        "terminal report fault injection requires a terminal report source",
+      );
+    }
+    if (input.terminalReportEnvelope !== undefined) {
+      const source = input.terminalReportEnvelope;
+      const validation = this.validator.validateDocument(source, source.artifact_path);
+      if (
+        !validation.valid ||
+        source.schema_version !== "startup_opportunity.artifact_envelope.v17" ||
+        source.artifact_type !== "startup_opportunity.terminal_report_source.v1" ||
+        source.run_id !== input.runId ||
+        source.producer_role !== "main_agent" ||
+        !input.adaptationRefs.every((ref) => source.input_refs.includes(ref))
+      ) {
+        throw new StoreError(
+          "apply.terminal_report_source_invalid",
+          "terminal report source must be a valid v17 main-agent envelope bound to the applied adaptations",
+          { errors: validation.errors },
+        );
+      }
+    }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
-    return withRunLock(runRoot, () => this.applyLocked(runRoot, input));
+    const applied = await withRunLock(runRoot, () => this.applyLocked(runRoot, input));
+    if (input.terminalReportEnvelope === undefined) {
+      return applied;
+    }
+    return {
+      ...applied,
+      terminalReport: await this.reports.build({
+        reportEnvelope: input.terminalReportEnvelope,
+        ...(input.terminalReportFaultAt === undefined
+          ? {}
+          : { faultAt: input.terminalReportFaultAt }),
+      }),
+    };
   }
 
   private async applyLocked(
@@ -1651,6 +1709,17 @@ export class PlanRevisionRuntime {
         "apply must select exactly the validated Adaptation Decision batch",
       );
     }
+    if (
+      selectedDecisions.some(
+        (decision) => decision.document.action === "terminate_insufficient_evidence",
+      ) &&
+      input.terminalReportEnvelope === undefined
+    ) {
+      throw new StoreError(
+        "apply.terminal_report_source_required",
+        "terminal adaptation requires an explicit main-agent terminal report source",
+      );
+    }
     for (const decision of selectedDecisions) {
       const stored = await storedEffectiveDocument(runRoot, decision.path);
       if (canonicalJson(stored) !== canonicalJson(decision.document)) {
@@ -1953,6 +2022,7 @@ export class PlanRevisionRuntime {
       currentAssessmentPlanRef: receipt.result_assessment_plan_ref ?? null,
       checkpointRef: receipt.checkpoint_envelope.artifact_path,
       adaptationRefs: receipt.adaptation_refs,
+      terminalReport: null,
     };
   }
 }
