@@ -16,6 +16,7 @@ import {
 } from "../artifact-store/path-policy.js";
 import { withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import { assertRunIsCurrentContinuationLeaf } from "../run-store/continuation-guard.js";
 
 export type EvidenceFaultBoundary = "after_raw_temp" | "after_intent" | "after_raw_publish";
 
@@ -455,8 +456,12 @@ export class EvidenceStore {
     validateRunId(input.runId);
     assertNonEmpty(input.unitId, "unitId");
     assertNonEmpty(input.researchGoal, "researchGoal");
+    await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
-    return withRunLock(runRoot, () => this.recordLocked(runRoot, input));
+    return withRunLock(runRoot, async () => {
+      await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
+      return this.recordLocked(runRoot, input);
+    });
   }
 
   async recordLocked(runRoot: string, input: RecordEvidenceInput): Promise<RecordEvidenceResult> {

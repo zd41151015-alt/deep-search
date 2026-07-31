@@ -18,6 +18,7 @@ const DIRECT_FRAGMENT_FIELDS: Readonly<Record<string, readonly string[]>> = {
   "startup_opportunity.event.v1": ["event_id"],
   "startup_opportunity.gap_snapshot.v1": ["snapshot_id"],
   "startup_opportunity.gap_snapshot.v2": ["snapshot_id"],
+  "startup_opportunity.gap_snapshot.v3": ["snapshot_id"],
   "startup_opportunity.planning_context.v1": ["context_id"],
   "startup_opportunity.planning_context.v2": ["context_id"],
   "startup_opportunity.research_plan.v1": ["plan_id"],
@@ -86,11 +87,18 @@ export function formalArtifactFragmentExists(
   }
   if (
     target.schemaVersion === "startup_opportunity.gap_snapshot.v1" ||
-    target.schemaVersion === "startup_opportunity.gap_snapshot.v2"
+    target.schemaVersion === "startup_opportunity.gap_snapshot.v2" ||
+    target.schemaVersion === "startup_opportunity.gap_snapshot.v3"
   ) {
     return (
       (expectedIdField === undefined || expectedIdField === "gap_id") &&
       nestedIdExists(target.document, "gaps", "gap_id", fragment)
+    );
+  }
+  if (target.schemaVersion === "startup_opportunity.dispatch_batch.v1") {
+    return (
+      (expectedIdField === undefined || expectedIdField === "task_id") &&
+      nestedIdExists(target.document, "tasks", "task_id", fragment)
     );
   }
   if (target.schemaVersion === "startup_opportunity.research_plan.v1") {

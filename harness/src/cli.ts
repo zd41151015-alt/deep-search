@@ -20,6 +20,7 @@ import {
   runRecordEvidence,
   runStatusRun,
 } from "./run-store/store-commands.js";
+import { runCompileArtifacts } from "./runtime/runtime-commands.js";
 import { runValidateArtifact } from "./validators/validate-artifact-command.js";
 
 const [command = "help", ...args] = process.argv.slice(2);
@@ -48,6 +49,9 @@ switch (command) {
     break;
   case "publish-artifact":
     process.exitCode = await runPublishArtifact(args);
+    break;
+  case "compile-artifacts":
+    process.exitCode = await runCompileArtifacts(args);
     break;
   case "checkpoint-run":
     process.exitCode = await runCheckpointRun(args);

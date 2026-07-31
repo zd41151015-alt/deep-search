@@ -1,0 +1,78 @@
+{
+  "schema_version": "startup_opportunity.schema_bundle.v3",
+  "schema_bundle_version": "17.0.0",
+  "base_bundle": "bundle.v16.json",
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "schemas": [
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/runtime-artifact-compilation-request.schema.json",
+      "file": "v18/runtime-artifact-compilation-request.schema.json",
+      "document_schema_version": "startup_opportunity.runtime_artifact_compilation_request.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/runtime-artifact-compilation-result.schema.json",
+      "file": "v18/runtime-artifact-compilation-result.schema.json",
+      "document_schema_version": "startup_opportunity.runtime_artifact_compilation_result.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/research-execution-plan.schema.json",
+      "file": "v18/research-execution-plan.schema.json",
+      "document_schema_version": "startup_opportunity.research_execution_plan.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/dispatch-batch.schema.json",
+      "file": "v18/dispatch-batch.schema.json",
+      "document_schema_version": "startup_opportunity.dispatch_batch.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/lane-lifecycle.schema.json",
+      "file": "v18/lane-lifecycle.schema.json",
+      "document_schema_version": "startup_opportunity.lane_lifecycle.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/discovery-generation-result.schema.json",
+      "file": "v18/discovery-generation-result.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_generation_result.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/candidate-neutral-evidence.schema.json",
+      "file": "v18/candidate-neutral-evidence.schema.json",
+      "document_schema_version": "startup_opportunity.candidate_neutral_evidence.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/discovery-stage-readiness.schema.json",
+      "file": "v18/discovery-stage-readiness.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_stage_readiness.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/source-manifest-v4.schema.json",
+      "file": "v18/source-manifest-v4.schema.json",
+      "document_schema_version": "startup_opportunity.source_manifest.v4"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/gap-snapshot-v3.schema.json",
+      "file": "v18/gap-snapshot-v3.schema.json",
+      "document_schema_version": "startup_opportunity.gap_snapshot.v3"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/continuation-lineage-entry.schema.json",
+      "file": "v18/continuation-lineage-entry.schema.json",
+      "document_schema_version": "startup_opportunity.continuation_lineage_entry.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/research-publication-policy-v13.schema.json",
+      "file": "v18/research-publication-policy-v13.schema.json",
+      "document_schema_version": "startup_opportunity.research_publication_policy.v13"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/artifact-envelope.schema.json",
+      "file": "v18/artifact-envelope.schema.json",
+      "document_schema_version": "startup_opportunity.artifact_envelope.v18"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/document-bundle.schema.json",
+      "file": "v18/document-bundle.schema.json",
+      "document_schema_version": "startup_opportunity.document_bundle.v18"
+    }
+  ]
+}

@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v18/gap-snapshot-v3.schema.json",
+  "title": "Startup Opportunity Readiness-bound Gap Snapshot v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "snapshot_cycle_key",
+    "run_id",
+    "based_on_plan_ref",
+    "revision",
+    "parent_snapshot_ref",
+    "created_at",
+    "trigger_kind",
+    "trigger_event_ref",
+    "phase",
+    "wave_id",
+    "readiness_ref",
+    "fan_in_ref",
+    "observed_artifact_refs",
+    "gaps",
+    "material_new_evidence_observed",
+    "unresolved_decision_relevant_questions",
+    "stop_signals"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.gap_snapshot.v3" },
+    "snapshot_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+    "snapshot_cycle_key": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" },
+    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
+    "based_on_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "parent_snapshot_ref": {
+      "anyOf": [
+        { "$ref": "../v1/definitions.schema.json#/$defs/gapSnapshotRef" },
+        { "type": "null" }
+      ]
+    },
+    "created_at": { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+    "trigger_kind": {
+      "enum": ["wave_completed", "artifact_validation_failed", "resume_reconciliation"]
+    },
+    "trigger_event_ref": {
+      "anyOf": [{ "$ref": "../v1/definitions.schema.json#/$defs/eventRef" }, { "type": "null" }]
+    },
+    "phase": { "enum": ["discovery", "enrichment", "review"] },
+    "wave_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+    "readiness_ref": { "type": "string", "pattern": "^artifacts/discovery/readiness/.+\\.json$" },
+    "fan_in_ref": {
+      "anyOf": [
+        { "type": "string", "pattern": "^artifacts/discovery/fan-in\\.r[1-9][0-9]*\\.json$" },
+        { "type": "null" }
+      ]
+    },
+    "observed_artifact_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gap_id",
+          "subject_ref",
+          "gap_type",
+          "detection_mode",
+          "decision_impact",
+          "severity",
+          "basis_refs",
+          "evidence_refs",
+          "recommended_unit_types",
+          "allowed_actions",
+          "detail"
+        ],
+        "properties": {
+          "gap_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+          "subject_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
+          "gap_type": {
+            "enum": [
+              "evidence_missing",
+              "candidate_kind_missing",
+              "method_boundary",
+              "no_information_gain",
+              "runtime_blocked"
+            ]
+          },
+          "detection_mode": { "enum": ["deterministic", "agent_semantic"] },
+          "decision_impact": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "hard_gate",
+                "recommendation_band",
+                "selected_solution",
+                "major_limitation",
+                "next_action",
+                "execution_validity"
+              ]
+            }
+          },
+          "severity": { "enum": ["blocking", "material", "advisory"] },
+          "basis_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
+          "evidence_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
+          "recommended_unit_types": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "../v1/definitions.schema.json#/$defs/unitType" }
+          },
+          "allowed_actions": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "add_unit",
+                "run_solution_generation",
+                "run_candidate_evaluation",
+                "stop_method_boundary",
+                "record_runtime_failure",
+                "terminate_insufficient_evidence"
+              ]
+            }
+          },
+          "detail": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+        }
+      }
+    },
+    "material_new_evidence_observed": { "type": "boolean" },
+    "unresolved_decision_relevant_questions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^plans/research-plan\\.r[1-9][0-9]*\\.json#[A-Za-z0-9][A-Za-z0-9._-]*$"
+      }
+    },
+    "stop_signals": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "max_followup_rounds_reached",
+          "no_material_new_evidence",
+          "source_repetition",
+          "method_boundary_reached",
+          "runtime_blocked",
+          "limitation_accepted"
+        ]
+      }
+    }
+  }
+}

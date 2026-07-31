@@ -31,11 +31,13 @@
 - `PARTIALLY_FIXED_CODE`：当前工作树修复了部分路径，但仍有明确残余问题或表示依赖。
 - `FIXED_CODE_TESTED`：当前工作树已有生产代码和永久回归测试，尚未由修复后的真实 Run 验证。
 
-工程修复任务 `019fb5bb-d63f-7720-b506-30adcad957f5` 已完成 `POST-G4-003..010` 的候选实现，并在冻结 Node `24.18.0` / npm `11.16.0` 环境通过 `npm test` 354/354、`validate:fixtures` 223/223、store/fault/recovery 11/11、10/10、11/11，以及 lint、typecheck、schema validation、doctor 和 H14。该批候选与接手时已有维修已由 `c4b025a` 建立基线提交；本轮 P0 维修仍在当前 working tree，正式 research Run bytes 没有更新。因此以下“已修复”只表示代码与测试状态，不表示真实 Run 已验证。
+工程修复任务 `019fb5bb-d63f-7720-b506-30adcad957f5` 已完成 `POST-G4-003..010` 的候选实现，并在冻结 Node `24.18.0` / npm `11.16.0` 环境通过 `npm test` 354/354、`validate:fixtures` 223/223、store/fault/recovery 11/11、10/10、11/11，以及 lint、typecheck、schema validation、doctor 和 H14。该批候选与接手时已有维修已由 `c4b025a` 建立基线提交，五项 P0 维修由 `5cfbe2e` 提交，terminal reporting P1 由 `53dda40` 提交；正式 research Run bytes 没有更新。因此以下“已修复”只表示代码与测试状态，不表示真实 Run 已验证。
 
 本轮 P0 维修在同一冻结工具链下通过 `npm test` 362/362、`validate:fixtures` 223/223、store/fault/recovery 12/12、10/10、11/11，以及 lint、typecheck、schema validation 161 schemas、repository doctor 和 `git diff --check`。验证只使用 synthetic fixtures 和临时目录，没有执行正式市场调研、外部验证或旧 Run 迁移。
 
 本轮 terminal reporting P1 批次新增 schema bundle `16.0.0`、v17 terminal source/Brief/view/Consistency contract、publication v12/receipt v15、共享 Report Runtime finalizer 和 terminal apply/status 集成。永久回归覆盖中文 primary brief、内部枚举翻译、可读来源、产品假设与验证顺序、虚假完成/freshness/derived drift 拒绝、合法 termination 缺失 source 零写入拒绝、Plan/report fault replay/reopen，以及 `terminalReportDisposition` 的 `missing -> ready` 转换。该批在冻结工具链下通过 `npm test` 368/368、`validate:fixtures` 223/223、lint、typecheck、schema validation 168 schemas 和 skeleton doctor；仍未经过新真实 Run，因此以下 `FIXED_CODE_TESTED` 不表示真实研究验证。
+
+本轮 declarative research runtime P1 批次新增 schema bundle `17.0.0`、v18 Envelope/Document Bundle、publication v13/receipt v16，以及公开 `compile-artifacts` compiler。版本化 semantic contracts 覆盖 execution overlay、same-wave dispatch、lane lifecycle、candidate-neutral Evidence、generation result、Source Manifest v4、stage readiness、Gap v3 和 continuation index；Harness 只执行 deterministic hash、Envelope、最小 closure、validation、publication、Manifest projection 和 recovery，不调用 LLM、不启动 agent，也不生成研究判断。永久回归覆盖 validate/publish/idempotent replay、temp-write fault/reopen、完整 dispatch group、双单元并行激活、lifecycle regression、真实 synthetic Evidence Store substrate、freshness/stance/date 派生、generation completion、solution generation action、Gap basis closure，以及 parent/current-leaf 与 pending/corrupt/multiple continuation fail-closed。专项测试 6/6、Store/G0.4/G4 回归 108/108 和 Discovery 回归 82/82 已通过；仍未经过新真实 Run。
 
 | 工程 finding | 本文条目 | 当前修复状态 | 代码审计结论 |
 | --- | --- | --- | --- |
@@ -47,8 +49,8 @@
 | `POST-G4-006` | `RR-ENG-007`、`RR-ENG-011` | `FIXED_CODE_TESTED` | divergent pending operation 继续 fail closed；completed no-revision receipt 由 durable lifecycle/checkpoint/control/event 闭包识别 |
 | `POST-G4-007` | `RR-ENG-008` | `FIXED_CODE_TESTED` | v5 Gap v1 / Decision v2 已投影 Manifest lifecycle；旧正式 Run 不会被追溯改写 |
 | `POST-G4-008` | `RR-DISC-008`、`RR-ENG-012` | `FIXED_CODE_TESTED` | follow-up-available guard 与 apply preflight 的正式 Decision Envelope hydration 均已有回归 |
-| `POST-G4-009` | `RR-ENG-009` | `PARTIALLY_FIXED_CODE` | freshness/stance 已重算，ISO 日期边界已校验；opaque `time_coverage` 仍不可确定性验证 |
-| `POST-G4-010` | `RR-ENG-010` | `PARTIALLY_FIXED_CODE` | `status-run` 已派生 continuation；parent Manifest 仍是 `planned`，child 读取错误还会被静默忽略 |
+| `POST-G4-009` | `RR-ENG-009` | `FIXED_CODE_TESTED` | Source Manifest v4 的结构化日期、freshness 和 stance 均从 accepted Evidence 确定性派生 |
+| `POST-G4-010` | `RR-ENG-010` | `FIXED_CODE_TESTED` | 版本化 continuation index 提供 current-leaf authority；所有公开写入口对损坏或歧义 lineage fail closed |
 
 本次复核补齐了此前 backlog 遗漏的 `POST-G4-009/010`。其余真实 Run 中可独立确认的问题已经分别由 `RR-ENG-001..012`、`RR-DISC-001..008` 和 `RR-UX-001..004` 覆盖；执行中出现的枚举、hash、Envelope、bundle 和 exact-record 返工不再拆成重复 issue，统一归入 `RR-ENG-002/004/006`。
 
@@ -176,6 +178,8 @@
 - dispatch 过程不应逐个重新读取和解释相同 Run context。
 - 记录 task ready、dispatch requested、agent started、handoff ready 的时间指标。
 
+当前修复状态：`FIXED_CODE_TESTED`。`dispatch_batch.v1` 强制一次提交完整的同 stage/same-wave dispatch group，Run Store 在同一原子 publication 中把所有 task unit 投影为 active；`lane_lifecycle.v1` 记录 ready、dispatch、started、Evidence、handoff、formalization 和 publication 时间并拒绝时间或状态回退。`agent_dispatch_performed=false` 明确 Harness 只编译 dispatch contract，不替代 Codex 启动 agent。永久回归覆盖缺 task 拒绝、两个同 wave unit 同时激活和 lifecycle regression。
+
 ### RR-ENG-006 缺少 Declarative Research Runtime 与全流程 Artifact Compilation
 
 状态：`CONFIRMED_RUNTIME`
@@ -224,6 +228,8 @@ Lane/Fan-in 阶段已经观察到的具体后果包括：
 - 重复、确定性的 hash、Envelope、closure、Plan transform 和 publication 装配逻辑应由 Harness 的公开工程能力承接。
 - Harness 只负责结构化装配、引用解析、policy validation、不可变发布、状态投影和恢复；不得增加隐藏 LLM 调用或自行生成研究语义。
 
+当前修复状态：`FIXED_CODE_TESTED`。公开 `DeclarativeRuntimeCompiler` 和 `compile-artifacts` CLI 接收版本化 semantic JSON，根据 `run_id` current-leaf authority 编译 v18 Envelope、direct refs、content hash 和最小传递 validation closure，并支持 validate-only、原子 publish、exact replay 与 receipt recovery。execution plan 是 immutable Research Plan 的语义 overlay，不是第二 scheduler 或通用 DAG Runtime；lane、candidate disposition、Gap rationale 和研究结论仍必须由 Agent 提供。永久测试覆盖 compiler fault/reopen、closure、跨层 fragment、candidate-neutral substrate 和 Manifest 恢复顺序。
+
 ### RR-ENG-007 G2.2 后 Plan Revision 与失败恢复无法闭合
 
 状态：`CONFIRMED_RUNTIME / CONFIRMED_CODE`
@@ -263,7 +269,7 @@ Lane/Fan-in 阶段已经观察到的具体后果包括：
 
 本次 5 个 Source Manifest 都把 `time_coverage` 写成“来源发布日期跨度至 2026-07-30”，但 accepted Evidence 的实际最大 `valid_as_of` 中，family lane 为 `2024-11-04`、adult lane 为 `2026-02-05`、buyer lane 为 `2026-05-18`。正式汇总元数据与所引用 Evidence 不一致，原 validator 没有拒绝。
 
-当前修复状态：`PARTIALLY_FIXED_CODE`。当前工作树会从 accepted Evidence 重算 `freshness_summary` 和 `stance_coverage`，并在 `time_coverage` 含 ISO 日期时校验声明的最小/最大日期；对应 negative tests 已通过。但新写入仍可使用不含 ISO 日期的 opaque 文本绕过时间边界校验，且旧正式 Run 不会被追溯修正。
+当前修复状态：`FIXED_CODE_TESTED`。新 `source_manifest.v4` 用结构化 `earliest_valid_as_of`、`latest_valid_as_of` 和 `accepted_evidence_count` 取代 opaque coverage；validator 只从 accepted typed Evidence 派生 time、freshness 和 stance，并拒绝 caller drift。永久正反测试使用真实 synthetic Evidence Store substrate 验证日期边界与 stale summary；旧正式 Run 不追溯迁移。
 
 期望修复：
 
@@ -278,7 +284,7 @@ Lane/Fan-in 阶段已经观察到的具体后果包括：
 
 首个 Run 已明确要求转入 continuation Run，但 parent `manifest.json` 仍是 `planned` 且 limitations 为空；只有 checkpoint 文本记录 continuation required。原 `status-run` 因而会把不可继续的 parent 展示为正常 current Run。
 
-当前修复状态：`PARTIALLY_FIXED_CODE`。当前工作树的 `status-run` 会只读扫描 validated child Manifests，返回 `continuationRunIds` 和 `derivedExecutionDisposition=continued`；测试确认不改写 parent/child bytes。但 parent Manifest 本身仍为 `planned`，直接读取 Manifest 的 Runtime、报告或其他消费者仍可能误判。实现还会捕获并忽略所有 child 读取/校验错误：真实 continuation 如果损坏、暂时不可读或发生 I/O 错误，parent 可能退回 `current` 而不是 fail closed；每次 status 也会线性扫描整个 runs root。
+当前修复状态：`FIXED_CODE_TESTED`。Run creation 在 child 公开前写入 pending index，原子发布后提交带 child identity hash 的版本化 continuation entry；`resolveExecution` 确定性解析 chain/current leaf，pending、损坏、循环或多 child 返回 `indeterminate`。RunStore、compiler、ArtifactStore 和 EvidenceStore 的公开写入口都执行 current-leaf authority guard，不能通过 raw parent Manifest 继续写入。永久测试覆盖 parent 拒绝、child 可写、pending/corrupt/multiple fail-closed；查询只读取 parent 的有界 index，不扫描全部 Runs。
 
 期望修复：
 
@@ -346,6 +352,8 @@ Lane/Fan-in 阶段已经观察到的具体后果包括：
 - 用户报告不得把执行 lane 数量描述为机会方向数量。
 - Research Plan 为每条 lane 标记语义角色和目标候选范围。
 
+当前修复状态：`FIXED_CODE_TESTED`。`research_execution_plan.v1` 为每条 lane 声明 `lane_role=opportunity|evaluation|risk`、candidate scope 和独立 reporting dimensions；执行 lane 数量不再承担报告机会数量语义。overlay 必须绑定 exact immutable Research Plan unit，不能重写 Agent 的研究目标。
+
 ### RR-DISC-002 先创建候选壳，再运行 candidate-generation lane
 
 状态：`CONFIRMED_RUNTIME`
@@ -372,6 +380,8 @@ Scope
 - candidate 创建后才运行 alternatives、buyer、regulation 等 evaluation lanes。
 - 如果保留 hypothesis-first 设计，应把阶段改名为 `candidate_evidence_collection`，并明确其偏差边界。
 
+当前修复状态：`FIXED_CODE_TESTED`。`discovery_generation` stage 只允许 opportunity lane、`candidate_scope.kind=none` 和 `discovery_generation_result.v1`；`candidate_neutral_evidence.v1` 明确禁止 candidate/solution refs，并绑定 exact generation dispatch 和 Evidence Store substrate。candidate proposal 由 generation result 提交，后续才可物化 typed candidate。
+
 ### RR-DISC-003 Discovery 的生成和评估没有顺序 Gate
 
 状态：`CONFIRMED_RUNTIME`
@@ -395,6 +405,8 @@ Wave A: 开放需求发现
 
 Wave 之间顺序执行并设置 Gate；同一 Wave 内部并行。
 
+当前修复状态：`FIXED_CODE_TESTED`。execution overlay 将 generation、hard-gate、evaluation、retained deep review 和 synthesis 建模为有依赖的 semantic stages；validator 强制按阶段顺序、每个 immutable Plan unit 只出现一次，并用 `gate_before` 绑定 readiness Artifact。同 dispatch group 只能覆盖一个 Plan wave。
+
 ### RR-DISC-004 监管/反证 lane 过载
 
 状态：`CONFIRMED_RUNTIME`
@@ -408,6 +420,8 @@ Wave 之间顺序执行并设置 Gate；同一 Wave 内部并行。
 - 监管、公共 baseline 和用户反信号必要时拆成不同 research tasks。
 - 为每条 lane 设置时间预算、最大来源数和 straggler policy。
 
+当前修复状态：`FIXED_CODE_TESTED`。hard-gate scan 必须使用 bounded risk lane，retained deep review 是独立后续 stage；每条 lane 必须声明 time budget、max sources 和 `publish_partial|mark_failed` straggler policy，避免首轮 risk scan 等价于全量深审。
+
 ### RR-DISC-005 缺少研究时间预算和渐进深度
 
 状态：`CONFIRMED_RUNTIME`
@@ -420,6 +434,8 @@ Wave 之间顺序执行并设置 Gate；同一 Wave 内部并行。
 - 默认 quick discovery 先执行 2-3 条最具信息增益的 lane。
 - 只有首轮 fan-in 改变候选边界时才追加深度研究。
 - 超时 lane 可正式降级为 partial，不阻塞全部候选的阶段性简报。
+
+当前修复状态：`FIXED_CODE_TESTED`。execution overlay 声明 `quick|standard|deep`、总预算、per-lane 预算与 straggler policy；validator 按 stage dependency 计算最长顺序路径、允许同 group 并行，并拒绝总预算低估。lifecycle 对 partial/failed/late 明确记录 failure kind 和 retryability。
 
 ### RR-DISC-006 Fan-in 缺少下一阶段可执行性 Gate
 
@@ -438,6 +454,8 @@ fan-in 的机械成功不应被理解为下一阶段可执行。当前统一的 
 - fan-in 发布后立即执行 readiness Gate；不得等到后续 conversion builder 才发现当前 Run 无法继续。
 - Gate 只验证 caller 提供的 candidate roles、lineage 和 disposition，不由 Harness 发明 solution 或替代 main Agent 的研究判断。
 
+当前修复状态：`FIXED_CODE_TESTED`。`discovery_stage_readiness.v1` 显式输出 ready/blocked/terminal、typed candidate reporting roles、required/missing kinds、question coverage、blockers 和 allowed actions。缺少 solution seed 时必须保留 `run_solution_generation`，terminal 状态不得同时保留有界 follow-up；Harness 只验证 caller 提供的 typed refs/dispositions。
+
 ### RR-DISC-007 Gap Snapshot 没有基于 fan-in 和 Evidence 判断真实阻塞
 
 状态：`CONFIRMED_RUNTIME`
@@ -453,6 +471,8 @@ fan-in 的机械成功不应被理解为下一阶段可执行。当前统一的 
 - 自动检查 fan-in 的 `next_stage_readiness`；缺少 required candidate kind 必须在当前 Gap 中显式出现，不得留到后续 builder 才发现。
 - `unresolved_decision_relevant_questions` 必须从已有 Judgment 和 Evidence coverage 确定性计算，不能把所有 Plan 问题机械标为未解决。
 - 每个 blocking gap 的 subject、basis、evidence 和触发说明必须引用闭合且彼此一致。
+
+当前修复状态：`FIXED_CODE_TESTED`。`gap_snapshot.v3` 必须绑定 exact readiness/fan-in，观察 readiness、generation 和 fan-in basis，并从 question coverage 派生 unresolved questions；每个 readiness blocker 都必须有同类型、basis-closed Gap。gap 类型明确区分 Evidence、candidate kind、method boundary、no information gain 和 runtime blocked。
 
 ### RR-DISC-008 证据不足被错误用于跳过追加调研并掩盖工程失败
 
@@ -479,7 +499,7 @@ fan-in 的机械成功不应被理解为下一阶段可执行。当前统一的 
 - 缺少 retained `solution_seed` 时，默认动作是进入有界 solution generation/evaluation wave；只有该 wave 已执行、明确越界或预算耗尽后，才能据此终止。
 - 终止前重新生成 Gap Snapshot，记录 follow-up 执行结果、stop signals、剩余缺口和下一步验证；不得复用已被后续失败改变语境的旧 Gap。
 
-当前修复状态：`PARTIALLY_FIXED_CODE`。当前 policy 已拒绝在仍有预算、存在 recommended unit、已有 material Evidence 且无 stop signal 时直接终止，`RR-ENG-012` 的表示无关 closure 也已修复；method-boundary 表达、solution generation/evaluation 衔接和 latest Gap 重建仍未完成。
+当前修复状态：`FIXED_CODE_TESTED`。readiness/Gap v3 正式表达 method boundary、no-information-gain、runtime failure 和 solution generation/evaluation actions；缺 solution seed 默认要求 `run_solution_generation`，terminal readiness 不能保留 bounded action，runtime blocker 不能被终止为 Evidence insufficiency。Adaptation validator 要求 termination 闭合到 latest Gap，拒绝 runtime-blocked basis，并只接受 method-boundary/no-information-gain 的正式 stop signals。永久测试覆盖 solution action、terminal follow-up、runtime blocker 和 Gap basis closure。
 
 ## 6. Assessment 工作流静态审计
 
@@ -717,17 +737,17 @@ Decision Brief 至少回答：
 
 ### P1：修复研究方法和关键路径
 
-1. `RR-ENG-006` 建立 Declarative Research Runtime 与全流程 Artifact compilation，不允许正式 Run 依赖 per-Run 临时程序。
-2. `RR-DISC-006` 增加 fan-in 下一阶段 readiness Gate 和按角色分类的 dispositions。
-3. `RR-DISC-007` 让 Gap 基于 fan-in/Evidence 判断真实阻塞和允许动作。
-4. `RR-DISC-008` 修复 follow-up、方法边界、工程阻塞和终止语义。
-5. `RR-ENG-009` 把 time coverage 收敛为确定性结构化派生值。
-6. `RR-ENG-010` 为所有消费者提供权威 continuation/current-leaf 读取面。
-7. `RR-DISC-002` 开放需求研究不预绑 candidate/solution。
-8. `RR-DISC-003` discovery Wave A/B/C Gate。
-9. `RR-DISC-004` 监管 hard-gate scan 与候选收敛后的深审分离。
-10. `RR-ENG-005` 同 wave task 批量 dispatch。
-11. `RR-DISC-005` 时间预算、渐进深度和 straggler policy。
+1. `RR-ENG-006` Declarative Research Runtime 与 Artifact compilation：`FIXED_CODE_TESTED`。
+2. `RR-DISC-006` fan-in readiness Gate 与 dispositions：`FIXED_CODE_TESTED`。
+3. `RR-DISC-007` fan-in/Evidence Gap closure：`FIXED_CODE_TESTED`。
+4. `RR-DISC-008` follow-up、方法边界、工程阻塞和终止语义：`FIXED_CODE_TESTED`。
+5. `RR-ENG-009` 结构化、确定性 Source Manifest time coverage：`FIXED_CODE_TESTED`。
+6. `RR-ENG-010` continuation/current-leaf authority：`FIXED_CODE_TESTED`。
+7. `RR-DISC-002` candidate-neutral generation：`FIXED_CODE_TESTED`。
+8. `RR-DISC-003` discovery staged Gate：`FIXED_CODE_TESTED`。
+9. `RR-DISC-004` bounded hard-gate scan 与 retained deep review：`FIXED_CODE_TESTED`。
+10. `RR-ENG-005` same-wave dispatch contract：`FIXED_CODE_TESTED`。
+11. `RR-DISC-005` 时间预算、渐进深度和 straggler policy：`FIXED_CODE_TESTED`。
 
 ### P2：重构 Assessment 执行模型
 

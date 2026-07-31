@@ -28,6 +28,7 @@ import {
   type AssessmentReportingPolicy,
   loadAssessmentReportingPolicy,
 } from "./assessment-reporting-policy.js";
+import { validateDeclarativeRuntimeContract } from "./declarative-runtime-validator.js";
 import {
   type DiscoveryCandidatePolicy,
   loadDiscoveryCandidatePolicy,
@@ -120,7 +121,8 @@ export interface DocumentBundle {
     | "startup_opportunity.document_bundle.v14"
     | "startup_opportunity.document_bundle.v15"
     | "startup_opportunity.document_bundle.v16"
-    | "startup_opportunity.document_bundle.v17";
+    | "startup_opportunity.document_bundle.v17"
+    | "startup_opportunity.document_bundle.v18";
   readonly documents: readonly DocumentBundleEntry[];
   readonly exact_records?: readonly {
     readonly ref: string;
@@ -464,7 +466,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(
           document,
           "trigger_gap_refs",
-          "startup_opportunity.gap_snapshot.v1",
+          ["startup_opportunity.gap_snapshot.v1", "startup_opportunity.gap_snapshot.v3"],
           "gap_id",
         ),
         ...optionalRef(
@@ -2516,6 +2518,184 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.judgment_assessment.v3",
         ),
       ];
+    case "startup_opportunity.research_execution_plan.v1":
+      return [
+        ...optionalRef(
+          document,
+          "parent_execution_plan_ref",
+          "startup_opportunity.research_execution_plan.v1",
+        ),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromNestedArray(
+          document,
+          "stages",
+          "gate_before",
+          "startup_opportunity.discovery_stage_readiness.v1",
+        ),
+      ];
+    case "startup_opportunity.dispatch_batch.v1":
+      return [
+        ...optionalRef(
+          document,
+          "execution_plan_ref",
+          "startup_opportunity.research_execution_plan.v1",
+        ),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+      ];
+    case "startup_opportunity.lane_lifecycle.v1":
+      return [
+        ...optionalRef(document, "parent_lifecycle_ref", "startup_opportunity.lane_lifecycle.v1"),
+        ...optionalRef(
+          document,
+          "dispatch_batch_ref",
+          "startup_opportunity.dispatch_batch.v1",
+          "task_id",
+        ),
+      ];
+    case "startup_opportunity.candidate_neutral_evidence.v1":
+      return [
+        ...optionalRef(
+          document,
+          "dispatch_batch_ref",
+          "startup_opportunity.dispatch_batch.v1",
+          "task_id",
+        ),
+        ...optionalRef(document, "scope_frame_ref", [
+          "startup_opportunity.scope_frame.v1",
+          "startup_opportunity.scope_frame.v2",
+        ]),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...nestedRef(
+          document,
+          "mechanical_binding",
+          "substrate_record_ref",
+          "startup_opportunity.evidence_store_record.v2",
+          "evidence_id",
+        ),
+      ];
+    case "startup_opportunity.discovery_generation_result.v1":
+      return [
+        ...optionalRef(
+          document,
+          "dispatch_batch_ref",
+          "startup_opportunity.dispatch_batch.v1",
+          "task_id",
+        ),
+        ...optionalRef(document, "scope_frame_ref", [
+          "startup_opportunity.scope_frame.v1",
+          "startup_opportunity.scope_frame.v2",
+        ]),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(document, "source_manifest_ref", "startup_opportunity.source_manifest.v4"),
+        ...refsFromArray(document, "evidence_refs", [
+          "startup_opportunity.candidate_neutral_evidence.v1",
+          "startup_opportunity.evidence.v2",
+        ]),
+        ...refsFromArray(
+          document,
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.v2",
+        ),
+        ...refsFromNestedArray(document, "candidate_proposals", "basis_refs", [
+          "startup_opportunity.candidate_neutral_evidence.v1",
+          "startup_opportunity.evidence.v2",
+          "startup_opportunity.claim.v2",
+          "startup_opportunity.finding.v2",
+          "startup_opportunity.insight.v2",
+          "startup_opportunity.judgment_assessment.v2",
+        ]),
+        ...refsFromNestedArray(document, "candidate_proposals", "evidence_refs", [
+          "startup_opportunity.candidate_neutral_evidence.v1",
+          "startup_opportunity.evidence.v2",
+        ]),
+      ];
+    case "startup_opportunity.source_manifest.v4":
+      return [
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(
+          document,
+          "execution_plan_ref",
+          "startup_opportunity.research_execution_plan.v1",
+        ),
+        ...optionalRef(
+          document,
+          "dispatch_batch_ref",
+          "startup_opportunity.dispatch_batch.v1",
+          "task_id",
+        ),
+        ...refsFromArray(document, "accepted_evidence_refs", [
+          "startup_opportunity.candidate_neutral_evidence.v1",
+          "startup_opportunity.evidence.v2",
+        ]),
+      ];
+    case "startup_opportunity.discovery_stage_readiness.v1":
+      return [
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(
+          document,
+          "execution_plan_ref",
+          "startup_opportunity.research_execution_plan.v1",
+        ),
+        ...optionalRef(document, "source_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
+        ...refsFromArray(
+          document,
+          "generation_result_refs",
+          "startup_opportunity.discovery_generation_result.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "candidate_roles",
+          "candidate_ref",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "question_coverage",
+          "judgment_refs",
+          "startup_opportunity.judgment_assessment.v2",
+        ),
+        ...refsFromNestedArray(document, "question_coverage", "evidence_refs", [
+          "startup_opportunity.candidate_neutral_evidence.v1",
+          "startup_opportunity.evidence.v2",
+        ]),
+      ];
+    case "startup_opportunity.gap_snapshot.v3":
+      return [
+        ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(document, "parent_snapshot_ref", [
+          "startup_opportunity.gap_snapshot.v1",
+          "startup_opportunity.gap_snapshot.v3",
+        ]),
+        ...optionalRef(
+          document,
+          "readiness_ref",
+          "startup_opportunity.discovery_stage_readiness.v1",
+        ),
+        ...optionalRef(document, "fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
+        ...refsFromArray(document, "observed_artifact_refs", [
+          "startup_opportunity.discovery_stage_readiness.v1",
+          "startup_opportunity.discovery_fan_in.v2",
+          "startup_opportunity.discovery_generation_result.v1",
+          "startup_opportunity.discovery_lane_result.v1",
+          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.candidate_neutral_evidence.v1",
+          "startup_opportunity.evidence.v2",
+        ]),
+        ...refsFromNestedArray(document, "gaps", "basis_refs", [
+          "startup_opportunity.discovery_stage_readiness.v1",
+          "startup_opportunity.discovery_fan_in.v2",
+          "startup_opportunity.discovery_generation_result.v1",
+          "startup_opportunity.discovery_lane_result.v1",
+          "startup_opportunity.discovery_candidate.v1",
+          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.candidate_neutral_evidence.v1",
+          "startup_opportunity.evidence.v2",
+        ]),
+        ...refsFromNestedArray(document, "gaps", "evidence_refs", [
+          "startup_opportunity.candidate_neutral_evidence.v1",
+          "startup_opportunity.evidence.v2",
+        ]),
+      ];
     default:
       return [];
   }
@@ -2540,7 +2720,8 @@ function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
     version !== "startup_opportunity.artifact_envelope.v14" &&
     version !== "startup_opportunity.artifact_envelope.v15" &&
     version !== "startup_opportunity.artifact_envelope.v16" &&
-    version !== "startup_opportunity.artifact_envelope.v17"
+    version !== "startup_opportunity.artifact_envelope.v17" &&
+    version !== "startup_opportunity.artifact_envelope.v18"
   ) {
     return { path: entry.path, schemaVersion: version, document: entry.document, envelope: null };
   }
@@ -2797,7 +2978,8 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
       document.schema_version !== "startup_opportunity.artifact_envelope.v14" &&
       document.schema_version !== "startup_opportunity.artifact_envelope.v15" &&
       document.schema_version !== "startup_opportunity.artifact_envelope.v16" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v17") ||
+      document.schema_version !== "startup_opportunity.artifact_envelope.v17" &&
+      document.schema_version !== "startup_opportunity.artifact_envelope.v18") ||
     !isRecord(document.document)
   ) {
     return [];
@@ -3162,7 +3344,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v14" &&
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17"
+      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v18"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3208,7 +3391,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v14" &&
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17"
+      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v18"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3245,7 +3429,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v14" &&
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17"
+      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v18"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3287,7 +3472,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v14" &&
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17"
+      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v18"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3308,7 +3494,8 @@ export class ArtifactValidator {
             input.schema_version === "startup_opportunity.document_bundle.v14" ||
             input.schema_version === "startup_opportunity.document_bundle.v15" ||
             input.schema_version === "startup_opportunity.document_bundle.v16" ||
-            input.schema_version === "startup_opportunity.document_bundle.v17"
+            input.schema_version === "startup_opportunity.document_bundle.v17" ||
+            input.schema_version === "startup_opportunity.document_bundle.v18"
             ? discoveryDocuments.filter(
                 (entry) =>
                   !isDiscoveryCandidateSchemaVersion(entry.schemaVersion) &&
@@ -3324,7 +3511,8 @@ export class ArtifactValidator {
             input.schema_version === "startup_opportunity.document_bundle.v14" ||
             input.schema_version === "startup_opportunity.document_bundle.v15" ||
             input.schema_version === "startup_opportunity.document_bundle.v16" ||
-            input.schema_version === "startup_opportunity.document_bundle.v17"
+            input.schema_version === "startup_opportunity.document_bundle.v17" ||
+            input.schema_version === "startup_opportunity.document_bundle.v18"
             ? [
                 "7.0.0",
                 "9.0.0",
@@ -3335,6 +3523,7 @@ export class ArtifactValidator {
                 "14.0.0",
                 "15.0.0",
                 "16.0.0",
+                "17.0.0",
               ]
             : undefined,
         ),
@@ -3365,7 +3554,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v14" &&
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17"
+      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v18"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3400,7 +3590,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v14" &&
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17"
+      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v18"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3419,7 +3610,8 @@ export class ArtifactValidator {
             input.schema_version === "startup_opportunity.document_bundle.v14" ||
             input.schema_version === "startup_opportunity.document_bundle.v15" ||
             input.schema_version === "startup_opportunity.document_bundle.v16" ||
-            input.schema_version === "startup_opportunity.document_bundle.v17",
+            input.schema_version === "startup_opportunity.document_bundle.v17" ||
+            input.schema_version === "startup_opportunity.document_bundle.v18",
         ),
       );
     }
@@ -3439,7 +3631,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v14" &&
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17"
+      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v18"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3456,7 +3649,8 @@ export class ArtifactValidator {
           input.schema_version === "startup_opportunity.document_bundle.v12"
             ? this.legacyDiscoveryEvaluationPolicy
             : input.schema_version === "startup_opportunity.document_bundle.v16" ||
-                input.schema_version === "startup_opportunity.document_bundle.v17"
+                input.schema_version === "startup_opportunity.document_bundle.v17" ||
+                input.schema_version === "startup_opportunity.document_bundle.v18"
               ? this.discoveryEvaluationPolicy
               : this.repairedDiscoveryEvaluationPolicy,
           exactJsonlRecords,
@@ -3474,7 +3668,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v14" &&
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17"
+      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v18"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3489,7 +3684,8 @@ export class ArtifactValidator {
         ...validateAiBundleContract(
           aiBundleDocuments,
           input.schema_version === "startup_opportunity.document_bundle.v16" ||
-            input.schema_version === "startup_opportunity.document_bundle.v17",
+            input.schema_version === "startup_opportunity.document_bundle.v17" ||
+            input.schema_version === "startup_opportunity.document_bundle.v18",
         ),
       );
     }
@@ -3510,7 +3706,8 @@ export class ArtifactValidator {
           "startup_opportunity.report_consistency_evaluation.v4",
         ].includes(entry.schemaVersion),
       ) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17"
+      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v18"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3522,6 +3719,11 @@ export class ArtifactValidator {
       );
     } else {
       referenceErrors.push(...validateTerminalReportingContract(terminalReportingDocuments));
+    }
+    if (input.schema_version === "startup_opportunity.document_bundle.v18") {
+      referenceErrors.push(
+        ...validateDeclarativeRuntimeContract(effectiveDocuments, exactJsonlRecords),
+      );
     }
     referenceErrors.push(...exactRecordErrors);
     const sortedReferenceErrors = sortIssues(referenceErrors);
@@ -3848,7 +4050,8 @@ export class ArtifactValidator {
 
     if (
       source.schemaVersion === "startup_opportunity.gap_snapshot.v1" ||
-      source.schemaVersion === "startup_opportunity.gap_snapshot.v2"
+      source.schemaVersion === "startup_opportunity.gap_snapshot.v2" ||
+      source.schemaVersion === "startup_opportunity.gap_snapshot.v3"
     ) {
       const pathRevision = snapshotRevisionFromPath(source.path);
       if (typeof revision === "number" && pathRevision !== revision) {

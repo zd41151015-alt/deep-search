@@ -138,6 +138,13 @@ export {
   runStatusRun,
 } from "./run-store/store-commands.js";
 export {
+  type CompileRuntimeArtifactsOptions,
+  DeclarativeRuntimeCompiler,
+  type RuntimeArtifactCompilationRequest,
+  type RuntimeArtifactCompilationResult,
+} from "./runtime/declarative-runtime.js";
+export { runCompileArtifacts } from "./runtime/runtime-commands.js";
+export {
   type AiBundleDocument,
   isAiBundleSchemaVersion,
   validateAiBundleContract,
@@ -166,6 +173,11 @@ export {
   type AssessmentAdaptationDocument,
   validateAssessmentAdaptationContract,
 } from "./validators/assessment-adaptation-validator.js";
+export {
+  type DeclarativeRuntimeDocument,
+  isDeclarativeRuntimeSchemaVersion,
+  validateDeclarativeRuntimeContract,
+} from "./validators/declarative-runtime-validator.js";
 export {
   type CandidateKind,
   type CandidateKindRule,

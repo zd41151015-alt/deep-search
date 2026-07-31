@@ -11,6 +11,7 @@ Usage:
   npm run harness -- status-run --run-id ID
   npm run harness -- record-evidence --run-id ID --unit-id ID (--url URL | --source-url URL | --source-uri URN) --research-goal GOAL --content-file FILE
   npm run harness -- publish-artifact --file FILE [--runs-root DIR]
+  npm run harness -- compile-artifacts --file FILE [--runs-root DIR]
   npm run harness -- checkpoint-run --file FILE
   npm run harness -- validate-plan --bundle FILE [--run-id ID] [--runs-root DIR] [--json]
   npm run harness -- analyze-gaps --file FILE [--json]
@@ -30,6 +31,7 @@ Commands:
   status-run         Read and validate current Run manifest state without recovery or mutation.
   record-evidence    Persist raw evidence with canonical hashes and deterministic deduplication.
   publish-artifact   Validate and publish one formal envelope or an explicit envelope bundle.
+  compile-artifacts  Compile semantic JSON into v18 envelopes, minimal Run closure, and optional publication.
   checkpoint-run     Publish an immutable checkpoint from a JSON input document.
   validate-plan      Validate Planning Context v2 and full Research Plan semantics; --run-id assembles persisted authority.
   analyze-gaps       Build a deterministic machine or assessment Gap Snapshot draft.

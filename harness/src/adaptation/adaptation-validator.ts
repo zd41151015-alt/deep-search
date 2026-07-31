@@ -65,7 +65,8 @@ function gapByRef(
   const snapshot = targetByRef(documents, ref);
   const gapId = fragmentOf(ref);
   if (
-    snapshot?.schemaVersion !== "startup_opportunity.gap_snapshot.v1" ||
+    (snapshot?.schemaVersion !== "startup_opportunity.gap_snapshot.v1" &&
+      snapshot?.schemaVersion !== "startup_opportunity.gap_snapshot.v3") ||
     gapId === null ||
     !Array.isArray(snapshot.document.gaps)
   ) {
@@ -272,7 +273,8 @@ export class AdaptationPolicyValidator {
     if (plan?.schemaVersion === "startup_opportunity.research_plan.v1") {
       for (const snapshot of documents.filter(
         (document) =>
-          document.schemaVersion === "startup_opportunity.gap_snapshot.v1" &&
+          (document.schemaVersion === "startup_opportunity.gap_snapshot.v1" ||
+            document.schemaVersion === "startup_opportunity.gap_snapshot.v3") &&
           document.document.based_on_plan_ref === plan.path,
       )) {
         for (const gap of Array.isArray(snapshot.document.gaps) ? snapshot.document.gaps : []) {
@@ -843,7 +845,9 @@ export class AdaptationPolicyValidator {
             ((Array.isArray(resolved.snapshot.stop_signals) &&
               resolved.snapshot.stop_signals.length > 0) ||
               resolved.gap.gap_type === "no_material_new_evidence" ||
-              resolved.gap.gap_type === "source_repetition"),
+              resolved.gap.gap_type === "source_repetition" ||
+              resolved.gap.gap_type === "method_boundary" ||
+              resolved.gap.gap_type === "no_information_gain"),
         );
         if (!hasStopBasis) {
           errors.push(
@@ -869,6 +873,19 @@ export class AdaptationPolicyValidator {
             ),
           );
         }
+        if (
+          blockingGaps.some(
+            (resolved) => resolved !== null && resolved.gap.gap_type === "runtime_blocked",
+          )
+        ) {
+          errors.push(
+            issue(
+              "adaptation.termination_runtime_blocked",
+              decisionPath,
+              "runtime failure must be reported as runtime-blocked and cannot become a research conclusion",
+            ),
+          );
+        }
         const followupAvailable = blockingGaps.some((resolved) => {
           if (resolved === null) {
             return false;
@@ -881,10 +898,27 @@ export class AdaptationPolicyValidator {
           const stopSignals = Array.isArray(resolved.snapshot.stop_signals)
             ? resolved.snapshot.stop_signals
             : [];
+          const allowedActions = Array.isArray(resolved.gap.allowed_actions)
+            ? resolved.gap.allowed_actions
+            : [];
+          const boundedActionAvailable = allowedActions.some((candidate) =>
+            ["add_unit", "run_solution_generation", "run_candidate_evaluation"].includes(
+              String(candidate),
+            ),
+          );
+          const closedMethodBoundary =
+            ["method_boundary", "no_information_gain"].includes(String(resolved.gap.gap_type)) &&
+            stopSignals.some((signal) =>
+              [
+                "method_boundary_reached",
+                "no_material_new_evidence",
+                "source_repetition",
+                "max_followup_rounds_reached",
+              ].includes(String(signal)),
+            );
           return (
-            recommended.length > 0 &&
-            resolved.snapshot.material_new_evidence_observed === true &&
-            stopSignals.length === 0 &&
+            !closedMethodBoundary &&
+            (recommended.length > 0 || boundedActionAvailable) &&
             isRecord(followup) &&
             typeof followup.max_followup_rounds === "number" &&
             typeof manifest.followup_round === "number" &&

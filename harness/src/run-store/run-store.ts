@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import { lstat, mkdir, mkdtemp, readdir, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -152,9 +153,22 @@ export interface StatusRunResult {
   readonly runId: string;
   readonly manifest: RunManifest;
   readonly continuationRunIds: readonly string[];
-  readonly derivedExecutionDisposition: "current" | "continued" | "terminal";
+  readonly derivedExecutionDisposition: "current" | "continued" | "terminal" | "indeterminate";
+  readonly currentLeafRunId: string | null;
+  readonly continuationChain: readonly string[];
+  readonly executionResolutionIssues: readonly string[];
   readonly terminalReportDisposition: "not_required" | "missing" | "invalid" | "ready";
   readonly terminalReportIssues: readonly string[];
+}
+
+export interface RunExecutionResolution {
+  readonly schemaVersion: "startup_opportunity.run_execution_resolution.v1";
+  readonly requestedRunId: string;
+  readonly disposition: "current" | "continued" | "terminal" | "indeterminate";
+  readonly currentLeafRunId: string | null;
+  readonly continuationChain: readonly string[];
+  readonly directContinuationRunIds: readonly string[];
+  readonly issues: readonly string[];
 }
 
 export interface BuildValidationContextResult {
@@ -203,7 +217,24 @@ const STORE_ENVELOPE_VERSIONS = new Set([
   "startup_opportunity.artifact_envelope.v15",
   "startup_opportunity.artifact_envelope.v16",
   "startup_opportunity.artifact_envelope.v17",
+  "startup_opportunity.artifact_envelope.v18",
 ]);
+
+const TERMINAL_RUN_STATUSES = new Set([
+  "completed",
+  "failed",
+  "insufficient_evidence",
+  "cancelled",
+]);
+
+interface ContinuationLineageEntry extends Record<string, unknown> {
+  readonly schema_version: "startup_opportunity.continuation_lineage_entry.v1";
+  readonly parent_run_id: string;
+  readonly child_run_id: string;
+  readonly child_identity_hash: string;
+  readonly state: "pending" | "committed";
+  readonly created_at: string;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -255,6 +286,7 @@ function checkpointDocument(envelope: FormalArtifactEnvelope): Record<string, un
 
 function recoveryTransitionRank(envelope: FormalArtifactEnvelope): number {
   if (
+    envelope.artifact_type === "startup_opportunity.dispatch_batch.v1" ||
     envelope.artifact_type === "startup_opportunity.research_task.v1" ||
     envelope.artifact_type === "startup_opportunity.research_task.v2" ||
     envelope.artifact_type === "startup_opportunity.research_task.v3"
@@ -262,6 +294,7 @@ function recoveryTransitionRank(envelope: FormalArtifactEnvelope): number {
     return 0;
   }
   if (
+    envelope.artifact_type === "startup_opportunity.discovery_generation_result.v1" ||
     envelope.artifact_type === "startup_opportunity.concept_evidence_assessment_branch_result.v1" ||
     envelope.artifact_type === "startup_opportunity.discovery_lane_result.v1" ||
     envelope.artifact_type === "startup_opportunity.enrichment_branch_result.v1"
@@ -308,6 +341,15 @@ function makeManifest(input: CreateRunInput, createdAt: string): RunManifest {
   };
 }
 
+function continuationIdentity(manifest: RunManifest): Record<string, unknown> {
+  return {
+    run_id: manifest.run_id,
+    mode: manifest.mode,
+    parent_run_id: manifest.parent_run_id,
+    created_at: manifest.created_at,
+  };
+}
+
 export class RunStore {
   private readonly artifacts: ArtifactStore;
   private readonly logs: JsonlStore;
@@ -322,6 +364,39 @@ export class RunStore {
     this.evidence = new EvidenceStore(runsRoot);
   }
 
+  private async registerContinuation(
+    validatedRunsRoot: string,
+    manifest: RunManifest,
+    state: ContinuationLineageEntry["state"] = "committed",
+  ): Promise<void> {
+    if (manifest.parent_run_id === null) {
+      return;
+    }
+    const entry: ContinuationLineageEntry = {
+      schema_version: "startup_opportunity.continuation_lineage_entry.v1",
+      parent_run_id: manifest.parent_run_id,
+      child_run_id: manifest.run_id,
+      child_identity_hash: canonicalContentHash(continuationIdentity(manifest)),
+      state,
+      created_at: manifest.created_at,
+    };
+    const validation = this.validator.validateDocument(entry);
+    if (!validation.valid) {
+      throw new StoreError(
+        "continuation.index_invalid",
+        "continuation lineage entry is not schema-valid",
+        { errors: validation.errors },
+      );
+    }
+    await mkdir(path.join(validatedRunsRoot, ".store", "temp"), { recursive: true });
+    await atomicReplace(
+      validatedRunsRoot,
+      `.continuations/${manifest.parent_run_id}/${manifest.run_id}.json`,
+      `${canonicalJson(entry)}\n`,
+      `continuation-${sha256Hex(operationKey("continuation_index", entry))}`,
+    );
+  }
+
   async create(input: CreateRunInput): Promise<CreateRunResult> {
     validateRunId(input.runId);
     if (input.parentRunId !== undefined && input.parentRunId !== null) {
@@ -329,6 +404,29 @@ export class RunStore {
       if (input.parentRunId === input.runId) {
         throw new StoreError("run.invalid_parent", "Run cannot be its own parent", {
           runId: input.runId,
+        });
+      }
+      const resolution = await this.resolveExecution(input.parentRunId);
+      if (
+        resolution.disposition === "indeterminate" ||
+        resolution.currentLeafRunId !== input.parentRunId
+      ) {
+        throw new StoreError(
+          "run.parent_not_current_leaf",
+          "continuation parent must be the authoritative current leaf",
+          {
+            parentRunId: input.parentRunId,
+            currentLeafRunId: resolution.currentLeafRunId,
+            issues: resolution.issues,
+          },
+        );
+      }
+      const parentRoot = await openRunDirectoryReadOnly(this.runsRoot, input.parentRunId);
+      const parent = await this.readManifest(parentRoot);
+      if (parent.mode !== input.mode) {
+        throw new StoreError("run.parent_mode_mismatch", "continuation cannot change Run mode", {
+          parentMode: parent.mode,
+          requestedMode: input.mode,
         });
       }
     }
@@ -382,6 +480,7 @@ export class RunStore {
             runId: input.runId,
           });
         }
+        await this.registerContinuation(runsRoot, loaded.manifest);
         return {
           schemaVersion: "startup_opportunity.create_run_result.v1",
           status: "idempotent_replay",
@@ -396,6 +495,8 @@ export class RunStore {
       }
 
       const stagingRoot = await mkdtemp(path.join(runsRoot, `.create-${input.runId}-`));
+      let continuationPending = false;
+      let published = false;
       try {
         for (const directory of RUN_DIRECTORIES) {
           await mkdir(path.join(stagingRoot, directory), { recursive: true });
@@ -429,8 +530,29 @@ export class RunStore {
         if (input.faultAt === "before_publish") {
           throw new StoreError("fault.injected", "injected failure before atomic Run publication");
         }
-        await rename(stagingRoot, target);
-        await syncDirectory(runsRoot);
+        if (finalManifest.parent_run_id !== null) {
+          await this.registerContinuation(runsRoot, finalManifest, "pending");
+          continuationPending = true;
+        }
+        try {
+          await rename(stagingRoot, target);
+          published = true;
+          await syncDirectory(runsRoot);
+          await this.registerContinuation(runsRoot, finalManifest);
+        } catch (error) {
+          if (continuationPending && !published && finalManifest.parent_run_id !== null) {
+            await rm(
+              path.join(
+                runsRoot,
+                ".continuations",
+                finalManifest.parent_run_id,
+                `${finalManifest.run_id}.json`,
+              ),
+              { force: true },
+            );
+          }
+          throw error;
+        }
         return {
           schemaVersion: "startup_opportunity.create_run_result.v1",
           status: "created",
@@ -445,49 +567,194 @@ export class RunStore {
   }
 
   async load(runId: string): Promise<LoadRunResult> {
+    const resolution = await this.resolveExecution(runId);
+    if (resolution.disposition === "indeterminate") {
+      throw new StoreError(
+        "run.continuation_indeterminate",
+        "Run continuation lineage cannot be resolved safely",
+        { runId, issues: resolution.issues },
+      );
+    }
+    if (resolution.currentLeafRunId !== runId) {
+      throw new StoreError("run.not_current_leaf", "Run has an authoritative continuation leaf", {
+        runId,
+        currentLeafRunId: resolution.currentLeafRunId,
+      });
+    }
     const runRoot = await openRunDirectory(this.runsRoot, runId);
     return withRunLock(runRoot, () => this.recoverLocked(runRoot, runId));
   }
 
-  async status(runId: string): Promise<StatusRunResult> {
-    validateRunId(runId);
-    const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
-    const manifest = await this.readManifest(runRoot);
-    const continuationRunIds: string[] = [];
-    for (const entry of await readdir(this.runsRoot, { withFileTypes: true })) {
-      if (!entry.isDirectory() || entry.name === runId) {
+  private async continuationChildren(parentRunId: string): Promise<{
+    readonly children: readonly RunManifest[];
+    readonly recognizedRunIds: readonly string[];
+    readonly issues: readonly string[];
+  }> {
+    const directory = path.join(this.runsRoot, ".continuations", parentRunId);
+    let entries: Dirent[];
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) {
+        return { children: [], recognizedRunIds: [], issues: [] };
+      }
+      return { children: [], recognizedRunIds: [], issues: ["continuation.index_unreadable"] };
+    }
+    const children: RunManifest[] = [];
+    const recognizedRunIds: string[] = [];
+    const issues: string[] = [];
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      const childRunId = entry.name.endsWith(".json") ? entry.name.slice(0, -5) : "";
+      try {
+        validateRunId(childRunId);
+        recognizedRunIds.push(childRunId);
+      } catch {
+        issues.push("continuation.index_filename_invalid");
+        continue;
+      }
+      if (!entry.isFile() || entry.isSymbolicLink()) {
+        issues.push(`continuation.index_entry_invalid:${childRunId}`);
         continue;
       }
       try {
-        validateRunId(entry.name);
-        const childRoot = await openRunDirectoryReadOnly(this.runsRoot, entry.name);
-        const child = await this.readManifest(childRoot);
-        if (child.parent_run_id === runId) {
-          continuationRunIds.push(child.run_id);
+        const value = JSON.parse(
+          await readFile(path.join(directory, entry.name), "utf8"),
+        ) as unknown;
+        const validation = this.validator.validateDocument(value);
+        if (
+          !validation.valid ||
+          !isRecord(value) ||
+          value.schema_version !== "startup_opportunity.continuation_lineage_entry.v1" ||
+          value.parent_run_id !== parentRunId ||
+          value.child_run_id !== childRunId ||
+          (value.state !== "pending" && value.state !== "committed")
+        ) {
+          issues.push(`continuation.index_entry_invalid:${childRunId}`);
+          continue;
         }
-      } catch {
-        // Only validated child manifests participate in the derived read-only projection.
+        if (value.state === "pending") {
+          issues.push(`continuation.index_pending:${childRunId}`);
+          continue;
+        }
+        const childRoot = await openRunDirectoryReadOnly(this.runsRoot, childRunId);
+        const child = await this.readManifest(childRoot);
+        if (
+          child.parent_run_id !== parentRunId ||
+          canonicalContentHash(continuationIdentity(child)) !== value.child_identity_hash
+        ) {
+          issues.push(`continuation.child_identity_mismatch:${childRunId}`);
+          continue;
+        }
+        children.push(child);
+      } catch (error) {
+        issues.push(
+          `${error instanceof StoreError ? error.code : "continuation.child_unreadable"}:${childRunId}`,
+        );
       }
     }
-    continuationRunIds.sort();
-    const terminalStatuses = new Set(["completed", "failed", "insufficient_evidence", "cancelled"]);
-    const terminalReportStatus = terminalStatuses.has(manifest.status)
+    return {
+      children: children.sort((left, right) => left.run_id.localeCompare(right.run_id)),
+      recognizedRunIds: [...new Set(recognizedRunIds)].sort(),
+      issues: [...new Set(issues)].sort(),
+    };
+  }
+
+  async resolveExecution(runId: string): Promise<RunExecutionResolution> {
+    validateRunId(runId);
+    let cursor = await this.readManifest(await openRunDirectoryReadOnly(this.runsRoot, runId));
+    const chain = [runId];
+    const seen = new Set(chain);
+    let directContinuationRunIds: readonly string[] = [];
+    while (true) {
+      const indexed = await this.continuationChildren(cursor.run_id);
+      if (chain.length === 1) {
+        directContinuationRunIds = indexed.recognizedRunIds;
+      }
+      const issues = [...indexed.issues];
+      if (indexed.children.length > 1) {
+        issues.push(`continuation.multiple_children:${cursor.run_id}`);
+      }
+      if (issues.length > 0 || indexed.children.length > 1) {
+        return {
+          schemaVersion: "startup_opportunity.run_execution_resolution.v1",
+          requestedRunId: runId,
+          disposition: "indeterminate",
+          currentLeafRunId: null,
+          continuationChain: chain,
+          directContinuationRunIds,
+          issues: [...new Set(issues)].sort(),
+        };
+      }
+      const child = indexed.children[0];
+      if (child === undefined) {
+        return {
+          schemaVersion: "startup_opportunity.run_execution_resolution.v1",
+          requestedRunId: runId,
+          disposition:
+            chain.length > 1
+              ? "continued"
+              : TERMINAL_RUN_STATUSES.has(cursor.status)
+                ? "terminal"
+                : "current",
+          currentLeafRunId: cursor.run_id,
+          continuationChain: chain,
+          directContinuationRunIds,
+          issues: [],
+        };
+      }
+      if (seen.has(child.run_id)) {
+        return {
+          schemaVersion: "startup_opportunity.run_execution_resolution.v1",
+          requestedRunId: runId,
+          disposition: "indeterminate",
+          currentLeafRunId: null,
+          continuationChain: chain,
+          directContinuationRunIds,
+          issues: [`continuation.cycle:${child.run_id}`],
+        };
+      }
+      seen.add(child.run_id);
+      chain.push(child.run_id);
+      cursor = child;
+    }
+  }
+
+  async status(runId: string): Promise<StatusRunResult> {
+    const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
+    const manifest = await this.readManifest(runRoot);
+    const resolution = await this.resolveExecution(runId);
+    const terminalReportStatus = TERMINAL_RUN_STATUSES.has(manifest.status)
       ? await this.terminalReportStatus(runId, runRoot, manifest)
       : { disposition: "not_required" as const, issues: [] };
     return {
       schemaVersion: "startup_opportunity.status_run_result.v1",
       runId,
       manifest,
-      continuationRunIds,
-      derivedExecutionDisposition:
-        continuationRunIds.length > 0
-          ? "continued"
-          : terminalStatuses.has(manifest.status)
-            ? "terminal"
-            : "current",
+      continuationRunIds: resolution.directContinuationRunIds,
+      derivedExecutionDisposition: resolution.disposition,
+      currentLeafRunId: resolution.currentLeafRunId,
+      continuationChain: resolution.continuationChain,
+      executionResolutionIssues: resolution.issues,
       terminalReportDisposition: terminalReportStatus.disposition,
       terminalReportIssues: terminalReportStatus.issues,
     };
+  }
+
+  private async assertCurrentLeaf(runId: string): Promise<void> {
+    const resolution = await this.resolveExecution(runId);
+    if (resolution.disposition === "indeterminate") {
+      throw new StoreError(
+        "run.continuation_indeterminate",
+        "Run continuation lineage cannot be resolved safely",
+        { runId, issues: resolution.issues },
+      );
+    }
+    if (resolution.currentLeafRunId !== runId) {
+      throw new StoreError("run.not_current_leaf", "Run has an authoritative continuation leaf", {
+        runId,
+        currentLeafRunId: resolution.currentLeafRunId,
+      });
+    }
   }
 
   private async terminalReportStatus(
@@ -600,6 +867,7 @@ export class RunStore {
     input: DocumentBundle,
   ): Promise<BuildValidationContextResult> {
     validateRunId(runId);
+    await this.assertCurrentLeaf(runId);
     const inputValidation = this.validator.validateDocument(input);
     if (!inputValidation.valid) {
       throw new StoreError(
@@ -668,7 +936,8 @@ export class RunStore {
         selected.set(entry.path, {
           path: entry.path,
           document:
-            entry.document.schema_version === "startup_opportunity.artifact_envelope.v17"
+            entry.document.schema_version === "startup_opportunity.artifact_envelope.v17" ||
+            entry.document.schema_version === "startup_opportunity.artifact_envelope.v18"
               ? entry.document
               : authorityDocument,
         });
@@ -732,7 +1001,8 @@ export class RunStore {
           input.schema_version === "startup_opportunity.document_bundle.v14" ||
           input.schema_version === "startup_opportunity.document_bundle.v15" ||
           input.schema_version === "startup_opportunity.document_bundle.v16" ||
-          input.schema_version === "startup_opportunity.document_bundle.v17"
+          input.schema_version === "startup_opportunity.document_bundle.v17" ||
+          input.schema_version === "startup_opportunity.document_bundle.v18"
             ? { exact_records: [] }
             : {}),
         },
@@ -746,6 +1016,7 @@ export class RunStore {
   }
 
   async publishArtifact(input: PublishArtifactInput): Promise<PublishArtifactResult> {
+    await this.assertCurrentLeaf(input.runId);
     this.artifacts.validateEnvelopeVersionBoundary(input.envelope.schema_version);
     if (input.envelope.artifact_type === "startup_opportunity.checkpoint.v1") {
       throw new StoreError(
@@ -787,6 +1058,7 @@ export class RunStore {
       this.assertBranchPublicationTransition(manifest, input.envelope, ignoredLate);
       this.assertDiscoveryLanePublicationTransition(manifest, input.envelope, ignoredLate);
       this.assertEnrichmentBranchPublicationTransition(manifest, input.envelope, ignoredLate);
+      this.assertDeclarativeRuntimeTransition(manifest, input.envelope, new Set());
       const result = await this.artifacts.publishLocked(runRoot, input);
       if (taskPublicationMode === "replay") {
         return result;
@@ -808,6 +1080,7 @@ export class RunStore {
   async publishArtifactBundle(
     input: PublishArtifactBundleInput,
   ): Promise<PublishArtifactBundleResult> {
+    await this.assertCurrentLeaf(input.runId);
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       let manifest = await this.readManifest(runRoot);
@@ -818,6 +1091,24 @@ export class RunStore {
       >();
       const taskPublicationModes = new Map<string, "not_task" | "transition" | "replay">();
       const transitioningTaskUnits = new Set<string>();
+      const runtimeActivations = new Set<string>();
+      for (const envelope of input.envelopes) {
+        if (envelope.artifact_type !== "startup_opportunity.dispatch_batch.v1") {
+          continue;
+        }
+        for (const task of Array.isArray(envelope.document.tasks) ? envelope.document.tasks : []) {
+          if (isRecord(task) && typeof task.unit_id === "string") {
+            if (runtimeActivations.has(task.unit_id)) {
+              throw new StoreError(
+                "artifact.dispatch_transition_invalid",
+                "one publication bundle cannot dispatch the same unit more than once",
+                { unitId: task.unit_id },
+              );
+            }
+            runtimeActivations.add(task.unit_id);
+          }
+        }
+      }
       for (const envelope of input.envelopes) {
         const taskPublicationMode = await this.researchTaskPublicationMode(
           runRoot,
@@ -876,14 +1167,23 @@ export class RunStore {
           envelope,
           effectiveClassification.ignoredLate,
         );
+        this.assertDeclarativeRuntimeTransition(manifest, envelope, runtimeActivations);
         classifications.set(envelope.artifact_path, effectiveClassification);
       }
       const result = await this.artifacts.publishBundleLocked(runRoot, input);
       const publicationResults = new Map(
         result.artifacts.map((artifact) => [artifact.artifactPath, artifact.status]),
       );
-      for (const envelope of [...input.envelopes].sort((left, right) =>
-        left.artifact_path.localeCompare(right.artifact_path),
+      const projectionRank = (envelope: FormalArtifactEnvelope): number =>
+        envelope.artifact_type === "startup_opportunity.dispatch_batch.v1"
+          ? 0
+          : envelope.artifact_type === "startup_opportunity.discovery_generation_result.v1"
+            ? 2
+            : 1;
+      for (const envelope of [...input.envelopes].sort(
+        (left, right) =>
+          projectionRank(left) - projectionRank(right) ||
+          left.artifact_path.localeCompare(right.artifact_path),
       )) {
         if (taskPublicationModes.get(envelope.artifact_path) === "replay") {
           continue;
@@ -1072,6 +1372,7 @@ export class RunStore {
   }
 
   async checkpoint(input: CheckpointRunInput): Promise<CheckpointRunResult> {
+    await this.assertCurrentLeaf(input.runId);
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, () => this.checkpointLocked(runRoot, input));
   }
@@ -1081,6 +1382,7 @@ export class RunStore {
     event: Record<string, unknown>,
     suppliedOperationKey?: string,
   ): Promise<"appended" | "idempotent_replay"> {
+    await this.assertCurrentLeaf(runId);
     const runRoot = await openRunDirectory(this.runsRoot, runId);
     return withRunLock(runRoot, async () => {
       await this.assertRecordRefsExist(runRoot, event);
@@ -1093,6 +1395,7 @@ export class RunStore {
     decision: Record<string, unknown>,
     suppliedOperationKey?: string,
   ): Promise<"appended" | "idempotent_replay"> {
+    await this.assertCurrentLeaf(runId);
     const runRoot = await openRunDirectory(this.runsRoot, runId);
     return withRunLock(runRoot, async () => {
       await this.assertRecordRefsExist(runRoot, decision);
@@ -1152,6 +1455,36 @@ export class RunStore {
         current_plan_ref: envelope.artifact_path,
         plan_revision: 1,
       };
+    }
+    if (
+      !ignoredLate &&
+      (!exactReplay || !artifactWasTracked) &&
+      envelope.schema_version === "startup_opportunity.artifact_envelope.v18" &&
+      envelope.artifact_type === "startup_opportunity.dispatch_batch.v1"
+    ) {
+      for (const task of Array.isArray(envelope.document.tasks) ? envelope.document.tasks : []) {
+        if (isRecord(task) && typeof task.unit_id === "string") {
+          next = this.moveUnit(next, task.unit_id, "active_units");
+        }
+      }
+      next = {
+        ...next,
+        status: "researching",
+        current_phase: next.mode === "opportunity_discovery" ? "discovery" : "assessment",
+      };
+    }
+    if (
+      !ignoredLate &&
+      (!exactReplay || !artifactWasTracked) &&
+      envelope.schema_version === "startup_opportunity.artifact_envelope.v18" &&
+      envelope.artifact_type === "startup_opportunity.discovery_generation_result.v1" &&
+      typeof envelope.document.unit_id === "string"
+    ) {
+      next = this.moveUnit(
+        next,
+        envelope.document.unit_id,
+        envelope.document.status === "failed" ? "failed_units" : "completed_units",
+      );
     }
     if (
       !ignoredLate &&
@@ -1238,7 +1571,9 @@ export class RunStore {
       ((envelope.schema_version === "startup_opportunity.artifact_envelope.v5" &&
         envelope.artifact_type === "startup_opportunity.gap_snapshot.v1") ||
         (envelope.schema_version === "startup_opportunity.artifact_envelope.v6" &&
-          envelope.artifact_type === "startup_opportunity.gap_snapshot.v2"))
+          envelope.artifact_type === "startup_opportunity.gap_snapshot.v2") ||
+        (envelope.schema_version === "startup_opportunity.artifact_envelope.v18" &&
+          envelope.artifact_type === "startup_opportunity.gap_snapshot.v3"))
     ) {
       const advancesLatest =
         !exactReplay ||
@@ -1252,7 +1587,9 @@ export class RunStore {
       ((envelope.schema_version === "startup_opportunity.artifact_envelope.v5" &&
         envelope.artifact_type === "startup_opportunity.adaptation_decision.v2") ||
         (envelope.schema_version === "startup_opportunity.artifact_envelope.v6" &&
-          envelope.artifact_type === "startup_opportunity.adaptation_decision.v3"))
+          envelope.artifact_type === "startup_opportunity.adaptation_decision.v3") ||
+        (envelope.schema_version === "startup_opportunity.artifact_envelope.v18" &&
+          envelope.artifact_type === "startup_opportunity.adaptation_decision.v2"))
     ) {
       const lifecycleFields = [
         "pending_adaptation_refs",
@@ -1274,6 +1611,73 @@ export class RunStore {
     }
     this.validateManifest(next);
     return next;
+  }
+
+  private assertDeclarativeRuntimeTransition(
+    manifest: RunManifest,
+    envelope: FormalArtifactEnvelope,
+    sameBundleActivations: ReadonlySet<string>,
+  ): void {
+    if (envelope.schema_version !== "startup_opportunity.artifact_envelope.v18") {
+      return;
+    }
+    const tracked =
+      manifest.artifact_refs.includes(envelope.artifact_path) ||
+      manifest.ignored_late_artifact_refs.includes(envelope.artifact_path);
+    if (tracked) {
+      return;
+    }
+    const stateFields = [
+      "completed_units",
+      "active_units",
+      "failed_units",
+      "invalidated_units",
+      "skipped_units",
+      "cancelled_units",
+      "superseded_units",
+    ] as const;
+    const stateOf = (unitId: string): string | null =>
+      stateFields.find((field) => manifest[field].includes(unitId)) ?? null;
+    if (envelope.artifact_type === "startup_opportunity.dispatch_batch.v1") {
+      if (envelope.document.research_plan_ref !== manifest.current_plan_ref) {
+        throw new StoreError(
+          "artifact.dispatch_transition_invalid",
+          "dispatch batch must activate units from the current immutable Research Plan",
+          {
+            currentPlanRef: manifest.current_plan_ref,
+            batchPlanRef: envelope.document.research_plan_ref,
+          },
+        );
+      }
+      const seen = new Set<string>();
+      for (const task of Array.isArray(envelope.document.tasks) ? envelope.document.tasks : []) {
+        if (!isRecord(task) || typeof task.unit_id !== "string") {
+          continue;
+        }
+        const state = stateOf(task.unit_id);
+        if (seen.has(task.unit_id) || state !== null) {
+          throw new StoreError(
+            "artifact.dispatch_transition_invalid",
+            "dispatch batch only permits one pending-to-active transition per unit",
+            { unitId: task.unit_id, state },
+          );
+        }
+        seen.add(task.unit_id);
+      }
+    }
+    if (
+      envelope.artifact_type === "startup_opportunity.discovery_generation_result.v1" &&
+      typeof envelope.document.unit_id === "string"
+    ) {
+      const state = stateOf(envelope.document.unit_id);
+      if (state !== "active_units" && !sameBundleActivations.has(envelope.document.unit_id)) {
+        throw new StoreError(
+          "artifact.generation_transition_invalid",
+          "Discovery generation result requires an active dispatch task",
+          { unitId: envelope.document.unit_id, state },
+        );
+      }
+    }
   }
 
   private async gapReplayAdvancesLatest(
@@ -1305,9 +1709,11 @@ export class RunStore {
     await this.artifacts.validateStoredEnvelope(runRoot, manifest.run_id, currentEnvelope);
     if (
       currentEnvelope.artifact_path !== currentRef ||
-      !["startup_opportunity.gap_snapshot.v1", "startup_opportunity.gap_snapshot.v2"].includes(
-        currentEnvelope.artifact_type,
-      )
+      ![
+        "startup_opportunity.gap_snapshot.v1",
+        "startup_opportunity.gap_snapshot.v2",
+        "startup_opportunity.gap_snapshot.v3",
+      ].includes(currentEnvelope.artifact_type)
     ) {
       throw new StoreError(
         "manifest.latest_gap_invalid",
@@ -1838,7 +2244,8 @@ export class RunStore {
       recoveryBundleVersion === "startup_opportunity.document_bundle.v14" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v15" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v16" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v17"
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v17" ||
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v18"
     ) {
       for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
         if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
@@ -1861,7 +2268,8 @@ export class RunStore {
         recoveryBundleVersion === "startup_opportunity.document_bundle.v14" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v15" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v16" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v17"
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v17" ||
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v18"
           ? { exact_records: [] }
           : {}),
       },

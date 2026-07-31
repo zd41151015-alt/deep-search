@@ -1776,6 +1776,26 @@ test("Adaptation validator accepts all closed actions and rejects retry outside 
       (error) => error.code === "adaptation.termination_followup_available",
     ),
   );
+  const runtimeBlockedGap = gapSnapshot(terminateRunId);
+  const runtimeBlockedEntry = (runtimeBlockedGap.gaps as Record<string, unknown>[])[0];
+  assert.ok(runtimeBlockedEntry);
+  runtimeBlockedEntry.gap_type = "runtime_blocked";
+  runtimeBlockedEntry.recommended_unit_types = [];
+  runtimeBlockedGap.stop_signals = ["runtime_blocked"];
+  const runtimeBlocked = validator.validateDocumentBundle(
+    bundle(
+      terminateManifest,
+      terminatePlan,
+      terminateContext,
+      runtimeBlockedGap,
+      terminateDecision,
+    ),
+  );
+  assert.ok(
+    runtimeBlocked.adaptationErrors.some(
+      (error) => error.code === "adaptation.termination_runtime_blocked",
+    ),
+  );
   const unclosed = bundle(
     terminateManifest,
     terminatePlan,

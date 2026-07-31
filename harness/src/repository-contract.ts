@@ -61,6 +61,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v17.json",
   "harness/schemas/bundle.v16.json",
   "harness/schemas/bundle.v15.json",
   "harness/schemas/bundle.v14.json",
@@ -247,11 +248,26 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v17/research-publication-policy-v12.schema.json",
   "harness/schemas/v17/artifact-envelope.schema.json",
   "harness/schemas/v17/document-bundle.schema.json",
+  "harness/schemas/v18/runtime-artifact-compilation-request.schema.json",
+  "harness/schemas/v18/runtime-artifact-compilation-result.schema.json",
+  "harness/schemas/v18/research-execution-plan.schema.json",
+  "harness/schemas/v18/dispatch-batch.schema.json",
+  "harness/schemas/v18/lane-lifecycle.schema.json",
+  "harness/schemas/v18/discovery-generation-result.schema.json",
+  "harness/schemas/v18/candidate-neutral-evidence.schema.json",
+  "harness/schemas/v18/discovery-stage-readiness.schema.json",
+  "harness/schemas/v18/source-manifest-v4.schema.json",
+  "harness/schemas/v18/gap-snapshot-v3.schema.json",
+  "harness/schemas/v18/continuation-lineage-entry.schema.json",
+  "harness/schemas/v18/research-publication-policy-v13.schema.json",
+  "harness/schemas/v18/artifact-envelope.schema.json",
+  "harness/schemas/v18/document-bundle.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/schema-bundle.ts",
   "harness/src/validators/artifact-validator.ts",
+  "harness/src/validators/declarative-runtime-validator.ts",
   "harness/src/validators/ai-bundle-validator.ts",
   "harness/src/validators/assess-domain-validator.ts",
   "harness/src/validators/research-branch-validator.ts",
@@ -300,6 +316,8 @@ export const STORE_SOURCE_PATHS = [
   "harness/src/reporting/report-runtime.ts",
   "harness/src/reporting/report-commands.ts",
   "harness/src/reporting/terminal-reporting.ts",
+  "harness/src/runtime/declarative-runtime.ts",
+  "harness/src/runtime/runtime-commands.ts",
 ] as const;
 
 export const SKILL_SCRIPT_PATHS = [
@@ -346,6 +364,7 @@ export const RESPONSIBILITY_PATHS = [
   "harness/policies/discovery-evaluation.v3.json",
   "harness/policies/research-publication.v11.json",
   "harness/policies/research-publication.v12.json",
+  "harness/policies/research-publication.v13.json",
   "tests/fixtures/README.md",
   "tests/fixtures/g1.2/README.md",
   "tests/fixtures/g1.3/README.md",

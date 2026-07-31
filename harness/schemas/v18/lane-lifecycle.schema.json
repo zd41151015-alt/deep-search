@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v18/lane-lifecycle.schema.json",
+  "title": "Startup Opportunity Lane Lifecycle Observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "lifecycle_id",
+    "revision",
+    "parent_lifecycle_ref",
+    "run_id",
+    "unit_id",
+    "attempt",
+    "dispatch_batch_ref",
+    "state",
+    "timestamps",
+    "failure",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.lane_lifecycle.v1" },
+    "lifecycle_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "parent_lifecycle_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^artifacts/runtime/lane-lifecycle/.+\\.r[1-9][0-9]*\\.json$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
+    "unit_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "dispatch_batch_ref": {
+      "type": "string",
+      "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "state": {
+      "enum": [
+        "dispatch_requested",
+        "agent_started",
+        "researching",
+        "evidence_recorded",
+        "handoff_ready",
+        "formalization_validated",
+        "published",
+        "partial",
+        "failed",
+        "late_ignored"
+      ]
+    },
+    "timestamps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_ready_at",
+        "dispatch_requested_at",
+        "agent_started_at",
+        "evidence_recorded_at",
+        "handoff_ready_at",
+        "formalization_validated_at",
+        "published_at"
+      ],
+      "properties": {
+        "task_ready_at": { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+        "dispatch_requested_at": { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+        "agent_started_at": {
+          "anyOf": [
+            { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        },
+        "evidence_recorded_at": {
+          "anyOf": [
+            { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        },
+        "handoff_ready_at": {
+          "anyOf": [
+            { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        },
+        "formalization_validated_at": {
+          "anyOf": [
+            { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        },
+        "published_at": {
+          "anyOf": [
+            { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "detail", "retryable"],
+          "properties": {
+            "kind": {
+              "enum": [
+                "agent_failed",
+                "timeout",
+                "validation_failed",
+                "publication_failed",
+                "runtime_blocked"
+              ]
+            },
+            "detail": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
+            "retryable": { "type": "boolean" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "limitations": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" }
+  }
+}
