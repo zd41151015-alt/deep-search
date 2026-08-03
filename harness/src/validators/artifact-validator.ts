@@ -2595,6 +2595,33 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "gate_ref", "startup_opportunity.assessment_stage_gate.v1"),
       ];
+    case "startup_opportunity.assessment_evidence.v1":
+      return [
+        ...optionalRef(
+          document,
+          "dispatch_batch_ref",
+          "startup_opportunity.dispatch_batch.v2",
+          "task_id",
+        ),
+        ...optionalRef(
+          document,
+          "concept_hypothesis_ref",
+          "startup_opportunity.concept_hypothesis.v2",
+        ),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(
+          document,
+          "execution_plan_ref",
+          "startup_opportunity.research_execution_plan.v2",
+        ),
+        ...nestedRef(
+          document,
+          "mechanical_binding",
+          "substrate_record_ref",
+          "startup_opportunity.evidence_store_record.v2",
+          "evidence_id",
+        ),
+      ];
     case "startup_opportunity.assessment_lane_result.v1":
       return [
         ...optionalRef(
@@ -2611,6 +2638,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.evidence.v1",
           "startup_opportunity.evidence.v2",
           "startup_opportunity.evidence.v3",
+          "startup_opportunity.assessment_evidence.v1",
         ]),
         ...refsFromNestedArray(document, "dimension_results", "supporting_claim_refs", [
           "startup_opportunity.claim.v1",
@@ -3897,6 +3925,7 @@ export class ArtifactValidator {
         "startup_opportunity.concept_hypothesis.v2",
         "startup_opportunity.research_execution_plan.v2",
         "startup_opportunity.dispatch_batch.v2",
+        "startup_opportunity.assessment_evidence.v1",
         "startup_opportunity.assessment_lane_result.v1",
         "startup_opportunity.assessment_stage_gate.v1",
         "startup_opportunity.assessment_followup_decision.v1",

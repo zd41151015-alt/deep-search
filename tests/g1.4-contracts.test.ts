@@ -63,8 +63,8 @@ test("default bundle retains G1.4 and validates all four closed Assessment resul
   const schema = await inspectSchemaBundle(repositoryRoot);
   assert.equal(schema.valid, true, JSON.stringify(schema.errors));
   assert.equal(schema.schemaBundleVersion, "18.0.0");
-  assert.equal(schema.schemaCount, 193);
-  assert.equal(schema.documentSchemaCount, 183);
+  assert.equal(schema.schemaCount, 194);
+  assert.equal(schema.documentSchemaCount, 184);
 
   const validator = await createArtifactValidator(repositoryRoot);
   for (const assessmentResult of [

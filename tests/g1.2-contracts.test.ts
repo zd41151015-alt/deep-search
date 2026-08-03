@@ -191,8 +191,8 @@ test("G1.2 bundle publishes versioned Evidence Store and research branch schemas
   const result = await inspectSchemaBundle(repositoryRoot);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
   assert.equal(result.schemaBundleVersion, "18.0.0");
-  assert.equal(result.schemaCount, 193);
-  assert.equal(result.documentSchemaCount, 183);
+  assert.equal(result.schemaCount, 194);
+  assert.equal(result.documentSchemaCount, 184);
 });
 
 test("four synthetic branches publish Evidence -> Claim -> Finding -> Insight and reopen", async (context) => {

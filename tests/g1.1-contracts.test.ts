@@ -121,8 +121,8 @@ test("G1.1 bundle publishes all closed assess document schemas", async () => {
   const result = await inspectSchemaBundle(repositoryRoot);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
   assert.equal(result.schemaBundleVersion, "18.0.0");
-  assert.equal(result.schemaCount, 193);
-  assert.equal(result.documentSchemaCount, 183);
+  assert.equal(result.schemaCount, 194);
+  assert.equal(result.documentSchemaCount, 184);
 });
 
 test("complete no-Evidence assess fixture closes schema, refs, identity, branch, fan-in, and matrix contracts", async () => {

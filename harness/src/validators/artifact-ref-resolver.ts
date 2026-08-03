@@ -95,7 +95,10 @@ export function formalArtifactFragmentExists(
       nestedIdExists(target.document, "gaps", "gap_id", fragment)
     );
   }
-  if (target.schemaVersion === "startup_opportunity.dispatch_batch.v1") {
+  if (
+    target.schemaVersion === "startup_opportunity.dispatch_batch.v1" ||
+    target.schemaVersion === "startup_opportunity.dispatch_batch.v2"
+  ) {
     return (
       (expectedIdField === undefined || expectedIdField === "task_id") &&
       nestedIdExists(target.document, "tasks", "task_id", fragment)

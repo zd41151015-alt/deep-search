@@ -20,6 +20,11 @@
       "document_schema_version": "startup_opportunity.dispatch_batch.v2"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/v19/assessment-evidence.schema.json",
+      "file": "v19/assessment-evidence.schema.json",
+      "document_schema_version": "startup_opportunity.assessment_evidence.v1"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/v19/assessment-lane-result.schema.json",
       "file": "v19/assessment-lane-result.schema.json",
       "document_schema_version": "startup_opportunity.assessment_lane_result.v1"

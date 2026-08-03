@@ -168,8 +168,8 @@ test("published schema bundle is closed, versioned, and internally resolvable", 
   const result = await inspectSchemaBundle(repositoryRoot);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
   assert.equal(result.schemaBundleVersion, "18.0.0");
-  assert.equal(result.schemaCount, 193);
-  assert.equal(result.documentSchemaCount, 183);
+  assert.equal(result.schemaCount, 194);
+  assert.equal(result.documentSchemaCount, 184);
   assert.deepEqual(result.errors, []);
 });
 
@@ -365,8 +365,8 @@ test("validator rejects unpublished schema versions and malformed command argume
 test("G2.2 Scheme A bundle installs a closed pre-thesis candidate contract", async () => {
   const schema = await inspectSchemaBundle(repositoryRoot);
   assert.equal(schema.schemaBundleVersion, "18.0.0");
-  assert.equal(schema.schemaCount, 193);
-  assert.equal(schema.documentSchemaCount, 183);
+  assert.equal(schema.schemaCount, 194);
+  assert.equal(schema.documentSchemaCount, 184);
 
   const validator = await createArtifactValidator(repositoryRoot);
   const policy = await readJson<Record<string, unknown>>(

@@ -108,6 +108,7 @@ const ASSESSMENT_EXECUTION_ARTIFACT_TYPES = new Set([
   "startup_opportunity.concept_hypothesis.v2",
   "startup_opportunity.research_execution_plan.v2",
   "startup_opportunity.dispatch_batch.v2",
+  "startup_opportunity.assessment_evidence.v1",
   "startup_opportunity.assessment_lane_result.v1",
   "startup_opportunity.assessment_stage_gate.v1",
   "startup_opportunity.assessment_followup_decision.v1",

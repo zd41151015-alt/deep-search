@@ -172,6 +172,70 @@ function validateConcept(
   }
 }
 
+function validateAssessmentEvidence(
+  evidence: AssessmentExecutionDocument,
+  documents: ReadonlyMap<string, AssessmentExecutionDocument>,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+  errors: ValidationIssue[],
+): void {
+  const dispatchRef = String(evidence.document.dispatch_batch_ref ?? "");
+  const [dispatchPath, taskId] = dispatchRef.split("#", 2);
+  const dispatch = documents.get(dispatchPath ?? "") ?? null;
+  const task = records(dispatch?.document.tasks).find((entry) => entry.task_id === taskId);
+  const concept = targetByRef(documents, evidence.document.concept_hypothesis_ref);
+  const plan = targetByRef(documents, evidence.document.research_plan_ref);
+  const execution = targetByRef(documents, evidence.document.execution_plan_ref);
+  const unit = planUnits(plan).find((entry) => entry.unit_id === evidence.document.unit_id);
+  if (
+    dispatch?.schemaVersion !== "startup_opportunity.dispatch_batch.v2" ||
+    dispatch.document.run_id !== evidence.document.run_id ||
+    dispatch.document.research_plan_ref !== evidence.document.research_plan_ref ||
+    dispatch.document.execution_plan_ref !== evidence.document.execution_plan_ref ||
+    task?.unit_id !== evidence.document.unit_id ||
+    concept?.schemaVersion !== "startup_opportunity.concept_hypothesis.v2" ||
+    concept.document.run_id !== evidence.document.run_id ||
+    plan?.schemaVersion !== "startup_opportunity.research_plan.v1" ||
+    plan.document.run_id !== evidence.document.run_id ||
+    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.v2" ||
+    execution.document.run_id !== evidence.document.run_id ||
+    execution.document.concept_hypothesis_ref !== evidence.document.concept_hypothesis_ref ||
+    unit?.research_goal !== evidence.document.research_goal
+  ) {
+    errors.push(
+      issue(
+        "assessment_execution.evidence_binding_invalid",
+        evidence.path,
+        "Assessment Evidence must bind one exact dispatched task, frozen thesis, and current Plans",
+      ),
+    );
+  }
+  const mechanical = isRecord(evidence.document.mechanical_binding)
+    ? evidence.document.mechanical_binding
+    : {};
+  const substrateRef = mechanical.substrate_record_ref;
+  const substrate = typeof substrateRef === "string" ? exactRecords.get(substrateRef) : undefined;
+  if (
+    substrate?.schema_version !== "startup_opportunity.evidence_store_record.v2" ||
+    substrate.run_id !== evidence.document.run_id ||
+    substrate.unit_id !== evidence.document.unit_id ||
+    substrate.evidence_id !== evidence.document.evidence_id ||
+    substrate.research_goal !== evidence.document.research_goal ||
+    substrate.source_hash !== mechanical.source_hash ||
+    substrate.content_hash !== mechanical.content_hash ||
+    substrate.raw_content_ref !== mechanical.raw_content_ref ||
+    substrate.operation_key !== mechanical.operation_key ||
+    substrate.recorded_at !== mechanical.recorded_at
+  ) {
+    errors.push(
+      issue(
+        "assessment_execution.evidence_substrate_invalid",
+        `${evidence.path}#/mechanical_binding`,
+        "Assessment Evidence must reproduce its exact Evidence Store identity and mechanical binding",
+      ),
+    );
+  }
+}
+
 function validateExecutionPlan(
   execution: AssessmentExecutionDocument,
   documents: ReadonlyMap<string, AssessmentExecutionDocument>,
@@ -819,6 +883,7 @@ export function validateAssessmentExecutionContract(
       "startup_opportunity.concept_hypothesis.v2",
       "startup_opportunity.research_execution_plan.v2",
       "startup_opportunity.dispatch_batch.v2",
+      "startup_opportunity.assessment_evidence.v1",
       "startup_opportunity.assessment_lane_result.v1",
       "startup_opportunity.assessment_stage_gate.v1",
       "startup_opportunity.assessment_followup_decision.v1",
@@ -836,6 +901,11 @@ export function validateAssessmentExecutionContract(
     (entry) => entry.schemaVersion === "startup_opportunity.research_execution_plan.v2",
   )) {
     validateExecutionPlan(execution, documentsByPath, policy, errors);
+  }
+  for (const evidence of relevant.filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.assessment_evidence.v1",
+  )) {
+    validateAssessmentEvidence(evidence, documentsByPath, exactRecords, errors);
   }
   for (const result of relevant.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.assessment_lane_result.v1",

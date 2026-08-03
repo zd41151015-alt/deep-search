@@ -11,6 +11,7 @@ import {
   createArtifactValidator,
   DeclarativeRuntimeCompiler,
   deriveAssessmentFollowupRevision,
+  EvidenceStore,
   type FormalArtifactEnvelope,
   RunStore,
   StoreError,
@@ -384,6 +385,25 @@ function judgmentEntries(
               subject_ref: conceptPath,
               dimension: dimension.dimension_id,
               judgment_id: `judgment_${String(result.document.unit_id)}_${String(index)}`,
+              judgment_signal:
+                dimension.dimension_decision === "opposes"
+                  ? "opposed"
+                  : dimension.dimension_decision === "supports"
+                    ? "supported"
+                    : dimension.dimension_decision === "insufficient_evidence"
+                      ? "no_signal"
+                      : "mixed",
+              evidence_tier_summary: [],
+              supporting_claim_refs:
+                dimension.dimension_decision === "supports" ? [conceptPath] : [],
+              opposing_claim_refs: dimension.dimension_decision === "opposes" ? [conceptPath] : [],
+              representativeness: "SYNTHETIC contract judgment; not market Evidence.",
+              independence: "SYNTHETIC contract judgment with no independence claim.",
+              decision_sufficiency: dimension.decision_sufficiency,
+              insufficiency_reasons: dimension.insufficiency_reasons,
+              what_would_change_the_decision: dimension.what_would_change_decision,
+              valid_as_of: "2026-08-02",
+              limitations: ["SYNTHETIC_ONLY_NOT_EVIDENCE"],
             }),
           ];
     }),
@@ -541,6 +561,66 @@ function compilationRequest(
     created_at: createdAt,
     artifacts,
   };
+}
+
+function assessmentEvidence(
+  runId: string,
+  plan: Record<string, unknown>,
+  dispatch: AssessmentExecutionDocument,
+  record: Record<string, unknown>,
+): AssessmentExecutionDocument {
+  const unitId = String(record.unit_id);
+  const planUnit = (plan.waves as Record<string, unknown>[])
+    .flatMap((wave) => wave.units as Record<string, unknown>[])
+    .find((unit) => unit.unit_id === unitId);
+  assert.ok(planUnit);
+  const task = (dispatch.document.tasks as Record<string, unknown>[]).find(
+    (candidate) => candidate.unit_id === unitId,
+  );
+  assert.ok(task);
+  return entry(`evidence/records/${String(record.evidence_id)}.json`, {
+    schema_version: "startup_opportunity.assessment_evidence.v1",
+    evidence_id: record.evidence_id,
+    run_id: runId,
+    unit_id: unitId,
+    dispatch_batch_ref: `${dispatch.path}#${String(task.task_id)}`,
+    concept_hypothesis_ref: conceptPath,
+    research_plan_ref: planPath,
+    execution_plan_ref: executionPath,
+    source_type: "web_page",
+    source_name: "Synthetic assessment Evidence contract source",
+    research_goal: planUnit.research_goal,
+    source_group_id: "source_synthetic_assessment_contract",
+    mechanical_binding: {
+      substrate_record_ref: `evidence/manifest.jsonl#${String(record.evidence_id)}`,
+      source_hash: record.source_hash,
+      content_hash: record.content_hash,
+      raw_content_ref: record.raw_content_ref,
+      operation_key: record.operation_key,
+      recorded_at: record.recorded_at,
+    },
+    provenance: {
+      acquisition_method: "synthetic_fixture_only",
+      source_owner: "Synthetic test fixture",
+      original_creator: "Synthetic test fixture",
+      method_notes: "Synthetic bytes exercise the current Assessment Evidence binding only.",
+    },
+    source_assessment: {
+      independence: "unknown",
+      canonical_source_group: "source_synthetic_assessment_contract",
+      shared_dataset_group: null,
+      syndication_group: null,
+      biases: ["sampling_method_unknown"],
+      bias_notes: "Synthetic contract material is not research Evidence.",
+    },
+    evidence_tier: "model_inference_only",
+    evidence_lifecycle_status: "active",
+    evidence_role: "context",
+    representativeness: "Only the deterministic current-contract test path is represented.",
+    valid_as_of: "2026-08-02",
+    freshness_policy: "immutable_historical_record",
+    limitations: ["SYNTHETIC_ONLY_NOT_EVIDENCE"],
+  });
 }
 
 function v4Envelope(
@@ -975,6 +1055,200 @@ test("thesis provenance blocks unknowns, requires exact user confirmation, and r
       exactRecords,
     ).includes("assessment_execution.report_omits_thesis_provenance"),
   );
+});
+
+test("Assessment Evidence binds a current dispatch task and exact Evidence Store substrate", async (t) => {
+  const state = await prepareStoreRun(t, "evidence");
+  const execution = executionPlan(state.runId, state.plan);
+  await state.compiler.compile(
+    compilationRequest(
+      state.runId,
+      [runtimeArtifact(executionPath, execution, "main_agent")],
+      "compile_execution_evidence_synthetic",
+    ),
+  );
+  const dispatch = dispatchForStage(state.runId, execution, 0, null);
+  await state.compiler.compile(
+    compilationRequest(
+      state.runId,
+      [runtimeArtifact(dispatch.path, dispatch.document, "harness")],
+      "compile_dispatch_evidence_synthetic",
+    ),
+  );
+  const planUnit = (state.plan.waves as Record<string, unknown>[])
+    .flatMap((wave) => wave.units as Record<string, unknown>[])
+    .find((unit) => unit.unit_id === "unit_problem_evidence");
+  assert.ok(planUnit);
+  const substrate = (
+    await new EvidenceStore(state.runsRoot).record({
+      runId: state.runId,
+      unitId: "unit_problem_evidence",
+      researchGoal: String(planUnit.research_goal),
+      source: {
+        kind: "public_url",
+        canonical_url: "https://assessment-evidence.synthetic.invalid/current-contract",
+      },
+      rawContent: "SYNTHETIC current Assessment Evidence bytes; not market Evidence.",
+      recordedAt: createdAt,
+    })
+  ).record;
+  const evidence = assessmentEvidence(state.runId, state.plan, dispatch, substrate);
+  assert.equal(state.validator.validateDocument(evidence.document).valid, true);
+  const exactRecords = new Map([
+    [`evidence/manifest.jsonl#${substrate.evidence_id}`, substrate as Record<string, unknown>],
+  ]);
+  assert.deepEqual(
+    contractCodes(
+      [...baseDocuments(state.runId, state.plan, execution), dispatch, evidence],
+      state.validator.assessmentExecutionPolicy,
+      exactRecords,
+    ),
+    [],
+  );
+  const published = await state.compiler
+    .compile(
+      compilationRequest(
+        state.runId,
+        [runtimeArtifact(evidence.path, evidence.document, "lane-researcher")],
+        "compile_assessment_evidence_synthetic",
+      ),
+    )
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+      }
+      throw error;
+    });
+  assert.equal(published.status, "published");
+  assert.equal(
+    published.compiled_envelopes[0]?.schema_version,
+    "startup_opportunity.artifact_envelope.v19",
+  );
+
+  const wrongUnit = structuredClone(evidence.document);
+  wrongUnit.unit_id = "unit_counter_risk";
+  const wrongUnitCodes = contractCodes(
+    [
+      ...baseDocuments(state.runId, state.plan, execution),
+      dispatch,
+      entry(evidence.path, wrongUnit),
+    ],
+    state.validator.assessmentExecutionPolicy,
+    exactRecords,
+  );
+  assert.ok(wrongUnitCodes.includes("assessment_execution.evidence_binding_invalid"));
+  assert.ok(wrongUnitCodes.includes("assessment_execution.evidence_substrate_invalid"));
+
+  const wrongBinding = structuredClone(evidence.document);
+  (wrongBinding.mechanical_binding as Record<string, unknown>).operation_key =
+    `sha256:${"0".repeat(64)}`;
+  assert.ok(
+    contractCodes(
+      [
+        ...baseDocuments(state.runId, state.plan, execution),
+        dispatch,
+        entry(evidence.path, wrongBinding),
+      ],
+      state.validator.assessmentExecutionPolicy,
+      exactRecords,
+    ).includes("assessment_execution.evidence_substrate_invalid"),
+  );
+});
+
+test("terminal Assessment gates atomically project Run outcomes and recover exact replay", async (t) => {
+  const cases = [
+    { outcome: "deprioritize", disposition: "opposes", status: "completed" },
+    {
+      outcome: "insufficient_evidence",
+      disposition: "insufficient_evidence",
+      status: "insufficient_evidence",
+    },
+    { outcome: "runtime_blocked", disposition: "insufficient_evidence", status: "failed" },
+  ] as const;
+  for (const item of cases) {
+    const state = await prepareStoreRun(t, `terminal-${item.outcome}`);
+    const execution = executionPlan(state.runId, state.plan);
+    await state.compiler.compile(
+      compilationRequest(
+        state.runId,
+        [runtimeArtifact(executionPath, execution, "main_agent")],
+        `compile_execution_${item.outcome}`,
+      ),
+    );
+    const dispatch = dispatchForStage(state.runId, execution, 0, null);
+    await state.compiler.compile(
+      compilationRequest(
+        state.runId,
+        [runtimeArtifact(dispatch.path, dispatch.document, "harness")],
+        `compile_dispatch_${item.outcome}`,
+      ),
+    );
+    const earlyStage = recordAt(
+      execution.stages as Record<string, unknown>[],
+      0,
+      `${item.outcome} early stage`,
+    );
+    const failed = item.outcome === "runtime_blocked";
+    const results = (earlyStage.lanes as Record<string, unknown>[]).map((selectedLane) =>
+      resultForLane(
+        state.runId,
+        earlyStage,
+        selectedLane,
+        item.disposition,
+        failed ? "failed" : "completed",
+      ),
+    );
+    if (!failed) {
+      await state.store.publishArtifactBundle({
+        runId: state.runId,
+        envelopes: judgmentEntries(results).map((judgment) =>
+          v4Envelope(state.runId, judgment.path, judgment.document, [conceptPath]),
+        ),
+      });
+    }
+    await state.compiler.compile(
+      compilationRequest(
+        state.runId,
+        results.map((result) => runtimeArtifact(result.path, result.document, "lane-researcher")),
+        `compile_results_${item.outcome}`,
+      ),
+    );
+    const gate = gateForStage(state.runId, execution, 0, results, item.outcome);
+    const gateRequest = compilationRequest(
+      state.runId,
+      [runtimeArtifact(gate.path, gate.document, "main_agent")],
+      `compile_gate_${item.outcome}`,
+    );
+    if (item.outcome === "deprioritize") {
+      await assert.rejects(
+        state.compiler.compile(gateRequest, { faultAt: "after_temp_write" }),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+      const reopened = await state.store.load(state.runId);
+      assert.deepEqual(reopened.recoveredArtifactPaths, [gate.path]);
+    } else {
+      assert.equal((await state.compiler.compile(gateRequest)).status, "published");
+    }
+    const manifest = (await state.store.status(state.runId)).manifest;
+    assert.equal(manifest.status, item.status);
+    assert.deepEqual(manifest.skipped_units, ["unit_business_delivery", "unit_commercial"]);
+    assert.equal((await state.compiler.compile(gateRequest)).status, "idempotent_replay");
+    assert.deepEqual((await state.store.status(state.runId)).manifest, manifest);
+
+    const forbiddenDispatch = dispatchForStage(state.runId, execution, 1, gate.path);
+    await assert.rejects(
+      state.compiler.compile(
+        compilationRequest(
+          state.runId,
+          [runtimeArtifact(forbiddenDispatch.path, forbiddenDispatch.document, "harness")],
+          `compile_forbidden_${item.outcome}`,
+        ),
+      ),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "runtime.compilation_validation_failed",
+    );
+    assert.deepEqual((await state.store.status(state.runId)).manifest, manifest);
+  }
 });
 
 test("v19 compiler publishes, rejects mixed surfaces, recovers faults, and projects terminal staging", async (t) => {

@@ -299,6 +299,9 @@ function checkpointDocument(envelope: FormalArtifactEnvelope): Record<string, un
 }
 
 function recoveryTransitionRank(envelope: FormalArtifactEnvelope): number {
+  if (envelope.artifact_type === "startup_opportunity.research_plan.v1") {
+    return -1;
+  }
   if (
     envelope.artifact_type === "startup_opportunity.dispatch_batch.v1" ||
     envelope.artifact_type === "startup_opportunity.dispatch_batch.v2" ||
@@ -316,6 +319,9 @@ function recoveryTransitionRank(envelope: FormalArtifactEnvelope): number {
     envelope.artifact_type === "startup_opportunity.enrichment_branch_result.v1"
   ) {
     return 2;
+  }
+  if (envelope.artifact_type === "startup_opportunity.assessment_stage_gate.v1") {
+    return 3;
   }
   return 1;
 }
@@ -1640,6 +1646,16 @@ export class RunStore {
         : []) {
         if (typeof unitId === "string") next = this.moveUnit(next, unitId, "skipped_units");
       }
+      const outcome = envelope.document.outcome;
+      next = {
+        ...next,
+        status:
+          outcome === "deprioritize"
+            ? "completed"
+            : outcome === "insufficient_evidence"
+              ? "insufficient_evidence"
+              : "failed",
+      };
     }
     if (
       !ignoredLate &&

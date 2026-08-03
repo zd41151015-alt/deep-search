@@ -266,6 +266,7 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v19/concept-hypothesis-v2.schema.json",
   "harness/schemas/v19/research-execution-plan-v2.schema.json",
   "harness/schemas/v19/dispatch-batch-v2.schema.json",
+  "harness/schemas/v19/assessment-evidence.schema.json",
   "harness/schemas/v19/assessment-lane-result.schema.json",
   "harness/schemas/v19/assessment-stage-gate.schema.json",
   "harness/schemas/v19/assessment-followup-decision.schema.json",
