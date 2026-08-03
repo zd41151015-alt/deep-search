@@ -76,24 +76,36 @@ function refresh(bundle: DocumentBundle, artifactPath: string): void {
   }
 }
 
-function v10Envelopes(bundle: DocumentBundle): FormalArtifactEnvelope[] {
+function currentEnvelopes(bundle: DocumentBundle): FormalArtifactEnvelope[] {
   return bundle.documents
     .map((candidate) => candidate.document as unknown as FormalArtifactEnvelope)
     .filter(
-      (candidate) => candidate.schema_version === "startup_opportunity.artifact_envelope.v10",
+      (candidate) => candidate.schema_version === "startup_opportunity.artifact_envelope.current",
     );
 }
 
-function v11Envelopes(bundle: DocumentBundle): FormalArtifactEnvelope[] {
-  return bundle.documents
-    .map((candidate) => candidate.document as unknown as FormalArtifactEnvelope)
-    .filter(
-      (candidate) => candidate.schema_version === "startup_opportunity.artifact_envelope.v11",
-    );
+const SYNTHESIS_PATHS = new Set([
+  G23_DEMAND_CONVERSION,
+  G23_DEMAND,
+  G23_BASELINE_CONVERSION,
+  G23_BASELINE,
+  G23_SOLUTION_CONVERSION,
+  G23_SOLUTION,
+  G23_EVALUATION,
+  G23_OPPORTUNITY_B,
+  G23_OPPORTUNITY_A,
+  G23_SNAPSHOT,
+  G23_MERGE,
+]);
+
+function synthesisEnvelopes(bundle: DocumentBundle): FormalArtifactEnvelope[] {
+  return currentEnvelopes(bundle).filter((candidate) =>
+    SYNTHESIS_PATHS.has(candidate.artifact_path),
+  );
 }
 
 function byTypes(bundle: DocumentBundle, ...types: readonly string[]): FormalArtifactEnvelope[] {
-  return v10Envelopes(bundle).filter((candidate) => types.includes(candidate.artifact_type));
+  return currentEnvelopes(bundle).filter((candidate) => types.includes(candidate.artifact_type));
 }
 
 async function setup(context: TestContext, suffix: string): Promise<State> {
@@ -184,7 +196,7 @@ test("G2.3 validates a closed conversion, formal thesis, freeze, and semantic me
   const validator = await createArtifactValidator(repositoryRoot);
   const result = validator.validateDocumentBundle(state.bundle);
   assert.equal(result.valid, true, JSON.stringify(result.referenceErrors, null, 2));
-  assert.equal(v11Envelopes(state.bundle).length, 11);
+  assert.equal(synthesisEnvelopes(state.bundle).length, SYNTHESIS_PATHS.size);
 });
 
 test("G2.3 rejects closed lineage, source-separation, freeze, and merge mutations with stable codes", async (context) => {
@@ -310,10 +322,10 @@ test("G2.3 rejects closed lineage, source-separation, freeze, and merge mutation
   }
 });
 
-test("G2.3 publishes caller-supplied synthesis artifacts with receipt v9 and exact replay", async (context) => {
+test("G2.3 publishes caller-supplied synthesis artifacts with current receipts and exact replay", async (context) => {
   const state = await setup(context, "publication");
   await publishThroughFanIn(state);
-  const synthesis = v11Envelopes(state.bundle);
+  const synthesis = synthesisEnvelopes(state.bundle);
   const first = await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: synthesis,
@@ -341,7 +353,6 @@ test("G2.3 publishes caller-supplied synthesis artifacts with receipt v9 and exa
   });
   assert.ok(replay.artifacts.every((artifact) => artifact.status === "idempotent_replay"));
   const loaded = await state.store.load(state.runId);
-  assert.equal(loaded.manifest.schema_bundle_version, "18.0.0");
   assert.ok(loaded.manifest.artifact_refs.includes(G23_MERGE));
   const receipts = await Promise.all(
     (await readdir(path.join(state.runRoot, ".store/operations")))
@@ -358,17 +369,18 @@ test("G2.3 publishes caller-supplied synthesis artifacts with receipt v9 and exa
     receipts
       .filter((receipt) => synthesisRefs.has(String(receipt.artifact_path)))
       .every(
-        (receipt) => receipt.schema_version === "startup_opportunity.artifact_store_operation.v9",
+        (receipt) =>
+          receipt.schema_version === "startup_opportunity.artifact_store_operation.current",
       ),
   );
 });
 
-test("G2.3 v11 checkpoint and reopen preserve the frozen synthesis index", async (context) => {
+test("G2.3 current checkpoint and reopen preserve the frozen synthesis index", async (context) => {
   const state = await setup(context, "reopen");
   await publishThroughFanIn(state);
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: v11Envelopes(state.bundle),
+    envelopes: synthesisEnvelopes(state.bundle),
   });
   const checkpoint = await state.store.checkpoint({
     runId: state.runId,
@@ -395,12 +407,12 @@ test("G2.3 v11 checkpoint and reopen preserve the frozen synthesis index", async
   assert.ok(reopened.manifest.artifact_refs.includes(G23_MERGE));
 });
 
-test("G2.3 recovers a v11 post-publish fault from the immutable receipt", async (context) => {
+test("G2.3 recovers a current post-publish fault from the immutable receipt", async (context) => {
   const state = await setup(context, "fault");
   await publishThroughFanIn(state);
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: v11Envelopes(state.bundle).filter(
+    envelopes: synthesisEnvelopes(state.bundle).filter(
       (candidate) => candidate.artifact_path !== G23_MERGE,
     ),
   });
@@ -415,19 +427,4 @@ test("G2.3 recovers a v11 post-publish fault from the immutable receipt", async 
   const recovered = await state.store.load(state.runId);
   assert.ok(recovered.manifest.artifact_refs.includes(G23_MERGE));
   assert.equal((await state.store.load(state.runId)).recovered, false);
-});
-
-test("G2.3 v10 adapter rejects executable conversion before any write", async (context) => {
-  const state = await setup(context, "v10-boundary");
-  await publishThroughFanIn(state);
-  const conversion = clone(synthesisEnvelope(state.bundle, G23_DEMAND_CONVERSION));
-  (conversion as unknown as { schema_version: string }).schema_version =
-    "startup_opportunity.artifact_envelope.v10";
-  const before = await readdir(path.join(state.runRoot, ".store/operations"));
-  await assert.rejects(
-    state.store.publishArtifact({ runId: state.runId, envelope: conversion }),
-    (error: unknown) =>
-      error instanceof StoreError && error.code === "artifact.adapter_blocked_type",
-  );
-  assert.deepEqual(await readdir(path.join(state.runRoot, ".store/operations")), before);
 });

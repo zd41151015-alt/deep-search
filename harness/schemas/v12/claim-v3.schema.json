@@ -19,11 +19,21 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.claim.v3" },
-    "claim_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "unit_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "lineage": { "$ref": "definitions.schema.json#/$defs/enrichmentLineage" },
+    "schema_version": {
+      "const": "startup_opportunity.claim.v3"
+    },
+    "claim_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "lineage": {
+      "$ref": "definitions.schema.json#/$defs/enrichmentLineage"
+    },
     "claim_type": {
       "enum": [
         "competitor_gap",
@@ -39,16 +49,28 @@
         "source_limitation"
       ]
     },
-    "statement": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "stance": { "enum": ["support", "oppose"] },
+    "statement": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "stance": {
+      "enum": ["support", "oppose"]
+    },
     "evidence_refs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/enrichmentEvidenceRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/enrichmentEvidenceRef"
+      }
     },
-    "confidence_band": { "enum": ["low", "medium", "high", "unknown"] },
-    "sample_bias": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+    "confidence_band": {
+      "enum": ["low", "medium", "high", "unknown"]
+    },
+    "sample_bias": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "limitations": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    }
   }
 }

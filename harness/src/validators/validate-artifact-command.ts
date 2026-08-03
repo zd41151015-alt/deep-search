@@ -5,11 +5,7 @@ import {
   type ArtifactValidationResult,
   createArtifactValidator,
 } from "./artifact-validator.js";
-import {
-  inspectSchemaBundle,
-  SCHEMA_BUNDLE_VERSION,
-  type ValidationIssue,
-} from "./schema-bundle.js";
+import { inspectSchemaBundle, type ValidationIssue } from "./schema-bundle.js";
 
 interface ParsedArguments {
   readonly mode: "file" | "bundle" | "schema-bundle";
@@ -55,7 +51,6 @@ function parseArguments(args: readonly string[]): ParsedArguments | ValidationIs
 function invalidJsonResult(inputPath: string, error: unknown): ArtifactValidationResult {
   return {
     schemaVersion: ARTIFACT_VALIDATION_RESULT_VERSION,
-    schemaBundleVersion: SCHEMA_BUNDLE_VERSION,
     valid: false,
     documentPath: inputPath,
     artifactSchemaVersion: null,

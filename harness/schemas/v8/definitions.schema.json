@@ -2,15 +2,33 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://startup-opportunity.local/schemas/v8/definitions.schema.json",
   "$defs": {
-    "nonEmptyString": { "$ref": "../v1/definitions.schema.json#/$defs/nonEmptyString" },
-    "identifier": { "$ref": "../v1/definitions.schema.json#/$defs/identifier" },
-    "runId": { "$ref": "../v1/definitions.schema.json#/$defs/runId" },
-    "timestamp": { "$ref": "../v1/definitions.schema.json#/$defs/timestamp" },
-    "sha256": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
-    "artifactPath": { "$ref": "../v1/definitions.schema.json#/$defs/artifactPath" },
-    "artifactRef": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRef" },
-    "artifactRefArray": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRefArray" },
-    "uniqueStringArray": { "$ref": "../v1/definitions.schema.json#/$defs/uniqueStringArray" },
+    "nonEmptyString": {
+      "$ref": "../v1/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "identifier": {
+      "$ref": "../v1/definitions.schema.json#/$defs/identifier"
+    },
+    "runId": {
+      "$ref": "../v1/definitions.schema.json#/$defs/runId"
+    },
+    "timestamp": {
+      "$ref": "../v1/definitions.schema.json#/$defs/timestamp"
+    },
+    "sha256": {
+      "$ref": "../v1/definitions.schema.json#/$defs/sha256"
+    },
+    "artifactPath": {
+      "$ref": "../v1/definitions.schema.json#/$defs/artifactPath"
+    },
+    "artifactRef": {
+      "$ref": "../v1/definitions.schema.json#/$defs/artifactRef"
+    },
+    "artifactRefArray": {
+      "$ref": "../v1/definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "uniqueStringArray": {
+      "$ref": "../v1/definitions.schema.json#/$defs/uniqueStringArray"
+    },
     "discoveryProfile": {
       "enum": ["general", "industry_first", "ai_first", "hybrid"]
     },
@@ -32,25 +50,39 @@
       "additionalProperties": false,
       "required": ["ref", "content_hash"],
       "properties": {
-        "ref": { "$ref": "#/$defs/artifactRef" },
-        "content_hash": { "$ref": "#/$defs/sha256" }
+        "ref": {
+          "$ref": "#/$defs/artifactRef"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        }
       }
     },
     "inputHashes": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "#/$defs/inputHash" }
+      "items": {
+        "$ref": "#/$defs/inputHash"
+      }
     },
     "policyBinding": {
       "type": "object",
       "additionalProperties": false,
       "required": ["policy_ref", "policy_schema_version", "policy_version", "content_hash"],
       "properties": {
-        "policy_ref": { "const": "harness/policies/discovery-maps.v1.json" },
-        "policy_schema_version": { "const": "startup_opportunity.discovery_maps_policy.v1" },
-        "policy_version": { "const": "1.0.0" },
-        "content_hash": { "$ref": "#/$defs/sha256" }
+        "policy_ref": {
+          "const": "harness/policies/discovery-maps.v1.json"
+        },
+        "policy_schema_version": {
+          "const": "startup_opportunity.discovery_maps_policy.v1"
+        },
+        "policy_version": {
+          "const": "1.0.0"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        }
       }
     },
     "sourceBoundary": {
@@ -65,12 +97,24 @@
         "external_validation_claimed"
       ],
       "properties": {
-        "research_performed": { "const": false },
-        "network_accessed": { "const": false },
-        "seeds_are_evidence": { "const": false },
-        "chat_is_artifact": { "const": false },
-        "task_completion_is_artifact": { "const": false },
-        "external_validation_claimed": { "const": false }
+        "research_performed": {
+          "const": false
+        },
+        "network_accessed": {
+          "const": false
+        },
+        "seeds_are_evidence": {
+          "const": false
+        },
+        "chat_is_artifact": {
+          "const": false
+        },
+        "task_completion_is_artifact": {
+          "const": false
+        },
+        "external_validation_claimed": {
+          "const": false
+        }
       }
     },
     "seedEntry": {
@@ -78,7 +122,9 @@
       "additionalProperties": false,
       "required": ["seed_id", "seed_kind", "value", "use", "evidence_use"],
       "properties": {
-        "seed_id": { "$ref": "#/$defs/identifier" },
+        "seed_id": {
+          "$ref": "#/$defs/identifier"
+        },
         "seed_kind": {
           "enum": [
             "direction",
@@ -92,14 +138,22 @@
             "model_ecosystem"
           ]
         },
-        "value": { "$ref": "#/$defs/nonEmptyString" },
-        "use": { "const": "search_entry_only" },
-        "evidence_use": { "const": "forbidden" }
+        "value": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "use": {
+          "const": "search_entry_only"
+        },
+        "evidence_use": {
+          "const": "forbidden"
+        }
       }
     },
     "seedArray": {
       "type": "array",
-      "items": { "$ref": "#/$defs/seedEntry" }
+      "items": {
+        "$ref": "#/$defs/seedEntry"
+      }
     },
     "researchQuestion": {
       "type": "object",
@@ -115,7 +169,9 @@
         "hypothesis_status"
       ],
       "properties": {
-        "question_id": { "$ref": "#/$defs/identifier" },
+        "question_id": {
+          "$ref": "#/$defs/identifier"
+        },
         "question_kind": {
           "enum": [
             "demand",
@@ -127,12 +183,24 @@
             "ai_boundary"
           ]
         },
-        "question": { "$ref": "#/$defs/nonEmptyString" },
-        "decision_impact": { "$ref": "#/$defs/nonEmptyString" },
-        "uncertainty": { "enum": ["low", "medium", "high", "unknown"] },
-        "expected_information_gain": { "enum": ["low", "medium", "high", "unknown"] },
-        "stop_condition": { "$ref": "#/$defs/nonEmptyString" },
-        "hypothesis_status": { "const": "unvalidated_question" }
+        "question": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "decision_impact": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "uncertainty": {
+          "enum": ["low", "medium", "high", "unknown"]
+        },
+        "expected_information_gain": {
+          "enum": ["low", "medium", "high", "unknown"]
+        },
+        "stop_condition": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "hypothesis_status": {
+          "const": "unvalidated_question"
+        }
       }
     },
     "preResearchHypothesis": {
@@ -140,16 +208,27 @@
       "additionalProperties": false,
       "required": ["hypothesis_id", "label", "status", "evidence_refs"],
       "properties": {
-        "hypothesis_id": { "$ref": "#/$defs/identifier" },
-        "label": { "$ref": "#/$defs/nonEmptyString" },
-        "status": { "const": "unvalidated_hypothesis" },
-        "evidence_refs": { "type": "array", "maxItems": 0 }
+        "hypothesis_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "label": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "status": {
+          "const": "unvalidated_hypothesis"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "maxItems": 0
+        }
       }
     },
     "hypothesisArray": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/preResearchHypothesis" }
+      "items": {
+        "$ref": "#/$defs/preResearchHypothesis"
+      }
     }
   }
 }

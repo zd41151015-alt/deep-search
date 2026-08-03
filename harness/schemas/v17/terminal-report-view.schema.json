@@ -23,22 +23,39 @@
     "markdown_content_hash"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.terminal_report_view.v1" },
-    "view_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
-    "mode": { "enum": ["opportunity_discovery", "concept_evidence_assessment"] },
-    "research_language": { "type": "string", "minLength": 2 },
-    "producer_role": { "const": "harness" },
+    "schema_version": {
+      "const": "startup_opportunity.terminal_report_view.v1"
+    },
+    "view_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "enum": ["opportunity_discovery", "concept_evidence_assessment"]
+    },
+    "research_language": {
+      "type": "string",
+      "minLength": 2
+    },
+    "producer_role": {
+      "const": "harness"
+    },
     "owned_output_path": {
       "type": "string",
       "pattern": "^artifacts/reporting/report-markdown\\.r[1-9][0-9]*\\.json$"
     },
-    "materialized_path": { "const": "report.md" },
+    "materialized_path": {
+      "const": "report.md"
+    },
     "report_ref": {
       "type": "string",
       "pattern": "^artifacts/reporting/terminal-report-source\\.r[1-9][0-9]*\\.json$"
     },
-    "report_content_hash": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" },
+    "report_content_hash": {
+      "$ref": "../v12/definitions.schema.json#/$defs/sha256"
+    },
     "terminal_outcome": {
       "enum": [
         "completed",
@@ -68,9 +85,22 @@
         ]
       }
     },
-    "limitations": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
-    "audit_appendix_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
-    "markdown": { "type": "string", "minLength": 1 },
-    "markdown_content_hash": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" }
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "audit_appendix_refs": {
+      "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "markdown": {
+      "type": "string",
+      "minLength": 1
+    },
+    "markdown_content_hash": {
+      "$ref": "../v12/definitions.schema.json#/$defs/sha256"
+    }
   }
 }

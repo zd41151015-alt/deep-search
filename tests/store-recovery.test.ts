@@ -252,7 +252,7 @@ test("current plan reference and revision are verified through checkpoint and re
     }
   }
   const envelope: FormalArtifactEnvelope = {
-    schema_version: "startup_opportunity.artifact_envelope.v1",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: "startup_opportunity.research_plan.v1",
     artifact_path: "plans/research-plan.r1.json",
     run_id: "plan-lineage",
@@ -295,7 +295,7 @@ test("publication rejects a plan revision with broken parent lineage", async (co
     }
   }
   const first: FormalArtifactEnvelope = {
-    schema_version: "startup_opportunity.artifact_envelope.v1",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: "startup_opportunity.research_plan.v1",
     artifact_path: "plans/research-plan.r1.json",
     run_id: "plan-bad-lineage",
@@ -341,7 +341,7 @@ test("Artifact recovery rejects receipt filename and envelope metadata drift", a
     artifact_refs: [],
   };
   const envelope: FormalArtifactEnvelope = {
-    schema_version: "startup_opportunity.artifact_envelope.v1",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: "startup_opportunity.event.v1",
     artifact_path: "events/artifact-receipt-event.json",
     run_id: "artifact-receipt-drift",
@@ -372,7 +372,7 @@ test("Evidence recovery rejects a receipt stored under the wrong operation-key f
   await new EvidenceStore(runsRoot).record({
     runId: "evidence-receipt-drift",
     unitId: "unit_001",
-    url: "https://example.com/receipt",
+    source: { kind: "public_url", canonical_url: "https://example.com/receipt" },
     researchGoal: "Exercise receipt filename integrity.",
     rawContent: "receipt bytes",
     recordedAt: "2026-07-23T12:05:00Z",

@@ -9,7 +9,7 @@ Usage:
   npm run harness -- create-run --run-id ID --mode MODE [--created-at TIME]
   npm run harness -- load-run --run-id ID
   npm run harness -- status-run --run-id ID
-  npm run harness -- record-evidence --run-id ID --unit-id ID (--url URL | --source-url URL | --source-uri URN) --research-goal GOAL --content-file FILE
+  npm run harness -- record-evidence --run-id ID --unit-id ID (--source-url URL | --source-uri URN) --research-goal GOAL --content-file FILE
   npm run harness -- publish-artifact --file FILE [--runs-root DIR]
   npm run harness -- compile-artifacts --file FILE [--runs-root DIR]
   npm run harness -- checkpoint-run --file FILE

@@ -3,8 +3,7 @@ import path from "node:path";
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsImport from "ajv-formats";
 
-export const SCHEMA_BUNDLE_VERSION = "18.0.0" as const;
-export const SCHEMA_BUNDLE_MANIFEST_PATH = "harness/schemas/bundle.v18.json" as const;
+export const CURRENT_SCHEMA_MANIFEST_PATH = "harness/schemas/current.json" as const;
 
 export interface ValidationIssue {
   readonly code: string;
@@ -22,12 +21,8 @@ interface SchemaManifestEntry {
 }
 
 interface SchemaBundleManifest {
-  readonly schema_version:
-    | "startup_opportunity.schema_bundle.v2"
-    | "startup_opportunity.schema_bundle.v3";
-  readonly schema_bundle_version: string;
+  readonly schema_version: "startup_opportunity.schema_manifest.current";
   readonly json_schema_dialect: "https://json-schema.org/draft/2020-12/schema";
-  readonly base_bundle?: string;
   readonly schemas: readonly SchemaManifestEntry[];
 }
 
@@ -37,15 +32,13 @@ interface LoadedSchema {
 }
 
 export interface LoadedSchemaBundle {
-  readonly version: string;
   readonly manifest: SchemaBundleManifest;
   readonly schemas: ReadonlyMap<string, LoadedSchema>;
   readonly validators: ReadonlyMap<string, ValidateFunction>;
 }
 
 export interface SchemaBundleInspectionResult {
-  readonly schemaVersion: "startup_opportunity.schema_bundle_validation_result.v1";
-  readonly schemaBundleVersion: string | null;
+  readonly schemaVersion: "startup_opportunity.schema_manifest_validation_result.current";
   readonly valid: boolean;
   readonly schemaCount: number;
   readonly documentSchemaCount: number;
@@ -83,7 +76,7 @@ function hasExactlyKeys(value: Record<string, unknown>, expected: readonly strin
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 
-function parseManifest(value: unknown, expectedVersion: string): SchemaBundleManifest {
+function parseManifest(value: unknown): SchemaBundleManifest {
   const errors: ValidationIssue[] = [];
   if (!isRecord(value)) {
     throw new SchemaBundleError([
@@ -92,13 +85,7 @@ function parseManifest(value: unknown, expectedVersion: string): SchemaBundleMan
   }
 
   const schemaVersion = value.schema_version;
-  const rootKeys = [
-    ...(schemaVersion === "startup_opportunity.schema_bundle.v3" ? ["base_bundle"] : []),
-    "json_schema_dialect",
-    "schema_bundle_version",
-    "schema_version",
-    "schemas",
-  ].sort();
+  const rootKeys = ["json_schema_dialect", "schema_version", "schemas"].sort();
   if (!hasExactlyKeys(value, rootKeys)) {
     errors.push(
       issue("bundle.invalid_manifest", "", "manifest has missing or unknown fields", {
@@ -107,36 +94,14 @@ function parseManifest(value: unknown, expectedVersion: string): SchemaBundleMan
       }),
     );
   }
-  if (
-    schemaVersion !== "startup_opportunity.schema_bundle.v2" &&
-    schemaVersion !== "startup_opportunity.schema_bundle.v3"
-  ) {
+  if (schemaVersion !== "startup_opportunity.schema_manifest.current") {
     errors.push(
-      issue("bundle.invalid_version", "/schema_version", "unexpected bundle schema version"),
-    );
-  }
-  if (value.schema_bundle_version !== expectedVersion) {
-    errors.push(
-      issue("bundle.invalid_version", "/schema_bundle_version", "unexpected bundle version"),
+      issue("bundle.invalid_version", "/schema_version", "unexpected schema manifest contract"),
     );
   }
   if (value.json_schema_dialect !== "https://json-schema.org/draft/2020-12/schema") {
     errors.push(issue("bundle.invalid_dialect", "/json_schema_dialect", "unsupported dialect"));
   }
-  if (
-    schemaVersion === "startup_opportunity.schema_bundle.v3" &&
-    (typeof value.base_bundle !== "string" ||
-      !/^bundle\.v[1-9][0-9]*\.json$/.test(value.base_bundle))
-  ) {
-    errors.push(
-      issue(
-        "bundle.invalid_base",
-        "/base_bundle",
-        "composed bundle must name one local base bundle",
-      ),
-    );
-  }
-
   if (!Array.isArray(value.schemas) || value.schemas.length === 0) {
     errors.push(issue("bundle.invalid_manifest", "/schemas", "schemas must be a non-empty array"));
   } else {
@@ -162,7 +127,7 @@ function parseManifest(value: unknown, expectedVersion: string): SchemaBundleMan
       }
       if (
         typeof entry.file !== "string" ||
-        !/^v[1-9][0-9]*\/[a-z][a-z0-9-]*\.schema\.json$/.test(entry.file)
+        !/^(?:current|v[1-9][0-9]*)\/[a-z][a-z0-9-]*\.schema\.json$/.test(entry.file)
       ) {
         errors.push(
           issue("bundle.invalid_path", `${instancePath}/file`, "invalid schema filename"),
@@ -171,7 +136,7 @@ function parseManifest(value: unknown, expectedVersion: string): SchemaBundleMan
       if (
         entry.document_schema_version !== null &&
         (typeof entry.document_schema_version !== "string" ||
-          !/^startup_opportunity\.[a-z][a-z0-9_]*\.v[1-9][0-9]*$/.test(
+          !/^startup_opportunity(?:\.[a-z][a-z0-9_]*)+(?:\.v[1-9][0-9]*|\.current)$/.test(
             entry.document_schema_version,
           ))
       ) {
@@ -289,65 +254,11 @@ export function sortIssues(issues: readonly ValidationIssue[]): readonly Validat
   );
 }
 
-async function loadManifestChain(
-  root: string,
-  manifestRelativePath: string,
-  expectedVersion: string,
-  ancestors: readonly string[] = [],
-): Promise<{
-  readonly manifest: SchemaBundleManifest;
-  readonly schemaDirectory: string;
-  readonly entries: readonly {
-    readonly entry: SchemaManifestEntry;
-    readonly schemaDirectory: string;
-  }[];
-}> {
-  if (ancestors.includes(manifestRelativePath)) {
-    throw new SchemaBundleError([
-      issue("bundle.base_cycle", "/base_bundle", "schema bundle base chain contains a cycle", {
-        chain: [...ancestors, manifestRelativePath],
-      }),
-    ]);
-  }
-  const manifestPath = path.join(root, manifestRelativePath);
-  const manifest = parseManifest(
-    JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
-    expectedVersion,
-  );
+export async function loadSchemaBundle(root = process.cwd()): Promise<LoadedSchemaBundle> {
+  const manifestPath = path.join(root, CURRENT_SCHEMA_MANIFEST_PATH);
+  const manifest = parseManifest(JSON.parse(await readFile(manifestPath, "utf8")) as unknown);
   const schemaDirectory = path.dirname(manifestPath);
-  const ownEntries = manifest.schemas.map((entry) => ({ entry, schemaDirectory }));
-  if (manifest.schema_version !== "startup_opportunity.schema_bundle.v3") {
-    return { manifest, schemaDirectory, entries: ownEntries };
-  }
-  const baseRelativePath = path.join(
-    path.dirname(manifestRelativePath),
-    manifest.base_bundle as string,
-  );
-  const baseValue = JSON.parse(
-    await readFile(path.join(root, baseRelativePath), "utf8"),
-  ) as unknown;
-  if (!isRecord(baseValue) || typeof baseValue.schema_bundle_version !== "string") {
-    throw new SchemaBundleError([
-      issue("bundle.invalid_base", "/base_bundle", "base bundle manifest is invalid"),
-    ]);
-  }
-  const base = await loadManifestChain(root, baseRelativePath, baseValue.schema_bundle_version, [
-    ...ancestors,
-    manifestRelativePath,
-  ]);
-  return { manifest, schemaDirectory, entries: [...base.entries, ...ownEntries] };
-}
-
-export async function loadSchemaBundle(
-  root = process.cwd(),
-  manifestRelativePath: string = SCHEMA_BUNDLE_MANIFEST_PATH,
-  expectedVersion: string = SCHEMA_BUNDLE_VERSION,
-): Promise<LoadedSchemaBundle> {
-  const { manifest, entries } = await loadManifestChain(
-    root,
-    manifestRelativePath,
-    expectedVersion,
-  );
+  const entries = manifest.schemas.map((entry) => ({ entry, schemaDirectory }));
   const loadedSchemas = await Promise.all(
     entries.map(async ({ entry, schemaDirectory }) => {
       const document = JSON.parse(
@@ -424,8 +335,7 @@ export async function loadSchemaBundle(
       validators.set(entry.document_schema_version, validator);
     }
     return {
-      version: manifest.schema_bundle_version,
-      manifest: { ...manifest, schemas: entries.map(({ entry }) => entry) },
+      manifest,
       schemas,
       validators,
     };
@@ -437,14 +347,11 @@ export async function loadSchemaBundle(
 
 export async function inspectSchemaBundle(
   root = process.cwd(),
-  manifestRelativePath: string = SCHEMA_BUNDLE_MANIFEST_PATH,
-  expectedVersion: string = SCHEMA_BUNDLE_VERSION,
 ): Promise<SchemaBundleInspectionResult> {
   try {
-    const bundle = await loadSchemaBundle(root, manifestRelativePath, expectedVersion);
+    const bundle = await loadSchemaBundle(root);
     return {
-      schemaVersion: "startup_opportunity.schema_bundle_validation_result.v1",
-      schemaBundleVersion: bundle.version,
+      schemaVersion: "startup_opportunity.schema_manifest_validation_result.current",
       valid: true,
       schemaCount: bundle.manifest.schemas.length,
       documentSchemaCount: bundle.validators.size,
@@ -462,8 +369,7 @@ export async function inspectSchemaBundle(
             ),
           ];
     return {
-      schemaVersion: "startup_opportunity.schema_bundle_validation_result.v1",
-      schemaBundleVersion: null,
+      schemaVersion: "startup_opportunity.schema_manifest_validation_result.current",
       valid: false,
       schemaCount: 0,
       documentSchemaCount: 0,

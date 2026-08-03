@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   createArtifactValidator,
   type DocumentBundle,
-  type EvidenceStoreRecordV2,
+  type EvidenceStoreRecord,
 } from "../harness/src/index.js";
 import {
   createG3AiBundleFixture,
@@ -17,7 +17,7 @@ import {
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function record(runId: string, unitId: string, fill: string): EvidenceStoreRecordV2 {
+function record(runId: string, unitId: string, fill: string): EvidenceStoreRecord {
   return {
     schema_version: "startup_opportunity.evidence_store_record.v2",
     evidence_id: `ev_${fill.repeat(64)}`,
@@ -120,20 +120,9 @@ test("G3.1 fails closed on dimension, lineage, baseline, and freshness drift", a
   });
 });
 
-test("G3.1 preserves v13 fail-closed dispatch and permits explicit desk-research-only status", async () => {
+test("G3.1 current contract permits explicit desk-research-only status", async () => {
   const validator = await createArtifactValidator(repositoryRoot);
   const bundle = await fixture("dispatch");
-  const capability = g3Envelope(bundle, G31_CAPABILITY);
-  assert.ok(
-    validator
-      .publicationAdapter("startup_opportunity.artifact_envelope.v13")
-      .blocked_artifact_types.includes(capability.artifact_type),
-  );
-  assert.equal(
-    validator.publicationAdapter("startup_opportunity.artifact_envelope.v14").receipt_version,
-    "startup_opportunity.artifact_store_operation.v12",
-  );
-
   const deskBundle = structuredClone(bundle);
   const benchmark = g3Envelope(deskBundle, G31_BENCHMARK).document;
   benchmark.research_mode = "desk_research_only";

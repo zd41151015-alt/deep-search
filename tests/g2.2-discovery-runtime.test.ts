@@ -88,7 +88,7 @@ async function snapshotTree(root: string): Promise<Readonly<Record<string, strin
 function runtimeEnvelopes(bundle: DocumentBundle): FormalArtifactEnvelope[] {
   return bundle.documents
     .map((entry) => entry.document as unknown as FormalArtifactEnvelope)
-    .filter((entry) => entry.schema_version === "startup_opportunity.artifact_envelope.v10");
+    .filter((entry) => entry.schema_version === "startup_opportunity.artifact_envelope.current");
 }
 
 function envelopesByType(bundle: DocumentBundle, ...artifactTypes: readonly string[]) {
@@ -296,7 +296,6 @@ test("G2.2 publishes explicit candidates, tasks, typed lane material, pre-kill r
   assert.deepEqual(await snapshotTree(state.runRoot), beforeReplay);
 
   const loaded = await state.store.load(state.runId);
-  assert.equal(loaded.manifest.schema_bundle_version, "18.0.0");
   assert.ok(loaded.manifest.artifact_refs.includes(G22_FAN_IN));
   assert.equal((await state.store.load(state.runId)).recovered, false);
 
@@ -315,7 +314,8 @@ test("G2.2 publishes explicit candidates, tasks, typed lane material, pre-kill r
   assert.ok(runtimeReceipts.length > 0);
   assert.ok(
     runtimeReceipts.every(
-      (receipt) => receipt.schema_version === "startup_opportunity.artifact_store_operation.v8",
+      (receipt) =>
+        receipt.schema_version === "startup_opportunity.artifact_store_operation.current",
     ),
   );
 });
@@ -390,7 +390,7 @@ test("G2.2 rejects an illegal lane transition before writing receipt, artifact, 
   assert.deepEqual(await snapshotTree(state.runRoot), before);
 });
 
-test("G2.2 v10 recovery completes candidate temp writes and indexes published fan-in", async (context) => {
+test("G2.2 current recovery completes candidate temp writes and indexes published fan-in", async (context) => {
   const state = await setup(context, "recovery");
   await publishThroughLanes(state);
   await assert.rejects(
@@ -416,25 +416,6 @@ test("G2.2 v10 recovery completes candidate temp writes and indexes published fa
   const recoveredFanIn = await state.store.load(state.runId);
   assert.ok(recoveredFanIn.manifest.artifact_refs.includes(G22_FAN_IN));
   assert.equal((await state.store.load(state.runId)).recovered, false);
-});
-
-test("G2.2 v9 Store input remains unsupported and byte-stable before publication", async (context) => {
-  const state = await setup(context, "v9-boundary");
-  const candidate = clone(
-    envelopesByType(state.bundle, "startup_opportunity.discovery_candidate.v1").find(
-      (entry) => entry.document.revision === 1,
-    ),
-  );
-  assert.ok(candidate);
-  (candidate as unknown as { schema_version: string }).schema_version =
-    "startup_opportunity.artifact_envelope.v9";
-  const before = await snapshotTree(state.runRoot);
-  await assert.rejects(
-    state.store.publishArtifact({ runId: state.runId, envelope: candidate }),
-    (error: unknown) =>
-      error instanceof StoreError && error.code === "artifact.envelope_unsupported",
-  );
-  assert.deepEqual(await snapshotTree(state.runRoot), before);
 });
 
 test("generic Harness CLI and Skill script publish only caller-supplied G2.2 envelopes", async (context) => {

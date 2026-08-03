@@ -2,7 +2,6 @@
   "schema_version": "startup_opportunity.discovery_candidate_policy.v1",
   "policy_id": "startup_opportunity.g2_2_pre_thesis_candidate_contract",
   "policy_version": "1.0.0",
-  "schema_bundle_version": "8.0.0",
   "artifact_contracts": {
     "candidate": "startup_opportunity.discovery_candidate.v1",
     "research_task": "startup_opportunity.research_task.v2",
@@ -13,10 +12,9 @@
     "judgment": "startup_opportunity.judgment_assessment.v2",
     "source_manifest": "startup_opportunity.source_manifest.v2",
     "lane_result": "startup_opportunity.discovery_lane_result.v1",
-    "fan_in": "startup_opportunity.discovery_fan_in.v1",
-    "conversion": "startup_opportunity.discovery_candidate_conversion.v1",
-    "artifact_envelope": "startup_opportunity.artifact_envelope.v9",
-    "document_bundle": "startup_opportunity.document_bundle.v9"
+    "fan_in": "startup_opportunity.discovery_fan_in.v2",
+    "artifact_envelope": "startup_opportunity.artifact_envelope.current",
+    "document_bundle": "startup_opportunity.document_bundle.current"
   },
   "candidate_kinds": {
     "demand_seed": {
@@ -48,8 +46,7 @@
     "research_task": "main_agent",
     "lane_material": "lane_researcher",
     "lane_result": "lane_researcher",
-    "fan_in": "main_agent",
-    "conversion": "main_agent_g2_3_only"
+    "fan_in": "main_agent"
   },
   "revision_contract": {
     "path_pattern": "artifacts/discovery/candidates/<candidate_id>.r<revision>.json",
@@ -95,38 +92,22 @@
     "judgments_must_come_from_supporting_lane_disposition": true,
     "top_level_judgment_refs_exact_disposition_closure": true
   },
-  "conversion_contract": {
-    "owner_slice": "G2.3",
-    "path_pattern": "artifacts/discovery/conversions/<candidate_id>.r<revision>.json",
-    "parent_revision": "exactly_previous",
-    "parent_hash": "canonical_json_sha256",
-    "kind_target_map": {
-      "demand_seed": "startup_opportunity.demand_thesis.v1",
-      "baseline_seed": "startup_opportunity.baseline_option.v1",
-      "solution_seed": "startup_opportunity.solution_hypothesis.v1"
-    },
-    "requires_retained_current_candidate": true,
-    "source_candidate_immutable": true,
-    "conversion_is_evidence": false,
-    "validation_success_claimed": false
+  "publication_contract": {
+    "envelope_schema_version": "startup_opportunity.artifact_envelope.current",
+    "document_bundle_schema_version": "startup_opportunity.document_bundle.current",
+    "explicit_artifact_input_only": true,
+    "publication_implies_validation": false
   },
-  "publication_boundary": {
-    "offline_bundle_validation_installed": true,
-    "store_v9_adapter_installed": false,
-    "current_store_bundle_version": "7.0.0",
-    "unsupported_envelope_error": "artifact.envelope_unsupported",
-    "v1_v8_adapters_unchanged": true
-  },
-  "manifest_adapter_boundary": {
-    "g2_2_runtime_adapter_installed": false,
-    "contract_validation_may_change_manifest": false,
+  "manifest_projection_contract": {
+    "publication_updates_manifest": true,
+    "late_or_superseded_can_enter_current_refs": false,
     "status_mapping": {
-      "completed": "eligible_reference_only",
-      "partial": "eligible_reference_only_with_gap",
-      "insufficient_evidence": "eligible_reference_only_with_ceiling",
-      "failed": "excluded_reference_only",
-      "ignored_late": "excluded_reference_only",
-      "superseded": "excluded_reference_only"
+      "completed": "completed_units",
+      "partial": "completed_units",
+      "insufficient_evidence": "completed_units",
+      "failed": "failed_units",
+      "ignored_late": "ignored_late_artifact_refs",
+      "superseded": "superseded_units"
     }
   }
 }

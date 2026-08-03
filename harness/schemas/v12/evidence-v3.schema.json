@@ -29,11 +29,22 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.evidence.v3" },
-    "evidence_id": { "type": "string", "pattern": "^ev_[a-f0-9]{64}$" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "unit_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "lineage": { "$ref": "definitions.schema.json#/$defs/enrichmentLineage" },
+    "schema_version": {
+      "const": "startup_opportunity.evidence.v3"
+    },
+    "evidence_id": {
+      "type": "string",
+      "pattern": "^ev_[a-f0-9]{64}$"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "lineage": {
+      "$ref": "definitions.schema.json#/$defs/enrichmentLineage"
+    },
     "source_type": {
       "enum": [
         "web_page",
@@ -46,14 +57,24 @@
         "synthetic_contract_fixture"
       ]
     },
-    "source_name": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "research_goal": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+    "source_name": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "research_goal": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
     "research_phase_role": {
       "enum": ["enrichment_evaluation", "adversarial_challenger", "shared_context"]
     },
-    "geo": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "language": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "source_group_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+    "geo": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "language": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "source_group_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
     "mechanical_binding": {
       "type": "object",
       "additionalProperties": false,
@@ -70,14 +91,22 @@
           "type": "string",
           "pattern": "^evidence/manifest\\.jsonl#ev_[a-f0-9]{64}$"
         },
-        "source_hash": { "$ref": "definitions.schema.json#/$defs/sha256" },
-        "content_hash": { "$ref": "definitions.schema.json#/$defs/sha256" },
+        "source_hash": {
+          "$ref": "definitions.schema.json#/$defs/sha256"
+        },
+        "content_hash": {
+          "$ref": "definitions.schema.json#/$defs/sha256"
+        },
         "raw_content_ref": {
           "type": "string",
           "pattern": "^evidence/raw/sha256-[a-f0-9]{64}\\.bin$"
         },
-        "operation_key": { "$ref": "definitions.schema.json#/$defs/sha256" },
-        "recorded_at": { "$ref": "definitions.schema.json#/$defs/timestamp" }
+        "operation_key": {
+          "$ref": "definitions.schema.json#/$defs/sha256"
+        },
+        "recorded_at": {
+          "$ref": "definitions.schema.json#/$defs/timestamp"
+        }
       }
     },
     "provenance": {
@@ -88,9 +117,15 @@
         "acquisition_method": {
           "enum": ["public_web_retrieval", "user_provided_import", "synthetic_fixture_only"]
         },
-        "source_owner": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-        "original_creator": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-        "method_notes": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" }
+        "source_owner": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "original_creator": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "method_notes": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        }
       }
     },
     "source_assessment": {
@@ -114,12 +149,28 @@
             "unknown"
           ]
         },
-        "canonical_source_group": { "$ref": "definitions.schema.json#/$defs/identifier" },
+        "canonical_source_group": {
+          "$ref": "definitions.schema.json#/$defs/identifier"
+        },
         "shared_dataset_group": {
-          "anyOf": [{ "$ref": "definitions.schema.json#/$defs/identifier" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "definitions.schema.json#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "syndication_group": {
-          "anyOf": [{ "$ref": "definitions.schema.json#/$defs/identifier" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "definitions.schema.json#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "biases": {
           "type": "array",
@@ -136,14 +187,27 @@
             ]
           }
         },
-        "bias_notes": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" }
+        "bias_notes": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        }
       }
     },
-    "evidence_tier": { "$ref": "../v4/definitions.schema.json#/$defs/evidenceTier" },
-    "evidence_lifecycle_status": { "enum": ["active", "superseded", "stale", "unverified"] },
-    "evidence_role": { "enum": ["support", "oppose", "context"] },
-    "representativeness": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "valid_as_of": { "type": "string", "format": "date" },
+    "evidence_tier": {
+      "$ref": "../v4/definitions.schema.json#/$defs/evidenceTier"
+    },
+    "evidence_lifecycle_status": {
+      "enum": ["active", "superseded", "stale", "unverified"]
+    },
+    "evidence_role": {
+      "enum": ["support", "oppose", "context"]
+    },
+    "representativeness": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "valid_as_of": {
+      "type": "string",
+      "format": "date"
+    },
     "freshness_policy": {
       "enum": [
         "revalidate_on_product_or_market_change",
@@ -157,24 +221,40 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+      }
     }
   },
   "allOf": [
     {
       "if": {
-        "properties": { "source_type": { "const": "synthetic_contract_fixture" } },
+        "properties": {
+          "source_type": {
+            "const": "synthetic_contract_fixture"
+          }
+        },
         "required": ["source_type"]
       },
       "then": {
         "properties": {
           "provenance": {
             "type": "object",
-            "properties": { "acquisition_method": { "const": "synthetic_fixture_only" } }
+            "properties": {
+              "acquisition_method": {
+                "const": "synthetic_fixture_only"
+              }
+            }
           },
-          "evidence_tier": { "const": "model_inference_only" },
-          "evidence_lifecycle_status": { "const": "unverified" },
-          "freshness_policy": { "const": "synthetic_fixture_only" }
+          "evidence_tier": {
+            "const": "model_inference_only"
+          },
+          "evidence_lifecycle_status": {
+            "const": "unverified"
+          },
+          "freshness_policy": {
+            "const": "synthetic_fixture_only"
+          }
         }
       }
     }

@@ -194,7 +194,7 @@ function terminalGap(runId: string, plan: Record<string, unknown>): Record<strin
   const readinessPath = "artifacts/discovery/readiness/terminal-closure.r1.json";
   const candidateRefs = [G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1];
   return {
-    schema_version: "startup_opportunity.gap_snapshot.v3",
+    schema_version: "startup_opportunity.gap_snapshot.discovery.readiness.current",
     snapshot_id: "gap_terminal_closure_synthetic",
     snapshot_cycle_key: canonicalContentHash({ run_id: runId, cycle: "terminal_closure" }),
     run_id: runId,
@@ -428,7 +428,7 @@ async function prepareDiscoveryTaskBridgeRun(context: TestContext, suffix: strin
       .map((entry) => entry.document as unknown as FormalArtifactEnvelope)
       .filter(
         (envelope) =>
-          envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
+          envelope.schema_version === "startup_opportunity.artifact_envelope.current" &&
           envelope.artifact_type === "startup_opportunity.discovery_candidate.v1" &&
           envelope.document.revision === 1,
       ),
@@ -525,7 +525,7 @@ test("public compiler validates, publishes, replays, and recovers a temp-write f
   assert.equal(validated.status, "validated");
   assert.equal(
     validated.compiled_envelopes[0]?.schema_version,
-    "startup_opportunity.artifact_envelope.v18",
+    "startup_opportunity.artifact_envelope.current",
   );
   assert.ok(validated.validation_closure.document_count > 1);
 
@@ -589,7 +589,7 @@ test("terminal compilation preserves current G2.1/G2.2 envelopes and aggregate r
   assert.deepEqual(await snapshotTree(state.runRoot), before);
 
   const context = await state.runStore.buildValidationContext(state.runId, {
-    schema_version: "startup_opportunity.document_bundle.v18",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: [
       {
         path: readinessPath,
@@ -602,11 +602,11 @@ test("terminal compilation preserves current G2.1/G2.2 envelopes and aggregate r
   assert.ok(byPath.has("intake.json"));
   assert.equal(
     byPath.get(G21_MAP_REFS[0])?.schema_version,
-    "startup_opportunity.artifact_envelope.v8",
+    "startup_opportunity.artifact_envelope.current",
   );
   assert.equal(
     byPath.get(G22_DEMAND_R1)?.schema_version,
-    "startup_opportunity.artifact_envelope.v10",
+    "startup_opportunity.artifact_envelope.current",
   );
   assert.equal(byPath.get(G22_DEMAND_R1)?.producer_role, "main_agent");
 
@@ -1148,7 +1148,7 @@ test("readiness and Gap semantics require bounded solution generation and basis 
 
   const gapPath = "adaptations/gap-snapshots/gap_synthetic.r1.json";
   const gap = {
-    schema_version: "startup_opportunity.gap_snapshot.v3",
+    schema_version: "startup_opportunity.gap_snapshot.discovery.readiness.current",
     snapshot_id: "gap_synthetic",
     snapshot_cycle_key: canonicalContentHash({ run_id: runId, cycle: 1 }),
     run_id: runId,

@@ -19,11 +19,21 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.claim.v2" },
-    "claim_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "unit_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "lineage": { "$ref": "definitions.schema.json#/$defs/discoveryLineage" },
+    "schema_version": {
+      "const": "startup_opportunity.claim.v2"
+    },
+    "claim_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "lineage": {
+      "$ref": "definitions.schema.json#/$defs/discoveryLineage"
+    },
     "claim_type": {
       "enum": [
         "pain_point",
@@ -38,16 +48,28 @@
         "source_limitation"
       ]
     },
-    "statement": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "stance": { "enum": ["support", "oppose"] },
+    "statement": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "stance": {
+      "enum": ["support", "oppose"]
+    },
     "evidence_refs": {
       "type": "array",
-      "items": { "$ref": "definitions.schema.json#/$defs/evidenceRef" },
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/evidenceRef"
+      },
       "minItems": 1,
       "uniqueItems": true
     },
-    "confidence_band": { "enum": ["low", "medium", "high", "unknown"] },
-    "sample_bias": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+    "confidence_band": {
+      "enum": ["low", "medium", "high", "unknown"]
+    },
+    "sample_bias": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "limitations": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    }
   }
 }

@@ -22,7 +22,6 @@ import {
   operationKey,
   planningRunStateHash,
   RunStore,
-  SCHEMA_BUNDLE_VERSION,
   StoreError,
   transformPlan,
 } from "../harness/src/index.js";
@@ -179,10 +178,6 @@ function manifest(runId: string, plan: Record<string, unknown>): Record<string, 
     parent_run_id: null,
     created_at: "2026-07-24T12:00:00Z",
     updated_at: "2026-07-24T12:06:00Z",
-    skill_version: "1.0.0",
-    policy_version: "1.0.0",
-    schema_bundle_version: SCHEMA_BUNDLE_VERSION,
-    git_commit: null,
     current_phase: "enrichment",
     current_plan_ref: PLAN_REF,
     plan_revision: plan.revision,
@@ -276,7 +271,7 @@ function gapSnapshot(
   subjectRef = `${PLAN_REF}#acquisition_failed`,
 ): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.gap_snapshot.v1",
+    schema_version: "startup_opportunity.gap_snapshot.discovery.plan.current",
     snapshot_id: "gap_runtime_snapshot_001",
     snapshot_cycle_key: "enrichment:wave_runtime_1:fixture",
     run_id: runId,
@@ -360,7 +355,7 @@ function userPlanDecision(runId: string, decisionId: string): Record<string, unk
 
 function retryDecision(runId: string): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.adaptation_decision.v2",
+    schema_version: "startup_opportunity.adaptation_decision.discovery.current",
     adaptation_id: "adapt_retry_runtime_001",
     run_id: runId,
     based_on_plan_ref: PLAN_REF,
@@ -392,7 +387,7 @@ function retryDecision(runId: string): Record<string, unknown> {
 
 function stopFollowupDecision(runId: string): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.adaptation_decision.v2",
+    schema_version: "startup_opportunity.adaptation_decision.discovery.current",
     adaptation_id: "adapt_stop_followup_runtime_001",
     run_id: runId,
     based_on_plan_ref: PLAN_REF,
@@ -408,7 +403,7 @@ function stopFollowupDecision(runId: string): Record<string, unknown> {
 
 function clarificationDecision(runId: string): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.adaptation_decision.v2",
+    schema_version: "startup_opportunity.adaptation_decision.discovery.current",
     adaptation_id: "adapt_request_clarification_runtime_001",
     run_id: runId,
     based_on_plan_ref: PLAN_REF,
@@ -425,7 +420,7 @@ function clarificationDecision(runId: string): Record<string, unknown> {
 
 function terminationDecision(runId: string): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.adaptation_decision.v2",
+    schema_version: "startup_opportunity.adaptation_decision.discovery.current",
     adaptation_id: "adapt_terminate_runtime_001",
     run_id: runId,
     based_on_plan_ref: PLAN_REF,
@@ -441,7 +436,7 @@ function terminationDecision(runId: string): Record<string, unknown> {
 
 function supersedeDecision(runId: string): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.adaptation_decision.v2",
+    schema_version: "startup_opportunity.adaptation_decision.discovery.current",
     adaptation_id: "adapt_supersede_runtime_001",
     run_id: runId,
     based_on_plan_ref: PLAN_REF,
@@ -464,7 +459,7 @@ function supersedeDecision(runId: string): Record<string, unknown> {
 
 function preKillSkipDecision(runId: string): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.adaptation_decision.v2",
+    schema_version: "startup_opportunity.adaptation_decision.discovery.current",
     adaptation_id: "adapt_pre_kill_skip_runtime_001",
     run_id: runId,
     based_on_plan_ref: PLAN_REF,
@@ -488,7 +483,7 @@ function bundle(
   extras: readonly { readonly path: string; readonly document: Record<string, unknown> }[] = [],
 ): DocumentBundle {
   return {
-    schema_version: "startup_opportunity.document_bundle.v2",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: [
       { path: "manifest.json", document: runManifest },
       { path: PLAN_REF, document: plan },
@@ -505,15 +500,21 @@ function formalEnvelope(
   artifactPath: string,
   document: Record<string, unknown>,
   inputRefs: readonly string[] = [],
-  version: FormalArtifactEnvelope["schema_version"] = "startup_opportunity.artifact_envelope.v3",
+  version: FormalArtifactEnvelope["schema_version"] = "startup_opportunity.artifact_envelope.current",
 ): FormalArtifactEnvelope {
+  const artifactType = String(document.schema_version);
   return {
     schema_version: version,
-    artifact_type: String(document.schema_version),
+    artifact_type: artifactType,
     artifact_path: artifactPath,
     run_id: runId,
     created_at: String(document.created_at ?? "2026-07-24T12:01:00Z"),
-    producer_role: document.producer_role === "main_agent" ? "main_agent" : "harness",
+    producer_role:
+      document.producer_role === "main_agent" ||
+      artifactType === "startup_opportunity.adaptation_decision.discovery.current" ||
+      artifactType === "startup_opportunity.adaptation_decision.assessment.current"
+        ? "main_agent"
+        : "harness",
     input_refs: inputRefs,
     content_hash: canonicalContentHash(document),
     document,
@@ -587,7 +588,7 @@ function terminalReportSource(runId: string): FormalArtifactEnvelope {
     artifactPath,
     document,
     auditRefs,
-    "startup_opportunity.artifact_envelope.v17",
+    "startup_opportunity.artifact_envelope.current",
   );
   return { ...source, created_at: "2026-07-24T12:09:30Z" };
 }
@@ -687,7 +688,6 @@ async function setupPersistedRun(
     bootstrapManifest.current_plan_ref = PLAN_REF;
     bootstrapManifest.plan_revision = 1;
     bootstrapManifest.current_phase = "discovery";
-    bootstrapManifest.schema_bundle_version = SCHEMA_BUNDLE_VERSION;
     await writeFile(
       path.join(runsRoot, runId, "manifest.json"),
       `${canonicalJson(bootstrapManifest)}\n`,
@@ -715,7 +715,6 @@ async function setupPersistedRun(
   const runRoot = path.join(runsRoot, runId);
   const persistedManifest = manifest(runId, plan);
   const storeManifest = (await store.load(runId)).manifest;
-  persistedManifest.schema_bundle_version = SCHEMA_BUNDLE_VERSION;
   persistedManifest.current_phase = discoveryBacked ? "discovery" : "enrichment";
   persistedManifest.artifact_refs = discoveryBacked ? storeManifest.artifact_refs : [PLAN_REF];
   persistedManifest.latest_gap_snapshot_ref = null;
@@ -929,7 +928,7 @@ function currentDiscoveryAdaptationBundle(
     }
   }
   return {
-    schema_version: "startup_opportunity.document_bundle.v18",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: [...selected.values()].sort((left, right) => left.path.localeCompare(right.path)),
     exact_records: [],
   };
@@ -1032,7 +1031,7 @@ function candidateFor(
     createdAt: candidateContextCreatedAt,
   });
   const candidateBundle: DocumentBundle = {
-    schema_version: "startup_opportunity.document_bundle.v2",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: [
       { path: "manifest.json", document: setup.currentManifest },
       { path: PLAN_REF, document: setup.plan },
@@ -1179,11 +1178,11 @@ async function multiDecisionApplyInput(
     checkpointEntry,
   ];
   const adaptationBundle: DocumentBundle = {
-    schema_version: "startup_opportunity.document_bundle.v2",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: commonDocuments,
   };
   const candidateBundle: DocumentBundle = {
-    schema_version: "startup_opportunity.document_bundle.v2",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: [
       ...commonDocuments,
       { path: transformed.planPath, document: transformed.plan },
@@ -1276,16 +1275,16 @@ test("Plan semantic validation enforces DAG, output uniqueness, policy tuple, an
       .planErrors.some((error) => error.code === "plan.output_path_conflict"),
   );
 
-  const legacyOutput = clone(validBundle);
-  const legacyOutputPlan = legacyOutput.documents.find((entry) => entry.path === PLAN_REF)
+  const obsoleteOutputPath = clone(validBundle);
+  const obsoleteOutputPlan = obsoleteOutputPath.documents.find((entry) => entry.path === PLAN_REF)
     ?.document as Record<string, unknown>;
-  const legacyOutputUnit = (legacyOutputPlan.waves as { units: Record<string, unknown>[] }[])[0]
+  const obsoleteOutputUnit = (obsoleteOutputPlan.waves as { units: Record<string, unknown>[] }[])[0]
     ?.units[0];
-  assert.ok(legacyOutputUnit);
-  legacyOutputUnit.output_path = "artifacts/lanes/counter-completed.json";
+  assert.ok(obsoleteOutputUnit);
+  obsoleteOutputUnit.output_path = "artifacts/lanes/counter-completed.json";
   assert.ok(
     validator
-      .validateDocumentBundle(legacyOutput)
+      .validateDocumentBundle(obsoleteOutputPath)
       .planErrors.some((error) => error.code === "plan.output_path_contract_mismatch"),
   );
 
@@ -1402,7 +1401,7 @@ test("run_id validation context assembles persisted authority and exact records"
   const runId = "runtime-validation-context";
   const setup = await setupPersistedRun(contextTest, runId, "retry", false, true);
   const semanticBundle: DocumentBundle = {
-    schema_version: "startup_opportunity.document_bundle.v2",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: [{ path: PLAN_REF, document: setup.plan }, setup.planningContext],
   };
   const assembled = await setup.store.buildValidationContext(runId, semanticBundle);
@@ -1766,6 +1765,30 @@ test("Adaptation validator accepts all closed actions and rejects retry outside 
     assert.equal(result.valid, true, `${action}: ${JSON.stringify(result.adaptationErrors)}`);
   }
 
+  const modeMismatchRunId = "adapt-mode-mismatch";
+  const modeMismatchPlan = basePlan(modeMismatchRunId);
+  const modeMismatchManifest = manifest(modeMismatchRunId, modeMismatchPlan);
+  modeMismatchManifest.mode = "concept_evidence_assessment";
+  const modeMismatchContext = context(modeMismatchManifest, modeMismatchPlan, {
+    path: CONTEXT_REF,
+    revision: 1,
+    parentRef: null,
+    stage: "current_plan",
+    createdAt: "2026-07-24T12:03:00Z",
+  });
+  const modeMismatch = validator.validateDocumentBundle(
+    bundle(
+      modeMismatchManifest,
+      modeMismatchPlan,
+      modeMismatchContext,
+      gapSnapshot(modeMismatchRunId),
+      retryDecision(modeMismatchRunId),
+    ),
+  );
+  assert.ok(
+    modeMismatch.adaptationErrors.some((error) => error.code === "adaptation.run_mode_mismatch"),
+  );
+
   const runId = "adapt-retry-not-failed";
   const plan = basePlan(runId);
   const runManifest = manifest(runId, plan);
@@ -1850,7 +1873,7 @@ test("Adaptation validator accepts all closed actions and rejects retry outside 
     DECISION_REF,
     terminateDecision,
     [PLAN_REF, GAP_REF, CONTEXT_REF],
-    "startup_opportunity.artifact_envelope.v5",
+    "startup_opportunity.artifact_envelope.current",
   );
   assert.ok(
     validator
@@ -1866,7 +1889,7 @@ test("Adaptation validator accepts all closed actions and rejects retry outside 
   );
 });
 
-test("v5 Gap and Decision publication and recovery project Manifest lifecycle", async (contextTest) => {
+test("current Gap and Decision publication and recovery project Manifest lifecycle", async (contextTest) => {
   const runId = "runtime-v5-control-projection";
   const setup = await setupPersistedRun(contextTest, runId);
   const gapPath = "adaptations/gap-snapshots/gap-runtime-v5.r2.json";
@@ -1883,7 +1906,7 @@ test("v5 Gap and Decision publication and recovery project Manifest lifecycle", 
     gapPath,
     gap,
     [PLAN_REF],
-    "startup_opportunity.artifact_envelope.v5",
+    "startup_opportunity.artifact_envelope.current",
   );
   await assert.rejects(
     setup.store.publishArtifact({ runId, envelope: gapEnvelope, faultAt: "after_publish" }),
@@ -1901,7 +1924,7 @@ test("v5 Gap and Decision publication and recovery project Manifest lifecycle", 
     decisionPath,
     decision,
     [PLAN_REF, gapPath],
-    "startup_opportunity.artifact_envelope.v5",
+    "startup_opportunity.artifact_envelope.current",
   );
   await assert.rejects(
     setup.store.publishArtifact({
@@ -2232,7 +2255,10 @@ test("ordinary post-G2 add_unit receipts bind every durable base-Plan candidate"
   const receipt = JSON.parse(
     await readFile(await planReceiptFile(setup.runRoot), "utf8"),
   ) as Record<string, unknown>;
-  assert.equal(receipt.schema_version, "startup_opportunity.plan_revision_operation.v3");
+  assert.equal(
+    receipt.schema_version,
+    "startup_opportunity.plan_revision_operation.discovery.current",
+  );
   const bindings = receipt.candidate_bindings as Record<string, unknown>[];
   assert.deepEqual(
     bindings.map((binding) => binding.candidate_ref),
@@ -2259,7 +2285,7 @@ test("ordinary post-G2 add_unit receipts bind every durable base-Plan candidate"
   ]);
 });
 
-test("current v18 adaptation planning preserves the complete G2.1/G2.2 envelope closure", async (contextTest) => {
+test("current adaptation planning preserves the complete G2.1/G2.2 envelope closure", async (contextTest) => {
   const runId = "runtime-current-discovery-adaptation-closure";
   const setup = await setupPersistedRun(contextTest, runId, "post-g2-add");
   const adaptationBundle = currentDiscoveryAdaptationBundle(setup);
@@ -2303,9 +2329,9 @@ test("current v18 adaptation planning preserves the complete G2.1/G2.2 envelope 
   const candidate = adaptationBundle.documents.find(
     (entry) => entry.path === PRE_KILL_CANDIDATE_REF,
   );
-  assert.equal(candidate?.document.schema_version, "startup_opportunity.artifact_envelope.v10");
+  assert.equal(candidate?.document.schema_version, "startup_opportunity.artifact_envelope.current");
   const map = adaptationBundle.documents.find((entry) => entry.path === G21_MAP_REFS[0]);
-  assert.equal(map?.document.schema_version, "startup_opportunity.artifact_envelope.v8");
+  assert.equal(map?.document.schema_version, "startup_opportunity.artifact_envelope.current");
 
   const tampered = structuredClone(adaptationBundle);
   const tamperedCandidate = tampered.documents.find(
@@ -2652,7 +2678,7 @@ test("a completed no-revision operation does not block the next same-Plan adapta
       nextGapRef,
       nextGap,
       [PLAN_REF],
-      "startup_opportunity.artifact_envelope.v5",
+      "startup_opportunity.artifact_envelope.current",
     ),
   });
 
@@ -2669,7 +2695,7 @@ test("a completed no-revision operation does not block the next same-Plan adapta
       nextDecisionRef,
       nextDecision,
       [PLAN_REF, nextGapRef],
-      "startup_opportunity.artifact_envelope.v5",
+      "startup_opportunity.artifact_envelope.current",
     ),
   });
 
@@ -2680,7 +2706,7 @@ test("a completed no-revision operation does not block the next same-Plan adapta
     await readFile(path.join(setup.runRoot, checkpointRef), "utf8"),
   ) as FormalArtifactEnvelope;
   const nextBundle: DocumentBundle = {
-    schema_version: "startup_opportunity.document_bundle.v2",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: [
       { path: "manifest.json", document: currentManifest },
       { path: PLAN_REF, document: setup.plan },
@@ -2920,39 +2946,6 @@ test("candidate pre-kill receipt revalidates candidate, Plan, and binding revisi
       );
     });
   }
-});
-
-test("parent receipt v1 remains replayable and recoverable without candidate binding", async (contextTest) => {
-  const runId = "runtime-parent-receipt-v1";
-  const setup = await setupPersistedRun(contextTest, runId);
-  const { candidateBundle } = candidateFor(setup);
-  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
-  const input = {
-    runId,
-    adaptationBundle: setup.adaptationBundle,
-    adaptationRefs: [DECISION_REF],
-    candidateBundle,
-    createdAt: "2026-07-24T12:08:00Z",
-    checkpointCreatedAt: "2026-07-24T12:09:00Z",
-    nextStep: "Preserve the parent receipt behavior.",
-    beliefSummary: {
-      current_belief: "The parent v1 receipt remains the authority for this replay.",
-      evidence_that_changed_belief: [],
-      unchanged_assumptions: [],
-      remaining_disagreement: [],
-      next_decision_relevant_question: "Does legacy replay remain byte-compatible?",
-    },
-  };
-  assert.equal((await runtime.apply(input)).status, "applied");
-  const receipt = JSON.parse(
-    await readFile(await planReceiptFile(setup.runRoot), "utf8"),
-  ) as Record<string, unknown>;
-  assert.equal(receipt.schema_version, "startup_opportunity.plan_revision_operation.v1");
-  assert.equal("candidate_bindings" in receipt, false);
-  assert.equal((await runtime.apply(input)).status, "idempotent_replay");
-  const reopened = await setup.store.load(runId);
-  assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
-  assert.deepEqual(reopened.planOperationRecovery.candidateBoundOperationKeys, []);
 });
 
 test("Plan apply rejects an in-memory Gap Snapshot that differs from disk before writes", async (contextTest) => {
@@ -3386,7 +3379,7 @@ test("G0.R replays two exact Event and Decision chains through one filesystem ba
   const artifactValidator = await createArtifactValidator(repositoryRoot);
   const duplicatePathBundle = artifactValidator.validateDocumentBundle(
     {
-      schema_version: "startup_opportunity.document_bundle.v3",
+      schema_version: "startup_opportunity.document_bundle.current",
       documents: [
         { path: "events.jsonl", document: setup.triggerEventRecord },
         { path: "events.jsonl", document: second.eventRecord },

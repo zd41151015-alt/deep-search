@@ -30,11 +30,6 @@ interface RecordEvidenceInputBase {
   readonly faultAt?: EvidenceFaultBoundary;
 }
 
-export interface RecordLegacyEvidenceInput extends RecordEvidenceInputBase {
-  readonly url: string;
-  readonly source?: never;
-}
-
 export interface PublicEvidenceSource {
   readonly kind: "public_url";
   readonly canonical_url: string;
@@ -47,28 +42,11 @@ export interface UserProvidedEvidenceSource {
 
 export type CanonicalEvidenceSource = PublicEvidenceSource | UserProvidedEvidenceSource;
 
-export interface RecordMaterializedEvidenceInput extends RecordEvidenceInputBase {
+export interface RecordEvidenceInput extends RecordEvidenceInputBase {
   readonly source: CanonicalEvidenceSource;
-  readonly url?: never;
 }
-
-export type RecordEvidenceInput = RecordLegacyEvidenceInput | RecordMaterializedEvidenceInput;
 
 export interface EvidenceStoreRecord extends Record<string, unknown> {
-  readonly schema_version: "startup_opportunity.evidence_store_record.v1";
-  readonly evidence_id: string;
-  readonly run_id: string;
-  readonly unit_id: string;
-  readonly canonical_url: string;
-  readonly source_hash: string;
-  readonly content_hash: string;
-  readonly research_goal: string;
-  readonly raw_content_ref: string;
-  readonly operation_key: string;
-  readonly recorded_at: string;
-}
-
-export interface EvidenceStoreRecordV2 extends Record<string, unknown> {
   readonly schema_version: "startup_opportunity.evidence_store_record.v2";
   readonly evidence_id: string;
   readonly run_id: string;
@@ -82,20 +60,16 @@ export interface EvidenceStoreRecordV2 extends Record<string, unknown> {
   readonly recorded_at: string;
 }
 
-export type EvidenceSubstrateRecord = EvidenceStoreRecord | EvidenceStoreRecordV2;
-
 interface EvidenceOperationReceipt {
-  readonly schema_version:
-    | "startup_opportunity.evidence_store_operation.v1"
-    | "startup_opportunity.evidence_store_operation.v2";
+  readonly schema_version: "startup_opportunity.evidence_store_operation.current";
   readonly operation_key: string;
-  readonly record: EvidenceSubstrateRecord;
+  readonly record: EvidenceStoreRecord;
 }
 
-export interface RecordEvidenceResult<T extends EvidenceSubstrateRecord = EvidenceSubstrateRecord> {
+export interface RecordEvidenceResult {
   readonly schemaVersion: "startup_opportunity.record_evidence_result.v1";
   readonly status: "recorded" | "idempotent_replay";
-  readonly record: T;
+  readonly record: EvidenceStoreRecord;
 }
 
 export interface EvidenceRecoveryResult {
@@ -150,18 +124,6 @@ function hasExactlyKeys(value: Record<string, unknown>, expected: readonly strin
   );
 }
 
-function expectedEvidenceOperationKey(
-  canonicalUrl: string,
-  contentHash: string,
-  researchGoal: string,
-): string {
-  return operationKey("record_evidence", {
-    canonical_url: canonicalUrl,
-    content_hash: contentHash,
-    research_goal: researchGoal,
-  });
-}
-
 function canonicalizeSource(source: CanonicalEvidenceSource): CanonicalEvidenceSource {
   if (source.kind === "public_url") {
     return { kind: "public_url", canonical_url: canonicalizeSourceUrl(source.canonical_url) };
@@ -180,12 +142,12 @@ function canonicalizeSource(source: CanonicalEvidenceSource): CanonicalEvidenceS
   return { kind: "user_provided", canonical_uri: source.canonical_uri };
 }
 
-function expectedEvidenceOperationKeyV2(
+function expectedEvidenceOperationKey(
   source: CanonicalEvidenceSource,
   contentHash: string,
   researchGoal: string,
 ): string {
-  return operationKey("record_evidence_v2", {
+  return operationKey("record_evidence", {
     source,
     content_hash: contentHash,
     research_goal: researchGoal,
@@ -199,68 +161,7 @@ function invalidEvidenceRecord(
   throw new StoreError("evidence.invalid_record", message, details);
 }
 
-function validateLegacyEvidenceRecord(value: unknown, runId: string): EvidenceStoreRecord {
-  if (
-    !isRecord(value) ||
-    !hasExactlyKeys(value, [
-      "schema_version",
-      "evidence_id",
-      "run_id",
-      "unit_id",
-      "canonical_url",
-      "source_hash",
-      "content_hash",
-      "research_goal",
-      "raw_content_ref",
-      "operation_key",
-      "recorded_at",
-    ]) ||
-    value.schema_version !== "startup_opportunity.evidence_store_record.v1" ||
-    value.run_id !== runId ||
-    typeof value.unit_id !== "string" ||
-    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.unit_id) ||
-    typeof value.canonical_url !== "string" ||
-    typeof value.research_goal !== "string" ||
-    value.research_goal.trim().length === 0 ||
-    typeof value.recorded_at !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
-      value.recorded_at,
-    ) ||
-    !Number.isFinite(Date.parse(value.recorded_at)) ||
-    !isSha256(value.source_hash) ||
-    !isSha256(value.content_hash) ||
-    !isSha256(value.operation_key) ||
-    typeof value.evidence_id !== "string" ||
-    typeof value.raw_content_ref !== "string"
-  ) {
-    return invalidEvidenceRecord(
-      "Evidence substrate record shape or primitive identity is invalid",
-    );
-  }
-  let canonicalUrl: string;
-  try {
-    canonicalUrl = canonicalizeSourceUrl(value.canonical_url);
-  } catch {
-    return invalidEvidenceRecord("Evidence canonical URL is invalid");
-  }
-  const operationHex = sha256Hex(value.operation_key);
-  const contentHex = sha256Hex(value.content_hash);
-  if (
-    canonicalUrl !== value.canonical_url ||
-    value.source_hash !== sha256Bytes(canonicalUrl) ||
-    value.operation_key !==
-      expectedEvidenceOperationKey(canonicalUrl, value.content_hash, value.research_goal) ||
-    value.evidence_id !== `ev_${operationHex}` ||
-    value.raw_content_ref !== `evidence/raw/sha256-${contentHex}.bin`
-  ) {
-    return invalidEvidenceRecord("Evidence substrate stable identity fields are inconsistent", {
-      evidenceId: value.evidence_id,
-    });
-  }
-  return value as unknown as EvidenceStoreRecord;
-}
-
-function validateMaterializedEvidenceRecord(value: unknown, runId: string): EvidenceStoreRecordV2 {
+function validateEvidenceRecord(value: unknown, runId: string): EvidenceStoreRecord {
   if (
     !isRecord(value) ||
     !hasExactlyKeys(value, [
@@ -295,14 +196,14 @@ function validateMaterializedEvidenceRecord(value: unknown, runId: string): Evid
     typeof value.raw_content_ref !== "string"
   ) {
     return invalidEvidenceRecord(
-      "Evidence substrate v2 record shape or primitive identity is invalid",
+      "Evidence substrate record shape or primitive identity is invalid",
     );
   }
   let source: CanonicalEvidenceSource;
   try {
     source = canonicalizeSource(value.source as unknown as CanonicalEvidenceSource);
   } catch {
-    return invalidEvidenceRecord("Evidence substrate v2 canonical source is invalid");
+    return invalidEvidenceRecord("Evidence substrate canonical source is invalid");
   }
   const operationHex = sha256Hex(value.operation_key);
   const contentHex = sha256Hex(value.content_hash);
@@ -310,22 +211,15 @@ function validateMaterializedEvidenceRecord(value: unknown, runId: string): Evid
     canonicalJson(source) !== canonicalJson(value.source) ||
     value.source_hash !== sha256Bytes(canonicalJson(source)) ||
     value.operation_key !==
-      expectedEvidenceOperationKeyV2(source, value.content_hash, value.research_goal) ||
+      expectedEvidenceOperationKey(source, value.content_hash, value.research_goal) ||
     value.evidence_id !== `ev_${operationHex}` ||
     value.raw_content_ref !== `evidence/raw/sha256-${contentHex}.bin`
   ) {
-    return invalidEvidenceRecord("Evidence substrate v2 stable identity fields are inconsistent", {
+    return invalidEvidenceRecord("Evidence substrate stable identity fields are inconsistent", {
       evidenceId: value.evidence_id,
     });
   }
-  return value as unknown as EvidenceStoreRecordV2;
-}
-
-function validateEvidenceRecord(value: unknown, runId: string): EvidenceSubstrateRecord {
-  if (isRecord(value) && value.schema_version === "startup_opportunity.evidence_store_record.v1") {
-    return validateLegacyEvidenceRecord(value, runId);
-  }
-  return validateMaterializedEvidenceRecord(value, runId);
+  return value as unknown as EvidenceStoreRecord;
 }
 
 function validateEvidenceReceipt(
@@ -336,15 +230,14 @@ function validateEvidenceReceipt(
   if (
     !isRecord(value) ||
     !hasExactlyKeys(value, ["schema_version", "operation_key", "record"]) ||
-    (value.schema_version !== "startup_opportunity.evidence_store_operation.v1" &&
-      value.schema_version !== "startup_opportunity.evidence_store_operation.v2") ||
+    value.schema_version !== "startup_opportunity.evidence_store_operation.current" ||
     !isSha256(value.operation_key)
   ) {
     throw new StoreError("recovery.invalid_operation", "Evidence operation receipt is invalid", {
       path: `.store/operations/${filename}`,
     });
   }
-  let record: EvidenceSubstrateRecord;
+  let record: EvidenceStoreRecord;
   try {
     record = validateEvidenceRecord(value.record, runId);
   } catch (error) {
@@ -357,22 +250,15 @@ function validateEvidenceReceipt(
       },
     );
   }
-  const expectedReceiptVersion =
-    record.schema_version === "startup_opportunity.evidence_store_record.v1"
-      ? "startup_opportunity.evidence_store_operation.v1"
-      : "startup_opportunity.evidence_store_operation.v2";
-  const expectedKey =
-    record.schema_version === "startup_opportunity.evidence_store_record.v1"
-      ? expectedEvidenceOperationKey(
-          record.canonical_url,
-          record.content_hash,
-          record.research_goal,
-        )
-      : expectedEvidenceOperationKeyV2(record.source, record.content_hash, record.research_goal);
+  const expectedKey = expectedEvidenceOperationKey(
+    record.source,
+    record.content_hash,
+    record.research_goal,
+  );
   const expectedFilename = `evidence-${sha256Hex(value.operation_key)}.json`;
   if (
     filename !== expectedFilename ||
-    value.schema_version !== expectedReceiptVersion ||
+    value.schema_version !== "startup_opportunity.evidence_store_operation.current" ||
     value.operation_key !== record.operation_key ||
     value.operation_key !== expectedKey
   ) {
@@ -389,10 +275,10 @@ function parseManifest(
   contents: Buffer,
   runId: string,
 ): {
-  readonly records: EvidenceSubstrateRecord[];
+  readonly records: EvidenceStoreRecord[];
   readonly validBytes: number;
 } {
-  const records: EvidenceSubstrateRecord[] = [];
+  const records: EvidenceStoreRecord[] = [];
   const operationKeys = new Set<string>();
   const evidenceIds = new Set<string>();
   let offset = 0;
@@ -432,7 +318,7 @@ function parseManifest(
   return { records, validBytes };
 }
 
-async function appendRecord(filename: string, record: EvidenceSubstrateRecord): Promise<void> {
+async function appendRecord(filename: string, record: EvidenceStoreRecord): Promise<void> {
   const handle = await open(filename, "a", 0o600);
   try {
     await handle.write(`${canonicalJson(record)}\n`, null, "utf8");
@@ -445,13 +331,6 @@ async function appendRecord(filename: string, record: EvidenceSubstrateRecord): 
 export class EvidenceStore {
   constructor(private readonly runsRoot: string) {}
 
-  async record(
-    input: RecordLegacyEvidenceInput,
-  ): Promise<RecordEvidenceResult<EvidenceStoreRecord>>;
-  async record(
-    input: RecordMaterializedEvidenceInput,
-  ): Promise<RecordEvidenceResult<EvidenceStoreRecordV2>>;
-  async record(input: RecordEvidenceInput): Promise<RecordEvidenceResult>;
   async record(input: RecordEvidenceInput): Promise<RecordEvidenceResult> {
     validateRunId(input.runId);
     assertNonEmpty(input.unitId, "unitId");
@@ -470,14 +349,12 @@ export class EvidenceStore {
         ? Buffer.from(input.rawContent, "utf8")
         : Buffer.from(input.rawContent);
     const contentHash = sha256Bytes(rawBytes);
-    const identity =
-      "url" in input && typeof input.url === "string"
-        ? ({ version: "v1", canonicalUrl: canonicalizeSourceUrl(input.url) } as const)
-        : ({ version: "v2", source: canonicalizeSource(input.source) } as const);
-    const stableOperationKey =
-      identity.version === "v1"
-        ? expectedEvidenceOperationKey(identity.canonicalUrl, contentHash, input.researchGoal)
-        : expectedEvidenceOperationKeyV2(identity.source, contentHash, input.researchGoal);
+    const source = canonicalizeSource(input.source);
+    const stableOperationKey = expectedEvidenceOperationKey(
+      source,
+      contentHash,
+      input.researchGoal,
+    );
     if (input.operationKey !== undefined && input.operationKey !== stableOperationKey) {
       throw new StoreError(
         "operation.key_mismatch",
@@ -497,26 +374,15 @@ export class EvidenceStore {
       operation_key: stableOperationKey,
       recorded_at: input.recordedAt ?? new Date().toISOString(),
     };
-    let record: EvidenceSubstrateRecord =
-      identity.version === "v1"
-        ? {
-            schema_version: "startup_opportunity.evidence_store_record.v1",
-            ...common,
-            canonical_url: identity.canonicalUrl,
-            source_hash: sha256Bytes(identity.canonicalUrl),
-          }
-        : {
-            schema_version: "startup_opportunity.evidence_store_record.v2",
-            ...common,
-            source: identity.source,
-            source_hash: sha256Bytes(canonicalJson(identity.source)),
-          };
+    let record: EvidenceStoreRecord = {
+      schema_version: "startup_opportunity.evidence_store_record.v2",
+      ...common,
+      source,
+      source_hash: sha256Bytes(canonicalJson(source)),
+    };
     record = validateEvidenceRecord(record, input.runId);
     const receipt: EvidenceOperationReceipt = {
-      schema_version:
-        identity.version === "v1"
-          ? "startup_opportunity.evidence_store_operation.v1"
-          : "startup_opportunity.evidence_store_operation.v2",
+      schema_version: "startup_opportunity.evidence_store_operation.current",
       operation_key: stableOperationKey,
       record,
     };
@@ -605,13 +471,13 @@ export class EvidenceStore {
     };
   }
 
-  async readExactRecord(runId: string, ref: string): Promise<EvidenceSubstrateRecord> {
+  async readExactRecord(runId: string, ref: string): Promise<EvidenceStoreRecord> {
     validateRunId(runId);
     const runRoot = await openRunDirectory(this.runsRoot, runId);
     return withRunLock(runRoot, () => this.readExactRecordLocked(runRoot, runId, ref));
   }
 
-  async listRecords(runId: string): Promise<readonly EvidenceSubstrateRecord[]> {
+  async listRecords(runId: string): Promise<readonly EvidenceStoreRecord[]> {
     validateRunId(runId);
     const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
     return this.listRecordsLocked(runRoot, runId);
@@ -621,7 +487,7 @@ export class EvidenceStore {
     runRoot: string,
     runId: string,
     ref: string,
-  ): Promise<EvidenceSubstrateRecord> {
+  ): Promise<EvidenceStoreRecord> {
     const match = /^evidence\/manifest\.jsonl#(ev_[a-f0-9]{64})$/.exec(ref);
     if (match?.[1] === undefined) {
       throw new StoreError(
@@ -650,10 +516,7 @@ export class EvidenceStore {
     return matches[0];
   }
 
-  async listRecordsLocked(
-    runRoot: string,
-    runId: string,
-  ): Promise<readonly EvidenceSubstrateRecord[]> {
+  async listRecordsLocked(runRoot: string, runId: string): Promise<readonly EvidenceStoreRecord[]> {
     const contents = await readFile(await resolveRunPath(runRoot, "evidence/manifest.jsonl"));
     const parsed = parseManifest(contents, runId);
     if (parsed.validBytes !== contents.length) {

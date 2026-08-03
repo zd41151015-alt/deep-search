@@ -3,21 +3,15 @@ import { canonicalContentHash } from "../artifact-store/canonical.js";
 import {
   loadResearchPublicationPolicy,
   type PublicationPolicy,
-  type StorePublicationAdapter,
 } from "../artifact-store/publication-policy.js";
 import {
   requiresDeterministicReportScan,
   scanReportSurface,
 } from "../reporting/report-consistency.js";
-import {
-  type AiBundleDocument,
-  isAiBundleSchemaVersion,
-  validateAiBundleContract,
-} from "./ai-bundle-validator.js";
+import { type AiBundleDocument, validateAiBundleContract } from "./ai-bundle-validator.js";
 import { formalArtifactFragmentExists } from "./artifact-ref-resolver.js";
 import {
   type AssessDomainDocument,
-  isAssessDomainSchemaVersion,
   validateAssessDomainContract,
 } from "./assess-domain-validator.js";
 import {
@@ -48,9 +42,7 @@ import {
 } from "./discovery-candidate-validator.js";
 import {
   type DiscoveryEvaluationPolicy,
-  LEGACY_DISCOVERY_EVALUATION_POLICY_PATH,
   loadDiscoveryEvaluationPolicy,
-  REPAIRED_DISCOVERY_EVALUATION_POLICY_PATH,
 } from "./discovery-evaluation-policy.js";
 import {
   type DiscoveryEvaluationDocument,
@@ -63,7 +55,6 @@ import {
 } from "./discovery-maps-policy.js";
 import {
   type DiscoveryMapDocument,
-  isDiscoveryMapSchemaVersion,
   validateDiscoveryMapsContract,
 } from "./discovery-maps-validator.js";
 import {
@@ -75,7 +66,7 @@ import {
   isDiscoverySynthesisSchemaVersion,
   validateDiscoverySynthesisContract,
 } from "./discovery-synthesis-validator.js";
-import { type G14Document, isG14SchemaVersion, validateG14Contract } from "./g1.4-validator.js";
+import { type G14Document, validateG14Contract } from "./g1.4-validator.js";
 import { coverageKey, planningRunStateHash } from "./planning-contract-identities.js";
 import {
   type ResearchBranchDocument,
@@ -99,7 +90,6 @@ export const DOCUMENT_BUNDLE_VALIDATION_RESULT_VERSION =
 
 export interface ArtifactValidationResult {
   readonly schemaVersion: typeof ARTIFACT_VALIDATION_RESULT_VERSION;
-  readonly schemaBundleVersion: string;
   readonly valid: boolean;
   readonly documentPath: string | null;
   readonly artifactSchemaVersion: string | null;
@@ -112,26 +102,7 @@ export interface DocumentBundleEntry {
 }
 
 export interface DocumentBundle {
-  readonly schema_version:
-    | "startup_opportunity.document_bundle.v1"
-    | "startup_opportunity.document_bundle.v2"
-    | "startup_opportunity.document_bundle.v3"
-    | "startup_opportunity.document_bundle.v4"
-    | "startup_opportunity.document_bundle.v5"
-    | "startup_opportunity.document_bundle.v6"
-    | "startup_opportunity.document_bundle.v7"
-    | "startup_opportunity.document_bundle.v8"
-    | "startup_opportunity.document_bundle.v9"
-    | "startup_opportunity.document_bundle.v10"
-    | "startup_opportunity.document_bundle.v11"
-    | "startup_opportunity.document_bundle.v12"
-    | "startup_opportunity.document_bundle.v13"
-    | "startup_opportunity.document_bundle.v14"
-    | "startup_opportunity.document_bundle.v15"
-    | "startup_opportunity.document_bundle.v16"
-    | "startup_opportunity.document_bundle.v17"
-    | "startup_opportunity.document_bundle.v18"
-    | "startup_opportunity.document_bundle.v19";
+  readonly schema_version: "startup_opportunity.document_bundle.current";
   readonly documents: readonly DocumentBundleEntry[];
   readonly exact_records?: readonly {
     readonly ref: string;
@@ -153,7 +124,6 @@ export interface HistoricalDiscoveryPlanBinding {
 
 export interface DocumentBundleValidationResult {
   readonly schemaVersion: typeof DOCUMENT_BUNDLE_VALIDATION_RESULT_VERSION;
-  readonly schemaBundleVersion: string;
   readonly valid: boolean;
   readonly bundleErrors: readonly ValidationIssue[];
   readonly documents: readonly ArtifactValidationResult[];
@@ -404,29 +374,25 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       return [
         ...optionalRef(document, "current_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "latest_gap_snapshot_ref", [
-          "startup_opportunity.gap_snapshot.v1",
-          "startup_opportunity.gap_snapshot.v2",
-          "startup_opportunity.gap_snapshot.v3",
+          "startup_opportunity.gap_snapshot.discovery.plan.current",
+          "startup_opportunity.gap_snapshot.assessment.current",
+          "startup_opportunity.gap_snapshot.discovery.readiness.current",
         ]),
         ...refsFromArray(document, "pending_adaptation_refs", [
-          "startup_opportunity.adaptation_decision.v1",
-          "startup_opportunity.adaptation_decision.v2",
-          "startup_opportunity.adaptation_decision.v3",
+          "startup_opportunity.adaptation_decision.discovery.current",
+          "startup_opportunity.adaptation_decision.assessment.current",
         ]),
         ...refsFromArray(document, "validated_adaptation_refs", [
-          "startup_opportunity.adaptation_decision.v1",
-          "startup_opportunity.adaptation_decision.v2",
-          "startup_opportunity.adaptation_decision.v3",
+          "startup_opportunity.adaptation_decision.discovery.current",
+          "startup_opportunity.adaptation_decision.assessment.current",
         ]),
         ...refsFromArray(document, "rejected_adaptation_refs", [
-          "startup_opportunity.adaptation_decision.v1",
-          "startup_opportunity.adaptation_decision.v2",
-          "startup_opportunity.adaptation_decision.v3",
+          "startup_opportunity.adaptation_decision.discovery.current",
+          "startup_opportunity.adaptation_decision.assessment.current",
         ]),
         ...refsFromArray(document, "applied_adaptation_refs", [
-          "startup_opportunity.adaptation_decision.v1",
-          "startup_opportunity.adaptation_decision.v2",
-          "startup_opportunity.adaptation_decision.v3",
+          "startup_opportunity.adaptation_decision.discovery.current",
+          "startup_opportunity.adaptation_decision.assessment.current",
         ]),
         ...optionalRef(document, "checkpoint_ref", "startup_opportunity.checkpoint.v1"),
       ];
@@ -434,22 +400,29 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       return [
         ...optionalRef(document, "parent_plan_ref", "startup_opportunity.research_plan.v1"),
         ...refsFromArray(document, "triggered_by_adaptation_refs", [
-          "startup_opportunity.adaptation_decision.v1",
-          "startup_opportunity.adaptation_decision.v2",
-          "startup_opportunity.adaptation_decision.v3",
+          "startup_opportunity.adaptation_decision.discovery.current",
+          "startup_opportunity.adaptation_decision.assessment.current",
           "startup_opportunity.assessment_followup_decision.v1",
         ]),
       ];
-    case "startup_opportunity.gap_snapshot.v1":
+    case "startup_opportunity.gap_snapshot.discovery.plan.current":
       return [
         ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
-        ...optionalRef(document, "parent_snapshot_ref", "startup_opportunity.gap_snapshot.v1"),
+        ...optionalRef(
+          document,
+          "parent_snapshot_ref",
+          "startup_opportunity.gap_snapshot.discovery.plan.current",
+        ),
         ...optionalRef(document, "trigger_event_ref", "startup_opportunity.event.v1", "event_id"),
       ];
-    case "startup_opportunity.gap_snapshot.v2":
+    case "startup_opportunity.gap_snapshot.assessment.current":
       return [
         ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
-        ...optionalRef(document, "parent_snapshot_ref", "startup_opportunity.gap_snapshot.v2"),
+        ...optionalRef(
+          document,
+          "parent_snapshot_ref",
+          "startup_opportunity.gap_snapshot.assessment.current",
+        ),
         ...optionalRef(document, "trigger_event_ref", "startup_opportunity.event.v1", "event_id"),
         ...optionalRef(
           document,
@@ -471,29 +444,16 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.research_task.v1",
         ),
       ];
-    case "startup_opportunity.adaptation_decision.v1":
+    case "startup_opportunity.adaptation_decision.discovery.current":
       return [
         ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
         ...refsFromArray(
           document,
           "trigger_gap_refs",
-          ["startup_opportunity.gap_snapshot.v1", "startup_opportunity.gap_snapshot.v3"],
-          "gap_id",
-        ),
-        ...optionalRef(
-          document,
-          "user_decision_ref",
-          "startup_opportunity.decision.v1",
-          "decision_id",
-        ),
-      ];
-    case "startup_opportunity.adaptation_decision.v2":
-      return [
-        ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
-        ...refsFromArray(
-          document,
-          "trigger_gap_refs",
-          ["startup_opportunity.gap_snapshot.v1", "startup_opportunity.gap_snapshot.v3"],
+          [
+            "startup_opportunity.gap_snapshot.discovery.plan.current",
+            "startup_opportunity.gap_snapshot.discovery.readiness.current",
+          ],
           "gap_id",
         ),
         ...optionalRef(
@@ -508,13 +468,13 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "decision_id",
         ),
       ];
-    case "startup_opportunity.adaptation_decision.v3":
+    case "startup_opportunity.adaptation_decision.assessment.current":
       return [
         ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
         ...refsFromArray(
           document,
           "trigger_gap_refs",
-          "startup_opportunity.gap_snapshot.v2",
+          "startup_opportunity.gap_snapshot.assessment.current",
           "gap_id",
         ),
         ...optionalRef(
@@ -575,7 +535,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
     case "startup_opportunity.coverage_attestation.v1":
       return [
         ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
-        ...optionalRef(document, "gap_ref", "startup_opportunity.gap_snapshot.v1", "gap_id"),
+        ...optionalRef(
+          document,
+          "gap_ref",
+          "startup_opportunity.gap_snapshot.discovery.plan.current",
+          "gap_id",
+        ),
         ...optionalRef(
           document,
           "target_unit_ref",
@@ -587,27 +552,25 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       return [
         ...optionalRef(document, "current_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "latest_gap_snapshot_ref", [
-          "startup_opportunity.gap_snapshot.v1",
-          "startup_opportunity.gap_snapshot.v2",
-          "startup_opportunity.gap_snapshot.v3",
+          "startup_opportunity.gap_snapshot.discovery.plan.current",
+          "startup_opportunity.gap_snapshot.assessment.current",
+          "startup_opportunity.gap_snapshot.discovery.readiness.current",
         ]),
         ...refsFromArray(document, "applied_adaptation_refs", [
-          "startup_opportunity.adaptation_decision.v1",
-          "startup_opportunity.adaptation_decision.v2",
-          "startup_opportunity.adaptation_decision.v3",
+          "startup_opportunity.adaptation_decision.discovery.current",
+          "startup_opportunity.adaptation_decision.assessment.current",
         ]),
         ...refsFromArray(document, "pending_adaptation_refs", [
-          "startup_opportunity.adaptation_decision.v1",
-          "startup_opportunity.adaptation_decision.v2",
-          "startup_opportunity.adaptation_decision.v3",
+          "startup_opportunity.adaptation_decision.discovery.current",
+          "startup_opportunity.adaptation_decision.assessment.current",
         ]),
         ...refsFromArray(
           document,
           "unresolved_gap_refs",
           [
-            "startup_opportunity.gap_snapshot.v1",
-            "startup_opportunity.gap_snapshot.v2",
-            "startup_opportunity.gap_snapshot.v3",
+            "startup_opportunity.gap_snapshot.discovery.plan.current",
+            "startup_opportunity.gap_snapshot.assessment.current",
+            "startup_opportunity.gap_snapshot.discovery.readiness.current",
           ],
           "gap_id",
         ),
@@ -677,9 +640,8 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.concept_hypothesis.v1",
         ),
         ...refsFromArray(document, "triggered_by_adaptation_refs", [
-          "startup_opportunity.adaptation_decision.v1",
-          "startup_opportunity.adaptation_decision.v2",
-          "startup_opportunity.adaptation_decision.v3",
+          "startup_opportunity.adaptation_decision.discovery.current",
+          "startup_opportunity.adaptation_decision.assessment.current",
         ]),
       ];
     case "startup_opportunity.concept_evidence_assessment_branch_result.v1":
@@ -771,29 +733,6 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ),
       ];
     case "startup_opportunity.business_engine_thesis.v1":
-      if (
-        effective.envelope?.schema_version === "startup_opportunity.artifact_envelope.v12" ||
-        effective.envelope?.schema_version === "startup_opportunity.artifact_envelope.v13" ||
-        effective.envelope?.schema_version === "startup_opportunity.artifact_envelope.v14" ||
-        effective.envelope?.schema_version === "startup_opportunity.artifact_envelope.v15"
-      ) {
-        return [
-          ...optionalRef(document, "subject_ref", "startup_opportunity.opportunity_thesis.v1"),
-          ...refsFromArray(document, "supporting_claim_refs", [
-            "startup_opportunity.evidence.v3",
-            "startup_opportunity.claim.v3",
-          ]),
-          ...refsFromArray(document, "opposing_claim_refs", [
-            "startup_opportunity.evidence.v3",
-            "startup_opportunity.claim.v3",
-          ]),
-          ...refsFromArray(
-            document,
-            "judgment_assessment_refs",
-            "startup_opportunity.judgment_assessment.v3",
-          ),
-        ];
-      }
       return [
         ...optionalRef(document, "subject_ref", "startup_opportunity.concept_hypothesis.v1"),
         ...refsFromArray(
@@ -1090,8 +1029,8 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...refsFromArray(document, "plan_lineage_refs", "startup_opportunity.research_plan.v1"),
         ...refsFromArray(document, "applied_adaptation_refs", [
-          "startup_opportunity.adaptation_decision.v2",
-          "startup_opportunity.adaptation_decision.v3",
+          "startup_opportunity.adaptation_decision.discovery.current",
+          "startup_opportunity.adaptation_decision.assessment.current",
         ]),
         ...optionalRef(
           document,
@@ -1503,7 +1442,6 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.source_manifest.v2",
         ),
       ];
-    case "startup_opportunity.discovery_fan_in.v1":
     case "startup_opportunity.discovery_fan_in.v2":
       return [
         ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
@@ -1600,23 +1538,6 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "counterfactual_candidate_refs",
           "startup_opportunity.discovery_candidate.v1",
         ),
-      ];
-    case "startup_opportunity.discovery_candidate_conversion.v1":
-      return [
-        ...optionalRef(
-          document,
-          "parent_conversion_ref",
-          "startup_opportunity.discovery_candidate_conversion.v1",
-        ),
-        ...optionalRef(
-          document,
-          "source_candidate_ref",
-          "startup_opportunity.discovery_candidate.v1",
-        ),
-        ...optionalRef(document, "discovery_fan_in_ref", [
-          "startup_opportunity.discovery_fan_in.v1",
-          "startup_opportunity.discovery_fan_in.v2",
-        ]),
       ];
     case "startup_opportunity.discovery_candidate_conversion.v2":
       return [
@@ -2354,9 +2275,8 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...refsFromArray(document, "plan_lineage_refs", "startup_opportunity.research_plan.v1"),
         ...refsFromArray(document, "applied_adaptation_refs", [
-          "startup_opportunity.adaptation_decision.v1",
-          "startup_opportunity.adaptation_decision.v2",
-          "startup_opportunity.adaptation_decision.v3",
+          "startup_opportunity.adaptation_decision.discovery.current",
+          "startup_opportunity.adaptation_decision.assessment.current",
         ]),
         ...optionalRef(
           document,
@@ -2428,7 +2348,6 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.judgment_assessment.v3",
         ]),
       ];
-    case "startup_opportunity.report_consistency_evaluation.v2":
     case "startup_opportunity.report_consistency_evaluation.v3":
       return [
         ...optionalRef(document, "report_ref", "startup_opportunity.report.v1"),
@@ -2827,12 +2746,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.evidence.v2",
         ]),
       ];
-    case "startup_opportunity.gap_snapshot.v3":
+    case "startup_opportunity.gap_snapshot.discovery.readiness.current":
       return [
         ...optionalRef(document, "based_on_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "parent_snapshot_ref", [
-          "startup_opportunity.gap_snapshot.v1",
-          "startup_opportunity.gap_snapshot.v3",
+          "startup_opportunity.gap_snapshot.discovery.plan.current",
+          "startup_opportunity.gap_snapshot.discovery.readiness.current",
         ]),
         ...optionalRef(
           document,
@@ -2869,29 +2788,49 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
   }
 }
 
+const DISCOVERY_ADAPTATION_ARTIFACT_TYPES = new Set([
+  "startup_opportunity.adaptation_decision.discovery.current",
+  "startup_opportunity.gap_snapshot.discovery.plan.current",
+  "startup_opportunity.gap_snapshot.discovery.readiness.current",
+]);
+
+const ASSESSMENT_ADAPTATION_ARTIFACT_TYPES = new Set([
+  "startup_opportunity.adaptation_decision.assessment.current",
+  "startup_opportunity.gap_snapshot.assessment.current",
+]);
+
+function adaptationArtifactModeIssues(
+  documentsByPath: ReadonlyMap<string, EffectiveDocument>,
+): readonly ValidationIssue[] {
+  const manifest = documentsByPath.get("manifest.json");
+  if (manifest?.schemaVersion !== "startup_opportunity.run_manifest.v1") {
+    return [];
+  }
+  const adaptationTypes = new Set([
+    ...DISCOVERY_ADAPTATION_ARTIFACT_TYPES,
+    ...ASSESSMENT_ADAPTATION_ARTIFACT_TYPES,
+  ]);
+  const allowed =
+    manifest.document.mode === "opportunity_discovery"
+      ? DISCOVERY_ADAPTATION_ARTIFACT_TYPES
+      : ASSESSMENT_ADAPTATION_ARTIFACT_TYPES;
+  return [...documentsByPath.values()].flatMap((document) =>
+    adaptationTypes.has(document.schemaVersion) && !allowed.has(document.schemaVersion)
+      ? [
+          referenceIssue(
+            "reference.run_mode_mismatch",
+            document.path,
+            "Adaptation Artifact identity does not match the Run Manifest mode",
+            { mode: manifest.document.mode, artifactType: document.schemaVersion },
+          ),
+        ]
+      : [],
+  );
+}
+
 function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
   const version = schemaVersionOf(entry.document) ?? "";
-  if (
-    version !== "startup_opportunity.artifact_envelope.v1" &&
-    version !== "startup_opportunity.artifact_envelope.v2" &&
-    version !== "startup_opportunity.artifact_envelope.v3" &&
-    version !== "startup_opportunity.artifact_envelope.v4" &&
-    version !== "startup_opportunity.artifact_envelope.v5" &&
-    version !== "startup_opportunity.artifact_envelope.v6" &&
-    version !== "startup_opportunity.artifact_envelope.v7" &&
-    version !== "startup_opportunity.artifact_envelope.v8" &&
-    version !== "startup_opportunity.artifact_envelope.v9" &&
-    version !== "startup_opportunity.artifact_envelope.v10" &&
-    version !== "startup_opportunity.artifact_envelope.v11" &&
-    version !== "startup_opportunity.artifact_envelope.v12" &&
-    version !== "startup_opportunity.artifact_envelope.v13" &&
-    version !== "startup_opportunity.artifact_envelope.v14" &&
-    version !== "startup_opportunity.artifact_envelope.v15" &&
-    version !== "startup_opportunity.artifact_envelope.v16" &&
-    version !== "startup_opportunity.artifact_envelope.v17" &&
-    version !== "startup_opportunity.artifact_envelope.v18" &&
-    version !== "startup_opportunity.artifact_envelope.v19"
-  ) {
+  if (version !== "startup_opportunity.artifact_envelope.current") {
     return { path: entry.path, schemaVersion: version, document: entry.document, envelope: null };
   }
   const artifactType = entry.document.artifact_type;
@@ -3134,22 +3073,7 @@ function recordById(
 function validateResearchEnvelopeContract(document: unknown): readonly ValidationIssue[] {
   if (
     !isRecord(document) ||
-    (document.schema_version !== "startup_opportunity.artifact_envelope.v4" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v5" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v6" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v7" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v8" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v9" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v10" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v11" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v12" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v13" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v14" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v15" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v16" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v17" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v18" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v19") ||
+    document.schema_version !== "startup_opportunity.artifact_envelope.current" ||
     !isRecord(document.document)
   ) {
     return [];
@@ -3220,13 +3144,7 @@ export class ArtifactValidator {
     readonly discoveryCandidatePolicy: DiscoveryCandidatePolicy,
     readonly discoverySynthesisPolicy: DiscoverySynthesisPolicy,
     readonly discoveryEvaluationPolicy: DiscoveryEvaluationPolicy,
-    readonly repairedDiscoveryEvaluationPolicy: DiscoveryEvaluationPolicy,
-    readonly legacyDiscoveryEvaluationPolicy: DiscoveryEvaluationPolicy,
   ) {}
-
-  publicationAdapter(schemaVersion: unknown): StorePublicationAdapter {
-    return this.publicationPolicy.adapterForEnvelope(schemaVersion);
-  }
 
   validateDocument(
     document: unknown,
@@ -3236,7 +3154,6 @@ export class ArtifactValidator {
     if (artifactSchemaVersion === null) {
       return {
         schemaVersion: ARTIFACT_VALIDATION_RESULT_VERSION,
-        schemaBundleVersion: this.bundle.version,
         valid: false,
         documentPath,
         artifactSchemaVersion: null,
@@ -3257,7 +3174,6 @@ export class ArtifactValidator {
     if (!validator) {
       return {
         schemaVersion: ARTIFACT_VALIDATION_RESULT_VERSION,
-        schemaBundleVersion: this.bundle.version,
         valid: false,
         documentPath,
         artifactSchemaVersion,
@@ -3280,7 +3196,6 @@ export class ArtifactValidator {
       : normalizeAjvErrors(validator.errors);
     return {
       schemaVersion: ARTIFACT_VALIDATION_RESULT_VERSION,
-      schemaBundleVersion: this.bundle.version,
       valid: errors.length === 0,
       documentPath,
       artifactSchemaVersion,
@@ -3296,7 +3211,6 @@ export class ArtifactValidator {
     if (!bundleResult.valid || !isRecord(value) || !Array.isArray(value.documents)) {
       return {
         schemaVersion: DOCUMENT_BUNDLE_VALIDATION_RESULT_VERSION,
-        schemaBundleVersion: this.bundle.version,
         valid: false,
         bundleErrors: bundleResult.errors,
         documents: [],
@@ -3340,24 +3254,6 @@ export class ArtifactValidator {
     const effectiveDocuments = input.documents.map(unwrapDocument);
     const referenceErrors: ValidationIssue[] = [];
     const documentsByPath = new Map<string, EffectiveDocument>();
-    const planningContexts = effectiveDocuments.filter(
-      (document) =>
-        document.schemaVersion === "startup_opportunity.planning_context.v1" ||
-        document.schemaVersion === "startup_opportunity.planning_context.v2",
-    );
-    const referencedPlanningContextPaths = new Set(
-      planningContexts.flatMap((context) =>
-        typeof context.document.parent_context_ref === "string"
-          ? [context.document.parent_context_ref]
-          : [],
-      ),
-    );
-    const livePlanningContextPaths = new Set(
-      planningContexts
-        .filter((context) => !referencedPlanningContextPaths.has(context.path))
-        .map((context) => context.path),
-    );
-
     for (const effective of effectiveDocuments) {
       if (documentsByPath.has(effective.path)) {
         referenceErrors.push(
@@ -3399,6 +3295,7 @@ export class ArtifactValidator {
         );
       }
     }
+    referenceErrors.push(...adaptationArtifactModeIssues(documentsByPath));
 
     for (const source of effectiveDocuments) {
       for (const requirement of referenceRequirements(source)) {
@@ -3482,17 +3379,7 @@ export class ArtifactValidator {
           );
         }
       }
-      referenceErrors.push(
-        ...this.checkLineage(
-          source,
-          documentsByPath,
-          (input.schema_version === "startup_opportunity.document_bundle.v1" ||
-            input.schema_version === "startup_opportunity.document_bundle.v2") &&
-            ((source.schemaVersion !== "startup_opportunity.planning_context.v1" &&
-              source.schemaVersion !== "startup_opportunity.planning_context.v2") ||
-              livePlanningContextPaths.has(source.path)),
-        ),
-      );
+      referenceErrors.push(...this.checkLineage(source, documentsByPath, false));
     }
 
     const assessDocuments: readonly AssessDomainDocument[] = effectiveDocuments.map((entry) => ({
@@ -3500,36 +3387,7 @@ export class ArtifactValidator {
       schemaVersion: entry.schemaVersion,
       document: entry.document,
     }));
-    if (
-      assessDocuments.some((entry) => isAssessDomainSchemaVersion(entry.schemaVersion)) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v4" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v5" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v6" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v7" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v8" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v9" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v10" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v11" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v12" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v13" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v14" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v15" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v19"
-    ) {
-      referenceErrors.push(
-        referenceIssue(
-          "assess_contract.bundle_version_mismatch",
-          "/schema_version",
-          "G1.1 assess contracts require document_bundle.v4",
-          { actualSchemaVersion: input.schema_version },
-        ),
-      );
-    } else {
-      referenceErrors.push(...validateAssessDomainContract(assessDocuments));
-    }
+    referenceErrors.push(...validateAssessDomainContract(assessDocuments));
     const researchDocuments: readonly ResearchBranchDocument[] = effectiveDocuments.map(
       (entry) => ({
         path: entry.path,
@@ -3538,46 +3396,7 @@ export class ArtifactValidator {
         envelope: entry.envelope,
       }),
     );
-    if (
-      researchDocuments.some(
-        (entry) =>
-          entry.schemaVersion.startsWith("startup_opportunity.research_task.") ||
-          entry.schemaVersion === "startup_opportunity.evidence.v1" ||
-          entry.schemaVersion === "startup_opportunity.claim.v1" ||
-          entry.schemaVersion === "startup_opportunity.finding.v1" ||
-          entry.schemaVersion === "startup_opportunity.insight.v1" ||
-          entry.schemaVersion === "startup_opportunity.source_manifest.v1" ||
-          (entry.schemaVersion ===
-            "startup_opportunity.concept_evidence_assessment_branch_result.v1" &&
-            entry.envelope?.schema_version === "startup_opportunity.artifact_envelope.v5"),
-      ) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v5" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v6" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v7" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v8" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v9" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v10" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v11" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v12" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v13" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v14" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v15" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v19"
-    ) {
-      referenceErrors.push(
-        referenceIssue(
-          "research_contract.bundle_version_mismatch",
-          "/schema_version",
-          "G1.2 research contracts require document_bundle.v5",
-          { actualSchemaVersion: input.schema_version },
-        ),
-      );
-    } else {
-      referenceErrors.push(...validateResearchBranchContract(researchDocuments, exactJsonlRecords));
-    }
+    referenceErrors.push(...validateResearchBranchContract(researchDocuments, exactJsonlRecords));
     const assessmentAdaptationDocuments: readonly AssessmentAdaptationDocument[] =
       effectiveDocuments.map((entry) => ({
         path: entry.path,
@@ -3591,32 +3410,7 @@ export class ArtifactValidator {
       document: entry.document,
       envelope: entry.envelope,
     }));
-    if (
-      g14Documents.some((entry) => isG14SchemaVersion(entry.schemaVersion)) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v7" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v9" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v10" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v11" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v12" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v13" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v14" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v15" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v19"
-    ) {
-      referenceErrors.push(
-        referenceIssue(
-          "g1_4.bundle_version_mismatch",
-          "/schema_version",
-          "G1.4 audit, review, Assessment, Traceability, and report contracts require document_bundle.v7",
-          { actualSchemaVersion: input.schema_version },
-        ),
-      );
-    } else {
-      referenceErrors.push(...validateG14Contract(g14Documents, this.assessmentReportingPolicy));
-    }
+    referenceErrors.push(...validateG14Contract(g14Documents, this.assessmentReportingPolicy));
     const historicalBindings = referenceContext.historicalDiscoveryPlanBindings ?? [];
     const discoveryView = historicalDiscoveryView(effectiveDocuments, historicalBindings, "g2_1");
     referenceErrors.push(...discoveryView.errors);
@@ -3628,85 +3422,17 @@ export class ArtifactValidator {
         envelope: entry.envelope,
       }),
     );
-    if (
-      discoveryDocuments.some((entry) => isDiscoveryMapSchemaVersion(entry.schemaVersion)) &&
-      discoveryDocuments.some((entry) =>
-        [
-          "startup_opportunity.seed_probe.v1",
-          "startup_opportunity.opportunity_space_map.v1",
-          "startup_opportunity.solution_space_map.v1",
-        ].includes(entry.schemaVersion),
-      ) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v8" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v9" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v10" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v11" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v12" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v13" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v14" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v15" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v19"
-    ) {
-      referenceErrors.push(
-        referenceIssue(
-          "g2_1.bundle_version_mismatch",
-          "/schema_version",
-          "G2.1 Seed and space maps require document_bundle.v8",
-          { actualSchemaVersion: input.schema_version },
+    referenceErrors.push(
+      ...validateDiscoveryMapsContract(
+        discoveryDocuments.filter(
+          (entry) =>
+            !isDiscoveryCandidateSchemaVersion(entry.schemaVersion) &&
+            !isDiscoverySynthesisSchemaVersion(entry.schemaVersion) &&
+            !isDiscoveryEvaluationSchemaVersion(entry.schemaVersion),
         ),
-      );
-    } else {
-      referenceErrors.push(
-        ...validateDiscoveryMapsContract(
-          input.schema_version === "startup_opportunity.document_bundle.v9" ||
-            input.schema_version === "startup_opportunity.document_bundle.v10" ||
-            input.schema_version === "startup_opportunity.document_bundle.v11" ||
-            input.schema_version === "startup_opportunity.document_bundle.v12" ||
-            input.schema_version === "startup_opportunity.document_bundle.v13" ||
-            input.schema_version === "startup_opportunity.document_bundle.v14" ||
-            input.schema_version === "startup_opportunity.document_bundle.v15" ||
-            input.schema_version === "startup_opportunity.document_bundle.v16" ||
-            input.schema_version === "startup_opportunity.document_bundle.v17" ||
-            input.schema_version === "startup_opportunity.document_bundle.v18" ||
-            input.schema_version === "startup_opportunity.document_bundle.v19"
-            ? discoveryDocuments.filter(
-                (entry) =>
-                  !isDiscoveryCandidateSchemaVersion(entry.schemaVersion) &&
-                  !isDiscoverySynthesisSchemaVersion(entry.schemaVersion) &&
-                  !isDiscoveryEvaluationSchemaVersion(entry.schemaVersion),
-              )
-            : discoveryDocuments,
-          this.discoveryMapsPolicy,
-          input.schema_version === "startup_opportunity.document_bundle.v10" ||
-            input.schema_version === "startup_opportunity.document_bundle.v11" ||
-            input.schema_version === "startup_opportunity.document_bundle.v12" ||
-            input.schema_version === "startup_opportunity.document_bundle.v13" ||
-            input.schema_version === "startup_opportunity.document_bundle.v14" ||
-            input.schema_version === "startup_opportunity.document_bundle.v15" ||
-            input.schema_version === "startup_opportunity.document_bundle.v16" ||
-            input.schema_version === "startup_opportunity.document_bundle.v17" ||
-            input.schema_version === "startup_opportunity.document_bundle.v18" ||
-            input.schema_version === "startup_opportunity.document_bundle.v19"
-            ? [
-                "7.0.0",
-                "9.0.0",
-                "10.0.0",
-                "11.0.0",
-                "12.0.0",
-                "13.0.0",
-                "14.0.0",
-                "15.0.0",
-                "16.0.0",
-                "17.0.0",
-                "18.0.0",
-              ]
-            : undefined,
-        ),
-      );
-    }
+        this.discoveryMapsPolicy,
+      ),
+    );
     const discoveryCandidateView = historicalDiscoveryView(
       effectiveDocuments,
       historicalBindings,
@@ -3720,38 +3446,12 @@ export class ArtifactValidator {
         document: entry.document,
         envelope: entry.envelope,
       }));
-    if (
-      discoveryCandidateDocuments.some((entry) =>
-        isDiscoveryCandidateSchemaVersion(entry.schemaVersion),
-      ) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v9" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v10" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v11" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v12" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v13" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v14" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v15" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v19"
-    ) {
-      referenceErrors.push(
-        referenceIssue(
-          "g2_2_contract.bundle_version_mismatch",
-          "/schema_version",
-          "Scheme A pre-thesis candidate contracts require document_bundle.v9",
-          { actualSchemaVersion: input.schema_version },
-        ),
-      );
-    } else {
-      referenceErrors.push(
-        ...validateDiscoveryCandidateContract(
-          discoveryCandidateDocuments,
-          this.discoveryCandidatePolicy,
-        ),
-      );
-    }
+    referenceErrors.push(
+      ...validateDiscoveryCandidateContract(
+        discoveryCandidateDocuments,
+        this.discoveryCandidatePolicy,
+      ),
+    );
     const discoverySynthesisDocuments: readonly DiscoverySynthesisDocument[] =
       effectiveDocuments.map((entry) => ({
         path: entry.path,
@@ -3759,43 +3459,13 @@ export class ArtifactValidator {
         document: entry.document,
         envelope: entry.envelope,
       }));
-    if (
-      discoverySynthesisDocuments.some((entry) =>
-        isDiscoverySynthesisSchemaVersion(entry.schemaVersion),
-      ) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v11" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v12" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v13" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v14" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v15" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v19"
-    ) {
-      referenceErrors.push(
-        referenceIssue(
-          "g2_3_contract.bundle_version_mismatch",
-          "/schema_version",
-          "G2.3 synthesis contracts require document_bundle.v11",
-          { actualSchemaVersion: input.schema_version },
-        ),
-      );
-    } else {
-      referenceErrors.push(
-        ...validateDiscoverySynthesisContract(
-          discoverySynthesisDocuments,
-          this.discoverySynthesisPolicy,
-          input.schema_version === "startup_opportunity.document_bundle.v13" ||
-            input.schema_version === "startup_opportunity.document_bundle.v14" ||
-            input.schema_version === "startup_opportunity.document_bundle.v15" ||
-            input.schema_version === "startup_opportunity.document_bundle.v16" ||
-            input.schema_version === "startup_opportunity.document_bundle.v17" ||
-            input.schema_version === "startup_opportunity.document_bundle.v18" ||
-            input.schema_version === "startup_opportunity.document_bundle.v19",
-        ),
-      );
-    }
+    referenceErrors.push(
+      ...validateDiscoverySynthesisContract(
+        discoverySynthesisDocuments,
+        this.discoverySynthesisPolicy,
+        true,
+      ),
+    );
     const discoveryEvaluationDocuments: readonly DiscoveryEvaluationDocument[] =
       effectiveDocuments.map((entry) => ({
         path: entry.path,
@@ -3803,77 +3473,20 @@ export class ArtifactValidator {
         document: entry.document,
         envelope: entry.envelope,
       }));
-    if (
-      discoveryEvaluationDocuments.some((entry) =>
-        isDiscoveryEvaluationSchemaVersion(entry.schemaVersion),
-      ) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v12" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v13" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v14" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v15" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v19"
-    ) {
-      referenceErrors.push(
-        referenceIssue(
-          "g2_4.bundle_version_mismatch",
-          "/schema_version",
-          "G2.4 evaluation contracts require document_bundle.v12 or repaired v13",
-          { actualSchemaVersion: input.schema_version },
-        ),
-      );
-    } else {
-      referenceErrors.push(
-        ...validateDiscoveryEvaluationContract(
-          discoveryEvaluationDocuments,
-          input.schema_version === "startup_opportunity.document_bundle.v12"
-            ? this.legacyDiscoveryEvaluationPolicy
-            : input.schema_version === "startup_opportunity.document_bundle.v16" ||
-                input.schema_version === "startup_opportunity.document_bundle.v17" ||
-                input.schema_version === "startup_opportunity.document_bundle.v18" ||
-                input.schema_version === "startup_opportunity.document_bundle.v19"
-              ? this.discoveryEvaluationPolicy
-              : this.repairedDiscoveryEvaluationPolicy,
-          exactJsonlRecords,
-        ),
-      );
-    }
+    referenceErrors.push(
+      ...validateDiscoveryEvaluationContract(
+        discoveryEvaluationDocuments,
+        this.discoveryEvaluationPolicy,
+        exactJsonlRecords,
+      ),
+    );
     const aiBundleDocuments: readonly AiBundleDocument[] = effectiveDocuments.map((entry) => ({
       path: entry.path,
       schemaVersion: entry.schemaVersion,
       document: entry.document,
       envelope: entry.envelope,
     }));
-    if (
-      aiBundleDocuments.some((entry) => isAiBundleSchemaVersion(entry.schemaVersion)) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v14" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v15" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v16" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v19"
-    ) {
-      referenceErrors.push(
-        referenceIssue(
-          "g3.bundle_version_mismatch",
-          "/schema_version",
-          "G3 AI contracts require document_bundle.v14 or later",
-          { actualSchemaVersion: input.schema_version },
-        ),
-      );
-    } else {
-      referenceErrors.push(
-        ...validateAiBundleContract(
-          aiBundleDocuments,
-          input.schema_version === "startup_opportunity.document_bundle.v16" ||
-            input.schema_version === "startup_opportunity.document_bundle.v17" ||
-            input.schema_version === "startup_opportunity.document_bundle.v18" ||
-            input.schema_version === "startup_opportunity.document_bundle.v19",
-        ),
-      );
-    }
+    referenceErrors.push(...validateAiBundleContract(aiBundleDocuments, true));
     const terminalReportingDocuments: readonly TerminalReportingDocument[] = effectiveDocuments.map(
       (entry) => ({
         path: entry.path,
@@ -3882,38 +3495,10 @@ export class ArtifactValidator {
         envelope: entry.envelope,
       }),
     );
-    if (
-      terminalReportingDocuments.some((entry) =>
-        [
-          "startup_opportunity.terminal_report_source.v1",
-          "startup_opportunity.decision_brief.v3",
-          "startup_opportunity.terminal_report_view.v1",
-          "startup_opportunity.report_consistency_evaluation.v4",
-        ].includes(entry.schemaVersion),
-      ) &&
-      input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v19"
-    ) {
-      referenceErrors.push(
-        referenceIssue(
-          "terminal_reporting.bundle_version_mismatch",
-          "/schema_version",
-          "terminal reporting contracts require document_bundle.v17",
-          { actualSchemaVersion: input.schema_version },
-        ),
-      );
-    } else {
-      referenceErrors.push(...validateTerminalReportingContract(terminalReportingDocuments));
-    }
-    if (
-      input.schema_version === "startup_opportunity.document_bundle.v18" ||
-      input.schema_version === "startup_opportunity.document_bundle.v19"
-    ) {
-      referenceErrors.push(
-        ...validateDeclarativeRuntimeContract(effectiveDocuments, exactJsonlRecords),
-      );
-    }
+    referenceErrors.push(...validateTerminalReportingContract(terminalReportingDocuments));
+    referenceErrors.push(
+      ...validateDeclarativeRuntimeContract(effectiveDocuments, exactJsonlRecords),
+    );
     const assessmentExecutionDocuments: readonly AssessmentExecutionDocument[] =
       effectiveDocuments.map((entry) => ({
         path: entry.path,
@@ -3921,38 +3506,13 @@ export class ArtifactValidator {
         document: entry.document,
         envelope: entry.envelope,
       }));
-    const hasAssessmentExecutionDocuments = assessmentExecutionDocuments.some((entry) =>
-      [
-        "startup_opportunity.concept_hypothesis.v2",
-        "startup_opportunity.research_execution_plan.v2",
-        "startup_opportunity.dispatch_batch.v2",
-        "startup_opportunity.assessment_evidence.v1",
-        "startup_opportunity.assessment_lane_result.v1",
-        "startup_opportunity.assessment_stage_gate.v1",
-        "startup_opportunity.assessment_followup_decision.v1",
-      ].includes(entry.schemaVersion),
+    referenceErrors.push(
+      ...validateAssessmentExecutionContract(
+        assessmentExecutionDocuments,
+        exactJsonlRecords,
+        this.assessmentExecutionPolicy,
+      ),
     );
-    if (
-      hasAssessmentExecutionDocuments &&
-      input.schema_version !== "startup_opportunity.document_bundle.v19"
-    ) {
-      referenceErrors.push(
-        referenceIssue(
-          "assessment_execution.bundle_version_mismatch",
-          "/schema_version",
-          "Assessment execution contracts require document_bundle.v19",
-          { actualSchemaVersion: input.schema_version },
-        ),
-      );
-    } else if (input.schema_version === "startup_opportunity.document_bundle.v19") {
-      referenceErrors.push(
-        ...validateAssessmentExecutionContract(
-          assessmentExecutionDocuments,
-          exactJsonlRecords,
-          this.assessmentExecutionPolicy,
-        ),
-      );
-    }
     referenceErrors.push(...exactRecordErrors);
     const sortedReferenceErrors = sortIssues(referenceErrors);
     const sortedDocuments = [...documents].sort((left, right) =>
@@ -3964,7 +3524,6 @@ export class ArtifactValidator {
       sortedReferenceErrors.length === 0;
     return {
       schemaVersion: DOCUMENT_BUNDLE_VALIDATION_RESULT_VERSION,
-      schemaBundleVersion: this.bundle.version,
       valid,
       bundleErrors: [],
       documents: sortedDocuments,
@@ -4161,7 +3720,8 @@ export class ArtifactValidator {
       const gapId = typeof gapRef === "string" ? gapRef.split("#", 2)[1] : undefined;
       const unitId = typeof targetUnitRef === "string" ? targetUnitRef.split("#", 2)[1] : undefined;
       const gap =
-        gapSnapshot?.schemaVersion === "startup_opportunity.gap_snapshot.v1" && gapId !== undefined
+        gapSnapshot?.schemaVersion === "startup_opportunity.gap_snapshot.discovery.plan.current" &&
+        gapId !== undefined
           ? recordById(gapSnapshot.document, "gaps", "gap_id", gapId)
           : null;
       const unit =
@@ -4277,9 +3837,9 @@ export class ArtifactValidator {
     }
 
     if (
-      source.schemaVersion === "startup_opportunity.gap_snapshot.v1" ||
-      source.schemaVersion === "startup_opportunity.gap_snapshot.v2" ||
-      source.schemaVersion === "startup_opportunity.gap_snapshot.v3"
+      source.schemaVersion === "startup_opportunity.gap_snapshot.discovery.plan.current" ||
+      source.schemaVersion === "startup_opportunity.gap_snapshot.assessment.current" ||
+      source.schemaVersion === "startup_opportunity.gap_snapshot.discovery.readiness.current"
     ) {
       const pathRevision = snapshotRevisionFromPath(source.path);
       if (typeof revision === "number" && pathRevision !== revision) {
@@ -4358,12 +3918,8 @@ export class ArtifactValidator {
   }
 }
 
-export async function createArtifactValidator(
-  root = process.cwd(),
-  manifestRelativePath?: string,
-  expectedVersion?: string,
-): Promise<ArtifactValidator> {
-  const bundle = await loadSchemaBundle(root, manifestRelativePath, expectedVersion);
+export async function createArtifactValidator(root = process.cwd()): Promise<ArtifactValidator> {
+  const bundle = await loadSchemaBundle(root);
   return new ArtifactValidator(
     bundle,
     await loadResearchPublicationPolicy(root, bundle),
@@ -4373,7 +3929,5 @@ export async function createArtifactValidator(
     await loadDiscoveryCandidatePolicy(root, bundle),
     await loadDiscoverySynthesisPolicy(root, bundle),
     await loadDiscoveryEvaluationPolicy(root, bundle),
-    await loadDiscoveryEvaluationPolicy(root, bundle, REPAIRED_DISCOVERY_EVALUATION_POLICY_PATH),
-    await loadDiscoveryEvaluationPolicy(root, bundle, LEGACY_DISCOVERY_EVALUATION_POLICY_PATH),
   );
 }

@@ -17,7 +17,6 @@ export interface DiscoveryMapsPolicy extends Record<string, unknown> {
   readonly schema_version: "startup_opportunity.discovery_maps_policy.v1";
   readonly policy_id: "startup_opportunity.g2_1_discovery_maps";
   readonly policy_version: "1.0.0";
-  readonly schema_bundle_version: "7.0.0";
   readonly artifact_contracts: Readonly<Record<string, string>>;
   readonly artifact_paths: {
     readonly seed_probe: string;
@@ -92,9 +91,10 @@ const EXPECTED_AI_BOUNDARY_FIELDS = [
 export async function loadDiscoveryMapsPolicy(
   root: string,
   bundle: LoadedSchemaBundle,
-  relativePath = DISCOVERY_MAPS_POLICY_PATH,
 ): Promise<LoadedDiscoveryMapsPolicy> {
-  const value = JSON.parse(await readFile(path.join(root, relativePath), "utf8")) as unknown;
+  const value = JSON.parse(
+    await readFile(path.join(root, DISCOVERY_MAPS_POLICY_PATH), "utf8"),
+  ) as unknown;
   const validator = bundle.validators.get("startup_opportunity.discovery_maps_policy.v1");
   if ((validator !== undefined && !validator(value)) || !isRecord(value)) {
     throw new StoreError(

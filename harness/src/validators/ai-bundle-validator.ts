@@ -52,6 +52,15 @@ const CONSUMER_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.report_consistency_evaluation.v3",
 ]);
 
+const REQUIRED_CONSUMER_BINDING_SCHEMA_VERSIONS = new Set([
+  "startup_opportunity.decision_recommendation.v1",
+  "startup_opportunity.traceability.v2",
+  "startup_opportunity.report.v1",
+  "startup_opportunity.decision_brief.v2",
+  "startup_opportunity.discovery_report_view.v1",
+  "startup_opportunity.report_consistency_evaluation.v3",
+]);
+
 export interface AiBundleDocument {
   readonly path: string;
   readonly schemaVersion: string;
@@ -832,8 +841,10 @@ export function validateAiBundleContract(
 
   const consumers = documents.filter(
     (entry) =>
-      entry.envelope?.schema_version === "startup_opportunity.artifact_envelope.v16" &&
-      CONSUMER_SCHEMA_VERSIONS.has(entry.schemaVersion),
+      entry.envelope?.schema_version === "startup_opportunity.artifact_envelope.current" &&
+      CONSUMER_SCHEMA_VERSIONS.has(entry.schemaVersion) &&
+      (REQUIRED_CONSUMER_BINDING_SCHEMA_VERSIONS.has(entry.schemaVersion) ||
+        isRecord(entry.envelope.ai_bundle_binding)),
   );
   let firstBinding: Record<string, unknown> | null = null;
   for (const consumer of consumers) {
@@ -845,7 +856,7 @@ export function validateAiBundleContract(
         issue(
           "g3.consumer_binding_missing",
           `${consumer.path}#/ai_bundle_binding`,
-          "v16 evaluation and report consumers require an explicit AI bundle binding",
+          "current evaluation and report consumers require an explicit AI bundle binding",
         ),
       );
       continue;
@@ -857,7 +868,7 @@ export function validateAiBundleContract(
         issue(
           "g3.consumer_binding_mismatch",
           `${consumer.path}#/ai_bundle_binding`,
-          "all v16 comparison, recommendation, traceability, report, and derived consumers must share one exact binding",
+          "all current comparison, recommendation, traceability, report, and derived consumers must share one exact binding",
         ),
       );
     }

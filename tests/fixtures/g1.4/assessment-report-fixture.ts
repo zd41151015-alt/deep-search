@@ -5,7 +5,7 @@ import {
   canonicalContentHash,
   type DocumentBundle,
   deriveReportEnvelopes,
-  type EvidenceStoreRecordV2,
+  type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
 } from "../../../harness/src/index.js";
 import {
@@ -181,9 +181,9 @@ function hash(char: string): string {
 
 function substrateRecord(
   evidenceDigit: "1" | "2",
-  source: EvidenceStoreRecordV2["source"],
+  source: EvidenceStoreRecord["source"],
   offset: number,
-): EvidenceStoreRecordV2 {
+): EvidenceStoreRecord {
   return {
     schema_version: "startup_opportunity.evidence_store_record.v2",
     evidence_id: `ev_${evidenceDigit.repeat(64)}`,
@@ -258,7 +258,7 @@ function envelope(
   inputRefs: readonly string[],
 ): FormalArtifactEnvelope {
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v7",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: String(document.schema_version),
     artifact_path: artifactPath,
     run_id: G14_RUN_ID,
@@ -291,10 +291,6 @@ function makeManifest(): Record<string, unknown> {
     parent_run_id: null,
     created_at: G12_BASE_TIME,
     updated_at: "2026-07-25T19:00:00Z",
-    skill_version: "1.0.0",
-    policy_version: "1.0.0",
-    schema_bundle_version: "6.0.0",
-    git_commit: null,
     current_phase: "assessment",
     current_plan_ref: "plans/research-plan.r1.json",
     plan_revision: 1,
@@ -801,9 +797,6 @@ export async function createG14ContractBundle(
     materialized_path: "report.json",
     report_metadata: {
       mode: "concept_evidence_assessment",
-      skill_version: "1.0.0",
-      policy_version: "1.0.0",
-      schema_bundle_version: "6.0.0",
       generated_at: "2026-07-25T19:00:00Z",
       valid_as_of: G14_VALID_AS_OF,
       input_artifact_hashes: inputHashes(documents, [
@@ -959,7 +952,7 @@ export async function createG14ContractBundle(
     ...[...g14ByPath.values()].map((entry) => ({ path: entry.artifact_path, document: entry })),
   );
   return {
-    schema_version: "startup_opportunity.document_bundle.v7",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: bundleDocuments.sort((left, right) => left.path.localeCompare(right.path)),
     exact_records: SYNTHETIC_RECORDS.map((record) => ({
       ref: `evidence/manifest.jsonl#${record.evidence_id}`,
@@ -974,7 +967,7 @@ function strings(value: unknown): readonly string[] {
     : [];
 }
 
-export function g14SyntheticRecords(): readonly EvidenceStoreRecordV2[] {
+export function g14SyntheticRecords(): readonly EvidenceStoreRecord[] {
   return clone(SYNTHETIC_RECORDS);
 }
 
@@ -1000,7 +993,7 @@ function replaceStrings(value: unknown, replacements: ReadonlyMap<string, string
 function effectiveDocument(entry: {
   readonly document: Record<string, unknown>;
 }): Record<string, unknown> {
-  return entry.document.schema_version === "startup_opportunity.artifact_envelope.v7"
+  return entry.document.schema_version === "startup_opportunity.artifact_envelope.current"
     ? (entry.document.document as Record<string, unknown>)
     : entry.document;
 }
@@ -1034,7 +1027,7 @@ export function refreshG14Bundle(input: DocumentBundle): DocumentBundle {
     }
     const document = effectiveDocument(entry);
     refreshHashes(document);
-    if (entry.document.schema_version === "startup_opportunity.artifact_envelope.v7") {
+    if (entry.document.schema_version === "startup_opportunity.artifact_envelope.current") {
       entry.document.content_hash = canonicalContentHash(document);
     }
     byPath.set(artifactPath, document);
@@ -1075,7 +1068,7 @@ export function refreshG14Bundle(input: DocumentBundle): DocumentBundle {
 
 export function replaceG14EvidenceRecords(
   input: DocumentBundle,
-  records: readonly [EvidenceStoreRecordV2, EvidenceStoreRecordV2],
+  records: readonly [EvidenceStoreRecord, EvidenceStoreRecord],
 ): DocumentBundle {
   const replacements = new Map<string, string>();
   for (const [index, original] of SYNTHETIC_RECORDS.entries()) {

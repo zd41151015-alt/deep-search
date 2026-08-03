@@ -11,10 +11,6 @@ import type { LoadedSchemaBundle } from "./schema-bundle.js";
 
 export const DISCOVERY_EVALUATION_POLICY_PATH =
   "harness/policies/discovery-evaluation.v3.json" as const;
-export const REPAIRED_DISCOVERY_EVALUATION_POLICY_PATH =
-  "harness/policies/discovery-evaluation.v2.json" as const;
-export const LEGACY_DISCOVERY_EVALUATION_POLICY_PATH =
-  "harness/policies/discovery-evaluation.v1.json" as const;
 
 interface DiscoveryEvaluationPolicyBase extends Record<string, unknown> {
   readonly policy_id: "startup_opportunity.g2_4_evaluation";
@@ -28,33 +24,13 @@ interface DiscoveryEvaluationPolicyBase extends Record<string, unknown> {
   readonly execution_boundary: Readonly<Record<string, unknown>>;
 }
 
-export interface DiscoveryEvaluationPolicyV1 extends DiscoveryEvaluationPolicyBase {
-  readonly schema_version: "startup_opportunity.discovery_evaluation_policy.v1";
-  readonly policy_version: "1.0.0";
-  readonly schema_bundle_version: "11.0.0";
-}
-
-export interface DiscoveryEvaluationPolicyV2 extends DiscoveryEvaluationPolicyBase {
-  readonly schema_version: "startup_opportunity.discovery_evaluation_policy.v2";
-  readonly policy_version: "2.0.0";
-  readonly schema_bundle_version: "12.0.0";
-  readonly ai_solution_gate_contract: Readonly<Record<string, unknown>>;
-  readonly decision_tier_ceiling: Readonly<Record<string, unknown>>;
-}
-
-export interface DiscoveryEvaluationPolicyV3 extends DiscoveryEvaluationPolicyBase {
+export interface DiscoveryEvaluationPolicy extends DiscoveryEvaluationPolicyBase {
   readonly schema_version: "startup_opportunity.discovery_evaluation_policy.v3";
   readonly policy_version: "3.0.0";
-  readonly schema_bundle_version: "15.0.0";
   readonly ai_solution_gate_contract: Readonly<Record<string, unknown>>;
   readonly ai_mandatory_bundle_contract: Readonly<Record<string, unknown>>;
   readonly decision_tier_ceiling: Readonly<Record<string, unknown>>;
 }
-
-export type DiscoveryEvaluationPolicy =
-  | DiscoveryEvaluationPolicyV1
-  | DiscoveryEvaluationPolicyV2
-  | DiscoveryEvaluationPolicyV3;
 
 export const REQUIRED_HARD_GATES = [
   "user_jtbd_entry_scene",
@@ -96,11 +72,6 @@ export const REQUIRED_REPORT_CONSISTENCY_DIMENSIONS = [
   "global_score_language",
 ] as const;
 
-export const LEGACY_REPORT_CONSISTENCY_DIMENSIONS = REQUIRED_REPORT_CONSISTENCY_DIMENSIONS.slice(
-  0,
-  -1,
-);
-
 export const DECISION_TIER_ORDER = [
   "reject",
   "insufficient_evidence",
@@ -139,16 +110,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function loadDiscoveryEvaluationPolicy(
   root: string,
   bundle: LoadedSchemaBundle,
-  relativePath: string = DISCOVERY_EVALUATION_POLICY_PATH,
 ): Promise<DiscoveryEvaluationPolicy> {
-  const value = JSON.parse(await readFile(path.join(root, relativePath), "utf8")) as unknown;
-  const expectedSchemaVersion =
-    relativePath === LEGACY_DISCOVERY_EVALUATION_POLICY_PATH
-      ? "startup_opportunity.discovery_evaluation_policy.v1"
-      : relativePath === REPAIRED_DISCOVERY_EVALUATION_POLICY_PATH
-        ? "startup_opportunity.discovery_evaluation_policy.v2"
-        : "startup_opportunity.discovery_evaluation_policy.v3";
-  const validator = bundle.validators.get(expectedSchemaVersion);
+  const value = JSON.parse(
+    await readFile(path.join(root, DISCOVERY_EVALUATION_POLICY_PATH), "utf8"),
+  ) as unknown;
+  const validator = bundle.validators.get("startup_opportunity.discovery_evaluation_policy.v3");
   if ((validator !== undefined && !validator(value)) || !isRecord(value)) {
     throw new StoreError(
       "discovery_evaluation_policy.invalid",
@@ -171,63 +137,54 @@ export async function loadDiscoveryEvaluationPolicy(
     policy.execution_boundary.publication_implies_validation !== false ||
     policy.reporting_contract.global_score_forbidden !== true ||
     policy.reporting_contract.market_validation_claim_forbidden !== true;
-  const repairedInvalid =
-    policy.schema_version !== "startup_opportunity.discovery_evaluation_policy.v1" &&
-    (policy.ai_solution_gate_contract.selected_solution_field !== "selected_solution_ref" ||
-      policy.ai_solution_gate_contract.ai_usage_field !== "uses_ai" ||
-      policy.ai_solution_gate_contract.mandatory_gate_id !== "ai_mandatory_bundle" ||
-      policy.ai_solution_gate_contract.missing_bundle_status !== "insufficient_evidence" ||
-      policy.ai_solution_gate_contract.missing_bundle_decision_tier_ceiling !==
-        "investigate_further" ||
-      policy.ai_solution_gate_contract.g3_bundle_generated_by_g2 !== false ||
-      canonicalJson(policy.decision_tier_ceiling.tier_order) !==
-        canonicalJson(DECISION_TIER_ORDER) ||
-      policy.decision_tier_ceiling.no_first_bet_ceiling !== "investigate_further" ||
-      canonicalJson(policy.decision_tier_ceiling.first_bet_ready_requirements) !==
-        canonicalJson(FIRST_BET_READY_REQUIREMENTS) ||
-      policy.decision_tier_ceiling.mixed_inputs_use_strictest_ceiling !== true ||
-      policy.execution_boundary.harness_generated_research !== false ||
-      policy.execution_boundary.harness_generated_judgment !== false ||
-      policy.execution_boundary.publication_implies_validation !== false ||
-      policy.reporting_contract.global_score_forbidden !== true ||
-      canonicalJson(policy.reporting_contract.consistency_dimensions) !==
-        canonicalJson(REQUIRED_REPORT_CONSISTENCY_DIMENSIONS) ||
-      policy.reporting_contract.market_validation_claim_forbidden !== true ||
-      policy.reporting_contract.scan_contract_version !== REPORT_SCAN_CONTRACT_VERSION ||
-      canonicalJson(policy.reporting_contract.scan_surfaces) !==
-        canonicalJson(REPORT_SCAN_SURFACES) ||
-      canonicalJson(policy.reporting_contract.forbidden_rule_ids) !==
-        canonicalJson(REPORT_FORBIDDEN_RULE_IDS));
   const currentInvalid =
-    policy.schema_version === "startup_opportunity.discovery_evaluation_policy.v3" &&
-    (policy.ai_mandatory_bundle_contract.trigger_version !==
-      "startup_opportunity.ai_mandatory_coverage_trigger.v1" ||
-      canonicalJson(policy.ai_mandatory_bundle_contract.required_dimensions) !==
-        canonicalJson([
-          "capability_frontier",
-          "cost_and_deployment",
-          "workflow_and_human_boundary",
-          "ecosystem_and_platform",
-          "data_and_evaluation",
-          "adoption_and_trust",
-        ]) ||
-      canonicalJson(policy.ai_mandatory_bundle_contract.coverage_statuses) !==
-        canonicalJson(["covered", "insufficient_evidence", "not_applicable"]) ||
-      policy.ai_mandatory_bundle_contract.source_unavailable_status !== "insufficient_evidence" ||
-      canonicalJson(policy.ai_mandatory_bundle_contract.consumer_binding_statuses) !==
-        canonicalJson(["bound", "missing", "not_required"]) ||
-      policy.ai_mandatory_bundle_contract.non_ai_binding_status !== "not_required" ||
-      canonicalJson(policy.ai_mandatory_bundle_contract.degraded_bundle_states) !==
-        canonicalJson(["missing", "incomplete", "desk_research_only", "stale"]) ||
-      policy.ai_mandatory_bundle_contract.degraded_decision_tier_ceiling !==
-        "investigate_further" ||
-      policy.ai_mandatory_bundle_contract.caller_supplied_only !== true ||
-      policy.ai_mandatory_bundle_contract.harness_generated_bundle !== false);
-  const legacyInvalid =
-    policy.schema_version === "startup_opportunity.discovery_evaluation_policy.v1" &&
+    policy.ai_solution_gate_contract.selected_solution_field !== "selected_solution_ref" ||
+    policy.ai_solution_gate_contract.ai_usage_field !== "uses_ai" ||
+    policy.ai_solution_gate_contract.mandatory_gate_id !== "ai_mandatory_bundle" ||
+    policy.ai_solution_gate_contract.missing_bundle_status !== "insufficient_evidence" ||
+    policy.ai_solution_gate_contract.missing_bundle_decision_tier_ceiling !==
+      "investigate_further" ||
+    policy.ai_solution_gate_contract.g3_bundle_generated_by_g2 !== false ||
+    canonicalJson(policy.decision_tier_ceiling.tier_order) !== canonicalJson(DECISION_TIER_ORDER) ||
+    policy.decision_tier_ceiling.no_first_bet_ceiling !== "investigate_further" ||
+    canonicalJson(policy.decision_tier_ceiling.first_bet_ready_requirements) !==
+      canonicalJson(FIRST_BET_READY_REQUIREMENTS) ||
+    policy.decision_tier_ceiling.mixed_inputs_use_strictest_ceiling !== true ||
+    policy.execution_boundary.harness_generated_research !== false ||
+    policy.execution_boundary.harness_generated_judgment !== false ||
+    policy.execution_boundary.publication_implies_validation !== false ||
+    policy.reporting_contract.global_score_forbidden !== true ||
     canonicalJson(policy.reporting_contract.consistency_dimensions) !==
-      canonicalJson(LEGACY_REPORT_CONSISTENCY_DIMENSIONS);
-  if (commonInvalid || repairedInvalid || currentInvalid || legacyInvalid) {
+      canonicalJson(REQUIRED_REPORT_CONSISTENCY_DIMENSIONS) ||
+    policy.reporting_contract.market_validation_claim_forbidden !== true ||
+    policy.reporting_contract.scan_contract_version !== REPORT_SCAN_CONTRACT_VERSION ||
+    canonicalJson(policy.reporting_contract.scan_surfaces) !==
+      canonicalJson(REPORT_SCAN_SURFACES) ||
+    canonicalJson(policy.reporting_contract.forbidden_rule_ids) !==
+      canonicalJson(REPORT_FORBIDDEN_RULE_IDS) ||
+    policy.ai_mandatory_bundle_contract.trigger_version !==
+      "startup_opportunity.ai_mandatory_coverage_trigger.v1" ||
+    canonicalJson(policy.ai_mandatory_bundle_contract.required_dimensions) !==
+      canonicalJson([
+        "capability_frontier",
+        "cost_and_deployment",
+        "workflow_and_human_boundary",
+        "ecosystem_and_platform",
+        "data_and_evaluation",
+        "adoption_and_trust",
+      ]) ||
+    canonicalJson(policy.ai_mandatory_bundle_contract.coverage_statuses) !==
+      canonicalJson(["covered", "insufficient_evidence", "not_applicable"]) ||
+    policy.ai_mandatory_bundle_contract.source_unavailable_status !== "insufficient_evidence" ||
+    canonicalJson(policy.ai_mandatory_bundle_contract.consumer_binding_statuses) !==
+      canonicalJson(["bound", "missing", "not_required"]) ||
+    policy.ai_mandatory_bundle_contract.non_ai_binding_status !== "not_required" ||
+    canonicalJson(policy.ai_mandatory_bundle_contract.degraded_bundle_states) !==
+      canonicalJson(["missing", "incomplete", "desk_research_only", "stale"]) ||
+    policy.ai_mandatory_bundle_contract.degraded_decision_tier_ceiling !== "investigate_further" ||
+    policy.ai_mandatory_bundle_contract.caller_supplied_only !== true ||
+    policy.ai_mandatory_bundle_contract.harness_generated_bundle !== false;
+  if (commonInvalid || currentInvalid) {
     throw new StoreError(
       "discovery_evaluation_policy.invalid",
       "discovery evaluation policy differs from the closed G2.4 contract",

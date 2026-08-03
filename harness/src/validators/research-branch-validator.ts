@@ -314,7 +314,7 @@ function directParentRefs(entry: ResearchBranchDocument): readonly string[] {
 }
 
 function checkEnvelopeInputRefs(entry: ResearchBranchDocument, errors: ValidationIssue[]): void {
-  if (entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.v5") {
+  if (entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.current") {
     return;
   }
   const envelopeRefs = new Set(strings(entry.envelope.input_refs));
@@ -604,7 +604,7 @@ function checkBranch(
   documentsByPath: ReadonlyMap<string, ResearchBranchDocument>,
   errors: ValidationIssue[],
 ): void {
-  if (branch.envelope?.schema_version !== "startup_opportunity.artifact_envelope.v5") {
+  if (branch.envelope?.schema_version !== "startup_opportunity.artifact_envelope.current") {
     return;
   }
   const inputRefs = strings(branch.envelope.input_refs);
@@ -800,7 +800,7 @@ export function validateResearchBranchContract(
     (entry) =>
       isResearchBranchSchemaVersion(entry.schemaVersion) ||
       (entry.schemaVersion === "startup_opportunity.concept_evidence_assessment_branch_result.v1" &&
-        entry.envelope?.schema_version === "startup_opportunity.artifact_envelope.v5"),
+        entry.envelope?.schema_version === "startup_opportunity.artifact_envelope.current"),
   );
   if (!hasResearchDocuments) {
     return [];

@@ -199,11 +199,11 @@ function validateEnvelopeIdentity(
 ): Record<string, unknown> | null {
   const envelope = entry.envelope;
   const isInitialMainAgentEnvelope =
-    envelope?.schema_version === "startup_opportunity.artifact_envelope.v8" &&
+    envelope?.schema_version === "startup_opportunity.artifact_envelope.current" &&
     envelope.producer_role === "main_agent";
   const isPlanRevisionEnvelope =
     entry.schemaVersion === "startup_opportunity.research_plan.v1" &&
-    envelope?.schema_version === "startup_opportunity.artifact_envelope.v3" &&
+    envelope?.schema_version === "startup_opportunity.artifact_envelope.current" &&
     envelope.producer_role === "harness";
   if (
     envelope === null ||
@@ -216,7 +216,7 @@ function validateEnvelopeIdentity(
       issue(
         "discovery_maps.envelope_binding_mismatch",
         entry.path,
-        "G2.1 inputs require an exact v8 main-agent envelope, except current Plan revisions use v3 harness envelopes",
+        "G2.1 inputs require the current envelope; Plan revisions may be harness-produced",
       ),
     );
     return null;
@@ -596,9 +596,6 @@ export function isDiscoveryMapSchemaVersion(schemaVersion: string): boolean {
 export function validateDiscoveryMapsContract(
   documents: readonly DiscoveryMapDocument[],
   loadedPolicy: LoadedDiscoveryMapsPolicy,
-  allowedManifestSchemaBundleVersions: readonly string[] = [
-    loadedPolicy.document.schema_bundle_version,
-  ],
 ): readonly ValidationIssue[] {
   if (!documents.some((entry) => MAP_SCHEMA_VERSIONS.has(entry.schemaVersion))) {
     return [];
@@ -679,19 +676,17 @@ export function validateDiscoveryMapsContract(
   if (
     manifest.document.current_plan_ref !== plan.path ||
     manifest.document.plan_revision !== plan.document.revision ||
-    manifest.document.current_phase !== "discovery" ||
-    !allowedManifestSchemaBundleVersions.includes(String(manifest.document.schema_bundle_version))
+    manifest.document.current_phase !== "discovery"
   ) {
     errors.push(
       issue(
         "discovery_maps.current_plan_mismatch",
         "manifest.json#/current_plan_ref",
-        "maps must bind the exact current discovery Plan and schema bundle",
+        "maps must bind the exact current discovery Plan",
         {
           currentPlanRef: manifest.document.current_plan_ref,
           planPath: plan.path,
           currentPhase: manifest.document.current_phase,
-          schemaBundleVersion: manifest.document.schema_bundle_version,
         },
       ),
     );

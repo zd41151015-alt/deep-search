@@ -2,7 +2,6 @@
   "schema_version": "startup_opportunity.discovery_synthesis_policy.v1",
   "policy_id": "startup_opportunity.g2_3_synthesis",
   "policy_version": "1.0.0",
-  "schema_bundle_version": "10.0.0",
   "artifact_paths": {
     "conversion": "artifacts/discovery/conversions/<candidate_id>.r<revision>.json",
     "demand": "artifacts/discovery/demands/<demand_id>.r<revision>.json",

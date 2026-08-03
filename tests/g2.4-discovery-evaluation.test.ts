@@ -213,6 +213,31 @@ function byTypes(
   return candidates.filter((candidate) => types.includes(candidate.artifact_type));
 }
 
+const SYNTHESIS_ARTIFACT_TYPES = [
+  "startup_opportunity.discovery_candidate_conversion.v2",
+  "startup_opportunity.demand_thesis.v1",
+  "startup_opportunity.baseline_option.v1",
+  "startup_opportunity.solution_hypothesis.v1",
+  "startup_opportunity.solution_evaluation.v1",
+  "startup_opportunity.opportunity_thesis.v1",
+  "startup_opportunity.thesis_evaluation_snapshot.v1",
+  "startup_opportunity.merge.v1",
+] as const;
+
+const EVALUATION_AGGREGATE_ARTIFACT_TYPES = [
+  "startup_opportunity.enrichment_fan_in.v1",
+  "startup_opportunity.value_layer_analysis.v1",
+  "startup_opportunity.user_state_context_model.v1",
+  "startup_opportunity.buyer_purchase_language.v1",
+  "startup_opportunity.business_engine_thesis.v2",
+  "startup_opportunity.opportunity_comparison.v1",
+  "startup_opportunity.sensitivity.v1",
+  "startup_opportunity.portfolio_view.v1",
+  "startup_opportunity.decision_recommendation.v1",
+  "startup_opportunity.traceability.v2",
+  "startup_opportunity.report_consistency_evaluation.v3",
+] as const;
+
 async function publishThroughSynthesis(state: State): Promise<void> {
   await state.store.publishArtifactBundle({
     runId: state.runId,
@@ -222,7 +247,7 @@ async function publishThroughSynthesis(state: State): Promise<void> {
     runId: state.runId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
   });
-  const runtime = envelopes(state.bundle, "startup_opportunity.artifact_envelope.v10");
+  const runtime = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(runtime, "startup_opportunity.discovery_candidate.v1").filter(
@@ -263,16 +288,13 @@ async function publishThroughSynthesis(state: State): Promise<void> {
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: envelopes(state.bundle, "startup_opportunity.artifact_envelope.v11"),
+    envelopes: byTypes(runtime, ...SYNTHESIS_ARTIFACT_TYPES),
   });
 }
 
 async function publishThroughEnrichmentBranches(state: State): Promise<void> {
   await publishThroughSynthesis(state);
-  const evaluation = [
-    ...envelopes(state.bundle, "startup_opportunity.artifact_envelope.v12"),
-    ...envelopes(state.bundle, "startup_opportunity.artifact_envelope.v13"),
-  ];
+  const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(evaluation, "startup_opportunity.research_task.v3"),
@@ -297,26 +319,10 @@ async function publishThroughEnrichmentBranches(state: State): Promise<void> {
 
 async function publishThroughEvaluation(state: State): Promise<void> {
   await publishThroughEnrichmentBranches(state);
-  const evaluation = [
-    ...envelopes(state.bundle, "startup_opportunity.artifact_envelope.v12"),
-    ...envelopes(state.bundle, "startup_opportunity.artifact_envelope.v13"),
-  ];
+  const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: evaluation.filter(
-      (candidate) =>
-        ![
-          "startup_opportunity.research_task.v3",
-          "startup_opportunity.evidence.v3",
-          "startup_opportunity.claim.v3",
-          "startup_opportunity.finding.v3",
-          "startup_opportunity.insight.v3",
-          "startup_opportunity.judgment_assessment.v3",
-          "startup_opportunity.source_manifest.v3",
-          "startup_opportunity.enrichment_branch_result.v1",
-          "startup_opportunity.report.v1",
-        ].includes(candidate.artifact_type),
-    ),
+    envelopes: byTypes(evaluation, ...EVALUATION_AGGREGATE_ARTIFACT_TYPES),
   });
 }
 
@@ -483,11 +489,13 @@ test("G2.4 validates closed enrichment, hard gates, comparison, portfolio, and r
   const result = validator.validateDocumentBundle(state.bundle);
   assert.equal(result.valid, true, JSON.stringify(result, null, 2));
   assert.equal(
-    state.bundle.documents.filter(
-      (candidate) =>
-        candidate.document.schema_version === "startup_opportunity.artifact_envelope.v13",
-    ).length,
-    34,
+    state.bundle.documents
+      .filter((candidate) => candidate.path.startsWith("artifacts/"))
+      .every(
+        (candidate) =>
+          candidate.document.schema_version === "startup_opportunity.artifact_envelope.current",
+      ),
+    true,
   );
 });
 
@@ -1303,13 +1311,6 @@ test("G2.4 rejects closed contract mutations with deterministic error codes", as
         refresh(bundle, G24_REPORT);
       },
     },
-    {
-      code: "g2_4.bundle_version_mismatch",
-      mutate(bundle) {
-        (bundle as { schema_version: string }).schema_version =
-          "startup_opportunity.document_bundle.v11";
-      },
-    },
   ];
 
   for (const mutation of mutations) {
@@ -1434,7 +1435,6 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   const replay = await runtime.build({ reportEnvelope: report });
   assert.equal(replay.status, "idempotent_replay");
   const loaded = await state.store.load(state.runId);
-  assert.equal(loaded.manifest.schema_bundle_version, "18.0.0");
   assert.ok(loaded.manifest.artifact_refs.includes(G24_REPORT));
   assert.ok(loaded.manifest.artifact_refs.includes(first.consistencyEvaluationRef));
   assert.match(
@@ -1450,7 +1450,7 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
       ),
   );
   const v13Paths = new Set(
-    envelopes(state.bundle, "startup_opportunity.artifact_envelope.v13").map(
+    envelopes(state.bundle, "startup_opportunity.artifact_envelope.current").map(
       (candidate) => candidate.artifact_path,
     ),
   );
@@ -1460,7 +1460,7 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
       .every(
         (receipt) =>
           (receipt as Record<string, unknown>).schema_version ===
-          "startup_opportunity.artifact_store_operation.v11",
+          "startup_opportunity.artifact_store_operation.current",
       ),
   );
 });
@@ -1507,7 +1507,7 @@ test("G2.4 checkpoint, reopen, and report fault recovery preserve the validated 
   assert.ok(reopened.manifest.artifact_refs.includes(G24_PORTFOLIO));
 });
 
-test("G2.4 v13 receipt recovery completes an interrupted fan-in publication", async (context) => {
+test("G2.4 current receipt recovery completes an interrupted fan-in publication", async (context) => {
   const state = await setup(context, "artifact-fault");
   await publishThroughEnrichmentBranches(state);
   await assert.rejects(
@@ -1544,7 +1544,7 @@ test("G2.4 branch terminal states project mechanically and keep late or supersed
     await t.test(scenario.suffix, async (context) => {
       const state = await setup(context, `status-${scenario.suffix}`);
       await publishThroughSynthesis(state);
-      const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.v13");
+      const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
       await state.store.publishArtifactBundle({
         runId: state.runId,
         envelopes: byTypes(evaluation, "startup_opportunity.research_task.v3"),
@@ -1593,26 +1593,7 @@ test("G2.4 branch terminal states project mechanically and keep late or supersed
   }
 });
 
-test("G2.4 v11 adapter rejects evaluation artifacts before any write", async (context) => {
-  const state = await setup(context, "v11-boundary");
-  await publishThroughSynthesis(state);
-  const candidate = clone(evaluationEnvelope(state.bundle, G24_FAN_IN));
-  (candidate as unknown as { schema_version: string }).schema_version =
-    "startup_opportunity.artifact_envelope.v11";
-  const before = await readdir(path.join(state.runRoot, ".store/operations"));
-  await assert.rejects(
-    state.store.publishArtifact({ runId: state.runId, envelope: candidate }),
-    (error: unknown) =>
-      error instanceof StoreError && error.code === "artifact.adapter_blocked_type",
-  );
-  assert.deepEqual(await readdir(path.join(state.runRoot, ".store/operations")), before);
-  await assert.rejects(
-    readFile(path.join(state.runRoot, G24_FAN_IN), "utf8"),
-    (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT",
-  );
-});
-
-test("G2.4 audit-traceability and build-report CLI consume explicit v13 artifacts", async (context) => {
+test("G2.4 audit-traceability and build-report CLI consume explicit current artifacts", async (context) => {
   const state = await setup(context, "cli");
   const auditBundle = clone(state.bundle);
   const derived = deriveReportEnvelopes(evaluationEnvelope(auditBundle, G24_REPORT));

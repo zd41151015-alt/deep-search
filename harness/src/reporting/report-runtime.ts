@@ -24,14 +24,10 @@ import { withReportLock, withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { RunStore } from "../run-store/run-store.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
-import {
-  LEGACY_REPORT_CONSISTENCY_DIMENSIONS,
-  REQUIRED_REPORT_CONSISTENCY_DIMENSIONS,
-} from "../validators/discovery-evaluation-policy.js";
+import { REQUIRED_REPORT_CONSISTENCY_DIMENSIONS } from "../validators/discovery-evaluation-policy.js";
 import {
   REPORT_SCAN_CONTRACT_VERSION,
   REPORT_SCAN_SURFACES,
-  requiresDeterministicReportScan,
   scanDiscoveryReportSurfaces,
 } from "./report-consistency.js";
 import { deriveTerminalReportDocuments } from "./terminal-reporting.js";
@@ -285,42 +281,17 @@ function formalEnvelope(
   artifactPath: string,
   artifactType: string,
   document: Record<string, unknown>,
-  inputRefs: readonly string[],
+  _inputRefs: readonly string[],
 ): FormalArtifactEnvelope {
-  if (
-    source.schema_version === "startup_opportunity.artifact_envelope.v12" ||
-    source.schema_version === "startup_opportunity.artifact_envelope.v13" ||
-    source.schema_version === "startup_opportunity.artifact_envelope.v16" ||
-    source.schema_version === "startup_opportunity.artifact_envelope.v17"
-  ) {
-    const inputRefs = [...new Set(collectDocumentRefs(document))]
-      .filter((ref) => ref !== artifactPath)
-      .sort();
-    if (
-      (source.schema_version === "startup_opportunity.artifact_envelope.v16" ||
-        source.schema_version === "startup_opportunity.artifact_envelope.v17") &&
-      isRecord(source.ai_bundle_binding)
-    ) {
-      inputRefs.push(...collectDocumentRefs(source.ai_bundle_binding));
-      inputRefs.sort();
-    }
-    return {
-      schema_version: source.schema_version,
-      artifact_type: artifactType,
-      artifact_path: artifactPath,
-      run_id: source.run_id,
-      created_at: source.created_at,
-      producer_role: "harness",
-      input_refs: [...new Set(inputRefs)].sort(),
-      content_hash: canonicalContentHash(document),
-      document,
-      ...(source.schema_version === "startup_opportunity.artifact_envelope.v16"
-        ? { ai_bundle_binding: source.ai_bundle_binding }
-        : {}),
-    } as FormalArtifactEnvelope;
+  const inputRefs = [...new Set(collectDocumentRefs(document))]
+    .filter((ref) => ref !== artifactPath)
+    .sort();
+  if (isRecord(source.ai_bundle_binding)) {
+    inputRefs.push(...collectDocumentRefs(source.ai_bundle_binding));
+    inputRefs.sort();
   }
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v7",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: artifactType,
     artifact_path: artifactPath,
     run_id: source.run_id,
@@ -329,7 +300,10 @@ function formalEnvelope(
     input_refs: [...new Set(inputRefs)].sort(),
     content_hash: canonicalContentHash(document),
     document,
-  };
+    ...(source.ai_bundle_binding === undefined
+      ? {}
+      : { ai_bundle_binding: source.ai_bundle_binding }),
+  } as FormalArtifactEnvelope;
 }
 
 function collectDocumentRefs(value: unknown): readonly string[] {
@@ -487,19 +461,14 @@ function deriveDiscoveryReportEnvelopes(
     viewDocument,
     [],
   );
-  const repaired = requiresDeterministicReportScan(reportEnvelope.schema_version);
-  const forbiddenExpressionMatches = repaired
-    ? scanDiscoveryReportSurfaces({
-        structuredReport: report,
-        decisionBrief: briefMarkdown,
-        reportView: reportMarkdown,
-      })
-    : [];
+  const forbiddenExpressionMatches = scanDiscoveryReportSurfaces({
+    structuredReport: report,
+    decisionBrief: briefMarkdown,
+    reportView: reportMarkdown,
+  });
   const evaluatorResult = forbiddenExpressionMatches.length === 0 ? "passed" : "failed";
   const consistencyDocument: Record<string, unknown> = {
-    schema_version: repaired
-      ? "startup_opportunity.report_consistency_evaluation.v3"
-      : "startup_opportunity.report_consistency_evaluation.v2",
+    schema_version: "startup_opportunity.report_consistency_evaluation.v3",
     evaluation_id: `report_consistency_${revision.replace("r", "")}`,
     run_id: reportEnvelope.run_id,
     producer_role: "harness",
@@ -509,15 +478,9 @@ function deriveDiscoveryReportEnvelopes(
     report_view_ref: reportViewPath,
     decision_recommendation_ref: recommendationRef,
     traceability_ref: traceabilityRef,
-    checked_dimensions: repaired
-      ? REQUIRED_REPORT_CONSISTENCY_DIMENSIONS
-      : LEGACY_REPORT_CONSISTENCY_DIMENSIONS,
-    ...(repaired
-      ? {
-          scan_contract_version: REPORT_SCAN_CONTRACT_VERSION,
-          scanned_surfaces: REPORT_SCAN_SURFACES,
-        }
-      : {}),
+    checked_dimensions: REQUIRED_REPORT_CONSISTENCY_DIMENSIONS,
+    scan_contract_version: REPORT_SCAN_CONTRACT_VERSION,
+    scanned_surfaces: REPORT_SCAN_SURFACES,
     forbidden_expression_matches: forbiddenExpressionMatches,
     evaluator_result: evaluatorResult,
     evaluation_issues: forbiddenExpressionMatches.map((match) => ({
@@ -542,9 +505,7 @@ function deriveDiscoveryReportEnvelopes(
     formalEnvelope(
       reportEnvelope,
       consistencyPath,
-      repaired
-        ? "startup_opportunity.report_consistency_evaluation.v3"
-        : "startup_opportunity.report_consistency_evaluation.v2",
+      "startup_opportunity.report_consistency_evaluation.v3",
       consistencyDocument,
       [],
     ),
@@ -554,7 +515,6 @@ function deriveDiscoveryReportEnvelopes(
 function assertDerivedConsistencyPassed(derived: readonly FormalArtifactEnvelope[]): void {
   const consistency = derived.find((entry) =>
     [
-      "startup_opportunity.report_consistency_evaluation.v2",
       "startup_opportunity.report_consistency_evaluation.v3",
       "startup_opportunity.report_consistency_evaluation.v4",
     ].includes(entry.artifact_type),
@@ -576,7 +536,7 @@ export function deriveReportEnvelopes(
   reportEnvelope: FormalArtifactEnvelope,
 ): readonly FormalArtifactEnvelope[] {
   if (
-    reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v17" &&
+    reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.current" &&
     reportEnvelope.artifact_type === "startup_opportunity.terminal_report_source.v1" &&
     reportEnvelope.producer_role === "main_agent" &&
     reportEnvelope.document.schema_version === "startup_opportunity.terminal_report_source.v1"
@@ -592,9 +552,7 @@ export function deriveReportEnvelopes(
     );
   }
   if (
-    (reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v12" ||
-      reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v13" ||
-      reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.v16") &&
+    reportEnvelope.schema_version === "startup_opportunity.artifact_envelope.current" &&
     reportEnvelope.artifact_type === "startup_opportunity.report.v1" &&
     reportEnvelope.producer_role === "main_agent" &&
     reportEnvelope.document.schema_version === "startup_opportunity.report.v1"
@@ -602,14 +560,14 @@ export function deriveReportEnvelopes(
     return deriveDiscoveryReportEnvelopes(reportEnvelope);
   }
   if (
-    reportEnvelope.schema_version !== "startup_opportunity.artifact_envelope.v7" ||
+    reportEnvelope.schema_version !== "startup_opportunity.artifact_envelope.current" ||
     reportEnvelope.artifact_type !== "startup_opportunity.concept_evidence_report.v1" ||
     reportEnvelope.producer_role !== "main_agent" ||
     reportEnvelope.document.schema_version !== "startup_opportunity.concept_evidence_report.v1"
   ) {
     throw new StoreError(
       "report.source_invalid",
-      "build-report requires a v7 main-agent concept report envelope",
+      "build-report requires a current main-agent concept report envelope",
     );
   }
   const report = reportEnvelope.document;

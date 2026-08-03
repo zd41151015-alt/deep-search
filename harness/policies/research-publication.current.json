@@ -1,0 +1,198 @@
+{
+  "schema_version": "startup_opportunity.research_publication_policy.current",
+  "policy_id": "startup_opportunity.current_research_publication",
+  "evidence_contract": {
+    "substrate_record": "startup_opportunity.evidence_store_record.v2",
+    "business_evidence": "startup_opportunity.evidence.v1",
+    "audit_artifact": "startup_opportunity.evidence_audit.v1",
+    "stable_identity": "canonical_source_content_research_goal_sha256.v2",
+    "raw_dedup_identity": "content_sha256.v1"
+  },
+  "traceability_contract": {
+    "direction": "report_to_brief_to_assessment_to_matrix_to_judgment_to_subject_to_insight_to_finding_to_claim_to_evidence",
+    "chat_is_artifact": false,
+    "completion_message_is_artifact": false
+  },
+  "task_lifecycle_contract": {
+    "task_publication_transition": "pending_to_active",
+    "harness_dispatches_agent": false,
+    "partial_retry": "fail_closed"
+  },
+  "branch_status_projection": {
+    "completed": "completed_units",
+    "partial": "completed_units",
+    "insufficient_evidence": "completed_units",
+    "failed": "failed_units",
+    "cancelled": "cancelled_units_existing",
+    "skipped": "skipped_units_existing",
+    "ignored_late": "ignored_late_artifact_refs",
+    "superseded_by_scope_change": "superseded_units_existing",
+    "superseded_by_adaptation": "superseded_units_existing"
+  },
+  "discovery_lane_status_projection": {
+    "completed": "completed_units",
+    "partial": "completed_units",
+    "insufficient_evidence": "completed_units",
+    "failed": "failed_units",
+    "ignored_late": "ignored_late_artifact_refs",
+    "superseded": "superseded_units_existing"
+  },
+  "enrichment_branch_status_projection": {
+    "completed": "completed_units",
+    "partial": "completed_units",
+    "insufficient_evidence": "completed_units",
+    "failed": "failed_units",
+    "ignored_late": "ignored_late_artifact_refs",
+    "superseded": "superseded_units_existing"
+  },
+  "report_publication_contract": {
+    "formal_sidecars": true,
+    "materialized_outputs": ["report.json", "decision-brief.md", "report.md"],
+    "generation_order": [
+      "validated_artifacts",
+      "report.json",
+      "decision-brief.md",
+      "report.md",
+      "consistency_evaluation"
+    ],
+    "recovery": "receipt_driven_fail_closed"
+  },
+  "discovery_map_contract": {
+    "artifact_types": [
+      "startup_opportunity.seed_probe.v1",
+      "startup_opportunity.opportunity_space_map.v1",
+      "startup_opportunity.solution_space_map.v1"
+    ],
+    "closed_three_map_first_publication": true,
+    "producer_role": "main_agent",
+    "research_performed": false,
+    "seed_evidence_use": "forbidden",
+    "formal_thesis_output": false,
+    "recovery": "receipt_driven_fail_closed"
+  },
+  "discovery_runtime_contract": {
+    "task_artifact_type": "startup_opportunity.research_task.v2",
+    "lane_artifact_type": "startup_opportunity.discovery_lane_result.v1",
+    "fan_in_artifact_type": "startup_opportunity.discovery_fan_in.v2",
+    "explicit_artifact_input_only": true,
+    "harness_dispatches_agent": false,
+    "hidden_llm_calls": false,
+    "network_research": false,
+    "external_validation": false,
+    "recovery": "receipt_driven_fail_closed",
+    "envelope_schema_version": "startup_opportunity.artifact_envelope.current",
+    "document_bundle_schema_version": "startup_opportunity.document_bundle.current"
+  },
+  "discovery_synthesis_contract": {
+    "conversion_artifact_type": "startup_opportunity.discovery_candidate_conversion.v2",
+    "formal_artifact_types": [
+      "startup_opportunity.demand_thesis.v1",
+      "startup_opportunity.baseline_option.v1",
+      "startup_opportunity.solution_hypothesis.v1",
+      "startup_opportunity.solution_evaluation.v1",
+      "startup_opportunity.opportunity_thesis.v1",
+      "startup_opportunity.thesis_evaluation_snapshot.v1",
+      "startup_opportunity.merge.v1"
+    ],
+    "explicit_artifact_input_only": true,
+    "harness_synthesizes_semantics": false,
+    "source_candidate_mutation": "forbidden",
+    "publication_implies_validation": false,
+    "recovery": "receipt_driven_fail_closed",
+    "envelope_schema_version": "startup_opportunity.artifact_envelope.current",
+    "document_bundle_schema_version": "startup_opportunity.document_bundle.current"
+  },
+  "discovery_evaluation_contract": {
+    "evaluation_policy_ref": "harness/policies/discovery-evaluation.v3.json",
+    "evaluation_policy_schema_version": "startup_opportunity.discovery_evaluation_policy.v3",
+    "ai_missing_bundle_behavior": "insufficient_evidence_and_investigate_further_ceiling",
+    "report_scan_contract_version": "startup_opportunity.deterministic_forbidden_expression_scan.v1",
+    "explicit_artifact_input_only": true,
+    "harness_generates_semantics": false,
+    "report_materialization": "deterministic_from_validated_report_sidecar",
+    "publication_implies_validation": false,
+    "recovery": "receipt_driven_fail_closed",
+    "envelope_schema_version": "startup_opportunity.artifact_envelope.current",
+    "document_bundle_schema_version": "startup_opportunity.document_bundle.current"
+  },
+  "discovery_adaptation_binding_contract": {
+    "policy_ref": "harness/policies/discovery-adaptation-binding.v1.json",
+    "policy_schema_version": "startup_opportunity.discovery_adaptation_binding_policy.v1",
+    "candidate_pre_kill_skip_binding": "exact_exclusive_candidate_input",
+    "shared_unit_behavior": "retain_or_supersede",
+    "apply_revalidates": true
+  },
+  "ai_baseline_contract": {
+    "installed_artifact_types": [
+      "startup_opportunity.capability_evidence.v1",
+      "startup_opportunity.ai_capability_benchmark.v1",
+      "startup_opportunity.ai_evaluation_reliability.v1",
+      "startup_opportunity.ai_data_dependency.v1"
+    ],
+    "caller_supplied_only": true,
+    "research_execution": false,
+    "network_access": false,
+    "hidden_model_calls": false
+  },
+  "ai_economics_contract": {
+    "installed_artifact_types": [
+      "startup_opportunity.ai_inference_unit_economics.v1",
+      "startup_opportunity.capability_commoditization_risk.v1",
+      "startup_opportunity.ai_adoption_trust.v1"
+    ],
+    "product_inference_cost_only": true,
+    "harness_execution_cost_excluded": true,
+    "caller_supplied_only": true,
+    "research_execution": false,
+    "network_access": false,
+    "hidden_model_calls": false
+  },
+  "ai_mandatory_bundle_contract": {
+    "installed_artifact_type": "startup_opportunity.ai_mandatory_bundle.v1",
+    "trigger_version": "startup_opportunity.ai_mandatory_coverage_trigger.v1",
+    "consumer_binding_required": true,
+    "caller_supplied_only": true,
+    "research_execution": false,
+    "network_access": false,
+    "hidden_model_calls": false
+  },
+  "terminal_reporting_contract": {
+    "source_artifact_type": "startup_opportunity.terminal_report_source.v1",
+    "derived_artifact_types": [
+      "startup_opportunity.decision_brief.v3",
+      "startup_opportunity.terminal_report_view.v1",
+      "startup_opportunity.report_consistency_evaluation.v4"
+    ],
+    "shared_across_modes": true,
+    "caller_supplied_judgment": true,
+    "harness_generated_judgment": false,
+    "hidden_model_calls": false,
+    "network_research": false,
+    "external_validation": false
+  },
+  "declarative_runtime_contract": {
+    "caller_supplied_research_semantics": true,
+    "harness_compiled_envelopes": true,
+    "minimal_validation_closure": true,
+    "same_wave_batch_descriptor": true,
+    "agent_dispatch_performed": false,
+    "hidden_model_calls": false,
+    "generic_workflow_runtime": false,
+    "network_research": false,
+    "external_validation": false
+  },
+  "assessment_execution_contract": {
+    "reporting_dimensions_separate_from_lanes": true,
+    "early_kill_gate_required": true,
+    "controlled_followup_only": true,
+    "thesis_provenance_required": true,
+    "agent_dispatch_performed": false,
+    "hidden_model_calls": false,
+    "external_validation": false
+  },
+  "publication": {
+    "envelope_schema_version": "startup_opportunity.artifact_envelope.current",
+    "document_bundle_schema_version": "startup_opportunity.document_bundle.current",
+    "receipt_schema_version": "startup_opportunity.artifact_store_operation.current"
+  }
+}

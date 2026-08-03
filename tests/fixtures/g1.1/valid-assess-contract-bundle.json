@@ -1,5 +1,5 @@
 {
-  "schema_version": "startup_opportunity.document_bundle.v4",
+  "schema_version": "startup_opportunity.document_bundle.current",
   "documents": [
     {
       "path": "intake.json",

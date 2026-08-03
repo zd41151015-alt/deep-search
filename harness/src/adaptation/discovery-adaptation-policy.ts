@@ -12,7 +12,6 @@ export interface DiscoveryAdaptationBindingPolicy extends Record<string, unknown
   readonly schema_version: "startup_opportunity.discovery_adaptation_binding_policy.v1";
   readonly policy_id: "startup_opportunity.g2_candidate_pre_kill_adaptation";
   readonly policy_version: "1.0.0";
-  readonly schema_bundle_version: "12.0.0";
   readonly trigger_gap_type: "candidate_pre_killed";
   readonly allowed_action: "skip_unit";
   readonly candidate_ref_pattern: string;

@@ -42,7 +42,7 @@ test("Harness and Skill G0.3 entries create, record, checkpoint, and reopen a re
     runId,
     "--unit-id",
     "cli_unit_001",
-    "--url",
+    "--source-url",
     "https://example.com/cli#fragment",
     "--research-goal",
     "Exercise the operational Evidence substrate entry.",
@@ -92,7 +92,7 @@ test("Harness and Skill G0.3 entries create, record, checkpoint, and reopen a re
   await writeFile(
     artifactFile,
     `${JSON.stringify({
-      schema_version: "startup_opportunity.artifact_envelope.v5",
+      schema_version: "startup_opportunity.artifact_envelope.current",
       artifact_type: artifactDocument.schema_version,
       artifact_path: "artifacts/cli-g1-2-event.json",
       run_id: runId,
@@ -119,7 +119,7 @@ test("Harness and Skill G0.3 entries create, record, checkpoint, and reopen a re
     reason: "Synthetic singleton document bundle publication fixture.",
   };
   const bundledEnvelope = {
-    schema_version: "startup_opportunity.artifact_envelope.v5",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: bundledArtifactDocument.schema_version,
     artifact_path: "artifacts/cli-g1-2-singleton-bundle-event.json",
     run_id: runId,
@@ -133,7 +133,7 @@ test("Harness and Skill G0.3 entries create, record, checkpoint, and reopen a re
   await writeFile(
     singletonBundleFile,
     `${JSON.stringify({
-      schema_version: "startup_opportunity.document_bundle.v5",
+      schema_version: "startup_opportunity.document_bundle.current",
       documents: [{ path: bundledEnvelope.artifact_path, document: bundledEnvelope }],
     })}\n`,
   );
@@ -213,6 +213,33 @@ test("G0.3 command entries reject incomplete arguments with structured failure",
   ]) {
     const result = runScript(script, []);
     assert.equal(result.status, 64, `${script}: ${result.stderr}`);
+    const failure = JSON.parse(result.stderr) as { status: string; error: { code: string } };
+    assert.equal(failure.status, "failed");
+    assert.equal(failure.error.code, "command.invalid_arguments");
+  }
+});
+
+test("create-run rejects retired product and build identity options", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-store-cli-identity-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+
+  for (const [option, value] of [
+    ["--skill-version", "1.0.0"],
+    ["--policy-version", "1.0.0"],
+    ["--git-commit", "0123456789012345678901234567890123456789"],
+  ] as const) {
+    const result = runScript("harness/src/cli.ts", [
+      "create-run",
+      "--runs-root",
+      path.join(root, "runs"),
+      "--run-id",
+      `identity-option-${option.slice(2)}`,
+      "--mode",
+      "opportunity_discovery",
+      option,
+      value,
+    ]);
+    assert.equal(result.status, 64, `${option}: ${result.stderr}`);
     const failure = JSON.parse(result.stderr) as { status: string; error: { code: string } };
     assert.equal(failure.status, "failed");
     assert.equal(failure.error.code, "command.invalid_arguments");

@@ -36,23 +36,30 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.report.v1" },
-    "report_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "producer_role": { "const": "main_agent" },
+    "schema_version": {
+      "const": "startup_opportunity.report.v1"
+    },
+    "report_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "producer_role": {
+      "const": "main_agent"
+    },
     "owned_output_path": {
       "type": "string",
       "pattern": "^artifacts/reporting/report-json\\.r[1-9][0-9]*\\.json$"
     },
-    "materialized_path": { "const": "report.json" },
+    "materialized_path": {
+      "const": "report.json"
+    },
     "report_metadata": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "mode",
-        "skill_version",
-        "policy_version",
-        "schema_bundle_version",
         "generated_at",
         "valid_as_of",
         "input_artifact_hashes",
@@ -60,67 +67,113 @@
         "global_score_used"
       ],
       "properties": {
-        "mode": { "const": "opportunity_discovery" },
-        "skill_version": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-        "policy_version": { "const": "1.0.0" },
-        "schema_bundle_version": { "const": "11.0.0" },
-        "generated_at": { "$ref": "definitions.schema.json#/$defs/timestamp" },
-        "valid_as_of": { "type": "string", "format": "date" },
-        "input_artifact_hashes": { "$ref": "definitions.schema.json#/$defs/inputHashes" },
-        "external_validation_claimed": { "const": false },
-        "global_score_used": { "const": false }
+        "mode": {
+          "const": "opportunity_discovery"
+        },
+        "generated_at": {
+          "$ref": "definitions.schema.json#/$defs/timestamp"
+        },
+        "valid_as_of": {
+          "type": "string",
+          "format": "date"
+        },
+        "input_artifact_hashes": {
+          "$ref": "definitions.schema.json#/$defs/inputHashes"
+        },
+        "external_validation_claimed": {
+          "const": false
+        },
+        "global_score_used": {
+          "const": false
+        }
       }
     },
-    "decision_context_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "scope_frame_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "research_plan_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "decision_context_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "scope_frame_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_plan_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
     "plan_lineage_refs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/artifactRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/artifactRef"
+      }
     },
-    "applied_adaptation_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
-    "decision_recommendation_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "portfolio_view_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "applied_adaptation_refs": {
+      "$ref": "definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "decision_recommendation_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "portfolio_view_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
     "comparison_refs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/comparisonRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/comparisonRef"
+      }
     },
-    "business_engine_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+    "business_engine_refs": {
+      "$ref": "definitions.schema.json#/$defs/artifactRefArray"
+    },
     "top_opportunity_refs": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/opportunityRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/opportunityRef"
+      }
     },
     "watchlist_refs": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/opportunityRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/opportunityRef"
+      }
     },
     "rejected_opportunity_refs": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/opportunityRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/opportunityRef"
+      }
     },
-    "capability_only_signals": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "trend_only_signals": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "sensitivity_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "capability_only_signals": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "trend_only_signals": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "sensitivity_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
     "judgment_assessment_refs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/enrichmentJudgmentRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/enrichmentJudgmentRef"
+      }
     },
     "source_manifest_refs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/enrichmentSourceManifestRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/enrichmentSourceManifestRef"
+      }
     },
-    "traceability_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "traceability_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
     "curated_judgment_context": {
       "type": "object",
       "additionalProperties": false,
@@ -143,31 +196,63 @@
         "external_action_boundary"
       ],
       "properties": {
-        "decision_question": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-        "current_recommendation": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+        "decision_question": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "current_recommendation": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
         "decision_tier": {
           "enum": ["prioritize", "investigate_further", "watch", "reject", "insufficient_evidence"]
         },
-        "recommendation_meaning": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+        "recommendation_meaning": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
         "recommended_first_bet": {
-          "anyOf": [{ "$ref": "definitions.schema.json#/$defs/opportunityRef" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "definitions.schema.json#/$defs/opportunityRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "alternative_bets": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "$ref": "definitions.schema.json#/$defs/opportunityRef" }
+          "items": {
+            "$ref": "definitions.schema.json#/$defs/opportunityRef"
+          }
         },
-        "partial_order_summary": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-        "decisive_support": { "$ref": "definitions.schema.json#/$defs/summaryRefs" },
-        "decisive_opposition": { "$ref": "definitions.schema.json#/$defs/summaryRefs" },
-        "critical_unknowns": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        "partial_order_summary": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "decisive_support": {
+          "$ref": "definitions.schema.json#/$defs/summaryRefs"
+        },
+        "decisive_opposition": {
+          "$ref": "definitions.schema.json#/$defs/summaryRefs"
+        },
+        "critical_unknowns": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
         "what_would_change_the_decision": {
           "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
         },
-        "belief_update_summary": { "$ref": "definitions.schema.json#/$defs/beliefUpdate" },
-        "valid_as_of": { "type": "string", "format": "date" },
-        "scope_summary": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-        "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        "belief_update_summary": {
+          "$ref": "definitions.schema.json#/$defs/beliefUpdate"
+        },
+        "valid_as_of": {
+          "type": "string",
+          "format": "date"
+        },
+        "scope_summary": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "limitations": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
         "external_action_boundary": {
           "$ref": "definitions.schema.json#/$defs/externalActionBoundary"
         }
@@ -189,21 +274,43 @@
         "traceability_and_sources"
       ],
       "properties": {
-        "conclusion_summary": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "scope_and_profile": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "decision_recommendation": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "portfolio": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        "conclusion_summary": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "scope_and_profile": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "decision_recommendation": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "portfolio": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
         "comparison_and_partial_order": {
           "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
         },
-        "method_and_limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "top_opportunities": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "watchlist_and_reject": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "sensitivity": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "traceability_and_sources": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+        "method_and_limitations": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "top_opportunities": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "watchlist_and_reject": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "sensitivity": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "traceability_and_sources": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        }
       }
     },
-    "freshness_summary": { "$ref": "traceability-v2.schema.json#/properties/freshness_summary" },
-    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+    "freshness_summary": {
+      "$ref": "traceability-v2.schema.json#/properties/freshness_summary"
+    },
+    "limitations": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    }
   }
 }

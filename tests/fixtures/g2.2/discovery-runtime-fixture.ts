@@ -2,7 +2,7 @@ import {
   canonicalContentHash,
   type DiscoveryProfile,
   type DocumentBundle,
-  type EvidenceStoreRecordV2,
+  type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
 } from "../../../harness/src/index.js";
 import {
@@ -15,7 +15,6 @@ import {
   createDiscoveryCandidateFixture,
   fixtureEffective,
   fixtureEntry,
-  G22_CONVERSION,
   G22_DEMAND_R1,
   G22_DEMAND_R2,
   G22_EVALUATION_EVIDENCE,
@@ -25,11 +24,11 @@ import {
 } from "./discovery-candidate-fixture.js";
 
 export interface DiscoveryRuntimeSubstrate {
-  readonly generation: EvidenceStoreRecordV2;
-  readonly evaluation: EvidenceStoreRecordV2;
+  readonly generation: EvidenceStoreRecord;
+  readonly evaluation: EvidenceStoreRecord;
 }
 
-export function runtimeEvidencePath(record: EvidenceStoreRecordV2): string {
+export function runtimeEvidencePath(record: EvidenceStoreRecord): string {
   return `evidence/records/${record.evidence_id}.json`;
 }
 
@@ -51,7 +50,7 @@ function replaceExactStrings(value: unknown, replacements: ReadonlyMap<string, s
 function applyMechanicalBinding(
   bundle: DocumentBundle,
   artifactPath: string,
-  record: EvidenceStoreRecordV2,
+  record: EvidenceStoreRecord,
 ): void {
   const evidence = fixtureEffective(bundle, artifactPath);
   evidence.evidence_id = record.evidence_id;
@@ -107,13 +106,13 @@ export async function createDiscoveryRuntimeFixture(
       }
     }
   }
-  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v10";
+  (bundle as { schema_version: string }).schema_version =
+    "startup_opportunity.document_bundle.current";
 
   const mutable = bundle as unknown as {
     documents: { path: string; document: Record<string, unknown> }[];
     exact_records: { ref: string; document: Record<string, unknown> }[];
   };
-  mutable.documents = mutable.documents.filter((entry) => entry.path !== G22_CONVERSION);
   mutable.exact_records = [
     {
       ref: `evidence/manifest.jsonl#${substrate.generation.evidence_id}`,
@@ -152,17 +151,12 @@ export async function createDiscoveryRuntimeFixture(
   );
 
   const fanIn = fixtureEffective(bundle, G22_FAN_IN);
-  fanIn.schema_version = "startup_opportunity.discovery_fan_in.v2";
-  fanIn.manifest_adapter_boundary = {
-    runtime_adapter_installed: true,
-    manifest_state_transition_performed: true,
+  fanIn.manifest_projection = {
+    status_projection_required: true,
     late_or_superseded_can_enter_current_refs: false,
   };
 
   for (const entry of mutable.documents) {
-    if (entry.document.schema_version === "startup_opportunity.artifact_envelope.v9") {
-      entry.document.schema_version = "startup_opportunity.artifact_envelope.v10";
-    }
     if (
       String(entry.document.schema_version).startsWith("startup_opportunity.artifact_envelope.")
     ) {
@@ -173,7 +167,6 @@ export async function createDiscoveryRuntimeFixture(
   }
 
   const manifest = fixtureEntry(bundle, "manifest.json");
-  manifest.schema_bundle_version = "9.0.0";
   manifest.status = "researching";
   manifest.completed_units = ["unit_counterfactual", "unit_seed_independent_demand"];
   manifest.active_units = [];

@@ -33,6 +33,10 @@ import {
   validateArtifactRef,
   validateRunId,
 } from "../artifact-store/path-policy.js";
+import {
+  ARTIFACT_ENVELOPE_SCHEMA_VERSION,
+  DOCUMENT_BUNDLE_SCHEMA_VERSION,
+} from "../artifact-store/publication-policy.js";
 import { withRunCreationLock, withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { type EvidenceRecoveryResult, EvidenceStore } from "../evidence-store/evidence-store.js";
@@ -47,7 +51,6 @@ import {
   type DocumentBundleEntry,
   type DocumentBundleReferenceContext,
 } from "../validators/artifact-validator.js";
-import { SCHEMA_BUNDLE_VERSION } from "../validators/schema-bundle.js";
 import { validateTerminalReportingContract } from "../validators/terminal-reporting-validator.js";
 import { type JsonlRepairResult, JsonlStore } from "./jsonl-store.js";
 
@@ -62,10 +65,6 @@ export interface RunManifest extends Record<string, unknown> {
   readonly parent_run_id: string | null;
   readonly created_at: string;
   readonly updated_at: string;
-  readonly skill_version: string;
-  readonly policy_version: string;
-  readonly schema_bundle_version: string;
-  readonly git_commit: string | null;
   readonly current_phase: string | null;
   readonly current_plan_ref: string | null;
   readonly plan_revision: number;
@@ -93,9 +92,6 @@ export interface CreateRunInput {
   readonly mode: RunMode;
   readonly createdAt?: string;
   readonly parentRunId?: string | null;
-  readonly skillVersion?: string;
-  readonly policyVersion?: string;
-  readonly gitCommit?: string | null;
   readonly faultAt?: "before_publish";
 }
 
@@ -201,26 +197,9 @@ const RUN_DIRECTORIES = [
   "plans",
 ] as const;
 
-const STORE_ENVELOPE_VERSIONS = new Set([
-  "startup_opportunity.artifact_envelope.v1",
-  "startup_opportunity.artifact_envelope.v2",
-  "startup_opportunity.artifact_envelope.v3",
-  "startup_opportunity.artifact_envelope.v4",
-  "startup_opportunity.artifact_envelope.v5",
-  "startup_opportunity.artifact_envelope.v6",
-  "startup_opportunity.artifact_envelope.v7",
-  "startup_opportunity.artifact_envelope.v8",
-  "startup_opportunity.artifact_envelope.v10",
-  "startup_opportunity.artifact_envelope.v11",
-  "startup_opportunity.artifact_envelope.v12",
-  "startup_opportunity.artifact_envelope.v13",
-  "startup_opportunity.artifact_envelope.v14",
-  "startup_opportunity.artifact_envelope.v15",
-  "startup_opportunity.artifact_envelope.v16",
-  "startup_opportunity.artifact_envelope.v17",
-  "startup_opportunity.artifact_envelope.v18",
-  "startup_opportunity.artifact_envelope.v19",
-]);
+function isCurrentEnvelopeSchema(value: unknown): boolean {
+  return value === ARTIFACT_ENVELOPE_SCHEMA_VERSION;
+}
 
 const DISCOVERY_MAP_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.seed_probe.v1",
@@ -252,23 +231,6 @@ interface ContinuationLineageEntry extends Record<string, unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function highestSchemaBundleVersion(current: string, candidate: string | null): string {
-  if (candidate === null) {
-    return current;
-  }
-  const parts = (value: string): readonly number[] => value.split(".").map((part) => Number(part));
-  const left = parts(current);
-  const right = parts(candidate);
-  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-    const leftPart = left[index] ?? 0;
-    const rightPart = right[index] ?? 0;
-    if (leftPart !== rightPart) {
-      return rightPart > leftPart ? candidate : current;
-    }
-  }
-  return current;
 }
 
 function assertDisjoint(manifest: RunManifest, fields: readonly string[]): void {
@@ -336,10 +298,6 @@ function makeManifest(input: CreateRunInput, createdAt: string): RunManifest {
     parent_run_id: input.parentRunId ?? null,
     created_at: createdAt,
     updated_at: createdAt,
-    skill_version: input.skillVersion ?? "1.0.0",
-    policy_version: input.policyVersion ?? "1.0.0",
-    schema_bundle_version: SCHEMA_BUNDLE_VERSION,
-    git_commit: input.gitCommit ?? null,
     current_phase: null,
     current_plan_ref: null,
     plan_revision: 0,
@@ -494,9 +452,7 @@ export class RunStore {
         }
         if (
           loaded.manifest.mode !== input.mode ||
-          loaded.manifest.parent_run_id !== (input.parentRunId ?? null) ||
-          loaded.manifest.skill_version !== (input.skillVersion ?? "1.0.0") ||
-          loaded.manifest.policy_version !== (input.policyVersion ?? "1.0.0")
+          loaded.manifest.parent_run_id !== (input.parentRunId ?? null)
         ) {
           throw new StoreError("write.conflict", "existing Run has different create parameters", {
             runId: input.runId,
@@ -921,7 +877,7 @@ export class RunStore {
       }
 
       const effective = (document: Record<string, unknown>): Record<string, unknown> =>
-        STORE_ENVELOPE_VERSIONS.has(String(document.schema_version)) && isRecord(document.document)
+        isCurrentEnvelopeSchema(document.schema_version) && isRecord(document.document)
           ? document.document
           : document;
       const addAuthority = async (entry: DocumentBundleEntry): Promise<void> => {
@@ -938,7 +894,7 @@ export class RunStore {
           );
         }
         if (
-          STORE_ENVELOPE_VERSIONS.has(String(entry.document.schema_version)) &&
+          isCurrentEnvelopeSchema(entry.document.schema_version) &&
           isRecord(entry.document.document)
         ) {
           await this.artifacts.validateStoredEnvelope(
@@ -957,7 +913,7 @@ export class RunStore {
         }
         selected.set(entry.path, {
           path: entry.path,
-          document: STORE_ENVELOPE_VERSIONS.has(String(entry.document.schema_version))
+          document: isCurrentEnvelopeSchema(entry.document.schema_version)
             ? entry.document
             : authorityDocument,
         });
@@ -1019,22 +975,7 @@ export class RunStore {
           documents: [...selected.values()].sort((left, right) =>
             left.path.localeCompare(right.path),
           ),
-          ...(input.schema_version === "startup_opportunity.document_bundle.v5" ||
-          input.schema_version === "startup_opportunity.document_bundle.v6" ||
-          input.schema_version === "startup_opportunity.document_bundle.v7" ||
-          input.schema_version === "startup_opportunity.document_bundle.v8" ||
-          input.schema_version === "startup_opportunity.document_bundle.v10" ||
-          input.schema_version === "startup_opportunity.document_bundle.v11" ||
-          input.schema_version === "startup_opportunity.document_bundle.v12" ||
-          input.schema_version === "startup_opportunity.document_bundle.v13" ||
-          input.schema_version === "startup_opportunity.document_bundle.v14" ||
-          input.schema_version === "startup_opportunity.document_bundle.v15" ||
-          input.schema_version === "startup_opportunity.document_bundle.v16" ||
-          input.schema_version === "startup_opportunity.document_bundle.v17" ||
-          input.schema_version === "startup_opportunity.document_bundle.v18" ||
-          input.schema_version === "startup_opportunity.document_bundle.v19"
-            ? { exact_records: [] }
-            : {}),
+          ...(input.schema_version === DOCUMENT_BUNDLE_SCHEMA_VERSION ? { exact_records: [] } : {}),
         },
         referenceContext: {
           exactJsonlRecords: new Map(
@@ -1057,6 +998,7 @@ export class RunStore {
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       const manifest = await this.readManifest(runRoot);
+      this.assertAdaptationArtifactMode(manifest, input.envelope);
       const taskPublicationMode = await this.researchTaskPublicationMode(
         runRoot,
         manifest,
@@ -1143,6 +1085,7 @@ export class RunStore {
         }
       }
       for (const envelope of input.envelopes) {
+        this.assertAdaptationArtifactMode(manifest, envelope);
         const taskPublicationMode = await this.researchTaskPublicationMode(
           runRoot,
           manifest,
@@ -1237,23 +1180,42 @@ export class RunStore {
     });
   }
 
+  private assertAdaptationArtifactMode(
+    manifest: RunManifest,
+    envelope: FormalArtifactEnvelope,
+  ): void {
+    const discoveryTypes = new Set([
+      "startup_opportunity.adaptation_decision.discovery.current",
+      "startup_opportunity.gap_snapshot.discovery.plan.current",
+      "startup_opportunity.gap_snapshot.discovery.readiness.current",
+    ]);
+    const assessmentTypes = new Set([
+      "startup_opportunity.adaptation_decision.assessment.current",
+      "startup_opportunity.gap_snapshot.assessment.current",
+    ]);
+    const adaptationTypes = new Set([...discoveryTypes, ...assessmentTypes]);
+    const allowed = manifest.mode === "opportunity_discovery" ? discoveryTypes : assessmentTypes;
+    if (adaptationTypes.has(envelope.artifact_type) && !allowed.has(envelope.artifact_type)) {
+      throw new StoreError(
+        "artifact.run_mode_mismatch",
+        "Adaptation Artifact identity does not match the current Run mode",
+        { mode: manifest.mode, artifactType: envelope.artifact_type },
+      );
+    }
+  }
+
   private async researchTaskPublicationMode(
     runRoot: string,
     manifest: RunManifest,
     envelope: FormalArtifactEnvelope,
   ): Promise<"not_task" | "transition" | "replay"> {
+    const isCurrentEnvelope = isCurrentEnvelopeSchema(envelope.schema_version);
     const isAssessmentTask =
-      envelope.schema_version === "startup_opportunity.artifact_envelope.v5" &&
-      envelope.artifact_type === "startup_opportunity.research_task.v1";
+      isCurrentEnvelope && envelope.artifact_type === "startup_opportunity.research_task.v1";
     const isDiscoveryTask =
-      envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
-      envelope.artifact_type === "startup_opportunity.research_task.v2";
+      isCurrentEnvelope && envelope.artifact_type === "startup_opportunity.research_task.v2";
     const isEnrichmentTask =
-      (envelope.schema_version === "startup_opportunity.artifact_envelope.v12" ||
-        envelope.schema_version === "startup_opportunity.artifact_envelope.v13" ||
-        envelope.schema_version === "startup_opportunity.artifact_envelope.v14" ||
-        envelope.schema_version === "startup_opportunity.artifact_envelope.v15") &&
-      envelope.artifact_type === "startup_opportunity.research_task.v3";
+      isCurrentEnvelope && envelope.artifact_type === "startup_opportunity.research_task.v3";
     if (!isAssessmentTask && !isDiscoveryTask && !isEnrichmentTask) {
       return "not_task";
     }
@@ -1342,7 +1304,7 @@ export class RunStore {
         : (JSON.parse(await readFile(await resolveRunPath(runRoot, planRef), "utf8")) as unknown);
     const plan =
       isRecord(storedPlan) &&
-      STORE_ENVELOPE_VERSIONS.has(String(storedPlan.schema_version)) &&
+      isCurrentEnvelopeSchema(storedPlan.schema_version) &&
       isRecord(storedPlan.document)
         ? storedPlan.document
         : storedPlan;
@@ -1388,7 +1350,7 @@ export class RunStore {
       ) as unknown;
       if (
         !isRecord(value) ||
-        value.schema_version !== "startup_opportunity.artifact_envelope.v18" ||
+        value.schema_version !== "startup_opportunity.artifact_envelope.current" ||
         value.artifact_type !== "startup_opportunity.dispatch_batch.v1" ||
         value.run_id !== manifest.run_id ||
         !isRecord(value.document) ||
@@ -1441,7 +1403,7 @@ export class RunStore {
     }
     const plan =
       isRecord(storedPlan) &&
-      STORE_ENVELOPE_VERSIONS.has(String(storedPlan.schema_version)) &&
+      isCurrentEnvelopeSchema(storedPlan.schema_version) &&
       isRecord(storedPlan.document)
         ? storedPlan.document
         : storedPlan;
@@ -1552,7 +1514,6 @@ export class RunStore {
     this.assertBranchPublicationTransition(manifest, envelope, ignoredLate);
     this.assertDiscoveryLanePublicationTransition(manifest, envelope, ignoredLate);
     this.assertEnrichmentBranchPublicationTransition(manifest, envelope, ignoredLate);
-    const adapter = this.validator.publicationAdapter(envelope.schema_version);
     const artifactWasTracked =
       manifest.artifact_refs.includes(envelope.artifact_path) ||
       manifest.ignored_late_artifact_refs.includes(envelope.artifact_path);
@@ -1568,10 +1529,6 @@ export class RunStore {
         Date.parse(envelope.created_at) > Date.parse(manifest.updated_at)
           ? envelope.created_at
           : manifest.updated_at,
-      schema_bundle_version: highestSchemaBundleVersion(
-        manifest.schema_bundle_version,
-        adapter.manifest_schema_bundle_version,
-      ),
       artifact_refs: artifactRefs,
       ignored_late_artifact_refs: ignoredLateArtifactRefs,
     };
@@ -1592,10 +1549,10 @@ export class RunStore {
     if (
       !ignoredLate &&
       (!exactReplay || !artifactWasTracked) &&
-      ((envelope.schema_version === "startup_opportunity.artifact_envelope.v18" &&
-        envelope.artifact_type === "startup_opportunity.dispatch_batch.v1") ||
-        (envelope.schema_version === "startup_opportunity.artifact_envelope.v19" &&
-          envelope.artifact_type === "startup_opportunity.dispatch_batch.v2"))
+      envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
+      ["startup_opportunity.dispatch_batch.v1", "startup_opportunity.dispatch_batch.v2"].includes(
+        envelope.artifact_type,
+      )
     ) {
       for (const task of Array.isArray(envelope.document.tasks) ? envelope.document.tasks : []) {
         if (isRecord(task) && typeof task.unit_id === "string") {
@@ -1611,7 +1568,7 @@ export class RunStore {
     if (
       !ignoredLate &&
       (!exactReplay || !artifactWasTracked) &&
-      envelope.schema_version === "startup_opportunity.artifact_envelope.v18" &&
+      envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
       envelope.artifact_type === "startup_opportunity.discovery_generation_result.v1" &&
       typeof envelope.document.unit_id === "string"
     ) {
@@ -1624,7 +1581,7 @@ export class RunStore {
     if (
       !ignoredLate &&
       (!exactReplay || !artifactWasTracked) &&
-      envelope.schema_version === "startup_opportunity.artifact_envelope.v19" &&
+      envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
       envelope.artifact_type === "startup_opportunity.assessment_lane_result.v1" &&
       typeof envelope.document.unit_id === "string"
     ) {
@@ -1637,7 +1594,7 @@ export class RunStore {
     if (
       !ignoredLate &&
       (!exactReplay || !artifactWasTracked) &&
-      envelope.schema_version === "startup_opportunity.artifact_envelope.v19" &&
+      envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
       envelope.artifact_type === "startup_opportunity.assessment_stage_gate.v1" &&
       envelope.document.outcome !== "continue"
     ) {
@@ -1659,15 +1616,12 @@ export class RunStore {
     }
     if (
       !ignoredLate &&
-      ((envelope.schema_version === "startup_opportunity.artifact_envelope.v5" &&
-        envelope.artifact_type === "startup_opportunity.research_task.v1") ||
-        (envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
-          envelope.artifact_type === "startup_opportunity.research_task.v2") ||
-        ((envelope.schema_version === "startup_opportunity.artifact_envelope.v12" ||
-          envelope.schema_version === "startup_opportunity.artifact_envelope.v13" ||
-          envelope.schema_version === "startup_opportunity.artifact_envelope.v14" ||
-          envelope.schema_version === "startup_opportunity.artifact_envelope.v15") &&
-          envelope.artifact_type === "startup_opportunity.research_task.v3")) &&
+      envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
+      [
+        "startup_opportunity.research_task.v1",
+        "startup_opportunity.research_task.v2",
+        "startup_opportunity.research_task.v3",
+      ].includes(envelope.artifact_type) &&
       typeof envelope.document.unit_id === "string"
     ) {
       const unitId = envelope.document.unit_id;
@@ -1684,14 +1638,14 @@ export class RunStore {
     }
     if (
       !ignoredLate &&
-      envelope.schema_version === "startup_opportunity.artifact_envelope.v5" &&
+      envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
       envelope.artifact_type ===
         "startup_opportunity.concept_evidence_assessment_branch_result.v1" &&
       typeof envelope.document.unit_id === "string" &&
       typeof envelope.document.branch_status === "string"
     ) {
       const target =
-        this.validator.publicationPolicy.document.branch_status_adapter[
+        this.validator.publicationPolicy.document.branch_status_projection[
           envelope.document.branch_status
         ];
       if (target === "completed_units" || target === "failed_units") {
@@ -1706,13 +1660,13 @@ export class RunStore {
     }
     if (
       !ignoredLate &&
-      envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
+      envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
       envelope.artifact_type === "startup_opportunity.discovery_lane_result.v1" &&
       typeof envelope.document.unit_id === "string" &&
       typeof envelope.document.status === "string"
     ) {
       const target =
-        this.validator.publicationPolicy.document.discovery_lane_status_adapter[
+        this.validator.publicationPolicy.document.discovery_lane_status_projection[
           envelope.document.status
         ];
       if (target === "completed_units" || target === "failed_units") {
@@ -1721,16 +1675,13 @@ export class RunStore {
     }
     if (
       !ignoredLate &&
-      (envelope.schema_version === "startup_opportunity.artifact_envelope.v12" ||
-        envelope.schema_version === "startup_opportunity.artifact_envelope.v13" ||
-        envelope.schema_version === "startup_opportunity.artifact_envelope.v14" ||
-        envelope.schema_version === "startup_opportunity.artifact_envelope.v15") &&
+      envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
       envelope.artifact_type === "startup_opportunity.enrichment_branch_result.v1" &&
       typeof envelope.document.unit_id === "string" &&
       typeof envelope.document.status === "string"
     ) {
       const target =
-        this.validator.publicationPolicy.document.enrichment_branch_status_adapter[
+        this.validator.publicationPolicy.document.enrichment_branch_status_projection[
           envelope.document.status
         ];
       if (target === "completed_units" || target === "failed_units") {
@@ -1739,12 +1690,12 @@ export class RunStore {
     }
     if (
       !ignoredLate &&
-      ((envelope.schema_version === "startup_opportunity.artifact_envelope.v5" &&
-        envelope.artifact_type === "startup_opportunity.gap_snapshot.v1") ||
-        (envelope.schema_version === "startup_opportunity.artifact_envelope.v6" &&
-          envelope.artifact_type === "startup_opportunity.gap_snapshot.v2") ||
-        (envelope.schema_version === "startup_opportunity.artifact_envelope.v18" &&
-          envelope.artifact_type === "startup_opportunity.gap_snapshot.v3"))
+      envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
+      [
+        "startup_opportunity.gap_snapshot.discovery.plan.current",
+        "startup_opportunity.gap_snapshot.assessment.current",
+        "startup_opportunity.gap_snapshot.discovery.readiness.current",
+      ].includes(envelope.artifact_type)
     ) {
       const advancesLatest =
         !exactReplay ||
@@ -1755,12 +1706,11 @@ export class RunStore {
     }
     if (
       !ignoredLate &&
-      ((envelope.schema_version === "startup_opportunity.artifact_envelope.v5" &&
-        envelope.artifact_type === "startup_opportunity.adaptation_decision.v2") ||
-        (envelope.schema_version === "startup_opportunity.artifact_envelope.v6" &&
-          envelope.artifact_type === "startup_opportunity.adaptation_decision.v3") ||
-        (envelope.schema_version === "startup_opportunity.artifact_envelope.v18" &&
-          envelope.artifact_type === "startup_opportunity.adaptation_decision.v2"))
+      envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
+      [
+        "startup_opportunity.adaptation_decision.discovery.current",
+        "startup_opportunity.adaptation_decision.assessment.current",
+      ].includes(envelope.artifact_type)
     ) {
       const lifecycleFields = [
         "pending_adaptation_refs",
@@ -1789,10 +1739,7 @@ export class RunStore {
     envelope: FormalArtifactEnvelope,
     sameBundleActivations: ReadonlySet<string>,
   ): void {
-    if (
-      envelope.schema_version !== "startup_opportunity.artifact_envelope.v18" &&
-      envelope.schema_version !== "startup_opportunity.artifact_envelope.v19"
-    ) {
+    if (envelope.schema_version !== ARTIFACT_ENVELOPE_SCHEMA_VERSION) {
       return;
     }
     const tracked =
@@ -1885,10 +1832,7 @@ export class RunStore {
     const currentValue = JSON.parse(
       await readFile(await resolveRunPath(runRoot, currentRef), "utf8"),
     ) as unknown;
-    if (
-      !isRecord(currentValue) ||
-      !STORE_ENVELOPE_VERSIONS.has(String(currentValue.schema_version))
-    ) {
+    if (!isRecord(currentValue) || !isCurrentEnvelopeSchema(currentValue.schema_version)) {
       throw new StoreError(
         "manifest.latest_gap_invalid",
         "latest Gap Snapshot ref does not target a formal envelope",
@@ -1900,9 +1844,9 @@ export class RunStore {
     if (
       currentEnvelope.artifact_path !== currentRef ||
       ![
-        "startup_opportunity.gap_snapshot.v1",
-        "startup_opportunity.gap_snapshot.v2",
-        "startup_opportunity.gap_snapshot.v3",
+        "startup_opportunity.gap_snapshot.discovery.plan.current",
+        "startup_opportunity.gap_snapshot.assessment.current",
+        "startup_opportunity.gap_snapshot.discovery.readiness.current",
       ].includes(currentEnvelope.artifact_type)
     ) {
       throw new StoreError(
@@ -1926,7 +1870,7 @@ export class RunStore {
     ignoredLate: boolean,
   ): void {
     if (
-      envelope.schema_version !== "startup_opportunity.artifact_envelope.v5" ||
+      envelope.schema_version !== "startup_opportunity.artifact_envelope.current" ||
       envelope.artifact_type !==
         "startup_opportunity.concept_evidence_assessment_branch_result.v1" ||
       typeof envelope.document.unit_id !== "string" ||
@@ -1946,7 +1890,7 @@ export class RunStore {
     ] as const;
     const existingState = statusFields.find((field) => manifest[field].includes(unitId));
     const target =
-      this.validator.publicationPolicy.document.branch_status_adapter[
+      this.validator.publicationPolicy.document.branch_status_projection[
         envelope.document.branch_status
       ];
     const allowedStates =
@@ -1984,7 +1928,7 @@ export class RunStore {
     ignoredLate: boolean,
   ): void {
     if (
-      envelope.schema_version !== "startup_opportunity.artifact_envelope.v10" ||
+      envelope.schema_version !== "startup_opportunity.artifact_envelope.current" ||
       envelope.artifact_type !== "startup_opportunity.discovery_lane_result.v1" ||
       typeof envelope.document.unit_id !== "string" ||
       typeof envelope.document.status !== "string"
@@ -2003,7 +1947,7 @@ export class RunStore {
     ] as const;
     const existingState = statusFields.find((field) => manifest[field].includes(unitId));
     const target =
-      this.validator.publicationPolicy.document.discovery_lane_status_adapter[
+      this.validator.publicationPolicy.document.discovery_lane_status_projection[
         envelope.document.status
       ];
     const allowedStates =
@@ -2037,10 +1981,7 @@ export class RunStore {
     ignoredLate: boolean,
   ): void {
     if (
-      (envelope.schema_version !== "startup_opportunity.artifact_envelope.v12" &&
-        envelope.schema_version !== "startup_opportunity.artifact_envelope.v13" &&
-        envelope.schema_version !== "startup_opportunity.artifact_envelope.v14" &&
-        envelope.schema_version !== "startup_opportunity.artifact_envelope.v15") ||
+      envelope.schema_version !== ARTIFACT_ENVELOPE_SCHEMA_VERSION ||
       envelope.artifact_type !== "startup_opportunity.enrichment_branch_result.v1" ||
       typeof envelope.document.unit_id !== "string" ||
       typeof envelope.document.status !== "string"
@@ -2059,7 +2000,7 @@ export class RunStore {
     ] as const;
     const existingState = statusFields.find((field) => manifest[field].includes(unitId));
     const target =
-      this.validator.publicationPolicy.document.enrichment_branch_status_adapter[
+      this.validator.publicationPolicy.document.enrichment_branch_status_projection[
         envelope.document.status
       ];
     const allowedStates =
@@ -2227,9 +2168,7 @@ export class RunStore {
       belief_summary: input.beliefSummary,
     };
     const envelope: FormalArtifactEnvelope = {
-      schema_version: this.validator.publicationPolicy.checkpointEnvelopeForBundle(
-        manifest.schema_bundle_version,
-      ),
+      schema_version: ARTIFACT_ENVELOPE_SCHEMA_VERSION,
       artifact_type: "startup_opportunity.checkpoint.v1",
       artifact_path: checkpointRef,
       run_id: input.runId,
@@ -2301,10 +2240,7 @@ export class RunStore {
     }[] = [];
 
     for (const entry of formalDocuments.filter((item) => !item.path.startsWith("checkpoints/"))) {
-      if (
-        !isRecord(entry.document) ||
-        !STORE_ENVELOPE_VERSIONS.has(String(entry.document.schema_version))
-      ) {
+      if (!isRecord(entry.document) || !isCurrentEnvelopeSchema(entry.document.schema_version)) {
         throw new StoreError("recovery.invalid_artifact", "formal artifact is not an envelope", {
           path: entry.path,
         });
@@ -2366,14 +2302,11 @@ export class RunStore {
       const storedEnvelope =
         storedEntry !== undefined &&
         isRecord(storedEntry.document) &&
-        STORE_ENVELOPE_VERSIONS.has(String(storedEntry.document.schema_version))
+        isCurrentEnvelopeSchema(storedEntry.document.schema_version)
           ? (storedEntry.document as FormalArtifactEnvelope)
           : null;
       const enrichmentTerminalResult =
-        (storedEnvelope?.schema_version === "startup_opportunity.artifact_envelope.v12" ||
-          storedEnvelope?.schema_version === "startup_opportunity.artifact_envelope.v13" ||
-          storedEnvelope?.schema_version === "startup_opportunity.artifact_envelope.v14" ||
-          storedEnvelope?.schema_version === "startup_opportunity.artifact_envelope.v15") &&
+        storedEnvelope?.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
         storedEnvelope.artifact_type === "startup_opportunity.enrichment_branch_result.v1" &&
         ["ignored_late", "superseded"].includes(String(storedEnvelope.document.status));
       if (
@@ -2404,7 +2337,7 @@ export class RunStore {
           !entry.path.startsWith("checkpoints/") &&
           !checkpointKnownPaths.has(entry.path) &&
           isRecord(entry.document) &&
-          STORE_ENVELOPE_VERSIONS.has(String(entry.document.schema_version)),
+          isCurrentEnvelopeSchema(entry.document.schema_version),
       )
       .map((entry) => entry.document as FormalArtifactEnvelope)
       .sort((left, right) => {
@@ -2439,60 +2372,16 @@ export class RunStore {
       }
       exactJsonlRecords.set(ref, await this.logs.readExactRecord(runRoot, runId, ref, logPath));
     }
-    const envelopeVersions = recoveryDocuments
-      .map((entry) => entry.document.schema_version)
-      .filter((version) => STORE_ENVELOPE_VERSIONS.has(String(version)));
-    const recoveryBundleVersion = this.validator.publicationPolicy.highestBundleForEnvelopes(
-      envelopeVersions.length > 0
-        ? envelopeVersions
-        : [
-            this.validator.publicationPolicy.checkpointEnvelopeForBundle(
-              snapshot.schema_bundle_version,
-            ),
-          ],
-    );
-    if (
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v5" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v6" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v7" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v8" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v10" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v11" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v12" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v13" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v14" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v15" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v16" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v17" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v18" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v19"
-    ) {
-      for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
-        if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
-          exactJsonlRecords.set(`evidence/manifest.jsonl#${record.evidence_id}`, record);
-        }
+    for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
+      if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
+        exactJsonlRecords.set(`evidence/manifest.jsonl#${record.evidence_id}`, record);
       }
     }
     const bundle = this.validator.validateDocumentBundle(
       {
-        schema_version: recoveryBundleVersion,
+        schema_version: DOCUMENT_BUNDLE_SCHEMA_VERSION,
         documents: recoveryDocuments,
-        ...(recoveryBundleVersion === "startup_opportunity.document_bundle.v5" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v6" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v7" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v8" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v10" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v11" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v12" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v13" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v14" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v15" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v16" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v17" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v18" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v19"
-          ? { exact_records: [] }
-          : {}),
+        exact_records: [],
       },
       {
         exactJsonlRecords,
@@ -2563,10 +2452,7 @@ export class RunStore {
     readonly envelope: FormalArtifactEnvelope;
     readonly document: Record<string, unknown>;
   }> {
-    if (
-      !isRecord(entry.document) ||
-      !STORE_ENVELOPE_VERSIONS.has(String(entry.document.schema_version))
-    ) {
+    if (!isRecord(entry.document) || !isCurrentEnvelopeSchema(entry.document.schema_version)) {
       throw new StoreError("checkpoint.invalid", "checkpoint is not a formal envelope", {
         path: entry.path,
       });
@@ -2604,17 +2490,6 @@ export class RunStore {
     }
     const manifest = value as RunManifest;
     this.validateManifest(manifest);
-    if (manifest.schema_bundle_version !== SCHEMA_BUNDLE_VERSION) {
-      throw new StoreError(
-        "run.unsupported_run_version",
-        "Run was created with an unsupported schema bundle; restart with a new run_id",
-        {
-          actualSchemaBundleVersion: manifest.schema_bundle_version,
-          currentSchemaBundleVersion: SCHEMA_BUNDLE_VERSION,
-          restartRequired: true,
-        },
-      );
-    }
     return manifest;
   }
 
@@ -2716,8 +2591,7 @@ export class RunStore {
       return { ignoredLate: false, expectedArtifactType: null };
     }
     const plan =
-      STORE_ENVELOPE_VERSIONS.has(String(storedPlan.schema_version)) &&
-      isRecord(storedPlan.document)
+      isCurrentEnvelopeSchema(storedPlan.schema_version) && isRecord(storedPlan.document)
         ? storedPlan.document
         : storedPlan;
     if (!Array.isArray(plan.waves)) {
@@ -2762,7 +2636,7 @@ export class RunStore {
     const matches = (await this.artifacts.listFormalDocuments(runRoot)).filter((entry) => {
       const envelope = entry.document;
       return (
-        envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
+        envelope.schema_version === "startup_opportunity.artifact_envelope.current" &&
         envelope.artifact_type === "startup_opportunity.research_task.v2" &&
         isRecord(envelope.document) &&
         envelope.document.allowed_output_path === artifactPath

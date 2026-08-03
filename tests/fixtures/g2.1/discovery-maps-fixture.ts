@@ -97,7 +97,7 @@ function envelope(
   producerRole = "main_agent",
 ): FormalArtifactEnvelope {
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v8",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: String(document.schema_version),
     artifact_path: artifactPath,
     run_id: runId,
@@ -582,10 +582,6 @@ export async function createDiscoveryMapsFixture(
     parent_run_id: null,
     created_at: createdAt,
     updated_at: createdAt,
-    skill_version: "1.0.0",
-    policy_version: "1.0.0",
-    schema_bundle_version: "7.0.0",
-    git_commit: null,
     current_phase: "discovery",
     current_plan_ref: G21_PLAN_REF,
     plan_revision: 1,
@@ -608,7 +604,7 @@ export async function createDiscoveryMapsFixture(
     limitations: [synthetic("G2.1 map fixture performs no research")],
   };
   const bundle: DocumentBundle = {
-    schema_version: "startup_opportunity.document_bundle.v8",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: [
       { path: "manifest.json", document: manifest },
       ...[...coreEnvelopes, ...mapEnvelopes].map((item) => ({

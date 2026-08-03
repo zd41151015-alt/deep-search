@@ -28,8 +28,12 @@
   "$defs": {
     "nullableString": {
       "anyOf": [
-        { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-        { "type": "null" }
+        {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "provenance": {
@@ -56,35 +60,67 @@
             "acquisition_hypothesis"
           ]
         },
-        "source_kind": { "enum": ["user_provided", "agent_assumed", "unknown"] },
+        "source_kind": {
+          "enum": ["user_provided", "agent_assumed", "unknown"]
+        },
         "confirmation_status": {
           "enum": ["user_confirmed", "user_authorized_assumption", "clarification_required"]
         },
-        "basis_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
+        "basis_refs": {
+          "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+        },
         "reporting_disclosure": {
           "anyOf": [
-            { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-            { "type": "null" }
+            {
+              "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       },
       "allOf": [
         {
-          "if": { "properties": { "source_kind": { "const": "user_provided" } } },
+          "if": {
+            "properties": {
+              "source_kind": {
+                "const": "user_provided"
+              }
+            }
+          },
           "then": {
             "properties": {
-              "confirmation_status": { "const": "user_confirmed" },
-              "basis_refs": { "type": "array", "minItems": 1 },
-              "reporting_disclosure": { "type": "null" }
+              "confirmation_status": {
+                "const": "user_confirmed"
+              },
+              "basis_refs": {
+                "type": "array",
+                "minItems": 1
+              },
+              "reporting_disclosure": {
+                "type": "null"
+              }
             }
           }
         },
         {
-          "if": { "properties": { "source_kind": { "const": "agent_assumed" } } },
+          "if": {
+            "properties": {
+              "source_kind": {
+                "const": "agent_assumed"
+              }
+            }
+          },
           "then": {
             "properties": {
-              "confirmation_status": { "const": "user_authorized_assumption" },
-              "basis_refs": { "type": "array", "minItems": 1 },
+              "confirmation_status": {
+                "const": "user_authorized_assumption"
+              },
+              "basis_refs": {
+                "type": "array",
+                "minItems": 1
+              },
               "reporting_disclosure": {
                 "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
               }
@@ -92,10 +128,18 @@
           }
         },
         {
-          "if": { "properties": { "source_kind": { "const": "unknown" } } },
+          "if": {
+            "properties": {
+              "source_kind": {
+                "const": "unknown"
+              }
+            }
+          },
           "then": {
             "properties": {
-              "confirmation_status": { "const": "clarification_required" },
+              "confirmation_status": {
+                "const": "clarification_required"
+              },
               "reporting_disclosure": {
                 "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
               }
@@ -106,31 +150,74 @@
     }
   },
   "properties": {
-    "schema_version": { "const": "startup_opportunity.concept_hypothesis.v2" },
-    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
-    "concept_hypothesis_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "scope_frame_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
-    "product_thesis": { "$ref": "#/$defs/nullableString" },
-    "target_user": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
-    "buyer": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
-    "entry_scene": { "$ref": "#/$defs/nullableString" },
-    "claimed_value": { "$ref": "#/$defs/nullableString" },
-    "current_alternative": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
-    "delivery_form": {
-      "anyOf": [{ "$ref": "../v4/definitions.schema.json#/$defs/deliveryForm" }, { "type": "null" }]
+    "schema_version": {
+      "const": "startup_opportunity.concept_hypothesis.v2"
     },
-    "business_model": { "$ref": "#/$defs/nullableString" },
-    "acquisition_hypothesis": { "$ref": "#/$defs/nullableString" },
-    "uses_ai": { "type": "boolean" },
-    "assumptions": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
-    "unknowns": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
-    "kill_criteria": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
+    "run_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/runId"
+    },
+    "concept_hypothesis_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "scope_frame_ref": {
+      "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+    },
+    "product_thesis": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "target_user": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "buyer": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "entry_scene": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "claimed_value": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "current_alternative": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "delivery_form": {
+      "anyOf": [
+        {
+          "$ref": "../v4/definitions.schema.json#/$defs/deliveryForm"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "business_model": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "acquisition_hypothesis": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "uses_ai": {
+      "type": "boolean"
+    },
+    "assumptions": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "unknowns": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "kill_criteria": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    },
     "field_provenance": {
       "type": "array",
       "minItems": 9,
       "maxItems": 9,
-      "items": { "$ref": "#/$defs/provenance" }
+      "items": {
+        "$ref": "#/$defs/provenance"
+      }
     },
-    "research_readiness": { "enum": ["ready", "clarification_required"] }
+    "research_readiness": {
+      "enum": ["ready", "clarification_required"]
+    }
   }
 }

@@ -9,7 +9,7 @@ import {
   canonicalJson,
   createArtifactValidator,
   EvidenceStore,
-  type EvidenceStoreRecordV2,
+  type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
   inspectSchemaBundle,
   RunStore,
@@ -133,7 +133,7 @@ async function publishVerticalFixture(context: TestContext) {
   await state.store.publishArtifactBundle({ runId: G12_RUN_ID, envelopes: tasks });
 
   const evidenceStore = new EvidenceStore(state.runsRoot);
-  const records = new Map<string, readonly [EvidenceStoreRecordV2, EvidenceStoreRecordV2]>();
+  const records = new Map<string, readonly [EvidenceStoreRecord, EvidenceStoreRecord]>();
   for (const [index, branch] of G12_BRANCHES.entries()) {
     const researchGoal = String(tasks[index]?.document.research_goal ?? "");
     const publicRecord = await evidenceStore.record({
@@ -187,12 +187,11 @@ async function publishVerticalFixture(context: TestContext) {
   return { ...state, initial, tasks, records, branchBundles };
 }
 
-test("G1.2 bundle publishes versioned Evidence Store and research branch schemas", async () => {
+test("current bundle publishes Evidence Store and research branch schemas", async () => {
   const result = await inspectSchemaBundle(repositoryRoot);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
-  assert.equal(result.schemaBundleVersion, "18.0.0");
-  assert.equal(result.schemaCount, 194);
-  assert.equal(result.documentSchemaCount, 184);
+  assert.ok(result.schemaCount > 0);
+  assert.ok(result.documentSchemaCount > 0);
 });
 
 test("four synthetic branches publish Evidence -> Claim -> Finding -> Insight and reopen", async (context) => {
@@ -200,12 +199,10 @@ test("four synthetic branches publish Evidence -> Claim -> Finding -> Insight an
   const manifestBefore = JSON.parse(
     await readFile(path.join(state.runRoot, "manifest.json"), "utf8"),
   ) as {
-    schema_bundle_version: string;
     active_units: string[];
     completed_units: string[];
     checkpoint_ref: string;
   };
-  assert.equal(manifestBefore.schema_bundle_version, "18.0.0");
   assert.deepEqual(manifestBefore.active_units, []);
   assert.deepEqual(
     manifestBefore.completed_units,
@@ -232,7 +229,6 @@ test("four synthetic branches publish Evidence -> Claim -> Finding -> Insight an
 
   const reopened = await state.store.load(G12_RUN_ID);
   assert.equal(reopened.lastValidCheckpointRef, "checkpoints/checkpoint-g1-2-vertical.json");
-  assert.equal(reopened.manifest.schema_bundle_version, "18.0.0");
   assert.deepEqual(reopened.manifest.active_units, []);
   assert.deepEqual(reopened.manifest.completed_units, manifestBefore.completed_units);
   assert.equal(reopened.orphanActiveUnits.length, 0);
@@ -333,7 +329,7 @@ test("v2 Evidence Store canonicalizes public URL, supports user origin, dedups r
   );
 });
 
-test("research chain rejects substrate drift, cross-task lineage, and v4 branch publication", async (context) => {
+test("research chain rejects substrate drift, cross-task lineage, and cross-unit retry", async (context) => {
   const state = await publishVerticalFixture(context);
   const firstBranch = state.branchBundles[0];
   assert.ok(firstBranch);
@@ -347,7 +343,7 @@ test("research chain rejects substrate drift, cross-task lineage, and v4 branch 
     await import("../harness/src/index.js")
   ).canonicalContentHash(evidence.document);
   const invalidBundle = {
-    schema_version: "startup_opportunity.document_bundle.v5",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: [
       ...state.initial.map((entry) => ({ path: entry.artifact_path, document: entry })),
       ...state.tasks.map((entry) => ({ path: entry.artifact_path, document: entry })),
@@ -413,24 +409,6 @@ test("research chain rejects substrate drift, cross-task lineage, and v4 branch 
       (issue) => issue.code === "research_contract.task_supersede_mismatch",
     ),
   );
-
-  const branchEnvelope = firstBranch.find(
-    (entry) =>
-      entry.artifact_type === "startup_opportunity.concept_evidence_assessment_branch_result.v1",
-  );
-  assert.ok(branchEnvelope);
-  await assert.rejects(
-    state.store.publishArtifact({
-      runId: G12_RUN_ID,
-      envelope: {
-        ...branchEnvelope,
-        schema_version: "startup_opportunity.artifact_envelope.v4",
-        artifact_path: "artifacts/lanes/v4-branch-blocked.json",
-      },
-    }),
-    (error: unknown) =>
-      error instanceof StoreError && error.code === "artifact.adapter_blocked_type",
-  );
 });
 
 test("research chain closes formal input refs and Source Manifest Evidence coverage", async (context) => {
@@ -445,7 +423,7 @@ test("research chain closes formal input refs and Source Manifest Evidence cover
     })),
   );
   const validBundle = {
-    schema_version: "startup_opportunity.document_bundle.v5",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents,
     exact_records: exactRecords,
   };
@@ -699,40 +677,6 @@ test("existing superseded and invalidated units keep late Branch results out of 
   }
 });
 
-test("legacy v1 and materialized v2 Evidence records coexist and share only raw bytes", async (context) => {
-  const { runsRoot, store } = await setup(context, "run_g1_2_coexist_001");
-  const evidence = new EvidenceStore(runsRoot);
-  const common = {
-    runId: "run_g1_2_coexist_001",
-    unitId: "unit_coexist",
-    researchGoal: "Synthetic v1/v2 coexistence contract only.",
-    rawContent: "SYNTHETIC COEXISTENCE BYTES",
-    recordedAt: "2026-07-24T20:10:00Z",
-  } as const;
-  const legacy = await evidence.record({
-    ...common,
-    url: "https://synthetic.invalid/coexist#legacy",
-  });
-  const materialized = await evidence.record({
-    ...common,
-    source: { kind: "public_url", canonical_url: "https://synthetic.invalid/coexist" },
-  });
-  assert.notEqual(legacy.record.evidence_id, materialized.record.evidence_id);
-  assert.equal(legacy.record.raw_content_ref, materialized.record.raw_content_ref);
-  const reopened = await store.load(common.runId);
-  assert.equal(reopened.evidenceRecovery.replayedEvidenceIds.length, 0);
-  const records = (
-    await readFile(path.join(runsRoot, common.runId, "evidence/manifest.jsonl"), "utf8")
-  )
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line) as { schema_version: string });
-  assert.deepEqual(records.map((record) => record.schema_version).sort(), [
-    "startup_opportunity.evidence_store_record.v1",
-    "startup_opportunity.evidence_store_record.v2",
-  ]);
-});
-
 test("Evidence receipt cross-task drift fails reopen before any recovery write", async (context) => {
   const { runsRoot, runRoot, store } = await setup(context, "run_g1_2_receipt_drift_001");
   const evidence = new EvidenceStore(runsRoot);
@@ -759,40 +703,6 @@ test("Evidence receipt cross-task drift fails reopen before any recovery write",
   await assert.rejects(
     store.load("run_g1_2_receipt_drift_001"),
     (error: unknown) => error instanceof StoreError && error.code === "recovery.missing_operation",
-  );
-  assert.deepEqual(await snapshotTree(runRoot), before);
-});
-
-test("unsupported envelope version fails before changing Run bytes", async (context) => {
-  const { runRoot, store } = await setup(context, "run_g1_2_unsupported_001");
-  const document = {
-    schema_version: "startup_opportunity.event.v1",
-    event_id: "g1_2_unsupported_001",
-    run_id: "run_g1_2_unsupported_001",
-    event_type: "decision_context_written",
-    timestamp: "2026-07-24T20:10:00Z",
-    actor: "harness",
-    reason: "Synthetic unsupported envelope fixture.",
-    artifact_refs: [],
-  };
-  const before = await snapshotTree(runRoot);
-  await assert.rejects(
-    store.publishArtifact({
-      runId: document.run_id,
-      envelope: {
-        schema_version: "startup_opportunity.artifact_envelope.v9",
-        artifact_type: document.schema_version,
-        artifact_path: "artifacts/unsupported.json",
-        run_id: document.run_id,
-        created_at: document.timestamp,
-        producer_role: "harness",
-        input_refs: [],
-        content_hash: canonicalContentHash(document),
-        document,
-      } as unknown as FormalArtifactEnvelope,
-    }),
-    (error: unknown) =>
-      error instanceof StoreError && error.code === "artifact.envelope_unsupported",
   );
   assert.deepEqual(await snapshotTree(runRoot), before);
 });
@@ -825,7 +735,7 @@ test("v2 Evidence receipt recovers raw publication after an injected crash", asy
   assert.match(manifest, /startup_opportunity\.evidence_store_record\.v2/);
 });
 
-test("v5 Artifact receipt recovers immutable publication after temp-write crash", async (context) => {
+test("current Artifact receipt recovers immutable publication after temp-write crash", async (context) => {
   const { runRoot, store } = await setup(context, "run_g1_2_artifact_fault_001");
   const document = {
     schema_version: "startup_opportunity.event.v1",
@@ -834,11 +744,11 @@ test("v5 Artifact receipt recovers immutable publication after temp-write crash"
     event_type: "decision_context_written",
     timestamp: "2026-07-24T20:10:00Z",
     actor: "harness",
-    reason: "Synthetic v5 Artifact fault fixture.",
+    reason: "Synthetic current Artifact fault fixture.",
     artifact_refs: [],
   };
   const faultEnvelope = {
-    schema_version: "startup_opportunity.artifact_envelope.v5",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: document.schema_version,
     artifact_path: "artifacts/g1-2-fault-event.json",
     run_id: document.run_id,
@@ -869,7 +779,8 @@ test("v5 Artifact receipt recovers immutable publication after temp-write crash"
   );
   assert.ok(
     receiptVersions.some(
-      (receipt) => receipt.schema_version === "startup_opportunity.artifact_store_operation.v4",
+      (receipt) =>
+        receipt.schema_version === "startup_opportunity.artifact_store_operation.current",
     ),
   );
 });

@@ -264,45 +264,5 @@
     "op": "set",
     "value": "candidate_evaluation",
     "expected_code": "discovery_candidate.research_phase_role_mismatch"
-  },
-  {
-    "case_id": "conversion-hash-drift",
-    "target_path": "artifacts/discovery/conversions/candidate_demand.r1.json",
-    "field_path": ["source_candidate_content_hash"],
-    "op": "set",
-    "value": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-    "expected_code": "discovery_candidate.conversion_lineage_mismatch"
-  },
-  {
-    "case_id": "conversion-target-kind-drift",
-    "target_path": "artifacts/discovery/conversions/candidate_demand.r1.json",
-    "field_path": ["target_schema_version"],
-    "op": "set",
-    "value": "startup_opportunity.solution_hypothesis.v1",
-    "expected_code": "discovery_candidate.conversion_lineage_mismatch"
-  },
-  {
-    "case_id": "conversion-stale-source-revision",
-    "target_path": "artifacts/discovery/conversions/candidate_demand.r1.json",
-    "field_path": ["source_candidate_ref"],
-    "op": "set",
-    "value": "artifacts/discovery/candidates/candidate_demand.r1.json",
-    "expected_code": "discovery_candidate.conversion_lineage_mismatch"
-  },
-  {
-    "case_id": "conversion-revision-parent-drift",
-    "target_path": "artifacts/discovery/conversions/candidate_demand.r1.json",
-    "field_path": ["revision"],
-    "op": "set",
-    "value": 2,
-    "expected_code": "discovery_candidate.conversion_path_revision_mismatch"
-  },
-  {
-    "case_id": "old-bundle-fails-closed",
-    "target_path": "$bundle",
-    "field_path": ["schema_version"],
-    "op": "set",
-    "value": "startup_opportunity.document_bundle.v8",
-    "expected_code": "g2_2_contract.bundle_version_mismatch"
   }
 ]

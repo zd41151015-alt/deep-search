@@ -316,7 +316,7 @@ export class AssessmentGapAnalyzer {
     if (
       [...documents.values()].some(
         (entry) =>
-          entry.schemaVersion === "startup_opportunity.gap_snapshot.v2" &&
+          entry.schemaVersion === "startup_opportunity.gap_snapshot.assessment.current" &&
           entry.document.coverage_key === coverageKey,
       )
     ) {
@@ -403,7 +403,7 @@ export class AssessmentGapAnalyzer {
     const gapId = `gap_${input.dimensionId}_${sha256Hex(coverageKey).slice(0, 16)}`;
     const snapshot: Record<string, unknown> = JSON.parse(
       canonicalJson({
-        schema_version: "startup_opportunity.gap_snapshot.v2",
+        schema_version: "startup_opportunity.gap_snapshot.assessment.current",
         snapshot_id: input.snapshotId,
         snapshot_cycle_key: cycleKey,
         coverage_key: coverageKey,

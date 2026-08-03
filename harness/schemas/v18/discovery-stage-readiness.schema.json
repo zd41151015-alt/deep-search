@@ -26,29 +26,57 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.discovery_stage_readiness.v1" },
-    "readiness_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "revision": { "type": "integer", "minimum": 1 },
-    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
-    "research_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
+    "schema_version": {
+      "const": "startup_opportunity.discovery_stage_readiness.v1"
+    },
+    "readiness_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "run_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/runId"
+    },
+    "research_plan_ref": {
+      "$ref": "../v1/definitions.schema.json#/$defs/planRef"
+    },
     "execution_plan_ref": {
       "type": "string",
       "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
     },
-    "stage_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+    "stage_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
     "next_stage_id": {
-      "anyOf": [{ "$ref": "../v12/definitions.schema.json#/$defs/identifier" }, { "type": "null" }]
+      "anyOf": [
+        {
+          "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "source_fan_in_ref": {
       "anyOf": [
-        { "type": "string", "pattern": "^artifacts/discovery/fan-in\\.r[1-9][0-9]*\\.json$" },
-        { "type": "null" }
+        {
+          "type": "string",
+          "pattern": "^artifacts/discovery/fan-in\\.r[1-9][0-9]*\\.json$"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "generation_result_refs": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "type": "string", "pattern": "^artifacts/discovery/generation/.+\\.json$" }
+      "items": {
+        "type": "string",
+        "pattern": "^artifacts/discovery/generation/.+\\.json$"
+      }
     },
     "candidate_roles": {
       "type": "array",
@@ -61,11 +89,15 @@
             "type": "string",
             "pattern": "^artifacts/discovery/candidates/.+\\.json$"
           },
-          "candidate_kind": { "enum": ["demand_seed", "baseline_seed", "solution_seed"] },
+          "candidate_kind": {
+            "enum": ["demand_seed", "baseline_seed", "solution_seed"]
+          },
           "reporting_role": {
             "enum": ["opportunity_direction", "comparison_baseline", "solution_hypothesis"]
           },
-          "disposition": { "enum": ["retained", "watchlist", "rejected"] }
+          "disposition": {
+            "enum": ["retained", "watchlist", "rejected"]
+          }
         }
       }
     },
@@ -73,12 +105,16 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "enum": ["demand_seed", "baseline_seed", "solution_seed"] }
+      "items": {
+        "enum": ["demand_seed", "baseline_seed", "solution_seed"]
+      }
     },
     "missing_candidate_kinds": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "enum": ["demand_seed", "baseline_seed", "solution_seed"] }
+      "items": {
+        "enum": ["demand_seed", "baseline_seed", "solution_seed"]
+      }
     },
     "question_coverage": {
       "type": "array",
@@ -92,14 +128,24 @@
             "type": "string",
             "pattern": "^plans/research-plan\\.r[1-9][0-9]*\\.json#[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
-          "status": { "enum": ["answered", "unresolved", "method_boundary", "runtime_blocked"] },
-          "judgment_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
-          "evidence_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
-          "basis_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" }
+          "status": {
+            "enum": ["answered", "unresolved", "method_boundary", "runtime_blocked"]
+          },
+          "judgment_refs": {
+            "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "evidence_refs": {
+            "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "basis_refs": {
+            "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+          }
         }
       }
     },
-    "next_stage_readiness": { "enum": ["ready", "blocked", "terminal"] },
+    "next_stage_readiness": {
+      "enum": ["ready", "blocked", "terminal"]
+    },
     "blockers": {
       "type": "array",
       "items": {
@@ -114,7 +160,9 @@
           "detail"
         ],
         "properties": {
-          "blocker_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+          "blocker_id": {
+            "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+          },
           "blocker_kind": {
             "enum": [
               "evidence_missing",
@@ -126,11 +174,17 @@
           },
           "candidate_kind": {
             "anyOf": [
-              { "enum": ["demand_seed", "baseline_seed", "solution_seed"] },
-              { "type": "null" }
+              {
+                "enum": ["demand_seed", "baseline_seed", "solution_seed"]
+              },
+              {
+                "type": "null"
+              }
             ]
           },
-          "basis_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
+          "basis_refs": {
+            "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+          },
           "allowed_actions": {
             "type": "array",
             "minItems": 1,
@@ -147,7 +201,9 @@
               ]
             }
           },
-          "detail": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+          "detail": {
+            "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+          }
         }
       }
     },
@@ -177,9 +233,13 @@
             "decisive_counterevidence"
           ]
         },
-        { "type": "null" }
+        {
+          "type": "null"
+        }
       ]
     },
-    "limitations": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" }
+    "limitations": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    }
   }
 }

@@ -62,7 +62,7 @@ function v5Envelope(
   createdAt = "2026-07-25T18:10:00Z",
 ): FormalArtifactEnvelope {
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v5",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: String(document.schema_version),
     artifact_path: artifactPath,
     run_id: G14_RUN_ID,
@@ -437,7 +437,7 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     audit_refs: auditRefs,
   };
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v17",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: "startup_opportunity.terminal_report_source.v1",
     artifact_path: artifactPath,
     run_id: G14_RUN_ID,
@@ -473,13 +473,12 @@ test("terminal finalizer produces a localized decision-first brief with readable
     await readFile(path.join(state.runRoot, "report.json"), "utf8"),
   ) as Record<string, unknown>;
   assert.equal(reportJson.schema_version, "startup_opportunity.terminal_report_source.v1");
-  const loaded = await state.store.load(G14_RUN_ID).catch((error: unknown) => {
+  await state.store.load(G14_RUN_ID).catch((error: unknown) => {
     if (error instanceof StoreError) {
       assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
     }
     throw error;
   });
-  assert.equal(loaded.manifest.schema_bundle_version, "18.0.0");
 });
 
 test("terminal report rejects false completion, derived drift, and caller-declared freshness", async (context) => {
@@ -509,7 +508,7 @@ test("terminal report rejects false completion, derived drift, and caller-declar
   ];
   for (const candidate of invalidSources) {
     const assembled = await state.store.buildValidationContext(G14_RUN_ID, {
-      schema_version: "startup_opportunity.document_bundle.v17",
+      schema_version: "startup_opportunity.document_bundle.current",
       documents: [{ path: candidate.envelope.artifact_path, document: candidate.envelope }],
       exact_records: [],
     });
@@ -532,7 +531,7 @@ test("terminal report rejects false completion, derived drift, and caller-declar
     driftedBrief.document,
   );
   const assembled = await state.store.buildValidationContext(G14_RUN_ID, {
-    schema_version: "startup_opportunity.document_bundle.v17",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: [
       { path: base.artifact_path, document: base },
       { path: driftedBrief.artifact_path, document: driftedBrief },
@@ -615,7 +614,6 @@ test("build-report publishes formal sidecars, materializes three outputs, and ex
   });
   assert.equal(checkpoint.status, "published");
   const reopened = await state.store.load(G14_RUN_ID);
-  assert.equal(reopened.manifest.schema_bundle_version, "18.0.0");
   assert.equal(reopened.lastValidCheckpointRef, "checkpoints/checkpoint-g1-4-report.json");
   assert.equal(reopened.reportRecovery.recoveredFormalArtifactPaths.length, 0);
   assert.equal(reopened.reportRecovery.recoveredMaterializedPaths.length, 0);
@@ -715,7 +713,7 @@ test("G1.R rejects r2 after an r1 sidecar-only crash and recovers r1", async (co
   );
 });
 
-test("G1.R reclaims legacy incomplete Run and report locks before build and reopen", async (context) => {
+test("G1.R reclaims incomplete current Run and report locks before build and reopen", async (context) => {
   const state = await prepareRun(context);
   await writeFile(path.join(state.runRoot, ".store/write.lock"), "");
   await writeFile(path.join(state.runRoot, ".store/report.write.lock"), "");

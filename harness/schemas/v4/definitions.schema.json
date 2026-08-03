@@ -2,16 +2,36 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://startup-opportunity.local/schemas/v4/definitions.schema.json",
   "$defs": {
-    "nonEmptyString": { "$ref": "../v1/definitions.schema.json#/$defs/nonEmptyString" },
-    "identifier": { "$ref": "../v1/definitions.schema.json#/$defs/identifier" },
-    "runId": { "$ref": "../v1/definitions.schema.json#/$defs/runId" },
-    "timestamp": { "$ref": "../v1/definitions.schema.json#/$defs/timestamp" },
-    "artifactRef": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRef" },
-    "artifactRefArray": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRefArray" },
-    "uniqueStringArray": { "$ref": "../v1/definitions.schema.json#/$defs/uniqueStringArray" },
-    "identifierArray": { "$ref": "../v1/definitions.schema.json#/$defs/identifierArray" },
-    "decisionImpact": { "$ref": "../v1/definitions.schema.json#/$defs/decisionImpact" },
-    "adaptationRef": { "$ref": "../v1/definitions.schema.json#/$defs/adaptationRef" },
+    "nonEmptyString": {
+      "$ref": "../v1/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "identifier": {
+      "$ref": "../v1/definitions.schema.json#/$defs/identifier"
+    },
+    "runId": {
+      "$ref": "../v1/definitions.schema.json#/$defs/runId"
+    },
+    "timestamp": {
+      "$ref": "../v1/definitions.schema.json#/$defs/timestamp"
+    },
+    "artifactRef": {
+      "$ref": "../v1/definitions.schema.json#/$defs/artifactRef"
+    },
+    "artifactRefArray": {
+      "$ref": "../v1/definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "uniqueStringArray": {
+      "$ref": "../v1/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "identifierArray": {
+      "$ref": "../v1/definitions.schema.json#/$defs/identifierArray"
+    },
+    "decisionImpact": {
+      "$ref": "../v1/definitions.schema.json#/$defs/decisionImpact"
+    },
+    "adaptationRef": {
+      "$ref": "../v1/definitions.schema.json#/$defs/adaptationRef"
+    },
     "assessmentDimension": {
       "enum": [
         "target_user_and_jtbd",
@@ -30,7 +50,9 @@
       "type": "string",
       "pattern": "^plans/concept-evidence-assessment-plan\\.r[1-9][0-9]*\\.json$"
     },
-    "assessmentProfile": { "enum": ["general", "ai", "regulated_ai"] },
+    "assessmentProfile": {
+      "enum": ["general", "ai", "regulated_ai"]
+    },
     "deliveryForm": {
       "enum": [
         "native_app",
@@ -74,7 +96,9 @@
     },
     "insufficiencyReasons": {
       "type": "array",
-      "items": { "$ref": "#/$defs/insufficiencyReason" },
+      "items": {
+        "$ref": "#/$defs/insufficiencyReason"
+      },
       "uniqueItems": true
     },
     "dimensionDecision": {
@@ -93,11 +117,17 @@
         "superseded_by_adaptation"
       ]
     },
-    "uncertainty": { "enum": ["low", "medium", "high", "unknown"] },
-    "evidenceQuality": { "enum": ["low", "medium", "high", "unknown"] },
+    "uncertainty": {
+      "enum": ["low", "medium", "high", "unknown"]
+    },
+    "evidenceQuality": {
+      "enum": ["low", "medium", "high", "unknown"]
+    },
     "evidenceOrClaimRefArray": {
       "type": "array",
-      "items": { "$ref": "#/$defs/identifier" },
+      "items": {
+        "$ref": "#/$defs/identifier"
+      },
       "uniqueItems": true
     },
     "dimensionDecisionSummary": {
@@ -111,11 +141,21 @@
         "limitations"
       ],
       "properties": {
-        "dimension_id": { "$ref": "#/$defs/assessmentDimension" },
-        "decision": { "$ref": "#/$defs/dimensionDecision" },
-        "decision_sufficiency": { "$ref": "#/$defs/decisionSufficiency" },
-        "judgment_assessment_refs": { "$ref": "#/$defs/artifactRefArray" },
-        "limitations": { "$ref": "#/$defs/uniqueStringArray" }
+        "dimension_id": {
+          "$ref": "#/$defs/assessmentDimension"
+        },
+        "decision": {
+          "$ref": "#/$defs/dimensionDecision"
+        },
+        "decision_sufficiency": {
+          "$ref": "#/$defs/decisionSufficiency"
+        },
+        "judgment_assessment_refs": {
+          "$ref": "#/$defs/artifactRefArray"
+        },
+        "limitations": {
+          "$ref": "#/$defs/uniqueStringArray"
+        }
       }
     }
   }

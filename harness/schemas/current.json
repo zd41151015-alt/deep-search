@@ -1,0 +1,701 @@
+{
+  "schema_version": "startup_opportunity.schema_manifest.current",
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "schemas": [
+    {
+      "id": "https://startup-opportunity.local/schemas/current/artifact-envelope.schema.json",
+      "file": "current/artifact-envelope.schema.json",
+      "document_schema_version": "startup_opportunity.artifact_envelope.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/artifact-store-operation.schema.json",
+      "file": "current/artifact-store-operation.schema.json",
+      "document_schema_version": "startup_opportunity.artifact_store_operation.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/ai-trigger-source-binding-policy.schema.json",
+      "file": "current/ai-trigger-source-binding-policy.schema.json",
+      "document_schema_version": "startup_opportunity.ai_trigger_source_binding_policy.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/document-bundle.schema.json",
+      "file": "current/document-bundle.schema.json",
+      "document_schema_version": "startup_opportunity.document_bundle.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/research-publication-policy.schema.json",
+      "file": "current/research-publication-policy.schema.json",
+      "document_schema_version": "startup_opportunity.research_publication_policy.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v1/checkpoint.schema.json",
+      "file": "v1/checkpoint.schema.json",
+      "document_schema_version": "startup_opportunity.checkpoint.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v1/decision.schema.json",
+      "file": "v1/decision.schema.json",
+      "document_schema_version": "startup_opportunity.decision.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v1/definitions.schema.json",
+      "file": "v1/definitions.schema.json",
+      "document_schema_version": null
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v1/event.schema.json",
+      "file": "v1/event.schema.json",
+      "document_schema_version": "startup_opportunity.event.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v1/gap-snapshot.schema.json",
+      "file": "v1/gap-snapshot.schema.json",
+      "document_schema_version": "startup_opportunity.gap_snapshot.discovery.plan.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v1/research-plan.schema.json",
+      "file": "v1/research-plan.schema.json",
+      "document_schema_version": "startup_opportunity.research_plan.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v1/run-manifest.schema.json",
+      "file": "v1/run-manifest.schema.json",
+      "document_schema_version": "startup_opportunity.run_manifest.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v10/discovery-fan-in-v2.schema.json",
+      "file": "v10/discovery-fan-in-v2.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_fan_in.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v11/baseline-option.schema.json",
+      "file": "v11/baseline-option.schema.json",
+      "document_schema_version": "startup_opportunity.baseline_option.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v11/definitions.schema.json",
+      "file": "v11/definitions.schema.json",
+      "document_schema_version": null
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v11/demand-thesis.schema.json",
+      "file": "v11/demand-thesis.schema.json",
+      "document_schema_version": "startup_opportunity.demand_thesis.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v11/discovery-candidate-conversion-v2.schema.json",
+      "file": "v11/discovery-candidate-conversion-v2.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_candidate_conversion.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v11/discovery-synthesis-policy.schema.json",
+      "file": "v11/discovery-synthesis-policy.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_synthesis_policy.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v11/merge.schema.json",
+      "file": "v11/merge.schema.json",
+      "document_schema_version": "startup_opportunity.merge.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v11/opportunity-thesis.schema.json",
+      "file": "v11/opportunity-thesis.schema.json",
+      "document_schema_version": "startup_opportunity.opportunity_thesis.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v11/solution-evaluation.schema.json",
+      "file": "v11/solution-evaluation.schema.json",
+      "document_schema_version": "startup_opportunity.solution_evaluation.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v11/solution-hypothesis.schema.json",
+      "file": "v11/solution-hypothesis.schema.json",
+      "document_schema_version": "startup_opportunity.solution_hypothesis.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v11/thesis-evaluation-snapshot.schema.json",
+      "file": "v11/thesis-evaluation-snapshot.schema.json",
+      "document_schema_version": "startup_opportunity.thesis_evaluation_snapshot.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/business-engine-thesis-v2.schema.json",
+      "file": "v12/business-engine-thesis-v2.schema.json",
+      "document_schema_version": "startup_opportunity.business_engine_thesis.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/buyer-purchase-language.schema.json",
+      "file": "v12/buyer-purchase-language.schema.json",
+      "document_schema_version": "startup_opportunity.buyer_purchase_language.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/claim-v3.schema.json",
+      "file": "v12/claim-v3.schema.json",
+      "document_schema_version": "startup_opportunity.claim.v3"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/decision-brief-v2.schema.json",
+      "file": "v12/decision-brief-v2.schema.json",
+      "document_schema_version": "startup_opportunity.decision_brief.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/decision-recommendation.schema.json",
+      "file": "v12/decision-recommendation.schema.json",
+      "document_schema_version": "startup_opportunity.decision_recommendation.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/definitions.schema.json",
+      "file": "v12/definitions.schema.json",
+      "document_schema_version": null
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/discovery-report-view.schema.json",
+      "file": "v12/discovery-report-view.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_report_view.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/discovery-report.schema.json",
+      "file": "v12/discovery-report.schema.json",
+      "document_schema_version": "startup_opportunity.report.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/enrichment-branch-result.schema.json",
+      "file": "v12/enrichment-branch-result.schema.json",
+      "document_schema_version": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/enrichment-fan-in.schema.json",
+      "file": "v12/enrichment-fan-in.schema.json",
+      "document_schema_version": "startup_opportunity.enrichment_fan_in.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/evidence-v3.schema.json",
+      "file": "v12/evidence-v3.schema.json",
+      "document_schema_version": "startup_opportunity.evidence.v3"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/finding-v3.schema.json",
+      "file": "v12/finding-v3.schema.json",
+      "document_schema_version": "startup_opportunity.finding.v3"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/insight-v3.schema.json",
+      "file": "v12/insight-v3.schema.json",
+      "document_schema_version": "startup_opportunity.insight.v3"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/judgment-assessment-v3.schema.json",
+      "file": "v12/judgment-assessment-v3.schema.json",
+      "document_schema_version": "startup_opportunity.judgment_assessment.v3"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/opportunity-comparison.schema.json",
+      "file": "v12/opportunity-comparison.schema.json",
+      "document_schema_version": "startup_opportunity.opportunity_comparison.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/portfolio-view.schema.json",
+      "file": "v12/portfolio-view.schema.json",
+      "document_schema_version": "startup_opportunity.portfolio_view.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/research-task-v3.schema.json",
+      "file": "v12/research-task-v3.schema.json",
+      "document_schema_version": "startup_opportunity.research_task.v3"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/sensitivity.schema.json",
+      "file": "v12/sensitivity.schema.json",
+      "document_schema_version": "startup_opportunity.sensitivity.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/source-manifest-v3.schema.json",
+      "file": "v12/source-manifest-v3.schema.json",
+      "document_schema_version": "startup_opportunity.source_manifest.v3"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/traceability-v2.schema.json",
+      "file": "v12/traceability-v2.schema.json",
+      "document_schema_version": "startup_opportunity.traceability.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/user-state-context-model.schema.json",
+      "file": "v12/user-state-context-model.schema.json",
+      "document_schema_version": "startup_opportunity.user_state_context_model.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v12/value-layer-analysis.schema.json",
+      "file": "v12/value-layer-analysis.schema.json",
+      "document_schema_version": "startup_opportunity.value_layer_analysis.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v13/discovery-adaptation-binding-policy.schema.json",
+      "file": "v13/discovery-adaptation-binding-policy.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_adaptation_binding_policy.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v13/report-consistency-evaluation-v3.schema.json",
+      "file": "v13/report-consistency-evaluation-v3.schema.json",
+      "document_schema_version": "startup_opportunity.report_consistency_evaluation.v3"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v14/ai-capability-benchmark.schema.json",
+      "file": "v14/ai-capability-benchmark.schema.json",
+      "document_schema_version": "startup_opportunity.ai_capability_benchmark.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v14/ai-contract-definitions.schema.json",
+      "file": "v14/ai-contract-definitions.schema.json",
+      "document_schema_version": null
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v14/ai-data-dependency.schema.json",
+      "file": "v14/ai-data-dependency.schema.json",
+      "document_schema_version": "startup_opportunity.ai_data_dependency.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v14/ai-evaluation-reliability.schema.json",
+      "file": "v14/ai-evaluation-reliability.schema.json",
+      "document_schema_version": "startup_opportunity.ai_evaluation_reliability.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v14/capability-evidence.schema.json",
+      "file": "v14/capability-evidence.schema.json",
+      "document_schema_version": "startup_opportunity.capability_evidence.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v15/ai-adoption-trust.schema.json",
+      "file": "v15/ai-adoption-trust.schema.json",
+      "document_schema_version": "startup_opportunity.ai_adoption_trust.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v15/ai-inference-unit-economics.schema.json",
+      "file": "v15/ai-inference-unit-economics.schema.json",
+      "document_schema_version": "startup_opportunity.ai_inference_unit_economics.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v15/capability-commoditization-risk.schema.json",
+      "file": "v15/capability-commoditization-risk.schema.json",
+      "document_schema_version": "startup_opportunity.capability_commoditization_risk.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v16/ai-bundle-definitions.schema.json",
+      "file": "v16/ai-bundle-definitions.schema.json",
+      "document_schema_version": null
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v16/ai-mandatory-bundle.schema.json",
+      "file": "v16/ai-mandatory-bundle.schema.json",
+      "document_schema_version": "startup_opportunity.ai_mandatory_bundle.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v16/discovery-evaluation-policy-v3.schema.json",
+      "file": "v16/discovery-evaluation-policy-v3.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_evaluation_policy.v3"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v17/decision-brief-v3.schema.json",
+      "file": "v17/decision-brief-v3.schema.json",
+      "document_schema_version": "startup_opportunity.decision_brief.v3"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v17/report-consistency-evaluation-v4.schema.json",
+      "file": "v17/report-consistency-evaluation-v4.schema.json",
+      "document_schema_version": "startup_opportunity.report_consistency_evaluation.v4"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v17/terminal-report-source.schema.json",
+      "file": "v17/terminal-report-source.schema.json",
+      "document_schema_version": "startup_opportunity.terminal_report_source.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v17/terminal-report-view.schema.json",
+      "file": "v17/terminal-report-view.schema.json",
+      "document_schema_version": "startup_opportunity.terminal_report_view.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/candidate-neutral-evidence.schema.json",
+      "file": "v18/candidate-neutral-evidence.schema.json",
+      "document_schema_version": "startup_opportunity.candidate_neutral_evidence.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/continuation-lineage-entry.schema.json",
+      "file": "v18/continuation-lineage-entry.schema.json",
+      "document_schema_version": "startup_opportunity.continuation_lineage_entry.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/discovery-generation-result.schema.json",
+      "file": "v18/discovery-generation-result.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_generation_result.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/discovery-stage-readiness.schema.json",
+      "file": "v18/discovery-stage-readiness.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_stage_readiness.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/dispatch-batch.schema.json",
+      "file": "v18/dispatch-batch.schema.json",
+      "document_schema_version": "startup_opportunity.dispatch_batch.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/gap-snapshot-v3.schema.json",
+      "file": "v18/gap-snapshot-v3.schema.json",
+      "document_schema_version": "startup_opportunity.gap_snapshot.discovery.readiness.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/lane-lifecycle.schema.json",
+      "file": "v18/lane-lifecycle.schema.json",
+      "document_schema_version": "startup_opportunity.lane_lifecycle.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/research-execution-plan.schema.json",
+      "file": "v18/research-execution-plan.schema.json",
+      "document_schema_version": "startup_opportunity.research_execution_plan.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/runtime-artifact-compilation-request.schema.json",
+      "file": "v18/runtime-artifact-compilation-request.schema.json",
+      "document_schema_version": "startup_opportunity.runtime_artifact_compilation_request.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/runtime-artifact-compilation-result.schema.json",
+      "file": "v18/runtime-artifact-compilation-result.schema.json",
+      "document_schema_version": "startup_opportunity.runtime_artifact_compilation_result.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v18/source-manifest-v4.schema.json",
+      "file": "v18/source-manifest-v4.schema.json",
+      "document_schema_version": "startup_opportunity.source_manifest.v4"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v19/assessment-evidence.schema.json",
+      "file": "v19/assessment-evidence.schema.json",
+      "document_schema_version": "startup_opportunity.assessment_evidence.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v19/assessment-execution-policy.schema.json",
+      "file": "v19/assessment-execution-policy.schema.json",
+      "document_schema_version": "startup_opportunity.assessment_execution_policy.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v19/assessment-followup-decision.schema.json",
+      "file": "v19/assessment-followup-decision.schema.json",
+      "document_schema_version": "startup_opportunity.assessment_followup_decision.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v19/assessment-lane-result.schema.json",
+      "file": "v19/assessment-lane-result.schema.json",
+      "document_schema_version": "startup_opportunity.assessment_lane_result.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v19/assessment-stage-gate.schema.json",
+      "file": "v19/assessment-stage-gate.schema.json",
+      "document_schema_version": "startup_opportunity.assessment_stage_gate.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v19/concept-hypothesis-v2.schema.json",
+      "file": "v19/concept-hypothesis-v2.schema.json",
+      "document_schema_version": "startup_opportunity.concept_hypothesis.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v19/dispatch-batch-v2.schema.json",
+      "file": "v19/dispatch-batch-v2.schema.json",
+      "document_schema_version": "startup_opportunity.dispatch_batch.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v19/research-execution-plan-v2.schema.json",
+      "file": "v19/research-execution-plan-v2.schema.json",
+      "document_schema_version": "startup_opportunity.research_execution_plan.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v19/runtime-artifact-compilation-result-v2.schema.json",
+      "file": "v19/runtime-artifact-compilation-result-v2.schema.json",
+      "document_schema_version": "startup_opportunity.runtime_artifact_compilation_result.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v2/adaptation-decision.schema.json",
+      "file": "v2/adaptation-decision.schema.json",
+      "document_schema_version": "startup_opportunity.adaptation_decision.discovery.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v2/adaptation-policy.schema.json",
+      "file": "v2/adaptation-policy.schema.json",
+      "document_schema_version": "startup_opportunity.adaptation_policy.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v2/ai-trigger-source-attestation.schema.json",
+      "file": "v2/ai-trigger-source-attestation.schema.json",
+      "document_schema_version": "startup_opportunity.ai_trigger_source_attestation.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v2/coverage-attestation.schema.json",
+      "file": "v2/coverage-attestation.schema.json",
+      "document_schema_version": "startup_opportunity.coverage_attestation.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v2/planning-context-v2.schema.json",
+      "file": "v2/planning-context-v2.schema.json",
+      "document_schema_version": "startup_opportunity.planning_context.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v2/planning-context.schema.json",
+      "file": "v2/planning-context.schema.json",
+      "document_schema_version": "startup_opportunity.planning_context.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v3/plan-revision-apply-policy.schema.json",
+      "file": "v3/plan-revision-apply-policy.schema.json",
+      "document_schema_version": "startup_opportunity.plan_revision_apply_policy.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v4/business-engine-thesis.schema.json",
+      "file": "v4/business-engine-thesis.schema.json",
+      "document_schema_version": "startup_opportunity.business_engine_thesis.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v4/concept-evidence-assessment-branch-result.schema.json",
+      "file": "v4/concept-evidence-assessment-branch-result.schema.json",
+      "document_schema_version": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v4/concept-evidence-assessment-fan-in.schema.json",
+      "file": "v4/concept-evidence-assessment-fan-in.schema.json",
+      "document_schema_version": "startup_opportunity.concept_evidence_assessment_fan_in.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v4/concept-evidence-assessment-plan.schema.json",
+      "file": "v4/concept-evidence-assessment-plan.schema.json",
+      "document_schema_version": "startup_opportunity.concept_evidence_assessment_plan.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v4/concept-evidence-assessment.schema.json",
+      "file": "v4/concept-evidence-assessment.schema.json",
+      "document_schema_version": "startup_opportunity.concept_evidence_assessment.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v4/concept-hypothesis.schema.json",
+      "file": "v4/concept-hypothesis.schema.json",
+      "document_schema_version": "startup_opportunity.concept_hypothesis.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v4/decision-context.schema.json",
+      "file": "v4/decision-context.schema.json",
+      "document_schema_version": "startup_opportunity.decision_context.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v4/definitions.schema.json",
+      "file": "v4/definitions.schema.json",
+      "document_schema_version": null
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v4/hypothesis-evidence-matrix.schema.json",
+      "file": "v4/hypothesis-evidence-matrix.schema.json",
+      "document_schema_version": "startup_opportunity.hypothesis_evidence_matrix.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v4/intake.schema.json",
+      "file": "v4/intake.schema.json",
+      "document_schema_version": "startup_opportunity.intake.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v4/judgment-assessment.schema.json",
+      "file": "v4/judgment-assessment.schema.json",
+      "document_schema_version": "startup_opportunity.judgment_assessment.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v4/scope-frame.schema.json",
+      "file": "v4/scope-frame.schema.json",
+      "document_schema_version": "startup_opportunity.scope_frame.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v5/claim.schema.json",
+      "file": "v5/claim.schema.json",
+      "document_schema_version": "startup_opportunity.claim.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v5/definitions.schema.json",
+      "file": "v5/definitions.schema.json",
+      "document_schema_version": null
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v5/evidence-substrate-record.schema.json",
+      "file": "v5/evidence-substrate-record.schema.json",
+      "document_schema_version": "startup_opportunity.evidence_store_record.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v5/evidence.schema.json",
+      "file": "v5/evidence.schema.json",
+      "document_schema_version": "startup_opportunity.evidence.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v5/finding.schema.json",
+      "file": "v5/finding.schema.json",
+      "document_schema_version": "startup_opportunity.finding.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v5/insight.schema.json",
+      "file": "v5/insight.schema.json",
+      "document_schema_version": "startup_opportunity.insight.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v5/research-task.schema.json",
+      "file": "v5/research-task.schema.json",
+      "document_schema_version": "startup_opportunity.research_task.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v5/source-manifest.schema.json",
+      "file": "v5/source-manifest.schema.json",
+      "document_schema_version": "startup_opportunity.source_manifest.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v6/adaptation-decision-v3.schema.json",
+      "file": "v6/adaptation-decision-v3.schema.json",
+      "document_schema_version": "startup_opportunity.adaptation_decision.assessment.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v6/assessment-adaptation-policy.schema.json",
+      "file": "v6/assessment-adaptation-policy.schema.json",
+      "document_schema_version": "startup_opportunity.assessment_adaptation_policy.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v6/gap-snapshot-v2.schema.json",
+      "file": "v6/gap-snapshot-v2.schema.json",
+      "document_schema_version": "startup_opportunity.gap_snapshot.assessment.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v7/adversarial-review.schema.json",
+      "file": "v7/adversarial-review.schema.json",
+      "document_schema_version": "startup_opportunity.adversarial_review.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v7/assessment-reporting-policy.schema.json",
+      "file": "v7/assessment-reporting-policy.schema.json",
+      "document_schema_version": "startup_opportunity.assessment_reporting_policy.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v7/concept-evidence-assessment-v2.schema.json",
+      "file": "v7/concept-evidence-assessment-v2.schema.json",
+      "document_schema_version": "startup_opportunity.concept_evidence_assessment.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v7/concept-evidence-report-view.schema.json",
+      "file": "v7/concept-evidence-report-view.schema.json",
+      "document_schema_version": "startup_opportunity.concept_evidence_report_view.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v7/concept-evidence-report.schema.json",
+      "file": "v7/concept-evidence-report.schema.json",
+      "document_schema_version": "startup_opportunity.concept_evidence_report.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v7/decision-brief.schema.json",
+      "file": "v7/decision-brief.schema.json",
+      "document_schema_version": "startup_opportunity.decision_brief.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v7/definitions.schema.json",
+      "file": "v7/definitions.schema.json",
+      "document_schema_version": null
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v7/evidence-audit.schema.json",
+      "file": "v7/evidence-audit.schema.json",
+      "document_schema_version": "startup_opportunity.evidence_audit.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v7/report-consistency-evaluation.schema.json",
+      "file": "v7/report-consistency-evaluation.schema.json",
+      "document_schema_version": "startup_opportunity.report_consistency_evaluation.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v7/traceability.schema.json",
+      "file": "v7/traceability.schema.json",
+      "document_schema_version": "startup_opportunity.traceability.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v8/definitions.schema.json",
+      "file": "v8/definitions.schema.json",
+      "document_schema_version": null
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v8/discovery-maps-policy.schema.json",
+      "file": "v8/discovery-maps-policy.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_maps_policy.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v8/opportunity-space-map.schema.json",
+      "file": "v8/opportunity-space-map.schema.json",
+      "document_schema_version": "startup_opportunity.opportunity_space_map.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v8/scope-frame-v2.schema.json",
+      "file": "v8/scope-frame-v2.schema.json",
+      "document_schema_version": "startup_opportunity.scope_frame.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v8/seed-probe.schema.json",
+      "file": "v8/seed-probe.schema.json",
+      "document_schema_version": "startup_opportunity.seed_probe.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v8/solution-space-map.schema.json",
+      "file": "v8/solution-space-map.schema.json",
+      "document_schema_version": "startup_opportunity.solution_space_map.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v9/claim-v2.schema.json",
+      "file": "v9/claim-v2.schema.json",
+      "document_schema_version": "startup_opportunity.claim.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v9/definitions.schema.json",
+      "file": "v9/definitions.schema.json",
+      "document_schema_version": null
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v9/discovery-candidate-policy.schema.json",
+      "file": "v9/discovery-candidate-policy.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_candidate_policy.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v9/discovery-candidate.schema.json",
+      "file": "v9/discovery-candidate.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_candidate.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v9/discovery-lane-result.schema.json",
+      "file": "v9/discovery-lane-result.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v9/evidence-v2.schema.json",
+      "file": "v9/evidence-v2.schema.json",
+      "document_schema_version": "startup_opportunity.evidence.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v9/finding-v2.schema.json",
+      "file": "v9/finding-v2.schema.json",
+      "document_schema_version": "startup_opportunity.finding.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v9/insight-v2.schema.json",
+      "file": "v9/insight-v2.schema.json",
+      "document_schema_version": "startup_opportunity.insight.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v9/judgment-assessment-v2.schema.json",
+      "file": "v9/judgment-assessment-v2.schema.json",
+      "document_schema_version": "startup_opportunity.judgment_assessment.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v9/research-task-v2.schema.json",
+      "file": "v9/research-task-v2.schema.json",
+      "document_schema_version": "startup_opportunity.research_task.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/v9/source-manifest-v2.schema.json",
+      "file": "v9/source-manifest-v2.schema.json",
+      "document_schema_version": "startup_opportunity.source_manifest.v2"
+    }
+  ]
+}

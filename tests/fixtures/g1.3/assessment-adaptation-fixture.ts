@@ -5,7 +5,7 @@ import {
   canonicalContentHash,
   type DocumentBundle,
   EvidenceStore,
-  type EvidenceStoreRecordV2,
+  type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
   planningRunStateHash,
   RunStore,
@@ -52,7 +52,7 @@ export interface G13FixtureState {
       readonly document: Record<string, unknown>;
     }[];
   };
-  readonly records: EvidenceStoreRecordV2[];
+  readonly records: EvidenceStoreRecord[];
 }
 
 function clone<T>(value: T): T {
@@ -178,7 +178,7 @@ export async function bundleFromRun(state: G13FixtureState): Promise<DocumentBun
     });
   }
   return {
-    schema_version: "startup_opportunity.document_bundle.v6",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents,
     exact_records: state.records.map((record) => ({
       ref: `evidence/manifest.jsonl#${record.evidence_id}`,
@@ -231,7 +231,7 @@ export async function prepareG13Run(
         runId,
         entry.path,
         document,
-        "startup_opportunity.artifact_envelope.v5",
+        "startup_opportunity.artifact_envelope.current",
         "main_agent",
         [],
         "2026-07-25T16:01:00Z",
@@ -289,7 +289,7 @@ export async function prepareG13Run(
       runId,
       contextEntry.path,
       contextEntry.document,
-      "startup_opportunity.artifact_envelope.v6",
+      "startup_opportunity.artifact_envelope.current",
       "main_agent",
       ["manifest.json", G13_PLAN_REF],
       "2026-07-25T16:20:00Z",
@@ -365,7 +365,7 @@ export function addUnitDecision(
   return {
     path,
     document: {
-      schema_version: "startup_opportunity.adaptation_decision.v3",
+      schema_version: "startup_opportunity.adaptation_decision.assessment.current",
       adaptation_id: `adapt_add_${target}_followup_r2`,
       run_id: runId,
       based_on_plan_ref: snapshot.based_on_plan_ref,
@@ -424,7 +424,7 @@ export function stopDecision(
   return {
     path: "adaptations/decisions/stop-buyer-followup.json",
     document: {
-      schema_version: "startup_opportunity.adaptation_decision.v3",
+      schema_version: "startup_opportunity.adaptation_decision.assessment.current",
       adaptation_id: "adapt_stop_buyer_followup",
       run_id: runId,
       based_on_plan_ref: snapshot.based_on_plan_ref,
@@ -457,14 +457,14 @@ export function candidateBundle(
   const basePlan = adaptationBundle.documents.find((entry) => entry.path === G13_PLAN_REF)
     ?.document as Record<string, unknown>;
   const effectiveBasePlan =
-    basePlan.schema_version === "startup_opportunity.artifact_envelope.v5"
+    basePlan.schema_version === "startup_opportunity.artifact_envelope.current"
       ? (basePlan.document as Record<string, unknown>)
       : basePlan;
   const baseAssessmentEntry = adaptationBundle.documents.find(
     (entry) => entry.path === G13_ASSESSMENT_PLAN_REF,
   )?.document as Record<string, unknown>;
   const effectiveBaseAssessment =
-    baseAssessmentEntry.schema_version === "startup_opportunity.artifact_envelope.v5"
+    baseAssessmentEntry.schema_version === "startup_opportunity.artifact_envelope.current"
       ? (baseAssessmentEntry.document as Record<string, unknown>)
       : baseAssessmentEntry;
   const effectiveManifest = manifest.schema_version

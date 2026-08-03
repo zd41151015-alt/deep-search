@@ -42,7 +42,6 @@ export const G22_SOLUTION_EVALUATION_JUDGMENT =
 export const G22_GENERATION_MANIFEST = "evidence/source-manifests/discovery/generation.json";
 export const G22_EVALUATION_MANIFEST = "evidence/source-manifests/discovery/evaluation.json";
 export const G22_FAN_IN = "artifacts/discovery/fan-in.r1.json";
-export const G22_CONVERSION = "artifacts/discovery/conversions/candidate_demand.r1.json";
 
 const createdAt = "2026-07-27T18:00:00Z";
 
@@ -91,7 +90,7 @@ function candidateEnvelope(
   inputRefs: readonly string[],
 ): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v9",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: document.schema_version,
     artifact_path: path,
     run_id: G22_RUN_ID,
@@ -483,7 +482,8 @@ export async function createDiscoveryCandidateFixture(
   profile: DiscoveryProfile = "general",
 ): Promise<DocumentBundle> {
   const bundle = await createDiscoveryMapsFixture(profile, G22_RUN_ID, additionalPlanWaves);
-  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v9";
+  (bundle as { schema_version: string }).schema_version =
+    "startup_opportunity.document_bundle.current";
   const demandR1 = initialCandidate(
     bundle,
     "candidate_demand",
@@ -781,7 +781,7 @@ export async function createDiscoveryCandidateFixture(
     },
   };
   const fanIn = {
-    schema_version: "startup_opportunity.discovery_fan_in.v1",
+    schema_version: "startup_opportunity.discovery_fan_in.v2",
     fan_in_id: "fan_in_g2_2_contract",
     revision: 1,
     parent_fan_in_ref: null,
@@ -866,47 +866,11 @@ export async function createDiscoveryCandidateFixture(
     pre_kill_summary: [synthetic("one retained, one watchlist, one rejected")],
     solution_evaluation_required: true,
     reference_only: true,
-    manifest_adapter_boundary: {
-      runtime_adapter_installed: false,
-      manifest_state_transition_performed: false,
+    manifest_projection: {
+      status_projection_required: true,
       late_or_superseded_can_enter_current_refs: false,
     },
     limitations: [synthetic("fan-in is contract-only")],
-  };
-  const conversion = {
-    schema_version: "startup_opportunity.discovery_candidate_conversion.v1",
-    conversion_id: "conversion_demand_contract",
-    revision: 1,
-    parent_conversion_ref: null,
-    parent_content_hash: null,
-    run_id: G22_RUN_ID,
-    owner_slice: "G2.3",
-    source_candidate_ref: G22_DEMAND_R2,
-    source_candidate_schema_version: "startup_opportunity.discovery_candidate.v1",
-    source_candidate_kind: "demand_seed",
-    source_candidate_revision: 2,
-    source_candidate_content_hash: canonicalContentHash(demandR2),
-    discovery_fan_in_ref: G22_FAN_IN,
-    required_source_disposition: "retained",
-    target_schema_version: "startup_opportunity.demand_thesis.v1",
-    target_artifact_ref: "artifacts/discovery/demand-theses/candidate_demand.r1.json",
-    target_revision: 1,
-    conversion_status: "contract_only_not_executable",
-    promotion_preconditions: {
-      source_candidate_is_current_revision: true,
-      source_candidate_is_retained: true,
-      typed_evidence_lineage_valid: true,
-      decision_sufficiency_satisfied: false,
-      g2_3_target_schema_installed: false,
-      g2_3_conversion_evaluator_installed: false,
-      promotion_authorized: false,
-    },
-    source_candidate_mutation: "forbidden",
-    conversion_is_evidence: false,
-    external_validation_success_claimed: false,
-    target_published: false,
-    target_content_hash: null,
-    limitations: [synthetic("does not publish or validate a Demand Thesis")],
   };
   const documents: readonly [
     string,
@@ -1060,7 +1024,6 @@ export async function createDiscoveryCandidateFixture(
         G22_SOLUTION_EVALUATION_JUDGMENT,
       ],
     ],
-    [G22_CONVERSION, conversion, "main_agent", [G22_DEMAND_R2, G22_FAN_IN]],
   ];
   const mutableBundle = bundle as unknown as {
     documents: { path: string; document: Record<string, unknown> }[];

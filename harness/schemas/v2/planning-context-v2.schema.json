@@ -6,12 +6,24 @@
     "aiDimensions": {
       "type": "array",
       "prefixItems": [
-        { "const": "capability_frontier" },
-        { "const": "cost_and_deployment" },
-        { "const": "workflow_and_human_boundary" },
-        { "const": "ecosystem_and_platform" },
-        { "const": "data_and_evaluation" },
-        { "const": "adoption_and_trust" }
+        {
+          "const": "capability_frontier"
+        },
+        {
+          "const": "cost_and_deployment"
+        },
+        {
+          "const": "workflow_and_human_boundary"
+        },
+        {
+          "const": "ecosystem_and_platform"
+        },
+        {
+          "const": "data_and_evaluation"
+        },
+        {
+          "const": "adoption_and_trust"
+        }
       ],
       "items": false,
       "minItems": 6,
@@ -22,7 +34,9 @@
       "additionalProperties": false,
       "required": ["status", "trigger_version", "basis", "required_dimensions"],
       "properties": {
-        "status": { "const": "required" },
+        "status": {
+          "const": "required"
+        },
         "trigger_version": {
           "const": "startup_opportunity.ai_mandatory_coverage_trigger.v1"
         },
@@ -40,8 +54,12 @@
                 "source_content_hash"
               ],
               "properties": {
-                "signal": { "const": "uses_ai" },
-                "declared_value": { "const": "true" },
+                "signal": {
+                  "const": "uses_ai"
+                },
+                "declared_value": {
+                  "const": "true"
+                },
                 "subject_ref": {
                   "$ref": "../v1/definitions.schema.json#/$defs/artifactRef"
                 },
@@ -68,8 +86,12 @@
                 "source_content_hash"
               ],
               "properties": {
-                "signal": { "const": "assessment_profile" },
-                "declared_value": { "enum": ["ai", "regulated_ai"] },
+                "signal": {
+                  "const": "assessment_profile"
+                },
+                "declared_value": {
+                  "enum": ["ai", "regulated_ai"]
+                },
                 "subject_ref": {
                   "$ref": "../v1/definitions.schema.json#/$defs/artifactRef"
                 },
@@ -86,7 +108,9 @@
             }
           ]
         },
-        "required_dimensions": { "$ref": "#/$defs/aiDimensions" }
+        "required_dimensions": {
+          "$ref": "#/$defs/aiDimensions"
+        }
       }
     },
     "notRequiredAiCoverage": {
@@ -94,7 +118,9 @@
       "additionalProperties": false,
       "required": ["status", "trigger_version", "basis", "required_dimensions"],
       "properties": {
-        "status": { "const": "not_required" },
+        "status": {
+          "const": "not_required"
+        },
         "trigger_version": {
           "const": "startup_opportunity.ai_mandatory_coverage_trigger.v1"
         },
@@ -110,15 +136,30 @@
             "source_content_hash"
           ],
           "properties": {
-            "signal": { "const": "none" },
-            "declared_value": { "const": "not_applicable" },
-            "subject_ref": { "type": "null" },
-            "source_ref": { "type": "null" },
-            "source_schema_version": { "type": "null" },
-            "source_content_hash": { "type": "null" }
+            "signal": {
+              "const": "none"
+            },
+            "declared_value": {
+              "const": "not_applicable"
+            },
+            "subject_ref": {
+              "type": "null"
+            },
+            "source_ref": {
+              "type": "null"
+            },
+            "source_schema_version": {
+              "type": "null"
+            },
+            "source_content_hash": {
+              "type": "null"
+            }
           }
         },
-        "required_dimensions": { "type": "array", "maxItems": 0 }
+        "required_dimensions": {
+          "type": "array",
+          "maxItems": 0
+        }
       }
     }
   },
@@ -140,22 +181,39 @@
     "created_at"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.planning_context.v2" },
-    "context_id": { "$ref": "../v1/definitions.schema.json#/$defs/identifier" },
-    "revision": { "type": "integer", "minimum": 1 },
+    "schema_version": {
+      "const": "startup_opportunity.planning_context.v2"
+    },
+    "context_id": {
+      "$ref": "../v1/definitions.schema.json#/$defs/identifier"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
     "parent_context_ref": {
       "anyOf": [
         {
           "type": "string",
           "pattern": "^plans/planning-context\\.r[1-9][0-9]*\\.json$"
         },
-        { "type": "null" }
+        {
+          "type": "null"
+        }
       ]
     },
-    "run_id": { "$ref": "../v1/definitions.schema.json#/$defs/runId" },
-    "mode": { "$ref": "../v1/definitions.schema.json#/$defs/mode" },
-    "phase": { "enum": ["discovery", "enrichment", "assessment", "review"] },
-    "validation_stage": { "enum": ["initial_plan", "current_plan", "candidate_revision"] },
+    "run_id": {
+      "$ref": "../v1/definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "$ref": "../v1/definitions.schema.json#/$defs/mode"
+    },
+    "phase": {
+      "enum": ["discovery", "enrichment", "assessment", "review"]
+    },
+    "validation_stage": {
+      "enum": ["initial_plan", "current_plan", "candidate_revision"]
+    },
     "manifest_binding": {
       "type": "object",
       "additionalProperties": false,
@@ -169,15 +227,35 @@
         "run_state_hash"
       ],
       "properties": {
-        "manifest_ref": { "const": "manifest.json" },
-        "manifest_schema_version": { "const": "startup_opportunity.run_manifest.v1" },
-        "run_id": { "$ref": "../v1/definitions.schema.json#/$defs/runId" },
-        "mode": { "$ref": "../v1/definitions.schema.json#/$defs/mode" },
-        "current_plan_ref": {
-          "anyOf": [{ "$ref": "../v1/definitions.schema.json#/$defs/planRef" }, { "type": "null" }]
+        "manifest_ref": {
+          "const": "manifest.json"
         },
-        "current_plan_revision": { "type": "integer", "minimum": 0 },
-        "run_state_hash": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" }
+        "manifest_schema_version": {
+          "const": "startup_opportunity.run_manifest.v1"
+        },
+        "run_id": {
+          "$ref": "../v1/definitions.schema.json#/$defs/runId"
+        },
+        "mode": {
+          "$ref": "../v1/definitions.schema.json#/$defs/mode"
+        },
+        "current_plan_ref": {
+          "anyOf": [
+            {
+              "$ref": "../v1/definitions.schema.json#/$defs/planRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "current_plan_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "run_state_hash": {
+          "$ref": "../v1/definitions.schema.json#/$defs/sha256"
+        }
       }
     },
     "target_plan_binding": {
@@ -191,26 +269,58 @@
         "plan_content_hash"
       ],
       "properties": {
-        "plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
-        "plan_schema_version": { "const": "startup_opportunity.research_plan.v1" },
-        "plan_id": { "$ref": "../v1/definitions.schema.json#/$defs/identifier" },
-        "plan_revision": { "type": "integer", "minimum": 1 },
-        "plan_content_hash": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" }
+        "plan_ref": {
+          "$ref": "../v1/definitions.schema.json#/$defs/planRef"
+        },
+        "plan_schema_version": {
+          "const": "startup_opportunity.research_plan.v1"
+        },
+        "plan_id": {
+          "$ref": "../v1/definitions.schema.json#/$defs/identifier"
+        },
+        "plan_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "plan_content_hash": {
+          "$ref": "../v1/definitions.schema.json#/$defs/sha256"
+        }
       }
     },
     "ai_mandatory_coverage": {
       "oneOf": [
-        { "$ref": "#/$defs/requiredAiCoverage" },
-        { "$ref": "#/$defs/notRequiredAiCoverage" }
+        {
+          "$ref": "#/$defs/requiredAiCoverage"
+        },
+        {
+          "$ref": "#/$defs/notRequiredAiCoverage"
+        }
       ]
     },
-    "producer_role": { "const": "main_agent" },
-    "created_at": { "$ref": "../v1/definitions.schema.json#/$defs/timestamp" }
+    "producer_role": {
+      "const": "main_agent"
+    },
+    "created_at": {
+      "$ref": "../v1/definitions.schema.json#/$defs/timestamp"
+    }
   },
   "allOf": [
     {
-      "if": { "properties": { "revision": { "const": 1 } }, "required": ["revision"] },
-      "then": { "properties": { "parent_context_ref": { "type": "null" } } },
+      "if": {
+        "properties": {
+          "revision": {
+            "const": 1
+          }
+        },
+        "required": ["revision"]
+      },
+      "then": {
+        "properties": {
+          "parent_context_ref": {
+            "type": "null"
+          }
+        }
+      },
       "else": {
         "properties": {
           "parent_context_ref": {

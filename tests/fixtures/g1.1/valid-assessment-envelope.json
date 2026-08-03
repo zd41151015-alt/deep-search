@@ -1,5 +1,5 @@
 {
-  "schema_version": "startup_opportunity.artifact_envelope.v4",
+  "schema_version": "startup_opportunity.artifact_envelope.current",
   "artifact_type": "startup_opportunity.concept_evidence_assessment.v1",
   "artifact_path": "artifacts/synthesis/concept-evidence-assessment.json",
   "run_id": "run_assess_contract_001",

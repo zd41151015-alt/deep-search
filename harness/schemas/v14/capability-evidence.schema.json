@@ -24,18 +24,32 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.capability_evidence.v1" },
-    "capability_evidence_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
-    "unit_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "lineage": { "$ref": "ai-contract-definitions.schema.json#/$defs/lineage" },
-    "research_mode": { "$ref": "ai-contract-definitions.schema.json#/$defs/researchMode" },
+    "schema_version": {
+      "const": "startup_opportunity.capability_evidence.v1"
+    },
+    "capability_evidence_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "lineage": {
+      "$ref": "ai-contract-definitions.schema.json#/$defs/lineage"
+    },
+    "research_mode": {
+      "$ref": "ai-contract-definitions.schema.json#/$defs/researchMode"
+    },
     "required_dimensions": {
       "type": "array",
       "minItems": 1,
       "maxItems": 6,
       "uniqueItems": true,
-      "items": { "$ref": "ai-contract-definitions.schema.json#/$defs/dimension" }
+      "items": {
+        "$ref": "ai-contract-definitions.schema.json#/$defs/dimension"
+      }
     },
     "dimension_results": {
       "type": "array",
@@ -54,7 +68,9 @@
           "source_unavailable"
         ],
         "properties": {
-          "dimension": { "$ref": "ai-contract-definitions.schema.json#/$defs/dimension" },
+          "dimension": {
+            "$ref": "ai-contract-definitions.schema.json#/$defs/dimension"
+          },
           "coverage_status": {
             "$ref": "ai-contract-definitions.schema.json#/$defs/coverageStatus"
           },
@@ -62,57 +78,99 @@
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
-            "items": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" }
+            "items": {
+              "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+            }
           },
           "judgment_assessment_refs": {
             "$ref": "ai-contract-definitions.schema.json#/$defs/assessmentRefs"
           },
-          "limitations": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
+          "limitations": {
+            "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+          },
           "not_applicable_reason": {
             "anyOf": [
-              { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-              { "type": "null" }
+              {
+                "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
-          "source_unavailable": { "type": "boolean" }
+          "source_unavailable": {
+            "type": "boolean"
+          }
         },
         "allOf": [
           {
-            "if": { "properties": { "coverage_status": { "const": "not_applicable" } } },
+            "if": {
+              "properties": {
+                "coverage_status": {
+                  "const": "not_applicable"
+                }
+              }
+            },
             "then": {
               "properties": {
                 "not_applicable_reason": {
                   "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
                 },
-                "source_unavailable": { "const": false }
+                "source_unavailable": {
+                  "const": false
+                }
               }
             }
           },
           {
             "if": {
               "properties": {
-                "coverage_status": { "const": "insufficient_evidence" },
-                "source_unavailable": { "const": true }
+                "coverage_status": {
+                  "const": "insufficient_evidence"
+                },
+                "source_unavailable": {
+                  "const": true
+                }
               },
               "required": ["coverage_status", "source_unavailable"]
             },
             "then": {
-              "properties": { "not_applicable_reason": { "type": "null" } }
+              "properties": {
+                "not_applicable_reason": {
+                  "type": "null"
+                }
+              }
             }
           }
         ]
       }
     },
-    "benchmark_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
-    "reliability_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
-    "data_dependency_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
-    "newly_feasible_tasks": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
-    "failure_modes": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
+    "benchmark_ref": {
+      "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+    },
+    "reliability_ref": {
+      "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+    },
+    "data_dependency_ref": {
+      "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+    },
+    "newly_feasible_tasks": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "failure_modes": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    },
     "human_in_the_loop_boundary": {
       "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
     },
-    "freshness": { "$ref": "ai-contract-definitions.schema.json#/$defs/freshness" },
-    "source_boundary": { "$ref": "ai-contract-definitions.schema.json#/$defs/sourceBoundary" },
-    "limitations": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" }
+    "freshness": {
+      "$ref": "ai-contract-definitions.schema.json#/$defs/freshness"
+    },
+    "source_boundary": {
+      "$ref": "ai-contract-definitions.schema.json#/$defs/sourceBoundary"
+    },
+    "limitations": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    }
   }
 }

@@ -84,8 +84,6 @@ export {
   canonicalizeSourceUrl,
   EvidenceStore,
   type EvidenceStoreRecord,
-  type EvidenceStoreRecordV2,
-  type EvidenceSubstrateRecord,
   type RecordEvidenceInput,
   type RecordEvidenceResult,
 } from "./evidence-store/evidence-store.js";
@@ -104,12 +102,12 @@ export type {
 } from "./repository-contract.js";
 export {
   CODEX_INTEGRATION_PATHS,
+  CURRENT_SCHEMA_PATHS,
   CUSTOM_AGENT_PATHS,
   IMPLEMENTATION_STACK,
   IMPLEMENTED_SKILL_COMMANDS,
   inspectRepository,
   REQUIRED_REPOSITORY_PATHS,
-  SCHEMA_BUNDLE_PATHS,
   SKELETON_VERSION,
   SKILL_REFERENCE_PATHS,
   SKILL_SCRIPT_PATHS,
@@ -225,7 +223,6 @@ export type { PlanningContractValidationResult } from "./validators/planning-con
 export {
   ADAPTATION_POLICY_PATH,
   AI_TRIGGER_SOURCE_POLICY_PATH,
-  ASSESSMENT_AI_TRIGGER_SOURCE_POLICY_PATH,
   createAssessmentPlanningContractEvaluator,
   createPlanningContractEvaluator,
   PLANNING_CONTRACT_RESULT_VERSION,
@@ -237,9 +234,8 @@ export type {
   ValidationIssue,
 } from "./validators/schema-bundle.js";
 export {
+  CURRENT_SCHEMA_MANIFEST_PATH,
   inspectSchemaBundle,
   loadSchemaBundle,
-  SCHEMA_BUNDLE_MANIFEST_PATH,
-  SCHEMA_BUNDLE_VERSION,
 } from "./validators/schema-bundle.js";
 export { runValidateArtifact } from "./validators/validate-artifact-command.js";

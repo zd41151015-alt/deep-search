@@ -13,7 +13,6 @@ import {
   createPlanRevisionRuntime,
   type DocumentBundle,
   type PlanApplyFaultBoundary,
-  SCHEMA_BUNDLE_VERSION,
   StoreError,
   validateAssessmentAdaptationContract,
 } from "../harness/src/index.js";
@@ -138,7 +137,7 @@ async function publishGapAndDecision(
     state.runId,
     gapPath,
     snapshot,
-    "startup_opportunity.artifact_envelope.v6",
+    "startup_opportunity.artifact_envelope.current",
     "harness",
     (snapshot.gaps as Record<string, unknown>[])[0]?.basis_refs as readonly string[],
     "2026-07-25T16:21:00Z",
@@ -155,7 +154,7 @@ async function publishGapAndDecision(
     state.runId,
     decision.path,
     decision.document,
-    "startup_opportunity.artifact_envelope.v6",
+    "startup_opportunity.artifact_envelope.current",
     "main_agent",
     [
       `${gapPath}#${String((snapshot.gaps as Record<string, unknown>[])[0]?.gap_id)}`,
@@ -250,12 +249,11 @@ test("G1.3 buyer Gap creates exact Research Plan r2 and assessment plan r2 atomi
       "utf8",
     ),
   ) as Record<string, unknown>;
-  assert.equal(researchR2.schema_version, "startup_opportunity.artifact_envelope.v6");
-  assert.equal(assessmentR2.schema_version, "startup_opportunity.artifact_envelope.v6");
+  assert.equal(researchR2.schema_version, "startup_opportunity.artifact_envelope.current");
+  assert.equal(assessmentR2.schema_version, "startup_opportunity.artifact_envelope.current");
   const reopened = await state.store.load(state.runId);
   assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
   assert.equal(reopened.manifest.plan_revision, 2);
-  assert.equal(reopened.manifest.schema_bundle_version, SCHEMA_BUNDLE_VERSION);
 });
 
 test("G1.3 exact Decision replay preserves every existing lifecycle state byte-for-byte", async (context) => {
@@ -298,7 +296,7 @@ test("G1.3 exact Decision replay preserves every existing lifecycle state byte-f
   }
 });
 
-test("G1.3 v6 receipts recover interrupted Gap and Decision Manifest projection", async (context) => {
+test("G1.3 current receipts recover interrupted Gap and Decision Manifest projection", async (context) => {
   const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_receipt_replay_001");
   const { result } = await createGap(state);
   const gapPath = result.snapshotPath as string;
@@ -307,7 +305,7 @@ test("G1.3 v6 receipts recover interrupted Gap and Decision Manifest projection"
     state.runId,
     gapPath,
     snapshot,
-    "startup_opportunity.artifact_envelope.v6",
+    "startup_opportunity.artifact_envelope.current",
     "harness",
     (snapshot.gaps as Record<string, unknown>[])[0]?.basis_refs as readonly string[],
     "2026-07-25T16:21:00Z",
@@ -335,7 +333,7 @@ test("G1.3 v6 receipts recover interrupted Gap and Decision Manifest projection"
     state.runId,
     decision.path,
     decision.document,
-    "startup_opportunity.artifact_envelope.v6",
+    "startup_opportunity.artifact_envelope.current",
     "main_agent",
     [
       `${gapPath}#${String((snapshot.gaps as Record<string, unknown>[])[0]?.gap_id)}`,
@@ -375,8 +373,8 @@ test("G1.3 v6 receipts recover interrupted Gap and Decision Manifest projection"
     [gapPath, decision.path].includes(String(receipt.artifact_path)),
   );
   assert.deepEqual(controlReceipts.map((receipt) => receipt.schema_version).sort(), [
-    "startup_opportunity.artifact_store_operation.v5",
-    "startup_opportunity.artifact_store_operation.v5",
+    "startup_opportunity.artifact_store_operation.current",
+    "startup_opportunity.artifact_store_operation.current",
   ]);
   const beforeExactReplay = await snapshotTree(state.runRoot);
   assert.equal(
@@ -449,7 +447,7 @@ test("G1.3 historical Gap replay cannot replace a later latest Gap", async (cont
     state.runId,
     currentPath,
     currentSnapshot,
-    "startup_opportunity.artifact_envelope.v6",
+    "startup_opportunity.artifact_envelope.current",
     "harness",
     (currentSnapshot.gaps as Record<string, unknown>[])[0]?.basis_refs as readonly string[],
     createdAt,
@@ -594,7 +592,10 @@ test("G1.3 assessment_gap_analysis_input.v1 is wired through Harness and Skill C
       snapshot?: { schema_version?: string };
     };
     assert.equal(output.valid, true);
-    assert.equal(output.snapshot?.schema_version, "startup_opportunity.gap_snapshot.v2");
+    assert.equal(
+      output.snapshot?.schema_version,
+      "startup_opportunity.gap_snapshot.assessment.current",
+    );
   }
 });
 
@@ -730,7 +731,7 @@ test("G1.3 rejects fabricated closed stop bases before filesystem publication", 
         state.runId,
         gapPath,
         snapshot,
-        "startup_opportunity.artifact_envelope.v6",
+        "startup_opportunity.artifact_envelope.current",
         "harness",
         gap.basis_refs as readonly string[],
         "2026-07-25T16:21:00Z",
@@ -763,6 +764,14 @@ test("G1.3 contract rejects closed-action, identity, ancestry, and observed Arti
   const prepared = await publishGapAndDecision(state);
   const validator = await createAdaptationPolicyValidator(repositoryRoot);
   assert.equal(validator.validateDocumentBundle(prepared.adaptationBundle).valid, true);
+
+  const modeMismatch = clone(prepared.adaptationBundle);
+  effectiveDocument(modeMismatch, "manifest.json").mode = "opportunity_discovery";
+  assert.ok(
+    validator
+      .validateDocumentBundle(modeMismatch)
+      .adaptationErrors.some((error) => error.code === "adaptation.run_mode_mismatch"),
+  );
 
   const cases: readonly {
     readonly id: string;

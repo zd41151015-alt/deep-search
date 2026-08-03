@@ -21,20 +21,40 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.dispatch_batch.v1" },
-    "batch_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "revision": { "const": 1 },
-    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
-    "mode": { "enum": ["opportunity_discovery", "concept_evidence_assessment"] },
+    "schema_version": {
+      "const": "startup_opportunity.dispatch_batch.v1"
+    },
+    "batch_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "revision": {
+      "const": 1
+    },
+    "run_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "enum": ["opportunity_discovery", "concept_evidence_assessment"]
+    },
     "execution_plan_ref": {
       "type": "string",
       "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
     },
-    "research_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
-    "stage_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "dispatch_group": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "task_ready_at": { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
-    "dispatch_requested_at": { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+    "research_plan_ref": {
+      "$ref": "../v1/definitions.schema.json#/$defs/planRef"
+    },
+    "stage_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "dispatch_group": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "task_ready_at": {
+      "$ref": "../v12/definitions.schema.json#/$defs/timestamp"
+    },
+    "dispatch_requested_at": {
+      "$ref": "../v12/definitions.schema.json#/$defs/timestamp"
+    },
     "tasks": {
       "type": "array",
       "minItems": 1,
@@ -54,32 +74,64 @@
           "straggler_policy"
         ],
         "properties": {
-          "task_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-          "unit_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-          "lane_role": { "enum": ["opportunity", "evaluation", "risk"] },
-          "research_goal": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-          "input_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
-          "allowed_output_path": { "$ref": "../v12/definitions.schema.json#/$defs/artifactPath" },
+          "task_id": {
+            "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+          },
+          "unit_id": {
+            "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+          },
+          "lane_role": {
+            "enum": ["opportunity", "evaluation", "risk"]
+          },
+          "research_goal": {
+            "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "input_refs": {
+            "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "allowed_output_path": {
+            "$ref": "../v12/definitions.schema.json#/$defs/artifactPath"
+          },
           "required_artifact_schema": {
             "type": "string",
-            "pattern": "^startup_opportunity\\.[a-z][a-z0-9_]*\\.v[1-9][0-9]*$"
+            "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
           },
-          "time_budget_minutes": { "type": "integer", "minimum": 5, "maximum": 120 },
-          "max_sources": { "type": "integer", "minimum": 1, "maximum": 40 },
+          "time_budget_minutes": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 120
+          },
+          "max_sources": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 40
+          },
           "straggler_policy": {
             "type": "object",
             "additionalProperties": false,
             "required": ["on_timeout", "grace_minutes", "blocks_stage"],
             "properties": {
-              "on_timeout": { "enum": ["publish_partial", "mark_failed"] },
-              "grace_minutes": { "type": "integer", "minimum": 0, "maximum": 30 },
-              "blocks_stage": { "type": "boolean" }
+              "on_timeout": {
+                "enum": ["publish_partial", "mark_failed"]
+              },
+              "grace_minutes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 30
+              },
+              "blocks_stage": {
+                "type": "boolean"
+              }
             }
           }
         }
       }
     },
-    "agent_dispatch_performed": { "const": false },
-    "limitations": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" }
+    "agent_dispatch_performed": {
+      "const": false
+    },
+    "limitations": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    }
   }
 }

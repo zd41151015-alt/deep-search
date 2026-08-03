@@ -24,22 +24,56 @@
     "kill_criteria"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.concept_hypothesis.v1" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "concept_hypothesis_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "scope_frame_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "product_thesis": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "target_user": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "buyer": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "entry_scene": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "claimed_value": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "current_alternative": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "delivery_form": { "$ref": "definitions.schema.json#/$defs/deliveryForm" },
-    "business_model": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "acquisition_hypothesis": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "uses_ai": { "type": "boolean" },
-    "assumptions": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "unknowns": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "kill_criteria": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+    "schema_version": {
+      "const": "startup_opportunity.concept_hypothesis.v1"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "concept_hypothesis_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "scope_frame_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "product_thesis": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "target_user": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "buyer": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "entry_scene": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "claimed_value": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "current_alternative": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "delivery_form": {
+      "$ref": "definitions.schema.json#/$defs/deliveryForm"
+    },
+    "business_model": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "acquisition_hypothesis": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "uses_ai": {
+      "type": "boolean"
+    },
+    "assumptions": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "unknowns": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "kill_criteria": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    }
   }
 }

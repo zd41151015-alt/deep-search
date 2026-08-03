@@ -11,7 +11,6 @@ export const ASSESSMENT_ADAPTATION_POLICY_PATH =
 export interface AssessmentAdaptationPolicy extends Record<string, unknown> {
   readonly schema_version: "startup_opportunity.assessment_adaptation_policy.v1";
   readonly policy_version: "1.0.0";
-  readonly compatible_schema_bundle_versions: readonly ["18.0.0"];
   readonly allowed_actions: readonly ["add_unit", "stop_followup"];
   readonly add_unit_rules: readonly {
     readonly gap_type: string;

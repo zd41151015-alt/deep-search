@@ -1,7 +1,7 @@
 import {
   canonicalContentHash,
   type DocumentBundle,
-  type EvidenceStoreRecordV2,
+  type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
 } from "../../../harness/src/index.js";
 import {
@@ -31,10 +31,10 @@ export const G32_TRUST = "artifacts/ai/adoption-trust-household.r1.json";
 export const G33_MANDATORY_BUNDLE = "artifacts/ai/mandatory-bundle-household.r1.json";
 
 export interface G3FixtureSubstrate {
-  readonly generation: EvidenceStoreRecordV2;
-  readonly evaluation: EvidenceStoreRecordV2;
-  readonly support: EvidenceStoreRecordV2;
-  readonly challenge: EvidenceStoreRecordV2;
+  readonly generation: EvidenceStoreRecord;
+  readonly evaluation: EvidenceStoreRecord;
+  readonly support: EvidenceStoreRecord;
+  readonly challenge: EvidenceStoreRecord;
 }
 
 const SYNTHETIC =
@@ -70,9 +70,9 @@ function envelope(
   document: Record<string, unknown>,
   createdAt: string,
   schemaVersion:
-    | "startup_opportunity.artifact_envelope.v14"
-    | "startup_opportunity.artifact_envelope.v15"
-    | "startup_opportunity.artifact_envelope.v16" = "startup_opportunity.artifact_envelope.v14",
+    | "startup_opportunity.artifact_envelope.current"
+    | "startup_opportunity.artifact_envelope.current"
+    | "startup_opportunity.artifact_envelope.current" = "startup_opportunity.artifact_envelope.current",
 ): FormalArtifactEnvelope {
   return {
     schema_version: schemaVersion,
@@ -134,10 +134,10 @@ export async function createG3AiBundleFixture(
   substrate: G3FixtureSubstrate,
 ): Promise<DocumentBundle> {
   const bundle = await createDiscoveryEvaluationFixture(runId, substrate, "ai_first");
-  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v14";
+  (bundle as { schema_version: string }).schema_version =
+    "startup_opportunity.document_bundle.current";
   const manifest = bundle.documents.find((entry) => entry.path === "manifest.json");
   if (manifest !== undefined) {
-    manifest.document.schema_bundle_version = "13.0.0";
   }
 
   const benchmark = {
@@ -324,10 +324,10 @@ export async function createG32AiBundleFixture(
   substrate: G3FixtureSubstrate,
 ): Promise<DocumentBundle> {
   const bundle = await createG3AiBundleFixture(runId, substrate);
-  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v15";
+  (bundle as { schema_version: string }).schema_version =
+    "startup_opportunity.document_bundle.current";
   const manifest = bundle.documents.find((entry) => entry.path === "manifest.json");
   if (manifest !== undefined) {
-    manifest.document.schema_bundle_version = "14.0.0";
   }
 
   const economics = {
@@ -486,7 +486,7 @@ export async function createG32AiBundleFixture(
         path,
         document,
         new Date(Date.parse("2026-07-29T01:10:00Z") + index * 1000).toISOString(),
-        "startup_opportunity.artifact_envelope.v15",
+        "startup_opportunity.artifact_envelope.current",
       ) as unknown as Record<string, unknown>,
     })),
   );
@@ -498,10 +498,10 @@ export async function createG33AiBundleFixture(
   substrate: G3FixtureSubstrate,
 ): Promise<DocumentBundle> {
   const bundle = await createG32AiBundleFixture(runId, substrate);
-  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v16";
+  (bundle as { schema_version: string }).schema_version =
+    "startup_opportunity.document_bundle.current";
   const manifest = bundle.documents.find((entry) => entry.path === "manifest.json");
   if (manifest !== undefined) {
-    manifest.document.schema_bundle_version = "15.0.0";
   }
 
   const artifactRefs = {
@@ -565,7 +565,7 @@ export async function createG33AiBundleFixture(
       G33_MANDATORY_BUNDLE,
       mandatoryBundle,
       "2026-07-29T01:20:00Z",
-      "startup_opportunity.artifact_envelope.v16",
+      "startup_opportunity.artifact_envelope.current",
     ) as unknown as Record<string, unknown>,
   });
 
@@ -583,7 +583,7 @@ export async function createG33AiBundleFixture(
   for (const artifactPath of [G24_COMPARISON_A, G24_RECOMMENDATION, G24_TRACEABILITY, G24_REPORT]) {
     const consumer = g3Envelope(bundle, artifactPath);
     (consumer as { schema_version: string }).schema_version =
-      "startup_opportunity.artifact_envelope.v16";
+      "startup_opportunity.artifact_envelope.current";
     consumer.ai_bundle_binding = structuredClone(binding);
     (consumer as { input_refs: readonly string[] }).input_refs = [
       ...new Set([...consumer.input_refs, G23_OPPORTUNITY_A, G23_SOLUTION, G33_MANDATORY_BUNDLE]),
@@ -808,10 +808,10 @@ export async function createG33NonAiBindingFixture(
   substrate: G3FixtureSubstrate,
 ): Promise<DocumentBundle> {
   const bundle = await createDiscoveryEvaluationFixture(runId, substrate, "general");
-  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v16";
+  (bundle as { schema_version: string }).schema_version =
+    "startup_opportunity.document_bundle.current";
   const manifest = bundle.documents.find((entry) => entry.path === "manifest.json");
   if (manifest !== undefined) {
-    manifest.document.schema_bundle_version = "15.0.0";
   }
   const binding = {
     status: "not_required",
@@ -827,7 +827,7 @@ export async function createG33NonAiBindingFixture(
   for (const artifactPath of [G24_COMPARISON_A, G24_RECOMMENDATION, G24_TRACEABILITY, G24_REPORT]) {
     const consumer = g3Envelope(bundle, artifactPath);
     (consumer as { schema_version: string }).schema_version =
-      "startup_opportunity.artifact_envelope.v16";
+      "startup_opportunity.artifact_envelope.current";
     consumer.ai_bundle_binding = structuredClone(binding);
     (consumer as { input_refs: readonly string[] }).input_refs = [
       ...new Set([...consumer.input_refs, G23_OPPORTUNITY_A, G23_SOLUTION]),

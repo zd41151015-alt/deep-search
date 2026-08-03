@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   createArtifactValidator,
   type DocumentBundle,
-  type EvidenceStoreRecordV2,
+  type EvidenceStoreRecord,
 } from "../harness/src/index.js";
 import {
   createG32AiBundleFixture,
@@ -19,7 +19,7 @@ import {
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function record(runId: string, unitId: string, fill: string): EvidenceStoreRecordV2 {
+function record(runId: string, unitId: string, fill: string): EvidenceStoreRecord {
   return {
     schema_version: "startup_opportunity.evidence_store_record.v2",
     evidence_id: `ev_${fill.repeat(64)}`,
@@ -145,22 +145,4 @@ test("G3.2 conclusion ceilings fail closed for unknown or blocked states", async
     assert.equal(result.valid, false);
     assert.ok(codes(result).includes("g3.conclusion_ceiling_mismatch"));
   });
-});
-
-test("G3.2 version dispatch keeps v14 blocked and installs v15 receipt v13", async () => {
-  const validator = await createArtifactValidator(repositoryRoot);
-  assert.ok(
-    validator
-      .publicationAdapter("startup_opportunity.artifact_envelope.v14")
-      .blocked_artifact_types.includes("startup_opportunity.ai_inference_unit_economics.v1"),
-  );
-  assert.equal(
-    validator.publicationAdapter("startup_opportunity.artifact_envelope.v15").receipt_version,
-    "startup_opportunity.artifact_store_operation.v13",
-  );
-  assert.deepEqual(
-    validator.publicationAdapter("startup_opportunity.artifact_envelope.v15")
-      .blocked_artifact_types,
-    ["startup_opportunity.ai_mandatory_bundle.v1"],
-  );
 });

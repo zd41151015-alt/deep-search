@@ -305,7 +305,7 @@ export class GapAnalyzer {
         ? targetByRef(documents, manifest.document.latest_gap_snapshot_ref)
         : null;
     const priorSameCycle =
-      prior?.schemaVersion === "startup_opportunity.gap_snapshot.v1" &&
+      prior?.schemaVersion === "startup_opportunity.gap_snapshot.discovery.plan.current" &&
       prior.document.snapshot_cycle_key === cycleKey;
     const revision = priorSameCycle ? Number(prior.document.revision) + 1 : 1;
     const parentSnapshotRef = priorSameCycle ? manifest.document.latest_gap_snapshot_ref : null;
@@ -428,7 +428,7 @@ export class GapAnalyzer {
     }
 
     const snapshot: Record<string, unknown> = {
-      schema_version: "startup_opportunity.gap_snapshot.v1",
+      schema_version: "startup_opportunity.gap_snapshot.discovery.plan.current",
       snapshot_id: input.snapshotId,
       snapshot_cycle_key: cycleKey,
       run_id: manifest.document.run_id,

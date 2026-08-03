@@ -29,16 +29,36 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.capability_commoditization_risk.v1" },
-    "risk_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
-    "lineage": { "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/lineage" },
-    "research_mode": { "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/researchMode" },
-    "capability_evidence_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
-    "data_dependency_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
-    "provider_substitution": { "$ref": "#/$defs/substitution" },
-    "platform_native_substitution": { "$ref": "#/$defs/substitution" },
-    "open_source_substitution": { "$ref": "#/$defs/substitution" },
+    "schema_version": {
+      "const": "startup_opportunity.capability_commoditization_risk.v1"
+    },
+    "risk_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/runId"
+    },
+    "lineage": {
+      "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/lineage"
+    },
+    "research_mode": {
+      "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/researchMode"
+    },
+    "capability_evidence_ref": {
+      "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+    },
+    "data_dependency_ref": {
+      "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+    },
+    "provider_substitution": {
+      "$ref": "#/$defs/substitution"
+    },
+    "platform_native_substitution": {
+      "$ref": "#/$defs/substitution"
+    },
+    "open_source_substitution": {
+      "$ref": "#/$defs/substitution"
+    },
     "provider_portability": {
       "type": "object",
       "additionalProperties": false,
@@ -47,8 +67,12 @@
         "status": {
           "enum": ["provider_independent", "portable_with_cost", "provider_locked", "unknown"]
         },
-        "switching_cost": { "enum": ["low", "medium", "high", "unknown"] },
-        "dependency_boundary": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+        "switching_cost": {
+          "enum": ["low", "medium", "high", "unknown"]
+        },
+        "dependency_boundary": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        }
       }
     },
     "platform_bundle_risk": {
@@ -56,9 +80,15 @@
       "additionalProperties": false,
       "required": ["risk_level", "bundle_path", "migration_response"],
       "properties": {
-        "risk_level": { "enum": ["low", "medium", "high", "unknown"] },
-        "bundle_path": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-        "migration_response": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+        "risk_level": {
+          "enum": ["low", "medium", "high", "unknown"]
+        },
+        "bundle_path": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "migration_response": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        }
       }
     },
     "capability_half_life": {
@@ -75,8 +105,13 @@
             "unknown"
           ]
         },
-        "revalidate_by": { "type": "string", "format": "date-time" },
-        "rationale": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+        "revalidate_by": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "rationale": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        }
       }
     },
     "defensibility_beyond_model_access": {
@@ -84,7 +119,9 @@
       "additionalProperties": false,
       "required": ["status", "sources", "boundary"],
       "properties": {
-        "status": { "enum": ["credible", "weak", "none", "unknown"] },
+        "status": {
+          "enum": ["credible", "weak", "none", "unknown"]
+        },
         "sources": {
           "type": "array",
           "minItems": 1,
@@ -102,27 +139,39 @@
             ]
           }
         },
-        "boundary": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+        "boundary": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        }
       }
     },
-    "overall_risk": { "enum": ["low", "medium", "high", "unknown"] },
+    "overall_risk": {
+      "enum": ["low", "medium", "high", "unknown"]
+    },
     "conclusion_ceiling": {
       "enum": ["prioritize_allowed", "investigate_further_only", "insufficient_evidence", "reject"]
     },
     "ceiling_reasons": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+      "items": {
+        "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+      }
     },
-    "evidence_refs": { "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/evidenceRefs" },
+    "evidence_refs": {
+      "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/evidenceRefs"
+    },
     "judgment_assessment_refs": {
       "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/assessmentRefs"
     },
-    "freshness": { "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/freshness" },
+    "freshness": {
+      "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/freshness"
+    },
     "source_boundary": {
       "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/sourceBoundary"
     },
-    "limitations": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" }
+    "limitations": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    }
   },
   "$defs": {
     "substitution": {
@@ -130,12 +179,18 @@
       "additionalProperties": false,
       "required": ["status", "time_horizon", "impact", "boundary"],
       "properties": {
-        "status": { "enum": ["available", "emerging", "not_available", "unknown"] },
+        "status": {
+          "enum": ["available", "emerging", "not_available", "unknown"]
+        },
         "time_horizon": {
           "enum": ["current", "under_6_months", "6_to_12_months", "over_12_months", "unknown"]
         },
-        "impact": { "enum": ["low", "medium", "high", "unknown"] },
-        "boundary": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+        "impact": {
+          "enum": ["low", "medium", "high", "unknown"]
+        },
+        "boundary": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        }
       }
     }
   }

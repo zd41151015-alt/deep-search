@@ -93,16 +93,7 @@ export async function runCreateRun(
 ): Promise<number> {
   return runCommand(async () => {
     const parsed = parseArguments(args);
-    rejectUnknown(parsed, [
-      "--run-id",
-      "--mode",
-      "--created-at",
-      "--parent-run-id",
-      "--skill-version",
-      "--policy-version",
-      "--git-commit",
-      "--runs-root",
-    ]);
+    rejectUnknown(parsed, ["--run-id", "--mode", "--created-at", "--parent-run-id", "--runs-root"]);
     const mode = required(parsed, "--mode");
     if (mode !== "opportunity_discovery" && mode !== "concept_evidence_assessment") {
       throw new StoreError("command.invalid_arguments", "--mode is not a published Run mode", {
@@ -111,17 +102,11 @@ export async function runCreateRun(
     }
     const createdAt = parsed.values.get("--created-at");
     const parentRunId = parsed.values.get("--parent-run-id");
-    const skillVersion = parsed.values.get("--skill-version");
-    const policyVersion = parsed.values.get("--policy-version");
-    const gitCommit = parsed.values.get("--git-commit");
     const input: CreateRunInput = {
       runId: required(parsed, "--run-id"),
       mode: mode as RunMode,
       ...(createdAt === undefined ? {} : { createdAt }),
       ...(parentRunId === undefined ? {} : { parentRunId }),
-      ...(skillVersion === undefined ? {} : { skillVersion }),
-      ...(policyVersion === undefined ? {} : { policyVersion }),
-      ...(gitCommit === undefined ? {} : { gitCommit }),
     };
     const validator = await createArtifactValidator(repositoryRoot);
     return new RunStore(roots(parsed, repositoryRoot), validator).create(input);
@@ -165,7 +150,6 @@ export async function runRecordEvidence(
     rejectUnknown(parsed, [
       "--run-id",
       "--unit-id",
-      "--url",
       "--source-url",
       "--source-uri",
       "--research-goal",
@@ -177,16 +161,13 @@ export async function runRecordEvidence(
     const store = new EvidenceStore(roots(parsed, repositoryRoot));
     const recordedAt = parsed.values.get("--recorded-at");
     const suppliedOperationKey = parsed.values.get("--operation-key");
-    const legacyUrl = parsed.values.get("--url");
     const sourceUrl = parsed.values.get("--source-url");
     const sourceUri = parsed.values.get("--source-uri");
-    const sourceCount = [legacyUrl, sourceUrl, sourceUri].filter(
-      (value) => value !== undefined,
-    ).length;
+    const sourceCount = [sourceUrl, sourceUri].filter((value) => value !== undefined).length;
     if (sourceCount !== 1) {
       throw new StoreError(
         "command.invalid_arguments",
-        "record-evidence requires exactly one of --url, --source-url, or --source-uri",
+        "record-evidence requires exactly one of --source-url or --source-uri",
       );
     }
     const common = {
@@ -197,9 +178,6 @@ export async function runRecordEvidence(
       ...(recordedAt === undefined ? {} : { recordedAt }),
       ...(suppliedOperationKey === undefined ? {} : { operationKey: suppliedOperationKey }),
     };
-    if (legacyUrl !== undefined) {
-      return store.record({ ...common, url: legacyUrl });
-    }
     return store.record({
       ...common,
       source:

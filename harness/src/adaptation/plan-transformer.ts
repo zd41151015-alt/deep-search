@@ -1,7 +1,6 @@
 import { canonicalContentHash, canonicalJson, operationKey } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import type { RunManifest } from "../run-store/run-store.js";
-import { SCHEMA_BUNDLE_VERSION } from "../validators/schema-bundle.js";
 import { fragmentOf, isRecord } from "./contracts.js";
 
 export interface AdaptationInputDocument {
@@ -146,13 +145,16 @@ export function transformPlan(
 ): PlanTransformationResult {
   const sortedDecisions = [...decisions].sort((left, right) => left.path.localeCompare(right.path));
   const adaptationRefs = sortedDecisions.map((decision) => decision.path);
-  const decisionVersions = uniqueSorted(
-    sortedDecisions.map((decision) => String(decision.document.schema_version)),
-  );
-  if (decisionVersions.length !== 1) {
+  const expectedDecisionType =
+    manifest.mode === "opportunity_discovery"
+      ? "startup_opportunity.adaptation_decision.discovery.current"
+      : "startup_opportunity.adaptation_decision.assessment.current";
+  if (
+    sortedDecisions.some((decision) => decision.document.schema_version !== expectedDecisionType)
+  ) {
     throw new StoreError(
-      "adaptation.version_conflict",
-      "one apply operation cannot mix Adaptation Decision contract versions",
+      "adaptation.run_mode_mismatch",
+      "Adaptation Decision identity does not match the current Run mode",
     );
   }
   const actions = sortedDecisions.map((decision) => String(decision.document.action));
@@ -177,7 +179,6 @@ export function transformPlan(
   });
   let nextManifest: RunManifest = {
     ...appendApplied(manifest, adaptationRefs),
-    schema_bundle_version: SCHEMA_BUNDLE_VERSION,
   };
 
   if (!hasRevisionAction) {
@@ -235,7 +236,8 @@ export function transformPlan(
       : null;
     if (action === "add_unit" && newUnit !== null) {
       if (
-        decision.document.schema_version === "startup_opportunity.adaptation_decision.v3" &&
+        decision.document.schema_version ===
+          "startup_opportunity.adaptation_decision.assessment.current" &&
         typeof decision.document.candidate_assessment_plan_ref === "string"
       ) {
         newUnit.input_refs = uniqueSorted([
@@ -293,7 +295,6 @@ export function transformPlan(
   );
   nextManifest = {
     ...nextManifest,
-    schema_bundle_version: SCHEMA_BUNDLE_VERSION,
     current_plan_ref: planPath,
     plan_revision: revision,
     followup_round:
@@ -325,13 +326,14 @@ export function transformAssessmentPlan(
     sortedDecisions.length === 0 ||
     sortedDecisions.some(
       (decision) =>
-        decision.document.schema_version !== "startup_opportunity.adaptation_decision.v3" ||
+        decision.document.schema_version !==
+          "startup_opportunity.adaptation_decision.assessment.current" ||
         !["add_unit", "stop_followup"].includes(String(decision.document.action)),
     )
   ) {
     throw new StoreError(
       "adaptation.assessment_action_invalid",
-      "assessment plan transformation requires only closed v3 decisions",
+      "assessment plan transformation requires only Assessment Adaptation Decisions",
     );
   }
   const revisionCreated = sortedDecisions.some(
@@ -347,7 +349,7 @@ export function transformAssessmentPlan(
   ) {
     throw new StoreError(
       "adaptation.assessment_candidate_ref_mismatch",
-      "v3 decision candidate assessment plan ref differs from the deterministic revision path",
+      "Assessment Adaptation Decision candidate plan ref differs from the deterministic revision path",
     );
   }
   const plan = structuredClone(baseAssessmentPlan);

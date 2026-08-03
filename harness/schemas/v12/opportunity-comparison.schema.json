@@ -38,31 +38,84 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.opportunity_comparison.v1" },
-    "comparison_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "revision": { "type": "integer", "minimum": 1 },
+    "schema_version": {
+      "const": "startup_opportunity.opportunity_comparison.v1"
+    },
+    "comparison_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
     "parent_comparison_ref": {
-      "anyOf": [{ "$ref": "definitions.schema.json#/$defs/comparisonRef" }, { "type": "null" }]
+      "anyOf": [
+        {
+          "$ref": "definitions.schema.json#/$defs/comparisonRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "parent_content_hash": {
-      "anyOf": [{ "$ref": "definitions.schema.json#/$defs/sha256" }, { "type": "null" }]
+      "anyOf": [
+        {
+          "$ref": "definitions.schema.json#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "scope_frame_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "research_plan_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "source_snapshot_ref": { "$ref": "definitions.schema.json#/$defs/snapshotRef" },
-    "source_merge_ref": { "$ref": "definitions.schema.json#/$defs/mergeRef" },
-    "enrichment_fan_in_ref": { "$ref": "definitions.schema.json#/$defs/enrichmentFanInRef" },
-    "opportunity_ref": { "$ref": "definitions.schema.json#/$defs/opportunityRef" },
-    "value_layer_analysis_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "user_state_context_model_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "buyer_purchase_language_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "business_engine_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "comparison_policy_version": { "const": "1.0.0" },
-    "rubric_version": { "const": "1.0.0" },
-    "input_artifact_hashes": { "$ref": "definitions.schema.json#/$defs/inputHashes" },
-    "hard_gates_evaluated_at": { "$ref": "definitions.schema.json#/$defs/timestamp" },
-    "compared_at": { "$ref": "definitions.schema.json#/$defs/timestamp" },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "scope_frame_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_plan_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "source_snapshot_ref": {
+      "$ref": "definitions.schema.json#/$defs/snapshotRef"
+    },
+    "source_merge_ref": {
+      "$ref": "definitions.schema.json#/$defs/mergeRef"
+    },
+    "enrichment_fan_in_ref": {
+      "$ref": "definitions.schema.json#/$defs/enrichmentFanInRef"
+    },
+    "opportunity_ref": {
+      "$ref": "definitions.schema.json#/$defs/opportunityRef"
+    },
+    "value_layer_analysis_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "user_state_context_model_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "buyer_purchase_language_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "business_engine_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "comparison_policy_version": {
+      "const": "1.0.0"
+    },
+    "rubric_version": {
+      "const": "1.0.0"
+    },
+    "input_artifact_hashes": {
+      "$ref": "definitions.schema.json#/$defs/inputHashes"
+    },
+    "hard_gates_evaluated_at": {
+      "$ref": "definitions.schema.json#/$defs/timestamp"
+    },
+    "compared_at": {
+      "$ref": "definitions.schema.json#/$defs/timestamp"
+    },
     "hard_gate_results": {
       "type": "array",
       "minItems": 13,
@@ -89,24 +142,38 @@
               "unit_economics"
             ]
           },
-          "status": { "enum": ["passed", "failed", "insufficient_evidence", "not_applicable"] },
+          "status": {
+            "enum": ["passed", "failed", "insufficient_evidence", "not_applicable"]
+          },
           "judgment_assessment_refs": {
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
-            "items": { "$ref": "definitions.schema.json#/$defs/enrichmentJudgmentRef" }
+            "items": {
+              "$ref": "definitions.schema.json#/$defs/enrichmentJudgmentRef"
+            }
           },
-          "rationale": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-          "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+          "rationale": {
+            "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "limitations": {
+            "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+          }
         }
       }
     },
-    "hard_gate_outcome": { "enum": ["eligible", "watchlist", "reject", "insufficient_evidence"] },
+    "hard_gate_outcome": {
+      "enum": ["eligible", "watchlist", "reject", "insufficient_evidence"]
+    },
     "recommendation_band": {
       "enum": ["strong_candidate", "investigate_further", "watchlist", "reject"]
     },
-    "decision_value_band": { "enum": ["high", "medium", "low", "unknown"] },
-    "uncertainty_band": { "enum": ["low", "medium", "high", "unknown"] },
+    "decision_value_band": {
+      "enum": ["high", "medium", "low", "unknown"]
+    },
+    "uncertainty_band": {
+      "enum": ["low", "medium", "high", "unknown"]
+    },
     "comparison_panels": {
       "type": "array",
       "minItems": 4,
@@ -131,7 +198,9 @@
               "team_fit_and_learning"
             ]
           },
-          "band": { "enum": ["strong", "medium", "weak", "unknown", "not_applicable"] },
+          "band": {
+            "enum": ["strong", "medium", "weak", "unknown", "not_applicable"]
+          },
           "dimension_assessments": {
             "type": "array",
             "minItems": 1,
@@ -147,35 +216,55 @@
                 "limitations"
               ],
               "properties": {
-                "dimension": { "$ref": "definitions.schema.json#/$defs/identifier" },
-                "band": { "enum": ["strong", "medium", "weak", "unknown", "not_applicable"] },
+                "dimension": {
+                  "$ref": "definitions.schema.json#/$defs/identifier"
+                },
+                "band": {
+                  "enum": ["strong", "medium", "weak", "unknown", "not_applicable"]
+                },
                 "observable_anchors": {
                   "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
                 },
-                "supporting_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
-                "opposing_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
-                "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+                "supporting_refs": {
+                  "$ref": "definitions.schema.json#/$defs/artifactRefArray"
+                },
+                "opposing_refs": {
+                  "$ref": "definitions.schema.json#/$defs/artifactRefArray"
+                },
+                "limitations": {
+                  "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+                }
               }
             }
           },
           "decision_sufficiency": {
             "enum": ["sufficient", "partial", "insufficient", "not_applicable"]
           },
-          "source_overlap": { "enum": ["none", "low", "high", "unknown", "not_applicable"] },
-          "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+          "source_overlap": {
+            "enum": ["none", "low", "high", "unknown", "not_applicable"]
+          },
+          "limitations": {
+            "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+          }
         }
       }
     },
-    "ordering_mode": { "const": "partial_order" },
+    "ordering_mode": {
+      "const": "partial_order"
+    },
     "judgment_assessment_refs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/enrichmentJudgmentRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/enrichmentJudgmentRef"
+      }
     },
     "what_would_change_the_decision": {
       "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
     },
-    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+    "limitations": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    }
   }
 }

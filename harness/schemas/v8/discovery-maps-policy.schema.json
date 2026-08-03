@@ -8,7 +8,6 @@
     "schema_version",
     "policy_id",
     "policy_version",
-    "schema_bundle_version",
     "artifact_contracts",
     "artifact_paths",
     "profiles",
@@ -19,10 +18,15 @@
     "forbidden_formal_artifact_types"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.discovery_maps_policy.v1" },
-    "policy_id": { "const": "startup_opportunity.g2_1_discovery_maps" },
-    "policy_version": { "const": "1.0.0" },
-    "schema_bundle_version": { "const": "7.0.0" },
+    "schema_version": {
+      "const": "startup_opportunity.discovery_maps_policy.v1"
+    },
+    "policy_id": {
+      "const": "startup_opportunity.g2_1_discovery_maps"
+    },
+    "policy_version": {
+      "const": "1.0.0"
+    },
     "artifact_contracts": {
       "type": "object",
       "additionalProperties": false,
@@ -35,14 +39,24 @@
         "document_bundle"
       ],
       "properties": {
-        "scope_frame": { "const": "startup_opportunity.scope_frame.v2" },
-        "seed_probe": { "const": "startup_opportunity.seed_probe.v1" },
+        "scope_frame": {
+          "const": "startup_opportunity.scope_frame.v2"
+        },
+        "seed_probe": {
+          "const": "startup_opportunity.seed_probe.v1"
+        },
         "opportunity_space_map": {
           "const": "startup_opportunity.opportunity_space_map.v1"
         },
-        "solution_space_map": { "const": "startup_opportunity.solution_space_map.v1" },
-        "artifact_envelope": { "const": "startup_opportunity.artifact_envelope.v8" },
-        "document_bundle": { "const": "startup_opportunity.document_bundle.v8" }
+        "solution_space_map": {
+          "const": "startup_opportunity.solution_space_map.v1"
+        },
+        "artifact_envelope": {
+          "const": "startup_opportunity.artifact_envelope.current"
+        },
+        "document_bundle": {
+          "const": "startup_opportunity.document_bundle.current"
+        }
       }
     },
     "artifact_paths": {
@@ -50,7 +64,9 @@
       "additionalProperties": false,
       "required": ["seed_probe", "opportunity_space_map", "solution_space_map"],
       "properties": {
-        "seed_probe": { "const": "artifacts/discovery/seed-probe.r1.json" },
+        "seed_probe": {
+          "const": "artifacts/discovery/seed-probe.r1.json"
+        },
         "opportunity_space_map": {
           "const": "artifacts/discovery/opportunity-space-map.r1.json"
         },
@@ -64,10 +80,18 @@
       "additionalProperties": false,
       "required": ["general", "industry_first", "ai_first", "hybrid"],
       "properties": {
-        "general": { "$ref": "#/$defs/profileRule" },
-        "industry_first": { "$ref": "#/$defs/profileRule" },
-        "ai_first": { "$ref": "#/$defs/profileRule" },
-        "hybrid": { "$ref": "#/$defs/profileRule" }
+        "general": {
+          "$ref": "#/$defs/profileRule"
+        },
+        "industry_first": {
+          "$ref": "#/$defs/profileRule"
+        },
+        "ai_first": {
+          "$ref": "#/$defs/profileRule"
+        },
+        "hybrid": {
+          "$ref": "#/$defs/profileRule"
+        }
       }
     },
     "plan_contract": {
@@ -82,8 +106,12 @@
         "scope_only_input"
       ],
       "properties": {
-        "mode": { "const": "opportunity_discovery" },
-        "phase": { "const": "discovery" },
+        "mode": {
+          "const": "opportunity_discovery"
+        },
+        "phase": {
+          "const": "discovery"
+        },
         "seed_independent_unit_types": {
           "type": "array",
           "minItems": 1,
@@ -98,7 +126,9 @@
             ]
           }
         },
-        "counterfactual_unit_type": { "const": "counter_evidence" },
+        "counterfactual_unit_type": {
+          "const": "counter_evidence"
+        },
         "required_exploration_flags": {
           "type": "array",
           "minItems": 6,
@@ -115,7 +145,9 @@
             ]
           }
         },
-        "scope_only_input": { "const": true }
+        "scope_only_input": {
+          "const": true
+        }
       }
     },
     "required_solution_classes": {
@@ -165,11 +197,21 @@
         "external_validation_supported"
       ],
       "properties": {
-        "seeds_are_evidence": { "const": false },
-        "maps_are_formal_theses": { "const": false },
-        "chat_is_artifact": { "const": false },
-        "task_completion_is_artifact": { "const": false },
-        "external_validation_supported": { "const": false }
+        "seeds_are_evidence": {
+          "const": false
+        },
+        "maps_are_formal_theses": {
+          "const": false
+        },
+        "chat_is_artifact": {
+          "const": false
+        },
+        "task_completion_is_artifact": {
+          "const": false
+        },
+        "external_validation_supported": {
+          "const": false
+        }
       }
     },
     "forbidden_formal_artifact_types": {
@@ -179,7 +221,7 @@
       "items": {
         "enum": [
           "startup_opportunity.discovery_lane_result.v1",
-          "startup_opportunity.discovery_fan_in.v1",
+          "startup_opportunity.discovery_fan_in.v2",
           "startup_opportunity.demand_thesis.v1",
           "startup_opportunity.opportunity_thesis.v1",
           "startup_opportunity.solution_evaluation.v1",
@@ -213,7 +255,9 @@
             ]
           }
         },
-        "ai_boundary_requirement": { "enum": ["optional", "required_as_solution_option"] }
+        "ai_boundary_requirement": {
+          "enum": ["optional", "required_as_solution_option"]
+        }
       }
     }
   }

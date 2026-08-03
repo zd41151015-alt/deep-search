@@ -28,31 +28,56 @@
     "audit_refs"
   ],
   "$defs": {
-    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
     "uniqueStrings": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "$ref": "#/$defs/nonEmptyString" }
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
     },
     "sourceIdArray": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$" }
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"
+      }
     }
   },
   "properties": {
-    "schema_version": { "const": "startup_opportunity.terminal_report_source.v1" },
-    "report_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
-    "mode": { "enum": ["opportunity_discovery", "concept_evidence_assessment"] },
-    "research_language": { "type": "string", "pattern": "^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$" },
-    "producer_role": { "const": "main_agent" },
+    "schema_version": {
+      "const": "startup_opportunity.terminal_report_source.v1"
+    },
+    "report_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "enum": ["opportunity_discovery", "concept_evidence_assessment"]
+    },
+    "research_language": {
+      "type": "string",
+      "pattern": "^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"
+    },
+    "producer_role": {
+      "const": "main_agent"
+    },
     "owned_output_path": {
       "type": "string",
       "pattern": "^artifacts/reporting/terminal-report-source\\.r[1-9][0-9]*\\.json$"
     },
-    "materialized_path": { "const": "report.json" },
-    "generated_at": { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+    "materialized_path": {
+      "const": "report.json"
+    },
+    "generated_at": {
+      "$ref": "../v12/definitions.schema.json#/$defs/timestamp"
+    },
     "terminal_outcome": {
       "enum": [
         "completed",
@@ -63,7 +88,9 @@
         "cancelled"
       ]
     },
-    "decision_question": { "$ref": "#/$defs/nonEmptyString" },
+    "decision_question": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
     "execution": {
       "type": "object",
       "additionalProperties": false,
@@ -75,8 +102,12 @@
         "pending_operation_refs"
       ],
       "properties": {
-        "completeness": { "enum": ["complete", "partial", "not_started"] },
-        "completed_stages": { "$ref": "#/$defs/uniqueStrings" },
+        "completeness": {
+          "enum": ["complete", "partial", "not_started"]
+        },
+        "completed_stages": {
+          "$ref": "#/$defs/uniqueStrings"
+        },
         "incomplete_stages": {
           "type": "array",
           "items": {
@@ -84,7 +115,9 @@
             "additionalProperties": false,
             "required": ["stage", "cause", "detail", "conclusion_impact", "related_refs"],
             "properties": {
-              "stage": { "$ref": "#/$defs/nonEmptyString" },
+              "stage": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
               "cause": {
                 "enum": [
                   "runtime_blocked",
@@ -96,9 +129,15 @@
                   "early_kill"
                 ]
               },
-              "detail": { "$ref": "#/$defs/nonEmptyString" },
-              "conclusion_impact": { "$ref": "#/$defs/nonEmptyString" },
-              "related_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" }
+              "detail": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "conclusion_impact": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "related_refs": {
+                "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+              }
             }
           }
         },
@@ -109,10 +148,18 @@
             "additionalProperties": false,
             "required": ["followup_id", "status", "detail", "related_refs"],
             "properties": {
-              "followup_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-              "status": { "enum": ["executed", "legally_closed", "not_executed"] },
-              "detail": { "$ref": "#/$defs/nonEmptyString" },
-              "related_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" }
+              "followup_id": {
+                "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+              },
+              "status": {
+                "enum": ["executed", "legally_closed", "not_executed"]
+              },
+              "detail": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "related_refs": {
+                "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+              }
             }
           }
         },
@@ -141,10 +188,18 @@
             "no_recommendation"
           ]
         },
-        "current_recommendation": { "$ref": "#/$defs/nonEmptyString" },
-        "meaning": { "$ref": "#/$defs/nonEmptyString" },
-        "evidence_strength": { "enum": ["strong", "moderate", "weak", "insufficient"] },
-        "allowed_claim": { "$ref": "#/$defs/nonEmptyString" }
+        "current_recommendation": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "meaning": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "evidence_strength": {
+          "enum": ["strong", "moderate", "weak", "insufficient"]
+        },
+        "allowed_claim": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
       }
     },
     "runtime_health": {
@@ -152,7 +207,9 @@
       "additionalProperties": false,
       "required": ["status", "issues"],
       "properties": {
-        "status": { "enum": ["healthy", "degraded", "blocked"] },
+        "status": {
+          "enum": ["healthy", "degraded", "blocked"]
+        },
         "issues": {
           "type": "array",
           "items": {
@@ -160,11 +217,21 @@
             "additionalProperties": false,
             "required": ["code", "stage", "detail", "conclusion_impact", "related_refs"],
             "properties": {
-              "code": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-              "stage": { "$ref": "#/$defs/nonEmptyString" },
-              "detail": { "$ref": "#/$defs/nonEmptyString" },
-              "conclusion_impact": { "$ref": "#/$defs/nonEmptyString" },
-              "related_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" }
+              "code": {
+                "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+              },
+              "stage": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "detail": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "conclusion_impact": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "related_refs": {
+                "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+              }
             }
           }
         }
@@ -195,9 +262,16 @@
           "open_questions"
         ],
         "properties": {
-          "direction_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-          "priority": { "type": "integer", "minimum": 1 },
-          "label": { "$ref": "#/$defs/nonEmptyString" },
+          "direction_id": {
+            "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "label": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
           "maturity": {
             "enum": [
               "problem_space",
@@ -207,19 +281,45 @@
               "supported_opportunity_thesis"
             ]
           },
-          "action": { "enum": ["invest", "validate", "defer", "reject"] },
-          "target_user": { "$ref": "#/$defs/nonEmptyString" },
-          "narrow_scenario": { "$ref": "#/$defs/nonEmptyString" },
-          "problem": { "$ref": "#/$defs/nonEmptyString" },
-          "current_alternative": { "$ref": "#/$defs/nonEmptyString" },
-          "product_form": { "$ref": "#/$defs/nonEmptyString" },
-          "core_value": { "$ref": "#/$defs/nonEmptyString" },
-          "key_risks": { "$ref": "#/$defs/uniqueStrings" },
-          "first_testable_assumption": { "$ref": "#/$defs/nonEmptyString" },
-          "comparison_reason": { "$ref": "#/$defs/nonEmptyString" },
-          "decisive_support_source_ids": { "$ref": "#/$defs/sourceIdArray" },
-          "decisive_opposition_source_ids": { "$ref": "#/$defs/sourceIdArray" },
-          "open_questions": { "$ref": "#/$defs/uniqueStrings" }
+          "action": {
+            "enum": ["invest", "validate", "defer", "reject"]
+          },
+          "target_user": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "narrow_scenario": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "problem": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "current_alternative": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "product_form": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "core_value": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "key_risks": {
+            "$ref": "#/$defs/uniqueStrings"
+          },
+          "first_testable_assumption": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "comparison_reason": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "decisive_support_source_ids": {
+            "$ref": "#/$defs/sourceIdArray"
+          },
+          "decisive_opposition_source_ids": {
+            "$ref": "#/$defs/sourceIdArray"
+          },
+          "open_questions": {
+            "$ref": "#/$defs/uniqueStrings"
+          }
         }
       }
     },
@@ -239,14 +339,33 @@
           "evidence_ref"
         ],
         "properties": {
-          "source_id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$" },
-          "title": { "$ref": "#/$defs/nonEmptyString" },
-          "url": { "type": "string", "format": "uri" },
-          "valid_as_of": { "type": "string", "format": "date" },
-          "stance": { "enum": ["supports", "opposes", "mixed", "context"] },
-          "strength": { "enum": ["primary", "strong_secondary", "secondary", "weak"] },
-          "claim": { "$ref": "#/$defs/nonEmptyString" },
-          "evidence_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" }
+          "source_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"
+          },
+          "title": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "valid_as_of": {
+            "type": "string",
+            "format": "date"
+          },
+          "stance": {
+            "enum": ["supports", "opposes", "mixed", "context"]
+          },
+          "strength": {
+            "enum": ["primary", "strong_secondary", "secondary", "weak"]
+          },
+          "claim": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "evidence_ref": {
+            "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+          }
         }
       }
     },
@@ -268,16 +387,37 @@
           "result_tracking_supported"
         ],
         "properties": {
-          "order": { "type": "integer", "minimum": 1 },
-          "hypothesis": { "$ref": "#/$defs/nonEmptyString" },
-          "why_now": { "$ref": "#/$defs/nonEmptyString" },
-          "method": { "enum": ["desk_research", "user_owned_external_validation"] },
-          "pass_signal": { "$ref": "#/$defs/nonEmptyString" },
-          "fail_signal": { "$ref": "#/$defs/nonEmptyString" },
-          "decision_effect": { "$ref": "#/$defs/nonEmptyString" },
-          "execution_owner": { "enum": ["main_agent", "user"] },
-          "execution_supported": { "type": "boolean" },
-          "result_tracking_supported": { "type": "boolean" }
+          "order": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "hypothesis": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "why_now": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "method": {
+            "enum": ["desk_research", "user_owned_external_validation"]
+          },
+          "pass_signal": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "fail_signal": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "decision_effect": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "execution_owner": {
+            "enum": ["main_agent", "user"]
+          },
+          "execution_supported": {
+            "type": "boolean"
+          },
+          "result_tracking_supported": {
+            "type": "boolean"
+          }
         }
       }
     },
@@ -287,15 +427,35 @@
       "required": ["earliest_valid_as_of", "latest_valid_as_of", "summary"],
       "properties": {
         "earliest_valid_as_of": {
-          "anyOf": [{ "type": "string", "format": "date" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "latest_valid_as_of": {
-          "anyOf": [{ "type": "string", "format": "date" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
-        "summary": { "$ref": "#/$defs/nonEmptyString" }
+        "summary": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
       }
     },
-    "limitations": { "$ref": "#/$defs/uniqueStrings" },
+    "limitations": {
+      "$ref": "#/$defs/uniqueStrings"
+    },
     "external_action_boundary": {
       "type": "object",
       "additionalProperties": false,
@@ -306,12 +466,22 @@
         "external_validation_claimed"
       ],
       "properties": {
-        "execution_owner": { "const": "user" },
-        "execution_supported": { "const": false },
-        "result_tracking_supported": { "const": false },
-        "external_validation_claimed": { "const": false }
+        "execution_owner": {
+          "const": "user"
+        },
+        "execution_supported": {
+          "const": false
+        },
+        "result_tracking_supported": {
+          "const": false
+        },
+        "external_validation_claimed": {
+          "const": false
+        }
       }
     },
-    "audit_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" }
+    "audit_refs": {
+      "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+    }
   }
 }

@@ -2,18 +2,42 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://startup-opportunity.local/schemas/v11/definitions.schema.json",
   "$defs": {
-    "nonEmptyString": { "$ref": "../v1/definitions.schema.json#/$defs/nonEmptyString" },
-    "identifier": { "$ref": "../v1/definitions.schema.json#/$defs/identifier" },
-    "runId": { "$ref": "../v1/definitions.schema.json#/$defs/runId" },
-    "timestamp": { "$ref": "../v1/definitions.schema.json#/$defs/timestamp" },
-    "sha256": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
-    "artifactPath": { "$ref": "../v1/definitions.schema.json#/$defs/artifactPath" },
-    "artifactRef": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRef" },
-    "artifactRefArray": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRefArray" },
-    "uniqueStringArray": { "$ref": "../v1/definitions.schema.json#/$defs/uniqueStringArray" },
-    "discoveryProfile": { "$ref": "../v8/definitions.schema.json#/$defs/discoveryProfile" },
-    "deliveryForm": { "$ref": "../v8/definitions.schema.json#/$defs/deliveryForm" },
-    "candidateRef": { "$ref": "../v9/definitions.schema.json#/$defs/candidateRef" },
+    "nonEmptyString": {
+      "$ref": "../v1/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "identifier": {
+      "$ref": "../v1/definitions.schema.json#/$defs/identifier"
+    },
+    "runId": {
+      "$ref": "../v1/definitions.schema.json#/$defs/runId"
+    },
+    "timestamp": {
+      "$ref": "../v1/definitions.schema.json#/$defs/timestamp"
+    },
+    "sha256": {
+      "$ref": "../v1/definitions.schema.json#/$defs/sha256"
+    },
+    "artifactPath": {
+      "$ref": "../v1/definitions.schema.json#/$defs/artifactPath"
+    },
+    "artifactRef": {
+      "$ref": "../v1/definitions.schema.json#/$defs/artifactRef"
+    },
+    "artifactRefArray": {
+      "$ref": "../v1/definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "uniqueStringArray": {
+      "$ref": "../v1/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "discoveryProfile": {
+      "$ref": "../v8/definitions.schema.json#/$defs/discoveryProfile"
+    },
+    "deliveryForm": {
+      "$ref": "../v8/definitions.schema.json#/$defs/deliveryForm"
+    },
+    "candidateRef": {
+      "$ref": "../v9/definitions.schema.json#/$defs/candidateRef"
+    },
     "fanInRef": {
       "type": "string",
       "pattern": "^artifacts/discovery/fan-in\\.r[1-9][0-9]*\\.json$"
@@ -51,10 +75,24 @@
       "pattern": "^artifacts/discovery/merges/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
     },
     "nullableParent": {
-      "anyOf": [{ "$ref": "#/$defs/artifactRef" }, { "type": "null" }]
+      "anyOf": [
+        {
+          "$ref": "#/$defs/artifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "nullableHash": {
-      "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+      "anyOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "sourceGroups": {
       "type": "object",
@@ -69,15 +107,21 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "$ref": "../v9/definitions.schema.json#/$defs/sourceManifestRef" }
+          "items": {
+            "$ref": "../v9/definitions.schema.json#/$defs/sourceManifestRef"
+          }
         },
         "evaluation_source_manifest_refs": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "$ref": "../v9/definitions.schema.json#/$defs/sourceManifestRef" }
+          "items": {
+            "$ref": "../v9/definitions.schema.json#/$defs/sourceManifestRef"
+          }
         },
-        "overlap_disclosures": { "$ref": "#/$defs/uniqueStringArray" }
+        "overlap_disclosures": {
+          "$ref": "#/$defs/uniqueStringArray"
+        }
       }
     },
     "synthesisBoundary": {
@@ -92,12 +136,24 @@
         "hidden_llm_calls"
       ],
       "properties": {
-        "source_candidate_mutated": { "const": false },
-        "conversion_is_evidence": { "const": false },
-        "publication_implies_validation": { "const": false },
-        "external_validation_success_claimed": { "const": false },
-        "harness_generated_research": { "const": false },
-        "hidden_llm_calls": { "const": false }
+        "source_candidate_mutated": {
+          "const": false
+        },
+        "conversion_is_evidence": {
+          "const": false
+        },
+        "publication_implies_validation": {
+          "const": false
+        },
+        "external_validation_success_claimed": {
+          "const": false
+        },
+        "harness_generated_research": {
+          "const": false
+        },
+        "hidden_llm_calls": {
+          "const": false
+        }
       }
     },
     "revisionBase": {
@@ -105,9 +161,16 @@
       "additionalProperties": false,
       "required": ["revision", "parent_ref", "parent_content_hash"],
       "properties": {
-        "revision": { "type": "integer", "minimum": 1 },
-        "parent_ref": { "$ref": "#/$defs/nullableParent" },
-        "parent_content_hash": { "$ref": "#/$defs/nullableHash" }
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_ref": {
+          "$ref": "#/$defs/nullableParent"
+        },
+        "parent_content_hash": {
+          "$ref": "#/$defs/nullableHash"
+        }
       }
     }
   }

@@ -31,96 +31,165 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.thesis_evaluation_snapshot.v1" },
-    "snapshot_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "revision": { "type": "integer", "minimum": 1 },
-    "parent_snapshot_ref": {
-      "anyOf": [{ "$ref": "definitions.schema.json#/$defs/snapshotRef" }, { "type": "null" }]
+    "schema_version": {
+      "const": "startup_opportunity.thesis_evaluation_snapshot.v1"
     },
-    "parent_content_hash": { "$ref": "definitions.schema.json#/$defs/nullableHash" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "scope_frame_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "research_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
+    "snapshot_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "parent_snapshot_ref": {
+      "anyOf": [
+        {
+          "$ref": "definitions.schema.json#/$defs/snapshotRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "parent_content_hash": {
+      "$ref": "definitions.schema.json#/$defs/nullableHash"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "scope_frame_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_plan_ref": {
+      "$ref": "../v1/definitions.schema.json#/$defs/planRef"
+    },
     "subject_refs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/opportunityRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/opportunityRef"
+      }
     },
     "demand_thesis_refs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/demandRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/demandRef"
+      }
     },
     "solution_hypothesis_refs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/solutionRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/solutionRef"
+      }
     },
     "baseline_option_refs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/baselineRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/baselineRef"
+      }
     },
     "solution_evaluation_refs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/solutionEvaluationRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/solutionEvaluationRef"
+      }
     },
-    "business_model_assumptions": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "business_model_assumptions": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
     "critical_assumptions": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+      },
       "uniqueItems": true
     },
     "kill_criteria": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+      },
       "uniqueItems": true
     },
     "generation_source_groups": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "../v9/definitions.schema.json#/$defs/sourceManifestRef" },
+      "items": {
+        "$ref": "../v9/definitions.schema.json#/$defs/sourceManifestRef"
+      },
       "uniqueItems": true
     },
     "evaluation_source_groups": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "../v9/definitions.schema.json#/$defs/sourceManifestRef" },
+      "items": {
+        "$ref": "../v9/definitions.schema.json#/$defs/sourceManifestRef"
+      },
       "uniqueItems": true
     },
     "evaluation_questions": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+      },
       "uniqueItems": true
     },
-    "frozen_at": { "$ref": "definitions.schema.json#/$defs/timestamp" },
-    "revision_policy": { "const": "new_immutable_snapshot_revision_required" },
-    "enrichment_started": { "const": false },
-    "source_boundary": { "$ref": "definitions.schema.json#/$defs/synthesisBoundary" },
-    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+    "frozen_at": {
+      "$ref": "definitions.schema.json#/$defs/timestamp"
+    },
+    "revision_policy": {
+      "const": "new_immutable_snapshot_revision_required"
+    },
+    "enrichment_started": {
+      "const": false
+    },
+    "source_boundary": {
+      "$ref": "definitions.schema.json#/$defs/synthesisBoundary"
+    },
+    "limitations": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    }
   },
   "allOf": [
     {
-      "if": { "properties": { "revision": { "const": 1 } }, "required": ["revision"] },
+      "if": {
+        "properties": {
+          "revision": {
+            "const": 1
+          }
+        },
+        "required": ["revision"]
+      },
       "then": {
         "properties": {
-          "parent_snapshot_ref": { "type": "null" },
-          "parent_content_hash": { "type": "null" }
+          "parent_snapshot_ref": {
+            "type": "null"
+          },
+          "parent_content_hash": {
+            "type": "null"
+          }
         }
       },
       "else": {
         "properties": {
-          "parent_snapshot_ref": { "$ref": "definitions.schema.json#/$defs/snapshotRef" },
-          "parent_content_hash": { "$ref": "definitions.schema.json#/$defs/sha256" }
+          "parent_snapshot_ref": {
+            "$ref": "definitions.schema.json#/$defs/snapshotRef"
+          },
+          "parent_content_hash": {
+            "$ref": "definitions.schema.json#/$defs/sha256"
+          }
         }
       }
     }

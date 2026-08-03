@@ -19,9 +19,7 @@ const CONTRACT_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.judgment_assessment.v2",
   "startup_opportunity.source_manifest.v2",
   "startup_opportunity.discovery_lane_result.v1",
-  "startup_opportunity.discovery_fan_in.v1",
   "startup_opportunity.discovery_fan_in.v2",
-  "startup_opportunity.discovery_candidate_conversion.v1",
 ]);
 
 const PRODUCER_BY_SCHEMA: Readonly<Record<string, string>> = {
@@ -34,9 +32,7 @@ const PRODUCER_BY_SCHEMA: Readonly<Record<string, string>> = {
   "startup_opportunity.judgment_assessment.v2": "lane_researcher",
   "startup_opportunity.source_manifest.v2": "lane_researcher",
   "startup_opportunity.discovery_lane_result.v1": "lane_researcher",
-  "startup_opportunity.discovery_fan_in.v1": "main_agent",
   "startup_opportunity.discovery_fan_in.v2": "main_agent",
-  "startup_opportunity.discovery_candidate_conversion.v1": "main_agent",
 };
 
 const EVIDENCE_LINEAGE_FIELDS = [
@@ -433,8 +429,8 @@ function validateEnvelope(entry: DiscoveryCandidateDocument, errors: ValidationI
   if (
     entry.envelope === null ||
     ![
-      "startup_opportunity.artifact_envelope.v9",
-      "startup_opportunity.artifact_envelope.v10",
+      "startup_opportunity.artifact_envelope.current",
+      "startup_opportunity.artifact_envelope.current",
     ].includes(String(entry.envelope.schema_version)) ||
     entry.envelope.artifact_type !== entry.schemaVersion ||
     entry.envelope.artifact_path !== entry.path ||
@@ -1057,74 +1053,6 @@ function validateFanIn(
   }
 }
 
-function validateConversion(
-  conversion: DiscoveryCandidateDocument,
-  documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
-  candidatesById: ReadonlyMap<string, readonly DiscoveryCandidateDocument[]>,
-  policy: DiscoveryCandidatePolicy,
-  errors: ValidationIssue[],
-): void {
-  const sourceRef = conversion.document.source_candidate_ref;
-  const source = typeof sourceRef === "string" ? documentsByPath.get(sourceRef) : undefined;
-  const fanInRef = conversion.document.discovery_fan_in_ref;
-  const fanIn = typeof fanInRef === "string" ? documentsByPath.get(fanInRef) : undefined;
-  const revisions =
-    source === undefined ? [] : (candidatesById.get(candidateIdentity(source)) ?? []);
-  const currentRevision = Math.max(0, ...revisions.map((entry) => Number(entry.document.revision)));
-  const kind = source?.document.candidate_kind as CandidateKind | undefined;
-  const expectedPath = `artifacts/discovery/conversions/${String(
-    source?.document.candidate_id,
-  )}.r${String(conversion.document.revision)}.json`;
-  const parentRef = conversion.document.parent_conversion_ref;
-  const parent = typeof parentRef === "string" ? documentsByPath.get(parentRef) : undefined;
-  if (conversion.path !== expectedPath) {
-    errors.push(
-      issue(
-        "discovery_candidate.conversion_path_revision_mismatch",
-        conversion.path,
-        "conversion path must bind the source candidate identity and immutable conversion revision",
-        { expectedPath },
-      ),
-    );
-  }
-  if (
-    conversion.document.revision !== 1 &&
-    (parent?.schemaVersion !== "startup_opportunity.discovery_candidate_conversion.v1" ||
-      parent.document.revision !== Number(conversion.document.revision) - 1 ||
-      parent.document.source_candidate_ref !== conversion.document.source_candidate_ref ||
-      conversion.document.parent_content_hash !== targetHash(parent))
-  ) {
-    errors.push(
-      issue(
-        "discovery_candidate.conversion_parent_mismatch",
-        `${conversion.path}#/parent_conversion_ref`,
-        "conversion revision must bind the exact previous conversion for the same candidate",
-      ),
-    );
-  }
-  if (
-    source?.schemaVersion !== "startup_opportunity.discovery_candidate.v1" ||
-    fanIn?.schemaVersion !== "startup_opportunity.discovery_fan_in.v1" ||
-    source.document.revision !== currentRevision ||
-    conversion.document.source_candidate_schema_version !== source.schemaVersion ||
-    conversion.document.source_candidate_kind !== kind ||
-    conversion.document.source_candidate_revision !== source.document.revision ||
-    conversion.document.source_candidate_content_hash !== targetHash(source) ||
-    conversion.document.target_schema_version !==
-      (kind === undefined ? undefined : policy.conversion_contract.kind_target_map[kind]) ||
-    !strings(fanIn.document.retained_candidate_refs).includes(source.path)
-  ) {
-    errors.push(
-      issue(
-        "discovery_candidate.conversion_lineage_mismatch",
-        conversion.path,
-        "G2.3 conversion must bind the current retained candidate, exact hash/revision/kind, fan-in, and allowed formal target",
-        { sourceRef, fanInRef },
-      ),
-    );
-  }
-}
-
 export function isDiscoveryCandidateSchemaVersion(schemaVersion: string): boolean {
   return CONTRACT_SCHEMA_VERSIONS.has(schemaVersion);
 }
@@ -1142,12 +1070,6 @@ export function validateDiscoveryCandidateContract(
     (entry) => entry.schemaVersion === "startup_opportunity.discovery_candidate.v1",
   );
   const candidatesByPath = new Map(candidates.map((entry) => [entry.path, entry]));
-  const candidatesById = new Map<string, DiscoveryCandidateDocument[]>();
-  for (const candidate of candidates) {
-    const current = candidatesById.get(candidateIdentity(candidate)) ?? [];
-    current.push(candidate);
-    candidatesById.set(candidateIdentity(candidate), current);
-  }
   const scopes = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.scope_frame.v2",
   );
@@ -1212,16 +1134,9 @@ export function validateDiscoveryCandidateContract(
     validateLaneResult(lane, documentsByPath, errors);
   }
   for (const fanIn of documents.filter(
-    (entry) =>
-      entry.schemaVersion === "startup_opportunity.discovery_fan_in.v1" ||
-      entry.schemaVersion === "startup_opportunity.discovery_fan_in.v2",
+    (entry) => entry.schemaVersion === "startup_opportunity.discovery_fan_in.v2",
   )) {
     validateFanIn(fanIn, documentsByPath, candidatesByPath, errors);
-  }
-  for (const conversion of documents.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.discovery_candidate_conversion.v1",
-  )) {
-    validateConversion(conversion, documentsByPath, candidatesById, policy, errors);
   }
   return sortIssues(errors);
 }

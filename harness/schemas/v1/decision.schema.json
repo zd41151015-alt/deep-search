@@ -15,9 +15,15 @@
     "artifact_refs"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.decision.v1" },
-    "decision_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "schema_version": {
+      "const": "startup_opportunity.decision.v1"
+    },
+    "decision_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
     "decision_type": {
       "enum": [
         "scope_assumption_confirmed",
@@ -33,9 +39,17 @@
         "run_cancelled"
       ]
     },
-    "timestamp": { "$ref": "definitions.schema.json#/$defs/timestamp" },
-    "actor": { "enum": ["user", "main_agent"] },
-    "reason": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "artifact_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" }
+    "timestamp": {
+      "$ref": "definitions.schema.json#/$defs/timestamp"
+    },
+    "actor": {
+      "enum": ["user", "main_agent"]
+    },
+    "reason": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "artifact_refs": {
+      "$ref": "definitions.schema.json#/$defs/artifactRefArray"
+    }
   }
 }

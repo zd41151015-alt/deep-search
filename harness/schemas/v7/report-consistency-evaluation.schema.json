@@ -23,18 +23,34 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.report_consistency_evaluation.v1" },
-    "evaluation_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "producer_role": { "const": "harness" },
+    "schema_version": {
+      "const": "startup_opportunity.report_consistency_evaluation.v1"
+    },
+    "evaluation_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "producer_role": {
+      "const": "harness"
+    },
     "owned_output_path": {
       "type": "string",
       "pattern": "^artifacts/reporting/consistency-evaluation\\.r[1-9][0-9]*\\.json$"
     },
-    "report_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "decision_brief_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "report_view_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "assessment_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "report_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "decision_brief_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "report_view_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "assessment_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
     "checked_dimensions": {
       "type": "array",
       "items": {
@@ -56,15 +72,28 @@
       "maxItems": 11,
       "uniqueItems": true
     },
-    "forbidden_expression_matches": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "evaluator_result": { "$ref": "definitions.schema.json#/$defs/evaluatorResult" },
+    "forbidden_expression_matches": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "evaluator_result": {
+      "$ref": "definitions.schema.json#/$defs/evaluatorResult"
+    },
     "evaluation_issues": {
       "type": "array",
-      "items": { "$ref": "definitions.schema.json#/$defs/evaluationIssue" },
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/evaluationIssue"
+      },
       "uniqueItems": true
     },
-    "input_artifact_hashes": { "$ref": "definitions.schema.json#/$defs/inputHashes" },
-    "valid_as_of": { "type": "string", "format": "date" },
-    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+    "input_artifact_hashes": {
+      "$ref": "definitions.schema.json#/$defs/inputHashes"
+    },
+    "valid_as_of": {
+      "type": "string",
+      "format": "date"
+    },
+    "limitations": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    }
   }
 }

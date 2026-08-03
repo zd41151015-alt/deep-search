@@ -2,19 +2,18 @@
   "schema_version": "startup_opportunity.plan_revision_apply_policy.v1",
   "policy_id": "startup_opportunity.closed_plan_revision_apply",
   "policy_version": "1.0.0",
-  "compatible_schema_bundle_versions": ["18.0.0"],
   "base_policy_bindings": [
     {
       "policy_ref": "harness/policies/adaptation.v1.json",
       "schema_version": "startup_opportunity.adaptation_policy.v1",
       "policy_version": "1.0.0",
-      "content_hash": "sha256:a5e57ff489785b0ff9e5a8f3b8c1ee334eac3e299efef4da10bac8986b71443a"
+      "content_hash": "sha256:5a9f159ba7cf4a61938efcd249bcfad73c2c7468954d1c9219d7382a18fbb504"
     },
     {
-      "policy_ref": "harness/policies/ai-trigger-source-binding.v1.json",
-      "schema_version": "startup_opportunity.ai_trigger_source_binding_policy.v1",
+      "policy_ref": "harness/policies/ai-trigger-source-binding.current.json",
+      "schema_version": "startup_opportunity.ai_trigger_source_binding_policy.current",
       "policy_version": "1.0.0",
-      "content_hash": "sha256:94104008b6c2f82d34269fb59463c02f5c78b1c70f1ed8966390d22b6e2970d2"
+      "content_hash": "sha256:d0b37dfef5697392c632747b659766106f0c0939b1647c424f322ef1548fb75c"
     }
   ],
   "operation_identity": "canonical_parent_plan_hash_and_sorted_adaptation_refs.v1",

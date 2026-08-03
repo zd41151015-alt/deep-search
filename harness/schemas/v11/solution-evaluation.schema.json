@@ -32,33 +32,64 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.solution_evaluation.v1" },
-    "evaluation_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "revision": { "type": "integer", "minimum": 1 },
+    "schema_version": {
+      "const": "startup_opportunity.solution_evaluation.v1"
+    },
+    "evaluation_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
     "parent_evaluation_ref": {
       "anyOf": [
-        { "$ref": "definitions.schema.json#/$defs/solutionEvaluationRef" },
-        { "type": "null" }
+        {
+          "$ref": "definitions.schema.json#/$defs/solutionEvaluationRef"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
-    "parent_content_hash": { "$ref": "definitions.schema.json#/$defs/nullableHash" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "scope_frame_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "research_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
-    "discovery_fan_in_ref": { "$ref": "definitions.schema.json#/$defs/fanInRef" },
-    "demand_thesis_ref": { "$ref": "definitions.schema.json#/$defs/demandRef" },
-    "baseline_option_ref": { "$ref": "definitions.schema.json#/$defs/baselineRef" },
+    "parent_content_hash": {
+      "$ref": "definitions.schema.json#/$defs/nullableHash"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "scope_frame_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_plan_ref": {
+      "$ref": "../v1/definitions.schema.json#/$defs/planRef"
+    },
+    "discovery_fan_in_ref": {
+      "$ref": "definitions.schema.json#/$defs/fanInRef"
+    },
+    "demand_thesis_ref": {
+      "$ref": "definitions.schema.json#/$defs/demandRef"
+    },
+    "baseline_option_ref": {
+      "$ref": "definitions.schema.json#/$defs/baselineRef"
+    },
     "solution_hypothesis_refs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/solutionRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/solutionRef"
+      }
     },
-    "selected_solution_ref": { "$ref": "definitions.schema.json#/$defs/solutionRef" },
+    "selected_solution_ref": {
+      "$ref": "definitions.schema.json#/$defs/solutionRef"
+    },
     "alternative_solution_refs": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/solutionRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/solutionRef"
+      }
     },
     "rejected_solutions": {
       "type": "array",
@@ -67,17 +98,23 @@
         "additionalProperties": false,
         "required": ["solution_ref", "reasons", "judgment_assessment_refs"],
         "properties": {
-          "solution_ref": { "$ref": "definitions.schema.json#/$defs/solutionRef" },
+          "solution_ref": {
+            "$ref": "definitions.schema.json#/$defs/solutionRef"
+          },
           "reasons": {
             "type": "array",
             "minItems": 1,
-            "items": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+            "items": {
+              "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+            },
             "uniqueItems": true
           },
           "judgment_assessment_refs": {
             "type": "array",
             "minItems": 1,
-            "items": { "$ref": "../v9/definitions.schema.json#/$defs/judgmentRef" },
+            "items": {
+              "$ref": "../v9/definitions.schema.json#/$defs/judgmentRef"
+            },
             "uniqueItems": true
           }
         }
@@ -91,37 +128,72 @@
         "additionalProperties": false,
         "required": ["solution_ref", "incremental_value", "migration_cost", "decision"],
         "properties": {
-          "solution_ref": { "$ref": "definitions.schema.json#/$defs/solutionRef" },
-          "incremental_value": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-          "migration_cost": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-          "decision": { "enum": ["selected", "alternative", "rejected"] }
+          "solution_ref": {
+            "$ref": "definitions.schema.json#/$defs/solutionRef"
+          },
+          "incremental_value": {
+            "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "migration_cost": {
+            "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "decision": {
+            "enum": ["selected", "alternative", "rejected"]
+          }
         }
       }
     },
-    "solution_rationale": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "critical_unknowns": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "capability_only_signals": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "source_groups": { "$ref": "definitions.schema.json#/$defs/sourceGroups" },
+    "solution_rationale": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "critical_unknowns": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "capability_only_signals": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "source_groups": {
+      "$ref": "definitions.schema.json#/$defs/sourceGroups"
+    },
     "decision_sufficiency": {
       "enum": ["sufficient_for_thesis", "insufficient_evidence", "blocked"]
     },
     "judgment_assessment_refs": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "../v9/definitions.schema.json#/$defs/judgmentRef" },
+      "items": {
+        "$ref": "../v9/definitions.schema.json#/$defs/judgmentRef"
+      },
       "uniqueItems": true
     },
-    "audit_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
-    "source_boundary": { "$ref": "definitions.schema.json#/$defs/synthesisBoundary" },
-    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+    "audit_refs": {
+      "$ref": "definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "source_boundary": {
+      "$ref": "definitions.schema.json#/$defs/synthesisBoundary"
+    },
+    "limitations": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    }
   },
   "allOf": [
     {
-      "if": { "properties": { "revision": { "const": 1 } }, "required": ["revision"] },
+      "if": {
+        "properties": {
+          "revision": {
+            "const": 1
+          }
+        },
+        "required": ["revision"]
+      },
       "then": {
         "properties": {
-          "parent_evaluation_ref": { "type": "null" },
-          "parent_content_hash": { "type": "null" }
+          "parent_evaluation_ref": {
+            "type": "null"
+          },
+          "parent_content_hash": {
+            "type": "null"
+          }
         }
       },
       "else": {
@@ -129,7 +201,9 @@
           "parent_evaluation_ref": {
             "$ref": "definitions.schema.json#/$defs/solutionEvaluationRef"
           },
-          "parent_content_hash": { "$ref": "definitions.schema.json#/$defs/sha256" }
+          "parent_content_hash": {
+            "$ref": "definitions.schema.json#/$defs/sha256"
+          }
         }
       }
     }

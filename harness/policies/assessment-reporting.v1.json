@@ -2,7 +2,6 @@
   "schema_version": "startup_opportunity.assessment_reporting_policy.v1",
   "policy_id": "startup_opportunity.g1_4_assessment_reporting",
   "policy_version": "1.0.0",
-  "schema_bundle_version": "6.0.0",
   "assessment_results": [
     "prioritize",
     "investigate_further",

@@ -1,4 +1,4 @@
-import type { EvidenceStoreRecordV2, FormalArtifactEnvelope } from "../../../harness/src/index.js";
+import type { EvidenceStoreRecord, FormalArtifactEnvelope } from "../../../harness/src/index.js";
 import { canonicalContentHash } from "../../../harness/src/index.js";
 
 export const G12_RUN_ID = "run_g1_2_synthetic_001";
@@ -56,7 +56,7 @@ export function envelope(
   createdAt = G12_BASE_TIME,
 ): FormalArtifactEnvelope {
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v5",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: String(document.schema_version),
     artifact_path: artifactPath,
     run_id: G12_RUN_ID,
@@ -203,7 +203,7 @@ function lineage(branch: FixtureBranch) {
 
 export function branchResearchEnvelopes(
   branch: FixtureBranch,
-  records: readonly [EvidenceStoreRecordV2, EvidenceStoreRecordV2],
+  records: readonly [EvidenceStoreRecord, EvidenceStoreRecord],
   offset: number,
 ): readonly FormalArtifactEnvelope[] {
   const taskRef = `tasks/${branch.unitId}.attempt-1.json`;

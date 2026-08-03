@@ -1,5 +1,5 @@
 {
-  "schema_version": "startup_opportunity.document_bundle.v1",
+  "schema_version": "startup_opportunity.document_bundle.current",
   "documents": [
     {
       "path": "plans/research-plan.r1.json",
@@ -71,7 +71,7 @@
     {
       "path": "adaptations/gap-snapshots/gap-wave-1.r1.json",
       "document": {
-        "schema_version": "startup_opportunity.gap_snapshot.v1",
+        "schema_version": "startup_opportunity.gap_snapshot.discovery.plan.current",
         "snapshot_id": "gap_wave_1_r1",
         "snapshot_cycle_key": "discovery:wave_1:fixture-hash-set",
         "run_id": "2026-07-23-core-schema",
@@ -110,7 +110,7 @@
     {
       "path": "adaptations/decisions/adapt-001.json",
       "document": {
-        "schema_version": "startup_opportunity.adaptation_decision.v1",
+        "schema_version": "startup_opportunity.adaptation_decision.discovery.current",
         "adaptation_id": "adapt_001",
         "run_id": "2026-07-23-core-schema",
         "based_on_plan_ref": "plans/research-plan.r1.json",

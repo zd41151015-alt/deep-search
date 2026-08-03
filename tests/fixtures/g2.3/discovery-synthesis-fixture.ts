@@ -2,7 +2,7 @@ import {
   canonicalContentHash,
   type DiscoveryProfile,
   type DocumentBundle,
-  type EvidenceStoreRecordV2,
+  type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
 } from "../../../harness/src/index.js";
 import { G21_PLAN_REF, G21_SCOPE_REF } from "../g2.1/discovery-maps-fixture.js";
@@ -75,7 +75,7 @@ function envelope(
   createdAt: string,
 ): FormalArtifactEnvelope {
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v11",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: String(document.schema_version),
     artifact_path: path,
     run_id: runId,
@@ -236,7 +236,8 @@ export async function createDiscoverySynthesisFixture(
     additionalPlanWaves,
     profile,
   );
-  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v11";
+  (bundle as { schema_version: string }).schema_version =
+    "startup_opportunity.document_bundle.current";
   const mutable = bundle as unknown as {
     documents: { path: string; document: Record<string, unknown> }[];
   };
@@ -721,8 +722,6 @@ export async function createDiscoverySynthesisFixture(
       document: document as unknown as Record<string, unknown>,
     })),
   );
-  const manifest = fixtureEntry(bundle, "manifest.json");
-  manifest.schema_bundle_version = "10.0.0";
   return bundle;
 }
 
@@ -733,4 +732,4 @@ export function synthesisEnvelope(
   return fixtureEntry(bundle, artifactPath) as unknown as FormalArtifactEnvelope;
 }
 
-export type { DiscoveryRuntimeSubstrate, EvidenceStoreRecordV2 };
+export type { DiscoveryRuntimeSubstrate, EvidenceStoreRecord };

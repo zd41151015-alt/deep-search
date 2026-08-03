@@ -2,7 +2,6 @@
   "schema_version": "startup_opportunity.discovery_evaluation_policy.v3",
   "policy_id": "startup_opportunity.g2_4_evaluation",
   "policy_version": "3.0.0",
-  "schema_bundle_version": "15.0.0",
   "eligible_branch_statuses": ["completed", "partial", "insufficient_evidence"],
   "excluded_branch_statuses": ["failed", "ignored_late", "superseded"],
   "required_hard_gates": [

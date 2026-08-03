@@ -41,7 +41,9 @@
         "dispatch_group"
       ],
       "properties": {
-        "unit_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+        "unit_id": {
+          "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+        },
         "lane_role": {
           "enum": ["evidence", "counter_evidence", "risk", "commercial", "feasibility"]
         },
@@ -49,48 +51,104 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "$ref": "../v4/definitions.schema.json#/$defs/assessmentDimension" }
+          "items": {
+            "$ref": "../v4/definitions.schema.json#/$defs/assessmentDimension"
+          }
         },
         "submission_path": {
           "type": "string",
           "pattern": "^artifacts/assessment/lanes/[A-Za-z0-9][A-Za-z0-9._-]*\\.attempt-[1-9][0-9]*\\.json$"
         },
-        "submission_schema": { "const": "startup_opportunity.assessment_lane_result.v1" },
-        "time_budget_minutes": { "type": "integer", "minimum": 5, "maximum": 60 },
-        "max_sources": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "submission_schema": {
+          "const": "startup_opportunity.assessment_lane_result.v1"
+        },
+        "time_budget_minutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 60
+        },
+        "max_sources": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
         "straggler_policy": {
           "type": "object",
           "additionalProperties": false,
           "required": ["on_timeout", "grace_minutes", "blocks_stage"],
           "properties": {
-            "on_timeout": { "enum": ["publish_partial", "mark_failed"] },
-            "grace_minutes": { "type": "integer", "minimum": 0, "maximum": 15 },
-            "blocks_stage": { "type": "boolean" }
+            "on_timeout": {
+              "enum": ["publish_partial", "mark_failed"]
+            },
+            "grace_minutes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 15
+            },
+            "blocks_stage": {
+              "type": "boolean"
+            }
           }
         },
-        "dispatch_group": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" }
+        "dispatch_group": {
+          "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+        }
       }
     }
   },
   "properties": {
-    "schema_version": { "const": "startup_opportunity.research_execution_plan.v2" },
-    "execution_plan_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
-    "mode": { "const": "concept_evidence_assessment" },
-    "revision": { "type": "integer", "minimum": 1 },
+    "schema_version": {
+      "const": "startup_opportunity.research_execution_plan.v2"
+    },
+    "execution_plan_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "const": "concept_evidence_assessment"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
     "parent_execution_plan_ref": {
       "anyOf": [
-        { "type": "string", "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$" },
-        { "type": "null" }
+        {
+          "type": "string",
+          "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
-    "research_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
-    "research_plan_hash": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" },
-    "concept_hypothesis_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
-    "created_at": { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
-    "research_depth": { "enum": ["quick", "standard", "deep"] },
-    "total_time_budget_minutes": { "type": "integer", "minimum": 10, "maximum": 240 },
-    "followup_round": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "research_plan_ref": {
+      "$ref": "../v1/definitions.schema.json#/$defs/planRef"
+    },
+    "research_plan_hash": {
+      "$ref": "../v12/definitions.schema.json#/$defs/sha256"
+    },
+    "concept_hypothesis_ref": {
+      "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+    },
+    "created_at": {
+      "$ref": "../v12/definitions.schema.json#/$defs/timestamp"
+    },
+    "research_depth": {
+      "enum": ["quick", "standard", "deep"]
+    },
+    "total_time_budget_minutes": {
+      "type": "integer",
+      "minimum": 10,
+      "maximum": 240
+    },
+    "followup_round": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2
+    },
     "stages": {
       "type": "array",
       "minItems": 3,
@@ -100,7 +158,9 @@
         "additionalProperties": false,
         "required": ["stage_id", "stage_kind", "depends_on", "gate_before", "gate_after", "lanes"],
         "properties": {
-          "stage_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+          "stage_id": {
+            "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+          },
           "stage_kind": {
             "enum": [
               "assessment_early_kill",
@@ -112,24 +172,59 @@
           "depends_on": {
             "type": "array",
             "uniqueItems": true,
-            "items": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" }
+            "items": {
+              "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+            }
           },
-          "gate_before": { "anyOf": [{ "$ref": "#/$defs/gateRef" }, { "type": "null" }] },
-          "gate_after": { "$ref": "#/$defs/gateRef" },
-          "lanes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/lane" } }
+          "gate_before": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/gateRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gate_after": {
+            "$ref": "#/$defs/gateRef"
+          },
+          "lanes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/lane"
+            }
+          }
         }
       }
     },
-    "limitations": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" }
+    "limitations": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    }
   },
   "allOf": [
     {
-      "if": { "properties": { "revision": { "const": 1 } } },
+      "if": {
+        "properties": {
+          "revision": {
+            "const": 1
+          }
+        }
+      },
       "then": {
         "properties": {
-          "parent_execution_plan_ref": { "type": "null" },
-          "followup_round": { "const": 0 },
-          "stages": { "type": "array", "minItems": 3, "maxItems": 3 }
+          "parent_execution_plan_ref": {
+            "type": "null"
+          },
+          "followup_round": {
+            "const": 0
+          },
+          "stages": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3
+          }
         }
       },
       "else": {

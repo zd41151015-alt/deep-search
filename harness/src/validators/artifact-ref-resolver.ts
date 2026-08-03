@@ -8,17 +8,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const DIRECT_FRAGMENT_FIELDS: Readonly<Record<string, readonly string[]>> = {
-  "startup_opportunity.adaptation_decision.v1": ["adaptation_id"],
-  "startup_opportunity.adaptation_decision.v2": ["adaptation_id"],
-  "startup_opportunity.adaptation_decision.v3": ["adaptation_id"],
+  "startup_opportunity.adaptation_decision.discovery.current": ["adaptation_id"],
+  "startup_opportunity.adaptation_decision.assessment.current": ["adaptation_id"],
   "startup_opportunity.ai_trigger_source_attestation.v1": ["attestation_id"],
   "startup_opportunity.checkpoint.v1": ["checkpoint_id"],
   "startup_opportunity.coverage_attestation.v1": ["coverage_key"],
   "startup_opportunity.decision.v1": ["decision_id"],
   "startup_opportunity.event.v1": ["event_id"],
-  "startup_opportunity.gap_snapshot.v1": ["snapshot_id"],
-  "startup_opportunity.gap_snapshot.v2": ["snapshot_id"],
-  "startup_opportunity.gap_snapshot.v3": ["snapshot_id"],
+  "startup_opportunity.gap_snapshot.discovery.plan.current": ["snapshot_id"],
+  "startup_opportunity.gap_snapshot.assessment.current": ["snapshot_id"],
+  "startup_opportunity.gap_snapshot.discovery.readiness.current": ["snapshot_id"],
   "startup_opportunity.planning_context.v1": ["context_id"],
   "startup_opportunity.planning_context.v2": ["context_id"],
   "startup_opportunity.research_plan.v1": ["plan_id"],
@@ -86,9 +85,9 @@ export function formalArtifactFragmentExists(
     return true;
   }
   if (
-    target.schemaVersion === "startup_opportunity.gap_snapshot.v1" ||
-    target.schemaVersion === "startup_opportunity.gap_snapshot.v2" ||
-    target.schemaVersion === "startup_opportunity.gap_snapshot.v3"
+    target.schemaVersion === "startup_opportunity.gap_snapshot.discovery.plan.current" ||
+    target.schemaVersion === "startup_opportunity.gap_snapshot.assessment.current" ||
+    target.schemaVersion === "startup_opportunity.gap_snapshot.discovery.readiness.current"
   ) {
     return (
       (expectedIdField === undefined || expectedIdField === "gap_id") &&

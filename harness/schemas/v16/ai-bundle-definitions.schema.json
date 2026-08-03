@@ -24,22 +24,37 @@
         "not_required_reason"
       ],
       "properties": {
-        "status": { "enum": ["bound", "missing", "not_required"] },
+        "status": {
+          "enum": ["bound", "missing", "not_required"]
+        },
         "trigger_version": {
           "const": "startup_opportunity.ai_mandatory_coverage_trigger.v1"
         },
-        "subject_ref": { "$ref": "../v12/definitions.schema.json#/$defs/opportunityRef" },
+        "subject_ref": {
+          "$ref": "../v12/definitions.schema.json#/$defs/opportunityRef"
+        },
         "selected_solution_ref": {
           "$ref": "../v11/definitions.schema.json#/$defs/solutionRef"
         },
         "bundle_ref": {
           "anyOf": [
-            { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
-            { "type": "null" }
+            {
+              "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "bundle_content_hash": {
-          "anyOf": [{ "$ref": "../v12/definitions.schema.json#/$defs/sha256" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "../v12/definitions.schema.json#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "coverage_state": {
           "enum": [
@@ -62,8 +77,12 @@
         },
         "not_required_reason": {
           "anyOf": [
-            { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-            { "type": "null" }
+            {
+              "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       }

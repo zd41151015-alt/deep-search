@@ -367,7 +367,7 @@ function validateEnvelopeAndPath(
     );
   }
   if (
-    entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.v11" ||
+    entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.current" ||
     entry.envelope.producer_role !== "main_agent"
   ) {
     errors.push(

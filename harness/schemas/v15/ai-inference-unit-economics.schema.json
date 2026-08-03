@@ -27,13 +27,27 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.ai_inference_unit_economics.v1" },
-    "economics_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
-    "lineage": { "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/lineage" },
-    "research_mode": { "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/researchMode" },
-    "capability_evidence_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
-    "benchmark_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
+    "schema_version": {
+      "const": "startup_opportunity.ai_inference_unit_economics.v1"
+    },
+    "economics_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/runId"
+    },
+    "lineage": {
+      "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/lineage"
+    },
+    "research_mode": {
+      "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/researchMode"
+    },
+    "capability_evidence_ref": {
+      "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+    },
+    "benchmark_ref": {
+      "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+    },
     "scope_boundary": {
       "type": "object",
       "additionalProperties": false,
@@ -43,9 +57,15 @@
         "agent_execution_cost_included"
       ],
       "properties": {
-        "cost_scope": { "const": "product_inference_only" },
-        "harness_execution_cost_included": { "const": false },
-        "agent_execution_cost_included": { "const": false }
+        "cost_scope": {
+          "const": "product_inference_only"
+        },
+        "harness_execution_cost_included": {
+          "const": false
+        },
+        "agent_execution_cost_included": {
+          "const": false
+        }
       }
     },
     "volume_scenarios": {
@@ -56,10 +76,20 @@
         "additionalProperties": false,
         "required": ["scenario_id", "monthly_product_units", "peak_concurrency", "assumption"],
         "properties": {
-          "scenario_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-          "monthly_product_units": { "type": "integer", "minimum": 0 },
-          "peak_concurrency": { "type": "integer", "minimum": 0 },
-          "assumption": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+          "scenario_id": {
+            "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+          },
+          "monthly_product_units": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "peak_concurrency": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "assumption": {
+            "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+          }
         }
       }
     },
@@ -76,13 +106,32 @@
         "measurement_basis"
       ],
       "properties": {
-        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
-        "estimate_status": { "enum": ["measured", "bounded_estimate", "desk_estimate", "unknown"] },
-        "provider_cost_per_unit": { "type": "number", "minimum": 0 },
-        "infrastructure_cost_per_unit": { "type": "number", "minimum": 0 },
-        "human_review_cost_per_unit": { "type": "number", "minimum": 0 },
-        "total_cost_per_unit": { "type": "number", "minimum": 0 },
-        "measurement_basis": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "estimate_status": {
+          "enum": ["measured", "bounded_estimate", "desk_estimate", "unknown"]
+        },
+        "provider_cost_per_unit": {
+          "type": "number",
+          "minimum": 0
+        },
+        "infrastructure_cost_per_unit": {
+          "type": "number",
+          "minimum": 0
+        },
+        "human_review_cost_per_unit": {
+          "type": "number",
+          "minimum": 0
+        },
+        "total_cost_per_unit": {
+          "type": "number",
+          "minimum": 0
+        },
+        "measurement_basis": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        }
       }
     },
     "latency_and_deployment": {
@@ -95,7 +144,10 @@
         "deployment_constraints"
       ],
       "properties": {
-        "p95_latency_ms": { "type": "integer", "minimum": 0 },
+        "p95_latency_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
         "latency_status": {
           "enum": ["within_boundary", "marginal", "outside_boundary", "unknown"]
         },
@@ -117,12 +169,18 @@
       "additionalProperties": false,
       "required": ["revenue_basis", "gross_margin_status", "sensitivity_drivers", "service_burden"],
       "properties": {
-        "revenue_basis": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-        "gross_margin_status": { "enum": ["viable", "marginal", "unviable", "unknown"] },
+        "revenue_basis": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "gross_margin_status": {
+          "enum": ["viable", "marginal", "unviable", "unknown"]
+        },
         "sensitivity_drivers": {
           "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
         },
-        "service_burden": { "enum": ["low", "medium", "high", "unknown"] }
+        "service_burden": {
+          "enum": ["low", "medium", "high", "unknown"]
+        }
       }
     },
     "kill_boundary": {
@@ -130,11 +188,15 @@
       "additionalProperties": false,
       "required": ["status", "conditions"],
       "properties": {
-        "status": { "enum": ["not_triggered", "triggered", "unknown"] },
+        "status": {
+          "enum": ["not_triggered", "triggered", "unknown"]
+        },
         "conditions": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+          "items": {
+            "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+          }
         }
       }
     },
@@ -144,16 +206,24 @@
     "ceiling_reasons": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+      "items": {
+        "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+      }
     },
-    "evidence_refs": { "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/evidenceRefs" },
+    "evidence_refs": {
+      "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/evidenceRefs"
+    },
     "judgment_assessment_refs": {
       "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/assessmentRefs"
     },
-    "freshness": { "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/freshness" },
+    "freshness": {
+      "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/freshness"
+    },
     "source_boundary": {
       "$ref": "../v14/ai-contract-definitions.schema.json#/$defs/sourceBoundary"
     },
-    "limitations": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" }
+    "limitations": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    }
   }
 }

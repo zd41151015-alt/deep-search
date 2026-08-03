@@ -53,7 +53,7 @@ function gapByRef(
   const snapshot = documents.get(snapshotPath);
   if (
     gapId === undefined ||
-    snapshot?.schemaVersion !== "startup_opportunity.gap_snapshot.v2" ||
+    snapshot?.schemaVersion !== "startup_opportunity.gap_snapshot.assessment.current" ||
     !Array.isArray(snapshot.document.gaps)
   ) {
     return null;
@@ -129,10 +129,10 @@ export function validateAssessmentAdaptationContract(
   input: readonly AssessmentAdaptationDocument[],
 ): readonly ValidationIssue[] {
   const snapshots = input.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.gap_snapshot.v2",
+    (entry) => entry.schemaVersion === "startup_opportunity.gap_snapshot.assessment.current",
   );
   const decisions = input.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.adaptation_decision.v3",
+    (entry) => entry.schemaVersion === "startup_opportunity.adaptation_decision.assessment.current",
   );
   if (snapshots.length === 0 && decisions.length === 0) {
     return [];
@@ -149,6 +149,15 @@ export function validateAssessmentAdaptationContract(
         "G1.3 contracts require the current Run Manifest",
       ),
     ];
+  }
+  if (manifest.document.mode !== "concept_evidence_assessment") {
+    errors.push(
+      issue(
+        "assessment_adaptation.run_mode_mismatch",
+        "manifest.json#/mode",
+        "Assessment Adaptation Artifacts require concept_evidence_assessment mode",
+      ),
+    );
   }
   const currentPlan = targetByRef(documents, manifest.document.current_plan_ref);
   const appliedDecisionRefs = new Set(stringArray(manifest.document.applied_adaptation_refs));

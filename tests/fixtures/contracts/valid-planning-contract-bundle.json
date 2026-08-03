@@ -1,5 +1,5 @@
 {
-  "schema_version": "startup_opportunity.document_bundle.v2",
+  "schema_version": "startup_opportunity.document_bundle.current",
   "documents": [
     {
       "path": "manifest.json",
@@ -12,10 +12,6 @@
         "parent_run_id": null,
         "created_at": "2026-07-23T00:00:00Z",
         "updated_at": "2026-07-23T00:20:00Z",
-        "skill_version": "1.0.0",
-        "policy_version": "1.0.0",
-        "schema_bundle_version": "2.1.0",
-        "git_commit": null,
         "current_phase": "enrichment",
         "current_plan_ref": "plans/research-plan.r1.json",
         "plan_revision": 1,
@@ -199,7 +195,7 @@
     {
       "path": "adaptations/gap-snapshots/gap-buyer.r1.json",
       "document": {
-        "schema_version": "startup_opportunity.gap_snapshot.v1",
+        "schema_version": "startup_opportunity.gap_snapshot.discovery.plan.current",
         "snapshot_id": "gap_buyer_snapshot_001",
         "snapshot_cycle_key": "enrichment:buyer:001",
         "run_id": "run_contract_001",
@@ -258,7 +254,7 @@
     {
       "path": "adaptations/decisions/adapt-continue-001.json",
       "document": {
-        "schema_version": "startup_opportunity.adaptation_decision.v2",
+        "schema_version": "startup_opportunity.adaptation_decision.discovery.current",
         "adaptation_id": "adapt_continue_001",
         "run_id": "run_contract_001",
         "based_on_plan_ref": "plans/research-plan.r1.json",
@@ -276,7 +272,7 @@
     {
       "path": "adaptations/decisions/adapt-retry-001.json",
       "document": {
-        "schema_version": "startup_opportunity.adaptation_decision.v2",
+        "schema_version": "startup_opportunity.adaptation_decision.discovery.current",
         "adaptation_id": "adapt_retry_001",
         "run_id": "run_contract_001",
         "based_on_plan_ref": "plans/research-plan.r1.json",

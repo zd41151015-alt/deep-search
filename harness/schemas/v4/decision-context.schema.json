@@ -24,8 +24,12 @@
     "open_questions"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.decision_context.v1" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "schema_version": {
+      "const": "startup_opportunity.decision_context.v1"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
     "decision_to_make": {
       "enum": [
         "choose_opportunity",
@@ -34,8 +38,12 @@
         "reassess_with_new_material"
       ]
     },
-    "decision_question": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "decision_options": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "decision_question": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "decision_options": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
     "venture_goal": {
       "enum": [
         "bootstrapped_cashflow",
@@ -45,20 +53,45 @@
         "unspecified"
       ]
     },
-    "decision_horizon": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "founder_advantages": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "decision_horizon": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "founder_advantages": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
     "non_negotiable_constraints": {
       "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
     },
-    "team_capability_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
-    "risk_preferences": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "initial_belief": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "favored_hypothesis": {
-      "anyOf": [{ "$ref": "definitions.schema.json#/$defs/artifactRef" }, { "type": "null" }]
+    "team_capability_refs": {
+      "$ref": "definitions.schema.json#/$defs/artifactRefArray"
     },
-    "assumed_truths": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "final_decision_owner": { "const": "user" },
-    "assumptions": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "open_questions": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+    "risk_preferences": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "initial_belief": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "favored_hypothesis": {
+      "anyOf": [
+        {
+          "$ref": "definitions.schema.json#/$defs/artifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "assumed_truths": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "final_decision_owner": {
+      "const": "user"
+    },
+    "assumptions": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "open_questions": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    }
   }
 }

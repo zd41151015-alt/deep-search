@@ -16,7 +16,7 @@ const RUNTIME_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.discovery_generation_result.v1",
   "startup_opportunity.discovery_stage_readiness.v1",
   "startup_opportunity.source_manifest.v4",
-  "startup_opportunity.gap_snapshot.v3",
+  "startup_opportunity.gap_snapshot.discovery.readiness.current",
 ]);
 
 const STAGE_ORDER = [
@@ -1140,7 +1140,7 @@ export function validateDeclarativeRuntimeContract(
       case "startup_opportunity.discovery_stage_readiness.v1":
         validateReadiness(entry, byPath, errors);
         break;
-      case "startup_opportunity.gap_snapshot.v3":
+      case "startup_opportunity.gap_snapshot.discovery.readiness.current":
         validateGapSnapshot(entry, byPath, errors);
         break;
     }

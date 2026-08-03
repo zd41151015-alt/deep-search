@@ -22,27 +22,52 @@
     "created_at"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.coverage_attestation.v1" },
-    "coverage_key": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
+    "schema_version": {
+      "const": "startup_opportunity.coverage_attestation.v1"
+    },
+    "coverage_key": {
+      "$ref": "../v1/definitions.schema.json#/$defs/sha256"
+    },
     "relation": {
       "const": "same_subject_and_semantically_equivalent_research_goal"
     },
-    "run_id": { "$ref": "../v1/definitions.schema.json#/$defs/runId" },
-    "based_on_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
-    "based_on_plan_revision": { "type": "integer", "minimum": 1 },
-    "based_on_plan_hash": { "$ref": "../v1/definitions.schema.json#/$defs/sha256" },
-    "gap_ref": { "$ref": "../v1/definitions.schema.json#/$defs/gapRef" },
-    "subject_ref": { "$ref": "../v1/definitions.schema.json#/$defs/artifactRef" },
+    "run_id": {
+      "$ref": "../v1/definitions.schema.json#/$defs/runId"
+    },
+    "based_on_plan_ref": {
+      "$ref": "../v1/definitions.schema.json#/$defs/planRef"
+    },
+    "based_on_plan_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "based_on_plan_hash": {
+      "$ref": "../v1/definitions.schema.json#/$defs/sha256"
+    },
+    "gap_ref": {
+      "$ref": "../v1/definitions.schema.json#/$defs/gapRef"
+    },
+    "subject_ref": {
+      "$ref": "../v1/definitions.schema.json#/$defs/artifactRef"
+    },
     "target_unit_ref": {
       "type": "string",
       "pattern": "^plans/research-plan\\.r[1-9][0-9]*\\.json#[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
     },
-    "gap_research_goal": { "$ref": "../v1/definitions.schema.json#/$defs/nonEmptyString" },
+    "gap_research_goal": {
+      "$ref": "../v1/definitions.schema.json#/$defs/nonEmptyString"
+    },
     "target_research_goal": {
       "$ref": "../v1/definitions.schema.json#/$defs/nonEmptyString"
     },
-    "semantic_equivalence_declared": { "const": true },
-    "declared_by": { "const": "main_agent" },
-    "created_at": { "$ref": "../v1/definitions.schema.json#/$defs/timestamp" }
+    "semantic_equivalence_declared": {
+      "const": true
+    },
+    "declared_by": {
+      "const": "main_agent"
+    },
+    "created_at": {
+      "$ref": "../v1/definitions.schema.json#/$defs/timestamp"
+    }
   }
 }

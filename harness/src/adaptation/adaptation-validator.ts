@@ -66,8 +66,8 @@ function gapByRef(
   const snapshot = targetByRef(documents, ref);
   const gapId = fragmentOf(ref);
   if (
-    (snapshot?.schemaVersion !== "startup_opportunity.gap_snapshot.v1" &&
-      snapshot?.schemaVersion !== "startup_opportunity.gap_snapshot.v3") ||
+    (snapshot?.schemaVersion !== "startup_opportunity.gap_snapshot.discovery.plan.current" &&
+      snapshot?.schemaVersion !== "startup_opportunity.gap_snapshot.discovery.readiness.current") ||
     gapId === null ||
     !Array.isArray(snapshot.document.gaps)
   ) {
@@ -86,6 +86,47 @@ function targetUnitId(decision: Record<string, unknown>): string | null {
 
 const FOLLOWUP_ACTIONS = new Set(["add_unit", "retry_unit", "supersede_unit"]);
 
+const DISCOVERY_ADAPTATION_TYPES = new Set([
+  "startup_opportunity.adaptation_decision.discovery.current",
+  "startup_opportunity.gap_snapshot.discovery.plan.current",
+  "startup_opportunity.gap_snapshot.discovery.readiness.current",
+]);
+
+const ASSESSMENT_ADAPTATION_TYPES = new Set([
+  "startup_opportunity.adaptation_decision.assessment.current",
+  "startup_opportunity.gap_snapshot.assessment.current",
+]);
+
+function adaptationModeErrors(
+  documents: ReturnType<typeof effectiveDocuments>,
+  mode: unknown,
+): readonly ValidationIssue[] {
+  if (mode !== "opportunity_discovery" && mode !== "concept_evidence_assessment") {
+    return [
+      issue(
+        "adaptation.run_mode_missing",
+        "manifest.json#/mode",
+        "Adaptation validation requires a current Run Manifest mode",
+      ),
+    ];
+  }
+  const allowed =
+    mode === "opportunity_discovery" ? DISCOVERY_ADAPTATION_TYPES : ASSESSMENT_ADAPTATION_TYPES;
+  const adaptationTypes = new Set([...DISCOVERY_ADAPTATION_TYPES, ...ASSESSMENT_ADAPTATION_TYPES]);
+  return documents.flatMap((document) =>
+    adaptationTypes.has(document.schemaVersion) && !allowed.has(document.schemaVersion)
+      ? [
+          issue(
+            "adaptation.run_mode_mismatch",
+            document.path,
+            "Adaptation Artifact identity is not allowed for the current Run mode",
+            { mode, artifactType: document.schemaVersion },
+          ),
+        ]
+      : [],
+  );
+}
+
 function currentPlanningProjection(
   value: unknown,
   documents: ReturnType<typeof effectiveDocuments>,
@@ -93,7 +134,16 @@ function currentPlanningProjection(
   if (!isRecord(value) || !Array.isArray(value.documents)) {
     return value;
   }
-  if (value.schema_version !== "startup_opportunity.document_bundle.v18") {
+  const hasDiscoveryContractClosure =
+    documents.some((document) => document.schemaVersion === "startup_opportunity.scope_frame.v2") &&
+    documents.some((document) =>
+      [
+        "startup_opportunity.seed_probe.v1",
+        "startup_opportunity.opportunity_space_map.v1",
+        "startup_opportunity.solution_space_map.v1",
+      ].includes(document.schemaVersion),
+    );
+  if (!hasDiscoveryContractClosure) {
     const effectiveByPath = new Map(documents.map((document) => [document.path, document]));
     return {
       ...value,
@@ -173,17 +223,24 @@ export class AdaptationPolicyValidator {
   validateDocumentBundle(
     value: unknown,
     referenceContext: DocumentBundleReferenceContext = {},
+    selectedAdaptationRefs?: readonly string[],
   ): AdaptationValidationResult {
-    if (
-      effectiveDocuments(value).some(
-        (document) =>
-          document.schemaVersion === "startup_opportunity.adaptation_decision.v3" ||
-          document.schemaVersion === "startup_opportunity.gap_snapshot.v2",
-      )
-    ) {
-      return this.validateAssessmentDocumentBundle(value, referenceContext);
-    }
     const documents = effectiveDocuments(value);
+    const runManifest = documents.find(
+      (document) =>
+        document.path === "manifest.json" &&
+        document.schemaVersion === "startup_opportunity.run_manifest.v1",
+    );
+    const mode = runManifest?.document.mode;
+    const modeErrors = adaptationModeErrors(documents, mode);
+    if (mode === "concept_evidence_assessment") {
+      return this.validateAssessmentDocumentBundle(
+        value,
+        referenceContext,
+        selectedAdaptationRefs,
+        modeErrors,
+      );
+    }
     const planningValue = currentPlanningProjection(value, documents);
     const planValidation = this.plans.validateDocumentBundle(planningValue, referenceContext);
     const byPath = documentMap(value);
@@ -194,8 +251,14 @@ export class AdaptationPolicyValidator {
     const manifest = isRecord(manifestBinding)
       ? targetByRef(byPath, manifestBinding.manifest_ref)
       : null;
-    const decisionDocuments = documents
-      .filter((document) => document.schemaVersion === "startup_opportunity.adaptation_decision.v2")
+    const selectedRefSet =
+      selectedAdaptationRefs === undefined ? null : new Set(selectedAdaptationRefs);
+    const allDecisionDocuments = documents.filter(
+      (document) =>
+        document.schemaVersion === "startup_opportunity.adaptation_decision.discovery.current",
+    );
+    const decisionDocuments = allDecisionDocuments
+      .filter((document) => selectedRefSet === null || selectedRefSet.has(document.path))
       .sort((left, right) => left.path.localeCompare(right.path));
     const terminalDecisionRefs =
       manifest?.schemaVersion === "startup_opportunity.run_manifest.v1"
@@ -216,7 +279,7 @@ export class AdaptationPolicyValidator {
       terminalDecisionRefs === null
         ? decisionDocuments
         : decisionDocuments.filter((decision) => !terminalDecisionRefs.has(decision.path));
-    const errors: ValidationIssue[] = [];
+    const errors: ValidationIssue[] = [...modeErrors];
     const occupiedTargets = new Map<string, string>();
     const newUnitIds = new Map<string, string>();
     const newOutputPaths = new Map<string, string>();
@@ -230,7 +293,7 @@ export class AdaptationPolicyValidator {
           (ref): ref is string => typeof ref === "string",
         ),
       );
-      for (const decision of decisionDocuments.filter((entry) => appliedRefs.has(entry.path))) {
+      for (const decision of allDecisionDocuments.filter((entry) => appliedRefs.has(entry.path))) {
         for (const gapRef of Array.isArray(decision.document.trigger_gap_refs)
           ? decision.document.trigger_gap_refs
           : []) {
@@ -243,7 +306,11 @@ export class AdaptationPolicyValidator {
 
     if (decisions.length === 0) {
       errors.push(
-        issue("adaptation.decision_missing", "", "at least one v2 Adaptation Decision is required"),
+        issue(
+          "adaptation.decision_missing",
+          "",
+          "at least one Discovery Adaptation Decision is required",
+        ),
       );
     }
     const identities = new Map<string, string>();
@@ -327,8 +394,9 @@ export class AdaptationPolicyValidator {
     if (plan?.schemaVersion === "startup_opportunity.research_plan.v1") {
       for (const snapshot of documents.filter(
         (document) =>
-          (document.schemaVersion === "startup_opportunity.gap_snapshot.v1" ||
-            document.schemaVersion === "startup_opportunity.gap_snapshot.v3") &&
+          (document.schemaVersion === "startup_opportunity.gap_snapshot.discovery.plan.current" ||
+            document.schemaVersion ===
+              "startup_opportunity.gap_snapshot.discovery.readiness.current") &&
           document.document.based_on_plan_ref === plan.path,
       )) {
         for (const gap of Array.isArray(snapshot.document.gaps) ? snapshot.document.gaps : []) {
@@ -365,6 +433,8 @@ export class AdaptationPolicyValidator {
   private validateAssessmentDocumentBundle(
     value: unknown,
     referenceContext: DocumentBundleReferenceContext,
+    selectedAdaptationRefs?: readonly string[],
+    modeErrors: readonly ValidationIssue[] = [],
   ): AdaptationValidationResult {
     const planValidation = this.assessmentPlans.validateDocumentBundle(value, referenceContext);
     const documents = effectiveDocuments(value);
@@ -376,16 +446,27 @@ export class AdaptationPolicyValidator {
     const manifest = isRecord(manifestBinding)
       ? targetByRef(byPath, manifestBinding.manifest_ref)
       : null;
+    const selectedRefSet =
+      selectedAdaptationRefs === undefined ? null : new Set(selectedAdaptationRefs);
     const decisions = documents
-      .filter((document) => document.schemaVersion === "startup_opportunity.adaptation_decision.v3")
+      .filter(
+        (document) =>
+          document.schemaVersion === "startup_opportunity.adaptation_decision.assessment.current" &&
+          (selectedRefSet === null || selectedRefSet.has(document.path)),
+      )
       .sort((left, right) => left.path.localeCompare(right.path));
     const snapshots = documents.filter(
-      (document) => document.schemaVersion === "startup_opportunity.gap_snapshot.v2",
+      (document) =>
+        document.schemaVersion === "startup_opportunity.gap_snapshot.assessment.current",
     );
-    const errors: ValidationIssue[] = [];
+    const errors: ValidationIssue[] = [...modeErrors];
     if (decisions.length === 0) {
       errors.push(
-        issue("adaptation.decision_missing", "", "at least one v3 Adaptation Decision is required"),
+        issue(
+          "adaptation.decision_missing",
+          "",
+          "at least one Assessment Adaptation Decision is required",
+        ),
       );
     }
 
@@ -429,7 +510,7 @@ export class AdaptationPolicyValidator {
       const [snapshotPath = "", gapId] = typeof gapRef === "string" ? gapRef.split("#", 2) : [];
       const snapshot = byPath.get(snapshotPath);
       const gap =
-        snapshot?.schemaVersion === "startup_opportunity.gap_snapshot.v2" &&
+        snapshot?.schemaVersion === "startup_opportunity.gap_snapshot.assessment.current" &&
         Array.isArray(snapshot.document.gaps)
           ? snapshot.document.gaps.find(
               (candidate) => isRecord(candidate) && candidate.gap_id === gapId,

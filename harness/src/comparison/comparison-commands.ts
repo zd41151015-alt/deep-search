@@ -58,7 +58,7 @@ function effectiveDocument(entry: unknown): TypedDocument | null {
   const outer = entry.document;
   if (
     typeof outer.schema_version === "string" &&
-    outer.schema_version.startsWith("startup_opportunity.artifact_envelope.") &&
+    outer.schema_version === "startup_opportunity.artifact_envelope.current" &&
     isRecord(outer.document)
   ) {
     return { path: entry.path, document: outer.document };
@@ -70,7 +70,6 @@ async function loadValidatedBundle(
   args: readonly string[],
   repositoryRoot: string,
 ): Promise<{
-  readonly schemaBundleVersion: string;
   readonly documents: readonly TypedDocument[];
 }> {
   const parsed = parseArguments(args);
@@ -96,7 +95,7 @@ async function loadValidatedBundle(
           return effective === null ? [] : [effective];
         })
       : [];
-  return { schemaBundleVersion: validation.schemaBundleVersion, documents };
+  return { documents };
 }
 
 async function runCommand(action: () => Promise<unknown>): Promise<number> {
@@ -135,7 +134,6 @@ export async function runCalculateComparison(
     }
     return {
       schemaVersion: "startup_opportunity.comparison_calculation_result.v1",
-      schemaBundleVersion: loaded.schemaBundleVersion,
       status: "validated",
       comparisons: comparisons.map((entry) => ({
         artifactPath: entry.path,
@@ -175,7 +173,6 @@ export async function runCalculateSensitivity(
     const sensitivity = sensitivities[0] as TypedDocument;
     return {
       schemaVersion: "startup_opportunity.sensitivity_calculation_result.v1",
-      schemaBundleVersion: loaded.schemaBundleVersion,
       status: "validated",
       artifactPath: sensitivity.path,
       contentHash: canonicalContentHash(sensitivity.document),

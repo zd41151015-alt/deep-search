@@ -630,7 +630,7 @@ function v4Envelope(
   inputRefs: readonly string[],
 ): FormalArtifactEnvelope {
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v4",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: String(document.schema_version),
     artifact_path: artifactPath,
     run_id: runId,
@@ -1176,7 +1176,7 @@ test("Assessment Evidence binds a current dispatch task and exact Evidence Store
   assert.equal(published.status, "published");
   assert.equal(
     published.compiled_envelopes[0]?.schema_version,
-    "startup_opportunity.artifact_envelope.v19",
+    "startup_opportunity.artifact_envelope.current",
   );
 
   const reportPath = "artifacts/reporting/terminal-report-source.r1.json";
@@ -1192,7 +1192,7 @@ test("Assessment Evidence binds a current dispatch task and exact Evidence Store
     report,
   ].map((document) => ({ path: document.path, document: document.document }));
   const currentEvidenceResult = state.validator.validateDocumentBundle({
-    schema_version: "startup_opportunity.document_bundle.v19",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: bundleDocuments,
     exact_records: [
       { ref: `evidence/manifest.jsonl#${substrate.evidence_id}`, document: substrate },
@@ -1212,7 +1212,7 @@ test("Assessment Evidence binds a current dispatch task and exact Evidence Store
     evidence_ref: conceptPath,
   };
   const wrongSourceResult = state.validator.validateDocumentBundle({
-    schema_version: "startup_opportunity.document_bundle.v19",
+    schema_version: "startup_opportunity.document_bundle.current",
     documents: bundleDocuments.map((document) =>
       document.path === reportPath ? { path: reportPath, document: wrongTerminalSource } : document,
     ),
@@ -1356,7 +1356,7 @@ test("terminal Assessment gates atomically project Run outcomes and recover exac
   }
 });
 
-test("v19 compiler publishes, rejects mixed surfaces, recovers faults, and projects terminal staging", async (t) => {
+test("current Assessment compiler publishes, rejects mixed surfaces, recovers faults, and projects terminal staging", async (t) => {
   const state = await prepareStoreRun(t, "runtime");
   const execution = executionPlan(state.runId, state.plan);
   const executionArtifact = runtimeArtifact(executionPath, execution, "main_agent");
@@ -1375,11 +1375,11 @@ test("v19 compiler publishes, rejects mixed surfaces, recovers faults, and proje
   assert.equal(replay.status, "idempotent_replay");
   assert.equal(
     replay.compiled_envelopes[0]?.schema_version,
-    "startup_opportunity.artifact_envelope.v19",
+    "startup_opportunity.artifact_envelope.current",
   );
   assert.equal(
-    replay.validation_closure.document_bundle_version,
-    "startup_opportunity.document_bundle.v19",
+    replay.validation_closure.document_bundle_schema_version,
+    "startup_opportunity.document_bundle.current",
   );
 
   const mixed = compilationRequest(
@@ -1397,7 +1397,7 @@ test("v19 compiler publishes, rejects mixed surfaces, recovers faults, and proje
   await assert.rejects(
     state.compiler.compile(mixed),
     (error: unknown) =>
-      error instanceof StoreError && error.code === "runtime.compilation_version_mixed",
+      error instanceof StoreError && error.code === "runtime.compilation_artifact_family_mixed",
   );
 
   const earlyStage = recordAt(

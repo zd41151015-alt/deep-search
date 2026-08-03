@@ -27,8 +27,7 @@ export function effectiveDocuments(value: unknown): readonly EffectiveDocument[]
     }
     const schemaVersion = entry.document.schema_version;
     if (
-      typeof schemaVersion === "string" &&
-      /^startup_opportunity\.artifact_envelope\.v(?:[1-8]|1[0-9])$/u.test(schemaVersion) &&
+      schemaVersion === "startup_opportunity.artifact_envelope.current" &&
       typeof entry.document.artifact_type === "string" &&
       isRecord(entry.document.document)
     ) {

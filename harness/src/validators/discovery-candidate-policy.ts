@@ -25,7 +25,6 @@ export interface DiscoveryCandidatePolicy extends Record<string, unknown> {
   readonly schema_version: "startup_opportunity.discovery_candidate_policy.v1";
   readonly policy_id: "startup_opportunity.g2_2_pre_thesis_candidate_contract";
   readonly policy_version: "1.0.0";
-  readonly schema_bundle_version: "8.0.0";
   readonly artifact_contracts: Readonly<Record<string, string>>;
   readonly candidate_kinds: Readonly<Record<CandidateKind, CandidateKindRule>>;
   readonly ownership: Readonly<Record<string, string>>;
@@ -45,14 +44,8 @@ export interface DiscoveryCandidatePolicy extends Record<string, unknown> {
     readonly judgments_must_come_from_supporting_lane_disposition: true;
     readonly top_level_judgment_refs_exact_disposition_closure: true;
   };
-  readonly conversion_contract: {
-    readonly path_pattern: "artifacts/discovery/conversions/<candidate_id>.r<revision>.json";
-    readonly parent_revision: "exactly_previous";
-    readonly parent_hash: "canonical_json_sha256";
-    readonly kind_target_map: Readonly<Record<CandidateKind, string>>;
-  };
-  readonly publication_boundary: Readonly<Record<string, unknown>>;
-  readonly manifest_adapter_boundary: Readonly<Record<string, unknown>>;
+  readonly publication_contract: Readonly<Record<string, unknown>>;
+  readonly manifest_projection_contract: Readonly<Record<string, unknown>>;
 }
 
 const EXPECTED_KIND_RULES: Readonly<Record<CandidateKind, CandidateKindRule>> = {
@@ -81,12 +74,6 @@ const EXPECTED_KIND_RULES: Readonly<Record<CandidateKind, CandidateKindRule>> = 
   },
 };
 
-const EXPECTED_CONVERSION_MAP: Readonly<Record<CandidateKind, string>> = {
-  demand_seed: "startup_opportunity.demand_thesis.v1",
-  baseline_seed: "startup_opportunity.baseline_option.v1",
-  solution_seed: "startup_opportunity.solution_hypothesis.v1",
-};
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -94,9 +81,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function loadDiscoveryCandidatePolicy(
   root: string,
   bundle: LoadedSchemaBundle,
-  relativePath = DISCOVERY_CANDIDATE_POLICY_PATH,
 ): Promise<DiscoveryCandidatePolicy> {
-  const value = JSON.parse(await readFile(path.join(root, relativePath), "utf8")) as unknown;
+  const value = JSON.parse(
+    await readFile(path.join(root, DISCOVERY_CANDIDATE_POLICY_PATH), "utf8"),
+  ) as unknown;
   const validator = bundle.validators.get("startup_opportunity.discovery_candidate_policy.v1");
   if ((validator !== undefined && !validator(value)) || !isRecord(value)) {
     throw new StoreError(
@@ -108,8 +96,6 @@ export async function loadDiscoveryCandidatePolicy(
   const policy = value as DiscoveryCandidatePolicy;
   if (
     canonicalJson(policy.candidate_kinds) !== canonicalJson(EXPECTED_KIND_RULES) ||
-    canonicalJson(policy.conversion_contract.kind_target_map) !==
-      canonicalJson(EXPECTED_CONVERSION_MAP) ||
     canonicalJson(policy.fan_in_contract.eligible_lane_statuses) !==
       canonicalJson(["completed", "partial", "insufficient_evidence"]) ||
     canonicalJson(policy.fan_in_contract.excluded_lane_statuses) !==
@@ -122,9 +108,12 @@ export async function loadDiscoveryCandidatePolicy(
     policy.fan_in_contract.judgment_subject_must_ancestor_final_candidate !== true ||
     policy.fan_in_contract.judgments_must_come_from_supporting_lane_disposition !== true ||
     policy.fan_in_contract.top_level_judgment_refs_exact_disposition_closure !== true ||
-    policy.publication_boundary.store_v9_adapter_installed !== false ||
-    policy.publication_boundary.current_store_bundle_version !== "7.0.0" ||
-    policy.manifest_adapter_boundary.g2_2_runtime_adapter_installed !== false
+    policy.publication_contract.envelope_schema_version !==
+      "startup_opportunity.artifact_envelope.current" ||
+    policy.publication_contract.document_bundle_schema_version !==
+      "startup_opportunity.document_bundle.current" ||
+    policy.manifest_projection_contract.publication_updates_manifest !== true ||
+    policy.manifest_projection_contract.late_or_superseded_can_enter_current_refs !== false
   ) {
     throw new StoreError(
       "discovery_candidate_policy.invalid",

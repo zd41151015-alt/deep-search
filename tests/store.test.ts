@@ -10,7 +10,6 @@ import {
   EvidenceStore,
   type FormalArtifactEnvelope,
   RunStore,
-  SCHEMA_BUNDLE_VERSION,
   StoreError,
 } from "../harness/src/index.js";
 
@@ -31,23 +30,6 @@ async function setup(context: TestContext, runId = "store-test") {
   return { root, runsRoot, runRoot: path.join(runsRoot, runId), store, created };
 }
 
-async function snapshotDirectory(root: string): Promise<Record<string, string>> {
-  const files: [string, string][] = [];
-  async function visit(relativeRoot: string): Promise<void> {
-    const entries = await readdir(path.join(root, relativeRoot), { withFileTypes: true });
-    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-      const relativePath = path.join(relativeRoot, entry.name);
-      if (entry.isDirectory()) {
-        await visit(relativePath);
-      } else {
-        files.push([relativePath, (await readFile(path.join(root, relativePath))).toString("hex")]);
-      }
-    }
-  }
-  await visit("");
-  return Object.fromEntries(files);
-}
-
 async function eventEnvelope(
   runId: string,
   artifactPath = "events/fixture-event-001.json",
@@ -58,7 +40,7 @@ async function eventEnvelope(
   ) as Record<string, unknown>;
   const document: Record<string, unknown> = { ...fixture, run_id: runId, ...overrides };
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v1",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: "startup_opportunity.event.v1",
     artifact_path: artifactPath,
     run_id: runId,
@@ -73,8 +55,10 @@ async function eventEnvelope(
 test("create and reopen persist a complete initial Run boundary idempotently", async (context) => {
   const { runsRoot, runRoot, store, created } = await setup(context);
   assert.equal(created.status, "created");
-  assert.equal(created.manifest.schema_bundle_version, SCHEMA_BUNDLE_VERSION);
   assert.equal(created.manifest.checkpoint_ref, "checkpoints/checkpoint-initial.json");
+  assert.equal("skill_version" in created.manifest, false);
+  assert.equal("policy_version" in created.manifest, false);
+  assert.equal("git_commit" in created.manifest, false);
 
   const required = [
     "manifest.json",
@@ -93,7 +77,7 @@ test("create and reopen persist a complete initial Run boundary idempotently", a
   const initialCheckpoint = JSON.parse(
     await readFile(path.join(runRoot, "checkpoints/checkpoint-initial.json"), "utf8"),
   ) as { schema_version: string };
-  assert.equal(initialCheckpoint.schema_version, "startup_opportunity.artifact_envelope.v19");
+  assert.equal(initialCheckpoint.schema_version, "startup_opportunity.artifact_envelope.current");
 
   const replay = await store.create({
     runId: "store-test",
@@ -156,36 +140,6 @@ test("create validates before visibility and atomically discards failed staging 
   );
 });
 
-test("old Run bundle is restart-required and status, recovery, and publish leave bytes unchanged", async (context) => {
-  const { runRoot, store } = await setup(context, "unsupported-run-version");
-  const manifestPath = path.join(runRoot, "manifest.json");
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
-  manifest.schema_bundle_version = "17.0.0";
-  await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
-  const before = await snapshotDirectory(runRoot);
-  const assertUnsupported = (error: unknown): boolean => {
-    assert.ok(error instanceof StoreError);
-    assert.equal(error.code, "run.unsupported_run_version");
-    assert.deepEqual(error.details, {
-      actualSchemaBundleVersion: "17.0.0",
-      currentSchemaBundleVersion: SCHEMA_BUNDLE_VERSION,
-      restartRequired: true,
-    });
-    return true;
-  };
-
-  await assert.rejects(store.status("unsupported-run-version"), assertUnsupported);
-  await assert.rejects(store.load("unsupported-run-version"), assertUnsupported);
-  await assert.rejects(
-    store.publishArtifact({
-      runId: "unsupported-run-version",
-      envelope: await eventEnvelope("unsupported-run-version"),
-    }),
-    assertUnsupported,
-  );
-  assert.deepEqual(await snapshotDirectory(runRoot), before);
-});
-
 test("formal publication validates canonical hash, updates manifest, and replays idempotently", async (context) => {
   const { runRoot, store } = await setup(context);
   const envelope = await eventEnvelope("store-test");
@@ -202,29 +156,6 @@ test("formal publication validates canonical hash, updates manifest, and replays
 
   const replay = await store.publishArtifact({ runId: "store-test", envelope });
   assert.equal(replay.status, "idempotent_replay");
-});
-
-test("current Run publishes a reachable v2 envelope without downgrading its bundle", async (context) => {
-  const { runRoot, store } = await setup(context);
-  const v1 = await eventEnvelope("store-test");
-  const v2 = {
-    ...v1,
-    schema_version: "startup_opportunity.artifact_envelope.v2",
-  } as unknown as FormalArtifactEnvelope;
-
-  const published = await store.publishArtifact({ runId: "store-test", envelope: v2 });
-  assert.equal(published.status, "published");
-  const manifest = JSON.parse(await readFile(path.join(runRoot, "manifest.json"), "utf8")) as {
-    schema_bundle_version: string;
-  };
-  assert.equal(manifest.schema_bundle_version, SCHEMA_BUNDLE_VERSION);
-  const receipt = JSON.parse(
-    await readFile(
-      path.join(runRoot, `.store/operations/artifact-${published.operationKey.slice(7)}.json`),
-      "utf8",
-    ),
-  ) as { schema_version: string };
-  assert.equal(receipt.schema_version, "startup_opportunity.artifact_store_operation.v2");
 });
 
 test("Event and Decision JSONL appends validate refs, identity, and idempotent replay", async (context) => {
@@ -364,19 +295,28 @@ test("Evidence Store canonicalizes source identity, stores real bytes, deduplica
   const first = await evidence.record({
     runId: "store-test",
     unitId: "buyer_unit_001",
-    url: "HTTPS://Example.COM:443/research?q=buyer#section",
+    source: {
+      kind: "public_url",
+      canonical_url: "HTTPS://Example.COM:443/research?q=buyer#section",
+    },
     researchGoal: "Check buyer evidence.",
     rawContent: raw,
     recordedAt: "2026-07-23T12:20:00Z",
   });
   assert.equal(first.status, "recorded");
-  assert.equal(first.record.canonical_url, "https://example.com/research?q=buyer");
+  assert.deepEqual(first.record.source, {
+    kind: "public_url",
+    canonical_url: "https://example.com/research?q=buyer",
+  });
   assert.deepEqual(await readFile(path.join(runRoot, first.record.raw_content_ref)), raw);
 
   const replay = await evidence.record({
     runId: "store-test",
     unitId: "buyer_unit_001",
-    url: "https://example.com/research?q=buyer#different",
+    source: {
+      kind: "public_url",
+      canonical_url: "https://example.com/research?q=buyer#different",
+    },
     researchGoal: "Check buyer evidence.",
     rawContent: raw,
   });
@@ -392,7 +332,10 @@ test("Evidence Store canonicalizes source identity, stores real bytes, deduplica
     evidence.record({
       runId: "store-test",
       unitId: "buyer_unit_001",
-      url: "https://example.com/research?q=buyer",
+      source: {
+        kind: "public_url",
+        canonical_url: "https://example.com/research?q=buyer",
+      },
       researchGoal: "Changed goal.",
       rawContent: "different bytes",
       operationKey: first.record.operation_key,

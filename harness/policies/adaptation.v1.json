@@ -2,42 +2,40 @@
   "schema_version": "startup_opportunity.adaptation_policy.v1",
   "policy_id": "startup_opportunity.closed_planning_and_adaptation",
   "policy_version": "1.0.0",
-  "compatible_schema_bundle_versions": ["18.0.0"],
   "contract_versions": {
     "planning_context": "startup_opportunity.planning_context.v1",
     "research_plan": "startup_opportunity.research_plan.v1",
-    "adaptation_decision": "startup_opportunity.adaptation_decision.v2",
+    "adaptation_decision": "startup_opportunity.adaptation_decision.discovery.current",
     "coverage_attestation": "startup_opportunity.coverage_attestation.v1",
     "run_manifest": "startup_opportunity.run_manifest.v1"
   },
   "phase_catalog": [
-    { "mode": "opportunity_discovery", "phase": "discovery" },
-    { "mode": "opportunity_discovery", "phase": "enrichment" },
-    { "mode": "opportunity_discovery", "phase": "review" },
-    { "mode": "concept_evidence_assessment", "phase": "assessment" },
-    { "mode": "concept_evidence_assessment", "phase": "review" }
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "review"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "review"
+    }
   ],
   "artifact_schema_catalog": [
-    {
-      "schema_id": "startup_opportunity.discovery_lane_result.v1",
-      "availability": "future_declared",
-      "owning_slice": "G2.2"
-    },
-    {
-      "schema_id": "startup_opportunity.enrichment_branch_result.v1",
-      "availability": "future_declared",
-      "owning_slice": "G2.4"
-    },
-    {
-      "schema_id": "startup_opportunity.concept_evidence_assessment_branch_result.v1",
-      "availability": "future_declared",
-      "owning_slice": "G1.1"
-    },
-    {
-      "schema_id": "startup_opportunity.adversarial_review.v1",
-      "availability": "future_declared",
-      "owning_slice": "G1.4"
-    }
+    "startup_opportunity.discovery_lane_result.v1",
+    "startup_opportunity.enrichment_branch_result.v1",
+    "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+    "startup_opportunity.adversarial_review.v1"
   ],
   "unit_rules": [
     {
@@ -394,13 +392,6 @@
   },
   "retry_contract": {
     "mechanical_precondition": "manifest.failed_units",
-    "partial_artifact_retry": "fail_closed",
-    "future_enablement_requirement": "versioned_owning_schema_adapter"
-  },
-  "artifact_publication_contract": {
-    "plan_may_reference_future_declared_schema": true,
-    "publish_requires_installed_schema": true,
-    "publish_requires_compatible_envelope": true,
-    "uninstalled_schema_error": "schema.unknown_version"
+    "partial_artifact_retry": "fail_closed"
   }
 }

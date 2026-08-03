@@ -24,46 +24,91 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.source_manifest.v2" },
-    "manifest_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "unit_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "lineage": { "$ref": "definitions.schema.json#/$defs/discoveryLineage" },
+    "schema_version": {
+      "const": "startup_opportunity.source_manifest.v2"
+    },
+    "manifest_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "lineage": {
+      "$ref": "definitions.schema.json#/$defs/discoveryLineage"
+    },
     "research_phase_role": {
       "enum": ["candidate_generation", "candidate_evaluation", "adversarial_challenger"]
     },
     "accepted_evidence_refs": {
       "type": "array",
-      "items": { "$ref": "definitions.schema.json#/$defs/evidenceRef" },
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/evidenceRef"
+      },
       "uniqueItems": true
     },
-    "canonical_source_groups": { "$ref": "#/$defs/evidenceGroups" },
-    "shared_dataset_groups": { "$ref": "#/$defs/evidenceGroups" },
-    "duplicate_or_syndication_groups": { "$ref": "#/$defs/evidenceGroups" },
-    "source_type_coverage": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "geo_language_coverage": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "time_coverage": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "canonical_source_groups": {
+      "$ref": "#/$defs/evidenceGroups"
+    },
+    "shared_dataset_groups": {
+      "$ref": "#/$defs/evidenceGroups"
+    },
+    "duplicate_or_syndication_groups": {
+      "$ref": "#/$defs/evidenceGroups"
+    },
+    "source_type_coverage": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "geo_language_coverage": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "time_coverage": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
     "stance_coverage": {
       "type": "array",
-      "items": { "enum": ["support", "oppose", "context"] },
+      "items": {
+        "enum": ["support", "oppose", "context"]
+      },
       "uniqueItems": true
     },
-    "known_source_blind_spots": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "known_source_blind_spots": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
     "freshness_summary": {
       "type": "object",
       "additionalProperties": false,
       "required": ["active", "stale", "unverified", "superseded"],
       "properties": {
-        "active": { "type": "integer", "minimum": 0 },
-        "stale": { "type": "integer", "minimum": 0 },
-        "unverified": { "type": "integer", "minimum": 0 },
-        "superseded": { "type": "integer", "minimum": 0 }
+        "active": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stale": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unverified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "superseded": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "limitations": {
       "allOf": [
-        { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        { "type": "array", "minItems": 1 }
+        {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        {
+          "type": "array",
+          "minItems": 1
+        }
       ]
     }
   },
@@ -75,10 +120,14 @@
         "additionalProperties": false,
         "required": ["group_id", "evidence_refs"],
         "properties": {
-          "group_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
+          "group_id": {
+            "$ref": "definitions.schema.json#/$defs/identifier"
+          },
           "evidence_refs": {
             "type": "array",
-            "items": { "$ref": "definitions.schema.json#/$defs/evidenceRef" },
+            "items": {
+              "$ref": "definitions.schema.json#/$defs/evidenceRef"
+            },
             "minItems": 1,
             "uniqueItems": true
           }

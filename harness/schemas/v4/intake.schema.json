@@ -19,24 +19,46 @@
     "created_at"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.intake.v1" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "action": { "enum": ["discover", "assess"] },
+    "schema_version": {
+      "const": "startup_opportunity.intake.v1"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "action": {
+      "enum": ["discover", "assess"]
+    },
     "mode": {
       "enum": ["opportunity_discovery", "concept_evidence_assessment"]
     },
-    "raw_query": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "market": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "language": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "principal": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "decision_context_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "attachments": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
+    "raw_query": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "market": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "language": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "principal": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "decision_context_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "attachments": {
+      "$ref": "definitions.schema.json#/$defs/artifactRefArray"
+    },
     "explicit_constraints": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "target_market": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-        "target_language": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+        "target_market": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "target_language": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
         "venture_goal": {
           "enum": [
             "bootstrapped_cashflow",
@@ -46,42 +68,73 @@
             "unspecified"
           ]
         },
-        "decision_horizon": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-        "founder_advantages": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        "decision_horizon": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "founder_advantages": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
         "non_negotiable_constraints": {
           "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
         },
-        "target_users": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "excluded_users": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+        "target_users": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "excluded_users": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
         "delivery_form_preferences": {
           "type": "array",
-          "items": { "$ref": "definitions.schema.json#/$defs/deliveryForm" },
+          "items": {
+            "$ref": "definitions.schema.json#/$defs/deliveryForm"
+          },
           "uniqueItems": true
         },
         "business_model_preferences": {
           "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
         },
-        "team_capabilities": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "risk_preferences": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "ai_scope": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-        "research_axes": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "requested_output_count": { "type": "integer", "minimum": 1 }
+        "team_capabilities": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "risk_preferences": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "ai_scope": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "research_axes": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "requested_output_count": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
-    "created_at": { "$ref": "definitions.schema.json#/$defs/timestamp" }
+    "created_at": {
+      "$ref": "definitions.schema.json#/$defs/timestamp"
+    }
   },
   "oneOf": [
     {
       "properties": {
-        "action": { "const": "discover" },
-        "mode": { "const": "opportunity_discovery" }
+        "action": {
+          "const": "discover"
+        },
+        "mode": {
+          "const": "opportunity_discovery"
+        }
       },
       "required": ["action", "mode"]
     },
     {
       "properties": {
-        "action": { "const": "assess" },
-        "mode": { "const": "concept_evidence_assessment" }
+        "action": {
+          "const": "assess"
+        },
+        "mode": {
+          "const": "concept_evidence_assessment"
+        }
       },
       "required": ["action", "mode"]
     }

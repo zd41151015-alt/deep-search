@@ -405,21 +405,5 @@
       }
     ],
     "expected": [{ "surface": "schema", "keyword": "const" }]
-  },
-  {
-    "case_id": "adaptation-v1-read-compatible-policy-rejected",
-    "category": "versioning",
-    "mutations": [
-      {
-        "op": "set",
-        "path": ["documents", 5, "document", "schema_version"],
-        "value": "startup_opportunity.adaptation_decision.v1"
-      },
-      {
-        "op": "delete",
-        "path": ["documents", 5, "document", "coverage_attestation_ref"]
-      }
-    ],
-    "expected": [{ "surface": "contract", "code": "contract.adaptation_version_unsupported" }]
   }
 ]

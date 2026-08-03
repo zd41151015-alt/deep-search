@@ -2,14 +2,13 @@
   "schema_version": "startup_opportunity.discovery_maps_policy.v1",
   "policy_id": "startup_opportunity.g2_1_discovery_maps",
   "policy_version": "1.0.0",
-  "schema_bundle_version": "7.0.0",
   "artifact_contracts": {
     "scope_frame": "startup_opportunity.scope_frame.v2",
     "seed_probe": "startup_opportunity.seed_probe.v1",
     "opportunity_space_map": "startup_opportunity.opportunity_space_map.v1",
     "solution_space_map": "startup_opportunity.solution_space_map.v1",
-    "artifact_envelope": "startup_opportunity.artifact_envelope.v8",
-    "document_bundle": "startup_opportunity.document_bundle.v8"
+    "artifact_envelope": "startup_opportunity.artifact_envelope.current",
+    "document_bundle": "startup_opportunity.document_bundle.current"
   },
   "artifact_paths": {
     "seed_probe": "artifacts/discovery/seed-probe.r1.json",
@@ -84,7 +83,7 @@
   },
   "forbidden_formal_artifact_types": [
     "startup_opportunity.discovery_lane_result.v1",
-    "startup_opportunity.discovery_fan_in.v1",
+    "startup_opportunity.discovery_fan_in.v2",
     "startup_opportunity.demand_thesis.v1",
     "startup_opportunity.opportunity_thesis.v1",
     "startup_opportunity.solution_evaluation.v1",

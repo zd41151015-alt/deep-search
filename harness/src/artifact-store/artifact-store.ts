@@ -25,31 +25,18 @@ import {
   validateRelativePath,
   validateRunId,
 } from "./path-policy.js";
+import {
+  ARTIFACT_ENVELOPE_SCHEMA_VERSION,
+  ARTIFACT_RECEIPT_SCHEMA_VERSION,
+  DOCUMENT_BUNDLE_SCHEMA_VERSION,
+} from "./publication-policy.js";
 import { withRunLock } from "./run-lock.js";
 import { StoreError } from "./store-error.js";
 
 export type ArtifactFaultBoundary = "after_intent" | "after_temp_write" | "after_publish";
 
 export interface FormalArtifactEnvelope extends Record<string, unknown> {
-  readonly schema_version:
-    | "startup_opportunity.artifact_envelope.v1"
-    | "startup_opportunity.artifact_envelope.v2"
-    | "startup_opportunity.artifact_envelope.v3"
-    | "startup_opportunity.artifact_envelope.v4"
-    | "startup_opportunity.artifact_envelope.v5"
-    | "startup_opportunity.artifact_envelope.v6"
-    | "startup_opportunity.artifact_envelope.v7"
-    | "startup_opportunity.artifact_envelope.v8"
-    | "startup_opportunity.artifact_envelope.v10"
-    | "startup_opportunity.artifact_envelope.v11"
-    | "startup_opportunity.artifact_envelope.v12"
-    | "startup_opportunity.artifact_envelope.v13"
-    | "startup_opportunity.artifact_envelope.v14"
-    | "startup_opportunity.artifact_envelope.v15"
-    | "startup_opportunity.artifact_envelope.v16"
-    | "startup_opportunity.artifact_envelope.v17"
-    | "startup_opportunity.artifact_envelope.v18"
-    | "startup_opportunity.artifact_envelope.v19";
+  readonly schema_version: typeof ARTIFACT_ENVELOPE_SCHEMA_VERSION;
   readonly artifact_type: string;
   readonly artifact_path: string;
   readonly run_id: string;
@@ -61,24 +48,7 @@ export interface FormalArtifactEnvelope extends Record<string, unknown> {
 }
 
 interface ArtifactOperationReceipt {
-  readonly schema_version:
-    | "startup_opportunity.artifact_store_operation.v1"
-    | "startup_opportunity.artifact_store_operation.v2"
-    | "startup_opportunity.artifact_store_operation.v3"
-    | "startup_opportunity.artifact_store_operation.v4"
-    | "startup_opportunity.artifact_store_operation.v5"
-    | "startup_opportunity.artifact_store_operation.v6"
-    | "startup_opportunity.artifact_store_operation.v7"
-    | "startup_opportunity.artifact_store_operation.v8"
-    | "startup_opportunity.artifact_store_operation.v9"
-    | "startup_opportunity.artifact_store_operation.v10"
-    | "startup_opportunity.artifact_store_operation.v11"
-    | "startup_opportunity.artifact_store_operation.v12"
-    | "startup_opportunity.artifact_store_operation.v13"
-    | "startup_opportunity.artifact_store_operation.v14"
-    | "startup_opportunity.artifact_store_operation.v15"
-    | "startup_opportunity.artifact_store_operation.v16"
-    | "startup_opportunity.artifact_store_operation.v17";
+  readonly schema_version: typeof ARTIFACT_RECEIPT_SCHEMA_VERSION;
   readonly operation_key: string;
   readonly run_id: string;
   readonly artifact_path: string;
@@ -120,27 +90,6 @@ export interface ArtifactRecoveryResult {
   readonly removedTemporaryPaths: readonly string[];
 }
 
-const STORE_ENVELOPE_VERSIONS = new Set<string>([
-  "startup_opportunity.artifact_envelope.v1",
-  "startup_opportunity.artifact_envelope.v2",
-  "startup_opportunity.artifact_envelope.v3",
-  "startup_opportunity.artifact_envelope.v4",
-  "startup_opportunity.artifact_envelope.v5",
-  "startup_opportunity.artifact_envelope.v6",
-  "startup_opportunity.artifact_envelope.v7",
-  "startup_opportunity.artifact_envelope.v8",
-  "startup_opportunity.artifact_envelope.v10",
-  "startup_opportunity.artifact_envelope.v11",
-  "startup_opportunity.artifact_envelope.v12",
-  "startup_opportunity.artifact_envelope.v13",
-  "startup_opportunity.artifact_envelope.v14",
-  "startup_opportunity.artifact_envelope.v15",
-  "startup_opportunity.artifact_envelope.v16",
-  "startup_opportunity.artifact_envelope.v17",
-  "startup_opportunity.artifact_envelope.v18",
-  "startup_opportunity.artifact_envelope.v19",
-]);
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -148,7 +97,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isEnvelope(value: unknown): value is FormalArtifactEnvelope {
   return (
     isRecord(value) &&
-    STORE_ENVELOPE_VERSIONS.has(String(value.schema_version)) &&
+    value.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
     typeof value.artifact_path === "string" &&
     typeof value.run_id === "string" &&
     typeof value.artifact_type === "string" &&
@@ -201,25 +150,7 @@ function validateArtifactReceipt(
       "content_hash",
       "envelope",
     ]) ||
-    ![
-      "startup_opportunity.artifact_store_operation.v1",
-      "startup_opportunity.artifact_store_operation.v2",
-      "startup_opportunity.artifact_store_operation.v3",
-      "startup_opportunity.artifact_store_operation.v4",
-      "startup_opportunity.artifact_store_operation.v5",
-      "startup_opportunity.artifact_store_operation.v6",
-      "startup_opportunity.artifact_store_operation.v7",
-      "startup_opportunity.artifact_store_operation.v8",
-      "startup_opportunity.artifact_store_operation.v9",
-      "startup_opportunity.artifact_store_operation.v10",
-      "startup_opportunity.artifact_store_operation.v11",
-      "startup_opportunity.artifact_store_operation.v12",
-      "startup_opportunity.artifact_store_operation.v13",
-      "startup_opportunity.artifact_store_operation.v14",
-      "startup_opportunity.artifact_store_operation.v15",
-      "startup_opportunity.artifact_store_operation.v16",
-      "startup_opportunity.artifact_store_operation.v17",
-    ].includes(String(value.schema_version)) ||
+    value.schema_version !== ARTIFACT_RECEIPT_SCHEMA_VERSION ||
     !isSha256(value.operation_key) ||
     value.run_id !== runId ||
     !isEnvelope(value.envelope)
@@ -229,53 +160,10 @@ function validateArtifactReceipt(
     });
   }
   const receipt = value as unknown as ArtifactOperationReceipt;
-  const expectedReceiptVersion =
-    receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v1"
-      ? "startup_opportunity.artifact_store_operation.v1"
-      : receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v2" ||
-          receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v3"
-        ? "startup_opportunity.artifact_store_operation.v2"
-        : receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v4"
-          ? "startup_opportunity.artifact_store_operation.v3"
-          : receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v5"
-            ? "startup_opportunity.artifact_store_operation.v4"
-            : receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v6"
-              ? "startup_opportunity.artifact_store_operation.v5"
-              : receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v7"
-                ? "startup_opportunity.artifact_store_operation.v6"
-                : receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v8"
-                  ? "startup_opportunity.artifact_store_operation.v7"
-                  : receipt.envelope.schema_version === "startup_opportunity.artifact_envelope.v10"
-                    ? "startup_opportunity.artifact_store_operation.v8"
-                    : receipt.envelope.schema_version ===
-                        "startup_opportunity.artifact_envelope.v11"
-                      ? "startup_opportunity.artifact_store_operation.v9"
-                      : receipt.envelope.schema_version ===
-                          "startup_opportunity.artifact_envelope.v12"
-                        ? "startup_opportunity.artifact_store_operation.v10"
-                        : receipt.envelope.schema_version ===
-                            "startup_opportunity.artifact_envelope.v13"
-                          ? "startup_opportunity.artifact_store_operation.v11"
-                          : receipt.envelope.schema_version ===
-                              "startup_opportunity.artifact_envelope.v14"
-                            ? "startup_opportunity.artifact_store_operation.v12"
-                            : receipt.envelope.schema_version ===
-                                "startup_opportunity.artifact_envelope.v15"
-                              ? "startup_opportunity.artifact_store_operation.v13"
-                              : receipt.envelope.schema_version ===
-                                  "startup_opportunity.artifact_envelope.v16"
-                                ? "startup_opportunity.artifact_store_operation.v14"
-                                : receipt.envelope.schema_version ===
-                                    "startup_opportunity.artifact_envelope.v17"
-                                  ? "startup_opportunity.artifact_store_operation.v15"
-                                  : receipt.envelope.schema_version ===
-                                      "startup_opportunity.artifact_envelope.v18"
-                                    ? "startup_opportunity.artifact_store_operation.v16"
-                                    : "startup_opportunity.artifact_store_operation.v17";
   const expectedFilename = `artifact-${sha256Hex(receipt.operation_key)}.json`;
   if (
     filename !== expectedFilename ||
-    receipt.schema_version !== expectedReceiptVersion ||
+    receipt.schema_version !== ARTIFACT_RECEIPT_SCHEMA_VERSION ||
     receipt.operation_key !== expectedArtifactOperationKey(receipt.envelope) ||
     receipt.artifact_path !== receipt.envelope.artifact_path ||
     receipt.artifact_type !== receipt.envelope.artifact_type ||
@@ -427,72 +315,6 @@ async function assertReferenceExists(
 }
 
 function publicationRank(envelope: FormalArtifactEnvelope): number {
-  if (
-    envelope.schema_version === "startup_opportunity.artifact_envelope.v12" ||
-    envelope.schema_version === "startup_opportunity.artifact_envelope.v13" ||
-    envelope.schema_version === "startup_opportunity.artifact_envelope.v14" ||
-    envelope.schema_version === "startup_opportunity.artifact_envelope.v15" ||
-    envelope.schema_version === "startup_opportunity.artifact_envelope.v16" ||
-    envelope.schema_version === "startup_opportunity.artifact_envelope.v17" ||
-    envelope.schema_version === "startup_opportunity.artifact_envelope.v18" ||
-    envelope.schema_version === "startup_opportunity.artifact_envelope.v19"
-  ) {
-    const ranks: Readonly<Record<string, number>> = {
-      "startup_opportunity.research_task.v3": 10,
-      "startup_opportunity.evidence.v3": 20,
-      "startup_opportunity.claim.v3": 21,
-      "startup_opportunity.finding.v3": 22,
-      "startup_opportunity.insight.v3": 23,
-      "startup_opportunity.judgment_assessment.v3": 24,
-      "startup_opportunity.source_manifest.v3": 25,
-      "startup_opportunity.ai_capability_benchmark.v1": 26,
-      "startup_opportunity.ai_evaluation_reliability.v1": 27,
-      "startup_opportunity.ai_data_dependency.v1": 28,
-      "startup_opportunity.capability_evidence.v1": 29,
-      "startup_opportunity.ai_inference_unit_economics.v1": 30,
-      "startup_opportunity.capability_commoditization_risk.v1": 31,
-      "startup_opportunity.ai_adoption_trust.v1": 32,
-      "startup_opportunity.ai_mandatory_bundle.v1": 59,
-      "startup_opportunity.enrichment_branch_result.v1": 30,
-      "startup_opportunity.enrichment_fan_in.v1": 40,
-      "startup_opportunity.value_layer_analysis.v1": 50,
-      "startup_opportunity.user_state_context_model.v1": 51,
-      "startup_opportunity.buyer_purchase_language.v1": 52,
-      "startup_opportunity.business_engine_thesis.v2": 53,
-      "startup_opportunity.opportunity_comparison.v1": 60,
-      "startup_opportunity.sensitivity.v1": 70,
-      "startup_opportunity.portfolio_view.v1": 80,
-      "startup_opportunity.decision_recommendation.v1": 81,
-      "startup_opportunity.traceability.v2": 90,
-      "startup_opportunity.report.v1": 100,
-      "startup_opportunity.decision_brief.v2": 101,
-      "startup_opportunity.discovery_report_view.v1": 102,
-      "startup_opportunity.report_consistency_evaluation.v2": 103,
-      "startup_opportunity.report_consistency_evaluation.v3": 103,
-      "startup_opportunity.terminal_report_source.v1": 100,
-      "startup_opportunity.decision_brief.v3": 101,
-      "startup_opportunity.terminal_report_view.v1": 102,
-      "startup_opportunity.report_consistency_evaluation.v4": 103,
-      "startup_opportunity.research_execution_plan.v1": 1,
-      "startup_opportunity.dispatch_batch.v1": 2,
-      "startup_opportunity.lane_lifecycle.v1": 3,
-      "startup_opportunity.candidate_neutral_evidence.v1": 20,
-      "startup_opportunity.source_manifest.v4": 25,
-      "startup_opportunity.discovery_generation_result.v1": 30,
-      "startup_opportunity.discovery_stage_readiness.v1": 40,
-      "startup_opportunity.gap_snapshot.v3": 50,
-      "startup_opportunity.adaptation_decision.v2": 60,
-      "startup_opportunity.research_execution_plan.v2": 1,
-      "startup_opportunity.dispatch_batch.v2": 2,
-      "startup_opportunity.assessment_lane_result.v1": 30,
-      "startup_opportunity.assessment_stage_gate.v1": 40,
-      "startup_opportunity.assessment_followup_decision.v1": 50,
-    };
-    return ranks[envelope.artifact_type] ?? 199;
-  }
-  if (envelope.schema_version !== "startup_opportunity.artifact_envelope.v11") {
-    return 100;
-  }
   if (envelope.artifact_type === "startup_opportunity.discovery_candidate_conversion.v2") {
     switch (envelope.document.source_candidate_kind) {
       case "demand_seed":
@@ -506,6 +328,54 @@ function publicationRank(envelope: FormalArtifactEnvelope): number {
     }
   }
   const ranks: Readonly<Record<string, number>> = {
+    "startup_opportunity.research_task.v3": 10,
+    "startup_opportunity.evidence.v3": 20,
+    "startup_opportunity.claim.v3": 21,
+    "startup_opportunity.finding.v3": 22,
+    "startup_opportunity.insight.v3": 23,
+    "startup_opportunity.judgment_assessment.v3": 24,
+    "startup_opportunity.source_manifest.v3": 25,
+    "startup_opportunity.ai_capability_benchmark.v1": 26,
+    "startup_opportunity.ai_evaluation_reliability.v1": 27,
+    "startup_opportunity.ai_data_dependency.v1": 28,
+    "startup_opportunity.capability_evidence.v1": 29,
+    "startup_opportunity.ai_inference_unit_economics.v1": 30,
+    "startup_opportunity.capability_commoditization_risk.v1": 31,
+    "startup_opportunity.ai_adoption_trust.v1": 32,
+    "startup_opportunity.ai_mandatory_bundle.v1": 59,
+    "startup_opportunity.enrichment_branch_result.v1": 30,
+    "startup_opportunity.enrichment_fan_in.v1": 40,
+    "startup_opportunity.value_layer_analysis.v1": 50,
+    "startup_opportunity.user_state_context_model.v1": 51,
+    "startup_opportunity.buyer_purchase_language.v1": 52,
+    "startup_opportunity.business_engine_thesis.v2": 53,
+    "startup_opportunity.opportunity_comparison.v1": 60,
+    "startup_opportunity.sensitivity.v1": 70,
+    "startup_opportunity.portfolio_view.v1": 80,
+    "startup_opportunity.decision_recommendation.v1": 81,
+    "startup_opportunity.traceability.v2": 90,
+    "startup_opportunity.report.v1": 100,
+    "startup_opportunity.decision_brief.v2": 101,
+    "startup_opportunity.discovery_report_view.v1": 102,
+    "startup_opportunity.report_consistency_evaluation.v3": 103,
+    "startup_opportunity.terminal_report_source.v1": 100,
+    "startup_opportunity.decision_brief.v3": 101,
+    "startup_opportunity.terminal_report_view.v1": 102,
+    "startup_opportunity.report_consistency_evaluation.v4": 103,
+    "startup_opportunity.research_execution_plan.v1": 1,
+    "startup_opportunity.dispatch_batch.v1": 2,
+    "startup_opportunity.lane_lifecycle.v1": 3,
+    "startup_opportunity.candidate_neutral_evidence.v1": 20,
+    "startup_opportunity.source_manifest.v4": 25,
+    "startup_opportunity.discovery_generation_result.v1": 30,
+    "startup_opportunity.discovery_stage_readiness.v1": 40,
+    "startup_opportunity.gap_snapshot.discovery.readiness.current": 50,
+    "startup_opportunity.adaptation_decision.discovery.current": 60,
+    "startup_opportunity.research_execution_plan.v2": 1,
+    "startup_opportunity.dispatch_batch.v2": 2,
+    "startup_opportunity.assessment_lane_result.v1": 30,
+    "startup_opportunity.assessment_stage_gate.v1": 40,
+    "startup_opportunity.assessment_followup_decision.v1": 50,
     "startup_opportunity.demand_thesis.v1": 11,
     "startup_opportunity.baseline_option.v1": 21,
     "startup_opportunity.solution_hypothesis.v1": 31,
@@ -514,7 +384,7 @@ function publicationRank(envelope: FormalArtifactEnvelope): number {
     "startup_opportunity.thesis_evaluation_snapshot.v1": 60,
     "startup_opportunity.merge.v1": 70,
   };
-  return ranks[envelope.artifact_type] ?? 99;
+  return ranks[envelope.artifact_type] ?? 199;
 }
 
 export class ArtifactStore {
@@ -615,8 +485,7 @@ export class ArtifactStore {
     const stableOperationKey = computedOperationKey;
     const operationHex = sha256Hex(stableOperationKey);
     const receipt: ArtifactOperationReceipt = {
-      schema_version: this.validator.publicationAdapter(input.envelope.schema_version)
-        .receipt_version,
+      schema_version: ARTIFACT_RECEIPT_SCHEMA_VERSION,
       operation_key: stableOperationKey,
       run_id: input.runId,
       artifact_path: input.envelope.artifact_path,
@@ -807,17 +676,20 @@ export class ArtifactStore {
   }
 
   validateEnvelopeVersionBoundary(schemaVersion: unknown): void {
-    this.validator.publicationAdapter(schemaVersion);
+    this.validator.publicationPolicy.assertCurrentEnvelope(schemaVersion);
   }
 
   validateEnvelopeBoundary(runId: string, envelope: FormalArtifactEnvelope): void {
     this.validateEnvelopeVersionBoundary(envelope.schema_version);
-    const adapter = this.validator.publicationAdapter(envelope.schema_version);
-    if (adapter.blocked_artifact_types.includes(envelope.artifact_type)) {
+    const computedHash = canonicalContentHash(envelope.document);
+    if (computedHash !== envelope.content_hash) {
       throw new StoreError(
-        "artifact.adapter_blocked_type",
-        "Artifact type is not publishable through this envelope adapter",
-        { envelopeVersion: envelope.schema_version, artifactType: envelope.artifact_type },
+        "artifact.hash_mismatch",
+        "content hash does not match canonical document",
+        {
+          expected: computedHash,
+          actual: envelope.content_hash,
+        },
       );
     }
     const result = this.validator.validateDocument(envelope, envelope.artifact_path);
@@ -838,17 +710,6 @@ export class ArtifactStore {
         envelopeRunId: envelope.run_id,
         documentRunId: envelope.document.run_id,
       });
-    }
-    const computedHash = canonicalContentHash(envelope.document);
-    if (computedHash !== envelope.content_hash) {
-      throw new StoreError(
-        "artifact.hash_mismatch",
-        "content hash does not match canonical document",
-        {
-          expected: computedHash,
-          actual: envelope.content_hash,
-        },
-      );
     }
   }
 
@@ -939,59 +800,19 @@ export class ArtifactStore {
         await this.logs.readExactRecord(runRoot, envelopes[0]?.run_id ?? "", ref, parsed.path),
       );
     }
-    const envelopeVersions = documents
-      .map((entry) => entry.document.schema_version)
-      .filter((version) => STORE_ENVELOPE_VERSIONS.has(String(version)));
-    const bundleVersion = this.validator.publicationPolicy.highestBundleForEnvelopes(
-      envelopeVersions.length > 0
-        ? envelopeVersions
-        : envelopes.map((envelope) => envelope.schema_version),
-    );
-    if (
-      bundleVersion === "startup_opportunity.document_bundle.v5" ||
-      bundleVersion === "startup_opportunity.document_bundle.v6" ||
-      bundleVersion === "startup_opportunity.document_bundle.v7" ||
-      bundleVersion === "startup_opportunity.document_bundle.v8" ||
-      bundleVersion === "startup_opportunity.document_bundle.v10" ||
-      bundleVersion === "startup_opportunity.document_bundle.v11" ||
-      bundleVersion === "startup_opportunity.document_bundle.v12" ||
-      bundleVersion === "startup_opportunity.document_bundle.v13" ||
-      bundleVersion === "startup_opportunity.document_bundle.v14" ||
-      bundleVersion === "startup_opportunity.document_bundle.v15" ||
-      bundleVersion === "startup_opportunity.document_bundle.v16" ||
-      bundleVersion === "startup_opportunity.document_bundle.v17" ||
-      bundleVersion === "startup_opportunity.document_bundle.v18" ||
-      bundleVersion === "startup_opportunity.document_bundle.v19"
-    ) {
-      for (const record of await this.evidence.listRecordsLocked(
-        runRoot,
-        envelopes[0]?.run_id ?? "",
-      )) {
-        if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
-          exactJsonlRecords.set(`evidence/manifest.jsonl#${record.evidence_id}`, record);
-        }
+    for (const record of await this.evidence.listRecordsLocked(
+      runRoot,
+      envelopes[0]?.run_id ?? "",
+    )) {
+      if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
+        exactJsonlRecords.set(`evidence/manifest.jsonl#${record.evidence_id}`, record);
       }
     }
     const bundleResult = this.validator.validateDocumentBundle(
       {
-        schema_version: bundleVersion,
+        schema_version: DOCUMENT_BUNDLE_SCHEMA_VERSION,
         documents,
-        ...(bundleVersion === "startup_opportunity.document_bundle.v5" ||
-        bundleVersion === "startup_opportunity.document_bundle.v6" ||
-        bundleVersion === "startup_opportunity.document_bundle.v7" ||
-        bundleVersion === "startup_opportunity.document_bundle.v8" ||
-        bundleVersion === "startup_opportunity.document_bundle.v10" ||
-        bundleVersion === "startup_opportunity.document_bundle.v11" ||
-        bundleVersion === "startup_opportunity.document_bundle.v12" ||
-        bundleVersion === "startup_opportunity.document_bundle.v13" ||
-        bundleVersion === "startup_opportunity.document_bundle.v14" ||
-        bundleVersion === "startup_opportunity.document_bundle.v15" ||
-        bundleVersion === "startup_opportunity.document_bundle.v16" ||
-        bundleVersion === "startup_opportunity.document_bundle.v17" ||
-        bundleVersion === "startup_opportunity.document_bundle.v18" ||
-        bundleVersion === "startup_opportunity.document_bundle.v19"
-          ? { exact_records: [] }
-          : {}),
+        exact_records: [],
       },
       { ...referenceContext, exactJsonlRecords },
     );

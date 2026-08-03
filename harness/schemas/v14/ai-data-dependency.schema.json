@@ -20,11 +20,21 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.ai_data_dependency.v1" },
-    "data_dependency_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
-    "lineage": { "$ref": "ai-contract-definitions.schema.json#/$defs/lineage" },
-    "research_mode": { "$ref": "ai-contract-definitions.schema.json#/$defs/researchMode" },
+    "schema_version": {
+      "const": "startup_opportunity.ai_data_dependency.v1"
+    },
+    "data_dependency_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/runId"
+    },
+    "lineage": {
+      "$ref": "ai-contract-definitions.schema.json#/$defs/lineage"
+    },
+    "research_mode": {
+      "$ref": "ai-contract-definitions.schema.json#/$defs/researchMode"
+    },
     "data_requirements": {
       "type": "array",
       "minItems": 1,
@@ -40,8 +50,12 @@
           "evidence_refs"
         ],
         "properties": {
-          "data_kind": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-          "purpose": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
+          "data_kind": {
+            "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "purpose": {
+            "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+          },
           "rights_basis": {
             "enum": [
               "explicit_permission",
@@ -52,9 +66,15 @@
               "unknown"
             ]
           },
-          "availability": { "enum": ["available", "partial", "unavailable", "unknown"] },
-          "retention_boundary": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-          "evidence_refs": { "$ref": "ai-contract-definitions.schema.json#/$defs/evidenceRefs" }
+          "availability": {
+            "enum": ["available", "partial", "unavailable", "unknown"]
+          },
+          "retention_boundary": {
+            "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "evidence_refs": {
+            "$ref": "ai-contract-definitions.schema.json#/$defs/evidenceRefs"
+          }
         }
       }
     },
@@ -63,9 +83,15 @@
       "additionalProperties": false,
       "required": ["status", "source", "collection_boundary", "judgment_assessment_refs"],
       "properties": {
-        "status": { "enum": ["available", "partial", "unavailable", "unknown"] },
-        "source": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-        "collection_boundary": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
+        "status": {
+          "enum": ["available", "partial", "unavailable", "unknown"]
+        },
+        "source": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "collection_boundary": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        },
         "judgment_assessment_refs": {
           "$ref": "ai-contract-definitions.schema.json#/$defs/assessmentRefs"
         }
@@ -76,10 +102,18 @@
       "additionalProperties": false,
       "required": ["status", "signal", "frequency", "moat_status"],
       "properties": {
-        "status": { "enum": ["available", "limited", "unavailable", "unknown"] },
-        "signal": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-        "frequency": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-        "moat_status": { "enum": ["credible", "weak", "none", "unknown"] }
+        "status": {
+          "enum": ["available", "limited", "unavailable", "unknown"]
+        },
+        "signal": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "frequency": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "moat_status": {
+          "enum": ["credible", "weak", "none", "unknown"]
+        }
       }
     },
     "provider_portability": {
@@ -90,8 +124,12 @@
         "status": {
           "enum": ["provider_independent", "portable_with_cost", "provider_locked", "unknown"]
         },
-        "export_format": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-        "switching_boundary": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+        "export_format": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "switching_boundary": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        }
       }
     },
     "privacy_boundary": {
@@ -106,16 +144,34 @@
         "accountability_owner"
       ],
       "properties": {
-        "risk_level": { "enum": ["low", "medium", "high", "regulated", "unknown"] },
-        "permission_model": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-        "deletion_status": { "enum": ["supported", "partial", "unsupported", "unknown"] },
-        "export_status": { "enum": ["supported", "partial", "unsupported", "unknown"] },
-        "regulated_data": { "type": "boolean" },
-        "accountability_owner": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+        "risk_level": {
+          "enum": ["low", "medium", "high", "regulated", "unknown"]
+        },
+        "permission_model": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "deletion_status": {
+          "enum": ["supported", "partial", "unsupported", "unknown"]
+        },
+        "export_status": {
+          "enum": ["supported", "partial", "unsupported", "unknown"]
+        },
+        "regulated_data": {
+          "type": "boolean"
+        },
+        "accountability_owner": {
+          "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+        }
       }
     },
-    "freshness": { "$ref": "ai-contract-definitions.schema.json#/$defs/freshness" },
-    "source_boundary": { "$ref": "ai-contract-definitions.schema.json#/$defs/sourceBoundary" },
-    "limitations": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" }
+    "freshness": {
+      "$ref": "ai-contract-definitions.schema.json#/$defs/freshness"
+    },
+    "source_boundary": {
+      "$ref": "ai-contract-definitions.schema.json#/$defs/sourceBoundary"
+    },
+    "limitations": {
+      "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray"
+    }
   }
 }

@@ -25,22 +25,48 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.merge.v1" },
-    "merge_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "revision": { "type": "integer", "minimum": 1 },
-    "parent_merge_ref": {
-      "anyOf": [{ "$ref": "definitions.schema.json#/$defs/mergeRef" }, { "type": "null" }]
+    "schema_version": {
+      "const": "startup_opportunity.merge.v1"
     },
-    "parent_content_hash": { "$ref": "definitions.schema.json#/$defs/nullableHash" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "scope_frame_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "research_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
-    "source_snapshot_ref": { "$ref": "definitions.schema.json#/$defs/snapshotRef" },
+    "merge_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "parent_merge_ref": {
+      "anyOf": [
+        {
+          "$ref": "definitions.schema.json#/$defs/mergeRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "parent_content_hash": {
+      "$ref": "definitions.schema.json#/$defs/nullableHash"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "scope_frame_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_plan_ref": {
+      "$ref": "../v1/definitions.schema.json#/$defs/planRef"
+    },
+    "source_snapshot_ref": {
+      "$ref": "definitions.schema.json#/$defs/snapshotRef"
+    },
     "source_thesis_refs": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "definitions.schema.json#/$defs/opportunityRef" }
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/opportunityRef"
+      }
     },
     "merged_opportunities": {
       "type": "array",
@@ -50,13 +76,19 @@
         "additionalProperties": false,
         "required": ["cluster_id", "canonical_opportunity_ref", "member_thesis_refs"],
         "properties": {
-          "cluster_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-          "canonical_opportunity_ref": { "$ref": "definitions.schema.json#/$defs/opportunityRef" },
+          "cluster_id": {
+            "$ref": "definitions.schema.json#/$defs/identifier"
+          },
+          "canonical_opportunity_ref": {
+            "$ref": "definitions.schema.json#/$defs/opportunityRef"
+          },
           "member_thesis_refs": {
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
-            "items": { "$ref": "definitions.schema.json#/$defs/opportunityRef" }
+            "items": {
+              "$ref": "definitions.schema.json#/$defs/opportunityRef"
+            }
           }
         }
       }
@@ -77,14 +109,22 @@
           "rationale"
         ],
         "properties": {
-          "decision_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-          "cluster_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-          "decision": { "enum": ["merge", "preserve", "split"] },
+          "decision_id": {
+            "$ref": "definitions.schema.json#/$defs/identifier"
+          },
+          "cluster_id": {
+            "$ref": "definitions.schema.json#/$defs/identifier"
+          },
+          "decision": {
+            "enum": ["merge", "preserve", "split"]
+          },
           "member_thesis_refs": {
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
-            "items": { "$ref": "definitions.schema.json#/$defs/opportunityRef" }
+            "items": {
+              "$ref": "definitions.schema.json#/$defs/opportunityRef"
+            }
           },
           "semantic_basis": {
             "type": "object",
@@ -99,25 +139,43 @@
               "acquisition_or_compliance_boundary"
             ],
             "properties": {
-              "user": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-              "job": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-              "entry_scene": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-              "baseline": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-              "solution": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-              "buyer_logic": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+              "user": {
+                "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+              },
+              "job": {
+                "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+              },
+              "entry_scene": {
+                "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+              },
+              "baseline": {
+                "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+              },
+              "solution": {
+                "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+              },
+              "buyer_logic": {
+                "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+              },
               "acquisition_or_compliance_boundary": {
                 "$ref": "definitions.schema.json#/$defs/nonEmptyString"
               }
             }
           },
-          "title_similarity_only": { "const": false },
-          "rationale": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" }
+          "title_similarity_only": {
+            "const": false
+          },
+          "rationale": {
+            "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+          }
         }
       }
     },
     "preserved_variants": {
       "type": "array",
-      "items": { "$ref": "definitions.schema.json#/$defs/opportunityRef" },
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/opportunityRef"
+      },
       "uniqueItems": true
     },
     "candidate_diversity_after_merge": {
@@ -131,31 +189,64 @@
         "known_blind_spots"
       ],
       "properties": {
-        "covered_users": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "covered_jobs": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "covered_entry_scenes": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "covered_buyer_models": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        "known_blind_spots": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+        "covered_users": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "covered_jobs": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "covered_entry_scenes": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "covered_buyer_models": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "known_blind_spots": {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        }
       }
     },
-    "conflicts": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "audit_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" },
-    "source_boundary": { "$ref": "definitions.schema.json#/$defs/synthesisBoundary" },
-    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+    "conflicts": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "audit_refs": {
+      "$ref": "definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "source_boundary": {
+      "$ref": "definitions.schema.json#/$defs/synthesisBoundary"
+    },
+    "limitations": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    }
   },
   "allOf": [
     {
-      "if": { "properties": { "revision": { "const": 1 } }, "required": ["revision"] },
+      "if": {
+        "properties": {
+          "revision": {
+            "const": 1
+          }
+        },
+        "required": ["revision"]
+      },
       "then": {
         "properties": {
-          "parent_merge_ref": { "type": "null" },
-          "parent_content_hash": { "type": "null" }
+          "parent_merge_ref": {
+            "type": "null"
+          },
+          "parent_content_hash": {
+            "type": "null"
+          }
         }
       },
       "else": {
         "properties": {
-          "parent_merge_ref": { "$ref": "definitions.schema.json#/$defs/mergeRef" },
-          "parent_content_hash": { "$ref": "definitions.schema.json#/$defs/sha256" }
+          "parent_merge_ref": {
+            "$ref": "definitions.schema.json#/$defs/mergeRef"
+          },
+          "parent_content_hash": {
+            "$ref": "definitions.schema.json#/$defs/sha256"
+          }
         }
       }
     }

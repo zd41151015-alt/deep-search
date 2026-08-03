@@ -16,6 +16,7 @@
   },
   "include": [
     "harness/src/**/*.ts",
+    "scripts/**/*.ts",
     "tests/**/*.ts",
     ".agents/skills/startup-opportunity/scripts/**/*.ts"
   ]

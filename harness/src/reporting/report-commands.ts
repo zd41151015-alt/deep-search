@@ -70,7 +70,7 @@ function effectiveType(entry: unknown): string | null {
   const document = entry.document;
   if (
     typeof document.schema_version === "string" &&
-    document.schema_version.startsWith("startup_opportunity.artifact_envelope.") &&
+    document.schema_version === "startup_opportunity.artifact_envelope.current" &&
     typeof document.artifact_type === "string"
   ) {
     return document.artifact_type;
@@ -140,10 +140,7 @@ export async function runAuditTraceability(
         "startup_opportunity.decision_brief.v2",
         "startup_opportunity.discovery_report_view.v1",
       ];
-      const discoveryConsistencyTypes = [
-        "startup_opportunity.report_consistency_evaluation.v2",
-        "startup_opportunity.report_consistency_evaluation.v3",
-      ];
+      const discoveryConsistencyTypes = ["startup_opportunity.report_consistency_evaluation.v3"];
       const discoveryMode =
         discoveryRequiredTypes.some((type) => (counts.get(type) ?? 0) > 0) ||
         [...discoveryReportTypes, ...discoveryConsistencyTypes].some(
@@ -167,7 +164,6 @@ export async function runAuditTraceability(
       const valid = validation.valid && missingTypes.length === 0;
       return {
         schemaVersion: "startup_opportunity.traceability_audit_result.v1",
-        schemaBundleVersion: validation.schemaBundleVersion,
         valid,
         inputPath,
         requiredArtifactCounts: Object.fromEntries(

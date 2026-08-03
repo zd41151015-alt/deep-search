@@ -26,12 +26,24 @@
     "validation_success_claimed"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.judgment_assessment.v2" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "unit_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "lineage": { "$ref": "definitions.schema.json#/$defs/discoveryLineage" },
-    "judgment_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "subject_ref": { "$ref": "definitions.schema.json#/$defs/candidateRef" },
+    "schema_version": {
+      "const": "startup_opportunity.judgment_assessment.v2"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "lineage": {
+      "$ref": "definitions.schema.json#/$defs/discoveryLineage"
+    },
+    "judgment_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "subject_ref": {
+      "$ref": "definitions.schema.json#/$defs/candidateRef"
+    },
     "dimension": {
       "enum": [
         "demand_signal",
@@ -50,69 +62,143 @@
     },
     "evidence_tier_summary": {
       "type": "array",
-      "items": { "$ref": "../v4/definitions.schema.json#/$defs/evidenceTier" },
+      "items": {
+        "$ref": "../v4/definitions.schema.json#/$defs/evidenceTier"
+      },
       "uniqueItems": true
     },
     "supporting_refs": {
       "type": "array",
-      "items": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/artifactRef"
+      },
       "uniqueItems": true
     },
     "opposing_refs": {
       "type": "array",
-      "items": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+      "items": {
+        "$ref": "definitions.schema.json#/$defs/artifactRef"
+      },
       "uniqueItems": true
     },
-    "representativeness": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "independence": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "decision_sufficiency": { "enum": ["sufficient_for_triage", "insufficient", "blocked"] },
-    "insufficiency_reasons": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
+    "representativeness": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "independence": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "decision_sufficiency": {
+      "enum": ["sufficient_for_triage", "insufficient", "blocked"]
+    },
+    "insufficiency_reasons": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
     "what_would_change_the_decision": {
       "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
     },
-    "valid_as_of": { "type": "string", "format": "date" },
+    "valid_as_of": {
+      "type": "string",
+      "format": "date"
+    },
     "limitations": {
       "allOf": [
-        { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-        { "type": "array", "minItems": 1 }
+        {
+          "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        {
+          "type": "array",
+          "minItems": 1
+        }
       ]
     },
-    "validation_success_claimed": { "const": false }
+    "validation_success_claimed": {
+      "const": false
+    }
   },
   "allOf": [
     {
       "if": {
-        "properties": { "judgment_signal": { "const": "supported" } },
-        "required": ["judgment_signal"]
-      },
-      "then": { "properties": { "supporting_refs": { "type": "array", "minItems": 1 } } }
-    },
-    {
-      "if": {
-        "properties": { "judgment_signal": { "const": "opposed" } },
-        "required": ["judgment_signal"]
-      },
-      "then": { "properties": { "opposing_refs": { "type": "array", "minItems": 1 } } }
-    },
-    {
-      "if": {
-        "properties": { "judgment_signal": { "const": "mixed" } },
+        "properties": {
+          "judgment_signal": {
+            "const": "supported"
+          }
+        },
         "required": ["judgment_signal"]
       },
       "then": {
         "properties": {
-          "supporting_refs": { "type": "array", "minItems": 1 },
-          "opposing_refs": { "type": "array", "minItems": 1 }
+          "supporting_refs": {
+            "type": "array",
+            "minItems": 1
+          }
         }
       }
     },
     {
       "if": {
-        "properties": { "decision_sufficiency": { "enum": ["insufficient", "blocked"] } },
+        "properties": {
+          "judgment_signal": {
+            "const": "opposed"
+          }
+        },
+        "required": ["judgment_signal"]
+      },
+      "then": {
+        "properties": {
+          "opposing_refs": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "judgment_signal": {
+            "const": "mixed"
+          }
+        },
+        "required": ["judgment_signal"]
+      },
+      "then": {
+        "properties": {
+          "supporting_refs": {
+            "type": "array",
+            "minItems": 1
+          },
+          "opposing_refs": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision_sufficiency": {
+            "enum": ["insufficient", "blocked"]
+          }
+        },
         "required": ["decision_sufficiency"]
       },
-      "then": { "properties": { "insufficiency_reasons": { "type": "array", "minItems": 1 } } },
-      "else": { "properties": { "insufficiency_reasons": { "type": "array", "maxItems": 0 } } }
+      "then": {
+        "properties": {
+          "insufficiency_reasons": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "insufficiency_reasons": {
+            "type": "array",
+            "maxItems": 0
+          }
+        }
+      }
     }
   ]
 }

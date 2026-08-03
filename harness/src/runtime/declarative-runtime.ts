@@ -36,7 +36,7 @@ export interface RuntimeArtifactCompilationResult {
   readonly current_leaf_run_id: string;
   readonly compiled_envelopes: readonly FormalArtifactEnvelope[];
   readonly validation_closure: {
-    readonly document_bundle_version: string;
+    readonly document_bundle_schema_version: "startup_opportunity.document_bundle.current";
     readonly document_count: number;
     readonly exact_record_count: number;
   };
@@ -169,16 +169,10 @@ export class DeclarativeRuntimeCompiler {
     );
     if (artifactFamilies.size !== 1) {
       throw new StoreError(
-        "runtime.compilation_version_mixed",
-        "one compilation request cannot mix v18 runtime and v19 Assessment execution artifacts",
+        "runtime.compilation_artifact_family_mixed",
+        "one compilation request cannot mix Discovery and Assessment execution artifacts",
       );
     }
-    const envelopeVersion = artifactFamilies.has("assessment")
-      ? "startup_opportunity.artifact_envelope.v19"
-      : "startup_opportunity.artifact_envelope.v18";
-    const bundleVersion = artifactFamilies.has("assessment")
-      ? "startup_opportunity.document_bundle.v19"
-      : "startup_opportunity.document_bundle.v18";
     const envelopes = request.artifacts.map((artifact): FormalArtifactEnvelope => {
       const documentValidation = this.validator.validateDocument(
         artifact.document,
@@ -213,7 +207,7 @@ export class DeclarativeRuntimeCompiler {
         .filter((ref) => ref.split("#", 1)[0] !== artifact.artifact_path)
         .sort();
       const envelope: FormalArtifactEnvelope = {
-        schema_version: envelopeVersion,
+        schema_version: "startup_opportunity.artifact_envelope.current",
         artifact_type: artifact.artifact_type,
         artifact_path: artifact.artifact_path,
         run_id: request.run_id,
@@ -227,7 +221,7 @@ export class DeclarativeRuntimeCompiler {
       if (!envelopeValidation.valid) {
         throw new StoreError(
           "runtime.compilation_envelope_invalid",
-          "compiled envelope violates its public versioned runtime contract",
+          "compiled envelope violates the current runtime contract",
           { artifactPath: artifact.artifact_path, errors: envelopeValidation.errors },
         );
       }
@@ -237,7 +231,7 @@ export class DeclarativeRuntimeCompiler {
 
     const closureStarted = performance.now();
     const initialBundle: DocumentBundle = {
-      schema_version: bundleVersion,
+      schema_version: "startup_opportunity.document_bundle.current",
       documents: envelopes.map((envelope) => ({
         path: envelope.artifact_path,
         document: envelope,
@@ -305,7 +299,7 @@ export class DeclarativeRuntimeCompiler {
       current_leaf_run_id: request.run_id,
       compiled_envelopes: envelopes,
       validation_closure: {
-        document_bundle_version: context.bundle.schema_version,
+        document_bundle_schema_version: context.bundle.schema_version,
         document_count: context.bundle.documents.length,
         exact_record_count: context.referenceContext.exactJsonlRecords?.size ?? 0,
       },

@@ -15,7 +15,6 @@ export const PLAN_REVISION_APPLY_POLICY_PATH =
 export interface PlanRevisionApplyPolicy extends Record<string, unknown> {
   readonly schema_version: "startup_opportunity.plan_revision_apply_policy.v1";
   readonly policy_version: "1.0.0";
-  readonly compatible_schema_bundle_versions: readonly ["18.0.0"];
   readonly operation_identity: "canonical_parent_plan_hash_and_sorted_adaptation_refs.v1";
   readonly new_unit_placement: {
     readonly add_unit: "single_new_followup_wave_after_all_current_leaf_waves";

@@ -4,8 +4,10 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  AI_TRIGGER_SOURCE_POLICY_PATH,
   canonicalContentHash,
   createArtifactValidator,
+  createAssessmentPlanningContractEvaluator,
   createPlanningContractEvaluator,
   loadSchemaBundle,
   type PlanningContractValidationResult,
@@ -30,7 +32,7 @@ interface ExpectedIssue {
 
 interface NegativeContractCase {
   readonly case_id: string;
-  readonly category: "planning_context" | "mode_policy" | "coverage" | "retry" | "versioning";
+  readonly category: "planning_context" | "mode_policy" | "coverage" | "retry";
   readonly mutations: readonly Mutation[];
   readonly expected: readonly ExpectedIssue[];
 }
@@ -126,12 +128,26 @@ async function loadFixtures(): Promise<{
   };
 }
 
+test("Discovery and Assessment share the current AI trigger source policy", async () => {
+  const policy = (await readJson(path.join(repositoryRoot, AI_TRIGGER_SOURCE_POLICY_PATH))) as {
+    readonly schema_version?: unknown;
+  };
+  assert.equal(
+    policy.schema_version,
+    "startup_opportunity.ai_trigger_source_binding_policy.current",
+  );
+
+  await Promise.all([
+    createPlanningContractEvaluator(repositoryRoot),
+    createAssessmentPlanningContractEvaluator(repositoryRoot),
+  ]);
+});
+
 test("Planning Context binds current Run/Plan state and drives complete AI coverage", async () => {
   const evaluator = await createPlanningContractEvaluator(repositoryRoot);
   const { valid } = await loadFixtures();
   const result = evaluator.validateDocumentBundle(valid);
   assert.equal(result.valid, true, JSON.stringify(allIssues(result)));
-  assert.equal(result.schemaBundleVersion, "18.0.0");
   assert.equal(result.policyVersion, "1.0.0");
   assert.equal(result.triggerSourcePolicyVersion, "1.0.0");
 
@@ -277,31 +293,22 @@ test("closed mode policy accepts exact declared tuples and preserves installed o
 
   const bundle = await loadSchemaBundle(repositoryRoot);
   const policy = await readJson<{
-    artifact_schema_catalog: { schema_id: string; availability: string }[];
+    artifact_schema_catalog: string[];
     phase_catalog: unknown[];
     unit_rules: { unit_type: string }[];
   }>(path.join(repositoryRoot, "harness/policies/adaptation.v1.json"));
   assert.equal(policy.phase_catalog.length, 5);
   assert.equal(new Set(policy.unit_rules.map((rule) => rule.unit_type)).size, 23);
-  assert.ok(
-    policy.artifact_schema_catalog.every((entry) => entry.availability === "future_declared"),
-  );
   const installedOwnedSchemas = new Set([
     "startup_opportunity.discovery_lane_result.v1",
     "startup_opportunity.enrichment_branch_result.v1",
     "startup_opportunity.concept_evidence_assessment_branch_result.v1",
     "startup_opportunity.adversarial_review.v1",
   ]);
-  for (const schemaId of installedOwnedSchemas) {
-    assert.ok(policy.artifact_schema_catalog.some((entry) => entry.schema_id === schemaId));
+  assert.deepEqual(new Set(policy.artifact_schema_catalog), installedOwnedSchemas);
+  for (const schemaId of policy.artifact_schema_catalog) {
     assert.ok(bundle.validators.has(schemaId));
   }
-  assert.ok(
-    policy.artifact_schema_catalog
-      .filter((entry) => !installedOwnedSchemas.has(entry.schema_id))
-      .every((entry) => !bundle.validators.has(entry.schema_id)),
-    "only schemas outside completed owning slices may remain uninstalled",
-  );
 });
 
 test("coverage attestation verifies canonical key, exact relation, subject, and unit state", async () => {
@@ -339,7 +346,7 @@ test("retry_unit accepts failed_units only and rejects completed, active, and pa
   assert.equal(evaluator.validateDocumentBundle(valid).valid, true);
 });
 
-test("installed G3.1 output remains closed until its owning publication contract allows it", async () => {
+test("current G3.1 output is installed and incomplete documents fail their schema", async () => {
   const evaluator = await createPlanningContractEvaluator(repositoryRoot);
   const artifactValidator = await createArtifactValidator(repositoryRoot);
   const { valid } = await loadFixtures();
@@ -354,23 +361,7 @@ test("installed G3.1 output remains closed until its owning publication contract
   const envelope = await readJson(path.join(fixtureRoot, "future-declared-artifact-envelope.json"));
   const envelopeResult = artifactValidator.validateDocument(envelope);
   assert.equal(envelopeResult.valid, false);
-  assert.ok(envelopeResult.errors.some((issue) => issue.keyword === "enum"));
-});
-
-test("installed v1 Adaptation Decision cannot enter the current v2 policy validation", async () => {
-  const evaluator = await createPlanningContractEvaluator(repositoryRoot);
-  const { valid, negative } = await loadFixtures();
-  const fixture = negative.find((candidate) => candidate.category === "versioning");
-  assert.ok(fixture);
-  const result = evaluator.validateDocumentBundle(applyMutations(valid, fixture.mutations));
-  assertExpectedIssues(result, fixture);
-  assert.ok(
-    result.documentBundle.documents.some(
-      (document) =>
-        document.artifactSchemaVersion === "startup_opportunity.adaptation_decision.v1" &&
-        document.valid,
-    ),
-  );
+  assert.ok(envelopeResult.errors.some((issue) => issue.keyword === "required"));
 });
 
 test("planning contract failures are byte-stable", async () => {

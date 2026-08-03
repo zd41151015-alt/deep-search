@@ -35,16 +35,16 @@
       "type": "array",
       "minItems": 1,
       "items": {
-        "$ref": "artifact-envelope.schema.json"
+        "$ref": "https://startup-opportunity.local/schemas/current/artifact-envelope.schema.json"
       }
     },
     "validation_closure": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["document_bundle_version", "document_count", "exact_record_count"],
+      "required": ["document_bundle_schema_version", "document_count", "exact_record_count"],
       "properties": {
-        "document_bundle_version": {
-          "const": "startup_opportunity.document_bundle.v19"
+        "document_bundle_schema_version": {
+          "const": "startup_opportunity.document_bundle.current"
         },
         "document_count": {
           "type": "integer",
@@ -61,10 +61,22 @@
       "additionalProperties": false,
       "required": ["compilation", "closure_validation", "publication", "total"],
       "properties": {
-        "compilation": { "type": "number", "minimum": 0 },
-        "closure_validation": { "type": "number", "minimum": 0 },
-        "publication": { "type": "number", "minimum": 0 },
-        "total": { "type": "number", "minimum": 0 }
+        "compilation": {
+          "type": "number",
+          "minimum": 0
+        },
+        "closure_validation": {
+          "type": "number",
+          "minimum": 0
+        },
+        "publication": {
+          "type": "number",
+          "minimum": 0
+        },
+        "total": {
+          "type": "number",
+          "minimum": 0
+        }
       }
     },
     "publication": {

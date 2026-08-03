@@ -29,16 +29,29 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.assessment_evidence.v1" },
-    "evidence_id": { "type": "string", "pattern": "^ev_[a-f0-9]{64}$" },
-    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
-    "unit_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+    "schema_version": {
+      "const": "startup_opportunity.assessment_evidence.v1"
+    },
+    "evidence_id": {
+      "type": "string",
+      "pattern": "^ev_[a-f0-9]{64}$"
+    },
+    "run_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
     "dispatch_batch_ref": {
       "type": "string",
       "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z0-9][A-Za-z0-9._-]*$"
     },
-    "concept_hypothesis_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
-    "research_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
+    "concept_hypothesis_ref": {
+      "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_plan_ref": {
+      "$ref": "../v1/definitions.schema.json#/$defs/planRef"
+    },
     "execution_plan_ref": {
       "type": "string",
       "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
@@ -52,19 +65,40 @@
         "user_existing_record"
       ]
     },
-    "source_name": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-    "research_goal": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-    "source_group_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+    "source_name": {
+      "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "research_goal": {
+      "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "source_group_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
     "mechanical_binding": {
       "$ref": "../v9/evidence-v2.schema.json#/properties/mechanical_binding"
     },
-    "provenance": { "$ref": "../v9/evidence-v2.schema.json#/properties/provenance" },
-    "source_assessment": { "$ref": "../v9/evidence-v2.schema.json#/properties/source_assessment" },
-    "evidence_tier": { "$ref": "../v4/definitions.schema.json#/$defs/evidenceTier" },
-    "evidence_lifecycle_status": { "enum": ["active", "superseded", "stale", "unverified"] },
-    "evidence_role": { "enum": ["support", "oppose", "context"] },
-    "representativeness": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
-    "valid_as_of": { "type": "string", "format": "date" },
+    "provenance": {
+      "$ref": "../v9/evidence-v2.schema.json#/properties/provenance"
+    },
+    "source_assessment": {
+      "$ref": "../v9/evidence-v2.schema.json#/properties/source_assessment"
+    },
+    "evidence_tier": {
+      "$ref": "../v4/definitions.schema.json#/$defs/evidenceTier"
+    },
+    "evidence_lifecycle_status": {
+      "enum": ["active", "superseded", "stale", "unverified"]
+    },
+    "evidence_role": {
+      "enum": ["support", "oppose", "context"]
+    },
+    "representativeness": {
+      "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "valid_as_of": {
+      "type": "string",
+      "format": "date"
+    },
     "freshness_policy": {
       "enum": [
         "revalidate_on_product_or_market_change",
@@ -77,7 +111,9 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+      "items": {
+        "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+      }
     }
   }
 }

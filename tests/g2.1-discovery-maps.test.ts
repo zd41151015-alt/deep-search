@@ -300,34 +300,32 @@ test("all four G2.1 discovery profiles validate as closed synthetic map bundles"
     const bundle = await createDiscoveryMapsFixture(profile);
     const result = validator.validateDocumentBundle(bundle);
     assert.equal(result.valid, true, `${profile}: ${JSON.stringify(result)}`);
-    assert.equal(result.schemaBundleVersion, "18.0.0");
     assert.equal(fixtureDocument(bundle, G21_SEED_REF).discovery_profile, profile);
   }
 });
 
-test("G2.1 maps accept the current harness Plan revision envelope only as the exact v3 pair", async (t) => {
+test("G2.1 maps accept current main-agent and harness Plan envelopes", async (t) => {
   const validator = await createArtifactValidator(repositoryRoot);
 
-  await t.test("accepts v3 harness Plan revision envelope", async () => {
-    const bundle = await createDiscoveryMapsFixture("hybrid");
-    const planEnvelope = envelopeRecord(bundle, G21_PLAN_REF);
-    planEnvelope.schema_version = "startup_opportunity.artifact_envelope.v3";
-    planEnvelope.producer_role = "harness";
-
-    const result = validator.validateDocumentBundle(bundle);
-    assert.equal(result.valid, true, JSON.stringify(result));
-  });
+  for (const producerRole of ["main_agent", "harness"] as const) {
+    await t.test(`accepts ${producerRole} Plan envelope`, async () => {
+      const bundle = await createDiscoveryMapsFixture("hybrid");
+      envelopeRecord(bundle, G21_PLAN_REF).producer_role = producerRole;
+      const result = validator.validateDocumentBundle(bundle);
+      assert.equal(result.valid, true, JSON.stringify(result));
+    });
+  }
 
   for (const mismatch of [
     {
-      name: "rejects v3 main-agent Plan envelope",
-      schemaVersion: "startup_opportunity.artifact_envelope.v3",
-      producerRole: "main_agent",
+      name: "rejects non-current Plan envelope",
+      schemaVersion: "startup_opportunity.artifact_envelope.retired",
+      producerRole: "harness",
     },
     {
-      name: "rejects v8 harness Plan envelope",
-      schemaVersion: "startup_opportunity.artifact_envelope.v8",
-      producerRole: "harness",
+      name: "rejects non-owner Plan producer",
+      schemaVersion: "startup_opportunity.artifact_envelope.current",
+      producerRole: "lane_researcher",
     },
   ] as const) {
     await t.test(mismatch.name, async () => {
@@ -337,7 +335,14 @@ test("G2.1 maps accept the current harness Plan revision envelope only as the ex
       planEnvelope.producer_role = mismatch.producerRole;
 
       const codes = await allCodes(bundle);
-      assert.ok(codes.includes("discovery_maps.envelope_binding_mismatch"), JSON.stringify(codes));
+      assert.ok(
+        codes.includes(
+          mismatch.schemaVersion === "startup_opportunity.artifact_envelope.current"
+            ? "discovery_maps.envelope_binding_mismatch"
+            : "schema.unknown_version",
+        ),
+        JSON.stringify(codes),
+      );
     });
   }
 });
@@ -425,7 +430,6 @@ test("first map publication is an explicit three-map bundle and exact replay is 
 
   const loaded = await store.load(runId);
   assert.equal(loaded.manifest.current_phase, "discovery");
-  assert.equal(loaded.manifest.schema_bundle_version, "18.0.0");
   assert.ok(G21_MAP_REFS.every((ref) => loaded.manifest.artifact_refs.includes(ref)));
 
   const operationFiles = await readdir(path.join(runRoot, ".store/operations"));
@@ -440,7 +444,8 @@ test("first map publication is an explicit three-map bundle and exact replay is 
   assert.equal(mapReceipts.length, 3);
   assert.ok(
     mapReceipts.every(
-      (receipt) => receipt.schema_version === "startup_opportunity.artifact_store_operation.v7",
+      (receipt) =>
+        receipt.schema_version === "startup_opportunity.artifact_store_operation.current",
     ),
   );
 });
@@ -556,7 +561,7 @@ test("conflicting map replay preserves immutable bytes", async (t) => {
   assert.deepEqual(await snapshotTree(runRoot), before);
 });
 
-test("current checkpoint and v7 receipt recover an interrupted map temp publication", async (t) => {
+test("current checkpoint and receipt recover an interrupted map temp publication", async (t) => {
   const { bundle, runId, runRoot, store } = await prepareRun(t, "ai_first", "recovery");
   await store.publishArtifactBundle({
     runId,
@@ -579,7 +584,7 @@ test("current checkpoint and v7 receipt recover an interrupted map temp publicat
   const checkpoint = JSON.parse(
     await readFile(path.join(runRoot, "checkpoints/checkpoint-g2-1-maps.json"), "utf8"),
   ) as Record<string, unknown>;
-  assert.equal(checkpoint.schema_version, "startup_opportunity.artifact_envelope.v19");
+  assert.equal(checkpoint.schema_version, "startup_opportunity.artifact_envelope.current");
 
   const operationRoot = path.join(runRoot, ".store/operations");
   const solutionReceiptFilename = (
@@ -616,7 +621,7 @@ test("current checkpoint and v7 receipt recover an interrupted map temp publicat
   assert.equal((await store.load(runId)).recovered, false);
 });
 
-test("v8 publication crash after temp write is recovered only from its v7 receipt", async (t) => {
+test("current publication crash after temp write is recovered only from its receipt", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g2-1-crash-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const runId = "g2-1-crash-synthetic";
@@ -644,13 +649,12 @@ test("v8 publication crash after temp write is recovered only from its v7 receip
   );
   const receipt = receipts.find((candidate) => candidate.artifact_path === "decision-context.json");
   assert.ok(receipt);
-  assert.equal(receipt.schema_version, "startup_opportunity.artifact_store_operation.v7");
+  assert.equal(receipt.schema_version, "startup_opportunity.artifact_store_operation.current");
   const reopened = await store.load(runId);
   assert.ok(reopened.recoveredArtifactPaths.includes("decision-context.json"));
-  assert.equal(reopened.manifest.schema_bundle_version, "18.0.0");
 });
 
-test("receipt version drift fails reopen closed", async (t) => {
+test("malformed current receipt fails reopen closed", async (t) => {
   const { bundle, runId, runRoot, store } = await prepareRun(t, "hybrid", "receipt-drift");
   await store.publishArtifactBundle({
     runId,
@@ -663,7 +667,7 @@ test("receipt version drift fails reopen closed", async (t) => {
     const receiptPath = path.join(operationRoot, filename);
     const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
     if (receipt.artifact_path === G21_SOLUTION_REF) {
-      receipt.schema_version = "startup_opportunity.artifact_store_operation.v6";
+      receipt.schema_version = "startup_opportunity.artifact_store_operation.invalid";
       await writeFile(receiptPath, `${canonicalJson(receipt)}\n`);
       drifted = true;
       break;
@@ -674,33 +678,6 @@ test("receipt version drift fails reopen closed", async (t) => {
     store.load(runId),
     (error: unknown) => error instanceof StoreError && error.code === "recovery.invalid_operation",
   );
-});
-
-test("v8 adapter blocks G2.2+ artifacts before schema publication", async (t) => {
-  const { runId, runRoot, store } = await prepareRun(t, "general", "downstream-block");
-  const document = {
-    schema_version: "startup_opportunity.discovery_lane_result.v1",
-    run_id: runId,
-    classification: "SYNTHETIC forbidden G2.2 payload",
-  };
-  const envelope: FormalArtifactEnvelope = {
-    schema_version: "startup_opportunity.artifact_envelope.v8",
-    artifact_type: "startup_opportunity.discovery_lane_result.v1",
-    artifact_path: "artifacts/lanes/forbidden-g2-2.synthetic.json",
-    run_id: runId,
-    created_at: "2026-07-26T17:00:00Z",
-    producer_role: "main_agent",
-    input_refs: [],
-    content_hash: canonicalContentHash(document),
-    document,
-  };
-  const before = await snapshotTree(runRoot);
-  await assert.rejects(
-    store.publishArtifact({ runId, envelope }),
-    (error: unknown) =>
-      error instanceof StoreError && error.code === "artifact.adapter_blocked_type",
-  );
-  assert.deepEqual(await snapshotTree(runRoot), before);
 });
 
 test("generic CLI validates explicit G2.1 bundles while discover orchestration remains unavailable", async (t) => {
@@ -724,7 +701,6 @@ test("generic CLI validates explicit G2.1 bundles while discover orchestration r
   assert.equal(validated.status, 0, validated.stderr || validated.stdout);
   const result = JSON.parse(validated.stdout) as Record<string, unknown>;
   assert.equal(result.valid, true);
-  assert.equal(result.schemaBundleVersion, "18.0.0");
 
   const discover = spawnSync(
     process.execPath,

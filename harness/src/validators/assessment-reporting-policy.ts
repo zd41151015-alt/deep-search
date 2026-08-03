@@ -52,7 +52,6 @@ export interface AssessmentReportingPolicy extends Record<string, unknown> {
   readonly schema_version: "startup_opportunity.assessment_reporting_policy.v1";
   readonly policy_id: "startup_opportunity.g1_4_assessment_reporting";
   readonly policy_version: "1.0.0";
-  readonly schema_bundle_version: "6.0.0";
   readonly decisive_hard_gates: readonly string[];
   readonly forbidden_report_expressions: readonly string[];
   readonly generation_order: readonly string[];
@@ -65,9 +64,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function loadAssessmentReportingPolicy(
   root: string,
   bundle: LoadedSchemaBundle,
-  relativePath = ASSESSMENT_REPORTING_POLICY_PATH,
 ): Promise<AssessmentReportingPolicy> {
-  const value = JSON.parse(await readFile(path.join(root, relativePath), "utf8")) as unknown;
+  const value = JSON.parse(
+    await readFile(path.join(root, ASSESSMENT_REPORTING_POLICY_PATH), "utf8"),
+  ) as unknown;
   const validator = bundle.validators.get("startup_opportunity.assessment_reporting_policy.v1");
   if ((validator !== undefined && !validator(value)) || !isRecord(value)) {
     throw new Error(

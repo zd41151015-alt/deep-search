@@ -8,7 +8,6 @@
     "schema_version",
     "policy_id",
     "policy_version",
-    "compatible_schema_bundle_versions",
     "mandatory_reporting_dimensions",
     "default_lanes",
     "stage_order",
@@ -17,22 +16,23 @@
     "runtime_boundary"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.assessment_execution_policy.v1" },
-    "policy_id": { "const": "startup_opportunity.assessment_staged_execution" },
-    "policy_version": { "const": "1.0.0" },
-    "compatible_schema_bundle_versions": {
-      "type": "array",
-      "prefixItems": [{ "const": "18.0.0" }],
-      "minItems": 1,
-      "maxItems": 1,
-      "items": false
+    "schema_version": {
+      "const": "startup_opportunity.assessment_execution_policy.v1"
+    },
+    "policy_id": {
+      "const": "startup_opportunity.assessment_staged_execution"
+    },
+    "policy_version": {
+      "const": "1.0.0"
     },
     "mandatory_reporting_dimensions": {
       "type": "array",
       "minItems": 10,
       "maxItems": 10,
       "uniqueItems": true,
-      "items": { "$ref": "../v4/definitions.schema.json#/$defs/assessmentDimension" }
+      "items": {
+        "$ref": "../v4/definitions.schema.json#/$defs/assessmentDimension"
+      }
     },
     "default_lanes": {
       "type": "array",
@@ -43,16 +43,22 @@
         "additionalProperties": false,
         "required": ["lane_key", "stage_kind", "unit_type", "reporting_dimensions"],
         "properties": {
-          "lane_key": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+          "lane_key": {
+            "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+          },
           "stage_kind": {
             "enum": ["assessment_early_kill", "assessment_commercial", "assessment_delivery"]
           },
-          "unit_type": { "$ref": "../v1/definitions.schema.json#/$defs/unitType" },
+          "unit_type": {
+            "$ref": "../v1/definitions.schema.json#/$defs/unitType"
+          },
           "reporting_dimensions": {
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
-            "items": { "$ref": "../v4/definitions.schema.json#/$defs/assessmentDimension" }
+            "items": {
+              "$ref": "../v4/definitions.schema.json#/$defs/assessmentDimension"
+            }
           }
         }
       }
@@ -60,9 +66,15 @@
     "stage_order": {
       "type": "array",
       "prefixItems": [
-        { "const": "assessment_early_kill" },
-        { "const": "assessment_commercial" },
-        { "const": "assessment_delivery" }
+        {
+          "const": "assessment_early_kill"
+        },
+        {
+          "const": "assessment_commercial"
+        },
+        {
+          "const": "assessment_delivery"
+        }
       ],
       "minItems": 3,
       "maxItems": 3,
@@ -72,7 +84,14 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["minimum", "maximum"],
-      "properties": { "minimum": { "const": 4 }, "maximum": { "const": 5 } }
+      "properties": {
+        "minimum": {
+          "const": 4
+        },
+        "maximum": {
+          "const": 5
+        }
+      }
     },
     "followup": {
       "type": "object",
@@ -85,10 +104,18 @@
         "dimension_unit_types"
       ],
       "properties": {
-        "max_rounds": { "const": 2 },
-        "max_additions_per_dimension": { "const": 1 },
-        "gap_type": { "const": "decision_relevant_evidence_gap" },
-        "requires_plan_revision": { "const": true },
+        "max_rounds": {
+          "const": 2
+        },
+        "max_additions_per_dimension": {
+          "const": 1
+        },
+        "gap_type": {
+          "const": "decision_relevant_evidence_gap"
+        },
+        "requires_plan_revision": {
+          "const": true
+        },
         "dimension_unit_types": {
           "type": "array",
           "minItems": 10,
@@ -101,7 +128,9 @@
               "dimension_id": {
                 "$ref": "../v4/definitions.schema.json#/$defs/assessmentDimension"
               },
-              "unit_type": { "$ref": "../v1/definitions.schema.json#/$defs/unitType" }
+              "unit_type": {
+                "$ref": "../v1/definitions.schema.json#/$defs/unitType"
+              }
             }
           }
         }
@@ -117,10 +146,18 @@
         "external_validation"
       ],
       "properties": {
-        "agent_dispatch_performed": { "const": false },
-        "research_judgment_generated": { "const": false },
-        "generic_workflow_runtime": { "const": false },
-        "external_validation": { "const": false }
+        "agent_dispatch_performed": {
+          "const": false
+        },
+        "research_judgment_generated": {
+          "const": false
+        },
+        "generic_workflow_runtime": {
+          "const": false
+        },
+        "external_validation": {
+          "const": false
+        }
       }
     }
   }

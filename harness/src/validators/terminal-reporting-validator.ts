@@ -294,12 +294,12 @@ export function validateTerminalReportingContract(
   }
   const errors: ValidationIssue[] = [];
   for (const entry of relevant) {
-    if (entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.v17") {
+    if (entry.envelope?.schema_version !== "startup_opportunity.artifact_envelope.current") {
       errors.push(
         issue(
           "terminal_reporting.envelope_version_mismatch",
           entry.path,
-          "terminal reporting artifacts require artifact_envelope.v17",
+          "terminal reporting artifacts require the current Artifact Envelope",
         ),
       );
     }

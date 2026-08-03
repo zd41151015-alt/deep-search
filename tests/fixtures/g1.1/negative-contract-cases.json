@@ -457,17 +457,6 @@
         }
       ],
       "expected": [{ "kind": "reference", "code": "reference.missing" }]
-    },
-    {
-      "case_id": "assess-contract-in-old-bundle",
-      "mutations": [
-        {
-          "op": "set",
-          "path": ["schema_version"],
-          "value": "startup_opportunity.document_bundle.v3"
-        }
-      ],
-      "expected": [{ "kind": "reference", "code": "assess_contract.bundle_version_mismatch" }]
     }
   ]
 }

@@ -18,12 +18,24 @@
     "limitations"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.hypothesis_evidence_matrix.v1" },
-    "matrix_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
-    "concept_hypothesis_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
-    "assessment_plan_ref": { "$ref": "definitions.schema.json#/$defs/assessmentPlanRef" },
-    "fan_in_ref": { "$ref": "definitions.schema.json#/$defs/artifactRef" },
+    "schema_version": {
+      "const": "startup_opportunity.hypothesis_evidence_matrix.v1"
+    },
+    "matrix_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
+    "concept_hypothesis_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
+    "assessment_plan_ref": {
+      "$ref": "definitions.schema.json#/$defs/assessmentPlanRef"
+    },
+    "fan_in_ref": {
+      "$ref": "definitions.schema.json#/$defs/artifactRef"
+    },
     "dimensions": {
       "type": "array",
       "minItems": 10,
@@ -46,8 +58,12 @@
           "limitations"
         ],
         "properties": {
-          "dimension_id": { "$ref": "definitions.schema.json#/$defs/assessmentDimension" },
-          "hypothesis": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
+          "dimension_id": {
+            "$ref": "definitions.schema.json#/$defs/assessmentDimension"
+          },
+          "hypothesis": {
+            "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+          },
           "supporting_claim_refs": {
             "$ref": "definitions.schema.json#/$defs/evidenceOrClaimRefArray"
           },
@@ -57,20 +73,30 @@
           "judgment_assessment_refs": {
             "$ref": "definitions.schema.json#/$defs/artifactRefArray"
           },
-          "evidence_quality": { "$ref": "definitions.schema.json#/$defs/evidenceQuality" },
-          "freshness": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-          "decision": { "$ref": "definitions.schema.json#/$defs/dimensionDecision" },
+          "evidence_quality": {
+            "$ref": "definitions.schema.json#/$defs/evidenceQuality"
+          },
+          "freshness": {
+            "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "decision": {
+            "$ref": "definitions.schema.json#/$defs/dimensionDecision"
+          },
           "decision_sufficiency": {
             "$ref": "definitions.schema.json#/$defs/decisionSufficiency"
           },
           "insufficiency_reasons": {
             "$ref": "definitions.schema.json#/$defs/insufficiencyReasons"
           },
-          "uncertainty": { "$ref": "definitions.schema.json#/$defs/uncertainty" },
+          "uncertainty": {
+            "$ref": "definitions.schema.json#/$defs/uncertainty"
+          },
           "what_would_change_decision": {
             "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
           },
-          "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+          "limitations": {
+            "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+          }
         }
       }
     },
@@ -80,7 +106,11 @@
     "decisive_opposing_refs": {
       "$ref": "definitions.schema.json#/$defs/evidenceOrClaimRefArray"
     },
-    "critical_gaps": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" },
-    "limitations": { "$ref": "definitions.schema.json#/$defs/uniqueStringArray" }
+    "critical_gaps": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "limitations": {
+      "$ref": "definitions.schema.json#/$defs/uniqueStringArray"
+    }
   }
 }

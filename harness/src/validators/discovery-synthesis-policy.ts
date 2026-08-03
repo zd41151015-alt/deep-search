@@ -11,7 +11,6 @@ export interface DiscoverySynthesisPolicy extends Record<string, unknown> {
   readonly schema_version: "startup_opportunity.discovery_synthesis_policy.v1";
   readonly policy_id: "startup_opportunity.g2_3_synthesis";
   readonly policy_version: "1.0.0";
-  readonly schema_bundle_version: "10.0.0";
   readonly artifact_paths: Readonly<Record<string, string>>;
   readonly kind_target_map: Readonly<Record<string, string>>;
   readonly publication_order: readonly string[];
@@ -45,9 +44,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function loadDiscoverySynthesisPolicy(
   root: string,
   bundle: LoadedSchemaBundle,
-  relativePath = DISCOVERY_SYNTHESIS_POLICY_PATH,
 ): Promise<DiscoverySynthesisPolicy> {
-  const value = JSON.parse(await readFile(path.join(root, relativePath), "utf8")) as unknown;
+  const value = JSON.parse(
+    await readFile(path.join(root, DISCOVERY_SYNTHESIS_POLICY_PATH), "utf8"),
+  ) as unknown;
   const validator = bundle.validators.get("startup_opportunity.discovery_synthesis_policy.v1");
   if ((validator !== undefined && !validator(value)) || !isRecord(value)) {
     throw new StoreError(

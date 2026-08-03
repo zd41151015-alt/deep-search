@@ -1,5 +1,5 @@
 {
-  "schema_version": "startup_opportunity.artifact_envelope.v2",
+  "schema_version": "startup_opportunity.artifact_envelope.current",
   "artifact_type": "startup_opportunity.enrichment_branch_result.v1",
   "artifact_path": "artifacts/lanes/future-result.json",
   "run_id": "run_contract_001",

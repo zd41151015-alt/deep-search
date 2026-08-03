@@ -2,7 +2,7 @@ import {
   canonicalContentHash,
   type DiscoveryProfile,
   type DocumentBundle,
-  type EvidenceStoreRecordV2,
+  type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
 } from "../../../harness/src/index.js";
 import { G21_DECISION_REF, G21_PLAN_REF, G21_SCOPE_REF } from "../g2.1/discovery-maps-fixture.js";
@@ -12,6 +12,7 @@ import {
   G23_OPPORTUNITY_A,
   G23_OPPORTUNITY_B,
   G23_SNAPSHOT,
+  G23_SOLUTION,
 } from "../g2.3/discovery-synthesis-fixture.js";
 
 export const G24_TASK_SUPPORT = "tasks/discovery/enrichment/unit_enrichment_support.attempt-1.json";
@@ -74,10 +75,10 @@ const OPPORTUNITIES = [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B] as const;
 const SYNTHETIC = "SYNTHETIC G2.4 contract fixture only; no real Evidence or validation.";
 
 export interface DiscoveryEvaluationSubstrate {
-  readonly generation: EvidenceStoreRecordV2;
-  readonly evaluation: EvidenceStoreRecordV2;
-  readonly support: EvidenceStoreRecordV2;
-  readonly challenge: EvidenceStoreRecordV2;
+  readonly generation: EvidenceStoreRecord;
+  readonly evaluation: EvidenceStoreRecord;
+  readonly support: EvidenceStoreRecord;
+  readonly challenge: EvidenceStoreRecord;
 }
 
 function boundary(): Record<string, unknown> {
@@ -134,7 +135,7 @@ function envelope(
   producerRole = "main_agent",
 ): FormalArtifactEnvelope {
   return {
-    schema_version: "startup_opportunity.artifact_envelope.v13",
+    schema_version: "startup_opportunity.artifact_envelope.current",
     artifact_type: String(document.schema_version),
     artifact_path: artifactPath,
     run_id: runId,
@@ -231,7 +232,7 @@ function evidence(
   runId: string,
   unitId: string,
   taskRef: string,
-  substrate: EvidenceStoreRecordV2,
+  substrate: EvidenceStoreRecord,
   role: "support" | "oppose",
   phase: "enrichment_evaluation" | "adversarial_challenger",
 ): Record<string, unknown> {
@@ -617,7 +618,8 @@ export async function createDiscoveryEvaluationFixture(
     ],
     profile,
   );
-  (bundle as { schema_version: string }).schema_version = "startup_opportunity.document_bundle.v13";
+  (bundle as { schema_version: string }).schema_version =
+    "startup_opportunity.document_bundle.current";
   const exactRecords = (bundle.exact_records ?? []) as {
     ref: string;
     document: Record<string, unknown>;
@@ -1129,9 +1131,6 @@ export async function createDiscoveryEvaluationFixture(
     materialized_path: "report.json",
     report_metadata: {
       mode: "opportunity_discovery",
-      skill_version: "1.0.0",
-      policy_version: "1.0.0",
-      schema_bundle_version: "11.0.0",
       generated_at: "2026-07-27T21:30:00Z",
       valid_as_of: "2026-07-27",
       input_artifact_hashes: hashRefs(reportInputRefs, documents),
@@ -1196,6 +1195,35 @@ export async function createDiscoveryEvaluationFixture(
   const v13Paths = [...documents.keys()].filter(
     (path) => !bundle.documents.some((entry) => entry.path === path),
   );
+  const aiBinding = usesAi
+    ? {
+        status: "missing",
+        trigger_version: "startup_opportunity.ai_mandatory_coverage_trigger.v1",
+        subject_ref: G23_OPPORTUNITY_A,
+        selected_solution_ref: G23_SOLUTION,
+        bundle_ref: null,
+        bundle_content_hash: null,
+        coverage_state: "missing",
+        conclusion_ceiling: "insufficient_evidence",
+        not_required_reason: null,
+      }
+    : {
+        status: "not_required",
+        trigger_version: "startup_opportunity.ai_mandatory_coverage_trigger.v1",
+        subject_ref: G23_OPPORTUNITY_A,
+        selected_solution_ref: G23_SOLUTION,
+        bundle_ref: null,
+        bundle_content_hash: null,
+        coverage_state: "not_required",
+        conclusion_ceiling: "not_required",
+        not_required_reason: "SYNTHETIC selected Solution has uses_ai=false.",
+      };
+  const aiConsumerPaths = new Set([
+    G24_COMPARISON_A,
+    G24_RECOMMENDATION,
+    G24_TRACEABILITY,
+    G24_REPORT,
+  ]);
   const createdTimes = new Map<string, string>();
   v13Paths.forEach((path, index) => {
     createdTimes.set(
@@ -1227,12 +1255,17 @@ export async function createDiscoveryEvaluationFixture(
         createdTimes.get(path) as string,
         producerRole,
       );
+      if (aiConsumerPaths.has(path)) {
+        wrapped.ai_bundle_binding = structuredClone(aiBinding);
+        (wrapped as { input_refs: readonly string[] }).input_refs = [
+          ...new Set([...wrapped.input_refs, G23_OPPORTUNITY_A, G23_SOLUTION]),
+        ].sort();
+      }
       return { path, document: wrapped as unknown as Record<string, unknown> };
     }),
   );
   const manifestEntry = bundle.documents.find((entry) => entry.path === "manifest.json");
   if (manifestEntry !== undefined) {
-    manifestEntry.document.schema_bundle_version = "12.0.0";
   }
   return bundle;
 }

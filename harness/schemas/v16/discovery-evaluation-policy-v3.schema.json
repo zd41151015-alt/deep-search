@@ -8,7 +8,6 @@
     "schema_version",
     "policy_id",
     "policy_version",
-    "schema_bundle_version",
     "eligible_branch_statuses",
     "excluded_branch_statuses",
     "required_hard_gates",
@@ -22,16 +21,27 @@
     "execution_boundary"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.discovery_evaluation_policy.v3" },
-    "policy_id": { "const": "startup_opportunity.g2_4_evaluation" },
-    "policy_version": { "const": "3.0.0" },
-    "schema_bundle_version": { "const": "15.0.0" },
+    "schema_version": {
+      "const": "startup_opportunity.discovery_evaluation_policy.v3"
+    },
+    "policy_id": {
+      "const": "startup_opportunity.g2_4_evaluation"
+    },
+    "policy_version": {
+      "const": "3.0.0"
+    },
     "eligible_branch_statuses": {
       "type": "array",
       "prefixItems": [
-        { "const": "completed" },
-        { "const": "partial" },
-        { "const": "insufficient_evidence" }
+        {
+          "const": "completed"
+        },
+        {
+          "const": "partial"
+        },
+        {
+          "const": "insufficient_evidence"
+        }
       ],
       "minItems": 3,
       "maxItems": 3,
@@ -40,9 +50,15 @@
     "excluded_branch_statuses": {
       "type": "array",
       "prefixItems": [
-        { "const": "failed" },
-        { "const": "ignored_late" },
-        { "const": "superseded" }
+        {
+          "const": "failed"
+        },
+        {
+          "const": "ignored_late"
+        },
+        {
+          "const": "superseded"
+        }
       ],
       "minItems": 3,
       "maxItems": 3,
@@ -53,16 +69,24 @@
       "minItems": 13,
       "maxItems": 13,
       "uniqueItems": true,
-      "items": { "type": "string", "minLength": 1 }
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "required_comparison_panels": {
       "type": "array",
       "minItems": 4,
       "maxItems": 4,
       "uniqueItems": true,
-      "items": { "type": "string", "minLength": 1 }
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
-    "recommendation_ceiling": { "type": "object" },
+    "recommendation_ceiling": {
+      "type": "object"
+    },
     "ai_solution_gate_contract": {
       "type": "object",
       "additionalProperties": false,
@@ -75,12 +99,24 @@
         "g3_bundle_generated_by_g2"
       ],
       "properties": {
-        "selected_solution_field": { "const": "selected_solution_ref" },
-        "ai_usage_field": { "const": "uses_ai" },
-        "mandatory_gate_id": { "const": "ai_mandatory_bundle" },
-        "missing_bundle_status": { "const": "insufficient_evidence" },
-        "missing_bundle_decision_tier_ceiling": { "const": "investigate_further" },
-        "g3_bundle_generated_by_g2": { "const": false }
+        "selected_solution_field": {
+          "const": "selected_solution_ref"
+        },
+        "ai_usage_field": {
+          "const": "uses_ai"
+        },
+        "mandatory_gate_id": {
+          "const": "ai_mandatory_bundle"
+        },
+        "missing_bundle_status": {
+          "const": "insufficient_evidence"
+        },
+        "missing_bundle_decision_tier_ceiling": {
+          "const": "investigate_further"
+        },
+        "g3_bundle_generated_by_g2": {
+          "const": false
+        }
       }
     },
     "ai_mandatory_bundle_contract": {
@@ -105,12 +141,24 @@
         "required_dimensions": {
           "type": "array",
           "prefixItems": [
-            { "const": "capability_frontier" },
-            { "const": "cost_and_deployment" },
-            { "const": "workflow_and_human_boundary" },
-            { "const": "ecosystem_and_platform" },
-            { "const": "data_and_evaluation" },
-            { "const": "adoption_and_trust" }
+            {
+              "const": "capability_frontier"
+            },
+            {
+              "const": "cost_and_deployment"
+            },
+            {
+              "const": "workflow_and_human_boundary"
+            },
+            {
+              "const": "ecosystem_and_platform"
+            },
+            {
+              "const": "data_and_evaluation"
+            },
+            {
+              "const": "adoption_and_trust"
+            }
           ],
           "minItems": 6,
           "maxItems": 6,
@@ -119,42 +167,72 @@
         "coverage_statuses": {
           "type": "array",
           "prefixItems": [
-            { "const": "covered" },
-            { "const": "insufficient_evidence" },
-            { "const": "not_applicable" }
+            {
+              "const": "covered"
+            },
+            {
+              "const": "insufficient_evidence"
+            },
+            {
+              "const": "not_applicable"
+            }
           ],
           "minItems": 3,
           "maxItems": 3,
           "items": false
         },
-        "source_unavailable_status": { "const": "insufficient_evidence" },
+        "source_unavailable_status": {
+          "const": "insufficient_evidence"
+        },
         "consumer_binding_statuses": {
           "type": "array",
           "prefixItems": [
-            { "const": "bound" },
-            { "const": "missing" },
-            { "const": "not_required" }
+            {
+              "const": "bound"
+            },
+            {
+              "const": "missing"
+            },
+            {
+              "const": "not_required"
+            }
           ],
           "minItems": 3,
           "maxItems": 3,
           "items": false
         },
-        "non_ai_binding_status": { "const": "not_required" },
+        "non_ai_binding_status": {
+          "const": "not_required"
+        },
         "degraded_bundle_states": {
           "type": "array",
           "prefixItems": [
-            { "const": "missing" },
-            { "const": "incomplete" },
-            { "const": "desk_research_only" },
-            { "const": "stale" }
+            {
+              "const": "missing"
+            },
+            {
+              "const": "incomplete"
+            },
+            {
+              "const": "desk_research_only"
+            },
+            {
+              "const": "stale"
+            }
           ],
           "minItems": 4,
           "maxItems": 4,
           "items": false
         },
-        "degraded_decision_tier_ceiling": { "const": "investigate_further" },
-        "caller_supplied_only": { "const": true },
-        "harness_generated_bundle": { "const": false }
+        "degraded_decision_tier_ceiling": {
+          "const": "investigate_further"
+        },
+        "caller_supplied_only": {
+          "const": true
+        },
+        "harness_generated_bundle": {
+          "const": false
+        }
       }
     },
     "decision_tier_ceiling": {
@@ -170,17 +248,29 @@
         "tier_order": {
           "type": "array",
           "prefixItems": [
-            { "const": "reject" },
-            { "const": "insufficient_evidence" },
-            { "const": "watch" },
-            { "const": "investigate_further" },
-            { "const": "prioritize" }
+            {
+              "const": "reject"
+            },
+            {
+              "const": "insufficient_evidence"
+            },
+            {
+              "const": "watch"
+            },
+            {
+              "const": "investigate_further"
+            },
+            {
+              "const": "prioritize"
+            }
           ],
           "minItems": 5,
           "maxItems": 5,
           "items": false
         },
-        "no_first_bet_ceiling": { "const": "investigate_further" },
+        "no_first_bet_ceiling": {
+          "const": "investigate_further"
+        },
         "first_bet_ready_requirements": {
           "type": "array",
           "minItems": 6,
@@ -197,7 +287,9 @@
             ]
           }
         },
-        "mixed_inputs_use_strictest_ceiling": { "const": true }
+        "mixed_inputs_use_strictest_ceiling": {
+          "const": true
+        }
       }
     },
     "publication_order": {
@@ -205,7 +297,10 @@
       "minItems": 11,
       "maxItems": 11,
       "uniqueItems": true,
-      "items": { "type": "string", "minLength": 1 }
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "reporting_contract": {
       "type": "object",
@@ -221,6 +316,8 @@
         "forbidden_rule_ids"
       ]
     },
-    "execution_boundary": { "type": "object" }
+    "execution_boundary": {
+      "type": "object"
+    }
   }
 }

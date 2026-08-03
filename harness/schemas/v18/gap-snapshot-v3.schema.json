@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://startup-opportunity.local/schemas/v18/gap-snapshot-v3.schema.json",
-  "title": "Startup Opportunity Readiness-bound Gap Snapshot v3",
+  "title": "Startup Opportunity Discovery Readiness Gap Snapshot",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -26,35 +26,75 @@
     "stop_signals"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.gap_snapshot.v3" },
-    "snapshot_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "snapshot_cycle_key": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" },
-    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
-    "based_on_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
-    "revision": { "type": "integer", "minimum": 1 },
+    "schema_version": {
+      "const": "startup_opportunity.gap_snapshot.discovery.readiness.current"
+    },
+    "snapshot_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "snapshot_cycle_key": {
+      "$ref": "../v12/definitions.schema.json#/$defs/sha256"
+    },
+    "run_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/runId"
+    },
+    "based_on_plan_ref": {
+      "$ref": "../v1/definitions.schema.json#/$defs/planRef"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
     "parent_snapshot_ref": {
       "anyOf": [
-        { "$ref": "../v1/definitions.schema.json#/$defs/gapSnapshotRef" },
-        { "type": "null" }
+        {
+          "$ref": "../v1/definitions.schema.json#/$defs/gapSnapshotRef"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
-    "created_at": { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+    "created_at": {
+      "$ref": "../v12/definitions.schema.json#/$defs/timestamp"
+    },
     "trigger_kind": {
       "enum": ["wave_completed", "artifact_validation_failed", "resume_reconciliation"]
     },
     "trigger_event_ref": {
-      "anyOf": [{ "$ref": "../v1/definitions.schema.json#/$defs/eventRef" }, { "type": "null" }]
-    },
-    "phase": { "enum": ["discovery", "enrichment", "review"] },
-    "wave_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "readiness_ref": { "type": "string", "pattern": "^artifacts/discovery/readiness/.+\\.json$" },
-    "fan_in_ref": {
       "anyOf": [
-        { "type": "string", "pattern": "^artifacts/discovery/fan-in\\.r[1-9][0-9]*\\.json$" },
-        { "type": "null" }
+        {
+          "$ref": "../v1/definitions.schema.json#/$defs/eventRef"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
-    "observed_artifact_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
+    "phase": {
+      "enum": ["discovery", "enrichment", "review"]
+    },
+    "wave_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+    },
+    "readiness_ref": {
+      "type": "string",
+      "pattern": "^artifacts/discovery/readiness/.+\\.json$"
+    },
+    "fan_in_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^artifacts/discovery/fan-in\\.r[1-9][0-9]*\\.json$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "observed_artifact_refs": {
+      "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+    },
     "gaps": {
       "type": "array",
       "items": {
@@ -74,8 +114,12 @@
           "detail"
         ],
         "properties": {
-          "gap_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-          "subject_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
+          "gap_id": {
+            "$ref": "../v12/definitions.schema.json#/$defs/identifier"
+          },
+          "subject_ref": {
+            "$ref": "../v12/definitions.schema.json#/$defs/artifactRef"
+          },
           "gap_type": {
             "enum": [
               "evidence_missing",
@@ -85,7 +129,9 @@
               "runtime_blocked"
             ]
           },
-          "detection_mode": { "enum": ["deterministic", "agent_semantic"] },
+          "detection_mode": {
+            "enum": ["deterministic", "agent_semantic"]
+          },
           "decision_impact": {
             "type": "array",
             "minItems": 1,
@@ -101,13 +147,21 @@
               ]
             }
           },
-          "severity": { "enum": ["blocking", "material", "advisory"] },
-          "basis_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
-          "evidence_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
+          "severity": {
+            "enum": ["blocking", "material", "advisory"]
+          },
+          "basis_refs": {
+            "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "evidence_refs": {
+            "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
+          },
           "recommended_unit_types": {
             "type": "array",
             "uniqueItems": true,
-            "items": { "$ref": "../v1/definitions.schema.json#/$defs/unitType" }
+            "items": {
+              "$ref": "../v1/definitions.schema.json#/$defs/unitType"
+            }
           },
           "allowed_actions": {
             "type": "array",
@@ -124,11 +178,15 @@
               ]
             }
           },
-          "detail": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" }
+          "detail": {
+            "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+          }
         }
       }
     },
-    "material_new_evidence_observed": { "type": "boolean" },
+    "material_new_evidence_observed": {
+      "type": "boolean"
+    },
     "unresolved_decision_relevant_questions": {
       "type": "array",
       "uniqueItems": true,

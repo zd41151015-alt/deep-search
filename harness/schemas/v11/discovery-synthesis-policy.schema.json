@@ -8,7 +8,6 @@
     "schema_version",
     "policy_id",
     "policy_version",
-    "schema_bundle_version",
     "artifact_paths",
     "kind_target_map",
     "publication_order",
@@ -18,29 +17,46 @@
     "execution_boundary"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.discovery_synthesis_policy.v1" },
-    "policy_id": { "const": "startup_opportunity.g2_3_synthesis" },
-    "policy_version": { "const": "1.0.0" },
-    "schema_bundle_version": { "const": "10.0.0" },
+    "schema_version": {
+      "const": "startup_opportunity.discovery_synthesis_policy.v1"
+    },
+    "policy_id": {
+      "const": "startup_opportunity.g2_3_synthesis"
+    },
+    "policy_version": {
+      "const": "1.0.0"
+    },
     "artifact_paths": {
       "type": "object",
-      "additionalProperties": { "type": "string", "minLength": 1 }
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "kind_target_map": {
       "type": "object",
       "additionalProperties": false,
       "required": ["demand_seed", "baseline_seed", "solution_seed"],
       "properties": {
-        "demand_seed": { "const": "startup_opportunity.demand_thesis.v1" },
-        "baseline_seed": { "const": "startup_opportunity.baseline_option.v1" },
-        "solution_seed": { "const": "startup_opportunity.solution_hypothesis.v1" }
+        "demand_seed": {
+          "const": "startup_opportunity.demand_thesis.v1"
+        },
+        "baseline_seed": {
+          "const": "startup_opportunity.baseline_option.v1"
+        },
+        "solution_seed": {
+          "const": "startup_opportunity.solution_hypothesis.v1"
+        }
       }
     },
     "publication_order": {
       "type": "array",
       "minItems": 8,
       "maxItems": 8,
-      "items": { "type": "string", "minLength": 1 },
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
       "uniqueItems": true
     },
     "source_separation": {
@@ -48,8 +64,12 @@
       "additionalProperties": false,
       "required": ["generation_and_evaluation_distinct", "overlap_requires_disclosure"],
       "properties": {
-        "generation_and_evaluation_distinct": { "const": true },
-        "overlap_requires_disclosure": { "const": true }
+        "generation_and_evaluation_distinct": {
+          "const": true
+        },
+        "overlap_requires_disclosure": {
+          "const": true
+        }
       }
     },
     "freeze_contract": {
@@ -57,9 +77,15 @@
       "additionalProperties": false,
       "required": ["before_enrichment", "immutable", "revision_policy"],
       "properties": {
-        "before_enrichment": { "const": true },
-        "immutable": { "const": true },
-        "revision_policy": { "const": "new_immutable_snapshot_revision_required" }
+        "before_enrichment": {
+          "const": true
+        },
+        "immutable": {
+          "const": true
+        },
+        "revision_policy": {
+          "const": "new_immutable_snapshot_revision_required"
+        }
       }
     },
     "merge_contract": {
@@ -72,16 +98,25 @@
         "preserve_diversity"
       ],
       "properties": {
-        "all_frozen_theses_classified_once": { "const": true },
-        "title_similarity_only_forbidden": { "const": true },
+        "all_frozen_theses_classified_once": {
+          "const": true
+        },
+        "title_similarity_only_forbidden": {
+          "const": true
+        },
         "semantic_dimensions": {
           "type": "array",
           "minItems": 7,
           "maxItems": 7,
-          "items": { "type": "string", "minLength": 1 },
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "uniqueItems": true
         },
-        "preserve_diversity": { "const": true }
+        "preserve_diversity": {
+          "const": true
+        }
       }
     },
     "execution_boundary": {
@@ -97,13 +132,27 @@
         "publication_implies_validation"
       ],
       "properties": {
-        "explicit_artifacts_only": { "const": true },
-        "harness_synthesizes_semantics": { "const": false },
-        "harness_dispatches_agent": { "const": false },
-        "hidden_llm_calls": { "const": false },
-        "network_research": { "const": false },
-        "external_validation": { "const": false },
-        "publication_implies_validation": { "const": false }
+        "explicit_artifacts_only": {
+          "const": true
+        },
+        "harness_synthesizes_semantics": {
+          "const": false
+        },
+        "harness_dispatches_agent": {
+          "const": false
+        },
+        "hidden_llm_calls": {
+          "const": false
+        },
+        "network_research": {
+          "const": false
+        },
+        "external_validation": {
+          "const": false
+        },
+        "publication_implies_validation": {
+          "const": false
+        }
       }
     }
   }

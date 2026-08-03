@@ -10,7 +10,7 @@ import {
   type DocumentBundle,
   deriveReportEnvelopes,
   EvidenceStore,
-  type EvidenceStoreRecordV2,
+  type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
   ReportRuntime,
   RunStore,
@@ -50,7 +50,7 @@ import {
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function record(runId: string, unitId: string, fill: string): EvidenceStoreRecordV2 {
+function record(runId: string, unitId: string, fill: string): EvidenceStoreRecord {
   return {
     schema_version: "startup_opportunity.evidence_store_record.v2",
     evidence_id: `ev_${fill.repeat(64)}`,
@@ -105,13 +105,14 @@ function codes(
   return allErrors(result).map((error) => error.code);
 }
 
-function v16Consumers(bundle: DocumentBundle): FormalArtifactEnvelope[] {
+function currentAiConsumers(bundle: DocumentBundle): FormalArtifactEnvelope[] {
   return bundle.documents
     .map((entry) => entry.document as unknown as FormalArtifactEnvelope)
     .filter(
       (entry) =>
-        entry.schema_version === "startup_opportunity.artifact_envelope.v16" &&
-        entry.artifact_type !== "startup_opportunity.ai_mandatory_bundle.v1",
+        entry.schema_version === "startup_opportunity.artifact_envelope.current" &&
+        typeof entry.ai_bundle_binding === "object" &&
+        entry.ai_bundle_binding !== null,
     );
 }
 
@@ -122,14 +123,14 @@ function binding(envelope: FormalArtifactEnvelope): Record<string, unknown> {
 
 function updateBoundBundleHash(bundle: DocumentBundle): void {
   const hash = canonicalContentHash(g3Envelope(bundle, G33_MANDATORY_BUNDLE).document);
-  for (const consumer of v16Consumers(bundle)) {
+  for (const consumer of currentAiConsumers(bundle)) {
     binding(consumer).bundle_content_hash = hash;
   }
 }
 
 function setBoundConclusionCeiling(bundle: DocumentBundle, ceiling: string): void {
   g3Envelope(bundle, G33_MANDATORY_BUNDLE).document.conclusion_ceiling = ceiling;
-  for (const consumer of v16Consumers(bundle)) {
+  for (const consumer of currentAiConsumers(bundle)) {
     binding(consumer).conclusion_ceiling = ceiling;
   }
   refreshG33FixtureHashes(bundle);
@@ -384,7 +385,7 @@ test("G3.3 missing bundle remains valid only with an explicit degraded binding",
     const index = documents.findIndex((entry) => entry.path === G33_MANDATORY_BUNDLE);
     assert.notEqual(index, -1);
     documents.splice(index, 1);
-    for (const consumer of v16Consumers(bundle)) {
+    for (const consumer of currentAiConsumers(bundle)) {
       const current = binding(consumer);
       current.status = "missing";
       current.bundle_ref = null;
@@ -431,7 +432,7 @@ test("G3.3 selected uses_ai=false Solution requires explicit not_required bindin
   const result = validator.validateDocumentBundle(bundle);
   assert.equal(result.valid, true, JSON.stringify(allErrors(result), null, 2));
   assert.ok(
-    v16Consumers(bundle).every(
+    currentAiConsumers(bundle).every(
       (consumer) =>
         binding(consumer).status === "not_required" &&
         binding(consumer).bundle_ref === null &&
@@ -458,7 +459,7 @@ test("G3.3 stale aggregation requires continuation and propagates to consumers",
   (mandatory.continuation as Record<string, unknown>).reason = "stale";
   refreshG3Envelope(bundle, G33_MANDATORY_BUNDLE);
   updateBoundBundleHash(bundle);
-  for (const consumer of v16Consumers(bundle)) {
+  for (const consumer of currentAiConsumers(bundle)) {
     binding(consumer).coverage_state = "stale";
   }
   const result = validator.validateDocumentBundle(bundle);
@@ -477,7 +478,7 @@ test("G3.3 incomplete, desk-only, and stale bundle states retain the AI ceiling"
     (mandatory.coverage_summary as Record<string, unknown>).insufficient_evidence = 1;
     mandatory.bundle_status = "incomplete";
     mandatory.continuation = { required: true, reason: "incomplete", action: "SYNTHETIC" };
-    for (const consumer of v16Consumers(bundle)) {
+    for (const consumer of currentAiConsumers(bundle)) {
       binding(consumer).coverage_state = "incomplete";
     }
     setBoundConclusionCeiling(bundle, "insufficient_evidence");
@@ -505,7 +506,7 @@ test("G3.3 incomplete, desk-only, and stale bundle states retain the AI ceiling"
     (mandatory.freshness as Record<string, unknown>).status = "stale";
     mandatory.bundle_status = "stale";
     mandatory.continuation = { required: true, reason: "stale", action: "SYNTHETIC" };
-    for (const consumer of v16Consumers(bundle)) {
+    for (const consumer of currentAiConsumers(bundle)) {
       binding(consumer).coverage_state = "stale";
     }
     setBoundConclusionCeiling(bundle, "insufficient_evidence");
@@ -515,7 +516,7 @@ test("G3.3 incomplete, desk-only, and stale bundle states retain the AI ceiling"
   });
 });
 
-test("G3.3 report derivation keeps the exact binding on all v16 sidecars", async () => {
+test("G3.3 report derivation keeps the exact binding on all current sidecars", async () => {
   const validator = await createArtifactValidator(repositoryRoot);
   const bundle = await fixture("report");
   const derived = deriveReportEnvelopes(g3Envelope(bundle, G24_REPORT));
@@ -523,7 +524,7 @@ test("G3.3 report derivation keeps the exact binding on all v16 sidecars", async
   assert.ok(
     derived.every(
       (entry) =>
-        entry.schema_version === "startup_opportunity.artifact_envelope.v16" &&
+        entry.schema_version === "startup_opportunity.artifact_envelope.current" &&
         canonicalContentHash(binding(entry)) ===
           canonicalContentHash(binding(g3Envelope(bundle, G24_REPORT))),
     ),
@@ -538,34 +539,17 @@ test("G3.3 report derivation keeps the exact binding on all v16 sidecars", async
   assert.equal(result.valid, true, JSON.stringify(allErrors(result), null, 2));
 });
 
-test("G3.3 version dispatch freezes v12-v15 and installs v16 receipt v14", async () => {
+test("G3.3 uses the current evaluation and publication contracts", async () => {
   const validator = await createArtifactValidator(repositoryRoot);
-  assert.equal(
-    validator.legacyDiscoveryEvaluationPolicy.schema_version,
-    "startup_opportunity.discovery_evaluation_policy.v1",
-  );
-  assert.equal(
-    validator.repairedDiscoveryEvaluationPolicy.schema_version,
-    "startup_opportunity.discovery_evaluation_policy.v2",
-  );
-  assert.deepEqual(
-    validator.publicationAdapter("startup_opportunity.artifact_envelope.v15")
-      .blocked_artifact_types,
-    ["startup_opportunity.ai_mandatory_bundle.v1"],
-  );
-  assert.equal(
-    validator.publicationAdapter("startup_opportunity.artifact_envelope.v16").receipt_version,
-    "startup_opportunity.artifact_store_operation.v14",
-  );
-  assert.deepEqual(
-    validator.publicationAdapter("startup_opportunity.artifact_envelope.v16")
-      .blocked_artifact_types,
-    [],
-  );
   assert.equal(
     validator.discoveryEvaluationPolicy.schema_version,
     "startup_opportunity.discovery_evaluation_policy.v3",
   );
+  assert.deepEqual(validator.publicationPolicy.document.publication, {
+    envelope_schema_version: "startup_opportunity.artifact_envelope.current",
+    document_bundle_schema_version: "startup_opportunity.document_bundle.current",
+    receipt_schema_version: "startup_opportunity.artifact_store_operation.current",
+  });
 });
 
 async function lifecycleFixture(context: TestContext) {
@@ -620,6 +604,31 @@ function byTypes(
   return candidates.filter((candidate) => types.includes(candidate.artifact_type));
 }
 
+const SYNTHESIS_ARTIFACT_TYPES = [
+  "startup_opportunity.discovery_candidate_conversion.v2",
+  "startup_opportunity.demand_thesis.v1",
+  "startup_opportunity.baseline_option.v1",
+  "startup_opportunity.solution_hypothesis.v1",
+  "startup_opportunity.solution_evaluation.v1",
+  "startup_opportunity.opportunity_thesis.v1",
+  "startup_opportunity.thesis_evaluation_snapshot.v1",
+  "startup_opportunity.merge.v1",
+] as const;
+
+const EVALUATION_AGGREGATE_ARTIFACT_TYPES = [
+  "startup_opportunity.enrichment_fan_in.v1",
+  "startup_opportunity.value_layer_analysis.v1",
+  "startup_opportunity.user_state_context_model.v1",
+  "startup_opportunity.buyer_purchase_language.v1",
+  "startup_opportunity.business_engine_thesis.v2",
+  "startup_opportunity.opportunity_comparison.v1",
+  "startup_opportunity.sensitivity.v1",
+  "startup_opportunity.portfolio_view.v1",
+  "startup_opportunity.decision_recommendation.v1",
+  "startup_opportunity.traceability.v2",
+  "startup_opportunity.report_consistency_evaluation.v3",
+] as const;
+
 async function publishG33Inputs(
   state: Awaited<ReturnType<typeof lifecycleFixture>>,
 ): Promise<void> {
@@ -632,7 +641,7 @@ async function publishG33Inputs(
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
   });
 
-  const discovery = envelopes(state.bundle, "startup_opportunity.artifact_envelope.v10");
+  const discovery = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(discovery, "startup_opportunity.discovery_candidate.v1").filter(
@@ -673,13 +682,10 @@ async function publishG33Inputs(
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: envelopes(state.bundle, "startup_opportunity.artifact_envelope.v11"),
+    envelopes: byTypes(discovery, ...SYNTHESIS_ARTIFACT_TYPES),
   });
 
-  const evaluation = [
-    ...envelopes(state.bundle, "startup_opportunity.artifact_envelope.v12"),
-    ...envelopes(state.bundle, "startup_opportunity.artifact_envelope.v13"),
-  ];
+  const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(evaluation, "startup_opportunity.research_task.v3"),
@@ -703,33 +709,33 @@ async function publishG33Inputs(
 
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: envelopes(state.bundle, "startup_opportunity.artifact_envelope.v14"),
+    envelopes: byTypes(
+      evaluation,
+      "startup_opportunity.capability_evidence.v1",
+      "startup_opportunity.ai_capability_benchmark.v1",
+      "startup_opportunity.ai_evaluation_reliability.v1",
+      "startup_opportunity.ai_data_dependency.v1",
+    ),
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: envelopes(state.bundle, "startup_opportunity.artifact_envelope.v15"),
+    envelopes: byTypes(
+      evaluation,
+      "startup_opportunity.ai_inference_unit_economics.v1",
+      "startup_opportunity.capability_commoditization_risk.v1",
+      "startup_opportunity.ai_adoption_trust.v1",
+    ),
   });
-  const finalEvaluation = [
-    ...evaluation,
-    ...envelopes(state.bundle, "startup_opportunity.artifact_envelope.v16"),
-  ].filter(
-    (candidate) =>
-      ![
-        "startup_opportunity.research_task.v3",
-        "startup_opportunity.evidence.v3",
-        "startup_opportunity.claim.v3",
-        "startup_opportunity.finding.v3",
-        "startup_opportunity.insight.v3",
-        "startup_opportunity.judgment_assessment.v3",
-        "startup_opportunity.source_manifest.v3",
-        "startup_opportunity.enrichment_branch_result.v1",
-        "startup_opportunity.report.v1",
-      ].includes(candidate.artifact_type),
-  );
-  await state.store.publishArtifactBundle({ runId: state.runId, envelopes: finalEvaluation });
+  const [mandatoryBundle] = byTypes(evaluation, "startup_opportunity.ai_mandatory_bundle.v1");
+  assert.ok(mandatoryBundle);
+  await state.store.publishArtifact({ runId: state.runId, envelope: mandatoryBundle });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: byTypes(evaluation, ...EVALUATION_AGGREGATE_ARTIFACT_TYPES),
+  });
 }
 
-test("G3.3 publication, report, checkpoint, and clean reopen preserve v16 coverage", async (context) => {
+test("G3.3 publication, report, checkpoint, and clean reopen preserve current coverage", async (context) => {
   const state = await lifecycleFixture(context);
   await publishG33Inputs(state);
   const runtime = new ReportRuntime(state.runsRoot, state.validator);
@@ -737,7 +743,6 @@ test("G3.3 publication, report, checkpoint, and clean reopen preserve v16 covera
     reportEnvelope: g3Envelope(state.bundle, G24_REPORT),
   });
   assert.equal(report.status, "published");
-  assert.equal((await state.store.load(state.runId)).manifest.schema_bundle_version, "18.0.0");
   assert.match(
     await readFile(path.join(state.runsRoot, state.runId, "report.md"), "utf8"),
     /Portfolio/,
@@ -760,7 +765,6 @@ test("G3.3 publication, report, checkpoint, and clean reopen preserve v16 covera
   assert.match(checkpoint.checkpointRef, /checkpoint-g3-3-bundle/);
   const reopened = await new RunStore(state.runsRoot, state.validator).load(state.runId);
   assert.equal(reopened.recovered, false);
-  assert.equal(reopened.manifest.schema_bundle_version, "18.0.0");
   assert.ok(reopened.manifest.artifact_refs.includes(G33_MANDATORY_BUNDLE));
   assert.ok(reopened.manifest.artifact_refs.includes(report.consistencyEvaluationRef));
 });

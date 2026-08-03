@@ -15,9 +15,15 @@
     "artifact_refs"
   ],
   "properties": {
-    "schema_version": { "const": "startup_opportunity.event.v1" },
-    "event_id": { "$ref": "definitions.schema.json#/$defs/identifier" },
-    "run_id": { "$ref": "definitions.schema.json#/$defs/runId" },
+    "schema_version": {
+      "const": "startup_opportunity.event.v1"
+    },
+    "event_id": {
+      "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "definitions.schema.json#/$defs/runId"
+    },
     "event_type": {
       "enum": [
         "run_created",
@@ -39,9 +45,17 @@
         "report_completed"
       ]
     },
-    "timestamp": { "$ref": "definitions.schema.json#/$defs/timestamp" },
-    "actor": { "$ref": "definitions.schema.json#/$defs/actor" },
-    "reason": { "$ref": "definitions.schema.json#/$defs/nonEmptyString" },
-    "artifact_refs": { "$ref": "definitions.schema.json#/$defs/artifactRefArray" }
+    "timestamp": {
+      "$ref": "definitions.schema.json#/$defs/timestamp"
+    },
+    "actor": {
+      "$ref": "definitions.schema.json#/$defs/actor"
+    },
+    "reason": {
+      "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "artifact_refs": {
+      "$ref": "definitions.schema.json#/$defs/artifactRefArray"
+    }
   }
 }
