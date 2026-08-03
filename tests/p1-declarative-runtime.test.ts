@@ -190,6 +190,48 @@ function terminalReadiness(runId: string, plan: Record<string, unknown>): Record
   };
 }
 
+function terminalGap(runId: string, plan: Record<string, unknown>): Record<string, unknown> {
+  const readinessPath = "artifacts/discovery/readiness/terminal-closure.r1.json";
+  const candidateRefs = [G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1];
+  return {
+    schema_version: "startup_opportunity.gap_snapshot.v3",
+    snapshot_id: "gap_terminal_closure_synthetic",
+    snapshot_cycle_key: canonicalContentHash({ run_id: runId, cycle: "terminal_closure" }),
+    run_id: runId,
+    based_on_plan_ref: G21_PLAN_REF,
+    revision: 1,
+    parent_snapshot_ref: null,
+    created_at: createdAt,
+    trigger_kind: "wave_completed",
+    trigger_event_ref: null,
+    phase: "discovery",
+    wave_id: "wave_terminal_closure_synthetic",
+    readiness_ref: readinessPath,
+    fan_in_ref: null,
+    observed_artifact_refs: [readinessPath],
+    gaps: [
+      {
+        gap_id: "gap_terminal_closure_synthetic",
+        subject_ref: G22_SOLUTION_R1,
+        gap_type: "no_information_gain",
+        detection_mode: "agent_semantic",
+        decision_impact: ["recommendation_band", "selected_solution", "next_action"],
+        severity: "blocking",
+        basis_refs: [readinessPath, ...candidateRefs],
+        evidence_refs: [],
+        recommended_unit_types: [],
+        allowed_actions: ["terminate_insufficient_evidence"],
+        detail: "SYNTHETIC terminal Gap closes the readiness blocker without research claims.",
+      },
+    ],
+    material_new_evidence_observed: false,
+    unresolved_decision_relevant_questions: (
+      plan.research_questions as Record<string, unknown>[]
+    ).map((question) => `${G21_PLAN_REF}#${String(question.question_id)}`),
+    stop_signals: ["no_material_new_evidence", "source_repetition"],
+  };
+}
+
 function dispatchBatch(
   runId: string,
   plan: Record<string, unknown>,
@@ -614,6 +656,18 @@ test("terminal compilation recovers and replays after a temp-write fault", async
   const reopened = await new RunStore(state.runsRoot, state.validator).load(state.runId);
   assert.deepEqual(reopened.recoveredArtifactPaths, [readinessPath]);
   assert.equal((await compiler.compile(request)).status, "idempotent_replay");
+
+  const gapPath = "adaptations/gap-snapshots/gap_terminal_closure_synthetic.r1.json";
+  const gapRequest = compilationRequest(
+    state.runId,
+    "publish",
+    [runtimeArtifact(gapPath, terminalGap(state.runId, state.plan), "harness")],
+    "request_terminal_gap_replay_synthetic",
+  );
+  assert.equal((await compiler.compile(gapRequest)).status, "published");
+  assert.equal((await compiler.compile(gapRequest)).status, "idempotent_replay");
+  const afterGap = await new RunStore(state.runsRoot, state.validator).load(state.runId);
+  assert.equal(afterGap.manifest.latest_gap_snapshot_ref, gapPath);
 });
 
 test("complete same-wave dispatch activates both units and lifecycle revisions cannot regress", async (t) => {

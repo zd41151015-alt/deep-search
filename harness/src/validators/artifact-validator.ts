@@ -406,6 +406,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(document, "latest_gap_snapshot_ref", [
           "startup_opportunity.gap_snapshot.v1",
           "startup_opportunity.gap_snapshot.v2",
+          "startup_opportunity.gap_snapshot.v3",
         ]),
         ...refsFromArray(document, "pending_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
@@ -492,7 +493,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(
           document,
           "trigger_gap_refs",
-          "startup_opportunity.gap_snapshot.v1",
+          ["startup_opportunity.gap_snapshot.v1", "startup_opportunity.gap_snapshot.v3"],
           "gap_id",
         ),
         ...optionalRef(
@@ -588,6 +589,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(document, "latest_gap_snapshot_ref", [
           "startup_opportunity.gap_snapshot.v1",
           "startup_opportunity.gap_snapshot.v2",
+          "startup_opportunity.gap_snapshot.v3",
         ]),
         ...refsFromArray(document, "applied_adaptation_refs", [
           "startup_opportunity.adaptation_decision.v1",
@@ -602,7 +604,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(
           document,
           "unresolved_gap_refs",
-          ["startup_opportunity.gap_snapshot.v1", "startup_opportunity.gap_snapshot.v2"],
+          [
+            "startup_opportunity.gap_snapshot.v1",
+            "startup_opportunity.gap_snapshot.v2",
+            "startup_opportunity.gap_snapshot.v3",
+          ],
           "gap_id",
         ),
       ];
