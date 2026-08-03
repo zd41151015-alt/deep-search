@@ -9,11 +9,14 @@ import {
   canonicalContentHash,
   canonicalJson,
   createArtifactValidator,
+  type DiscoveryCandidateDocument,
+  type DiscoveryCandidatePolicy,
   type DocumentBundle,
   EvidenceStore,
   type FormalArtifactEnvelope,
   RunStore,
   StoreError,
+  validateDiscoveryCandidateContract,
 } from "../harness/src/index.js";
 import {
   fixtureEnvelope,
@@ -21,6 +24,7 @@ import {
   G21_MAP_REFS,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import {
+  createDiscoveryCandidateFixture,
   G22_DEMAND_R2,
   G22_FAN_IN,
   G22_GENERATION_LANE,
@@ -43,6 +47,23 @@ interface RuntimeState {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function candidateContractDocuments(bundle: DocumentBundle): DiscoveryCandidateDocument[] {
+  return bundle.documents.map((entry) => {
+    const stored = entry.document;
+    const isEnvelope = String(stored.schema_version).startsWith(
+      "startup_opportunity.artifact_envelope.",
+    );
+    return {
+      path: entry.path,
+      schemaVersion: isEnvelope ? String(stored.artifact_type) : String(stored.schema_version),
+      document: isEnvelope
+        ? (stored.document as Record<string, unknown>)
+        : (stored as Record<string, unknown>),
+      envelope: isEnvelope ? (stored as Record<string, unknown>) : null,
+    };
+  });
 }
 
 async function snapshotTree(root: string): Promise<Readonly<Record<string, string>>> {
@@ -215,6 +236,45 @@ function terminalLane(
     content_hash: canonicalContentHash(envelope.document),
   };
 }
+
+test("G2.2 selects the Manifest current Plan while retaining Plan history", async (t) => {
+  const policy = JSON.parse(
+    await readFile(
+      path.join(repositoryRoot, "harness/policies/discovery-candidates.v1.json"),
+      "utf8",
+    ),
+  ) as DiscoveryCandidatePolicy;
+
+  await t.test("accepts an additional immutable historical Plan", async () => {
+    const documents = candidateContractDocuments(await createDiscoveryCandidateFixture());
+    const currentPlan = documents.find(
+      (entry) => entry.path === "plans/research-plan.r1.json",
+    );
+    assert.ok(currentPlan);
+    documents.push({ ...clone(currentPlan), path: "plans/research-plan.r2.json" });
+    assert.deepEqual(validateDiscoveryCandidateContract(documents, policy), []);
+  });
+
+  await t.test("rejects a missing Manifest-selected Plan", async () => {
+    const documents = candidateContractDocuments(await createDiscoveryCandidateFixture());
+    const manifest = documents.find((entry) => entry.path === "manifest.json")?.document;
+    assert.ok(manifest);
+    manifest.current_plan_ref = "plans/research-plan.r3.json";
+    const codes = validateDiscoveryCandidateContract(documents, policy).map((issue) => issue.code);
+    assert.ok(codes.includes("discovery_candidate.bundle_cardinality"), JSON.stringify(codes));
+  });
+
+  await t.test("rejects duplicate documents at the current Plan path", async () => {
+    const documents = candidateContractDocuments(await createDiscoveryCandidateFixture());
+    const currentPlan = documents.find(
+      (entry) => entry.path === "plans/research-plan.r1.json",
+    );
+    assert.ok(currentPlan);
+    documents.push(clone(currentPlan));
+    const codes = validateDiscoveryCandidateContract(documents, policy).map((issue) => issue.code);
+    assert.ok(codes.includes("discovery_candidate.bundle_cardinality"), JSON.stringify(codes));
+  });
+});
 
 test("G2.2 publishes explicit candidates, tasks, typed lane material, pre-kill results, and fan-in", async (context) => {
   const state = await setup(context, "publication");

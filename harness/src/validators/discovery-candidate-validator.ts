@@ -1151,22 +1151,39 @@ export function validateDiscoveryCandidateContract(
   const scopes = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.scope_frame.v2",
   );
+  const manifests = documents.filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.run_manifest.v1",
+  );
   const plans = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.research_plan.v1",
   );
-  if (scopes.length !== 1 || plans.length !== 1 || candidates.length === 0) {
+  const currentPlanRef = manifests[0]?.document.current_plan_ref;
+  const currentPlans = plans.filter((entry) => entry.path === currentPlanRef);
+  if (
+    scopes.length !== 1 ||
+    manifests.length !== 1 ||
+    currentPlans.length !== 1 ||
+    candidates.length === 0
+  ) {
     errors.push(
       issue(
         "discovery_candidate.bundle_cardinality",
         "/documents",
         "G2.2 contract requires one Scope, one current Plan, and at least one typed candidate",
-        { scopeCount: scopes.length, planCount: plans.length, candidateCount: candidates.length },
+        {
+          scopeCount: scopes.length,
+          manifestCount: manifests.length,
+          currentPlanRef,
+          currentPlanCount: currentPlans.length,
+          totalPlanCount: plans.length,
+          candidateCount: candidates.length,
+        },
       ),
     );
     return sortIssues(errors);
   }
   const scope = scopes[0] as DiscoveryCandidateDocument;
-  const plan = plans[0] as DiscoveryCandidateDocument;
+  const plan = currentPlans[0] as DiscoveryCandidateDocument;
   for (const entry of documents) {
     validateEnvelope(entry, errors);
     validateDiscoveryLineage(entry, documentsByPath, scope, plan, errors);
