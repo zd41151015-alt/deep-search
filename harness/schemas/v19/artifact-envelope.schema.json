@@ -24,7 +24,8 @@
         "startup_opportunity.dispatch_batch.v2",
         "startup_opportunity.assessment_lane_result.v1",
         "startup_opportunity.assessment_stage_gate.v1",
-        "startup_opportunity.assessment_followup_decision.v1"
+        "startup_opportunity.assessment_followup_decision.v1",
+        "startup_opportunity.checkpoint.v1"
       ]
     },
     "artifact_path": { "$ref": "../v12/definitions.schema.json#/$defs/artifactPath" },
@@ -128,6 +129,15 @@
             "pattern": "^adaptations/decisions/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
           },
           "document": { "$ref": "assessment-followup-decision.schema.json" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "artifact_type": { "const": "startup_opportunity.checkpoint.v1" } } },
+      "then": {
+        "properties": {
+          "producer_role": { "const": "harness" },
+          "document": { "$ref": "../v1/checkpoint.schema.json" }
         }
       }
     }

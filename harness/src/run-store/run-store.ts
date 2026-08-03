@@ -47,6 +47,7 @@ import {
   type DocumentBundleEntry,
   type DocumentBundleReferenceContext,
 } from "../validators/artifact-validator.js";
+import { SCHEMA_BUNDLE_VERSION } from "../validators/schema-bundle.js";
 import { validateTerminalReportingContract } from "../validators/terminal-reporting-validator.js";
 import { type JsonlRepairResult, JsonlStore } from "./jsonl-store.js";
 
@@ -319,7 +320,7 @@ function makeManifest(input: CreateRunInput, createdAt: string): RunManifest {
     updated_at: createdAt,
     skill_version: input.skillVersion ?? "1.0.0",
     policy_version: input.policyVersion ?? "1.0.0",
-    schema_bundle_version: "1.0.0",
+    schema_bundle_version: SCHEMA_BUNDLE_VERSION,
     git_commit: input.gitCommit ?? null,
     current_phase: null,
     current_plan_ref: null,
@@ -2441,6 +2442,17 @@ export class RunStore {
     }
     const manifest = value as RunManifest;
     this.validateManifest(manifest);
+    if (manifest.schema_bundle_version !== SCHEMA_BUNDLE_VERSION) {
+      throw new StoreError(
+        "run.unsupported_run_version",
+        "Run was created with an unsupported schema bundle; restart with a new run_id",
+        {
+          actualSchemaBundleVersion: manifest.schema_bundle_version,
+          currentSchemaBundleVersion: SCHEMA_BUNDLE_VERSION,
+          restartRequired: true,
+        },
+      );
+    }
     return manifest;
   }
 

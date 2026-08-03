@@ -1,6 +1,7 @@
 import { canonicalContentHash, canonicalJson, operationKey } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import type { RunManifest } from "../run-store/run-store.js";
+import { SCHEMA_BUNDLE_VERSION } from "../validators/schema-bundle.js";
 import { fragmentOf, isRecord } from "./contracts.js";
 
 export interface AdaptationInputDocument {
@@ -154,7 +155,6 @@ export function transformPlan(
       "one apply operation cannot mix Adaptation Decision contract versions",
     );
   }
-  const assessmentAdaptation = decisionVersions[0] === "startup_opportunity.adaptation_decision.v3";
   const actions = sortedDecisions.map((decision) => String(decision.document.action));
   const hasRevisionAction = actions.some((action) => REVISION_ACTIONS.has(action));
   const hasNonRevisionAction = actions.some((action) => NON_REVISION_ACTIONS.has(action));
@@ -175,9 +175,9 @@ export function transformPlan(
     parent_plan_hash: canonicalContentHash(basePlan),
     adaptation_refs: uniqueSorted(adaptationRefs),
   });
-  let nextManifest = {
+  let nextManifest: RunManifest = {
     ...appendApplied(manifest, adaptationRefs),
-    ...(assessmentAdaptation ? { schema_bundle_version: "5.0.0" } : {}),
+    schema_bundle_version: SCHEMA_BUNDLE_VERSION,
   };
 
   if (!hasRevisionAction) {
@@ -293,7 +293,7 @@ export function transformPlan(
   );
   nextManifest = {
     ...nextManifest,
-    schema_bundle_version: assessmentAdaptation ? "5.0.0" : "2.2.0",
+    schema_bundle_version: SCHEMA_BUNDLE_VERSION,
     current_plan_ref: planPath,
     plan_revision: revision,
     followup_round:

@@ -479,7 +479,7 @@ test("terminal finalizer produces a localized decision-first brief with readable
     }
     throw error;
   });
-  assert.equal(loaded.manifest.schema_bundle_version, "16.0.0");
+  assert.equal(loaded.manifest.schema_bundle_version, "18.0.0");
 });
 
 test("terminal report rejects false completion, derived drift, and caller-declared freshness", async (context) => {
@@ -615,7 +615,7 @@ test("build-report publishes formal sidecars, materializes three outputs, and ex
   });
   assert.equal(checkpoint.status, "published");
   const reopened = await state.store.load(G14_RUN_ID);
-  assert.equal(reopened.manifest.schema_bundle_version, "6.0.0");
+  assert.equal(reopened.manifest.schema_bundle_version, "18.0.0");
   assert.equal(reopened.lastValidCheckpointRef, "checkpoints/checkpoint-g1-4-report.json");
   assert.equal(reopened.reportRecovery.recoveredFormalArtifactPaths.length, 0);
   assert.equal(reopened.reportRecovery.recoveredMaterializedPaths.length, 0);

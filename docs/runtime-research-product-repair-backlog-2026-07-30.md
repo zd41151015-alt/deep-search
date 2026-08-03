@@ -31,6 +31,27 @@
 - `PARTIALLY_FIXED_CODE`：当前工作树修复了部分路径，但仍有明确残余问题或表示依赖。
 - `FIXED_CODE_TESTED`：当前工作树已有生产代码和永久回归测试，尚未由修复后的真实 Run 验证。
 
+### 当前版本与历史数据边界
+
+本 backlog 与 RFC 28.1 采用 current-only Run 策略。当前代码只保证由当前 schema bundle 创建的新 Run；旧 Run、旧 receipt、旧 Manifest、旧 Artifact 和旧 schema bundle 不迁移、不恢复、不继续执行，也不由升级后的代码重新验证。需要继续研究时使用新的 `run_id` 重跑。`startup-opportunity-implementation-progress.md` 继续只是历史施工账本，不承担版本迁移或维修门禁。
+
+永久正确性边界如下：
+
+- 新 Run 的 Manifest 从创建开始选择当前 bundle；status、load/recovery、continuation 和 publish 发现非当前 bundle 时，在任何写入前返回稳定的 `run.unsupported_run_version`，并声明 `restartRequired=true`。
+- 不得仅为了退役格式增加 adapter、fallback、migration 或兼容 fixture。普通修复原子更新当前 contract、producer/consumer 和现行 fixture；只有当前代码必须同时区分不兼容正式 shape、identity、policy 或持久化语义时才新增版本。
+- 版本号较小不等于历史格式。当前 producer/compiler/report/runtime 仍生成或消费的 v1-v18 contract 仍是现行依赖，相关 schema、validator、semantic fixture 和 fault/recovery 测试必须保留。
+- 同一当前 Run 内的 immutable revision、hash/ref、atomic Manifest publish、receipt exact replay、checkpoint/reopen 和 fault recovery 继续是强制要求。
+
+本轮可达性审计结论：
+
+- **现行功能回归**：Planning/Assessment evaluator 曾显式加载 `bundle.v2.1` / `bundle.v5`；Plan transformer/runtime 曾把 current Manifest 降级为 `2.2.0` / `5.0.0` / `9.0.0`；adaptation runtime 的 Envelope 识别只到 v18；v19 current checkpoint 未进入 v19 Envelope contract。这些路径均由当前 `validate-plan`、Gap/Adaptation、Store create/reopen、compiler/report runtime 到达，必须修复。
+- **退役历史门禁**：G2.4 固定 parent-produced v12 bytes、archived parent commit runtime oracle、v12 与 v13 扫描差异，以及显式创建 `bundle.v12` 只证明旧 adapter 行为的测试，不覆盖当前 producer 创建的新 Run，已从回归门禁移除。
+- **保留的旧编号现行依赖**：当前 Run 内仍由 planning、Plan apply、Discovery/Assessment、terminal reporting、declarative compiler 和 Store publication/recovery 生成或消费的 v1-v19 document/envelope/receipt 继续保留。其正确性由 current Manifest + current bundle 下的端到端可达测试证明，而不是由旧 Run bytes 证明。
+
+当前修复状态：`FIXED_CODE_TESTED`。`76a43be` 中 assessment policy schema 缺失时跳过校验的 compatibility fallback 已在后续维修恢复为 fail closed；planner 使用 current bundle；新 Run 使用 bundle `18.0.0`，旧 bundle 的 status/load/publish 均以 restart-required 零写入拒绝；v19 checkpoint、current policy binding 和 current Plan apply/recovery 已有永久正反及 fault/recovery 回归。未修改任何历史 `runs/` 数据。
+
+current-only 版本策略批次在冻结 Node `24.18.0` / npm `11.16.0` 下通过 `npm test` 380/380、`validate:fixtures` 223/223、lint、typecheck、schema validation 193/193、repository doctor 和 `git diff --check`。已退役的 fixed parent-produced v12 bytes/archived-runtime compatibility gate 被一个 current v9-validation-only / v19-runtime Envelope dispatch 边界测试取代；当前 v13 semantic drift、report scan、publication/reopen/fault recovery 负例继续保留并通过。
+
 工程修复任务 `019fb5bb-d63f-7720-b506-30adcad957f5` 已完成 `POST-G4-003..010` 的候选实现，并在冻结 Node `24.18.0` / npm `11.16.0` 环境通过 `npm test` 354/354、`validate:fixtures` 223/223、store/fault/recovery 11/11、10/10、11/11，以及 lint、typecheck、schema validation、doctor 和 H14。该批候选与接手时已有维修已由 `c4b025a` 建立基线提交，五项 P0 维修由 `5cfbe2e` 提交，terminal reporting P1 由 `53dda40` 提交；正式 research Run bytes 没有更新。因此以下“已修复”只表示代码与测试状态，不表示真实 Run 已验证。
 
 本轮 P0 维修在同一冻结工具链下通过 `npm test` 362/362、`validate:fixtures` 223/223、store/fault/recovery 12/12、10/10、11/11，以及 lint、typecheck、schema validation 161 schemas、repository doctor 和 `git diff --check`。验证只使用 synthetic fixtures 和临时目录，没有执行正式市场调研、外部验证或旧 Run 迁移。
@@ -135,7 +156,7 @@
 - 调用方只提供待验证的语义 Artifact，不手工复制持久化 authority。
 - 增加真实 `create-run -> publish core -> validate plan` 端到端测试。
 
-当前修复状态：`FIXED_CODE_TESTED`。`RunStore.buildValidationContext(run_id, bundle)` 会读取并校验 current Manifest、传递闭包中的正式 Artifact、checkpoint 和 exact Event/Decision/Evidence records；v1-v16 Store Envelope 在验证后以 typed bare document 进入原版本 bundle，v17 为 terminal producer/version 校验保留正式 Envelope 身份。exact records 通过 `DocumentBundleReferenceContext` 传递，不会向不支持该字段的 v2 bundle 注入额外属性。`validate-plan --run-id [--runs-root]` 已接入，并有 authority drift、v17 Envelope closure negative test 和 CLI 端到端回归。
+当前修复状态：`FIXED_CODE_TESTED`。`RunStore.buildValidationContext(run_id, bundle)` 会读取并校验 current Manifest、传递闭包中的正式 Artifact、checkpoint 和 exact Event/Decision/Evidence records；当前 bundle 可达的 Store Envelope 均先按原 Envelope contract 验证，其中 planning 所需的早期 Envelope 以 typed bare document 进入语义 bundle，v17-v19 则为 terminal、declarative compiler、Assessment 和 current checkpoint 的 producer/version 校验保留正式 Envelope 身份。exact records 通过 `DocumentBundleReferenceContext` 传递，不会向不支持该字段的较早 document-bundle shape 注入额外属性。`validate-plan --run-id [--runs-root]` 已接入，并有 authority drift、current terminal Envelope closure negative test 和 CLI 端到端回归。
 
 ### RR-ENG-003 Planning Context 生命周期冲突
 

@@ -61,6 +61,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
 ] as const;
 
 export const SCHEMA_BUNDLE_PATHS = [
+  "harness/schemas/bundle.v18.json",
   "harness/schemas/bundle.v17.json",
   "harness/schemas/bundle.v16.json",
   "harness/schemas/bundle.v15.json",

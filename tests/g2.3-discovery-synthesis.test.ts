@@ -341,7 +341,7 @@ test("G2.3 publishes caller-supplied synthesis artifacts with receipt v9 and exa
   });
   assert.ok(replay.artifacts.every((artifact) => artifact.status === "idempotent_replay"));
   const loaded = await state.store.load(state.runId);
-  assert.equal(loaded.manifest.schema_bundle_version, "10.0.0");
+  assert.equal(loaded.manifest.schema_bundle_version, "18.0.0");
   assert.ok(loaded.manifest.artifact_refs.includes(G23_MERGE));
   const receipts = await Promise.all(
     (await readdir(path.join(state.runRoot, ".store/operations")))

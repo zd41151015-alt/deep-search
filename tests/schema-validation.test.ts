@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { effectiveDocuments } from "../harness/src/adaptation/contracts.js";
 import {
   canonicalContentHash,
   createArtifactValidator,
@@ -515,4 +516,29 @@ test("v9 remains validation-only while v10 owns G2.2 runtime publication", async
       .document_bundle_version,
     "startup_opportunity.document_bundle.v10",
   );
+});
+
+test("adaptation envelope dispatch excludes validation-only v9 and reaches current v19", () => {
+  const nested = { schema_version: "startup_opportunity.checkpoint.v1" };
+  const bundle = (schemaVersion: string) => ({
+    documents: [
+      {
+        path: "checkpoints/checkpoint-boundary.json",
+        document: {
+          schema_version: schemaVersion,
+          artifact_type: "startup_opportunity.checkpoint.v1",
+          document: nested,
+        },
+      },
+    ],
+  });
+
+  const validationOnly = effectiveDocuments(bundle("startup_opportunity.artifact_envelope.v9"))[0];
+  assert.equal(validationOnly?.envelope, null);
+  assert.equal(validationOnly?.schemaVersion, "startup_opportunity.artifact_envelope.v9");
+
+  const current = effectiveDocuments(bundle("startup_opportunity.artifact_envelope.v19"))[0];
+  assert.ok(current?.envelope);
+  assert.equal(current.schemaVersion, "startup_opportunity.checkpoint.v1");
+  assert.equal(current.document, nested);
 });

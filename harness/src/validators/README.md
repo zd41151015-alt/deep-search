@@ -1,6 +1,6 @@
 # Deterministic Schema And Reference Validator
 
-默认 validator 使用 schema bundle `16.0.0`，同时保留既有 v1-v16 contract bytes。`validate-artifact` 继续只验证显式 document/bundle；不会扫描 Run、启动 Agent、执行 network research 或隐式迁移历史 Artifact。
+默认 validator 使用当前 schema bundle `18.0.0`。v1-v19 中仍由当前 producer/consumer 可达的 contract 是当前 bundle 的组成部分；版本号较小不等于历史 Run 兼容。`validate-artifact` 只验证调用方显式提供的 current document/bundle，不扫描、迁移、恢复或继续旧 Run，也不启动 Agent 或执行 network research。已退役 bundle/fixture 不构成回归门禁。
 
 `PlanningContractEvaluator` 只读消费显式 Document Bundle、`adaptation.v1.json` 和 AI trigger source-binding policy，返回排序稳定的 contract issue。它机械校验 Planning Context v2 的 source existence/schema/canonical hash/Run/mode/context revision/subject/trigger exact binding、closed unit tuple、AI aggregate coverage、canonical coverage_key/relation、pending/active coverage target 和 Run Manifest failed-only retry。
 

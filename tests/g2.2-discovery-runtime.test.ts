@@ -240,7 +240,7 @@ test("G2.2 publishes explicit candidates, tasks, typed lane material, pre-kill r
   assert.deepEqual(await snapshotTree(state.runRoot), beforeReplay);
 
   const loaded = await state.store.load(state.runId);
-  assert.equal(loaded.manifest.schema_bundle_version, "9.0.0");
+  assert.equal(loaded.manifest.schema_bundle_version, "18.0.0");
   assert.ok(loaded.manifest.artifact_refs.includes(G22_FAN_IN));
   assert.equal((await state.store.load(state.runId)).recovered, false);
 

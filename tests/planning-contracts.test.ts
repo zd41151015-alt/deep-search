@@ -131,7 +131,7 @@ test("Planning Context binds current Run/Plan state and drives complete AI cover
   const { valid } = await loadFixtures();
   const result = evaluator.validateDocumentBundle(valid);
   assert.equal(result.valid, true, JSON.stringify(allIssues(result)));
-  assert.equal(result.schemaBundleVersion, "2.1.0");
+  assert.equal(result.schemaBundleVersion, "18.0.0");
   assert.equal(result.policyVersion, "1.0.0");
   assert.equal(result.triggerSourcePolicyVersion, "1.0.0");
 
@@ -339,22 +339,11 @@ test("retry_unit accepts failed_units only and rejects completed, active, and pa
   assert.equal(evaluator.validateDocumentBundle(valid).valid, true);
 });
 
-test("installed G3.1 output remains closed and older adapters cannot publish it", async () => {
+test("installed G3.1 output remains closed until its owning publication contract allows it", async () => {
   const evaluator = await createPlanningContractEvaluator(repositoryRoot);
   const artifactValidator = await createArtifactValidator(repositoryRoot);
-  const legacyValidator = await createArtifactValidator(
-    repositoryRoot,
-    "harness/schemas/bundle.v12.json",
-    "12.0.0",
-  );
   const { valid } = await loadFixtures();
   assert.equal(evaluator.validateDocumentBundle(valid).valid, true);
-
-  const legacyResult = legacyValidator.validateDocument({
-    schema_version: "startup_opportunity.capability_evidence.v1",
-  });
-  assert.equal(legacyResult.valid, false);
-  assert.equal(legacyResult.errors[0]?.code, "schema.unknown_version");
 
   const currentResult = artifactValidator.validateDocument({
     schema_version: "startup_opportunity.capability_evidence.v1",
@@ -368,7 +357,7 @@ test("installed G3.1 output remains closed and older adapters cannot publish it"
   assert.ok(envelopeResult.errors.some((issue) => issue.keyword === "enum"));
 });
 
-test("v1 Adaptation Decision remains readable but cannot enter v2 policy validation", async () => {
+test("installed v1 Adaptation Decision cannot enter the current v2 policy validation", async () => {
   const evaluator = await createPlanningContractEvaluator(repositoryRoot);
   const { valid, negative } = await loadFixtures();
   const fixture = negative.find((candidate) => candidate.category === "versioning");

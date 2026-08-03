@@ -2,19 +2,19 @@
   "schema_version": "startup_opportunity.plan_revision_apply_policy.v1",
   "policy_id": "startup_opportunity.closed_plan_revision_apply",
   "policy_version": "1.0.0",
-  "compatible_schema_bundle_versions": ["2.2.0"],
+  "compatible_schema_bundle_versions": ["18.0.0"],
   "base_policy_bindings": [
     {
       "policy_ref": "harness/policies/adaptation.v1.json",
       "schema_version": "startup_opportunity.adaptation_policy.v1",
       "policy_version": "1.0.0",
-      "content_hash": "sha256:e6ebb8a6ca4c429de84549ea87e736b5002def426b829478cc9bd2cd914dfceb"
+      "content_hash": "sha256:a5e57ff489785b0ff9e5a8f3b8c1ee334eac3e299efef4da10bac8986b71443a"
     },
     {
       "policy_ref": "harness/policies/ai-trigger-source-binding.v1.json",
       "schema_version": "startup_opportunity.ai_trigger_source_binding_policy.v1",
       "policy_version": "1.0.0",
-      "content_hash": "sha256:580125bde239af60917ff8709b49ce04c4183488dbc51c1d5fe9fa7814735416"
+      "content_hash": "sha256:94104008b6c2f82d34269fb59463c02f5c78b1c70f1ed8966390d22b6e2970d2"
     }
   ],
   "operation_identity": "canonical_parent_plan_hash_and_sorted_adaptation_refs.v1",

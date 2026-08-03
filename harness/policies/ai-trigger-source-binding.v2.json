@@ -2,12 +2,12 @@
   "schema_version": "startup_opportunity.ai_trigger_source_binding_policy.v2",
   "policy_id": "startup_opportunity.ai_trigger_source_binding",
   "policy_version": "2.0.0",
-  "compatible_schema_bundle_versions": ["5.0.0"],
+  "compatible_schema_bundle_versions": ["18.0.0"],
   "base_adaptation_policy_binding": {
     "policy_ref": "harness/policies/adaptation.v1.json",
     "schema_version": "startup_opportunity.adaptation_policy.v1",
     "policy_version": "1.0.0",
-    "content_hash": "sha256:e6ebb8a6ca4c429de84549ea87e736b5002def426b829478cc9bd2cd914dfceb"
+    "content_hash": "sha256:a5e57ff489785b0ff9e5a8f3b8c1ee334eac3e299efef4da10bac8986b71443a"
   },
   "contract_versions": {
     "planning_context": "startup_opportunity.planning_context.v2",

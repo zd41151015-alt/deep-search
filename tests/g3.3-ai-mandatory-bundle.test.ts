@@ -737,7 +737,7 @@ test("G3.3 publication, report, checkpoint, and clean reopen preserve v16 covera
     reportEnvelope: g3Envelope(state.bundle, G24_REPORT),
   });
   assert.equal(report.status, "published");
-  assert.equal((await state.store.load(state.runId)).manifest.schema_bundle_version, "15.0.0");
+  assert.equal((await state.store.load(state.runId)).manifest.schema_bundle_version, "18.0.0");
   assert.match(
     await readFile(path.join(state.runsRoot, state.runId, "report.md"), "utf8"),
     /Portfolio/,
@@ -760,7 +760,7 @@ test("G3.3 publication, report, checkpoint, and clean reopen preserve v16 covera
   assert.match(checkpoint.checkpointRef, /checkpoint-g3-3-bundle/);
   const reopened = await new RunStore(state.runsRoot, state.validator).load(state.runId);
   assert.equal(reopened.recovered, false);
-  assert.equal(reopened.manifest.schema_bundle_version, "15.0.0");
+  assert.equal(reopened.manifest.schema_bundle_version, "18.0.0");
   assert.ok(reopened.manifest.artifact_refs.includes(G33_MANDATORY_BUNDLE));
   assert.ok(reopened.manifest.artifact_refs.includes(report.consistencyEvaluationRef));
 });

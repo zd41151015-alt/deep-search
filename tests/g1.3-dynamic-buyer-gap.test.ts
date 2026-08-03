@@ -13,6 +13,7 @@ import {
   createPlanRevisionRuntime,
   type DocumentBundle,
   type PlanApplyFaultBoundary,
+  SCHEMA_BUNDLE_VERSION,
   StoreError,
   validateAssessmentAdaptationContract,
 } from "../harness/src/index.js";
@@ -254,7 +255,7 @@ test("G1.3 buyer Gap creates exact Research Plan r2 and assessment plan r2 atomi
   const reopened = await state.store.load(state.runId);
   assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
   assert.equal(reopened.manifest.plan_revision, 2);
-  assert.equal(reopened.manifest.schema_bundle_version, "5.0.0");
+  assert.equal(reopened.manifest.schema_bundle_version, SCHEMA_BUNDLE_VERSION);
 });
 
 test("G1.3 exact Decision replay preserves every existing lifecycle state byte-for-byte", async (context) => {

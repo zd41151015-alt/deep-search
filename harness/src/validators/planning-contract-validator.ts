@@ -655,11 +655,7 @@ export class PlanningContractEvaluator {
 export async function createPlanningContractEvaluator(
   root = process.cwd(),
 ): Promise<PlanningContractEvaluator> {
-  const artifactValidator = await createArtifactValidator(
-    root,
-    "harness/schemas/bundle.v2.1.json",
-    "2.1.0",
-  );
+  const artifactValidator = await createArtifactValidator(root);
   const policy = JSON.parse(
     await readFile(path.join(root, ADAPTATION_POLICY_PATH), "utf8"),
   ) as unknown;
@@ -691,11 +687,7 @@ export async function createPlanningContractEvaluator(
 export async function createAssessmentPlanningContractEvaluator(
   root = process.cwd(),
 ): Promise<PlanningContractEvaluator> {
-  const artifactValidator = await createArtifactValidator(
-    root,
-    "harness/schemas/bundle.v5.json",
-    "5.0.0",
-  );
+  const artifactValidator = await createArtifactValidator(root);
   const policy = JSON.parse(
     await readFile(path.join(root, ADAPTATION_POLICY_PATH), "utf8"),
   ) as unknown;

@@ -323,7 +323,7 @@ test("first map publication is an explicit three-map bundle and exact replay is 
 
   const loaded = await store.load(runId);
   assert.equal(loaded.manifest.current_phase, "discovery");
-  assert.equal(loaded.manifest.schema_bundle_version, "7.0.0");
+  assert.equal(loaded.manifest.schema_bundle_version, "18.0.0");
   assert.ok(G21_MAP_REFS.every((ref) => loaded.manifest.artifact_refs.includes(ref)));
 
   const operationFiles = await readdir(path.join(runRoot, ".store/operations"));
@@ -454,7 +454,7 @@ test("conflicting map replay preserves immutable bytes", async (t) => {
   assert.deepEqual(await snapshotTree(runRoot), before);
 });
 
-test("v8 checkpoint and v7 receipt recover an interrupted map temp publication", async (t) => {
+test("current checkpoint and v7 receipt recover an interrupted map temp publication", async (t) => {
   const { bundle, runId, runRoot, store } = await prepareRun(t, "ai_first", "recovery");
   await store.publishArtifactBundle({
     runId,
@@ -477,7 +477,7 @@ test("v8 checkpoint and v7 receipt recover an interrupted map temp publication",
   const checkpoint = JSON.parse(
     await readFile(path.join(runRoot, "checkpoints/checkpoint-g2-1-maps.json"), "utf8"),
   ) as Record<string, unknown>;
-  assert.equal(checkpoint.schema_version, "startup_opportunity.artifact_envelope.v8");
+  assert.equal(checkpoint.schema_version, "startup_opportunity.artifact_envelope.v19");
 
   const operationRoot = path.join(runRoot, ".store/operations");
   const solutionReceiptFilename = (
@@ -545,7 +545,7 @@ test("v8 publication crash after temp write is recovered only from its v7 receip
   assert.equal(receipt.schema_version, "startup_opportunity.artifact_store_operation.v7");
   const reopened = await store.load(runId);
   assert.ok(reopened.recoveredArtifactPaths.includes("decision-context.json"));
-  assert.equal(reopened.manifest.schema_bundle_version, "7.0.0");
+  assert.equal(reopened.manifest.schema_bundle_version, "18.0.0");
 });
 
 test("receipt version drift fails reopen closed", async (t) => {

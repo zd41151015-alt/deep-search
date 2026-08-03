@@ -205,7 +205,7 @@ test("four synthetic branches publish Evidence -> Claim -> Finding -> Insight an
     completed_units: string[];
     checkpoint_ref: string;
   };
-  assert.equal(manifestBefore.schema_bundle_version, "4.0.0");
+  assert.equal(manifestBefore.schema_bundle_version, "18.0.0");
   assert.deepEqual(manifestBefore.active_units, []);
   assert.deepEqual(
     manifestBefore.completed_units,
@@ -232,7 +232,7 @@ test("four synthetic branches publish Evidence -> Claim -> Finding -> Insight an
 
   const reopened = await state.store.load(G12_RUN_ID);
   assert.equal(reopened.lastValidCheckpointRef, "checkpoints/checkpoint-g1-2-vertical.json");
-  assert.equal(reopened.manifest.schema_bundle_version, "4.0.0");
+  assert.equal(reopened.manifest.schema_bundle_version, "18.0.0");
   assert.deepEqual(reopened.manifest.active_units, []);
   assert.deepEqual(reopened.manifest.completed_units, manifestBefore.completed_units);
   assert.equal(reopened.orphanActiveUnits.length, 0);

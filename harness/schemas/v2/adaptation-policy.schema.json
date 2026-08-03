@@ -23,7 +23,7 @@
     "policy_version": { "const": "1.0.0" },
     "compatible_schema_bundle_versions": {
       "type": "array",
-      "prefixItems": [{ "const": "2.0.0" }],
+      "prefixItems": [{ "const": "18.0.0" }],
       "items": false,
       "minItems": 1,
       "maxItems": 1

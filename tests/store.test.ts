@@ -10,6 +10,7 @@ import {
   EvidenceStore,
   type FormalArtifactEnvelope,
   RunStore,
+  SCHEMA_BUNDLE_VERSION,
   StoreError,
 } from "../harness/src/index.js";
 
@@ -28,6 +29,23 @@ async function setup(context: TestContext, runId = "store-test") {
     createdAt: "2026-07-23T12:00:00Z",
   });
   return { root, runsRoot, runRoot: path.join(runsRoot, runId), store, created };
+}
+
+async function snapshotDirectory(root: string): Promise<Record<string, string>> {
+  const files: [string, string][] = [];
+  async function visit(relativeRoot: string): Promise<void> {
+    const entries = await readdir(path.join(root, relativeRoot), { withFileTypes: true });
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      const relativePath = path.join(relativeRoot, entry.name);
+      if (entry.isDirectory()) {
+        await visit(relativePath);
+      } else {
+        files.push([relativePath, (await readFile(path.join(root, relativePath))).toString("hex")]);
+      }
+    }
+  }
+  await visit("");
+  return Object.fromEntries(files);
 }
 
 async function eventEnvelope(
@@ -55,6 +73,7 @@ async function eventEnvelope(
 test("create and reopen persist a complete initial Run boundary idempotently", async (context) => {
   const { runsRoot, runRoot, store, created } = await setup(context);
   assert.equal(created.status, "created");
+  assert.equal(created.manifest.schema_bundle_version, SCHEMA_BUNDLE_VERSION);
   assert.equal(created.manifest.checkpoint_ref, "checkpoints/checkpoint-initial.json");
 
   const required = [
@@ -71,6 +90,10 @@ test("create and reopen persist a complete initial Run boundary idempotently", a
   assert.equal(reopened.recovered, false);
   assert.equal(reopened.lastValidCheckpointRef, "checkpoints/checkpoint-initial.json");
   assert.deepEqual(reopened.manifest, created.manifest);
+  const initialCheckpoint = JSON.parse(
+    await readFile(path.join(runRoot, "checkpoints/checkpoint-initial.json"), "utf8"),
+  ) as { schema_version: string };
+  assert.equal(initialCheckpoint.schema_version, "startup_opportunity.artifact_envelope.v19");
 
   const replay = await store.create({
     runId: "store-test",
@@ -133,6 +156,36 @@ test("create validates before visibility and atomically discards failed staging 
   );
 });
 
+test("old Run bundle is restart-required and status, recovery, and publish leave bytes unchanged", async (context) => {
+  const { runRoot, store } = await setup(context, "unsupported-run-version");
+  const manifestPath = path.join(runRoot, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+  manifest.schema_bundle_version = "17.0.0";
+  await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
+  const before = await snapshotDirectory(runRoot);
+  const assertUnsupported = (error: unknown): boolean => {
+    assert.ok(error instanceof StoreError);
+    assert.equal(error.code, "run.unsupported_run_version");
+    assert.deepEqual(error.details, {
+      actualSchemaBundleVersion: "17.0.0",
+      currentSchemaBundleVersion: SCHEMA_BUNDLE_VERSION,
+      restartRequired: true,
+    });
+    return true;
+  };
+
+  await assert.rejects(store.status("unsupported-run-version"), assertUnsupported);
+  await assert.rejects(store.load("unsupported-run-version"), assertUnsupported);
+  await assert.rejects(
+    store.publishArtifact({
+      runId: "unsupported-run-version",
+      envelope: await eventEnvelope("unsupported-run-version"),
+    }),
+    assertUnsupported,
+  );
+  assert.deepEqual(await snapshotDirectory(runRoot), before);
+});
+
 test("formal publication validates canonical hash, updates manifest, and replays idempotently", async (context) => {
   const { runRoot, store } = await setup(context);
   const envelope = await eventEnvelope("store-test");
@@ -151,7 +204,7 @@ test("formal publication validates canonical hash, updates manifest, and replays
   assert.equal(replay.status, "idempotent_replay");
 });
 
-test("G0.4 Store publishes v2 envelopes through the versioned receipt migration", async (context) => {
+test("current Run publishes a reachable v2 envelope without downgrading its bundle", async (context) => {
   const { runRoot, store } = await setup(context);
   const v1 = await eventEnvelope("store-test");
   const v2 = {
@@ -164,7 +217,7 @@ test("G0.4 Store publishes v2 envelopes through the versioned receipt migration"
   const manifest = JSON.parse(await readFile(path.join(runRoot, "manifest.json"), "utf8")) as {
     schema_bundle_version: string;
   };
-  assert.equal(manifest.schema_bundle_version, "2.2.0");
+  assert.equal(manifest.schema_bundle_version, SCHEMA_BUNDLE_VERSION);
   const receipt = JSON.parse(
     await readFile(
       path.join(runRoot, `.store/operations/artifact-${published.operationKey.slice(7)}.json`),

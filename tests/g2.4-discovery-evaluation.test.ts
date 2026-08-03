@@ -1,15 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -68,17 +59,6 @@ import {
 } from "./fixtures/g2.4/discovery-evaluation-fixture.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
-const parentProducedV12FixturePath = fileURLToPath(
-  new URL("./fixtures/g2.4/parent-produced-document-bundle.v12.json.bytes", import.meta.url),
-);
-const parentProducedV12Hash =
-  "sha256:a08eb3cc38ba099a3fd912cb90d49fe9039507e82fb4eb0c701da08e0176dee6";
-const parentProducedV12Size = 285_157;
-const parentRuntimeCommit = "e68be2dc17ba2e7e29be64dc1620fe5541ad6ad0";
-const parentRuntimeGitSourceEnvironmentVariable = "STARTUP_OPPORTUNITY_H14_PARENT_GIT_SOURCE";
-const crossVersionDriverPath = fileURLToPath(
-  new URL("./helpers/g2.4-v12-runtime-driver.ts", import.meta.url),
-);
 
 interface State {
   readonly root: string;
@@ -107,79 +87,6 @@ async function treeSnapshot(root: string, relative = ""): Promise<Record<string,
     }
   }
   return snapshot;
-}
-
-function runtimeOracle(runtimeRoot: string): Record<string, unknown> {
-  const result = spawnSync(
-    process.execPath,
-    [
-      "--import",
-      "tsx",
-      "tests/helpers/g2.4-v12-runtime-driver.ts",
-      "--repository-root",
-      runtimeRoot,
-      "--fixture",
-      parentProducedV12FixturePath,
-    ],
-    {
-      cwd: runtimeRoot,
-      encoding: "utf8",
-      env: process.env,
-      maxBuffer: 4 * 1024 * 1024,
-    },
-  );
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  return JSON.parse(result.stdout.trim()) as Record<string, unknown>;
-}
-
-function parentRuntimeGitSource(): string {
-  const configured = process.env[parentRuntimeGitSourceEnvironmentVariable]?.trim();
-  const source = configured === undefined || configured.length === 0 ? repositoryRoot : configured;
-  const resolved = path.resolve(source);
-  const probe = spawnSync(
-    "git",
-    ["-C", resolved, "cat-file", "-e", `${parentRuntimeCommit}^{commit}`],
-    {
-      encoding: "utf8",
-    },
-  );
-  assert.equal(
-    probe.status,
-    0,
-    [
-      `${parentRuntimeGitSourceEnvironmentVariable} must name a Git repository containing`,
-      `the exact H14 producer commit ${parentRuntimeCommit}.`,
-      `Candidate archives do not contain Git metadata; provide the producer object source explicitly.`,
-      probe.stderr.trim(),
-    ].join(" "),
-  );
-  return resolved;
-}
-
-async function archivedParentRuntime(context: TestContext): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-e68-runtime-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
-  const archivePath = path.join(root, "parent.tar");
-  const runtimeRoot = path.join(root, "repository");
-  await mkdir(runtimeRoot);
-  const producerGitSource = parentRuntimeGitSource();
-  const archived = spawnSync(
-    "git",
-    ["-C", producerGitSource, "archive", "--format=tar", "-o", archivePath, parentRuntimeCommit],
-    { encoding: "utf8" },
-  );
-  assert.equal(archived.status, 0, archived.stderr);
-  const extracted = spawnSync("tar", ["-xf", archivePath, "-C", runtimeRoot], {
-    encoding: "utf8",
-  });
-  assert.equal(extracted.status, 0, extracted.stderr);
-  await mkdir(path.join(runtimeRoot, "tests/helpers"), { recursive: true });
-  await copyFile(
-    crossVersionDriverPath,
-    path.join(runtimeRoot, "tests/helpers/g2.4-v12-runtime-driver.ts"),
-  );
-  await symlink(path.join(repositoryRoot, "node_modules"), path.join(runtimeRoot, "node_modules"));
-  return runtimeRoot;
 }
 
 function entry(bundle: DocumentBundle, artifactPath: string): Record<string, unknown> {
@@ -279,58 +186,6 @@ async function setup(
     },
     profile,
   );
-  return {
-    root,
-    runsRoot,
-    runRoot: path.join(runsRoot, runId),
-    runId,
-    store,
-    validator,
-    bundle,
-  };
-}
-
-async function setupParentProducedV12(context: TestContext): Promise<State> {
-  const bytes = await readFile(parentProducedV12FixturePath);
-  assert.equal(bytes.length, parentProducedV12Size);
-  assert.equal(sha256Bytes(bytes), parentProducedV12Hash);
-  const bundle = JSON.parse(bytes.toString("utf8")) as DocumentBundle;
-  const runId = String(effective(bundle, "manifest.json").run_id);
-  assert.equal(runId, "g2-4-cross-version-v12-synthetic");
-  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-parent-v12-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
-  const runsRoot = path.join(root, "runs");
-  const validator = await createArtifactValidator(repositoryRoot);
-  const store = new RunStore(runsRoot, validator);
-  await store.create({
-    runId,
-    mode: "opportunity_discovery",
-    createdAt: "2026-07-27T17:00:00Z",
-  });
-  const evidence = new EvidenceStore(runsRoot);
-  const records = new Map<string, Record<string, unknown>>();
-  for (const [unitId, label] of [
-    ["unit_seed_independent_demand", "generation"],
-    ["unit_counterfactual", "evaluation"],
-    ["unit_enrichment_support", "support"],
-    ["unit_enrichment_challenge", "challenge"],
-  ] as const) {
-    const result = await evidence.record({
-      runId,
-      unitId,
-      source: {
-        kind: "user_provided",
-        canonical_uri: `urn:startup-opportunity:user-provided:cross-version-v12-${label}`,
-      },
-      researchGoal: `SYNTHETIC ${label} substrate; not Evidence.`,
-      rawContent: `SYNTHETIC ${label} bytes; not Evidence.`,
-      recordedAt: "2026-07-27T20:50:00Z",
-    });
-    records.set(`evidence/manifest.jsonl#${result.record.evidence_id}`, result.record);
-  }
-  for (const expected of bundle.exact_records ?? []) {
-    assert.deepEqual(records.get(expected.ref), expected.document, expected.ref);
-  }
   return {
     root,
     runsRoot,
@@ -998,15 +853,7 @@ test("G2.4 decision tier uses the strictest fan-in, comparison, gate, panel, and
   );
 });
 
-test("G2.4 preserves fixed parent-produced v12 bytes while v13 rejects semantic drift", async (context) => {
-  const state = await setupParentProducedV12(context);
-  assert.equal(state.bundle.schema_version, "startup_opportunity.document_bundle.v12");
-  const legacyResult = state.validator.validateDocumentBundle(state.bundle);
-  assert.equal(legacyResult.valid, true, JSON.stringify(legacyResult, null, 2));
-  const sourceSubject = effective(state.bundle, G22_SOLUTION_R1).subject as Record<string, unknown>;
-  assert.equal(sourceSubject.uses_ai, true);
-  assert.equal(effective(state.bundle, G23_SOLUTION).uses_ai, true);
-
+test("G2.4 current contract rejects selected Solution semantic drift", async (context) => {
   const repairedState = await setup(context, "v13-semantic-drift", "ai_first");
   const repaired = clone(repairedState.bundle);
   effective(repaired, G23_SOLUTION).uses_ai = false;
@@ -1019,92 +866,6 @@ test("G2.4 preserves fixed parent-produced v12 bytes while v13 rejects semantic 
     ),
     JSON.stringify(repairedResult.referenceErrors, null, 2),
   );
-
-  const legacyEnvelopes = envelopes(state.bundle, "startup_opportunity.artifact_envelope.v12");
-  const legacyBytes = new Map(
-    legacyEnvelopes.map((envelope) => [envelope.artifact_path, canonicalJson(envelope)]),
-  );
-  await publishThroughEvaluation(state);
-  const reportEnvelope = evaluationEnvelope(state.bundle, G24_REPORT);
-  await assert.rejects(
-    state.store.publishArtifact({
-      runId: state.runId,
-      envelope: reportEnvelope,
-      faultAt: "after_temp_write",
-    }),
-    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
-  );
-  const recovered = await state.store.load(state.runId);
-  assert.ok(recovered.recoveredArtifactPaths.includes(G24_REPORT));
-  assert.ok(recovered.manifest.artifact_refs.includes(G24_REPORT));
-  assert.equal(recovered.manifest.schema_bundle_version, "11.0.0");
-  for (const [artifactPath, expected] of legacyBytes) {
-    assert.equal(
-      canonicalJson(JSON.parse(await readFile(path.join(state.runRoot, artifactPath), "utf8"))),
-      expected,
-      artifactPath,
-    );
-  }
-  const operationReceipts = await Promise.all(
-    (await readdir(path.join(state.runRoot, ".store/operations")))
-      .filter((filename) => filename.startsWith("artifact-"))
-      .map(async (filename) =>
-        JSON.parse(await readFile(path.join(state.runRoot, ".store/operations", filename), "utf8")),
-      ),
-  );
-  const legacyPaths = new Set(legacyEnvelopes.map((envelope) => envelope.artifact_path));
-  assert.ok(
-    operationReceipts
-      .filter((receipt) =>
-        legacyPaths.has(String((receipt as Record<string, unknown>).artifact_path)),
-      )
-      .every(
-        (receipt) =>
-          (receipt as Record<string, unknown>).schema_version ===
-          "startup_opportunity.artifact_store_operation.v10",
-      ),
-  );
-  const checkpoint = await state.store.checkpoint({
-    runId: state.runId,
-    checkpointId: "checkpoint_parent_produced_v12",
-    createdAt: "2026-07-27T22:01:00Z",
-    nextStep: "SYNTHETIC preserve the frozen v12 evaluation adapter.",
-    beliefSummary: {
-      current_belief: "SYNTHETIC historical contract behavior only.",
-      evidence_that_changed_belief: [],
-      unchanged_assumptions: ["SYNTHETIC no validation success is claimed."],
-      remaining_disagreement: ["SYNTHETIC market truth remains unknown."],
-      next_decision_relevant_question: "SYNTHETIC should a v13 revision be supplied?",
-    },
-    inputRefs: [G24_RECOMMENDATION, G24_TRACEABILITY],
-  });
-  assert.match(checkpoint.checkpointRef, /parent-produced-v12/);
-  const reopened = await new RunStore(state.runsRoot, state.validator).load(state.runId);
-  assert.equal(reopened.manifest.schema_bundle_version, "11.0.0");
-  assert.ok(reopened.manifest.artifact_refs.includes(G24_RECOMMENDATION));
-  assert.ok(reopened.manifest.artifact_refs.includes(G24_REPORT));
-  assert.equal(reopened.recovered, false);
-});
-
-test("G2.4 exact parent builder bytes have identical parent and current runtime lifecycles", async (context) => {
-  const parentRoot = await archivedParentRuntime(context);
-  const parent = runtimeOracle(parentRoot);
-  const current = runtimeOracle(repositoryRoot);
-  assert.deepEqual(current, parent);
-  assert.deepEqual(current, {
-    checkpoint_ref: "checkpoints/checkpoint-parent-v12-oracle.json",
-    fixture_hash: parentProducedV12Hash,
-    fixture_size: parentProducedV12Size,
-    manifest_schema_bundle_version: "11.0.0",
-    recovered_report: true,
-    reopened_recovered: false,
-    report_current: true,
-    tree_digest: "sha256:07fcfd7a5982fdee09ca899b95eecc8cae47177f6d9ed95a99ba99d8563d3dd6",
-    tree_file_count: 181,
-    v12_receipt_count: 34,
-    v12_receipt_versions: ["startup_opportunity.artifact_store_operation.v10"],
-    validation_codes: [],
-  });
 });
 
 test("G2.4 forbidden-expression rules cover every formal surface and separator variant", async (context) => {
@@ -1367,26 +1128,7 @@ test("G2.4 reverse-order report mutations fail before every formal lifecycle wri
   assert.deepEqual(await treeSnapshot(state.runRoot), baselineTree);
 });
 
-test("G2.4 report scan dispatch preserves v12 while v13 rejects the same mutation", async (context) => {
-  const legacyState = await setupParentProducedV12(context);
-  const legacyReport = clone(evaluationEnvelope(legacyState.bundle, G24_REPORT));
-  const legacyContext = legacyReport.document.curated_judgment_context as Record<string, unknown>;
-  legacyContext.current_recommendation = "score_global";
-  (legacyReport as { content_hash: string }).content_hash = canonicalContentHash(
-    legacyReport.document,
-  );
-  assert.equal(
-    legacyState.validator.validateDocument(legacyReport, legacyReport.artifact_path).valid,
-    true,
-  );
-  const legacyConsistency = deriveReportEnvelopes(legacyReport).find(
-    (candidate) =>
-      candidate.artifact_type === "startup_opportunity.report_consistency_evaluation.v2",
-  );
-  assert.ok(legacyConsistency);
-  assert.equal(legacyConsistency.document.evaluator_result, "passed");
-  assert.deepEqual(legacyConsistency.document.forbidden_expression_matches, []);
-
+test("G2.4 current report scan rejects global-score language", async (context) => {
   const repairedState = await setup(context, "v13-report-scan-dispatch", "ai_first");
   const repairedReport = clone(evaluationEnvelope(repairedState.bundle, G24_REPORT));
   const repairedContext = repairedReport.document.curated_judgment_context as Record<
@@ -1692,7 +1434,7 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   const replay = await runtime.build({ reportEnvelope: report });
   assert.equal(replay.status, "idempotent_replay");
   const loaded = await state.store.load(state.runId);
-  assert.equal(loaded.manifest.schema_bundle_version, "12.0.0");
+  assert.equal(loaded.manifest.schema_bundle_version, "18.0.0");
   assert.ok(loaded.manifest.artifact_refs.includes(G24_REPORT));
   assert.ok(loaded.manifest.artifact_refs.includes(first.consistencyEvaluationRef));
   assert.match(

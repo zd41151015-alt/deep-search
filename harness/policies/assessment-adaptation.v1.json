@@ -2,7 +2,7 @@
   "schema_version": "startup_opportunity.assessment_adaptation_policy.v1",
   "policy_id": "startup_opportunity.g1_3_dynamic_buyer_gap",
   "policy_version": "1.0.0",
-  "compatible_schema_bundle_versions": ["5.0.0"],
+  "compatible_schema_bundle_versions": ["18.0.0"],
   "contract_versions": {
     "gap_snapshot": "startup_opportunity.gap_snapshot.v2",
     "adaptation_decision": "startup_opportunity.adaptation_decision.v3",

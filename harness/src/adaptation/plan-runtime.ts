@@ -32,6 +32,7 @@ import type {
 } from "../validators/artifact-validator.js";
 import { createArtifactValidator } from "../validators/artifact-validator.js";
 import { planningRunStateHash } from "../validators/planning-contract-identities.js";
+import { SCHEMA_BUNDLE_VERSION } from "../validators/schema-bundle.js";
 import {
   type AdaptationPolicyValidator,
   createAdaptationPolicyValidator,
@@ -645,7 +646,7 @@ async function storedEffectiveDocument(
     });
   }
   return isRecord(value.document) &&
-    /^startup_opportunity\.artifact_envelope\.v(?:[1-9]|1[0-3])$/u.test(
+    /^startup_opportunity\.artifact_envelope\.v(?:[1-8]|1[0-9])$/u.test(
       String(value.schema_version),
     )
     ? value.document
@@ -655,7 +656,7 @@ async function storedEffectiveDocument(
 function isFormalArtifactEnvelope(value: unknown): value is FormalArtifactEnvelope {
   return (
     isRecord(value) &&
-    /^startup_opportunity\.artifact_envelope\.v(?:[1-9]|1[0-3])$/u.test(
+    /^startup_opportunity\.artifact_envelope\.v(?:[1-8]|1[0-9])$/u.test(
       String(value.schema_version),
     ) &&
     typeof value.artifact_type === "string" &&
@@ -1891,13 +1892,7 @@ export class PlanRevisionRuntime {
     const finalManifest: RunManifest = {
       ...transformed.manifest,
       updated_at: input.checkpointCreatedAt,
-      schema_bundle_version: assessmentAdaptation
-        ? "5.0.0"
-        : candidateBindings.length > 0
-          ? "9.0.0"
-          : controlEnvelopes.length > 0
-            ? "2.2.0"
-            : transformed.manifest.schema_bundle_version,
+      schema_bundle_version: SCHEMA_BUNDLE_VERSION,
       artifact_refs: uniqueSorted([...transformed.manifest.artifact_refs, ...controlPaths]),
       checkpoint_ref: checkpointRef,
     };

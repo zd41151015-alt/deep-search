@@ -22,6 +22,7 @@ import {
   operationKey,
   planningRunStateHash,
   RunStore,
+  SCHEMA_BUNDLE_VERSION,
   StoreError,
   transformPlan,
 } from "../harness/src/index.js";
@@ -180,7 +181,7 @@ function manifest(runId: string, plan: Record<string, unknown>): Record<string, 
     updated_at: "2026-07-24T12:06:00Z",
     skill_version: "1.0.0",
     policy_version: "1.0.0",
-    schema_bundle_version: "2.2.0",
+    schema_bundle_version: SCHEMA_BUNDLE_VERSION,
     git_commit: null,
     current_phase: "enrichment",
     current_plan_ref: PLAN_REF,
@@ -686,7 +687,7 @@ async function setupPersistedRun(
     bootstrapManifest.current_plan_ref = PLAN_REF;
     bootstrapManifest.plan_revision = 1;
     bootstrapManifest.current_phase = "discovery";
-    bootstrapManifest.schema_bundle_version = "9.0.0";
+    bootstrapManifest.schema_bundle_version = SCHEMA_BUNDLE_VERSION;
     await writeFile(
       path.join(runsRoot, runId, "manifest.json"),
       `${canonicalJson(bootstrapManifest)}\n`,
@@ -714,7 +715,7 @@ async function setupPersistedRun(
   const runRoot = path.join(runsRoot, runId);
   const persistedManifest = manifest(runId, plan);
   const storeManifest = (await store.load(runId)).manifest;
-  persistedManifest.schema_bundle_version = discoveryBacked ? "9.0.0" : "2.2.0";
+  persistedManifest.schema_bundle_version = SCHEMA_BUNDLE_VERSION;
   persistedManifest.current_phase = discoveryBacked ? "discovery" : "enrichment";
   persistedManifest.artifact_refs = discoveryBacked ? storeManifest.artifact_refs : [PLAN_REF];
   persistedManifest.latest_gap_snapshot_ref = null;

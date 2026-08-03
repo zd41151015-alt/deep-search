@@ -2,7 +2,7 @@
   "schema_version": "startup_opportunity.adaptation_policy.v1",
   "policy_id": "startup_opportunity.closed_planning_and_adaptation",
   "policy_version": "1.0.0",
-  "compatible_schema_bundle_versions": ["2.0.0"],
+  "compatible_schema_bundle_versions": ["18.0.0"],
   "contract_versions": {
     "planning_context": "startup_opportunity.planning_context.v1",
     "research_plan": "startup_opportunity.research_plan.v1",
