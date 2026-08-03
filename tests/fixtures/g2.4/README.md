@@ -7,5 +7,5 @@ they are explicitly marked unverified and are not real Evidence or validation su
 
 The G2.4 test mutates exact task/material lineage, Evidence substrate binding, branch/fan-in closure,
 hard gates, panel closure, evidence ceiling, sensitivity, portfolio, freshness, report closure, and
-bundle version. Runtime tests exercise immutable publication, receipt recovery, terminal branch
-projection, report materialization/reopen, and the v11 fail-closed boundary.
+current Envelope binding. Runtime tests exercise immutable publication, exact current receipt
+recovery, terminal branch projection, report materialization, checkpoint, and reopen.

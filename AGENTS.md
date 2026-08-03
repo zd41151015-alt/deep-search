@@ -9,11 +9,11 @@
 
 ## Research Contracts
 
-- Formal research enters through `$startup-opportunity` or a compatible invocation of that Skill.
-- Runtime compatibility is current-only: code guarantees Runs created by the current schema bundle. A Run whose Manifest selects another bundle must fail with a stable `run.unsupported_run_version` / restart-required error; do not migrate, recover, continue, or revalidate it.
-- Do not add adapters, fallbacks, migrations, or fixtures solely to keep retired Run bytes or retired schema bundles readable. An older-numbered contract remains current only while a current producer or consumer still reaches it.
-- Ordinary fixes update the current contract, producers, consumers, and current fixtures atomically. Add a version only when current code must distinguish simultaneously supported incompatible formal shapes, identities, policies, or persistence semantics.
-- Current-only Run support does not weaken within-Run guarantees: immutable revisions and refs/hashes, atomic Manifest publication, exact receipt replay, and fault recovery remain mandatory.
+- Formal research enters through `$startup-opportunity` or a compatible invocation of that Skill. The Skill is a Runtime entry, not an authority for repository architecture or contract version strategy.
+- Runtime support is current-only. `harness/schemas/current.json` is the single editable schema manifest; it has no base manifest, release number, or historical bundle selection role.
+- Do not add adapters, fallbacks, migrations, old-Run detection protocols, or fixtures solely to keep retired Run bytes readable. After a code or contract update, use a new `run_id`; an old Run may fail ordinary current Manifest/schema validation and is not recovered, continued, or revalidated.
+- Ordinary fixes update the current manifest, producers, consumers, validators, policies, and current fixtures atomically. Keep a numbered domain contract only while a current producer or consumer reaches its distinct business shape; do not use numbering as a Store compatibility mechanism.
+- Current-only support does not weaken recovery inside one current Run: immutable revisions and refs/hashes, atomic Manifest publication, exact receipt replay, checkpoint/reopen, and crash recovery remain mandatory.
 - Chat messages and subagent completion summaries are not formal artifacts.
 - Never fabricate evidence references, URLs, user quotes, market data, or successful external validation.
 - A subagent writes only its assigned output path and Evidence Store operations; it must not edit another lane's output, the current plan, manifest, comparison policy, decision brief, or report.
@@ -25,7 +25,7 @@
 ## Development
 
 - Use Node.js `24.18.x` and npm `11.16.x`; install exactly from `package-lock.json` with `npm ci`.
-- Run `npm run lint`, `npm run typecheck`, `npm test`, `npm run validate:schemas`, `npm run validate:fixtures`, and `npm run verify:skeleton` for repository/toolchain/schema changes.
-- Add production behavior only in the slice that owns it. A directory, empty schema, mock-only path, or deferred-command entry is not evidence that a downstream Gate is complete.
+- Run `npm run lint`, `npm run typecheck`, `npm test`, `npm run validate:schemas`, `npm run validate:current-contract`, `npm run validate:fixtures`, and `npm run verify:skeleton` for repository/toolchain/schema changes.
+- Add production behavior only in the domain module that owns it. A directory, empty schema, mock-only path, or deferred-command entry is not evidence that downstream behavior is implemented.
 - Keep generated output under ignored paths such as `dist/`; do not commit research raw data or secrets.
 - Treat `manifest.json` as the atomically replaced current index; publish formal envelopes and checkpoints immutably, and recover only from validated on-disk state.

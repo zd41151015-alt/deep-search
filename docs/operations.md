@@ -46,6 +46,8 @@ Evidence can use `record-evidence` directly when MCP is disabled. Artifact valid
 
 `load-run` is the recovery boundary for `action: resume`. It acquires the Run lock, validates manifest/checkpoint/plan lineage, verifies Evidence and Artifact receipts and hashes, repairs only supported incomplete JSONL tails and completed operation intents, reconciles orphan active units, and returns the last valid checkpoint. Integrity conflicts fail closed.
 
+Recovery applies only to a Run created and operated by the same current contract. After code or contract changes, start with a new `run_id`; the Harness does not identify, migrate, adapt, or restore old Run formats. An old Run may simply fail current Manifest, receipt, or Artifact validation. This cross-update boundary is separate from same-Run crash recovery.
+
 After recovery:
 
 1. Read the returned validated manifest and checkpoint.
@@ -74,6 +76,7 @@ npm run lint
 npm run typecheck
 npm test
 npm run validate:schemas
+npm run validate:current-contract
 npm run validate:fixtures
 npm run test:g4
 npm run test:g4:clean

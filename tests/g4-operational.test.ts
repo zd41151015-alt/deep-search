@@ -17,14 +17,13 @@ function runScript(script: string, args: readonly string[], input?: string) {
   });
 }
 
-test("operations, sample, Plugin, and current-state documents share one repo-local entry", async () => {
-  const [readme, operations, samples, pluginDecision, fixture, progress] = await Promise.all([
+test("operations, sample, and Plugin documents share one current repo-local entry", async () => {
+  const [readme, operations, samples, pluginDecision, fixture] = await Promise.all([
     readFile(path.join(repositoryRoot, "README.md"), "utf8"),
     readFile(path.join(repositoryRoot, "docs/operations.md"), "utf8"),
     readFile(path.join(repositoryRoot, "docs/sample-runs.md"), "utf8"),
     readFile(path.join(repositoryRoot, "docs/plugin-decision.md"), "utf8"),
     readFile(path.join(repositoryRoot, "tests/fixtures/g4/synthetic-evidence.txt"), "utf8"),
-    readFile(path.join(repositoryRoot, "startup-opportunity-implementation-progress.md"), "utf8"),
   ]);
 
   for (const action of ["discover", "assess", "resume", "status"]) {
@@ -42,31 +41,8 @@ test("operations, sample, Plugin, and current-state documents share one repo-loc
   assert.match(pluginDecision, /does not package a Codex Plugin/);
   assert.match(pluginDecision, /REPO_LOCAL_NOT_PACKAGED/);
   assert.match(pluginDecision, /No cross-team distribution/);
-  assert.match(readme, /060029fbcfc6e4b543873642b7e3657c67c913af/);
-  assert.match(readme, /fresh independent delta-aware G4 acceptance/);
-  assert.match(readme, /G0-G4 closes the RFC's complete first-version implementation objective/);
-  assert.doesNotMatch(readme, /G4 remains a Construction Stage candidate/);
-  for (const retainedRecord of [
-    "019fb1f3-9e4a-7d00-8239-28dcba107a08",
-    "019fb221-9101-7d63-8f33-6bbc2740bd37",
-    "cafe973d-042e-459d-a509-4be7e48156e4:3",
-    "P1-G4-001",
-    "P1-G4-002",
-    "P1-G4-003",
-    "SECURITY_VALIDATION_NOT_RUN",
-    "REPO_LOCAL_NOT_PACKAGED",
-    "startup-opportunity-controller-project-v2",
-    "1594a37e8840f2eee1b2c006588b723a81f06076c0887430208c2f66b5c92da1",
-  ]) {
-    assert.ok(progress.includes(retainedRecord), retainedRecord);
-  }
-  assert.match(progress, /fresh independent delta-aware G4 acceptance/);
-  assert.match(progress, /G0-G4.*首版implementation objective/);
-  assert.match(progress, /automation.*`PAUSED`.*保留/);
-  for (const document of [readme, pluginDecision, progress]) {
-    assert.doesNotMatch(document, /PROJECT_WIDE_COMPLETION_SCOPE_AUDIT_NOT_RUN/);
-    assert.doesNotMatch(document, /separate independent completion-scope audit/);
-  }
+  assert.match(readme, /validate:current-contract/);
+  assert.doesNotMatch(pluginDecision, /Construction|G0-G4|controller|candidate commit/);
   await assert.rejects(access(path.join(repositoryRoot, ".codex-plugin/plugin.json")));
 });
 

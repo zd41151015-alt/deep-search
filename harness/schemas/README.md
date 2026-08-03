@@ -1,7 +1,16 @@
-# Core Schema Bundle
+# Current Schema Contract
 
-既有 bundles 继续作为 immutable compatibility bundles。默认 `bundle.v16.json` 使用 composed bundle manifest v3 显式继承 immutable `bundle.v15.json`，只新增 v17 terminal report source、Decision Brief v3、terminal report view、Consistency v4、Envelope/Document Bundle 和 publication policy v12 schema，共 168 个 schemas、158 个 document validators。base manifest 与全部 v1-v16 schema/policy bytes 不做无版本改写；bundle composition 只接受本地单一 base chain，并在 compile 前检查 cycle、duplicate id/path/version 与全部 `$ref`。
+`current.json` is the only schema manifest loaded by production code. It is edited in place with the current producers, consumers, policies, and fixtures. It has no release number, `base_bundle`, inheritance chain, historical selection, or compatibility role.
 
-G2.2 runtime 继续通过 v10/receipt v8 adapter 发布显式 candidate/lane/fan-in Artifact；v9 仍为 validation-only。G2.3 通过 v11/receipt v9 adapter 发布调用方显式给出的 executable conversion、formal thesis、solution evaluation、pre-enrichment snapshot 和 semantic merge。G2.4 repair 通过 v13/receipt v11 adapter 发布显式 enrichment/comparison/portfolio/report Artifact。G3.1 通过 v14/receipt v12 adapter 发布 baseline/reliability/data Artifact；G3.2 通过 v15/receipt v13 发布 economics/commoditization/trust Artifact；G3.3 通过 v16/receipt v14 发布 mandatory bundle 及带 binding 的 consumer/report/checkpoint Artifact。v17/receipt v15 发布 caller-supplied terminal report source 及三个确定性派生 sidecar；不生成研究判断。
+The directories named `v1/` through `v19/` are source organization inherited from construction. A numbered domain schema remains installed only when a current producer, consumer, policy, or `$ref` reaches its distinct business shape. The directory number does not make it an old-Run contract and must not be used for Store dispatch. New naming should describe business semantics when current incompatible shapes must coexist; do not mechanically rename all existing domain IDs.
 
-`npm run validate:schemas` compiles the complete bundle and verifies that every internal `$ref`, including its JSON Pointer, resolves without network access. `npm run validate:fixtures` exercises representative positive and negative documents, including G1.1/G1.2 lineage and G1.3 buyer/acquisition adaptation, stop, stale, duplicate, conflict, and recovery invariants. A schema-valid Artifact still has no publication or decision-readiness status; Store publication also requires a supported envelope adapter, exact Plan output ownership, references, and canonical hash.
+The current Store surface is:
+
+- `startup_opportunity.artifact_envelope.current`
+- `startup_opportunity.document_bundle.current`
+- `startup_opportunity.artifact_store_operation.current`
+- `startup_opportunity.research_publication_policy.current`
+
+`schema-bundle.ts` validates manifest shape, local paths, duplicate IDs/files/document versions, schema `$id`, complete local `$ref` and JSON Pointer resolution, and AJV compilation. `npm run validate:current-contract` additionally checks Envelope dispatch completeness, active policy roots, full manifest reachability, and forbidden version-selection structures. Neither check freezes schema counts or bytes.
+
+Schema validity is only structural validity. Publication still requires current Envelope metadata, canonical content hash, typed reference closure, Plan ownership, policy checks, and same-Run state.

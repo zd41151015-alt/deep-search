@@ -866,10 +866,6 @@ cancelled
   "parent_run_id": null,
   "created_at": "2026-07-23T00:00:00Z",
   "updated_at": "2026-07-23T01:00:00Z",
-  "skill_version": "1.0.0",
-  "policy_version": "1.0.0",
-  "schema_bundle_version": "1.0.0",
-  "git_commit": null,
   "current_phase": "discovery_wave_1",
   "current_plan_ref": "plans/research-plan.r2.json",
   "plan_revision": 2,
@@ -1051,7 +1047,7 @@ Research Plan 是一次 Run 的受约束执行计划，不是通用 Graph IR。�
 
 #### 12.2.1 Planning Context 与版本选择
 
-`startup_opportunity.research_plan.v1` 保持当前正式 shape，不增加隐藏 flag 或自由解释字段。历史上 schema bundle `2.0.0` 曾把 `startup_opportunity.planning_context.v1` 作为过渡读取面，`2.1.0` 再加入 Planning Context v2、source attestation 和 source-binding policy；该跨 bundle 兼容说明已被本 RFC 28.1 的 current-only Run 策略 supersede。当前 Planning/Assessment evaluator 一律加载当前 schema bundle；进入 Plan/adaptation 语义校验的当前 Run 必须提供 immutable `startup_opportunity.planning_context.v2`、`startup_opportunity.ai_trigger_source_attestation.v1` 和当前 policy。旧 Run 不因仍能识别某个 schema id 而可被读取、迁移或继续执行。这些仍是 G0 planning control artifacts，不是 G3 AI business artifacts，也不定义 Opportunity Thesis、Concept Hypothesis、AI evaluation 或 result schema。
+`startup_opportunity.research_plan.v1` 是当前正式 shape，不增加隐藏 flag 或自由解释字段。Planning/Assessment evaluator 一律加载 `harness/schemas/current.json`；进入 Plan/adaptation 语义校验的当前 Run 必须提供 immutable `startup_opportunity.planning_context.v2`、`startup_opportunity.ai_trigger_source_attestation.v1` 和当前 policy。这些是 planning control artifacts，不是 G3 AI business artifacts，也不定义 Opportunity Thesis、Concept Hypothesis、AI evaluation 或 result schema。
 
 Planning Context 至少机械表达：
 
@@ -1106,8 +1102,8 @@ Hash 使用 G0.3 已冻结的 canonical JSON：object key 按 code unit 递归�
 
 `required` source binding 的唯一机械解析如下：
 
-- `source_ref` 必须是当前显式 `startup_opportunity.document_bundle.v2` 内一个完整 document 的 exact path；不允许 fragment，不读取 CLI flag，不按路径名称猜测，不扫描 Run，也不依赖聊天或隐藏 LLM。
-- ref target 的实际 `schema_version` 和声明的 `source_schema_version` 都必须等于已安装的 `startup_opportunity.ai_trigger_source_attestation.v1`。Source-binding policy `1.0.0` 明确将 `future_declared_source_schemas` 固定为 `forbidden`；任意业务 schema id、fake schema、仅在 policy 中声明但未安装的 schema 或错误 ref 一律拒绝。
+- `source_ref` 必须是当前显式 `startup_opportunity.document_bundle.current` 内一个完整 document 的 exact path；不允许 fragment，不读取 CLI flag，不按路径名称猜测，不扫描 Run，也不依赖聊天或隐藏 LLM。
+- ref target 的实际 `schema_version` 和声明的 `source_schema_version` 都必须等于 current manifest 中已安装的 `startup_opportunity.ai_trigger_source_attestation.v1`；任意其他业务 schema id、fake schema、未安装 schema 或错误 ref 一律拒绝。
 - `source_content_hash` 必须等于该完整 attestation document 按 G0.3 canonical JSON 计算的 SHA-256。Attestation 的任意内容变化都会使旧 Planning Context stale。
 - Attestation 必须 exact match Planning Context 的 `run_id`、`mode`、`context_id`、`revision`、`basis.subject_ref`、`trigger_version`、`signal` 和 `declared_value`。其中开放式语义声明仍由 main Agent 负责，Harness 只比较这些 closed bindings。
 - Source-binding policy 还用 ref、schema version、policy version 和 canonical content hash 精确绑定 closed adaptation policy `1.0.0`。任一 policy、source、subject、trigger 或 Planning Context revision binding 变化都必须发布新 attestation 和新 Planning Context revision；不能原地覆盖或把旧 context 继续解释为 current。
@@ -1172,15 +1168,15 @@ mode + phase + unit_type + agent_role + required_artifact_schema
 | `concept_evidence_assessment` | `assessment` | `startup_opportunity.concept_evidence_assessment_branch_result.v1` |
 | `concept_evidence_assessment` | `review` | `startup_opportunity.adversarial_review.v1` |
 
-每个 phase 下允许的 unit type 和 role 由上述 versioned policy 的完整 `unit_rules` 数组唯一决定；代码、fixture 和 prompt 不得维护第二份 allowlist。Policy 的 `artifact_schema_catalog` 将 output schema 标为 `installed | future_declared`。G0.4 Plan validator 可以接受 exact tuple 已声明的 `future_declared` schema id，使 G1/G2 owning slice 尚未发布时仍可验证计划合同；这只表示 plan declaration 合法，不表示对应 Artifact 可产出或发布。
+每个 phase 下允许的 unit type 和 role 由上述 current policy 的完整 `unit_rules` 数组唯一决定；代码、fixture 和 prompt 不得维护第二份 allowlist。Policy 的 `artifact_schema_catalog` 是 current manifest 已安装 output schema 的直接集合。Plan validator 只接受 catalog 中存在且具有 exact mode/phase/type/role tuple 的 schema。
 
-正式 Artifact publish 始终要求该 `artifact_type` 已安装在所选 schema bundle、document 通过对应 JSON Schema，并由兼容 Artifact Envelope 明确允许。`future_declared`、unknown 或仅存在于 policy 的 schema id 在 Artifact publish 时必须 fail closed。Owning slice 发布业务 schema 时必须同时发布兼容 bundle/envelope 或显式 adapter，不能把 policy declaration 当作 schema installation。
+正式 Artifact publish 始终要求该 `artifact_type` 已安装在 current manifest、document 通过对应 JSON Schema，并由 current Artifact Envelope 明确允许。unknown 或仅出现在 caller input 中的 schema id 必须 fail closed。新增业务 schema 时必须同时更新 current manifest、Envelope、producer、consumer、policy 和 fixture。
 
 ### 12.4 Plan validator
 
 确定性 validator 至少检查：
 
-- 明确选择 schema bundle `2.1.0`、adaptation policy `1.0.0`、AI trigger source-binding policy `1.0.0`、Planning Context v2 和 source attestation v1；任一缺失、版本错误、policy base hash 不匹配，或尝试用 Planning Context v1 进入新语义执行时 fail closed。
+- 明确使用 current manifest、adaptation policy、AI trigger source-binding policy、Planning Context v2 和 source attestation v1；任一缺失、schema/policy hash 不匹配，或尝试用非当前 Planning Context 进入语义执行时 fail closed。
 - Planning Context 的 Run/Plan identity、ref、canonical hash、revision、validation stage 和 lineage 当前有效；任何 stale binding 拒绝。
 - unit id 和 output path 唯一。
 - unit 的 `plan_disposition` 使用 `enabled | skipped | cancelled | superseded`；运行时 `active/completed/failed` 状态只保存在 manifest/events，不混入计划语义。
@@ -1188,11 +1184,10 @@ mode + phase + unit_type + agent_role + required_artifact_schema
 - retry/supersede unit 的 attempt、前序 unit ref 和新 output path 完整，lineage 不形成循环。
 - 所有 dependency 指向已声明 wave/unit。
 - 不存在循环依赖。
-- `mode + phase + unit_type + agent_role + required_artifact_schema` exact tuple 存在于 versioned policy；未声明 tuple 或 output schema 拒绝。
-- policy 标记为 `future_declared` 的 output schema 只在 Plan validation 中允许；Artifact validation/publish 仍要求 schema 已安装并通过校验。
+- `mode + phase + unit_type + agent_role + required_artifact_schema` exact tuple 存在于 current policy，且 output schema 位于 current catalog；未声明 tuple 或 output schema 拒绝。
 - output path 位于当前 Run 内且没有跨 unit 写冲突。
 - discover 和 assess 只能使用各自允许的 unit 组合。
-- AI mandatory bundle 只由 Planning Context 的 versioned trigger 驱动；`required` 时，与同一 subject ref 相连的 enabled `ai_capability_evidence` units aggregate 必须覆盖固定六维，`not_required` 时不凭自由文本追加 trigger。
+- AI mandatory bundle 只由 Planning Context 的 current typed trigger 驱动；`required` 时，与同一 subject ref 相连的 enabled `ai_capability_evidence` units aggregate 必须覆盖固定六维，`not_required` 时不凭自由文本追加 trigger。
 - 每个 `ai_capability_evidence` unit 的 required dimensions 使用 closed values，且 result 对每个维度都有 coverage status、判断引用和缺口说明。
 - mandatory AI dimension 缺失、只有低等级证据或错误标记为 `not_applicable` 时，plan/result validation 失败或进入 `insufficient_evidence`。
 - counter-evidence unit 没有被省略。
@@ -1236,7 +1231,7 @@ stop_condition
 
 ```json
 {
-  "schema_version": "startup_opportunity.gap_snapshot.v1",
+  "schema_version": "startup_opportunity.gap_snapshot.discovery.plan.current",
   "snapshot_id": "gap_wave_1_r1",
   "snapshot_cycle_key": "discovery:wave_1:<observed-artifact-hash-set>",
   "run_id": "2026-07-23-pet-care",
@@ -1302,7 +1297,7 @@ no_material_new_evidence
 
 ```json
 {
-  "schema_version": "startup_opportunity.adaptation_decision.v1",
+  "schema_version": "startup_opportunity.adaptation_decision.discovery.current",
   "adaptation_id": "adapt_002",
   "run_id": "2026-07-23-pet-care",
   "based_on_plan_ref": "plans/research-plan.r1.json",
@@ -1348,12 +1343,12 @@ terminate_insufficient_evidence
 
 用户直接 pause/cancel Run 属于生命周期控制，写 decision/event 和 checkpoint，不创建伪造的 Plan Revision。用户要求“停止继续搜索并按现有证据出报告”则使用 `stop_followup`，同时保留未解决 gap 和 limitation。
 
-Schema bundle `2.0.0` 为 policy validation 发布 `startup_opportunity.adaptation_decision.v2`。v2 保留 v1 actions，但作出两项 closed strengthening：
+Discovery 使用 `startup_opportunity.adaptation_decision.discovery.current`，Assessment 使用 `startup_opportunity.adaptation_decision.assessment.current`。workflow mode 来自 current Run Manifest，不从历史版本号推断。Discovery 的 current closed contract 还要求：
 
 - `continue_existing_plan` 必须增加 `coverage_attestation_ref`，指向 `startup_opportunity.coverage_attestation.v1`。
 - `retry_unit` 必须增加 `retry_basis={kind: manifest_failed_unit, manifest_ref: manifest.json, unit_id, manifest_state: failed}`。
 
-历史 rollout 曾允许 schema bundle `2.0.0` 只读审计 `adaptation_decision.v1`；该旧 Run 兼容路径现已 superseded。当前 planning contract 仍会 fail closed 拒绝 v1 decision 进入 v2 policy validation/apply，但不会为旧 v1 proposal 创建迁移、replacement proposal 或 continuation。需要研究时必须以新的 `run_id` 从当前 contract 重跑。
+当前 planning contract 只接受 current manifest 中安装且由当前 producer/consumer 使用的 Adaptation Decision shape。未安装 shape 直接按当前校验失败，不创建迁移、replacement proposal 或旧 Run continuation；代码或合同更新后继续研究必须使用新的 `run_id`。
 
 Coverage attestation 把开放式语义责任和 Harness 责任分开。Main Agent 负责声明 gap research goal 与 target unit `research_goal` 在同一 subject 下语义等价；Harness 不使用 substring、embedding、LLM 或其他启发式解释文本。Formal relation 唯一为：
 
@@ -1396,11 +1391,11 @@ Harness 只验证 schema/relation version、canonical key、same-Run exact refs�
 
 Harness 在应用动作前必须确定性检查：
 
-- Planning Context、schema bundle、policy、Adaptation Decision 和 Coverage Attestation 使用当前 policy 声明的 exact versions；非当前 Run bundle 在读取边界直接 restart-required，不能进入语义执行。
+- Planning Context、current manifest、policy、Adaptation Decision 和 Coverage Attestation 必须匹配当前声明；不匹配按普通 current schema/contract 校验失败，不能进入语义执行。
 - Gap Snapshot、gap、artifact 和 evidence refs 存在且属于当前 Run。
 - `based_on_plan_ref` 等于 manifest 当前 plan，避免基于过期计划并发修改。
 - Planning Context 的 Run/Plan ref/hash/revision 未 stale，action 在其 current mode/phase 和 published adaptation policy 中允许。
-- 新 unit 的 exact mode/phase/type/role/schema tuple、path、dependency 和 source policy 通过 Plan validator；`future_declared` 只允许 plan declaration，不允许 Artifact publish。
+- 新 unit 的 exact mode/phase/type/role/schema tuple、path、dependency 和 source policy 通过 current Plan validator，required output schema 已安装并可发布。
 - action 没有修改 mode、primary market/language、comparison profile、权限或正式 schema。
 - follow-up 没有超过最大轮数，且声明了 decision impact 和 success/stop condition。
 - completed unit 和已被下游 checkpoint 引用的 artifact 没有被删除或覆盖。
@@ -1408,7 +1403,7 @@ Harness 在应用动作前必须确定性检查：
 - 每个 blocking 或 decision-relevant gap 在 checkpoint 前至少被一个 validated decision 覆盖；`continue_existing_plan` 必须提供 canonical Coverage Attestation，target 只能是同一 current plan 的 pending/active unit。
 - 相同 `adaptation_id + based_on_plan_ref` 重放时幂等；内容不同但 id 相同时拒绝。
 
-G0.4 不解释 branch `partial`，也不把 partial 映射到 completed、failed 或其他 manifest set。Partial artifact retry 在 policy `1.0.0` 固定为 `fail_closed`；只有 owning G1/G2 branch schema 发布后，才能通过当前 adapter/policy 明确 branch status、unit identity和可重试条件。没有该当前 contract 时，`partial_artifact` 等 retry basis literal、仅存在 partial branch artifact 但不在 `failed_units` 的 target，以及调用方私自映射出的 failed 状态一律拒绝。
+通用 Adaptation runtime 不解释 branch `partial`，也不把 partial 映射到 completed、failed 或其他 manifest set。Partial artifact retry 在当前 policy 中固定为 `fail_closed`；只有所属 branch contract 同时更新当前 schema、producer、consumer 和 policy 后，才能明确 branch status、unit identity 和可重试条件。没有该当前 contract 时，`partial_artifact` 等 retry basis literal、仅存在 partial branch artifact 但不在 `failed_units` 的 target，以及调用方私自映射出的 failed 状态一律拒绝。
 
 校验通过写入 `adaptation_validated`；校验失败写入 `adaptation_rejected`，保存具体字段、policy rule 和修订要求，不改变当前计划。需要用户决定时才暂停；一般 schema 或 policy 错误由主 Agent 修订提案后重新提交。
 
@@ -2353,7 +2348,7 @@ AI baseline and dependency bundle when relevant
 
 完成 enrichment 后再进行全局 hard gate、四面板比较、partial order 和 portfolio view。
 
-`candidate_pre_killed` 可以触发对尚未开始且仅服务该候选 exact revision 的 enrichment unit 执行 `skip_unit`。versioned discovery adaptation binding 必须要求 Gap `subject_ref` 解析为 exact `discovery_candidate.v1` Envelope，而不只是匹配 path/string；Envelope type/path、Run、Plan ref、document content hash 与完整 Envelope hash 必须闭合，target unit 仍为 pending/enabled，且其 candidate-shaped `input_refs` 只有该 subject。缺少/null/non-envelope subject、错误 type/Run/Plan/hash/revision 或同时服务 retained/shared candidate 时不得 skip，必须保留或由新 unit supersede。首次 apply 在任何 receipt/Artifact/Manifest write 前重验 durable candidate；candidate-bound immutable Plan receipt 记录 exact candidate/Plan binding，replay、checkpoint/reopen 和 crash recovery 每次都重验 receipt 与 durable bytes，不能让 transformer 或 parent-produced receipt 路径绕过前置条件。既有 parent receipt 保持其冻结行为；candidate-bound Plan revision 后，已验证 v3 receipt 只授权按其 exact historical Plan ref/hash/revision 和 bound candidate refs 构造只读 Plan/Manifest validation view，以解决历史/current Plan 同时存在时的 cardinality。G2.1 map 与 G2.2 candidate domain evaluator 必须在该 view 上完整执行，未被 receipt 绑定的 map/candidate 也必须重验；不得以 receipt 存在为由全局跳过 domain、schema、typed reference、receipt 或 byte-integrity validation。`uses_ai=true` 且 mandatory AI bundle 缺失时必须触发 `add_unit`，或在无法补齐时限制结论强度。
+`candidate_pre_killed` 可以触发对尚未开始且仅服务该候选 exact revision 的 enrichment unit 执行 `skip_unit`。current Discovery adaptation binding 必须要求 Gap `subject_ref` 解析为 exact `discovery_candidate.v1` Envelope，而不只是匹配 path/string；Envelope type/path、Run、Plan ref、document content hash 与完整 Envelope hash 必须闭合，target unit 仍为 pending/enabled，且其 candidate-shaped `input_refs` 只有该 subject。缺少/null/non-envelope subject、错误 type/Run/Plan/hash/revision 或同时服务 retained/shared candidate 时不得 skip，必须保留或由新 unit supersede。首次 apply 在任何 receipt/Artifact/Manifest write 前重验 durable candidate；candidate-bound immutable Plan receipt 记录 exact candidate/Plan binding，replay、checkpoint/reopen 和 crash recovery 每次都重验 receipt 与 durable bytes，不能让 transformer 或其他 receipt 路径绕过前置条件。candidate-bound Plan revision 后，validated current receipt 只授权按其 exact historical Plan ref/hash/revision 和 bound candidate refs 构造只读 Plan/Manifest validation view，以解决同一 Run 的历史/current Plan 同时存在时的 cardinality。G2.1 map 与 G2.2 candidate domain evaluator 必须在该 view 上完整执行，未被 receipt 绑定的 map/candidate 也必须重验；不得以 receipt 存在为由全局跳过 domain、schema、typed reference、receipt 或 byte-integrity validation。`uses_ai=true` 且 mandatory AI bundle 缺失时必须触发 `add_unit`，或在无法补齐时限制结论强度。
 
 ## 19. 概念证据评估流程
 
@@ -3830,9 +3825,11 @@ startup_opportunity.research_plan.v1
 startup_opportunity.planning_context.v1
 startup_opportunity.planning_context.v2
 startup_opportunity.ai_trigger_source_attestation.v1
-startup_opportunity.gap_snapshot.v1
-startup_opportunity.adaptation_decision.v1
-startup_opportunity.adaptation_decision.v2
+startup_opportunity.gap_snapshot.discovery.plan.current
+startup_opportunity.gap_snapshot.discovery.readiness.current
+startup_opportunity.gap_snapshot.assessment.current
+startup_opportunity.adaptation_decision.discovery.current
+startup_opportunity.adaptation_decision.assessment.current
 startup_opportunity.coverage_attestation.v1
 startup_opportunity.seed_probe.v1
 startup_opportunity.opportunity_space_map.v1
@@ -3909,7 +3906,7 @@ startup_opportunity.traceability.v1
 startup_opportunity.traceability.v2
 ```
 
-方案 A 的 immutable contract authority 是 schema bundle `8.0.0`、v9 Envelope/Document Bundle 与 `harness/policies/discovery-candidates.v1.json`。唯一 identity/path/owner 如下：
+方案 A 的 current contract authority 是 `harness/schemas/current.json`、current Artifact Envelope/Document Bundle 与 `harness/policies/discovery-candidates.v1.json`。唯一 identity/path/owner 如下：
 
 | Contract | Path / revision | producer / owner | 边界 |
 | --- | --- | --- | --- |
@@ -3917,9 +3914,7 @@ startup_opportunity.traceability.v2
 | `research_task.v2` | `tasks/discovery/<unit_id>.attempt-<n>.json` | main Agent 创建；lane-researcher 执行 | 只授权一个 lane output path；Harness 不 dispatch agent |
 | Evidence/Claim/Finding/Insight/Judgment/Source Manifest v2 | typed discovery paths；绑定 task attempt、candidate refs、Scope、Plan | lane-researcher / assigned lane | source/audit/freshness/representativeness/limitations 必填；chat/completion 不是 Artifact |
 | `discovery_lane_result.v1` | `artifacts/discovery/lanes/<unit_id>.attempt-<n>.json` | lane-researcher / assigned lane | disposition 必须直接引用 task 中的 typed candidate revision |
-| `discovery_fan_in.v1` | `artifacts/discovery/fan-in.r1.json` | main Agent / G2.2 contract | immutable validation-only contract；reference-only |
-| `discovery_fan_in.v2` | `artifacts/discovery/fan-in.r1.json` | main Agent / G2.2 runtime | reference-only；允许显式 candidate revision upgrade，不复制 Evidence 内容；绑定 installed Manifest adapter |
-| `discovery_candidate_conversion.v1` | `artifacts/discovery/conversions/<candidate_id>.r<n>.json`；rN exact parent=rN-1 + parent canonical hash | main Agent / G2.3 | 当前仅 contract-only proposal；不得执行、publish target 或声称 promotion/validation |
+| `discovery_fan_in.v2` | `artifacts/discovery/fan-in.r1.json` | main Agent / G2.2 runtime | reference-only；允许显式 candidate revision upgrade，不复制 Evidence 内容 |
 | `discovery_candidate_conversion.v2` | `artifacts/discovery/conversions/<candidate_id>.r<n>.json`；rN exact parent=rN-1 + parent canonical hash | main Agent / G2.3 runtime | executable conversion；retained/current source candidate 与 formal target 双向绑定 exact ref/schema/revision/hash；不改变 source candidate，不构成 Evidence 或 validation success |
 | `demand_thesis.v1` | `artifacts/discovery/demands/<demand_id>.r<n>.json` | main Agent / G2.3 | solution-neutral；必须先于其 Baseline/Solution 依赖发布 |
 | `baseline_option.v1` | `artifacts/discovery/baselines/<baseline_id>.r<n>.json` | main Agent / G2.3 | 回连 typed demand 与 baseline source candidate ancestry；不参加 TopN |
@@ -3937,17 +3932,13 @@ Append-only 只是必要条件，不构成 candidate-specific binding。每个�
 
 Generation 与 evaluation 使用不同 `research_task.v2.source_phase`、typed Evidence `research_phase_role` 和 Source Manifest group；任何 canonical source-group overlap 都必须精确披露。Candidate 或 lane 可以是 `partial`/`insufficient_evidence`，但这只降低 conclusion ceiling；`failed`、`ignored_late`、`superseded` lane result 不能进入 current candidate enrichment 或 fan-in supporting refs。
 
-G2.3 conversion 的唯一映射是 `demand_seed -> demand_thesis.v1`、`baseline_seed -> baseline_option.v1`、`solution_seed -> solution_hypothesis.v1`。accepted `discovery_candidate_conversion.v1` bytes 永久保留 contract-only、`promotion_authorized=false`、`target_published=false`；G2.3 runtime 只执行新 `discovery_candidate_conversion.v2`。v2 自身使用 immutable revision/path/parent/hash，要求 fan-in retained/current candidate、exact source revision/hash/kind、typed lineage、installed target schema/evaluator，并与 formal target 双向绑定 exact ref/hash。转换创建新 Artifact，绝不覆盖旧 candidate，也不把转换表述成 Evidence、市场验证或 validation success。
+G2.3 conversion 的唯一映射是 `demand_seed -> demand_thesis.v1`、`baseline_seed -> baseline_option.v1`、`solution_seed -> solution_hypothesis.v1`。当前 Runtime 使用 `discovery_candidate_conversion.v2`：它采用 immutable revision/path/parent/hash，要求 fan-in retained/current candidate、exact source revision/hash/kind、typed lineage、installed target schema/evaluator，并与 formal target 双向绑定 exact ref/hash。转换创建新 Artifact，绝不覆盖旧 candidate，也不把转换表述成 Evidence、市场验证或 validation success。
 
-v9 继续只安装在 deterministic schema/reference/contract validation surface；把 v9 envelope 提交给 Store 必须在写入前以 `artifact.envelope_unsupported` fail closed。G2.2 runtime 另由 schema bundle `9.0.0`、v10 Envelope/Document Bundle、`discovery_fan_in.v2` 和 `research-publication.v5` 唯一拥有：v10 使用 receipt v8，把 task pending-to-active、eligible terminal lane 到 completed/failed、late/superseded lane 到 ignored refs 机械投影到 Manifest，并支持 checkpoint/reopen/recovery；全部 G2.3 types 在 v10 adapter 中继续 blocked。
+Current Store 直接按 artifact type 和 workflow mode 发布 G2.2 candidate/lane/fan-in、G2.3 synthesis、G2.4 enrichment/evaluation/report 与 G3 AI Artifact。它使用一套 current Envelope、Document Bundle、Store receipt 和 publication policy，没有历史 adapter 或版本选择。Publication 按 task -> typed material -> branch -> fan-in -> domain -> comparison -> sensitivity -> portfolio/recommendation -> traceability -> report 的依赖顺序执行；每个 path 仍是 immutable publication，late/superseded result 只进入 ignored refs，checkpoint/reopen 使用相同 terminal classification。
 
-G2.3 rollout 由当时的 schema bundle `10.0.0`、v11 Envelope/Document Bundle、receipt v9、`discovery-synthesis.v1` 和 `research-publication.v6` 引入。v11 对 caller-supplied conversion/formal thesis/evaluation/snapshot/merge bundle 做 closed validation，并按 Demand conversion+target -> Baseline conversion+target -> Solution conversion+target -> evaluation -> Opportunity -> snapshot -> merge 的稳定顺序 immutable publish。历史实现曾把 Manifest 机械升级到 bundle `10.0.0`；该行为已被 28.1 supersede，当前 Run 始终保持 current bundle。每个 typed synthesis material 必须通过 owning `research_task.v2` 绑定 formal target 的 exact source candidate ancestor；Source Manifest 必须保持 generation/evaluation role、candidate partition 与 canonical source-group overlap disclosure。G2.4 enrichment/comparison/report types 继续由 v11 adapter fail closed。Harness 不合成 thesis 语义、不 dispatch agent、不调用 LLM、不访问网络或执行 external validation；schema/Store success 不代表 Evidence 真实、Evidence 充分、thesis 有效或市场已验证。
+`research_task.v3`、Evidence/Claim/Finding/Insight/Judgment/Source Manifest v3、enrichment branch/fan-in、Value Layer、User State、Buyer Language、Business Engine v2、Opportunity Comparison、Sensitivity、Portfolio、Decision Recommendation、Traceability v2 和 discovery report 都必须是调用方显式提供的 same-Run Artifact；Harness 不执行 enrichment research、不生成 hard-gate/panel/partial-order/portfolio 判断。每个 task 必须精确匹配 current immutable Research Plan 的 enabled unit；每个 material 必须绑定 exact owning task、frozen snapshot、semantic merge、Scope、Plan 和 target Opportunity，Evidence 还绑定 exact substrate record。
 
-G2.4 的首版 runtime authority 是 schema bundle `11.0.0`、v12 Envelope/Document Bundle、receipt v10、`discovery-evaluation.v1` 和 `research-publication.v7`；随后定向 repair 引入 schema bundle `12.0.0`、v13 Envelope/Document Bundle、receipt v11、`discovery-evaluation.v2`、`discovery-adaptation-binding.v1`、`report_consistency_evaluation.v3` 和 `research-publication.v8`。这些是历史 rollout 事实，“已发布 v12 bytes 保持跨升级兼容”的旧要求已被 28.1 current-only Run 策略 supersede，固定旧 bytes 与 archived-runtime 对比不再是回归门禁。v12 等较小编号 contract 只有在当前 producer/consumer 仍可达时才属于当前 bundle 依赖，不据此支持旧 Run。`research_task.v3`、Evidence/Claim/Finding/Insight/Judgment/Source Manifest v3、enrichment branch/fan-in、Value Layer、User State、Buyer Language、Business Engine v2、Opportunity Comparison、Sensitivity、Portfolio、Decision Recommendation、Traceability v2 和 discovery report 都必须是调用方显式提供的 same-Run Artifact；Harness 不执行 enrichment research、不生成 hard-gate/panel/partial-order/portfolio 判断。每个 `research_task.v3` 必须精确匹配 current immutable Research Plan 中一个 enabled unit 的 wave/id/type/goal/input/attempt/agent/output path/output schema；仅引用 current Plan 而不存在对应 unit 时，contract validator 与 pending-to-active Store transition 都 fail closed。每个 v3 material 绑定 exact owning task、frozen snapshot、semantic merge、Scope、Plan 和 target opportunities；Evidence 还绑定 exact v2 substrate record。eligible branch 只允许 `completed | partial | insufficient_evidence`，`failed | ignored_late | superseded` 保持显式分类且不能进入 fan-in material closure。
-
-v13 按 enrichment task -> typed material -> branch -> fan-in -> domain enrichment -> comparison -> sensitivity -> portfolio/recommendation -> traceability -> report 的稳定顺序 immutable publish，并把 task/terminal branch 状态机械投影到 Manifest。late/superseded branch 只进入 ignored refs，checkpoint/reopen 依其 terminal status 保持 non-current；v11 adapter 对 G2.4 types 在任何写入前 fail closed，`document_bundle.v12` 永远使用冻结 `discovery-evaluation.v1`，只有 `document_bundle.v13` 使用 repair 后的 `discovery-evaluation.v2`，不得按进程当前 policy 把 v2 语义倒灌到 v12。G3 AI bundle types 继续由 v13 adapter blocked。Evaluator 必须解析 selected Solution `uses_ai` 并强制 missing-G3 AI ceiling；Recommendation `decision_tier` 取 source fan-in conclusion ceiling、comparison outcome/band、每个 hard gate、每个 panel、Portfolio partition 与 first-bet readiness 的最严格 closed tier，lower fan-in 或 null/mismatched/not-ready first bet 不得被较高 comparison 文案绕过。general、industry-first、AI-first 与 hybrid fixture 的 Solution 必须分别从 profile-owned G2.1 map fragment 进入 typed candidate、conversion、formal Solution、selected Opportunity、comparison 与 report lineage，不能在 G2.3 才无来源地翻转 `uses_ai` 或 solution class。`build-report` 只从 validated `report.v1` 确定性派生 v13 Decision Brief v2、Discovery Report View 和 Consistency Evaluation v3，再以独立 receipt materialize 三个固定 view；structured report、`decision-brief.md` 和 `report.md` 是三个独立正式写入边界，各自在 receipt/file write 前执行 versioned deterministic forbidden-expression scan，并在 publication、checkpoint/reopen 和 recovery 重验。validation-success、probability 和 global-score 的空格、hyphen、underscore 或反向语序命中均 fail closed；caller 的空 matches 或固定 `passed` 无效。冲突 bytes、source/hash/receipt drift 同样失败。`calculate-comparison` 与 `calculate-sensitivity` 只读验证并摘要 caller-supplied Artifact，不生成语义或发布 Artifact。任何 schema、Store、summary 或 report success 都不表示 Evidence 真实/充分、市场验证或商业成功。
-
-历史 G0.3 rollout 中，schema bundle `2.0.0` 的 `artifact_envelope.v2` 和 `document_bundle.v2` 曾只是 schema/reference validation contracts；该实施阶段说明已 superseded。当前 Store 只按当前 publication policy 接受当前 workflow 可达的 Envelope/receipt 组合；这些组合服务于同一当前 Run 的 immutable publication 与 recovery，不构成旧 Run migration 或旧 bundle 可执行性承诺。
+Evaluator 解析 selected Solution `uses_ai` 并强制 missing-G3 AI ceiling。Recommendation `decision_tier` 取 fan-in、comparison、hard gates、panels、Portfolio partition 与 first-bet readiness 的最严格 closed tier。`build-report` 只从 validated `report.v1` 确定性派生 Decision Brief v2、Discovery Report View 和 Consistency Evaluation v3，再以独立 current receipt materialize 三个固定 view；每个表面在 publication、checkpoint/reopen 和 recovery 中重验禁用表述、refs 与 hashes。任何 schema、Store、summary 或 report success 都不表示 Evidence 真实/充分、市场验证或商业成功。
 
 `discovery_fan_in` 和 `concept_evidence_assessment_fan_in` 采用引用式聚合：只保存通过校验的 branch/artifact refs、必要的决策摘要、失败或缺失 branch、evidence gaps 和 limitations，不复制所有 raw evidence。引用式聚合仍必须完整保留证据充分性、反证、pre-kill 和 decision impact 语义。
 
@@ -3984,15 +3975,15 @@ decision context -> concept frame -> evidence assessment plan r1
 
 #### Pre-thesis Candidate contract evaluator
 
-检查 exact map fragment/ref/hash/revision、same-Run Scope/Plan/profile/market/language、candidate path/parent/hash/append-only enrichment、每个新增 material 对 exact source candidate revision 的 task binding、producer ownership、typed discovery Evidence chain、generation/evaluation separation、lane disposition Judgment subject/task binding、fan-in Judgment source/ancestor/closure、disposition identity/exclusivity、reference-only fan-in、terminal lane exclusion和 G2.3 conversion lineage。该 evaluator 不执行 research；v9 只读 validation 不改变 Store，v10 publication 仅按 versioned adapter 执行机械 Manifest transition。
+检查 exact map fragment/ref/hash/revision、same-Run Scope/Plan/profile/market/language、candidate path/parent/hash/append-only enrichment、每个新增 material 对 exact source candidate revision 的 task binding、producer ownership、typed discovery Evidence chain、generation/evaluation separation、lane disposition Judgment subject/task binding、fan-in Judgment source/ancestor/closure、disposition identity/exclusivity、reference-only fan-in、terminal lane exclusion和 G2.3 conversion lineage。该 evaluator 不执行 research；current Store publication 只按已验证 artifact type 和 terminal status 执行机械 Manifest transition。
 
 #### Discovery synthesis contract evaluator
 
-检查 executable v2 conversion 与 retained/current candidate 的 exact kind/revision/hash、conversion/target 双向 ref/hash、Demand solution-neutrality、Baseline/Solution candidate subject ancestry、每项 formal typed material 的 source-candidate/task binding、generation/evaluation Source Manifest role 与 overlap disclosure、Solution Evaluation exact classification、Opportunity selection lineage、pre-enrichment snapshot closure、created-at/publication dependency order和 semantic merge exact-once closure。v11/v12 保留已发布 synthesis validator 行为；只有 document bundle v13 才额外强制 formal Solution 的 `uses_ai`、solution class 与 delivery form 精确继承 typed source candidate，不能把该 repair 语义倒灌到 parent-produced v11/v12 bytes。该 evaluator 只验证调用方显式 Artifact 并执行 immutable publication/reopen/recovery；它不生成 thesis、判断 Evidence 真实性/充分性、声明 promotion 等于 validation，或开放 G2.4 comparison/report。
+检查 executable conversion 与 retained/current candidate 的 exact kind/revision/hash、conversion/target 双向 ref/hash、Demand solution-neutrality、Baseline/Solution candidate subject ancestry、每项 formal typed material 的 source-candidate/task binding、generation/evaluation Source Manifest role 与 overlap disclosure、Solution Evaluation exact classification、Opportunity selection lineage、pre-enrichment snapshot closure、created-at/publication dependency order和 semantic merge exact-once closure。Formal Solution 的 `uses_ai`、solution class 与 delivery form 必须精确继承 typed source candidate。该 evaluator 只验证调用方显式 Artifact 并执行 immutable publication/reopen/recovery；它不生成 thesis、判断 Evidence 真实性/充分性、声明 promotion 等于 validation，或开放 G2.4 comparison/report。
 
 #### Discovery evaluation contract evaluator
 
-检查 enrichment task 与 current enabled Plan unit exact tuple、frozen Snapshot/Merge/Scope/Plan/opportunity closure、v3 material owning-task 与 Evidence substrate exact binding、typed material graph、branch output/status、eligible/excluded fan-in 与 material/hard-gate closure、每个 Judgment 的 opportunity subject、Business Engine/domain subject、全部 hard gates和四个独立 panel、Evidence conclusion ceiling、Sensitivity unordered-pair/scenario closure、Portfolio exclusive partition、Recommendation、Traceability freshness/input hashes，以及 report/brief/view/consistency exact closure。v13 evaluator 还必须沿 Opportunity selected Solution 解析 `uses_ai` 并强制 missing-G3 ceiling，以 fan-in、comparison outcome/band、hard gates、panels、Portfolio partition 和 first-bet readiness 的最严格 closed tier 限制 `decision_tier`，并以 Consistency v3 独立扫描 structured report 和两个 rendered views；v12 evaluator 只执行冻结 v1 行为。该 evaluator 只验证显式 Artifact、执行 v13 immutable publication/reopen/recovery 和确定性 view materialization；它不执行 research、不生成 Judgment/排名/推荐语义、不访问网络或执行 external validation。
+检查 enrichment task 与 current enabled Plan unit exact tuple、frozen Snapshot/Merge/Scope/Plan/opportunity closure、typed material owning-task 与 Evidence substrate exact binding、typed material graph、branch output/status、eligible/excluded fan-in 与 material/hard-gate closure、每个 Judgment 的 opportunity subject、Business Engine/domain subject、全部 hard gates和四个独立 panel、Evidence conclusion ceiling、Sensitivity unordered-pair/scenario closure、Portfolio exclusive partition、Recommendation、Traceability freshness/input hashes，以及 report/brief/view/consistency exact closure。Evaluator 沿 selected Solution 解析 `uses_ai` 并强制 missing-G3 ceiling，以 fan-in、comparison、hard gates、panels、Portfolio 和 first-bet readiness 的最严格 closed tier 限制 `decision_tier`，并独立扫描 structured report 和两个 rendered views。它只验证显式 Artifact、执行 current immutable publication/reopen/recovery 和确定性 view materialization；不执行 research、不生成 Judgment/排名/推荐语义、不访问网络或执行 external validation。
 
 #### Research quality evaluator
 
@@ -4004,7 +3995,7 @@ decision context -> concept frame -> evidence assessment plan r1
 
 #### Adaptation policy evaluator
 
-检查 Gap Snapshot 的数据依据和 decision impact、Adaptation Decision 的 closed action 和状态前置条件、follow-up 上限、plan lineage、幂等键、scope/mode 边界、mandatory coverage 以及被取消、跳过或 supersede unit 的下游影响。`candidate_pre_killed -> skip_unit` 还必须按 versioned G2 binding 核对 exact typed candidate Envelope/path/type/Run/Plan/content+Envelope hash、pending/enabled target 与 candidate-shaped input closure；apply/write、receipt replay、crash、checkpoint/reopen 与 recovery 都必须重验 durable binding，共享候选 unit 只能保留或 supersede。
+检查 Gap Snapshot 的数据依据和 decision impact、Adaptation Decision 的 closed action 和状态前置条件、follow-up 上限、plan lineage、幂等键、scope/mode 边界、mandatory coverage 以及被取消、跳过或 supersede unit 的下游影响。`candidate_pre_killed -> skip_unit` 还必须按 current Discovery binding 核对 exact typed candidate Envelope/path/type/Run/Plan/content+Envelope hash、pending/enabled target 与 candidate-shaped input closure；apply/write、receipt replay、crash、checkpoint/reopen 与 recovery 都必须重验 durable binding，共享候选 unit 只能保留或 supersede。
 
 #### Report evaluator
 
@@ -4019,7 +4010,7 @@ decision context -> concept frame -> evidence assessment plan r1
 | Research Plan | revision/parent/adaptation lineage、allowlist、依赖无环、output ownership、seed-independent/counterfactual unit、generation/evaluation source separation、frozen-thesis boundary、retention/diversity 和 stop policy |
 | Planning Context | immutable revision、Run/Plan identity/ref/hash/revision、validation stage、AI mandatory trigger、显式 source attestation ref/schema/canonical hash、subject/trigger/context revision exact binding 和 stale rejection |
 | Gap Snapshot | base plan、observed artifact refs、closed gap type、detection mode、trigger data、decision impact、severity、basis/evidence refs 和 stop signals |
-| Adaptation Decision | 当前 contract 的 base plan、gap refs、closed action、目标 unit/state、decision impact、success/stop condition、coverage/retry strengthening、policy boundary、幂等和 revision applicability；旧 Run 中的 v1 不读取、不迁移、不继续执行 |
+| Adaptation Decision | current Run mode 对应的 Discovery/Assessment identity、base plan、gap refs、closed action、目标 unit/state、decision impact、success/stop condition、coverage/retry strengthening、policy boundary、幂等和 revision applicability |
 | Coverage Attestation | exact relation、canonical coverage_key、Run/Plan/gap/unit refs、subject、target research goal、pending/active state、plan lineage 和 stale conditions；语义等价由 main Agent 声明 |
 | User Language Map | verbatim quote、source location、geo/language、功能词剔除和 quote provenance |
 | Solution Failure Map | baseline、failure scene、next action、migration signal 和用户语言引用 |
@@ -4057,11 +4048,11 @@ superseded_by_scope_change
 superseded_by_adaptation
 ```
 
-这里的 `partial` 是 owning G1/G2 branch Artifact 的结果语义，不是 G0 Run Manifest unit state。Schema bundle `2.0.0` 和 policy `1.0.0` 不发布 partial-to-unit adapter：
+这里的 `partial` 是 owning G1/G2 branch Artifact 的结果语义，不是 Run Manifest unit state。当前 policy 不发布 partial-to-unit 映射：
 
 - Fan-in 在对应 branch schema 已安装后可以读取并保留 `partial_branch_refs` 及其 decision impact。
 - G0.4 `retry_unit` 不能以 partial branch 为前置，只认 `manifest.failed_units`。
-- Owning slice 若未来允许 partial retry，必须发布 versioned branch schema adapter 和新 policy，明确 branch ref、unit/attempt identity、目标 manifest transition、stale/hash 和重复应用规则。
+- Owning slice 若允许 partial retry，必须同步更新 current branch schema、producer、consumer 和 policy，明确 branch ref、unit/attempt identity、目标 Manifest transition、stale/hash 和重复应用规则。
 - 在此之前不得把 partial 私自写入 `completed_units`、`failed_units` 或另一个集合；任何这种映射都 fail closed。
 
 Fan-in 不要求所有 branch 成功才继续，但必须显式记录：
@@ -4092,11 +4083,11 @@ judgment_assessment_refs
 solution_evaluation_required
 ```
 
-G2.2 Scheme A 的 v9 contract-only status boundary 与 v10 runtime status boundary共享同一语义：`completed | partial | insufficient_evidence` 可以作为 reference-only fan-in 输入，其中 partial/insufficient 必须保留 gaps 与 conclusion ceiling；v10 adapter 把三者的 unit 投影到 `completed_units`。`failed` 投影到 `failed_units`；`ignored_late | superseded` 只允许已有 terminal unit state，Artifact 进入 `ignored_late_artifact_refs`，且不得出现在 supporting lane refs、current candidate enrichment basis 或 disposition fan-in。`cancelled | skipped | missing` 没有伪造 lane Artifact，只以 unit id + decision impact 记录。所有 transition 在写 receipt/artifact 前验证，非法 state 以 `artifact.discovery_lane_transition_invalid` 零写入失败；reopen 同时间戳按 task 先于 lane 的稳定顺序重放。
+G2.2 current status boundary 中，`completed | partial | insufficient_evidence` 可以作为 reference-only fan-in 输入，其中 partial/insufficient 必须保留 gaps 与 conclusion ceiling；current Store 把三者的 unit 投影到 `completed_units`。`failed` 投影到 `failed_units`；`ignored_late | superseded` 只允许已有 terminal unit state，Artifact 进入 `ignored_late_artifact_refs`，且不得出现在 supporting lane refs、current candidate enrichment basis 或 disposition fan-in。`cancelled | skipped | missing` 没有伪造 lane Artifact，只以 unit id + decision impact 记录。所有 transition 在写 receipt/artifact 前验证，非法 state 以 `artifact.discovery_lane_transition_invalid` 零写入失败；reopen 同时间戳按 task 先于 lane 的稳定顺序重放。
 
 每个 eligible disposition 仍必须逐 candidate 保留 subject-bound Judgment。一个 demand Judgment 不能用于 baseline/solution disposition；fan-in 可以让 subject=r1 的 Judgment支撑 final=r2，但必须显式列出 r1 `source_candidate_refs` 并证明 r2 沿 parent lineage descendant 于 r1。顶层 Judgment refs 只允许各 disposition refs 的 exact closure。
 
-G2.4 enrichment branch 使用收窄的 terminal set `completed | partial | insufficient_evidence | failed | ignored_late | superseded`。前三者可以进入 `enrichment_fan_in.v1.eligible_branch_refs`，并保留其 conclusion ceiling；后三者只能进入 exact excluded classification，不得贡献 Evidence/Claim/Finding/Insight/Judgment/Source Manifest closure。v12 adapter 把 task publication 投影为 active，把 completed/partial/insufficient 投影为 completed、failed 投影为 failed，并让 ignored-late/superseded Artifact 只进入 `ignored_late_artifact_refs`。首次 publication 与 checkpoint recovery 必须使用同一 terminal-status classification，不能因原 Plan 缺少 output projection 而把 late/superseded branch 恢复成 current。
+G2.4 enrichment branch 使用收窄的 terminal set `completed | partial | insufficient_evidence | failed | ignored_late | superseded`。前三者可以进入 `enrichment_fan_in.v1.eligible_branch_refs`，并保留其 conclusion ceiling；后三者只能进入 exact excluded classification，不得贡献 Evidence/Claim/Finding/Insight/Judgment/Source Manifest closure。Current Store 把 task publication 投影为 active，把 completed/partial/insufficient 投影为 completed、failed 投影为 failed，并让 ignored-late/superseded Artifact 只进入 `ignored_late_artifact_refs`。首次 publication 与 checkpoint recovery 必须使用同一 terminal-status classification，不能因原 Plan 缺少 output projection 而把 late/superseded branch 恢复成 current。
 
 `concept_evidence_assessment_fan_in.v1` 必须按 dimension 汇总 judgment assessment refs、决定性支持和反对证据、缺失 mandatory dimensions、decision sufficiency 和 what would change the assessment。Fan-in 不复制底层 Evidence/Claim 内容，但必须保留这些 refs 和摘要；否则不得进入 comparison 或 assessment gate。
 
@@ -4460,7 +4451,7 @@ GPT Researcher 可以成为某类 MCP 工具、脚本库或 lane researcher 的�
 
 ### 28.1 版本对象
 
-以下内容独立版本化：
+以下内容是独立的 current contract surface：
 
 ```text
 entry Skill
@@ -4468,7 +4459,7 @@ mode references
 lane catalog
 custom agents
 decision context contract
-artifact schema bundle
+artifact schema manifest
 decision/comparison policy
 adaptation policy
 decision brief contract
@@ -4477,18 +4468,14 @@ deterministic scripts
 MCP tool contract
 ```
 
-Manifest 记录当前 schema bundle、policy/version 或内容 hash。此前“向后兼容时迁移旧 Run、用旧快照继续或创建 continuation”的规则已被以下 current-only 策略 supersede：
+Manifest 不记录 schema bundle release 或 build identity。版本策略如下：
 
-- 当前代码只保证由当前 schema bundle 创建的新 Run。`create-run` 从一开始把 current bundle 写入 Manifest；Artifact publication 不得把该选择降级为某个较小 bundle。
-- 任一读取、status、continuation、publication 或 recovery 入口发现 Manifest bundle 不是当前 bundle时，必须在写入前稳定返回 `run.unsupported_run_version`，同时给出 current/actual version 和 `restartRequired=true`。
-- 旧 Run、旧 receipt、旧 Manifest、旧 Artifact 或旧 schema bundle 不迁移、不恢复、不继续执行、不由新代码重新验证。需要继续研究时使用新的 `run_id` 从当前 contract 重跑；负责人可自行删除历史 Run。
-- 已退役 schema/bundle/fixture 不构成回归门禁，不得仅为其增加 adapter、fallback、migration 或兼容分支。固定历史 bytes、历史 commit runtime 对比和“旧 bundle 仍可加载”测试都不能证明当前功能正确。
-- 版本号较小不等于已退役。当前 producer/compiler/report/runtime 仍会生成或消费的 v1-v19 contract 是当前 bundle 的组成部分，其 schema、validator、semantic fixture 和 fault/recovery 测试必须保留。判断依据是当前 producer/consumer 可达性，不是名称中的数字。
-- 普通代码修复原子更新当前 contract、全部当前 producer/consumer 和现行 fixtures，不自动新增 bundle/envelope/schema 版本。只有当前系统必须同时区分两个不兼容的正式 shape、identity、policy 或持久化语义时才新增版本。
-- `future_declared` output schema 不构成 installation。Owning slice 接入当前 producer、consumer 和 publication policy 后才是当前 contract；否则对应 Artifact publish fail closed。
-- current-only 是跨 Run 版本边界，不削弱同一当前 Run 的一致性：已经发布的 immutable Artifact revision、content/envelope hash、ref、atomic Manifest replace、operation receipt exact replay、checkpoint/reopen 和 fault recovery 继续全部 fail closed。
-
-Schema bundle `1.0.0`、`2.0.0`、`2.1.0` 与 G0.2-G0.4 rollout 的演进记录只保留为历史事实；其“兼容读取超集”“旧 Manifest 可 load/recover”“v1 proposal 可迁移为 v2”等描述均不再是现行产品要求。
+- `harness/schemas/current.json` 是唯一可直接修改的 schema manifest，没有 base chain、历史选择或产品发布版本。
+- 代码或合同更新后使用新的 `run_id`。旧 Run、旧 receipt、旧 Manifest 和旧 Artifact 不迁移、不恢复、不继续执行，也不需要稳定的旧 Run 识别或 restart-required 协议；误传时可以按普通 current 校验失败。
+- 已退役 schema/fixture 不构成回归门禁。不得仅为历史 bytes 增加 adapter、fallback、migration 或兼容分支。
+- 数字较小不等于已退役。只要当前 producer、consumer、policy 或 `$ref` 可达，一个编号 domain contract 就仍是 current contract 的一部分；判断依据是可达性，不是名称。
+- 普通修复原子更新 current manifest、producer、consumer、validator、policy 和现行 fixtures。当前必须同时区分不兼容 shape 时使用业务语义名称，不建立新的 Store 版本选择层。
+- 跨代码更新不恢复旧 Run，与同一 current Run 的故障恢复是两个边界。同一 Run 内已经发布的 immutable Artifact revision、content/envelope hash、ref、atomic Manifest replace、operation receipt exact replay、checkpoint/reopen 和 fault recovery 必须继续 fail closed。
 
 ### 28.2 幂等和重复交付
 
@@ -4507,7 +4494,7 @@ Schema bundle `1.0.0`、`2.0.0`、`2.1.0` 与 G0.2-G0.4 rollout 的演进记录�
 
 ```text
 load manifest
-  -> require current schema bundle or return restart-required without writes
+  -> validate the current Manifest contract
   -> validate last checkpoint
   -> verify current plan ref and complete plan lineage
   -> reconcile proposed / rejected / applied adaptations with events
@@ -4583,9 +4570,9 @@ source repetition stop
 ### 29.3 数据驱动动态扩展
 
 - 每次 G0.4 Plan/adaptation validation 都有 Planning Context v2 和 AI trigger source attestation v1；missing/wrong source ref、schema version、canonical content hash、subject/trigger/context revision binding，或 stale Run/Plan identity/ref/hash/revision 必须 deterministic reject。Validation 只解析调用方显式提供的 Document Bundle，不扫描 Run 或解释自然语言。
-- Exact mode/phase/unit type/agent role/output schema tuple 来自一个 versioned closed policy；policy 明确声明的 future output schema 可以进入 plan，但 schema 未安装或 envelope 不兼容时 Artifact publish 必须拒绝。
+- Exact mode/phase/unit type/agent role/output schema tuple 来自 current closed policy；policy 明确声明的 future output schema 可以进入 plan，但 schema 未安装到 current manifest/Envelope 时 Artifact publish 必须拒绝。
 - `continue_existing_plan` 使用 main Agent 声明的 canonical Coverage Attestation；Harness 验证 exact coverage_key/relation、subject/ref、pending/active state、plan lineage 和 stale 条件，不用字符串或隐藏 LLM 判断语义等价。
-- G0.4 `retry_unit` 只接受 Run Manifest `failed_units`；completed/active/pending 和 partial artifact 均拒绝。Partial retry 只有 owning branch schema 的 versioned adapter/policy 发布后才能启用。
+- G0.4 `retry_unit` 只接受 Run Manifest `failed_units`；completed/active/pending 和 partial artifact 均拒绝。Partial retry 只有 owning branch current schema/policy 同步更新后才能启用。
 - 每个通过校验的 research wave 都产生 Gap Snapshot，即使结果是没有 decision-relevant gap 或只存在 stop signal。
 - 用户 scope/优先级变化、validation failure 和 adversarial review challenge 可以产生 event-driven Gap Snapshot，不需要等待 wave 结束。
 - 每个 decision-relevant gap 在 checkpoint 前都有 validated disposition；已有 unit 覆盖时使用 `continue_existing_plan`，不存在隐式忽略。
@@ -4707,13 +4694,13 @@ source repetition stop
 
 实施顺序按风险和可验证性拆分，不改变本文的完整目标形态。
 
-本节只维护稳定的阶段顺序、范围和架构退出方向。详细施工切片、实时状态、提交、测试证据、阻塞和下一独立会话记录在 `startup-opportunity-implementation-progress.md`；两者冲突时，本 RFC 是业务语义和架构边界权威，进度文档必须先按 RFC 修正，不能由实现自行选择新语义。
+本节只保留架构分层和依赖顺序。`startup-opportunity-implementation-progress.md` 是已经完成的施工历史记录，只用于追溯当时的提交和验证证据；其中的 Gate、controller、`READY` 和切片状态不约束当前维护、修复或产品迭代。
 
 ### 30.1 基础 Harness
 
 - 创建 `AGENTS.md`、Skill 目录和三类 custom agents。
 - 建立 run store、DecisionContext、manifest、events、decisions 和 checkpoint。
-- 建立不可变 Plan Revision、Gap Snapshot、Adaptation Decision 和 versioned adaptation policy。
+- 建立不可变 Plan Revision、Gap Snapshot、Adaptation Decision 和 current adaptation policy。
 - 实现 `analyze-gaps`、`validate-adaptation` 和幂等、原子的 `apply-plan-revision`。
 - 建立 Evidence Store 和 stable ids。
 - 实现 schema/reference/freshness validator。

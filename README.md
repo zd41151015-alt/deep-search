@@ -95,6 +95,7 @@ npm run lint
 npm run typecheck
 npm test
 npm run validate:schemas
+npm run validate:current-contract
 npm run validate:fixtures
 npm run validate:store
 npm run test:faults
@@ -115,6 +116,4 @@ The architecture authority is `startup-opportunity-codex-research-harness.md`. I
 - The MCP adapter does not judge an opportunity, recommend a product, or replace Codex permissions and thread lifecycle.
 - The system does not execute interviews, landing pages, deposits, advertising, paid experiments, MVP tests, or other external validation.
 - No general workflow runtime, DAG DSL, daemon, UI, or database is part of this repository.
-- Exact candidate `060029fbcfc6e4b543873642b7e3657c67c913af` received an independent whole-G4 PASS. The current documentation descendant awaits fresh independent delta-aware G4 acceptance.
-- If that delta passes, G0-G4 closes the RFC's complete first-version implementation objective. The controller then performs only a read-only closure check and sets the retained automation to `PAUSED`; there is no defined G5 or separate completion-scope audit.
 - Implementation closure does not establish Evidence truth, completed research or external validation, market demand, product viability, recommendation readiness, or startup success.
