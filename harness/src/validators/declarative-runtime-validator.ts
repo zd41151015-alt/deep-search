@@ -844,16 +844,23 @@ function validateReadiness(
     return;
   }
   const stage = stageById(execution.document, readiness.stage_id);
-  const nextStage = stageById(execution.document, readiness.next_stage_id);
-  if (
-    stage === null ||
-    nextStage === null ||
-    !dependencyClosure(
+  const nextStage =
+    typeof readiness.next_stage_id === "string"
+      ? stageById(execution.document, readiness.next_stage_id)
+      : null;
+  const terminalAfterFinalStage =
+    readiness.next_stage_readiness === "terminal" && readiness.next_stage_id === null;
+  const validDependentNextStage =
+    nextStage !== null &&
+    dependencyClosure(
       new Map(
         records(execution.document.stages).map((item) => [String(item.stage_id), item] as const),
       ),
       String(readiness.next_stage_id),
-    ).has(String(readiness.stage_id)) ||
+    ).has(String(readiness.stage_id));
+  if (
+    stage === null ||
+    (!terminalAfterFinalStage && !validDependentNextStage) ||
     readiness.run_id !== execution.document.run_id ||
     execution.document.research_plan_ref !== readiness.research_plan_ref
   ) {

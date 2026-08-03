@@ -36,7 +36,9 @@
       "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
     },
     "stage_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
-    "next_stage_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+    "next_stage_id": {
+      "anyOf": [{ "$ref": "../v12/definitions.schema.json#/$defs/identifier" }, { "type": "null" }]
+    },
     "source_fan_in_ref": {
       "anyOf": [
         { "type": "string", "pattern": "^artifacts/discovery/fan-in\\.r[1-9][0-9]*\\.json$" },

@@ -883,6 +883,36 @@ test("readiness and Gap semantics require bounded solution generation and basis 
   ]).map((issue) => issue.code);
   assert.ok(terminalCodes.includes("runtime.readiness_disposition_invalid"));
 
+  const terminalAfterFinalStage = structuredClone(readiness);
+  terminalAfterFinalStage.stage_id = "stage_evaluation";
+  (terminalAfterFinalStage as Record<string, unknown>).next_stage_id = null;
+  terminalAfterFinalStage.next_stage_readiness = "terminal";
+  terminalAfterFinalStage.allowed_next_actions = ["terminate_insufficient_evidence"];
+  (terminalAfterFinalStage as Record<string, unknown>).stop_basis = "no_information_gain";
+  for (const blocker of terminalAfterFinalStage.blockers as Record<string, unknown>[]) {
+    blocker.allowed_actions = ["terminate_insufficient_evidence"];
+  }
+  const validator = await createArtifactValidator(repositoryRoot);
+  assert.equal(validator.validateDocument(terminalAfterFinalStage, readinessPath).valid, true);
+  const finalTerminalCodes = validateDeclarativeRuntimeContract([
+    planEntry,
+    executionEntry,
+    { ...readinessEntry, document: terminalAfterFinalStage },
+  ]).map((issue) => issue.code);
+  assert.ok(!finalTerminalCodes.includes("runtime.readiness_stage_binding_mismatch"));
+
+  const readyWithoutNextStage = structuredClone(terminalAfterFinalStage);
+  readyWithoutNextStage.next_stage_readiness = "ready";
+  readyWithoutNextStage.blockers = [];
+  readyWithoutNextStage.allowed_next_actions = ["continue_stage"];
+  (readyWithoutNextStage as Record<string, unknown>).stop_basis = null;
+  const readyWithoutNextCodes = validateDeclarativeRuntimeContract([
+    planEntry,
+    executionEntry,
+    { ...readinessEntry, document: readyWithoutNextStage },
+  ]).map((issue) => issue.code);
+  assert.ok(readyWithoutNextCodes.includes("runtime.readiness_stage_binding_mismatch"));
+
   const runtimeBlockedReadiness = structuredClone(readiness);
   runtimeBlockedReadiness.next_stage_readiness = "terminal";
   (runtimeBlockedReadiness as Record<string, unknown>).blockers = [
