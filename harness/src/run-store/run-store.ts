@@ -2392,16 +2392,7 @@ export class RunStore {
       { path: "manifest.json", document: recoveredManifest },
       ...formalDocuments.filter((entry) => !invalidCheckpoints.includes(entry.path)),
     ];
-    const typedJsonlRefs = recoveryDocuments
-      .flatMap((entry) => {
-        const effective =
-          isRecord(entry.document.document) &&
-          STORE_ENVELOPE_VERSIONS.has(String(entry.document.schema_version))
-            ? entry.document.document
-            : entry.document;
-        return [effective.trigger_event_ref, effective.user_decision_ref];
-      })
-      .filter((ref): ref is string => typeof ref === "string");
+    const typedJsonlRefs = recoveryDocuments.flatMap((entry) => artifactRefsForDocument(entry));
     const exactJsonlRecords = new Map<string, Record<string, unknown>>();
     for (const ref of [...new Set(typedJsonlRefs)].sort()) {
       const logPath = ref.split("#", 1)[0];

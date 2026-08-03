@@ -921,15 +921,7 @@ export class ArtifactStore {
       documents.push({ path: envelope.artifact_path, document: envelope });
     }
     const typedJsonlRefs = documents
-      .flatMap((entry) => {
-        const effective =
-          isRecord(entry.document.document) &&
-          STORE_ENVELOPE_VERSIONS.has(String(entry.document.schema_version))
-            ? entry.document.document
-            : entry.document;
-        return [effective.trigger_event_ref, effective.user_decision_ref];
-      })
-      .filter((ref): ref is string => typeof ref === "string")
+      .flatMap((entry) => (isEnvelope(entry.document) ? collectPathRefs(entry.document) : []))
       .filter((ref) => {
         const target = ref.split("#", 1)[0];
         return target === "events.jsonl" || target === "decisions.jsonl";

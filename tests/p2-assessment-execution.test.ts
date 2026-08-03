@@ -642,7 +642,7 @@ function v4Envelope(
   };
 }
 
-async function prepareStoreRun(context: TestContext, suffix: string) {
+async function prepareCoreStoreRun(context: TestContext, suffix: string) {
   const root = await mkdtemp(path.join(tmpdir(), `startup-opportunity-p2-${suffix}-`));
   context.after(() => rm(root, { recursive: true, force: true }));
   const runsRoot = path.join(root, "runs");
@@ -669,6 +669,12 @@ async function prepareStoreRun(context: TestContext, suffix: string) {
     ),
   });
   const compiler = new DeclarativeRuntimeCompiler(runsRoot, validator);
+  return { root, runsRoot, runId, validator, store, compiler };
+}
+
+async function prepareStoreRun(context: TestContext, suffix: string) {
+  const core = await prepareCoreStoreRun(context, suffix);
+  const { runId, store, compiler } = core;
   const hypothesis = concept(runId);
   await compiler.compile(
     compilationRequest(
@@ -682,7 +688,7 @@ async function prepareStoreRun(context: TestContext, suffix: string) {
     runId,
     envelope: v4Envelope(runId, planPath, plan, [conceptPath]),
   });
-  return { root, runsRoot, runId, validator, store, compiler, hypothesis, plan };
+  return { ...core, hypothesis, plan };
 }
 
 test("four staged workflows cover ten report dimensions and ten one-dimension lanes are rejected", async () => {
@@ -1055,6 +1061,54 @@ test("thesis provenance blocks unknowns, requires exact user confirmation, and r
       exactRecords,
     ).includes("assessment_execution.report_omits_thesis_provenance"),
   );
+});
+
+test("authorized Thesis provenance publishes, recovers a fault, and exactly replays", async (t) => {
+  const state = await prepareCoreStoreRun(t, "provenance-publication");
+  const assumed = concept(state.runId);
+  const disclosure = "The acquisition hypothesis is an agent assumption authorized by the user.";
+  const decisionRef = "decisions.jsonl#decision_assumption_publication";
+  const provenance = recordAt(
+    assumed.field_provenance as Record<string, unknown>[],
+    -1,
+    "acquisition hypothesis provenance",
+  );
+  provenance.source_kind = "agent_assumed";
+  provenance.confirmation_status = "user_authorized_assumption";
+  provenance.basis_refs = [decisionRef];
+  provenance.reporting_disclosure = disclosure;
+  const request = compilationRequest(
+    state.runId,
+    [runtimeArtifact(conceptPath, assumed, "main_agent")],
+    "compile_assumed_concept_publication_synthetic",
+  );
+  const before = (await state.store.status(state.runId)).manifest;
+  await assert.rejects(
+    state.compiler.compile(request),
+    (error: unknown) => error instanceof StoreError && error.code === "reference.fragment_missing",
+  );
+  assert.deepEqual((await state.store.status(state.runId)).manifest, before);
+
+  await state.store.appendDecision(state.runId, {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: "decision_assumption_publication",
+    run_id: state.runId,
+    decision_type: "scope_assumption_confirmed",
+    timestamp: createdAt,
+    actor: "user",
+    reason: "SYNTHETIC user authorization exists only to exercise exact provenance publication.",
+    artifact_refs: ["intake.json"],
+  });
+  await assert.rejects(
+    state.compiler.compile(request, { faultAt: "after_temp_write" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const reopened = await state.store.load(state.runId);
+  assert.deepEqual(reopened.recoveredArtifactPaths, [conceptPath]);
+  const replay = await state.compiler.compile(request);
+  assert.equal(replay.status, "idempotent_replay");
+  assert.ok(replay.validation_closure.exact_record_count >= 1);
+  assert.ok(replay.compiled_envelopes[0]?.input_refs.includes(decisionRef));
 });
 
 test("Assessment Evidence binds a current dispatch task and exact Evidence Store substrate", async (t) => {
