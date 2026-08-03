@@ -89,6 +89,52 @@ test("a successful checkpoint remains current on immediate reopen", async (conte
   assert.equal(reopened.manifest.checkpoint_ref, "checkpoints/checkpoint-second.json");
 });
 
+test("an exact checkpoint replays after later durable state without rollback or drift", async (context) => {
+  const { runRoot, store } = await setup(context, "checkpoint-late-exact-replay");
+  const second = await checkpointInput(
+    "checkpoint-late-exact-replay",
+    "checkpoint_second",
+    "2026-07-23T12:10:00Z",
+  );
+  await store.checkpoint(second);
+  await store.checkpoint(
+    await checkpointInput(
+      "checkpoint-late-exact-replay",
+      "checkpoint_third",
+      "2026-07-23T12:20:00Z",
+    ),
+  );
+  const before = await readFile(path.join(runRoot, "manifest.json"), "utf8");
+
+  const replay = await store.checkpoint(second);
+  assert.equal(replay.status, "idempotent_replay");
+  assert.equal(await readFile(path.join(runRoot, "manifest.json"), "utf8"), before);
+  await assert.rejects(
+    store.checkpoint({ ...second, nextStep: "Conflicting replay content." }),
+    (error: unknown) => error instanceof StoreError && error.code === "write.conflict",
+  );
+  assert.equal(await readFile(path.join(runRoot, "manifest.json"), "utf8"), before);
+});
+
+test("an exact checkpoint retry recovers a publish-before-manifest fault", async (context) => {
+  const { store } = await setup(context, "checkpoint-exact-fault-retry");
+  const input = await checkpointInput(
+    "checkpoint-exact-fault-retry",
+    "checkpoint_second",
+    "2026-07-23T12:10:00Z",
+  );
+  await assert.rejects(
+    store.checkpoint({ ...input, faultAt: "after_checkpoint_publish" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+
+  const replay = await store.checkpoint(input);
+  assert.equal(replay.status, "idempotent_replay");
+  const reopened = await store.load("checkpoint-exact-fault-retry");
+  assert.equal(reopened.recovered, false);
+  assert.equal(reopened.manifest.checkpoint_ref, "checkpoints/checkpoint-second.json");
+});
+
 test("checkpoint publication rejects stale and equal durable timestamps", async (context) => {
   const { runRoot, store } = await setup(context, "checkpoint-time-order");
   for (const [checkpointId, createdAt] of [

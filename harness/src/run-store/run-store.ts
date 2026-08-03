@@ -2126,12 +2126,52 @@ export class RunStore {
     input: CheckpointRunInput,
   ): Promise<CheckpointRunResult> {
     const manifest = await this.readManifest(runRoot);
+    const checkpointRef = `checkpoints/${input.checkpointId.replaceAll("_", "-")}.json`;
+    validateArtifactRef(checkpointRef);
+    const formalDocuments = await this.artifacts.listFormalDocuments(runRoot);
+    const existingEntry = formalDocuments.find((entry) => entry.path === checkpointRef);
+    if (existingEntry !== undefined) {
+      const existing = await this.validateCheckpointEntry(runRoot, input.runId, existingEntry);
+      const replayIdentity = {
+        checkpoint_id: input.checkpointId,
+        run_id: input.runId,
+        created_at: input.createdAt,
+        input_refs: ["manifest.json", ...(input.inputRefs ?? [])],
+        unresolved_gap_refs: input.unresolvedGapRefs ?? [],
+        next_step: input.nextStep,
+        belief_summary: input.beliefSummary,
+      };
+      const storedIdentity = {
+        checkpoint_id: existing.document.checkpoint_id,
+        run_id: existing.document.run_id,
+        created_at: existing.document.created_at,
+        input_refs: existing.document.input_refs,
+        unresolved_gap_refs: existing.document.unresolved_gap_refs,
+        next_step: existing.document.next_step,
+        belief_summary: existing.document.belief_summary,
+      };
+      if (canonicalJson(replayIdentity) !== canonicalJson(storedIdentity)) {
+        throw new StoreError("write.conflict", "checkpoint path is already occupied", {
+          path: checkpointRef,
+        });
+      }
+      await this.artifacts.publishLocked(runRoot, {
+        runId: input.runId,
+        envelope: existing.envelope,
+      });
+      await this.recoverLocked(runRoot, input.runId);
+      return {
+        schemaVersion: "startup_opportunity.checkpoint_result.v1",
+        runId: input.runId,
+        checkpointRef,
+        contentHash: existing.envelope.content_hash,
+        status: "idempotent_replay",
+      };
+    }
     const checkpointTime = Date.parse(input.createdAt);
     const currentTime = Date.parse(manifest.updated_at);
     let latestCheckpointTime: number | null = null;
-    for (const entry of (await this.artifacts.listFormalDocuments(runRoot)).filter((item) =>
-      item.path.startsWith("checkpoints/"),
-    )) {
+    for (const entry of formalDocuments.filter((item) => item.path.startsWith("checkpoints/"))) {
       try {
         const checkpoint = await this.validateCheckpointEntry(runRoot, input.runId, entry);
         const candidate = Date.parse(String(checkpoint.document.created_at));
@@ -2160,8 +2200,6 @@ export class RunStore {
         },
       );
     }
-    const checkpointRef = `checkpoints/${input.checkpointId.replaceAll("_", "-")}.json`;
-    validateArtifactRef(checkpointRef);
     const snapshot: RunManifest = {
       ...manifest,
       updated_at: input.createdAt,
