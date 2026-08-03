@@ -166,9 +166,9 @@ function matchesSchemaIssue(issue: ValidationIssue, expected: ExpectedSchemaIssu
 test("published schema bundle is closed, versioned, and internally resolvable", async () => {
   const result = await inspectSchemaBundle(repositoryRoot);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
-  assert.equal(result.schemaBundleVersion, "16.0.0");
-  assert.equal(result.schemaCount, 168);
-  assert.equal(result.documentSchemaCount, 158);
+  assert.equal(result.schemaBundleVersion, "18.0.0");
+  assert.equal(result.schemaCount, 193);
+  assert.equal(result.documentSchemaCount, 183);
   assert.deepEqual(result.errors, []);
 });
 
@@ -363,9 +363,9 @@ test("validator rejects unpublished schema versions and malformed command argume
 
 test("G2.2 Scheme A bundle installs a closed pre-thesis candidate contract", async () => {
   const schema = await inspectSchemaBundle(repositoryRoot);
-  assert.equal(schema.schemaBundleVersion, "16.0.0");
-  assert.equal(schema.schemaCount, 168);
-  assert.equal(schema.documentSchemaCount, 158);
+  assert.equal(schema.schemaBundleVersion, "18.0.0");
+  assert.equal(schema.schemaCount, 193);
+  assert.equal(schema.documentSchemaCount, 183);
 
   const validator = await createArtifactValidator(repositoryRoot);
   const policy = await readJson<Record<string, unknown>>(
@@ -508,8 +508,8 @@ test("v9 remains validation-only while v10 owns G2.2 runtime publication", async
   const candidate = fixtureEntry(await createDiscoveryCandidateFixture(), G22_DEMAND_R2);
   const result = validator.validateDocument(candidate, G22_DEMAND_R2);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
-  assert.equal(validator.publicationPolicy.document.current_schema_bundle_version, "16.0.0");
-  assert.equal(validator.publicationPolicy.document.adapters.length, 16);
+  assert.equal(validator.publicationPolicy.document.current_schema_bundle_version, "18.0.0");
+  assert.equal(validator.publicationPolicy.document.adapters.length, 18);
   assert.equal(
     validator.publicationAdapter("startup_opportunity.artifact_envelope.v10")
       .document_bundle_version,

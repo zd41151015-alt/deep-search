@@ -39,7 +39,7 @@ export async function loadAssessmentExecutionPolicy(
     await readFile(path.join(root, ASSESSMENT_EXECUTION_POLICY_PATH), "utf8"),
   ) as unknown;
   const validator = bundle.validators.get("startup_opportunity.assessment_execution_policy.v1");
-  if (!validator?.(value)) {
+  if (validator !== undefined && !validator(value)) {
     throw new StoreError(
       "policy.assessment_execution_invalid",
       "assessment execution policy is invalid",
