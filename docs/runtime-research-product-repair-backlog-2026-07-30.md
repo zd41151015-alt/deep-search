@@ -39,6 +39,8 @@
 
 本轮 declarative research runtime P1 批次新增 schema bundle `17.0.0`、v18 Envelope/Document Bundle、publication v13/receipt v16，以及公开 `compile-artifacts` compiler。版本化 semantic contracts 覆盖 execution overlay、same-wave dispatch、lane lifecycle、candidate-neutral Evidence、generation result、Source Manifest v4、stage readiness、Gap v3 和 continuation index；Harness 只执行 deterministic hash、Envelope、最小 closure、validation、publication、Manifest projection 和 recovery，不调用 LLM、不启动 agent，也不生成研究判断。永久回归覆盖 validate/publish/idempotent replay、temp-write fault/reopen、完整 dispatch group、双单元并行激活、lifecycle regression、真实 synthetic Evidence Store substrate、freshness/stance/date 派生、generation completion、solution generation action、Gap basis closure，以及 parent/current-leaf 与 pending/corrupt/multiple continuation fail-closed。专项测试 6/6、Store/G0.4/G4 回归 108/108 和 Discovery 回归 82/82 已通过；仍未经过新真实 Run。
 
+本轮 Assessment execution P2 批次新增 schema bundle `18.0.0`、v19 Envelope/Document Bundle、publication v14/receipt v17，以及公开的 v2 Thesis、execution overlay、dispatch、lane result、stage gate 和 bounded follow-up contracts。十个报告维度由四条默认 evidence workflow 覆盖，early-kill、commercial、delivery 三阶段由显式 continue gate 串联；terminal gate 会阻止后续 dispatch 并把未开始 unit 投影为 skipped。follow-up 只允许 policy 中逐维声明的 unit type、最多两轮且每维最多一次，并确定性派生 immutable Research Plan/Execution Plan revision。Thesis 关键字段记录 user/agent/unknown provenance，未确认 unknown 会阻止执行，agent assumption 必须绑定 exact user Decision 并在终态报告披露。专项永久测试 5/5 覆盖十个单维 lane 反例、多维 lane、early-kill、四类 follow-up、round/repetition/hash 拒绝、用户确认、报告披露、v19 compiler、temp-write fault/reopen、terminal dispatch 拒绝和 Manifest staging；仍未经过新真实 Assessment Run。
+
 | 工程 finding | 本文条目 | 当前修复状态 | 代码审计结论 |
 | --- | --- | --- | --- |
 | `POST-G4-001` | `RR-ENG-001` | `FIXED_CODE_TESTED` | Create Run 已在隐藏 staging 中完整构建，并通过同 Run ID 创建锁和 atomic rename 发布 |
@@ -528,6 +530,8 @@ Assessment validator 固定要求以下十个维度恰好各一次：
 - 允许一条综合 research lane 为多个维度提供 typed outputs，同时保持逐维 Judgment。
 - 默认把十维压缩为 4-5 条证据工作流，而不是十条重复检索任务。
 
+当前修复状态：`FIXED_CODE_TESTED`。`research_execution_plan.v2` 将 reporting dimensions 声明在 lane overlay 上，默认 policy 用四条 workflow 覆盖十维；`assessment_lane_result.v1` 在一条 lane 中保留逐维 typed result 和 Judgment refs。validator 拒绝十个单维 lane、重复或缺失维度，并要求初始 lane 为 4-5 条且至少一条覆盖多个维度。
+
 ### RR-ASSESS-002 缺少显式 early-kill staging
 
 状态：`CONFIRMED_CODE`
@@ -546,6 +550,8 @@ Thesis clarification and user confirmation
 -> audit, assessment and report
 ```
 
+当前修复状态：`FIXED_CODE_TESTED`。v2 execution overlay 强制 `assessment_early_kill -> assessment_commercial -> assessment_delivery` 顺序及 exact gate binding；early gate 的决定性反证、证据不足或 runtime failure 会列出全部后续未开始 unit，Run Store 投影为 skipped。永久测试覆盖 deprioritize、continue、runtime-blocked、gate 后 dispatch 拒绝和 Manifest 不变。
+
 ### RR-ASSESS-003 动态补证只覆盖 buyer 和 acquisition
 
 状态：`CONFIRMED_CODE`
@@ -563,6 +569,8 @@ Thesis clarification and user confirmation
 - 保持 closed policy，不开放任意 DAG。
 - 每种新增类型都必须有明确 gap type、上限、停止条件和 plan revision 绑定。
 
+当前修复状态：`FIXED_CODE_TESTED`。版本化 Assessment execution policy 为十个维度逐一声明唯一 follow-up unit type，限制最多两轮、每维最多一次，并要求 exact current Plan hash、insufficient/blocked gate 和下一 revision refs。公开 `deriveAssessmentFollowupRevision` 只做确定性 immutable Plan 装配；任意 unit type、重复维度、超轮次和 stale hash 均被永久反例拒绝。
+
 ### RR-ASSESS-004 不完整 Thesis 可能被过早固化
 
 状态：`CONFIRMED_CODE / NEEDS_REAL_RUN`
@@ -574,6 +582,8 @@ ConceptHypothesis 要求 product thesis、target user、buyer、entry scene、cl
 - 对影响研究方向的缺失字段先请求用户确认。
 - 为关键字段记录 `user_provided`、`agent_assumed` 或 `unknown` provenance。
 - 未确认字段不得在报告中表现为用户已接受的前提。
+
+当前修复状态：`FIXED_CODE_TESTED`。`concept_hypothesis.v2` 为九个方向性字段逐项记录 provenance、confirmation、basis refs 和 reporting disclosure。unknown 字段要求 clarification 并阻止 execution；agent assumption 只有绑定 exact user `scope_assumption_confirmed` Decision 才可执行，终态 Assessment source 必须 audit-bind Thesis 并在 limitations 披露所有非用户提供字段。
 
 ### RR-ASSESS-005 报告出口完整，但仍偏技术化
 
@@ -751,10 +761,10 @@ Decision Brief 至少回答：
 
 ### P2：重构 Assessment 执行模型
 
-1. `RR-ASSESS-001` 十维报告覆盖与执行 lane 解耦。
-2. `RR-ASSESS-002` early-kill staging。
-3. `RR-ASSESS-003` 受控扩展 decision-relevant follow-up。
-4. `RR-ASSESS-004` Thesis 字段 provenance 和用户确认。
+1. `RR-ASSESS-001` 十维报告覆盖与执行 lane 解耦：`FIXED_CODE_TESTED`。
+2. `RR-ASSESS-002` early-kill staging：`FIXED_CODE_TESTED`。
+3. `RR-ASSESS-003` 受控扩展 decision-relevant follow-up：`FIXED_CODE_TESTED`。
+4. `RR-ASSESS-004` Thesis 字段 provenance 和用户确认：`FIXED_CODE_TESTED`。
 5. `RR-ASSESS-006` 真实 assessment Run 验证。
 
 ## 9. 性能与交付验收目标
@@ -798,8 +808,7 @@ Decision Brief 至少回答：
 
 ## 11. 下一步
 
-1. 五项 P0 与 terminal Brief P1 已达到 `FIXED_CODE_TESTED`；下一优先项是公开、版本化的 declarative compiler/orchestrator surface，以及其依赖的 Discovery readiness、Gap 和 execution model 修复。
-2. 为其余 P1/P2 项形成最小、可排序的 repair slices，按依赖和风险顺序实施，并在每项完成后更新本文的修复状态与验证证据。
-3. P0 与终态 Brief 已完成，可在剩余关键路径修复闭合后重放同一 discovery 场景，验证 `FIXED_CODE_TESTED` 项、时间、追加调研和交付质量。
-4. 新真实 discovery Run 通过后，再把相应条目标记为真实运行已修复；旧 Run 不属于修复或迁移范围，可在不再需要复盘证据时删除。
-5. 再执行一个窄范围真实 assessment Run，验证十维执行模型和 early-kill 设计。
+1. P0、terminal Brief、declarative compiler、Discovery execution model 和 Assessment P2 已达到 `FIXED_CODE_TESTED`；先运行完整冻结工具链回归并保持 `main` clean。
+2. 使用全新 `run_id` 执行一个真实 Discovery Run，验证 current-leaf、同 wave dispatch、staging、Gap/follow-up、耗时和中文 terminal Brief；不得修改或迁移旧 Run。
+3. 随后执行一个窄范围真实 Assessment Run，验证四条 workflow 的十维覆盖与 early-kill；只有真实需要且 gate 允许时才执行 bounded follow-up。
+4. 根据真实 Run 文件、Manifest、receipt、报告和计时更新本文验证证据；真实 Run 暴露的新问题必须如实记录，不得把 schema/store 成功解释为研究成功。

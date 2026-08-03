@@ -262,12 +262,25 @@ export const SCHEMA_BUNDLE_PATHS = [
   "harness/schemas/v18/research-publication-policy-v13.schema.json",
   "harness/schemas/v18/artifact-envelope.schema.json",
   "harness/schemas/v18/document-bundle.schema.json",
+  "harness/schemas/v19/concept-hypothesis-v2.schema.json",
+  "harness/schemas/v19/research-execution-plan-v2.schema.json",
+  "harness/schemas/v19/dispatch-batch-v2.schema.json",
+  "harness/schemas/v19/assessment-lane-result.schema.json",
+  "harness/schemas/v19/assessment-stage-gate.schema.json",
+  "harness/schemas/v19/assessment-followup-decision.schema.json",
+  "harness/schemas/v19/assessment-execution-policy.schema.json",
+  "harness/schemas/v19/research-publication-policy-v14.schema.json",
+  "harness/schemas/v19/runtime-artifact-compilation-result-v2.schema.json",
+  "harness/schemas/v19/artifact-envelope.schema.json",
+  "harness/schemas/v19/document-bundle.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/validators/schema-bundle.ts",
   "harness/src/validators/artifact-validator.ts",
   "harness/src/validators/declarative-runtime-validator.ts",
+  "harness/src/validators/assessment-execution-policy.ts",
+  "harness/src/validators/assessment-execution-validator.ts",
   "harness/src/validators/ai-bundle-validator.ts",
   "harness/src/validators/assess-domain-validator.ts",
   "harness/src/validators/research-branch-validator.ts",
@@ -318,6 +331,7 @@ export const STORE_SOURCE_PATHS = [
   "harness/src/reporting/terminal-reporting.ts",
   "harness/src/runtime/declarative-runtime.ts",
   "harness/src/runtime/runtime-commands.ts",
+  "harness/src/runtime/assessment-execution.ts",
 ] as const;
 
 export const SKILL_SCRIPT_PATHS = [
@@ -365,6 +379,8 @@ export const RESPONSIBILITY_PATHS = [
   "harness/policies/research-publication.v11.json",
   "harness/policies/research-publication.v12.json",
   "harness/policies/research-publication.v13.json",
+  "harness/policies/assessment-execution.v1.json",
+  "harness/policies/research-publication.v14.json",
   "tests/fixtures/README.md",
   "tests/fixtures/g1.2/README.md",
   "tests/fixtures/g1.3/README.md",

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v19/assessment-followup-decision.schema.json",
+  "title": "Startup Opportunity Assessment Follow-up Decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision_id",
+    "run_id",
+    "concept_hypothesis_ref",
+    "based_on_execution_plan_ref",
+    "based_on_execution_plan_revision",
+    "based_on_execution_plan_hash",
+    "based_on_research_plan_ref",
+    "based_on_research_plan_revision",
+    "based_on_research_plan_hash",
+    "stage_gate_ref",
+    "dimension_id",
+    "gap_type",
+    "action",
+    "current_followup_round",
+    "target_unit",
+    "candidate_research_plan_ref",
+    "candidate_execution_plan_ref",
+    "reason",
+    "stop_condition",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.assessment_followup_decision.v1" },
+    "decision_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
+    "concept_hypothesis_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
+    "based_on_execution_plan_ref": {
+      "type": "string",
+      "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+    },
+    "based_on_execution_plan_revision": { "type": "integer", "minimum": 1 },
+    "based_on_execution_plan_hash": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" },
+    "based_on_research_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
+    "based_on_research_plan_revision": { "type": "integer", "minimum": 1 },
+    "based_on_research_plan_hash": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" },
+    "stage_gate_ref": {
+      "type": "string",
+      "pattern": "^artifacts/assessment/gates/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "dimension_id": { "$ref": "../v4/definitions.schema.json#/$defs/assessmentDimension" },
+    "gap_type": { "const": "decision_relevant_evidence_gap" },
+    "action": { "enum": ["add_bounded_followup", "stop_followup"] },
+    "current_followup_round": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "target_unit": {
+      "anyOf": [{ "$ref": "../v1/definitions.schema.json#/$defs/researchUnit" }, { "type": "null" }]
+    },
+    "candidate_research_plan_ref": {
+      "anyOf": [{ "$ref": "../v1/definitions.schema.json#/$defs/planRef" }, { "type": "null" }]
+    },
+    "candidate_execution_plan_ref": {
+      "anyOf": [
+        { "type": "string", "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$" },
+        { "type": "null" }
+      ]
+    },
+    "reason": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
+    "stop_condition": { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
+    "created_at": { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "action": { "const": "add_bounded_followup" } } },
+      "then": {
+        "properties": {
+          "target_unit": { "$ref": "../v1/definitions.schema.json#/$defs/researchUnit" },
+          "candidate_research_plan_ref": { "$ref": "../v1/definitions.schema.json#/$defs/planRef" },
+          "candidate_execution_plan_ref": {
+            "type": "string",
+            "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "target_unit": { "type": "null" },
+          "candidate_research_plan_ref": { "type": "null" },
+          "candidate_execution_plan_ref": { "type": "null" }
+        }
+      }
+    }
+  ]
+}

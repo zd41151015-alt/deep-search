@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v19/artifact-envelope.schema.json",
+  "title": "Startup Opportunity Assessment Execution Artifact Envelope v19",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_path",
+    "run_id",
+    "created_at",
+    "producer_role",
+    "input_refs",
+    "content_hash",
+    "document"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.artifact_envelope.v19" },
+    "artifact_type": {
+      "enum": [
+        "startup_opportunity.concept_hypothesis.v2",
+        "startup_opportunity.research_execution_plan.v2",
+        "startup_opportunity.dispatch_batch.v2",
+        "startup_opportunity.assessment_lane_result.v1",
+        "startup_opportunity.assessment_stage_gate.v1",
+        "startup_opportunity.assessment_followup_decision.v1"
+      ]
+    },
+    "artifact_path": { "$ref": "../v12/definitions.schema.json#/$defs/artifactPath" },
+    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
+    "created_at": { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+    "producer_role": { "enum": ["main_agent", "lane-researcher", "harness"] },
+    "input_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
+    "content_hash": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" },
+    "document": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "artifact_type": { "const": "startup_opportunity.concept_hypothesis.v2" } }
+      },
+      "then": {
+        "properties": {
+          "producer_role": { "const": "main_agent" },
+          "artifact_path": { "const": "concept-hypothesis.json" },
+          "document": { "$ref": "concept-hypothesis-v2.schema.json" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": { "const": "startup_opportunity.research_execution_plan.v2" }
+        }
+      },
+      "then": {
+        "properties": {
+          "producer_role": { "const": "main_agent" },
+          "artifact_path": {
+            "type": "string",
+            "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+          },
+          "document": { "$ref": "research-execution-plan-v2.schema.json" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "artifact_type": { "const": "startup_opportunity.dispatch_batch.v2" } }
+      },
+      "then": {
+        "properties": {
+          "producer_role": { "const": "harness" },
+          "artifact_path": {
+            "type": "string",
+            "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json$"
+          },
+          "document": { "$ref": "dispatch-batch-v2.schema.json" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": { "const": "startup_opportunity.assessment_lane_result.v1" }
+        }
+      },
+      "then": {
+        "properties": {
+          "producer_role": { "const": "lane-researcher" },
+          "artifact_path": {
+            "type": "string",
+            "pattern": "^artifacts/assessment/lanes/[A-Za-z0-9][A-Za-z0-9._-]*\\.attempt-[1-9][0-9]*\\.json$"
+          },
+          "document": { "$ref": "assessment-lane-result.schema.json" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": { "const": "startup_opportunity.assessment_stage_gate.v1" }
+        }
+      },
+      "then": {
+        "properties": {
+          "producer_role": { "const": "main_agent" },
+          "artifact_path": {
+            "type": "string",
+            "pattern": "^artifacts/assessment/gates/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+          },
+          "document": { "$ref": "assessment-stage-gate.schema.json" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": { "const": "startup_opportunity.assessment_followup_decision.v1" }
+        }
+      },
+      "then": {
+        "properties": {
+          "producer_role": { "const": "main_agent" },
+          "artifact_path": {
+            "type": "string",
+            "pattern": "^adaptations/decisions/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+          },
+          "document": { "$ref": "assessment-followup-decision.schema.json" }
+        }
+      }
+    }
+  ]
+}

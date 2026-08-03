@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/v19/concept-hypothesis-v2.schema.json",
+  "title": "Startup Opportunity Concept Hypothesis v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "concept_hypothesis_id",
+    "scope_frame_ref",
+    "product_thesis",
+    "target_user",
+    "buyer",
+    "entry_scene",
+    "claimed_value",
+    "current_alternative",
+    "delivery_form",
+    "business_model",
+    "acquisition_hypothesis",
+    "uses_ai",
+    "assumptions",
+    "unknowns",
+    "kill_criteria",
+    "field_provenance",
+    "research_readiness"
+  ],
+  "$defs": {
+    "nullableString": {
+      "anyOf": [
+        { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
+        { "type": "null" }
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field_name",
+        "source_kind",
+        "confirmation_status",
+        "basis_refs",
+        "reporting_disclosure"
+      ],
+      "properties": {
+        "field_name": {
+          "enum": [
+            "product_thesis",
+            "target_user",
+            "buyer",
+            "entry_scene",
+            "claimed_value",
+            "current_alternative",
+            "delivery_form",
+            "business_model",
+            "acquisition_hypothesis"
+          ]
+        },
+        "source_kind": { "enum": ["user_provided", "agent_assumed", "unknown"] },
+        "confirmation_status": {
+          "enum": ["user_confirmed", "user_authorized_assumption", "clarification_required"]
+        },
+        "basis_refs": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray" },
+        "reporting_disclosure": {
+          "anyOf": [
+            { "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "source_kind": { "const": "user_provided" } } },
+          "then": {
+            "properties": {
+              "confirmation_status": { "const": "user_confirmed" },
+              "basis_refs": { "type": "array", "minItems": 1 },
+              "reporting_disclosure": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "source_kind": { "const": "agent_assumed" } } },
+          "then": {
+            "properties": {
+              "confirmation_status": { "const": "user_authorized_assumption" },
+              "basis_refs": { "type": "array", "minItems": 1 },
+              "reporting_disclosure": {
+                "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "source_kind": { "const": "unknown" } } },
+          "then": {
+            "properties": {
+              "confirmation_status": { "const": "clarification_required" },
+              "reporting_disclosure": {
+                "$ref": "../v12/definitions.schema.json#/$defs/nonEmptyString"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.concept_hypothesis.v2" },
+    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
+    "concept_hypothesis_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+    "scope_frame_ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
+    "product_thesis": { "$ref": "#/$defs/nullableString" },
+    "target_user": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
+    "buyer": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
+    "entry_scene": { "$ref": "#/$defs/nullableString" },
+    "claimed_value": { "$ref": "#/$defs/nullableString" },
+    "current_alternative": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
+    "delivery_form": {
+      "anyOf": [{ "$ref": "../v4/definitions.schema.json#/$defs/deliveryForm" }, { "type": "null" }]
+    },
+    "business_model": { "$ref": "#/$defs/nullableString" },
+    "acquisition_hypothesis": { "$ref": "#/$defs/nullableString" },
+    "uses_ai": { "type": "boolean" },
+    "assumptions": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
+    "unknowns": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
+    "kill_criteria": { "$ref": "../v12/definitions.schema.json#/$defs/uniqueStringArray" },
+    "field_provenance": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": { "$ref": "#/$defs/provenance" }
+    },
+    "research_readiness": { "enum": ["ready", "clarification_required"] }
+  }
+}

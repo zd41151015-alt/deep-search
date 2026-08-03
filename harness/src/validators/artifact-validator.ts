@@ -25,6 +25,14 @@ import {
   validateAssessmentAdaptationContract,
 } from "./assessment-adaptation-validator.js";
 import {
+  type AssessmentExecutionPolicy,
+  loadAssessmentExecutionPolicy,
+} from "./assessment-execution-policy.js";
+import {
+  type AssessmentExecutionDocument,
+  validateAssessmentExecutionContract,
+} from "./assessment-execution-validator.js";
+import {
   type AssessmentReportingPolicy,
   loadAssessmentReportingPolicy,
 } from "./assessment-reporting-policy.js";
@@ -122,7 +130,8 @@ export interface DocumentBundle {
     | "startup_opportunity.document_bundle.v15"
     | "startup_opportunity.document_bundle.v16"
     | "startup_opportunity.document_bundle.v17"
-    | "startup_opportunity.document_bundle.v18";
+    | "startup_opportunity.document_bundle.v18"
+    | "startup_opportunity.document_bundle.v19";
   readonly documents: readonly DocumentBundleEntry[];
   readonly exact_records?: readonly {
     readonly ref: string;
@@ -427,6 +436,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.adaptation_decision.v1",
           "startup_opportunity.adaptation_decision.v2",
           "startup_opportunity.adaptation_decision.v3",
+          "startup_opportunity.assessment_followup_decision.v1",
         ]),
       ];
     case "startup_opportunity.gap_snapshot.v1":
@@ -632,8 +642,21 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       ];
     case "startup_opportunity.concept_hypothesis.v1":
       return [...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v1")];
+    case "startup_opportunity.concept_hypothesis.v2":
+      return [
+        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v1"),
+        ...refsFromNestedArray(document, "field_provenance", "basis_refs", [
+          "startup_opportunity.intake.v1",
+          "startup_opportunity.decision.v1",
+        ]),
+      ];
     case "startup_opportunity.judgment_assessment.v1":
-      return [...optionalRef(document, "subject_ref", "startup_opportunity.concept_hypothesis.v1")];
+      return [
+        ...optionalRef(document, "subject_ref", [
+          "startup_opportunity.concept_hypothesis.v1",
+          "startup_opportunity.concept_hypothesis.v2",
+        ]),
+      ];
     case "startup_opportunity.concept_evidence_assessment_plan.v1":
       return [
         ...optionalRef(
@@ -2533,6 +2556,20 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.discovery_stage_readiness.v1",
         ),
       ];
+    case "startup_opportunity.research_execution_plan.v2":
+      return [
+        ...optionalRef(
+          document,
+          "parent_execution_plan_ref",
+          "startup_opportunity.research_execution_plan.v2",
+        ),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(
+          document,
+          "concept_hypothesis_ref",
+          "startup_opportunity.concept_hypothesis.v2",
+        ),
+      ];
     case "startup_opportunity.dispatch_batch.v1":
       return [
         ...optionalRef(
@@ -2541,6 +2578,102 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.research_execution_plan.v1",
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+      ];
+    case "startup_opportunity.dispatch_batch.v2":
+      return [
+        ...optionalRef(
+          document,
+          "execution_plan_ref",
+          "startup_opportunity.research_execution_plan.v2",
+        ),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(document, "gate_ref", "startup_opportunity.assessment_stage_gate.v1"),
+      ];
+    case "startup_opportunity.assessment_lane_result.v1":
+      return [
+        ...optionalRef(
+          document,
+          "concept_hypothesis_ref",
+          "startup_opportunity.concept_hypothesis.v2",
+        ),
+        ...optionalRef(
+          document,
+          "execution_plan_ref",
+          "startup_opportunity.research_execution_plan.v2",
+        ),
+        ...refsFromNestedArray(document, "dimension_results", "evidence_refs", [
+          "startup_opportunity.evidence.v1",
+          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.v3",
+        ]),
+        ...refsFromNestedArray(document, "dimension_results", "supporting_claim_refs", [
+          "startup_opportunity.claim.v1",
+          "startup_opportunity.claim.v2",
+          "startup_opportunity.claim.v3",
+        ]),
+        ...refsFromNestedArray(document, "dimension_results", "opposing_claim_refs", [
+          "startup_opportunity.claim.v1",
+          "startup_opportunity.claim.v2",
+          "startup_opportunity.claim.v3",
+        ]),
+        ...refsFromNestedArray(document, "dimension_results", "judgment_assessment_refs", [
+          "startup_opportunity.judgment_assessment.v1",
+          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.v3",
+        ]),
+        ...refsFromArray(document, "source_manifest_refs", [
+          "startup_opportunity.source_manifest.v1",
+          "startup_opportunity.source_manifest.v2",
+          "startup_opportunity.source_manifest.v3",
+          "startup_opportunity.source_manifest.v4",
+        ]),
+      ];
+    case "startup_opportunity.assessment_stage_gate.v1":
+      return [
+        ...optionalRef(
+          document,
+          "execution_plan_ref",
+          "startup_opportunity.research_execution_plan.v2",
+        ),
+        ...optionalRef(
+          document,
+          "concept_hypothesis_ref",
+          "startup_opportunity.concept_hypothesis.v2",
+        ),
+        ...refsFromArray(
+          document,
+          "evaluated_lane_refs",
+          "startup_opportunity.assessment_lane_result.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "dimension_decisions",
+          "lane_result_ref",
+          "startup_opportunity.assessment_lane_result.v1",
+        ),
+      ];
+    case "startup_opportunity.assessment_followup_decision.v1":
+      return [
+        ...optionalRef(
+          document,
+          "concept_hypothesis_ref",
+          "startup_opportunity.concept_hypothesis.v2",
+        ),
+        ...optionalRef(
+          document,
+          "based_on_execution_plan_ref",
+          "startup_opportunity.research_execution_plan.v2",
+        ),
+        ...optionalRef(
+          document,
+          "based_on_research_plan_ref",
+          "startup_opportunity.research_plan.v1",
+        ),
+        ...optionalRef(document, "stage_gate_ref", "startup_opportunity.assessment_stage_gate.v1"),
+        ...refsFromObjectArray(document, "target_unit", "input_refs", [
+          "startup_opportunity.concept_hypothesis.v2",
+          "startup_opportunity.assessment_stage_gate.v1",
+        ]),
       ];
     case "startup_opportunity.lane_lifecycle.v1":
       return [
@@ -2721,7 +2854,8 @@ function unwrapDocument(entry: DocumentBundleEntry): EffectiveDocument {
     version !== "startup_opportunity.artifact_envelope.v15" &&
     version !== "startup_opportunity.artifact_envelope.v16" &&
     version !== "startup_opportunity.artifact_envelope.v17" &&
-    version !== "startup_opportunity.artifact_envelope.v18"
+    version !== "startup_opportunity.artifact_envelope.v18" &&
+    version !== "startup_opportunity.artifact_envelope.v19"
   ) {
     return { path: entry.path, schemaVersion: version, document: entry.document, envelope: null };
   }
@@ -2979,7 +3113,8 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
       document.schema_version !== "startup_opportunity.artifact_envelope.v15" &&
       document.schema_version !== "startup_opportunity.artifact_envelope.v16" &&
       document.schema_version !== "startup_opportunity.artifact_envelope.v17" &&
-      document.schema_version !== "startup_opportunity.artifact_envelope.v18") ||
+      document.schema_version !== "startup_opportunity.artifact_envelope.v18" &&
+      document.schema_version !== "startup_opportunity.artifact_envelope.v19") ||
     !isRecord(document.document)
   ) {
     return [];
@@ -3045,6 +3180,7 @@ export class ArtifactValidator {
     private readonly bundle: LoadedSchemaBundle,
     readonly publicationPolicy: PublicationPolicy,
     readonly assessmentReportingPolicy: AssessmentReportingPolicy,
+    readonly assessmentExecutionPolicy: AssessmentExecutionPolicy,
     readonly discoveryMapsPolicy: LoadedDiscoveryMapsPolicy,
     readonly discoveryCandidatePolicy: DiscoveryCandidatePolicy,
     readonly discoverySynthesisPolicy: DiscoverySynthesisPolicy,
@@ -3345,7 +3481,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
       input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18"
+      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v19"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3392,7 +3529,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
       input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18"
+      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v19"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3430,7 +3568,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
       input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18"
+      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v19"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3473,7 +3612,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
       input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18"
+      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v19"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3495,7 +3635,8 @@ export class ArtifactValidator {
             input.schema_version === "startup_opportunity.document_bundle.v15" ||
             input.schema_version === "startup_opportunity.document_bundle.v16" ||
             input.schema_version === "startup_opportunity.document_bundle.v17" ||
-            input.schema_version === "startup_opportunity.document_bundle.v18"
+            input.schema_version === "startup_opportunity.document_bundle.v18" ||
+            input.schema_version === "startup_opportunity.document_bundle.v19"
             ? discoveryDocuments.filter(
                 (entry) =>
                   !isDiscoveryCandidateSchemaVersion(entry.schemaVersion) &&
@@ -3512,7 +3653,8 @@ export class ArtifactValidator {
             input.schema_version === "startup_opportunity.document_bundle.v15" ||
             input.schema_version === "startup_opportunity.document_bundle.v16" ||
             input.schema_version === "startup_opportunity.document_bundle.v17" ||
-            input.schema_version === "startup_opportunity.document_bundle.v18"
+            input.schema_version === "startup_opportunity.document_bundle.v18" ||
+            input.schema_version === "startup_opportunity.document_bundle.v19"
             ? [
                 "7.0.0",
                 "9.0.0",
@@ -3524,6 +3666,7 @@ export class ArtifactValidator {
                 "15.0.0",
                 "16.0.0",
                 "17.0.0",
+                "18.0.0",
               ]
             : undefined,
         ),
@@ -3555,7 +3698,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
       input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18"
+      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v19"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3591,7 +3735,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
       input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18"
+      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v19"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3611,7 +3756,8 @@ export class ArtifactValidator {
             input.schema_version === "startup_opportunity.document_bundle.v15" ||
             input.schema_version === "startup_opportunity.document_bundle.v16" ||
             input.schema_version === "startup_opportunity.document_bundle.v17" ||
-            input.schema_version === "startup_opportunity.document_bundle.v18",
+            input.schema_version === "startup_opportunity.document_bundle.v18" ||
+            input.schema_version === "startup_opportunity.document_bundle.v19",
         ),
       );
     }
@@ -3632,7 +3778,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
       input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18"
+      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v19"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3650,7 +3797,8 @@ export class ArtifactValidator {
             ? this.legacyDiscoveryEvaluationPolicy
             : input.schema_version === "startup_opportunity.document_bundle.v16" ||
                 input.schema_version === "startup_opportunity.document_bundle.v17" ||
-                input.schema_version === "startup_opportunity.document_bundle.v18"
+                input.schema_version === "startup_opportunity.document_bundle.v18" ||
+                input.schema_version === "startup_opportunity.document_bundle.v19"
               ? this.discoveryEvaluationPolicy
               : this.repairedDiscoveryEvaluationPolicy,
           exactJsonlRecords,
@@ -3669,7 +3817,8 @@ export class ArtifactValidator {
       input.schema_version !== "startup_opportunity.document_bundle.v15" &&
       input.schema_version !== "startup_opportunity.document_bundle.v16" &&
       input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18"
+      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v19"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3685,7 +3834,8 @@ export class ArtifactValidator {
           aiBundleDocuments,
           input.schema_version === "startup_opportunity.document_bundle.v16" ||
             input.schema_version === "startup_opportunity.document_bundle.v17" ||
-            input.schema_version === "startup_opportunity.document_bundle.v18",
+            input.schema_version === "startup_opportunity.document_bundle.v18" ||
+            input.schema_version === "startup_opportunity.document_bundle.v19",
         ),
       );
     }
@@ -3707,7 +3857,8 @@ export class ArtifactValidator {
         ].includes(entry.schemaVersion),
       ) &&
       input.schema_version !== "startup_opportunity.document_bundle.v17" &&
-      input.schema_version !== "startup_opportunity.document_bundle.v18"
+      input.schema_version !== "startup_opportunity.document_bundle.v18" &&
+      input.schema_version !== "startup_opportunity.document_bundle.v19"
     ) {
       referenceErrors.push(
         referenceIssue(
@@ -3720,9 +3871,50 @@ export class ArtifactValidator {
     } else {
       referenceErrors.push(...validateTerminalReportingContract(terminalReportingDocuments));
     }
-    if (input.schema_version === "startup_opportunity.document_bundle.v18") {
+    if (
+      input.schema_version === "startup_opportunity.document_bundle.v18" ||
+      input.schema_version === "startup_opportunity.document_bundle.v19"
+    ) {
       referenceErrors.push(
         ...validateDeclarativeRuntimeContract(effectiveDocuments, exactJsonlRecords),
+      );
+    }
+    const assessmentExecutionDocuments: readonly AssessmentExecutionDocument[] =
+      effectiveDocuments.map((entry) => ({
+        path: entry.path,
+        schemaVersion: entry.schemaVersion,
+        document: entry.document,
+        envelope: entry.envelope,
+      }));
+    const hasAssessmentExecutionDocuments = assessmentExecutionDocuments.some((entry) =>
+      [
+        "startup_opportunity.concept_hypothesis.v2",
+        "startup_opportunity.research_execution_plan.v2",
+        "startup_opportunity.dispatch_batch.v2",
+        "startup_opportunity.assessment_lane_result.v1",
+        "startup_opportunity.assessment_stage_gate.v1",
+        "startup_opportunity.assessment_followup_decision.v1",
+      ].includes(entry.schemaVersion),
+    );
+    if (
+      hasAssessmentExecutionDocuments &&
+      input.schema_version !== "startup_opportunity.document_bundle.v19"
+    ) {
+      referenceErrors.push(
+        referenceIssue(
+          "assessment_execution.bundle_version_mismatch",
+          "/schema_version",
+          "Assessment execution contracts require document_bundle.v19",
+          { actualSchemaVersion: input.schema_version },
+        ),
+      );
+    } else if (input.schema_version === "startup_opportunity.document_bundle.v19") {
+      referenceErrors.push(
+        ...validateAssessmentExecutionContract(
+          assessmentExecutionDocuments,
+          exactJsonlRecords,
+          this.assessmentExecutionPolicy,
+        ),
       );
     }
     referenceErrors.push(...exactRecordErrors);
@@ -4140,6 +4332,7 @@ export async function createArtifactValidator(
     bundle,
     await loadResearchPublicationPolicy(root, bundle),
     await loadAssessmentReportingPolicy(root, bundle),
+    await loadAssessmentExecutionPolicy(root, bundle),
     await loadDiscoveryMapsPolicy(root, bundle),
     await loadDiscoveryCandidatePolicy(root, bundle),
     await loadDiscoverySynthesisPolicy(root, bundle),

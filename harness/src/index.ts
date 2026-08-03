@@ -138,6 +138,10 @@ export {
   runStatusRun,
 } from "./run-store/store-commands.js";
 export {
+  type AssessmentFollowupRevisionResult,
+  deriveAssessmentFollowupRevision,
+} from "./runtime/assessment-execution.js";
+export {
   type CompileRuntimeArtifactsOptions,
   DeclarativeRuntimeCompiler,
   type RuntimeArtifactCompilationRequest,
@@ -173,6 +177,15 @@ export {
   type AssessmentAdaptationDocument,
   validateAssessmentAdaptationContract,
 } from "./validators/assessment-adaptation-validator.js";
+export {
+  ASSESSMENT_EXECUTION_POLICY_PATH,
+  type AssessmentExecutionPolicy,
+  loadAssessmentExecutionPolicy,
+} from "./validators/assessment-execution-policy.js";
+export {
+  type AssessmentExecutionDocument,
+  validateAssessmentExecutionContract,
+} from "./validators/assessment-execution-validator.js";
 export {
   type DeclarativeRuntimeDocument,
   isDeclarativeRuntimeSchemaVersion,

@@ -218,6 +218,7 @@ const STORE_ENVELOPE_VERSIONS = new Set([
   "startup_opportunity.artifact_envelope.v16",
   "startup_opportunity.artifact_envelope.v17",
   "startup_opportunity.artifact_envelope.v18",
+  "startup_opportunity.artifact_envelope.v19",
 ]);
 
 const TERMINAL_RUN_STATUSES = new Set([
@@ -287,6 +288,7 @@ function checkpointDocument(envelope: FormalArtifactEnvelope): Record<string, un
 function recoveryTransitionRank(envelope: FormalArtifactEnvelope): number {
   if (
     envelope.artifact_type === "startup_opportunity.dispatch_batch.v1" ||
+    envelope.artifact_type === "startup_opportunity.dispatch_batch.v2" ||
     envelope.artifact_type === "startup_opportunity.research_task.v1" ||
     envelope.artifact_type === "startup_opportunity.research_task.v2" ||
     envelope.artifact_type === "startup_opportunity.research_task.v3"
@@ -295,6 +297,7 @@ function recoveryTransitionRank(envelope: FormalArtifactEnvelope): number {
   }
   if (
     envelope.artifact_type === "startup_opportunity.discovery_generation_result.v1" ||
+    envelope.artifact_type === "startup_opportunity.assessment_lane_result.v1" ||
     envelope.artifact_type === "startup_opportunity.concept_evidence_assessment_branch_result.v1" ||
     envelope.artifact_type === "startup_opportunity.discovery_lane_result.v1" ||
     envelope.artifact_type === "startup_opportunity.enrichment_branch_result.v1"
@@ -937,7 +940,8 @@ export class RunStore {
           path: entry.path,
           document:
             entry.document.schema_version === "startup_opportunity.artifact_envelope.v17" ||
-            entry.document.schema_version === "startup_opportunity.artifact_envelope.v18"
+            entry.document.schema_version === "startup_opportunity.artifact_envelope.v18" ||
+            entry.document.schema_version === "startup_opportunity.artifact_envelope.v19"
               ? entry.document
               : authorityDocument,
         });
@@ -1002,7 +1006,8 @@ export class RunStore {
           input.schema_version === "startup_opportunity.document_bundle.v15" ||
           input.schema_version === "startup_opportunity.document_bundle.v16" ||
           input.schema_version === "startup_opportunity.document_bundle.v17" ||
-          input.schema_version === "startup_opportunity.document_bundle.v18"
+          input.schema_version === "startup_opportunity.document_bundle.v18" ||
+          input.schema_version === "startup_opportunity.document_bundle.v19"
             ? { exact_records: [] }
             : {}),
         },
@@ -1093,7 +1098,10 @@ export class RunStore {
       const transitioningTaskUnits = new Set<string>();
       const runtimeActivations = new Set<string>();
       for (const envelope of input.envelopes) {
-        if (envelope.artifact_type !== "startup_opportunity.dispatch_batch.v1") {
+        if (
+          envelope.artifact_type !== "startup_opportunity.dispatch_batch.v1" &&
+          envelope.artifact_type !== "startup_opportunity.dispatch_batch.v2"
+        ) {
           continue;
         }
         for (const task of Array.isArray(envelope.document.tasks) ? envelope.document.tasks : []) {
@@ -1175,7 +1183,8 @@ export class RunStore {
         result.artifacts.map((artifact) => [artifact.artifactPath, artifact.status]),
       );
       const projectionRank = (envelope: FormalArtifactEnvelope): number =>
-        envelope.artifact_type === "startup_opportunity.dispatch_batch.v1"
+        envelope.artifact_type === "startup_opportunity.dispatch_batch.v1" ||
+        envelope.artifact_type === "startup_opportunity.dispatch_batch.v2"
           ? 0
           : envelope.artifact_type === "startup_opportunity.discovery_generation_result.v1"
             ? 2
@@ -1459,8 +1468,10 @@ export class RunStore {
     if (
       !ignoredLate &&
       (!exactReplay || !artifactWasTracked) &&
-      envelope.schema_version === "startup_opportunity.artifact_envelope.v18" &&
-      envelope.artifact_type === "startup_opportunity.dispatch_batch.v1"
+      ((envelope.schema_version === "startup_opportunity.artifact_envelope.v18" &&
+        envelope.artifact_type === "startup_opportunity.dispatch_batch.v1") ||
+        (envelope.schema_version === "startup_opportunity.artifact_envelope.v19" &&
+          envelope.artifact_type === "startup_opportunity.dispatch_batch.v2"))
     ) {
       for (const task of Array.isArray(envelope.document.tasks) ? envelope.document.tasks : []) {
         if (isRecord(task) && typeof task.unit_id === "string") {
@@ -1485,6 +1496,32 @@ export class RunStore {
         envelope.document.unit_id,
         envelope.document.status === "failed" ? "failed_units" : "completed_units",
       );
+    }
+    if (
+      !ignoredLate &&
+      (!exactReplay || !artifactWasTracked) &&
+      envelope.schema_version === "startup_opportunity.artifact_envelope.v19" &&
+      envelope.artifact_type === "startup_opportunity.assessment_lane_result.v1" &&
+      typeof envelope.document.unit_id === "string"
+    ) {
+      next = this.moveUnit(
+        next,
+        envelope.document.unit_id,
+        envelope.document.status === "failed" ? "failed_units" : "completed_units",
+      );
+    }
+    if (
+      !ignoredLate &&
+      (!exactReplay || !artifactWasTracked) &&
+      envelope.schema_version === "startup_opportunity.artifact_envelope.v19" &&
+      envelope.artifact_type === "startup_opportunity.assessment_stage_gate.v1" &&
+      envelope.document.outcome !== "continue"
+    ) {
+      for (const unitId of Array.isArray(envelope.document.not_started_unit_ids)
+        ? envelope.document.not_started_unit_ids
+        : []) {
+        if (typeof unitId === "string") next = this.moveUnit(next, unitId, "skipped_units");
+      }
     }
     if (
       !ignoredLate &&
@@ -1618,7 +1655,10 @@ export class RunStore {
     envelope: FormalArtifactEnvelope,
     sameBundleActivations: ReadonlySet<string>,
   ): void {
-    if (envelope.schema_version !== "startup_opportunity.artifact_envelope.v18") {
+    if (
+      envelope.schema_version !== "startup_opportunity.artifact_envelope.v18" &&
+      envelope.schema_version !== "startup_opportunity.artifact_envelope.v19"
+    ) {
       return;
     }
     const tracked =
@@ -1638,7 +1678,10 @@ export class RunStore {
     ] as const;
     const stateOf = (unitId: string): string | null =>
       stateFields.find((field) => manifest[field].includes(unitId)) ?? null;
-    if (envelope.artifact_type === "startup_opportunity.dispatch_batch.v1") {
+    if (
+      envelope.artifact_type === "startup_opportunity.dispatch_batch.v1" ||
+      envelope.artifact_type === "startup_opportunity.dispatch_batch.v2"
+    ) {
       if (envelope.document.research_plan_ref !== manifest.current_plan_ref) {
         throw new StoreError(
           "artifact.dispatch_transition_invalid",
@@ -1674,6 +1717,19 @@ export class RunStore {
         throw new StoreError(
           "artifact.generation_transition_invalid",
           "Discovery generation result requires an active dispatch task",
+          { unitId: envelope.document.unit_id, state },
+        );
+      }
+    }
+    if (
+      envelope.artifact_type === "startup_opportunity.assessment_lane_result.v1" &&
+      typeof envelope.document.unit_id === "string"
+    ) {
+      const state = stateOf(envelope.document.unit_id);
+      if (state !== "active_units" && !sameBundleActivations.has(envelope.document.unit_id)) {
+        throw new StoreError(
+          "artifact.assessment_lane_transition_invalid",
+          "Assessment lane result requires an active dispatch task",
           { unitId: envelope.document.unit_id, state },
         );
       }
@@ -2245,7 +2301,8 @@ export class RunStore {
       recoveryBundleVersion === "startup_opportunity.document_bundle.v15" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v16" ||
       recoveryBundleVersion === "startup_opportunity.document_bundle.v17" ||
-      recoveryBundleVersion === "startup_opportunity.document_bundle.v18"
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v18" ||
+      recoveryBundleVersion === "startup_opportunity.document_bundle.v19"
     ) {
       for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
         if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
@@ -2269,7 +2326,8 @@ export class RunStore {
         recoveryBundleVersion === "startup_opportunity.document_bundle.v15" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v16" ||
         recoveryBundleVersion === "startup_opportunity.document_bundle.v17" ||
-        recoveryBundleVersion === "startup_opportunity.document_bundle.v18"
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v18" ||
+        recoveryBundleVersion === "startup_opportunity.document_bundle.v19"
           ? { exact_records: [] }
           : {}),
       },

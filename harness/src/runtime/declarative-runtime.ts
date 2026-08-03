@@ -27,7 +27,9 @@ export interface RuntimeArtifactCompilationRequest extends Record<string, unknow
 }
 
 export interface RuntimeArtifactCompilationResult {
-  readonly schema_version: "startup_opportunity.runtime_artifact_compilation_result.v1";
+  readonly schema_version:
+    | "startup_opportunity.runtime_artifact_compilation_result.v1"
+    | "startup_opportunity.runtime_artifact_compilation_result.v2";
   readonly request_id: string;
   readonly run_id: string;
   readonly status: "validated" | "published" | "idempotent_replay";
@@ -102,6 +104,15 @@ function elapsed(started: number): number {
   return Math.max(0, performance.now() - started);
 }
 
+const ASSESSMENT_EXECUTION_ARTIFACT_TYPES = new Set([
+  "startup_opportunity.concept_hypothesis.v2",
+  "startup_opportunity.research_execution_plan.v2",
+  "startup_opportunity.dispatch_batch.v2",
+  "startup_opportunity.assessment_lane_result.v1",
+  "startup_opportunity.assessment_stage_gate.v1",
+  "startup_opportunity.assessment_followup_decision.v1",
+]);
+
 export class DeclarativeRuntimeCompiler {
   private readonly runs: RunStore;
 
@@ -150,6 +161,23 @@ export class DeclarativeRuntimeCompiler {
         "one compilation request cannot declare the same artifact path twice",
       );
     }
+    const artifactFamilies = new Set(
+      request.artifacts.map((artifact) =>
+        ASSESSMENT_EXECUTION_ARTIFACT_TYPES.has(artifact.artifact_type) ? "assessment" : "runtime",
+      ),
+    );
+    if (artifactFamilies.size !== 1) {
+      throw new StoreError(
+        "runtime.compilation_version_mixed",
+        "one compilation request cannot mix v18 runtime and v19 Assessment execution artifacts",
+      );
+    }
+    const envelopeVersion = artifactFamilies.has("assessment")
+      ? "startup_opportunity.artifact_envelope.v19"
+      : "startup_opportunity.artifact_envelope.v18";
+    const bundleVersion = artifactFamilies.has("assessment")
+      ? "startup_opportunity.document_bundle.v19"
+      : "startup_opportunity.document_bundle.v18";
     const envelopes = request.artifacts.map((artifact): FormalArtifactEnvelope => {
       const documentValidation = this.validator.validateDocument(
         artifact.document,
@@ -184,7 +212,7 @@ export class DeclarativeRuntimeCompiler {
         .filter((ref) => ref.split("#", 1)[0] !== artifact.artifact_path)
         .sort();
       const envelope: FormalArtifactEnvelope = {
-        schema_version: "startup_opportunity.artifact_envelope.v18",
+        schema_version: envelopeVersion,
         artifact_type: artifact.artifact_type,
         artifact_path: artifact.artifact_path,
         run_id: request.run_id,
@@ -198,7 +226,7 @@ export class DeclarativeRuntimeCompiler {
       if (!envelopeValidation.valid) {
         throw new StoreError(
           "runtime.compilation_envelope_invalid",
-          "compiled v18 envelope violates the public runtime contract",
+          "compiled envelope violates its public versioned runtime contract",
           { artifactPath: artifact.artifact_path, errors: envelopeValidation.errors },
         );
       }
@@ -208,7 +236,7 @@ export class DeclarativeRuntimeCompiler {
 
     const closureStarted = performance.now();
     const initialBundle: DocumentBundle = {
-      schema_version: "startup_opportunity.document_bundle.v18",
+      schema_version: bundleVersion,
       documents: envelopes.map((envelope) => ({
         path: envelope.artifact_path,
         document: envelope,
@@ -267,7 +295,9 @@ export class DeclarativeRuntimeCompiler {
     }
     const publication = elapsed(publicationStarted);
     const result: RuntimeArtifactCompilationResult = {
-      schema_version: "startup_opportunity.runtime_artifact_compilation_result.v1",
+      schema_version: artifactFamilies.has("assessment")
+        ? "startup_opportunity.runtime_artifact_compilation_result.v2"
+        : "startup_opportunity.runtime_artifact_compilation_result.v1",
       request_id: request.request_id,
       run_id: request.run_id,
       status: publicationStatus,
