@@ -4,6 +4,7 @@ import {
   createArtifactValidator,
   type DocumentBundleReferenceContext,
 } from "../validators/artifact-validator.js";
+import { planningRunStateHash } from "../validators/planning-contract-identities.js";
 import { sortIssues, type ValidationIssue } from "../validators/schema-bundle.js";
 import {
   type AssessmentAdaptationPolicy,
@@ -85,6 +86,81 @@ function targetUnitId(decision: Record<string, unknown>): string | null {
 
 const FOLLOWUP_ACTIONS = new Set(["add_unit", "retry_unit", "supersede_unit"]);
 
+function currentPlanningProjection(
+  value: unknown,
+  documents: ReturnType<typeof effectiveDocuments>,
+): unknown {
+  if (!isRecord(value) || !Array.isArray(value.documents)) {
+    return value;
+  }
+  if (value.schema_version !== "startup_opportunity.document_bundle.v18") {
+    const effectiveByPath = new Map(documents.map((document) => [document.path, document]));
+    return {
+      ...value,
+      documents: value.documents
+        .filter(
+          (entry) =>
+            !isRecord(entry) ||
+            !isRecord(entry.document) ||
+            entry.document.artifact_type !== "startup_opportunity.discovery_candidate.v1",
+        )
+        .map((entry) => {
+          if (!isRecord(entry) || typeof entry.path !== "string") {
+            return entry;
+          }
+          const effective = effectiveByPath.get(entry.path);
+          return effective?.envelope === null || effective === undefined
+            ? entry
+            : { ...entry, document: effective.document };
+        }),
+    };
+  }
+  const byPath = new Map(documents.map((document) => [document.path, document]));
+  const manifest = byPath.get("manifest.json");
+  const context = leafPlanningContexts(value)[0];
+  const targetBinding = context?.document.target_plan_binding;
+  const manifestBinding = context?.document.manifest_binding;
+  if (
+    manifest?.schemaVersion !== "startup_opportunity.run_manifest.v1" ||
+    context?.schemaVersion !== "startup_opportunity.planning_context.v2" ||
+    context.document.validation_stage !== "candidate_revision" ||
+    !isRecord(targetBinding) ||
+    !isRecord(manifestBinding) ||
+    targetBinding.plan_ref !== manifest.document.current_plan_ref ||
+    targetBinding.plan_revision !== manifest.document.plan_revision
+  ) {
+    return value;
+  }
+  const projectedManifestBinding = {
+    ...manifestBinding,
+    current_plan_ref: manifest.document.current_plan_ref,
+    current_plan_revision: manifest.document.plan_revision,
+    run_state_hash: planningRunStateHash({
+      manifest_ref: String(manifestBinding.manifest_ref),
+      manifest_schema_version: String(manifestBinding.manifest_schema_version),
+      run_id: String(manifestBinding.run_id),
+      mode: String(manifestBinding.mode),
+      current_plan_ref: manifest.document.current_plan_ref as string,
+      current_plan_revision: Number(manifest.document.plan_revision),
+    }),
+  };
+  return {
+    ...value,
+    documents: value.documents.map((entry) =>
+      isRecord(entry) && entry.path === context.path
+        ? {
+            ...entry,
+            document: {
+              ...context.document,
+              validation_stage: "current_plan",
+              manifest_binding: projectedManifestBinding,
+            },
+          }
+        : entry,
+    ),
+  };
+}
+
 export class AdaptationPolicyValidator {
   constructor(
     private readonly plans: PlanSemanticValidator,
@@ -108,29 +184,7 @@ export class AdaptationPolicyValidator {
       return this.validateAssessmentDocumentBundle(value, referenceContext);
     }
     const documents = effectiveDocuments(value);
-    const effectiveByPath = new Map(documents.map((document) => [document.path, document]));
-    const planningValue =
-      isRecord(value) && Array.isArray(value.documents)
-        ? {
-            ...value,
-            documents: value.documents
-              .filter(
-                (entry) =>
-                  !isRecord(entry) ||
-                  !isRecord(entry.document) ||
-                  entry.document.artifact_type !== "startup_opportunity.discovery_candidate.v1",
-              )
-              .map((entry) => {
-                if (!isRecord(entry) || typeof entry.path !== "string") {
-                  return entry;
-                }
-                const effective = effectiveByPath.get(entry.path);
-                return effective?.envelope === null || effective === undefined
-                  ? entry
-                  : { ...entry, document: effective.document };
-              }),
-          }
-        : value;
+    const planningValue = currentPlanningProjection(value, documents);
     const planValidation = this.plans.validateDocumentBundle(planningValue, referenceContext);
     const byPath = documentMap(value);
     const context = leafPlanningContexts(value)[0];

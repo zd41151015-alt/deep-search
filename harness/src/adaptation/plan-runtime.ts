@@ -1692,7 +1692,7 @@ export class PlanRevisionRuntime {
     };
     const adaptationValidation = this.adaptations.validateDocumentBundle(
       patchedBundle,
-      referenceContext,
+      planReferenceContext,
     );
     if (!adaptationValidation.valid) {
       throw new StoreError(

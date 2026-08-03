@@ -895,6 +895,43 @@ async function setupPersistedRun(
     currentManifest,
     adaptationBundle,
     checkpointEntry,
+    discoveryBundle,
+  };
+}
+
+function currentDiscoveryAdaptationBundle(
+  setup: Awaited<ReturnType<typeof setupPersistedRun>>,
+): DocumentBundle {
+  assert.ok(setup.discoveryBundle);
+  const selected = new Map<string, DocumentBundle["documents"][number]>(
+    [
+      ...G21_CORE_REFS,
+      ...G21_MAP_REFS,
+      "artifacts/discovery/candidates/candidate_baseline.r1.json",
+      PRE_KILL_CANDIDATE_REF,
+      RETAINED_SHARED_CANDIDATE_REF,
+    ].map((artifactPath) => [
+      artifactPath,
+      {
+        path: artifactPath,
+        document: (artifactPath.startsWith("artifacts/discovery/candidates/")
+          ? runtimeEnvelope(setup.discoveryBundle as DocumentBundle, artifactPath)
+          : fixtureEnvelope(
+              setup.discoveryBundle as DocumentBundle,
+              artifactPath,
+            )) as unknown as Record<string, unknown>,
+      },
+    ]),
+  );
+  for (const entry of setup.adaptationBundle.documents) {
+    if (entry.path !== PLAN_REF) {
+      selected.set(entry.path, structuredClone(entry));
+    }
+  }
+  return {
+    schema_version: "startup_opportunity.document_bundle.v18",
+    documents: [...selected.values()].sort((left, right) => left.path.localeCompare(right.path)),
+    exact_records: [],
   };
 }
 
@@ -2220,6 +2257,162 @@ test("ordinary post-G2 add_unit receipts bind every durable base-Plan candidate"
       ],
     },
   ]);
+});
+
+test("current v18 adaptation planning preserves the complete G2.1/G2.2 envelope closure", async (contextTest) => {
+  const runId = "runtime-current-discovery-adaptation-closure";
+  const setup = await setupPersistedRun(contextTest, runId, "post-g2-add");
+  const adaptationBundle = currentDiscoveryAdaptationBundle(setup);
+  const effective = (artifactPath: string) => {
+    const document = adaptationBundle.documents.find(
+      (entry) => entry.path === artifactPath,
+    )?.document;
+    assert.ok(document);
+    return typeof document.artifact_type === "string"
+      ? (document.document as Record<string, unknown>)
+      : document;
+  };
+  const currentManifest = effective("manifest.json");
+  const currentPlan = effective(PLAN_REF);
+  const currentContext = effective(CONTEXT_REF);
+  const currentDecision = effective(DECISION_REF);
+  assert.deepEqual(
+    {
+      manifestPlanRef: currentManifest.current_plan_ref,
+      manifestPlanRevision: currentManifest.plan_revision,
+      planRef: PLAN_REF,
+      planRevision: currentPlan.revision,
+      contextPlanRef: (currentContext.target_plan_binding as Record<string, unknown>).plan_ref,
+      contextStage: currentContext.validation_stage,
+      decisionPlanRef: currentDecision.based_on_plan_ref,
+    },
+    {
+      manifestPlanRef: PLAN_REF,
+      manifestPlanRevision: 1,
+      planRef: PLAN_REF,
+      planRevision: 1,
+      contextPlanRef: PLAN_REF,
+      contextStage: "current_plan",
+      decisionPlanRef: PLAN_REF,
+    },
+  );
+  const validator = await createAdaptationPolicyValidator(repositoryRoot);
+  const validation = validator.validateDocumentBundle(adaptationBundle);
+  assert.equal(validation.valid, true, JSON.stringify(validation, null, 2));
+
+  const candidate = adaptationBundle.documents.find(
+    (entry) => entry.path === PRE_KILL_CANDIDATE_REF,
+  );
+  assert.equal(candidate?.document.schema_version, "startup_opportunity.artifact_envelope.v10");
+  const map = adaptationBundle.documents.find((entry) => entry.path === G21_MAP_REFS[0]);
+  assert.equal(map?.document.schema_version, "startup_opportunity.artifact_envelope.v8");
+
+  const tampered = structuredClone(adaptationBundle);
+  const tamperedCandidate = tampered.documents.find(
+    (entry) => entry.path === PRE_KILL_CANDIDATE_REF,
+  )?.document;
+  assert.ok(tamperedCandidate);
+  tamperedCandidate.producer_role = "lane_researcher";
+  const rejected = validator.validateDocumentBundle(tampered);
+  assert.equal(rejected.valid, false);
+  assert.ok(
+    rejected.planValidation.planningContract.documentBundle.documents.some(
+      (document) => document.documentPath === PRE_KILL_CANDIDATE_REF && document.valid === false,
+    ),
+    JSON.stringify(rejected, null, 2),
+  );
+});
+
+test("current Plan projection excludes an applied stale Decision and validates only the pending Decision", async (contextTest) => {
+  const runId = "runtime-current-plan-projection";
+  const setup = await setupPersistedRun(contextTest, runId, "post-g2-add");
+  const { transformed, candidateBundle } = candidateFor(
+    setup,
+    PRE_KILL_APPLY_AT,
+    PRE_KILL_CONTEXT_AT,
+  );
+  assert.ok(transformed.plan);
+  const currentPlanRef = transformed.planPath;
+  const currentContext = candidateBundle.documents.find(
+    (entry) => entry.path === "plans/planning-context.r2.json",
+  );
+  assert.ok(currentContext);
+
+  const gapPath = "adaptations/gap-snapshots/gap-runtime.r2.json";
+  const currentGap = gapSnapshot(runId, "no_material_new_evidence", currentPlanRef);
+  currentGap.snapshot_id = "gap_current_plan_projection";
+  currentGap.snapshot_cycle_key = setup.gap.snapshot_cycle_key;
+  currentGap.based_on_plan_ref = currentPlanRef;
+  currentGap.revision = 2;
+  currentGap.parent_snapshot_ref = GAP_REF;
+  currentGap.created_at = "2026-07-28T12:10:00Z";
+  const currentGapEntry = (currentGap.gaps as Record<string, unknown>[])[0];
+  assert.ok(currentGapEntry);
+  currentGapEntry.gap_id = "gap_current_plan_projection";
+  currentGapEntry.basis_refs = ["manifest.json", currentPlanRef];
+
+  const decisionPath = "adaptations/decisions/adapt-current-plan-stop.json";
+  const currentDecision = stopFollowupDecision(runId);
+  currentDecision.adaptation_id = "adapt_current_plan_stop";
+  currentDecision.based_on_plan_ref = currentPlanRef;
+  currentDecision.trigger_gap_refs = [`${gapPath}#gap_current_plan_projection`];
+  currentDecision.created_at = "2026-07-28T12:11:00Z";
+
+  const currentManifest = structuredClone(transformed.manifest) as unknown as Record<
+    string,
+    unknown
+  >;
+  currentManifest.latest_gap_snapshot_ref = gapPath;
+  currentManifest.pending_adaptation_refs = [decisionPath];
+  currentManifest.applied_adaptation_refs = [DECISION_REF];
+  currentManifest.updated_at = "2026-07-28T12:11:00Z";
+
+  const projectionBundle = currentDiscoveryAdaptationBundle(setup);
+  const byPath = new Map(projectionBundle.documents.map((entry) => [entry.path, entry]));
+  byPath.set("manifest.json", { path: "manifest.json", document: currentManifest });
+  byPath.set(currentPlanRef, {
+    path: currentPlanRef,
+    document: transformed.plan,
+  });
+  byPath.set(currentContext.path, structuredClone(currentContext));
+  byPath.set(gapPath, { path: gapPath, document: currentGap });
+  byPath.set(decisionPath, { path: decisionPath, document: currentDecision });
+  const currentBundle: DocumentBundle = {
+    ...projectionBundle,
+    documents: [...byPath.values()].sort((left, right) => left.path.localeCompare(right.path)),
+  };
+
+  const referenceContext = {
+    historicalDiscoveryPlanBindings: [
+      {
+        planRef: PLAN_REF,
+        planHash: canonicalContentHash(setup.plan),
+        planRevision: 1,
+        candidateRefs: [
+          "artifacts/discovery/candidates/candidate_baseline.r1.json",
+          PRE_KILL_CANDIDATE_REF,
+          RETAINED_SHARED_CANDIDATE_REF,
+        ],
+      },
+    ],
+  };
+  const validator = await createAdaptationPolicyValidator(repositoryRoot);
+  const validation = validator.validateDocumentBundle(currentBundle, referenceContext);
+  assert.equal(validation.valid, true, JSON.stringify(validation, null, 2));
+  assert.deepEqual(validation.adaptationRefs, [decisionPath]);
+
+  const stale = structuredClone(currentBundle);
+  const staleDecision = stale.documents.find((entry) => entry.path === decisionPath)?.document;
+  assert.ok(staleDecision);
+  staleDecision.based_on_plan_ref = PLAN_REF;
+  const rejected = validator.validateDocumentBundle(stale, referenceContext);
+  assert.equal(rejected.valid, false);
+  assert.ok(
+    rejected.planValidation.planningContract.contractErrors.some(
+      (error) => error.code === "contract.adaptation_stale_plan",
+    ),
+    JSON.stringify(rejected, null, 2),
+  );
 });
 
 test("a divergent lifecycle operation cannot cross an unresolved Plan intent", async (contextTest) => {

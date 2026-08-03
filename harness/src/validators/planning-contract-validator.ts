@@ -107,12 +107,8 @@ function effectiveDocuments(value: unknown): readonly EffectiveDocument[] {
     }
     const version = entry.document.schema_version;
     if (
-      (version === "startup_opportunity.artifact_envelope.v1" ||
-        version === "startup_opportunity.artifact_envelope.v2" ||
-        version === "startup_opportunity.artifact_envelope.v3" ||
-        version === "startup_opportunity.artifact_envelope.v4" ||
-        version === "startup_opportunity.artifact_envelope.v5" ||
-        version === "startup_opportunity.artifact_envelope.v6") &&
+      typeof version === "string" &&
+      /^startup_opportunity\.artifact_envelope\.v(?:[1-9]|1[0-9])$/u.test(version) &&
       typeof entry.document.artifact_type === "string" &&
       isRecord(entry.document.document)
     ) {
@@ -516,8 +512,22 @@ export class PlanningContractEvaluator {
       candidateStage && typeof plan?.document.parent_plan_ref === "string"
         ? refTarget(documentsByPath, plan.document.parent_plan_ref)
         : plan;
-    for (const decision of documents.filter((document) =>
-      document.schemaVersion.startsWith("startup_opportunity.adaptation_decision."),
+    const terminalDecisionRefs = new Set<string>([
+      ...(Array.isArray(manifest?.document.applied_adaptation_refs)
+        ? manifest.document.applied_adaptation_refs.filter(
+            (ref): ref is string => typeof ref === "string",
+          )
+        : []),
+      ...(Array.isArray(manifest?.document.rejected_adaptation_refs)
+        ? manifest.document.rejected_adaptation_refs.filter(
+            (ref): ref is string => typeof ref === "string",
+          )
+        : []),
+    ]);
+    for (const decision of documents.filter(
+      (document) =>
+        document.schemaVersion.startsWith("startup_opportunity.adaptation_decision.") &&
+        !terminalDecisionRefs.has(document.path),
     )) {
       if (decision.schemaVersion !== this.adaptationDecisionVersion) {
         errors.push(
@@ -543,6 +553,16 @@ export class PlanningContractEvaluator {
             "contract.adaptation_stale_plan",
             `${decision.path}#/based_on_plan_ref`,
             "Adaptation Decision is not based on the manifest current plan",
+            {
+              decisionPlanRef: decision.document.based_on_plan_ref,
+              decisionRunId: decision.document.run_id,
+              currentPlanRef: decisionBasePlan?.path ?? null,
+              currentPlanRunId: decisionBasePlan?.document.run_id ?? null,
+              currentPlanRevision: decisionBasePlan?.document.revision ?? null,
+              manifestRunId: manifest?.document.run_id ?? null,
+              manifestPlanRef: manifest?.document.current_plan_ref ?? null,
+              manifestPlanRevision: manifest?.document.plan_revision ?? null,
+            },
           ),
         );
       }
