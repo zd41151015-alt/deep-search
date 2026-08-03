@@ -278,6 +278,43 @@ test("all four G2.1 discovery profiles validate as closed synthetic map bundles"
   }
 });
 
+test("G2.1 maps accept the current harness Plan revision envelope only as the exact v3 pair", async (t) => {
+  const validator = await createArtifactValidator(repositoryRoot);
+
+  await t.test("accepts v3 harness Plan revision envelope", async () => {
+    const bundle = await createDiscoveryMapsFixture("hybrid");
+    const planEnvelope = envelopeRecord(bundle, G21_PLAN_REF);
+    planEnvelope.schema_version = "startup_opportunity.artifact_envelope.v3";
+    planEnvelope.producer_role = "harness";
+
+    const result = validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, true, JSON.stringify(result));
+  });
+
+  for (const mismatch of [
+    {
+      name: "rejects v3 main-agent Plan envelope",
+      schemaVersion: "startup_opportunity.artifact_envelope.v3",
+      producerRole: "main_agent",
+    },
+    {
+      name: "rejects v8 harness Plan envelope",
+      schemaVersion: "startup_opportunity.artifact_envelope.v8",
+      producerRole: "harness",
+    },
+  ] as const) {
+    await t.test(mismatch.name, async () => {
+      const bundle = await createDiscoveryMapsFixture("hybrid");
+      const planEnvelope = envelopeRecord(bundle, G21_PLAN_REF);
+      planEnvelope.schema_version = mismatch.schemaVersion;
+      planEnvelope.producer_role = mismatch.producerRole;
+
+      const codes = await allCodes(bundle);
+      assert.ok(codes.includes("discovery_maps.envelope_binding_mismatch"), JSON.stringify(codes));
+    });
+  }
+});
+
 test("G2.1 negative catalog fails closed at each declared schema or policy boundary", async (t) => {
   const catalog = JSON.parse(await readFile(caseCatalogPath, "utf8")) as SyntheticCaseCatalog;
   assert.equal(catalog.schema_version, "startup_opportunity.g2_1_synthetic_case_catalog.v1");

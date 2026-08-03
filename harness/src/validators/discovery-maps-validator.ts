@@ -176,19 +176,25 @@ function validateEnvelopeIdentity(
   errors: ValidationIssue[],
 ): Record<string, unknown> | null {
   const envelope = entry.envelope;
+  const isInitialMainAgentEnvelope =
+    envelope?.schema_version === "startup_opportunity.artifact_envelope.v8" &&
+    envelope.producer_role === "main_agent";
+  const isPlanRevisionEnvelope =
+    entry.schemaVersion === "startup_opportunity.research_plan.v1" &&
+    envelope?.schema_version === "startup_opportunity.artifact_envelope.v3" &&
+    envelope.producer_role === "harness";
   if (
     envelope === null ||
-    envelope.schema_version !== "startup_opportunity.artifact_envelope.v8" ||
+    (!isInitialMainAgentEnvelope && !isPlanRevisionEnvelope) ||
     envelope.artifact_type !== entry.schemaVersion ||
     envelope.artifact_path !== entry.path ||
-    envelope.run_id !== entry.document.run_id ||
-    envelope.producer_role !== "main_agent"
+    envelope.run_id !== entry.document.run_id
   ) {
     errors.push(
       issue(
         "discovery_maps.envelope_binding_mismatch",
         entry.path,
-        "G2.1 maps require an exact v8 main-agent envelope binding",
+        "G2.1 inputs require an exact v8 main-agent envelope, except current Plan revisions use v3 harness envelopes",
       ),
     );
     return null;
