@@ -249,6 +249,16 @@ export async function runPublishArtifact(
           "publication bundle envelopes must belong to one Run",
         );
       }
+      if (envelopes.length === 1) {
+        const envelope = envelopes[0];
+        if (envelope === undefined) {
+          throw new StoreError(
+            "command.invalid_arguments",
+            "publication bundle must contain a formal envelope",
+          );
+        }
+        return store.publishArtifact({ runId: runIds[0], envelope });
+      }
       return store.publishArtifactBundle({ runId: runIds[0], envelopes });
     }
     const envelope =

@@ -112,6 +112,50 @@ test("Harness and Skill G0.3 entries create, record, checkpoint, and reopen a re
   assert.equal(publication.status, 0, publication.stderr);
   assert.equal((JSON.parse(publication.stdout) as { status: string }).status, "published");
 
+  const bundledArtifactDocument = {
+    ...artifactDocument,
+    event_id: "cli_g1_2_artifact_singleton_bundle_001",
+    timestamp: "2026-07-23T12:01:46Z",
+    reason: "Synthetic singleton document bundle publication fixture.",
+  };
+  const bundledEnvelope = {
+    schema_version: "startup_opportunity.artifact_envelope.v5",
+    artifact_type: bundledArtifactDocument.schema_version,
+    artifact_path: "artifacts/cli-g1-2-singleton-bundle-event.json",
+    run_id: runId,
+    created_at: bundledArtifactDocument.timestamp,
+    producer_role: "harness",
+    input_refs: [],
+    content_hash: canonicalContentHash(bundledArtifactDocument),
+    document: bundledArtifactDocument,
+  };
+  const singletonBundleFile = path.join(root, "artifact-singleton-bundle.json");
+  await writeFile(
+    singletonBundleFile,
+    `${JSON.stringify({
+      schema_version: "startup_opportunity.document_bundle.v5",
+      documents: [{ path: bundledEnvelope.artifact_path, document: bundledEnvelope }],
+    })}\n`,
+  );
+  const singletonPublication = runScript("harness/src/cli.ts", [
+    "publish-artifact",
+    "--runs-root",
+    runsRoot,
+    "--file",
+    singletonBundleFile,
+  ]);
+  assert.equal(singletonPublication.status, 0, singletonPublication.stderr);
+  assert.equal((JSON.parse(singletonPublication.stdout) as { status: string }).status, "published");
+  const singletonReplay = runScript(
+    ".agents/skills/startup-opportunity/scripts/publish-artifact.ts",
+    ["--runs-root", runsRoot, "--file", singletonBundleFile],
+  );
+  assert.equal(singletonReplay.status, 0, singletonReplay.stderr);
+  assert.equal(
+    (JSON.parse(singletonReplay.stdout) as { status: string }).status,
+    "idempotent_replay",
+  );
+
   const checkpointFile = path.join(root, "checkpoint-input.json");
   await writeFile(
     checkpointFile,
