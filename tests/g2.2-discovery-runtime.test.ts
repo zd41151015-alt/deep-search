@@ -247,9 +247,7 @@ test("G2.2 selects the Manifest current Plan while retaining Plan history", asyn
 
   await t.test("accepts an additional immutable historical Plan", async () => {
     const documents = candidateContractDocuments(await createDiscoveryCandidateFixture());
-    const currentPlan = documents.find(
-      (entry) => entry.path === "plans/research-plan.r1.json",
-    );
+    const currentPlan = documents.find((entry) => entry.path === "plans/research-plan.r1.json");
     assert.ok(currentPlan);
     documents.push({ ...clone(currentPlan), path: "plans/research-plan.r2.json" });
     assert.deepEqual(validateDiscoveryCandidateContract(documents, policy), []);
@@ -266,9 +264,7 @@ test("G2.2 selects the Manifest current Plan while retaining Plan history", asyn
 
   await t.test("rejects duplicate documents at the current Plan path", async () => {
     const documents = candidateContractDocuments(await createDiscoveryCandidateFixture());
-    const currentPlan = documents.find(
-      (entry) => entry.path === "plans/research-plan.r1.json",
-    );
+    const currentPlan = documents.find((entry) => entry.path === "plans/research-plan.r1.json");
     assert.ok(currentPlan);
     documents.push(clone(currentPlan));
     const codes = validateDiscoveryCandidateContract(documents, policy).map((issue) => issue.code);

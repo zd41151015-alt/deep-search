@@ -102,10 +102,7 @@ function discoveryMapDocuments(bundle: DocumentBundle): DiscoveryMapDocument[] {
 
 async function discoveryMapsPolicy(): Promise<LoadedDiscoveryMapsPolicy> {
   const document = JSON.parse(
-    await readFile(
-      path.join(repositoryRoot, "harness/policies/discovery-maps.v1.json"),
-      "utf8",
-    ),
+    await readFile(path.join(repositoryRoot, "harness/policies/discovery-maps.v1.json"), "utf8"),
   ) as LoadedDiscoveryMapsPolicy["document"];
   return { document, contentHash: canonicalContentHash(document) };
 }
@@ -348,15 +345,18 @@ test("G2.1 maps accept the current harness Plan revision envelope only as the ex
 test("G2.1 maps select the Manifest current Plan while retaining immutable Plan history", async (t) => {
   const policy = await discoveryMapsPolicy();
 
-  await t.test("accepts an additional immutable Plan while selecting the Manifest current path", async () => {
-    const bundle = await createDiscoveryMapsFixture("industry_first");
-    const documents = discoveryMapDocuments(bundle);
-    const currentPlan = documents.find((entry) => entry.path === G21_PLAN_REF);
-    assert.ok(currentPlan);
-    documents.push({ ...clone(currentPlan), path: "plans/research-plan.r2.json" });
-    const errors = validateDiscoveryMapsContract(documents, policy);
-    assert.deepEqual(errors, []);
-  });
+  await t.test(
+    "accepts an additional immutable Plan while selecting the Manifest current path",
+    async () => {
+      const bundle = await createDiscoveryMapsFixture("industry_first");
+      const documents = discoveryMapDocuments(bundle);
+      const currentPlan = documents.find((entry) => entry.path === G21_PLAN_REF);
+      assert.ok(currentPlan);
+      documents.push({ ...clone(currentPlan), path: "plans/research-plan.r2.json" });
+      const errors = validateDiscoveryMapsContract(documents, policy);
+      assert.deepEqual(errors, []);
+    },
+  );
 
   await t.test("rejects a missing Manifest-selected current Plan", async () => {
     const bundle = await createDiscoveryMapsFixture("industry_first");

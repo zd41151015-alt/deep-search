@@ -1,6 +1,6 @@
 # 真实研究 Run 复盘与待修复项
 
-状态：`DRAFT_REPAIR_BACKLOG`
+状态：`REPAIR_COMPLETE`
 
 日期：2026-07-30
 
@@ -23,13 +23,14 @@
 - `CONFIRMED_CODE`：由当前 schema、policy、validator 或 report renderer 确认。
 - `NEEDS_REAL_RUN`：只完成静态合同审计，尚无真实 Run 验证。
 
-仓库当前没有真实 `concept_evidence_assessment` Run，因此 assessment 的耗时、agent 行为和恢复稳定性仍属于 `NEEDS_REAL_RUN`。
+仓库已在 2026-08-03 使用全新 run_id 完成修复后的 Discovery 和窄范围 Assessment 验证。诊断 Run 只记录其实际到达的边界；只有 `discovery-us-consumer-20260803-1246` 和最终 `assessment-us-consumer-20260803-0147` 用作成功验证证据。
 
 修复状态与问题证据分开记录：
 
 - `UNRESOLVED`：当前代码尚未修复。
 - `PARTIALLY_FIXED_CODE`：当前工作树修复了部分路径，但仍有明确残余问题或表示依赖。
 - `FIXED_CODE_TESTED`：当前工作树已有生产代码和永久回归测试，尚未由修复后的真实 Run 验证。
+- `REAL_RUN_VERIFIED`：相关生产路径已有永久回归测试，并由修复后使用全新 run_id 的真实 Run 验证；不表示市场、需求、付费或外部验证成功。
 
 ### 当前版本与历史数据边界
 
@@ -56,11 +57,22 @@ current-only 版本策略批次在冻结 Node `24.18.0` / npm `11.16.0` 下通�
 
 本轮 P0 维修在同一冻结工具链下通过 `npm test` 362/362、`validate:fixtures` 223/223、store/fault/recovery 12/12、10/10、11/11，以及 lint、typecheck、schema validation 161 schemas、repository doctor 和 `git diff --check`。验证只使用 synthetic fixtures 和临时目录，没有执行正式市场调研、外部验证或旧 Run 迁移。
 
-本轮 terminal reporting P1 批次新增 schema bundle `16.0.0`、v17 terminal source/Brief/view/Consistency contract、publication v12/receipt v15、共享 Report Runtime finalizer 和 terminal apply/status 集成。永久回归覆盖中文 primary brief、内部枚举翻译、可读来源、产品假设与验证顺序、虚假完成/freshness/derived drift 拒绝、合法 termination 缺失 source 零写入拒绝、Plan/report fault replay/reopen，以及 `terminalReportDisposition` 的 `missing -> ready` 转换。该批在冻结工具链下通过 `npm test` 368/368、`validate:fixtures` 223/223、lint、typecheck、schema validation 168 schemas 和 skeleton doctor；仍未经过新真实 Run，因此以下 `FIXED_CODE_TESTED` 不表示真实研究验证。
+本轮 terminal reporting P1 批次新增 schema bundle `16.0.0`、v17 terminal source/Brief/view/Consistency contract、publication v12/receipt v15、共享 Report Runtime finalizer 和 terminal apply/status 集成。永久回归覆盖中文 primary brief、内部枚举翻译、可读来源、产品假设与验证顺序、虚假完成/freshness/derived drift 拒绝、合法 termination 缺失 source 零写入拒绝、Plan/report fault replay/reopen，以及 `terminalReportDisposition` 的 `missing -> ready` 转换。该批在冻结工具链下通过 `npm test` 368/368、`validate:fixtures` 223/223、lint、typecheck、schema validation 168 schemas 和 skeleton doctor；后续真实 Discovery 与 Assessment Run 均已生成三视图终态交付。
 
-本轮 declarative research runtime P1 批次新增 schema bundle `17.0.0`、v18 Envelope/Document Bundle、publication v13/receipt v16，以及公开 `compile-artifacts` compiler。版本化 semantic contracts 覆盖 execution overlay、same-wave dispatch、lane lifecycle、candidate-neutral Evidence、generation result、Source Manifest v4、stage readiness、Gap v3 和 continuation index；Harness 只执行 deterministic hash、Envelope、最小 closure、validation、publication、Manifest projection 和 recovery，不调用 LLM、不启动 agent，也不生成研究判断。永久回归覆盖 validate/publish/idempotent replay、temp-write fault/reopen、完整 dispatch group、双单元并行激活、lifecycle regression、真实 synthetic Evidence Store substrate、freshness/stance/date 派生、generation completion、solution generation action、Gap basis closure，以及 parent/current-leaf 与 pending/corrupt/multiple continuation fail-closed。专项测试 6/6、Store/G0.4/G4 回归 108/108 和 Discovery 回归 82/82 已通过；仍未经过新真实 Run。
+本轮 declarative research runtime P1 批次新增 schema bundle `17.0.0`、v18 Envelope/Document Bundle、publication v13/receipt v16，以及公开 `compile-artifacts` compiler。版本化 semantic contracts 覆盖 execution overlay、same-wave dispatch、lane lifecycle、candidate-neutral Evidence、generation result、Source Manifest v4、stage readiness、Gap v3 和 continuation index；Harness 只执行 deterministic hash、Envelope、最小 closure、validation、publication、Manifest projection 和 recovery，不调用 LLM、不启动 agent，也不生成研究判断。永久回归覆盖 validate/publish/idempotent replay、temp-write fault/reopen、完整 dispatch group、双单元并行激活、lifecycle regression、真实 synthetic Evidence Store substrate、freshness/stance/date 派生、generation completion、solution generation action、Gap basis closure，以及 parent/current-leaf 与 pending/corrupt/multiple continuation fail-closed。专项测试 6/6、Store/G0.4/G4 回归 108/108 和 Discovery 回归 82/82 已通过；后续真实 Discovery Run 已验证 Plan revision、有界 follow-up、terminal report 和无 continuation workaround 的 current-leaf 路径。
 
-本轮 Assessment execution P2 批次新增 schema bundle `18.0.0`、v19 Envelope/Document Bundle、publication v14/receipt v17，以及公开的 v2 Thesis、execution overlay、dispatch、lane result、stage gate 和 bounded follow-up contracts。十个报告维度由四条默认 evidence workflow 覆盖，early-kill、commercial、delivery 三阶段由显式 continue gate 串联；terminal gate 会阻止后续 dispatch 并把未开始 unit 投影为 skipped。follow-up 只允许 policy 中逐维声明的 unit type、最多两轮且每维最多一次，并确定性派生 immutable Research Plan/Execution Plan revision。Thesis 关键字段记录 user/agent/unknown provenance，未确认 unknown 会阻止执行，agent assumption 必须绑定 exact user Decision 并在终态报告披露。专项永久测试 5/5 覆盖十个单维 lane 反例、多维 lane、early-kill、四类 follow-up、round/repetition/hash 拒绝、用户确认、报告披露、v19 compiler、temp-write fault/reopen、terminal dispatch 拒绝和 Manifest staging；仍未经过新真实 Assessment Run。
+本轮 Assessment execution P2 批次新增 schema bundle `18.0.0`、v19 Envelope/Document Bundle、publication v14/receipt v17，以及公开的 v2 Thesis、execution overlay、dispatch、lane result、stage gate 和 bounded follow-up contracts。十个报告维度由四条默认 evidence workflow 覆盖，early-kill、commercial、delivery 三阶段由显式 continue gate 串联；terminal gate 会阻止后续 dispatch 并把未开始 unit 投影为 skipped。follow-up 只允许 policy 中逐维声明的 unit type、最多两轮且每维最多一次，并确定性派生 immutable Research Plan/Execution Plan revision。Thesis 关键字段记录 user/agent/unknown provenance，未确认 unknown 会阻止执行，agent assumption 必须绑定 exact user Decision 并在终态报告披露。永久测试现覆盖十个单维 lane 反例、多维 lane、early-kill、四类 follow-up、round/repetition/hash 拒绝、用户确认、报告披露、current Assessment Evidence、v19 compiler、temp-write fault/reopen、terminal dispatch 拒绝、Manifest staging 和跨后续写入的 checkpoint exact replay；最终真实 Assessment Run 已验证 early-kill 与终态交付。
+
+### 2026-08-03 修复后真实 Run 验证
+
+- Discovery `discovery-us-consumer-20260803-1246`：新 Run 从 `04:46:30Z` 到 `06:01:30Z`；3 个 unit 完成，包含一次 buyer/solution 有界 follow-up；Manifest 无 active/failed unit，终态为 `insufficient_evidence`。`report.json` 声明 `execution.completeness=complete`、follow-up `executed`、`research_conclusion.outcome=insufficient_evidence`、`runtime_health.status=healthy`，并 materialize 中文 `decision-brief.md` 与 `report.md`。四个公开来源只支持一个待验证产品假设，不支持需求、付费、采购、效果或机会已验证。
+- Assessment 诊断 `assessment-us-consumer-20260803-0114`：绑定 `ed113b8`，在 current Thesis exact Decision publication 暴露引用闭包回归；保持 created/core-only，不继续或迁移。
+- Assessment 诊断 `assessment-us-consumer-20260803-0132`：绑定 `90165fe`，early-kill core 成功，随后暴露 terminal source 不接受当前 `assessment_evidence.v1` 的 typed-reference 回归；该问题由 `36c8510` 的永久正反测试修复，Run 不追加报告。
+- Assessment 诊断 `assessment-us-consumer-20260803-0140`：绑定 `36c8510`，首次终态报告成功，完整驱动重放暴露 checkpoint 在后续 report 写入后先做 monotonic-time 检查、未先识别 exact replay；该同 Run 一致性问题由 `99cc4b9` 的正反和 fault/recovery 测试修复。
+- 最终 Assessment `assessment-us-consumer-20260803-0147`：新 Run 绑定 `99cc4b9`；两条 early lane completed，commercial/delivery unit skipped，非法 commercial dispatch 以 `runtime.compilation_validation_failed` 且零 Manifest drift 拒绝。Manifest 为 `completed`；报告声明 `execution.completeness=complete`、`research_conclusion.outcome=deprioritize`、`runtime_health.status=healthy`，`terminalReportDisposition=ready`。gate、checkpoint、report 和整个驱动第二次执行均为 `idempotent_replay`，reopen 无恢复动作。
+- 所有 Run 只使用公开网页与正式 Evidence Store；未执行或声称访谈、广告、落地页、押金、付费实验、MVP、购买、申诉提交或其他外部验证。每次诊断与最终验证均使用新的 run_id，未迁移、恢复或改写历史 Run。
+
+最终生产状态在冻结 Node `24.18.0` / npm `11.16.0` 下通过 `npm run lint`、`npm run typecheck`、`npm test` 403/403、`npm run validate:schemas` 194 schemas、`npm run validate:fixtures` 235/235、`npm run verify:skeleton` 和 `git diff --check`。
 
 | 工程 finding | 本文条目 | 当前修复状态 | 代码审计结论 |
 | --- | --- | --- | --- |
@@ -170,7 +182,7 @@ current-only 版本策略批次在冻结 Node `24.18.0` / npm `11.16.0` 下通�
 - 已完成其职责的历史 Context 不得阻塞后续 current Plan。
 - clean Run 不得因为 Context stage 转换而必须创建 continuation。
 
-当前修复状态：`FIXED_CODE_TESTED`。当前工作树已只对 Planning Context lineage 的 leaf 强制 live Manifest binding，并保留历史 Context 的 immutable binding 校验；仍需新真实 Run 证明不再需要 continuation workaround。
+当前修复状态：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。当前工作树已只对 Planning Context lineage 的 leaf 强制 live Manifest binding，并保留历史 Context 的 immutable binding 校验；`discovery-us-consumer-20260803-1246` 在同一 Run 内完成 Plan revision、有界 follow-up 和终态报告，没有使用 continuation workaround。
 
 ### RR-ENG-004 上下游 validator 对路径和引用的合同不一致
 
@@ -524,11 +536,11 @@ fan-in 的机械成功不应被理解为下一阶段可执行。当前统一的 
 
 当前修复状态：`FIXED_CODE_TESTED`。readiness/Gap v3 正式表达 method boundary、no-information-gain、runtime failure 和 solution generation/evaluation actions；缺 solution seed 默认要求 `run_solution_generation`，terminal readiness 不能保留 bounded action，runtime blocker 不能被终止为 Evidence insufficiency。Adaptation validator 要求 termination 闭合到 latest Gap，拒绝 runtime-blocked basis，并只接受 method-boundary/no-information-gain 的正式 stop signals。永久测试覆盖 solution action、terminal follow-up、runtime blocker 和 Gap basis closure。
 
-## 6. Assessment 工作流静态审计
+## 6. Assessment 工作流审计与真实 Run 验证
 
 ### RR-ASSESS-001 十个评估维度被硬编码为十个必需 enabled unit
 
-状态：`CONFIRMED_CODE`
+状态：`CONFIRMED_CODE / CONFIRMED_RUNTIME`
 
 Assessment validator 固定要求以下十个维度恰好各一次：
 
@@ -551,11 +563,11 @@ Assessment validator 固定要求以下十个维度恰好各一次：
 - 允许一条综合 research lane 为多个维度提供 typed outputs，同时保持逐维 Judgment。
 - 默认把十维压缩为 4-5 条证据工作流，而不是十条重复检索任务。
 
-当前修复状态：`FIXED_CODE_TESTED`。`research_execution_plan.v2` 将 reporting dimensions 声明在 lane overlay 上，默认 policy 用四条 workflow 覆盖十维；`assessment_lane_result.v1` 在一条 lane 中保留逐维 typed result 和 Judgment refs。validator 拒绝十个单维 lane、重复或缺失维度，并要求初始 lane 为 4-5 条且至少一条覆盖多个维度。
+当前修复状态：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。`research_execution_plan.v2` 将 reporting dimensions 声明在 lane overlay 上，默认 policy 用四条 workflow 覆盖十维；`assessment_lane_result.v1` 在一条 lane 中保留逐维 typed result 和 Judgment refs。validator 拒绝十个单维 lane、重复或缺失维度，并要求初始 lane 为 4-5 条且至少一条覆盖多个维度。最终 `...0147` 的 overlay 声明四条 workflow，实际只 dispatch 两条 early lane，并在两个 lane result 中保留五个 early-kill 维度。
 
 ### RR-ASSESS-002 缺少显式 early-kill staging
 
-状态：`CONFIRMED_CODE`
+状态：`CONFIRMED_CODE / CONFIRMED_RUNTIME`
 
 当前合同允许 fan-in 记录 skipped/missing branch，也允许 thesis-killing opposition 导致 `deprioritize`，但初始 Assessment Plan 仍要求十个维度和对应 enabled unit。没有默认规则先验证需求、强替代、反证或关键合规，再决定是否投入买方、获客、商业模型和交付研究。
 
@@ -571,7 +583,7 @@ Thesis clarification and user confirmation
 -> audit, assessment and report
 ```
 
-当前修复状态：`FIXED_CODE_TESTED`。v2 execution overlay 强制 `assessment_early_kill -> assessment_commercial -> assessment_delivery` 顺序及 exact gate binding；early gate 的决定性反证、证据不足或 runtime failure 会列出全部后续未开始 unit，Run Store 投影为 skipped。永久测试覆盖 deprioritize、continue、runtime-blocked、gate 后 dispatch 拒绝和 Manifest 不变。
+当前修复状态：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。v2 execution overlay 强制 `assessment_early_kill -> assessment_commercial -> assessment_delivery` 顺序及 exact gate binding；early gate 的决定性反证、证据不足或 runtime failure 会列出全部后续未开始 unit，Run Store 投影为 skipped。永久测试覆盖 deprioritize、continue、runtime-blocked、gate 后 dispatch 拒绝和 Manifest 不变。最终 `...0147` 的 early gate 实际 `deprioritize`，commercial/delivery unit 均 skipped，伪造的后续 dispatch 零写入拒绝。
 
 ### RR-ASSESS-003 动态补证只覆盖 buyer 和 acquisition
 
@@ -594,7 +606,7 @@ Thesis clarification and user confirmation
 
 ### RR-ASSESS-004 不完整 Thesis 可能被过早固化
 
-状态：`CONFIRMED_CODE / NEEDS_REAL_RUN`
+状态：`CONFIRMED_CODE / CONFIRMED_RUNTIME`
 
 ConceptHypothesis 要求 product thesis、target user、buyer、entry scene、claimed value、current alternatives、delivery form、business model 和 acquisition hypothesis 均非空。如果用户只提供粗略想法，Agent 可能被迫补全并冻结未经用户确认的关键商业假设。
 
@@ -604,11 +616,11 @@ ConceptHypothesis 要求 product thesis、target user、buyer、entry scene、cl
 - 为关键字段记录 `user_provided`、`agent_assumed` 或 `unknown` provenance。
 - 未确认字段不得在报告中表现为用户已接受的前提。
 
-当前修复状态：`FIXED_CODE_TESTED`。`concept_hypothesis.v2` 为九个方向性字段逐项记录 provenance、confirmation、basis refs 和 reporting disclosure。unknown 字段要求 clarification 并阻止 execution；agent assumption 只有绑定 exact user `scope_assumption_confirmed` Decision 才可执行，终态 Assessment source 必须 audit-bind Thesis 并在 limitations 披露所有非用户提供字段。
+当前修复状态：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。`concept_hypothesis.v2` 为九个方向性字段逐项记录 provenance、confirmation、basis refs 和 reporting disclosure。unknown 字段要求 clarification 并阻止 execution；agent assumption 只有绑定 exact user `scope_assumption_confirmed` Decision 才可执行，终态 Assessment source 必须 audit-bind Thesis 并在 limitations 披露所有非用户提供字段。最终 `...0147` 以 exact user Decision 授权 buyer、business model 和 acquisition 临时假设，并在中文 Brief limitations 中逐项披露，未表述为用户事实或已验证结论。
 
 ### RR-ASSESS-005 报告出口完整，但仍偏技术化
 
-状态：`CONFIRMED_CODE`
+状态：`CONFIRMED_CODE / CONFIRMED_RUNTIME`
 
 Assessment 已覆盖 `prioritize`、`investigate_further`、`deprioritize` 和 `insufficient_evidence` 四种结果，并能为 `insufficient_evidence` 生成三个报告视图。
 
@@ -633,19 +645,20 @@ Assessment 已覆盖 `prioritize`、`investigate_further`、`deprioritize` 和 `
 - primary brief 只保留人类可读来源名和链接；内部 refs 移入审计附录。
 - 把机器枚举翻译为明确行动建议。
 
-当前修复状态：`FIXED_CODE_TESTED`。Decision Brief v3 由共享 terminal source 确定性派生，按 `research_language` 本地化标题、标签和枚举；primary brief 使用来源名称、URL、有效日期、stance/strength 和具体 claim，内部 refs 只进入审计附录。永久测试覆盖中文 `insufficient_evidence`、raw enum/boolean 不泄漏、三视图一致性与 reopen recovery；新真实 assessment Run 仍由 `RR-ASSESS-006` 验证。
+当前修复状态：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。Decision Brief v3 由共享 terminal source 确定性派生，按 `research_language` 本地化标题、标签和枚举；primary brief 使用来源名称、URL、有效日期、stance/strength 和具体 claim，内部 refs 只进入审计附录。永久测试覆盖中文 `insufficient_evidence`、raw enum/boolean 不泄漏、三视图一致性与 reopen recovery；最终 Assessment `assessment-us-consumer-20260803-0147` 的中文 Brief 清晰呈现当前动作、四个来源、证据强弱、具体产品假设和有顺序的验证建议。
 
-### RR-ASSESS-006 需要真实 Run 验证
+### RR-ASSESS-006 真实 Run 验证
 
-状态：`NEEDS_REAL_RUN`
+状态：`REAL_RUN_VERIFIED`
 
-仓库当前没有真实 assessment Run。完成上述静态修复设计后，至少执行一次具体、边界清晰的真实 thesis assessment，验证：
+最终 `assessment-us-consumer-20260803-0147` 使用全新 run_id 和四个真实公开来源完成具体、边界清晰的 thesis assessment，验证结果如下：
 
-- 初始化与 Plan 装配耗时；
-- 十维 task 的实际 dispatch 和来源重复率；
-- early-kill 是否真正停止后续工作；
-- buyer/acquisition follow-up 是否可恢复；
-- `insufficient_evidence` 是否仍交付清晰中文 Decision Brief。
+- durable Run 从 `08:47:00Z` 到 `08:47:44Z` 完成初始化、Plan、execution overlay、dispatch、Evidence formalization、lane result、gate、checkpoint 和 terminal report；公开来源获取与研究判断在该 durable publication 窗口外完成，因此 44 秒不能解释为总研究耗时。
+- execution overlay 声明四条 workflow 覆盖十维；early-kill 只 dispatch 需求/替代与 counter-risk 两条 lane，后续 commercial/delivery 两条 lane 未启动并被 gate 合法标记 skipped。
+- 对被 early-kill 阻止的 commercial dispatch，compiler 在写入前返回 `runtime.compilation_validation_failed`，Manifest byte-for-byte 不变。
+- 本轮 gate 已 `deprioritize`，因此没有伪造 buyer/acquisition follow-up；报告把后续研究标为 `legally_closed`，而不是假称已执行。
+- 中文 Brief 将内部枚举翻译为“降低优先级”“完整执行”“运行正常”，展示四个来源的 stance/strength 和两个有顺序的验证建议；JSON 仅作为审计层。
+- 整个驱动再次执行时 gate、checkpoint 与 report 均 `idempotent_replay`；reopen `recovered=false` 且没有 unexpected recovery。
 
 ## 7. 用户交付问题
 
@@ -670,7 +683,7 @@ Assessment 已覆盖 `prioritize`、`investigate_further`、`deprioritize` 和 `
 - Brief 必须先回答“现在应该做什么”，再解释证据。
 - 没有可投资机会也是合法结论，但必须说明下一步验证优先级。
 
-当前修复状态：`FIXED_CODE_TESTED`。v17 `terminal_report_source.v1` 不依赖未执行的 comparison/portfolio，可用于 Discovery 或 Assessment 的完整/提前收口。正式 `terminate_insufficient_evidence` apply 在任何 receipt/Manifest 写入前要求显式 main-agent source，随后复用既有 immutable sidecar、三路径 materialization、consistency scan、exact replay 和 reopen recovery。缺失 source 的合法 termination 零写入拒绝；Plan/report fault 均有永久恢复测试。Harness 不生成研究判断。
+当前修复状态：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。v17 `terminal_report_source.v1` 不依赖未执行的 comparison/portfolio，可用于 Discovery 或 Assessment 的完整/提前收口。正式 `terminate_insufficient_evidence` apply 在任何 receipt/Manifest 写入前要求显式 main-agent source，随后复用既有 immutable sidecar、三路径 materialization、consistency scan、exact replay 和 reopen recovery。缺失 source 的合法 termination 零写入拒绝；Plan/report fault 均有永久恢复测试。Discovery `...1246` 与 Assessment `...0147` 均生成 `report.json`、中文 `decision-brief.md` 和 `report.md`；Harness 不生成研究判断。
 
 ### RR-UX-002 JSON 是审计层，不是用户入口
 
@@ -695,7 +708,7 @@ Decision Brief 至少回答：
 - JSON path、content hash、schema version 和完整 refs 保留在审计附录，不进入主要结论段落。
 - 用户不打开任何 JSON，也能理解方向为何保留、为何暂缓、为何淘汰以及结论的可信边界。
 
-当前修复状态：`FIXED_CODE_TESTED`。Decision Brief v3 是 materialized primary view，先给当前动作与结论含义，再展示每个方向的可读 Evidence 支持/反证、strength、未知项和 freshness；JSON path、schema/hash 和完整 refs 留在 `report.json` 与 Brief 审计附录。测试断言主要结论段不出现内部 `artifacts/` 路径。
+当前修复状态：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。Decision Brief v3 是 materialized primary view，先给当前动作与结论含义，再展示每个方向的可读 Evidence 支持/反证、strength、未知项和 freshness；JSON path、schema/hash 和完整 refs 留在 `report.json` 与 Brief 审计附录。测试断言主要结论段不出现内部 `artifacts/` 路径；两个成功真实 Run 的用户可读 Brief 无需打开 JSON 即可理解结论和证据边界。
 
 ### RR-UX-003 结论必须具体到可测试产品假设
 
@@ -717,7 +730,7 @@ Decision Brief 至少回答：
 - 输出明确的方向优先级和比较理由；不能只并列列出多个模糊需求区。
 - 下一步必须是有顺序的验证计划，说明先验证什么、为何先验证、通过/失败信号是什么，以及结果如何改变继续、暂缓或淘汰决定。
 
-当前修复状态：`FIXED_CODE_TESTED`。terminal source/Brief v3 强制区分 problem space、demand hypothesis、solution seed、testable product hypothesis 和 supported opportunity thesis；每个方向包含优先级、目标用户、窄场景、当前替代、产品形态、核心价值、风险、首个可测试假设和比较理由。`ordered_validation_plan` 要求连续顺序、why-now、pass/fail signal 和 decision effect，并对用户自主管理的外部验证保持不执行/不跟踪边界。
+当前修复状态：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。terminal source/Brief v3 强制区分 problem space、demand hypothesis、solution seed、testable product hypothesis 和 supported opportunity thesis；每个方向包含优先级、目标用户、窄场景、当前替代、产品形态、核心价值、风险、首个可测试假设和比较理由。`ordered_validation_plan` 要求连续顺序、why-now、pass/fail signal 和 decision effect，并对用户自主管理的外部验证保持不执行/不跟踪边界。最终 Assessment Brief 给出相对官方指南和免费 drafting baseline 的量化 packet benchmark 假设，以及只在其通过后才验证 buyer commitment 的第二步顺序。
 
 ### RR-UX-004 最终回复混淆研究完成、证据结论和工程阻塞
 
@@ -736,19 +749,19 @@ Decision Brief 至少回答：
 - 部分完成时，首屏先说明“已完成什么、未完成什么、为什么未完成”，再给出当前仍可成立的业务判断和恢复后的下一步。
 - 对本次场景，合格措辞应为：“初轮 discovery 已完成；buyer/acquisition follow-up 和 solution generation/evaluation 尚未完成，Run 因 Harness 故障提前收口。当前只能保留两个待验证需求区，不能形成、排序或推荐 Startup Opportunity。”
 
-当前修复状态：`FIXED_CODE_TESTED`。terminal source、Brief 和完整 report 分别呈现 `execution`、`research_conclusion` 与 `runtime_health`；false completion、blocked runtime 下的强结论、伪 freshness 和 derived drift 均 fail closed。`status-run` 新增 `terminalReportDisposition` 与稳定 `terminalReportIssues`，因此 post-Manifest 故障窗口会显示 `terminal + missing`，精确重放并完成正式 Brief 后才显示 `ready`。最终聊天仍必须由 main agent 从该已验证 source/Brief 摘要，不能替代 Artifact。
+当前修复状态：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。terminal source、Brief 和完整 report 分别呈现 `execution`、`research_conclusion` 与 `runtime_health`；false completion、blocked runtime 下的强结论、伪 freshness 和 derived drift 均 fail closed。`status-run` 新增 `terminalReportDisposition` 与稳定 `terminalReportIssues`，因此 post-Manifest 故障窗口会显示 `terminal + missing`，精确重放并完成正式 Brief 后才显示 `ready`。Discovery `...1246` 明确为完整执行/证据不足/运行正常；Assessment `...0147` 明确为完整执行/降低优先级/运行正常。最终聊天仍必须由 main agent 从该已验证 source/Brief 摘要，不能替代 Artifact。
 
 ## 8. 建议修复顺序
 
-### 已实现候选修复，待真实 Run 验证
+### 已实现且由修复后真实 Run 覆盖
 
-1. `RR-ENG-003` Planning Context leaf/live binding。
-2. `RR-ENG-004` 中 Plan 到 Task canonical output path。
-3. `RR-ENG-007` 中 ordinary post-G2 durable candidate binding 和 pending divergent fail-closed。
-4. `RR-ENG-008` v5 Gap/Decision Manifest lifecycle projection。
-5. `RR-DISC-008` 中 follow-up-available termination guard。
-6. `RR-ENG-009` 中 freshness/stance 重算和 ISO time-bound 校验。
-7. `RR-ENG-010` 中 `status-run` continuation derived disposition。
+1. `RR-ENG-003` Planning Context leaf/live binding：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。
+2. `RR-ENG-004` 中 Plan 到 Task canonical output path：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。
+3. `RR-ENG-007` 中 ordinary post-G2 durable candidate binding 和 pending divergent fail-closed：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。
+4. `RR-ENG-008` v5 Gap/Decision Manifest lifecycle projection：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。
+5. `RR-DISC-008` 中 follow-up-available termination guard：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。
+6. `RR-ENG-009` 中 freshness/stance 重算和 ISO time-bound 校验：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。
+7. `RR-ENG-010` 中 `status-run` continuation derived disposition：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。
 
 ### 本轮已完成的 P0 代码修复
 
@@ -782,11 +795,11 @@ Decision Brief 至少回答：
 
 ### P2：重构 Assessment 执行模型
 
-1. `RR-ASSESS-001` 十维报告覆盖与执行 lane 解耦：`FIXED_CODE_TESTED`。
-2. `RR-ASSESS-002` early-kill staging：`FIXED_CODE_TESTED`。
+1. `RR-ASSESS-001` 十维报告覆盖与执行 lane 解耦：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。
+2. `RR-ASSESS-002` early-kill staging：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。
 3. `RR-ASSESS-003` 受控扩展 decision-relevant follow-up：`FIXED_CODE_TESTED`。
-4. `RR-ASSESS-004` Thesis 字段 provenance 和用户确认：`FIXED_CODE_TESTED`。
-5. `RR-ASSESS-006` 真实 assessment Run 验证。
+4. `RR-ASSESS-004` Thesis 字段 provenance 和用户确认：`FIXED_CODE_TESTED / REAL_RUN_VERIFIED`。
+5. `RR-ASSESS-006` 真实 assessment Run 验证：`REAL_RUN_VERIFIED`。
 
 ## 9. 性能与交付验收目标
 
@@ -829,7 +842,7 @@ Decision Brief 至少回答：
 
 ## 11. 下一步
 
-1. P0、terminal Brief、declarative compiler、Discovery execution model 和 Assessment P2 已达到 `FIXED_CODE_TESTED`；先运行完整冻结工具链回归并保持 `main` clean。
-2. 使用全新 `run_id` 执行一个真实 Discovery Run，验证 current-leaf、同 wave dispatch、staging、Gap/follow-up、耗时和中文 terminal Brief；不得修改或迁移旧 Run。
-3. 随后执行一个窄范围真实 Assessment Run，验证四条 workflow 的十维覆盖与 early-kill；只有真实需要且 gate 允许时才执行 bounded follow-up。
-4. 根据真实 Run 文件、Manifest、receipt、报告和计时更新本文验证证据；真实 Run 暴露的新问题必须如实记录，不得把 schema/store 成功解释为研究成功。
+1. P0、terminal Brief、declarative compiler、Discovery execution model 和 Assessment P2 均达到 `FIXED_CODE_TESTED`；修复后真实 Discovery 与 Assessment 达到 `REAL_RUN_VERIFIED`。
+2. 完整冻结工具链已经通过；最终交付前只需确认 `main` tracked worktree/index clean、提交本 backlog 的验证更新且不 push。
+3. 后续产品研究必须继续使用新的 run_id；旧 Run 不迁移、不恢复、不继续执行。任何新需求应进入新的 backlog，不重新启用历史 Gate/controller/READY 流程。
+4. `REAL_RUN_VERIFIED` 只证明当前工程路径和诚实交付，不证明市场机会、需求、买方、付费、效果、获客或外部验证成功。
