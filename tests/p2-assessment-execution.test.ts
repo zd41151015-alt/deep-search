@@ -1179,6 +1179,57 @@ test("Assessment Evidence binds a current dispatch task and exact Evidence Store
     "startup_opportunity.artifact_envelope.v19",
   );
 
+  const reportPath = "artifacts/reporting/terminal-report-source.r1.json";
+  const report = entry(reportPath, {
+    schema_version: "startup_opportunity.terminal_report_source.v1",
+    run_id: state.runId,
+    sources: [{ evidence_ref: evidence.path }],
+  });
+  const bundleDocuments = [
+    ...baseDocuments(state.runId, state.plan, execution),
+    dispatch,
+    evidence,
+    report,
+  ].map((document) => ({ path: document.path, document: document.document }));
+  const currentEvidenceResult = state.validator.validateDocumentBundle({
+    schema_version: "startup_opportunity.document_bundle.v19",
+    documents: bundleDocuments,
+    exact_records: [
+      { ref: `evidence/manifest.jsonl#${substrate.evidence_id}`, document: substrate },
+    ],
+  });
+  assert.ok(
+    !currentEvidenceResult.referenceErrors.some(
+      (error) =>
+        error.code === "reference.type_mismatch" &&
+        error.instancePath === `${reportPath}#/sources/0/evidence_ref`,
+    ),
+    JSON.stringify(currentEvidenceResult.referenceErrors, null, 2),
+  );
+
+  const wrongTerminalSource = structuredClone(report.document);
+  (wrongTerminalSource.sources as Record<string, unknown>[])[0] = {
+    evidence_ref: conceptPath,
+  };
+  const wrongSourceResult = state.validator.validateDocumentBundle({
+    schema_version: "startup_opportunity.document_bundle.v19",
+    documents: bundleDocuments.map((document) =>
+      document.path === reportPath ? { path: reportPath, document: wrongTerminalSource } : document,
+    ),
+    exact_records: [
+      { ref: `evidence/manifest.jsonl#${substrate.evidence_id}`, document: substrate },
+    ],
+  });
+  assert.ok(
+    wrongSourceResult.referenceErrors.some(
+      (error) =>
+        error.code === "reference.type_mismatch" &&
+        error.instancePath === `${reportPath}#/sources/0/evidence_ref` &&
+        error.details?.actualSchemaVersion === "startup_opportunity.concept_hypothesis.v2",
+    ),
+    JSON.stringify(wrongSourceResult.referenceErrors, null, 2),
+  );
+
   const wrongUnit = structuredClone(evidence.document);
   wrongUnit.unit_id = "unit_counter_risk";
   const wrongUnitCodes = contractCodes(

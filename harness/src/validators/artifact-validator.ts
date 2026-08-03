@@ -2447,6 +2447,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.evidence.v1",
           "startup_opportunity.evidence.v2",
           "startup_opportunity.evidence.v3",
+          "startup_opportunity.assessment_evidence.v1",
         ]),
       ];
     case "startup_opportunity.decision_brief.v3":
