@@ -83,6 +83,28 @@ function one(
   return matches[0] ?? null;
 }
 
+function oneAtPath(
+  documents: readonly DiscoveryMapDocument[],
+  schemaVersion: string,
+  artifactPath: string,
+  errors: ValidationIssue[],
+): DiscoveryMapDocument | null {
+  const matches = documents.filter(
+    (entry) => entry.schemaVersion === schemaVersion && entry.path === artifactPath,
+  );
+  if (matches.length !== 1) {
+    errors.push(
+      issue(
+        "discovery_maps.document_cardinality",
+        artifactPath,
+        "G2.1 map validation requires exactly one current document at the Manifest-selected path",
+        { schemaVersion, artifactPath, actual: matches.length },
+      ),
+    );
+  }
+  return matches[0] ?? null;
+}
+
 function stringArray(value: unknown): readonly string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
@@ -586,7 +608,15 @@ export function validateDiscoveryMapsContract(
   const intake = one(documents, "startup_opportunity.intake.v1", errors);
   const decision = one(documents, "startup_opportunity.decision_context.v1", errors);
   const scope = one(documents, "startup_opportunity.scope_frame.v2", errors);
-  const plan = one(documents, "startup_opportunity.research_plan.v1", errors);
+  const plan =
+    manifest === null
+      ? null
+      : oneAtPath(
+          documents,
+          "startup_opportunity.research_plan.v1",
+          String(manifest.document.current_plan_ref),
+          errors,
+        );
   const seed = one(documents, "startup_opportunity.seed_probe.v1", errors);
   const opportunity = one(documents, "startup_opportunity.opportunity_space_map.v1", errors);
   const solution = one(documents, "startup_opportunity.solution_space_map.v1", errors);

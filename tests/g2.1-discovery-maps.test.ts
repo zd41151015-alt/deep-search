@@ -9,11 +9,14 @@ import {
   canonicalContentHash,
   canonicalJson,
   createArtifactValidator,
+  type DiscoveryMapDocument,
   type DiscoveryProfile,
   type DocumentBundle,
   type FormalArtifactEnvelope,
+  type LoadedDiscoveryMapsPolicy,
   RunStore,
   StoreError,
+  validateDiscoveryMapsContract,
 } from "../harness/src/index.js";
 import {
   createDiscoveryMapsFixture,
@@ -78,6 +81,33 @@ function planUnits(bundle: DocumentBundle): Record<string, unknown>[] {
   return (plan.waves as Record<string, unknown>[]).flatMap(
     (wave) => wave.units as Record<string, unknown>[],
   );
+}
+
+function discoveryMapDocuments(bundle: DocumentBundle): DiscoveryMapDocument[] {
+  return bundle.documents.map((entry) => {
+    const stored = entry.document;
+    const isEnvelope = String(stored.schema_version).startsWith(
+      "startup_opportunity.artifact_envelope.",
+    );
+    return {
+      path: entry.path,
+      schemaVersion: isEnvelope ? String(stored.artifact_type) : String(stored.schema_version),
+      document: isEnvelope
+        ? (stored.document as Record<string, unknown>)
+        : (stored as Record<string, unknown>),
+      envelope: isEnvelope ? (stored as Record<string, unknown>) : null,
+    };
+  });
+}
+
+async function discoveryMapsPolicy(): Promise<LoadedDiscoveryMapsPolicy> {
+  const document = JSON.parse(
+    await readFile(
+      path.join(repositoryRoot, "harness/policies/discovery-maps.v1.json"),
+      "utf8",
+    ),
+  ) as LoadedDiscoveryMapsPolicy["document"];
+  return { document, contentHash: canonicalContentHash(document) };
 }
 
 const mutations: Readonly<Record<string, (bundle: DocumentBundle) => void>> = {
@@ -313,6 +343,41 @@ test("G2.1 maps accept the current harness Plan revision envelope only as the ex
       assert.ok(codes.includes("discovery_maps.envelope_binding_mismatch"), JSON.stringify(codes));
     });
   }
+});
+
+test("G2.1 maps select the Manifest current Plan while retaining immutable Plan history", async (t) => {
+  const policy = await discoveryMapsPolicy();
+
+  await t.test("accepts an additional immutable Plan while selecting the Manifest current path", async () => {
+    const bundle = await createDiscoveryMapsFixture("industry_first");
+    const documents = discoveryMapDocuments(bundle);
+    const currentPlan = documents.find((entry) => entry.path === G21_PLAN_REF);
+    assert.ok(currentPlan);
+    documents.push({ ...clone(currentPlan), path: "plans/research-plan.r2.json" });
+    const errors = validateDiscoveryMapsContract(documents, policy);
+    assert.deepEqual(errors, []);
+  });
+
+  await t.test("rejects a missing Manifest-selected current Plan", async () => {
+    const bundle = await createDiscoveryMapsFixture("industry_first");
+    const documents = discoveryMapDocuments(bundle);
+    const manifest = documents.find((entry) => entry.path === "manifest.json")?.document;
+    assert.ok(manifest);
+    manifest.current_plan_ref = "plans/research-plan.r3.json";
+    manifest.plan_revision = 3;
+    const codes = validateDiscoveryMapsContract(documents, policy).map((issue) => issue.code);
+    assert.ok(codes.includes("discovery_maps.document_cardinality"), JSON.stringify(codes));
+  });
+
+  await t.test("rejects duplicate documents at the Manifest-selected Plan path", async () => {
+    const bundle = await createDiscoveryMapsFixture("industry_first");
+    const documents = discoveryMapDocuments(bundle);
+    const currentPlan = documents.find((entry) => entry.path === G21_PLAN_REF);
+    assert.ok(currentPlan);
+    documents.push(clone(currentPlan));
+    const codes = validateDiscoveryMapsContract(documents, policy).map((issue) => issue.code);
+    assert.ok(codes.includes("discovery_maps.document_cardinality"), JSON.stringify(codes));
+  });
 });
 
 test("G2.1 negative catalog fails closed at each declared schema or policy boundary", async (t) => {
