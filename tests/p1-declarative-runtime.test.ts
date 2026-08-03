@@ -26,7 +26,12 @@ import {
   G21_PLAN_REF,
   G21_SCOPE_REF,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
-import { G22_GENERATION_TASK } from "./fixtures/g2.2/discovery-candidate-fixture.js";
+import {
+  G22_BASELINE_R1,
+  G22_DEMAND_R1,
+  G22_GENERATION_TASK,
+  G22_SOLUTION_R1,
+} from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
   createDiscoveryRuntimeFixture,
   runtimeEnvelope,
@@ -123,6 +128,65 @@ function executionPlan(
       },
     ],
     limitations: ["SYNTHETIC contract execution overlay; no research was performed."],
+  };
+}
+
+function terminalReadiness(runId: string, plan: Record<string, unknown>): Record<string, unknown> {
+  const candidateRoles = [
+    {
+      candidate_ref: G22_DEMAND_R1,
+      candidate_kind: "demand_seed",
+      reporting_role: "opportunity_direction",
+      disposition: "watchlist",
+    },
+    {
+      candidate_ref: G22_BASELINE_R1,
+      candidate_kind: "baseline_seed",
+      reporting_role: "comparison_baseline",
+      disposition: "watchlist",
+    },
+    {
+      candidate_ref: G22_SOLUTION_R1,
+      candidate_kind: "solution_seed",
+      reporting_role: "solution_hypothesis",
+      disposition: "watchlist",
+    },
+  ];
+  return {
+    schema_version: "startup_opportunity.discovery_stage_readiness.v1",
+    readiness_id: "readiness_terminal_closure_synthetic",
+    revision: 1,
+    run_id: runId,
+    research_plan_ref: G21_PLAN_REF,
+    execution_plan_ref: "plans/research-execution.r1.json",
+    stage_id: "stage_generation",
+    next_stage_id: null,
+    source_fan_in_ref: null,
+    generation_result_refs: [],
+    candidate_roles: candidateRoles,
+    required_candidate_kinds: ["demand_seed", "baseline_seed", "solution_seed"],
+    missing_candidate_kinds: [],
+    question_coverage: (plan.research_questions as Record<string, unknown>[]).map((question) => ({
+      question_ref: `${G21_PLAN_REF}#${String(question.question_id)}`,
+      status: "method_boundary",
+      judgment_refs: [],
+      evidence_refs: [],
+      basis_refs: candidateRoles.map((role) => role.candidate_ref),
+    })),
+    next_stage_readiness: "terminal",
+    blockers: [
+      {
+        blocker_id: "blocker_public_information_ceiling_synthetic",
+        blocker_kind: "no_information_gain",
+        candidate_kind: null,
+        basis_refs: candidateRoles.map((role) => role.candidate_ref),
+        allowed_actions: ["terminate_insufficient_evidence"],
+        detail: "SYNTHETIC terminal closure exercises current formal artifacts only.",
+      },
+    ],
+    allowed_next_actions: ["terminate_insufficient_evidence"],
+    stop_basis: "no_information_gain",
+    limitations: ["SYNTHETIC contract fixture; no research or external validation was performed."],
   };
 }
 
@@ -456,6 +520,100 @@ test("public compiler validates, publishes, replays, and recovers a temp-write f
   const recovered = await faultCompiler.compile(faultRequest);
   assert.equal(recovered.status, "idempotent_replay");
   assert.equal((await faultCompiler.compile(faultRequest)).status, "idempotent_replay");
+});
+
+test("terminal compilation preserves current G2.1/G2.2 envelopes and aggregate roots", async (t) => {
+  const state = await prepareDiscoveryTaskBridgeRun(t, "terminal-closure");
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  const execution = executionPlan(state.runId, state.plan);
+  await compiler.compile(
+    compilationRequest(
+      state.runId,
+      "publish",
+      [runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent")],
+      "request_terminal_closure_execution_synthetic",
+    ),
+  );
+  const readinessPath = "artifacts/discovery/readiness/terminal-closure.r1.json";
+  const readinessRequest = compilationRequest(
+    state.runId,
+    "validate_only",
+    [runtimeArtifact(readinessPath, terminalReadiness(state.runId, state.plan), "main_agent")],
+    "request_terminal_closure_synthetic",
+  );
+  const before = await snapshotTree(state.runRoot);
+  const validated = await compiler.compile(readinessRequest);
+  assert.equal(validated.status, "validated");
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
+
+  const context = await state.runStore.buildValidationContext(state.runId, {
+    schema_version: "startup_opportunity.document_bundle.v18",
+    documents: [
+      {
+        path: readinessPath,
+        document: validated.compiled_envelopes[0] as FormalArtifactEnvelope,
+      },
+    ],
+    exact_records: [],
+  });
+  const byPath = new Map(context.bundle.documents.map((entry) => [entry.path, entry.document]));
+  assert.ok(byPath.has("intake.json"));
+  assert.equal(
+    byPath.get(G21_MAP_REFS[0])?.schema_version,
+    "startup_opportunity.artifact_envelope.v8",
+  );
+  assert.equal(
+    byPath.get(G22_DEMAND_R1)?.schema_version,
+    "startup_opportunity.artifact_envelope.v10",
+  );
+  assert.equal(byPath.get(G22_DEMAND_R1)?.producer_role, "main_agent");
+
+  const candidatePath = path.join(state.runRoot, G22_DEMAND_R1);
+  const tampered = JSON.parse(await readFile(candidatePath, "utf8")) as Record<string, unknown>;
+  tampered.producer_role = "lane_researcher";
+  await writeFile(candidatePath, `${canonicalJson(tampered)}\n`);
+  const afterTamper = await snapshotTree(state.runRoot);
+  await assert.rejects(
+    compiler.compile({
+      ...readinessRequest,
+      request_id: "request_terminal_closure_tampered_synthetic",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "artifact.schema_invalid",
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), afterTamper);
+});
+
+test("terminal compilation recovers and replays after a temp-write fault", async (t) => {
+  const state = await prepareDiscoveryTaskBridgeRun(t, "terminal-closure-fault");
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  await compiler.compile(
+    compilationRequest(
+      state.runId,
+      "publish",
+      [
+        runtimeArtifact(
+          "plans/research-execution.r1.json",
+          executionPlan(state.runId, state.plan),
+          "main_agent",
+        ),
+      ],
+      "request_terminal_closure_fault_execution_synthetic",
+    ),
+  );
+  const readinessPath = "artifacts/discovery/readiness/terminal-closure.r1.json";
+  const request = compilationRequest(
+    state.runId,
+    "publish",
+    [runtimeArtifact(readinessPath, terminalReadiness(state.runId, state.plan), "main_agent")],
+    "request_terminal_closure_fault_synthetic",
+  );
+  await assert.rejects(
+    compiler.compile(request, { faultAt: "after_temp_write" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const reopened = await new RunStore(state.runsRoot, state.validator).load(state.runId);
+  assert.deepEqual(reopened.recoveredArtifactPaths, [readinessPath]);
+  assert.equal((await compiler.compile(request)).status, "idempotent_replay");
 });
 
 test("complete same-wave dispatch activates both units and lifecycle revisions cannot regress", async (t) => {

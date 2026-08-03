@@ -222,6 +222,18 @@ const STORE_ENVELOPE_VERSIONS = new Set([
   "startup_opportunity.artifact_envelope.v19",
 ]);
 
+const DISCOVERY_MAP_SCHEMA_VERSIONS = new Set([
+  "startup_opportunity.seed_probe.v1",
+  "startup_opportunity.opportunity_space_map.v1",
+  "startup_opportunity.solution_space_map.v1",
+]);
+
+const DISCOVERY_MAP_AGGREGATE_ROOTS = [
+  "decision-context.json",
+  "intake.json",
+  "scope-frame.json",
+] as const;
+
 const TERMINAL_RUN_STATUSES = new Set([
   "completed",
   "failed",
@@ -939,12 +951,9 @@ export class RunStore {
         }
         selected.set(entry.path, {
           path: entry.path,
-          document:
-            entry.document.schema_version === "startup_opportunity.artifact_envelope.v17" ||
-            entry.document.schema_version === "startup_opportunity.artifact_envelope.v18" ||
-            entry.document.schema_version === "startup_opportunity.artifact_envelope.v19"
-              ? entry.document
-              : authorityDocument,
+          document: STORE_ENVELOPE_VERSIONS.has(String(entry.document.schema_version))
+            ? entry.document
+            : authorityDocument,
         });
       };
 
@@ -959,6 +968,15 @@ export class RunStore {
           break;
         }
         processed.add(next.path);
+        const nextDocument = effective(next.document);
+        if (DISCOVERY_MAP_SCHEMA_VERSIONS.has(String(nextDocument.schema_version))) {
+          for (const rootPath of DISCOVERY_MAP_AGGREGATE_ROOTS) {
+            const authority = stored.get(rootPath);
+            if (authority !== undefined) {
+              await addAuthority(authority);
+            }
+          }
+        }
         for (const ref of artifactRefsForDocument(next)) {
           const parsed = validateArtifactRef(ref);
           if (parsed.path === "events.jsonl" || parsed.path === "decisions.jsonl") {
