@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -10,7 +10,9 @@ import {
   canonicalJson,
   createArtifactValidator,
   DeclarativeRuntimeCompiler,
+  type DocumentBundle,
   EvidenceStore,
+  type FormalArtifactEnvelope,
   RunStore,
   StoreError,
   validateDeclarativeRuntimeContract,
@@ -24,6 +26,11 @@ import {
   G21_PLAN_REF,
   G21_SCOPE_REF,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
+import { G22_GENERATION_TASK } from "./fixtures/g2.2/discovery-candidate-fixture.js";
+import {
+  createDiscoveryRuntimeFixture,
+  runtimeEnvelope,
+} from "./fixtures/g2.2/discovery-runtime-fixture.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const createdAt = "2026-07-31T16:00:00Z";
@@ -236,6 +243,171 @@ async function prepareRun(context: TestContext, suffix: string) {
   };
 }
 
+async function snapshotTree(root: string): Promise<Readonly<Record<string, string>>> {
+  const snapshot: Record<string, string> = {};
+  const visit = async (directory: string, prefix = ""): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolute, relative);
+      } else if (entry.isFile()) {
+        snapshot[relative] = (await readFile(absolute)).toString("base64");
+      }
+    }
+  };
+  await visit(root);
+  return Object.fromEntries(
+    Object.entries(snapshot).sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+async function prepareDiscoveryTaskBridgeRun(context: TestContext, suffix: string) {
+  const root = await mkdtemp(path.join(tmpdir(), `startup-opportunity-p1-task-bridge-${suffix}-`));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runId = `p1-task-bridge-${suffix}-synthetic`;
+  const validator = await createArtifactValidator(repositoryRoot);
+  const runStore = new RunStore(runsRoot, validator);
+  await runStore.create({
+    runId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-31T15:59:00Z",
+  });
+  const evidence = new EvidenceStore(runsRoot);
+  const generation = (
+    await evidence.record({
+      runId,
+      unitId: "unit_seed_independent_demand",
+      researchGoal: "SYNTHETIC task bridge generation substrate; not Evidence.",
+      source: {
+        kind: "user_provided",
+        canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-task-bridge-generation`,
+      },
+      rawContent: "SYNTHETIC task bridge generation bytes; not Evidence.",
+      recordedAt: "2026-07-31T16:00:00Z",
+    })
+  ).record;
+  const evaluation = (
+    await evidence.record({
+      runId,
+      unitId: "unit_counterfactual",
+      researchGoal: "SYNTHETIC task bridge evaluation substrate; not Evidence.",
+      source: {
+        kind: "user_provided",
+        canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-task-bridge-evaluation`,
+      },
+      rawContent: "SYNTHETIC task bridge evaluation bytes; not Evidence.",
+      recordedAt: "2026-07-31T16:00:01Z",
+    })
+  ).record;
+  const bundle = await createDiscoveryRuntimeFixture(
+    runId,
+    { generation, evaluation },
+    [],
+    "general",
+    true,
+  );
+  await runStore.publishArtifactBundle({
+    runId,
+    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  });
+  await runStore.publishArtifactBundle({
+    runId,
+    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  });
+  await runStore.publishArtifactBundle({
+    runId,
+    envelopes: bundle.documents
+      .map((entry) => entry.document as unknown as FormalArtifactEnvelope)
+      .filter(
+        (envelope) =>
+          envelope.schema_version === "startup_opportunity.artifact_envelope.v10" &&
+          envelope.artifact_type === "startup_opportunity.discovery_candidate.v1" &&
+          envelope.document.revision === 1,
+      ),
+  });
+  return {
+    root,
+    runsRoot,
+    runRoot: path.join(runsRoot, runId),
+    runId,
+    validator,
+    runStore,
+    bundle,
+    plan: fixtureDocument(bundle, G21_PLAN_REF),
+  };
+}
+
+function canonicalDiscoveryTask(
+  bundle: DocumentBundle,
+  plan: Record<string, unknown>,
+): FormalArtifactEnvelope {
+  const envelope = structuredClone(runtimeEnvelope(bundle, G22_GENERATION_TASK));
+  const wave = (plan.waves as Record<string, unknown>[]).find((entry) =>
+    (entry.units as Record<string, unknown>[]).some(
+      (unit) => unit.unit_id === envelope.document.unit_id,
+    ),
+  );
+  assert.ok(wave);
+  const unit = (wave.units as Record<string, unknown>[]).find(
+    (entry) => entry.unit_id === envelope.document.unit_id,
+  );
+  assert.ok(unit);
+  envelope.document.wave_id = wave.wave_id;
+  envelope.document.unit_type = unit.unit_type;
+  envelope.document.research_goal = unit.research_goal;
+  envelope.document.attempt = unit.attempt;
+  envelope.document.agent_role = unit.agent_role;
+  envelope.document.allowed_output_path = unit.output_path;
+  envelope.document.required_artifact_schema = unit.required_artifact_schema;
+  (envelope as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+    envelope.document,
+  );
+  return envelope;
+}
+
+function alternateTask(
+  task: FormalArtifactEnvelope,
+  suffix: string,
+  changes: Readonly<Record<string, unknown>> = {},
+): FormalArtifactEnvelope {
+  const envelope = structuredClone(task);
+  (envelope as unknown as { artifact_path: string }).artifact_path =
+    `tasks/discovery/${String(task.document.unit_id)}.attempt-${suffix}.json`;
+  envelope.document.task_id = `${String(task.document.task_id)}_${suffix}`;
+  Object.assign(envelope.document, changes);
+  (envelope as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+    envelope.document,
+  );
+  return envelope;
+}
+
+async function moveManifestUnit(
+  runRoot: string,
+  unitId: string,
+  target: "completed_units" | "failed_units" | "skipped_units",
+): Promise<void> {
+  const manifestPath = path.join(runRoot, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+  for (const field of [
+    "completed_units",
+    "active_units",
+    "failed_units",
+    "invalidated_units",
+    "skipped_units",
+    "cancelled_units",
+    "superseded_units",
+  ]) {
+    const current = manifest[field] as string[];
+    manifest[field] =
+      field === target
+        ? [...new Set([...current, unitId])].sort()
+        : current.filter((entry) => entry !== unitId);
+  }
+  await writeFile(manifestPath, `${canonicalJson(manifest)}\n`);
+}
+
 test("public compiler validates, publishes, replays, and recovers a temp-write fault", async (t) => {
   const first = await prepareRun(t, "compiler");
   const execution = executionPlan(first.runId, first.plan);
@@ -345,6 +517,128 @@ test("complete same-wave dispatch activates both units and lifecycle revisions c
     ),
     (error: unknown) => compilerCodes(error).includes("runtime.lifecycle_state_regression"),
   );
+});
+
+test("current dispatch bridges exact canonical Discovery tasks, replay, and recovery", async (t) => {
+  const state = await prepareDiscoveryTaskBridgeRun(t, "canonical");
+  const execution = executionPlan(state.runId, state.plan, "evaluation");
+  const batch = dispatchBatch(state.runId, state.plan, execution);
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  await compiler.compile(
+    compilationRequest(state.runId, "publish", [
+      runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+      runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
+    ]),
+  );
+  const task = canonicalDiscoveryTask(state.bundle, state.plan);
+  const unitId = String(task.document.unit_id);
+  const published = await state.runStore.publishArtifact({ runId: state.runId, envelope: task });
+  assert.equal(published.status, "published");
+  const afterPublish = await state.runStore.status(state.runId);
+  assert.ok(afterPublish.manifest.active_units.includes(unitId));
+  assert.ok(afterPublish.manifest.artifact_refs.includes(task.artifact_path));
+
+  const beforeReplay = await snapshotTree(state.runRoot);
+  const replay = await state.runStore.publishArtifact({ runId: state.runId, envelope: task });
+  assert.equal(replay.status, "idempotent_replay");
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeReplay);
+
+  const fault = await prepareDiscoveryTaskBridgeRun(t, "canonical-fault");
+  const faultExecution = executionPlan(fault.runId, fault.plan, "evaluation");
+  const faultBatch = dispatchBatch(fault.runId, fault.plan, faultExecution);
+  const faultCompiler = new DeclarativeRuntimeCompiler(fault.runsRoot, fault.validator);
+  await faultCompiler.compile(
+    compilationRequest(fault.runId, "publish", [
+      runtimeArtifact("plans/research-execution.r1.json", faultExecution, "main_agent"),
+      runtimeArtifact("tasks/dispatch/runtime.r1.json", faultBatch, "harness"),
+    ]),
+  );
+  const faultTask = canonicalDiscoveryTask(fault.bundle, fault.plan);
+  await assert.rejects(
+    fault.runStore.publishArtifact({
+      runId: fault.runId,
+      envelope: faultTask,
+      faultAt: "after_publish",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const beforeRecovery = JSON.parse(
+    await readFile(path.join(fault.runRoot, "manifest.json"), "utf8"),
+  ) as { artifact_refs: string[] };
+  assert.ok(!beforeRecovery.artifact_refs.includes(faultTask.artifact_path));
+  const recovered = await new RunStore(fault.runsRoot, fault.validator).load(fault.runId);
+  assert.ok(recovered.manifest.active_units.includes(String(faultTask.document.unit_id)));
+  assert.ok(recovered.manifest.artifact_refs.includes(faultTask.artifact_path));
+  assert.equal(
+    (
+      await fault.runStore.publishArtifact({
+        runId: fault.runId,
+        envelope: faultTask,
+      })
+    ).status,
+    "idempotent_replay",
+  );
+});
+
+test("canonical Discovery task bridge rejects missing dispatch, Plan drift, and terminal units", async (t) => {
+  const undispatched = await prepareDiscoveryTaskBridgeRun(t, "undispatched");
+  const firstTask = canonicalDiscoveryTask(undispatched.bundle, undispatched.plan);
+  await undispatched.runStore.publishArtifact({ runId: undispatched.runId, envelope: firstTask });
+  const beforeUndispatched = await snapshotTree(undispatched.runRoot);
+  await assert.rejects(
+    undispatched.runStore.publishArtifact({
+      runId: undispatched.runId,
+      envelope: alternateTask(firstTask, "2"),
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "artifact.task_transition_invalid",
+  );
+  assert.deepEqual(await snapshotTree(undispatched.runRoot), beforeUndispatched);
+
+  const drift = await prepareDiscoveryTaskBridgeRun(t, "drift");
+  const execution = executionPlan(drift.runId, drift.plan, "evaluation");
+  const batch = dispatchBatch(drift.runId, drift.plan, execution);
+  const compiler = new DeclarativeRuntimeCompiler(drift.runsRoot, drift.validator);
+  await compiler.compile(
+    compilationRequest(drift.runId, "publish", [
+      runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+      runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
+    ]),
+  );
+  const exactTask = canonicalDiscoveryTask(drift.bundle, drift.plan);
+  const mismatches = [
+    alternateTask(exactTask, "2", { wave_id: "wave_unplanned" }),
+    alternateTask(exactTask, "3", { research_goal: "SYNTHETIC drifted research goal." }),
+    alternateTask(exactTask, "4", {
+      allowed_output_path: "artifacts/discovery/lanes/unit_counterfactual.attempt-1.json",
+    }),
+    alternateTask(exactTask, "5", {
+      required_artifact_schema: "startup_opportunity.discovery_generation_result.v1",
+    }),
+  ];
+  const beforeDrift = await snapshotTree(drift.runRoot);
+  for (const mismatch of mismatches) {
+    await assert.rejects(
+      drift.runStore.publishArtifact({ runId: drift.runId, envelope: mismatch }),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "artifact.task_transition_invalid",
+    );
+  }
+  assert.deepEqual(await snapshotTree(drift.runRoot), beforeDrift);
+
+  const terminal = await prepareDiscoveryTaskBridgeRun(t, "terminal");
+  const terminalTask = canonicalDiscoveryTask(terminal.bundle, terminal.plan);
+  const terminalUnitId = String(terminalTask.document.unit_id);
+  for (const target of ["completed_units", "failed_units", "skipped_units"] as const) {
+    await moveManifestUnit(terminal.runRoot, terminalUnitId, target);
+    const before = await snapshotTree(terminal.runRoot);
+    await assert.rejects(
+      terminal.runStore.publishArtifact({ runId: terminal.runId, envelope: terminalTask }),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "artifact.task_transition_invalid",
+    );
+    assert.deepEqual(await snapshotTree(terminal.runRoot), before);
+  }
 });
 
 test("candidate-neutral Evidence binds real substrate and generation completion wins recovery ordering", async (t) => {

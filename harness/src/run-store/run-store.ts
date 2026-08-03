@@ -1265,6 +1265,15 @@ export class RunStore {
       }
       return "transition";
     }
+    if (
+      isDiscoveryTask &&
+      existingState === "active_units" &&
+      !manifest.artifact_refs.includes(envelope.artifact_path) &&
+      manifest.current_plan_ref === researchPlanRef
+    ) {
+      await this.assertDiscoveryTaskDispatchBridge(runRoot, manifest, envelope);
+      return "transition";
+    }
     if (!manifest.artifact_refs.includes(envelope.artifact_path)) {
       throw new StoreError(
         "artifact.task_transition_invalid",
@@ -1295,6 +1304,96 @@ export class RunStore {
       );
     }
     return "replay";
+  }
+
+  private async assertDiscoveryTaskDispatchBridge(
+    runRoot: string,
+    manifest: RunManifest,
+    envelope: FormalArtifactEnvelope,
+  ): Promise<void> {
+    const planRef = manifest.current_plan_ref;
+    const storedPlan =
+      planRef === null
+        ? null
+        : (JSON.parse(await readFile(await resolveRunPath(runRoot, planRef), "utf8")) as unknown);
+    const plan =
+      isRecord(storedPlan) &&
+      STORE_ENVELOPE_VERSIONS.has(String(storedPlan.schema_version)) &&
+      isRecord(storedPlan.document)
+        ? storedPlan.document
+        : storedPlan;
+    const plannedWave = isRecord(plan)
+      ? (Array.isArray(plan.waves) ? plan.waves : [])
+          .filter(isRecord)
+          .find(
+            (wave) =>
+              Array.isArray(wave.units) &&
+              wave.units
+                .filter(isRecord)
+                .some((unit) => unit.unit_id === envelope.document.unit_id),
+          )
+      : undefined;
+    const plannedUnit =
+      plannedWave !== undefined && Array.isArray(plannedWave.units)
+        ? plannedWave.units
+            .filter(isRecord)
+            .find((unit) => unit.unit_id === envelope.document.unit_id)
+        : undefined;
+    if (
+      plannedUnit === undefined ||
+      plannedWave?.wave_id !== envelope.document.wave_id ||
+      plannedUnit.unit_type !== envelope.document.unit_type ||
+      plannedUnit.research_goal !== envelope.document.research_goal ||
+      plannedUnit.attempt !== envelope.document.attempt ||
+      plannedUnit.agent_role !== envelope.document.agent_role ||
+      plannedUnit.output_path !== envelope.document.allowed_output_path ||
+      plannedUnit.required_artifact_schema !== envelope.document.required_artifact_schema
+    ) {
+      throw new StoreError(
+        "artifact.task_transition_invalid",
+        "active discovery task must match the exact current Plan unit before canonical publication",
+        { unitId: envelope.document.unit_id, planRef },
+      );
+    }
+
+    for (const dispatchRef of manifest.artifact_refs.filter((ref) =>
+      ref.startsWith("tasks/dispatch/"),
+    )) {
+      const value = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, dispatchRef), "utf8"),
+      ) as unknown;
+      if (
+        !isRecord(value) ||
+        value.schema_version !== "startup_opportunity.artifact_envelope.v18" ||
+        value.artifact_type !== "startup_opportunity.dispatch_batch.v1" ||
+        value.run_id !== manifest.run_id ||
+        !isRecord(value.document) ||
+        value.document.research_plan_ref !== planRef
+      ) {
+        continue;
+      }
+      await this.artifacts.validateStoredEnvelope(
+        runRoot,
+        manifest.run_id,
+        value as FormalArtifactEnvelope,
+      );
+      const dispatched = (Array.isArray(value.document.tasks) ? value.document.tasks : [])
+        .filter(isRecord)
+        .find((task) => task.unit_id === envelope.document.unit_id);
+      if (
+        dispatched !== undefined &&
+        dispatched.research_goal === envelope.document.research_goal &&
+        dispatched.allowed_output_path === envelope.document.allowed_output_path &&
+        dispatched.required_artifact_schema === envelope.document.required_artifact_schema
+      ) {
+        return;
+      }
+    }
+    throw new StoreError(
+      "artifact.task_transition_invalid",
+      "active discovery task requires an exact current dispatch before canonical publication",
+      { unitId: envelope.document.unit_id, planRef },
+    );
   }
 
   private async assertEnrichmentTaskPlanUnit(
