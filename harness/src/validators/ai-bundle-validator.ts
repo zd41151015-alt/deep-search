@@ -53,6 +53,7 @@ const CONSUMER_SCHEMA_VERSIONS = new Set([
 ]);
 
 const REQUIRED_CONSUMER_BINDING_SCHEMA_VERSIONS = new Set([
+  "startup_opportunity.opportunity_comparison.v1",
   "startup_opportunity.decision_recommendation.v1",
   "startup_opportunity.traceability.v2",
   "startup_opportunity.report.v1",
@@ -846,7 +847,7 @@ export function validateAiBundleContract(
       (REQUIRED_CONSUMER_BINDING_SCHEMA_VERSIONS.has(entry.schemaVersion) ||
         isRecord(entry.envelope.ai_bundle_binding)),
   );
-  let firstBinding: Record<string, unknown> | null = null;
+  const firstBindingBySubject = new Map<string, Record<string, unknown>>();
   for (const consumer of consumers) {
     const binding = isRecord(consumer.envelope?.ai_bundle_binding)
       ? consumer.envelope.ai_bundle_binding
@@ -861,14 +862,16 @@ export function validateAiBundleContract(
       );
       continue;
     }
-    if (firstBinding === null) {
-      firstBinding = binding;
+    const bindingSubject = String(binding.subject_ref);
+    const firstBinding = firstBindingBySubject.get(bindingSubject);
+    if (firstBinding === undefined) {
+      firstBindingBySubject.set(bindingSubject, binding);
     } else if (canonicalJson(firstBinding) !== canonicalJson(binding)) {
       errors.push(
         issue(
           "g3.consumer_binding_mismatch",
           `${consumer.path}#/ai_bundle_binding`,
-          "all current comparison, recommendation, traceability, report, and derived consumers must share one exact binding",
+          "current comparison, recommendation, traceability, report, and derived consumers for one subject must share one exact binding",
         ),
       );
     }

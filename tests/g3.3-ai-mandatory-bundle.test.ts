@@ -14,6 +14,7 @@ import {
   type FormalArtifactEnvelope,
   ReportRuntime,
   RunStore,
+  StoreError,
 } from "../harness/src/index.js";
 import {
   fixtureEnvelope,
@@ -116,6 +117,10 @@ function currentAiConsumers(bundle: DocumentBundle): FormalArtifactEnvelope[] {
     );
 }
 
+function boundAiConsumers(bundle: DocumentBundle): FormalArtifactEnvelope[] {
+  return currentAiConsumers(bundle).filter((consumer) => binding(consumer).status === "bound");
+}
+
 function binding(envelope: FormalArtifactEnvelope): Record<string, unknown> {
   assert.ok(typeof envelope.ai_bundle_binding === "object" && envelope.ai_bundle_binding !== null);
   return envelope.ai_bundle_binding as Record<string, unknown>;
@@ -123,14 +128,14 @@ function binding(envelope: FormalArtifactEnvelope): Record<string, unknown> {
 
 function updateBoundBundleHash(bundle: DocumentBundle): void {
   const hash = canonicalContentHash(g3Envelope(bundle, G33_MANDATORY_BUNDLE).document);
-  for (const consumer of currentAiConsumers(bundle)) {
+  for (const consumer of boundAiConsumers(bundle)) {
     binding(consumer).bundle_content_hash = hash;
   }
 }
 
 function setBoundConclusionCeiling(bundle: DocumentBundle, ceiling: string): void {
   g3Envelope(bundle, G33_MANDATORY_BUNDLE).document.conclusion_ceiling = ceiling;
-  for (const consumer of currentAiConsumers(bundle)) {
+  for (const consumer of boundAiConsumers(bundle)) {
     binding(consumer).conclusion_ceiling = ceiling;
   }
   refreshG33FixtureHashes(bundle);
@@ -156,6 +161,103 @@ test("G3.3 validates fixed six-dimension mandatory coverage and explicit consume
   );
   assert.equal(mandatory.bundle_status, "desk_research_only");
   assert.equal(mandatory.conclusion_ceiling, "insufficient_evidence");
+});
+
+test("current Envelope directly rejects AI producer ownership drift", async () => {
+  const validator = await createArtifactValidator(repositoryRoot);
+  const bundle = await fixture("direct-producer-ownership");
+  const benchmark = g3Envelope(bundle, G31_BENCHMARK);
+  const result = validator.validateDocument(
+    { ...benchmark, producer_role: "adversarial_reviewer" },
+    benchmark.artifact_path,
+  );
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error) => error.instancePath === "/producer_role"));
+});
+
+test("complete G3 bundle rejects every migrated grouped producer ownership drift", async (t) => {
+  const validator = await createArtifactValidator(repositoryRoot);
+  const valid = await fixture("grouped-producer-ownership");
+  const ownershipGroups = {
+    lane_researcher: [
+      "startup_opportunity.ai_adoption_trust.v1",
+      "startup_opportunity.ai_capability_benchmark.v1",
+      "startup_opportunity.ai_data_dependency.v1",
+      "startup_opportunity.ai_evaluation_reliability.v1",
+      "startup_opportunity.ai_inference_unit_economics.v1",
+      "startup_opportunity.capability_commoditization_risk.v1",
+      "startup_opportunity.capability_evidence.v1",
+      "startup_opportunity.evidence.v3",
+      "startup_opportunity.claim.v3",
+      "startup_opportunity.finding.v3",
+      "startup_opportunity.insight.v3",
+      "startup_opportunity.judgment_assessment.v3",
+      "startup_opportunity.source_manifest.v3",
+      "startup_opportunity.enrichment_branch_result.v1",
+    ],
+    main_agent: [
+      "startup_opportunity.enrichment_fan_in.v1",
+      "startup_opportunity.business_engine_thesis.v2",
+      "startup_opportunity.buyer_purchase_language.v1",
+      "startup_opportunity.portfolio_view.v1",
+      "startup_opportunity.sensitivity.v1",
+      "startup_opportunity.user_state_context_model.v1",
+      "startup_opportunity.value_layer_analysis.v1",
+    ],
+  } as const;
+
+  for (const [expectedRole, artifactTypes] of Object.entries(ownershipGroups)) {
+    for (const artifactType of artifactTypes) {
+      await t.test(artifactType, () => {
+        const bundle = structuredClone(valid) as DocumentBundle;
+        const envelope = bundle.documents
+          .map((entry) => entry.document as unknown as FormalArtifactEnvelope)
+          .find((candidate) => candidate.artifact_type === artifactType);
+        assert.ok(envelope, `${artifactType} fixture is missing`);
+        assert.equal(envelope.producer_role, expectedRole);
+        (envelope as { producer_role: string }).producer_role =
+          expectedRole === "main_agent" ? "lane_researcher" : "adversarial_reviewer";
+
+        const result = validator.validateDocumentBundle(bundle);
+        assert.equal(result.valid, false);
+        assert.ok(
+          allErrors(result).some((error) => error.instancePath === "/producer_role"),
+          JSON.stringify(allErrors(result), null, 2),
+        );
+      });
+    }
+  }
+});
+
+test("opportunity comparison requires an exact AI bundle binding", async (t) => {
+  const validator = await createArtifactValidator(repositoryRoot);
+
+  await t.test("missing binding", async () => {
+    const bundle = await fixture("comparison-binding-missing");
+    const comparison = g3Envelope(bundle, G24_COMPARISON_A);
+    delete (comparison as { ai_bundle_binding?: unknown }).ai_bundle_binding;
+
+    const result = validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, false);
+    assert.ok(
+      codes(result).includes("schema.required"),
+      JSON.stringify(allErrors(result), null, 2),
+    );
+  });
+
+  await t.test("wrong bundle ref closure", async () => {
+    const bundle = await fixture("comparison-binding-wrong-ref");
+    const comparison = g3Envelope(bundle, G24_COMPARISON_A);
+    binding(comparison).bundle_ref = G31_BENCHMARK;
+
+    const result = validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, false);
+    assert.ok(
+      codes(result).includes("g3.bound_bundle_identity_mismatch"),
+      JSON.stringify(allErrors(result), null, 2),
+    );
+  });
 });
 
 test("G3.3 complete bundle permits the v3 first-bet path when every other ceiling is ready", async () => {
@@ -459,7 +561,7 @@ test("G3.3 stale aggregation requires continuation and propagates to consumers",
   (mandatory.continuation as Record<string, unknown>).reason = "stale";
   refreshG3Envelope(bundle, G33_MANDATORY_BUNDLE);
   updateBoundBundleHash(bundle);
-  for (const consumer of currentAiConsumers(bundle)) {
+  for (const consumer of boundAiConsumers(bundle)) {
     binding(consumer).coverage_state = "stale";
   }
   const result = validator.validateDocumentBundle(bundle);
@@ -478,7 +580,7 @@ test("G3.3 incomplete, desk-only, and stale bundle states retain the AI ceiling"
     (mandatory.coverage_summary as Record<string, unknown>).insufficient_evidence = 1;
     mandatory.bundle_status = "incomplete";
     mandatory.continuation = { required: true, reason: "incomplete", action: "SYNTHETIC" };
-    for (const consumer of currentAiConsumers(bundle)) {
+    for (const consumer of boundAiConsumers(bundle)) {
       binding(consumer).coverage_state = "incomplete";
     }
     setBoundConclusionCeiling(bundle, "insufficient_evidence");
@@ -506,7 +608,7 @@ test("G3.3 incomplete, desk-only, and stale bundle states retain the AI ceiling"
     (mandatory.freshness as Record<string, unknown>).status = "stale";
     mandatory.bundle_status = "stale";
     mandatory.continuation = { required: true, reason: "stale", action: "SYNTHETIC" };
-    for (const consumer of currentAiConsumers(bundle)) {
+    for (const consumer of boundAiConsumers(bundle)) {
       binding(consumer).coverage_state = "stale";
     }
     setBoundConclusionCeiling(bundle, "insufficient_evidence");
@@ -629,9 +731,9 @@ const EVALUATION_AGGREGATE_ARTIFACT_TYPES = [
   "startup_opportunity.report_consistency_evaluation.v3",
 ] as const;
 
-async function publishG33Inputs(
+async function publishG33Prerequisites(
   state: Awaited<ReturnType<typeof lifecycleFixture>>,
-): Promise<void> {
+): Promise<readonly FormalArtifactEnvelope[]> {
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
@@ -729,11 +831,73 @@ async function publishG33Inputs(
   const [mandatoryBundle] = byTypes(evaluation, "startup_opportunity.ai_mandatory_bundle.v1");
   assert.ok(mandatoryBundle);
   await state.store.publishArtifact({ runId: state.runId, envelope: mandatoryBundle });
+  return evaluation;
+}
+
+async function publishG33Inputs(
+  state: Awaited<ReturnType<typeof lifecycleFixture>>,
+): Promise<void> {
+  const evaluation = await publishG33Prerequisites(state);
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(evaluation, ...EVALUATION_AGGREGATE_ARTIFACT_TYPES),
   });
 }
+
+test("Artifact Store rejects grouped ownership and comparison binding drift", async (context) => {
+  const state = await lifecycleFixture(context);
+  const evaluation = await publishG33Prerequisites(state);
+  const businessEngine = evaluation.find(
+    (candidate) => candidate.artifact_type === "startup_opportunity.business_engine_thesis.v2",
+  );
+  const comparison = evaluation.find(
+    (candidate) => candidate.artifact_type === "startup_opportunity.opportunity_comparison.v1",
+  );
+  assert.ok(businessEngine);
+  assert.ok(comparison);
+
+  await assert.rejects(
+    state.store.publishArtifact({
+      runId: state.runId,
+      envelope: { ...businessEngine, producer_role: "lane_researcher" },
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "artifact.schema_invalid",
+  );
+
+  const missingBinding = structuredClone(comparison) as FormalArtifactEnvelope;
+  delete (missingBinding as { ai_bundle_binding?: unknown }).ai_bundle_binding;
+  await assert.rejects(
+    state.store.publishArtifact({ runId: state.runId, envelope: missingBinding }),
+    (error: unknown) => error instanceof StoreError && error.code === "artifact.schema_invalid",
+  );
+
+  const preComparisonTypes = [
+    "startup_opportunity.enrichment_fan_in.v1",
+    "startup_opportunity.value_layer_analysis.v1",
+    "startup_opportunity.user_state_context_model.v1",
+    "startup_opportunity.buyer_purchase_language.v1",
+    "startup_opportunity.business_engine_thesis.v2",
+  ] as const;
+  const preComparisonTypeSet = new Set<string>(preComparisonTypes);
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: byTypes(evaluation, ...preComparisonTypes),
+  });
+
+  const wrongBinding = structuredClone(comparison) as FormalArtifactEnvelope;
+  binding(wrongBinding).bundle_ref = G31_BENCHMARK;
+  await assert.rejects(
+    state.store.publishArtifact({ runId: state.runId, envelope: wrongBinding }),
+    (error: unknown) => error instanceof StoreError && error.code === "artifact.reference_invalid",
+  );
+
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: byTypes(evaluation, ...EVALUATION_AGGREGATE_ARTIFACT_TYPES).filter(
+      (candidate) => !preComparisonTypeSet.has(candidate.artifact_type),
+    ),
+  });
+});
 
 test("G3.3 publication, report, checkpoint, and clean reopen preserve current coverage", async (context) => {
   const state = await lifecycleFixture(context);

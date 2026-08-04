@@ -170,6 +170,82 @@
         "properties": {
           "artifact_type": {
             "enum": [
+              "startup_opportunity.ai_adoption_trust.v1",
+              "startup_opportunity.ai_capability_benchmark.v1",
+              "startup_opportunity.ai_data_dependency.v1",
+              "startup_opportunity.ai_evaluation_reliability.v1",
+              "startup_opportunity.ai_inference_unit_economics.v1",
+              "startup_opportunity.capability_commoditization_risk.v1",
+              "startup_opportunity.capability_evidence.v1"
+            ]
+          }
+        },
+        "required": ["artifact_type"]
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "lane_researcher"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "enum": [
+              "startup_opportunity.evidence.v3",
+              "startup_opportunity.claim.v3",
+              "startup_opportunity.finding.v3",
+              "startup_opportunity.insight.v3",
+              "startup_opportunity.judgment_assessment.v3",
+              "startup_opportunity.source_manifest.v3",
+              "startup_opportunity.enrichment_branch_result.v1"
+            ]
+          }
+        },
+        "required": ["artifact_type"]
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "lane_researcher"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "enum": [
+              "startup_opportunity.enrichment_fan_in.v1",
+              "startup_opportunity.business_engine_thesis.v2",
+              "startup_opportunity.buyer_purchase_language.v1",
+              "startup_opportunity.portfolio_view.v1",
+              "startup_opportunity.sensitivity.v1",
+              "startup_opportunity.user_state_context_model.v1",
+              "startup_opportunity.value_layer_analysis.v1"
+            ]
+          }
+        },
+        "required": ["artifact_type"]
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "main_agent"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "enum": [
+              "startup_opportunity.opportunity_comparison.v1",
               "startup_opportunity.decision_recommendation.v1",
               "startup_opportunity.traceability.v2",
               "startup_opportunity.report.v1",

@@ -70,7 +70,7 @@ const FORBIDDEN_STRUCTURES = [
   {
     name: "Store compatibility fallback",
     pattern:
-      /(?:["']compatibility["']\s*:|\bpublish_requires_compatible_envelope\b|\b(?:compatibility|legacy)(?:Fallback|Adapter|Policy|Mode|Version)\b|\b(?:compatibility|legacy)_(?:fallback|adapter|policy|mode|version)\b|\b(?:fallback_(?:adapter|policy|version)|(?:schema|bundle|envelope|receipt|publication|store)(?:Version)?Fallback)\b)/u,
+      /(?:\bpublish_requires_compatible_envelope\b|\b(?:compatibility|legacy)(?:Fallback|Adapter|Policy|Mode|Version)\b|\b(?:compatibility|legacy)_(?:fallback|adapter|policy|mode|version)\b|\b(?:fallback_(?:adapter|policy|version)|(?:schema|bundle|envelope|receipt|publication|store)(?:Version)?Fallback)\b)/u,
   },
   {
     name: "highest Store contract version selection",

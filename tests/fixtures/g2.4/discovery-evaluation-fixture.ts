@@ -1220,6 +1220,7 @@ export async function createDiscoveryEvaluationFixture(
       };
   const aiConsumerPaths = new Set([
     G24_COMPARISON_A,
+    G24_COMPARISON_B,
     G24_RECOMMENDATION,
     G24_TRACEABILITY,
     G24_REPORT,
@@ -1256,9 +1257,12 @@ export async function createDiscoveryEvaluationFixture(
         producerRole,
       );
       if (aiConsumerPaths.has(path)) {
-        wrapped.ai_bundle_binding = structuredClone(aiBinding);
+        const consumerBinding = structuredClone(aiBinding);
+        const subjectRef = path === G24_COMPARISON_B ? G23_OPPORTUNITY_B : G23_OPPORTUNITY_A;
+        consumerBinding.subject_ref = subjectRef;
+        wrapped.ai_bundle_binding = consumerBinding;
         (wrapped as { input_refs: readonly string[] }).input_refs = [
-          ...new Set([...wrapped.input_refs, G23_OPPORTUNITY_A, G23_SOLUTION]),
+          ...new Set([...wrapped.input_refs, subjectRef, G23_SOLUTION]),
         ].sort();
       }
       return { path, document: wrapped as unknown as Record<string, unknown> };
