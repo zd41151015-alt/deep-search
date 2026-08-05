@@ -313,11 +313,13 @@ function validateSource(
   const currentExecutionPlan = executionPlans[0];
   const plannedLaneAuditPaths: string[] = [];
   if (currentExecutionPlan !== undefined) {
-    const dispatches = documents.filter(
-      (candidate) =>
-        ["startup_opportunity.dispatch_batch.v1", "startup_opportunity.dispatch_batch.v2"].includes(
-          candidate.schemaVersion,
-        ) && candidate.document.execution_plan_ref === currentExecutionPlan.path,
+    const executionPlansByPath = new Map(
+      executionPlans.map((execution) => [execution.path, execution]),
+    );
+    const dispatches = documents.filter((candidate) =>
+      ["startup_opportunity.dispatch_batch.v1", "startup_opportunity.dispatch_batch.v2"].includes(
+        candidate.schemaVersion,
+      ),
     );
     const tasksByUnit = new Map(
       documents
@@ -330,27 +332,6 @@ function validateSource(
         )
         .map((task) => [String(task.document.unit_id), task]),
     );
-    const dispatchByUnit = new Map<string, { path: string; taskId: string }>();
-    for (const dispatch of dispatches) {
-      for (const task of records(dispatch.document.tasks)) {
-        const unitId = String(task.unit_id ?? "");
-        if (dispatchByUnit.has(unitId)) {
-          errors.push(
-            issue(
-              "terminal_reporting.dispatch_lane_duplicate",
-              dispatch.path,
-              "the current Execution Plan may dispatch one unit only once",
-              { unitId },
-            ),
-          );
-        } else {
-          dispatchByUnit.set(unitId, {
-            path: dispatch.path,
-            taskId: String(task.task_id ?? ""),
-          });
-        }
-      }
-    }
     for (const stage of records(currentExecutionPlan.document.stages)) {
       const expectedLaneKind =
         stage.stage_kind === "discovery_synthesis"
@@ -362,7 +343,34 @@ function validateSource(
         plannedLaneAuditPaths.push(auditPath);
         const audit = allAudits.find((candidate) => candidate.path === auditPath);
         const task = tasksByUnit.get(unitId);
-        const dispatch = dispatchByUnit.get(unitId);
+        const auditExecution =
+          audit === undefined || typeof audit.document.execution_plan_ref !== "string"
+            ? undefined
+            : executionPlansByPath.get(audit.document.execution_plan_ref);
+        const auditLane = records(auditExecution?.document.stages)
+          .flatMap((candidateStage) => records(candidateStage.lanes))
+          .find((candidateLane) => candidateLane.unit_id === unitId);
+        const matchingDispatches = dispatches.flatMap((dispatch) =>
+          dispatch.document.execution_plan_ref === auditExecution?.path
+            ? records(dispatch.document.tasks)
+                .filter((candidateTask) => candidateTask.unit_id === unitId)
+                .map((candidateTask) => ({
+                  path: dispatch.path,
+                  taskId: String(candidateTask.task_id ?? ""),
+                }))
+            : [],
+        );
+        if (matchingDispatches.length > 1) {
+          errors.push(
+            issue(
+              "terminal_reporting.dispatch_lane_duplicate",
+              auditExecution?.path ?? currentExecutionPlan.path,
+              "one executed lane may have only one dispatch task in its bound Execution Plan",
+              { unitId },
+            ),
+          );
+        }
+        const dispatch = matchingDispatches[0];
         const expectedDispatchRef =
           dispatch === undefined ? null : `${dispatch.path}#${dispatch.taskId}`;
         if (audit === undefined) continue;
@@ -371,7 +379,9 @@ function validateSource(
           : {};
         const bindingMismatch =
           audit.document.unit_id !== unitId ||
-          audit.document.execution_plan_ref !== currentExecutionPlan.path ||
+          auditExecution === undefined ||
+          auditLane === undefined ||
+          canonicalContentHash(auditLane) !== canonicalContentHash(lane) ||
           audit.document.dispatch_task_ref !== expectedDispatchRef ||
           audit.document.task_ref !== (task?.path ?? null) ||
           closure.closure_id !== `search_closure_${unitId}` ||

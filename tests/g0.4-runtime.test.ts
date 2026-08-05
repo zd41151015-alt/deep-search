@@ -2089,6 +2089,15 @@ test("candidate pre-kill skips only an exact exclusive pending unit and replays 
       candidateRefs: [PRE_KILL_CANDIDATE_REF],
     },
   ]);
+  const assembled = await setup.store.buildValidationContext(runId, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [{ path: "plans/research-plan.r2.json", document: currentPlan }],
+    exact_records: [],
+  });
+  assert.deepEqual(
+    assembled.referenceContext.historicalDiscoveryPlanBindings,
+    reopened.planOperationRecovery.historicalDiscoveryPlanBindings,
+  );
 });
 
 test("candidate-bound historical Plan views always revalidate G2.1 maps and G2.2 candidates", async (t) => {
@@ -2401,6 +2410,145 @@ test("ordinary post-G2 add_unit receipts bind every durable base-Plan candidate"
       ],
     },
   ]);
+});
+
+test("a later same-Run adaptation preserves receipt-bound historical discovery validation", async (contextTest) => {
+  const runId = "runtime-post-g2-historical-followup";
+  const setup = await setupPersistedRun(contextTest, runId, "post-g2-add");
+  const { candidateBundle } = candidateFor(setup, PRE_KILL_APPLY_AT, PRE_KILL_CONTEXT_AT);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const first = await runtime.apply({
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    candidateBundle,
+    createdAt: PRE_KILL_APPLY_AT,
+    checkpointCreatedAt: PRE_KILL_CHECKPOINT_AT,
+    nextStep: "Observe the next bounded Gap on the revised Plan.",
+    beliefSummary: {
+      current_belief: "The G2 candidates remain bound to the Plan that produced them.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Does the next bounded cycle add material evidence?",
+    },
+  });
+  assert.equal(first.currentPlanRef, "plans/research-plan.r2.json");
+
+  const gapPath = "adaptations/gap-snapshots/gap-post-g2-followup.r2.json";
+  const gap = gapSnapshot(runId, "no_material_new_evidence", first.currentPlanRef);
+  gap.snapshot_id = "gap_post_g2_followup";
+  gap.snapshot_cycle_key = setup.gap.snapshot_cycle_key;
+  gap.based_on_plan_ref = first.currentPlanRef;
+  gap.revision = 2;
+  gap.parent_snapshot_ref = GAP_REF;
+  gap.created_at = "2026-07-28T12:10:00Z";
+  const gapEntry = (gap.gaps as Record<string, unknown>[])[0];
+  assert.ok(gapEntry);
+  gapEntry.gap_id = "gap_post_g2_followup";
+  gapEntry.basis_refs = ["manifest.json", first.currentPlanRef];
+  const gapEnvelope = formalEnvelope(
+    runId,
+    gapPath,
+    gap,
+    [first.currentPlanRef, GAP_REF],
+    "startup_opportunity.artifact_envelope.current",
+  );
+  await setup.store.publishArtifact({ runId, envelope: gapEnvelope });
+
+  const decisionPath = "adaptations/decisions/adapt-post-g2-followup-stop.json";
+  const decision = stopFollowupDecision(runId);
+  decision.adaptation_id = "adapt_post_g2_followup_stop";
+  decision.based_on_plan_ref = first.currentPlanRef;
+  decision.trigger_gap_refs = [`${gapPath}#gap_post_g2_followup`];
+  decision.created_at = "2026-07-28T12:11:00Z";
+  const decisionEnvelope = formalEnvelope(
+    runId,
+    decisionPath,
+    decision,
+    [first.currentPlanRef, gapPath],
+    "startup_opportunity.artifact_envelope.current",
+  );
+  await setup.store.publishArtifact({ runId, envelope: decisionEnvelope });
+
+  const currentContextPath = "plans/planning-context.r2.json";
+  const currentContextEnvelope = JSON.parse(
+    await readFile(path.join(setup.runRoot, currentContextPath), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const historicalClosurePaths = [
+    ...G21_MAP_REFS,
+    "artifacts/discovery/candidates/candidate_baseline.r1.json",
+    PRE_KILL_CANDIDATE_REF,
+    RETAINED_SHARED_CANDIDATE_REF,
+  ];
+  const historicalClosure = await Promise.all(
+    historicalClosurePaths.map(async (artifactPath) => ({
+      path: artifactPath,
+      document: JSON.parse(
+        await readFile(path.join(setup.runRoot, artifactPath), "utf8"),
+      ) as FormalArtifactEnvelope,
+    })),
+  );
+  const assembled = await setup.store.buildValidationContext(runId, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [
+      { path: decisionPath, document: decisionEnvelope },
+      { path: currentContextPath, document: currentContextEnvelope },
+      ...historicalClosure,
+    ],
+    exact_records: [],
+  });
+  const assembledContexts = assembled.bundle.documents.flatMap((entry) => {
+    const envelope = entry.document as Record<string, unknown>;
+    const document =
+      envelope.artifact_type === "startup_opportunity.planning_context.v2"
+        ? (envelope.document as Record<string, unknown>)
+        : envelope.schema_version === "startup_opportunity.planning_context.v2"
+          ? envelope
+          : null;
+    return document === null
+      ? []
+      : [
+          {
+            path: entry.path,
+            stage: document.validation_stage,
+            parent: document.parent_context_ref,
+            target: (document.target_plan_binding as Record<string, unknown>).plan_ref,
+          },
+        ];
+  });
+  assert.deepEqual(assembledContexts, [
+    {
+      path: CONTEXT_REF,
+      stage: "current_plan",
+      parent: null,
+      target: PLAN_REF,
+    },
+    {
+      path: currentContextPath,
+      stage: "candidate_revision",
+      parent: CONTEXT_REF,
+      target: first.currentPlanRef,
+    },
+  ]);
+  const second = await runtime.apply({
+    runId,
+    adaptationBundle: assembled.bundle,
+    adaptationRefs: [decisionPath],
+    createdAt: "2026-07-28T12:12:00Z",
+    checkpointCreatedAt: "2026-07-28T12:13:00Z",
+    nextStep: "Keep the revised Plan and close the bounded follow-up.",
+    beliefSummary: {
+      current_belief: "The bounded follow-up added no material evidence.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "What new evidence would change the decision?",
+    },
+  });
+  assert.equal(second.status, "applied");
+  assert.equal(second.revisionCreated, false);
+  assert.equal(second.currentPlanRef, first.currentPlanRef);
 });
 
 test("current adaptation planning preserves the complete G2.1/G2.2 envelope closure", async (contextTest) => {

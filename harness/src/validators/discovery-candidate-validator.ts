@@ -453,12 +453,14 @@ function validateScopeIdentity(
   entry: DiscoveryCandidateDocument,
   scope: DiscoveryCandidateDocument,
   plan: DiscoveryCandidateDocument,
+  historicalPlanRefs: ReadonlySet<string>,
   errors: ValidationIssue[],
 ): void {
   if (
     entry.document.run_id !== scope.document.run_id ||
     entry.document.scope_frame_ref !== scope.path ||
-    entry.document.research_plan_ref !== plan.path ||
+    (entry.document.research_plan_ref !== plan.path &&
+      !historicalPlanRefs.has(String(entry.document.research_plan_ref))) ||
     entry.document.discovery_profile !== scope.document.discovery_profile ||
     entry.document.market !== scope.document.market ||
     entry.document.language !== scope.document.language
@@ -481,7 +483,6 @@ function validateDiscoveryLineage(
   entry: DiscoveryCandidateDocument,
   documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
   scope: DiscoveryCandidateDocument,
-  plan: DiscoveryCandidateDocument,
   errors: ValidationIssue[],
 ): void {
   if (
@@ -504,7 +505,7 @@ function validateDiscoveryLineage(
     lineage.attempt !== task.document.attempt ||
     entry.document.unit_id !== task.document.unit_id ||
     lineage.scope_frame_ref !== scope.path ||
-    lineage.research_plan_ref !== plan.path ||
+    lineage.research_plan_ref !== task.document.research_plan_ref ||
     !setEqual(strings(lineage.candidate_refs), strings(task.document.target_candidate_refs))
   ) {
     errors.push(
@@ -701,16 +702,23 @@ function validateTask(
   documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
   scope: DiscoveryCandidateDocument,
   plan: DiscoveryCandidateDocument,
+  historicalPlanRefs: ReadonlySet<string>,
   errors: ValidationIssue[],
 ): void {
   const expectedPath = `tasks/discovery/${String(task.document.unit_id)}.attempt-${String(
     task.document.attempt,
   )}.json`;
   const candidateRefs = strings(task.document.target_candidate_refs);
+  const taskPlanRef = String(task.document.research_plan_ref);
+  const historicalPlanBindingValid =
+    historicalPlanRefs.has(taskPlanRef) &&
+    candidateRefs.every(
+      (ref) => documentsByPath.get(ref)?.document.research_plan_ref === taskPlanRef,
+    );
   if (
     task.path !== expectedPath ||
     task.document.scope_frame_ref !== scope.path ||
-    task.document.research_plan_ref !== plan.path ||
+    (task.document.research_plan_ref !== plan.path && !historicalPlanBindingValid) ||
     candidateRefs.some(
       (ref) =>
         documentsByPath.get(ref)?.schemaVersion !== "startup_opportunity.discovery_candidate.v1",
@@ -1060,6 +1068,7 @@ export function isDiscoveryCandidateSchemaVersion(schemaVersion: string): boolea
 export function validateDiscoveryCandidateContract(
   documents: readonly DiscoveryCandidateDocument[],
   policy: DiscoveryCandidatePolicy,
+  historicalPlanRefs: ReadonlySet<string> = new Set(),
 ): readonly ValidationIssue[] {
   if (!documents.some((entry) => CONTRACT_SCHEMA_VERSIONS.has(entry.schemaVersion))) {
     return [];
@@ -1108,10 +1117,10 @@ export function validateDiscoveryCandidateContract(
   const plan = currentPlans[0] as DiscoveryCandidateDocument;
   for (const entry of documents) {
     validateEnvelope(entry, errors);
-    validateDiscoveryLineage(entry, documentsByPath, scope, plan, errors);
+    validateDiscoveryLineage(entry, documentsByPath, scope, errors);
   }
   for (const candidate of candidates) {
-    validateScopeIdentity(candidate, scope, plan, errors);
+    validateScopeIdentity(candidate, scope, plan, historicalPlanRefs, errors);
     validateCandidateSubject(candidate, documentsByPath, errors);
     validateCandidateRevision(candidate, candidatesByPath, errors);
     validateCandidateEnrichmentBindings(candidate, documentsByPath, candidatesByPath, errors);
@@ -1121,7 +1130,7 @@ export function validateDiscoveryCandidateContract(
   for (const task of documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.research_task.v2",
   )) {
-    validateTask(task, documentsByPath, scope, plan, errors);
+    validateTask(task, documentsByPath, scope, plan, historicalPlanRefs, errors);
   }
   for (const sourceManifest of documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.source_manifest.v2",

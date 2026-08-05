@@ -1082,6 +1082,15 @@ async function planOperationCompletionIsDurable(
     return false;
   }
 
+  return planOperationRecordsAreDurable(runRoot, receipt, artifacts, logs);
+}
+
+async function planOperationRecordsAreDurable(
+  runRoot: string,
+  receipt: PlanOperationReceipt,
+  artifacts: ArtifactStore,
+  logs: JsonlStore,
+): Promise<boolean> {
   for (const expected of [...receipt.control_envelopes, receipt.checkpoint_envelope]) {
     let stored: unknown;
     try {
@@ -1131,6 +1140,46 @@ async function planOperationCompletionIsDurable(
     }
   }
   return true;
+}
+
+async function planLineageContains(
+  runRoot: string,
+  currentPlanRef: string | null,
+  targetPlanRef: string,
+): Promise<boolean> {
+  let cursor = currentPlanRef;
+  const visited = new Set<string>();
+  while (cursor !== null && !visited.has(cursor)) {
+    if (cursor === targetPlanRef) {
+      return true;
+    }
+    visited.add(cursor);
+    const plan = await storedEffectiveDocument(runRoot, cursor);
+    cursor = typeof plan.parent_plan_ref === "string" ? plan.parent_plan_ref : null;
+  }
+  return false;
+}
+
+async function historicalPlanOperationCompletionIsDurable(
+  runRoot: string,
+  manifest: RunManifest,
+  receipt: PlanOperationReceipt,
+  artifacts: ArtifactStore,
+  logs: JsonlStore,
+): Promise<boolean> {
+  if (
+    !(await planLineageContains(runRoot, manifest.current_plan_ref, receipt.result_plan_ref)) ||
+    !receipt.adaptation_refs.every((ref) => manifest.applied_adaptation_refs.includes(ref)) ||
+    receipt.adaptation_refs.some(
+      (ref) =>
+        manifest.pending_adaptation_refs.includes(ref) ||
+        manifest.validated_adaptation_refs.includes(ref) ||
+        manifest.rejected_adaptation_refs.includes(ref),
+    )
+  ) {
+    return false;
+  }
+  return planOperationRecordsAreDurable(runRoot, receipt, artifacts, logs);
 }
 
 async function appendOperationEvents(
@@ -1399,6 +1448,13 @@ export class PlanRevisionRuntime {
     runRoot: string,
     input: ApplyPlanRevisionInput,
   ): Promise<PlanApplyResult> {
+    const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
+      runRoot,
+      input.runId,
+      this.validator,
+      this.artifacts,
+      this.logs,
+    );
     const manifest = await readManifest(runRoot, this.validator);
     if (
       manifest.status === "awaiting_scope_confirmation" ||
@@ -1720,21 +1776,40 @@ export class PlanRevisionRuntime {
         ),
       ),
     );
+    const historicalBindingsByPlan = new Map(
+      planOperationRecovery.historicalDiscoveryPlanBindings.map((binding) => [
+        binding.planRef,
+        binding,
+      ]),
+    );
+    if (candidateBindings.length > 0) {
+      const currentBinding: HistoricalDiscoveryPlanBinding = {
+        planRef: basePlanRef,
+        planHash: canonicalContentHash(basePlan),
+        planRevision: Number(basePlan.revision),
+        candidateRefs: uniqueSorted(candidateBindings.map((binding) => binding.candidate_ref)),
+      };
+      const recoveredBinding = historicalBindingsByPlan.get(basePlanRef);
+      if (
+        recoveredBinding !== undefined &&
+        canonicalJson(recoveredBinding) !== canonicalJson(currentBinding)
+      ) {
+        throw new StoreError(
+          "adaptation.discovery_candidate_binding_conflict",
+          "current discovery candidates conflict with the receipt-bound Plan view",
+          { planRef: basePlanRef },
+        );
+      }
+      historicalBindingsByPlan.set(basePlanRef, currentBinding);
+    }
     const planReferenceContext: DocumentBundleReferenceContext =
-      candidateBindings.length === 0
+      historicalBindingsByPlan.size === 0
         ? referenceContext
         : {
             ...referenceContext,
-            historicalDiscoveryPlanBindings: [
-              {
-                planRef: basePlanRef,
-                planHash: canonicalContentHash(basePlan),
-                planRevision: Number(basePlan.revision),
-                candidateRefs: uniqueSorted(
-                  candidateBindings.map((binding) => binding.candidate_ref),
-                ),
-              },
-            ],
+            historicalDiscoveryPlanBindings: [...historicalBindingsByPlan.values()].sort(
+              (left, right) => left.planRef.localeCompare(right.planRef),
+            ),
           };
     const suppliedDocumentPaths = new Set(
       input.adaptationBundle.documents.map((entry) => entry.path),
@@ -2135,7 +2210,15 @@ export async function recoverPlanRevisionOperationsLocked(
       }
     } else if (current.current_plan_ref === receipt.base_plan_ref) {
       pending.push(receipt.operation_key);
-    } else {
+    } else if (
+      !(await historicalPlanOperationCompletionIsDurable(
+        runRoot,
+        current,
+        receipt,
+        artifacts,
+        logs,
+      ))
+    ) {
       throw new StoreError(
         "recovery.stale_plan_operation",
         "Plan operation base/result no longer matches manifest current plan",

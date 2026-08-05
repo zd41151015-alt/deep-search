@@ -3494,16 +3494,18 @@ export class ArtifactValidator {
     );
     referenceErrors.push(...discoveryCandidateView.errors);
     const discoveryCandidateDocuments: readonly DiscoveryCandidateDocument[] =
-      discoveryCandidateView.documents.map((entry) => ({
+      effectiveDocuments.map((entry) => ({
         path: entry.path,
         schemaVersion: entry.schemaVersion,
         document: entry.document,
         envelope: entry.envelope,
       }));
+    const historicalPlanRefs = new Set(historicalBindings.map((binding) => binding.planRef));
     referenceErrors.push(
       ...validateDiscoveryCandidateContract(
         discoveryCandidateDocuments,
         this.discoveryCandidatePolicy,
+        historicalPlanRefs,
       ),
     );
     const discoverySynthesisDocuments: readonly DiscoverySynthesisDocument[] =

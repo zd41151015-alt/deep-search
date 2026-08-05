@@ -68,6 +68,33 @@ function planFragmentExists(
   });
 }
 
+function discoveryMapFragmentExists(
+  target: FragmentTarget,
+  fragment: string,
+  expectedIdField?: string,
+): boolean {
+  if (target.schemaVersion === "startup_opportunity.opportunity_space_map.v1") {
+    if (expectedIdField !== undefined && expectedIdField !== "hypothesis_id") {
+      return false;
+    }
+    return [
+      "initial_demand_hypotheses",
+      "jobs_to_be_done",
+      "workflow_friction_points",
+      "non_consumption",
+      "baseline_options",
+      "current_alternatives",
+    ].some((collection) => nestedIdExists(target.document, collection, "hypothesis_id", fragment));
+  }
+  if (target.schemaVersion === "startup_opportunity.solution_space_map.v1") {
+    return (
+      (expectedIdField === undefined || expectedIdField === "candidate_id") &&
+      nestedIdExists(target.document, "solution_candidates", "candidate_id", fragment)
+    );
+  }
+  return false;
+}
+
 export function formalArtifactFragmentExists(
   target: FragmentTarget,
   fragment: string,
@@ -105,6 +132,9 @@ export function formalArtifactFragmentExists(
   }
   if (target.schemaVersion === "startup_opportunity.research_plan.v1") {
     return planFragmentExists(target.document, fragment, expectedIdField);
+  }
+  if (discoveryMapFragmentExists(target, fragment, expectedIdField)) {
+    return true;
   }
   return false;
 }
