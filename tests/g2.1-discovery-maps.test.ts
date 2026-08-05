@@ -545,37 +545,32 @@ test("same complete bundle deterministically finishes after a real inter-map pro
     return receipt.artifact_path === firstMapRef;
   });
   assert.ok(firstReceiptPath, "first map receipt is missing");
+  const bundleReceiptPath = Object.keys(afterCrash).find((candidate) =>
+    candidate.startsWith(".store/operations/bundle-"),
+  );
+  assert.ok(bundleReceiptPath, "whole-wave bundle receipt is missing");
   const firstMapBytes = afterCrash[firstMapRef];
   const firstReceiptBytes = afterCrash[firstReceiptPath];
+  const bundleReceiptBytes = afterCrash[bundleReceiptPath];
 
-  await assert.rejects(
-    store.load(runId),
-    (error: unknown) => error instanceof StoreError && error.code === "reference.missing",
-  );
-  const afterFailedReopen = await snapshotTree(runRoot);
-  assert.equal(afterFailedReopen[firstMapRef], firstMapBytes);
-  assert.equal(afterFailedReopen[firstReceiptPath], firstReceiptBytes);
-  for (const missingRef of orderedMapRefs.slice(1)) {
-    assert.equal(
-      afterFailedReopen[missingRef],
-      undefined,
-      `reopen synthesized a missing map: ${missingRef}`,
-    );
-  }
+  const recovered = await store.load(runId);
+  assert.equal(recovered.recovered, true);
+  assert.deepEqual([...recovered.recoveredArtifactPaths].sort(), orderedMapRefs.slice(1));
+  assert.ok(G21_MAP_REFS.every((ref) => recovered.manifest.artifact_refs.includes(ref)));
+  const afterRecovery = await snapshotTree(runRoot);
+  assert.equal(afterRecovery[firstMapRef], firstMapBytes);
+  assert.equal(afterRecovery[firstReceiptPath], firstReceiptBytes);
+  assert.equal(afterRecovery[bundleReceiptPath], bundleReceiptBytes);
+  assert.ok(G21_MAP_REFS.every((ref) => afterRecovery[ref] !== undefined));
 
   const replay = await store.publishArtifactBundle({
     runId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
   });
-  assert.equal(replay.status, "published");
-  assert.equal(
-    replay.artifacts.find((artifact) => artifact.artifactPath === firstMapRef)?.status,
-    "idempotent_replay",
-  );
+  assert.equal(replay.status, "idempotent_replay");
+  assert.ok(replay.artifacts.every((artifact) => artifact.status === "idempotent_replay"));
   const afterReplay = await snapshotTree(runRoot);
-  assert.equal(afterReplay[firstMapRef], firstMapBytes);
-  assert.equal(afterReplay[firstReceiptPath], firstReceiptBytes);
-  assert.ok(G21_MAP_REFS.every((ref) => afterReplay[ref] !== undefined));
+  assert.deepEqual(afterReplay, afterRecovery);
 
   await store.checkpoint({
     runId,

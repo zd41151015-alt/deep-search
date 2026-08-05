@@ -3,7 +3,7 @@
 ## Clean Checkout
 
 1. Check out the repository without copying an existing `runs/` directory, `.env`, or local credentials.
-2. Activate Node.js `24.18.0` and npm `11.16.0`; `.node-version` records the exact Node release.
+2. Activate Node.js `24.18.0` and npm `11.16.0`; `.node-version` records the exact Node release, while npm `devEngines` fails commands before execution when either active version drifts.
 3. Run `npm ci` from the repository root. Do not use another package manager or generate another lockfile.
 4. Run `npm run harness -- doctor --json` and require `ok=true`.
 5. Open the repository as a trusted Codex project before relying on `.codex/config.toml`, custom agents, hooks, or the local MCP server.
@@ -46,13 +46,17 @@ Evidence can use `record-evidence` directly when MCP is disabled. Artifact valid
 
 `status-run` reads and schema-validates the current manifest without recovery or mutation. Use it for `action: status`. Its minimal `resumeContext` is sufficient after a context transition; do not reload the complete Skill, all fixtures, or the full closure, and do not treat a chat summary as formal state. Run `doctor` once per task, not once per lane or resume. For terminal Runs, require `terminalReportDisposition=ready` and an empty `terminalReportIssues` list before presenting delivery as complete; `missing` and `invalid` distinguish report delivery from the raw execution disposition.
 
-`observability.stageTimings` and `laneTimings` are descriptive timestamps and durations, not deadline enforcement. Lane `attemptCount` is the number of distinct `execution_attempt_id` values across the full lifecycle history and `retryCount=max(0, attemptCount-1)`. Receipt replay, checkpoint reads, status refreshes, and revisions inside one attempt do not count as retries. Validation/publication failure classifications, Artifact/Evidence counts, and blocking reasons remain engineering diagnostics and are not inserted into user report prose.
+`observability.stageTimings`, `laneTimings`, and `operationTimings` are descriptive timestamps and durations, not deadline enforcement. Lane `attemptCount` is the number of distinct `execution_attempt_id` values across the full lifecycle history and `retryCount=max(0, attemptCount-1)`. Runtime compile/publish attempts are appended automatically as Harness engineering Events; a failed attempt followed by recovery or successful publication increments the operation retry count. Exact receipt replay after a recorded success, checkpoint reads, status refreshes, and revisions inside one attempt do not count as retries. Validation/publication failure classifications, Artifact/Evidence counts, and blocking reasons remain engineering diagnostics and are not inserted into user report prose.
+
+Every new dispatch wave publishes its execution overlay and complete Dispatch batch through one bundle. Discovery research lanes also include every canonical task envelope in that same bundle. The Store persists a whole-wave intent before member publication; reopen completes every intended member before projecting the Manifest, so a crash cannot leave a Dispatch-visible half-wave.
 
 Scope confirmation is durable Run state, not a CLI-only boolean. `create-run` atomically appends revision 1 as a Scope proposal, binds its ref/hash in the Manifest, and leaves the Run at `awaiting_scope_confirmation`. The caller must show that exact proposal to the user before a separate `confirm-scope` call binds its revision/ref/hash. The confirmation record states that it is caller-attested and that the Harness cannot authenticate chat identity. A correction first uses `propose-scope`, then a separate exact-bound `confirm-scope`; both append without replacing prior records. Before confirmation, every research entrypoint is blocked. After a corrected Scope is confirmed, research remains blocked until Gap, Adaptation Decision, and immutable Plan Revision reconcile it. Reopen validates the same persisted proposal and confirmation history.
 
 `load-run` is the recovery boundary for `action: resume`. It acquires the Run lock, validates manifest/checkpoint/plan lineage, verifies Evidence and Artifact receipts and hashes, repairs only supported incomplete JSONL tails and completed operation intents, reconciles orphan active units, and returns the last valid checkpoint. Integrity conflicts fail closed.
 
 Recovery applies only to a Run created and operated by the same current contract. After code or contract changes, start with a new `run_id`; the Harness does not identify, migrate, adapt, or restore old Run formats. An old Run may simply fail current Manifest, receipt, or Artifact validation. This cross-update boundary is separate from same-Run crash recovery.
+
+If an active formal Run exposes a production blocker, finish the original Run through the `record_runtime_failure` terminal path before editing Harness code, schemas, policies, the Skill/hooks, or toolchain metadata. Never hot-fix production and then continue, recover, or revalidate that same `run_id`. The optional research guard enforces this boundary when `STARTUP_OPPORTUNITY_ACTIVE_RUN_ID` is set; the Skill rule remains authoritative when hooks are disabled.
 
 After recovery:
 
@@ -70,9 +74,13 @@ Completed Runs are immutable. Terminal reporting is completed on the original re
 
 `get_evidence_manifest` returns validated substrate metadata only. Tool success does not attest source availability, quote fidelity, provenance, independence, bias, freshness, representativeness, sufficiency, or truth. Agents must declare those fields in formal Evidence Artifacts and bind them to exact substrate refs.
 
-## Delivery Checks
+## Normal Research Checks
 
-From a clean checkout, run:
+A normal research Run does not execute repository engineering suites. Run doctor once per task, then only the deterministic checks required by the current workflow: Artifact and Plan validation, Gap/adaptation policy validation, traceability/report freshness and consistency, and final `status-run`. Do not run `npm test`, lint, typecheck, schema/fixture suites, or clean-checkout tests unless repository code or contracts changed.
+
+## Engineering Delivery Checks
+
+For repository code, schema, policy, Skill/hook, documentation-command, or toolchain changes, use a clean checkout and run:
 
 ```sh
 npm ci

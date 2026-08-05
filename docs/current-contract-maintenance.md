@@ -38,3 +38,5 @@ Before committing a contract change, run `npm run lint`, `npm run typecheck`, `n
 ## Run Boundary
 
 After code or contract changes, create a new `run_id`. The repository does not migrate or restore Runs written by older code, and it does not need a stable old-Run classification protocol. This does not relax recovery inside one current Run: immutable refs and hashes, no-replace publication, atomic Manifest replacement, exact receipt replay, checkpoint/reopen, and crash recovery remain required.
+
+If a defect is discovered during an active formal Run, terminate that Run through `record_runtime_failure` before changing production code or contracts. Engineering verification uses synthetic fixtures and the full checks above; it never resumes the pre-fix `run_id`. Conversely, a normal research Run with no repository change does not run the full engineering suite.

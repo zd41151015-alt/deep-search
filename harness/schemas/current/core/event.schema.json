@@ -42,7 +42,8 @@
         "research_unit_invalidated",
         "checkpoint_written",
         "followup_stopped",
-        "report_completed"
+        "report_completed",
+        "runtime_operation_observed"
       ]
     },
     "timestamp": {
@@ -56,6 +57,86 @@
     },
     "artifact_refs": {
       "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "operation_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "operation_id",
+        "attempt",
+        "started_at",
+        "completed_at",
+        "duration_ms",
+        "outcome",
+        "failure_classification",
+        "error_code"
+      ],
+      "properties": {
+        "operation": {
+          "const": "runtime_compile_publish"
+        },
+        "operation_id": {
+          "$ref": "./definitions.schema.json#/$defs/identifier"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "started_at": {
+          "$ref": "./definitions.schema.json#/$defs/timestamp"
+        },
+        "completed_at": {
+          "$ref": "./definitions.schema.json#/$defs/timestamp"
+        },
+        "duration_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "outcome": {
+          "enum": ["published", "failed"]
+        },
+        "failure_classification": {
+          "anyOf": [
+            {
+              "enum": ["validation_failed", "publication_failed", "runtime_blocked"]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "runtime_operation_observed"
+          }
+        },
+        "required": ["event_type"]
+      },
+      "then": {
+        "required": ["operation_observation"]
+      },
+      "else": {
+        "not": {
+          "required": ["operation_observation"]
+        }
+      }
+    }
+  ]
 }

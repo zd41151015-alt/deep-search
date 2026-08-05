@@ -241,6 +241,16 @@ export interface StatusRunResult {
       readonly endedAt: string | null;
       readonly durationMs: number | null;
     }[];
+    readonly operationTimings: readonly {
+      readonly operationId: string;
+      readonly operation: "runtime_compile_publish";
+      readonly attemptCount: number;
+      readonly retryCount: number;
+      readonly latestOutcome: "published" | "failed";
+      readonly startedAt: string;
+      readonly endedAt: string;
+      readonly durationMs: number;
+    }[];
     readonly validationRetryCount: number;
     readonly publishRetryCount: number;
     readonly failureClassifications: Readonly<Record<string, number>>;
@@ -248,6 +258,22 @@ export interface StatusRunResult {
     readonly evidenceCount: number;
     readonly blockingReasons: readonly string[];
   };
+}
+
+export interface RuntimeOperationObservationInput {
+  readonly runId: string;
+  readonly operationId: string;
+  readonly startedAt: string;
+  readonly completedAt: string;
+  readonly durationMs: number;
+  readonly outcome: "published" | "failed";
+  readonly failureClassification:
+    | "validation_failed"
+    | "publication_failed"
+    | "runtime_blocked"
+    | null;
+  readonly errorCode: string | null;
+  readonly artifactRefs: readonly string[];
 }
 
 export interface RunExecutionResolution {
@@ -1305,6 +1331,7 @@ export class RunStore {
       ? await this.terminalReportStatus(runId, runRoot, manifest)
       : { disposition: "not_required" as const, issues: [] };
     const formal = await this.artifacts.listFormalDocuments(runRoot);
+    const events = await this.logs.listValidatedRecords(runRoot, runId, "events.jsonl");
     const effective = formal.map((entry) => {
       const envelope = entry.document as FormalArtifactEnvelope;
       return {
@@ -1425,6 +1452,56 @@ export class RunStore {
         };
       })
       .sort((left, right) => left.unitId.localeCompare(right.unitId));
+    const operationHistory = new Map<string, Record<string, unknown>[]>();
+    for (const event of events) {
+      if (event.event_type !== "runtime_operation_observed") continue;
+      const observation = isRecord(event.operation_observation)
+        ? event.operation_observation
+        : null;
+      if (
+        observation?.operation !== "runtime_compile_publish" ||
+        typeof observation.operation_id !== "string"
+      ) {
+        continue;
+      }
+      operationHistory.set(observation.operation_id, [
+        ...(operationHistory.get(observation.operation_id) ?? []),
+        observation,
+      ]);
+      if (typeof observation.failure_classification === "string") {
+        failureClassifications[observation.failure_classification] =
+          (failureClassifications[observation.failure_classification] ?? 0) + 1;
+      }
+    }
+    const operationTimings = [...operationHistory.entries()]
+      .map(([operationId, attempts]) => {
+        const ordered = attempts.sort(
+          (left, right) => Number(left.attempt) - Number(right.attempt),
+        );
+        const first = ordered[0];
+        const latest = ordered.at(-1);
+        if (first === undefined || latest === undefined) {
+          throw new StoreError(
+            "status.operation_observation_missing",
+            "runtime operation observation history is empty",
+            { operationId },
+          );
+        }
+        return {
+          operationId,
+          operation: "runtime_compile_publish" as const,
+          attemptCount: ordered.length,
+          retryCount: Math.max(0, ordered.length - 1),
+          latestOutcome: String(latest.outcome) as "published" | "failed",
+          startedAt: String(first.started_at),
+          endedAt: String(latest.completed_at),
+          durationMs: ordered.reduce(
+            (total, attempt) => total + Math.max(0, Number(attempt.duration_ms)),
+            0,
+          ),
+        };
+      })
+      .sort((left, right) => left.operationId.localeCompare(right.operationId));
     const latestGap =
       manifest.latest_gap_snapshot_ref === null
         ? null
@@ -1474,6 +1551,7 @@ export class RunStore {
       observability: {
         stageTimings,
         laneTimings,
+        operationTimings,
         validationRetryCount: failureClassifications.validation_failed ?? 0,
         publishRetryCount: failureClassifications.publication_failed ?? 0,
         failureClassifications: Object.fromEntries(
@@ -1815,6 +1893,21 @@ export class RunStore {
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       const manifest = await this.readManifest(runRoot);
+      if (
+        [
+          "startup_opportunity.dispatch_batch.discovery.current",
+          "startup_opportunity.dispatch_batch.assessment.current",
+          "startup_opportunity.research_task.discovery_candidate.current",
+          "startup_opportunity.research_task.discovery_evaluation.current",
+        ].includes(input.envelope.artifact_type) &&
+        !manifest.artifact_refs.includes(input.envelope.artifact_path)
+      ) {
+        throw new StoreError(
+          "artifact.wave_bundle_required",
+          "a new dispatch batch or canonical task must be published through the whole-wave bundle boundary",
+          { artifactPath: input.envelope.artifact_path },
+        );
+      }
       await this.assertScopeBindingLocked(runRoot, manifest);
       await this.assertTransitionReadyLocked(runRoot, manifest, [input.envelope]);
       this.assertAdaptationArtifactMode(manifest, input.envelope);
@@ -1886,6 +1979,7 @@ export class RunStore {
       let manifest = await this.readManifest(runRoot);
       await this.assertScopeBindingLocked(runRoot, manifest);
       await this.assertTransitionReadyLocked(runRoot, manifest, input.envelopes);
+      this.assertAtomicDispatchWaveBundle(manifest, input.envelopes);
       const originalManifest = manifest;
       const classifications = new Map<
         string,
@@ -2230,6 +2324,30 @@ export class RunStore {
         if (!complete) pendingOperations.push(entry.name);
         continue;
       }
+      if (receipt.schema_version === "startup_opportunity.artifact_bundle_operation.current") {
+        const expectedEnvelopes = Array.isArray(receipt.envelopes)
+          ? receipt.envelopes.filter(isRecord)
+          : [];
+        let complete = expectedEnvelopes.length >= 2;
+        for (const expected of expectedEnvelopes) {
+          const identity = `${String(expected.artifact_path)}:${String(expected.artifact_type)}:${String(expected.content_hash)}`;
+          try {
+            const stored = JSON.parse(
+              await readFile(
+                await resolveRunPath(runRoot, String(expected.artifact_path ?? "")),
+                "utf8",
+              ),
+            ) as unknown;
+            if (canonicalJson(stored) !== canonicalJson(expected)) complete = false;
+          } catch (error) {
+            if (!publishingIdentities.has(identity) || !isNodeError(error, "ENOENT")) {
+              complete = false;
+            }
+          }
+        }
+        if (!complete) pendingOperations.push(entry.name);
+        continue;
+      }
       if (!isRecord(receipt.envelope)) {
         pendingOperations.push(entry.name);
         continue;
@@ -2439,15 +2557,6 @@ export class RunStore {
       }
       return "transition";
     }
-    if (
-      isDiscoveryTask &&
-      existingState === "active_units" &&
-      !manifest.artifact_refs.includes(envelope.artifact_path) &&
-      manifest.current_plan_ref === researchPlanRef
-    ) {
-      await this.assertDiscoveryTaskDispatchBridge(runRoot, manifest, envelope);
-      return "transition";
-    }
     if (!manifest.artifact_refs.includes(envelope.artifact_path)) {
       throw new StoreError(
         "artifact.task_transition_invalid",
@@ -2480,94 +2589,143 @@ export class RunStore {
     return "replay";
   }
 
-  private async assertDiscoveryTaskDispatchBridge(
-    runRoot: string,
+  private assertAtomicDispatchWaveBundle(
     manifest: RunManifest,
-    envelope: FormalArtifactEnvelope,
-  ): Promise<void> {
-    const planRef = manifest.current_plan_ref;
-    const storedPlan =
-      planRef === null
-        ? null
-        : (JSON.parse(await readFile(await resolveRunPath(runRoot, planRef), "utf8")) as unknown);
-    const plan =
-      isRecord(storedPlan) &&
-      isCurrentEnvelopeSchema(storedPlan.schema_version) &&
-      isRecord(storedPlan.document)
-        ? storedPlan.document
-        : storedPlan;
-    const plannedWave = isRecord(plan)
-      ? (Array.isArray(plan.waves) ? plan.waves : [])
-          .filter(isRecord)
-          .find(
-            (wave) =>
-              Array.isArray(wave.units) &&
-              wave.units
-                .filter(isRecord)
-                .some((unit) => unit.unit_id === envelope.document.unit_id),
-          )
-      : undefined;
-    const plannedUnit =
-      plannedWave !== undefined && Array.isArray(plannedWave.units)
-        ? plannedWave.units
-            .filter(isRecord)
-            .find((unit) => unit.unit_id === envelope.document.unit_id)
-        : undefined;
-    if (
-      plannedUnit === undefined ||
-      plannedWave?.wave_id !== envelope.document.wave_id ||
-      plannedUnit.unit_type !== envelope.document.unit_type ||
-      plannedUnit.research_goal !== envelope.document.research_goal ||
-      plannedUnit.attempt !== envelope.document.attempt ||
-      plannedUnit.agent_role !== envelope.document.agent_role ||
-      plannedUnit.output_path !== envelope.document.allowed_output_path ||
-      plannedUnit.required_artifact_schema !== envelope.document.required_artifact_schema
-    ) {
+    envelopes: readonly FormalArtifactEnvelope[],
+  ): void {
+    const dispatches = envelopes.filter(
+      (envelope) =>
+        [
+          "startup_opportunity.dispatch_batch.discovery.current",
+          "startup_opportunity.dispatch_batch.assessment.current",
+        ].includes(envelope.artifact_type) &&
+        !manifest.artifact_refs.includes(envelope.artifact_path),
+    );
+    const canonicalTasks = envelopes.filter((envelope) =>
+      [
+        "startup_opportunity.research_task.discovery_candidate.current",
+        "startup_opportunity.research_task.discovery_evaluation.current",
+      ].includes(envelope.artifact_type),
+    );
+    const newCanonicalTasks = canonicalTasks.filter(
+      (task) => !manifest.artifact_refs.includes(task.artifact_path),
+    );
+    if (dispatches.length === 0 && newCanonicalTasks.length > 0) {
       throw new StoreError(
-        "artifact.task_transition_invalid",
-        "active discovery task must match the exact current Plan unit before canonical publication",
-        { unitId: envelope.document.unit_id, planRef },
+        "artifact.wave_bundle_incomplete",
+        "new canonical discovery tasks require their Dispatch in the same whole-wave bundle",
+        { taskPaths: newCanonicalTasks.map((task) => task.artifact_path).sort() },
       );
     }
-
-    for (const dispatchRef of manifest.artifact_refs.filter((ref) =>
-      ref.startsWith("tasks/dispatch/"),
-    )) {
-      const value = JSON.parse(
-        await readFile(await resolveRunPath(runRoot, dispatchRef), "utf8"),
-      ) as unknown;
-      if (
-        !isRecord(value) ||
-        value.schema_version !== "startup_opportunity.artifact_envelope.current" ||
-        value.artifact_type !== "startup_opportunity.dispatch_batch.discovery.current" ||
-        value.run_id !== manifest.run_id ||
-        !isRecord(value.document) ||
-        value.document.research_plan_ref !== planRef
-      ) {
+    const claimedTaskPaths = new Set<string>();
+    for (const dispatch of dispatches) {
+      const expectedExecutionType =
+        dispatch.artifact_type === "startup_opportunity.dispatch_batch.discovery.current"
+          ? "startup_opportunity.research_execution_plan.discovery.current"
+          : "startup_opportunity.research_execution_plan.assessment.current";
+      const executionMatches = envelopes.filter(
+        (envelope) =>
+          envelope.artifact_path === dispatch.document.execution_plan_ref &&
+          envelope.artifact_type === expectedExecutionType,
+      );
+      if (executionMatches.length !== 1) {
+        throw new StoreError(
+          "artifact.wave_bundle_incomplete",
+          "each new Dispatch requires its exact execution overlay in the same whole-wave bundle",
+          {
+            dispatchPath: dispatch.artifact_path,
+            executionPlanRef: dispatch.document.execution_plan_ref,
+            executionOverlayCount: executionMatches.length,
+          },
+        );
+      }
+      if (dispatch.artifact_type !== "startup_opportunity.dispatch_batch.discovery.current") {
         continue;
       }
-      await this.artifacts.validateStoredEnvelope(
-        runRoot,
-        manifest.run_id,
-        value as FormalArtifactEnvelope,
-      );
-      const dispatched = (Array.isArray(value.document.tasks) ? value.document.tasks : [])
+      const dispatchedTasks = (
+        Array.isArray(dispatch.document.tasks) ? dispatch.document.tasks : []
+      )
         .filter(isRecord)
-        .find((task) => task.unit_id === envelope.document.unit_id);
-      if (
-        dispatched !== undefined &&
-        dispatched.research_goal === envelope.document.research_goal &&
-        dispatched.allowed_output_path === envelope.document.allowed_output_path &&
-        dispatched.required_artifact_schema === envelope.document.required_artifact_schema
-      ) {
-        return;
+        .filter(
+          (task) =>
+            task.required_artifact_schema === "startup_opportunity.discovery_lane_result.v1" ||
+            task.required_artifact_schema === "startup_opportunity.enrichment_branch_result.v1",
+        );
+      for (const dispatched of dispatchedTasks) {
+        const matches = canonicalTasks.filter(
+          (task) =>
+            !claimedTaskPaths.has(task.artifact_path) &&
+            task.document.unit_id === dispatched.unit_id,
+        );
+        if (matches.length !== 1) {
+          throw new StoreError(
+            "artifact.wave_bundle_incomplete",
+            "each discovery dispatch unit requires exactly one canonical task in the same bundle",
+            {
+              dispatchPath: dispatch.artifact_path,
+              unitId: dispatched.unit_id,
+              canonicalTaskCount: matches.length,
+            },
+          );
+        }
+        const task = matches[0] as FormalArtifactEnvelope;
+        const mismatches = [
+          ["task_id", dispatched.task_id, task.document.task_id],
+          ["unit_id", dispatched.unit_id, task.document.unit_id],
+          [
+            "research_plan_ref",
+            dispatch.document.research_plan_ref,
+            task.document.research_plan_ref,
+          ],
+          ["research_goal", dispatched.research_goal, task.document.research_goal],
+          [
+            "allowed_output_path",
+            dispatched.allowed_output_path,
+            task.document.allowed_output_path,
+          ],
+          [
+            "required_artifact_schema",
+            dispatched.required_artifact_schema,
+            task.document.required_artifact_schema,
+          ],
+        ].flatMap(([field, expected, actual]) =>
+          canonicalJson(expected) === canonicalJson(actual) ? [] : [field],
+        );
+        const dispatchInputs = Array.isArray(dispatched.input_refs)
+          ? dispatched.input_refs.filter((value): value is string => typeof value === "string")
+          : [];
+        const taskInputs = Array.isArray(task.document.input_refs)
+          ? task.document.input_refs.filter((value): value is string => typeof value === "string")
+          : [];
+        if (canonicalJson([...dispatchInputs].sort()) !== canonicalJson([...taskInputs].sort())) {
+          mismatches.push("input_refs");
+        }
+        if (mismatches.length > 0) {
+          throw new StoreError(
+            "artifact.wave_task_mismatch",
+            "canonical task differs from its dispatch fragment",
+            {
+              dispatchPath: dispatch.artifact_path,
+              taskPath: task.artifact_path,
+              unitId: dispatched.unit_id,
+              mismatches,
+            },
+          );
+        }
+        claimedTaskPaths.add(task.artifact_path);
       }
     }
-    throw new StoreError(
-      "artifact.task_transition_invalid",
-      "active discovery task requires an exact current dispatch before canonical publication",
-      { unitId: envelope.document.unit_id, planRef },
-    );
+    const unclaimedTaskPaths = newCanonicalTasks
+      .filter((task) => !claimedTaskPaths.has(task.artifact_path))
+      .map((task) => task.artifact_path)
+      .sort();
+    if (unclaimedTaskPaths.length > 0) {
+      throw new StoreError(
+        "artifact.wave_bundle_incomplete",
+        "every new canonical discovery task must be uniquely claimed by a Dispatch in the same whole-wave bundle",
+        { taskPaths: unclaimedTaskPaths },
+      );
+    }
   }
 
   private async assertEnrichmentTaskPlanUnit(
@@ -2658,6 +2816,74 @@ export class RunStore {
     await this.assertCurrentLeaf(input.runId);
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, () => this.checkpointLocked(runRoot, input));
+  }
+
+  async recordRuntimeOperationObservation(input: RuntimeOperationObservationInput): Promise<void> {
+    await this.assertCurrentLeaf(input.runId);
+    const runRoot = await openRunDirectory(this.runsRoot, input.runId);
+    await withRunLock(runRoot, async () => {
+      const events = await this.logs.listValidatedRecords(runRoot, input.runId, "events.jsonl");
+      const attempt =
+        events.filter(
+          (event) =>
+            event.event_type === "runtime_operation_observed" &&
+            isRecord(event.operation_observation) &&
+            event.operation_observation.operation === "runtime_compile_publish" &&
+            event.operation_observation.operation_id === input.operationId,
+        ).length + 1;
+      const identity = {
+        run_id: input.runId,
+        operation: "runtime_compile_publish",
+        operation_id: input.operationId,
+        attempt,
+      };
+      const event = {
+        schema_version: "startup_opportunity.event.v1",
+        event_id: `runtime_operation_${sha256Hex(sha256Bytes(canonicalJson(identity)))}`,
+        run_id: input.runId,
+        event_type: "runtime_operation_observed",
+        timestamp: input.completedAt,
+        actor: "harness",
+        reason:
+          input.outcome === "published"
+            ? "The declarative Runtime published the validated compilation request."
+            : `The declarative Runtime attempt failed with ${input.errorCode ?? "an unclassified error"}.`,
+        artifact_refs: [...new Set(input.artifactRefs)].sort(),
+        operation_observation: {
+          operation: "runtime_compile_publish",
+          operation_id: input.operationId,
+          attempt,
+          started_at: input.startedAt,
+          completed_at: input.completedAt,
+          duration_ms: Math.max(0, input.durationMs),
+          outcome: input.outcome,
+          failure_classification: input.failureClassification,
+          error_code: input.errorCode,
+        },
+      };
+      await this.assertRecordRefsExist(runRoot, event);
+      await this.logs.appendValidated(runRoot, input.runId, "events.jsonl", event);
+    });
+  }
+
+  async runtimeOperationNeedsCompletionObservation(
+    runId: string,
+    operationId: string,
+  ): Promise<boolean> {
+    const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
+    const events = await this.logs.listValidatedRecords(runRoot, runId, "events.jsonl");
+    const outcomes = events.flatMap((event) => {
+      const observation = isRecord(event.operation_observation)
+        ? event.operation_observation
+        : null;
+      return event.event_type === "runtime_operation_observed" &&
+        observation?.operation === "runtime_compile_publish" &&
+        observation.operation_id === operationId &&
+        typeof observation.outcome === "string"
+        ? [observation.outcome]
+        : [];
+    });
+    return outcomes.includes("failed") && !outcomes.includes("published");
   }
 
   async appendEvent(

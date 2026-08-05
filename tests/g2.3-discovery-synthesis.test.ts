@@ -41,6 +41,7 @@ import {
   synthesisEnvelope,
 } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
 import { createConfirmedRun } from "./helpers/current-run.js";
+import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
@@ -175,9 +176,12 @@ async function publishThroughFanIn(state: State): Promise<void> {
   await state.store.publishArtifactBundle({ runId: state.runId, envelopes: initialCandidates });
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: byTypes(
+    envelopes: discoveryWaveEnvelopes(
       state.bundle,
+      state.runId,
       "startup_opportunity.research_task.discovery_candidate.current",
+      1,
+      "candidate_runtime",
     ),
   });
   await state.store.publishArtifactBundle({

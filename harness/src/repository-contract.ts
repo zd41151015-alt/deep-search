@@ -261,11 +261,21 @@ async function checkPackageMetadata(root: string): Promise<DoctorCheck> {
   try {
     const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8")) as {
       engines?: { node?: string; npm?: string };
+      devEngines?: {
+        runtime?: { name?: string; version?: string; onFail?: string };
+        packageManager?: { name?: string; version?: string; onFail?: string };
+      };
       packageManager?: string;
     };
     const valid =
       packageJson.engines?.node === "24.18.x" &&
       packageJson.engines.npm === "11.16.x" &&
+      packageJson.devEngines?.runtime?.name === "node" &&
+      packageJson.devEngines.runtime.version === "24.18.x" &&
+      packageJson.devEngines.runtime.onFail === "error" &&
+      packageJson.devEngines.packageManager?.name === "npm" &&
+      packageJson.devEngines.packageManager.version === "11.16.x" &&
+      packageJson.devEngines.packageManager.onFail === "error" &&
       packageJson.packageManager === "npm@11.16.0";
     return {
       id: "toolchain:package-metadata",

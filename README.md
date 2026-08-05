@@ -14,6 +14,7 @@ npm run harness -- doctor --json
 ```
 
 The repository enables npm engine checks. Installation fails when the active Node/npm pair is outside the frozen versions.
+The same pair is also declared through npm `devEngines`, so `npm run` commands fail before execution when a shell has drifted to another Node or npm release.
 
 Codex loads `.codex/config.toml`, the three project agents, optional hooks, and the local Evidence MCP server only for a trusted project. The MCP server uses stdio, receives no credentials, exposes only `record_evidence` and `get_evidence_manifest`, and cannot fetch a URL or form a research judgment.
 
@@ -83,6 +84,8 @@ npm run harness -- build-report --file path/to/build-report-input.json --json
 ```
 
 Command success proves mechanical validity only. It does not establish Evidence truth, sufficiency, market demand, recommendation readiness, external validation, or startup success.
+
+Normal research Runs use doctor once plus the workflow's targeted Artifact, Plan, adaptation, traceability, report, and status checks. The full repository test suite is reserved for engineering changes and is not part of an ordinary research Run.
 
 ## Recovery
 

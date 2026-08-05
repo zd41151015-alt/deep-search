@@ -58,6 +58,7 @@ import {
   G24_TRACEABILITY,
 } from "./fixtures/g2.4/discovery-evaluation-fixture.js";
 import { createConfirmedRun } from "./helpers/current-run.js";
+import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
@@ -264,7 +265,13 @@ async function publishThroughSynthesis(state: State): Promise<void> {
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: byTypes(runtime, "startup_opportunity.research_task.discovery_candidate.current"),
+    envelopes: discoveryWaveEnvelopes(
+      state.bundle,
+      state.runId,
+      "startup_opportunity.research_task.discovery_candidate.current",
+      1,
+      "candidate_runtime",
+    ),
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
@@ -305,9 +312,12 @@ async function publishThroughEnrichmentBranches(state: State): Promise<void> {
   const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: byTypes(
-      evaluation,
+    envelopes: discoveryWaveEnvelopes(
+      state.bundle,
+      state.runId,
       "startup_opportunity.research_task.discovery_evaluation.current",
+      2,
+      "enrichment_runtime",
     ),
   });
   await state.store.publishArtifactBundle({
@@ -1343,12 +1353,30 @@ test("G2.4 rejects closed contract mutations with deterministic error codes", as
 test("G2.4 Store rejects an enrichment task that is absent from the current Plan", async (context) => {
   const state = await setup(context, "unplanned-task");
   await publishThroughSynthesis(state);
-  const source = clone(evaluationEnvelope(state.bundle, G24_TASK_SUPPORT));
-  const document = { ...source.document, unit_id: "unit_unplanned_enrichment" };
-  const task = { ...source, document, content_hash: canonicalContentHash(document) };
+  const wave = discoveryWaveEnvelopes(
+    state.bundle,
+    state.runId,
+    "startup_opportunity.research_task.discovery_evaluation.current",
+    2,
+    "enrichment_runtime",
+  );
+  const task = wave.find((envelope) => envelope.artifact_path === G24_TASK_SUPPORT);
+  const dispatch = wave.find(
+    (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(task);
+  assert.ok(dispatch);
+  task.document.unit_id = "unit_unplanned_enrichment";
+  (task as { content_hash: string }).content_hash = canonicalContentHash(task.document);
+  const dispatchTask = (dispatch.document.tasks as Record<string, unknown>[]).find(
+    (candidate) => candidate.task_id === task.document.task_id,
+  );
+  assert.ok(dispatchTask);
+  dispatchTask.unit_id = "unit_unplanned_enrichment";
+  (dispatch as { content_hash: string }).content_hash = canonicalContentHash(dispatch.document);
 
   await assert.rejects(
-    state.store.publishArtifact({ runId: state.runId, envelope: task }),
+    state.store.publishArtifactBundle({ runId: state.runId, envelopes: wave }),
     (error: unknown) =>
       error instanceof StoreError && error.code === "artifact.task_plan_unit_mismatch",
   );
@@ -1563,9 +1591,12 @@ test("G2.4 branch terminal states project mechanically and keep late or supersed
       const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
       await state.store.publishArtifactBundle({
         runId: state.runId,
-        envelopes: byTypes(
-          evaluation,
+        envelopes: discoveryWaveEnvelopes(
+          state.bundle,
+          state.runId,
           "startup_opportunity.research_task.discovery_evaluation.current",
+          2,
+          "enrichment_runtime",
         ),
       });
       await state.store.publishArtifactBundle({

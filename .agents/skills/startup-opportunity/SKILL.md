@@ -32,6 +32,7 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 - 绝不覆盖 current plan。Runtime 调整必须依次经过 Gap Snapshot、一个或多个已验证 Adaptation Decision 和不可变 Plan Revision。
 - 新 Run 必须先形成并发布 Intake、DecisionContext 与 ScopeFrame，再生成和验证 `plans/research-plan.r1.json`；不得从聊天摘要跳到 research wave。
 - 每个 wave 只使用 typed task envelope 启动 bounded custom agent。agent completion summary 只作通知，父任务必须从唯一 output path 重新读取并验证正式 Artifact。
+- 每个新 dispatch wave 必须把 execution overlay 和完整 Dispatch batch 放进同一个 `compile-artifacts` publish request；Discovery research lane 还必须同包包含该 batch 的全部 canonical task envelopes。发布成功前不得启动任何 lane，不得先发布 Dispatch 激活 unit 再补 task。whole-wave intent 会在 crash recovery 时先补齐全部成员，再投影 Manifest。
 - 同一 dispatch batch 中彼此独立的 lane 在 `dispatch_mode=parallel_immediate` 发布后立即并发启动；Harness 只验证机械投影，不调度 agent。
 - 搜索规划以 60%-70% 用户/商业行为、15%-20% 经营披露/监管/市场结构、不超过 20% 学术机制/边界/反证为默认提示，不要求实际查询次数严格命中比例，也不以偏差作为 Gate。实际采用来源分布只能由 Evidence Register 机械推导，不能使用 agent 自报比例；比例偏差只进入审计观察。硬门禁仍是直接、近期、逐维度的商业证据资格与覆盖质量。
 - 商业覆盖必须标为 `observed`、`inferred` 或 `unknown`。缺少直接材料时保留合理推测，但必须写出依据引用、推理起点、推理过程、不确定性和待验证项；`inferred` 可满足报告内容完整性，不得冒充已观察事实或满足排序 Gate。
@@ -40,6 +41,8 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 - 每次 wave 后先验证 Artifact，再形成 Gap Snapshot；需要改计划时按 Adaptation Decision -> policy validation -> immutable Plan Revision -> checkpoint 顺序执行。
 - 综合、审计、比较和报告完成后，必须从原 Run 的完整 validated Manifest/Evidence 集派生 `report.json`、`decision-brief.md` 与 `report.md`，并完成 schema、traceability、freshness 和 consistency checks。所有 validated Evidence 必须被采用或给出排除理由。`terminate_insufficient_evidence` 或 `record_runtime_failure` 的 apply input 必须携带 main-agent terminal report source；后者只处置 blocking `runtime_blocked` Gap，并把原 Run 如实终止为运行失败。不能创建 reporting continuation Run、先改终态或用 chat 代替 Brief。
 - Project hooks 与本地 Evidence MCP 只是可选 guardrail/adapter。hooks 被禁用或 MCP 不可用时，继续使用本节显式 Skill 步骤与 scripts；不得降低 Artifact 验证或 Store 交接要求。
+- 活动正式 Run 遇到需要修改 `harness/`、schema/policy、Skill/hook 或冻结工具链的 blocker 时，必须先通过 `record_runtime_failure` 在原 Run 生成 terminal report 并终止为 `failed`。不得修改生产代码后继续、恢复或重验同一 `run_id`；修复和工程验证完成后必须创建新的 `run_id`。
+- 正常研究 Run 不执行 `npm test`、lint、typecheck、fixture/schema 全量验证或 clean-checkout suite。它只运行一次 doctor，以及当前 Artifact、Plan、Gap/adaptation、report、traceability/consistency 和 `status-run` 所需的确定性检查；全量仓库验证只属于代码、contract、schema、policy、Skill/hook 或工具链变更任务。
 - G1 concept assessment 的 buyer/acquisition follow-up 只能消费 exact same-Run/current Plan/assessment plan/subject/scope/coverage_key/observed Artifact 与 unit-attempt state 绑定的 `gap_snapshot.v2`。Decision 只允许 `add_unit` 或 `stop_followup`；前者发布 Research Plan、assessment plan 和 Planning Context 的同批 immutable revision 后执行 Manifest CAS，后者不创建新 revision。
 - 可以建议外部验证，但必须明确由用户负责并标记为不支持执行/跟踪；本系统不执行外部验证。
 

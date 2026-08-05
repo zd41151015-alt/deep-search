@@ -41,16 +41,35 @@ function commandText(input: HookInput): string {
   return input.tool_input.command;
 }
 
-export function evaluatePreToolUse(input: HookInput): Record<string, unknown> | undefined {
+function toolInputText(input: HookInput): string {
+  if (!isRecord(input.tool_input)) return "";
+  return Object.values(input.tool_input)
+    .filter((value): value is string => typeof value === "string")
+    .join("\n");
+}
+
+function mutatesProductionSurface(input: HookInput): boolean {
+  const toolName = typeof input.tool_name === "string" ? input.tool_name : "";
+  const contents = toolInputText(input);
+  const productionPath =
+    /(?:^|[\s"'])(?:[^\s"']+\/)?(?:harness\/|scripts\/|\.agents\/skills\/startup-opportunity\/|\.codex\/|package(?:-lock)?\.json|\.node-version|\.npmrc|tsconfig\.json)/m;
+  if (!productionPath.test(contents)) return false;
+  if (toolName === "apply_patch") return true;
+  return /(?:\*\*\*\s+(?:Add|Update|Delete) File:|\b(?:rm|mv|cp|truncate|tee|apply_patch)\b|\bsed\s+-i\b|\bperl\s+-pi\b|\bgit\s+apply\b|(?:^|\s)(?:>|>>))/m.test(
+    contents,
+  );
+}
+
+export async function evaluatePreToolUse(
+  input: HookInput,
+  activeRunId = process.env.STARTUP_OPPORTUNITY_ACTIVE_RUN_ID,
+): Promise<Record<string, unknown> | undefined> {
   const toolName = typeof input.tool_name === "string" ? input.tool_name : "";
   if (toolName.startsWith(evidenceToolPrefix) && !allowedEvidenceTools.has(toolName)) {
     return deny("Only the repository-filtered Evidence record and manifest tools are allowed.");
   }
 
   const command = commandText(input);
-  if (command.length === 0) {
-    return undefined;
-  }
   if (/\b(?:git\s+(?:reset|checkout)\s+--|rm\s+-[^\n]*r[^\n]*f)\b/.test(command)) {
     return deny("Destructive repository commands are outside the research hook boundary.");
   }
@@ -61,6 +80,29 @@ export function evaluatePreToolUse(input: HookInput): Record<string, unknown> | 
   if (directRunMutation.test(command) && mutationOperator.test(command)) {
     return deny(
       "Direct mutation of controlled Run state is blocked; use the explicit Harness publication or recovery command.",
+    );
+  }
+  if (activeRunId === undefined || !mutatesProductionSurface(input)) {
+    return undefined;
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(activeRunId)) {
+    return deny("The active Startup Opportunity Run id is invalid.");
+  }
+  const root = await findRepositoryRoot(typeof input.cwd === "string" ? input.cwd : process.cwd());
+  let status: unknown;
+  try {
+    const manifest = JSON.parse(
+      await readFile(path.join(root, "runs", activeRunId, "manifest.json"), "utf8"),
+    ) as { status?: unknown };
+    status = manifest.status;
+  } catch {
+    return deny(
+      `Run ${activeRunId} cannot be read. Recover or terminate it before changing production code.`,
+    );
+  }
+  if (!["completed", "failed", "insufficient_evidence", "cancelled"].includes(String(status))) {
+    return deny(
+      `Production changes are blocked while Run ${activeRunId} is nonterminal. Record runtime failure on that Run, make the fix, and start a new run_id.`,
     );
   }
   return undefined;
@@ -164,7 +206,7 @@ export async function runHook(mode: HookMode, suppliedInput?: HookInput): Promis
   const input = suppliedInput ?? (await readInput());
   const output =
     mode === "pre-tool-use"
-      ? evaluatePreToolUse(input)
+      ? await evaluatePreToolUse(input)
       : mode === "post-tool-use"
         ? evaluatePostToolUse(input)
         : await evaluateStop(input);

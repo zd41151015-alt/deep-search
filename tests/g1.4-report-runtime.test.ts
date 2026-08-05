@@ -426,6 +426,7 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
     .publishArtifactBundle({
       runId: G14_RUN_ID,
       envelopes: [
+        executionPlanEnvelope(bundle),
         dispatchEnvelope(bundle),
         ...branches.map((branch) => {
           const taskPath = `tasks/${branch.unitId}.attempt-1.json`;

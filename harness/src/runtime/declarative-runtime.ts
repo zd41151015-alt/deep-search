@@ -142,6 +142,19 @@ function elapsed(started: number): number {
   return Math.max(0, performance.now() - started);
 }
 
+function classifyRuntimeFailure(
+  error: unknown,
+): "validation_failed" | "publication_failed" | "runtime_blocked" {
+  const code = error instanceof StoreError ? error.code : "runtime.unexpected";
+  if (/(?:validation|invalid|mismatch|reference|schema|hash|stale|transition|bundle)/u.test(code)) {
+    return "validation_failed";
+  }
+  if (/(?:fault|publish|write|receipt|operation|lock|recovery)/u.test(code)) {
+    return "publication_failed";
+  }
+  return "runtime_blocked";
+}
+
 const ASSESSMENT_EXECUTION_ARTIFACT_TYPES = new Set([
   "startup_opportunity.concept_hypothesis.assessment_intake.current",
   "startup_opportunity.research_execution_plan.assessment.current",
@@ -166,6 +179,66 @@ export class DeclarativeRuntimeCompiler {
   async compile(
     requestValue: unknown,
     options: CompileRuntimeArtifactsOptions = {},
+  ): Promise<RuntimeArtifactCompilationResult> {
+    const observationStarted = performance.now();
+    const startedAt = new Date().toISOString();
+    const requestValidation = this.validator.validateDocument(requestValue);
+    const observableRequest =
+      requestValidation.valid &&
+      isRecord(requestValue) &&
+      requestValue.operation === "publish" &&
+      typeof requestValue.run_id === "string" &&
+      typeof requestValue.request_id === "string"
+        ? (requestValue as RuntimeArtifactCompilationRequest)
+        : null;
+    try {
+      const result = await this.compileAttempt(requestValue, options);
+      const completesFailedAttempt =
+        observableRequest !== null &&
+        result.status === "idempotent_replay" &&
+        (await this.runs.runtimeOperationNeedsCompletionObservation(
+          observableRequest.run_id,
+          observableRequest.request_id,
+        ));
+      if (observableRequest !== null && (result.status === "published" || completesFailedAttempt)) {
+        await this.runs.recordRuntimeOperationObservation({
+          runId: observableRequest.run_id,
+          operationId: observableRequest.request_id,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          durationMs: elapsed(observationStarted),
+          outcome: "published",
+          failureClassification: null,
+          errorCode: null,
+          artifactRefs: result.publication.map((entry) => entry.artifact_path),
+        });
+      }
+      return result;
+    } catch (error) {
+      if (observableRequest !== null) {
+        try {
+          await this.runs.recordRuntimeOperationObservation({
+            runId: observableRequest.run_id,
+            operationId: observableRequest.request_id,
+            startedAt,
+            completedAt: new Date().toISOString(),
+            durationMs: elapsed(observationStarted),
+            outcome: "failed",
+            failureClassification: classifyRuntimeFailure(error),
+            errorCode: error instanceof StoreError ? error.code : "runtime.unexpected",
+            artifactRefs: [],
+          });
+        } catch {
+          // Preserve the primary Runtime failure if the Run is too damaged to append telemetry.
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async compileAttempt(
+    requestValue: unknown,
+    options: CompileRuntimeArtifactsOptions,
   ): Promise<RuntimeArtifactCompilationResult> {
     const totalStarted = performance.now();
     const requestValidation = this.validator.validateDocument(requestValue);

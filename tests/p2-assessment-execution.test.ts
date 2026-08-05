@@ -1128,7 +1128,10 @@ test("Assessment Evidence binds a current dispatch task and exact Evidence Store
   await state.compiler.compile(
     compilationRequest(
       state.runId,
-      [runtimeArtifact(dispatch.path, dispatch.document, "harness")],
+      [
+        runtimeArtifact(executionPath, execution, "main_agent"),
+        runtimeArtifact(dispatch.path, dispatch.document, "harness"),
+      ],
       "compile_dispatch_evidence_synthetic",
     ),
   );
@@ -1288,7 +1291,10 @@ test("terminal Assessment gates atomically project Run outcomes and recover exac
     await state.compiler.compile(
       compilationRequest(
         state.runId,
-        [runtimeArtifact(dispatch.path, dispatch.document, "harness")],
+        [
+          runtimeArtifact(executionPath, execution, "main_agent"),
+          runtimeArtifact(dispatch.path, dispatch.document, "harness"),
+        ],
         `compile_dispatch_${item.outcome}`,
       ),
     );
@@ -1416,7 +1422,10 @@ test("current Assessment compiler publishes, rejects mixed surfaces, recovers fa
   await state.compiler.compile(
     compilationRequest(
       state.runId,
-      [runtimeArtifact(dispatch.path, dispatch.document, "harness")],
+      [
+        runtimeArtifact(executionPath, execution, "main_agent"),
+        runtimeArtifact(dispatch.path, dispatch.document, "harness"),
+      ],
       "compile_dispatch_p2_synthetic",
     ),
   );

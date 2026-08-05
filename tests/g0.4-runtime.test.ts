@@ -1110,6 +1110,38 @@ async function rewriteStoredArtifactAndReceipt(
   if (receiptFile !== nextReceiptFile) {
     await rm(receiptFile);
   }
+
+  for (const filename of (await readdir(operations)).sort()) {
+    if (!filename.startsWith("bundle-") || !filename.endsWith(".json")) {
+      continue;
+    }
+    const bundleFile = path.join(operations, filename);
+    const bundleReceipt = JSON.parse(await readFile(bundleFile, "utf8")) as Record<string, unknown>;
+    const envelopes = bundleReceipt.envelopes as Record<string, unknown>[];
+    if (!envelopes.some((candidate) => candidate.artifact_path === artifactPath)) {
+      continue;
+    }
+    const nextEnvelopes = envelopes
+      .map((candidate) => (candidate.artifact_path === artifactPath ? envelope : candidate))
+      .sort((left, right) => String(left.artifact_path).localeCompare(String(right.artifact_path)));
+    const nextBundleOperationKey = operationKey("publish_artifact_bundle", {
+      run_id: bundleReceipt.run_id,
+      envelopes: nextEnvelopes,
+    });
+    const nextBundleReceipt = {
+      ...bundleReceipt,
+      operation_key: nextBundleOperationKey,
+      envelopes: nextEnvelopes,
+    };
+    const nextBundleFile = path.join(
+      operations,
+      `bundle-${sha256Hex(nextBundleOperationKey)}.json`,
+    );
+    await writeFile(nextBundleFile, `${canonicalJson(nextBundleReceipt)}\n`);
+    if (bundleFile !== nextBundleFile) {
+      await rm(bundleFile);
+    }
+  }
 }
 
 function storeReferenceCodes(error: StoreError): readonly string[] {

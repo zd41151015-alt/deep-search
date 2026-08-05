@@ -235,6 +235,7 @@ export async function createDiscoverySynthesisFixture(
     substrate,
     additionalPlanWaves,
     profile,
+    true,
   );
   (bundle as { schema_version: string }).schema_version =
     "startup_opportunity.document_bundle.current";

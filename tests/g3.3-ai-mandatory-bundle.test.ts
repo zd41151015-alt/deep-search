@@ -49,6 +49,7 @@ import {
   refreshG33FixtureHashes,
 } from "./fixtures/g3/ai-bundle-fixture.js";
 import { createConfirmedRun } from "./helpers/current-run.js";
+import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -760,7 +761,13 @@ async function publishG33Prerequisites(
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: byTypes(discovery, "startup_opportunity.research_task.discovery_candidate.current"),
+    envelopes: discoveryWaveEnvelopes(
+      state.bundle,
+      state.runId,
+      "startup_opportunity.research_task.discovery_candidate.current",
+      1,
+      "candidate_runtime",
+    ),
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
@@ -798,9 +805,12 @@ async function publishG33Prerequisites(
   const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: byTypes(
-      evaluation,
+    envelopes: discoveryWaveEnvelopes(
+      state.bundle,
+      state.runId,
       "startup_opportunity.research_task.discovery_evaluation.current",
+      2,
+      "enrichment_runtime",
     ),
   });
   await state.store.publishArtifactBundle({

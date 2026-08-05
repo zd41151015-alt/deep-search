@@ -393,6 +393,12 @@ test("G1.3 applied Decision replay is byte-stable through single, bundle, reopen
   const appliedManifest = (await state.store.load(state.runId)).manifest;
   assert.ok(appliedManifest.applied_adaptation_refs.includes(prepared.decision.path));
   assert.ok(!appliedManifest.pending_adaptation_refs.includes(prepared.decision.path));
+
+  const initialBundleReplay = await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: [prepared.gapEnvelope, prepared.decisionEnvelope],
+  });
+  assert.equal(initialBundleReplay.status, "idempotent_replay");
   const before = await snapshotTree(state.runRoot);
 
   const singleReplay = await state.store.publishArtifact({
@@ -454,6 +460,12 @@ test("G1.3 historical Gap replay cannot replace a later latest Gap", async (cont
   );
   await state.store.publishArtifact({ runId: state.runId, envelope: currentEnvelope });
   assert.equal((await state.store.load(state.runId)).manifest.latest_gap_snapshot_ref, currentPath);
+
+  const initialBundleReplay = await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: [historical.gapEnvelope, historical.decisionEnvelope],
+  });
+  assert.equal(initialBundleReplay.status, "idempotent_replay");
   const before = await snapshotTree(state.runRoot);
 
   const singleReplay = await state.store.publishArtifact({

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -92,7 +92,7 @@ test("project config and hook registry expose the narrow repo-local integration"
 
 test("ordinary hook inputs continue without manufacturing telemetry or formal Artifacts", async () => {
   assert.equal(
-    evaluatePreToolUse({
+    await evaluatePreToolUse({
       tool_name: "Bash",
       tool_input: { command: "npm run harness -- doctor --json" },
     }),
@@ -106,6 +106,33 @@ test("ordinary hook inputs continue without manufacturing telemetry or formal Ar
     undefined,
   );
   assert.equal(await evaluateStop({}, undefined), undefined);
+});
+
+test("research guard blocks production hot-fixes until the active Run is terminal", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-hotfix-guard-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const runId = "active-hotfix-guard-synthetic";
+  await mkdir(path.join(root, ".agents/skills/startup-opportunity"), { recursive: true });
+  await mkdir(path.join(root, "runs", runId), { recursive: true });
+  await writeFile(path.join(root, ".agents/skills/startup-opportunity/SKILL.md"), "fixture\n");
+  const manifestPath = path.join(root, "runs", runId, "manifest.json");
+  await writeFile(manifestPath, JSON.stringify({ status: "researching" }));
+  const patchInput = {
+    cwd: root,
+    tool_name: "apply_patch",
+    tool_input: { patch: "*** Update File: harness/src/run-store/run-store.ts" },
+  };
+
+  assert.deepEqual(await evaluatePreToolUse(patchInput, runId), {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: `Production changes are blocked while Run ${runId} is nonterminal. Record runtime failure on that Run, make the fix, and start a new run_id.`,
+    },
+  });
+
+  await writeFile(manifestPath, JSON.stringify({ status: "failed" }));
+  assert.equal(await evaluatePreToolUse(patchInput, runId), undefined);
 });
 
 test("status reads a validated manifest without mutating the Run", async (context) => {

@@ -34,6 +34,7 @@ import {
   runtimeEnvelope,
 } from "./fixtures/g2.2/discovery-runtime-fixture.js";
 import { createConfirmedRun } from "./helpers/current-run.js";
+import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
@@ -142,7 +143,13 @@ async function setup(context: TestContext, suffix: string): Promise<RuntimeState
       recordedAt: "2026-07-27T17:41:00Z",
     })
   ).record;
-  const bundle = await createDiscoveryRuntimeFixture(runId, { generation, evaluation });
+  const bundle = await createDiscoveryRuntimeFixture(
+    runId,
+    { generation, evaluation },
+    [],
+    "general",
+    true,
+  );
   await store.publishArtifactBundle({
     runId,
     envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
@@ -164,12 +171,15 @@ async function publishCandidates(state: RuntimeState): Promise<void> {
 }
 
 async function publishTasks(state: RuntimeState): Promise<void> {
-  const tasks = envelopesByType(
+  const wave = discoveryWaveEnvelopes(
     state.bundle,
+    state.runId,
     "startup_opportunity.research_task.discovery_candidate.current",
+    1,
+    "candidate_runtime",
   );
-  assert.equal(tasks.length, 2);
-  await state.store.publishArtifactBundle({ runId: state.runId, envelopes: tasks });
+  assert.equal(wave.length, 4);
+  await state.store.publishArtifactBundle({ runId: state.runId, envelopes: wave });
 }
 
 async function publishMaterials(state: RuntimeState): Promise<void> {
@@ -461,9 +471,12 @@ test("generic Harness CLI and Skill script publish only caller-supplied G2.2 env
   await writeFile(
     taskFile,
     `${canonicalJson({
-      documents: envelopesByType(
+      documents: discoveryWaveEnvelopes(
         state.bundle,
+        state.runId,
         "startup_opportunity.research_task.discovery_candidate.current",
+        1,
+        "candidate_runtime",
       ).map((document) => ({ document })),
     })}\n`,
   );

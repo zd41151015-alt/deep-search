@@ -374,6 +374,48 @@ test("Artifact recovery rejects receipt filename and envelope metadata drift", a
   );
 });
 
+test("whole-bundle recovery rejects a drifted immutable intent", async (context) => {
+  const runId = "artifact-bundle-receipt-drift";
+  const { runRoot, store } = await setup(context, runId);
+  const envelopes = ["first", "second"].map((suffix): FormalArtifactEnvelope => {
+    const document = {
+      schema_version: "startup_opportunity.event.v1",
+      event_id: `artifact_bundle_${suffix}`,
+      run_id: runId,
+      event_type: "decision_context_written",
+      timestamp: "2026-07-23T12:05:00Z",
+      actor: "harness",
+      reason: `Publish the ${suffix} bundle member before corrupting the bundle intent.`,
+      artifact_refs: [],
+    };
+    return {
+      schema_version: "startup_opportunity.artifact_envelope.current",
+      artifact_type: "startup_opportunity.event.v1",
+      artifact_path: `events/artifact-bundle-${suffix}.json`,
+      run_id: runId,
+      created_at: "2026-07-23T12:05:00Z",
+      producer_role: "harness",
+      input_refs: [],
+      content_hash: canonicalContentHash(document),
+      document,
+    };
+  });
+  await store.publishArtifactBundle({ runId, envelopes });
+  const operations = path.join(runRoot, ".store/operations");
+  const receiptName = (await readdir(operations)).find((entry) => entry.startsWith("bundle-"));
+  assert.ok(receiptName);
+  const receiptPath = path.join(operations, receiptName);
+  const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
+  receipt.run_id = "artifact-bundle-receipt-drifted";
+  await writeFile(receiptPath, `${canonicalJson(receipt)}\n`);
+
+  await assert.rejects(
+    store.load(runId),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "recovery.invalid_bundle_operation",
+  );
+});
+
 test("Evidence recovery rejects a receipt stored under the wrong operation-key filename", async (context) => {
   const { runRoot, runsRoot, store } = await setup(context, "evidence-receipt-drift");
   const { EvidenceStore } = await import("../harness/src/index.js");

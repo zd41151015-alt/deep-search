@@ -59,6 +59,13 @@ interface ArtifactOperationReceipt {
   readonly envelope: FormalArtifactEnvelope;
 }
 
+interface ArtifactBundleOperationReceipt {
+  readonly schema_version: "startup_opportunity.artifact_bundle_operation.current";
+  readonly operation_key: string;
+  readonly run_id: string;
+  readonly envelopes: readonly FormalArtifactEnvelope[];
+}
+
 export interface PublishArtifactInput {
   readonly runId: string;
   readonly envelope: FormalArtifactEnvelope;
@@ -134,6 +141,58 @@ function expectedArtifactOperationKey(envelope: FormalArtifactEnvelope): string 
     artifact_type: envelope.artifact_type,
     content_hash: envelope.content_hash,
   });
+}
+
+function expectedArtifactBundleOperationKey(
+  runId: string,
+  envelopes: readonly FormalArtifactEnvelope[],
+): string {
+  return operationKey("publish_artifact_bundle", {
+    run_id: runId,
+    envelopes: [...envelopes].sort((left, right) =>
+      left.artifact_path.localeCompare(right.artifact_path),
+    ),
+  });
+}
+
+function validateArtifactBundleReceipt(
+  value: unknown,
+  filename: string,
+  runId: string,
+): ArtifactBundleOperationReceipt {
+  if (
+    !isRecord(value) ||
+    !hasExactlyKeys(value, ["schema_version", "operation_key", "run_id", "envelopes"]) ||
+    value.schema_version !== "startup_opportunity.artifact_bundle_operation.current" ||
+    !isSha256(value.operation_key) ||
+    value.run_id !== runId ||
+    !Array.isArray(value.envelopes) ||
+    value.envelopes.length < 2 ||
+    !value.envelopes.every(isEnvelope)
+  ) {
+    throw new StoreError(
+      "recovery.invalid_bundle_operation",
+      "Artifact bundle receipt is invalid",
+      {
+        path: `.store/operations/${filename}`,
+      },
+    );
+  }
+  const receipt = value as unknown as ArtifactBundleOperationReceipt;
+  const paths = receipt.envelopes.map((envelope) => envelope.artifact_path);
+  if (
+    new Set(paths).size !== paths.length ||
+    receipt.envelopes.some((envelope) => envelope.run_id !== runId) ||
+    receipt.operation_key !== expectedArtifactBundleOperationKey(runId, receipt.envelopes) ||
+    filename !== `bundle-${sha256Hex(receipt.operation_key)}.json`
+  ) {
+    throw new StoreError(
+      "recovery.invalid_bundle_operation",
+      "Artifact bundle receipt identity differs from its filename or envelopes",
+      { path: `.store/operations/${filename}` },
+    );
+  }
+  return receipt;
 }
 
 function validateArtifactReceipt(
@@ -453,6 +512,35 @@ export class ArtifactStore {
       this.validateEnvelopeBoundary(input.runId, envelope);
     }
     await this.validateEnvelopeSetReferences(runRoot, input.envelopes, referenceContext);
+    const bundleOperationKey = expectedArtifactBundleOperationKey(input.runId, input.envelopes);
+    const bundleOperationHex = sha256Hex(bundleOperationKey);
+    const bundleReceipt: ArtifactBundleOperationReceipt = {
+      schema_version: "startup_opportunity.artifact_bundle_operation.current",
+      operation_key: bundleOperationKey,
+      run_id: input.runId,
+      envelopes: [...input.envelopes].sort((left, right) =>
+        left.artifact_path.localeCompare(right.artifact_path),
+      ),
+    };
+    const bundleReceiptPath = `.store/operations/bundle-${bundleOperationHex}.json`;
+    const bundleReceiptFile = await resolveRunPath(runRoot, bundleReceiptPath, {
+      createParents: true,
+    });
+    try {
+      const existing = JSON.parse(await readFile(bundleReceiptFile, "utf8")) as unknown;
+      if (canonicalJson(existing) !== canonicalJson(bundleReceipt)) {
+        throw new StoreError(
+          "write.bundle_operation_conflict",
+          "bundle operation key was previously used with different content",
+          { operationKey: bundleOperationKey },
+        );
+      }
+    } catch (error) {
+      if (!isNodeError(error, "ENOENT")) throw error;
+      const bundleReceiptTemp = `.store/temp/bundle-${bundleOperationHex}.receipt.tmp`;
+      await writeSyncedTemp(runRoot, bundleReceiptTemp, `${canonicalJson(bundleReceipt)}\n`);
+      await publishTemp(runRoot, bundleReceiptTemp, bundleReceiptPath);
+    }
     const artifacts: PublishArtifactResult[] = [];
     for (const envelope of [...input.envelopes].sort((left, right) => {
       const rank = publicationRank(left) - publicationRank(right);
@@ -577,6 +665,37 @@ export class ArtifactStore {
     });
     const tempDirectory = await resolveRunPath(runRoot, ".store/temp", { createParents: true });
     const recovered: string[] = [];
+    for (const entry of (await readdir(operationDirectory)).sort()) {
+      if (!entry.startsWith("bundle-") || !entry.endsWith(".json")) continue;
+      const receiptValue = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, `.store/operations/${entry}`), "utf8"),
+      ) as unknown;
+      const receipt = validateArtifactBundleReceipt(receiptValue, entry, runId);
+      for (const envelope of receipt.envelopes) {
+        this.validateEnvelopeBoundary(runId, envelope);
+        const target = await resolveRunPath(runRoot, envelope.artifact_path, {
+          createParents: true,
+        });
+        let missing = false;
+        try {
+          const existing = JSON.parse(await readFile(target, "utf8")) as unknown;
+          if (canonicalJson(existing) !== canonicalJson(envelope)) {
+            throw new StoreError(
+              "write.conflict",
+              "published bundle artifact differs from its operation",
+              { path: envelope.artifact_path },
+            );
+          }
+        } catch (error) {
+          if (!isNodeError(error, "ENOENT")) throw error;
+          missing = true;
+        }
+        if (missing) {
+          await this.publishLocked(runRoot, { runId, envelope }, true);
+          recovered.push(envelope.artifact_path);
+        }
+      }
+    }
     const retainedTemps = new Set<string>();
     const operations: {
       readonly receiptPath: string;
@@ -656,7 +775,7 @@ export class ArtifactStore {
       }
     }
     return {
-      recoveredArtifactPaths: recovered.sort(),
+      recoveredArtifactPaths: [...new Set(recovered)].sort(),
       removedTemporaryPaths: removedTemps.sort(),
     };
   }

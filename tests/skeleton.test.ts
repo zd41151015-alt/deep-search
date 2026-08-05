@@ -134,6 +134,7 @@ test("doctor rejects a second implementation lockfile", async (context) => {
 test("package lock and runtime metadata are frozen to one npm stack", async () => {
   const packageJson = JSON.parse(await read("package.json")) as {
     engines?: Record<string, string>;
+    devEngines?: Record<string, Record<string, string>>;
     packageManager?: string;
   };
   const packageLock = JSON.parse(await read("package-lock.json")) as {
@@ -141,6 +142,10 @@ test("package lock and runtime metadata are frozen to one npm stack", async () =
   };
 
   assert.deepEqual(packageJson.engines, { node: "24.18.x", npm: "11.16.x" });
+  assert.deepEqual(packageJson.devEngines, {
+    runtime: { name: "node", version: "24.18.x", onFail: "error" },
+    packageManager: { name: "npm", version: "11.16.x", onFail: "error" },
+  });
   assert.equal(packageJson.packageManager, "npm@11.16.0");
   assert.equal(packageLock.lockfileVersion, 3);
 });
