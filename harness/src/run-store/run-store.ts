@@ -1777,6 +1777,14 @@ export class RunStore {
       }
     }
 
+    const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
+      runRoot,
+      runId,
+      this.validator,
+      this.artifacts,
+      this.logs,
+    );
+
     return {
       schemaVersion: "startup_opportunity.validation_context.v1",
       bundle: {
@@ -1790,6 +1798,7 @@ export class RunStore {
         exactJsonlRecords: new Map(
           [...exactRecords.entries()].sort(([left], [right]) => left.localeCompare(right)),
         ),
+        historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
       },
     };
   }
@@ -1841,7 +1850,16 @@ export class RunStore {
       this.assertDiscoveryLanePublicationTransition(manifest, input.envelope, ignoredLate);
       this.assertEnrichmentBranchPublicationTransition(manifest, input.envelope, ignoredLate);
       this.assertDeclarativeRuntimeTransition(manifest, input.envelope, new Set());
-      const result = await this.artifacts.publishLocked(runRoot, input);
+      const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
+        runRoot,
+        input.runId,
+        this.validator,
+        this.artifacts,
+        this.logs,
+      );
+      const result = await this.artifacts.publishLocked(runRoot, input, false, {
+        historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
+      });
       if (taskPublicationMode === "replay") {
         return result;
       }
@@ -1958,7 +1976,16 @@ export class RunStore {
         this.assertDeclarativeRuntimeTransition(manifest, envelope, runtimeActivations);
         classifications.set(envelope.artifact_path, effectiveClassification);
       }
-      const result = await this.artifacts.publishBundleLocked(runRoot, input);
+      const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
+        runRoot,
+        input.runId,
+        this.validator,
+        this.artifacts,
+        this.logs,
+      );
+      const result = await this.artifacts.publishBundleLocked(runRoot, input, {
+        historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
+      });
       const publicationResults = new Map(
         result.artifacts.map((artifact) => [artifact.artifactPath, artifact.status]),
       );
@@ -3576,6 +3603,7 @@ export class RunStore {
           bundleErrors: bundle.bundleErrors,
           documentErrors: bundle.documents.flatMap((document) => document.errors),
           referenceErrors: bundle.referenceErrors,
+          referenceErrorCodes: bundle.referenceErrors.map((error) => error.code),
         },
       );
     }

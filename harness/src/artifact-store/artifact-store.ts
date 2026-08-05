@@ -474,6 +474,7 @@ export class ArtifactStore {
     runRoot: string,
     input: PublishArtifactInput,
     referencesPrevalidated = false,
+    referenceContext: DocumentBundleReferenceContext = {},
   ): Promise<PublishArtifactResult> {
     validateRunId(input.runId);
     await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
@@ -483,7 +484,7 @@ export class ArtifactStore {
     });
     this.validateEnvelopeBoundary(input.runId, input.envelope);
     if (!referencesPrevalidated) {
-      await this.validateEnvelopeReferences(runRoot, input.envelope);
+      await this.validateEnvelopeReferences(runRoot, input.envelope, referenceContext);
     }
 
     const computedOperationKey = expectedArtifactOperationKey(input.envelope);
@@ -743,8 +744,9 @@ export class ArtifactStore {
   private async validateEnvelopeReferences(
     runRoot: string,
     envelope: FormalArtifactEnvelope,
+    referenceContext: DocumentBundleReferenceContext = {},
   ): Promise<void> {
-    await this.validateEnvelopeSetReferences(runRoot, [envelope]);
+    await this.validateEnvelopeSetReferences(runRoot, [envelope], referenceContext);
   }
 
   private async validateEnvelopeSetReferences(

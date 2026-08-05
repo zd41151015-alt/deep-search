@@ -18,6 +18,7 @@ import {
   StoreError,
   validateDiscoveryMapsContract,
 } from "../harness/src/index.js";
+import { formalArtifactFragmentExists } from "../harness/src/validators/artifact-ref-resolver.js";
 import {
   createDiscoveryMapsFixture,
   fixtureDocument,
@@ -83,6 +84,47 @@ function planUnits(bundle: DocumentBundle): Record<string, unknown>[] {
     (wave) => wave.units as Record<string, unknown>[],
   );
 }
+
+test("G2.1 exposes semantic map fragments to the shared reference resolver", async () => {
+  const bundle = await createDiscoveryMapsFixture("general");
+  const opportunity = fixtureDocument(bundle, G21_OPPORTUNITY_REF);
+  const solution = fixtureDocument(bundle, G21_SOLUTION_REF);
+  const demand = (opportunity.initial_demand_hypotheses as Record<string, unknown>[])[0];
+  const solutionCandidate = (solution.solution_candidates as Record<string, unknown>[])[0];
+
+  assert.equal(
+    formalArtifactFragmentExists(
+      {
+        schemaVersion: "startup_opportunity.opportunity_space_map.v1",
+        document: opportunity,
+      },
+      String(demand?.hypothesis_id),
+    ),
+    true,
+  );
+  assert.equal(
+    formalArtifactFragmentExists(
+      {
+        schemaVersion: "startup_opportunity.solution_space_map.v1",
+        document: solution,
+      },
+      String(solutionCandidate?.candidate_id),
+      "candidate_id",
+    ),
+    true,
+  );
+  assert.equal(
+    formalArtifactFragmentExists(
+      {
+        schemaVersion: "startup_opportunity.opportunity_space_map.v1",
+        document: opportunity,
+      },
+      String(demand?.hypothesis_id),
+      "candidate_id",
+    ),
+    false,
+  );
+});
 
 function discoveryMapDocuments(bundle: DocumentBundle): DiscoveryMapDocument[] {
   return bundle.documents.map((entry) => {
