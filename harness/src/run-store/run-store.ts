@@ -357,11 +357,11 @@ function recoveryTransitionRank(envelope: FormalArtifactEnvelope): number {
     return -1;
   }
   if (
-    envelope.artifact_type === "startup_opportunity.dispatch_batch.v1" ||
-    envelope.artifact_type === "startup_opportunity.dispatch_batch.v2" ||
-    envelope.artifact_type === "startup_opportunity.research_task.v1" ||
-    envelope.artifact_type === "startup_opportunity.research_task.v2" ||
-    envelope.artifact_type === "startup_opportunity.research_task.v3"
+    envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current" ||
+    envelope.artifact_type === "startup_opportunity.dispatch_batch.assessment.current" ||
+    envelope.artifact_type === "startup_opportunity.research_task.assessment.current" ||
+    envelope.artifact_type === "startup_opportunity.research_task.discovery_candidate.current" ||
+    envelope.artifact_type === "startup_opportunity.research_task.discovery_evaluation.current"
   ) {
     return 0;
   }
@@ -1332,9 +1332,10 @@ export class RunStore {
     }
     const stageTimings = effective
       .filter((entry) =>
-        ["startup_opportunity.dispatch_batch.v1", "startup_opportunity.dispatch_batch.v2"].includes(
-          entry.artifactType,
-        ),
+        [
+          "startup_opportunity.dispatch_batch.discovery.current",
+          "startup_opportunity.dispatch_batch.assessment.current",
+        ].includes(entry.artifactType),
       )
       .flatMap((entry) => {
         const stageId = entry.document.stage_id;
@@ -1514,9 +1515,9 @@ export class RunStore {
   }> {
     const requiredTypes = [
       "startup_opportunity.terminal_report_source.v1",
-      "startup_opportunity.decision_brief.v3",
+      "startup_opportunity.decision_brief.terminal.current",
       "startup_opportunity.terminal_report_view.v1",
-      "startup_opportunity.report_consistency_evaluation.v4",
+      "startup_opportunity.report_consistency_evaluation.terminal.current",
     ] as const;
     const formal = await this.artifacts.listFormalDocuments(runRoot);
     const reporting = requiredTypes.map((artifactType) =>
@@ -1592,7 +1593,8 @@ export class RunStore {
         (document) => document.schema_version === "startup_opportunity.terminal_report_source.v1",
       );
       const brief = effective.find(
-        (document) => document.schema_version === "startup_opportunity.decision_brief.v3",
+        (document) =>
+          document.schema_version === "startup_opportunity.decision_brief.terminal.current",
       );
       const view = effective.find(
         (document) => document.schema_version === "startup_opportunity.terminal_report_view.v1",
@@ -1876,8 +1878,8 @@ export class RunStore {
       const runtimeActivations = new Set<string>();
       for (const envelope of input.envelopes) {
         if (
-          envelope.artifact_type !== "startup_opportunity.dispatch_batch.v1" &&
-          envelope.artifact_type !== "startup_opportunity.dispatch_batch.v2"
+          envelope.artifact_type !== "startup_opportunity.dispatch_batch.discovery.current" &&
+          envelope.artifact_type !== "startup_opportunity.dispatch_batch.assessment.current"
         ) {
           continue;
         }
@@ -1961,8 +1963,8 @@ export class RunStore {
         result.artifacts.map((artifact) => [artifact.artifactPath, artifact.status]),
       );
       const projectionRank = (envelope: FormalArtifactEnvelope): number =>
-        envelope.artifact_type === "startup_opportunity.dispatch_batch.v1" ||
-        envelope.artifact_type === "startup_opportunity.dispatch_batch.v2"
+        envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current" ||
+        envelope.artifact_type === "startup_opportunity.dispatch_batch.assessment.current"
           ? 0
           : envelope.artifact_type === "startup_opportunity.discovery_generation_result.v1"
             ? 2
@@ -2367,11 +2369,14 @@ export class RunStore {
   ): Promise<"not_task" | "transition" | "replay"> {
     const isCurrentEnvelope = isCurrentEnvelopeSchema(envelope.schema_version);
     const isAssessmentTask =
-      isCurrentEnvelope && envelope.artifact_type === "startup_opportunity.research_task.v1";
+      isCurrentEnvelope &&
+      envelope.artifact_type === "startup_opportunity.research_task.assessment.current";
     const isDiscoveryTask =
-      isCurrentEnvelope && envelope.artifact_type === "startup_opportunity.research_task.v2";
+      isCurrentEnvelope &&
+      envelope.artifact_type === "startup_opportunity.research_task.discovery_candidate.current";
     const isEnrichmentTask =
-      isCurrentEnvelope && envelope.artifact_type === "startup_opportunity.research_task.v3";
+      isCurrentEnvelope &&
+      envelope.artifact_type === "startup_opportunity.research_task.discovery_evaluation.current";
     if (!isAssessmentTask && !isDiscoveryTask && !isEnrichmentTask) {
       return "not_task";
     }
@@ -2507,7 +2512,7 @@ export class RunStore {
       if (
         !isRecord(value) ||
         value.schema_version !== "startup_opportunity.artifact_envelope.current" ||
-        value.artifact_type !== "startup_opportunity.dispatch_batch.v1" ||
+        value.artifact_type !== "startup_opportunity.dispatch_batch.discovery.current" ||
         value.run_id !== manifest.run_id ||
         !isRecord(value.document) ||
         value.document.research_plan_ref !== planRef
@@ -2717,9 +2722,10 @@ export class RunStore {
       !ignoredLate &&
       (!exactReplay || !artifactWasTracked) &&
       envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
-      ["startup_opportunity.dispatch_batch.v1", "startup_opportunity.dispatch_batch.v2"].includes(
-        envelope.artifact_type,
-      )
+      [
+        "startup_opportunity.dispatch_batch.discovery.current",
+        "startup_opportunity.dispatch_batch.assessment.current",
+      ].includes(envelope.artifact_type)
     ) {
       for (const task of Array.isArray(envelope.document.tasks) ? envelope.document.tasks : []) {
         if (isRecord(task) && typeof task.unit_id === "string") {
@@ -2785,9 +2791,9 @@ export class RunStore {
       !ignoredLate &&
       envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
       [
-        "startup_opportunity.research_task.v1",
-        "startup_opportunity.research_task.v2",
-        "startup_opportunity.research_task.v3",
+        "startup_opportunity.research_task.assessment.current",
+        "startup_opportunity.research_task.discovery_candidate.current",
+        "startup_opportunity.research_task.discovery_evaluation.current",
       ].includes(envelope.artifact_type) &&
       typeof envelope.document.unit_id === "string"
     ) {
@@ -2797,8 +2803,10 @@ export class RunStore {
         ...next,
         status: "researching",
         current_phase:
-          envelope.artifact_type === "startup_opportunity.research_task.v2" ||
-          envelope.artifact_type === "startup_opportunity.research_task.v3"
+          envelope.artifact_type ===
+            "startup_opportunity.research_task.discovery_candidate.current" ||
+          envelope.artifact_type ===
+            "startup_opportunity.research_task.discovery_evaluation.current"
             ? "discovery"
             : "assessment",
       };
@@ -2927,8 +2935,8 @@ export class RunStore {
     const stateOf = (unitId: string): string | null =>
       stateFields.find((field) => manifest[field].includes(unitId)) ?? null;
     if (
-      envelope.artifact_type === "startup_opportunity.dispatch_batch.v1" ||
-      envelope.artifact_type === "startup_opportunity.dispatch_batch.v2"
+      envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current" ||
+      envelope.artifact_type === "startup_opportunity.dispatch_batch.assessment.current"
     ) {
       if (envelope.document.research_plan_ref !== manifest.current_plan_ref) {
         throw new StoreError(
@@ -3809,7 +3817,8 @@ export class RunStore {
       const envelope = entry.document;
       return (
         envelope.schema_version === "startup_opportunity.artifact_envelope.current" &&
-        envelope.artifact_type === "startup_opportunity.research_task.v2" &&
+        envelope.artifact_type ===
+          "startup_opportunity.research_task.discovery_candidate.current" &&
         isRecord(envelope.document) &&
         envelope.document.allowed_output_path === artifactPath
       );

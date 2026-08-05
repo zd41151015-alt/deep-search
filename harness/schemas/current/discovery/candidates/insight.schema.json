@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/candidates/insight.schema.json",
+  "title": "Startup Opportunity Discovery Candidate Insight",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "insight_id",
+    "run_id",
+    "unit_id",
+    "lineage",
+    "source_units",
+    "summary",
+    "finding_refs",
+    "decision_relevance",
+    "confidence_band",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.insight.discovery_candidate.current"
+    },
+    "insight_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "lineage": {
+      "$ref": "./definitions.schema.json#/$defs/discoveryLineage"
+    },
+    "source_units": {
+      "type": "array",
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/identifier"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "summary": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "finding_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/findingRef"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "decision_relevance": {
+      "enum": [
+        "candidate_generation",
+        "candidate_evaluation",
+        "pre_kill",
+        "diversity_retention",
+        "counter_evidence"
+      ]
+    },
+    "confidence_band": {
+      "enum": ["low", "medium", "high", "unknown"]
+    },
+    "limitations": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

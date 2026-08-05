@@ -3,7 +3,7 @@
   "policy_id": "startup_opportunity.current_research_publication",
   "evidence_contract": {
     "substrate_record": "startup_opportunity.evidence_store_record.v2",
-    "business_evidence": "startup_opportunity.evidence.v1",
+    "business_evidence": "startup_opportunity.evidence.assessment.current",
     "audit_artifact": "startup_opportunity.evidence_audit.v1",
     "stable_identity": "canonical_source_content_research_goal_sha256.v2",
     "raw_dedup_identity": "content_sha256.v1"
@@ -71,7 +71,7 @@
     "recovery": "receipt_driven_fail_closed"
   },
   "discovery_runtime_contract": {
-    "task_artifact_type": "startup_opportunity.research_task.v2",
+    "task_artifact_type": "startup_opportunity.research_task.discovery_candidate.current",
     "lane_artifact_type": "startup_opportunity.discovery_lane_result.v1",
     "fan_in_artifact_type": "startup_opportunity.discovery_fan_in.v2",
     "explicit_artifact_input_only": true,
@@ -103,8 +103,8 @@
     "document_bundle_schema_version": "startup_opportunity.document_bundle.current"
   },
   "discovery_evaluation_contract": {
-    "evaluation_policy_ref": "harness/policies/discovery-evaluation.v3.json",
-    "evaluation_policy_schema_version": "startup_opportunity.discovery_evaluation_policy.v3",
+    "evaluation_policy_ref": "harness/policies/discovery-evaluation.current.json",
+    "evaluation_policy_schema_version": "startup_opportunity.discovery_evaluation_policy.current",
     "ai_missing_bundle_behavior": "insufficient_evidence_and_investigate_further_ceiling",
     "report_scan_contract_version": "startup_opportunity.deterministic_forbidden_expression_scan.v1",
     "explicit_artifact_input_only": true,
@@ -116,8 +116,8 @@
     "document_bundle_schema_version": "startup_opportunity.document_bundle.current"
   },
   "discovery_adaptation_binding_contract": {
-    "policy_ref": "harness/policies/discovery-adaptation-binding.v1.json",
-    "policy_schema_version": "startup_opportunity.discovery_adaptation_binding_policy.v1",
+    "policy_ref": "harness/policies/discovery-adaptation-binding.current.json",
+    "policy_schema_version": "startup_opportunity.discovery_adaptation_binding_policy.current",
     "candidate_pre_kill_skip_binding": "exact_exclusive_candidate_input",
     "shared_unit_behavior": "retain_or_supersede",
     "apply_revalidates": true
@@ -207,9 +207,9 @@
   "terminal_reporting_contract": {
     "source_artifact_type": "startup_opportunity.terminal_report_source.v1",
     "derived_artifact_types": [
-      "startup_opportunity.decision_brief.v3",
+      "startup_opportunity.decision_brief.terminal.current",
       "startup_opportunity.terminal_report_view.v1",
-      "startup_opportunity.report_consistency_evaluation.v4"
+      "startup_opportunity.report_consistency_evaluation.terminal.current"
     ],
     "shared_across_modes": true,
     "caller_supplied_judgment": true,

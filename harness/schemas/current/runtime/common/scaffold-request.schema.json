@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/common/scaffold-request.schema.json",
+  "title": "Startup Opportunity Deterministic Scaffold Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scaffold_id",
+    "kind",
+    "run_id",
+    "mode",
+    "created_at",
+    "scope_confirmation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.scaffold_request.current"
+    },
+    "scaffold_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "kind": {
+      "enum": [
+        "intake",
+        "planning",
+        "task",
+        "dispatch",
+        "readiness",
+        "gap",
+        "decision",
+        "terminal_report_source"
+      ]
+    },
+    "run_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "enum": ["opportunity_discovery", "concept_evidence_assessment"]
+    },
+    "created_at": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+    },
+    "scope_confirmation": {
+      "$ref": "../../assessment/core/intake.schema.json#/properties/scope_confirmation"
+    }
+  }
+}

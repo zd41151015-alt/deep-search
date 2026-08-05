@@ -110,7 +110,7 @@ function planningContext(
   return {
     path: options.path,
     document: {
-      schema_version: "startup_opportunity.planning_context.v2",
+      schema_version: "startup_opportunity.planning_context.ai_source_bound.current",
       context_id: `planning_context_${String(manifest.run_id).replaceAll("-", "_")}`,
       revision: options.revision,
       parent_context_ref: options.parentRef,

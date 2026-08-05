@@ -175,18 +175,21 @@ async function publishThroughFanIn(state: State): Promise<void> {
   await state.store.publishArtifactBundle({ runId: state.runId, envelopes: initialCandidates });
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: byTypes(state.bundle, "startup_opportunity.research_task.v2"),
+    envelopes: byTypes(
+      state.bundle,
+      "startup_opportunity.research_task.discovery_candidate.current",
+    ),
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(
       state.bundle,
-      "startup_opportunity.evidence.v2",
-      "startup_opportunity.claim.v2",
-      "startup_opportunity.finding.v2",
-      "startup_opportunity.insight.v2",
-      "startup_opportunity.judgment_assessment.v2",
-      "startup_opportunity.source_manifest.v2",
+      "startup_opportunity.evidence.discovery_candidate.current",
+      "startup_opportunity.claim.discovery_candidate.current",
+      "startup_opportunity.finding.discovery_candidate.current",
+      "startup_opportunity.insight.discovery_candidate.current",
+      "startup_opportunity.judgment_assessment.discovery_candidate.current",
+      "startup_opportunity.source_manifest.discovery_candidate.current",
     ),
   });
   await state.store.publishArtifactBundle({

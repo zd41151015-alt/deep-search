@@ -1,0 +1,271 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/store/research-publication-policy.schema.json",
+  "title": "Startup Opportunity Current Research Publication Policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "publication",
+    "evidence_contract",
+    "traceability_contract",
+    "task_lifecycle_contract",
+    "branch_status_projection",
+    "discovery_lane_status_projection",
+    "enrichment_branch_status_projection",
+    "report_publication_contract",
+    "discovery_map_contract",
+    "discovery_runtime_contract",
+    "discovery_synthesis_contract",
+    "discovery_evaluation_contract",
+    "discovery_adaptation_binding_contract",
+    "ai_baseline_contract",
+    "ai_economics_contract",
+    "ai_mandatory_bundle_contract",
+    "commercial_research_contract",
+    "terminal_reporting_contract",
+    "declarative_runtime_contract",
+    "assessment_execution_contract"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.research_publication_policy.current"
+    },
+    "policy_id": {
+      "const": "startup_opportunity.current_research_publication"
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "envelope_schema_version",
+        "document_bundle_schema_version",
+        "receipt_schema_version"
+      ],
+      "properties": {
+        "envelope_schema_version": {
+          "const": "startup_opportunity.artifact_envelope.current"
+        },
+        "document_bundle_schema_version": {
+          "const": "startup_opportunity.document_bundle.current"
+        },
+        "receipt_schema_version": {
+          "const": "startup_opportunity.artifact_store_operation.current"
+        }
+      }
+    },
+    "evidence_contract": {
+      "type": "object"
+    },
+    "traceability_contract": {
+      "type": "object"
+    },
+    "task_lifecycle_contract": {
+      "type": "object"
+    },
+    "branch_status_projection": {
+      "type": "object"
+    },
+    "discovery_lane_status_projection": {
+      "type": "object"
+    },
+    "enrichment_branch_status_projection": {
+      "type": "object"
+    },
+    "report_publication_contract": {
+      "type": "object"
+    },
+    "discovery_map_contract": {
+      "type": "object"
+    },
+    "discovery_runtime_contract": {
+      "type": "object"
+    },
+    "discovery_synthesis_contract": {
+      "type": "object"
+    },
+    "discovery_evaluation_contract": {
+      "type": "object"
+    },
+    "discovery_adaptation_binding_contract": {
+      "type": "object"
+    },
+    "ai_baseline_contract": {
+      "type": "object"
+    },
+    "ai_economics_contract": {
+      "type": "object"
+    },
+    "ai_mandatory_bundle_contract": {
+      "type": "object"
+    },
+    "commercial_research_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary_evidence_basis",
+        "academic_evidence_role",
+        "default_resource_allocation",
+        "resource_allocation_enforcement",
+        "actual_distribution_basis",
+        "customer_commercial_percent_range",
+        "market_structure_percent_range",
+        "academic_percent_maximum",
+        "ranking_coverage_keys",
+        "academic_allowed_coverage_keys",
+        "vendor_claim_requires_cross_validation",
+        "claim_freshness_windows_days",
+        "historical_claim_types",
+        "solution_neutral_stage",
+        "solution_specific_stage",
+        "wave1_early_stop_signal_keys"
+      ],
+      "properties": {
+        "primary_evidence_basis": {
+          "const": "commercial_behavior"
+        },
+        "academic_evidence_role": {
+          "const": "mechanism_boundary_and_counterevidence_only"
+        },
+        "default_resource_allocation": {
+          "$ref": "../assessment/commercial/commercial-research-requirements.schema.json#/$defs/allocation"
+        },
+        "resource_allocation_enforcement": {
+          "const": "planning_guidance_only"
+        },
+        "actual_distribution_basis": {
+          "const": "adopted_evidence_register_records"
+        },
+        "customer_commercial_percent_range": {
+          "const": [60, 70]
+        },
+        "market_structure_percent_range": {
+          "const": [15, 20]
+        },
+        "academic_percent_maximum": {
+          "const": 20
+        },
+        "ranking_coverage_keys": {
+          "const": [
+            "recent_user_language",
+            "purchase_signal",
+            "alternatives_pricing_usage",
+            "distribution_channel",
+            "independent_counterevidence"
+          ]
+        },
+        "academic_allowed_coverage_keys": {
+          "const": ["mechanism", "effect_boundary", "counterevidence"]
+        },
+        "vendor_claim_requires_cross_validation": {
+          "const": true
+        },
+        "claim_freshness_windows_days": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "recent_user_language",
+            "current_purchase_behavior",
+            "current_distribution",
+            "current_competitor_usage",
+            "current_retention",
+            "current_market_change",
+            "current_pricing",
+            "current_product_capability",
+            "current_competitor_offering",
+            "vendor_public_pricing",
+            "vendor_public_product",
+            "vendor_positioning",
+            "vendor_statement",
+            "market_structure_regulatory"
+          ],
+          "properties": {
+            "recent_user_language": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "current_purchase_behavior": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "current_distribution": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "current_competitor_usage": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "current_retention": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "current_market_change": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "current_pricing": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "current_product_capability": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "current_competitor_offering": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "vendor_public_pricing": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "vendor_public_product": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "vendor_positioning": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "vendor_statement": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "market_structure_regulatory": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "historical_claim_types": {
+          "const": [
+            "historical_baseline",
+            "academic_mechanism",
+            "effect_boundary",
+            "counterevidence"
+          ]
+        },
+        "solution_neutral_stage": {
+          "const": "solution_neutral_scan"
+        },
+        "solution_specific_stage": {
+          "const": "solution_specific_evaluation"
+        },
+        "wave1_early_stop_signal_keys": {
+          "const": ["demand", "buyer", "purchase"]
+        }
+      }
+    },
+    "terminal_reporting_contract": {
+      "type": "object"
+    },
+    "declarative_runtime_contract": {
+      "type": "object"
+    },
+    "assessment_execution_contract": {
+      "type": "object"
+    }
+  }
+}

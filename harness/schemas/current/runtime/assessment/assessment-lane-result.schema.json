@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/assessment/assessment-lane-result.schema.json",
+  "title": "Startup Opportunity Assessment Lane Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "lane_result_id",
+    "run_id",
+    "unit_id",
+    "concept_hypothesis_ref",
+    "execution_plan_ref",
+    "stage_id",
+    "status",
+    "dimension_results",
+    "source_manifest_refs",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.assessment_lane_result.v1"
+    },
+    "lane_result_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "concept_hypothesis_ref": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+    },
+    "execution_plan_ref": {
+      "type": "string",
+      "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+    },
+    "stage_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "status": {
+      "enum": ["completed", "partial", "insufficient_evidence", "failed"]
+    },
+    "dimension_results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dimension_id",
+          "evidence_refs",
+          "supporting_claim_refs",
+          "opposing_claim_refs",
+          "judgment_assessment_refs",
+          "dimension_decision",
+          "decision_sufficiency",
+          "insufficiency_reasons",
+          "what_would_change_decision",
+          "limitations"
+        ],
+        "properties": {
+          "dimension_id": {
+            "$ref": "../../assessment/core/definitions.schema.json#/$defs/assessmentDimension"
+          },
+          "evidence_refs": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "supporting_claim_refs": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "opposing_claim_refs": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "judgment_assessment_refs": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "dimension_decision": {
+            "enum": ["supports", "mixed", "opposes", "insufficient_evidence", "not_applicable"]
+          },
+          "decision_sufficiency": {
+            "enum": ["sufficient", "insufficient", "blocked", "not_applicable"]
+          },
+          "insufficiency_reasons": {
+            "$ref": "../../assessment/core/definitions.schema.json#/$defs/insufficiencyReasons"
+          },
+          "what_would_change_decision": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+          },
+          "limitations": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "source_manifest_refs": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "limitations": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

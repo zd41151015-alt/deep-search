@@ -1,0 +1,397 @@
+{
+  "schema_version": "startup_opportunity.adaptation_policy.current",
+  "policy_id": "startup_opportunity.closed_planning_and_adaptation",
+  "policy_version": "1.0.0",
+  "contract_versions": {
+    "planning_context": "startup_opportunity.planning_context.general.current",
+    "research_plan": "startup_opportunity.research_plan.v1",
+    "adaptation_decision": "startup_opportunity.adaptation_decision.discovery.current",
+    "coverage_attestation": "startup_opportunity.coverage_attestation.v1",
+    "run_manifest": "startup_opportunity.run_manifest.v1"
+  },
+  "phase_catalog": [
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "review"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "review"
+    }
+  ],
+  "artifact_schema_catalog": [
+    "startup_opportunity.discovery_lane_result.v1",
+    "startup_opportunity.enrichment_branch_result.v1",
+    "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+    "startup_opportunity.adversarial_review.v1"
+  ],
+  "unit_rules": [
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery",
+      "unit_type": "user_language_mining",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery",
+      "unit_type": "audience_pain",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery",
+      "unit_type": "jtbd_workflow",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery",
+      "unit_type": "top_products_gap",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery",
+      "unit_type": "review_mining",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery",
+      "unit_type": "search_content_gap",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery",
+      "unit_type": "trend_change",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery",
+      "unit_type": "substitute_non_app",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery",
+      "unit_type": "solution_failure",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery",
+      "unit_type": "ai_capability_evidence",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery",
+      "unit_type": "counter_evidence",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery",
+      "unit_type": "bounded_domain_research",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment",
+      "unit_type": "competitor_gap",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment",
+      "unit_type": "market_space",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment",
+      "unit_type": "monetization",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment",
+      "unit_type": "acquisition",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment",
+      "unit_type": "business_engine",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment",
+      "unit_type": "delivery_feasibility",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment",
+      "unit_type": "compliance_risk",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment",
+      "unit_type": "counter_evidence",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment",
+      "unit_type": "buyer_language",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment",
+      "unit_type": "value_layer",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment",
+      "unit_type": "state_context",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment",
+      "unit_type": "ai_capability_evidence",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "enrichment",
+      "unit_type": "bounded_domain_research",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "review",
+      "unit_type": "adversarial_review",
+      "agent_role": "adversarial-reviewer",
+      "required_artifact_schema": "startup_opportunity.adversarial_review.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "user_language_mining",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "audience_pain",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "jtbd_workflow",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "top_products_gap",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "review_mining",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "search_content_gap",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "trend_change",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "substitute_non_app",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "solution_failure",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "ai_capability_evidence",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "competitor_gap",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "market_space",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "monetization",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "acquisition",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "business_engine",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "delivery_feasibility",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "compliance_risk",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "counter_evidence",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "buyer_language",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "value_layer",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "state_context",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "bounded_domain_research",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "review",
+      "unit_type": "adversarial_review",
+      "agent_role": "adversarial-reviewer",
+      "required_artifact_schema": "startup_opportunity.adversarial_review.v1"
+    }
+  ],
+  "coverage_contract": {
+    "relation": "same_subject_and_semantically_equivalent_research_goal",
+    "key_algorithm": "canonical_json_sha256.v1",
+    "allowed_manifest_states": ["pending", "active"],
+    "require_exact_gap_and_unit_refs": true,
+    "require_subject_in_unit_inputs": true,
+    "semantic_equivalence_owner": "main_agent"
+  },
+  "retry_contract": {
+    "mechanical_precondition": "manifest.failed_units",
+    "partial_artifact_retry": "fail_closed"
+  }
+}

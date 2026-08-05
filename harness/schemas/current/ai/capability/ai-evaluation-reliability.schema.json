@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/ai/capability/ai-evaluation-reliability.schema.json",
+  "title": "Startup Opportunity AI Evaluation Reliability v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "reliability_id",
+    "run_id",
+    "lineage",
+    "benchmark_ref",
+    "research_mode",
+    "technical_reliability",
+    "failure_modes",
+    "human_boundary",
+    "monitoring_boundary",
+    "freshness",
+    "source_boundary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.ai_evaluation_reliability.v1"
+    },
+    "reliability_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "lineage": {
+      "$ref": "./ai-contract-definitions.schema.json#/$defs/lineage"
+    },
+    "benchmark_ref": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_mode": {
+      "$ref": "./ai-contract-definitions.schema.json#/$defs/researchMode"
+    },
+    "technical_reliability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "quality_boundary",
+        "latency_boundary",
+        "error_cost",
+        "evaluation_feasibility",
+        "judgment_assessment_refs"
+      ],
+      "properties": {
+        "status": {
+          "enum": ["sufficient", "partial", "insufficient", "unknown"]
+        },
+        "quality_boundary": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "latency_boundary": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "error_cost": {
+          "enum": ["low", "medium", "high", "regulated", "unknown"]
+        },
+        "evaluation_feasibility": {
+          "enum": ["feasible", "partial", "not_feasible", "unknown"]
+        },
+        "judgment_assessment_refs": {
+          "$ref": "./ai-contract-definitions.schema.json#/$defs/assessmentRefs"
+        }
+      }
+    },
+    "failure_modes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "failure_id",
+          "category",
+          "severity",
+          "detectability",
+          "recovery",
+          "evidence_refs"
+        ],
+        "properties": {
+          "failure_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "category": {
+            "enum": [
+              "incorrect_output",
+              "missing_context",
+              "unsafe_output",
+              "latency_timeout",
+              "provider_failure",
+              "workflow_mismatch",
+              "other"
+            ]
+          },
+          "severity": {
+            "enum": ["low", "medium", "high", "critical", "unknown"]
+          },
+          "detectability": {
+            "enum": ["reliable", "partial", "unreliable", "unknown"]
+          },
+          "recovery": {
+            "enum": ["automatic", "human_review", "manual_fallback", "none", "unknown"]
+          },
+          "evidence_refs": {
+            "$ref": "./ai-contract-definitions.schema.json#/$defs/evidenceRefs"
+          }
+        }
+      }
+    },
+    "human_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "mandatory_review_steps",
+        "escalation_conditions",
+        "fallback_workflow",
+        "accountability_owner"
+      ],
+      "properties": {
+        "mode": {
+          "enum": ["human_in_the_loop", "human_on_the_loop", "automation_allowed", "unresolved"]
+        },
+        "mandatory_review_steps": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "escalation_conditions": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "fallback_workflow": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "accountability_owner": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "monitoring_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["online_signals", "rollback_signal", "unmonitored_failures"],
+      "properties": {
+        "online_signals": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "rollback_signal": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "unmonitored_failures": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        }
+      }
+    },
+    "freshness": {
+      "$ref": "./ai-contract-definitions.schema.json#/$defs/freshness"
+    },
+    "source_boundary": {
+      "$ref": "./ai-contract-definitions.schema.json#/$defs/sourceBoundary"
+    },
+    "limitations": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

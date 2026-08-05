@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/synthesis/discovery-fan-in.schema.json",
+  "title": "Startup Opportunity Discovery Fan-in v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "fan_in_id",
+    "revision",
+    "parent_fan_in_ref",
+    "run_id",
+    "mode",
+    "phase",
+    "owner_role",
+    "scope_frame_ref",
+    "research_plan_ref",
+    "lane_result_classification",
+    "candidate_dispositions",
+    "retained_candidate_refs",
+    "watchlist_candidate_refs",
+    "rejected_candidate_refs",
+    "judgment_assessment_refs",
+    "candidate_diversity_summary",
+    "evidence_sufficiency_summary",
+    "opposing_evidence_summary",
+    "pre_kill_summary",
+    "solution_evaluation_required",
+    "reference_only",
+    "manifest_projection",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.discovery_fan_in.v2"
+    },
+    "fan_in_id": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/identifier"
+    },
+    "revision": {
+      "const": 1
+    },
+    "parent_fan_in_ref": {
+      "type": "null"
+    },
+    "run_id": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "const": "opportunity_discovery"
+    },
+    "phase": {
+      "const": "discovery"
+    },
+    "owner_role": {
+      "const": "main_agent"
+    },
+    "scope_frame_ref": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_plan_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/planRef"
+    },
+    "lane_result_classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "completed_refs",
+        "partial_refs",
+        "insufficient_evidence_refs",
+        "failed_refs",
+        "ignored_late_refs",
+        "superseded_refs",
+        "cancelled_units",
+        "skipped_units",
+        "missing_units"
+      ],
+      "properties": {
+        "completed_refs": {
+          "$ref": "../candidates/definitions.schema.json#/$defs/discoveryLaneResultRefArray"
+        },
+        "partial_refs": {
+          "$ref": "../candidates/definitions.schema.json#/$defs/discoveryLaneResultRefArray"
+        },
+        "insufficient_evidence_refs": {
+          "$ref": "../candidates/definitions.schema.json#/$defs/discoveryLaneResultRefArray"
+        },
+        "failed_refs": {
+          "$ref": "../candidates/definitions.schema.json#/$defs/discoveryLaneResultRefArray"
+        },
+        "ignored_late_refs": {
+          "$ref": "../candidates/definitions.schema.json#/$defs/discoveryLaneResultRefArray"
+        },
+        "superseded_refs": {
+          "$ref": "../candidates/definitions.schema.json#/$defs/discoveryLaneResultRefArray"
+        },
+        "cancelled_units": {
+          "$ref": "#/$defs/unitGaps"
+        },
+        "skipped_units": {
+          "$ref": "#/$defs/unitGaps"
+        },
+        "missing_units": {
+          "$ref": "#/$defs/unitGaps"
+        }
+      }
+    },
+    "candidate_dispositions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "disposition_id",
+          "candidate_ref",
+          "source_candidate_refs",
+          "disposition",
+          "supporting_lane_result_refs",
+          "judgment_assessment_refs",
+          "rationale",
+          "limitations"
+        ],
+        "properties": {
+          "disposition_id": {
+            "$ref": "../candidates/definitions.schema.json#/$defs/identifier"
+          },
+          "candidate_ref": {
+            "$ref": "../candidates/definitions.schema.json#/$defs/candidateRef"
+          },
+          "source_candidate_refs": {
+            "allOf": [
+              {
+                "$ref": "../candidates/definitions.schema.json#/$defs/candidateRefArray"
+              },
+              {
+                "type": "array",
+                "minItems": 1
+              }
+            ]
+          },
+          "disposition": {
+            "enum": ["retained", "watchlist", "rejected"]
+          },
+          "supporting_lane_result_refs": {
+            "allOf": [
+              {
+                "$ref": "../candidates/definitions.schema.json#/$defs/discoveryLaneResultRefArray"
+              },
+              {
+                "type": "array",
+                "minItems": 1
+              }
+            ]
+          },
+          "judgment_assessment_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "../candidates/definitions.schema.json#/$defs/judgmentRef"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "rationale": {
+            "$ref": "../candidates/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "limitations": {
+            "$ref": "../candidates/definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "retained_candidate_refs": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/candidateRefArray"
+    },
+    "watchlist_candidate_refs": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/candidateRefArray"
+    },
+    "rejected_candidate_refs": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/candidateRefArray"
+    },
+    "judgment_assessment_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "../candidates/definitions.schema.json#/$defs/judgmentRef"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "candidate_diversity_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preserved_dimensions",
+        "diversity_retention_refs",
+        "counterfactual_candidate_refs",
+        "known_blind_spots"
+      ],
+      "properties": {
+        "preserved_dimensions": {
+          "$ref": "../candidates/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "diversity_retention_refs": {
+          "$ref": "../candidates/definitions.schema.json#/$defs/candidateRefArray"
+        },
+        "counterfactual_candidate_refs": {
+          "$ref": "../candidates/definitions.schema.json#/$defs/candidateRefArray"
+        },
+        "known_blind_spots": {
+          "$ref": "../candidates/definitions.schema.json#/$defs/uniqueStringArray"
+        }
+      }
+    },
+    "evidence_sufficiency_summary": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/decisionSufficiency"
+    },
+    "opposing_evidence_summary": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "pre_kill_summary": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "solution_evaluation_required": {
+      "const": true
+    },
+    "reference_only": {
+      "const": true
+    },
+    "manifest_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status_projection_required", "late_or_superseded_can_enter_current_refs"],
+      "properties": {
+        "status_projection_required": {
+          "const": true
+        },
+        "late_or_superseded_can_enter_current_refs": {
+          "const": false
+        }
+      }
+    },
+    "limitations": {
+      "allOf": [
+        {
+          "$ref": "../candidates/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        {
+          "type": "array",
+          "minItems": 1
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "unitGaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["unit_id", "decision_impact"],
+        "properties": {
+          "unit_id": {
+            "$ref": "../candidates/definitions.schema.json#/$defs/identifier"
+          },
+          "decision_impact": {
+            "$ref": "../candidates/definitions.schema.json#/$defs/nonEmptyString"
+          }
+        }
+      }
+    }
+  }
+}

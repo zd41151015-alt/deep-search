@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/commercial/commercial-research-requirements.schema.json",
+  "title": "Startup Opportunity Commercial Research Requirements",
+  "$defs": {
+    "allocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["customer_commercial_percent", "market_structure_percent", "academic_percent"],
+      "properties": {
+        "customer_commercial_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "market_structure_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "academic_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "research_stage",
+        "resource_allocation",
+        "planned_queries",
+        "required_commercial_dimensions",
+        "commercial_audit_output_path"
+      ],
+      "properties": {
+        "research_stage": {
+          "enum": ["solution_neutral_scan", "solution_specific_evaluation"]
+        },
+        "resource_allocation": {
+          "$ref": "#/$defs/allocation"
+        },
+        "planned_queries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["query", "commercial_dimensions"],
+            "properties": {
+              "query": {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+              },
+              "commercial_dimensions": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "user_language",
+                    "buyer",
+                    "purchase",
+                    "pricing",
+                    "alternatives",
+                    "usage",
+                    "distribution",
+                    "retention",
+                    "unit_economics",
+                    "regulation",
+                    "market_structure",
+                    "mechanism",
+                    "counterevidence",
+                    "solution_pricing",
+                    "solution_acquisition",
+                    "solution_retention"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "required_commercial_dimensions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "recent_user_language",
+              "purchase_signal",
+              "alternatives_pricing_usage",
+              "distribution_channel",
+              "independent_counterevidence"
+            ]
+          }
+        },
+        "commercial_audit_output_path": {
+          "type": "string",
+          "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+        }
+      }
+    }
+  }
+}

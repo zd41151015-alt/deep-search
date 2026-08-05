@@ -1,23 +1,11 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { CURRENT_POLICY_PATHS } from "../current-policy-paths.js";
 import { loadSchemaBundle } from "./schema-bundle.js";
 
 const CURRENT_ENVELOPE_VERSION = "startup_opportunity.artifact_envelope.current";
 
-export const CURRENT_POLICY_PATHS = [
-  "harness/policies/adaptation.v1.json",
-  "harness/policies/ai-trigger-source-binding.current.json",
-  "harness/policies/assessment-adaptation.v1.json",
-  "harness/policies/assessment-execution.v1.json",
-  "harness/policies/assessment-reporting.v1.json",
-  "harness/policies/discovery-adaptation-binding.v1.json",
-  "harness/policies/discovery-candidates.v1.json",
-  "harness/policies/discovery-evaluation.v3.json",
-  "harness/policies/discovery-maps.v1.json",
-  "harness/policies/discovery-synthesis.v1.json",
-  "harness/policies/plan-revision-apply.v1.json",
-  "harness/policies/research-publication.current.json",
-] as const;
+export { CURRENT_POLICY_PATHS };
 
 const DIRECT_RUNTIME_SCHEMA_VERSIONS = [
   "startup_opportunity.artifact_envelope.current",
@@ -27,8 +15,8 @@ const DIRECT_RUNTIME_SCHEMA_VERSIONS = [
   "startup_opportunity.evidence_store_record.v2",
   "startup_opportunity.lane_staging_document.current",
   "startup_opportunity.runtime_artifact_compilation_request.v1",
-  "startup_opportunity.runtime_artifact_compilation_result.v1",
-  "startup_opportunity.runtime_artifact_compilation_result.v2",
+  "startup_opportunity.runtime_artifact_compilation_result.discovery.current",
+  "startup_opportunity.runtime_artifact_compilation_result.assessment.current",
   "startup_opportunity.scaffold_request.current",
   "startup_opportunity.scaffold_result.current",
 ] as const;
@@ -276,7 +264,36 @@ export async function inspectCurrentContract(
     }
   }
 
+  const expectedPolicyPaths = new Set<string>(CURRENT_POLICY_PATHS);
+  const actualPolicyPaths = (
+    await readdir(path.join(root, "harness/policies"), {
+      withFileTypes: true,
+    })
+  )
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => path.posix.join("harness/policies", entry.name))
+    .sort();
+  const actualPolicyPathSet = new Set(actualPolicyPaths);
+  const missingPolicies = [...expectedPolicyPaths]
+    .filter((policyPath) => !actualPolicyPathSet.has(policyPath))
+    .sort();
+  const unlistedPolicies = actualPolicyPaths
+    .filter((policyPath) => !expectedPolicyPaths.has(policyPath))
+    .sort();
+  if (missingPolicies.length > 0 || unlistedPolicies.length > 0) {
+    issues.push(
+      issue(
+        "current_contract.policy_set_mismatch",
+        "policy directory and current policy registry differ",
+        { missingPolicies, unlistedPolicies },
+      ),
+    );
+  }
+
   for (const policyPath of CURRENT_POLICY_PATHS) {
+    if (!actualPolicyPathSet.has(policyPath)) {
+      continue;
+    }
     const policy = JSON.parse(await readFile(path.join(root, policyPath), "utf8")) as unknown;
     const version = isRecord(policy) ? policy.schema_version : undefined;
     const id = typeof version === "string" ? byVersion.get(version) : undefined;

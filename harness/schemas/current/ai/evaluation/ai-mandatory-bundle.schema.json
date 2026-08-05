@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/ai/evaluation/ai-mandatory-bundle.schema.json",
+  "title": "Startup Opportunity AI Mandatory Bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "run_id",
+    "lineage",
+    "research_mode",
+    "artifact_refs",
+    "input_artifact_hashes",
+    "dimension_results",
+    "coverage_summary",
+    "bundle_status",
+    "freshness",
+    "continuation",
+    "conclusion_ceiling",
+    "source_boundary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.ai_mandatory_bundle.v1"
+    },
+    "bundle_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "lineage": {
+      "$ref": "../capability/ai-contract-definitions.schema.json#/$defs/lineage"
+    },
+    "research_mode": {
+      "$ref": "../capability/ai-contract-definitions.schema.json#/$defs/researchMode"
+    },
+    "artifact_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capability_evidence_ref",
+        "benchmark_ref",
+        "reliability_ref",
+        "data_dependency_ref",
+        "economics_ref",
+        "commoditization_ref",
+        "adoption_trust_ref"
+      ],
+      "properties": {
+        "capability_evidence_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "benchmark_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "reliability_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "data_dependency_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "economics_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "commoditization_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "adoption_trust_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        }
+      }
+    },
+    "input_artifact_hashes": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/inputHashes"
+    },
+    "dimension_results": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "prefixItems": [
+        {
+          "type": "object",
+          "$ref": "#/$defs/dimensionResult",
+          "properties": {
+            "dimension": {
+              "const": "capability_frontier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "$ref": "#/$defs/dimensionResult",
+          "properties": {
+            "dimension": {
+              "const": "cost_and_deployment"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "$ref": "#/$defs/dimensionResult",
+          "properties": {
+            "dimension": {
+              "const": "workflow_and_human_boundary"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "$ref": "#/$defs/dimensionResult",
+          "properties": {
+            "dimension": {
+              "const": "ecosystem_and_platform"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "$ref": "#/$defs/dimensionResult",
+          "properties": {
+            "dimension": {
+              "const": "data_and_evaluation"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "$ref": "#/$defs/dimensionResult",
+          "properties": {
+            "dimension": {
+              "const": "adoption_and_trust"
+            }
+          }
+        }
+      ],
+      "items": false
+    },
+    "coverage_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["covered", "insufficient_evidence", "not_applicable", "total"],
+      "properties": {
+        "covered": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "insufficient_evidence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "not_applicable": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "total": {
+          "const": 6
+        }
+      }
+    },
+    "bundle_status": {
+      "$ref": "./ai-bundle-definitions.schema.json#/$defs/bundleStatus"
+    },
+    "freshness": {
+      "$ref": "../capability/ai-contract-definitions.schema.json#/$defs/freshness"
+    },
+    "continuation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "reason", "action"],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "reason": {
+          "enum": ["none", "stale", "incomplete", "desk_research_only", "unknown_freshness"]
+        },
+        "action": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "conclusion_ceiling": {
+      "$ref": "./ai-bundle-definitions.schema.json#/$defs/conclusionCeiling"
+    },
+    "source_boundary": {
+      "$ref": "../capability/ai-contract-definitions.schema.json#/$defs/sourceBoundary"
+    },
+    "limitations": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  },
+  "$defs": {
+    "dimensionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dimension",
+        "coverage_status",
+        "artifact_refs",
+        "rationale",
+        "limitations",
+        "source_unavailable",
+        "not_applicable_reason"
+      ],
+      "properties": {
+        "dimension": {
+          "$ref": "../capability/ai-contract-definitions.schema.json#/$defs/dimension"
+        },
+        "coverage_status": {
+          "$ref": "../capability/ai-contract-definitions.schema.json#/$defs/coverageStatus"
+        },
+        "artifact_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "rationale": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "limitations": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "source_unavailable": {
+          "type": "boolean"
+        },
+        "not_applicable_reason": {
+          "anyOf": [
+            {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

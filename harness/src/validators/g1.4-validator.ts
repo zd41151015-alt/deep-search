@@ -17,12 +17,12 @@ export interface G14Document {
 const G14_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.evidence_audit.v1",
   "startup_opportunity.adversarial_review.v1",
-  "startup_opportunity.concept_evidence_assessment.v2",
-  "startup_opportunity.traceability.v1",
+  "startup_opportunity.concept_evidence_assessment.reporting.current",
+  "startup_opportunity.traceability.assessment.current",
   "startup_opportunity.concept_evidence_report.v1",
-  "startup_opportunity.decision_brief.v1",
+  "startup_opportunity.decision_brief.assessment.current",
   "startup_opportunity.concept_evidence_report_view.v1",
-  "startup_opportunity.report_consistency_evaluation.v1",
+  "startup_opportunity.report_consistency_evaluation.assessment.current",
 ]);
 
 const LOW_TIERS = new Set([
@@ -218,8 +218,8 @@ function validateLineage(
   const assessmentPlan = target(byPath, lineage.assessment_plan_ref);
   if (
     manifest === undefined ||
-    concept?.schemaVersion !== "startup_opportunity.concept_hypothesis.v1" ||
-    scope?.schemaVersion !== "startup_opportunity.scope_frame.v1" ||
+    concept?.schemaVersion !== "startup_opportunity.concept_hypothesis.assessment.current" ||
+    scope?.schemaVersion !== "startup_opportunity.scope_frame.assessment.current" ||
     researchPlan?.schemaVersion !== "startup_opportunity.research_plan.v1" ||
     assessmentPlan?.schemaVersion !== "startup_opportunity.concept_evidence_assessment_plan.v1"
   ) {
@@ -353,8 +353,8 @@ function validateAudit(
     const sourceAssessment = evidence?.document.source_assessment;
     const assessment = isRecord(sourceAssessment) ? sourceAssessment : null;
     if (
-      evidence?.schemaVersion !== "startup_opportunity.evidence.v1" ||
-      sourceManifest?.schemaVersion !== "startup_opportunity.source_manifest.v1" ||
+      evidence?.schemaVersion !== "startup_opportunity.evidence.assessment.current" ||
+      sourceManifest?.schemaVersion !== "startup_opportunity.source_manifest.assessment.current" ||
       !strings(sourceManifest.document.accepted_evidence_refs).includes(String(review.evidence_ref))
     ) {
       errors.push(
@@ -395,7 +395,7 @@ function validateAudit(
   for (const [index, review] of claimReviews.entries()) {
     const claim = target(byPath, review.claim_ref);
     if (
-      claim?.schemaVersion !== "startup_opportunity.claim.v1" ||
+      claim?.schemaVersion !== "startup_opportunity.claim.assessment.current" ||
       !sameStrings(claim.document.evidence_refs, review.evidence_refs)
     ) {
       errors.push(
@@ -629,7 +629,7 @@ function validateAssessment(
     audit?.schemaVersion !== "startup_opportunity.evidence_audit.v1" ||
     review?.schemaVersion !== "startup_opportunity.adversarial_review.v1" ||
     matrix?.schemaVersion !== "startup_opportunity.hypothesis_evidence_matrix.v1" ||
-    engine?.schemaVersion !== "startup_opportunity.business_engine_thesis.v1"
+    engine?.schemaVersion !== "startup_opportunity.business_engine_thesis.assessment.current"
   ) {
     errors.push(
       issue(
@@ -805,7 +805,8 @@ function validateTraceability(
   const assessment = target(byPath, traceability.document.assessment_ref);
   const matrix = target(byPath, traceability.document.hypothesis_evidence_matrix_ref);
   if (
-    assessment?.schemaVersion === "startup_opportunity.concept_evidence_assessment.v2" &&
+    assessment?.schemaVersion ===
+      "startup_opportunity.concept_evidence_assessment.reporting.current" &&
     (traceability.document.hypothesis_evidence_matrix_ref !==
       assessment.document.hypothesis_evidence_matrix_ref ||
       traceability.document.business_engine_ref !== assessment.document.business_engine_ref ||
@@ -838,14 +839,15 @@ function validateTraceability(
         ? strings(judgment?.document.supporting_claim_refs)
         : strings(judgment?.document.opposing_claim_refs);
     if (
-      assessment?.schemaVersion !== "startup_opportunity.concept_evidence_assessment.v2" ||
+      assessment?.schemaVersion !==
+        "startup_opportunity.concept_evidence_assessment.reporting.current" ||
       matrix?.schemaVersion !== "startup_opportunity.hypothesis_evidence_matrix.v1" ||
-      judgment?.schemaVersion !== "startup_opportunity.judgment_assessment.v1" ||
-      concept?.schemaVersion !== "startup_opportunity.concept_hypothesis.v1" ||
-      insight?.schemaVersion !== "startup_opportunity.insight.v1" ||
-      finding?.schemaVersion !== "startup_opportunity.finding.v1" ||
-      claim?.schemaVersion !== "startup_opportunity.claim.v1" ||
-      evidence?.schemaVersion !== "startup_opportunity.evidence.v1" ||
+      judgment?.schemaVersion !== "startup_opportunity.judgment_assessment.assessment.current" ||
+      concept?.schemaVersion !== "startup_opportunity.concept_hypothesis.assessment.current" ||
+      insight?.schemaVersion !== "startup_opportunity.insight.assessment.current" ||
+      finding?.schemaVersion !== "startup_opportunity.finding.assessment.current" ||
+      claim?.schemaVersion !== "startup_opportunity.claim.assessment.current" ||
+      evidence?.schemaVersion !== "startup_opportunity.evidence.assessment.current" ||
       chain.assessment_ref !== traceability.document.assessment_ref ||
       matrixDimension === undefined ||
       !strings(matrixDimension.judgment_assessment_refs).includes(
@@ -867,7 +869,10 @@ function validateTraceability(
       );
     }
   }
-  if (assessment?.schemaVersion === "startup_opportunity.concept_evidence_assessment.v2") {
+  if (
+    assessment?.schemaVersion ===
+    "startup_opportunity.concept_evidence_assessment.reporting.current"
+  ) {
     const supportingRefs = new Set(strings(assessment.document.decisive_evidence_refs));
     const opposingRefs = new Set(strings(assessment.document.decisive_opposing_refs));
     const chains = records(traceability.document.chains);
@@ -944,7 +949,7 @@ function validateReportSet(
       : {};
     const assessment = target(byPath, report.document.concept_evidence_assessment_ref);
     const traceability = target(byPath, report.document.traceability_ref);
-    const brief = bySchema(documents, "startup_opportunity.decision_brief.v1").find(
+    const brief = bySchema(documents, "startup_opportunity.decision_brief.assessment.current").find(
       (entry) => entry.document.report_ref === report.path,
     );
     const view = bySchema(documents, "startup_opportunity.concept_evidence_report_view.v1").find(
@@ -952,11 +957,12 @@ function validateReportSet(
     );
     const consistency = bySchema(
       documents,
-      "startup_opportunity.report_consistency_evaluation.v1",
+      "startup_opportunity.report_consistency_evaluation.assessment.current",
     ).find((entry) => entry.document.report_ref === report.path);
     if (
-      assessment?.schemaVersion !== "startup_opportunity.concept_evidence_assessment.v2" ||
-      traceability?.schemaVersion !== "startup_opportunity.traceability.v1"
+      assessment?.schemaVersion !==
+        "startup_opportunity.concept_evidence_assessment.reporting.current" ||
+      traceability?.schemaVersion !== "startup_opportunity.traceability.assessment.current"
     ) {
       errors.push(
         issue(
@@ -1276,11 +1282,14 @@ export function validateG14Contract(
   }
   for (const assessment of bySchema(
     documents,
-    "startup_opportunity.concept_evidence_assessment.v2",
+    "startup_opportunity.concept_evidence_assessment.reporting.current",
   )) {
     errors.push(...validateAssessment(assessment, byPath));
   }
-  for (const traceability of bySchema(documents, "startup_opportunity.traceability.v1")) {
+  for (const traceability of bySchema(
+    documents,
+    "startup_opportunity.traceability.assessment.current",
+  )) {
     errors.push(...validateTraceability(traceability, byPath));
   }
   errors.push(...validateReportSet(documents, byPath, policy));

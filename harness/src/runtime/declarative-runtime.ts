@@ -60,8 +60,8 @@ export interface RuntimePublicationPlan extends Record<string, unknown> {
 
 export interface RuntimeArtifactCompilationResult {
   readonly schema_version:
-    | "startup_opportunity.runtime_artifact_compilation_result.v1"
-    | "startup_opportunity.runtime_artifact_compilation_result.v2";
+    | "startup_opportunity.runtime_artifact_compilation_result.discovery.current"
+    | "startup_opportunity.runtime_artifact_compilation_result.assessment.current";
   readonly request_id: string;
   readonly run_id: string;
   readonly status: "validated" | "published" | "idempotent_replay";
@@ -143,9 +143,9 @@ function elapsed(started: number): number {
 }
 
 const ASSESSMENT_EXECUTION_ARTIFACT_TYPES = new Set([
-  "startup_opportunity.concept_hypothesis.v2",
-  "startup_opportunity.research_execution_plan.v2",
-  "startup_opportunity.dispatch_batch.v2",
+  "startup_opportunity.concept_hypothesis.assessment_intake.current",
+  "startup_opportunity.research_execution_plan.assessment.current",
+  "startup_opportunity.dispatch_batch.assessment.current",
   "startup_opportunity.assessment_evidence.v1",
   "startup_opportunity.assessment_lane_result.v1",
   "startup_opportunity.assessment_stage_gate.v1",
@@ -469,8 +469,8 @@ export class DeclarativeRuntimeCompiler {
     const publication = elapsed(publicationStarted);
     const result: RuntimeArtifactCompilationResult = {
       schema_version: artifactFamilies.has("assessment")
-        ? "startup_opportunity.runtime_artifact_compilation_result.v2"
-        : "startup_opportunity.runtime_artifact_compilation_result.v1",
+        ? "startup_opportunity.runtime_artifact_compilation_result.assessment.current"
+        : "startup_opportunity.runtime_artifact_compilation_result.discovery.current",
       request_id: request.request_id,
       run_id: request.run_id,
       status: publicationStatus,

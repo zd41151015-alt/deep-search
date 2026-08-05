@@ -161,11 +161,11 @@ function assessmentPlanning(request: ScaffoldRequest): ScaffoldArtifact {
     },
   ] as const;
   return {
-    artifact_type: "startup_opportunity.research_execution_plan.v2",
+    artifact_type: "startup_opportunity.research_execution_plan.assessment.current",
     artifact_path: EXECUTION_REF,
     producer_role: "main_agent",
     document: {
-      schema_version: "startup_opportunity.research_execution_plan.v2",
+      schema_version: "startup_opportunity.research_execution_plan.assessment.current",
       execution_plan_id: "execution_assessment_scaffold",
       run_id: request.run_id,
       mode: request.mode,
@@ -211,11 +211,11 @@ function assessmentPlanning(request: ScaffoldRequest): ScaffoldArtifact {
 function planning(request: ScaffoldRequest): ScaffoldArtifact {
   if (request.mode === "concept_evidence_assessment") return assessmentPlanning(request);
   return {
-    artifact_type: "startup_opportunity.research_execution_plan.v1",
+    artifact_type: "startup_opportunity.research_execution_plan.discovery.current",
     artifact_path: EXECUTION_REF,
     producer_role: "main_agent",
     document: {
-      schema_version: "startup_opportunity.research_execution_plan.v1",
+      schema_version: "startup_opportunity.research_execution_plan.discovery.current",
       execution_plan_id: "execution_scaffold",
       run_id: request.run_id,
       mode: request.mode,
@@ -261,11 +261,11 @@ function planning(request: ScaffoldRequest): ScaffoldArtifact {
 
 function assessmentTask(request: ScaffoldRequest): ScaffoldArtifact {
   return {
-    artifact_type: "startup_opportunity.research_task.v1",
+    artifact_type: "startup_opportunity.research_task.assessment.current",
     artifact_path: ASSESSMENT_TASK_REF,
     producer_role: "main_agent",
     document: {
-      schema_version: "startup_opportunity.research_task.v1",
+      schema_version: "startup_opportunity.research_task.assessment.current",
       task_id: "task_unit_assessment_scaffold",
       run_id: request.run_id,
       unit_id: "unit_assessment_scaffold",
@@ -308,11 +308,11 @@ function assessmentTask(request: ScaffoldRequest): ScaffoldArtifact {
 function task(request: ScaffoldRequest): ScaffoldArtifact {
   if (request.mode === "concept_evidence_assessment") return assessmentTask(request);
   return {
-    artifact_type: "startup_opportunity.research_task.v2",
+    artifact_type: "startup_opportunity.research_task.discovery_candidate.current",
     artifact_path: "tasks/discovery/unit_scaffold.attempt-1.json",
     producer_role: "main_agent",
     document: {
-      schema_version: "startup_opportunity.research_task.v2",
+      schema_version: "startup_opportunity.research_task.discovery_candidate.current",
       task_id: "task_unit_scaffold",
       run_id: request.run_id,
       unit_id: "unit_scaffold",
@@ -348,11 +348,11 @@ function task(request: ScaffoldRequest): ScaffoldArtifact {
 
 function assessmentDispatch(request: ScaffoldRequest): ScaffoldArtifact {
   return {
-    artifact_type: "startup_opportunity.dispatch_batch.v2",
+    artifact_type: "startup_opportunity.dispatch_batch.assessment.current",
     artifact_path: "tasks/dispatch/assessment-scaffold.r1.json",
     producer_role: "harness",
     document: {
-      schema_version: "startup_opportunity.dispatch_batch.v2",
+      schema_version: "startup_opportunity.dispatch_batch.assessment.current",
       dispatch_batch_id: "dispatch_assessment_scaffold",
       run_id: request.run_id,
       execution_plan_ref: EXECUTION_REF,
@@ -384,11 +384,11 @@ function assessmentDispatch(request: ScaffoldRequest): ScaffoldArtifact {
 function dispatch(request: ScaffoldRequest): ScaffoldArtifact {
   if (request.mode === "concept_evidence_assessment") return assessmentDispatch(request);
   return {
-    artifact_type: "startup_opportunity.dispatch_batch.v1",
+    artifact_type: "startup_opportunity.dispatch_batch.discovery.current",
     artifact_path: "tasks/dispatch/stage_scaffold.r1.json",
     producer_role: "harness",
     document: {
-      schema_version: "startup_opportunity.dispatch_batch.v1",
+      schema_version: "startup_opportunity.dispatch_batch.discovery.current",
       batch_id: "dispatch_stage_scaffold",
       revision: 1,
       run_id: request.run_id,

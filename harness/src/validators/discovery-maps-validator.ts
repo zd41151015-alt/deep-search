@@ -1,4 +1,5 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
+import { DISCOVERY_MAPS_POLICY_PATH } from "../current-policy-paths.js";
 import type {
   DiscoveryMapsPolicy,
   DiscoveryProfile,
@@ -250,7 +251,7 @@ function validatePolicyBinding(
   const binding = entry.document.policy_binding;
   if (
     !isRecord(binding) ||
-    binding.policy_ref !== "harness/policies/discovery-maps.v1.json" ||
+    binding.policy_ref !== DISCOVERY_MAPS_POLICY_PATH ||
     binding.policy_schema_version !== loadedPolicy.document.schema_version ||
     binding.policy_version !== loadedPolicy.document.policy_version ||
     binding.content_hash !== loadedPolicy.contentHash
@@ -589,7 +590,8 @@ function validateSolutionMap(
 
 export function isDiscoveryMapSchemaVersion(schemaVersion: string): boolean {
   return (
-    MAP_SCHEMA_VERSIONS.has(schemaVersion) || schemaVersion === "startup_opportunity.scope_frame.v2"
+    MAP_SCHEMA_VERSIONS.has(schemaVersion) ||
+    schemaVersion === "startup_opportunity.scope_frame.discovery.current"
   );
 }
 
@@ -604,7 +606,7 @@ export function validateDiscoveryMapsContract(
   const manifest = one(documents, "startup_opportunity.run_manifest.v1", errors);
   const intake = one(documents, "startup_opportunity.intake.v1", errors);
   const decision = one(documents, "startup_opportunity.decision_context.v1", errors);
-  const scope = one(documents, "startup_opportunity.scope_frame.v2", errors);
+  const scope = one(documents, "startup_opportunity.scope_frame.discovery.current", errors);
   const plan =
     manifest === null
       ? null

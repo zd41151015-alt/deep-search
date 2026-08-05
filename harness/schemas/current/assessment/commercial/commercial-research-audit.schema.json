@@ -1,0 +1,625 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/commercial/commercial-research-audit.schema.json",
+  "title": "Startup Opportunity Commercial Research Audit",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "audit_id",
+    "run_id",
+    "unit_id",
+    "execution_plan_ref",
+    "dispatch_task_ref",
+    "task_ref",
+    "covered_direction_ids",
+    "research_stage",
+    "audited_at",
+    "planned_resource_allocation",
+    "adopted_source_distribution",
+    "search_log",
+    "search_closure",
+    "evidence_register",
+    "coverage",
+    "uncovered_business_dimensions",
+    "wave1_signals",
+    "stage_decision",
+    "ranking_eligibility",
+    "limitations"
+  ],
+  "$defs": {
+    "identifier": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "nonEmptyString": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "nullableTimestamp": {
+      "anyOf": [
+        {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableDate": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "coverageKey": {
+      "enum": [
+        "recent_user_language",
+        "buyer",
+        "purchase_signal",
+        "pricing",
+        "alternatives_pricing_usage",
+        "distribution_channel",
+        "retention",
+        "unit_economics",
+        "independent_counterevidence",
+        "mechanism",
+        "effect_boundary",
+        "counterevidence"
+      ]
+    },
+    "claimType": {
+      "enum": [
+        "recent_user_language",
+        "current_purchase_behavior",
+        "current_distribution",
+        "current_competitor_usage",
+        "current_retention",
+        "current_market_change",
+        "current_pricing",
+        "current_product_capability",
+        "current_competitor_offering",
+        "vendor_public_pricing",
+        "vendor_public_product",
+        "vendor_positioning",
+        "vendor_statement",
+        "market_structure_regulatory",
+        "historical_baseline",
+        "academic_mechanism",
+        "effect_boundary",
+        "counterevidence"
+      ]
+    },
+    "allocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["customer_commercial_percent", "market_structure_percent", "academic_percent"],
+      "properties": {
+        "customer_commercial_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "market_structure_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "academic_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "inference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["basis_refs", "starting_point", "reasoning", "uncertainty", "validation_needed"],
+      "properties": {
+        "basis_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "starting_point": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "uncertainty": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "validation_needed": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "coverageEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "content_covered", "evidence_refs", "data_points", "inference"],
+      "properties": {
+        "state": {
+          "enum": ["observed", "inferred", "unknown"]
+        },
+        "content_covered": {
+          "type": "boolean"
+        },
+        "evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "data_points": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["evidence_ref", "aspect", "fact_or_excerpt"],
+            "properties": {
+              "evidence_ref": {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+              },
+              "aspect": {
+                "enum": [
+                  "user_language",
+                  "buyer",
+                  "purchase",
+                  "alternative",
+                  "pricing",
+                  "usage",
+                  "distribution",
+                  "retention",
+                  "unit_economics",
+                  "counterevidence"
+                ]
+              },
+              "fact_or_excerpt": {
+                "$ref": "#/$defs/nonEmptyString"
+              }
+            }
+          }
+        },
+        "inference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/inference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.commercial_research_audit.current"
+    },
+    "audit_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "execution_plan_ref": {
+      "type": "string",
+      "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+    },
+    "dispatch_task_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z][A-Za-z0-9._-]*$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "task_ref": {
+      "anyOf": [
+        {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "covered_direction_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/identifier"
+      }
+    },
+    "research_stage": {
+      "enum": ["solution_neutral_scan", "solution_specific_evaluation"]
+    },
+    "audited_at": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+    },
+    "planned_resource_allocation": {
+      "$ref": "#/$defs/allocation"
+    },
+    "adopted_source_distribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_adopted_sources",
+        "customer_commercial_count",
+        "market_structure_count",
+        "academic_count",
+        "customer_commercial_percent",
+        "market_structure_percent",
+        "academic_percent",
+        "guidance_deviation_observed"
+      ],
+      "properties": {
+        "total_adopted_sources": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "customer_commercial_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "market_structure_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "academic_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "customer_commercial_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "market_structure_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "academic_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "guidance_deviation_observed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "search_log": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "query_id",
+          "query",
+          "searched_at",
+          "commercial_dimensions",
+          "candidate_results"
+        ],
+        "properties": {
+          "query_id": {
+            "$ref": "#/$defs/identifier"
+          },
+          "query": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "searched_at": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+          },
+          "commercial_dimensions": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "user_language",
+                "buyer",
+                "purchase",
+                "pricing",
+                "alternatives",
+                "usage",
+                "distribution",
+                "retention",
+                "unit_economics",
+                "regulation",
+                "market_structure",
+                "mechanism",
+                "counterevidence",
+                "solution_pricing",
+                "solution_acquisition",
+                "solution_retention"
+              ]
+            }
+          },
+          "candidate_results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "url",
+                "title",
+                "retrieved_at",
+                "published_at",
+                "observed_at",
+                "data_period_end",
+                "derived_valid_as_of",
+                "claim_type",
+                "adopted_evidence_ref",
+                "rejection_reason"
+              ],
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "title": {
+                  "$ref": "#/$defs/nonEmptyString"
+                },
+                "retrieved_at": {
+                  "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+                },
+                "published_at": {
+                  "$ref": "#/$defs/nullableTimestamp"
+                },
+                "observed_at": {
+                  "$ref": "#/$defs/nullableTimestamp"
+                },
+                "data_period_end": {
+                  "$ref": "#/$defs/nullableDate"
+                },
+                "derived_valid_as_of": {
+                  "$ref": "#/$defs/nullableDate"
+                },
+                "claim_type": {
+                  "$ref": "#/$defs/claimType"
+                },
+                "regulatory_effective_status": {
+                  "enum": [
+                    "effective",
+                    "partially_effective",
+                    "not_yet_effective",
+                    "repealed",
+                    "unknown"
+                  ]
+                },
+                "regulatory_status_verified_at": {
+                  "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+                },
+                "adopted_evidence_ref": {
+                  "anyOf": [
+                    {
+                      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "rejection_reason": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/nonEmptyString"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "search_closure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "closure_id",
+        "lane_kind",
+        "outcome",
+        "query_log_complete",
+        "telemetry_basis",
+        "remaining_gaps",
+        "termination_reason"
+      ],
+      "properties": {
+        "closure_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "lane_kind": {
+          "enum": ["external_research", "synthesis_or_validation"]
+        },
+        "outcome": {
+          "enum": [
+            "completed",
+            "evidence_insufficient",
+            "early_stop",
+            "search_failed",
+            "failed_before_search",
+            "search_not_required"
+          ]
+        },
+        "query_log_complete": {
+          "type": "boolean"
+        },
+        "telemetry_basis": {
+          "enum": ["agent_supplied", "unavailable"]
+        },
+        "remaining_gaps": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "termination_reason": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "evidence_register": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_ref",
+          "source_kind",
+          "evidence_character",
+          "independence",
+          "claim_type",
+          "retrieved_at",
+          "published_at",
+          "observed_at",
+          "data_period_end",
+          "derived_valid_as_of",
+          "freshness_status",
+          "coverage_keys",
+          "disposition",
+          "exclusion_reason"
+        ],
+        "properties": {
+          "evidence_ref": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+          },
+          "source_kind": {
+            "enum": ["behavioral", "independent", "vendor", "academic", "regulatory"]
+          },
+          "evidence_character": {
+            "enum": [
+              "observed_behavior",
+              "independent_report",
+              "vendor_claim",
+              "inference",
+              "mechanism",
+              "effect_boundary",
+              "counterevidence"
+            ]
+          },
+          "independence": {
+            "enum": ["independent", "interested_party", "unknown"]
+          },
+          "claim_type": {
+            "$ref": "#/$defs/claimType"
+          },
+          "regulatory_effective_status": {
+            "enum": ["effective", "partially_effective", "not_yet_effective", "repealed", "unknown"]
+          },
+          "regulatory_status_verified_at": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+          },
+          "retrieved_at": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+          },
+          "published_at": {
+            "$ref": "#/$defs/nullableTimestamp"
+          },
+          "observed_at": {
+            "$ref": "#/$defs/nullableTimestamp"
+          },
+          "data_period_end": {
+            "$ref": "#/$defs/nullableDate"
+          },
+          "derived_valid_as_of": {
+            "$ref": "#/$defs/nullableDate"
+          },
+          "freshness_status": {
+            "enum": ["current", "historical", "undated"]
+          },
+          "coverage_keys": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/coverageKey"
+            }
+          },
+          "disposition": {
+            "enum": ["adopted", "rejected"]
+          },
+          "exclusion_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recent_user_language",
+        "purchase_signal",
+        "alternatives_pricing_usage",
+        "distribution_channel",
+        "independent_counterevidence"
+      ],
+      "properties": {
+        "recent_user_language": {
+          "$ref": "#/$defs/coverageEntry"
+        },
+        "purchase_signal": {
+          "$ref": "#/$defs/coverageEntry"
+        },
+        "alternatives_pricing_usage": {
+          "$ref": "#/$defs/coverageEntry"
+        },
+        "distribution_channel": {
+          "$ref": "#/$defs/coverageEntry"
+        },
+        "independent_counterevidence": {
+          "$ref": "#/$defs/coverageEntry"
+        }
+      }
+    },
+    "uncovered_business_dimensions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/coverageKey"
+      }
+    },
+    "wave1_signals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["demand", "buyer", "purchase"],
+      "properties": {
+        "demand": {
+          "type": "boolean"
+        },
+        "buyer": {
+          "type": "boolean"
+        },
+        "purchase": {
+          "type": "boolean"
+        }
+      }
+    },
+    "stage_decision": {
+      "enum": ["continue_research", "early_stop_insufficient_evidence"]
+    },
+    "ranking_eligibility": {
+      "enum": ["ranked", "unranked_hypothesis"]
+    },
+    "limitations": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

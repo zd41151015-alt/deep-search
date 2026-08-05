@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/evaluation/enrichment-branch-result.schema.json",
+  "title": "Startup Opportunity Enrichment Branch Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "branch_result_id",
+    "run_id",
+    "unit_id",
+    "attempt",
+    "task_ref",
+    "source_snapshot_ref",
+    "source_merge_ref",
+    "opportunity_refs",
+    "status",
+    "owner_role",
+    "enrichment_dimensions",
+    "evidence_lineage",
+    "hard_gate_inputs",
+    "decision_sufficiency_summary",
+    "open_questions",
+    "reference_only",
+    "source_boundary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    "branch_result_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "task_ref": {
+      "$ref": "./definitions.schema.json#/$defs/enrichmentTaskRef"
+    },
+    "source_snapshot_ref": {
+      "$ref": "./definitions.schema.json#/$defs/snapshotRef"
+    },
+    "source_merge_ref": {
+      "$ref": "./definitions.schema.json#/$defs/mergeRef"
+    },
+    "opportunity_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/opportunityRef"
+      }
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "insufficient_evidence",
+        "failed",
+        "ignored_late",
+        "superseded"
+      ]
+    },
+    "owner_role": {
+      "const": "lane-researcher"
+    },
+    "enrichment_dimensions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "competitor_gap",
+          "market_space",
+          "monetization",
+          "buyer_purchase_language",
+          "acquisition_distribution",
+          "business_engine",
+          "delivery_feasibility",
+          "compliance_platform_risk",
+          "counter_evidence",
+          "early_unit_economics"
+        ]
+      }
+    },
+    "evidence_lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_refs",
+        "claim_refs",
+        "finding_refs",
+        "insight_refs",
+        "judgment_assessment_refs",
+        "source_manifest_refs"
+      ],
+      "properties": {
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/enrichmentEvidenceRef"
+          }
+        },
+        "claim_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/enrichmentClaimRef"
+          }
+        },
+        "finding_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/enrichmentFindingRef"
+          }
+        },
+        "insight_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/enrichmentInsightRef"
+          }
+        },
+        "judgment_assessment_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/enrichmentJudgmentRef"
+          }
+        },
+        "source_manifest_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/enrichmentSourceManifestRef"
+          }
+        }
+      }
+    },
+    "hard_gate_inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "opportunity_ref",
+          "gate_id",
+          "status",
+          "judgment_assessment_refs",
+          "rationale",
+          "limitations"
+        ],
+        "properties": {
+          "opportunity_ref": {
+            "$ref": "./definitions.schema.json#/$defs/opportunityRef"
+          },
+          "gate_id": {
+            "enum": [
+              "user_jtbd_entry_scene",
+              "baseline_delta",
+              "buyer_purchase",
+              "business_engine",
+              "source_independence",
+              "generation_evaluation_separation",
+              "opposing_evidence",
+              "compliance_boundary",
+              "ai_mandatory_bundle",
+              "ai_baseline_gap",
+              "ai_reliability",
+              "data_rights",
+              "unit_economics"
+            ]
+          },
+          "status": {
+            "enum": ["passed", "failed", "insufficient_evidence", "not_applicable"]
+          },
+          "judgment_assessment_refs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "./definitions.schema.json#/$defs/enrichmentJudgmentRef"
+            }
+          },
+          "rationale": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "limitations": {
+            "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "decision_sufficiency_summary": {
+      "$ref": "./definitions.schema.json#/$defs/decisionSufficiency"
+    },
+    "open_questions": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "reference_only": {
+      "const": true
+    },
+    "source_boundary": {
+      "$ref": "./definitions.schema.json#/$defs/executionBoundary"
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+      }
+    }
+  }
+}

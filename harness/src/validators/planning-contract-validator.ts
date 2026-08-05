@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalContentHash } from "../artifact-store/canonical.js";
+import { ADAPTATION_POLICY_PATH, AI_TRIGGER_SOURCE_POLICY_PATH } from "../current-policy-paths.js";
 import type {
   ArtifactValidationResult,
   DocumentBundleReferenceContext,
@@ -9,9 +10,7 @@ import type {
 import { type ArtifactValidator, createArtifactValidator } from "./artifact-validator.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
-export const ADAPTATION_POLICY_PATH = "harness/policies/adaptation.v1.json" as const;
-export const AI_TRIGGER_SOURCE_POLICY_PATH =
-  "harness/policies/ai-trigger-source-binding.current.json" as const;
+export { ADAPTATION_POLICY_PATH, AI_TRIGGER_SOURCE_POLICY_PATH };
 export const PLANNING_CONTRACT_RESULT_VERSION =
   "startup_opportunity.planning_contract_validation_result.v2" as const;
 
@@ -24,7 +23,7 @@ interface UnitRule {
 }
 
 interface AdaptationPolicy extends Record<string, unknown> {
-  readonly schema_version: "startup_opportunity.adaptation_policy.v1";
+  readonly schema_version: "startup_opportunity.adaptation_policy.current";
   readonly policy_version: "1.0.0";
   readonly phase_catalog: readonly { readonly mode: string; readonly phase: string }[];
   readonly artifact_schema_catalog: readonly string[];

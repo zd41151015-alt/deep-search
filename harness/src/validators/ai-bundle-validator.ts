@@ -45,21 +45,21 @@ type AiConclusionCeiling = (typeof AI_CONCLUSION_CEILING_ORDER)[number];
 const CONSUMER_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.opportunity_comparison.v1",
   "startup_opportunity.decision_recommendation.v1",
-  "startup_opportunity.traceability.v2",
+  "startup_opportunity.traceability.discovery.current",
   "startup_opportunity.report.v1",
-  "startup_opportunity.decision_brief.v2",
+  "startup_opportunity.decision_brief.discovery.current",
   "startup_opportunity.discovery_report_view.v1",
-  "startup_opportunity.report_consistency_evaluation.v3",
+  "startup_opportunity.report_consistency_evaluation.discovery.current",
 ]);
 
 const REQUIRED_CONSUMER_BINDING_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.opportunity_comparison.v1",
   "startup_opportunity.decision_recommendation.v1",
-  "startup_opportunity.traceability.v2",
+  "startup_opportunity.traceability.discovery.current",
   "startup_opportunity.report.v1",
-  "startup_opportunity.decision_brief.v2",
+  "startup_opportunity.decision_brief.discovery.current",
   "startup_opportunity.discovery_report_view.v1",
-  "startup_opportunity.report_consistency_evaluation.v3",
+  "startup_opportunity.report_consistency_evaluation.discovery.current",
 ]);
 
 export interface AiBundleDocument {
@@ -1006,7 +1006,7 @@ export function validateAiBundleContract(
       consumer.schemaVersion === "startup_opportunity.opportunity_comparison.v1"
         ? consumer.document.recommendation_band
         : consumer.schemaVersion === "startup_opportunity.decision_recommendation.v1" ||
-            consumer.schemaVersion === "startup_opportunity.decision_brief.v2" ||
+            consumer.schemaVersion === "startup_opportunity.decision_brief.discovery.current" ||
             consumer.schemaVersion === "startup_opportunity.discovery_report_view.v1"
           ? consumer.document.decision_tier
           : consumer.schemaVersion === "startup_opportunity.report.v1" &&

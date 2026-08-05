@@ -155,7 +155,7 @@ function assessmentPlan(runId: string): Record<string, unknown> {
         units: [delivery],
       },
     ],
-    adaptation_policy_ref: "harness/policies/adaptation.v1.json",
+    adaptation_policy_ref: "harness/policies/adaptation.current.json",
     followup_policy: {
       max_followup_rounds: 2,
       require_decision_relevance: true,
@@ -177,7 +177,7 @@ function concept(runId: string): Record<string, unknown> {
     "acquisition_hypothesis",
   ];
   return {
-    schema_version: "startup_opportunity.concept_hypothesis.v2",
+    schema_version: "startup_opportunity.concept_hypothesis.assessment_intake.current",
     run_id: runId,
     concept_hypothesis_id: "concept_assessment_p2_synthetic",
     scope_frame_ref: "scope-frame.json",
@@ -227,7 +227,7 @@ function lane(
 
 function executionPlan(runId: string, plan: Record<string, unknown>): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.research_execution_plan.v2",
+    schema_version: "startup_opportunity.research_execution_plan.assessment.current",
     execution_plan_id: "execution_assessment_p2_synthetic",
     run_id: runId,
     mode: "concept_evidence_assessment",
@@ -386,7 +386,7 @@ function judgmentEntries(
         ? []
         : [
             entry(ref, {
-              schema_version: "startup_opportunity.judgment_assessment.v1",
+              schema_version: "startup_opportunity.judgment_assessment.assessment.current",
               run_id: result.document.run_id,
               subject_ref: conceptPath,
               dimension: dimension.dimension_id,
@@ -487,7 +487,7 @@ function dispatchForStage(
     max_sources: selectedLane.max_sources,
   }));
   return entry(`tasks/dispatch/${String(stage.stage_id)}.r1.json`, {
-    schema_version: "startup_opportunity.dispatch_batch.v2",
+    schema_version: "startup_opportunity.dispatch_batch.assessment.current",
     dispatch_batch_id: `dispatch_${String(stage.stage_id)}`,
     run_id: runId,
     execution_plan_ref: executionPath,
@@ -1228,7 +1228,8 @@ test("Assessment Evidence binds a current dispatch task and exact Evidence Store
       (error) =>
         error.code === "reference.type_mismatch" &&
         error.instancePath === `${reportPath}#/sources/0/evidence_ref` &&
-        error.details?.actualSchemaVersion === "startup_opportunity.concept_hypothesis.v2",
+        error.details?.actualSchemaVersion ===
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
     ),
     JSON.stringify(wrongSourceResult.referenceErrors, null, 2),
   );
@@ -1391,7 +1392,10 @@ test("current Assessment compiler publishes, rejects mixed surfaces, recovers fa
       runtimeArtifact(conceptPath, state.hypothesis, "main_agent"),
       runtimeArtifact(
         "plans/discovery-execution.r1.json",
-        { schema_version: "startup_opportunity.research_execution_plan.v1", run_id: state.runId },
+        {
+          schema_version: "startup_opportunity.research_execution_plan.discovery.current",
+          run_id: state.runId,
+        },
         "main_agent",
       ),
     ],

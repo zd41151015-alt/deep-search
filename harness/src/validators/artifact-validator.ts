@@ -335,9 +335,14 @@ function g14CommonRefs(document: Record<string, unknown>): readonly ReferenceReq
       document,
       "lineage",
       "concept_hypothesis_ref",
-      "startup_opportunity.concept_hypothesis.v1",
+      "startup_opportunity.concept_hypothesis.assessment.current",
     ),
-    ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v1"),
+    ...nestedRef(
+      document,
+      "lineage",
+      "scope_frame_ref",
+      "startup_opportunity.scope_frame.assessment.current",
+    ),
     ...nestedRef(document, "lineage", "research_plan_ref", "startup_opportunity.research_plan.v1"),
     ...nestedRef(
       document,
@@ -348,25 +353,25 @@ function g14CommonRefs(document: Record<string, unknown>): readonly ReferenceReq
     ...refsFromNestedArray(document, "input_artifact_hashes", "ref", [
       "startup_opportunity.run_manifest.v1",
       "startup_opportunity.research_plan.v1",
-      "startup_opportunity.scope_frame.v1",
-      "startup_opportunity.concept_hypothesis.v1",
+      "startup_opportunity.scope_frame.assessment.current",
+      "startup_opportunity.concept_hypothesis.assessment.current",
       "startup_opportunity.concept_evidence_assessment_plan.v1",
       "startup_opportunity.concept_evidence_assessment_fan_in.v1",
       "startup_opportunity.hypothesis_evidence_matrix.v1",
-      "startup_opportunity.business_engine_thesis.v1",
-      "startup_opportunity.judgment_assessment.v1",
-      "startup_opportunity.research_task.v1",
-      "startup_opportunity.evidence.v1",
-      "startup_opportunity.claim.v1",
-      "startup_opportunity.finding.v1",
-      "startup_opportunity.insight.v1",
-      "startup_opportunity.source_manifest.v1",
+      "startup_opportunity.business_engine_thesis.assessment.current",
+      "startup_opportunity.judgment_assessment.assessment.current",
+      "startup_opportunity.research_task.assessment.current",
+      "startup_opportunity.evidence.assessment.current",
+      "startup_opportunity.claim.assessment.current",
+      "startup_opportunity.finding.assessment.current",
+      "startup_opportunity.insight.assessment.current",
+      "startup_opportunity.source_manifest.assessment.current",
       "startup_opportunity.evidence_audit.v1",
       "startup_opportunity.adversarial_review.v1",
-      "startup_opportunity.concept_evidence_assessment.v2",
-      "startup_opportunity.traceability.v1",
+      "startup_opportunity.concept_evidence_assessment.reporting.current",
+      "startup_opportunity.traceability.assessment.current",
       "startup_opportunity.concept_evidence_report.v1",
-      "startup_opportunity.decision_brief.v1",
+      "startup_opportunity.decision_brief.assessment.current",
       "startup_opportunity.concept_evidence_report_view.v1",
     ]),
   ];
@@ -446,8 +451,16 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "assessment_plan_ref",
           "startup_opportunity.concept_evidence_assessment_plan.v1",
         ),
-        ...optionalRef(document, "subject_ref", "startup_opportunity.concept_hypothesis.v1"),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v1"),
+        ...optionalRef(
+          document,
+          "subject_ref",
+          "startup_opportunity.concept_hypothesis.assessment.current",
+        ),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.assessment.current",
+        ),
         ...refsFromNestedArray(
           document,
           "observed_artifacts",
@@ -458,7 +471,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "observed_artifacts",
           "task_ref",
-          "startup_opportunity.research_task.v1",
+          "startup_opportunity.research_task.assessment.current",
         ),
       ];
     case "startup_opportunity.adaptation_decision.discovery.current":
@@ -499,12 +512,24 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "assessment_plan_ref",
           "startup_opportunity.concept_evidence_assessment_plan.v1",
         ),
-        ...optionalRef(document, "subject_ref", "startup_opportunity.concept_hypothesis.v1"),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v1"),
+        ...optionalRef(
+          document,
+          "subject_ref",
+          "startup_opportunity.concept_hypothesis.assessment.current",
+        ),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.assessment.current",
+        ),
       ];
-    case "startup_opportunity.planning_context.v1":
+    case "startup_opportunity.planning_context.general.current":
       return [
-        ...optionalRef(document, "parent_context_ref", "startup_opportunity.planning_context.v1"),
+        ...optionalRef(
+          document,
+          "parent_context_ref",
+          "startup_opportunity.planning_context.general.current",
+        ),
         ...nestedRef(
           document,
           "manifest_binding",
@@ -518,11 +543,15 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.research_plan.v1",
         ),
       ];
-    case "startup_opportunity.planning_context.v2": {
+    case "startup_opportunity.planning_context.ai_source_bound.current": {
       const aiCoverage = document.ai_mandatory_coverage;
       const basis = isRecord(aiCoverage) ? aiCoverage.basis : null;
       return [
-        ...optionalRef(document, "parent_context_ref", "startup_opportunity.planning_context.v2"),
+        ...optionalRef(
+          document,
+          "parent_context_ref",
+          "startup_opportunity.planning_context.ai_source_bound.current",
+        ),
         ...nestedRef(
           document,
           "manifest_binding",
@@ -596,28 +625,40 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       return [
         ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
       ];
-    case "startup_opportunity.scope_frame.v1":
+    case "startup_opportunity.scope_frame.assessment.current":
       return [
         ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
       ];
-    case "startup_opportunity.scope_frame.v2":
+    case "startup_opportunity.scope_frame.discovery.current":
       return [
         ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
       ];
     case "startup_opportunity.seed_probe.v1":
       return [
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
       ];
     case "startup_opportunity.opportunity_space_map.v1":
       return [
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "seed_probe_ref", "startup_opportunity.seed_probe.v1"),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
       ];
     case "startup_opportunity.solution_space_map.v1":
       return [
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "seed_probe_ref", "startup_opportunity.seed_probe.v1"),
         ...optionalRef(
           document,
@@ -626,21 +667,31 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
       ];
-    case "startup_opportunity.concept_hypothesis.v1":
-      return [...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v1")];
-    case "startup_opportunity.concept_hypothesis.v2":
+    case "startup_opportunity.concept_hypothesis.assessment.current":
       return [
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v1"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.assessment.current",
+        ),
+      ];
+    case "startup_opportunity.concept_hypothesis.assessment_intake.current":
+      return [
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.assessment.current",
+        ),
         ...refsFromNestedArray(document, "field_provenance", "basis_refs", [
           "startup_opportunity.intake.v1",
           "startup_opportunity.decision.v1",
         ]),
       ];
-    case "startup_opportunity.judgment_assessment.v1":
+    case "startup_opportunity.judgment_assessment.assessment.current":
       return [
         ...optionalRef(document, "subject_ref", [
-          "startup_opportunity.concept_hypothesis.v1",
-          "startup_opportunity.concept_hypothesis.v2",
+          "startup_opportunity.concept_hypothesis.assessment.current",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
         ]),
       ];
     case "startup_opportunity.concept_evidence_assessment_plan.v1":
@@ -654,7 +705,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "concept_hypothesis_ref",
-          "startup_opportunity.concept_hypothesis.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
         ),
         ...refsFromArray(document, "triggered_by_adaptation_refs", [
           "startup_opportunity.adaptation_decision.discovery.current",
@@ -666,7 +717,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "concept_hypothesis_ref",
-          "startup_opportunity.concept_hypothesis.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
         ),
         ...optionalRef(
           document,
@@ -676,16 +727,20 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v1",
+          "startup_opportunity.judgment_assessment.assessment.current",
         ),
-        ...refsFromArray(document, "finding_refs", "startup_opportunity.finding.v1"),
+        ...refsFromArray(
+          document,
+          "finding_refs",
+          "startup_opportunity.finding.assessment.current",
+        ),
       ];
     case "startup_opportunity.concept_evidence_assessment_fan_in.v1":
       return [
         ...optionalRef(
           document,
           "concept_hypothesis_ref",
-          "startup_opportunity.concept_hypothesis.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
         ),
         ...optionalRef(
           document,
@@ -722,7 +777,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "dimension_summaries",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v1",
+          "startup_opportunity.judgment_assessment.assessment.current",
         ),
       ];
     case "startup_opportunity.hypothesis_evidence_matrix.v1":
@@ -730,7 +785,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "concept_hypothesis_ref",
-          "startup_opportunity.concept_hypothesis.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
         ),
         ...optionalRef(
           document,
@@ -746,24 +801,28 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "dimensions",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v1",
+          "startup_opportunity.judgment_assessment.assessment.current",
         ),
       ];
-    case "startup_opportunity.business_engine_thesis.v1":
+    case "startup_opportunity.business_engine_thesis.assessment.current":
       return [
-        ...optionalRef(document, "subject_ref", "startup_opportunity.concept_hypothesis.v1"),
+        ...optionalRef(
+          document,
+          "subject_ref",
+          "startup_opportunity.concept_hypothesis.assessment.current",
+        ),
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v1",
+          "startup_opportunity.judgment_assessment.assessment.current",
         ),
       ];
-    case "startup_opportunity.concept_evidence_assessment.v1":
+    case "startup_opportunity.concept_evidence_assessment.analysis.current":
       return [
         ...optionalRef(
           document,
           "concept_hypothesis_ref",
-          "startup_opportunity.concept_hypothesis.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
         ),
         ...optionalRef(
           document,
@@ -778,13 +837,13 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "business_engine_ref",
-          "startup_opportunity.business_engine_thesis.v1",
+          "startup_opportunity.business_engine_thesis.assessment.current",
         ),
         ...refsFromNestedArray(
           document,
           "dimension_decisions",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v1",
+          "startup_opportunity.judgment_assessment.assessment.current",
         ),
         ...refsFromArray(
           document,
@@ -792,28 +851,50 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.concept_assessment_suggestions.v1",
         ),
       ];
-    case "startup_opportunity.research_task.v1":
+    case "startup_opportunity.research_task.assessment.current":
       return [
-        ...optionalRef(document, "target_subject_ref", "startup_opportunity.concept_hypothesis.v1"),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v1"),
+        ...optionalRef(
+          document,
+          "target_subject_ref",
+          "startup_opportunity.concept_hypothesis.assessment.current",
+        ),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.assessment.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(
           document,
           "assessment_plan_ref",
           "startup_opportunity.concept_evidence_assessment_plan.v1",
         ),
-        ...optionalRef(document, "supersedes_task_ref", "startup_opportunity.research_task.v1"),
+        ...optionalRef(
+          document,
+          "supersedes_task_ref",
+          "startup_opportunity.research_task.assessment.current",
+        ),
       ];
-    case "startup_opportunity.evidence.v1":
+    case "startup_opportunity.evidence.assessment.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v1"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.assessment.current",
+        ),
         ...nestedRef(
           document,
           "lineage",
           "concept_hypothesis_ref",
-          "startup_opportunity.concept_hypothesis.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
         ),
-        ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v1"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.assessment.current",
+        ),
         ...nestedRef(
           document,
           "lineage",
@@ -834,43 +915,79 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "evidence_id",
         ),
       ];
-    case "startup_opportunity.claim.v1":
+    case "startup_opportunity.claim.assessment.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v1"),
-        ...refsFromArray(document, "evidence_refs", "startup_opportunity.evidence.v1"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.assessment.current",
+        ),
+        ...refsFromArray(
+          document,
+          "evidence_refs",
+          "startup_opportunity.evidence.assessment.current",
+        ),
       ];
-    case "startup_opportunity.finding.v1":
+    case "startup_opportunity.finding.assessment.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v1"),
-        ...refsFromArray(document, "claim_refs", "startup_opportunity.claim.v1"),
-        ...refsFromArray(document, "opposing_claim_refs", "startup_opportunity.claim.v1"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.assessment.current",
+        ),
+        ...refsFromArray(document, "claim_refs", "startup_opportunity.claim.assessment.current"),
+        ...refsFromArray(
+          document,
+          "opposing_claim_refs",
+          "startup_opportunity.claim.assessment.current",
+        ),
       ];
-    case "startup_opportunity.insight.v1":
+    case "startup_opportunity.insight.assessment.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v1"),
-        ...refsFromArray(document, "finding_refs", "startup_opportunity.finding.v1"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.assessment.current",
+        ),
+        ...refsFromArray(
+          document,
+          "finding_refs",
+          "startup_opportunity.finding.assessment.current",
+        ),
       ];
-    case "startup_opportunity.source_manifest.v1":
+    case "startup_opportunity.source_manifest.assessment.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v1"),
-        ...refsFromArray(document, "accepted_evidence_refs", "startup_opportunity.evidence.v1"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.assessment.current",
+        ),
+        ...refsFromArray(
+          document,
+          "accepted_evidence_refs",
+          "startup_opportunity.evidence.assessment.current",
+        ),
         ...refsFromNestedArray(
           document,
           "canonical_source_groups",
           "evidence_refs",
-          "startup_opportunity.evidence.v1",
+          "startup_opportunity.evidence.assessment.current",
         ),
         ...refsFromNestedArray(
           document,
           "shared_dataset_groups",
           "evidence_refs",
-          "startup_opportunity.evidence.v1",
+          "startup_opportunity.evidence.assessment.current",
         ),
         ...refsFromNestedArray(
           document,
           "duplicate_or_syndication_groups",
           "evidence_refs",
-          "startup_opportunity.evidence.v1",
+          "startup_opportunity.evidence.assessment.current",
         ),
       ];
     case "startup_opportunity.evidence_audit.v1":
@@ -879,31 +996,31 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(
           document,
           "source_manifest_refs",
-          "startup_opportunity.source_manifest.v1",
+          "startup_opportunity.source_manifest.assessment.current",
         ),
         ...refsFromNestedArray(
           document,
           "evidence_reviews",
           "evidence_ref",
-          "startup_opportunity.evidence.v1",
+          "startup_opportunity.evidence.assessment.current",
         ),
         ...refsFromNestedArray(
           document,
           "evidence_reviews",
           "source_manifest_ref",
-          "startup_opportunity.source_manifest.v1",
+          "startup_opportunity.source_manifest.assessment.current",
         ),
         ...refsFromNestedArray(
           document,
           "claim_reviews",
           "claim_ref",
-          "startup_opportunity.claim.v1",
+          "startup_opportunity.claim.assessment.current",
         ),
         ...refsFromNestedArray(
           document,
           "claim_reviews",
           "evidence_refs",
-          "startup_opportunity.evidence.v1",
+          "startup_opportunity.evidence.assessment.current",
         ),
       ];
     case "startup_opportunity.adversarial_review.v1":
@@ -917,28 +1034,28 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "business_engine_ref",
-          "startup_opportunity.business_engine_thesis.v1",
+          "startup_opportunity.business_engine_thesis.assessment.current",
         ),
         ...optionalRef(document, "evidence_audit_ref", "startup_opportunity.evidence_audit.v1"),
         ...refsFromArray(
           document,
           "challenger_source_manifest_refs",
-          "startup_opportunity.source_manifest.v1",
+          "startup_opportunity.source_manifest.assessment.current",
         ),
         ...refsFromNestedArray(
           document,
           "challenges",
           "evidence_refs",
-          "startup_opportunity.evidence.v1",
+          "startup_opportunity.evidence.assessment.current",
         ),
         ...refsFromNestedArray(
           document,
           "challenges",
           "claim_refs",
-          "startup_opportunity.claim.v1",
+          "startup_opportunity.claim.assessment.current",
         ),
       ];
-    case "startup_opportunity.concept_evidence_assessment.v2":
+    case "startup_opportunity.concept_evidence_assessment.reporting.current":
       return [
         ...g14CommonRefs(document),
         ...optionalRef(
@@ -954,7 +1071,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "business_engine_ref",
-          "startup_opportunity.business_engine_thesis.v1",
+          "startup_opportunity.business_engine_thesis.assessment.current",
         ),
         ...optionalRef(document, "evidence_audit_ref", "startup_opportunity.evidence_audit.v1"),
         ...optionalRef(
@@ -966,24 +1083,24 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "dimension_decisions",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v1",
+          "startup_opportunity.judgment_assessment.assessment.current",
         ),
         ...refsFromArray(document, "decisive_evidence_refs", [
-          "startup_opportunity.evidence.v1",
-          "startup_opportunity.claim.v1",
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.claim.assessment.current",
         ]),
         ...refsFromArray(document, "decisive_opposing_refs", [
-          "startup_opportunity.evidence.v1",
-          "startup_opportunity.claim.v1",
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.claim.assessment.current",
         ]),
       ];
-    case "startup_opportunity.traceability.v1":
+    case "startup_opportunity.traceability.assessment.current":
       return [
         ...g14CommonRefs(document),
         ...optionalRef(
           document,
           "assessment_ref",
-          "startup_opportunity.concept_evidence_assessment.v2",
+          "startup_opportunity.concept_evidence_assessment.reporting.current",
         ),
         ...optionalRef(
           document,
@@ -993,7 +1110,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "business_engine_ref",
-          "startup_opportunity.business_engine_thesis.v1",
+          "startup_opportunity.business_engine_thesis.assessment.current",
         ),
         ...optionalRef(document, "evidence_audit_ref", "startup_opportunity.evidence_audit.v1"),
         ...optionalRef(
@@ -1005,38 +1122,57 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "chains",
           "assessment_ref",
-          "startup_opportunity.concept_evidence_assessment.v2",
+          "startup_opportunity.concept_evidence_assessment.reporting.current",
         ),
         ...refsFromNestedArray(
           document,
           "chains",
           "judgment_assessment_ref",
-          "startup_opportunity.judgment_assessment.v1",
+          "startup_opportunity.judgment_assessment.assessment.current",
         ),
         ...refsFromNestedArray(
           document,
           "chains",
           "concept_subject_ref",
-          "startup_opportunity.concept_hypothesis.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
         ),
-        ...refsFromNestedArray(document, "chains", "insight_ref", "startup_opportunity.insight.v1"),
-        ...refsFromNestedArray(document, "chains", "finding_ref", "startup_opportunity.finding.v1"),
-        ...refsFromNestedArray(document, "chains", "claim_ref", "startup_opportunity.claim.v1"),
+        ...refsFromNestedArray(
+          document,
+          "chains",
+          "insight_ref",
+          "startup_opportunity.insight.assessment.current",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "chains",
+          "finding_ref",
+          "startup_opportunity.finding.assessment.current",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "chains",
+          "claim_ref",
+          "startup_opportunity.claim.assessment.current",
+        ),
         ...refsFromNestedArray(
           document,
           "chains",
           "evidence_ref",
-          "startup_opportunity.evidence.v1",
+          "startup_opportunity.evidence.assessment.current",
         ),
       ];
     case "startup_opportunity.concept_evidence_report.v1":
       return [
         ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
-        ...optionalRef(document, "concept_frame_ref", "startup_opportunity.scope_frame.v1"),
+        ...optionalRef(
+          document,
+          "concept_frame_ref",
+          "startup_opportunity.scope_frame.assessment.current",
+        ),
         ...optionalRef(
           document,
           "concept_hypothesis_ref",
-          "startup_opportunity.concept_hypothesis.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
         ),
         ...optionalRef(
           document,
@@ -1063,40 +1199,44 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "concept_evidence_assessment_ref",
-          "startup_opportunity.concept_evidence_assessment.v2",
+          "startup_opportunity.concept_evidence_assessment.reporting.current",
         ),
         ...optionalRef(
           document,
           "business_engine_ref",
-          "startup_opportunity.business_engine_thesis.v1",
+          "startup_opportunity.business_engine_thesis.assessment.current",
         ),
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v1",
+          "startup_opportunity.judgment_assessment.assessment.current",
         ),
         ...refsFromArray(
           document,
           "source_manifest_refs",
-          "startup_opportunity.source_manifest.v1",
+          "startup_opportunity.source_manifest.assessment.current",
         ),
-        ...optionalRef(document, "traceability_ref", "startup_opportunity.traceability.v1"),
+        ...optionalRef(
+          document,
+          "traceability_ref",
+          "startup_opportunity.traceability.assessment.current",
+        ),
       ];
-    case "startup_opportunity.decision_brief.v1":
+    case "startup_opportunity.decision_brief.assessment.current":
       return [
         ...optionalRef(document, "report_ref", "startup_opportunity.concept_evidence_report.v1"),
         ...optionalRef(
           document,
           "assessment_ref",
-          "startup_opportunity.concept_evidence_assessment.v2",
+          "startup_opportunity.concept_evidence_assessment.reporting.current",
         ),
         ...refsFromArray(document, "decisive_supporting_refs", [
-          "startup_opportunity.evidence.v1",
-          "startup_opportunity.claim.v1",
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.claim.assessment.current",
         ]),
         ...refsFromArray(document, "decisive_opposing_refs", [
-          "startup_opportunity.evidence.v1",
-          "startup_opportunity.claim.v1",
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.claim.assessment.current",
         ]),
       ];
     case "startup_opportunity.concept_evidence_report_view.v1":
@@ -1105,21 +1245,25 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "assessment_ref",
-          "startup_opportunity.concept_evidence_assessment.v2",
+          "startup_opportunity.concept_evidence_assessment.reporting.current",
         ),
         ...refsFromArray(document, "decisive_supporting_refs", [
-          "startup_opportunity.evidence.v1",
-          "startup_opportunity.claim.v1",
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.claim.assessment.current",
         ]),
         ...refsFromArray(document, "decisive_opposing_refs", [
-          "startup_opportunity.evidence.v1",
-          "startup_opportunity.claim.v1",
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.claim.assessment.current",
         ]),
       ];
-    case "startup_opportunity.report_consistency_evaluation.v1":
+    case "startup_opportunity.report_consistency_evaluation.assessment.current":
       return [
         ...optionalRef(document, "report_ref", "startup_opportunity.concept_evidence_report.v1"),
-        ...optionalRef(document, "decision_brief_ref", "startup_opportunity.decision_brief.v1"),
+        ...optionalRef(
+          document,
+          "decision_brief_ref",
+          "startup_opportunity.decision_brief.assessment.current",
+        ),
         ...optionalRef(
           document,
           "report_view_ref",
@@ -1128,13 +1272,13 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "assessment_ref",
-          "startup_opportunity.concept_evidence_assessment.v2",
+          "startup_opportunity.concept_evidence_assessment.reporting.current",
         ),
         ...refsFromNestedArray(document, "input_artifact_hashes", "ref", [
           "startup_opportunity.concept_evidence_report.v1",
-          "startup_opportunity.decision_brief.v1",
+          "startup_opportunity.decision_brief.assessment.current",
           "startup_opportunity.concept_evidence_report_view.v1",
-          "startup_opportunity.concept_evidence_assessment.v2",
+          "startup_opportunity.concept_evidence_assessment.reporting.current",
         ]),
       ];
     case "startup_opportunity.discovery_candidate.v1": {
@@ -1146,7 +1290,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "parent_candidate_ref",
           "startup_opportunity.discovery_candidate.v1",
         ),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...nestedRef(
           document,
@@ -1174,37 +1322,37 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "evidence_lineage",
           "evidence_refs",
-          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "claim_refs",
-          "startup_opportunity.claim.v2",
+          "startup_opportunity.claim.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "finding_refs",
-          "startup_opportunity.finding.v2",
+          "startup_opportunity.finding.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "insight_refs",
-          "startup_opportunity.insight.v2",
+          "startup_opportunity.insight.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "source_manifest_refs",
-          "startup_opportunity.source_manifest.v2",
+          "startup_opportunity.source_manifest.discovery_candidate.current",
         ),
         ...refsFromObjectArray(document, "evidence_lineage", "audit_refs", [
           "startup_opportunity.evidence_audit.v1",
@@ -1214,49 +1362,67 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "source_partition",
           "generation_source_manifest_refs",
-          "startup_opportunity.source_manifest.v2",
+          "startup_opportunity.source_manifest.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "source_partition",
           "evaluation_source_manifest_refs",
-          "startup_opportunity.source_manifest.v2",
+          "startup_opportunity.source_manifest.discovery_candidate.current",
         ),
         ...refsFromObjectArray(document, "enrichment", "basis_refs", [
           "startup_opportunity.opportunity_space_map.v1",
           "startup_opportunity.solution_space_map.v1",
-          "startup_opportunity.evidence.v2",
-          "startup_opportunity.claim.v2",
-          "startup_opportunity.finding.v2",
-          "startup_opportunity.insight.v2",
-          "startup_opportunity.judgment_assessment.v2",
-          "startup_opportunity.source_manifest.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.claim.discovery_candidate.current",
+          "startup_opportunity.finding.discovery_candidate.current",
+          "startup_opportunity.insight.discovery_candidate.current",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
+          "startup_opportunity.source_manifest.discovery_candidate.current",
           "startup_opportunity.discovery_lane_result.v1",
           "startup_opportunity.decision.v1",
         ]),
       ];
     }
-    case "startup_opportunity.research_task.v2":
+    case "startup_opportunity.research_task.discovery_candidate.current":
       return [
         ...refsFromArray(
           document,
           "target_candidate_refs",
           "startup_opportunity.discovery_candidate.v1",
         ),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
-        ...optionalRef(document, "supersedes_task_ref", "startup_opportunity.research_task.v2"),
+        ...optionalRef(
+          document,
+          "supersedes_task_ref",
+          "startup_opportunity.research_task.discovery_candidate.current",
+        ),
       ];
-    case "startup_opportunity.evidence.v2":
+    case "startup_opportunity.evidence.discovery_candidate.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.discovery_candidate.current",
+        ),
         ...refsFromObjectArray(
           document,
           "lineage",
           "candidate_refs",
           "startup_opportunity.discovery_candidate.v1",
         ),
-        ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...nestedRef(
           document,
           "lineage",
@@ -1271,112 +1437,176 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "evidence_id",
         ),
       ];
-    case "startup_opportunity.claim.v2":
+    case "startup_opportunity.claim.discovery_candidate.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.discovery_candidate.current",
+        ),
         ...refsFromObjectArray(
           document,
           "lineage",
           "candidate_refs",
           "startup_opportunity.discovery_candidate.v1",
         ),
-        ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...nestedRef(
           document,
           "lineage",
           "research_plan_ref",
           "startup_opportunity.research_plan.v1",
         ),
-        ...refsFromArray(document, "evidence_refs", "startup_opportunity.evidence.v2"),
+        ...refsFromArray(
+          document,
+          "evidence_refs",
+          "startup_opportunity.evidence.discovery_candidate.current",
+        ),
       ];
-    case "startup_opportunity.finding.v2":
+    case "startup_opportunity.finding.discovery_candidate.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.discovery_candidate.current",
+        ),
         ...refsFromObjectArray(
           document,
           "lineage",
           "candidate_refs",
           "startup_opportunity.discovery_candidate.v1",
         ),
-        ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...nestedRef(
           document,
           "lineage",
           "research_plan_ref",
           "startup_opportunity.research_plan.v1",
         ),
-        ...refsFromArray(document, "claim_refs", "startup_opportunity.claim.v2"),
-        ...refsFromArray(document, "opposing_claim_refs", "startup_opportunity.claim.v2"),
+        ...refsFromArray(
+          document,
+          "claim_refs",
+          "startup_opportunity.claim.discovery_candidate.current",
+        ),
+        ...refsFromArray(
+          document,
+          "opposing_claim_refs",
+          "startup_opportunity.claim.discovery_candidate.current",
+        ),
       ];
-    case "startup_opportunity.insight.v2":
+    case "startup_opportunity.insight.discovery_candidate.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.discovery_candidate.current",
+        ),
         ...refsFromObjectArray(
           document,
           "lineage",
           "candidate_refs",
           "startup_opportunity.discovery_candidate.v1",
         ),
-        ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...nestedRef(
           document,
           "lineage",
           "research_plan_ref",
           "startup_opportunity.research_plan.v1",
         ),
-        ...refsFromArray(document, "finding_refs", "startup_opportunity.finding.v2"),
+        ...refsFromArray(
+          document,
+          "finding_refs",
+          "startup_opportunity.finding.discovery_candidate.current",
+        ),
       ];
-    case "startup_opportunity.source_manifest.v2":
+    case "startup_opportunity.source_manifest.discovery_candidate.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.discovery_candidate.current",
+        ),
         ...refsFromObjectArray(
           document,
           "lineage",
           "candidate_refs",
           "startup_opportunity.discovery_candidate.v1",
         ),
-        ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...nestedRef(
           document,
           "lineage",
           "research_plan_ref",
           "startup_opportunity.research_plan.v1",
         ),
-        ...refsFromArray(document, "accepted_evidence_refs", "startup_opportunity.evidence.v2"),
+        ...refsFromArray(
+          document,
+          "accepted_evidence_refs",
+          "startup_opportunity.evidence.discovery_candidate.current",
+        ),
         ...refsFromNestedArray(
           document,
           "canonical_source_groups",
           "evidence_refs",
-          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
         ),
         ...refsFromNestedArray(
           document,
           "shared_dataset_groups",
           "evidence_refs",
-          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
         ),
         ...refsFromNestedArray(
           document,
           "duplicate_or_syndication_groups",
           "evidence_refs",
-          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
         ),
       ];
-    case "startup_opportunity.judgment_assessment.v2":
+    case "startup_opportunity.judgment_assessment.discovery_candidate.current":
       return [
         ...optionalRef(document, "subject_ref", "startup_opportunity.discovery_candidate.v1"),
         ...refsFromArray(document, "supporting_refs", [
-          "startup_opportunity.evidence.v2",
-          "startup_opportunity.claim.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.claim.discovery_candidate.current",
         ]),
         ...refsFromArray(document, "opposing_refs", [
-          "startup_opportunity.evidence.v2",
-          "startup_opportunity.claim.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.claim.discovery_candidate.current",
         ]),
       ];
     case "startup_opportunity.discovery_lane_result.v1":
       return [
-        ...optionalRef(document, "task_ref", "startup_opportunity.research_task.v2"),
+        ...optionalRef(
+          document,
+          "task_ref",
+          "startup_opportunity.research_task.discovery_candidate.current",
+        ),
         ...refsFromNestedArray(
           document,
           "scored_candidates",
@@ -1393,7 +1623,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "pre_kill_decisions",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
         ...refsFromArray(
           document,
@@ -1426,42 +1656,46 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "evidence_lineage",
           "evidence_refs",
-          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "claim_refs",
-          "startup_opportunity.claim.v2",
+          "startup_opportunity.claim.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "finding_refs",
-          "startup_opportunity.finding.v2",
+          "startup_opportunity.finding.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "insight_refs",
-          "startup_opportunity.insight.v2",
+          "startup_opportunity.insight.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "source_manifest_refs",
-          "startup_opportunity.source_manifest.v2",
+          "startup_opportunity.source_manifest.discovery_candidate.current",
         ),
       ];
     case "startup_opportunity.discovery_fan_in.v2":
       return [
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...refsFromObjectArray(
           document,
@@ -1521,7 +1755,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "candidate_dispositions",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
         ...refsFromArray(
           document,
@@ -1541,7 +1775,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
@@ -1563,7 +1797,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "parent_conversion_ref",
           "startup_opportunity.discovery_candidate_conversion.v2",
         ),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(
           document,
@@ -1580,7 +1818,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
     case "startup_opportunity.demand_thesis.v1":
       return [
         ...optionalRef(document, "parent_demand_ref", "startup_opportunity.demand_thesis.v1"),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
         ...optionalRef(
@@ -1597,26 +1839,38 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "source_groups",
           "generation_source_manifest_refs",
-          "startup_opportunity.source_manifest.v2",
+          "startup_opportunity.source_manifest.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "source_groups",
           "evaluation_source_manifest_refs",
-          "startup_opportunity.source_manifest.v2",
+          "startup_opportunity.source_manifest.discovery_candidate.current",
         ),
-        ...refsFromArray(document, "supporting_claim_refs", "startup_opportunity.claim.v2"),
-        ...refsFromArray(document, "opposing_claim_refs", "startup_opportunity.claim.v2"),
+        ...refsFromArray(
+          document,
+          "supporting_claim_refs",
+          "startup_opportunity.claim.discovery_candidate.current",
+        ),
+        ...refsFromArray(
+          document,
+          "opposing_claim_refs",
+          "startup_opportunity.claim.discovery_candidate.current",
+        ),
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
       ];
     case "startup_opportunity.baseline_option.v1":
       return [
         ...optionalRef(document, "parent_baseline_ref", "startup_opportunity.baseline_option.v1"),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
         ...optionalRef(
@@ -1633,7 +1887,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
       ];
     case "startup_opportunity.solution_hypothesis.v1":
@@ -1643,7 +1897,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "parent_solution_ref",
           "startup_opportunity.solution_hypothesis.v1",
         ),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
         ...optionalRef(
@@ -1658,12 +1916,20 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ),
         ...optionalRef(document, "demand_thesis_ref", "startup_opportunity.demand_thesis.v1"),
         ...optionalRef(document, "baseline_option_ref", "startup_opportunity.baseline_option.v1"),
-        ...refsFromArray(document, "supporting_claim_refs", "startup_opportunity.claim.v2"),
-        ...refsFromArray(document, "opposing_claim_refs", "startup_opportunity.claim.v2"),
+        ...refsFromArray(
+          document,
+          "supporting_claim_refs",
+          "startup_opportunity.claim.discovery_candidate.current",
+        ),
+        ...refsFromArray(
+          document,
+          "opposing_claim_refs",
+          "startup_opportunity.claim.discovery_candidate.current",
+        ),
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
       ];
     case "startup_opportunity.solution_evaluation.v1":
@@ -1673,7 +1939,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "parent_evaluation_ref",
           "startup_opportunity.solution_evaluation.v1",
         ),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
         ...optionalRef(document, "demand_thesis_ref", "startup_opportunity.demand_thesis.v1"),
@@ -1703,24 +1973,24 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "rejected_solutions",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "source_groups",
           "generation_source_manifest_refs",
-          "startup_opportunity.source_manifest.v2",
+          "startup_opportunity.source_manifest.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "source_groups",
           "evaluation_source_manifest_refs",
-          "startup_opportunity.source_manifest.v2",
+          "startup_opportunity.source_manifest.discovery_candidate.current",
         ),
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
       ];
     case "startup_opportunity.opportunity_thesis.v1":
@@ -1730,7 +2000,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "parent_opportunity_ref",
           "startup_opportunity.opportunity_thesis.v1",
         ),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
         ...optionalRef(document, "demand_thesis_ref", "startup_opportunity.demand_thesis.v1"),
@@ -1751,18 +2025,26 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.solution_evaluation.v1",
         ),
         ...refsFromArray(document, "source_lanes", "startup_opportunity.discovery_lane_result.v1"),
-        ...refsFromArray(document, "supporting_insight_refs", "startup_opportunity.insight.v2"),
-        ...refsFromArray(document, "opposing_claim_refs", "startup_opportunity.claim.v2"),
+        ...refsFromArray(
+          document,
+          "supporting_insight_refs",
+          "startup_opportunity.insight.discovery_candidate.current",
+        ),
+        ...refsFromArray(
+          document,
+          "opposing_claim_refs",
+          "startup_opportunity.claim.discovery_candidate.current",
+        ),
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
         ...refsFromObjectArray(
           document,
           "mental_position_occupation",
           "evidence_refs",
-          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
         ),
       ];
     case "startup_opportunity.thesis_evaluation_snapshot.v1":
@@ -1772,7 +2054,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "parent_snapshot_ref",
           "startup_opportunity.thesis_evaluation_snapshot.v1",
         ),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...refsFromArray(document, "subject_refs", "startup_opportunity.opportunity_thesis.v1"),
         ...refsFromArray(document, "demand_thesis_refs", "startup_opportunity.demand_thesis.v1"),
@@ -1794,18 +2080,22 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(
           document,
           "generation_source_groups",
-          "startup_opportunity.source_manifest.v2",
+          "startup_opportunity.source_manifest.discovery_candidate.current",
         ),
         ...refsFromArray(
           document,
           "evaluation_source_groups",
-          "startup_opportunity.source_manifest.v2",
+          "startup_opportunity.source_manifest.discovery_candidate.current",
         ),
       ];
     case "startup_opportunity.merge.v1":
       return [
         ...optionalRef(document, "parent_merge_ref", "startup_opportunity.merge.v1"),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(
           document,
@@ -1818,7 +2108,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.opportunity_thesis.v1",
         ),
       ];
-    case "startup_opportunity.research_task.v3":
+    case "startup_opportunity.research_task.discovery_evaluation.current":
       return [
         ...refsFromArray(
           document,
@@ -1831,20 +2121,33 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.thesis_evaluation_snapshot.v1",
         ),
         ...optionalRef(document, "source_merge_ref", "startup_opportunity.merge.v1"),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...refsFromArray(document, "input_refs", [
           "startup_opportunity.opportunity_thesis.v1",
           "startup_opportunity.thesis_evaluation_snapshot.v1",
           "startup_opportunity.merge.v1",
-          "startup_opportunity.scope_frame.v2",
+          "startup_opportunity.scope_frame.discovery.current",
           "startup_opportunity.research_plan.v1",
         ]),
-        ...optionalRef(document, "supersedes_task_ref", "startup_opportunity.research_task.v3"),
+        ...optionalRef(
+          document,
+          "supersedes_task_ref",
+          "startup_opportunity.research_task.discovery_evaluation.current",
+        ),
       ];
-    case "startup_opportunity.evidence.v3":
+    case "startup_opportunity.evidence.discovery_evaluation.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v3"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.discovery_evaluation.current",
+        ),
         ...refsFromObjectArray(
           document,
           "lineage",
@@ -1858,7 +2161,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.thesis_evaluation_snapshot.v1",
         ),
         ...nestedRef(document, "lineage", "source_merge_ref", "startup_opportunity.merge.v1"),
-        ...nestedRef(document, "lineage", "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...nestedRef(
           document,
           "lineage",
@@ -1873,43 +2181,79 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "evidence_id",
         ),
       ];
-    case "startup_opportunity.claim.v3":
+    case "startup_opportunity.claim.discovery_evaluation.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v3"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.discovery_evaluation.current",
+        ),
         ...refsFromObjectArray(
           document,
           "lineage",
           "opportunity_refs",
           "startup_opportunity.opportunity_thesis.v1",
         ),
-        ...refsFromArray(document, "evidence_refs", "startup_opportunity.evidence.v3"),
+        ...refsFromArray(
+          document,
+          "evidence_refs",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+        ),
       ];
-    case "startup_opportunity.finding.v3":
+    case "startup_opportunity.finding.discovery_evaluation.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v3"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.discovery_evaluation.current",
+        ),
         ...refsFromObjectArray(
           document,
           "lineage",
           "opportunity_refs",
           "startup_opportunity.opportunity_thesis.v1",
         ),
-        ...refsFromArray(document, "claim_refs", "startup_opportunity.claim.v3"),
-        ...refsFromArray(document, "opposing_claim_refs", "startup_opportunity.claim.v3"),
+        ...refsFromArray(
+          document,
+          "claim_refs",
+          "startup_opportunity.claim.discovery_evaluation.current",
+        ),
+        ...refsFromArray(
+          document,
+          "opposing_claim_refs",
+          "startup_opportunity.claim.discovery_evaluation.current",
+        ),
       ];
-    case "startup_opportunity.insight.v3":
+    case "startup_opportunity.insight.discovery_evaluation.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v3"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.discovery_evaluation.current",
+        ),
         ...refsFromObjectArray(
           document,
           "lineage",
           "opportunity_refs",
           "startup_opportunity.opportunity_thesis.v1",
         ),
-        ...refsFromArray(document, "finding_refs", "startup_opportunity.finding.v3"),
+        ...refsFromArray(
+          document,
+          "finding_refs",
+          "startup_opportunity.finding.discovery_evaluation.current",
+        ),
       ];
-    case "startup_opportunity.judgment_assessment.v3":
+    case "startup_opportunity.judgment_assessment.discovery_evaluation.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v3"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.discovery_evaluation.current",
+        ),
         ...refsFromObjectArray(
           document,
           "lineage",
@@ -1918,34 +2262,47 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ),
         ...optionalRef(document, "subject_ref", "startup_opportunity.opportunity_thesis.v1"),
         ...refsFromArray(document, "supporting_refs", [
-          "startup_opportunity.evidence.v3",
-          "startup_opportunity.claim.v3",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+          "startup_opportunity.claim.discovery_evaluation.current",
         ]),
         ...refsFromArray(document, "opposing_refs", [
-          "startup_opportunity.evidence.v3",
-          "startup_opportunity.claim.v3",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+          "startup_opportunity.claim.discovery_evaluation.current",
         ]),
       ];
-    case "startup_opportunity.source_manifest.v3":
+    case "startup_opportunity.source_manifest.discovery_evaluation.current":
       return [
-        ...nestedRef(document, "lineage", "task_ref", "startup_opportunity.research_task.v3"),
+        ...nestedRef(
+          document,
+          "lineage",
+          "task_ref",
+          "startup_opportunity.research_task.discovery_evaluation.current",
+        ),
         ...refsFromObjectArray(
           document,
           "lineage",
           "opportunity_refs",
           "startup_opportunity.opportunity_thesis.v1",
         ),
-        ...refsFromArray(document, "accepted_evidence_refs", "startup_opportunity.evidence.v3"),
+        ...refsFromArray(
+          document,
+          "accepted_evidence_refs",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+        ),
         ...refsFromNestedArray(
           document,
           "canonical_source_groups",
           "evidence_refs",
-          "startup_opportunity.evidence.v3",
+          "startup_opportunity.evidence.discovery_evaluation.current",
         ),
       ];
     case "startup_opportunity.enrichment_branch_result.v1":
       return [
-        ...optionalRef(document, "task_ref", "startup_opportunity.research_task.v3"),
+        ...optionalRef(
+          document,
+          "task_ref",
+          "startup_opportunity.research_task.discovery_evaluation.current",
+        ),
         ...optionalRef(
           document,
           "source_snapshot_ref",
@@ -1957,37 +2314,37 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "evidence_lineage",
           "evidence_refs",
-          "startup_opportunity.evidence.v3",
+          "startup_opportunity.evidence.discovery_evaluation.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "claim_refs",
-          "startup_opportunity.claim.v3",
+          "startup_opportunity.claim.discovery_evaluation.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "finding_refs",
-          "startup_opportunity.finding.v3",
+          "startup_opportunity.finding.discovery_evaluation.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "insight_refs",
-          "startup_opportunity.insight.v3",
+          "startup_opportunity.insight.discovery_evaluation.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
         ...refsFromObjectArray(
           document,
           "evidence_lineage",
           "source_manifest_refs",
-          "startup_opportunity.source_manifest.v3",
+          "startup_opportunity.source_manifest.discovery_evaluation.current",
         ),
         ...refsFromNestedArray(
           document,
@@ -1999,13 +2356,17 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "hard_gate_inputs",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
       ];
     case "startup_opportunity.enrichment_fan_in.v1":
       return [
         ...optionalRef(document, "parent_fan_in_ref", "startup_opportunity.enrichment_fan_in.v1"),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(
           document,
@@ -2055,19 +2416,35 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "eligible_branch_refs",
           "startup_opportunity.enrichment_branch_result.v1",
         ),
-        ...refsFromArray(document, "evidence_refs", "startup_opportunity.evidence.v3"),
-        ...refsFromArray(document, "claim_refs", "startup_opportunity.claim.v3"),
-        ...refsFromArray(document, "finding_refs", "startup_opportunity.finding.v3"),
-        ...refsFromArray(document, "insight_refs", "startup_opportunity.insight.v3"),
+        ...refsFromArray(
+          document,
+          "evidence_refs",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+        ),
+        ...refsFromArray(
+          document,
+          "claim_refs",
+          "startup_opportunity.claim.discovery_evaluation.current",
+        ),
+        ...refsFromArray(
+          document,
+          "finding_refs",
+          "startup_opportunity.finding.discovery_evaluation.current",
+        ),
+        ...refsFromArray(
+          document,
+          "insight_refs",
+          "startup_opportunity.insight.discovery_evaluation.current",
+        ),
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
         ...refsFromArray(
           document,
           "source_manifest_refs",
-          "startup_opportunity.source_manifest.v3",
+          "startup_opportunity.source_manifest.discovery_evaluation.current",
         ),
         ...refsFromNestedArray(
           document,
@@ -2085,7 +2462,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "hard_gate_inputs",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
       ];
     case "startup_opportunity.value_layer_analysis.v1":
@@ -2103,15 +2480,23 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "enrichment_fan_in_ref",
           "startup_opportunity.enrichment_fan_in.v1",
         ),
-        ...refsFromArray(document, "supporting_claim_refs", "startup_opportunity.claim.v3"),
-        ...refsFromArray(document, "opposing_claim_refs", "startup_opportunity.claim.v3"),
+        ...refsFromArray(
+          document,
+          "supporting_claim_refs",
+          "startup_opportunity.claim.discovery_evaluation.current",
+        ),
+        ...refsFromArray(
+          document,
+          "opposing_claim_refs",
+          "startup_opportunity.claim.discovery_evaluation.current",
+        ),
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
       ];
-    case "startup_opportunity.business_engine_thesis.v2":
+    case "startup_opportunity.business_engine_thesis.discovery_evaluation.current":
       return [
         ...optionalRef(document, "subject_ref", "startup_opportunity.opportunity_thesis.v1"),
         ...optionalRef(
@@ -2124,12 +2509,20 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "enrichment_fan_in_ref",
           "startup_opportunity.enrichment_fan_in.v1",
         ),
-        ...refsFromArray(document, "supporting_claim_refs", "startup_opportunity.claim.v3"),
-        ...refsFromArray(document, "opposing_claim_refs", "startup_opportunity.claim.v3"),
+        ...refsFromArray(
+          document,
+          "supporting_claim_refs",
+          "startup_opportunity.claim.discovery_evaluation.current",
+        ),
+        ...refsFromArray(
+          document,
+          "opposing_claim_refs",
+          "startup_opportunity.claim.discovery_evaluation.current",
+        ),
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
       ];
     case "startup_opportunity.opportunity_comparison.v1":
@@ -2139,7 +2532,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "parent_comparison_ref",
           "startup_opportunity.opportunity_comparison.v1",
         ),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(
           document,
@@ -2171,18 +2568,18 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "business_engine_ref",
-          "startup_opportunity.business_engine_thesis.v2",
+          "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
         ),
         ...refsFromNestedArray(
           document,
           "hard_gate_results",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
       ];
     case "startup_opportunity.sensitivity.v1":
@@ -2224,16 +2621,16 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(
           document,
           "decisive_judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
         ...refsFromArray(
           document,
           "business_engine_refs",
-          "startup_opportunity.business_engine_thesis.v2",
+          "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
         ),
         ...optionalRef(document, "portfolio_view_ref", "startup_opportunity.portfolio_view.v1"),
       ];
-    case "startup_opportunity.traceability.v2":
+    case "startup_opportunity.traceability.discovery.current":
       return [
         ...optionalRef(
           document,
@@ -2258,37 +2655,41 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(
           document,
           "decisive_judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
         ...refsFromNestedArray(
           document,
           "statements",
           "judgment_assessment_ref",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
         ...refsFromNestedArray(
           document,
           "statements",
           "claim_refs",
-          "startup_opportunity.claim.v3",
+          "startup_opportunity.claim.discovery_evaluation.current",
         ),
         ...refsFromNestedArray(
           document,
           "statements",
           "evidence_refs",
-          "startup_opportunity.evidence.v3",
+          "startup_opportunity.evidence.discovery_evaluation.current",
         ),
         ...refsFromNestedArray(
           document,
           "statements",
           "source_manifest_refs",
-          "startup_opportunity.source_manifest.v3",
+          "startup_opportunity.source_manifest.discovery_evaluation.current",
         ),
       ];
     case "startup_opportunity.report.v1":
       return [
         ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
-        ...optionalRef(document, "scope_frame_ref", "startup_opportunity.scope_frame.v2"),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...refsFromArray(document, "plan_lineage_refs", "startup_opportunity.research_plan.v1"),
         ...refsFromArray(document, "applied_adaptation_refs", [
@@ -2309,7 +2710,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(
           document,
           "business_engine_refs",
-          "startup_opportunity.business_engine_thesis.v2",
+          "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
         ),
         ...refsFromArray(
           document,
@@ -2326,16 +2727,20 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
         ...refsFromArray(
           document,
           "source_manifest_refs",
-          "startup_opportunity.source_manifest.v3",
+          "startup_opportunity.source_manifest.discovery_evaluation.current",
         ),
-        ...optionalRef(document, "traceability_ref", "startup_opportunity.traceability.v2"),
+        ...optionalRef(
+          document,
+          "traceability_ref",
+          "startup_opportunity.traceability.discovery.current",
+        ),
       ];
-    case "startup_opportunity.decision_brief.v2":
+    case "startup_opportunity.decision_brief.discovery.current":
     case "startup_opportunity.discovery_report_view.v1":
       return [
         ...optionalRef(document, "report_ref", "startup_opportunity.report.v1"),
@@ -2351,44 +2756,52 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.opportunity_thesis.v1",
         ),
         ...refsFromArray(document, "decisive_supporting_refs", [
-          "startup_opportunity.evidence.v3",
-          "startup_opportunity.claim.v3",
-          "startup_opportunity.finding.v3",
-          "startup_opportunity.insight.v3",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+          "startup_opportunity.claim.discovery_evaluation.current",
+          "startup_opportunity.finding.discovery_evaluation.current",
+          "startup_opportunity.insight.discovery_evaluation.current",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ]),
         ...refsFromArray(document, "decisive_opposing_refs", [
-          "startup_opportunity.evidence.v3",
-          "startup_opportunity.claim.v3",
-          "startup_opportunity.finding.v3",
-          "startup_opportunity.insight.v3",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+          "startup_opportunity.claim.discovery_evaluation.current",
+          "startup_opportunity.finding.discovery_evaluation.current",
+          "startup_opportunity.insight.discovery_evaluation.current",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ]),
       ];
-    case "startup_opportunity.report_consistency_evaluation.v3":
+    case "startup_opportunity.report_consistency_evaluation.discovery.current":
       return [
         ...optionalRef(document, "report_ref", "startup_opportunity.report.v1"),
-        ...optionalRef(document, "decision_brief_ref", "startup_opportunity.decision_brief.v2"),
+        ...optionalRef(
+          document,
+          "decision_brief_ref",
+          "startup_opportunity.decision_brief.discovery.current",
+        ),
         ...optionalRef(document, "report_view_ref", "startup_opportunity.discovery_report_view.v1"),
         ...optionalRef(
           document,
           "decision_recommendation_ref",
           "startup_opportunity.decision_recommendation.v1",
         ),
-        ...optionalRef(document, "traceability_ref", "startup_opportunity.traceability.v2"),
+        ...optionalRef(
+          document,
+          "traceability_ref",
+          "startup_opportunity.traceability.discovery.current",
+        ),
       ];
     case "startup_opportunity.terminal_report_source.v1":
       return [
         ...refsFromNestedArray(document, "sources", "evidence_ref", [
-          "startup_opportunity.evidence.v1",
-          "startup_opportunity.evidence.v2",
-          "startup_opportunity.evidence.v3",
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.evidence.discovery_evaluation.current",
           "startup_opportunity.assessment_evidence.v1",
         ]),
         ...refsFromNestedArray(document, "excluded_evidence", "evidence_ref", [
-          "startup_opportunity.evidence.v1",
-          "startup_opportunity.evidence.v2",
-          "startup_opportunity.evidence.v3",
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.evidence.discovery_evaluation.current",
           "startup_opportunity.assessment_evidence.v1",
           "startup_opportunity.candidate_neutral_evidence.v1",
         ]),
@@ -2401,37 +2814,44 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
     case "startup_opportunity.commercial_research_audit.current":
       return [
         ...optionalRef(document, "execution_plan_ref", [
-          "startup_opportunity.research_execution_plan.v1",
-          "startup_opportunity.research_execution_plan.v2",
+          "startup_opportunity.research_execution_plan.discovery.current",
+          "startup_opportunity.research_execution_plan.assessment.current",
         ]),
         ...optionalRef(
           document,
           "dispatch_task_ref",
-          ["startup_opportunity.dispatch_batch.v1", "startup_opportunity.dispatch_batch.v2"],
+          [
+            "startup_opportunity.dispatch_batch.discovery.current",
+            "startup_opportunity.dispatch_batch.assessment.current",
+          ],
           "task_id",
         ),
         ...optionalRef(document, "task_ref", [
-          "startup_opportunity.research_task.v1",
-          "startup_opportunity.research_task.v2",
-          "startup_opportunity.research_task.v3",
+          "startup_opportunity.research_task.assessment.current",
+          "startup_opportunity.research_task.discovery_candidate.current",
+          "startup_opportunity.research_task.discovery_evaluation.current",
         ]),
         ...refsFromNestedArray(document, "evidence_register", "evidence_ref", [
-          "startup_opportunity.evidence.v1",
-          "startup_opportunity.evidence.v2",
-          "startup_opportunity.evidence.v3",
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.evidence.discovery_evaluation.current",
           "startup_opportunity.assessment_evidence.v1",
           "startup_opportunity.candidate_neutral_evidence.v1",
         ]),
       ];
-    case "startup_opportunity.decision_brief.v3":
+    case "startup_opportunity.decision_brief.terminal.current":
     case "startup_opportunity.terminal_report_view.v1":
       return [
         ...optionalRef(document, "report_ref", "startup_opportunity.terminal_report_source.v1"),
       ];
-    case "startup_opportunity.report_consistency_evaluation.v4":
+    case "startup_opportunity.report_consistency_evaluation.terminal.current":
       return [
         ...optionalRef(document, "report_ref", "startup_opportunity.terminal_report_source.v1"),
-        ...optionalRef(document, "decision_brief_ref", "startup_opportunity.decision_brief.v3"),
+        ...optionalRef(
+          document,
+          "decision_brief_ref",
+          "startup_opportunity.decision_brief.terminal.current",
+        ),
         ...optionalRef(document, "report_view_ref", "startup_opportunity.terminal_report_view.v1"),
       ];
     case "startup_opportunity.ai_capability_benchmark.v1":
@@ -2518,15 +2938,15 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "dimension_results",
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
       ];
-    case "startup_opportunity.research_execution_plan.v1":
+    case "startup_opportunity.research_execution_plan.discovery.current":
       return [
         ...optionalRef(
           document,
           "parent_execution_plan_ref",
-          "startup_opportunity.research_execution_plan.v1",
+          "startup_opportunity.research_execution_plan.discovery.current",
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...refsFromNestedArray(
@@ -2536,35 +2956,35 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.discovery_stage_readiness.v1",
         ),
       ];
-    case "startup_opportunity.research_execution_plan.v2":
+    case "startup_opportunity.research_execution_plan.assessment.current":
       return [
         ...optionalRef(
           document,
           "parent_execution_plan_ref",
-          "startup_opportunity.research_execution_plan.v2",
+          "startup_opportunity.research_execution_plan.assessment.current",
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(
           document,
           "concept_hypothesis_ref",
-          "startup_opportunity.concept_hypothesis.v2",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
         ),
       ];
-    case "startup_opportunity.dispatch_batch.v1":
+    case "startup_opportunity.dispatch_batch.discovery.current":
       return [
         ...optionalRef(
           document,
           "execution_plan_ref",
-          "startup_opportunity.research_execution_plan.v1",
+          "startup_opportunity.research_execution_plan.discovery.current",
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
       ];
-    case "startup_opportunity.dispatch_batch.v2":
+    case "startup_opportunity.dispatch_batch.assessment.current":
       return [
         ...optionalRef(
           document,
           "execution_plan_ref",
-          "startup_opportunity.research_execution_plan.v2",
+          "startup_opportunity.research_execution_plan.assessment.current",
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "gate_ref", "startup_opportunity.assessment_stage_gate.v1"),
@@ -2574,19 +2994,19 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "dispatch_batch_ref",
-          "startup_opportunity.dispatch_batch.v2",
+          "startup_opportunity.dispatch_batch.assessment.current",
           "task_id",
         ),
         ...optionalRef(
           document,
           "concept_hypothesis_ref",
-          "startup_opportunity.concept_hypothesis.v2",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(
           document,
           "execution_plan_ref",
-          "startup_opportunity.research_execution_plan.v2",
+          "startup_opportunity.research_execution_plan.assessment.current",
         ),
         ...nestedRef(
           document,
@@ -2601,39 +3021,39 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "concept_hypothesis_ref",
-          "startup_opportunity.concept_hypothesis.v2",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
         ),
         ...optionalRef(
           document,
           "execution_plan_ref",
-          "startup_opportunity.research_execution_plan.v2",
+          "startup_opportunity.research_execution_plan.assessment.current",
         ),
         ...refsFromNestedArray(document, "dimension_results", "evidence_refs", [
-          "startup_opportunity.evidence.v1",
-          "startup_opportunity.evidence.v2",
-          "startup_opportunity.evidence.v3",
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.evidence.discovery_evaluation.current",
           "startup_opportunity.assessment_evidence.v1",
         ]),
         ...refsFromNestedArray(document, "dimension_results", "supporting_claim_refs", [
-          "startup_opportunity.claim.v1",
-          "startup_opportunity.claim.v2",
-          "startup_opportunity.claim.v3",
+          "startup_opportunity.claim.assessment.current",
+          "startup_opportunity.claim.discovery_candidate.current",
+          "startup_opportunity.claim.discovery_evaluation.current",
         ]),
         ...refsFromNestedArray(document, "dimension_results", "opposing_claim_refs", [
-          "startup_opportunity.claim.v1",
-          "startup_opportunity.claim.v2",
-          "startup_opportunity.claim.v3",
+          "startup_opportunity.claim.assessment.current",
+          "startup_opportunity.claim.discovery_candidate.current",
+          "startup_opportunity.claim.discovery_evaluation.current",
         ]),
         ...refsFromNestedArray(document, "dimension_results", "judgment_assessment_refs", [
-          "startup_opportunity.judgment_assessment.v1",
-          "startup_opportunity.judgment_assessment.v2",
-          "startup_opportunity.judgment_assessment.v3",
+          "startup_opportunity.judgment_assessment.assessment.current",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ]),
         ...refsFromArray(document, "source_manifest_refs", [
-          "startup_opportunity.source_manifest.v1",
-          "startup_opportunity.source_manifest.v2",
-          "startup_opportunity.source_manifest.v3",
-          "startup_opportunity.source_manifest.v4",
+          "startup_opportunity.source_manifest.assessment.current",
+          "startup_opportunity.source_manifest.discovery_candidate.current",
+          "startup_opportunity.source_manifest.discovery_evaluation.current",
+          "startup_opportunity.source_manifest.discovery_runtime.current",
         ]),
       ];
     case "startup_opportunity.assessment_stage_gate.v1":
@@ -2641,12 +3061,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "execution_plan_ref",
-          "startup_opportunity.research_execution_plan.v2",
+          "startup_opportunity.research_execution_plan.assessment.current",
         ),
         ...optionalRef(
           document,
           "concept_hypothesis_ref",
-          "startup_opportunity.concept_hypothesis.v2",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
         ),
         ...refsFromArray(
           document,
@@ -2665,12 +3085,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "concept_hypothesis_ref",
-          "startup_opportunity.concept_hypothesis.v2",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
         ),
         ...optionalRef(
           document,
           "based_on_execution_plan_ref",
-          "startup_opportunity.research_execution_plan.v2",
+          "startup_opportunity.research_execution_plan.assessment.current",
         ),
         ...optionalRef(
           document,
@@ -2679,7 +3099,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ),
         ...optionalRef(document, "stage_gate_ref", "startup_opportunity.assessment_stage_gate.v1"),
         ...refsFromObjectArray(document, "target_unit", "input_refs", [
-          "startup_opportunity.concept_hypothesis.v2",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
           "startup_opportunity.assessment_stage_gate.v1",
         ]),
       ];
@@ -2689,7 +3109,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "dispatch_batch_ref",
-          "startup_opportunity.dispatch_batch.v1",
+          "startup_opportunity.dispatch_batch.discovery.current",
           "task_id",
         ),
       ];
@@ -2698,12 +3118,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "dispatch_batch_ref",
-          "startup_opportunity.dispatch_batch.v1",
+          "startup_opportunity.dispatch_batch.discovery.current",
           "task_id",
         ),
         ...optionalRef(document, "scope_frame_ref", [
-          "startup_opportunity.scope_frame.v1",
-          "startup_opportunity.scope_frame.v2",
+          "startup_opportunity.scope_frame.assessment.current",
+          "startup_opportunity.scope_frame.discovery.current",
         ]),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...nestedRef(
@@ -2719,54 +3139,58 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "dispatch_batch_ref",
-          "startup_opportunity.dispatch_batch.v1",
+          "startup_opportunity.dispatch_batch.discovery.current",
           "task_id",
         ),
         ...optionalRef(document, "scope_frame_ref", [
-          "startup_opportunity.scope_frame.v1",
-          "startup_opportunity.scope_frame.v2",
+          "startup_opportunity.scope_frame.assessment.current",
+          "startup_opportunity.scope_frame.discovery.current",
         ]),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
-        ...optionalRef(document, "source_manifest_ref", "startup_opportunity.source_manifest.v4"),
+        ...optionalRef(
+          document,
+          "source_manifest_ref",
+          "startup_opportunity.source_manifest.discovery_runtime.current",
+        ),
         ...refsFromArray(document, "evidence_refs", [
           "startup_opportunity.candidate_neutral_evidence.v1",
-          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
         ]),
         ...refsFromArray(
           document,
           "judgment_assessment_refs",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
         ...refsFromNestedArray(document, "candidate_proposals", "basis_refs", [
           "startup_opportunity.candidate_neutral_evidence.v1",
-          "startup_opportunity.evidence.v2",
-          "startup_opportunity.claim.v2",
-          "startup_opportunity.finding.v2",
-          "startup_opportunity.insight.v2",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.claim.discovery_candidate.current",
+          "startup_opportunity.finding.discovery_candidate.current",
+          "startup_opportunity.insight.discovery_candidate.current",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ]),
         ...refsFromNestedArray(document, "candidate_proposals", "evidence_refs", [
           "startup_opportunity.candidate_neutral_evidence.v1",
-          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
         ]),
       ];
-    case "startup_opportunity.source_manifest.v4":
+    case "startup_opportunity.source_manifest.discovery_runtime.current":
       return [
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(
           document,
           "execution_plan_ref",
-          "startup_opportunity.research_execution_plan.v1",
+          "startup_opportunity.research_execution_plan.discovery.current",
         ),
         ...optionalRef(
           document,
           "dispatch_batch_ref",
-          "startup_opportunity.dispatch_batch.v1",
+          "startup_opportunity.dispatch_batch.discovery.current",
           "task_id",
         ),
         ...refsFromArray(document, "accepted_evidence_refs", [
           "startup_opportunity.candidate_neutral_evidence.v1",
-          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
         ]),
       ];
     case "startup_opportunity.discovery_stage_readiness.v1":
@@ -2775,7 +3199,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "execution_plan_ref",
-          "startup_opportunity.research_execution_plan.v1",
+          "startup_opportunity.research_execution_plan.discovery.current",
         ),
         ...optionalRef(document, "source_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
         ...refsFromArray(
@@ -2793,11 +3217,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "question_coverage",
           "judgment_refs",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
         ...refsFromNestedArray(document, "question_coverage", "evidence_refs", [
           "startup_opportunity.candidate_neutral_evidence.v1",
-          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
         ]),
       ];
     case "startup_opportunity.gap_snapshot.discovery.readiness.current":
@@ -2818,9 +3242,9 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.discovery_fan_in.v2",
           "startup_opportunity.discovery_generation_result.v1",
           "startup_opportunity.discovery_lane_result.v1",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
           "startup_opportunity.candidate_neutral_evidence.v1",
-          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
         ]),
         ...refsFromNestedArray(document, "gaps", "basis_refs", [
           "startup_opportunity.discovery_stage_readiness.v1",
@@ -2828,13 +3252,13 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.discovery_generation_result.v1",
           "startup_opportunity.discovery_lane_result.v1",
           "startup_opportunity.discovery_candidate.v1",
-          "startup_opportunity.judgment_assessment.v2",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
           "startup_opportunity.candidate_neutral_evidence.v1",
-          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
         ]),
         ...refsFromNestedArray(document, "gaps", "evidence_refs", [
           "startup_opportunity.candidate_neutral_evidence.v1",
-          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.discovery_candidate.current",
         ]),
       ];
     default:
@@ -3163,7 +3587,7 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
     document.document.schema_version === "startup_opportunity.report.v1"
       ? "structured_report"
       : requiresDeterministicReportScan(document.schema_version) &&
-          document.artifact_type === "startup_opportunity.decision_brief.v2"
+          document.artifact_type === "startup_opportunity.decision_brief.discovery.current"
         ? "decision_brief"
         : requiresDeterministicReportScan(document.schema_version) &&
             document.artifact_type === "startup_opportunity.discovery_report_view.v1"
@@ -3613,8 +4037,8 @@ export class ArtifactValidator {
     const revision = source.document.revision;
 
     if (
-      source.schemaVersion === "startup_opportunity.planning_context.v1" ||
-      source.schemaVersion === "startup_opportunity.planning_context.v2"
+      source.schemaVersion === "startup_opportunity.planning_context.general.current" ||
+      source.schemaVersion === "startup_opportunity.planning_context.ai_source_bound.current"
     ) {
       const contextRevision = source.document.revision;
       const pathRevision = planningContextRevisionFromPath(source.path);

@@ -237,13 +237,13 @@ const EVALUATION_AGGREGATE_ARTIFACT_TYPES = [
   "startup_opportunity.value_layer_analysis.v1",
   "startup_opportunity.user_state_context_model.v1",
   "startup_opportunity.buyer_purchase_language.v1",
-  "startup_opportunity.business_engine_thesis.v2",
+  "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
   "startup_opportunity.opportunity_comparison.v1",
   "startup_opportunity.sensitivity.v1",
   "startup_opportunity.portfolio_view.v1",
   "startup_opportunity.decision_recommendation.v1",
-  "startup_opportunity.traceability.v2",
-  "startup_opportunity.report_consistency_evaluation.v3",
+  "startup_opportunity.traceability.discovery.current",
+  "startup_opportunity.report_consistency_evaluation.discovery.current",
 ] as const;
 
 async function publishThroughSynthesis(state: State): Promise<void> {
@@ -264,18 +264,18 @@ async function publishThroughSynthesis(state: State): Promise<void> {
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: byTypes(runtime, "startup_opportunity.research_task.v2"),
+    envelopes: byTypes(runtime, "startup_opportunity.research_task.discovery_candidate.current"),
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(
       runtime,
-      "startup_opportunity.evidence.v2",
-      "startup_opportunity.claim.v2",
-      "startup_opportunity.finding.v2",
-      "startup_opportunity.insight.v2",
-      "startup_opportunity.judgment_assessment.v2",
-      "startup_opportunity.source_manifest.v2",
+      "startup_opportunity.evidence.discovery_candidate.current",
+      "startup_opportunity.claim.discovery_candidate.current",
+      "startup_opportunity.finding.discovery_candidate.current",
+      "startup_opportunity.insight.discovery_candidate.current",
+      "startup_opportunity.judgment_assessment.discovery_candidate.current",
+      "startup_opportunity.source_manifest.discovery_candidate.current",
     ),
   });
   await state.store.publishArtifactBundle({
@@ -305,18 +305,21 @@ async function publishThroughEnrichmentBranches(state: State): Promise<void> {
   const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: byTypes(evaluation, "startup_opportunity.research_task.v3"),
+    envelopes: byTypes(
+      evaluation,
+      "startup_opportunity.research_task.discovery_evaluation.current",
+    ),
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(
       evaluation,
-      "startup_opportunity.evidence.v3",
-      "startup_opportunity.claim.v3",
-      "startup_opportunity.finding.v3",
-      "startup_opportunity.insight.v3",
-      "startup_opportunity.judgment_assessment.v3",
-      "startup_opportunity.source_manifest.v3",
+      "startup_opportunity.evidence.discovery_evaluation.current",
+      "startup_opportunity.claim.discovery_evaluation.current",
+      "startup_opportunity.finding.discovery_evaluation.current",
+      "startup_opportunity.insight.discovery_evaluation.current",
+      "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+      "startup_opportunity.source_manifest.discovery_evaluation.current",
     ),
   });
   await state.store.publishArtifactBundle({
@@ -941,7 +944,7 @@ test("G2.4 forbidden-expression rules cover every formal surface and separator v
   const report = evaluationEnvelope(state.bundle, G24_REPORT);
   const derived = deriveReportEnvelopes(report);
   for (const artifactType of [
-    "startup_opportunity.decision_brief.v2",
+    "startup_opportunity.decision_brief.discovery.current",
     "startup_opportunity.discovery_report_view.v1",
   ]) {
     const envelope = clone(
@@ -987,7 +990,8 @@ test("G2.4 forbidden sidecar fails before receipt and remains absent through che
   const report = evaluationEnvelope(state.bundle, G24_REPORT);
   const sidecar = clone(
     deriveReportEnvelopes(report).find(
-      (candidate) => candidate.artifact_type === "startup_opportunity.decision_brief.v2",
+      (candidate) =>
+        candidate.artifact_type === "startup_opportunity.decision_brief.discovery.current",
     ) as FormalArtifactEnvelope,
   );
   sidecar.document.markdown =
@@ -1090,14 +1094,16 @@ test("G2.4 reverse-order report mutations fail before every formal lifecycle wri
 
     const derived = deriveReportEnvelopes(evaluationEnvelope(state.bundle, G24_REPORT));
     for (const artifactType of [
-      "startup_opportunity.decision_brief.v2",
+      "startup_opportunity.decision_brief.discovery.current",
       "startup_opportunity.discovery_report_view.v1",
     ]) {
       const sidecar = clone(
         derived.find((entry) => entry.artifact_type === artifactType) as FormalArtifactEnvelope,
       );
       const surface =
-        artifactType === "startup_opportunity.decision_brief.v2" ? "decision_brief" : "report_view";
+        artifactType === "startup_opportunity.decision_brief.discovery.current"
+          ? "decision_brief"
+          : "report_view";
       sidecar.document.markdown = candidate.phrase;
       sidecar.document.markdown_content_hash = sha256Bytes(candidate.phrase);
       (sidecar as { content_hash: string }).content_hash = canonicalContentHash(sidecar.document);
@@ -1165,7 +1171,8 @@ test("G2.4 current report scan rejects global-score language", async (context) =
   );
   const repairedConsistency = deriveReportEnvelopes(repairedReport).find(
     (candidate) =>
-      candidate.artifact_type === "startup_opportunity.report_consistency_evaluation.v3",
+      candidate.artifact_type ===
+      "startup_opportunity.report_consistency_evaluation.discovery.current",
   );
   assert.ok(repairedConsistency);
   assert.equal(repairedConsistency.document.evaluator_result, "failed");
@@ -1382,7 +1389,8 @@ test("G2.4 forbidden report claims fail closed before publication and remain abs
   const derived = deriveReportEnvelopes(report);
   const consistency = derived.find(
     (candidate) =>
-      candidate.artifact_type === "startup_opportunity.report_consistency_evaluation.v3",
+      candidate.artifact_type ===
+      "startup_opportunity.report_consistency_evaluation.discovery.current",
   );
   assert.ok(consistency);
   assert.equal(consistency.document.evaluator_result, "failed");
@@ -1555,18 +1563,21 @@ test("G2.4 branch terminal states project mechanically and keep late or supersed
       const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
       await state.store.publishArtifactBundle({
         runId: state.runId,
-        envelopes: byTypes(evaluation, "startup_opportunity.research_task.v3"),
+        envelopes: byTypes(
+          evaluation,
+          "startup_opportunity.research_task.discovery_evaluation.current",
+        ),
       });
       await state.store.publishArtifactBundle({
         runId: state.runId,
         envelopes: byTypes(
           evaluation,
-          "startup_opportunity.evidence.v3",
-          "startup_opportunity.claim.v3",
-          "startup_opportunity.finding.v3",
-          "startup_opportunity.insight.v3",
-          "startup_opportunity.judgment_assessment.v3",
-          "startup_opportunity.source_manifest.v3",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+          "startup_opportunity.claim.discovery_evaluation.current",
+          "startup_opportunity.finding.discovery_evaluation.current",
+          "startup_opportunity.insight.discovery_evaluation.current",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+          "startup_opportunity.source_manifest.discovery_evaluation.current",
         ),
       });
       if (scenario.prestate !== null) {

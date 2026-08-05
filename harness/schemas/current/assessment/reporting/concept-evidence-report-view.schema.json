@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/reporting/concept-evidence-report-view.schema.json",
+  "title": "Startup Opportunity Concept Evidence Report Markdown View v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "view_id",
+    "run_id",
+    "producer_role",
+    "owned_output_path",
+    "materialized_path",
+    "report_ref",
+    "report_content_hash",
+    "assessment_ref",
+    "assessment_result",
+    "recommendation_meaning",
+    "decisive_supporting_refs",
+    "decisive_opposing_refs",
+    "valid_as_of",
+    "limitations",
+    "external_action_boundary",
+    "section_ids",
+    "markdown",
+    "markdown_content_hash"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.concept_evidence_report_view.v1"
+    },
+    "view_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "producer_role": {
+      "const": "harness"
+    },
+    "owned_output_path": {
+      "type": "string",
+      "pattern": "^artifacts/reporting/report-markdown\\.r[1-9][0-9]*\\.json$"
+    },
+    "materialized_path": {
+      "const": "report.md"
+    },
+    "report_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "report_content_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "assessment_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "assessment_result": {
+      "$ref": "./definitions.schema.json#/$defs/assessmentResult"
+    },
+    "recommendation_meaning": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "decisive_supporting_refs": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "decisive_opposing_refs": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "valid_as_of": {
+      "type": "string",
+      "format": "date"
+    },
+    "limitations": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "external_action_boundary": {
+      "$ref": "./definitions.schema.json#/$defs/externalActionBoundary"
+    },
+    "section_ids": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "assessment_result_and_evidence_strength",
+          "concept_hypothesis",
+          "decisive_support_and_opposition",
+          "demand_alternatives_solution_failure",
+          "competition_and_differentiation",
+          "buyer_acquisition_business_engine",
+          "feasibility_compliance_ai_bundle",
+          "critical_unknowns_and_kill_criteria",
+          "decision_recommendation",
+          "optional_validation_suggestions",
+          "limitations_and_sources"
+        ]
+      },
+      "minItems": 11,
+      "maxItems": 11,
+      "uniqueItems": true
+    },
+    "markdown": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "markdown_content_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    }
+  }
+}

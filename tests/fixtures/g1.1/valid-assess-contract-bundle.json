@@ -62,7 +62,7 @@
     {
       "path": "scope-frame.json",
       "document": {
-        "schema_version": "startup_opportunity.scope_frame.v1",
+        "schema_version": "startup_opportunity.scope_frame.assessment.current",
         "run_id": "run_assess_contract_001",
         "mode": "concept_evidence_assessment",
         "decision_context_ref": "decision-context.json",
@@ -88,7 +88,7 @@
     {
       "path": "concept-hypothesis.json",
       "document": {
-        "schema_version": "startup_opportunity.concept_hypothesis.v1",
+        "schema_version": "startup_opportunity.concept_hypothesis.assessment.current",
         "run_id": "run_assess_contract_001",
         "concept_hypothesis_id": "concept_assess_001",
         "scope_frame_ref": "scope-frame.json",
@@ -340,7 +340,7 @@
             ]
           }
         ],
-        "adaptation_policy_ref": "harness/policies/adaptation.v1.json",
+        "adaptation_policy_ref": "harness/policies/adaptation.current.json",
         "followup_policy": {
           "max_followup_rounds": 2,
           "require_decision_relevance": true,
@@ -476,7 +476,7 @@
     {
       "path": "judgments/judgment-target-user.json",
       "document": {
-        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "schema_version": "startup_opportunity.judgment_assessment.assessment.current",
         "run_id": "run_assess_contract_001",
         "judgment_id": "judgment_target_user",
         "subject_ref": "concept-hypothesis.json",
@@ -497,7 +497,7 @@
     {
       "path": "judgments/judgment-demand.json",
       "document": {
-        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "schema_version": "startup_opportunity.judgment_assessment.assessment.current",
         "run_id": "run_assess_contract_001",
         "judgment_id": "judgment_demand",
         "subject_ref": "concept-hypothesis.json",
@@ -518,7 +518,7 @@
     {
       "path": "judgments/judgment-alternatives.json",
       "document": {
-        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "schema_version": "startup_opportunity.judgment_assessment.assessment.current",
         "run_id": "run_assess_contract_001",
         "judgment_id": "judgment_alternatives",
         "subject_ref": "concept-hypothesis.json",
@@ -539,7 +539,7 @@
     {
       "path": "judgments/judgment-competitor.json",
       "document": {
-        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "schema_version": "startup_opportunity.judgment_assessment.assessment.current",
         "run_id": "run_assess_contract_001",
         "judgment_id": "judgment_competitor",
         "subject_ref": "concept-hypothesis.json",
@@ -560,7 +560,7 @@
     {
       "path": "judgments/judgment-buyer.json",
       "document": {
-        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "schema_version": "startup_opportunity.judgment_assessment.assessment.current",
         "run_id": "run_assess_contract_001",
         "judgment_id": "judgment_buyer",
         "subject_ref": "concept-hypothesis.json",
@@ -581,7 +581,7 @@
     {
       "path": "judgments/judgment-acquisition.json",
       "document": {
-        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "schema_version": "startup_opportunity.judgment_assessment.assessment.current",
         "run_id": "run_assess_contract_001",
         "judgment_id": "judgment_acquisition",
         "subject_ref": "concept-hypothesis.json",
@@ -602,7 +602,7 @@
     {
       "path": "judgments/judgment-business.json",
       "document": {
-        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "schema_version": "startup_opportunity.judgment_assessment.assessment.current",
         "run_id": "run_assess_contract_001",
         "judgment_id": "judgment_business",
         "subject_ref": "concept-hypothesis.json",
@@ -623,7 +623,7 @@
     {
       "path": "judgments/judgment-delivery.json",
       "document": {
-        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "schema_version": "startup_opportunity.judgment_assessment.assessment.current",
         "run_id": "run_assess_contract_001",
         "judgment_id": "judgment_delivery",
         "subject_ref": "concept-hypothesis.json",
@@ -644,7 +644,7 @@
     {
       "path": "judgments/judgment-compliance.json",
       "document": {
-        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "schema_version": "startup_opportunity.judgment_assessment.assessment.current",
         "run_id": "run_assess_contract_001",
         "judgment_id": "judgment_compliance",
         "subject_ref": "concept-hypothesis.json",
@@ -665,7 +665,7 @@
     {
       "path": "judgments/judgment-counter.json",
       "document": {
-        "schema_version": "startup_opportunity.judgment_assessment.v1",
+        "schema_version": "startup_opportunity.judgment_assessment.assessment.current",
         "run_id": "run_assess_contract_001",
         "judgment_id": "judgment_counter",
         "subject_ref": "concept-hypothesis.json",
@@ -1256,7 +1256,7 @@
     {
       "path": "artifacts/synthesis/business-engine.json",
       "document": {
-        "schema_version": "startup_opportunity.business_engine_thesis.v1",
+        "schema_version": "startup_opportunity.business_engine_thesis.assessment.current",
         "business_engine_id": "business_engine_001",
         "run_id": "run_assess_contract_001",
         "subject_ref": "concept-hypothesis.json",
@@ -1287,7 +1287,7 @@
     {
       "path": "artifacts/synthesis/concept-evidence-assessment.json",
       "document": {
-        "schema_version": "startup_opportunity.concept_evidence_assessment.v1",
+        "schema_version": "startup_opportunity.concept_evidence_assessment.analysis.current",
         "assessment_id": "assessment_001",
         "run_id": "run_assess_contract_001",
         "concept_hypothesis_ref": "concept-hypothesis.json",

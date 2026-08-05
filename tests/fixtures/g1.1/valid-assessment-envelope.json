@@ -1,6 +1,6 @@
 {
   "schema_version": "startup_opportunity.artifact_envelope.current",
-  "artifact_type": "startup_opportunity.concept_evidence_assessment.v1",
+  "artifact_type": "startup_opportunity.concept_evidence_assessment.analysis.current",
   "artifact_path": "artifacts/synthesis/concept-evidence-assessment.json",
   "run_id": "run_assess_contract_001",
   "created_at": "2026-07-24T12:10:00Z",
@@ -11,9 +11,9 @@
     "artifacts/synthesis/hypothesis-evidence-matrix.json",
     "artifacts/synthesis/business-engine.json"
   ],
-  "content_hash": "sha256:ee1aa470c8638ac2e471c928e94ec26641d78f6e675cea6ba0a6e0c3127c4294",
+  "content_hash": "sha256:5b4917df86f0f054f5c838e03200a61d9c3783e539d8537086981dffd2d75346",
   "document": {
-    "schema_version": "startup_opportunity.concept_evidence_assessment.v1",
+    "schema_version": "startup_opportunity.concept_evidence_assessment.analysis.current",
     "assessment_id": "assessment_001",
     "run_id": "run_assess_contract_001",
     "concept_hypothesis_ref": "concept-hypothesis.json",

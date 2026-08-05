@@ -695,7 +695,7 @@ export async function createG14ContractBundle(
     };
   });
   const assessmentDocument: Record<string, unknown> = {
-    schema_version: "startup_opportunity.concept_evidence_assessment.v2",
+    schema_version: "startup_opportunity.concept_evidence_assessment.reporting.current",
     assessment_id: "concept_evidence_assessment_g1_4_synthetic",
     run_id: G14_RUN_ID,
     producer_role: "main_agent",
@@ -799,7 +799,7 @@ export async function createG14ContractBundle(
       : []),
   ];
   const traceabilityDocument: Record<string, unknown> = {
-    schema_version: "startup_opportunity.traceability.v1",
+    schema_version: "startup_opportunity.traceability.assessment.current",
     traceability_id: "traceability_g1_4_synthetic",
     run_id: G14_RUN_ID,
     producer_role: "harness",
@@ -1100,9 +1100,9 @@ export function refreshG14Bundle(input: DocumentBundle): DocumentBundle {
     reportEntry.document.content_hash = canonicalContentHash(report);
     byPath.set(G14_REPORT_REF, report);
     const derivedTypes = new Set([
-      "startup_opportunity.decision_brief.v1",
+      "startup_opportunity.decision_brief.assessment.current",
       "startup_opportunity.concept_evidence_report_view.v1",
-      "startup_opportunity.report_consistency_evaluation.v1",
+      "startup_opportunity.report_consistency_evaluation.assessment.current",
     ]);
     const retained = documents.filter(
       (entry) => !derivedTypes.has(String(effectiveDocument(entry).schema_version)),

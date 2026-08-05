@@ -388,7 +388,7 @@ export function deriveTerminalReportDocuments(
   const briefMarkdown = renderTerminalDecisionBrief(source);
   const viewMarkdown = renderTerminalFullReport(source);
   const briefDocument: Record<string, unknown> = {
-    schema_version: "startup_opportunity.decision_brief.v3",
+    schema_version: "startup_opportunity.decision_brief.terminal.current",
     brief_id: `decision_brief_${revision.slice(1)}`,
     run_id: reportEnvelope.run_id,
     mode: source.mode,
@@ -437,7 +437,7 @@ export function deriveTerminalReportDocuments(
     reportView: viewMarkdown,
   });
   const consistencyDocument: Record<string, unknown> = {
-    schema_version: "startup_opportunity.report_consistency_evaluation.v4",
+    schema_version: "startup_opportunity.report_consistency_evaluation.terminal.current",
     evaluation_id: `terminal_report_consistency_${revision.slice(1)}`,
     run_id: reportEnvelope.run_id,
     producer_role: "harness",
@@ -466,7 +466,7 @@ export function deriveTerminalReportDocuments(
   return [
     {
       artifactPath: briefPath,
-      artifactType: "startup_opportunity.decision_brief.v3",
+      artifactType: "startup_opportunity.decision_brief.terminal.current",
       document: briefDocument,
     },
     {
@@ -476,7 +476,7 @@ export function deriveTerminalReportDocuments(
     },
     {
       artifactPath: consistencyPath,
-      artifactType: "startup_opportunity.report_consistency_evaluation.v4",
+      artifactType: "startup_opportunity.report_consistency_evaluation.terminal.current",
       document: consistencyDocument,
     },
   ];

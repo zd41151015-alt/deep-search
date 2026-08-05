@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/evaluation/source-manifest.schema.json",
+  "title": "Startup Opportunity Discovery Evaluation Source Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "run_id",
+    "unit_id",
+    "lineage",
+    "research_phase_role",
+    "source_group_ids",
+    "accepted_evidence_refs",
+    "rejected_sources",
+    "unavailable_sources",
+    "canonical_source_groups",
+    "overlap_disclosures",
+    "valid_as_of",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.source_manifest.discovery_evaluation.current"
+    },
+    "manifest_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "lineage": {
+      "$ref": "./definitions.schema.json#/$defs/enrichmentLineage"
+    },
+    "research_phase_role": {
+      "enum": ["enrichment_evaluation", "adversarial_challenger"]
+    },
+    "source_group_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/identifier"
+      }
+    },
+    "accepted_evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/enrichmentEvidenceRef"
+      }
+    },
+    "rejected_sources": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "unavailable_sources": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "canonical_source_groups": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["group_id", "evidence_refs"],
+        "properties": {
+          "group_id": {
+            "$ref": "./definitions.schema.json#/$defs/identifier"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "./definitions.schema.json#/$defs/enrichmentEvidenceRef"
+            }
+          }
+        }
+      }
+    },
+    "overlap_disclosures": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "valid_as_of": {
+      "type": "string",
+      "format": "date"
+    },
+    "limitations": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

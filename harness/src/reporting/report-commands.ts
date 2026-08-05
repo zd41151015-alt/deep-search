@@ -121,26 +121,28 @@ export async function runAuditTraceability(
       const conceptRequiredTypes = [
         "startup_opportunity.evidence_audit.v1",
         "startup_opportunity.adversarial_review.v1",
-        "startup_opportunity.concept_evidence_assessment.v2",
-        "startup_opportunity.traceability.v1",
+        "startup_opportunity.concept_evidence_assessment.reporting.current",
+        "startup_opportunity.traceability.assessment.current",
       ];
       const conceptReportTypes = [
         "startup_opportunity.concept_evidence_report.v1",
-        "startup_opportunity.decision_brief.v1",
+        "startup_opportunity.decision_brief.assessment.current",
         "startup_opportunity.concept_evidence_report_view.v1",
-        "startup_opportunity.report_consistency_evaluation.v1",
+        "startup_opportunity.report_consistency_evaluation.assessment.current",
       ];
       const discoveryRequiredTypes = [
         "startup_opportunity.enrichment_fan_in.v1",
         "startup_opportunity.decision_recommendation.v1",
-        "startup_opportunity.traceability.v2",
+        "startup_opportunity.traceability.discovery.current",
       ];
       const discoveryReportTypes = [
         "startup_opportunity.report.v1",
-        "startup_opportunity.decision_brief.v2",
+        "startup_opportunity.decision_brief.discovery.current",
         "startup_opportunity.discovery_report_view.v1",
       ];
-      const discoveryConsistencyTypes = ["startup_opportunity.report_consistency_evaluation.v3"];
+      const discoveryConsistencyTypes = [
+        "startup_opportunity.report_consistency_evaluation.discovery.current",
+      ];
       const discoveryMode =
         discoveryRequiredTypes.some((type) => (counts.get(type) ?? 0) > 0) ||
         [...discoveryReportTypes, ...discoveryConsistencyTypes].some(

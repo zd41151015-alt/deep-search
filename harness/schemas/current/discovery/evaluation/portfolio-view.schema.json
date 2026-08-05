@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/evaluation/portfolio-view.schema.json",
+  "title": "Startup Opportunity Portfolio View v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "portfolio_id",
+    "run_id",
+    "sensitivity_ref",
+    "comparison_refs",
+    "recommended_first_bet",
+    "alternative_bets",
+    "watchlist_refs",
+    "rejected_refs",
+    "shared_distribution_or_capabilities",
+    "resource_conflicts",
+    "risk_correlation",
+    "learning_reuse",
+    "optimization_claimed",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.portfolio_view.v1"
+    },
+    "portfolio_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "sensitivity_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "comparison_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/comparisonRef"
+      }
+    },
+    "recommended_first_bet": {
+      "anyOf": [
+        {
+          "$ref": "./definitions.schema.json#/$defs/opportunityRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "alternative_bets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/opportunityRef"
+      }
+    },
+    "watchlist_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/opportunityRef"
+      }
+    },
+    "rejected_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/opportunityRef"
+      }
+    },
+    "shared_distribution_or_capabilities": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "resource_conflicts": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "risk_correlation": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "learning_reuse": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "optimization_claimed": {
+      "const": false
+    },
+    "limitations": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

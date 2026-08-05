@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/planning/ai-trigger-source-binding-policy.schema.json",
+  "title": "Startup Opportunity Current AI Trigger Source Binding Policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "base_adaptation_policy_binding",
+    "contract_versions",
+    "source_resolution",
+    "source_content_hash_algorithm",
+    "required_exact_bindings",
+    "stale_on_change"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.ai_trigger_source_binding_policy.current"
+    },
+    "policy_id": {
+      "const": "startup_opportunity.ai_trigger_source_binding"
+    },
+    "policy_version": {
+      "const": "1.0.0"
+    },
+    "base_adaptation_policy_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_ref", "schema_version", "policy_version", "content_hash"],
+      "properties": {
+        "policy_ref": {
+          "const": "harness/policies/adaptation.current.json"
+        },
+        "schema_version": {
+          "const": "startup_opportunity.adaptation_policy.current"
+        },
+        "policy_version": {
+          "const": "1.0.0"
+        },
+        "content_hash": {
+          "$ref": "../core/definitions.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "contract_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["planning_context", "source_attestation", "trigger"],
+      "properties": {
+        "planning_context": {
+          "const": "startup_opportunity.planning_context.ai_source_bound.current"
+        },
+        "source_attestation": {
+          "const": "startup_opportunity.ai_trigger_source_attestation.v1"
+        },
+        "trigger": {
+          "const": "startup_opportunity.ai_mandatory_coverage_trigger.v1"
+        }
+      }
+    },
+    "source_resolution": {
+      "const": "explicit_document_bundle_path"
+    },
+    "source_content_hash_algorithm": {
+      "const": "canonical_json_sha256.v1"
+    },
+    "required_exact_bindings": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "const": "run_id"
+        },
+        {
+          "const": "mode"
+        },
+        {
+          "const": "planning_context.context_id"
+        },
+        {
+          "const": "planning_context.revision"
+        },
+        {
+          "const": "subject_ref"
+        },
+        {
+          "const": "trigger.trigger_version"
+        },
+        {
+          "const": "trigger.signal"
+        },
+        {
+          "const": "trigger.declared_value"
+        }
+      ],
+      "minItems": 8,
+      "maxItems": 8,
+      "items": false
+    },
+    "stale_on_change": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "const": "source_ref"
+        },
+        {
+          "const": "source_schema_version"
+        },
+        {
+          "const": "source_content_hash"
+        },
+        {
+          "const": "exact_binding"
+        }
+      ],
+      "minItems": 4,
+      "maxItems": 4,
+      "items": false
+    }
+  }
+}

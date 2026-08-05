@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/research/source-manifest.schema.json",
+  "title": "Startup Opportunity Assessment Source Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "run_id",
+    "unit_id",
+    "lineage",
+    "accepted_evidence_refs",
+    "rejected_source_records",
+    "unavailable_source_records",
+    "canonical_source_groups",
+    "shared_dataset_groups",
+    "duplicate_or_syndication_groups",
+    "source_type_coverage",
+    "geo_language_coverage",
+    "time_coverage",
+    "stance_coverage",
+    "generation_source_groups",
+    "evaluation_source_groups",
+    "challenger_source_groups",
+    "generation_evaluation_overlap",
+    "known_source_blind_spots",
+    "freshness_summary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.source_manifest.assessment.current"
+    },
+    "manifest_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "lineage": {
+      "$ref": "./definitions.schema.json#/$defs/lineage"
+    },
+    "accepted_evidence_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/evidenceRecordRef"
+      },
+      "uniqueItems": true
+    },
+    "rejected_source_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "rejection_reason", "notes"],
+        "properties": {
+          "source": {
+            "$ref": "./definitions.schema.json#/$defs/canonicalSource"
+          },
+          "rejection_reason": {
+            "enum": [
+              "duplicate",
+              "syndicated_copy",
+              "shared_dataset_only",
+              "unverifiable_provenance",
+              "out_of_scope",
+              "stale_for_decision",
+              "insufficient_source_quality"
+            ]
+          },
+          "notes": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          }
+        }
+      }
+    },
+    "unavailable_source_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "unavailable_reason", "notes"],
+        "properties": {
+          "source": {
+            "$ref": "./definitions.schema.json#/$defs/canonicalSource"
+          },
+          "unavailable_reason": {
+            "enum": [
+              "access_denied",
+              "authentication_required",
+              "source_removed",
+              "source_not_found",
+              "private_data_not_authorized",
+              "material_not_provided"
+            ]
+          },
+          "notes": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          }
+        }
+      }
+    },
+    "canonical_source_groups": {
+      "$ref": "#/$defs/evidenceGroups"
+    },
+    "shared_dataset_groups": {
+      "$ref": "#/$defs/evidenceGroups"
+    },
+    "duplicate_or_syndication_groups": {
+      "$ref": "#/$defs/evidenceGroups"
+    },
+    "source_type_coverage": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "geo_language_coverage": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "time_coverage": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "stance_coverage": {
+      "type": "array",
+      "items": {
+        "enum": ["support", "oppose", "context"]
+      },
+      "uniqueItems": true
+    },
+    "generation_source_groups": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "evaluation_source_groups": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "challenger_source_groups": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "generation_evaluation_overlap": {
+      "enum": ["none", "low", "high", "unknown"]
+    },
+    "known_source_blind_spots": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "freshness_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active", "stale", "unverified", "superseded"],
+      "properties": {
+        "active": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stale": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unverified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "superseded": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "limitations": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  },
+  "$defs": {
+    "evidenceGroups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["group_id", "evidence_refs"],
+        "properties": {
+          "group_id": {
+            "$ref": "./definitions.schema.json#/$defs/identifier"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "./definitions.schema.json#/$defs/evidenceRecordRef"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        }
+      }
+    }
+  }
+}

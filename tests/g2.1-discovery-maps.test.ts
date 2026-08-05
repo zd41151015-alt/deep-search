@@ -103,7 +103,10 @@ function discoveryMapDocuments(bundle: DocumentBundle): DiscoveryMapDocument[] {
 
 async function discoveryMapsPolicy(): Promise<LoadedDiscoveryMapsPolicy> {
   const document = JSON.parse(
-    await readFile(path.join(repositoryRoot, "harness/policies/discovery-maps.v1.json"), "utf8"),
+    await readFile(
+      path.join(repositoryRoot, "harness/policies/discovery-maps.current.json"),
+      "utf8",
+    ),
   ) as LoadedDiscoveryMapsPolicy["document"];
   return { document, contentHash: canonicalContentHash(document) };
 }

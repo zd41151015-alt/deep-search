@@ -1,0 +1,298 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/core/definitions.schema.json",
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
+    },
+    "semanticVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "artifactPath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+    },
+    "artifactRef": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}(?:#[A-Za-z0-9][A-Za-z0-9._:-]{0,127})?$"
+    },
+    "planRef": {
+      "type": "string",
+      "pattern": "^plans/research-plan\\.r[1-9][0-9]*\\.json$"
+    },
+    "gapSnapshotRef": {
+      "type": "string",
+      "pattern": "^adaptations/gap-snapshots/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "gapRef": {
+      "type": "string",
+      "pattern": "^adaptations/gap-snapshots/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json#[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "adaptationRef": {
+      "type": "string",
+      "pattern": "^adaptations/decisions/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+    },
+    "eventRef": {
+      "type": "string",
+      "pattern": "^(?:events\\.jsonl#[A-Za-z0-9][A-Za-z0-9._:-]{0,127}|events/[A-Za-z0-9][A-Za-z0-9._-]*\\.json)$"
+    },
+    "decisionRef": {
+      "type": "string",
+      "pattern": "^(?:decisions\\.jsonl#[A-Za-z0-9][A-Za-z0-9._:-]{0,127}|decisions/[A-Za-z0-9][A-Za-z0-9._-]*\\.json)$"
+    },
+    "checkpointRef": {
+      "type": "string",
+      "pattern": "^checkpoints/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+    },
+    "stringArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
+    "uniqueStringArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      },
+      "uniqueItems": true
+    },
+    "artifactRefArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifactRef"
+      },
+      "uniqueItems": true
+    },
+    "identifierArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/identifier"
+      },
+      "uniqueItems": true
+    },
+    "mode": {
+      "enum": ["opportunity_discovery", "concept_evidence_assessment"]
+    },
+    "producerRole": {
+      "enum": [
+        "main_agent",
+        "harness",
+        "lane_researcher",
+        "evidence_auditor",
+        "adversarial_reviewer",
+        "user"
+      ]
+    },
+    "actor": {
+      "enum": [
+        "user",
+        "main_agent",
+        "harness",
+        "lane_researcher",
+        "evidence_auditor",
+        "adversarial_reviewer"
+      ]
+    },
+    "unitType": {
+      "enum": [
+        "user_language_mining",
+        "audience_pain",
+        "jtbd_workflow",
+        "top_products_gap",
+        "review_mining",
+        "search_content_gap",
+        "trend_change",
+        "substitute_non_app",
+        "solution_failure",
+        "ai_capability_evidence",
+        "competitor_gap",
+        "market_space",
+        "monetization",
+        "acquisition",
+        "business_engine",
+        "delivery_feasibility",
+        "compliance_risk",
+        "counter_evidence",
+        "buyer_language",
+        "value_layer",
+        "state_context",
+        "adversarial_review",
+        "bounded_domain_research"
+      ]
+    },
+    "decisionImpact": {
+      "enum": [
+        "hard_gate",
+        "concept_assessment",
+        "recommendation_band",
+        "selected_solution",
+        "delivery_form",
+        "major_limitation",
+        "next_action",
+        "execution_validity"
+      ]
+    },
+    "decisionImpactArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/decisionImpact"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "researchUnit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit_id",
+        "unit_type",
+        "plan_disposition",
+        "priority_band",
+        "attempt",
+        "supersedes_unit_ref",
+        "research_goal",
+        "input_refs",
+        "agent_role",
+        "output_path",
+        "required_artifact_schema",
+        "source_preferences",
+        "required_outputs",
+        "stop_conditions"
+      ],
+      "properties": {
+        "unit_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "unit_type": {
+          "$ref": "#/$defs/unitType"
+        },
+        "plan_disposition": {
+          "enum": ["enabled", "skipped", "cancelled", "superseded"]
+        },
+        "priority_band": {
+          "enum": ["low", "normal", "high", "blocking"]
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "supersedes_unit_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/artifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "research_goal": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "input_refs": {
+          "$ref": "#/$defs/artifactRefArray"
+        },
+        "depends_on": {
+          "$ref": "#/$defs/identifierArray"
+        },
+        "agent_role": {
+          "enum": ["lane-researcher", "evidence-auditor", "adversarial-reviewer"]
+        },
+        "output_path": {
+          "$ref": "#/$defs/artifactPath"
+        },
+        "required_artifact_schema": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "source_preferences": {
+          "$ref": "#/$defs/uniqueStringArray"
+        },
+        "required_outputs": {
+          "$ref": "#/$defs/uniqueStringArray"
+        },
+        "stop_conditions": {
+          "$ref": "#/$defs/uniqueStringArray"
+        },
+        "lane_kind": {
+          "$ref": "#/$defs/identifier"
+        },
+        "required_dimensions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "capability_frontier",
+              "cost_and_deployment",
+              "workflow_and_human_boundary",
+              "ecosystem_and_platform",
+              "data_and_evaluation",
+              "adoption_and_trust"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "unit_type": {
+                "const": "ai_capability_evidence"
+              }
+            },
+            "required": ["unit_type"]
+          },
+          "then": {
+            "required": ["required_dimensions"]
+          },
+          "else": {
+            "not": {
+              "required": ["required_dimensions"]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "unit_type": {
+                "const": "bounded_domain_research"
+              }
+            },
+            "required": ["unit_type"]
+          },
+          "then": {
+            "required": ["lane_kind"]
+          },
+          "else": {
+            "not": {
+              "required": ["lane_kind"]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

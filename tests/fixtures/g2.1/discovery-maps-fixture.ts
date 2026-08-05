@@ -222,11 +222,14 @@ export async function createDiscoveryMapsFixture(
   additionalPlanWaves: readonly Record<string, unknown>[] = [],
 ): Promise<DocumentBundle> {
   const policy = JSON.parse(
-    await readFile(path.join(repositoryRoot, "harness/policies/discovery-maps.v1.json"), "utf8"),
+    await readFile(
+      path.join(repositoryRoot, "harness/policies/discovery-maps.current.json"),
+      "utf8",
+    ),
   ) as Record<string, unknown>;
   const policyBinding = {
-    policy_ref: "harness/policies/discovery-maps.v1.json",
-    policy_schema_version: "startup_opportunity.discovery_maps_policy.v1",
+    policy_ref: "harness/policies/discovery-maps.current.json",
+    policy_schema_version: "startup_opportunity.discovery_maps_policy.current",
     policy_version: "1.0.0",
     content_hash: canonicalContentHash(policy),
   };
@@ -294,7 +297,7 @@ export async function createDiscoveryMapsFixture(
     created_at: createdAt,
   };
   const scope = {
-    schema_version: "startup_opportunity.scope_frame.v2",
+    schema_version: "startup_opportunity.scope_frame.discovery.current",
     run_id: runId,
     mode: "opportunity_discovery",
     decision_context_ref: G21_DECISION_REF,
@@ -358,7 +361,7 @@ export async function createDiscoveryMapsFixture(
       },
       ...structuredClone(additionalPlanWaves),
     ],
-    adaptation_policy_ref: "harness/policies/adaptation.v1.json",
+    adaptation_policy_ref: "harness/policies/adaptation.current.json",
     followup_policy: {
       max_followup_rounds: 1,
       require_decision_relevance: true,

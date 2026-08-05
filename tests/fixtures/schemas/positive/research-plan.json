@@ -55,7 +55,7 @@
       ]
     }
   ],
-  "adaptation_policy_ref": "harness/policies/adaptation.v1.json",
+  "adaptation_policy_ref": "harness/policies/adaptation.current.json",
   "followup_policy": {
     "max_followup_rounds": 2,
     "require_decision_relevance": true,

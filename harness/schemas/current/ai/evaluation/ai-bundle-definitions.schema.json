@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/ai/evaluation/ai-bundle-definitions.schema.json",
+  "title": "Startup Opportunity G3.3 AI Bundle Definitions",
+  "$defs": {
+    "bundleStatus": {
+      "enum": ["complete", "incomplete", "desk_research_only", "stale"]
+    },
+    "conclusionCeiling": {
+      "enum": ["prioritize_allowed", "investigate_further_only", "insufficient_evidence", "reject"]
+    },
+    "consumerBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "trigger_version",
+        "subject_ref",
+        "selected_solution_ref",
+        "bundle_ref",
+        "bundle_content_hash",
+        "coverage_state",
+        "conclusion_ceiling",
+        "not_required_reason"
+      ],
+      "properties": {
+        "status": {
+          "enum": ["bound", "missing", "not_required"]
+        },
+        "trigger_version": {
+          "const": "startup_opportunity.ai_mandatory_coverage_trigger.v1"
+        },
+        "subject_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/opportunityRef"
+        },
+        "selected_solution_ref": {
+          "$ref": "../../discovery/synthesis/definitions.schema.json#/$defs/solutionRef"
+        },
+        "bundle_ref": {
+          "anyOf": [
+            {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bundle_content_hash": {
+          "anyOf": [
+            {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "coverage_state": {
+          "enum": [
+            "complete",
+            "incomplete",
+            "desk_research_only",
+            "stale",
+            "missing",
+            "not_required"
+          ]
+        },
+        "conclusion_ceiling": {
+          "enum": [
+            "prioritize_allowed",
+            "investigate_further_only",
+            "insufficient_evidence",
+            "reject",
+            "not_required"
+          ]
+        },
+        "not_required_reason": {
+          "anyOf": [
+            {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

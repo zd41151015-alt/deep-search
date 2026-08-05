@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import { DISCOVERY_EVALUATION_POLICY_PATH } from "../current-policy-paths.js";
 import {
   REPORT_FORBIDDEN_RULE_IDS,
   REPORT_SCAN_CONTRACT_VERSION,
@@ -9,8 +10,7 @@ import {
 } from "../reporting/report-consistency.js";
 import type { LoadedSchemaBundle } from "./schema-bundle.js";
 
-export const DISCOVERY_EVALUATION_POLICY_PATH =
-  "harness/policies/discovery-evaluation.v3.json" as const;
+export { DISCOVERY_EVALUATION_POLICY_PATH };
 
 interface DiscoveryEvaluationPolicyBase extends Record<string, unknown> {
   readonly policy_id: "startup_opportunity.g2_4_evaluation";
@@ -25,7 +25,7 @@ interface DiscoveryEvaluationPolicyBase extends Record<string, unknown> {
 }
 
 export interface DiscoveryEvaluationPolicy extends DiscoveryEvaluationPolicyBase {
-  readonly schema_version: "startup_opportunity.discovery_evaluation_policy.v3";
+  readonly schema_version: "startup_opportunity.discovery_evaluation_policy.current";
   readonly policy_version: "3.0.0";
   readonly ai_solution_gate_contract: Readonly<Record<string, unknown>>;
   readonly ai_mandatory_bundle_contract: Readonly<Record<string, unknown>>;
@@ -114,7 +114,9 @@ export async function loadDiscoveryEvaluationPolicy(
   const value = JSON.parse(
     await readFile(path.join(root, DISCOVERY_EVALUATION_POLICY_PATH), "utf8"),
   ) as unknown;
-  const validator = bundle.validators.get("startup_opportunity.discovery_evaluation_policy.v3");
+  const validator = bundle.validators.get(
+    "startup_opportunity.discovery_evaluation_policy.current",
+  );
   if ((validator !== undefined && !validator(value)) || !isRecord(value)) {
     throw new StoreError(
       "discovery_evaluation_policy.invalid",

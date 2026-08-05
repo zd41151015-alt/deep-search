@@ -194,7 +194,7 @@ function task(
   sourcePhase: "enrichment_evaluation" | "adversarial_challenger",
 ): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.research_task.v3",
+    schema_version: "startup_opportunity.research_task.discovery_evaluation.current",
     task_id: `task_${unitId}`,
     run_id: runId,
     unit_id: unitId,
@@ -264,7 +264,7 @@ function evidence(
   phase: "enrichment_evaluation" | "adversarial_challenger",
 ): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.evidence.v3",
+    schema_version: "startup_opportunity.evidence.discovery_evaluation.current",
     evidence_id: substrate.evidence_id,
     run_id: runId,
     unit_id: unitId,
@@ -319,7 +319,7 @@ function judgment(
   dimension: string,
 ): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.judgment_assessment.v3",
+    schema_version: "startup_opportunity.judgment_assessment.discovery_evaluation.current",
     judgment_id: id,
     run_id: runId,
     unit_id: unitId,
@@ -494,7 +494,7 @@ function domainDocuments(
     [
       suffix === "a" ? G24_ENGINE_A : G24_ENGINE_B,
       {
-        schema_version: "startup_opportunity.business_engine_thesis.v2",
+        schema_version: "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
         business_engine_id: `business_engine_${suffix}`,
         run_id: runId,
         subject_ref: opportunityRef,
@@ -716,7 +716,7 @@ export async function createDiscoveryEvaluationFixture(
     const insightRef = isSupport ? G24_INSIGHT_SUPPORT : G24_INSIGHT_CHALLENGE;
     const manifestRef = isSupport ? G24_MANIFEST_SUPPORT : G24_MANIFEST_CHALLENGE;
     add(claimRef, {
-      schema_version: "startup_opportunity.claim.v3",
+      schema_version: "startup_opportunity.claim.discovery_evaluation.current",
       claim_id: `claim_${side}`,
       run_id: runId,
       unit_id: unitId,
@@ -730,7 +730,7 @@ export async function createDiscoveryEvaluationFixture(
       limitations: [SYNTHETIC],
     });
     add(findingRef, {
-      schema_version: "startup_opportunity.finding.v3",
+      schema_version: "startup_opportunity.finding.discovery_evaluation.current",
       finding_id: `finding_${side}`,
       run_id: runId,
       unit_id: unitId,
@@ -741,7 +741,7 @@ export async function createDiscoveryEvaluationFixture(
       limitations: [SYNTHETIC],
     });
     add(insightRef, {
-      schema_version: "startup_opportunity.insight.v3",
+      schema_version: "startup_opportunity.insight.discovery_evaluation.current",
       insight_id: `insight_${side}`,
       run_id: runId,
       unit_id: unitId,
@@ -752,7 +752,7 @@ export async function createDiscoveryEvaluationFixture(
       limitations: [SYNTHETIC],
     });
     add(manifestRef, {
-      schema_version: "startup_opportunity.source_manifest.v3",
+      schema_version: "startup_opportunity.source_manifest.discovery_evaluation.current",
       manifest_id: `source_manifest_${side}`,
       run_id: runId,
       unit_id: unitId,
@@ -1065,7 +1065,7 @@ export async function createDiscoveryEvaluationFixture(
     G24_JUDGMENT_B_SUPPORT,
   ];
   add(G24_TRACEABILITY, {
-    schema_version: "startup_opportunity.traceability.v2",
+    schema_version: "startup_opportunity.traceability.discovery.current",
     traceability_id: "traceability_discovery",
     run_id: runId,
     source_snapshot_ref: G23_SNAPSHOT,
@@ -1263,15 +1263,16 @@ export async function createDiscoveryEvaluationFixture(
     ...v13Paths.map((path) => {
       const document = documents.get(path) as Record<string, unknown>;
       const producerRole =
-        String(document.schema_version) === "startup_opportunity.research_task.v3"
+        String(document.schema_version) ===
+        "startup_opportunity.research_task.discovery_evaluation.current"
           ? "main_agent"
           : [
-                "startup_opportunity.evidence.v3",
-                "startup_opportunity.claim.v3",
-                "startup_opportunity.finding.v3",
-                "startup_opportunity.insight.v3",
-                "startup_opportunity.judgment_assessment.v3",
-                "startup_opportunity.source_manifest.v3",
+                "startup_opportunity.evidence.discovery_evaluation.current",
+                "startup_opportunity.claim.discovery_evaluation.current",
+                "startup_opportunity.finding.discovery_evaluation.current",
+                "startup_opportunity.insight.discovery_evaluation.current",
+                "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+                "startup_opportunity.source_manifest.discovery_evaluation.current",
                 "startup_opportunity.enrichment_branch_result.v1",
               ].includes(String(document.schema_version))
             ? "lane_researcher"

@@ -1,0 +1,62 @@
+{
+  "schema_version": "startup_opportunity.discovery_synthesis_policy.current",
+  "policy_id": "startup_opportunity.g2_3_synthesis",
+  "policy_version": "1.0.0",
+  "artifact_paths": {
+    "conversion": "artifacts/discovery/conversions/<candidate_id>.r<revision>.json",
+    "demand": "artifacts/discovery/demands/<demand_id>.r<revision>.json",
+    "baseline": "artifacts/discovery/baselines/<baseline_id>.r<revision>.json",
+    "solution": "artifacts/discovery/solutions/<solution_id>.r<revision>.json",
+    "solution_evaluation": "artifacts/discovery/solution-evaluations/<evaluation_id>.r<revision>.json",
+    "opportunity": "artifacts/discovery/opportunities/<opportunity_id>.r<revision>.json",
+    "snapshot": "artifacts/discovery/thesis-snapshots/<snapshot_id>.r<revision>.json",
+    "merge": "artifacts/discovery/merges/<merge_id>.r<revision>.json"
+  },
+  "kind_target_map": {
+    "demand_seed": "startup_opportunity.demand_thesis.v1",
+    "baseline_seed": "startup_opportunity.baseline_option.v1",
+    "solution_seed": "startup_opportunity.solution_hypothesis.v1"
+  },
+  "publication_order": [
+    "conversion_and_formal_target",
+    "demand_thesis",
+    "baseline_option",
+    "solution_hypothesis",
+    "solution_evaluation",
+    "opportunity_thesis",
+    "thesis_evaluation_snapshot",
+    "merge_result"
+  ],
+  "source_separation": {
+    "generation_and_evaluation_distinct": true,
+    "overlap_requires_disclosure": true
+  },
+  "freeze_contract": {
+    "before_enrichment": true,
+    "immutable": true,
+    "revision_policy": "new_immutable_snapshot_revision_required"
+  },
+  "merge_contract": {
+    "all_frozen_theses_classified_once": true,
+    "title_similarity_only_forbidden": true,
+    "semantic_dimensions": [
+      "user",
+      "job",
+      "entry_scene",
+      "baseline",
+      "solution",
+      "buyer_logic",
+      "acquisition_or_compliance_boundary"
+    ],
+    "preserve_diversity": true
+  },
+  "execution_boundary": {
+    "explicit_artifacts_only": true,
+    "harness_synthesizes_semantics": false,
+    "harness_dispatches_agent": false,
+    "hidden_llm_calls": false,
+    "network_research": false,
+    "external_validation": false,
+    "publication_implies_validation": false
+  }
+}

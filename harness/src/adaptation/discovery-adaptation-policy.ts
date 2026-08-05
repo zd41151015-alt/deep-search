@@ -2,14 +2,14 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import { DISCOVERY_ADAPTATION_BINDING_POLICY_PATH } from "../current-policy-paths.js";
 import { createArtifactValidator } from "../validators/artifact-validator.js";
 import { isRecord } from "./contracts.js";
 
-export const DISCOVERY_ADAPTATION_BINDING_POLICY_PATH =
-  "harness/policies/discovery-adaptation-binding.v1.json" as const;
+export { DISCOVERY_ADAPTATION_BINDING_POLICY_PATH };
 
 export interface DiscoveryAdaptationBindingPolicy extends Record<string, unknown> {
-  readonly schema_version: "startup_opportunity.discovery_adaptation_binding_policy.v1";
+  readonly schema_version: "startup_opportunity.discovery_adaptation_binding_policy.current";
   readonly policy_id: "startup_opportunity.g2_candidate_pre_kill_adaptation";
   readonly policy_version: "1.0.0";
   readonly trigger_gap_type: "candidate_pre_killed";

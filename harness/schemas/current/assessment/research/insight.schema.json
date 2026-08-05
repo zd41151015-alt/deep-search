@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/research/insight.schema.json",
+  "title": "Startup Opportunity Assessment Insight",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "insight_id",
+    "run_id",
+    "unit_id",
+    "lineage",
+    "source_units",
+    "summary",
+    "finding_refs",
+    "decision_relevance",
+    "confidence_band",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.insight.assessment.current"
+    },
+    "insight_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "lineage": {
+      "$ref": "./definitions.schema.json#/$defs/lineage"
+    },
+    "source_units": {
+      "type": "array",
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/identifier"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "summary": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "finding_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/findingRef"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "decision_relevance": {
+      "enum": [
+        "concept_assessment",
+        "demand_validation",
+        "baseline_comparison",
+        "buyer_viability",
+        "acquisition_viability",
+        "counter_evidence"
+      ]
+    },
+    "confidence_band": {
+      "enum": ["low", "medium", "high", "unknown"]
+    },
+    "limitations": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

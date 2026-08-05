@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/reporting/evidence-audit.schema.json",
+  "title": "Startup Opportunity Evidence Audit v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "audit_id",
+    "run_id",
+    "producer_role",
+    "owned_output_path",
+    "lineage",
+    "input_artifact_hashes",
+    "source_manifest_refs",
+    "evidence_reviews",
+    "claim_reviews",
+    "stance_balance",
+    "rejected_source_record_count",
+    "unavailable_source_record_count",
+    "conclusion_ceiling",
+    "revision_requests",
+    "evaluator_result",
+    "evaluation_issues",
+    "mutates_upstream_artifacts",
+    "valid_as_of",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.evidence_audit.v1"
+    },
+    "audit_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "producer_role": {
+      "const": "evidence_auditor"
+    },
+    "owned_output_path": {
+      "type": "string",
+      "pattern": "^artifacts/audits/[A-Za-z0-9._-]+\\.json$"
+    },
+    "lineage": {
+      "$ref": "./definitions.schema.json#/$defs/lineage"
+    },
+    "input_artifact_hashes": {
+      "$ref": "./definitions.schema.json#/$defs/inputHashes"
+    },
+    "source_manifest_refs": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "evidence_reviews": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_ref",
+          "source_manifest_ref",
+          "provenance_status",
+          "canonical_source_group",
+          "shared_dataset_group",
+          "syndication_group",
+          "independence",
+          "evidence_tier",
+          "representativeness_status",
+          "bias_status",
+          "geo",
+          "language",
+          "freshness_status",
+          "quote_provenance_status",
+          "decisive",
+          "audit_status",
+          "limitations"
+        ],
+        "properties": {
+          "evidence_ref": {
+            "$ref": "./definitions.schema.json#/$defs/artifactRef"
+          },
+          "source_manifest_ref": {
+            "$ref": "./definitions.schema.json#/$defs/artifactRef"
+          },
+          "provenance_status": {
+            "enum": ["verified", "incomplete", "unverifiable"]
+          },
+          "canonical_source_group": {
+            "$ref": "./definitions.schema.json#/$defs/identifier"
+          },
+          "shared_dataset_group": {
+            "anyOf": [
+              {
+                "$ref": "./definitions.schema.json#/$defs/identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "syndication_group": {
+            "anyOf": [
+              {
+                "$ref": "./definitions.schema.json#/$defs/identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "independence": {
+            "enum": [
+              "primary",
+              "independent_secondary",
+              "dependent_secondary",
+              "shared_underlying_dataset",
+              "unknown"
+            ]
+          },
+          "evidence_tier": {
+            "$ref": "./definitions.schema.json#/$defs/evidenceTier"
+          },
+          "representativeness_status": {
+            "enum": ["adequate", "limited", "unknown"]
+          },
+          "bias_status": {
+            "enum": ["disclosed", "missing", "unacceptable"]
+          },
+          "geo": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "language": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "freshness_status": {
+            "enum": ["current", "stale", "unknown"]
+          },
+          "quote_provenance_status": {
+            "enum": [
+              "not_a_quote",
+              "verified",
+              "missing_location",
+              "unsupported",
+              "model_generated_forbidden"
+            ]
+          },
+          "decisive": {
+            "type": "boolean"
+          },
+          "audit_status": {
+            "enum": ["accepted", "limited", "rejected", "unavailable"]
+          },
+          "limitations": {
+            "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "claim_reviews": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claim_ref",
+          "evidence_refs",
+          "support_fidelity",
+          "quote_fidelity",
+          "decisive",
+          "limitations"
+        ],
+        "properties": {
+          "claim_ref": {
+            "$ref": "./definitions.schema.json#/$defs/artifactRef"
+          },
+          "evidence_refs": {
+            "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "support_fidelity": {
+            "enum": ["faithful", "partial", "unsupported", "not_a_factual_claim"]
+          },
+          "quote_fidelity": {
+            "enum": [
+              "not_a_quote",
+              "verbatim_verified",
+              "translation_separated",
+              "unsupported",
+              "model_generated_forbidden"
+            ]
+          },
+          "decisive": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "stance_balance": {
+      "type": "array",
+      "minItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dimension",
+          "supporting_claim_count",
+          "opposing_claim_count",
+          "status",
+          "limitations"
+        ],
+        "properties": {
+          "dimension": {
+            "$ref": "./definitions.schema.json#/$defs/assessmentDimension"
+          },
+          "supporting_claim_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "opposing_claim_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status": {
+            "enum": [
+              "balanced",
+              "support_only_explained",
+              "oppose_only_explained",
+              "imbalanced",
+              "no_signal"
+            ]
+          },
+          "limitations": {
+            "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "rejected_source_record_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unavailable_source_record_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "conclusion_ceiling": {
+      "$ref": "./definitions.schema.json#/$defs/conclusionCeiling"
+    },
+    "revision_requests": {
+      "type": "array",
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/revisionRequest"
+      },
+      "uniqueItems": true
+    },
+    "evaluator_result": {
+      "$ref": "./definitions.schema.json#/$defs/evaluatorResult"
+    },
+    "evaluation_issues": {
+      "type": "array",
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/evaluationIssue"
+      },
+      "uniqueItems": true
+    },
+    "mutates_upstream_artifacts": {
+      "const": false
+    },
+    "valid_as_of": {
+      "type": "string",
+      "format": "date"
+    },
+    "limitations": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

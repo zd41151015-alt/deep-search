@@ -127,7 +127,7 @@ function parseManifest(value: unknown): SchemaBundleManifest {
       }
       if (
         typeof entry.file !== "string" ||
-        !/^(?:current|v[1-9][0-9]*)\/[a-z][a-z0-9-]*\.schema\.json$/.test(entry.file)
+        !/^current\/(?:[a-z][a-z0-9-]*\/)*[a-z][a-z0-9-]*\.schema\.json$/.test(entry.file)
       ) {
         errors.push(
           issue("bundle.invalid_path", `${instancePath}/file`, "invalid schema filename"),

@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/evaluation/traceability.schema.json",
+  "title": "Startup Opportunity Discovery Traceability",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "traceability_id",
+    "run_id",
+    "source_snapshot_ref",
+    "decision_recommendation_ref",
+    "comparison_refs",
+    "enrichment_fan_in_ref",
+    "decisive_judgment_assessment_refs",
+    "statements",
+    "input_artifact_hashes",
+    "freshness_summary",
+    "all_decisive_refs_traced",
+    "external_validation_claimed",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.traceability.discovery.current"
+    },
+    "traceability_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "source_snapshot_ref": {
+      "$ref": "./definitions.schema.json#/$defs/snapshotRef"
+    },
+    "decision_recommendation_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "comparison_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/comparisonRef"
+      }
+    },
+    "enrichment_fan_in_ref": {
+      "$ref": "./definitions.schema.json#/$defs/enrichmentFanInRef"
+    },
+    "decisive_judgment_assessment_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/enrichmentJudgmentRef"
+      }
+    },
+    "statements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "statement_id",
+          "statement_kind",
+          "subject_ref",
+          "judgment_assessment_ref",
+          "claim_refs",
+          "evidence_refs",
+          "source_manifest_refs",
+          "freshness_status",
+          "limitations"
+        ],
+        "properties": {
+          "statement_id": {
+            "$ref": "./definitions.schema.json#/$defs/identifier"
+          },
+          "statement_kind": {
+            "enum": ["fact", "inference", "assumption", "recommendation", "limitation"]
+          },
+          "subject_ref": {
+            "$ref": "./definitions.schema.json#/$defs/opportunityRef"
+          },
+          "judgment_assessment_ref": {
+            "$ref": "./definitions.schema.json#/$defs/enrichmentJudgmentRef"
+          },
+          "claim_refs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "./definitions.schema.json#/$defs/enrichmentClaimRef"
+            }
+          },
+          "evidence_refs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "./definitions.schema.json#/$defs/enrichmentEvidenceRef"
+            }
+          },
+          "source_manifest_refs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "./definitions.schema.json#/$defs/enrichmentSourceManifestRef"
+            }
+          },
+          "freshness_status": {
+            "enum": ["current", "stale", "unknown"]
+          },
+          "limitations": {
+            "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "input_artifact_hashes": {
+      "$ref": "./definitions.schema.json#/$defs/inputHashes"
+    },
+    "freshness_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "valid_as_of",
+        "current_refs",
+        "stale_refs",
+        "unknown_refs",
+        "conclusion_impact"
+      ],
+      "properties": {
+        "valid_as_of": {
+          "type": "string",
+          "format": "date"
+        },
+        "current_refs": {
+          "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "stale_refs": {
+          "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "unknown_refs": {
+          "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "conclusion_impact": {
+          "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "all_decisive_refs_traced": {
+      "const": true
+    },
+    "external_validation_claimed": {
+      "const": false
+    },
+    "limitations": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

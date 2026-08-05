@@ -394,7 +394,7 @@ function deriveDiscoveryReportEnvelopes(
   const consistencyPath = `artifacts/reporting/consistency-evaluation.${revision}.json`;
   const briefMarkdown = renderDiscoveryDecisionBrief(report);
   const briefDocument: Record<string, unknown> = {
-    schema_version: "startup_opportunity.decision_brief.v2",
+    schema_version: "startup_opportunity.decision_brief.discovery.current",
     brief_id: `decision_brief_${revision.replace("r", "")}`,
     run_id: reportEnvelope.run_id,
     producer_role: "harness",
@@ -425,7 +425,7 @@ function deriveDiscoveryReportEnvelopes(
   const briefEnvelope = formalEnvelope(
     reportEnvelope,
     decisionBriefPath,
-    "startup_opportunity.decision_brief.v2",
+    "startup_opportunity.decision_brief.discovery.current",
     briefDocument,
     [],
   );
@@ -468,7 +468,7 @@ function deriveDiscoveryReportEnvelopes(
   });
   const evaluatorResult = forbiddenExpressionMatches.length === 0 ? "passed" : "failed";
   const consistencyDocument: Record<string, unknown> = {
-    schema_version: "startup_opportunity.report_consistency_evaluation.v3",
+    schema_version: "startup_opportunity.report_consistency_evaluation.discovery.current",
     evaluation_id: `report_consistency_${revision.replace("r", "")}`,
     run_id: reportEnvelope.run_id,
     producer_role: "harness",
@@ -505,7 +505,7 @@ function deriveDiscoveryReportEnvelopes(
     formalEnvelope(
       reportEnvelope,
       consistencyPath,
-      "startup_opportunity.report_consistency_evaluation.v3",
+      "startup_opportunity.report_consistency_evaluation.discovery.current",
       consistencyDocument,
       [],
     ),
@@ -515,8 +515,8 @@ function deriveDiscoveryReportEnvelopes(
 function assertDerivedConsistencyPassed(derived: readonly FormalArtifactEnvelope[]): void {
   const consistency = derived.find((entry) =>
     [
-      "startup_opportunity.report_consistency_evaluation.v3",
-      "startup_opportunity.report_consistency_evaluation.v4",
+      "startup_opportunity.report_consistency_evaluation.discovery.current",
+      "startup_opportunity.report_consistency_evaluation.terminal.current",
     ].includes(entry.artifact_type),
   );
   if (
@@ -585,7 +585,7 @@ export function deriveReportEnvelopes(
   const consistencyPath = `artifacts/reporting/consistency-evaluation.${revision}.json`;
   const briefMarkdown = renderDecisionBrief(report);
   const briefDocument: Record<string, unknown> = {
-    schema_version: "startup_opportunity.decision_brief.v1",
+    schema_version: "startup_opportunity.decision_brief.assessment.current",
     brief_id: `decision_brief_${revision.replace("r", "")}`,
     run_id: reportEnvelope.run_id,
     producer_role: "harness",
@@ -614,7 +614,7 @@ export function deriveReportEnvelopes(
   const briefEnvelope = formalEnvelope(
     reportEnvelope,
     decisionBriefPath,
-    "startup_opportunity.decision_brief.v1",
+    "startup_opportunity.decision_brief.assessment.current",
     briefDocument,
     [reportEnvelope.artifact_path, assessmentRef, ...supportingRefs, ...opposingRefs],
   );
@@ -650,7 +650,7 @@ export function deriveReportEnvelopes(
   );
 
   const consistencyDocument: Record<string, unknown> = {
-    schema_version: "startup_opportunity.report_consistency_evaluation.v1",
+    schema_version: "startup_opportunity.report_consistency_evaluation.assessment.current",
     evaluation_id: `report_consistency_${revision.replace("r", "")}`,
     run_id: reportEnvelope.run_id,
     producer_role: "harness",
@@ -675,7 +675,7 @@ export function deriveReportEnvelopes(
   const consistencyEnvelope = formalEnvelope(
     reportEnvelope,
     consistencyPath,
-    "startup_opportunity.report_consistency_evaluation.v1",
+    "startup_opportunity.report_consistency_evaluation.assessment.current",
     consistencyDocument,
     [reportEnvelope.artifact_path, decisionBriefPath, reportViewPath, assessmentRef],
   );
@@ -694,9 +694,9 @@ function materializedBytes(envelope: FormalArtifactEnvelope): {
     return { targetPath: "report.json", bytes: `${canonicalJson(envelope.document)}\n` };
   }
   if (
-    envelope.artifact_type === "startup_opportunity.decision_brief.v1" ||
-    envelope.artifact_type === "startup_opportunity.decision_brief.v2" ||
-    envelope.artifact_type === "startup_opportunity.decision_brief.v3"
+    envelope.artifact_type === "startup_opportunity.decision_brief.assessment.current" ||
+    envelope.artifact_type === "startup_opportunity.decision_brief.discovery.current" ||
+    envelope.artifact_type === "startup_opportunity.decision_brief.terminal.current"
   ) {
     return {
       targetPath: "decision-brief.md",

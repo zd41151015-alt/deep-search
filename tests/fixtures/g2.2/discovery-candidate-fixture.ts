@@ -182,7 +182,7 @@ function task(
   groupId: string,
 ): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.research_task.v2",
+    schema_version: "startup_opportunity.research_task.discovery_candidate.current",
     task_id: `task_${unitId}`,
     run_id: G22_RUN_ID,
     unit_id: unitId,
@@ -287,7 +287,7 @@ function evidence(
   fill: string,
 ): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.evidence.v2",
+    schema_version: "startup_opportunity.evidence.discovery_candidate.current",
     evidence_id: evidenceId,
     run_id: G22_RUN_ID,
     unit_id: unitId,
@@ -340,7 +340,7 @@ function sourceManifest(
   groupId: string,
 ): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.source_manifest.v2",
+    schema_version: "startup_opportunity.source_manifest.discovery_candidate.current",
     manifest_id: id,
     run_id: G22_RUN_ID,
     unit_id: unitId,
@@ -370,7 +370,7 @@ function judgment(
   claimRef: string,
 ): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.judgment_assessment.v2",
+    schema_version: "startup_opportunity.judgment_assessment.discovery_candidate.current",
     run_id: G22_RUN_ID,
     unit_id: unitId,
     lineage: lineage(taskRef),
@@ -629,7 +629,7 @@ export async function createDiscoveryCandidateFixture(
     "b",
   );
   const generationClaim = {
-    schema_version: "startup_opportunity.claim.v2",
+    schema_version: "startup_opportunity.claim.discovery_candidate.current",
     claim_id: "claim_generation",
     run_id: G22_RUN_ID,
     unit_id: "unit_seed_independent_demand",
@@ -643,7 +643,7 @@ export async function createDiscoveryCandidateFixture(
     limitations: [synthetic("not a real claim")],
   };
   const evaluationClaim = {
-    schema_version: "startup_opportunity.claim.v2",
+    schema_version: "startup_opportunity.claim.discovery_candidate.current",
     claim_id: "claim_evaluation",
     run_id: G22_RUN_ID,
     unit_id: "unit_counterfactual",
@@ -657,7 +657,7 @@ export async function createDiscoveryCandidateFixture(
     limitations: [synthetic("not a real claim")],
   };
   const finding = {
-    schema_version: "startup_opportunity.finding.v2",
+    schema_version: "startup_opportunity.finding.discovery_candidate.current",
     finding_id: "finding_demand",
     run_id: G22_RUN_ID,
     unit_id: "unit_seed_independent_demand",
@@ -669,7 +669,7 @@ export async function createDiscoveryCandidateFixture(
     limitations: [synthetic("not a real finding")],
   };
   const insight = {
-    schema_version: "startup_opportunity.insight.v2",
+    schema_version: "startup_opportunity.insight.discovery_candidate.current",
     insight_id: "insight_demand",
     run_id: G22_RUN_ID,
     unit_id: "unit_seed_independent_demand",

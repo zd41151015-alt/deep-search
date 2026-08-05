@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { RESEARCH_PUBLICATION_POLICY_PATH } from "../current-policy-paths.js";
 import type { LoadedSchemaBundle } from "../validators/schema-bundle.js";
 import { StoreError } from "./store-error.js";
 
-export const RESEARCH_PUBLICATION_POLICY_PATH =
-  "harness/policies/research-publication.current.json" as const;
+export { RESEARCH_PUBLICATION_POLICY_PATH };
 export const ARTIFACT_ENVELOPE_SCHEMA_VERSION =
   "startup_opportunity.artifact_envelope.current" as const;
 export const DOCUMENT_BUNDLE_SCHEMA_VERSION =

@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/candidates/discovery-lane-result.schema.json",
+  "title": "Startup Opportunity Discovery Lane Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "lane_result_id",
+    "run_id",
+    "unit_id",
+    "attempt",
+    "task_ref",
+    "lane_type",
+    "status",
+    "owner_role",
+    "research_goals",
+    "queries",
+    "evidence_lineage",
+    "scored_candidates",
+    "pre_kill_decisions",
+    "retained_candidate_refs",
+    "watchlist_candidate_refs",
+    "rejected_candidate_refs",
+    "candidate_diversity_summary",
+    "decision_sufficiency_summary",
+    "open_questions",
+    "reference_only",
+    "source_boundary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.discovery_lane_result.v1"
+    },
+    "lane_result_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "task_ref": {
+      "$ref": "./definitions.schema.json#/$defs/discoveryTaskRef"
+    },
+    "lane_type": {
+      "$ref": "../../core/definitions.schema.json#/$defs/unitType"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "insufficient_evidence",
+        "failed",
+        "ignored_late",
+        "superseded"
+      ]
+    },
+    "owner_role": {
+      "const": "lane-researcher"
+    },
+    "research_goals": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "queries": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "evidence_lineage": {
+      "$ref": "./definitions.schema.json#/$defs/candidateEvidenceRefs"
+    },
+    "scored_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidate_ref",
+          "score",
+          "supporting_refs",
+          "opposing_refs",
+          "rationale",
+          "limitations"
+        ],
+        "properties": {
+          "candidate_ref": {
+            "$ref": "./definitions.schema.json#/$defs/candidateRef"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "supporting_refs": {
+            "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "opposing_refs": {
+            "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "rationale": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "limitations": {
+            "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "pre_kill_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "disposition_id",
+          "candidate_ref",
+          "disposition",
+          "retention_basis",
+          "reasons",
+          "triggered_kill_conditions",
+          "missing_required_evidence",
+          "judgment_assessment_refs",
+          "highest_allowed_stage",
+          "what_would_reverse_decision"
+        ],
+        "properties": {
+          "disposition_id": {
+            "$ref": "./definitions.schema.json#/$defs/identifier"
+          },
+          "candidate_ref": {
+            "$ref": "./definitions.schema.json#/$defs/candidateRef"
+          },
+          "disposition": {
+            "enum": ["retained", "watchlist", "rejected"]
+          },
+          "retention_basis": {
+            "enum": ["evidence", "diversity", "counterfactual", "not_retained"]
+          },
+          "reasons": {
+            "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+          },
+          "triggered_kill_conditions": {
+            "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+          },
+          "missing_required_evidence": {
+            "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+          },
+          "judgment_assessment_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "./definitions.schema.json#/$defs/judgmentRef"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "highest_allowed_stage": {
+            "enum": ["lane_only", "cross_lane_synthesis", "watchlist_only", "none"]
+          },
+          "what_would_reverse_decision": {
+            "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "retained_candidate_refs": {
+      "$ref": "./definitions.schema.json#/$defs/candidateRefArray"
+    },
+    "watchlist_candidate_refs": {
+      "$ref": "./definitions.schema.json#/$defs/candidateRefArray"
+    },
+    "rejected_candidate_refs": {
+      "$ref": "./definitions.schema.json#/$defs/candidateRefArray"
+    },
+    "candidate_diversity_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "covered_users",
+        "covered_jobs",
+        "covered_entry_scenes",
+        "covered_buyer_models",
+        "covered_candidate_kinds",
+        "diversity_retention_refs",
+        "counterfactual_candidate_refs",
+        "known_blind_spots"
+      ],
+      "properties": {
+        "covered_users": {
+          "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "covered_jobs": {
+          "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "covered_entry_scenes": {
+          "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "covered_buyer_models": {
+          "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "covered_candidate_kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/candidateKind"
+          },
+          "uniqueItems": true
+        },
+        "diversity_retention_refs": {
+          "$ref": "./definitions.schema.json#/$defs/candidateRefArray"
+        },
+        "counterfactual_candidate_refs": {
+          "$ref": "./definitions.schema.json#/$defs/candidateRefArray"
+        },
+        "known_blind_spots": {
+          "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+        }
+      }
+    },
+    "decision_sufficiency_summary": {
+      "$ref": "./definitions.schema.json#/$defs/decisionSufficiency"
+    },
+    "open_questions": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "reference_only": {
+      "const": true
+    },
+    "source_boundary": {
+      "$ref": "./definitions.schema.json#/$defs/sourceBoundary"
+    },
+    "limitations": {
+      "allOf": [
+        {
+          "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        {
+          "type": "array",
+          "minItems": 1
+        }
+      ]
+    }
+  }
+}

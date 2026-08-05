@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/store/artifact-store-operation.schema.json",
+  "title": "Startup Opportunity Current Artifact Store Operation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "operation_key",
+    "run_id",
+    "artifact_path",
+    "artifact_type",
+    "content_hash",
+    "envelope"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.artifact_store_operation.current"
+    },
+    "operation_key": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "run_id": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "artifact_path": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"
+    },
+    "artifact_type": {
+      "type": "string",
+      "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
+    },
+    "content_hash": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "envelope": {
+      "$ref": "./artifact-envelope.schema.json"
+    }
+  }
+}

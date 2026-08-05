@@ -164,7 +164,10 @@ async function publishCandidates(state: RuntimeState): Promise<void> {
 }
 
 async function publishTasks(state: RuntimeState): Promise<void> {
-  const tasks = envelopesByType(state.bundle, "startup_opportunity.research_task.v2");
+  const tasks = envelopesByType(
+    state.bundle,
+    "startup_opportunity.research_task.discovery_candidate.current",
+  );
   assert.equal(tasks.length, 2);
   await state.store.publishArtifactBundle({ runId: state.runId, envelopes: tasks });
 }
@@ -172,12 +175,12 @@ async function publishTasks(state: RuntimeState): Promise<void> {
 async function publishMaterials(state: RuntimeState): Promise<void> {
   const materials = envelopesByType(
     state.bundle,
-    "startup_opportunity.evidence.v2",
-    "startup_opportunity.claim.v2",
-    "startup_opportunity.finding.v2",
-    "startup_opportunity.insight.v2",
-    "startup_opportunity.judgment_assessment.v2",
-    "startup_opportunity.source_manifest.v2",
+    "startup_opportunity.evidence.discovery_candidate.current",
+    "startup_opportunity.claim.discovery_candidate.current",
+    "startup_opportunity.finding.discovery_candidate.current",
+    "startup_opportunity.insight.discovery_candidate.current",
+    "startup_opportunity.judgment_assessment.discovery_candidate.current",
+    "startup_opportunity.source_manifest.discovery_candidate.current",
   );
   assert.equal(materials.length, 14);
   await state.store.publishArtifactBundle({ runId: state.runId, envelopes: materials });
@@ -248,7 +251,7 @@ function terminalLane(
 test("G2.2 selects the Manifest current Plan while retaining Plan history", async (t) => {
   const policy = JSON.parse(
     await readFile(
-      path.join(repositoryRoot, "harness/policies/discovery-candidates.v1.json"),
+      path.join(repositoryRoot, "harness/policies/discovery-candidates.current.json"),
       "utf8",
     ),
   ) as DiscoveryCandidatePolicy;
@@ -458,9 +461,10 @@ test("generic Harness CLI and Skill script publish only caller-supplied G2.2 env
   await writeFile(
     taskFile,
     `${canonicalJson({
-      documents: envelopesByType(state.bundle, "startup_opportunity.research_task.v2").map(
-        (document) => ({ document }),
-      ),
+      documents: envelopesByType(
+        state.bundle,
+        "startup_opportunity.research_task.discovery_candidate.current",
+      ).map((document) => ({ document })),
     })}\n`,
   );
   const skill = spawnSync(

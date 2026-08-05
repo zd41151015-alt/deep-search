@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/core/concept-evidence-assessment.schema.json",
+  "title": "Startup Opportunity Concept Evidence Assessment Analysis",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "assessment_id",
+    "run_id",
+    "concept_hypothesis_ref",
+    "assessment_plan_ref",
+    "hypothesis_evidence_matrix_ref",
+    "business_engine_ref",
+    "assessment_result",
+    "evidence_strength_band",
+    "dimension_decisions",
+    "decisive_evidence_refs",
+    "decisive_opposing_refs",
+    "critical_gaps",
+    "conditions",
+    "kill_criteria",
+    "recommendation",
+    "belief_update_summary",
+    "validation_suggestion_refs",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.concept_evidence_assessment.analysis.current"
+    },
+    "assessment_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "concept_hypothesis_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "assessment_plan_ref": {
+      "$ref": "./definitions.schema.json#/$defs/assessmentPlanRef"
+    },
+    "hypothesis_evidence_matrix_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "business_engine_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "assessment_result": {
+      "enum": ["prioritize", "investigate_further", "deprioritize", "insufficient_evidence"]
+    },
+    "evidence_strength_band": {
+      "$ref": "./definitions.schema.json#/$defs/evidenceQuality"
+    },
+    "dimension_decisions": {
+      "type": "array",
+      "minItems": 10,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/dimensionDecisionSummary"
+      }
+    },
+    "decisive_evidence_refs": {
+      "$ref": "./definitions.schema.json#/$defs/evidenceOrClaimRefArray"
+    },
+    "decisive_opposing_refs": {
+      "$ref": "./definitions.schema.json#/$defs/evidenceOrClaimRefArray"
+    },
+    "critical_gaps": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "conditions": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "kill_criteria": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "recommendation": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "belief_update_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initial_belief",
+        "evidence_that_changed_belief",
+        "unchanged_assumptions",
+        "remaining_disagreement",
+        "final_decision_owner"
+      ],
+      "properties": {
+        "initial_belief": {
+          "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "evidence_that_changed_belief": {
+          "$ref": "./definitions.schema.json#/$defs/evidenceOrClaimRefArray"
+        },
+        "unchanged_assumptions": {
+          "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "remaining_disagreement": {
+          "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "final_decision_owner": {
+          "const": "user"
+        }
+      }
+    },
+    "validation_suggestion_refs": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "limitations": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

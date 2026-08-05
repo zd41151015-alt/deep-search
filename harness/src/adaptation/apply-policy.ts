@@ -2,18 +2,18 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalContentHash } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
-import { createArtifactValidator } from "../validators/artifact-validator.js";
 import {
   ADAPTATION_POLICY_PATH,
   AI_TRIGGER_SOURCE_POLICY_PATH,
-} from "../validators/planning-contract-validator.js";
+  PLAN_REVISION_APPLY_POLICY_PATH,
+} from "../current-policy-paths.js";
+import { createArtifactValidator } from "../validators/artifact-validator.js";
 import { isRecord } from "./contracts.js";
 
-export const PLAN_REVISION_APPLY_POLICY_PATH =
-  "harness/policies/plan-revision-apply.v1.json" as const;
+export { PLAN_REVISION_APPLY_POLICY_PATH };
 
 export interface PlanRevisionApplyPolicy extends Record<string, unknown> {
-  readonly schema_version: "startup_opportunity.plan_revision_apply_policy.v1";
+  readonly schema_version: "startup_opportunity.plan_revision_apply_policy.current";
   readonly policy_version: "1.0.0";
   readonly operation_identity: "canonical_parent_plan_hash_and_sorted_adaptation_refs.v1";
   readonly new_unit_placement: {

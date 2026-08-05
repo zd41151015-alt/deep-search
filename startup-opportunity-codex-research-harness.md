@@ -1036,7 +1036,7 @@ Research Plan 是一次 Run 的受约束执行计划，不是通用 Graph IR。�
       ]
     }
   ],
-  "adaptation_policy_ref": "harness/policies/adaptation.v1.json",
+  "adaptation_policy_ref": "harness/policies/adaptation.current.json",
   "followup_policy": {
     "max_followup_rounds": 2,
     "require_decision_relevance": true,
@@ -1047,7 +1047,7 @@ Research Plan 是一次 Run 的受约束执行计划，不是通用 Graph IR。�
 
 #### 12.2.1 Planning Context 与版本选择
 
-`startup_opportunity.research_plan.v1` 是当前正式 shape，不增加隐藏 flag 或自由解释字段。Planning/Assessment evaluator 一律加载 `harness/schemas/current.json`；进入 Plan/adaptation 语义校验的当前 Run 必须提供 immutable `startup_opportunity.planning_context.v2`、`startup_opportunity.ai_trigger_source_attestation.v1` 和当前 policy。这些是 planning control artifacts，不是 G3 AI business artifacts，也不定义 Opportunity Thesis、Concept Hypothesis、AI evaluation 或 result schema。
+`startup_opportunity.research_plan.v1` 是当前正式 shape，不增加隐藏 flag 或自由解释字段。Planning/Assessment evaluator 一律加载 `harness/schemas/current.json`；进入 Plan/adaptation 语义校验的当前 Run 必须提供 immutable `startup_opportunity.planning_context.ai_source_bound.current`、`startup_opportunity.ai_trigger_source_attestation.v1` 和当前 policy。这些是 planning control artifacts，不是 G3 AI business artifacts，也不定义 Opportunity Thesis、Concept Hypothesis、AI evaluation 或 result schema。
 
 Planning Context 至少机械表达：
 
@@ -1152,7 +1152,7 @@ adoption_and_trust
 
 Planner 可以创建多个具有不同 unit id 的 `ai_capability_evidence` unit 并行覆盖这些维度，也可以在一个 unit 中覆盖多个维度。单个 unit 可以只承担部分 dimensions，但 `uses_ai=true` 或 AI assessment profile 的 plan aggregate 必须覆盖全部六类；只有业务上确实无关的维度才能显式 `not_applicable`。Result 必须为每个 required dimension 返回独立的 `JudgmentAssessment`、artifact refs 和 `covered | insufficient_evidence | not_applicable` 状态，不得用一段综合文字掩盖缺失维度。
 
-全局 `unit_type` vocabulary 不等于 mode allowlist。`harness/policies/adaptation.v1.json` 以 `startup_opportunity.adaptation_policy.v1` / policy `1.0.0` 发布唯一 closed mapping，key 为 exact：
+全局 `unit_type` vocabulary 不等于 mode allowlist。`harness/policies/adaptation.current.json` 以 `startup_opportunity.adaptation_policy.current` / policy `1.0.0` 发布唯一 closed mapping，key 为 exact：
 
 ```text
 mode + phase + unit_type + agent_role + required_artifact_schema
@@ -1718,7 +1718,7 @@ Evidence
 
 ```json
 {
-  "schema_version": "startup_opportunity.evidence.v1",
+  "schema_version": "startup_opportunity.evidence.assessment.current",
   "evidence_id": "ev_001",
   "run_id": "2026-07-23-pet-care",
   "unit_id": "review_mining_cn",
@@ -1760,7 +1760,7 @@ Evidence Store 使用 `(canonical_url, content_hash, research_goal)` 或等价�
 
 ```json
 {
-  "schema_version": "startup_opportunity.claim.v1",
+  "schema_version": "startup_opportunity.claim.assessment.current",
   "claim_id": "claim_001",
   "run_id": "2026-07-23-pet-care",
   "unit_id": "review_mining_cn",
@@ -1787,7 +1787,7 @@ Claim 的 `confidence_band` 是证据校准后的离散判断，不是统计概�
 
 ```json
 {
-  "schema_version": "startup_opportunity.finding.v1",
+  "schema_version": "startup_opportunity.finding.assessment.current",
   "finding_id": "finding_001",
   "unit_id": "review_mining_cn",
   "summary": "提醒、记录和家庭协同经常被拆散在多个工具中。",
@@ -1804,7 +1804,7 @@ Claim 的 `confidence_band` 是证据校准后的离散判断，不是统计概�
 
 ```json
 {
-  "schema_version": "startup_opportunity.insight.v1",
+  "schema_version": "startup_opportunity.insight.assessment.current",
   "insight_id": "insight_001",
   "source_units": ["review_mining_cn", "top_products_cn"],
   "summary": "长期照护协同可能比单点提醒具有更强的增量价值。",
@@ -1888,7 +1888,7 @@ Evidence 的生命周期、Evidence 对某个判断的作用，以及当前材�
 
 ```json
 {
-  "schema_version": "startup_opportunity.judgment_assessment.v1",
+  "schema_version": "startup_opportunity.judgment_assessment.assessment.current",
   "judgment_id": "judgment_001",
   "subject_ref": "demand_001",
   "dimension": "migration_intent",
@@ -3480,7 +3480,7 @@ limitations
 
 ```json
 {
-  "schema_version": "startup_opportunity.concept_hypothesis.v1",
+  "schema_version": "startup_opportunity.concept_hypothesis.assessment.current",
   "concept_hypothesis_id": "concept_001",
   "product_thesis": "",
   "target_user": [],
@@ -3500,7 +3500,7 @@ limitations
 
 ```json
 {
-  "schema_version": "startup_opportunity.concept_evidence_assessment.v1",
+  "schema_version": "startup_opportunity.concept_evidence_assessment.analysis.current",
   "concept_hypothesis_id": "concept_001",
   "assessment_result": "investigate_further",
   "evidence_strength_band": "medium",
@@ -3592,7 +3592,7 @@ proposed -> screened -> recommended
 
 ```json
 {
-  "schema_version": "startup_opportunity.business_engine_thesis.v1",
+  "schema_version": "startup_opportunity.business_engine_thesis.assessment.current",
   "business_engine_id": "business_engine_001",
   "subject_ref": "opportunity_001",
   "pricing_unit": "household_subscription",
@@ -3820,10 +3820,10 @@ insufficient_evidence
 startup_opportunity.intake.v1
 startup_opportunity.decision_context.v1
 startup_opportunity.run_manifest.v1
-startup_opportunity.scope_frame.v1
+startup_opportunity.scope_frame.assessment.current
 startup_opportunity.research_plan.v1
-startup_opportunity.planning_context.v1
-startup_opportunity.planning_context.v2
+startup_opportunity.planning_context.general.current
+startup_opportunity.planning_context.ai_source_bound.current
 startup_opportunity.ai_trigger_source_attestation.v1
 startup_opportunity.gap_snapshot.discovery.plan.current
 startup_opportunity.gap_snapshot.discovery.readiness.current
@@ -3834,25 +3834,25 @@ startup_opportunity.coverage_attestation.v1
 startup_opportunity.seed_probe.v1
 startup_opportunity.opportunity_space_map.v1
 startup_opportunity.solution_space_map.v1
-startup_opportunity.evidence.v1
-startup_opportunity.evidence.v2
-startup_opportunity.evidence.v3
-startup_opportunity.claim.v1
-startup_opportunity.claim.v2
-startup_opportunity.claim.v3
-startup_opportunity.finding.v1
-startup_opportunity.finding.v2
-startup_opportunity.finding.v3
-startup_opportunity.insight.v1
-startup_opportunity.insight.v2
-startup_opportunity.insight.v3
-startup_opportunity.judgment_assessment.v1
-startup_opportunity.judgment_assessment.v2
-startup_opportunity.judgment_assessment.v3
-startup_opportunity.research_task.v2
-startup_opportunity.research_task.v3
-startup_opportunity.source_manifest.v2
-startup_opportunity.source_manifest.v3
+startup_opportunity.evidence.assessment.current
+startup_opportunity.evidence.discovery_candidate.current
+startup_opportunity.evidence.discovery_evaluation.current
+startup_opportunity.claim.assessment.current
+startup_opportunity.claim.discovery_candidate.current
+startup_opportunity.claim.discovery_evaluation.current
+startup_opportunity.finding.assessment.current
+startup_opportunity.finding.discovery_candidate.current
+startup_opportunity.finding.discovery_evaluation.current
+startup_opportunity.insight.assessment.current
+startup_opportunity.insight.discovery_candidate.current
+startup_opportunity.insight.discovery_evaluation.current
+startup_opportunity.judgment_assessment.assessment.current
+startup_opportunity.judgment_assessment.discovery_candidate.current
+startup_opportunity.judgment_assessment.discovery_evaluation.current
+startup_opportunity.research_task.discovery_candidate.current
+startup_opportunity.research_task.discovery_evaluation.current
+startup_opportunity.source_manifest.discovery_candidate.current
+startup_opportunity.source_manifest.discovery_evaluation.current
 startup_opportunity.discovery_candidate.v1
 startup_opportunity.user_language_map.v1
 startup_opportunity.solution_failure_map.v1
@@ -3879,34 +3879,34 @@ startup_opportunity.capability_commoditization_risk.v1
 startup_opportunity.value_layer_analysis.v1
 startup_opportunity.user_state_context_model.v1
 startup_opportunity.buyer_purchase_language.v1
-startup_opportunity.business_engine_thesis.v1
-startup_opportunity.business_engine_thesis.v2
+startup_opportunity.business_engine_thesis.assessment.current
+startup_opportunity.business_engine_thesis.discovery_evaluation.current
 startup_opportunity.opportunity_comparison.v1
 startup_opportunity.sensitivity.v1
 startup_opportunity.decision_recommendation.v1
 startup_opportunity.portfolio_view.v1
 startup_opportunity.adversarial_review.v1
 startup_opportunity.validation_suggestions.v1
-startup_opportunity.decision_brief.v1
-startup_opportunity.decision_brief.v2
+startup_opportunity.decision_brief.assessment.current
+startup_opportunity.decision_brief.discovery.current
 startup_opportunity.report.v1
 startup_opportunity.discovery_report_view.v1
 startup_opportunity.report_consistency_evaluation.v2
-startup_opportunity.report_consistency_evaluation.v3
+startup_opportunity.report_consistency_evaluation.discovery.current
 startup_opportunity.concept_frame.v1
-startup_opportunity.concept_hypothesis.v1
+startup_opportunity.concept_hypothesis.assessment.current
 startup_opportunity.concept_evidence_assessment_plan.v1
 startup_opportunity.concept_evidence_assessment_branch_result.v1
 startup_opportunity.concept_evidence_assessment_fan_in.v1
 startup_opportunity.hypothesis_evidence_matrix.v1
-startup_opportunity.concept_evidence_assessment.v1
+startup_opportunity.concept_evidence_assessment.analysis.current
 startup_opportunity.concept_assessment_suggestions.v1
 startup_opportunity.concept_evidence_report.v1
-startup_opportunity.traceability.v1
-startup_opportunity.traceability.v2
+startup_opportunity.traceability.assessment.current
+startup_opportunity.traceability.discovery.current
 ```
 
-方案 A 的 current contract authority 是 `harness/schemas/current.json`、current Artifact Envelope/Document Bundle 与 `harness/policies/discovery-candidates.v1.json`。唯一 identity/path/owner 如下：
+方案 A 的 current contract authority 是 `harness/schemas/current.json`、current Artifact Envelope/Document Bundle 与 `harness/policies/discovery-candidates.current.json`。唯一 identity/path/owner 如下：
 
 | Contract | Path / revision | producer / owner | 边界 |
 | --- | --- | --- | --- |

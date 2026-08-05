@@ -9,13 +9,13 @@ export interface DeclarativeRuntimeDocument {
 }
 
 const RUNTIME_SCHEMA_VERSIONS = new Set([
-  "startup_opportunity.research_execution_plan.v1",
-  "startup_opportunity.dispatch_batch.v1",
+  "startup_opportunity.research_execution_plan.discovery.current",
+  "startup_opportunity.dispatch_batch.discovery.current",
   "startup_opportunity.lane_lifecycle.v1",
   "startup_opportunity.candidate_neutral_evidence.v1",
   "startup_opportunity.discovery_generation_result.v1",
   "startup_opportunity.discovery_stage_readiness.v1",
-  "startup_opportunity.source_manifest.v4",
+  "startup_opportunity.source_manifest.discovery_runtime.current",
   "startup_opportunity.gap_snapshot.discovery.readiness.current",
 ]);
 
@@ -407,7 +407,7 @@ function validateDispatchBatch(
   const execution = target(byPath, batch.execution_plan_ref);
   const plan = target(byPath, batch.research_plan_ref);
   if (
-    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.v1" ||
+    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.discovery.current" ||
     plan?.schemaVersion !== "startup_opportunity.research_plan.v1"
   ) {
     return;
@@ -502,7 +502,7 @@ function validateLifecycle(
 ): void {
   const lifecycle = entry.document;
   const batch = target(byPath, lifecycle.dispatch_batch_ref);
-  if (batch?.schemaVersion !== "startup_opportunity.dispatch_batch.v1") {
+  if (batch?.schemaVersion !== "startup_opportunity.dispatch_batch.discovery.current") {
     return;
   }
   const taskId = String(lifecycle.dispatch_batch_ref).split("#", 2)[1];
@@ -636,14 +636,14 @@ function validateGenerationResult(
 ): void {
   const result = entry.document;
   const batch = target(byPath, result.dispatch_batch_ref);
-  if (batch?.schemaVersion !== "startup_opportunity.dispatch_batch.v1") {
+  if (batch?.schemaVersion !== "startup_opportunity.dispatch_batch.discovery.current") {
     return;
   }
   const taskId = String(result.dispatch_batch_ref).split("#", 2)[1];
   const task = records(batch.document.tasks).find((candidate) => candidate.task_id === taskId);
   const execution = target(byPath, batch.document.execution_plan_ref);
   const lane =
-    execution?.schemaVersion === "startup_opportunity.research_execution_plan.v1"
+    execution?.schemaVersion === "startup_opportunity.research_execution_plan.discovery.current"
       ? laneByUnit(execution.document, result.unit_id)
       : null;
   if (
@@ -666,7 +666,7 @@ function validateGenerationResult(
   }
   const manifest = target(byPath, result.source_manifest_ref);
   if (
-    manifest?.schemaVersion !== "startup_opportunity.source_manifest.v4" ||
+    manifest?.schemaVersion !== "startup_opportunity.source_manifest.discovery_runtime.current" ||
     manifest.document.unit_id !== result.unit_id ||
     manifest.document.research_phase_role !== "candidate_generation"
   ) {
@@ -688,14 +688,14 @@ function validateCandidateNeutralEvidence(
 ): void {
   const evidence = entry.document;
   const batch = target(byPath, evidence.dispatch_batch_ref);
-  if (batch?.schemaVersion !== "startup_opportunity.dispatch_batch.v1") {
+  if (batch?.schemaVersion !== "startup_opportunity.dispatch_batch.discovery.current") {
     return;
   }
   const taskId = String(evidence.dispatch_batch_ref).split("#", 2)[1];
   const task = records(batch.document.tasks).find((candidate) => candidate.task_id === taskId);
   const execution = target(byPath, batch.document.execution_plan_ref);
   const lane =
-    execution?.schemaVersion === "startup_opportunity.research_execution_plan.v1"
+    execution?.schemaVersion === "startup_opportunity.research_execution_plan.discovery.current"
       ? laneByUnit(execution.document, evidence.unit_id)
       : null;
   if (
@@ -762,7 +762,7 @@ function validateSourceManifest(
   const taskId = String(manifest.dispatch_batch_ref).split("#", 2)[1];
   const task = records(batch?.document.tasks).find((candidate) => candidate.task_id === taskId);
   if (
-    batch?.schemaVersion !== "startup_opportunity.dispatch_batch.v1" ||
+    batch?.schemaVersion !== "startup_opportunity.dispatch_batch.discovery.current" ||
     task === undefined ||
     task.unit_id !== manifest.unit_id ||
     batch.document.research_plan_ref !== manifest.research_plan_ref ||
@@ -782,7 +782,7 @@ function validateSourceManifest(
     .map((ref) => byPath.get(ref))
     .filter(
       (candidate): candidate is DeclarativeRuntimeDocument =>
-        candidate?.schemaVersion === "startup_opportunity.evidence.v2" ||
+        candidate?.schemaVersion === "startup_opportunity.evidence.discovery_candidate.current" ||
         candidate?.schemaVersion === "startup_opportunity.candidate_neutral_evidence.v1",
     );
   if (evidence.length !== acceptedRefs.length) {
@@ -839,7 +839,7 @@ function validateReadiness(
   const execution = target(byPath, readiness.execution_plan_ref);
   const plan = target(byPath, readiness.research_plan_ref);
   if (
-    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.v1" ||
+    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.discovery.current" ||
     plan?.schemaVersion !== "startup_opportunity.research_plan.v1"
   ) {
     return;
@@ -1120,10 +1120,10 @@ export function validateDeclarativeRuntimeContract(
   const byPath = new Map(documents.map((entry) => [entry.path, entry]));
   for (const entry of documents) {
     switch (entry.schemaVersion) {
-      case "startup_opportunity.research_execution_plan.v1":
+      case "startup_opportunity.research_execution_plan.discovery.current":
         validateExecutionPlan(entry, byPath, errors);
         break;
-      case "startup_opportunity.dispatch_batch.v1":
+      case "startup_opportunity.dispatch_batch.discovery.current":
         validateDispatchBatch(entry, byPath, errors);
         break;
       case "startup_opportunity.lane_lifecycle.v1":
@@ -1135,7 +1135,7 @@ export function validateDeclarativeRuntimeContract(
       case "startup_opportunity.candidate_neutral_evidence.v1":
         validateCandidateNeutralEvidence(entry, byPath, exactJsonlRecords, errors);
         break;
-      case "startup_opportunity.source_manifest.v4":
+      case "startup_opportunity.source_manifest.discovery_runtime.current":
         validateSourceManifest(entry, byPath, errors);
         break;
       case "startup_opportunity.discovery_stage_readiness.v1":

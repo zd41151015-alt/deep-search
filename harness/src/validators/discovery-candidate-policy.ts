@@ -2,10 +2,10 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import { DISCOVERY_CANDIDATE_POLICY_PATH } from "../current-policy-paths.js";
 import type { LoadedSchemaBundle } from "./schema-bundle.js";
 
-export const DISCOVERY_CANDIDATE_POLICY_PATH =
-  "harness/policies/discovery-candidates.v1.json" as const;
+export { DISCOVERY_CANDIDATE_POLICY_PATH };
 
 export type CandidateKind = "demand_seed" | "baseline_seed" | "solution_seed";
 
@@ -22,7 +22,7 @@ export interface CandidateKindRule {
 }
 
 export interface DiscoveryCandidatePolicy extends Record<string, unknown> {
-  readonly schema_version: "startup_opportunity.discovery_candidate_policy.v1";
+  readonly schema_version: "startup_opportunity.discovery_candidate_policy.current";
   readonly policy_id: "startup_opportunity.g2_2_pre_thesis_candidate_contract";
   readonly policy_version: "1.0.0";
   readonly artifact_contracts: Readonly<Record<string, string>>;
@@ -85,7 +85,7 @@ export async function loadDiscoveryCandidatePolicy(
   const value = JSON.parse(
     await readFile(path.join(root, DISCOVERY_CANDIDATE_POLICY_PATH), "utf8"),
   ) as unknown;
-  const validator = bundle.validators.get("startup_opportunity.discovery_candidate_policy.v1");
+  const validator = bundle.validators.get("startup_opportunity.discovery_candidate_policy.current");
   if ((validator !== undefined && !validator(value)) || !isRecord(value)) {
     throw new StoreError(
       "discovery_candidate_policy.invalid",

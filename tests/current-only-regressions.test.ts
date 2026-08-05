@@ -148,9 +148,9 @@ test("current ref classifier separates all canonical reference classes", () => {
     ],
     ["events.jsonl#event_one", "run_exact_record", "events.jsonl", "event_one"],
     [
-      "harness/policies/adaptation.v1.json#/actions/0",
+      "harness/policies/adaptation.current.json#/actions/0",
       "repository_policy",
-      "harness/policies/adaptation.v1.json",
+      "harness/policies/adaptation.current.json",
       "/actions/0",
     ],
     [
@@ -267,7 +267,7 @@ test("commercial coverage keeps incomplete candidates unranked and rejects acade
   const retentionDocuments = [
     {
       path: "tasks/discovery/unit_retention_synthetic.attempt-1.json",
-      schemaVersion: "startup_opportunity.research_task.v2",
+      schemaVersion: "startup_opportunity.research_task.discovery_candidate.current",
       document: {
         commercial_research_requirements: {
           commercial_audit_output_path: "artifacts/research-audits/unit_retention_synthetic.json",

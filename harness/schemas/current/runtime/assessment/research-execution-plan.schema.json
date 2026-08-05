@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/assessment/research-execution-plan.schema.json",
+  "title": "Startup Opportunity Assessment Research Execution Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "execution_plan_id",
+    "run_id",
+    "mode",
+    "revision",
+    "parent_execution_plan_ref",
+    "research_plan_ref",
+    "research_plan_hash",
+    "concept_hypothesis_ref",
+    "created_at",
+    "research_depth",
+    "total_time_budget_minutes",
+    "resource_allocation",
+    "followup_round",
+    "stages",
+    "limitations"
+  ],
+  "$defs": {
+    "gateRef": {
+      "type": "string",
+      "pattern": "^artifacts/assessment/gates/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit_id",
+        "lane_role",
+        "reporting_dimensions",
+        "submission_path",
+        "submission_schema",
+        "time_budget_minutes",
+        "max_sources",
+        "straggler_policy",
+        "dispatch_group"
+      ],
+      "properties": {
+        "unit_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "lane_role": {
+          "enum": ["evidence", "counter_evidence", "risk", "commercial", "feasibility"]
+        },
+        "reporting_dimensions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../../assessment/core/definitions.schema.json#/$defs/assessmentDimension"
+          }
+        },
+        "submission_path": {
+          "type": "string",
+          "pattern": "^artifacts/assessment/lanes/[A-Za-z0-9][A-Za-z0-9._-]*\\.attempt-[1-9][0-9]*\\.json$"
+        },
+        "submission_schema": {
+          "const": "startup_opportunity.assessment_lane_result.v1"
+        },
+        "time_budget_minutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 60
+        },
+        "max_sources": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "straggler_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["on_timeout", "grace_minutes", "blocks_stage"],
+          "properties": {
+            "on_timeout": {
+              "enum": ["publish_partial", "mark_failed"]
+            },
+            "grace_minutes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 15
+            },
+            "blocks_stage": {
+              "type": "boolean"
+            }
+          }
+        },
+        "dispatch_group": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        }
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.research_execution_plan.assessment.current"
+    },
+    "execution_plan_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "const": "concept_evidence_assessment"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "parent_execution_plan_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "research_plan_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/planRef"
+    },
+    "research_plan_hash": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "concept_hypothesis_ref": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+    },
+    "created_at": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+    },
+    "research_depth": {
+      "enum": ["quick", "standard", "deep"]
+    },
+    "total_time_budget_minutes": {
+      "type": "integer",
+      "minimum": 10,
+      "maximum": 240
+    },
+    "resource_allocation": {
+      "$ref": "../../assessment/commercial/commercial-research-requirements.schema.json#/$defs/allocation"
+    },
+    "followup_round": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["stage_id", "stage_kind", "depends_on", "gate_before", "gate_after", "lanes"],
+        "properties": {
+          "stage_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "stage_kind": {
+            "enum": [
+              "assessment_early_kill",
+              "assessment_commercial",
+              "assessment_delivery",
+              "assessment_followup"
+            ]
+          },
+          "depends_on": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+            }
+          },
+          "gate_before": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/gateRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gate_after": {
+            "$ref": "#/$defs/gateRef"
+          },
+          "lanes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/lane"
+            }
+          }
+        }
+      }
+    },
+    "limitations": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "revision": {
+            "const": 1
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parent_execution_plan_ref": {
+            "type": "null"
+          },
+          "followup_round": {
+            "const": 0
+          },
+          "stages": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "parent_execution_plan_ref": {
+            "type": "string",
+            "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+          }
+        }
+      }
+    }
+  ]
+}

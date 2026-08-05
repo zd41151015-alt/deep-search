@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { ASSESSMENT_REPORTING_POLICY_PATH } from "../current-policy-paths.js";
 import type { LoadedSchemaBundle } from "./schema-bundle.js";
 
-export const ASSESSMENT_REPORTING_POLICY_PATH =
-  "harness/policies/assessment-reporting.v1.json" as const;
+export { ASSESSMENT_REPORTING_POLICY_PATH };
 
 export const REQUIRED_HARD_GATES = [
   "target_user_and_jtbd",
@@ -49,7 +49,7 @@ export const REQUIRED_REPORT_CHECKS = [
 ] as const;
 
 export interface AssessmentReportingPolicy extends Record<string, unknown> {
-  readonly schema_version: "startup_opportunity.assessment_reporting_policy.v1";
+  readonly schema_version: "startup_opportunity.assessment_reporting_policy.current";
   readonly policy_id: "startup_opportunity.g1_4_assessment_reporting";
   readonly policy_version: "1.0.0";
   readonly decisive_hard_gates: readonly string[];
@@ -68,7 +68,9 @@ export async function loadAssessmentReportingPolicy(
   const value = JSON.parse(
     await readFile(path.join(root, ASSESSMENT_REPORTING_POLICY_PATH), "utf8"),
   ) as unknown;
-  const validator = bundle.validators.get("startup_opportunity.assessment_reporting_policy.v1");
+  const validator = bundle.validators.get(
+    "startup_opportunity.assessment_reporting_policy.current",
+  );
   if ((validator !== undefined && !validator(value)) || !isRecord(value)) {
     throw new Error(
       `assessment reporting policy is invalid: ${JSON.stringify(validator?.errors ?? [])}`,

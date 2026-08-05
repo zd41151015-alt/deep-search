@@ -57,7 +57,8 @@ export function documentMap(value: unknown): ReadonlyMap<string, EffectiveDocume
 
 export function leafPlanningContexts(value: unknown): readonly EffectiveDocument[] {
   const contexts = effectiveDocuments(value).filter(
-    (document) => document.schemaVersion === "startup_opportunity.planning_context.v2",
+    (document) =>
+      document.schemaVersion === "startup_opportunity.planning_context.ai_source_bound.current",
   );
   const referencedParents = new Set(
     contexts.flatMap((context) =>

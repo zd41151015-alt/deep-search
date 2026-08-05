@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/research/evidence-substrate-record.schema.json",
+  "title": "Startup Opportunity Evidence Substrate Record v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_id",
+    "run_id",
+    "unit_id",
+    "source",
+    "source_hash",
+    "content_hash",
+    "research_goal",
+    "raw_content_ref",
+    "operation_key",
+    "recorded_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.evidence_store_record.v2"
+    },
+    "evidence_id": {
+      "type": "string",
+      "pattern": "^ev_[a-f0-9]{64}$"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "source": {
+      "$ref": "./definitions.schema.json#/$defs/canonicalSource"
+    },
+    "source_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "content_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "research_goal": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "raw_content_ref": {
+      "type": "string",
+      "pattern": "^evidence/raw/sha256-[a-f0-9]{64}\\.bin$"
+    },
+    "operation_key": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "recorded_at": {
+      "$ref": "./definitions.schema.json#/$defs/timestamp"
+    }
+  }
+}

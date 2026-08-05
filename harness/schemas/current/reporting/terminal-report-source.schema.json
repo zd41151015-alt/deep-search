@@ -1,0 +1,754 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/reporting/terminal-report-source.schema.json",
+  "title": "Startup Opportunity Terminal Report Source v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "report_id",
+    "run_id",
+    "mode",
+    "research_language",
+    "producer_role",
+    "owned_output_path",
+    "materialized_path",
+    "generated_at",
+    "terminal_outcome",
+    "decision_question",
+    "execution",
+    "research_conclusion",
+    "runtime_health",
+    "directions",
+    "sources",
+    "excluded_evidence",
+    "commercial_research_audit_refs",
+    "commercial_uncertainties",
+    "ordered_validation_plan",
+    "freshness",
+    "limitations",
+    "external_action_boundary",
+    "audit_refs"
+  ],
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "uniqueStrings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
+    "sourceIdArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.terminal_report_source.v1"
+    },
+    "report_id": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "enum": ["opportunity_discovery", "concept_evidence_assessment"]
+    },
+    "research_language": {
+      "type": "string",
+      "pattern": "^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"
+    },
+    "producer_role": {
+      "const": "main_agent"
+    },
+    "owned_output_path": {
+      "type": "string",
+      "pattern": "^artifacts/reporting/terminal-report-source\\.r[1-9][0-9]*\\.json$"
+    },
+    "materialized_path": {
+      "const": "report.json"
+    },
+    "generated_at": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+    },
+    "terminal_outcome": {
+      "enum": [
+        "completed",
+        "insufficient_evidence",
+        "deprioritized",
+        "blocked",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "decision_question": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "completeness",
+        "completed_stages",
+        "incomplete_stages",
+        "required_followups",
+        "pending_operation_refs"
+      ],
+      "properties": {
+        "completeness": {
+          "enum": ["complete", "partial", "not_started"]
+        },
+        "completed_stages": {
+          "$ref": "#/$defs/uniqueStrings"
+        },
+        "incomplete_stages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["stage", "cause", "detail", "conclusion_impact", "related_refs"],
+            "properties": {
+              "stage": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "cause": {
+                "enum": [
+                  "runtime_blocked",
+                  "method_boundary",
+                  "budget_exhausted",
+                  "not_required",
+                  "user_stopped",
+                  "evidence_ceiling",
+                  "early_kill"
+                ]
+              },
+              "detail": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "conclusion_impact": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "related_refs": {
+                "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+              }
+            }
+          }
+        },
+        "required_followups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["followup_id", "status", "detail", "related_refs"],
+            "properties": {
+              "followup_id": {
+                "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+              },
+              "status": {
+                "enum": ["executed", "legally_closed", "not_executed"]
+              },
+              "detail": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "related_refs": {
+                "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+              }
+            }
+          }
+        },
+        "pending_operation_refs": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        }
+      }
+    },
+    "research_conclusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome",
+        "current_recommendation",
+        "meaning",
+        "evidence_strength",
+        "allowed_claim"
+      ],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "prioritize",
+            "investigate_further",
+            "deprioritize",
+            "insufficient_evidence",
+            "no_recommendation"
+          ]
+        },
+        "current_recommendation": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "meaning": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "evidence_strength": {
+          "enum": ["strong", "moderate", "weak", "insufficient"]
+        },
+        "allowed_claim": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "runtime_health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "issues"],
+      "properties": {
+        "status": {
+          "enum": ["healthy", "degraded", "blocked"]
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "stage", "detail", "conclusion_impact", "related_refs"],
+            "properties": {
+              "code": {
+                "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+              },
+              "stage": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "detail": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "conclusion_impact": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "related_refs": {
+                "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+              }
+            }
+          }
+        }
+      }
+    },
+    "directions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "direction_id",
+          "priority",
+          "ranking_status",
+          "label",
+          "maturity",
+          "action",
+          "target_user",
+          "narrow_scenario",
+          "problem",
+          "current_alternative",
+          "payer",
+          "product_form",
+          "core_value",
+          "why_now",
+          "key_risks",
+          "first_testable_assumption",
+          "comparison_reason",
+          "decisive_support_source_ids",
+          "decisive_opposition_source_ids",
+          "open_questions"
+        ],
+        "properties": {
+          "direction_id": {
+            "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ranking_status": {
+            "enum": ["ranked", "unranked_hypothesis"]
+          },
+          "label": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "maturity": {
+            "enum": [
+              "problem_space",
+              "demand_hypothesis",
+              "solution_seed",
+              "testable_product_hypothesis",
+              "supported_opportunity_thesis"
+            ]
+          },
+          "action": {
+            "enum": ["invest", "validate", "defer", "reject"]
+          },
+          "target_user": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "narrow_scenario": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "problem": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "current_alternative": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "payer": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "product_form": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "core_value": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "why_now": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "key_risks": {
+            "$ref": "#/$defs/uniqueStrings"
+          },
+          "first_testable_assumption": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "comparison_reason": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "decisive_support_source_ids": {
+            "$ref": "#/$defs/sourceIdArray"
+          },
+          "decisive_opposition_source_ids": {
+            "$ref": "#/$defs/sourceIdArray"
+          },
+          "open_questions": {
+            "$ref": "#/$defs/uniqueStrings"
+          }
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_id",
+          "title",
+          "url",
+          "retrieved_at",
+          "published_at",
+          "observed_at",
+          "data_period_end",
+          "valid_as_of",
+          "freshness_status",
+          "claim_type",
+          "claim_state",
+          "inference",
+          "source_kind",
+          "evidence_character",
+          "independence",
+          "commercial_coverage_keys",
+          "stance",
+          "strength",
+          "claim",
+          "evidence_ref"
+        ],
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"
+          },
+          "title": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "retrieved_at": {
+            "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "data_period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid_as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "freshness_status": {
+            "enum": ["current", "historical", "undated"]
+          },
+          "claim_type": {
+            "$ref": "../assessment/commercial/commercial-research-audit.schema.json#/$defs/claimType"
+          },
+          "regulatory_effective_status": {
+            "enum": ["effective", "partially_effective", "not_yet_effective", "repealed", "unknown"]
+          },
+          "regulatory_status_verified_at": {
+            "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+          },
+          "claim_state": {
+            "enum": ["observed", "inferred"]
+          },
+          "inference": {
+            "anyOf": [
+              {
+                "$ref": "../assessment/commercial/commercial-research-audit.schema.json#/$defs/inference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_kind": {
+            "enum": ["behavioral", "independent", "vendor", "academic", "regulatory"]
+          },
+          "evidence_character": {
+            "enum": [
+              "observed_behavior",
+              "independent_report",
+              "vendor_claim",
+              "inference",
+              "mechanism",
+              "effect_boundary",
+              "counterevidence"
+            ]
+          },
+          "independence": {
+            "enum": ["independent", "interested_party", "unknown"]
+          },
+          "commercial_coverage_keys": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "recent_user_language",
+                "buyer",
+                "purchase_signal",
+                "pricing",
+                "alternatives_pricing_usage",
+                "distribution_channel",
+                "retention",
+                "unit_economics",
+                "independent_counterevidence",
+                "mechanism",
+                "effect_boundary",
+                "counterevidence"
+              ]
+            }
+          },
+          "stance": {
+            "enum": ["supports", "opposes", "mixed", "context"]
+          },
+          "strength": {
+            "enum": ["primary", "strong_secondary", "secondary", "weak"]
+          },
+          "claim": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "evidence_ref": {
+            "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+          }
+        }
+      }
+    },
+    "excluded_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["evidence_ref", "reason"],
+        "properties": {
+          "evidence_ref": {
+            "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+          },
+          "reason": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        }
+      }
+    },
+    "commercial_research_audit_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+      }
+    },
+    "commercial_uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "direction_id",
+          "coverage_key",
+          "state",
+          "statement",
+          "basis_refs",
+          "starting_point",
+          "reasoning",
+          "uncertainty",
+          "validation_needed"
+        ],
+        "properties": {
+          "direction_id": {
+            "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "coverage_key": {
+            "enum": [
+              "recent_user_language",
+              "purchase_signal",
+              "alternatives_pricing_usage",
+              "distribution_channel",
+              "independent_counterevidence"
+            ]
+          },
+          "state": {
+            "enum": ["inferred", "unknown"]
+          },
+          "statement": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "basis_refs": {
+            "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "starting_point": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "uncertainty": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "validation_needed": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "inferred"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "basis_refs": {
+                  "type": "array",
+                  "minItems": 1
+                },
+                "starting_point": {
+                  "type": "string"
+                },
+                "reasoning": {
+                  "type": "string"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "basis_refs": {
+                  "type": "array",
+                  "maxItems": 0
+                },
+                "starting_point": {
+                  "type": "null"
+                },
+                "reasoning": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "ordered_validation_plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "order",
+          "hypothesis",
+          "why_now",
+          "method",
+          "pass_signal",
+          "fail_signal",
+          "decision_effect",
+          "execution_owner",
+          "execution_supported",
+          "result_tracking_supported"
+        ],
+        "properties": {
+          "order": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "hypothesis": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "why_now": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "method": {
+            "enum": ["desk_research", "user_owned_external_validation"]
+          },
+          "pass_signal": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "fail_signal": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "decision_effect": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "execution_owner": {
+            "enum": ["main_agent", "user"]
+          },
+          "execution_supported": {
+            "type": "boolean"
+          },
+          "result_tracking_supported": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["earliest_valid_as_of", "latest_valid_as_of", "summary"],
+      "properties": {
+        "earliest_valid_as_of": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "latest_valid_as_of": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "summary": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "limitations": {
+      "$ref": "#/$defs/uniqueStrings"
+    },
+    "external_action_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "execution_owner",
+        "execution_supported",
+        "result_tracking_supported",
+        "external_validation_claimed"
+      ],
+      "properties": {
+        "execution_owner": {
+          "const": "user"
+        },
+        "execution_supported": {
+          "const": false
+        },
+        "result_tracking_supported": {
+          "const": false
+        },
+        "external_validation_claimed": {
+          "const": false
+        }
+      }
+    },
+    "audit_refs": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+    }
+  }
+}

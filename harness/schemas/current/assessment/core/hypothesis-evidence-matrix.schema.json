@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/core/hypothesis-evidence-matrix.schema.json",
+  "title": "Startup Opportunity Hypothesis Evidence Matrix v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "matrix_id",
+    "run_id",
+    "concept_hypothesis_ref",
+    "assessment_plan_ref",
+    "fan_in_ref",
+    "dimensions",
+    "decisive_evidence_refs",
+    "decisive_opposing_refs",
+    "critical_gaps",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.hypothesis_evidence_matrix.v1"
+    },
+    "matrix_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "concept_hypothesis_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "assessment_plan_ref": {
+      "$ref": "./definitions.schema.json#/$defs/assessmentPlanRef"
+    },
+    "fan_in_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "dimensions": {
+      "type": "array",
+      "minItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dimension_id",
+          "hypothesis",
+          "supporting_claim_refs",
+          "opposing_claim_refs",
+          "judgment_assessment_refs",
+          "evidence_quality",
+          "freshness",
+          "decision",
+          "decision_sufficiency",
+          "insufficiency_reasons",
+          "uncertainty",
+          "what_would_change_decision",
+          "limitations"
+        ],
+        "properties": {
+          "dimension_id": {
+            "$ref": "./definitions.schema.json#/$defs/assessmentDimension"
+          },
+          "hypothesis": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "supporting_claim_refs": {
+            "$ref": "./definitions.schema.json#/$defs/evidenceOrClaimRefArray"
+          },
+          "opposing_claim_refs": {
+            "$ref": "./definitions.schema.json#/$defs/evidenceOrClaimRefArray"
+          },
+          "judgment_assessment_refs": {
+            "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "evidence_quality": {
+            "$ref": "./definitions.schema.json#/$defs/evidenceQuality"
+          },
+          "freshness": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "decision": {
+            "$ref": "./definitions.schema.json#/$defs/dimensionDecision"
+          },
+          "decision_sufficiency": {
+            "$ref": "./definitions.schema.json#/$defs/decisionSufficiency"
+          },
+          "insufficiency_reasons": {
+            "$ref": "./definitions.schema.json#/$defs/insufficiencyReasons"
+          },
+          "uncertainty": {
+            "$ref": "./definitions.schema.json#/$defs/uncertainty"
+          },
+          "what_would_change_decision": {
+            "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+          },
+          "limitations": {
+            "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "decisive_evidence_refs": {
+      "$ref": "./definitions.schema.json#/$defs/evidenceOrClaimRefArray"
+    },
+    "decisive_opposing_refs": {
+      "$ref": "./definitions.schema.json#/$defs/evidenceOrClaimRefArray"
+    },
+    "critical_gaps": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "limitations": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/discovery/discovery-generation-result.schema.json",
+  "title": "Startup Opportunity Candidate-neutral Discovery Generation Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generation_result_id",
+    "run_id",
+    "unit_id",
+    "attempt",
+    "dispatch_batch_ref",
+    "status",
+    "scope_frame_ref",
+    "research_plan_ref",
+    "source_manifest_ref",
+    "evidence_refs",
+    "judgment_assessment_refs",
+    "candidate_proposals",
+    "target_candidate_refs",
+    "solution_refs",
+    "open_questions",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.discovery_generation_result.v1"
+    },
+    "generation_result_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "dispatch_batch_ref": {
+      "type": "string",
+      "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "status": {
+      "enum": ["completed", "partial", "insufficient_evidence", "failed"]
+    },
+    "scope_frame_ref": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_plan_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/planRef"
+    },
+    "source_manifest_ref": {
+      "type": "string",
+      "pattern": "^evidence/source-manifests/discovery/.+\\.json$"
+    },
+    "evidence_refs": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "judgment_assessment_refs": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "candidate_proposals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "proposal_id",
+          "candidate_kind",
+          "subject",
+          "basis_refs",
+          "evidence_refs",
+          "limitations"
+        ],
+        "properties": {
+          "proposal_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "candidate_kind": {
+            "enum": ["demand_seed", "baseline_seed"]
+          },
+          "subject": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "basis_refs": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "evidence_refs": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "limitations": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "target_candidate_refs": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "solution_refs": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "open_questions": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "limitations": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

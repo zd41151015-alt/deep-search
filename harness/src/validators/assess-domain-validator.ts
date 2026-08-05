@@ -22,15 +22,15 @@ export const ASSESSMENT_DIMENSIONS = [
 const ASSESS_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.intake.v1",
   "startup_opportunity.decision_context.v1",
-  "startup_opportunity.scope_frame.v1",
-  "startup_opportunity.concept_hypothesis.v1",
-  "startup_opportunity.judgment_assessment.v1",
+  "startup_opportunity.scope_frame.assessment.current",
+  "startup_opportunity.concept_hypothesis.assessment.current",
+  "startup_opportunity.judgment_assessment.assessment.current",
   "startup_opportunity.concept_evidence_assessment_plan.v1",
   "startup_opportunity.concept_evidence_assessment_branch_result.v1",
   "startup_opportunity.concept_evidence_assessment_fan_in.v1",
   "startup_opportunity.hypothesis_evidence_matrix.v1",
-  "startup_opportunity.business_engine_thesis.v1",
-  "startup_opportunity.concept_evidence_assessment.v1",
+  "startup_opportunity.business_engine_thesis.assessment.current",
+  "startup_opportunity.concept_evidence_assessment.analysis.current",
 ]);
 
 export function isAssessDomainSchemaVersion(schemaVersion: string): boolean {
@@ -194,7 +194,7 @@ function validateRootIdentity(
   for (const [schemaVersion, entries] of new Map(
     [...ASSESS_SCHEMA_VERSIONS].map((version) => [version, bySchema(documents, version)]),
   )) {
-    if (schemaVersion === "startup_opportunity.judgment_assessment.v1") {
+    if (schemaVersion === "startup_opportunity.judgment_assessment.assessment.current") {
       continue;
     }
     if (schemaVersion === "startup_opportunity.concept_evidence_assessment_branch_result.v1") {
@@ -222,8 +222,11 @@ function validateFraming(
   errors: ValidationIssue[],
 ): void {
   const intake = bySchema(documents, "startup_opportunity.intake.v1")[0];
-  const scope = bySchema(documents, "startup_opportunity.scope_frame.v1")[0];
-  const concept = bySchema(documents, "startup_opportunity.concept_hypothesis.v1")[0];
+  const scope = bySchema(documents, "startup_opportunity.scope_frame.assessment.current")[0];
+  const concept = bySchema(
+    documents,
+    "startup_opportunity.concept_hypothesis.assessment.current",
+  )[0];
   if (intake && scope) {
     if (
       intake.document.action !== "assess" ||
@@ -335,7 +338,7 @@ function validateAssessmentPlan(
   }
 
   if (
-    scope?.schemaVersion === "startup_opportunity.scope_frame.v1" &&
+    scope?.schemaVersion === "startup_opportunity.scope_frame.assessment.current" &&
     scope.document.assessment_profile !== plan.document.assessment_profile
   ) {
     errors.push(
@@ -525,7 +528,7 @@ function validateBranch(
   }
   for (const judgment of judgments) {
     if (
-      judgment.schemaVersion !== "startup_opportunity.judgment_assessment.v1" ||
+      judgment.schemaVersion !== "startup_opportunity.judgment_assessment.assessment.current" ||
       judgment.document.subject_ref !== branch.document.concept_hypothesis_ref ||
       judgment.document.dimension !== branch.document.dimension_id
     ) {
@@ -897,7 +900,7 @@ function validateMatrix(
     if (
       judgments.some(
         (judgment) =>
-          judgment.schemaVersion !== "startup_opportunity.judgment_assessment.v1" ||
+          judgment.schemaVersion !== "startup_opportunity.judgment_assessment.assessment.current" ||
           judgment.document.subject_ref !== matrix.document.concept_hypothesis_ref ||
           judgment.document.dimension !== dimension.dimension_id,
       )
@@ -1006,7 +1009,8 @@ function validateAssessment(
     );
   }
   if (
-    businessEngine?.schemaVersion === "startup_opportunity.business_engine_thesis.v1" &&
+    businessEngine?.schemaVersion ===
+      "startup_opportunity.business_engine_thesis.assessment.current" &&
     businessEngine.document.subject_ref !== assessment.document.concept_hypothesis_ref
   ) {
     errors.push(
@@ -1050,10 +1054,10 @@ export function validateAssessDomainContract(
   }
   for (const businessEngine of bySchema(
     documents,
-    "startup_opportunity.business_engine_thesis.v1",
+    "startup_opportunity.business_engine_thesis.assessment.current",
   )) {
     const subject = targetByRef(documentsByPath, businessEngine.document.subject_ref);
-    if (subject?.schemaVersion !== "startup_opportunity.concept_hypothesis.v1") {
+    if (subject?.schemaVersion !== "startup_opportunity.concept_hypothesis.assessment.current") {
       continue;
     }
     const judgmentRefs = strings(businessEngine.document.judgment_assessment_refs);
@@ -1069,7 +1073,7 @@ export function validateAssessDomainContract(
     for (const ref of judgmentRefs) {
       const judgment = targetByRef(documentsByPath, ref);
       if (
-        judgment?.schemaVersion === "startup_opportunity.judgment_assessment.v1" &&
+        judgment?.schemaVersion === "startup_opportunity.judgment_assessment.assessment.current" &&
         (judgment.document.subject_ref !== businessEngine.document.subject_ref ||
           judgment.document.dimension !== "business_engine_viability")
       ) {
@@ -1086,7 +1090,7 @@ export function validateAssessDomainContract(
   }
   for (const assessment of bySchema(
     documents,
-    "startup_opportunity.concept_evidence_assessment.v1",
+    "startup_opportunity.concept_evidence_assessment.analysis.current",
   )) {
     validateAssessment(assessment, documentsByPath, errors);
   }

@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/discovery/candidate-neutral-evidence.schema.json",
+  "title": "Startup Opportunity Candidate-neutral Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_id",
+    "run_id",
+    "unit_id",
+    "dispatch_batch_ref",
+    "scope_frame_ref",
+    "research_plan_ref",
+    "source_type",
+    "source_name",
+    "research_goal",
+    "source_group_id",
+    "mechanical_binding",
+    "evidence_tier",
+    "evidence_lifecycle_status",
+    "evidence_role",
+    "representativeness",
+    "valid_as_of",
+    "target_candidate_refs",
+    "solution_refs",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.candidate_neutral_evidence.v1"
+    },
+    "evidence_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "dispatch_batch_ref": {
+      "type": "string",
+      "pattern": "^tasks/dispatch/.+\\.json#[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "scope_frame_ref": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_plan_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/planRef"
+    },
+    "source_type": {
+      "enum": [
+        "web_page",
+        "app_store_review",
+        "forum_post",
+        "public_dataset",
+        "public_report",
+        "user_document",
+        "user_existing_record",
+        "synthetic_contract_fixture"
+      ]
+    },
+    "source_name": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "research_goal": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "source_group_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "mechanical_binding": {
+      "$ref": "../../discovery/candidates/evidence.schema.json#/properties/mechanical_binding"
+    },
+    "evidence_tier": {
+      "$ref": "../../assessment/core/definitions.schema.json#/$defs/evidenceTier"
+    },
+    "evidence_lifecycle_status": {
+      "enum": ["active", "superseded", "stale", "unverified"]
+    },
+    "evidence_role": {
+      "enum": ["support", "oppose", "context"]
+    },
+    "representativeness": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "valid_as_of": {
+      "type": "string",
+      "format": "date"
+    },
+    "target_candidate_refs": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "solution_refs": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "limitations": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

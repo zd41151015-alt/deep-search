@@ -174,7 +174,7 @@ function materialBindsCandidate(
         ? material.document.task_ref
         : null;
   const task = taskRef === null ? undefined : byPath.get(taskRef);
-  if (task?.schemaVersion !== "startup_opportunity.research_task.v2") {
+  if (task?.schemaVersion !== "startup_opportunity.research_task.discovery_candidate.current") {
     return false;
   }
   const targets = strings(task.document.target_candidate_refs)
@@ -187,7 +187,9 @@ function materialBindsCandidate(
   ) {
     return false;
   }
-  if (material.schemaVersion !== "startup_opportunity.judgment_assessment.v2") {
+  if (
+    material.schemaVersion !== "startup_opportunity.judgment_assessment.discovery_candidate.current"
+  ) {
     return true;
   }
   const subject =
@@ -467,7 +469,8 @@ function validateSourceGroups(
     for (const ref of refs) {
       const manifest = byPath.get(ref);
       if (
-        manifest?.schemaVersion !== "startup_opportunity.source_manifest.v2" ||
+        manifest?.schemaVersion !==
+          "startup_opportunity.source_manifest.discovery_candidate.current" ||
         manifest.document.research_phase_role !== expectedRole
       ) {
         typedRolesValid = false;
@@ -1000,7 +1003,7 @@ export function validateDiscoverySynthesisContract(
   const errors: ValidationIssue[] = [];
   const byPath = new Map(documents.map((entry) => [entry.path, entry]));
   const scope = documents.find(
-    (entry) => entry.schemaVersion === "startup_opportunity.scope_frame.v2",
+    (entry) => entry.schemaVersion === "startup_opportunity.scope_frame.discovery.current",
   );
   const plan = documents.find(
     (entry) => entry.schemaVersion === "startup_opportunity.research_plan.v1",

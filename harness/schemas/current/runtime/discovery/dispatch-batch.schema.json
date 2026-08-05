@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/discovery/dispatch-batch.schema.json",
+  "title": "Startup Opportunity Discovery Dispatch Batch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "batch_id",
+    "revision",
+    "run_id",
+    "mode",
+    "execution_plan_ref",
+    "research_plan_ref",
+    "stage_id",
+    "dispatch_group",
+    "task_ready_at",
+    "dispatch_requested_at",
+    "dispatch_mode",
+    "tasks",
+    "agent_dispatch_performed",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.dispatch_batch.discovery.current"
+    },
+    "batch_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "revision": {
+      "const": 1
+    },
+    "run_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "enum": ["opportunity_discovery", "concept_evidence_assessment"]
+    },
+    "execution_plan_ref": {
+      "type": "string",
+      "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+    },
+    "research_plan_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/planRef"
+    },
+    "stage_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "dispatch_group": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "task_ready_at": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+    },
+    "dispatch_requested_at": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+    },
+    "dispatch_mode": {
+      "const": "parallel_immediate"
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "task_id",
+          "unit_id",
+          "lane_role",
+          "research_goal",
+          "input_refs",
+          "allowed_output_path",
+          "required_artifact_schema",
+          "time_budget_minutes",
+          "max_sources",
+          "straggler_policy"
+        ],
+        "properties": {
+          "task_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "unit_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "lane_role": {
+            "enum": ["opportunity", "evaluation", "risk"]
+          },
+          "research_goal": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "input_refs": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "allowed_output_path": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"
+          },
+          "required_artifact_schema": {
+            "type": "string",
+            "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
+          },
+          "time_budget_minutes": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 120
+          },
+          "max_sources": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 40
+          },
+          "straggler_policy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["on_timeout", "grace_minutes", "blocks_stage"],
+            "properties": {
+              "on_timeout": {
+                "enum": ["publish_partial", "mark_failed"]
+              },
+              "grace_minutes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 30
+              },
+              "blocks_stage": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "agent_dispatch_performed": {
+      "const": false
+    },
+    "limitations": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

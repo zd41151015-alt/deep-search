@@ -230,9 +230,9 @@ export function validateAssessmentAdaptationContract(
       );
     }
     if (
-      subject?.schemaVersion !== "startup_opportunity.concept_hypothesis.v1" ||
+      subject?.schemaVersion !== "startup_opportunity.concept_hypothesis.assessment.current" ||
       subject.document.scope_frame_ref !== snapshot.document.scope_frame_ref ||
-      scope?.schemaVersion !== "startup_opportunity.scope_frame.v1" ||
+      scope?.schemaVersion !== "startup_opportunity.scope_frame.assessment.current" ||
       canonicalContentHash(scope.document) !== snapshot.document.scope_frame_hash ||
       subject.document.run_id !== manifest.document.run_id ||
       scope.document.run_id !== manifest.document.run_id
@@ -252,7 +252,7 @@ export function validateAssessmentAdaptationContract(
       if (
         branch?.schemaVersion !==
           "startup_opportunity.concept_evidence_assessment_branch_result.v1" ||
-        task?.schemaVersion !== "startup_opportunity.research_task.v1" ||
+        task?.schemaVersion !== "startup_opportunity.research_task.assessment.current" ||
         canonicalContentHash(branch.document) !== observation.content_hash ||
         canonicalContentHash(task.document) !== observation.task_hash ||
         branch.document.run_id !== manifest.document.run_id ||

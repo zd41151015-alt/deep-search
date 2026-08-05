@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/core/decision-context.schema.json",
+  "title": "Startup Opportunity Decision Context v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "decision_to_make",
+    "decision_question",
+    "decision_options",
+    "venture_goal",
+    "decision_horizon",
+    "founder_advantages",
+    "non_negotiable_constraints",
+    "team_capability_refs",
+    "risk_preferences",
+    "initial_belief",
+    "favored_hypothesis",
+    "assumed_truths",
+    "final_decision_owner",
+    "assumptions",
+    "open_questions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.decision_context.v1"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "decision_to_make": {
+      "enum": [
+        "choose_opportunity",
+        "assess_concept_viability",
+        "prioritize_research_gap",
+        "reassess_with_new_material"
+      ]
+    },
+    "decision_question": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "decision_options": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "venture_goal": {
+      "enum": [
+        "bootstrapped_cashflow",
+        "durable_small_business",
+        "venture_scale",
+        "strategic_exploration",
+        "unspecified"
+      ]
+    },
+    "decision_horizon": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "founder_advantages": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "non_negotiable_constraints": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "team_capability_refs": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "risk_preferences": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "initial_belief": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "favored_hypothesis": {
+      "anyOf": [
+        {
+          "$ref": "./definitions.schema.json#/$defs/artifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "assumed_truths": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "final_decision_owner": {
+      "const": "user"
+    },
+    "assumptions": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "open_questions": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

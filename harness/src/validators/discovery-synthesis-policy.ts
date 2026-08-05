@@ -2,13 +2,13 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import { DISCOVERY_SYNTHESIS_POLICY_PATH } from "../current-policy-paths.js";
 import type { LoadedSchemaBundle } from "./schema-bundle.js";
 
-export const DISCOVERY_SYNTHESIS_POLICY_PATH =
-  "harness/policies/discovery-synthesis.v1.json" as const;
+export { DISCOVERY_SYNTHESIS_POLICY_PATH };
 
 export interface DiscoverySynthesisPolicy extends Record<string, unknown> {
-  readonly schema_version: "startup_opportunity.discovery_synthesis_policy.v1";
+  readonly schema_version: "startup_opportunity.discovery_synthesis_policy.current";
   readonly policy_id: "startup_opportunity.g2_3_synthesis";
   readonly policy_version: "1.0.0";
   readonly artifact_paths: Readonly<Record<string, string>>;
@@ -48,7 +48,7 @@ export async function loadDiscoverySynthesisPolicy(
   const value = JSON.parse(
     await readFile(path.join(root, DISCOVERY_SYNTHESIS_POLICY_PATH), "utf8"),
   ) as unknown;
-  const validator = bundle.validators.get("startup_opportunity.discovery_synthesis_policy.v1");
+  const validator = bundle.validators.get("startup_opportunity.discovery_synthesis_policy.current");
   if ((validator !== undefined && !validator(value)) || !isRecord(value)) {
     throw new StoreError(
       "discovery_synthesis_policy.invalid",

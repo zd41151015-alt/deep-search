@@ -1,0 +1,110 @@
+{
+  "schema_version": "startup_opportunity.assessment_execution_policy.current",
+  "policy_id": "startup_opportunity.assessment_staged_execution",
+  "policy_version": "1.0.0",
+  "mandatory_reporting_dimensions": [
+    "target_user_and_jtbd",
+    "demand_and_behavior",
+    "current_alternatives_and_solution_failure",
+    "competitor_saturation_and_differentiation",
+    "buyer_language_and_willingness_to_pay",
+    "acquisition_and_distribution",
+    "business_engine_viability",
+    "delivery_feasibility",
+    "compliance_and_platform_risk",
+    "counter_evidence"
+  ],
+  "default_lanes": [
+    {
+      "lane_key": "problem_evidence",
+      "stage_kind": "assessment_early_kill",
+      "unit_type": "bounded_domain_research",
+      "reporting_dimensions": [
+        "target_user_and_jtbd",
+        "demand_and_behavior",
+        "current_alternatives_and_solution_failure"
+      ]
+    },
+    {
+      "lane_key": "counter_risk",
+      "stage_kind": "assessment_early_kill",
+      "unit_type": "counter_evidence",
+      "reporting_dimensions": ["compliance_and_platform_risk", "counter_evidence"]
+    },
+    {
+      "lane_key": "commercial",
+      "stage_kind": "assessment_commercial",
+      "unit_type": "bounded_domain_research",
+      "reporting_dimensions": [
+        "competitor_saturation_and_differentiation",
+        "buyer_language_and_willingness_to_pay",
+        "acquisition_and_distribution"
+      ]
+    },
+    {
+      "lane_key": "business_delivery",
+      "stage_kind": "assessment_delivery",
+      "unit_type": "bounded_domain_research",
+      "reporting_dimensions": ["business_engine_viability", "delivery_feasibility"]
+    }
+  ],
+  "stage_order": ["assessment_early_kill", "assessment_commercial", "assessment_delivery"],
+  "initial_lane_count": {
+    "minimum": 4,
+    "maximum": 5
+  },
+  "followup": {
+    "max_rounds": 2,
+    "max_additions_per_dimension": 1,
+    "gap_type": "decision_relevant_evidence_gap",
+    "requires_plan_revision": true,
+    "dimension_unit_types": [
+      {
+        "dimension_id": "target_user_and_jtbd",
+        "unit_type": "bounded_domain_research"
+      },
+      {
+        "dimension_id": "demand_and_behavior",
+        "unit_type": "bounded_domain_research"
+      },
+      {
+        "dimension_id": "current_alternatives_and_solution_failure",
+        "unit_type": "solution_failure"
+      },
+      {
+        "dimension_id": "competitor_saturation_and_differentiation",
+        "unit_type": "competitor_gap"
+      },
+      {
+        "dimension_id": "buyer_language_and_willingness_to_pay",
+        "unit_type": "buyer_language"
+      },
+      {
+        "dimension_id": "acquisition_and_distribution",
+        "unit_type": "acquisition"
+      },
+      {
+        "dimension_id": "business_engine_viability",
+        "unit_type": "business_engine"
+      },
+      {
+        "dimension_id": "delivery_feasibility",
+        "unit_type": "delivery_feasibility"
+      },
+      {
+        "dimension_id": "compliance_and_platform_risk",
+        "unit_type": "compliance_risk"
+      },
+      {
+        "dimension_id": "counter_evidence",
+        "unit_type": "counter_evidence"
+      }
+    ]
+  },
+  "runtime_boundary": {
+    "agent_dispatch_performed": false,
+    "research_judgment_generated": false,
+    "generic_workflow_runtime": false,
+    "external_validation": false
+  }
+}

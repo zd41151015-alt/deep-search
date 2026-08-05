@@ -109,7 +109,7 @@ function executionPlan(
     dispatch_group: `group_${kind}`,
   }));
   return {
-    schema_version: "startup_opportunity.research_execution_plan.v1",
+    schema_version: "startup_opportunity.research_execution_plan.discovery.current",
     execution_plan_id: `execution_${kind}_synthetic`,
     run_id: runId,
     mode: "opportunity_discovery",
@@ -256,7 +256,7 @@ function dispatchBatch(
   const lanes = stage.lanes as Record<string, unknown>[];
   const units = new Map(planUnits(plan).map((unit) => [String(unit.unit_id), unit]));
   return {
-    schema_version: "startup_opportunity.dispatch_batch.v1",
+    schema_version: "startup_opportunity.dispatch_batch.discovery.current",
     batch_id: "batch_runtime_synthetic",
     revision: 1,
     run_id: runId,
@@ -626,7 +626,7 @@ test("public compiler validates, publishes, replays, and recovers a temp-write f
   const execution = executionPlan(first.runId, first.plan);
   const planQuestion = (first.plan.research_questions as Record<string, unknown>[])[0];
   assert.ok(planQuestion);
-  const policyRef = "harness/policies/adaptation.v1.json";
+  const policyRef = "harness/policies/adaptation.current.json";
   const fragmentRef = `${G21_PLAN_REF}#${String(planQuestion.question_id)}`;
   const artifact = {
     ...runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
@@ -1170,7 +1170,7 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
   };
   const sourceManifestPath = `evidence/source-manifests/discovery/${unitId}.json`;
   const sourceManifest = {
-    schema_version: "startup_opportunity.source_manifest.v4",
+    schema_version: "startup_opportunity.source_manifest.discovery_runtime.current",
     manifest_id: "source_manifest_synthetic",
     run_id: state.runId,
     unit_id: unitId,

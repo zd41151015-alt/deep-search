@@ -83,7 +83,8 @@ test("Evidence audit fails closed for stale, single-source, unavailable, and uns
   const stale = await createG14ContractBundle("prioritize");
   const staleEvidencePath = stale.documents.find(
     (candidate) =>
-      effective(stale, candidate.path).schema_version === "startup_opportunity.evidence.v1",
+      effective(stale, candidate.path).schema_version ===
+      "startup_opportunity.evidence.assessment.current",
   )?.path;
   assert.ok(staleEvidencePath);
   effective(stale, staleEvidencePath).evidence_lifecycle_status = "stale";
@@ -149,12 +150,12 @@ test("Evidence audit fails closed for stale, single-source, unavailable, and uns
       const schemaVersion = effective(unsupported, candidate.path).schema_version;
       return (
         !String(schemaVersion).startsWith("startup_opportunity.adversarial_review") &&
-        schemaVersion !== "startup_opportunity.concept_evidence_assessment.v2" &&
-        schemaVersion !== "startup_opportunity.traceability.v1" &&
+        schemaVersion !== "startup_opportunity.concept_evidence_assessment.reporting.current" &&
+        schemaVersion !== "startup_opportunity.traceability.assessment.current" &&
         schemaVersion !== "startup_opportunity.concept_evidence_report.v1" &&
-        schemaVersion !== "startup_opportunity.decision_brief.v1" &&
+        schemaVersion !== "startup_opportunity.decision_brief.assessment.current" &&
         schemaVersion !== "startup_opportunity.concept_evidence_report_view.v1" &&
-        schemaVersion !== "startup_opportunity.report_consistency_evaluation.v1"
+        schemaVersion !== "startup_opportunity.report_consistency_evaluation.assessment.current"
       );
     }),
   };
@@ -309,7 +310,7 @@ test("three-output consistency rejects report drift and forbidden success langua
   const briefEntry = briefDrift.documents.find(
     (candidate) =>
       effective(briefDrift, candidate.path).schema_version ===
-      "startup_opportunity.decision_brief.v1",
+      "startup_opportunity.decision_brief.assessment.current",
   );
   assert.ok(briefEntry);
   effective(briefDrift, briefEntry.path).current_recommendation =
@@ -329,7 +330,7 @@ test("three-output consistency rejects report drift and forbidden success langua
   const driftBrief = limitationDrift.documents.find(
     (candidate) =>
       effective(limitationDrift, candidate.path).schema_version ===
-      "startup_opportunity.decision_brief.v1",
+      "startup_opportunity.decision_brief.assessment.current",
   );
   assert.ok(driftBrief);
   effective(limitationDrift, driftBrief.path).limitations = ["Invented limitation drift."];

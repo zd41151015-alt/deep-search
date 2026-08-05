@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/evaluation/buyer-purchase-language.schema.json",
+  "title": "Startup Opportunity Buyer Purchase Language v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "language_id",
+    "run_id",
+    "opportunity_ref",
+    "source_snapshot_ref",
+    "enrichment_fan_in_ref",
+    "user_trigger_phrase",
+    "buyer_purchase_phrase",
+    "user",
+    "buyer",
+    "payer",
+    "decision_maker",
+    "budget_source",
+    "purchase_trigger",
+    "decision_criteria",
+    "price_or_cost_anchor",
+    "marketing_bridge",
+    "supporting_claim_refs",
+    "opposing_claim_refs",
+    "judgment_assessment_refs",
+    "confidence_band",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.buyer_purchase_language.v1"
+    },
+    "language_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "opportunity_ref": {
+      "$ref": "./definitions.schema.json#/$defs/opportunityRef"
+    },
+    "source_snapshot_ref": {
+      "$ref": "./definitions.schema.json#/$defs/snapshotRef"
+    },
+    "enrichment_fan_in_ref": {
+      "$ref": "./definitions.schema.json#/$defs/enrichmentFanInRef"
+    },
+    "user_trigger_phrase": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "buyer_purchase_phrase": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "user": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "buyer": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "payer": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "decision_maker": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "budget_source": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "purchase_trigger": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "decision_criteria": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "price_or_cost_anchor": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "marketing_bridge": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "supporting_claim_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/enrichmentClaimRef"
+      }
+    },
+    "opposing_claim_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/enrichmentClaimRef"
+      }
+    },
+    "judgment_assessment_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/enrichmentJudgmentRef"
+      }
+    },
+    "confidence_band": {
+      "enum": ["high", "medium", "low", "unknown"]
+    },
+    "limitations": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/maps/solution-space-map.schema.json",
+  "title": "Startup Opportunity Solution Space Map v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "map_id",
+    "revision",
+    "parent_map_ref",
+    "run_id",
+    "mode",
+    "discovery_profile",
+    "market",
+    "language",
+    "scope_frame_ref",
+    "seed_probe_ref",
+    "opportunity_space_map_ref",
+    "research_plan_ref",
+    "demand_boundary_id",
+    "solution_neutral_demand_boundary",
+    "formal_opportunity_created",
+    "selected_solution_created",
+    "solution_candidates",
+    "ai_boundary",
+    "disconfirming_questions",
+    "input_artifact_hashes",
+    "policy_binding",
+    "evidence_refs",
+    "audit_refs",
+    "source_boundary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.solution_space_map.v1"
+    },
+    "map_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "revision": {
+      "const": 1
+    },
+    "parent_map_ref": {
+      "type": "null"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "const": "opportunity_discovery"
+    },
+    "discovery_profile": {
+      "$ref": "./definitions.schema.json#/$defs/discoveryProfile"
+    },
+    "market": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "language": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "scope_frame_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "seed_probe_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "opportunity_space_map_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_plan_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/planRef"
+    },
+    "demand_boundary_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "solution_neutral_demand_boundary": {
+      "const": true
+    },
+    "formal_opportunity_created": {
+      "const": false
+    },
+    "selected_solution_created": {
+      "const": false
+    },
+    "solution_candidates": {
+      "type": "array",
+      "minItems": 9,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidate_id",
+          "solution_class",
+          "description",
+          "delivery_forms",
+          "uses_ai",
+          "selected",
+          "formal_solution_hypothesis",
+          "status",
+          "evidence_refs"
+        ],
+        "properties": {
+          "candidate_id": {
+            "$ref": "./definitions.schema.json#/$defs/identifier"
+          },
+          "solution_class": {
+            "enum": [
+              "ordinary_software",
+              "platform_native",
+              "human_or_service_assisted",
+              "native_app",
+              "mini_program",
+              "mobile_web_or_pwa",
+              "hybrid_app",
+              "ai_assisted",
+              "status_quo"
+            ]
+          },
+          "description": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "delivery_forms": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "./definitions.schema.json#/$defs/deliveryForm"
+            }
+          },
+          "uses_ai": {
+            "type": "boolean"
+          },
+          "selected": {
+            "const": false
+          },
+          "formal_solution_hypothesis": {
+            "const": false
+          },
+          "status": {
+            "const": "unvalidated_option"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    "ai_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applicability",
+        "capability_seed_only_cannot_form_opportunity",
+        "capability_frontier",
+        "failure_modes",
+        "human_review_boundaries",
+        "data_and_evaluation_requirements",
+        "provider_landscape",
+        "open_source_landscape",
+        "capability_half_life",
+        "evidence_refs"
+      ],
+      "properties": {
+        "applicability": {
+          "enum": ["not_applicable", "applicable_as_solution_option"]
+        },
+        "capability_seed_only_cannot_form_opportunity": {
+          "const": true
+        },
+        "capability_frontier": {
+          "type": "array",
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/preResearchHypothesis"
+          }
+        },
+        "failure_modes": {
+          "type": "array",
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/preResearchHypothesis"
+          }
+        },
+        "human_review_boundaries": {
+          "type": "array",
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/preResearchHypothesis"
+          }
+        },
+        "data_and_evaluation_requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/preResearchHypothesis"
+          }
+        },
+        "provider_landscape": {
+          "type": "array",
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/preResearchHypothesis"
+          }
+        },
+        "open_source_landscape": {
+          "type": "array",
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/preResearchHypothesis"
+          }
+        },
+        "capability_half_life": {
+          "type": "array",
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/preResearchHypothesis"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "maxItems": 0
+        }
+      }
+    },
+    "disconfirming_questions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/researchQuestion"
+      }
+    },
+    "input_artifact_hashes": {
+      "$ref": "./definitions.schema.json#/$defs/inputHashes"
+    },
+    "policy_binding": {
+      "$ref": "./definitions.schema.json#/$defs/policyBinding"
+    },
+    "evidence_refs": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "audit_refs": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "source_boundary": {
+      "$ref": "./definitions.schema.json#/$defs/sourceBoundary"
+    },
+    "limitations": {
+      "allOf": [
+        {
+          "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        {
+          "type": "array",
+          "minItems": 1
+        }
+      ]
+    }
+  }
+}

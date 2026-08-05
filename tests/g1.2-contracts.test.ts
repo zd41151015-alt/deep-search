@@ -342,7 +342,9 @@ test("research chain rejects substrate drift, cross-task lineage, and cross-unit
   const firstBranch = state.branchBundles[0];
   assert.ok(firstBranch);
   const evidence = structuredClone(
-    firstBranch.find((entry) => entry.artifact_type === "startup_opportunity.evidence.v1"),
+    firstBranch.find(
+      (entry) => entry.artifact_type === "startup_opportunity.evidence.assessment.current",
+    ),
   );
   assert.ok(evidence);
   const binding = evidence.document.mechanical_binding as Record<string, unknown>;
@@ -373,7 +375,9 @@ test("research chain rejects substrate drift, cross-task lineage, and cross-unit
     invalid.referenceErrors.some((issue) => issue.code === "research_contract.substrate_mismatch"),
   );
   const crossTaskClaim = structuredClone(
-    firstBranch.find((entry) => entry.artifact_type === "startup_opportunity.claim.v1"),
+    firstBranch.find(
+      (entry) => entry.artifact_type === "startup_opportunity.claim.assessment.current",
+    ),
   );
   assert.ok(crossTaskClaim);
   (crossTaskClaim.document.lineage as Record<string, unknown>).task_ref =
@@ -440,7 +444,7 @@ test("research chain closes formal input refs and Source Manifest Evidence cover
   const missingEnvelopeInput = structuredClone(validBundle);
   const claimEnvelope = missingEnvelopeInput.documents.find(
     (entry) =>
-      entry.document.artifact_type === "startup_opportunity.claim.v1" &&
+      entry.document.artifact_type === "startup_opportunity.claim.assessment.current" &&
       entry.document.document.stance === "support",
   );
   assert.ok(claimEnvelope);
@@ -461,7 +465,7 @@ test("research chain closes formal input refs and Source Manifest Evidence cover
   const sourceManifestEnvelope = incompleteSourceManifest.documents.find(
     (entry) =>
       entry.path === "evidence/source-manifests/unit_demand.json" &&
-      entry.document.artifact_type === "startup_opportunity.source_manifest.v1",
+      entry.document.artifact_type === "startup_opportunity.source_manifest.assessment.current",
   );
   assert.ok(sourceManifestEnvelope);
   const accepted = sourceManifestEnvelope.document.document.accepted_evidence_refs as string[];
@@ -538,7 +542,7 @@ test("research chain closes formal input refs and Source Manifest Evidence cover
   const duplicateIdentity = structuredClone(validBundle);
   const duplicatedEvidence = structuredClone(
     duplicateIdentity.documents.find(
-      (entry) => entry.document.artifact_type === "startup_opportunity.evidence.v1",
+      (entry) => entry.document.artifact_type === "startup_opportunity.evidence.assessment.current",
     ),
   );
   assert.ok(duplicatedEvidence);

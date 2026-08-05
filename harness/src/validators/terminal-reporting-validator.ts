@@ -284,9 +284,9 @@ function validateSource(
   const taskAuditPaths = documents
     .filter((candidate) =>
       [
-        "startup_opportunity.research_task.v1",
-        "startup_opportunity.research_task.v2",
-        "startup_opportunity.research_task.v3",
+        "startup_opportunity.research_task.assessment.current",
+        "startup_opportunity.research_task.discovery_candidate.current",
+        "startup_opportunity.research_task.discovery_evaluation.current",
       ].includes(candidate.schemaVersion),
     )
     .flatMap((task) => {
@@ -301,8 +301,8 @@ function validateSource(
     .filter(
       (candidate) =>
         [
-          "startup_opportunity.research_execution_plan.v1",
-          "startup_opportunity.research_execution_plan.v2",
+          "startup_opportunity.research_execution_plan.discovery.current",
+          "startup_opportunity.research_execution_plan.assessment.current",
         ].includes(candidate.schemaVersion) && candidate.document.run_id === source.run_id,
     )
     .sort(
@@ -315,17 +315,19 @@ function validateSource(
   if (currentExecutionPlan !== undefined) {
     const dispatches = documents.filter(
       (candidate) =>
-        ["startup_opportunity.dispatch_batch.v1", "startup_opportunity.dispatch_batch.v2"].includes(
-          candidate.schemaVersion,
-        ) && candidate.document.execution_plan_ref === currentExecutionPlan.path,
+        [
+          "startup_opportunity.dispatch_batch.discovery.current",
+          "startup_opportunity.dispatch_batch.assessment.current",
+        ].includes(candidate.schemaVersion) &&
+        candidate.document.execution_plan_ref === currentExecutionPlan.path,
     );
     const tasksByUnit = new Map(
       documents
         .filter((candidate) =>
           [
-            "startup_opportunity.research_task.v1",
-            "startup_opportunity.research_task.v2",
-            "startup_opportunity.research_task.v3",
+            "startup_opportunity.research_task.assessment.current",
+            "startup_opportunity.research_task.discovery_candidate.current",
+            "startup_opportunity.research_task.discovery_evaluation.current",
           ].includes(candidate.schemaVersion),
         )
         .map((task) => [String(task.document.unit_id), task]),
@@ -681,9 +683,9 @@ function validateSource(
     }
   }
   const evidenceSchemaVersions = new Set([
-    "startup_opportunity.evidence.v1",
-    "startup_opportunity.evidence.v2",
-    "startup_opportunity.evidence.v3",
+    "startup_opportunity.evidence.assessment.current",
+    "startup_opportunity.evidence.discovery_candidate.current",
+    "startup_opportunity.evidence.discovery_evaluation.current",
     "startup_opportunity.assessment_evidence.v1",
     "startup_opportunity.candidate_neutral_evidence.v1",
   ]);
@@ -722,9 +724,9 @@ export function validateTerminalReportingContract(
   const relevant = documents.filter((entry) =>
     [
       "startup_opportunity.terminal_report_source.v1",
-      "startup_opportunity.decision_brief.v3",
+      "startup_opportunity.decision_brief.terminal.current",
       "startup_opportunity.terminal_report_view.v1",
-      "startup_opportunity.report_consistency_evaluation.v4",
+      "startup_opportunity.report_consistency_evaluation.terminal.current",
     ].includes(entry.schemaVersion),
   );
   if (relevant.length === 0) {

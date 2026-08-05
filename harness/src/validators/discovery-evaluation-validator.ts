@@ -18,46 +18,46 @@ export interface DiscoveryEvaluationDocument {
 }
 
 const EVALUATION_SCHEMA_VERSIONS = new Set([
-  "startup_opportunity.research_task.v3",
-  "startup_opportunity.evidence.v3",
-  "startup_opportunity.claim.v3",
-  "startup_opportunity.finding.v3",
-  "startup_opportunity.insight.v3",
-  "startup_opportunity.judgment_assessment.v3",
-  "startup_opportunity.source_manifest.v3",
+  "startup_opportunity.research_task.discovery_evaluation.current",
+  "startup_opportunity.evidence.discovery_evaluation.current",
+  "startup_opportunity.claim.discovery_evaluation.current",
+  "startup_opportunity.finding.discovery_evaluation.current",
+  "startup_opportunity.insight.discovery_evaluation.current",
+  "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+  "startup_opportunity.source_manifest.discovery_evaluation.current",
   "startup_opportunity.enrichment_branch_result.v1",
   "startup_opportunity.enrichment_fan_in.v1",
   "startup_opportunity.value_layer_analysis.v1",
   "startup_opportunity.user_state_context_model.v1",
   "startup_opportunity.buyer_purchase_language.v1",
-  "startup_opportunity.business_engine_thesis.v2",
+  "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
   "startup_opportunity.opportunity_comparison.v1",
   "startup_opportunity.sensitivity.v1",
   "startup_opportunity.portfolio_view.v1",
   "startup_opportunity.decision_recommendation.v1",
-  "startup_opportunity.traceability.v2",
+  "startup_opportunity.traceability.discovery.current",
   "startup_opportunity.report.v1",
-  "startup_opportunity.decision_brief.v2",
+  "startup_opportunity.decision_brief.discovery.current",
   "startup_opportunity.discovery_report_view.v1",
-  "startup_opportunity.report_consistency_evaluation.v3",
+  "startup_opportunity.report_consistency_evaluation.discovery.current",
 ]);
 
 const MATERIAL_SCHEMA_VERSIONS = new Set([
-  "startup_opportunity.evidence.v3",
-  "startup_opportunity.claim.v3",
-  "startup_opportunity.finding.v3",
-  "startup_opportunity.insight.v3",
-  "startup_opportunity.judgment_assessment.v3",
-  "startup_opportunity.source_manifest.v3",
+  "startup_opportunity.evidence.discovery_evaluation.current",
+  "startup_opportunity.claim.discovery_evaluation.current",
+  "startup_opportunity.finding.discovery_evaluation.current",
+  "startup_opportunity.insight.discovery_evaluation.current",
+  "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+  "startup_opportunity.source_manifest.discovery_evaluation.current",
 ]);
 
 const MATERIAL_FIELDS: Readonly<Record<string, string>> = {
-  evidence_refs: "startup_opportunity.evidence.v3",
-  claim_refs: "startup_opportunity.claim.v3",
-  finding_refs: "startup_opportunity.finding.v3",
-  insight_refs: "startup_opportunity.insight.v3",
-  judgment_assessment_refs: "startup_opportunity.judgment_assessment.v3",
-  source_manifest_refs: "startup_opportunity.source_manifest.v3",
+  evidence_refs: "startup_opportunity.evidence.discovery_evaluation.current",
+  claim_refs: "startup_opportunity.claim.discovery_evaluation.current",
+  finding_refs: "startup_opportunity.finding.discovery_evaluation.current",
+  insight_refs: "startup_opportunity.insight.discovery_evaluation.current",
+  judgment_assessment_refs: "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+  source_manifest_refs: "startup_opportunity.source_manifest.discovery_evaluation.current",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -135,25 +135,25 @@ function validateEnvelope(entry: DiscoveryEvaluationDocument, errors: Validation
     return;
   }
   const expectedRole =
-    entry.schemaVersion === "startup_opportunity.research_task.v3" ||
+    entry.schemaVersion === "startup_opportunity.research_task.discovery_evaluation.current" ||
     [
       "startup_opportunity.enrichment_fan_in.v1",
       "startup_opportunity.value_layer_analysis.v1",
       "startup_opportunity.user_state_context_model.v1",
       "startup_opportunity.buyer_purchase_language.v1",
-      "startup_opportunity.business_engine_thesis.v2",
+      "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
       "startup_opportunity.opportunity_comparison.v1",
       "startup_opportunity.sensitivity.v1",
       "startup_opportunity.portfolio_view.v1",
       "startup_opportunity.decision_recommendation.v1",
-      "startup_opportunity.traceability.v2",
+      "startup_opportunity.traceability.discovery.current",
       "startup_opportunity.report.v1",
     ].includes(entry.schemaVersion)
       ? "main_agent"
       : [
-            "startup_opportunity.decision_brief.v2",
+            "startup_opportunity.decision_brief.discovery.current",
             "startup_opportunity.discovery_report_view.v1",
-            "startup_opportunity.report_consistency_evaluation.v3",
+            "startup_opportunity.report_consistency_evaluation.discovery.current",
           ].includes(entry.schemaVersion)
         ? "harness"
         : "lane_researcher";
@@ -193,7 +193,8 @@ function validateTaskAndMaterial(
   errors: ValidationIssue[],
 ): void {
   for (const task of entries.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.research_task.v3",
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.research_task.discovery_evaluation.current",
   )) {
     const manifest = byPath.get("manifest.json");
     const plan = target(byPath, task.document.research_plan_ref);
@@ -277,7 +278,7 @@ function validateTaskAndMaterial(
     const task = isRecord(lineage) ? target(byPath, lineage.task_ref) : undefined;
     if (
       !isRecord(lineage) ||
-      task?.schemaVersion !== "startup_opportunity.research_task.v3" ||
+      task?.schemaVersion !== "startup_opportunity.research_task.discovery_evaluation.current" ||
       lineage.unit_id !== task.document.unit_id ||
       lineage.attempt !== task.document.attempt ||
       !same(lineage.opportunity_refs, task.document.target_opportunity_refs) ||
@@ -296,7 +297,8 @@ function validateTaskAndMaterial(
       );
     }
     if (
-      material.schemaVersion === "startup_opportunity.judgment_assessment.v3" &&
+      material.schemaVersion ===
+        "startup_opportunity.judgment_assessment.discovery_evaluation.current" &&
       (!isRecord(lineage) ||
         !strings(lineage.opportunity_refs).includes(String(material.document.subject_ref)))
     ) {
@@ -308,7 +310,7 @@ function validateTaskAndMaterial(
         ),
       );
     }
-    if (material.schemaVersion === "startup_opportunity.evidence.v3") {
+    if (material.schemaVersion === "startup_opportunity.evidence.discovery_evaluation.current") {
       const binding = material.document.mechanical_binding;
       const substrate = isRecord(binding)
         ? exactJsonlRecords.get(String(binding.substrate_record_ref))
@@ -337,16 +339,40 @@ function validateTaskAndMaterial(
   }
 
   const graphRules: readonly [string, string, string][] = [
-    ["startup_opportunity.claim.v3", "evidence_refs", "startup_opportunity.evidence.v3"],
-    ["startup_opportunity.finding.v3", "claim_refs", "startup_opportunity.claim.v3"],
-    ["startup_opportunity.finding.v3", "opposing_claim_refs", "startup_opportunity.claim.v3"],
-    ["startup_opportunity.insight.v3", "finding_refs", "startup_opportunity.finding.v3"],
-    ["startup_opportunity.judgment_assessment.v3", "supporting_refs", "material"],
-    ["startup_opportunity.judgment_assessment.v3", "opposing_refs", "material"],
     [
-      "startup_opportunity.source_manifest.v3",
+      "startup_opportunity.claim.discovery_evaluation.current",
+      "evidence_refs",
+      "startup_opportunity.evidence.discovery_evaluation.current",
+    ],
+    [
+      "startup_opportunity.finding.discovery_evaluation.current",
+      "claim_refs",
+      "startup_opportunity.claim.discovery_evaluation.current",
+    ],
+    [
+      "startup_opportunity.finding.discovery_evaluation.current",
+      "opposing_claim_refs",
+      "startup_opportunity.claim.discovery_evaluation.current",
+    ],
+    [
+      "startup_opportunity.insight.discovery_evaluation.current",
+      "finding_refs",
+      "startup_opportunity.finding.discovery_evaluation.current",
+    ],
+    [
+      "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+      "supporting_refs",
+      "material",
+    ],
+    [
+      "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+      "opposing_refs",
+      "material",
+    ],
+    [
+      "startup_opportunity.source_manifest.discovery_evaluation.current",
       "accepted_evidence_refs",
-      "startup_opportunity.evidence.v3",
+      "startup_opportunity.evidence.discovery_evaluation.current",
     ],
   ];
   for (const [sourceType, field, expected] of graphRules) {
@@ -355,8 +381,9 @@ function validateTaskAndMaterial(
         const linked = target(byPath, ref);
         const validType =
           expected === "material"
-            ? linked?.schemaVersion === "startup_opportunity.evidence.v3" ||
-              linked?.schemaVersion === "startup_opportunity.claim.v3"
+            ? linked?.schemaVersion ===
+                "startup_opportunity.evidence.discovery_evaluation.current" ||
+              linked?.schemaVersion === "startup_opportunity.claim.discovery_evaluation.current"
             : linked?.schemaVersion === expected;
         if (
           !validType ||
@@ -397,7 +424,7 @@ function validateBranchesAndFanIn(
       branchLineageRefs(branch.document, field),
     );
     if (
-      task?.schemaVersion !== "startup_opportunity.research_task.v3" ||
+      task?.schemaVersion !== "startup_opportunity.research_task.discovery_evaluation.current" ||
       branch.path !== task.document.allowed_output_path ||
       branch.document.unit_id !== task.document.unit_id ||
       branch.document.attempt !== task.document.attempt ||
@@ -435,7 +462,8 @@ function validateBranchesAndFanIn(
         const judgment = target(byPath, ref);
         if (
           !branchLineageRefs(branch.document, "judgment_assessment_refs").includes(ref) ||
-          judgment?.schemaVersion !== "startup_opportunity.judgment_assessment.v3" ||
+          judgment?.schemaVersion !==
+            "startup_opportunity.judgment_assessment.discovery_evaluation.current" ||
           judgment.document.subject_ref !== gate.opportunity_ref
         ) {
           errors.push(
@@ -562,7 +590,8 @@ function validateBranchesAndFanIn(
             const judgment = target(byPath, ref);
             return (
               !strings(fanIn.document.judgment_assessment_refs).includes(ref) ||
-              judgment?.schemaVersion !== "startup_opportunity.judgment_assessment.v3" ||
+              judgment?.schemaVersion !==
+                "startup_opportunity.judgment_assessment.discovery_evaluation.current" ||
               judgment.document.subject_ref !== opportunityRef
             );
           })
@@ -749,7 +778,8 @@ function validateEvaluationAndReporting(
     refs.every((ref) => {
       const judgment = target(byPath, ref);
       return (
-        judgment?.schemaVersion === "startup_opportunity.judgment_assessment.v3" &&
+        judgment?.schemaVersion ===
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current" &&
         judgment.document.subject_ref === opportunityRef
       );
     });
@@ -1074,7 +1104,7 @@ function validateEvaluationAndReporting(
   }
 
   const traceability = entries.find(
-    (entry) => entry.schemaVersion === "startup_opportunity.traceability.v2",
+    (entry) => entry.schemaVersion === "startup_opportunity.traceability.discovery.current",
   );
   if (traceability !== undefined) {
     const traceabilityFanIn = target(byPath, traceability.document.enrichment_fan_in_ref);
@@ -1084,16 +1114,23 @@ function validateEvaluationAndReporting(
     const statementInvalid = statements.some((statement) => {
       const judgment = target(byPath, statement.judgment_assessment_ref);
       return (
-        judgment?.schemaVersion !== "startup_opportunity.judgment_assessment.v3" ||
+        judgment?.schemaVersion !==
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current" ||
         judgment.document.subject_ref !== statement.subject_ref ||
         strings(statement.claim_refs).some(
-          (ref) => target(byPath, ref)?.schemaVersion !== "startup_opportunity.claim.v3",
+          (ref) =>
+            target(byPath, ref)?.schemaVersion !==
+            "startup_opportunity.claim.discovery_evaluation.current",
         ) ||
         strings(statement.evidence_refs).some(
-          (ref) => target(byPath, ref)?.schemaVersion !== "startup_opportunity.evidence.v3",
+          (ref) =>
+            target(byPath, ref)?.schemaVersion !==
+            "startup_opportunity.evidence.discovery_evaluation.current",
         ) ||
         strings(statement.source_manifest_refs).some(
-          (ref) => target(byPath, ref)?.schemaVersion !== "startup_opportunity.source_manifest.v3",
+          (ref) =>
+            target(byPath, ref)?.schemaVersion !==
+            "startup_opportunity.source_manifest.discovery_evaluation.current",
         )
       );
     });
@@ -1175,7 +1212,8 @@ function validateEvaluationAndReporting(
         return (
           linked === undefined ||
           !MATERIAL_SCHEMA_VERSIONS.has(linked.schemaVersion) ||
-          linked.schemaVersion === "startup_opportunity.source_manifest.v3"
+          linked.schemaVersion ===
+            "startup_opportunity.source_manifest.discovery_evaluation.current"
         );
       }))
   ) {
@@ -1189,13 +1227,14 @@ function validateEvaluationAndReporting(
   }
 
   const brief = entries.find(
-    (entry) => entry.schemaVersion === "startup_opportunity.decision_brief.v2",
+    (entry) => entry.schemaVersion === "startup_opportunity.decision_brief.discovery.current",
   );
   const view = entries.find(
     (entry) => entry.schemaVersion === "startup_opportunity.discovery_report_view.v1",
   );
   const consistency = entries.find(
-    (entry) => entry.schemaVersion === "startup_opportunity.report_consistency_evaluation.v3",
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.report_consistency_evaluation.discovery.current",
   );
   const context = reportContext;
   const reportHash = report === undefined ? null : canonicalContentHash(report.document);
@@ -1257,7 +1296,8 @@ function validateEvaluationAndReporting(
   const expectedDimensions = strings(policy.reporting_contract.consistency_dimensions);
   const consistencyMismatch =
     consistency !== undefined &&
-    (consistency.schemaVersion !== "startup_opportunity.report_consistency_evaluation.v3" ||
+    (consistency.schemaVersion !==
+      "startup_opportunity.report_consistency_evaluation.discovery.current" ||
       consistency.document.scan_contract_version !== REPORT_SCAN_CONTRACT_VERSION ||
       !same(consistency.document.scanned_surfaces, REPORT_SCAN_SURFACES) ||
       !same(consistency.document.forbidden_expression_matches, forbiddenMatches));

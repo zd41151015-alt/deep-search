@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/discovery/source-manifest.schema.json",
+  "title": "Startup Opportunity Discovery Runtime Source Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "run_id",
+    "unit_id",
+    "research_plan_ref",
+    "execution_plan_ref",
+    "dispatch_batch_ref",
+    "research_phase_role",
+    "accepted_evidence_refs",
+    "canonical_source_groups",
+    "shared_dataset_groups",
+    "duplicate_or_syndication_groups",
+    "source_type_coverage",
+    "geo_language_coverage",
+    "time_coverage",
+    "stance_coverage",
+    "known_source_blind_spots",
+    "freshness_summary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.source_manifest.discovery_runtime.current"
+    },
+    "manifest_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "research_plan_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/planRef"
+    },
+    "execution_plan_ref": {
+      "type": "string",
+      "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+    },
+    "dispatch_batch_ref": {
+      "type": "string",
+      "pattern": "^tasks/dispatch/.+\\.json#[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "research_phase_role": {
+      "enum": ["candidate_generation", "candidate_evaluation", "adversarial_challenger"]
+    },
+    "accepted_evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^evidence/discovery/.+\\.json$"
+      }
+    },
+    "canonical_source_groups": {
+      "$ref": "#/$defs/evidenceGroups"
+    },
+    "shared_dataset_groups": {
+      "$ref": "#/$defs/evidenceGroups"
+    },
+    "duplicate_or_syndication_groups": {
+      "$ref": "#/$defs/evidenceGroups"
+    },
+    "source_type_coverage": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "geo_language_coverage": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "time_coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["earliest_valid_as_of", "latest_valid_as_of", "accepted_evidence_count"],
+      "properties": {
+        "earliest_valid_as_of": {
+          "type": "string",
+          "format": "date"
+        },
+        "latest_valid_as_of": {
+          "type": "string",
+          "format": "date"
+        },
+        "accepted_evidence_count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "stance_coverage": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["support", "oppose", "context"]
+      }
+    },
+    "known_source_blind_spots": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "freshness_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active", "stale", "unverified", "superseded"],
+      "properties": {
+        "active": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stale": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unverified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "superseded": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "limitations": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  },
+  "$defs": {
+    "evidenceGroups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["group_id", "evidence_refs"],
+        "properties": {
+          "group_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^evidence/discovery/.+\\.json$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

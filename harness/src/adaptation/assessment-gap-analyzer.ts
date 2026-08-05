@@ -90,7 +90,7 @@ function taskForBranch(
 ): { readonly path: string; readonly document: Record<string, unknown> } | null {
   const matches = [...documents.values()].filter(
     (entry) =>
-      entry.schemaVersion === "startup_opportunity.research_task.v1" &&
+      entry.schemaVersion === "startup_opportunity.research_task.assessment.current" &&
       entry.document.allowed_output_path === branchPath &&
       entry.document.unit_id === unitId,
   );
@@ -161,8 +161,8 @@ export class AssessmentGapAnalyzer {
     );
     if (
       assessmentPlan === null ||
-      subject?.schemaVersion !== "startup_opportunity.concept_hypothesis.v1" ||
-      scope?.schemaVersion !== "startup_opportunity.scope_frame.v1" ||
+      subject?.schemaVersion !== "startup_opportunity.concept_hypothesis.assessment.current" ||
+      scope?.schemaVersion !== "startup_opportunity.scope_frame.assessment.current" ||
       dimension === undefined
     ) {
       errors.push(

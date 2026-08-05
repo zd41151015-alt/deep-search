@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/assessment/dispatch-batch.schema.json",
+  "title": "Startup Opportunity Assessment Dispatch Batch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dispatch_batch_id",
+    "run_id",
+    "execution_plan_ref",
+    "research_plan_ref",
+    "stage_id",
+    "wave_id",
+    "gate_ref",
+    "requested_at",
+    "dispatch_mode",
+    "agent_dispatch_performed",
+    "tasks"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.dispatch_batch.assessment.current"
+    },
+    "dispatch_batch_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "execution_plan_ref": {
+      "type": "string",
+      "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+    },
+    "research_plan_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/planRef"
+    },
+    "stage_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "wave_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "gate_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^artifacts/assessment/gates/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "requested_at": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+    },
+    "dispatch_mode": {
+      "const": "parallel_immediate"
+    },
+    "agent_dispatch_performed": {
+      "const": false
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "task_id",
+          "unit_id",
+          "lane_role",
+          "reporting_dimensions",
+          "submission_path",
+          "time_budget_minutes",
+          "max_sources"
+        ],
+        "properties": {
+          "task_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "unit_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "lane_role": {
+            "enum": ["evidence", "counter_evidence", "risk", "commercial", "feasibility"]
+          },
+          "reporting_dimensions": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "../../assessment/core/definitions.schema.json#/$defs/assessmentDimension"
+            }
+          },
+          "submission_path": {
+            "type": "string",
+            "pattern": "^artifacts/assessment/lanes/[A-Za-z0-9][A-Za-z0-9._-]*\\.attempt-[1-9][0-9]*\\.json$"
+          },
+          "time_budget_minutes": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 60
+          },
+          "max_sources": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30
+          }
+        }
+      }
+    }
+  }
+}

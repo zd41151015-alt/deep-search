@@ -198,7 +198,7 @@ function basePlan(runId: string): Record<string, unknown> {
         ],
       },
     ],
-    adaptation_policy_ref: "harness/policies/adaptation.v1.json",
+    adaptation_policy_ref: "harness/policies/adaptation.current.json",
     followup_policy: {
       max_followup_rounds: 2,
       require_decision_relevance: true,
@@ -263,7 +263,7 @@ function context(
   return {
     path: options.path,
     document: {
-      schema_version: "startup_opportunity.planning_context.v2",
+      schema_version: "startup_opportunity.planning_context.ai_source_bound.current",
       context_id: `planning_context_${String(runManifest.run_id).replaceAll("-", "_")}`,
       revision: options.revision,
       parent_context_ref: options.parentRef,

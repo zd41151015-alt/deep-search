@@ -2,13 +2,13 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import { ASSESSMENT_EXECUTION_POLICY_PATH } from "../current-policy-paths.js";
 import type { LoadedSchemaBundle } from "./schema-bundle.js";
 
-export const ASSESSMENT_EXECUTION_POLICY_PATH =
-  "harness/policies/assessment-execution.v1.json" as const;
+export { ASSESSMENT_EXECUTION_POLICY_PATH };
 
 export interface AssessmentExecutionPolicy extends Record<string, unknown> {
-  readonly schema_version: "startup_opportunity.assessment_execution_policy.v1";
+  readonly schema_version: "startup_opportunity.assessment_execution_policy.current";
   readonly policy_version: "1.0.0";
   readonly mandatory_reporting_dimensions: readonly string[];
   readonly default_lanes: readonly {
@@ -38,7 +38,9 @@ export async function loadAssessmentExecutionPolicy(
   const value = JSON.parse(
     await readFile(path.join(root, ASSESSMENT_EXECUTION_POLICY_PATH), "utf8"),
   ) as unknown;
-  const validator = bundle.validators.get("startup_opportunity.assessment_execution_policy.v1");
+  const validator = bundle.validators.get(
+    "startup_opportunity.assessment_execution_policy.current",
+  );
   if (!validator?.(value)) {
     throw new StoreError(
       "policy.assessment_execution_invalid",

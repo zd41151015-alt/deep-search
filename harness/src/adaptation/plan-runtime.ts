@@ -1871,7 +1871,8 @@ export class PlanRevisionRuntime {
           : null;
       const candidateContexts = [...candidateDocuments.values()].filter(
         (document) =>
-          document.schemaVersion === "startup_opportunity.planning_context.v2" &&
+          document.schemaVersion ===
+            "startup_opportunity.planning_context.ai_source_bound.current" &&
           isRecord(document.document.target_plan_binding) &&
           document.document.target_plan_binding.plan_ref === transformed.planPath,
       );

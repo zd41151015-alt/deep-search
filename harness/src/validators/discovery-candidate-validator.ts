@@ -11,26 +11,26 @@ export interface DiscoveryCandidateDocument {
 
 const CONTRACT_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.discovery_candidate.v1",
-  "startup_opportunity.research_task.v2",
-  "startup_opportunity.evidence.v2",
-  "startup_opportunity.claim.v2",
-  "startup_opportunity.finding.v2",
-  "startup_opportunity.insight.v2",
-  "startup_opportunity.judgment_assessment.v2",
-  "startup_opportunity.source_manifest.v2",
+  "startup_opportunity.research_task.discovery_candidate.current",
+  "startup_opportunity.evidence.discovery_candidate.current",
+  "startup_opportunity.claim.discovery_candidate.current",
+  "startup_opportunity.finding.discovery_candidate.current",
+  "startup_opportunity.insight.discovery_candidate.current",
+  "startup_opportunity.judgment_assessment.discovery_candidate.current",
+  "startup_opportunity.source_manifest.discovery_candidate.current",
   "startup_opportunity.discovery_lane_result.v1",
   "startup_opportunity.discovery_fan_in.v2",
 ]);
 
 const PRODUCER_BY_SCHEMA: Readonly<Record<string, string>> = {
   "startup_opportunity.discovery_candidate.v1": "main_agent",
-  "startup_opportunity.research_task.v2": "main_agent",
-  "startup_opportunity.evidence.v2": "lane_researcher",
-  "startup_opportunity.claim.v2": "lane_researcher",
-  "startup_opportunity.finding.v2": "lane_researcher",
-  "startup_opportunity.insight.v2": "lane_researcher",
-  "startup_opportunity.judgment_assessment.v2": "lane_researcher",
-  "startup_opportunity.source_manifest.v2": "lane_researcher",
+  "startup_opportunity.research_task.discovery_candidate.current": "main_agent",
+  "startup_opportunity.evidence.discovery_candidate.current": "lane_researcher",
+  "startup_opportunity.claim.discovery_candidate.current": "lane_researcher",
+  "startup_opportunity.finding.discovery_candidate.current": "lane_researcher",
+  "startup_opportunity.insight.discovery_candidate.current": "lane_researcher",
+  "startup_opportunity.judgment_assessment.discovery_candidate.current": "lane_researcher",
+  "startup_opportunity.source_manifest.discovery_candidate.current": "lane_researcher",
   "startup_opportunity.discovery_lane_result.v1": "lane_researcher",
   "startup_opportunity.discovery_fan_in.v2": "main_agent",
 };
@@ -48,12 +48,12 @@ const EVIDENCE_LINEAGE_FIELDS = [
 const MATERIAL_SCHEMA_BY_LINEAGE_FIELD: Readonly<
   Partial<Record<(typeof EVIDENCE_LINEAGE_FIELDS)[number], string>>
 > = {
-  evidence_refs: "startup_opportunity.evidence.v2",
-  claim_refs: "startup_opportunity.claim.v2",
-  finding_refs: "startup_opportunity.finding.v2",
-  insight_refs: "startup_opportunity.insight.v2",
-  judgment_assessment_refs: "startup_opportunity.judgment_assessment.v2",
-  source_manifest_refs: "startup_opportunity.source_manifest.v2",
+  evidence_refs: "startup_opportunity.evidence.discovery_candidate.current",
+  claim_refs: "startup_opportunity.claim.discovery_candidate.current",
+  finding_refs: "startup_opportunity.finding.discovery_candidate.current",
+  insight_refs: "startup_opportunity.insight.discovery_candidate.current",
+  judgment_assessment_refs: "startup_opportunity.judgment_assessment.discovery_candidate.current",
+  source_manifest_refs: "startup_opportunity.source_manifest.discovery_candidate.current",
 };
 
 const CANDIDATE_CHANGE_FIELDS = [
@@ -354,11 +354,11 @@ function validateCandidateEnrichmentBindings(
       const task =
         typeof lineage.task_ref === "string" ? documentsByPath.get(lineage.task_ref) : undefined;
       const subjectMismatch =
-        expectedSchema === "startup_opportunity.judgment_assessment.v2" &&
+        expectedSchema === "startup_opportunity.judgment_assessment.discovery_candidate.current" &&
         material?.document.subject_ref !== parent.path;
       if (
         material?.schemaVersion !== expectedSchema ||
-        task?.schemaVersion !== "startup_opportunity.research_task.v2" ||
+        task?.schemaVersion !== "startup_opportunity.research_task.discovery_candidate.current" ||
         !strings(task.document.target_candidate_refs).includes(parent.path) ||
         !strings(lineage.candidate_refs).includes(parent.path) ||
         lineage.scope_frame_ref !== candidate.document.scope_frame_ref ||
@@ -486,12 +486,12 @@ function validateDiscoveryLineage(
 ): void {
   if (
     ![
-      "startup_opportunity.evidence.v2",
-      "startup_opportunity.claim.v2",
-      "startup_opportunity.finding.v2",
-      "startup_opportunity.insight.v2",
-      "startup_opportunity.judgment_assessment.v2",
-      "startup_opportunity.source_manifest.v2",
+      "startup_opportunity.evidence.discovery_candidate.current",
+      "startup_opportunity.claim.discovery_candidate.current",
+      "startup_opportunity.finding.discovery_candidate.current",
+      "startup_opportunity.insight.discovery_candidate.current",
+      "startup_opportunity.judgment_assessment.discovery_candidate.current",
+      "startup_opportunity.source_manifest.discovery_candidate.current",
     ].includes(entry.schemaVersion)
   ) {
     return;
@@ -500,7 +500,7 @@ function validateDiscoveryLineage(
   const task =
     typeof lineage.task_ref === "string" ? documentsByPath.get(lineage.task_ref) : undefined;
   if (
-    task?.schemaVersion !== "startup_opportunity.research_task.v2" ||
+    task?.schemaVersion !== "startup_opportunity.research_task.discovery_candidate.current" ||
     lineage.attempt !== task.document.attempt ||
     entry.document.unit_id !== task.document.unit_id ||
     lineage.scope_frame_ref !== scope.path ||
@@ -516,9 +516,9 @@ function validateDiscoveryLineage(
     );
   }
   if (
-    (entry.schemaVersion === "startup_opportunity.evidence.v2" &&
+    (entry.schemaVersion === "startup_opportunity.evidence.discovery_candidate.current" &&
       entry.document.research_phase_role !== task?.document.source_phase) ||
-    (entry.schemaVersion === "startup_opportunity.source_manifest.v2" &&
+    (entry.schemaVersion === "startup_opportunity.source_manifest.discovery_candidate.current" &&
       entry.document.research_phase_role !== task?.document.source_phase)
   ) {
     errors.push(
@@ -550,7 +550,8 @@ function validateSourcePartition(
     for (const ref of refs) {
       const manifest = documentsByPath.get(ref);
       if (
-        manifest?.schemaVersion !== "startup_opportunity.source_manifest.v2" ||
+        manifest?.schemaVersion !==
+          "startup_opportunity.source_manifest.discovery_candidate.current" ||
         manifest.document.research_phase_role !== expectedRole
       ) {
         errors.push(
@@ -614,7 +615,7 @@ function validateSourceManifestSummary(
     .map((ref) => documentsByPath.get(ref))
     .filter(
       (entry): entry is DiscoveryCandidateDocument =>
-        entry?.schemaVersion === "startup_opportunity.evidence.v2",
+        entry?.schemaVersion === "startup_opportunity.evidence.discovery_candidate.current",
     );
   if (evidence.length !== strings(sourceManifest.document.accepted_evidence_refs).length) {
     return;
@@ -736,7 +737,7 @@ function validateLaneResult(
       ? documentsByPath.get(lane.document.task_ref)
       : undefined;
   if (
-    task?.schemaVersion !== "startup_opportunity.research_task.v2" ||
+    task?.schemaVersion !== "startup_opportunity.research_task.discovery_candidate.current" ||
     lane.document.unit_id !== task.document.unit_id ||
     lane.document.attempt !== task.document.attempt ||
     lane.document.lane_type !== task.document.unit_type ||
@@ -798,7 +799,8 @@ function validateLaneResult(
       const judgment = documentsByPath.get(judgmentRef);
       const judgmentLineage = judgment === undefined ? {} : lineageOf(judgment.document);
       if (
-        judgment?.schemaVersion !== "startup_opportunity.judgment_assessment.v2" ||
+        judgment?.schemaVersion !==
+          "startup_opportunity.judgment_assessment.discovery_candidate.current" ||
         judgment.document.subject_ref !== ref ||
         judgmentLineage.task_ref !== lane.document.task_ref ||
         !strings(task?.document.target_candidate_refs).includes(ref) ||
@@ -1014,7 +1016,8 @@ function validateFanIn(
       const subjectCandidate =
         subjectRef === undefined ? undefined : candidatesByPath.get(subjectRef);
       if (
-        judgment?.schemaVersion !== "startup_opportunity.judgment_assessment.v2" ||
+        judgment?.schemaVersion !==
+          "startup_opportunity.judgment_assessment.discovery_candidate.current" ||
         subjectRef === undefined ||
         !sourceRefs.includes(subjectRef) ||
         subjectCandidate === undefined ||
@@ -1071,7 +1074,7 @@ export function validateDiscoveryCandidateContract(
   );
   const candidatesByPath = new Map(candidates.map((entry) => [entry.path, entry]));
   const scopes = documents.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.scope_frame.v2",
+    (entry) => entry.schemaVersion === "startup_opportunity.scope_frame.discovery.current",
   );
   const manifests = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.run_manifest.v1",
@@ -1119,12 +1122,14 @@ export function validateDiscoveryCandidateContract(
     validateSourcePartition(candidate, documentsByPath, errors);
   }
   for (const task of documents.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.research_task.v2",
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.research_task.discovery_candidate.current",
   )) {
     validateTask(task, documentsByPath, scope, plan, errors);
   }
   for (const sourceManifest of documents.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.source_manifest.v2",
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.source_manifest.discovery_candidate.current",
   )) {
     validateSourceManifestSummary(sourceManifest, documentsByPath, errors);
   }

@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/evaluation/judgment-assessment.schema.json",
+  "title": "Startup Opportunity Discovery Evaluation Judgment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "judgment_id",
+    "run_id",
+    "unit_id",
+    "lineage",
+    "subject_ref",
+    "dimension",
+    "signal",
+    "supporting_refs",
+    "opposing_refs",
+    "evidence_tier",
+    "representativeness",
+    "source_independence",
+    "decision_sufficiency",
+    "insufficiency_reasons",
+    "what_would_change_it",
+    "valid_as_of",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.judgment_assessment.discovery_evaluation.current"
+    },
+    "judgment_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "lineage": {
+      "$ref": "./definitions.schema.json#/$defs/enrichmentLineage"
+    },
+    "subject_ref": {
+      "$ref": "./definitions.schema.json#/$defs/opportunityRef"
+    },
+    "dimension": {
+      "enum": [
+        "competitor_gap",
+        "market_space",
+        "monetization",
+        "buyer_purchase_language",
+        "acquisition_distribution",
+        "business_engine",
+        "delivery_feasibility",
+        "compliance_platform_risk",
+        "counter_evidence",
+        "early_unit_economics"
+      ]
+    },
+    "signal": {
+      "enum": ["supported", "opposed", "mixed", "no_signal", "unknown"]
+    },
+    "supporting_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "./definitions.schema.json#/$defs/enrichmentEvidenceRef"
+          },
+          {
+            "$ref": "./definitions.schema.json#/$defs/enrichmentClaimRef"
+          }
+        ]
+      }
+    },
+    "opposing_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "./definitions.schema.json#/$defs/enrichmentEvidenceRef"
+          },
+          {
+            "$ref": "./definitions.schema.json#/$defs/enrichmentClaimRef"
+          }
+        ]
+      }
+    },
+    "evidence_tier": {
+      "$ref": "../../assessment/core/definitions.schema.json#/$defs/evidenceTier"
+    },
+    "representativeness": {
+      "enum": ["adequate", "limited", "unknown"]
+    },
+    "source_independence": {
+      "enum": ["independent", "limited_overlap", "high_overlap", "unknown"]
+    },
+    "decision_sufficiency": {
+      "enum": ["sufficient", "partial", "insufficient"]
+    },
+    "insufficiency_reasons": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "what_would_change_it": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "valid_as_of": {
+      "type": "string",
+      "format": "date"
+    },
+    "limitations": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

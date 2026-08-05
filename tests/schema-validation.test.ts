@@ -177,7 +177,7 @@ test("schema bundle inspection rejects an unresolved internal reference", async 
   const target = path.join(copyRoot, "harness/schemas");
   await cp(source, target, { recursive: true });
 
-  const eventSchemaPath = path.join(target, "v1/event.schema.json");
+  const eventSchemaPath = path.join(target, "current/core/event.schema.json");
   const eventSchema = await readJson<Record<string, unknown>>(eventSchemaPath);
   const properties = eventSchema.properties as Record<string, Record<string, unknown>>;
   properties.artifact_refs = { $ref: "missing.schema.json#/$defs/artifactRefArray" };
@@ -388,11 +388,11 @@ test("G2.2 Scheme A bundle installs a closed pre-thesis candidate contract", asy
 
   const validator = await createArtifactValidator(repositoryRoot);
   const policy = await readJson<Record<string, unknown>>(
-    path.join(repositoryRoot, "harness/policies/discovery-candidates.v1.json"),
+    path.join(repositoryRoot, "harness/policies/discovery-candidates.current.json"),
   );
   const policyResult = validator.validateDocument(
     policy,
-    "harness/policies/discovery-candidates.v1.json",
+    "harness/policies/discovery-candidates.current.json",
   );
   assert.equal(policyResult.valid, true, JSON.stringify(policyResult.errors));
 

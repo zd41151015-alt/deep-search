@@ -191,16 +191,16 @@ function validateAssessmentEvidence(
   const execution = targetByRef(documents, evidence.document.execution_plan_ref);
   const unit = planUnits(plan).find((entry) => entry.unit_id === evidence.document.unit_id);
   if (
-    dispatch?.schemaVersion !== "startup_opportunity.dispatch_batch.v2" ||
+    dispatch?.schemaVersion !== "startup_opportunity.dispatch_batch.assessment.current" ||
     dispatch.document.run_id !== evidence.document.run_id ||
     dispatch.document.research_plan_ref !== evidence.document.research_plan_ref ||
     dispatch.document.execution_plan_ref !== evidence.document.execution_plan_ref ||
     task?.unit_id !== evidence.document.unit_id ||
-    concept?.schemaVersion !== "startup_opportunity.concept_hypothesis.v2" ||
+    concept?.schemaVersion !== "startup_opportunity.concept_hypothesis.assessment_intake.current" ||
     concept.document.run_id !== evidence.document.run_id ||
     plan?.schemaVersion !== "startup_opportunity.research_plan.v1" ||
     plan.document.run_id !== evidence.document.run_id ||
-    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.v2" ||
+    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.assessment.current" ||
     execution.document.run_id !== evidence.document.run_id ||
     execution.document.concept_hypothesis_ref !== evidence.document.concept_hypothesis_ref ||
     unit?.research_goal !== evidence.document.research_goal
@@ -263,7 +263,7 @@ function validateExecutionPlan(
     );
   }
   if (
-    concept?.schemaVersion !== "startup_opportunity.concept_hypothesis.v2" ||
+    concept?.schemaVersion !== "startup_opportunity.concept_hypothesis.assessment_intake.current" ||
     concept.document.run_id !== execution.document.run_id ||
     concept.document.research_readiness !== "ready"
   ) {
@@ -288,7 +288,7 @@ function validateExecutionPlan(
   if (revision > 1) {
     const parent = targetByRef(documents, execution.document.parent_execution_plan_ref);
     if (
-      parent?.schemaVersion !== "startup_opportunity.research_execution_plan.v2" ||
+      parent?.schemaVersion !== "startup_opportunity.research_execution_plan.assessment.current" ||
       parent.document.execution_plan_id !== execution.document.execution_plan_id ||
       parent.document.revision !== revision - 1 ||
       Number(execution.document.followup_round) !== Number(parent.document.followup_round) + 1
@@ -471,7 +471,8 @@ function laneForResult(
   documents: ReadonlyMap<string, AssessmentExecutionDocument>,
 ): { readonly lane: Record<string, unknown>; readonly stage: Record<string, unknown> } | null {
   const execution = targetByRef(documents, result.document.execution_plan_ref);
-  if (execution?.schemaVersion !== "startup_opportunity.research_execution_plan.v2") return null;
+  if (execution?.schemaVersion !== "startup_opportunity.research_execution_plan.assessment.current")
+    return null;
   for (const stage of records(execution.document.stages)) {
     const lane = records(stage.lanes).find(
       (candidate) => candidate.unit_id === result.document.unit_id,
@@ -517,9 +518,9 @@ function validateLaneResult(
         judgments.some(
           (judgment) =>
             ![
-              "startup_opportunity.judgment_assessment.v1",
-              "startup_opportunity.judgment_assessment.v2",
-              "startup_opportunity.judgment_assessment.v3",
+              "startup_opportunity.judgment_assessment.assessment.current",
+              "startup_opportunity.judgment_assessment.discovery_candidate.current",
+              "startup_opportunity.judgment_assessment.discovery_evaluation.current",
             ].includes(judgment.schemaVersion) ||
             judgment.document.subject_ref !== result.document.concept_hypothesis_ref ||
             judgment.document.dimension !== dimension.dimension_id,
@@ -560,7 +561,7 @@ function validateStageGate(
           ? "delivery"
           : "followup";
   if (
-    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.v2" ||
+    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.assessment.current" ||
     execution.document.run_id !== gate.document.run_id ||
     execution.document.concept_hypothesis_ref !== gate.document.concept_hypothesis_ref ||
     stage?.gate_after !== gate.path ||
@@ -673,7 +674,7 @@ function validateDispatch(
   const tasks = records(dispatch.document.tasks);
   const lanes = records(stage?.lanes);
   if (
-    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.v2" ||
+    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.assessment.current" ||
     plan?.schemaVersion !== "startup_opportunity.research_plan.v1" ||
     execution.document.research_plan_ref !== plan.path ||
     dispatch.document.run_id !== execution.document.run_id ||
@@ -745,7 +746,7 @@ function validateFollowup(
   const plan = targetByRef(documents, decision.document.based_on_research_plan_ref);
   const gate = targetByRef(documents, decision.document.stage_gate_ref);
   if (
-    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.v2" ||
+    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.assessment.current" ||
     plan?.schemaVersion !== "startup_opportunity.research_plan.v1" ||
     gate?.schemaVersion !== "startup_opportunity.assessment_stage_gate.v1" ||
     decision.document.run_id !== execution.document.run_id ||
@@ -833,14 +834,16 @@ function validateReportDisclosures(
     const auditRefs = strings(report.document.audit_refs);
     const runConcepts = documents.filter(
       (entry) =>
-        entry.schemaVersion === "startup_opportunity.concept_hypothesis.v2" &&
+        entry.schemaVersion ===
+          "startup_opportunity.concept_hypothesis.assessment_intake.current" &&
         entry.document.run_id === report.document.run_id,
     );
     const concepts = auditRefs
       .map((ref) => targetByRef(documentsByPath, ref))
       .filter(
         (entry): entry is AssessmentExecutionDocument =>
-          entry?.schemaVersion === "startup_opportunity.concept_hypothesis.v2",
+          entry?.schemaVersion ===
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
       );
     const missingConceptRefs = runConcepts
       .map((concept) => concept.path)
@@ -884,9 +887,9 @@ export function validateAssessmentExecutionContract(
 ): readonly ValidationIssue[] {
   const relevant = documents.filter((entry) =>
     [
-      "startup_opportunity.concept_hypothesis.v2",
-      "startup_opportunity.research_execution_plan.v2",
-      "startup_opportunity.dispatch_batch.v2",
+      "startup_opportunity.concept_hypothesis.assessment_intake.current",
+      "startup_opportunity.research_execution_plan.assessment.current",
+      "startup_opportunity.dispatch_batch.assessment.current",
       "startup_opportunity.assessment_evidence.v1",
       "startup_opportunity.assessment_lane_result.v1",
       "startup_opportunity.assessment_stage_gate.v1",
@@ -897,12 +900,14 @@ export function validateAssessmentExecutionContract(
   const errors: ValidationIssue[] = [];
   const documentsByPath = new Map(documents.map((entry) => [entry.path, entry]));
   for (const concept of relevant.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.concept_hypothesis.v2",
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.concept_hypothesis.assessment_intake.current",
   )) {
     validateConcept(concept, documentsByPath, exactRecords, errors);
   }
   for (const execution of relevant.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.research_execution_plan.v2",
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.research_execution_plan.assessment.current",
   )) {
     validateExecutionPlan(execution, documentsByPath, policy, errors);
   }
@@ -922,7 +927,7 @@ export function validateAssessmentExecutionContract(
     validateStageGate(gate, documentsByPath, errors);
   }
   for (const dispatch of relevant.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.dispatch_batch.v2",
+    (entry) => entry.schemaVersion === "startup_opportunity.dispatch_batch.assessment.current",
   )) {
     validateDispatch(dispatch, documentsByPath, errors);
   }

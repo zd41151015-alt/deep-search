@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/core/decision.schema.json",
+  "title": "Startup Opportunity Decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision_id",
+    "run_id",
+    "decision_type",
+    "timestamp",
+    "actor",
+    "reason",
+    "artifact_refs"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.decision.v1"
+    },
+    "decision_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "decision_type": {
+      "enum": [
+        "scope_proposed",
+        "scope_assumption_confirmed",
+        "scope_changed_by_user",
+        "initial_belief_recorded",
+        "belief_changed_by_evidence",
+        "remaining_disagreement_recorded",
+        "candidate_rejected_by_user",
+        "followup_requested_by_user",
+        "plan_change_requested_by_user",
+        "limitation_accepted",
+        "run_paused",
+        "run_cancelled"
+      ]
+    },
+    "timestamp": {
+      "$ref": "./definitions.schema.json#/$defs/timestamp"
+    },
+    "actor": {
+      "enum": ["user", "main_agent"]
+    },
+    "reason": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "artifact_refs": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "scope_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "scope_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "scope_proposal_ref": {
+      "type": "string",
+      "pattern": "^decisions\\.jsonl#scope_proposal_[A-Za-z0-9._-]*$"
+    },
+    "scope_proposal_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "confirmation_basis": {
+      "const": "caller_attested_user_confirmation"
+    },
+    "harness_identity_verification": {
+      "const": "not_available"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "geography",
+        "customer_model",
+        "target_users",
+        "decision_goal",
+        "research_language"
+      ],
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "geography": {
+          "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "customer_model": {
+          "enum": ["b2c", "b2b", "b2b2c", "mixed"]
+        },
+        "target_users": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          }
+        },
+        "decision_goal": {
+          "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "research_language": {
+          "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision_type": {
+            "const": "scope_proposed"
+          }
+        },
+        "required": ["decision_type"]
+      },
+      "then": {
+        "required": ["scope_revision", "scope_hash", "scope"],
+        "properties": {
+          "actor": {
+            "const": "main_agent"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision_type": {
+            "enum": ["scope_assumption_confirmed", "scope_changed_by_user"]
+          }
+        },
+        "required": ["decision_type"]
+      },
+      "then": {
+        "required": [
+          "scope_revision",
+          "scope_hash",
+          "scope",
+          "scope_proposal_ref",
+          "scope_proposal_hash",
+          "confirmation_basis",
+          "harness_identity_verification"
+        ],
+        "properties": {
+          "actor": {
+            "const": "main_agent"
+          }
+        }
+      }
+    }
+  ]
+}

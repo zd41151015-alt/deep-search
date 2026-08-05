@@ -2,14 +2,14 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import { ASSESSMENT_ADAPTATION_POLICY_PATH } from "../current-policy-paths.js";
 import { createArtifactValidator } from "../validators/artifact-validator.js";
 import { isRecord } from "./contracts.js";
 
-export const ASSESSMENT_ADAPTATION_POLICY_PATH =
-  "harness/policies/assessment-adaptation.v1.json" as const;
+export { ASSESSMENT_ADAPTATION_POLICY_PATH };
 
 export interface AssessmentAdaptationPolicy extends Record<string, unknown> {
-  readonly schema_version: "startup_opportunity.assessment_adaptation_policy.v1";
+  readonly schema_version: "startup_opportunity.assessment_adaptation_policy.current";
   readonly policy_version: "1.0.0";
   readonly allowed_actions: readonly ["add_unit", "stop_followup"];
   readonly add_unit_rules: readonly {

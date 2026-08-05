@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/evaluation/research-task.schema.json",
+  "title": "Startup Opportunity Discovery Evaluation Research Task",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "run_id",
+    "unit_id",
+    "mode",
+    "phase",
+    "wave_id",
+    "unit_type",
+    "research_goal",
+    "commercial_research_requirements",
+    "target_opportunity_refs",
+    "source_snapshot_ref",
+    "source_merge_ref",
+    "scope_frame_ref",
+    "research_plan_ref",
+    "input_refs",
+    "attempt",
+    "supersedes_task_ref",
+    "agent_role",
+    "source_phase",
+    "required_source_group_ids",
+    "allowed_output_path",
+    "required_artifact_schema",
+    "required_stances",
+    "stop_conditions",
+    "completion_message_contract",
+    "execution_contract",
+    "dispatched_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.research_task.discovery_evaluation.current"
+    },
+    "task_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "mode": {
+      "const": "opportunity_discovery"
+    },
+    "phase": {
+      "const": "enrichment"
+    },
+    "wave_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "unit_type": {
+      "$ref": "../../core/definitions.schema.json#/$defs/unitType"
+    },
+    "research_goal": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "commercial_research_requirements": {
+      "$ref": "../../assessment/commercial/commercial-research-requirements.schema.json#/$defs/requirements"
+    },
+    "target_opportunity_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/opportunityRef"
+      }
+    },
+    "source_snapshot_ref": {
+      "$ref": "./definitions.schema.json#/$defs/snapshotRef"
+    },
+    "source_merge_ref": {
+      "$ref": "./definitions.schema.json#/$defs/mergeRef"
+    },
+    "scope_frame_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_plan_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "input_refs": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "supersedes_task_ref": {
+      "anyOf": [
+        {
+          "$ref": "./definitions.schema.json#/$defs/enrichmentTaskRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "agent_role": {
+      "const": "lane-researcher"
+    },
+    "source_phase": {
+      "enum": ["enrichment_evaluation", "adversarial_challenger"]
+    },
+    "required_source_group_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/identifier"
+      }
+    },
+    "allowed_output_path": {
+      "$ref": "./definitions.schema.json#/$defs/enrichmentBranchRef"
+    },
+    "required_artifact_schema": {
+      "const": "startup_opportunity.enrichment_branch_result.v1"
+    },
+    "required_stances": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["support", "oppose"]
+      },
+      "allOf": [
+        {
+          "contains": {
+            "const": "support"
+          }
+        },
+        {
+          "contains": {
+            "const": "oppose"
+          }
+        }
+      ]
+    },
+    "stop_conditions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+      }
+    },
+    "completion_message_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["formal_artifact_authority", "include_artifact_path", "include_limitations"],
+      "properties": {
+        "formal_artifact_authority": {
+          "const": false
+        },
+        "include_artifact_path": {
+          "const": true
+        },
+        "include_limitations": {
+          "const": true
+        }
+      }
+    },
+    "execution_contract": {
+      "$ref": "./definitions.schema.json#/$defs/executionBoundary"
+    },
+    "dispatched_at": {
+      "$ref": "./definitions.schema.json#/$defs/timestamp"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "attempt": {
+            "const": 1
+          }
+        },
+        "required": ["attempt"]
+      },
+      "then": {
+        "properties": {
+          "supersedes_task_ref": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "supersedes_task_ref": {
+            "$ref": "./definitions.schema.json#/$defs/enrichmentTaskRef"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/common/scaffold-result.schema.json",
+  "title": "Startup Opportunity Deterministic Scaffold Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scaffold_id",
+    "kind",
+    "run_id",
+    "schema_valid",
+    "semantic_judgment_generated",
+    "working_directory",
+    "compilation_request"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.scaffold_result.current"
+    },
+    "scaffold_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "kind": {
+      "$ref": "./scaffold-request.schema.json#/properties/kind"
+    },
+    "run_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "schema_valid": {
+      "const": true
+    },
+    "semantic_judgment_generated": {
+      "const": false
+    },
+    "working_directory": {
+      "type": "string",
+      "pattern": "^dist/research-working/[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "compilation_request": {
+      "$ref": "../discovery/runtime-artifact-compilation-request.schema.json"
+    }
+  }
+}

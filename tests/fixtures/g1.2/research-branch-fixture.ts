@@ -140,7 +140,7 @@ export function taskEnvelope(
   const unit = planUnit(baseBundle, branch.unitId);
   const path = `tasks/${branch.unitId}.attempt-1.json`;
   const document = {
-    schema_version: "startup_opportunity.research_task.v1",
+    schema_version: "startup_opportunity.research_task.assessment.current",
     task_id: `task_${branch.unitId}`,
     run_id: G12_RUN_ID,
     unit_id: branch.unitId,
@@ -233,7 +233,7 @@ export function branchResearchEnvelopes(
   const evidenceDocuments = records.map((record, index) => {
     const publicOrigin = record.source.kind === "public_url";
     return {
-      schema_version: "startup_opportunity.evidence.v1",
+      schema_version: "startup_opportunity.evidence.assessment.current",
       evidence_id: record.evidence_id,
       run_id: G12_RUN_ID,
       unit_id: branch.unitId,
@@ -289,7 +289,7 @@ export function branchResearchEnvelopes(
   const opposeClaimId = `claim_${branch.unitId}_oppose`;
   const claims = [
     {
-      schema_version: "startup_opportunity.claim.v1",
+      schema_version: "startup_opportunity.claim.assessment.current",
       claim_id: supportClaimId,
       run_id: G12_RUN_ID,
       unit_id: branch.unitId,
@@ -303,7 +303,7 @@ export function branchResearchEnvelopes(
       limitations: ["Mechanical traceability only."],
     },
     {
-      schema_version: "startup_opportunity.claim.v1",
+      schema_version: "startup_opportunity.claim.assessment.current",
       claim_id: opposeClaimId,
       run_id: G12_RUN_ID,
       unit_id: branch.unitId,
@@ -319,7 +319,7 @@ export function branchResearchEnvelopes(
   ] as const;
   const findingPath = `findings/${branch.unitId}.json`;
   const finding = {
-    schema_version: "startup_opportunity.finding.v1",
+    schema_version: "startup_opportunity.finding.assessment.current",
     finding_id: `finding_${branch.unitId}`,
     run_id: G12_RUN_ID,
     unit_id: branch.unitId,
@@ -332,7 +332,7 @@ export function branchResearchEnvelopes(
   };
   const insightPath = `insights/${branch.unitId}.json`;
   const insight = {
-    schema_version: "startup_opportunity.insight.v1",
+    schema_version: "startup_opportunity.insight.assessment.current",
     insight_id: `insight_${branch.unitId}`,
     run_id: G12_RUN_ID,
     unit_id: branch.unitId,
@@ -353,7 +353,7 @@ export function branchResearchEnvelopes(
   };
   const sourceManifestPath = `evidence/source-manifests/${branch.unitId}.json`;
   const sourceManifest = {
-    schema_version: "startup_opportunity.source_manifest.v1",
+    schema_version: "startup_opportunity.source_manifest.assessment.current",
     manifest_id: `sources_${branch.unitId}`,
     run_id: G12_RUN_ID,
     unit_id: branch.unitId,

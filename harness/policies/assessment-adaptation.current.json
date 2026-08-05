@@ -1,0 +1,44 @@
+{
+  "schema_version": "startup_opportunity.assessment_adaptation_policy.current",
+  "policy_id": "startup_opportunity.g1_3_dynamic_buyer_gap",
+  "policy_version": "1.0.0",
+  "contract_versions": {
+    "gap_snapshot": "startup_opportunity.gap_snapshot.assessment.current",
+    "adaptation_decision": "startup_opportunity.adaptation_decision.assessment.current",
+    "research_plan": "startup_opportunity.research_plan.v1",
+    "assessment_plan": "startup_opportunity.concept_evidence_assessment_plan.v1"
+  },
+  "allowed_actions": ["add_unit", "stop_followup"],
+  "coverage_key_algorithm": "canonical_assessment_coverage_identity_sha256.v1",
+  "plan_revision_operation_identity": "canonical_parent_plan_hash_and_sorted_adaptation_refs.v1",
+  "add_unit_rules": [
+    {
+      "gap_type": "buyer_evidence_insufficient",
+      "dimension_id": "buyer_language_and_willingness_to_pay",
+      "unit_type": "buyer_language"
+    },
+    {
+      "gap_type": "acquisition_evidence_insufficient",
+      "dimension_id": "acquisition_and_distribution",
+      "unit_type": "acquisition"
+    }
+  ],
+  "stop_followup_rules": {
+    "gap_types": ["coverage_sufficient", "no_material_new_evidence", "no_executable_followup"],
+    "stop_signals": [
+      "coverage_sufficient",
+      "no_material_new_evidence",
+      "no_executable_followup",
+      "source_repetition",
+      "max_followup_rounds_reached",
+      "limitation_accepted"
+    ],
+    "creates_plan_revision": false
+  },
+  "publication_contract": {
+    "immutable": true,
+    "atomic": true,
+    "validated_receipt_recovery": true,
+    "cas_required": true
+  }
+}

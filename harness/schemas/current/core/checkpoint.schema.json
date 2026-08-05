@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/core/checkpoint.schema.json",
+  "title": "Startup Opportunity Checkpoint v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "checkpoint_id",
+    "run_id",
+    "created_at",
+    "producer_role",
+    "input_refs",
+    "manifest_snapshot",
+    "current_plan_ref",
+    "plan_revision",
+    "completed_units",
+    "invalidated_units",
+    "artifact_refs",
+    "latest_gap_snapshot_ref",
+    "applied_adaptation_refs",
+    "pending_adaptation_refs",
+    "unresolved_gap_refs",
+    "next_step",
+    "belief_summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.checkpoint.v1"
+    },
+    "checkpoint_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "created_at": {
+      "$ref": "./definitions.schema.json#/$defs/timestamp"
+    },
+    "producer_role": {
+      "enum": ["main_agent", "harness"]
+    },
+    "input_refs": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "manifest_snapshot": {
+      "$ref": "./run-manifest.schema.json"
+    },
+    "current_plan_ref": {
+      "anyOf": [
+        {
+          "$ref": "./definitions.schema.json#/$defs/planRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "plan_revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "completed_units": {
+      "$ref": "./definitions.schema.json#/$defs/identifierArray"
+    },
+    "invalidated_units": {
+      "$ref": "./definitions.schema.json#/$defs/identifierArray"
+    },
+    "artifact_refs": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "latest_gap_snapshot_ref": {
+      "anyOf": [
+        {
+          "$ref": "./definitions.schema.json#/$defs/gapSnapshotRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "applied_adaptation_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/adaptationRef"
+      },
+      "uniqueItems": true
+    },
+    "pending_adaptation_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/adaptationRef"
+      },
+      "uniqueItems": true
+    },
+    "unresolved_gap_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/gapRef"
+      },
+      "uniqueItems": true
+    },
+    "next_step": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "belief_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current_belief",
+        "evidence_that_changed_belief",
+        "unchanged_assumptions",
+        "remaining_disagreement",
+        "next_decision_relevant_question"
+      ],
+      "properties": {
+        "current_belief": {
+          "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "evidence_that_changed_belief": {
+          "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "unchanged_assumptions": {
+          "$ref": "./definitions.schema.json#/$defs/stringArray"
+        },
+        "remaining_disagreement": {
+          "$ref": "./definitions.schema.json#/$defs/stringArray"
+        },
+        "next_decision_relevant_question": {
+          "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "current_plan_ref": {
+            "type": "null"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "plan_revision": {
+            "const": 0
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "plan_revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  ]
+}

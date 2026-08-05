@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/reporting/definitions.schema.json",
+  "$defs": {
+    "nonEmptyString": {
+      "$ref": "../../core/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "identifier": {
+      "$ref": "../../core/definitions.schema.json#/$defs/identifier"
+    },
+    "runId": {
+      "$ref": "../../core/definitions.schema.json#/$defs/runId"
+    },
+    "timestamp": {
+      "$ref": "../../core/definitions.schema.json#/$defs/timestamp"
+    },
+    "sha256": {
+      "$ref": "../../core/definitions.schema.json#/$defs/sha256"
+    },
+    "artifactPath": {
+      "$ref": "../../core/definitions.schema.json#/$defs/artifactPath"
+    },
+    "artifactRef": {
+      "$ref": "../../core/definitions.schema.json#/$defs/artifactRef"
+    },
+    "artifactRefArray": {
+      "$ref": "../../core/definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "uniqueStringArray": {
+      "$ref": "../../core/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "assessmentDimension": {
+      "$ref": "../core/definitions.schema.json#/$defs/assessmentDimension"
+    },
+    "assessmentResult": {
+      "enum": ["prioritize", "investigate_further", "deprioritize", "insufficient_evidence"]
+    },
+    "evaluatorResult": {
+      "enum": ["passed", "needs_revision", "insufficient_evidence", "failed"]
+    },
+    "conclusionCeiling": {
+      "enum": ["prioritize_allowed", "investigate_further_max", "insufficient_evidence_required"]
+    },
+    "evidenceTier": {
+      "$ref": "../core/definitions.schema.json#/$defs/evidenceTier"
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "concept_hypothesis_ref",
+        "scope_frame_ref",
+        "research_plan_ref",
+        "assessment_plan_ref",
+        "plan_lineage_refs",
+        "applied_adaptation_refs"
+      ],
+      "properties": {
+        "concept_hypothesis_ref": {
+          "$ref": "#/$defs/artifactRef"
+        },
+        "scope_frame_ref": {
+          "$ref": "#/$defs/artifactRef"
+        },
+        "research_plan_ref": {
+          "$ref": "#/$defs/artifactRef"
+        },
+        "assessment_plan_ref": {
+          "$ref": "#/$defs/artifactRef"
+        },
+        "plan_lineage_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactRef"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "applied_adaptation_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactRef"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "inputHash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "content_hash"],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/artifactRef"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "inputHashes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/inputHash"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "revisionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "field", "artifact_ref", "reason", "severity", "requested_action"],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "field": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "artifact_ref": {
+          "$ref": "#/$defs/artifactRef"
+        },
+        "reason": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "severity": {
+          "enum": ["blocking", "material", "advisory"]
+        },
+        "requested_action": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "evaluationIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "field", "artifact_ref", "revision_request"],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/identifier"
+        },
+        "field": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "artifact_ref": {
+          "$ref": "#/$defs/artifactRef"
+        },
+        "revision_request": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "externalActionBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "execution_owner",
+        "execution_supported",
+        "result_tracking_supported",
+        "external_validation_claimed"
+      ],
+      "properties": {
+        "execution_owner": {
+          "const": "user"
+        },
+        "execution_supported": {
+          "const": false
+        },
+        "result_tracking_supported": {
+          "const": false
+        },
+        "external_validation_claimed": {
+          "const": false
+        }
+      }
+    },
+    "beliefUpdate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initial_belief",
+        "evidence_that_changed_belief",
+        "unchanged_assumptions",
+        "remaining_disagreement",
+        "final_decision_owner"
+      ],
+      "properties": {
+        "initial_belief": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "evidence_that_changed_belief": {
+          "$ref": "#/$defs/artifactRefArray"
+        },
+        "unchanged_assumptions": {
+          "$ref": "#/$defs/uniqueStringArray"
+        },
+        "remaining_disagreement": {
+          "$ref": "#/$defs/uniqueStringArray"
+        },
+        "final_decision_owner": {
+          "const": "user"
+        }
+      }
+    },
+    "summaryWithRefs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "refs"],
+      "properties": {
+        "summary": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactRef"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

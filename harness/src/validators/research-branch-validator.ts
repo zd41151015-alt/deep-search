@@ -9,12 +9,12 @@ export interface ResearchBranchDocument {
 }
 
 const RESEARCH_SCHEMA_VERSIONS = new Set([
-  "startup_opportunity.research_task.v1",
-  "startup_opportunity.evidence.v1",
-  "startup_opportunity.claim.v1",
-  "startup_opportunity.finding.v1",
-  "startup_opportunity.insight.v1",
-  "startup_opportunity.source_manifest.v1",
+  "startup_opportunity.research_task.assessment.current",
+  "startup_opportunity.evidence.assessment.current",
+  "startup_opportunity.claim.assessment.current",
+  "startup_opportunity.finding.assessment.current",
+  "startup_opportunity.insight.assessment.current",
+  "startup_opportunity.source_manifest.assessment.current",
 ]);
 
 export function isResearchBranchSchemaVersion(schemaVersion: string): boolean {
@@ -59,17 +59,17 @@ function targetByRef(
 
 function idOf(entry: ResearchBranchDocument): string | null {
   const field =
-    entry.schemaVersion === "startup_opportunity.evidence.v1"
+    entry.schemaVersion === "startup_opportunity.evidence.assessment.current"
       ? "evidence_id"
-      : entry.schemaVersion === "startup_opportunity.claim.v1"
+      : entry.schemaVersion === "startup_opportunity.claim.assessment.current"
         ? "claim_id"
-        : entry.schemaVersion === "startup_opportunity.finding.v1"
+        : entry.schemaVersion === "startup_opportunity.finding.assessment.current"
           ? "finding_id"
-          : entry.schemaVersion === "startup_opportunity.insight.v1"
+          : entry.schemaVersion === "startup_opportunity.insight.assessment.current"
             ? "insight_id"
-            : entry.schemaVersion === "startup_opportunity.research_task.v1"
+            : entry.schemaVersion === "startup_opportunity.research_task.assessment.current"
               ? "task_id"
-              : entry.schemaVersion === "startup_opportunity.source_manifest.v1"
+              : entry.schemaVersion === "startup_opportunity.source_manifest.assessment.current"
                 ? "manifest_id"
                 : null;
   const value = field === null ? null : entry.document[field];
@@ -227,10 +227,10 @@ function checkTask(
     );
   }
   if (
-    concept?.schemaVersion !== "startup_opportunity.concept_hypothesis.v1" ||
+    concept?.schemaVersion !== "startup_opportunity.concept_hypothesis.assessment.current" ||
     concept.document.scope_frame_ref !== task.document.scope_frame_ref ||
     concept.document.run_id !== task.document.run_id ||
-    scope?.schemaVersion !== "startup_opportunity.scope_frame.v1" ||
+    scope?.schemaVersion !== "startup_opportunity.scope_frame.assessment.current" ||
     scope.document.run_id !== task.document.run_id
   ) {
     errors.push(
@@ -245,7 +245,7 @@ function checkTask(
   if (
     typeof task.document.attempt === "number" &&
     task.document.attempt > 1 &&
-    (supersedes?.schemaVersion !== "startup_opportunity.research_task.v1" ||
+    (supersedes?.schemaVersion !== "startup_opportunity.research_task.assessment.current" ||
       supersedes.document.run_id !== task.document.run_id ||
       supersedes.document.unit_id !== task.document.unit_id ||
       supersedes.document.attempt !== task.document.attempt - 1)
@@ -281,7 +281,7 @@ function directParentRefs(entry: ResearchBranchDocument): readonly string[] {
   const lineage = entry.document.lineage;
   const taskRef = isRecord(lineage) ? strings([lineage.task_ref]) : [];
   switch (entry.schemaVersion) {
-    case "startup_opportunity.research_task.v1":
+    case "startup_opportunity.research_task.assessment.current":
       return [
         ...strings([
           entry.document.target_subject_ref,
@@ -292,21 +292,21 @@ function directParentRefs(entry: ResearchBranchDocument): readonly string[] {
         ]),
         ...strings(entry.document.input_refs),
       ];
-    case "startup_opportunity.evidence.v1": {
+    case "startup_opportunity.evidence.assessment.current": {
       const binding = entry.document.mechanical_binding;
       return [...taskRef, ...(isRecord(binding) ? strings([binding.substrate_record_ref]) : [])];
     }
-    case "startup_opportunity.claim.v1":
+    case "startup_opportunity.claim.assessment.current":
       return [...taskRef, ...strings(entry.document.evidence_refs)];
-    case "startup_opportunity.finding.v1":
+    case "startup_opportunity.finding.assessment.current":
       return [
         ...taskRef,
         ...strings(entry.document.claim_refs),
         ...strings(entry.document.opposing_claim_refs),
       ];
-    case "startup_opportunity.insight.v1":
+    case "startup_opportunity.insight.assessment.current":
       return [...taskRef, ...strings(entry.document.finding_refs)];
-    case "startup_opportunity.source_manifest.v1":
+    case "startup_opportunity.source_manifest.assessment.current":
       return [...taskRef, ...strings(entry.document.accepted_evidence_refs)];
     default:
       return [];
@@ -339,7 +339,7 @@ function checkEvidence(
   errors: ValidationIssue[],
 ): void {
   const task = taskFor(evidence, documentsByPath);
-  if (task?.schemaVersion !== "startup_opportunity.research_task.v1") {
+  if (task?.schemaVersion !== "startup_opportunity.research_task.assessment.current") {
     errors.push(
       issue(
         "research_contract.task_missing",
@@ -463,7 +463,7 @@ function checkClaim(
   errors: ValidationIssue[],
 ): void {
   const task = taskFor(claim, documentsByPath);
-  if (task?.schemaVersion !== "startup_opportunity.research_task.v1") {
+  if (task?.schemaVersion !== "startup_opportunity.research_task.assessment.current") {
     errors.push(
       issue(
         "research_contract.task_missing",
@@ -477,7 +477,7 @@ function checkClaim(
   const parents = checkTypedParents(
     claim,
     strings(claim.document.evidence_refs),
-    "startup_opportunity.evidence.v1",
+    "startup_opportunity.evidence.assessment.current",
     documentsByPath,
     errors,
   );
@@ -498,7 +498,7 @@ function checkFinding(
   errors: ValidationIssue[],
 ): void {
   const task = taskFor(finding, documentsByPath);
-  if (task?.schemaVersion !== "startup_opportunity.research_task.v1") {
+  if (task?.schemaVersion !== "startup_opportunity.research_task.assessment.current") {
     errors.push(
       issue(
         "research_contract.task_missing",
@@ -512,14 +512,14 @@ function checkFinding(
   const supporting = checkTypedParents(
     finding,
     strings(finding.document.claim_refs),
-    "startup_opportunity.claim.v1",
+    "startup_opportunity.claim.assessment.current",
     documentsByPath,
     errors,
   );
   const opposing = checkTypedParents(
     finding,
     strings(finding.document.opposing_claim_refs),
-    "startup_opportunity.claim.v1",
+    "startup_opportunity.claim.assessment.current",
     documentsByPath,
     errors,
   );
@@ -543,7 +543,7 @@ function checkInsight(
   errors: ValidationIssue[],
 ): void {
   const task = taskFor(insight, documentsByPath);
-  if (task?.schemaVersion !== "startup_opportunity.research_task.v1") {
+  if (task?.schemaVersion !== "startup_opportunity.research_task.assessment.current") {
     errors.push(
       issue(
         "research_contract.task_missing",
@@ -557,7 +557,7 @@ function checkInsight(
   checkTypedParents(
     insight,
     strings(insight.document.finding_refs),
-    "startup_opportunity.finding.v1",
+    "startup_opportunity.finding.assessment.current",
     documentsByPath,
     errors,
   );
@@ -578,7 +578,7 @@ function checkSourceManifest(
   errors: ValidationIssue[],
 ): void {
   const task = taskFor(sourceManifest, documentsByPath);
-  if (task?.schemaVersion !== "startup_opportunity.research_task.v1") {
+  if (task?.schemaVersion !== "startup_opportunity.research_task.assessment.current") {
     errors.push(
       issue(
         "research_contract.task_missing",
@@ -592,7 +592,7 @@ function checkSourceManifest(
   checkTypedParents(
     sourceManifest,
     strings(sourceManifest.document.accepted_evidence_refs),
-    "startup_opportunity.evidence.v1",
+    "startup_opportunity.evidence.assessment.current",
     documentsByPath,
     errors,
   );
@@ -612,13 +612,13 @@ function checkBranch(
     .map((ref) => targetByRef(documentsByPath, ref))
     .filter((entry): entry is ResearchBranchDocument => entry !== null);
   const tasks = inputs.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.research_task.v1",
+    (entry) => entry.schemaVersion === "startup_opportunity.research_task.assessment.current",
   );
   const sourceManifests = inputs.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.source_manifest.v1",
+    (entry) => entry.schemaVersion === "startup_opportunity.source_manifest.assessment.current",
   );
   const insights = inputs.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.insight.v1",
+    (entry) => entry.schemaVersion === "startup_opportunity.insight.assessment.current",
   );
   if (tasks.length !== 1 || sourceManifests.length !== 1 || insights.length === 0) {
     errors.push(
@@ -661,16 +661,18 @@ function checkBranch(
   });
   const evidenceIds = new Set(
     linked
-      .filter((entry) => entry.schemaVersion === "startup_opportunity.evidence.v1")
+      .filter((entry) => entry.schemaVersion === "startup_opportunity.evidence.assessment.current")
       .map(idOf)
       .filter((id): id is string => id !== null),
   );
   const evidenceById = new Map(
     linked
-      .filter((entry) => entry.schemaVersion === "startup_opportunity.evidence.v1")
+      .filter((entry) => entry.schemaVersion === "startup_opportunity.evidence.assessment.current")
       .map((entry) => [idOf(entry), entry]),
   );
-  const claims = linked.filter((entry) => entry.schemaVersion === "startup_opportunity.claim.v1");
+  const claims = linked.filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.claim.assessment.current",
+  );
   const claimById = new Map(claims.map((entry) => [idOf(entry), entry]));
   if (strings(branch.document.evidence_refs).some((id) => !evidenceIds.has(id))) {
     errors.push(
@@ -701,7 +703,7 @@ function checkBranch(
   const branchFindings = checkTypedParents(
     branch,
     strings(branch.document.finding_refs),
-    "startup_opportunity.finding.v1",
+    "startup_opportunity.finding.assessment.current",
     documentsByPath,
     errors,
   );
@@ -727,7 +729,7 @@ function checkBranch(
   const reachableEvidenceRefs = new Set(
     [...branchClaimRefs].flatMap((ref) => {
       const claim = documentsByPath.get(ref);
-      return claim?.schemaVersion === "startup_opportunity.claim.v1"
+      return claim?.schemaVersion === "startup_opportunity.claim.assessment.current"
         ? strings(claim.document.evidence_refs)
         : [];
     }),
@@ -776,7 +778,7 @@ function checkBranch(
   for (const judgmentRef of strings(branch.document.judgment_assessment_refs)) {
     const judgment = targetByRef(documentsByPath, judgmentRef);
     if (
-      judgment?.schemaVersion !== "startup_opportunity.judgment_assessment.v1" ||
+      judgment?.schemaVersion !== "startup_opportunity.judgment_assessment.assessment.current" ||
       judgment.document.subject_ref !== branch.document.concept_hypothesis_ref ||
       judgment.document.dimension !== branch.document.dimension_id
     ) {
@@ -829,7 +831,7 @@ export function validateResearchBranchContract(
     }
     if (
       entry.envelope !== null &&
-      entry.schemaVersion !== "startup_opportunity.research_task.v1" &&
+      entry.schemaVersion !== "startup_opportunity.research_task.assessment.current" &&
       entry.envelope.producer_role !== "lane_researcher"
     ) {
       errors.push(
@@ -843,32 +845,32 @@ export function validateResearchBranchContract(
     checkEnvelopeInputRefs(entry, errors);
   }
   for (const task of documents.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.research_task.v1",
+    (entry) => entry.schemaVersion === "startup_opportunity.research_task.assessment.current",
   )) {
     checkTask(task, documentsByPath, errors);
   }
   for (const evidence of documents.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.evidence.v1",
+    (entry) => entry.schemaVersion === "startup_opportunity.evidence.assessment.current",
   )) {
     checkEvidence(evidence, documentsByPath, exactRecords, errors);
   }
   for (const claim of documents.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.claim.v1",
+    (entry) => entry.schemaVersion === "startup_opportunity.claim.assessment.current",
   )) {
     checkClaim(claim, documentsByPath, errors);
   }
   for (const finding of documents.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.finding.v1",
+    (entry) => entry.schemaVersion === "startup_opportunity.finding.assessment.current",
   )) {
     checkFinding(finding, documentsByPath, errors);
   }
   for (const insight of documents.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.insight.v1",
+    (entry) => entry.schemaVersion === "startup_opportunity.insight.assessment.current",
   )) {
     checkInsight(insight, documentsByPath, errors);
   }
   for (const sourceManifest of documents.filter(
-    (entry) => entry.schemaVersion === "startup_opportunity.source_manifest.v1",
+    (entry) => entry.schemaVersion === "startup_opportunity.source_manifest.assessment.current",
   )) {
     checkSourceManifest(sourceManifest, documentsByPath, errors);
   }

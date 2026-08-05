@@ -135,7 +135,9 @@ function currentPlanningProjection(
     return value;
   }
   const hasDiscoveryContractClosure =
-    documents.some((document) => document.schemaVersion === "startup_opportunity.scope_frame.v2") &&
+    documents.some(
+      (document) => document.schemaVersion === "startup_opportunity.scope_frame.discovery.current",
+    ) &&
     documents.some((document) =>
       [
         "startup_opportunity.seed_probe.v1",
@@ -172,7 +174,7 @@ function currentPlanningProjection(
   const manifestBinding = context?.document.manifest_binding;
   if (
     manifest?.schemaVersion !== "startup_opportunity.run_manifest.v1" ||
-    context?.schemaVersion !== "startup_opportunity.planning_context.v2" ||
+    context?.schemaVersion !== "startup_opportunity.planning_context.ai_source_bound.current" ||
     context.document.validation_stage !== "candidate_revision" ||
     !isRecord(targetBinding) ||
     !isRecord(manifestBinding) ||

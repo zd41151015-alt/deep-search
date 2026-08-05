@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { CURRENT_POLICY_PATHS } from "./current-policy-paths.js";
 
 export const SKELETON_VERSION = "g4.3" as const;
 
@@ -65,14 +66,14 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
 
 export const CURRENT_SCHEMA_PATHS = [
   "harness/schemas/current.json",
-  "harness/schemas/current/artifact-envelope.schema.json",
-  "harness/schemas/current/artifact-store-operation.schema.json",
-  "harness/schemas/current/document-bundle.schema.json",
-  "harness/schemas/current/research-publication-policy.schema.json",
-  "harness/policies/research-publication.current.json",
+  "harness/schemas/current/store/artifact-envelope.schema.json",
+  "harness/schemas/current/store/artifact-store-operation.schema.json",
+  "harness/schemas/current/store/document-bundle.schema.json",
+  "harness/schemas/current/store/research-publication-policy.schema.json",
 ] as const;
 
 export const VALIDATOR_SOURCE_PATHS = [
+  "harness/src/current-policy-paths.ts",
   "harness/src/validators/schema-bundle.ts",
   "harness/src/validators/current-contract.ts",
   "harness/src/validators/artifact-validator.ts",
@@ -151,17 +152,7 @@ export const RESPONSIBILITY_PATHS = [
   "harness/src/adaptation/README.md",
   "harness/src/comparison/README.md",
   "harness/src/reporting/README.md",
-  "harness/policies/adaptation.v1.json",
-  "harness/policies/ai-trigger-source-binding.current.json",
-  "harness/policies/plan-revision-apply.v1.json",
-  "harness/policies/assessment-adaptation.v1.json",
-  "harness/policies/assessment-reporting.v1.json",
-  "harness/policies/discovery-maps.v1.json",
-  "harness/policies/discovery-candidates.v1.json",
-  "harness/policies/discovery-synthesis.v1.json",
-  "harness/policies/discovery-adaptation-binding.v1.json",
-  "harness/policies/discovery-evaluation.v3.json",
-  "harness/policies/assessment-execution.v1.json",
+  ...CURRENT_POLICY_PATHS,
   "tests/fixtures/README.md",
   "tests/fixtures/g1.2/README.md",
   "tests/fixtures/g1.3/README.md",

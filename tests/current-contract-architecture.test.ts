@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -42,6 +43,33 @@ test("production exposes one current schema graph without version-selection stru
   assert.ok(result.schemaRootCount > 0);
   assert.ok(result.artifactTypeCount > 0);
   assert.ok(result.activePolicyCount > 0);
+});
+
+test("current contract rejects missing and unlisted policy files", async (context) => {
+  const copyRoot = await mkdtemp(path.join(tmpdir(), "startup-opportunity-current-contract-"));
+  context.after(() => rm(copyRoot, { recursive: true, force: true }));
+  await cp(path.join(repositoryRoot, "harness"), path.join(copyRoot, "harness"), {
+    recursive: true,
+  });
+  await rm(path.join(copyRoot, "harness/policies/adaptation.current.json"));
+  await writeFile(
+    path.join(copyRoot, "harness/policies/unlisted.current.json"),
+    `${JSON.stringify({ schema_version: "startup_opportunity.adaptation_policy.current" })}\n`,
+  );
+
+  const result = await inspectCurrentContract(copyRoot);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some(
+      (candidate) =>
+        candidate.code === "current_contract.policy_set_mismatch" &&
+        Array.isArray(candidate.details.missingPolicies) &&
+        candidate.details.missingPolicies.includes("harness/policies/adaptation.current.json") &&
+        Array.isArray(candidate.details.unlistedPolicies) &&
+        candidate.details.unlistedPolicies.includes("harness/policies/unlisted.current.json"),
+    ),
+    JSON.stringify(result, null, 2),
+  );
 });
 
 test("architecture guard rejects retired Store compatibility and version-selection structures", () => {
@@ -130,7 +158,7 @@ test("architecture guard permits ordinary domain compatibility fields", () => {
 test("current Envelope retains grouped ownership, path, and required-field constraints", async () => {
   const envelope = JSON.parse(
     await readFile(
-      path.join(repositoryRoot, "harness/schemas/current/artifact-envelope.schema.json"),
+      path.join(repositoryRoot, "harness/schemas/current/store/artifact-envelope.schema.json"),
       "utf8",
     ),
   ) as { readonly allOf: readonly EnvelopeRule[] };
@@ -144,18 +172,18 @@ test("current Envelope retains grouped ownership, path, and required-field const
       "startup_opportunity.ai_inference_unit_economics.v1",
       "startup_opportunity.capability_commoditization_risk.v1",
       "startup_opportunity.capability_evidence.v1",
-      "startup_opportunity.evidence.v3",
-      "startup_opportunity.claim.v3",
-      "startup_opportunity.finding.v3",
-      "startup_opportunity.insight.v3",
-      "startup_opportunity.judgment_assessment.v3",
-      "startup_opportunity.source_manifest.v3",
+      "startup_opportunity.evidence.discovery_evaluation.current",
+      "startup_opportunity.claim.discovery_evaluation.current",
+      "startup_opportunity.finding.discovery_evaluation.current",
+      "startup_opportunity.insight.discovery_evaluation.current",
+      "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+      "startup_opportunity.source_manifest.discovery_evaluation.current",
       "startup_opportunity.enrichment_branch_result.v1",
       "startup_opportunity.commercial_research_audit.current",
     ],
     main_agent: [
       "startup_opportunity.enrichment_fan_in.v1",
-      "startup_opportunity.business_engine_thesis.v2",
+      "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
       "startup_opportunity.buyer_purchase_language.v1",
       "startup_opportunity.portfolio_view.v1",
       "startup_opportunity.sensitivity.v1",
@@ -163,13 +191,13 @@ test("current Envelope retains grouped ownership, path, and required-field const
       "startup_opportunity.value_layer_analysis.v1",
       "startup_opportunity.opportunity_comparison.v1",
       "startup_opportunity.decision_recommendation.v1",
-      "startup_opportunity.traceability.v2",
+      "startup_opportunity.traceability.discovery.current",
       "startup_opportunity.report.v1",
     ],
     harness: [
-      "startup_opportunity.decision_brief.v2",
+      "startup_opportunity.decision_brief.discovery.current",
       "startup_opportunity.discovery_report_view.v1",
-      "startup_opportunity.report_consistency_evaluation.v3",
+      "startup_opportunity.report_consistency_evaluation.discovery.current",
       "startup_opportunity.checkpoint.v1",
     ],
   } as const;
@@ -214,7 +242,9 @@ test("current Envelope retains grouped ownership, path, and required-field const
       type: "string",
       pattern: "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
     },
-    "startup_opportunity.concept_hypothesis.v2": { const: "concept-hypothesis.json" },
+    "startup_opportunity.concept_hypothesis.assessment_intake.current": {
+      const: "concept-hypothesis.json",
+    },
     "startup_opportunity.discovery_generation_result.v1": {
       type: "string",
       pattern: "^artifacts/discovery/generation/.+\\.json$",
@@ -223,11 +253,11 @@ test("current Envelope retains grouped ownership, path, and required-field const
       type: "string",
       pattern: "^artifacts/discovery/readiness/.+\\.r[1-9][0-9]*\\.json$",
     },
-    "startup_opportunity.dispatch_batch.v1": {
+    "startup_opportunity.dispatch_batch.discovery.current": {
       type: "string",
       pattern: "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json$",
     },
-    "startup_opportunity.dispatch_batch.v2": {
+    "startup_opportunity.dispatch_batch.assessment.current": {
       type: "string",
       pattern: "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json$",
     },
@@ -239,15 +269,15 @@ test("current Envelope retains grouped ownership, path, and required-field const
       type: "string",
       pattern: "^artifacts/runtime/lane-lifecycle/.+\\.r[1-9][0-9]*\\.json$",
     },
-    "startup_opportunity.research_execution_plan.v1": {
+    "startup_opportunity.research_execution_plan.discovery.current": {
       type: "string",
       pattern: "^plans/research-execution\\.r[1-9][0-9]*\\.json$",
     },
-    "startup_opportunity.research_execution_plan.v2": {
+    "startup_opportunity.research_execution_plan.assessment.current": {
       type: "string",
       pattern: "^plans/research-execution\\.r[1-9][0-9]*\\.json$",
     },
-    "startup_opportunity.source_manifest.v4": {
+    "startup_opportunity.source_manifest.discovery_runtime.current": {
       type: "string",
       pattern: "^evidence/source-manifests/discovery/.+\\.json$",
     },
@@ -265,7 +295,7 @@ test("current Envelope retains grouped ownership, path, and required-field const
 
   const producerRole = JSON.parse(
     await readFile(
-      path.join(repositoryRoot, "harness/schemas/current/artifact-envelope.schema.json"),
+      path.join(repositoryRoot, "harness/schemas/current/store/artifact-envelope.schema.json"),
       "utf8",
     ),
   ) as { properties: { producer_role: { enum: readonly string[] } } };
@@ -275,11 +305,11 @@ test("current Envelope retains grouped ownership, path, and required-field const
   for (const artifactType of [
     "startup_opportunity.opportunity_comparison.v1",
     "startup_opportunity.decision_recommendation.v1",
-    "startup_opportunity.traceability.v2",
+    "startup_opportunity.traceability.discovery.current",
     "startup_opportunity.report.v1",
-    "startup_opportunity.decision_brief.v2",
+    "startup_opportunity.decision_brief.discovery.current",
     "startup_opportunity.discovery_report_view.v1",
-    "startup_opportunity.report_consistency_evaluation.v3",
+    "startup_opportunity.report_consistency_evaluation.discovery.current",
   ]) {
     assert.ok(
       rulesFor(envelope.allOf, artifactType).some((rule) =>

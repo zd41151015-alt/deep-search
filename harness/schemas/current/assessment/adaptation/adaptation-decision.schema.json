@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/adaptation/adaptation-decision.schema.json",
+  "title": "Startup Opportunity Assessment Adaptation Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "adaptation_id",
+    "run_id",
+    "based_on_plan_ref",
+    "based_on_plan_revision",
+    "based_on_plan_hash",
+    "assessment_plan_ref",
+    "assessment_plan_revision",
+    "assessment_plan_hash",
+    "subject_ref",
+    "scope_frame_ref",
+    "scope_frame_hash",
+    "trigger_gap_refs",
+    "coverage_key",
+    "action",
+    "reason",
+    "expected_decision_impact",
+    "requested_by",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.adaptation_decision.assessment.current"
+    },
+    "adaptation_id": {
+      "$ref": "../../core/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../../core/definitions.schema.json#/$defs/runId"
+    },
+    "based_on_plan_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/planRef"
+    },
+    "based_on_plan_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "based_on_plan_hash": {
+      "$ref": "../../core/definitions.schema.json#/$defs/sha256"
+    },
+    "assessment_plan_ref": {
+      "$ref": "../core/definitions.schema.json#/$defs/assessmentPlanRef"
+    },
+    "assessment_plan_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "assessment_plan_hash": {
+      "$ref": "../../core/definitions.schema.json#/$defs/sha256"
+    },
+    "subject_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/artifactRef"
+    },
+    "scope_frame_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/artifactRef"
+    },
+    "scope_frame_hash": {
+      "$ref": "../../core/definitions.schema.json#/$defs/sha256"
+    },
+    "trigger_gap_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^adaptations/gap-snapshots/[A-Za-z0-9][A-Za-z0-9._-]*\\.json#[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+      },
+      "minItems": 1,
+      "maxItems": 1,
+      "uniqueItems": true
+    },
+    "coverage_key": {
+      "$ref": "../../core/definitions.schema.json#/$defs/sha256"
+    },
+    "action": {
+      "enum": ["add_unit", "stop_followup"]
+    },
+    "target_unit": {
+      "$ref": "../../core/definitions.schema.json#/$defs/researchUnit"
+    },
+    "candidate_assessment_plan_ref": {
+      "$ref": "../core/definitions.schema.json#/$defs/assessmentPlanRef"
+    },
+    "reason": {
+      "$ref": "../../core/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "expected_decision_impact": {
+      "$ref": "../../core/definitions.schema.json#/$defs/decisionImpactArray"
+    },
+    "success_condition": {
+      "$ref": "../../core/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "stop_condition": {
+      "$ref": "../../core/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "requested_by": {
+      "const": "main_agent"
+    },
+    "created_at": {
+      "$ref": "../../core/definitions.schema.json#/$defs/timestamp"
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "action": {
+          "const": "add_unit"
+        }
+      },
+      "required": ["target_unit", "candidate_assessment_plan_ref", "success_condition"],
+      "not": {
+        "required": ["stop_condition"]
+      }
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "stop_followup"
+        }
+      },
+      "required": ["stop_condition"],
+      "not": {
+        "anyOf": [
+          {
+            "required": ["target_unit"]
+          },
+          {
+            "required": ["candidate_assessment_plan_ref"]
+          },
+          {
+            "required": ["success_condition"]
+          }
+        ]
+      }
+    }
+  ]
+}

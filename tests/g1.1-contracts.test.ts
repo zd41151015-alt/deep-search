@@ -108,17 +108,17 @@ test("complete no-Evidence assess fixture closes schema, refs, identity, branch,
   assert.equal(result.documents.length, 30);
 
   const expectedDomainVersions = [
-    "startup_opportunity.business_engine_thesis.v1",
-    "startup_opportunity.concept_evidence_assessment.v1",
+    "startup_opportunity.business_engine_thesis.assessment.current",
+    "startup_opportunity.concept_evidence_assessment.analysis.current",
     "startup_opportunity.concept_evidence_assessment_branch_result.v1",
     "startup_opportunity.concept_evidence_assessment_fan_in.v1",
     "startup_opportunity.concept_evidence_assessment_plan.v1",
-    "startup_opportunity.concept_hypothesis.v1",
+    "startup_opportunity.concept_hypothesis.assessment.current",
     "startup_opportunity.decision_context.v1",
     "startup_opportunity.hypothesis_evidence_matrix.v1",
     "startup_opportunity.intake.v1",
-    "startup_opportunity.judgment_assessment.v1",
-    "startup_opportunity.scope_frame.v1",
+    "startup_opportunity.judgment_assessment.assessment.current",
+    "startup_opportunity.scope_frame.assessment.current",
   ];
   const actualDomainVersions = [
     ...new Set(
@@ -143,7 +143,7 @@ test("current envelope validates artifact type, canonical hash, Run identity, an
   assert.equal(envelope.content_hash, canonicalContentHash(envelope.document));
 
   const wrongType = structuredClone(envelope);
-  wrongType.artifact_type = "startup_opportunity.business_engine_thesis.v1";
+  wrongType.artifact_type = "startup_opportunity.business_engine_thesis.assessment.current";
   const wrongTypeResult = validator.validateDocument(wrongType, "wrong-type-envelope.json");
   assert.equal(wrongTypeResult.valid, false);
   assert.ok(wrongTypeResult.errors.some((entry) => entry.keyword === "const"));
@@ -390,7 +390,8 @@ test("fan-in preserves a formal failed branch as an explicit non-usable category
   bundle.documents = bundle.documents.filter(
     (entry) =>
       entry.document.schema_version !== "startup_opportunity.hypothesis_evidence_matrix.v1" &&
-      entry.document.schema_version !== "startup_opportunity.concept_evidence_assessment.v1",
+      entry.document.schema_version !==
+        "startup_opportunity.concept_evidence_assessment.analysis.current",
   );
   const result = validator.validateDocumentBundle(bundle);
   assert.equal(result.valid, true, JSON.stringify(result));

@@ -189,17 +189,17 @@ test("complete G3 bundle rejects every migrated grouped producer ownership drift
       "startup_opportunity.ai_inference_unit_economics.v1",
       "startup_opportunity.capability_commoditization_risk.v1",
       "startup_opportunity.capability_evidence.v1",
-      "startup_opportunity.evidence.v3",
-      "startup_opportunity.claim.v3",
-      "startup_opportunity.finding.v3",
-      "startup_opportunity.insight.v3",
-      "startup_opportunity.judgment_assessment.v3",
-      "startup_opportunity.source_manifest.v3",
+      "startup_opportunity.evidence.discovery_evaluation.current",
+      "startup_opportunity.claim.discovery_evaluation.current",
+      "startup_opportunity.finding.discovery_evaluation.current",
+      "startup_opportunity.insight.discovery_evaluation.current",
+      "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+      "startup_opportunity.source_manifest.discovery_evaluation.current",
       "startup_opportunity.enrichment_branch_result.v1",
     ],
     main_agent: [
       "startup_opportunity.enrichment_fan_in.v1",
-      "startup_opportunity.business_engine_thesis.v2",
+      "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
       "startup_opportunity.buyer_purchase_language.v1",
       "startup_opportunity.portfolio_view.v1",
       "startup_opportunity.sensitivity.v1",
@@ -646,7 +646,7 @@ test("G3.3 uses the current evaluation and publication contracts", async () => {
   const validator = await createArtifactValidator(repositoryRoot);
   assert.equal(
     validator.discoveryEvaluationPolicy.schema_version,
-    "startup_opportunity.discovery_evaluation_policy.v3",
+    "startup_opportunity.discovery_evaluation_policy.current",
   );
   assert.deepEqual(validator.publicationPolicy.document.publication, {
     envelope_schema_version: "startup_opportunity.artifact_envelope.current",
@@ -730,13 +730,13 @@ const EVALUATION_AGGREGATE_ARTIFACT_TYPES = [
   "startup_opportunity.value_layer_analysis.v1",
   "startup_opportunity.user_state_context_model.v1",
   "startup_opportunity.buyer_purchase_language.v1",
-  "startup_opportunity.business_engine_thesis.v2",
+  "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
   "startup_opportunity.opportunity_comparison.v1",
   "startup_opportunity.sensitivity.v1",
   "startup_opportunity.portfolio_view.v1",
   "startup_opportunity.decision_recommendation.v1",
-  "startup_opportunity.traceability.v2",
-  "startup_opportunity.report_consistency_evaluation.v3",
+  "startup_opportunity.traceability.discovery.current",
+  "startup_opportunity.report_consistency_evaluation.discovery.current",
 ] as const;
 
 async function publishG33Prerequisites(
@@ -760,18 +760,18 @@ async function publishG33Prerequisites(
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: byTypes(discovery, "startup_opportunity.research_task.v2"),
+    envelopes: byTypes(discovery, "startup_opportunity.research_task.discovery_candidate.current"),
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(
       discovery,
-      "startup_opportunity.evidence.v2",
-      "startup_opportunity.claim.v2",
-      "startup_opportunity.finding.v2",
-      "startup_opportunity.insight.v2",
-      "startup_opportunity.judgment_assessment.v2",
-      "startup_opportunity.source_manifest.v2",
+      "startup_opportunity.evidence.discovery_candidate.current",
+      "startup_opportunity.claim.discovery_candidate.current",
+      "startup_opportunity.finding.discovery_candidate.current",
+      "startup_opportunity.insight.discovery_candidate.current",
+      "startup_opportunity.judgment_assessment.discovery_candidate.current",
+      "startup_opportunity.source_manifest.discovery_candidate.current",
     ),
   });
   await state.store.publishArtifactBundle({
@@ -798,18 +798,21 @@ async function publishG33Prerequisites(
   const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: byTypes(evaluation, "startup_opportunity.research_task.v3"),
+    envelopes: byTypes(
+      evaluation,
+      "startup_opportunity.research_task.discovery_evaluation.current",
+    ),
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(
       evaluation,
-      "startup_opportunity.evidence.v3",
-      "startup_opportunity.claim.v3",
-      "startup_opportunity.finding.v3",
-      "startup_opportunity.insight.v3",
-      "startup_opportunity.judgment_assessment.v3",
-      "startup_opportunity.source_manifest.v3",
+      "startup_opportunity.evidence.discovery_evaluation.current",
+      "startup_opportunity.claim.discovery_evaluation.current",
+      "startup_opportunity.finding.discovery_evaluation.current",
+      "startup_opportunity.insight.discovery_evaluation.current",
+      "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+      "startup_opportunity.source_manifest.discovery_evaluation.current",
     ),
   });
   await state.store.publishArtifactBundle({
@@ -856,7 +859,9 @@ test("Artifact Store rejects grouped ownership and comparison binding drift", as
   const state = await lifecycleFixture(context);
   const evaluation = await publishG33Prerequisites(state);
   const businessEngine = evaluation.find(
-    (candidate) => candidate.artifact_type === "startup_opportunity.business_engine_thesis.v2",
+    (candidate) =>
+      candidate.artifact_type ===
+      "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
   );
   const comparison = evaluation.find(
     (candidate) => candidate.artifact_type === "startup_opportunity.opportunity_comparison.v1",
@@ -884,7 +889,7 @@ test("Artifact Store rejects grouped ownership and comparison binding drift", as
     "startup_opportunity.value_layer_analysis.v1",
     "startup_opportunity.user_state_context_model.v1",
     "startup_opportunity.buyer_purchase_language.v1",
-    "startup_opportunity.business_engine_thesis.v2",
+    "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
   ] as const;
   const preComparisonTypeSet = new Set<string>(preComparisonTypes);
   await state.store.publishArtifactBundle({

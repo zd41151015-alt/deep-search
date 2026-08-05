@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/reporting/discovery-adaptation-binding-policy.schema.json",
+  "title": "Startup Opportunity G2 Candidate Pre-kill Adaptation Binding Policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "trigger_gap_type",
+    "allowed_action",
+    "candidate_ref_pattern",
+    "target_binding",
+    "shared_unit_rule",
+    "execution_boundary"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.discovery_adaptation_binding_policy.current"
+    },
+    "policy_id": {
+      "const": "startup_opportunity.g2_candidate_pre_kill_adaptation"
+    },
+    "policy_version": {
+      "const": "1.0.0"
+    },
+    "trigger_gap_type": {
+      "const": "candidate_pre_killed"
+    },
+    "allowed_action": {
+      "const": "skip_unit"
+    },
+    "candidate_ref_pattern": {
+      "const": "^artifacts/discovery/candidates/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "target_binding": {
+      "const": "exact_gap_subject_in_unit_input_refs"
+    },
+    "shared_unit_rule": {
+      "const": "retain_or_supersede_never_skip"
+    },
+    "execution_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["harness_dispatches_agent", "harness_executes_research", "apply_revalidates"],
+      "properties": {
+        "harness_dispatches_agent": {
+          "const": false
+        },
+        "harness_executes_research": {
+          "const": false
+        },
+        "apply_revalidates": {
+          "const": true
+        }
+      }
+    }
+  }
+}

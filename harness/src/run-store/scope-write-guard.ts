@@ -16,8 +16,8 @@ const SCOPE_RECONCILIATION_ARTIFACT_TYPES = new Set([
   "startup_opportunity.adaptation_decision.assessment.current",
   "startup_opportunity.research_plan.v1",
   "startup_opportunity.concept_evidence_assessment_plan.v1",
-  "startup_opportunity.planning_context.v1",
-  "startup_opportunity.planning_context.v2",
+  "startup_opportunity.planning_context.general.current",
+  "startup_opportunity.planning_context.ai_source_bound.current",
   "startup_opportunity.ai_trigger_source_attestation.v1",
   "startup_opportunity.checkpoint.v1",
 ]);

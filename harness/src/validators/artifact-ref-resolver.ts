@@ -18,8 +18,8 @@ const DIRECT_FRAGMENT_FIELDS: Readonly<Record<string, readonly string[]>> = {
   "startup_opportunity.gap_snapshot.discovery.plan.current": ["snapshot_id"],
   "startup_opportunity.gap_snapshot.assessment.current": ["snapshot_id"],
   "startup_opportunity.gap_snapshot.discovery.readiness.current": ["snapshot_id"],
-  "startup_opportunity.planning_context.v1": ["context_id"],
-  "startup_opportunity.planning_context.v2": ["context_id"],
+  "startup_opportunity.planning_context.general.current": ["context_id"],
+  "startup_opportunity.planning_context.ai_source_bound.current": ["context_id"],
   "startup_opportunity.research_plan.v1": ["plan_id"],
 };
 
@@ -95,8 +95,8 @@ export function formalArtifactFragmentExists(
     );
   }
   if (
-    target.schemaVersion === "startup_opportunity.dispatch_batch.v1" ||
-    target.schemaVersion === "startup_opportunity.dispatch_batch.v2"
+    target.schemaVersion === "startup_opportunity.dispatch_batch.discovery.current" ||
+    target.schemaVersion === "startup_opportunity.dispatch_batch.assessment.current"
   ) {
     return (
       (expectedIdField === undefined || expectedIdField === "task_id") &&

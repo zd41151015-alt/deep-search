@@ -138,7 +138,7 @@
             ]
           }
         ],
-        "adaptation_policy_ref": "harness/policies/adaptation.v1.json",
+        "adaptation_policy_ref": "harness/policies/adaptation.current.json",
         "followup_policy": {
           "max_followup_rounds": 2,
           "require_decision_relevance": true,
@@ -149,7 +149,7 @@
     {
       "path": "plans/planning-context.r1.json",
       "document": {
-        "schema_version": "startup_opportunity.planning_context.v2",
+        "schema_version": "startup_opportunity.planning_context.ai_source_bound.current",
         "context_id": "planning_context_001",
         "revision": 1,
         "parent_context_ref": null,
@@ -171,7 +171,7 @@
           "plan_schema_version": "startup_opportunity.research_plan.v1",
           "plan_id": "plan_contract_001",
           "plan_revision": 1,
-          "plan_content_hash": "sha256:219a99d6c6f4c2c4028bee31b9bcdf30bc26e9ae385bc682d99ebfb701667dc4"
+          "plan_content_hash": "sha256:49f14bfbb655c0c35b116ab418e8202bd1498db3ad991e056de664228e62f137"
         },
         "ai_mandatory_coverage": {
           "status": "required",
@@ -240,12 +240,12 @@
       "path": "adaptations/coverage/coverage-buyer-001.json",
       "document": {
         "schema_version": "startup_opportunity.coverage_attestation.v1",
-        "coverage_key": "sha256:2c4d5c1ac2b558a124228a763474c29bf5be8541e3055580978c623ce5ef71b0",
+        "coverage_key": "sha256:6aee7e1bb901fed316f192baef473c594121b8daac2bcdba140c3f164e151663",
         "relation": "same_subject_and_semantically_equivalent_research_goal",
         "run_id": "run_contract_001",
         "based_on_plan_ref": "plans/research-plan.r1.json",
         "based_on_plan_revision": 1,
-        "based_on_plan_hash": "sha256:219a99d6c6f4c2c4028bee31b9bcdf30bc26e9ae385bc682d99ebfb701667dc4",
+        "based_on_plan_hash": "sha256:49f14bfbb655c0c35b116ab418e8202bd1498db3ad991e056de664228e62f137",
         "gap_ref": "adaptations/gap-snapshots/gap-buyer.r1.json#gap_buyer_001",
         "subject_ref": "opportunity_001",
         "target_unit_ref": "plans/research-plan.r1.json#buyer_existing",

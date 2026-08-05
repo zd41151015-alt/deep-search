@@ -2,7 +2,9 @@
 
 `current.json` is the only schema manifest loaded by production code. It is edited in place with the current producers, consumers, policies, and fixtures. It has no release number, `base_bundle`, inheritance chain, historical selection, or compatibility role.
 
-The directories named `v1/` through `v19/` are source organization inherited from construction. A numbered domain schema remains installed only when a current producer, consumer, policy, or `$ref` reaches its distinct business shape. The directory number does not make it an old-Run contract and must not be used for Store dispatch. New naming should describe business semantics when current incompatible shapes must coexist; do not mechanically rename all existing domain IDs.
+Every production schema lives under `current/`, grouped by the domain that owns it. The manifest rejects files outside that tree. Numbered construction directories are not part of the current contract layout.
+
+Current incompatible business shapes use descriptive identities such as Assessment, Discovery Candidate, Discovery Evaluation, and Terminal rather than a shared name with increasing version numbers. A remaining numbered domain identity is a single current business contract, not a historical bundle or Store compatibility surface; change it only with its current producers, consumers, policies, and fixtures.
 
 The current Store surface is:
 

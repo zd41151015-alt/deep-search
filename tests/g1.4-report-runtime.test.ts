@@ -247,7 +247,7 @@ function executionPlanEnvelope(
   return v5Envelope(
     "plans/research-execution.r1.json",
     {
-      schema_version: "startup_opportunity.research_execution_plan.v1",
+      schema_version: "startup_opportunity.research_execution_plan.discovery.current",
       execution_plan_id: "execution_plan_g1_4_synthetic",
       run_id: G14_RUN_ID,
       mode: "concept_evidence_assessment",
@@ -303,7 +303,7 @@ function dispatchEnvelope(
   return v5Envelope(
     "tasks/dispatch/commercial-research.r1.json",
     {
-      schema_version: "startup_opportunity.dispatch_batch.v1",
+      schema_version: "startup_opportunity.dispatch_batch.discovery.current",
       batch_id: "dispatch_commercial_research_g1_4",
       revision: 1,
       run_id: G14_RUN_ID,
@@ -492,7 +492,7 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
           const document = structuredClone(envelope.document);
           if (
             branch.unitId === demand.unitId &&
-            envelope.artifact_type === "startup_opportunity.claim.v1"
+            envelope.artifact_type === "startup_opportunity.claim.assessment.current"
           ) {
             document.evidence_refs = evidencePaths;
           }
@@ -501,7 +501,7 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
             created_at: `2026-07-25T18:${String(20 + index).padStart(2, "0")}:00Z`,
             input_refs:
               branch.unitId === demand.unitId &&
-              envelope.artifact_type === "startup_opportunity.claim.v1"
+              envelope.artifact_type === "startup_opportunity.claim.assessment.current"
                 ? [`tasks/${branch.unitId}.attempt-1.json`, ...evidencePaths].sort()
                 : envelope.input_refs,
             content_hash: canonicalContentHash(document),

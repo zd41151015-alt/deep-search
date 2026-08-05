@@ -55,9 +55,12 @@ const CLAIM_ASPECTS: Readonly<Record<string, readonly string[]>> = {
 };
 
 const TASK_STAGE_BY_VERSION = new Map([
-  ["startup_opportunity.research_task.v1", "solution_specific_evaluation"],
-  ["startup_opportunity.research_task.v2", "solution_neutral_scan"],
-  ["startup_opportunity.research_task.v3", "solution_specific_evaluation"],
+  ["startup_opportunity.research_task.assessment.current", "solution_specific_evaluation"],
+  ["startup_opportunity.research_task.discovery_candidate.current", "solution_neutral_scan"],
+  [
+    "startup_opportunity.research_task.discovery_evaluation.current",
+    "solution_specific_evaluation",
+  ],
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {

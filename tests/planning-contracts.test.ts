@@ -296,7 +296,7 @@ test("closed mode policy accepts exact declared tuples and preserves installed o
     artifact_schema_catalog: string[];
     phase_catalog: unknown[];
     unit_rules: { unit_type: string }[];
-  }>(path.join(repositoryRoot, "harness/policies/adaptation.v1.json"));
+  }>(path.join(repositoryRoot, "harness/policies/adaptation.current.json"));
   assert.equal(policy.phase_catalog.length, 5);
   assert.equal(new Set(policy.unit_rules.map((rule) => rule.unit_type)).size, 23);
   const installedOwnedSchemas = new Set([

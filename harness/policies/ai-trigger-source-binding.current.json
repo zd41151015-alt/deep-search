@@ -3,13 +3,13 @@
   "policy_id": "startup_opportunity.ai_trigger_source_binding",
   "policy_version": "1.0.0",
   "base_adaptation_policy_binding": {
-    "policy_ref": "harness/policies/adaptation.v1.json",
-    "schema_version": "startup_opportunity.adaptation_policy.v1",
+    "policy_ref": "harness/policies/adaptation.current.json",
+    "schema_version": "startup_opportunity.adaptation_policy.current",
     "policy_version": "1.0.0",
-    "content_hash": "sha256:5a9f159ba7cf4a61938efcd249bcfad73c2c7468954d1c9219d7382a18fbb504"
+    "content_hash": "sha256:334c44b3aa59c017e963b0affe4e93988177ec89c485f671479e6c3a51d1782e"
   },
   "contract_versions": {
-    "planning_context": "startup_opportunity.planning_context.v2",
+    "planning_context": "startup_opportunity.planning_context.ai_source_bound.current",
     "source_attestation": "startup_opportunity.ai_trigger_source_attestation.v1",
     "trigger": "startup_opportunity.ai_mandatory_coverage_trigger.v1"
   },
