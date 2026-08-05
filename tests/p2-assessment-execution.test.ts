@@ -17,6 +17,7 @@ import {
   StoreError,
   validateAssessmentExecutionContract,
 } from "../harness/src/index.js";
+import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const fixturePath = path.join(
@@ -41,7 +42,7 @@ const dimensions = [
   "counter_evidence",
 ] as const;
 
-type ProducerRole = "main_agent" | "lane-researcher" | "harness";
+type ProducerRole = "main_agent" | "lane_researcher" | "harness";
 
 function recordAt(
   records: readonly Record<string, unknown>[],
@@ -238,6 +239,11 @@ function executionPlan(runId: string, plan: Record<string, unknown>): Record<str
     created_at: createdAt,
     research_depth: "quick",
     total_time_budget_minutes: 45,
+    resource_allocation: {
+      customer_commercial_percent: 65,
+      market_structure_percent: 17,
+      academic_percent: 18,
+    },
     followup_round: 0,
     stages: [
       {
@@ -490,6 +496,7 @@ function dispatchForStage(
     wave_id: `wave_${String(stage.stage_id)}`,
     gate_ref: gateRef,
     requested_at: createdAt,
+    dispatch_mode: "parallel_immediate",
     agent_dispatch_performed: false,
     tasks,
   });
@@ -649,7 +656,18 @@ async function prepareCoreStoreRun(context: TestContext, suffix: string) {
   const runId = `p2-${suffix}-synthetic`;
   const validator = await createArtifactValidator(repositoryRoot);
   const store = new RunStore(runsRoot, validator);
-  await store.create({ runId, mode: "concept_evidence_assessment", createdAt });
+  const created = await createConfirmedRun(store, {
+    runId,
+    mode: "concept_evidence_assessment",
+    createdAt,
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
+  });
   const fixture = JSON.parse(await readFile(fixturePath, "utf8")) as {
     documents: { path: string; document: Record<string, unknown> }[];
   };
@@ -669,7 +687,7 @@ async function prepareCoreStoreRun(context: TestContext, suffix: string) {
     ),
   });
   const compiler = new DeclarativeRuntimeCompiler(runsRoot, validator);
-  return { root, runsRoot, runId, validator, store, compiler };
+  return { root, runsRoot, runId, validator, store, compiler, created };
 }
 
 async function prepareStoreRun(context: TestContext, suffix: string) {
@@ -1020,8 +1038,10 @@ test("thesis provenance blocks unknowns, requires exact user confirmation, and r
         schema_version: "startup_opportunity.decision.v1",
         decision_id: "decision_assumption_synthetic",
         run_id: runId,
-        actor: "user",
+        actor: "main_agent",
         decision_type: "scope_assumption_confirmed",
+        confirmation_basis: "caller_attested_user_confirmation",
+        harness_identity_verification: "not_available",
       },
     ],
   ]);
@@ -1067,7 +1087,7 @@ test("authorized Thesis provenance publishes, recovers a fault, and exactly repl
   const state = await prepareCoreStoreRun(t, "provenance-publication");
   const assumed = concept(state.runId);
   const disclosure = "The acquisition hypothesis is an agent assumption authorized by the user.";
-  const decisionRef = "decisions.jsonl#decision_assumption_publication";
+  const decisionRef = state.created.manifest.scope_confirmation_ref;
   const provenance = recordAt(
     assumed.field_provenance as Record<string, unknown>[],
     -1,
@@ -1082,23 +1102,6 @@ test("authorized Thesis provenance publishes, recovers a fault, and exactly repl
     [runtimeArtifact(conceptPath, assumed, "main_agent")],
     "compile_assumed_concept_publication_synthetic",
   );
-  const before = (await state.store.status(state.runId)).manifest;
-  await assert.rejects(
-    state.compiler.compile(request),
-    (error: unknown) => error instanceof StoreError && error.code === "reference.fragment_missing",
-  );
-  assert.deepEqual((await state.store.status(state.runId)).manifest, before);
-
-  await state.store.appendDecision(state.runId, {
-    schema_version: "startup_opportunity.decision.v1",
-    decision_id: "decision_assumption_publication",
-    run_id: state.runId,
-    decision_type: "scope_assumption_confirmed",
-    timestamp: createdAt,
-    actor: "user",
-    reason: "SYNTHETIC user authorization exists only to exercise exact provenance publication.",
-    artifact_refs: ["intake.json"],
-  });
   await assert.rejects(
     state.compiler.compile(request, { faultAt: "after_temp_write" }),
     (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
@@ -1108,7 +1111,7 @@ test("authorized Thesis provenance publishes, recovers a fault, and exactly repl
   const replay = await state.compiler.compile(request);
   assert.equal(replay.status, "idempotent_replay");
   assert.ok(replay.validation_closure.exact_record_count >= 1);
-  assert.ok(replay.compiled_envelopes[0]?.input_refs.includes(decisionRef));
+  assert.ok(replay.compiled_envelopes[0]?.input_refs.includes(decisionRef as string));
 });
 
 test("Assessment Evidence binds a current dispatch task and exact Evidence Store substrate", async (t) => {
@@ -1163,7 +1166,7 @@ test("Assessment Evidence binds a current dispatch task and exact Evidence Store
     .compile(
       compilationRequest(
         state.runId,
-        [runtimeArtifact(evidence.path, evidence.document, "lane-researcher")],
+        [runtimeArtifact(evidence.path, evidence.document, "lane_researcher")],
         "compile_assessment_evidence_synthetic",
       ),
     )
@@ -1314,7 +1317,7 @@ test("terminal Assessment gates atomically project Run outcomes and recover exac
     await state.compiler.compile(
       compilationRequest(
         state.runId,
-        results.map((result) => runtimeArtifact(result.path, result.document, "lane-researcher")),
+        results.map((result) => runtimeArtifact(result.path, result.document, "lane_researcher")),
         `compile_results_${item.outcome}`,
       ),
     );
@@ -1425,7 +1428,7 @@ test("current Assessment compiler publishes, rejects mixed surfaces, recovers fa
     compilationRequest(
       state.runId,
       failedResults.map((result) =>
-        runtimeArtifact(result.path, result.document, "lane-researcher"),
+        runtimeArtifact(result.path, result.document, "lane_researcher"),
       ),
       "compile_failed_lanes_p2_synthetic",
     ),

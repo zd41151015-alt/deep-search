@@ -149,6 +149,28 @@ export function taskEnvelope(
     wave_id: "assessment_wave_1",
     unit_type: unit.unit_type,
     research_goal: unit.research_goal,
+    commercial_research_requirements: {
+      research_stage: "solution_specific_evaluation",
+      resource_allocation: {
+        customer_commercial_percent: 65,
+        market_structure_percent: 17,
+        academic_percent: 18,
+      },
+      planned_queries: [
+        {
+          query: `synthetic ${branch.unitId} buyer, pricing, and alternative behavior`,
+          commercial_dimensions: ["buyer", "purchase", "pricing", "alternatives"],
+        },
+      ],
+      required_commercial_dimensions: [
+        "recent_user_language",
+        "purchase_signal",
+        "alternatives_pricing_usage",
+        "distribution_channel",
+        "independent_counterevidence",
+      ],
+      commercial_audit_output_path: `artifacts/research-audits/${branch.unitId}.json`,
+    },
     target_subject_ref: "concept-hypothesis.json",
     scope_frame_ref: "scope-frame.json",
     research_plan_ref: "plans/research-plan.r1.json",

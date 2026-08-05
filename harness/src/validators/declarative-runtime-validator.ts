@@ -607,6 +607,7 @@ function validateLifecycle(
     parent.document.lifecycle_id !== lifecycle.lifecycle_id ||
     parent.document.unit_id !== lifecycle.unit_id ||
     parent.document.attempt !== lifecycle.attempt ||
+    parent.document.execution_attempt_id !== lifecycle.execution_attempt_id ||
     parent.document.dispatch_batch_ref !== lifecycle.dispatch_batch_ref
   ) {
     errors.push(

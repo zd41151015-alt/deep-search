@@ -48,6 +48,7 @@
         "continue_existing_plan",
         "request_clarification",
         "stop_followup",
+        "record_runtime_failure",
         "terminate_insufficient_evidence"
       ]
     },
@@ -309,7 +310,7 @@
         {
           "properties": {
             "action": {
-              "enum": ["stop_followup", "terminate_insufficient_evidence"]
+              "enum": ["stop_followup", "record_runtime_failure", "terminate_insufficient_evidence"]
             }
           },
           "required": ["stop_condition"],

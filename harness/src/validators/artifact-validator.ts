@@ -30,6 +30,11 @@ import {
   type AssessmentReportingPolicy,
   loadAssessmentReportingPolicy,
 } from "./assessment-reporting-policy.js";
+import {
+  type CommercialResearchDocument,
+  type CommercialResearchPolicy,
+  validateCommercialResearchContract,
+} from "./commercial-research-validator.js";
 import { validateDeclarativeRuntimeContract } from "./declarative-runtime-validator.js";
 import {
   type DiscoveryCandidatePolicy,
@@ -372,6 +377,18 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
   switch (schemaVersion) {
     case "startup_opportunity.run_manifest.v1":
       return [
+        ...optionalRef(
+          document,
+          "scope_proposal_ref",
+          "startup_opportunity.decision.v1",
+          "decision_id",
+        ),
+        ...optionalRef(
+          document,
+          "scope_confirmation_ref",
+          "startup_opportunity.decision.v1",
+          "decision_id",
+        ),
         ...optionalRef(document, "current_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "latest_gap_snapshot_ref", [
           "startup_opportunity.gap_snapshot.discovery.plan.current",
@@ -2368,6 +2385,43 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.evidence.v3",
           "startup_opportunity.assessment_evidence.v1",
         ]),
+        ...refsFromNestedArray(document, "excluded_evidence", "evidence_ref", [
+          "startup_opportunity.evidence.v1",
+          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.v3",
+          "startup_opportunity.assessment_evidence.v1",
+          "startup_opportunity.candidate_neutral_evidence.v1",
+        ]),
+        ...refsFromArray(
+          document,
+          "commercial_research_audit_refs",
+          "startup_opportunity.commercial_research_audit.current",
+        ),
+      ];
+    case "startup_opportunity.commercial_research_audit.current":
+      return [
+        ...optionalRef(document, "execution_plan_ref", [
+          "startup_opportunity.research_execution_plan.v1",
+          "startup_opportunity.research_execution_plan.v2",
+        ]),
+        ...optionalRef(
+          document,
+          "dispatch_task_ref",
+          ["startup_opportunity.dispatch_batch.v1", "startup_opportunity.dispatch_batch.v2"],
+          "task_id",
+        ),
+        ...optionalRef(document, "task_ref", [
+          "startup_opportunity.research_task.v1",
+          "startup_opportunity.research_task.v2",
+          "startup_opportunity.research_task.v3",
+        ]),
+        ...refsFromNestedArray(document, "evidence_register", "evidence_ref", [
+          "startup_opportunity.evidence.v1",
+          "startup_opportunity.evidence.v2",
+          "startup_opportunity.evidence.v3",
+          "startup_opportunity.assessment_evidence.v1",
+          "startup_opportunity.candidate_neutral_evidence.v1",
+        ]),
       ];
     case "startup_opportunity.decision_brief.v3":
     case "startup_opportunity.terminal_report_view.v1":
@@ -3495,7 +3549,26 @@ export class ArtifactValidator {
         envelope: entry.envelope,
       }),
     );
-    referenceErrors.push(...validateTerminalReportingContract(terminalReportingDocuments));
+    referenceErrors.push(
+      ...validateTerminalReportingContract(
+        terminalReportingDocuments,
+        this.publicationPolicy.document
+          .commercial_research_contract as unknown as CommercialResearchPolicy,
+      ),
+    );
+    const commercialResearchDocuments: readonly CommercialResearchDocument[] =
+      effectiveDocuments.map((entry) => ({
+        path: entry.path,
+        schemaVersion: entry.schemaVersion,
+        document: entry.document,
+      }));
+    referenceErrors.push(
+      ...validateCommercialResearchContract(
+        commercialResearchDocuments,
+        this.publicationPolicy.document
+          .commercial_research_contract as unknown as CommercialResearchPolicy,
+      ),
+    );
     referenceErrors.push(
       ...validateDeclarativeRuntimeContract(effectiveDocuments, exactJsonlRecords),
     );

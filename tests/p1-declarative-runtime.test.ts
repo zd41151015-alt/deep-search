@@ -13,6 +13,7 @@ import {
   type DocumentBundle,
   EvidenceStore,
   type FormalArtifactEnvelope,
+  LaneResultMaterializer,
   RunStore,
   StoreError,
   validateDeclarativeRuntimeContract,
@@ -36,6 +37,7 @@ import {
   createDiscoveryRuntimeFixture,
   runtimeEnvelope,
 } from "./fixtures/g2.2/discovery-runtime-fixture.js";
+import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const createdAt = "2026-07-31T16:00:00Z";
@@ -43,7 +45,8 @@ const createdAt = "2026-07-31T16:00:00Z";
 type RuntimeArtifact = {
   readonly artifact_type: string;
   readonly artifact_path: string;
-  readonly producer_role: "main_agent" | "lane-researcher" | "harness";
+  readonly producer_role: "main_agent" | "lane_researcher" | "harness";
+  readonly input_refs?: readonly string[];
   readonly document: Record<string, unknown>;
 };
 
@@ -117,6 +120,11 @@ function executionPlan(
     created_at: createdAt,
     research_depth: "quick",
     total_time_budget_minutes: 10,
+    resource_allocation: {
+      customer_commercial_percent: 65,
+      market_structure_percent: 17,
+      academic_percent: 18,
+    },
     stages: [
       {
         stage_id: `stage_${kind}`,
@@ -173,6 +181,12 @@ function terminalReadiness(runId: string, plan: Record<string, unknown>): Record
       evidence_refs: [],
       basis_refs: candidateRoles.map((role) => role.candidate_ref),
     })),
+    commercial_signal_gate: {
+      demand_signal: false,
+      buyer_signal: false,
+      purchase_signal: false,
+      decision: "early_stop_insufficient_evidence",
+    },
     next_stage_readiness: "terminal",
     blockers: [
       {
@@ -253,6 +267,7 @@ function dispatchBatch(
     dispatch_group: lanes[0]?.dispatch_group,
     task_ready_at: "2026-07-31T16:01:00Z",
     dispatch_requested_at: "2026-07-31T16:01:01Z",
+    dispatch_mode: "parallel_immediate",
     tasks: lanes.map((lane) => {
       const unit = units.get(String(lane.unit_id));
       assert.ok(unit);
@@ -289,6 +304,7 @@ function lifecycle(
     run_id: runId,
     unit_id: unitId,
     attempt: 1,
+    execution_attempt_id: `execution_${unitId}_attempt_1`,
     dispatch_batch_ref: `tasks/dispatch/runtime.r1.json#task_${unitId}`,
     state,
     timestamps: {
@@ -329,9 +345,16 @@ async function prepareRun(context: TestContext, suffix: string) {
   const validator = await createArtifactValidator(repositoryRoot);
   const runStore = new RunStore(runsRoot, validator);
   const bundle = await createDiscoveryMapsFixture("general", runId);
-  await runStore.create({
+  await createConfirmedRun(runStore, {
     runId,
     mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     createdAt: "2026-07-31T15:59:00Z",
   });
   await runStore.publishArtifactBundle({
@@ -375,9 +398,16 @@ async function prepareDiscoveryTaskBridgeRun(context: TestContext, suffix: strin
   const runId = `p1-task-bridge-${suffix}-synthetic`;
   const validator = await createArtifactValidator(repositoryRoot);
   const runStore = new RunStore(runsRoot, validator);
-  await runStore.create({
+  await createConfirmedRun(runStore, {
     runId,
     mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     createdAt: "2026-07-31T15:59:00Z",
   });
   const evidence = new EvidenceStore(runsRoot);
@@ -489,6 +519,83 @@ function alternateTask(
   return envelope;
 }
 
+function unrankedCommercialAudit(
+  runId: string,
+  unitId: string,
+  taskRef: string,
+): Record<string, unknown> {
+  const uncovered = [
+    "recent_user_language",
+    "purchase_signal",
+    "alternatives_pricing_usage",
+    "distribution_channel",
+    "independent_counterevidence",
+  ];
+  return {
+    schema_version: "startup_opportunity.commercial_research_audit.current",
+    audit_id: `commercial_audit_${unitId}`,
+    run_id: runId,
+    unit_id: unitId,
+    execution_plan_ref: "plans/research-execution.r1.json",
+    dispatch_task_ref: `tasks/dispatch/runtime.r1.json#task_${unitId}`,
+    task_ref: taskRef,
+    covered_direction_ids: [],
+    research_stage: "solution_specific_evaluation",
+    audited_at: "2026-07-31T16:03:00Z",
+    planned_resource_allocation: {
+      customer_commercial_percent: 65,
+      market_structure_percent: 17,
+      academic_percent: 18,
+    },
+    adopted_source_distribution: {
+      total_adopted_sources: 0,
+      customer_commercial_count: 0,
+      market_structure_count: 0,
+      academic_count: 0,
+      customer_commercial_percent: 0,
+      market_structure_percent: 0,
+      academic_percent: 0,
+      guidance_deviation_observed: false,
+    },
+    search_log: [
+      {
+        query_id: `query_${unitId}`,
+        query: "SYNTHETIC commercial audit query; no research was performed.",
+        searched_at: "2026-07-31T16:02:00Z",
+        commercial_dimensions: ["solution_pricing"],
+        candidate_results: [],
+      },
+    ],
+    search_closure: {
+      closure_id: `search_closure_${unitId}`,
+      lane_kind: "external_research",
+      outcome: "evidence_insufficient",
+      query_log_complete: false,
+      telemetry_basis: "agent_supplied",
+      remaining_gaps: uncovered,
+      termination_reason: "Synthetic fixture did not adopt any source.",
+    },
+    evidence_register: [],
+    coverage: Object.fromEntries(
+      uncovered.map((key) => [
+        key,
+        {
+          state: "unknown",
+          content_covered: false,
+          evidence_refs: [],
+          data_points: [],
+          inference: null,
+        },
+      ]),
+    ),
+    uncovered_business_dimensions: uncovered,
+    wave1_signals: { demand: false, buyer: false, purchase: false },
+    stage_decision: "early_stop_insufficient_evidence",
+    ranking_eligibility: "unranked_hypothesis",
+    limitations: ["SYNTHETIC contract audit; no research was performed."],
+  };
+}
+
 async function moveManifestUnit(
   runRoot: string,
   unitId: string,
@@ -517,10 +624,18 @@ async function moveManifestUnit(
 test("public compiler validates, publishes, replays, and recovers a temp-write fault", async (t) => {
   const first = await prepareRun(t, "compiler");
   const execution = executionPlan(first.runId, first.plan);
-  const artifact = runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent");
+  const planQuestion = (first.plan.research_questions as Record<string, unknown>[])[0];
+  assert.ok(planQuestion);
+  const policyRef = "harness/policies/adaptation.v1.json";
+  const fragmentRef = `${G21_PLAN_REF}#${String(planQuestion.question_id)}`;
+  const artifact = {
+    ...runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+    input_refs: [policyRef, fragmentRef],
+  };
   const compiler = new DeclarativeRuntimeCompiler(first.runsRoot, first.validator);
+  const requestId = "request_validate_synthetic";
   const validated = await compiler.compile(
-    compilationRequest(first.runId, "validate_only", [artifact], "request_validate_synthetic"),
+    compilationRequest(first.runId, "validate_only", [artifact], requestId),
   );
   assert.equal(validated.status, "validated");
   assert.equal(
@@ -528,17 +643,23 @@ test("public compiler validates, publishes, replays, and recovers a temp-write f
     "startup_opportunity.artifact_envelope.current",
   );
   assert.ok(validated.validation_closure.document_count > 1);
-
-  const request = compilationRequest(
-    first.runId,
-    "publish",
-    [artifact],
-    "request_publish_synthetic",
+  const resolvedByRef = new Map(
+    validated.publication_plan.resolved_references.map((reference) => [reference.ref, reference]),
   );
+  assert.equal(resolvedByRef.get(policyRef)?.kind, "repository_policy");
+  assert.match(String(resolvedByRef.get(policyRef)?.content_hash), /^sha256:[a-f0-9]{64}$/u);
+  assert.equal(resolvedByRef.get(fragmentRef)?.kind, "run_artifact_fragment");
+
+  const request = {
+    ...compilationRequest(first.runId, "publish", [], requestId),
+    publication_plan: validated.publication_plan,
+  };
   const published = await compiler.compile(request);
   assert.equal(published.status, "published");
+  assert.equal(published.publication_plan.plan_id, validated.publication_plan.plan_id);
   const replay = await compiler.compile(request);
   assert.equal(replay.status, "idempotent_replay");
+  assert.equal(replay.publication_plan.plan_id, validated.publication_plan.plan_id);
 
   const fault = await prepareRun(t, "compiler-fault");
   const faultArtifact = runtimeArtifact(
@@ -668,6 +789,26 @@ test("terminal compilation recovers and replays after a temp-write fault", async
   assert.equal((await compiler.compile(gapRequest)).status, "idempotent_replay");
   const afterGap = await new RunStore(state.runsRoot, state.validator).load(state.runId);
   assert.equal(afterGap.manifest.latest_gap_snapshot_ref, gapPath);
+
+  const blockedCandidate = structuredClone(fixtureDocument(state.bundle, G22_DEMAND_R1));
+  await assert.rejects(
+    compiler.compile(
+      compilationRequest(
+        state.runId,
+        "publish",
+        [
+          runtimeArtifact(
+            "artifacts/discovery/candidates/blocked-after-gap.r1.json",
+            blockedCandidate,
+            "main_agent",
+          ),
+        ],
+        "request_blocked_after_gap_synthetic",
+      ),
+    ),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.transition_blocking_gap_unresolved",
+  );
 });
 
 test("complete same-wave dispatch activates both units and lifecycle revisions cannot regress", async (t) => {
@@ -731,6 +872,87 @@ test("complete same-wave dispatch activates both units and lifecycle revisions c
   );
 });
 
+test("status derives retries from distinct execution attempts across the complete lifecycle", async (t) => {
+  const state = await prepareRun(t, "status-retries");
+  const execution = executionPlan(state.runId, state.plan, "evaluation");
+  const batch = dispatchBatch(state.runId, state.plan, execution);
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  await compiler.compile(
+    compilationRequest(state.runId, "publish", [
+      runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+      runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
+    ]),
+  );
+  const unitId = String(planUnits(state.plan)[0]?.unit_id);
+  const attempt = (
+    ordinal: number,
+    stateName: "failed" | "published",
+    failureKind?: "validation_failed" | "publication_failed",
+  ): Record<string, unknown> => {
+    const document = lifecycle(state.runId, unitId, 1, "agent_started");
+    document.lifecycle_id = `lifecycle_${unitId}_attempt_${ordinal}`;
+    document.attempt = ordinal;
+    document.execution_attempt_id = `execution_${unitId}_attempt_${ordinal}`;
+    document.state = stateName;
+    const timestamps = document.timestamps as Record<string, unknown>;
+    if (stateName === "published") {
+      timestamps.evidence_recorded_at = "2026-07-31T16:01:03Z";
+      timestamps.handoff_ready_at = "2026-07-31T16:01:04Z";
+      timestamps.formalization_validated_at = "2026-07-31T16:01:05Z";
+      timestamps.published_at = "2026-07-31T16:01:06Z";
+      document.failure = null;
+    } else {
+      document.failure = {
+        kind: failureKind,
+        detail: `SYNTHETIC ${String(failureKind)} attempt failure.`,
+        retryable: true,
+      };
+    }
+    return document;
+  };
+  const successfulAttempt = attempt(3, "published");
+  const successfulRefresh = structuredClone(successfulAttempt);
+  successfulRefresh.revision = 2;
+  successfulRefresh.parent_lifecycle_ref = `artifacts/runtime/lane-lifecycle/${unitId}.attempt-3.r1.json`;
+  const lifecycleArtifacts = [
+    runtimeArtifact(
+      `artifacts/runtime/lane-lifecycle/${unitId}.attempt-1.r1.json`,
+      attempt(1, "failed", "validation_failed"),
+      "main_agent",
+    ),
+    runtimeArtifact(
+      `artifacts/runtime/lane-lifecycle/${unitId}.attempt-2.r1.json`,
+      attempt(2, "failed", "publication_failed"),
+      "main_agent",
+    ),
+    runtimeArtifact(
+      `artifacts/runtime/lane-lifecycle/${unitId}.attempt-3.r1.json`,
+      successfulAttempt,
+      "main_agent",
+    ),
+    runtimeArtifact(
+      `artifacts/runtime/lane-lifecycle/${unitId}.attempt-3.r2.json`,
+      successfulRefresh,
+      "main_agent",
+    ),
+  ];
+  await compiler.compile(compilationRequest(state.runId, "publish", lifecycleArtifacts));
+
+  const status = await state.runStore.status(state.runId);
+  const timing = status.observability.laneTimings.find((entry) => entry.unitId === unitId);
+  assert.ok(timing);
+  assert.equal(timing.state, "published");
+  assert.equal(timing.attemptCount, 3);
+  assert.equal(timing.retryCount, 2);
+  assert.equal(timing.executionAttemptId, `execution_${unitId}_attempt_3`);
+  assert.equal(status.observability.validationRetryCount, 1);
+  assert.equal(status.observability.publishRetryCount, 1);
+  assert.deepEqual(status.observability.failureClassifications, {
+    publication_failed: 1,
+    validation_failed: 1,
+  });
+});
+
 test("current dispatch bridges exact canonical Discovery tasks, replay, and recovery", async (t) => {
   const state = await prepareDiscoveryTaskBridgeRun(t, "canonical");
   const execution = executionPlan(state.runId, state.plan, "evaluation");
@@ -749,6 +971,44 @@ test("current dispatch bridges exact canonical Discovery tasks, replay, and reco
   const afterPublish = await state.runStore.status(state.runId);
   assert.ok(afterPublish.manifest.active_units.includes(unitId));
   assert.ok(afterPublish.manifest.artifact_refs.includes(task.artifact_path));
+
+  const substrate = await new EvidenceStore(state.runsRoot).record({
+    runId: state.runId,
+    unitId,
+    researchGoal: String(task.document.research_goal),
+    source: {
+      kind: "user_provided",
+      canonical_uri: `urn:startup-opportunity:user-provided:${state.runId}-commercial-audit`,
+    },
+    rawContent: "SYNTHETIC commercial audit substrate; not market Evidence.",
+    recordedAt: "2026-07-31T16:02:00Z",
+  });
+  const auditPath = `artifacts/research-audits/${unitId}.json`;
+  const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const materialized = await materializer.materialize({
+    schema_version: "startup_opportunity.lane_staging_document.current",
+    staging_id: "staging_commercial_audit_synthetic",
+    run_id: state.runId,
+    task_ref: task.artifact_path,
+    created_at: "2026-07-31T16:03:00Z",
+    producer_role: "lane_researcher",
+    operation: "publish",
+    evidence_receipt_refs: [`evidence/manifest.jsonl#${substrate.record.evidence_id}`],
+    agent_document: {
+      artifact_type: "startup_opportunity.commercial_research_audit.current",
+      artifact_path: auditPath,
+      document: unrankedCommercialAudit(state.runId, unitId, task.artifact_path),
+    },
+  });
+  assert.equal(materialized.status, "published");
+  assert.deepEqual(materialized.compiled_envelopes[0]?.input_refs, [
+    `evidence/manifest.jsonl#${substrate.record.evidence_id}`,
+    "plans/research-execution.r1.json",
+    task.artifact_path,
+    `tasks/dispatch/runtime.r1.json#task_${unitId}`,
+  ]);
+  assert.equal(materialized.compiled_envelopes[0]?.producer_role, "lane_researcher");
+  assert.equal(materialized.compiled_envelopes[0]?.artifact_path, auditPath);
 
   const beforeReplay = await snapshotTree(state.runRoot);
   const replay = await state.runStore.publishArtifact({ runId: state.runId, envelope: task });
@@ -962,7 +1222,7 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
   await assert.rejects(
     compiler.compile(
       compilationRequest(state.runId, "validate_only", [
-        runtimeArtifact("evidence/discovery/generation/tampered.json", tampered, "lane-researcher"),
+        runtimeArtifact("evidence/discovery/generation/tampered.json", tampered, "lane_researcher"),
       ]),
     ),
     (error: unknown) =>
@@ -973,8 +1233,8 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
   await assert.rejects(
     compiler.compile(
       compilationRequest(state.runId, "validate_only", [
-        runtimeArtifact(evidencePath, evidence, "lane-researcher"),
-        runtimeArtifact(sourceManifestPath, staleSummary, "lane-researcher"),
+        runtimeArtifact(evidencePath, evidence, "lane_researcher"),
+        runtimeArtifact(sourceManifestPath, staleSummary, "lane_researcher"),
       ]),
     ),
     (error: unknown) => compilerCodes(error).includes("runtime.source_manifest_summary_mismatch"),
@@ -982,9 +1242,9 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
 
   await compiler.compile(
     compilationRequest(state.runId, "publish", [
-      runtimeArtifact(evidencePath, evidence, "lane-researcher"),
-      runtimeArtifact(sourceManifestPath, sourceManifest, "lane-researcher"),
-      runtimeArtifact(generationPath, generation, "lane-researcher"),
+      runtimeArtifact(evidencePath, evidence, "lane_researcher"),
+      runtimeArtifact(sourceManifestPath, sourceManifest, "lane_researcher"),
+      runtimeArtifact(generationPath, generation, "lane_researcher"),
     ]),
   );
   const manifest = (await state.runStore.status(state.runId)).manifest;
@@ -1033,6 +1293,12 @@ test("readiness and Gap semantics require bounded solution generation and basis 
     required_candidate_kinds: missingKinds,
     missing_candidate_kinds: missingKinds,
     question_coverage: questions,
+    commercial_signal_gate: {
+      demand_signal: true,
+      buyer_signal: false,
+      purchase_signal: false,
+      decision: "continue_research",
+    },
     next_stage_readiness: "blocked",
     blockers: missingKinds.map((kind) => ({
       blocker_id: `blocker_${kind}`,
@@ -1207,9 +1473,16 @@ test("readiness and Gap semantics require bounded solution generation and basis 
 test("all direct Store writes fail closed after continuation while the child remains writable", async (t) => {
   const state = await prepareRun(t, "continuation-parent");
   const childRunId = "p1-continuation-child-synthetic";
-  await state.runStore.create({
+  await createConfirmedRun(state.runStore, {
     runId: childRunId,
     mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     parentRunId: state.runId,
     createdAt: "2026-07-31T16:10:00Z",
   });
@@ -1291,9 +1564,16 @@ test("pending, corrupt, and multiple continuation authorities are indeterminate"
 
   const corrupt = await prepareRun(t, "continuation-corrupt");
   const corruptChildId = "p1-corrupt-child-synthetic";
-  await corrupt.runStore.create({
+  await createConfirmedRun(corrupt.runStore, {
     runId: corruptChildId,
     mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     parentRunId: corrupt.runId,
     createdAt: "2026-07-31T16:21:00Z",
   });
@@ -1306,15 +1586,29 @@ test("pending, corrupt, and multiple continuation authorities are indeterminate"
   const multiple = await prepareRun(t, "continuation-multiple");
   const firstChildId = "p1-multiple-child-one-synthetic";
   const secondChildId = "p1-multiple-child-two-synthetic";
-  await multiple.runStore.create({
+  await createConfirmedRun(multiple.runStore, {
     runId: firstChildId,
     mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     parentRunId: multiple.runId,
     createdAt: "2026-07-31T16:22:00Z",
   });
-  await multiple.runStore.create({
+  await createConfirmedRun(multiple.runStore, {
     runId: secondChildId,
     mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     createdAt: "2026-07-31T16:23:00Z",
   });
   const secondManifestPath = path.join(multiple.runsRoot, secondChildId, "manifest.json");

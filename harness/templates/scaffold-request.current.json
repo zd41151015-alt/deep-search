@@ -1,0 +1,16 @@
+{
+  "schema_version": "startup_opportunity.scaffold_request.current",
+  "scaffold_id": "replace_with_stable_request_id",
+  "kind": "intake",
+  "run_id": "replace_with_new_run_id",
+  "mode": "opportunity_discovery",
+  "created_at": "2026-08-04T00:00:00Z",
+  "scope_confirmation": {
+    "geography": "CALLER_REQUIRED",
+    "customer_model": "b2c",
+    "target_users": ["CALLER_REQUIRED"],
+    "decision_goal": "CALLER_REQUIRED",
+    "research_language": "zh-CN",
+    "user_confirmed": true
+  }
+}

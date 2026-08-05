@@ -17,6 +17,7 @@ import {
 } from "../artifact-store/path-policy.js";
 import { withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import { EvidenceStore } from "../evidence-store/evidence-store.js";
 import {
   type BuildReportResult,
   type ReportFaultBoundary,
@@ -30,7 +31,10 @@ import type {
   DocumentBundleReferenceContext,
   HistoricalDiscoveryPlanBinding,
 } from "../validators/artifact-validator.js";
-import { createArtifactValidator } from "../validators/artifact-validator.js";
+import {
+  artifactRefsForDocument,
+  createArtifactValidator,
+} from "../validators/artifact-validator.js";
 import { planningRunStateHash } from "../validators/planning-contract-identities.js";
 import {
   type AdaptationPolicyValidator,
@@ -839,8 +843,43 @@ async function assertAdaptationBundleMatchesStoredArtifacts(
   documents: readonly EffectiveDocument[],
   artifacts: ArtifactStore,
   logs: JsonlStore,
+  evidence: EvidenceStore,
 ): Promise<DocumentBundleReferenceContext> {
   const exactJsonlRecords = new Map<string, Record<string, unknown>>();
+  for (const supplied of [...documents].sort((left, right) =>
+    left.path.localeCompare(right.path),
+  )) {
+    const referencedRecords = artifactRefsForDocument({
+      path: supplied.path,
+      document: supplied.envelope ?? supplied.document,
+    });
+    for (const ref of referencedRecords) {
+      if (ref.startsWith("evidence/manifest.jsonl#")) {
+        exactJsonlRecords.set(ref, await evidence.readExactRecordLocked(runRoot, runId, ref));
+      } else if (ref.startsWith("events.jsonl#")) {
+        exactJsonlRecords.set(ref, await logs.readExactRecord(runRoot, runId, ref, "events.jsonl"));
+      } else if (ref.startsWith("decisions.jsonl#")) {
+        exactJsonlRecords.set(
+          ref,
+          await logs.readExactRecord(runRoot, runId, ref, "decisions.jsonl"),
+        );
+      }
+    }
+  }
+  const suppliedManifest = documents.find(
+    (document) => document.schemaVersion === "startup_opportunity.run_manifest.v1",
+  );
+  if (suppliedManifest !== undefined) {
+    for (const field of ["scope_proposal_ref", "scope_confirmation_ref"] as const) {
+      const scopeRef = suppliedManifest.document[field];
+      if (typeof scopeRef === "string") {
+        exactJsonlRecords.set(
+          scopeRef,
+          await logs.readExactRecord(runRoot, runId, scopeRef, "decisions.jsonl"),
+        );
+      }
+    }
+  }
   for (const supplied of documents) {
     if (
       supplied.schemaVersion === "startup_opportunity.adaptation_decision.discovery.current" &&
@@ -1031,7 +1070,7 @@ async function planOperationCompletionIsDurable(
   logs: JsonlStore,
 ): Promise<boolean> {
   if (
-    receipt.revision_created ||
+    manifest.current_plan_ref !== receipt.result_plan_ref ||
     !receipt.adaptation_refs.every((ref) => manifest.applied_adaptation_refs.includes(ref)) ||
     receipt.adaptation_refs.some(
       (ref) =>
@@ -1283,6 +1322,7 @@ function createEvents(
 
 export class PlanRevisionRuntime {
   private readonly artifacts: ArtifactStore;
+  private readonly evidence: EvidenceStore;
   private readonly logs: JsonlStore;
   private readonly reports: ReportRuntime;
 
@@ -1294,6 +1334,7 @@ export class PlanRevisionRuntime {
     private readonly adaptations: AdaptationPolicyValidator,
   ) {
     this.artifacts = new ArtifactStore(runsRoot, validator);
+    this.evidence = new EvidenceStore(runsRoot);
     this.logs = new RuntimeJsonlStore(validator);
     this.reports = new ReportRuntime(runsRoot, validator);
   }
@@ -1304,7 +1345,9 @@ export class PlanRevisionRuntime {
       input.adaptationRefs.includes(document.path),
     );
     const requiresTerminalReport = selected.some(
-      (document) => document.document.action === "terminate_insufficient_evidence",
+      (document) =>
+        document.document.action === "terminate_insufficient_evidence" ||
+        document.document.action === "record_runtime_failure",
     );
     if (!requiresTerminalReport && input.terminalReportEnvelope !== undefined) {
       throw new StoreError(
@@ -1357,6 +1400,20 @@ export class PlanRevisionRuntime {
     input: ApplyPlanRevisionInput,
   ): Promise<PlanApplyResult> {
     const manifest = await readManifest(runRoot, this.validator);
+    if (
+      manifest.status === "awaiting_scope_confirmation" ||
+      manifest.scope_confirmation_ref === null ||
+      manifest.scope_confirmation_hash === null
+    ) {
+      throw new StoreError(
+        "run.scope_confirmation_required",
+        "Plan revision is blocked until confirmation binds the exact Scope proposal",
+        {
+          scopeProposalRef: manifest.scope_proposal_ref,
+          scopeProposalHash: manifest.scope_proposal_hash,
+        },
+      );
+    }
     if (manifest.current_plan_ref === null || manifest.plan_revision < 1) {
       throw new StoreError("apply.current_plan_missing", "Run has no current plan");
     }
@@ -1470,6 +1527,7 @@ export class PlanRevisionRuntime {
         bundleDocuments,
         this.artifacts,
         this.logs,
+        this.evidence,
       );
       const expectedHashes = selectedDecisions.map((decision) =>
         canonicalContentHash(decision.document),
@@ -1559,14 +1617,24 @@ export class PlanRevisionRuntime {
         );
       }
       if (manifest.current_plan_ref === existingReceipt.result_plan_ref) {
-        await completeOperation(
-          runRoot,
-          existingReceipt,
-          this.artifacts,
-          this.logs,
-          this.validator,
-          input.faultAt,
-        );
+        if (
+          !(await planOperationCompletionIsDurable(
+            runRoot,
+            manifest,
+            existingReceipt,
+            this.artifacts,
+            this.logs,
+          ))
+        ) {
+          await completeOperation(
+            runRoot,
+            existingReceipt,
+            this.artifacts,
+            this.logs,
+            this.validator,
+            input.faultAt,
+          );
+        }
         return this.result(existingReceipt, "idempotent_replay");
       }
     } catch (error) {
@@ -1636,6 +1704,7 @@ export class PlanRevisionRuntime {
       bundleDocuments,
       this.artifacts,
       this.logs,
+      this.evidence,
     );
     const manifestAdaptationRefs = uniqueSorted([
       ...manifest.pending_adaptation_refs,
@@ -1672,6 +1741,7 @@ export class PlanRevisionRuntime {
     );
     const patchedBundle: DocumentBundle = {
       ...input.adaptationBundle,
+      exact_records: [],
       documents: [
         ...input.adaptationBundle.documents.map((entry) => {
           if (entry.path === "manifest.json") {
@@ -1713,7 +1783,9 @@ export class PlanRevisionRuntime {
     }
     if (
       selectedDecisions.some(
-        (decision) => decision.document.action === "terminate_insufficient_evidence",
+        (decision) =>
+          decision.document.action === "terminate_insufficient_evidence" ||
+          decision.document.action === "record_runtime_failure",
       ) &&
       input.terminalReportEnvelope === undefined
     ) {
@@ -1775,9 +1847,13 @@ export class PlanRevisionRuntime {
           "revision actions require an explicit candidate Planning Context bundle",
         );
       }
+      const candidateValidationBundle: DocumentBundle = {
+        ...input.candidateBundle,
+        exact_records: [],
+      };
       const candidateValidation = (
         assessmentAdaptation ? this.assessmentPlans : this.plans
-      ).validateDocumentBundle(input.candidateBundle, planReferenceContext);
+      ).validateDocumentBundle(candidateValidationBundle, planReferenceContext);
       if (!candidateValidation.valid) {
         throw new StoreError(
           "apply.candidate_plan_invalid",
@@ -2051,6 +2127,9 @@ export async function recoverPlanRevisionOperationsLocked(
     }
     const current = await readManifest(runRoot, validator);
     if (current.current_plan_ref === receipt.result_plan_ref) {
+      if (await planOperationCompletionIsDurable(runRoot, current, receipt, artifacts, logs)) {
+        continue;
+      }
       if (await completeOperation(runRoot, receipt, artifacts, logs, validator)) {
         completed.push(receipt.operation_key);
       }

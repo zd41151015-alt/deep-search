@@ -10,7 +10,7 @@ args = ["--import", "tsx", "harness/src/mcp/evidence-server.ts"]
 cwd = "."
 enabled = true
 required = false
-enabled_tools = ["record_evidence", "get_evidence_manifest"]
+enabled_tools = ["create_run", "propose_scope", "confirm_scope", "record_evidence", "get_evidence_manifest"]
 default_tools_approval_mode = "writes"
 startup_timeout_sec = 15
 tool_timeout_sec = 60
@@ -20,3 +20,12 @@ approval_mode = "prompt"
 
 [mcp_servers.startup_opportunity_evidence.tools.get_evidence_manifest]
 approval_mode = "auto"
+
+[mcp_servers.startup_opportunity_evidence.tools.create_run]
+approval_mode = "prompt"
+
+[mcp_servers.startup_opportunity_evidence.tools.propose_scope]
+approval_mode = "prompt"
+
+[mcp_servers.startup_opportunity_evidence.tools.confirm_scope]
+approval_mode = "prompt"

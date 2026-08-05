@@ -12,6 +12,7 @@
     "run_id",
     "unit_id",
     "attempt",
+    "execution_attempt_id",
     "dispatch_batch_ref",
     "state",
     "timestamps",
@@ -49,6 +50,9 @@
     "attempt": {
       "type": "integer",
       "minimum": 1
+    },
+    "execution_attempt_id": {
+      "$ref": "../v12/definitions.schema.json#/$defs/identifier"
     },
     "dispatch_batch_ref": {
       "type": "string",

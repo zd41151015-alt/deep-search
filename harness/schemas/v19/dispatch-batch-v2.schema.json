@@ -14,6 +14,7 @@
     "wave_id",
     "gate_ref",
     "requested_at",
+    "dispatch_mode",
     "agent_dispatch_performed",
     "tasks"
   ],
@@ -53,6 +54,9 @@
     },
     "requested_at": {
       "$ref": "../v12/definitions.schema.json#/$defs/timestamp"
+    },
+    "dispatch_mode": {
+      "const": "parallel_immediate"
     },
     "agent_dispatch_performed": {
       "const": false

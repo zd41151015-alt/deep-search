@@ -46,6 +46,7 @@
         "startup_opportunity.claim.v1",
         "startup_opportunity.claim.v2",
         "startup_opportunity.claim.v3",
+        "startup_opportunity.commercial_research_audit.current",
         "startup_opportunity.concept_evidence_assessment.v1",
         "startup_opportunity.concept_evidence_assessment.v2",
         "startup_opportunity.concept_evidence_assessment_branch_result.v1",
@@ -145,7 +146,6 @@
       "enum": [
         "main_agent",
         "lane_researcher",
-        "lane-researcher",
         "evidence_auditor",
         "adversarial_reviewer",
         "harness"
@@ -201,7 +201,8 @@
               "startup_opportunity.insight.v3",
               "startup_opportunity.judgment_assessment.v3",
               "startup_opportunity.source_manifest.v3",
-              "startup_opportunity.enrichment_branch_result.v1"
+              "startup_opportunity.enrichment_branch_result.v1",
+              "startup_opportunity.commercial_research_audit.current"
             ]
           }
         },
@@ -448,7 +449,7 @@
       "then": {
         "properties": {
           "producer_role": {
-            "const": "lane-researcher"
+            "const": "lane_researcher"
           },
           "artifact_path": {
             "type": "string",
@@ -494,7 +495,7 @@
       "then": {
         "properties": {
           "producer_role": {
-            "const": "lane-researcher"
+            "const": "lane_researcher"
           },
           "artifact_path": {
             "type": "string",
@@ -609,7 +610,7 @@
       "then": {
         "properties": {
           "producer_role": {
-            "const": "lane-researcher"
+            "const": "lane_researcher"
           },
           "artifact_path": {
             "type": "string",
@@ -721,6 +722,30 @@
         "properties": {
           "document": {
             "$ref": "../v12/claim-v3.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "const": "startup_opportunity.commercial_research_audit.current"
+          }
+        },
+        "required": ["artifact_type"]
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "lane_researcher"
+          },
+          "artifact_path": {
+            "type": "string",
+            "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+          },
+          "document": {
+            "$ref": "commercial-research-audit.schema.json"
           }
         }
       }
@@ -1114,7 +1139,7 @@
       "then": {
         "properties": {
           "producer_role": {
-            "const": "lane-researcher"
+            "const": "lane_researcher"
           },
           "artifact_path": {
             "type": "string",
@@ -2177,7 +2202,7 @@
       "then": {
         "properties": {
           "producer_role": {
-            "const": "lane-researcher"
+            "const": "lane_researcher"
           },
           "artifact_path": {
             "type": "string",

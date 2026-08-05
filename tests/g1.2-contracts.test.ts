@@ -23,6 +23,7 @@ import {
   initialFixtureEnvelopes,
   taskEnvelope,
 } from "./fixtures/g1.2/research-branch-fixture.js";
+import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const baseFixturePath = path.join(
@@ -45,9 +46,16 @@ async function setup(context: TestContext, runId = G12_RUN_ID) {
   const runsRoot = path.join(root, "runs");
   const validator = await createArtifactValidator(repositoryRoot);
   const store = new RunStore(runsRoot, validator);
-  await store.create({
+  await createConfirmedRun(store, {
     runId,
     mode: "concept_evidence_assessment",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     createdAt: G12_BASE_TIME,
   });
   return { runsRoot, runRoot: path.join(runsRoot, runId), validator, store };

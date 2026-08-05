@@ -5,6 +5,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  ArtifactStore,
   canonicalContentHash,
   createArtifactValidator,
   EvidenceStore,
@@ -15,8 +16,15 @@ import {
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const fixtureRoot = path.join(repositoryRoot, "tests/fixtures/store");
+const SCOPE_CONFIRMATION = {
+  geography: "Synthetic",
+  customerModel: "b2c" as const,
+  targetUsers: ["synthetic user"],
+  decisionGoal: "test current contract",
+  researchLanguage: "en-US",
+};
 
-async function setup(context: TestContext, runId = "store-test") {
+async function setup(context: TestContext, runId = "store-test", confirm = true) {
   const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-store-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const runsRoot = path.join(root, "runs");
@@ -25,9 +33,47 @@ async function setup(context: TestContext, runId = "store-test") {
   const created = await store.create({
     runId,
     mode: "concept_evidence_assessment",
+    scopeProposal: SCOPE_CONFIRMATION,
     createdAt: "2026-07-23T12:00:00Z",
   });
-  return { root, runsRoot, runRoot: path.join(runsRoot, runId), store, created };
+  if (confirm) {
+    await store.confirmScope({
+      runId,
+      expectedScopeProposalRevision: created.manifest.scope_revision,
+      expectedScopeProposalRef: created.scopeProposalRef,
+      expectedScopeProposalHash: created.scopeProposalHash,
+      confirmedAt: "2026-07-23T12:00:01Z",
+      userConfirmationAttestation:
+        "The fixture caller attests that the user reviewed and confirmed this exact Scope proposal.",
+    });
+  }
+  return {
+    root,
+    runsRoot,
+    runRoot: path.join(runsRoot, runId),
+    store,
+    validator,
+    created: { ...created, manifest: (await store.status(runId)).manifest },
+  };
+}
+
+async function snapshotTree(root: string): Promise<readonly [string, string][]> {
+  const files: [string, string][] = [];
+  const visit = async (directory: string, prefix = ""): Promise<void> => {
+    for (const entry of (await readdir(directory, { withFileTypes: true })).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
+      const relative = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolute, relative);
+      } else if (entry.isFile()) {
+        files.push([relative, (await readFile(absolute)).toString("base64")]);
+      }
+    }
+  };
+  await visit(root);
+  return files;
 }
 
 async function eventEnvelope(
@@ -82,11 +128,217 @@ test("create and reopen persist a complete initial Run boundary idempotently", a
   const replay = await store.create({
     runId: "store-test",
     mode: "concept_evidence_assessment",
+    scopeProposal: SCOPE_CONFIRMATION,
     createdAt: "2026-07-23T13:00:00Z",
   });
   assert.equal(replay.status, "idempotent_replay");
   assert.equal(replay.manifest.created_at, "2026-07-23T12:00:00Z");
   assert.equal(runsRoot, path.dirname(runRoot));
+});
+
+test("Scope confirmation is an immutable Run Store binding across correction and reopen", async (context) => {
+  const { runRoot, store, created } = await setup(context, "scope-binding-test", false);
+  assert.equal(created.manifest.scope_revision, 1);
+  assert.equal(created.manifest.status, "awaiting_scope_confirmation");
+  assert.equal(created.manifest.scope_confirmation_ref, null);
+  const initialProposal = JSON.parse(
+    (await readFile(path.join(runRoot, "decisions.jsonl"), "utf8")).trim(),
+  ) as Record<string, unknown>;
+  assert.equal(initialProposal.decision_type, "scope_proposed");
+  assert.equal(initialProposal.actor, "main_agent");
+  assert.equal(`decisions.jsonl#${String(initialProposal.decision_id)}`, created.scopeProposalRef);
+  assert.equal(canonicalContentHash(initialProposal), created.scopeProposalHash);
+  await assert.rejects(
+    store.assertResearchExecutionAllowed("scope-binding-test"),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.scope_confirmation_required",
+  );
+  await assert.rejects(
+    store.confirmScope({
+      runId: "scope-binding-test",
+      expectedScopeProposalRevision: 1,
+      expectedScopeProposalRef: created.scopeProposalRef,
+      expectedScopeProposalHash: "0".repeat(64),
+      confirmedAt: "2026-07-23T12:05:00Z",
+      userConfirmationAttestation: "The fixture caller attests exact user confirmation.",
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.scope_proposal_binding_mismatch",
+  );
+
+  const initialConfirmation = await store.confirmScope({
+    runId: "scope-binding-test",
+    expectedScopeProposalRevision: 1,
+    expectedScopeProposalRef: created.scopeProposalRef,
+    expectedScopeProposalHash: created.scopeProposalHash,
+    confirmedAt: "2026-07-23T12:06:00Z",
+    userConfirmationAttestation:
+      "The fixture caller attests that the user reviewed and confirmed proposal revision one.",
+  });
+  assert.equal(initialConfirmation.harnessIdentityVerification, "not_available");
+  assert.equal((await store.status("scope-binding-test")).manifest.status, "created");
+
+  const correctedProposal = await store.proposeScope({
+    runId: "scope-binding-test",
+    expectedScopeRevision: 1,
+    proposedAt: "2026-07-23T12:10:00Z",
+    reason: "Propose the corrected geography for explicit user review.",
+    scopeProposal: {
+      ...SCOPE_CONFIRMATION,
+      geography: "Synthetic corrected geography",
+    },
+  });
+  assert.equal(correctedProposal.scopeRevision, 2);
+  assert.equal(
+    (await store.status("scope-binding-test")).manifest.status,
+    "awaiting_scope_confirmation",
+  );
+  await assert.rejects(store.assertResearchExecutionAllowed("scope-binding-test"));
+  const corrected = await store.confirmScope({
+    runId: "scope-binding-test",
+    expectedScopeProposalRevision: 2,
+    expectedScopeProposalRef: correctedProposal.scopeProposalRef,
+    expectedScopeProposalHash: correctedProposal.scopeProposalHash,
+    confirmedAt: "2026-07-23T12:11:00Z",
+    userConfirmationAttestation:
+      "The fixture caller attests that the user reviewed and confirmed proposal revision two.",
+  });
+  const decisions = (await readFile(path.join(runRoot, "decisions.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  assert.equal(decisions.length, 4);
+  assert.equal(decisions[0]?.decision_id, initialProposal.decision_id);
+  assert.deepEqual(
+    decisions.map((decision) => decision.decision_type),
+    ["scope_proposed", "scope_assumption_confirmed", "scope_proposed", "scope_changed_by_user"],
+  );
+
+  const reopened = await store.load("scope-binding-test");
+  assert.equal(reopened.manifest.scope_revision, 2);
+  assert.equal(reopened.manifest.scope_confirmation_ref, corrected.scopeConfirmationRef);
+  assert.equal(reopened.manifest.scope_confirmation_hash, corrected.scopeConfirmationHash);
+  assert.equal(reopened.manifest.status, "needs_clarification");
+  await assert.rejects(
+    store.assertResearchExecutionAllowed("scope-binding-test"),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.scope_revision_unresolved",
+  );
+});
+
+test("unconfirmed Scope blocks public and locked Evidence and Artifact writes before persistence", async (context) => {
+  const { runsRoot, runRoot, store, validator } = await setup(
+    context,
+    "scope-storage-boundary-test",
+    false,
+  );
+  await assert.rejects(
+    store.assertResearchExecutionAllowed("scope-storage-boundary-test"),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.scope_confirmation_required",
+  );
+  const evidence = new EvidenceStore(runsRoot);
+  const evidenceInput = {
+    runId: "scope-storage-boundary-test",
+    unitId: "unit_scope_bypass",
+    researchGoal: "SYNTHETIC unauthorized Evidence write.",
+    source: {
+      kind: "user_provided" as const,
+      canonical_uri: "urn:startup-opportunity:user-provided:scope-bypass-synthetic",
+    },
+    rawContent: "SYNTHETIC unauthorized bytes.",
+  };
+  const artifacts = new ArtifactStore(runsRoot, validator);
+  const envelope = await eventEnvelope(
+    "scope-storage-boundary-test",
+    "events/scope-bypass-event.json",
+  );
+  const secondEnvelope = await eventEnvelope(
+    "scope-storage-boundary-test",
+    "events/scope-bypass-event-2.json",
+    { event_id: "event_scope_bypass_002" },
+  );
+  const before = await snapshotTree(runRoot);
+  const attempts = [
+    () => evidence.record(evidenceInput),
+    () => evidence.recordLocked(runRoot, evidenceInput),
+    () => artifacts.publish({ runId: "scope-storage-boundary-test", envelope }),
+    () =>
+      artifacts.publishLocked(runRoot, {
+        runId: "scope-storage-boundary-test",
+        envelope,
+      }),
+    () =>
+      artifacts.publishBundle({
+        runId: "scope-storage-boundary-test",
+        envelopes: [envelope, secondEnvelope],
+      }),
+    () =>
+      artifacts.publishBundleLocked(runRoot, {
+        runId: "scope-storage-boundary-test",
+        envelopes: [envelope, secondEnvelope],
+      }),
+  ];
+  for (const attempt of attempts) {
+    await assert.rejects(
+      attempt(),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "run.scope_confirmation_required",
+    );
+    assert.deepEqual(await snapshotTree(runRoot), before);
+  }
+  const reopened = await store.load("scope-storage-boundary-test");
+  assert.equal(reopened.manifest.status, "awaiting_scope_confirmation");
+  assert.deepEqual(await snapshotTree(runRoot), before);
+});
+
+test("Scope decisions cannot bypass the dedicated Run Store confirmation paths", async (context) => {
+  const { store } = await setup(context, "scope-append-bypass-test");
+  const scope = {
+    revision: 2,
+    geography: "Synthetic bypass",
+    customer_model: "b2c",
+    target_users: ["synthetic user"],
+    decision_goal: "test current contract",
+    research_language: "en-US",
+  };
+  await assert.rejects(
+    store.appendDecision("scope-append-bypass-test", {
+      schema_version: "startup_opportunity.decision.v1",
+      decision_id: "scope_confirmation_bypass_r2",
+      run_id: "scope-append-bypass-test",
+      decision_type: "scope_changed_by_user",
+      timestamp: "2026-07-23T12:10:00Z",
+      actor: "user",
+      reason: "This record must not bypass the Manifest-bound confirmation operation.",
+      artifact_refs: [],
+      scope_revision: 2,
+      scope_hash: canonicalContentHash(scope),
+      scope,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "run.scope_confirmation_dedicated_path_required",
+  );
+  await assert.rejects(
+    store.appendDecision("scope-append-bypass-test", {
+      schema_version: "startup_opportunity.decision.v1",
+      decision_id: "scope_proposal_bypass_r2",
+      run_id: "scope-append-bypass-test",
+      decision_type: "scope_proposed",
+      timestamp: "2026-07-23T12:11:00Z",
+      actor: "main_agent",
+      reason: "This record must not bypass the dedicated proposal operation.",
+      artifact_refs: [],
+      scope_revision: 2,
+      scope_hash: canonicalContentHash(scope),
+      scope,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "run.scope_confirmation_dedicated_path_required",
+  );
+  assert.equal((await store.status("scope-append-bypass-test")).manifest.scope_revision, 1);
 });
 
 test("create validates before visibility and atomically discards failed staging Runs", async (context) => {
@@ -101,6 +353,7 @@ test("create validates before visibility and atomically discards failed staging 
     store.create({
       runId,
       mode: "opportunity_discovery",
+      scopeProposal: SCOPE_CONFIRMATION,
       createdAt: "not-a-timestamp",
     }),
     (error: unknown) => error instanceof StoreError && error.code === "manifest.schema_invalid",
@@ -111,6 +364,7 @@ test("create validates before visibility and atomically discards failed staging 
     store.create({
       runId,
       mode: "opportunity_discovery",
+      scopeProposal: SCOPE_CONFIRMATION,
       createdAt: "2026-07-30T12:00:00Z",
       faultAt: "before_publish",
     }),
@@ -123,6 +377,7 @@ test("create validates before visibility and atomically discards failed staging 
   const created = await store.create({
     runId,
     mode: "opportunity_discovery",
+    scopeProposal: SCOPE_CONFIRMATION,
     createdAt: "2026-07-30T12:00:00Z",
   });
   assert.equal(created.status, "created");
@@ -134,6 +389,7 @@ test("create validates before visibility and atomically discards failed staging 
     store.create({
       runId: incompleteRunId,
       mode: "opportunity_discovery",
+      scopeProposal: SCOPE_CONFIRMATION,
       createdAt: "2026-07-30T12:01:00Z",
     }),
     (error: unknown) => error instanceof StoreError && error.code === "run.incomplete",
@@ -176,7 +432,7 @@ test("Event and Decision JSONL appends validate refs, identity, and idempotent r
   assert.equal(await store.appendDecision("store-test", decision), "idempotent_replay");
   assert.equal(
     (await readFile(path.join(runRoot, "decisions.jsonl"), "utf8")).trim().split("\n").length,
-    1,
+    3,
   );
   await assert.rejects(
     store.appendDecision("store-test", { ...decision, reason: "Conflicting decision content." }),
@@ -244,7 +500,7 @@ test("path policy rejects traversal, absolute, mixed-separator, illegal Run ids,
   const { runsRoot, store } = await setup(context);
   for (const runId of ["../escape", "/absolute", "other\\run", ""] as const) {
     await assert.rejects(
-      store.create({ runId, mode: "opportunity_discovery" }),
+      store.create({ runId, mode: "opportunity_discovery", scopeProposal: SCOPE_CONFIRMATION }),
       (error: unknown) => error instanceof StoreError && error.code === "path.invalid_run_id",
     );
   }

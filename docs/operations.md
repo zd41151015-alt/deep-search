@@ -33,7 +33,9 @@ Hooks are auxiliary. A user or administrator may disable the `hooks` feature, de
 
 ```sh
 npm run harness -- doctor --json
-npm run harness -- create-run --run-id RUN_ID --mode MODE
+npm run harness -- create-run --run-id RUN_ID --mode MODE --geography GEO --customer-model b2c --target-user USER --decision-goal GOAL --research-language LANG
+npm run harness -- confirm-scope --run-id RUN_ID --expected-scope-proposal-revision N --expected-scope-proposal-ref REF --expected-scope-proposal-hash HASH --user-confirmation-attestation TEXT
+npm run harness -- propose-scope --run-id RUN_ID --expected-scope-revision N --geography GEO --customer-model MODEL --target-user USER --decision-goal GOAL --research-language LANG --reason REASON
 npm run harness -- status-run --run-id RUN_ID
 npm run harness -- load-run --run-id RUN_ID
 ```
@@ -42,7 +44,11 @@ Evidence can use `record-evidence` directly when MCP is disabled. Artifact valid
 
 ## Run Recovery
 
-`status-run` reads and schema-validates the current manifest without recovery or mutation. Use it for `action: status`. For terminal Runs, require `terminalReportDisposition=ready` and an empty `terminalReportIssues` list before presenting delivery as complete; `missing` and `invalid` distinguish report delivery from the raw execution disposition.
+`status-run` reads and schema-validates the current manifest without recovery or mutation. Use it for `action: status`. Its minimal `resumeContext` is sufficient after a context transition; do not reload the complete Skill, all fixtures, or the full closure, and do not treat a chat summary as formal state. Run `doctor` once per task, not once per lane or resume. For terminal Runs, require `terminalReportDisposition=ready` and an empty `terminalReportIssues` list before presenting delivery as complete; `missing` and `invalid` distinguish report delivery from the raw execution disposition.
+
+`observability.stageTimings` and `laneTimings` are descriptive timestamps and durations, not deadline enforcement. Lane `attemptCount` is the number of distinct `execution_attempt_id` values across the full lifecycle history and `retryCount=max(0, attemptCount-1)`. Receipt replay, checkpoint reads, status refreshes, and revisions inside one attempt do not count as retries. Validation/publication failure classifications, Artifact/Evidence counts, and blocking reasons remain engineering diagnostics and are not inserted into user report prose.
+
+Scope confirmation is durable Run state, not a CLI-only boolean. `create-run` atomically appends revision 1 as a Scope proposal, binds its ref/hash in the Manifest, and leaves the Run at `awaiting_scope_confirmation`. The caller must show that exact proposal to the user before a separate `confirm-scope` call binds its revision/ref/hash. The confirmation record states that it is caller-attested and that the Harness cannot authenticate chat identity. A correction first uses `propose-scope`, then a separate exact-bound `confirm-scope`; both append without replacing prior records. Before confirmation, every research entrypoint is blocked. After a corrected Scope is confirmed, research remains blocked until Gap, Adaptation Decision, and immutable Plan Revision reconcile it. Reopen validates the same persisted proposal and confirmation history.
 
 `load-run` is the recovery boundary for `action: resume`. It acquires the Run lock, validates manifest/checkpoint/plan lineage, verifies Evidence and Artifact receipts and hashes, repairs only supported incomplete JSONL tails and completed operation intents, reconciles orphan active units, and returns the last valid checkpoint. Integrity conflicts fail closed.
 
@@ -56,7 +62,7 @@ After recovery:
 4. Validate any returned Artifact from its assigned output path before synthesis.
 5. Continue through explicit Gap Snapshot, Adaptation Decision, policy validation, immutable Plan Revision, and checkpoint steps when the plan must change.
 
-Completed Runs are immutable. Use a continuation Run to refresh stale sources, add user material, change scope, or convert discovery output into a concept assessment.
+Completed Runs are immutable. Terminal reporting is completed on the original research Run; a continuation Run cannot be used to bypass an insufficient-evidence or runtime-failure state. A correction within an active Run uses `propose-scope` followed by `confirm-scope`; a genuinely new research question, market, language, or later refresh starts a new current-contract Run with a new `run_id`.
 
 ## Evidence Adapter
 

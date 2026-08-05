@@ -6,12 +6,16 @@ Usage:
   npm run harness -- help
   npm run harness -- doctor [--json]
   npm run harness -- validate-artifact (--file FILE | --bundle FILE | --schema-bundle) [--json]
-  npm run harness -- create-run --run-id ID --mode MODE [--created-at TIME]
+  npm run harness -- create-run --run-id ID --mode MODE --geography GEO --customer-model MODEL --target-user USER --decision-goal GOAL --research-language LANG [--created-at TIME]
+  npm run harness -- propose-scope --run-id ID --expected-scope-revision N --geography GEO --customer-model MODEL --target-user USER --decision-goal GOAL --research-language LANG --reason REASON
+  npm run harness -- confirm-scope --run-id ID --expected-scope-proposal-revision N --expected-scope-proposal-ref REF --expected-scope-proposal-hash HASH --user-confirmation-attestation TEXT
   npm run harness -- load-run --run-id ID
   npm run harness -- status-run --run-id ID
   npm run harness -- record-evidence --run-id ID --unit-id ID (--source-url URL | --source-uri URN) --research-goal GOAL --content-file FILE
   npm run harness -- publish-artifact --file FILE [--runs-root DIR]
   npm run harness -- compile-artifacts --file FILE [--runs-root DIR]
+  npm run harness -- materialize-lane-result --file FILE [--runs-root DIR]
+  npm run harness -- scaffold-artifact --file FILE
   npm run harness -- checkpoint-run --file FILE
   npm run harness -- validate-plan --bundle FILE [--run-id ID] [--runs-root DIR] [--json]
   npm run harness -- analyze-gaps --file FILE [--json]
@@ -26,12 +30,16 @@ Commands:
   help               Show the implemented deterministic Harness command surface.
   doctor             Validate repository, toolchain, Skill, agent, Harness, and test contracts.
   validate-artifact  Validate one document, a typed document bundle, or the schema bundle itself.
-  create-run         Create a confined Run and its initial checkpoint.
+  create-run         Persist a confined Run and exact Scope proposal awaiting confirmation.
+  propose-scope      Append a corrected Scope proposal without claiming user confirmation.
+  confirm-scope      Bind caller-attested confirmation to the exact proposal revision/ref/hash.
   load-run           Validate, reconcile, and reopen a persisted Run.
   status-run         Read and validate current Run manifest state without recovery or mutation.
   record-evidence    Persist raw evidence with canonical hashes and deterministic deduplication.
   publish-artifact   Validate and publish one formal envelope or an explicit envelope bundle.
-  compile-artifacts  Compile semantic JSON into versioned envelopes, minimal Run closure, and optional publication.
+  compile-artifacts  Compile semantic JSON into an immutable publication plan, Run closure, and optional publication.
+  materialize-lane-result Materialize a caller-supplied lane staging document through the same compiler.
+  scaffold-artifact  Produce a schema-valid structural scaffold without research judgment.
   checkpoint-run     Publish an immutable checkpoint from a JSON input document.
   validate-plan      Validate Planning Context v2 and full Research Plan semantics; --run-id assembles persisted authority.
   analyze-gaps       Build a deterministic machine or assessment Gap Snapshot draft.

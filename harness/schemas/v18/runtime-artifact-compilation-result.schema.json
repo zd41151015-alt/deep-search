@@ -11,6 +11,8 @@
     "status",
     "current_leaf_run_id",
     "compiled_envelopes",
+    "publication_plan",
+    "working_directory",
     "validation_closure",
     "timing_ms",
     "publication"
@@ -37,6 +39,13 @@
       "items": {
         "$ref": "https://startup-opportunity.local/schemas/current/artifact-envelope.schema.json"
       }
+    },
+    "publication_plan": {
+      "$ref": "https://startup-opportunity.local/schemas/current/runtime-publication-plan.schema.json"
+    },
+    "working_directory": {
+      "type": "string",
+      "pattern": "^dist/research-working/[A-Za-z0-9][A-Za-z0-9._-]*$"
     },
     "validation_closure": {
       "type": "object",

@@ -46,6 +46,8 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
   "doctor",
   "validate-artifact",
   "create-run",
+  "propose-scope",
+  "confirm-scope",
   "status-run",
   "load-run",
   "record-evidence",

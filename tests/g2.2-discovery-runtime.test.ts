@@ -33,6 +33,7 @@ import {
   createDiscoveryRuntimeFixture,
   runtimeEnvelope,
 } from "./fixtures/g2.2/discovery-runtime-fixture.js";
+import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
@@ -102,9 +103,16 @@ async function setup(context: TestContext, suffix: string): Promise<RuntimeState
   const runId = `g2-2-${suffix}-synthetic`;
   const validator = await createArtifactValidator(repositoryRoot);
   const store = new RunStore(runsRoot, validator);
-  await store.create({
+  await createConfirmedRun(store, {
     runId,
     mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     createdAt: "2026-07-27T17:00:00Z",
   });
   const evidence = new EvidenceStore(runsRoot);

@@ -7,6 +7,7 @@ import {
   type BeliefSummary,
   type CheckpointRunInput,
   type CreateRunInput,
+  type ResearchScope,
   type RunMode,
   RunStore,
 } from "./run-store.js";
@@ -71,6 +72,30 @@ function writeResult(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
+function researchScope(parsed: ParsedArguments): ResearchScope {
+  const customerModel = required(parsed, "--customer-model");
+  if (!["b2c", "b2b", "b2b2c", "mixed"].includes(customerModel)) {
+    throw new StoreError(
+      "command.intake_scope_unconfirmed",
+      "--customer-model must be one of b2c, b2b, b2b2c, or mixed",
+    );
+  }
+  const targetUsers = parsed.repeated.get("--target-user") ?? [];
+  if (targetUsers.length === 0) {
+    throw new StoreError(
+      "command.intake_scope_unconfirmed",
+      "Scope proposal requires at least one --target-user",
+    );
+  }
+  return {
+    geography: required(parsed, "--geography"),
+    customerModel: customerModel as ResearchScope["customerModel"],
+    targetUsers,
+    decisionGoal: required(parsed, "--decision-goal"),
+    researchLanguage: required(parsed, "--research-language"),
+  };
+}
+
 async function runCommand(action: () => Promise<unknown>): Promise<number> {
   try {
     writeResult(await action());
@@ -92,8 +117,19 @@ export async function runCreateRun(
   repositoryRoot = process.cwd(),
 ): Promise<number> {
   return runCommand(async () => {
-    const parsed = parseArguments(args);
-    rejectUnknown(parsed, ["--run-id", "--mode", "--created-at", "--parent-run-id", "--runs-root"]);
+    const parsed = parseArguments(args, ["--target-user"]);
+    rejectUnknown(parsed, [
+      "--run-id",
+      "--mode",
+      "--created-at",
+      "--parent-run-id",
+      "--runs-root",
+      "--geography",
+      "--customer-model",
+      "--target-user",
+      "--decision-goal",
+      "--research-language",
+    ]);
     const mode = required(parsed, "--mode");
     if (mode !== "opportunity_discovery" && mode !== "concept_evidence_assessment") {
       throw new StoreError("command.invalid_arguments", "--mode is not a published Run mode", {
@@ -105,11 +141,86 @@ export async function runCreateRun(
     const input: CreateRunInput = {
       runId: required(parsed, "--run-id"),
       mode: mode as RunMode,
+      scopeProposal: researchScope(parsed),
       ...(createdAt === undefined ? {} : { createdAt }),
       ...(parentRunId === undefined ? {} : { parentRunId }),
     };
     const validator = await createArtifactValidator(repositoryRoot);
     return new RunStore(roots(parsed, repositoryRoot), validator).create(input);
+  });
+}
+
+export async function runConfirmScope(
+  args: readonly string[],
+  repositoryRoot = process.cwd(),
+): Promise<number> {
+  return runCommand(async () => {
+    const parsed = parseArguments(args);
+    rejectUnknown(parsed, [
+      "--run-id",
+      "--expected-scope-proposal-revision",
+      "--expected-scope-proposal-ref",
+      "--expected-scope-proposal-hash",
+      "--user-confirmation-attestation",
+      "--confirmed-at",
+      "--runs-root",
+    ]);
+    const expectedScopeProposalRevision = Number(
+      required(parsed, "--expected-scope-proposal-revision"),
+    );
+    if (!Number.isInteger(expectedScopeProposalRevision) || expectedScopeProposalRevision < 1) {
+      throw new StoreError(
+        "command.invalid_arguments",
+        "--expected-scope-proposal-revision must be a positive integer",
+      );
+    }
+    const validator = await createArtifactValidator(repositoryRoot);
+    const confirmedAt = parsed.values.get("--confirmed-at");
+    return new RunStore(roots(parsed, repositoryRoot), validator).confirmScope({
+      runId: required(parsed, "--run-id"),
+      expectedScopeProposalRevision,
+      expectedScopeProposalRef: required(parsed, "--expected-scope-proposal-ref"),
+      expectedScopeProposalHash: required(parsed, "--expected-scope-proposal-hash"),
+      userConfirmationAttestation: required(parsed, "--user-confirmation-attestation"),
+      ...(confirmedAt === undefined ? {} : { confirmedAt }),
+    });
+  });
+}
+
+export async function runProposeScope(
+  args: readonly string[],
+  repositoryRoot = process.cwd(),
+): Promise<number> {
+  return runCommand(async () => {
+    const parsed = parseArguments(args, ["--target-user"]);
+    rejectUnknown(parsed, [
+      "--run-id",
+      "--expected-scope-revision",
+      "--geography",
+      "--customer-model",
+      "--target-user",
+      "--decision-goal",
+      "--research-language",
+      "--reason",
+      "--proposed-at",
+      "--runs-root",
+    ]);
+    const expectedScopeRevision = Number(required(parsed, "--expected-scope-revision"));
+    if (!Number.isInteger(expectedScopeRevision) || expectedScopeRevision < 1) {
+      throw new StoreError(
+        "command.invalid_arguments",
+        "--expected-scope-revision must be a positive integer",
+      );
+    }
+    const validator = await createArtifactValidator(repositoryRoot);
+    const proposedAt = parsed.values.get("--proposed-at");
+    return new RunStore(roots(parsed, repositoryRoot), validator).proposeScope({
+      runId: required(parsed, "--run-id"),
+      expectedScopeRevision,
+      scopeProposal: researchScope(parsed),
+      reason: required(parsed, "--reason"),
+      ...(proposedAt === undefined ? {} : { proposedAt }),
+    });
   });
 }
 
@@ -158,7 +269,11 @@ export async function runRecordEvidence(
       "--operation-key",
       "--runs-root",
     ]);
-    const store = new EvidenceStore(roots(parsed, repositoryRoot));
+    const runsRoot = roots(parsed, repositoryRoot);
+    const runId = required(parsed, "--run-id");
+    const validator = await createArtifactValidator(repositoryRoot);
+    await new RunStore(runsRoot, validator).assertResearchExecutionAllowed(runId);
+    const store = new EvidenceStore(runsRoot);
     const recordedAt = parsed.values.get("--recorded-at");
     const suppliedOperationKey = parsed.values.get("--operation-key");
     const sourceUrl = parsed.values.get("--source-url");
@@ -171,7 +286,7 @@ export async function runRecordEvidence(
       );
     }
     const common = {
-      runId: required(parsed, "--run-id"),
+      runId,
       unitId: required(parsed, "--unit-id"),
       researchGoal: required(parsed, "--research-goal"),
       rawContent: await readFile(required(parsed, "--content-file")),

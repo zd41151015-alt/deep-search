@@ -14,6 +14,7 @@
     "wave_id",
     "unit_type",
     "research_goal",
+    "commercial_research_requirements",
     "target_candidate_refs",
     "scope_frame_ref",
     "research_plan_ref",
@@ -58,6 +59,9 @@
     },
     "research_goal": {
       "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "commercial_research_requirements": {
+      "$ref": "https://startup-opportunity.local/schemas/current/commercial-research-requirements.schema.json#/$defs/requirements"
     },
     "target_candidate_refs": {
       "allOf": [

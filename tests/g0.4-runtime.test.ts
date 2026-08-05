@@ -35,6 +35,7 @@ import {
   createDiscoveryRuntimeFixture,
   runtimeEnvelope,
 } from "./fixtures/g2.2/discovery-runtime-fixture.js";
+import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const PLAN_REF = "plans/research-plan.r1.json";
@@ -47,6 +48,44 @@ const RETAINED_SHARED_CANDIDATE_REF = "artifacts/discovery/candidates/candidate_
 const PRE_KILL_APPLY_AT = "2026-07-28T12:08:00Z";
 const PRE_KILL_CONTEXT_AT = "2026-07-28T12:08:30Z";
 const PRE_KILL_CHECKPOINT_AT = "2026-07-28T12:09:00Z";
+const CONFIRMED_SCOPE = {
+  revision: 1,
+  geography: "Synthetic",
+  customer_model: "b2c",
+  target_users: ["synthetic user"],
+  decision_goal: "test current contract",
+  research_language: "en-US",
+};
+
+function scopeDecisions(runId: string): readonly Record<string, unknown>[] {
+  const scopeHash = canonicalContentHash(CONFIRMED_SCOPE);
+  const proposal = {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: `scope_proposal_r1_${sha256Hex(scopeHash)}`,
+    run_id: runId,
+    decision_type: "scope_proposed",
+    timestamp: "2026-07-24T12:00:00Z",
+    actor: "main_agent",
+    reason: "The main agent proposed the exact visible research scope.",
+    artifact_refs: [],
+    scope_revision: 1,
+    scope_hash: scopeHash,
+    scope: CONFIRMED_SCOPE,
+  };
+  return [
+    proposal,
+    {
+      ...proposal,
+      decision_id: `scope_confirmation_r1_${sha256Hex(scopeHash)}`,
+      decision_type: "scope_assumption_confirmed",
+      reason: "The fixture caller attests exact user confirmation of the visible proposal.",
+      scope_proposal_ref: `decisions.jsonl#${String(proposal.decision_id)}`,
+      scope_proposal_hash: canonicalContentHash(proposal),
+      confirmation_basis: "caller_attested_user_confirmation",
+      harness_identity_verification: "not_available",
+    },
+  ];
+}
 
 function runScript(script: string, args: readonly string[]) {
   return spawnSync(process.execPath, ["--import", "tsx", script, ...args], {
@@ -169,6 +208,10 @@ function basePlan(runId: string): Record<string, unknown> {
 }
 
 function manifest(runId: string, plan: Record<string, unknown>): Record<string, unknown> {
+  const [scopeProposal, scopeConfirmation] = scopeDecisions(runId);
+  if (scopeProposal === undefined || scopeConfirmation === undefined) {
+    throw new Error("synthetic Scope Decisions are incomplete");
+  }
   return {
     schema_version: "startup_opportunity.run_manifest.v1",
     run_id: runId,
@@ -176,6 +219,11 @@ function manifest(runId: string, plan: Record<string, unknown>): Record<string, 
     status: "researching",
     status_before_clarification: null,
     parent_run_id: null,
+    scope_proposal_ref: `decisions.jsonl#${String(scopeProposal.decision_id)}`,
+    scope_proposal_hash: canonicalContentHash(scopeProposal),
+    scope_confirmation_ref: `decisions.jsonl#${String(scopeConfirmation.decision_id)}`,
+    scope_confirmation_hash: canonicalContentHash(scopeConfirmation),
+    scope_revision: 1,
     created_at: "2026-07-24T12:00:00Z",
     updated_at: "2026-07-24T12:06:00Z",
     current_phase: "enrichment",
@@ -434,6 +482,22 @@ function terminationDecision(runId: string): Record<string, unknown> {
   };
 }
 
+function runtimeFailureDecision(runId: string): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.adaptation_decision.discovery.current",
+    adaptation_id: "adapt_runtime_failure_001",
+    run_id: runId,
+    based_on_plan_ref: PLAN_REF,
+    trigger_gap_refs: [`${GAP_REF}#gap_runtime_001`],
+    action: "record_runtime_failure",
+    reason: "The deterministic runtime blocker prevents the Run from completing.",
+    expected_decision_impact: ["execution_validity"],
+    stop_condition: "The blocking runtime failure remains unresolved.",
+    requested_by: "main_agent",
+    created_at: "2026-07-24T12:05:00Z",
+  };
+}
+
 function supersedeDecision(runId: string): Record<string, unknown> {
   return {
     schema_version: "startup_opportunity.adaptation_decision.discovery.current",
@@ -492,6 +556,10 @@ function bundle(
       { path: DECISION_REF, document: decision },
       ...extras,
     ],
+    exact_records: scopeDecisions(String(runManifest.run_id)).map((document) => ({
+      ref: `decisions.jsonl#${String(document.decision_id)}`,
+      document,
+    })),
   };
 }
 
@@ -521,7 +589,7 @@ function formalEnvelope(
   };
 }
 
-function terminalReportSource(runId: string): FormalArtifactEnvelope {
+function terminalReportSource(runId: string, runtimeFailure = false): FormalArtifactEnvelope {
   const artifactPath = "artifacts/reporting/terminal-report-source.r1.json";
   const auditRefs = [DECISION_REF, GAP_REF, PLAN_REF].sort();
   const document: Record<string, unknown> = {
@@ -534,17 +602,17 @@ function terminalReportSource(runId: string): FormalArtifactEnvelope {
     owned_output_path: artifactPath,
     materialized_path: "report.json",
     generated_at: "2026-07-24T12:09:30Z",
-    terminal_outcome: "insufficient_evidence",
-    decision_question: "SYNTHETIC: should the bounded discovery continue?",
+    terminal_outcome: runtimeFailure ? "failed" : "insufficient_evidence",
+    decision_question: "合成测试：这次有边界的机会发现是否应继续？",
     execution: {
       completeness: "partial",
-      completed_stages: ["initial discovery wave"],
+      completed_stages: ["初轮机会发现"],
       incomplete_stages: [
         {
-          stage: "opportunity synthesis",
+          stage: "机会综合",
           cause: "evidence_ceiling",
-          detail: "SYNTHETIC evidence did not justify downstream opportunity synthesis.",
-          conclusion_impact: "No opportunity may be prioritized from this partial execution.",
+          detail: "合成材料不足以支持继续形成机会结论。",
+          conclusion_impact: "本次仅部分执行，不能据此排序任何方向。",
           related_refs: [GAP_REF],
         },
       ],
@@ -552,29 +620,53 @@ function terminalReportSource(runId: string): FormalArtifactEnvelope {
         {
           followup_id: "bounded_followup",
           status: "legally_closed",
-          detail: "The latest Gap closed the bounded follow-up under the current scope.",
+          detail: "当前范围内的有界追加调研已经按最新缺口决定关闭。",
           related_refs: [GAP_REF],
         },
       ],
       pending_operation_refs: [],
     },
-    research_conclusion: {
-      outcome: "insufficient_evidence",
-      current_recommendation: "暂缓形成或排序创业机会。",
-      meaning: "当前只完成初轮发现，证据不足以支持机会结论。",
-      evidence_strength: "insufficient",
-      allowed_claim: "初轮发现已完成，但后续机会综合未执行。",
-    },
-    runtime_health: { status: "healthy", issues: [] },
+    research_conclusion: runtimeFailure
+      ? {
+          outcome: "no_recommendation",
+          current_recommendation: "本次运行失败，不能形成研究建议。",
+          meaning: "运行问题阻止了完整执行，不能把失败解释为市场结论。",
+          evidence_strength: "insufficient",
+          allowed_claim: "本次运行在完成机会综合前失败。",
+        }
+      : {
+          outcome: "insufficient_evidence",
+          current_recommendation: "暂缓形成或排序创业机会。",
+          meaning: "当前只完成初轮发现，证据不足以支持机会结论。",
+          evidence_strength: "insufficient",
+          allowed_claim: "初轮发现已完成，但后续机会综合未执行。",
+        },
+    runtime_health: runtimeFailure
+      ? {
+          status: "blocked",
+          issues: [
+            {
+              code: "synthetic_runtime_failure",
+              stage: "机会综合",
+              detail: "合成运行时故障阻止了后续执行。",
+              conclusion_impact: "不能形成、排序或推荐任何机会方向。",
+              related_refs: [GAP_REF],
+            },
+          ],
+        }
+      : { status: "healthy", issues: [] },
     directions: [],
     sources: [],
+    excluded_evidence: [],
+    commercial_research_audit_refs: [],
+    commercial_uncertainties: [],
     ordered_validation_plan: [],
     freshness: {
       earliest_valid_as_of: null,
       latest_valid_as_of: null,
-      summary: "SYNTHETIC runtime contract test cites no market Evidence.",
+      summary: "合成运行合同测试没有引用市场材料。",
     },
-    limitations: ["SYNTHETIC contract test; no real market research or validation."],
+    limitations: ["仅为合成合同测试；没有执行真实市场调研或外部验证。"],
     external_action_boundary: {
       execution_owner: "user",
       execution_supported: false,
@@ -603,6 +695,7 @@ async function setupPersistedRun(
     | "request-clarification"
     | "terminate"
     | "terminate-unclosed"
+    | "runtime-failure"
     | "pre-kill-exact"
     | "pre-kill-missing"
     | "pre-kill-shared"
@@ -615,9 +708,16 @@ async function setupPersistedRun(
   const runsRoot = path.join(root, "runs");
   const validator = await createArtifactValidator(repositoryRoot);
   const store = new RunStore(runsRoot, validator);
-  await store.create({
+  await createConfirmedRun(store, {
     runId,
     mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     createdAt: "2026-07-24T12:00:00Z",
   });
   const preKill = action.startsWith("pre-kill-");
@@ -715,6 +815,10 @@ async function setupPersistedRun(
   const runRoot = path.join(runsRoot, runId);
   const persistedManifest = manifest(runId, plan);
   const storeManifest = (await store.load(runId)).manifest;
+  persistedManifest.scope_proposal_ref = storeManifest.scope_proposal_ref;
+  persistedManifest.scope_proposal_hash = storeManifest.scope_proposal_hash;
+  persistedManifest.scope_confirmation_ref = storeManifest.scope_confirmation_ref;
+  persistedManifest.scope_confirmation_hash = storeManifest.scope_confirmation_hash;
   persistedManifest.current_phase = discoveryBacked ? "discovery" : "enrichment";
   persistedManifest.artifact_refs = discoveryBacked ? storeManifest.artifact_refs : [PLAN_REF];
   persistedManifest.latest_gap_snapshot_ref = null;
@@ -734,9 +838,14 @@ async function setupPersistedRun(
     ? gapSnapshot(runId, "candidate_pre_killed", PRE_KILL_CANDIDATE_REF)
     : action === "stop-followup"
       ? gapSnapshot(runId, "no_material_new_evidence", PLAN_REF)
-      : action === "post-g2-add"
-        ? gapSnapshot(runId, "evidence_insufficient", PRE_KILL_CANDIDATE_REF)
-        : gapSnapshot(runId);
+      : action === "runtime-failure"
+        ? gapSnapshot(runId, "runtime_blocked", PLAN_REF)
+        : action === "post-g2-add"
+          ? gapSnapshot(runId, "evidence_insufficient", PRE_KILL_CANDIDATE_REF)
+          : gapSnapshot(runId);
+  if (action === "runtime-failure") {
+    gap.stop_signals = ["runtime_blocked"];
+  }
   if (action === "post-g2-add") {
     const gapEntry = (gap.gaps as Record<string, unknown>[])[0];
     assert.ok(gapEntry);
@@ -763,11 +872,13 @@ async function setupPersistedRun(
         ? clarificationDecision(runId)
         : action === "terminate" || action === "terminate-unclosed"
           ? terminationDecision(runId)
-          : action === "retry"
-            ? retryDecision(runId)
-            : action === "supersede"
-              ? supersedeDecision(runId)
-              : retryDecision(runId);
+          : action === "runtime-failure"
+            ? runtimeFailureDecision(runId)
+            : action === "retry"
+              ? retryDecision(runId)
+              : action === "supersede"
+                ? supersedeDecision(runId)
+                : retryDecision(runId);
   if (action === "post-g2-add") {
     decision.adaptation_id = "adapt_add_post_g2";
     decision.action = "add_unit";
@@ -930,7 +1041,7 @@ function currentDiscoveryAdaptationBundle(
   return {
     schema_version: "startup_opportunity.document_bundle.current",
     documents: [...selected.values()].sort((left, right) => left.path.localeCompare(right.path)),
-    exact_records: [],
+    exact_records: structuredClone(setup.adaptationBundle.exact_records ?? []),
   };
 }
 
@@ -1048,6 +1159,7 @@ function candidateFor(
         ? []
         : [{ path: "events.jsonl", document: setup.triggerEventRecord }]),
     ],
+    exact_records: structuredClone(setup.adaptationBundle.exact_records ?? []),
   };
   return { transformed, candidateBundle };
 }
@@ -1180,6 +1292,7 @@ async function multiDecisionApplyInput(
   const adaptationBundle: DocumentBundle = {
     schema_version: "startup_opportunity.document_bundle.current",
     documents: commonDocuments,
+    exact_records: structuredClone(setup.adaptationBundle.exact_records ?? []),
   };
   const candidateBundle: DocumentBundle = {
     schema_version: "startup_opportunity.document_bundle.current",
@@ -1188,6 +1301,7 @@ async function multiDecisionApplyInput(
       { path: transformed.planPath, document: transformed.plan },
       candidateContext,
     ],
+    exact_records: structuredClone(setup.adaptationBundle.exact_records ?? []),
   };
   return {
     input: {
@@ -1748,6 +1862,10 @@ test("Adaptation validator accepts all closed actions and rejects retry outside 
     } else if (action === "stop_followup") {
       gap = gapSnapshot(runId, "no_material_new_evidence", PLAN_REF);
       decision.stop_condition = "The explicit no-new-evidence stop signal is present.";
+    } else if (action === "record_runtime_failure") {
+      gap = gapSnapshot(runId, "runtime_blocked", PLAN_REF);
+      gap.stop_signals = ["runtime_blocked"];
+      decision.stop_condition = "The blocking runtime failure remains unresolved.";
     } else if (action === "terminate_insufficient_evidence") {
       decision.stop_condition = "The blocking gap cannot be resolved under current scope.";
       runManifest.followup_round = 2;
@@ -1762,7 +1880,7 @@ test("Adaptation validator accepts all closed actions and rejects retry outside 
     const result = validator.validateDocumentBundle(
       bundle(runManifest, plan, planningContext, gap, decision, extras),
     );
-    assert.equal(result.valid, true, `${action}: ${JSON.stringify(result.adaptationErrors)}`);
+    assert.equal(result.valid, true, `${action}: ${JSON.stringify(result, null, 2)}`);
   }
 
   const modeMismatchRunId = "adapt-mode-mismatch";
@@ -2566,6 +2684,38 @@ test("terminal adaptation requires and materializes a validated main-agent decis
   assert.equal(replay.terminalReport?.status, "idempotent_replay");
 });
 
+test("Discovery runtime failure terminates and reports from the original Run", async (contextTest) => {
+  const runId = "runtime-failure-original-run";
+  const setup = await setupPersistedRun(contextTest, runId, "runtime-failure");
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const input = {
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    terminalReportEnvelope: terminalReportSource(runId, true),
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    nextStep: "Report the runtime failure without creating a continuation Run.",
+    beliefSummary: {
+      current_belief: "The runtime failure prevents a research conclusion.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Can a new Run execute after the runtime fault is fixed?",
+    },
+  };
+  const result = await runtime.apply(input);
+  assert.equal(result.status, "applied");
+  assert.equal(result.terminalReport?.status, "published");
+  const status = await setup.store.status(runId);
+  assert.equal(status.manifest.status, "failed");
+  assert.equal(status.continuationRunIds.length, 0);
+  assert.equal(status.terminalReportDisposition, "ready", JSON.stringify(status, null, 2));
+  const brief = await readFile(path.join(setup.runRoot, "decision-brief.md"), "utf8");
+  assert.match(brief, /本次运行失败/);
+  assert.match(brief, /运行受阻/);
+});
+
 test("terminal report publication fault recovers from the immutable source on reopen", async (contextTest) => {
   const runId = "runtime-terminal-report-fault";
   const setup = await setupPersistedRun(contextTest, runId, "terminate");
@@ -2766,15 +2916,26 @@ test("a completed clarification operation remains complete across user Decision 
   assert.equal(paused.manifest.status, "needs_clarification");
   assert.equal(paused.manifest.status_before_clarification, "researching");
 
-  await setup.store.appendDecision(runId, {
-    schema_version: "startup_opportunity.decision.v1",
-    decision_id: "clarification_scope_received",
-    run_id: runId,
-    decision_type: "scope_changed_by_user",
-    timestamp: "2026-07-24T12:10:00Z",
-    actor: "user",
+  const proposal = await setup.store.proposeScope({
+    runId,
+    expectedScopeRevision: 1,
     reason: "The user supplied the explicit scope needed for later reconciliation.",
-    artifact_refs: [DECISION_REF],
+    scopeProposal: {
+      geography: "Synthetic clarified geography",
+      customerModel: "b2c",
+      targetUsers: ["synthetic clarified user"],
+      decisionGoal: "reconcile the explicit scope before resuming research",
+      researchLanguage: "en-US",
+    },
+  });
+  await setup.store.confirmScope({
+    runId,
+    expectedScopeProposalRevision: proposal.scopeRevision,
+    expectedScopeProposalRef: proposal.scopeProposalRef,
+    expectedScopeProposalHash: proposal.scopeProposalHash,
+    confirmedAt: "2026-07-24T12:10:00Z",
+    userConfirmationAttestation:
+      "The fixture caller attests that the user reviewed and confirmed the exact clarified Scope proposal.",
   });
   const resumed = await setup.store.load(runId);
   assert.equal(resumed.planOperationRecovery.pendingOperationKeys.length, 0);
@@ -3104,7 +3265,20 @@ test("user-requested apply rejects forged or drifted Decision log inputs before 
         assert.ok(setup.userDecision);
         const foreign = clone(setup.userDecision);
         foreign.run_id = "runtime-user-foreign-run";
-        await writeFile(path.join(setup.runRoot, "decisions.jsonl"), `${canonicalJson(foreign)}\n`);
+        const records = (await readFile(path.join(setup.runRoot, "decisions.jsonl"), "utf8"))
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as Record<string, unknown>);
+        await writeFile(
+          path.join(setup.runRoot, "decisions.jsonl"),
+          `${records
+            .map((record) =>
+              record.decision_id === setup.userDecision?.decision_id
+                ? canonicalJson(foreign)
+                : canonicalJson(record),
+            )
+            .join("\n")}\n`,
+        );
       },
     },
     {
@@ -3135,7 +3309,20 @@ test("user-requested apply rejects forged or drifted Decision log inputs before 
         assert.ok(setup.userDecision);
         const drifted = clone(setup.userDecision);
         drifted.reason = "The log record no longer matches its durable receipt.";
-        await writeFile(path.join(setup.runRoot, "decisions.jsonl"), `${canonicalJson(drifted)}\n`);
+        const records = (await readFile(path.join(setup.runRoot, "decisions.jsonl"), "utf8"))
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as Record<string, unknown>);
+        await writeFile(
+          path.join(setup.runRoot, "decisions.jsonl"),
+          `${records
+            .map((record) =>
+              record.decision_id === setup.userDecision?.decision_id
+                ? canonicalJson(drifted)
+                : canonicalJson(record),
+            )
+            .join("\n")}\n`,
+        );
       },
     },
   ];
@@ -3968,7 +4155,18 @@ test("late Artifact is persisted only as ignored and remains ignored after reope
   const runsRoot = path.join(root, "runs");
   const runId = "runtime-late-artifact";
   const store = new RunStore(runsRoot, await createArtifactValidator(repositoryRoot));
-  await store.create({ runId, mode: "opportunity_discovery", createdAt: "2026-07-24T12:00:00Z" });
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-24T12:00:00Z",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
+  });
   const plan = basePlan(runId);
   const cancelledUnit = (plan.waves as { units: Record<string, unknown>[] }[])[0]?.units[1];
   assert.ok(cancelledUnit);

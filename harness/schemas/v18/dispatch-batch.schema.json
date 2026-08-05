@@ -16,6 +16,7 @@
     "dispatch_group",
     "task_ready_at",
     "dispatch_requested_at",
+    "dispatch_mode",
     "tasks",
     "agent_dispatch_performed",
     "limitations"
@@ -54,6 +55,9 @@
     },
     "dispatch_requested_at": {
       "$ref": "../v12/definitions.schema.json#/$defs/timestamp"
+    },
+    "dispatch_mode": {
+      "const": "parallel_immediate"
     },
     "tasks": {
       "type": "array",

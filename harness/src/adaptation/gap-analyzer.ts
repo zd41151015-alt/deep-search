@@ -25,6 +25,7 @@ export const GAP_ANALYSIS_RESULT_VERSION = "startup_opportunity.gap_analysis_res
 const MACHINE_GAP_TYPES = new Set([
   "mandatory_dimension_missing",
   "freshness_failed",
+  "runtime_blocked",
   "scope_invalidated",
   "user_plan_change_requested",
 ]);
@@ -34,6 +35,7 @@ export interface MachineGapCheck {
   readonly gapType:
     | "mandatory_dimension_missing"
     | "freshness_failed"
+    | "runtime_blocked"
     | "scope_invalidated"
     | "user_plan_change_requested";
   readonly subjectRef: string;
@@ -425,6 +427,9 @@ export class GapAnalyzer {
     }
     if (repeatedSourceRefs.length > 0) {
       stopSignals.push("source_repetition");
+    }
+    if ((input.machineChecks ?? []).some((check) => check.gapType === "runtime_blocked")) {
+      stopSignals.push("runtime_blocked");
     }
 
     const snapshot: Record<string, unknown> = {

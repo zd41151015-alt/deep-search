@@ -119,9 +119,14 @@ export {
   type BuildValidationContextResult,
   type CheckpointRunInput,
   type CheckpointRunResult,
+  type ConfirmScopeInput,
+  type ConfirmScopeResult,
   type CreateRunInput,
   type CreateRunResult,
   type LoadRunResult,
+  type ProposeScopeInput,
+  type ProposeScopeResult,
+  type ResearchScope,
   type RunManifest,
   type RunMode,
   RunStore,
@@ -129,12 +134,15 @@ export {
 } from "./run-store/run-store.js";
 export {
   runCheckpointRun,
+  runConfirmScope,
   runCreateRun,
   runLoadRun,
+  runProposeScope,
   runPublishArtifact,
   runRecordEvidence,
   runStatusRun,
 } from "./run-store/store-commands.js";
+export { buildArtifactScaffold } from "./runtime/artifact-scaffolds.js";
 export {
   type AssessmentFollowupRevisionResult,
   deriveAssessmentFollowupRevision,
@@ -144,8 +152,14 @@ export {
   DeclarativeRuntimeCompiler,
   type RuntimeArtifactCompilationRequest,
   type RuntimeArtifactCompilationResult,
+  type RuntimePublicationPlan,
 } from "./runtime/declarative-runtime.js";
-export { runCompileArtifacts } from "./runtime/runtime-commands.js";
+export { LaneResultMaterializer } from "./runtime/lane-materializer.js";
+export {
+  runCompileArtifacts,
+  runMaterializeLaneResult,
+  runScaffoldArtifact,
+} from "./runtime/runtime-commands.js";
 export {
   type AiBundleDocument,
   isAiBundleSchemaVersion,
@@ -184,6 +198,10 @@ export {
   type AssessmentExecutionDocument,
   validateAssessmentExecutionContract,
 } from "./validators/assessment-execution-validator.js";
+export {
+  type CommercialResearchDocument,
+  validateCommercialResearchContract,
+} from "./validators/commercial-research-validator.js";
 export {
   type DeclarativeRuntimeDocument,
   isDeclarativeRuntimeSchemaVersion,
@@ -228,6 +246,13 @@ export {
   PLANNING_CONTRACT_RESULT_VERSION,
   PlanningContractEvaluator,
 } from "./validators/planning-contract-validator.js";
+export {
+  type ClassifiedReference,
+  classifyReference,
+  type ReferenceKind,
+  type ResolvedReference,
+  resolveReferences,
+} from "./validators/reference-classifier.js";
 export type {
   LoadedSchemaBundle,
   SchemaBundleInspectionResult,

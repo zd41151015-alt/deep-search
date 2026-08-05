@@ -156,6 +156,54 @@
     "network_access": false,
     "hidden_model_calls": false
   },
+  "commercial_research_contract": {
+    "primary_evidence_basis": "commercial_behavior",
+    "academic_evidence_role": "mechanism_boundary_and_counterevidence_only",
+    "default_resource_allocation": {
+      "customer_commercial_percent": 65,
+      "market_structure_percent": 17,
+      "academic_percent": 18
+    },
+    "resource_allocation_enforcement": "planning_guidance_only",
+    "actual_distribution_basis": "adopted_evidence_register_records",
+    "customer_commercial_percent_range": [60, 70],
+    "market_structure_percent_range": [15, 20],
+    "academic_percent_maximum": 20,
+    "ranking_coverage_keys": [
+      "recent_user_language",
+      "purchase_signal",
+      "alternatives_pricing_usage",
+      "distribution_channel",
+      "independent_counterevidence"
+    ],
+    "academic_allowed_coverage_keys": ["mechanism", "effect_boundary", "counterevidence"],
+    "vendor_claim_requires_cross_validation": true,
+    "claim_freshness_windows_days": {
+      "recent_user_language": 730,
+      "current_purchase_behavior": 730,
+      "current_distribution": 730,
+      "current_competitor_usage": 730,
+      "current_retention": 730,
+      "current_market_change": 730,
+      "current_pricing": 120,
+      "current_product_capability": 120,
+      "current_competitor_offering": 120,
+      "vendor_public_pricing": 120,
+      "vendor_public_product": 120,
+      "vendor_positioning": 180,
+      "vendor_statement": 180,
+      "market_structure_regulatory": 365
+    },
+    "historical_claim_types": [
+      "historical_baseline",
+      "academic_mechanism",
+      "effect_boundary",
+      "counterevidence"
+    ],
+    "solution_neutral_stage": "solution_neutral_scan",
+    "solution_specific_stage": "solution_specific_evaluation",
+    "wave1_early_stop_signal_keys": ["demand", "buyer", "purchase"]
+  },
   "terminal_reporting_contract": {
     "source_artifact_type": "startup_opportunity.terminal_report_source.v1",
     "derived_artifact_types": [

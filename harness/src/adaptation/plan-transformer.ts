@@ -37,6 +37,7 @@ const NON_REVISION_ACTIONS = new Set([
   "continue_existing_plan",
   "request_clarification",
   "stop_followup",
+  "record_runtime_failure",
   "terminate_insufficient_evidence",
 ]);
 
@@ -201,6 +202,13 @@ export function transformPlan(
     } else if (decision?.action === "stop_followup") {
       nextManifest = {
         ...nextManifest,
+        limitations: uniqueSorted([...manifest.limitations, String(decision.reason)]),
+      };
+    } else if (decision?.action === "record_runtime_failure") {
+      nextManifest = {
+        ...nextManifest,
+        status_before_clarification: null,
+        status: "failed",
         limitations: uniqueSorted([...manifest.limitations, String(decision.reason)]),
       };
     } else if (decision?.action === "terminate_insufficient_evidence") {

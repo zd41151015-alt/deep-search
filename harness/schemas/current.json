@@ -13,6 +13,16 @@
       "document_schema_version": "startup_opportunity.artifact_store_operation.current"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/commercial-research-audit.schema.json",
+      "file": "current/commercial-research-audit.schema.json",
+      "document_schema_version": "startup_opportunity.commercial_research_audit.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/commercial-research-requirements.schema.json",
+      "file": "current/commercial-research-requirements.schema.json",
+      "document_schema_version": null
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/ai-trigger-source-binding-policy.schema.json",
       "file": "current/ai-trigger-source-binding-policy.schema.json",
       "document_schema_version": "startup_opportunity.ai_trigger_source_binding_policy.current"
@@ -23,9 +33,29 @@
       "document_schema_version": "startup_opportunity.document_bundle.current"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/lane-staging-document.schema.json",
+      "file": "current/lane-staging-document.schema.json",
+      "document_schema_version": "startup_opportunity.lane_staging_document.current"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/research-publication-policy.schema.json",
       "file": "current/research-publication-policy.schema.json",
       "document_schema_version": "startup_opportunity.research_publication_policy.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/runtime-publication-plan.schema.json",
+      "file": "current/runtime-publication-plan.schema.json",
+      "document_schema_version": "startup_opportunity.runtime_publication_plan.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/scaffold-request.schema.json",
+      "file": "current/scaffold-request.schema.json",
+      "document_schema_version": "startup_opportunity.scaffold_request.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/scaffold-result.schema.json",
+      "file": "current/scaffold-result.schema.json",
+      "document_schema_version": "startup_opportunity.scaffold_result.current"
     },
     {
       "id": "https://startup-opportunity.local/schemas/v1/checkpoint.schema.json",

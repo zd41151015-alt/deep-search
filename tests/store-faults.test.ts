@@ -13,6 +13,7 @@ import {
   RunStore,
   StoreError,
 } from "../harness/src/index.js";
+import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
@@ -22,9 +23,16 @@ async function setup(context: TestContext, runId: string) {
   const runsRoot = path.join(root, "runs");
   const validator = await createArtifactValidator(repositoryRoot);
   const runStore = new RunStore(runsRoot, validator);
-  await runStore.create({
+  await createConfirmedRun(runStore, {
     runId,
     mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     createdAt: "2026-07-23T12:00:00Z",
   });
   return {

@@ -12,6 +12,7 @@ import {
   transformAssessmentPlan,
   transformPlan,
 } from "../../../harness/src/index.js";
+import { createConfirmedRun } from "../../helpers/current-run.js";
 import {
   branchResearchEnvelopes,
   type FixtureBranch,
@@ -177,13 +178,24 @@ export async function bundleFromRun(state: G13FixtureState): Promise<DocumentBun
       >,
     });
   }
+  const decisionRecords = (await readFile(path.join(state.runRoot, "decisions.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
   return {
     schema_version: "startup_opportunity.document_bundle.current",
     documents,
-    exact_records: state.records.map((record) => ({
-      ref: `evidence/manifest.jsonl#${record.evidence_id}`,
-      document: record,
-    })),
+    exact_records: [
+      ...decisionRecords.map((record) => ({
+        ref: `decisions.jsonl#${String(record.decision_id)}`,
+        document: record,
+      })),
+      ...state.records.map((record) => ({
+        ref: `evidence/manifest.jsonl#${record.evidence_id}`,
+        document: record,
+      })),
+    ],
   };
 }
 
@@ -205,7 +217,18 @@ export async function prepareG13Run(
       module.createArtifactValidator(repositoryRoot),
     ),
   );
-  await store.create({ runId, mode: "concept_evidence_assessment", createdAt: G13_BASE_TIME });
+  await createConfirmedRun(store, {
+    runId,
+    mode: "concept_evidence_assessment",
+    createdAt: G13_BASE_TIME,
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
+  });
 
   const baseBundle = JSON.parse(
     await readFile(

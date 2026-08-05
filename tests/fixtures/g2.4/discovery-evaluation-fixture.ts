@@ -203,6 +203,33 @@ function task(
     wave_id: "wave_enrichment",
     unit_type: sourcePhase === "adversarial_challenger" ? "adversarial_review" : "market_space",
     research_goal: SYNTHETIC,
+    commercial_research_requirements: {
+      research_stage: "solution_specific_evaluation",
+      resource_allocation: {
+        customer_commercial_percent: 65,
+        market_structure_percent: 17,
+        academic_percent: 18,
+      },
+      planned_queries: [
+        {
+          query: `synthetic ${unitId} pricing, acquisition, retention, and opposition review`,
+          commercial_dimensions: [
+            "solution_pricing",
+            "solution_acquisition",
+            "solution_retention",
+            "counterevidence",
+          ],
+        },
+      ],
+      required_commercial_dimensions: [
+        "recent_user_language",
+        "purchase_signal",
+        "alternatives_pricing_usage",
+        "distribution_channel",
+        "independent_counterevidence",
+      ],
+      commercial_audit_output_path: `artifacts/research-audits/${unitId}.json`,
+    },
     target_opportunity_refs: [...OPPORTUNITIES],
     source_snapshot_ref: G23_SNAPSHOT,
     source_merge_ref: G23_MERGE,

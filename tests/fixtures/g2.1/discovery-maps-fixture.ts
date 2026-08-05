@@ -272,6 +272,14 @@ export async function createDiscoveryMapsFixture(
     market: "synthetic-primary-market",
     language: "en-SYNTHETIC",
     principal: "synthetic_principal",
+    scope_confirmation: {
+      geography: "synthetic-primary-market",
+      customer_model: "b2c",
+      target_users: [synthetic("primary user")],
+      decision_goal: synthetic("identify directions that merit further validation"),
+      research_language: "en-SYNTHETIC",
+      user_confirmed: true,
+    },
     decision_context_ref: G21_DECISION_REF,
     attachments: [],
     explicit_constraints: {
@@ -573,6 +581,38 @@ export async function createDiscoveryMapsFixture(
       G21_PLAN_REF,
     ]),
   ];
+  const confirmedScope = {
+    revision: 1,
+    geography: "synthetic-primary-market",
+    customer_model: "b2c",
+    target_users: [synthetic("primary user")],
+    decision_goal: synthetic("identify directions that merit further validation"),
+    research_language: "en-SYNTHETIC",
+  };
+  const scopeProposalDecision = {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: "scope_proposal_r1_fixture",
+    run_id: runId,
+    decision_type: "scope_proposed",
+    timestamp: createdAt,
+    actor: "main_agent",
+    reason: synthetic("the main agent proposed this exact visible scope"),
+    artifact_refs: [],
+    scope_revision: 1,
+    scope_hash: canonicalContentHash(confirmedScope),
+    scope: confirmedScope,
+  };
+  const scopeProposalRef = "decisions.jsonl#scope_proposal_r1_fixture";
+  const scopeConfirmationDecision = {
+    ...scopeProposalDecision,
+    decision_id: "scope_confirmation_r1_fixture",
+    decision_type: "scope_assumption_confirmed",
+    reason: synthetic("the fixture caller attests exact user confirmation"),
+    scope_proposal_ref: scopeProposalRef,
+    scope_proposal_hash: canonicalContentHash(scopeProposalDecision),
+    confirmation_basis: "caller_attested_user_confirmation",
+    harness_identity_verification: "not_available",
+  };
   const manifest = {
     schema_version: "startup_opportunity.run_manifest.v1",
     run_id: runId,
@@ -580,6 +620,11 @@ export async function createDiscoveryMapsFixture(
     status: "planned",
     status_before_clarification: null,
     parent_run_id: null,
+    scope_proposal_ref: scopeProposalRef,
+    scope_proposal_hash: canonicalContentHash(scopeProposalDecision),
+    scope_confirmation_ref: "decisions.jsonl#scope_confirmation_r1_fixture",
+    scope_confirmation_hash: canonicalContentHash(scopeConfirmationDecision),
+    scope_revision: 1,
     created_at: createdAt,
     updated_at: createdAt,
     current_phase: "discovery",
@@ -612,7 +657,16 @@ export async function createDiscoveryMapsFixture(
         document: item,
       })),
     ],
-    exact_records: [],
+    exact_records: [
+      {
+        ref: scopeProposalRef,
+        document: scopeProposalDecision,
+      },
+      {
+        ref: "decisions.jsonl#scope_confirmation_r1_fixture",
+        document: scopeConfirmationDecision,
+      },
+    ],
   };
   return refreshDiscoveryMapsBundle(bundle);
 }

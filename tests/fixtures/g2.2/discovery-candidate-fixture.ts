@@ -191,6 +191,36 @@ function task(
     wave_id: "wave_discovery_synthetic",
     unit_type: unitType,
     research_goal: synthetic(`${sourcePhase} bounded contract task`),
+    commercial_research_requirements: {
+      research_stage: "solution_neutral_scan",
+      resource_allocation: {
+        customer_commercial_percent: 65,
+        market_structure_percent: 17,
+        academic_percent: 18,
+      },
+      planned_queries: [
+        {
+          query: synthetic("user, buyer, price, alternative, and channel behavior scan"),
+          commercial_dimensions: [
+            "user_language",
+            "buyer",
+            "purchase",
+            "pricing",
+            "alternatives",
+            "usage",
+            "distribution",
+          ],
+        },
+      ],
+      required_commercial_dimensions: [
+        "recent_user_language",
+        "purchase_signal",
+        "alternatives_pricing_usage",
+        "distribution_channel",
+        "independent_counterevidence",
+      ],
+      commercial_audit_output_path: `artifacts/research-audits/${unitId}.json`,
+    },
     target_candidate_refs: [G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1],
     scope_frame_ref: G21_SCOPE_REF,
     research_plan_ref: G21_PLAN_REF,

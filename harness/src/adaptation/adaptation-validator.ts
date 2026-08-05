@@ -995,6 +995,24 @@ export class AdaptationPolicyValidator {
         }
         break;
       }
+      case "record_runtime_failure": {
+        const runtimeBlockingGaps = gaps.filter(
+          (resolved) =>
+            resolved !== null &&
+            resolved.gap.severity === "blocking" &&
+            resolved.gap.gap_type === "runtime_blocked",
+        );
+        if (runtimeBlockingGaps.length === 0) {
+          errors.push(
+            issue(
+              "adaptation.runtime_failure_basis_missing",
+              decisionPath,
+              "record_runtime_failure requires a blocking runtime_blocked Gap",
+            ),
+          );
+        }
+        break;
+      }
       case "terminate_insufficient_evidence": {
         const blockingGaps = gaps.filter(
           (resolved) => resolved !== null && resolved.gap.severity === "blocking",

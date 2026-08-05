@@ -13,6 +13,7 @@
     "market",
     "language",
     "principal",
+    "scope_confirmation",
     "decision_context_ref",
     "attachments",
     "explicit_constraints",
@@ -42,6 +43,43 @@
     },
     "principal": {
       "$ref": "definitions.schema.json#/$defs/identifier"
+    },
+    "scope_confirmation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "geography",
+        "customer_model",
+        "target_users",
+        "decision_goal",
+        "research_language",
+        "user_confirmed"
+      ],
+      "properties": {
+        "geography": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "customer_model": {
+          "enum": ["b2c", "b2b", "b2b2c", "mixed"]
+        },
+        "target_users": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+          }
+        },
+        "decision_goal": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "research_language": {
+          "$ref": "definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "user_confirmed": {
+          "const": true
+        }
+      }
     },
     "decision_context_ref": {
       "$ref": "definitions.schema.json#/$defs/artifactRef"

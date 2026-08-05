@@ -182,6 +182,34 @@ function validateLogOperationReceipt(
 export class JsonlStore {
   constructor(private readonly validator: ArtifactValidator) {}
 
+  async listValidatedRecords(
+    runRoot: string,
+    runId: string,
+    logPath: JsonlPath,
+  ): Promise<readonly Record<string, unknown>[]> {
+    const contents = await readFile(await resolveRunPath(runRoot, logPath));
+    const parsed = parseCompleteLines(contents, logPath);
+    if (parsed.validBytes !== contents.length) {
+      throw new StoreError("log.corrupt_tail", "repair JSONL tail before reading", {
+        path: logPath,
+      });
+    }
+    for (const record of parsed.records) {
+      const validation = this.validator.validateDocument(record, logPath);
+      if (
+        !validation.valid ||
+        record.schema_version !== expectedRecordSchema(logPath) ||
+        record.run_id !== runId
+      ) {
+        throw new StoreError("log.schema_invalid", "JSONL record is not schema-valid", {
+          path: logPath,
+          errors: validation.errors,
+        });
+      }
+    }
+    return parsed.records;
+  }
+
   async appendValidated(
     runRoot: string,
     runId: string,

@@ -23,6 +23,7 @@ import {
   canonicalContentHash,
   canonicalJson,
   operationKey,
+  sha256Bytes,
   sha256Hex,
 } from "../artifact-store/canonical.js";
 import {
@@ -63,6 +64,11 @@ export interface RunManifest extends Record<string, unknown> {
   readonly status: string;
   readonly status_before_clarification: string | null;
   readonly parent_run_id: string | null;
+  readonly scope_proposal_ref: string;
+  readonly scope_proposal_hash: string;
+  readonly scope_confirmation_ref: string | null;
+  readonly scope_confirmation_hash: string | null;
+  readonly scope_revision: number;
   readonly created_at: string;
   readonly updated_at: string;
   readonly current_phase: string | null;
@@ -87,12 +93,58 @@ export interface RunManifest extends Record<string, unknown> {
   readonly limitations: readonly string[];
 }
 
+export interface ResearchScope {
+  readonly geography: string;
+  readonly customerModel: "b2c" | "b2b" | "b2b2c" | "mixed";
+  readonly targetUsers: readonly string[];
+  readonly decisionGoal: string;
+  readonly researchLanguage: string;
+}
+
 export interface CreateRunInput {
   readonly runId: string;
   readonly mode: RunMode;
   readonly createdAt?: string;
   readonly parentRunId?: string | null;
+  readonly scopeProposal: ResearchScope;
   readonly faultAt?: "before_publish";
+}
+
+export interface ProposeScopeInput {
+  readonly runId: string;
+  readonly expectedScopeRevision: number;
+  readonly scopeProposal: ResearchScope;
+  readonly proposedAt?: string;
+  readonly reason: string;
+}
+
+export interface ConfirmScopeInput {
+  readonly runId: string;
+  readonly expectedScopeProposalRevision: number;
+  readonly expectedScopeProposalRef: string;
+  readonly expectedScopeProposalHash: string;
+  readonly confirmedAt?: string;
+  readonly userConfirmationAttestation: string;
+}
+
+export interface ProposeScopeResult {
+  readonly schemaVersion: "startup_opportunity.propose_scope_result.v1";
+  readonly runId: string;
+  readonly scopeRevision: number;
+  readonly scopeProposalRef: string;
+  readonly scopeProposalHash: string;
+  readonly status: "proposed" | "idempotent_replay";
+}
+
+export interface ConfirmScopeResult {
+  readonly schemaVersion: "startup_opportunity.confirm_scope_result.v1";
+  readonly runId: string;
+  readonly scopeRevision: number;
+  readonly scopeConfirmationRef: string;
+  readonly scopeConfirmationHash: string;
+  readonly confirmationBasis: "caller_attested_user_confirmation";
+  readonly harnessIdentityVerification: "not_available";
+  readonly status: "confirmed" | "idempotent_replay";
 }
 
 export interface CreateRunResult {
@@ -101,6 +153,9 @@ export interface CreateRunResult {
   readonly runId: string;
   readonly manifest: RunManifest;
   readonly checkpointRef: string;
+  readonly workingDirectory: string;
+  readonly scopeProposalRef: string;
+  readonly scopeProposalHash: string;
 }
 
 export interface BeliefSummary {
@@ -156,6 +211,43 @@ export interface StatusRunResult {
   readonly executionResolutionIssues: readonly string[];
   readonly terminalReportDisposition: "not_required" | "missing" | "invalid" | "ready";
   readonly terminalReportIssues: readonly string[];
+  readonly workingDirectory: string;
+  readonly resumeContext: {
+    readonly runId: string;
+    readonly mode: RunMode;
+    readonly status: string;
+    readonly currentPhase: string | null;
+    readonly currentPlanRef: string | null;
+    readonly checkpointRef: string | null;
+    readonly activeUnitIds: readonly string[];
+    readonly blockingReasons: readonly string[];
+    readonly doctorRequired: false;
+  };
+  readonly observability: {
+    readonly stageTimings: readonly {
+      readonly stageId: string;
+      readonly startedAt: string;
+      readonly endedAt: string | null;
+      readonly durationMs: number | null;
+    }[];
+    readonly laneTimings: readonly {
+      readonly unitId: string;
+      readonly attempt: number;
+      readonly executionAttemptId: string;
+      readonly attemptCount: number;
+      readonly retryCount: number;
+      readonly state: string;
+      readonly startedAt: string;
+      readonly endedAt: string | null;
+      readonly durationMs: number | null;
+    }[];
+    readonly validationRetryCount: number;
+    readonly publishRetryCount: number;
+    readonly failureClassifications: Readonly<Record<string, number>>;
+    readonly artifactCount: number;
+    readonly evidenceCount: number;
+    readonly blockingReasons: readonly string[];
+  };
 }
 
 export interface RunExecutionResolution {
@@ -289,13 +381,25 @@ function recoveryTransitionRank(envelope: FormalArtifactEnvelope): number {
 }
 
 function makeManifest(input: CreateRunInput, createdAt: string): RunManifest {
+  const proposal = scopeProposalRecord(
+    input.runId,
+    1,
+    input.scopeProposal,
+    createdAt,
+    "Caller proposed this Scope for user review; no user confirmation is asserted.",
+  );
   return {
     schema_version: "startup_opportunity.run_manifest.v1",
     run_id: input.runId,
     mode: input.mode,
-    status: "created",
+    status: "awaiting_scope_confirmation",
     status_before_clarification: null,
     parent_run_id: input.parentRunId ?? null,
+    scope_proposal_ref: `decisions.jsonl#${String(proposal.decision_id)}`,
+    scope_proposal_hash: canonicalContentHash(proposal),
+    scope_confirmation_ref: null,
+    scope_confirmation_hash: null,
+    scope_revision: 1,
     created_at: createdAt,
     updated_at: createdAt,
     current_phase: null,
@@ -321,6 +425,78 @@ function makeManifest(input: CreateRunInput, createdAt: string): RunManifest {
   };
 }
 
+function scopeDocument(scope: ResearchScope, revision: number): Record<string, unknown> {
+  return {
+    revision,
+    geography: scope.geography,
+    customer_model: scope.customerModel,
+    target_users: [...scope.targetUsers],
+    decision_goal: scope.decisionGoal,
+    research_language: scope.researchLanguage,
+  };
+}
+
+function scopeProposalRecord(
+  runId: string,
+  revision: number,
+  scope: ResearchScope,
+  timestamp: string,
+  reason: string,
+): Record<string, unknown> {
+  const document = scopeDocument(scope, revision);
+  const scopeHash = canonicalContentHash(document);
+  return {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: `scope_proposal_r${revision}_${sha256Hex(scopeHash)}`,
+    run_id: runId,
+    decision_type: "scope_proposed",
+    timestamp,
+    actor: "main_agent",
+    reason,
+    artifact_refs: [],
+    scope_revision: revision,
+    scope_hash: scopeHash,
+    scope: document,
+  };
+}
+
+function scopeConfirmationRecord(
+  runId: string,
+  proposal: Record<string, unknown>,
+  timestamp: string,
+  userConfirmationAttestation: string,
+): Record<string, unknown> {
+  const revision = Number(proposal.scope_revision);
+  const proposalRef = `decisions.jsonl#${String(proposal.decision_id)}`;
+  const scopeHash = String(proposal.scope_hash);
+  return {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: `scope_confirmation_r${revision}_${sha256Hex(scopeHash)}`,
+    run_id: runId,
+    decision_type: revision === 1 ? "scope_assumption_confirmed" : "scope_changed_by_user",
+    timestamp,
+    actor: "main_agent",
+    reason: userConfirmationAttestation,
+    artifact_refs: [],
+    scope_revision: revision,
+    scope_hash: scopeHash,
+    scope: proposal.scope,
+    scope_proposal_ref: proposalRef,
+    scope_proposal_hash: canonicalContentHash(proposal),
+    confirmation_basis: "caller_attested_user_confirmation",
+    harness_identity_verification: "not_available",
+  };
+}
+
+interface ScopeBindingState {
+  readonly proposal: Record<string, unknown>;
+  readonly proposalRef: string;
+  readonly proposalHash: string;
+  readonly confirmation: Record<string, unknown> | null;
+  readonly confirmationRef: string | null;
+  readonly confirmationHash: string | null;
+}
+
 function continuationIdentity(manifest: RunManifest): Record<string, unknown> {
   return {
     run_id: manifest.run_id,
@@ -342,6 +518,383 @@ export class RunStore {
     this.artifacts = new ArtifactStore(runsRoot, validator);
     this.logs = new JsonlStore(validator);
     this.evidence = new EvidenceStore(runsRoot);
+  }
+
+  private workingDirectory(runId: string): string {
+    return `dist/research-working/${runId}`;
+  }
+
+  private async ensureWorkingDirectory(runId: string): Promise<void> {
+    await mkdir(path.join(path.dirname(this.runsRoot), this.workingDirectory(runId)), {
+      recursive: true,
+    });
+  }
+
+  private async latestScopeState(runRoot: string, runId: string): Promise<ScopeBindingState> {
+    const records = await this.logs.listValidatedRecords(runRoot, runId, "decisions.jsonl");
+    const proposals = records
+      .filter((record) => record.decision_type === "scope_proposed")
+      .sort((left, right) => Number(left.scope_revision) - Number(right.scope_revision));
+    const confirmations = records.filter((record) =>
+      ["scope_assumption_confirmed", "scope_changed_by_user"].includes(
+        String(record.decision_type),
+      ),
+    );
+    if (proposals.length === 0) {
+      throw new StoreError("run.scope_proposal_missing", "Run has no durable Scope proposal", {
+        runId,
+      });
+    }
+    for (const [index, proposal] of proposals.entries()) {
+      const revision = index + 1;
+      if (
+        proposal.scope_revision !== revision ||
+        !isRecord(proposal.scope) ||
+        proposal.scope.revision !== revision ||
+        proposal.scope_hash !== canonicalContentHash(proposal.scope) ||
+        proposal.actor !== "main_agent"
+      ) {
+        throw new StoreError(
+          "run.scope_proposal_invalid",
+          "Scope proposals must form a contiguous immutable revision history",
+          { runId, revision },
+        );
+      }
+      const proposalRef = `decisions.jsonl#${String(proposal.decision_id)}`;
+      const proposalHash = canonicalContentHash(proposal);
+      const matches = confirmations.filter((candidate) => candidate.scope_revision === revision);
+      if (matches.length > 1 || (index < proposals.length - 1 && matches.length !== 1)) {
+        throw new StoreError(
+          "run.scope_confirmation_invalid",
+          "every superseded Scope proposal must have exactly one confirmation record",
+          { runId, revision, confirmationCount: matches.length },
+        );
+      }
+      const confirmation = matches[0];
+      if (
+        confirmation !== undefined &&
+        (confirmation.decision_type !==
+          (revision === 1 ? "scope_assumption_confirmed" : "scope_changed_by_user") ||
+          confirmation.actor !== "main_agent" ||
+          confirmation.scope_hash !== proposal.scope_hash ||
+          canonicalJson(confirmation.scope) !== canonicalJson(proposal.scope) ||
+          confirmation.scope_proposal_ref !== proposalRef ||
+          confirmation.scope_proposal_hash !== proposalHash ||
+          confirmation.confirmation_basis !== "caller_attested_user_confirmation" ||
+          confirmation.harness_identity_verification !== "not_available")
+      ) {
+        throw new StoreError(
+          "run.scope_confirmation_invalid",
+          "Scope confirmation must bind the exact durable proposal and disclose the Harness identity boundary",
+          { runId, revision },
+        );
+      }
+    }
+    if (
+      confirmations.some(
+        (confirmation) =>
+          !proposals.some((proposal) => proposal.scope_revision === confirmation.scope_revision),
+      )
+    ) {
+      throw new StoreError(
+        "run.scope_confirmation_invalid",
+        "Scope confirmation cannot exist without its exact proposal revision",
+        { runId },
+      );
+    }
+    const proposal = proposals.at(-1) as Record<string, unknown>;
+    const confirmation =
+      confirmations.find((candidate) => candidate.scope_revision === proposal.scope_revision) ??
+      null;
+    return {
+      proposal,
+      proposalRef: `decisions.jsonl#${String(proposal.decision_id)}`,
+      proposalHash: canonicalContentHash(proposal),
+      confirmation,
+      confirmationRef:
+        confirmation === null ? null : `decisions.jsonl#${String(confirmation.decision_id)}`,
+      confirmationHash: confirmation === null ? null : canonicalContentHash(confirmation),
+    };
+  }
+
+  private async assertScopeBindingLocked(
+    runRoot: string,
+    manifest: RunManifest,
+  ): Promise<ScopeBindingState> {
+    const latest = await this.latestScopeState(runRoot, manifest.run_id);
+    if (
+      manifest.scope_revision !== latest.proposal.scope_revision ||
+      manifest.scope_proposal_ref !== latest.proposalRef ||
+      manifest.scope_proposal_hash !== latest.proposalHash ||
+      manifest.scope_confirmation_ref !== latest.confirmationRef ||
+      manifest.scope_confirmation_hash !== latest.confirmationHash ||
+      (latest.confirmation === null) !== (manifest.status === "awaiting_scope_confirmation")
+    ) {
+      throw new StoreError(
+        "run.scope_binding_mismatch",
+        "Manifest does not bind the latest durable Scope proposal and confirmation records",
+        {
+          expectedRevision: latest.proposal.scope_revision,
+          expectedProposalRef: latest.proposalRef,
+          expectedProposalHash: latest.proposalHash,
+          expectedConfirmationRef: latest.confirmationRef,
+          expectedConfirmationHash: latest.confirmationHash,
+        },
+      );
+    }
+    return latest;
+  }
+
+  private async bindLatestScopeState(runRoot: string, manifest: RunManifest): Promise<RunManifest> {
+    const latest = await this.latestScopeState(runRoot, manifest.run_id);
+    const revision = Number(latest.proposal.scope_revision);
+    const proposalAdvanced =
+      revision > manifest.scope_revision || manifest.scope_proposal_ref !== latest.proposalRef;
+    const confirmationAdvanced = manifest.scope_confirmation_ref !== latest.confirmationRef;
+    const priorStatus = proposalAdvanced
+      ? manifest.status === "awaiting_scope_confirmation" ||
+        manifest.status === "needs_clarification"
+        ? manifest.status_before_clarification
+        : manifest.status
+      : manifest.status_before_clarification;
+    const status =
+      latest.confirmation === null
+        ? "awaiting_scope_confirmation"
+        : confirmationAdvanced
+          ? revision === 1
+            ? "created"
+            : "needs_clarification"
+          : manifest.status;
+    const timestamps = [latest.proposal.timestamp, latest.confirmation?.timestamp]
+      .filter((value): value is string => typeof value === "string")
+      .sort();
+    const latestTimestamp = timestamps.at(-1);
+    return {
+      ...manifest,
+      status,
+      status_before_clarification:
+        latest.confirmation === null ? priorStatus : revision === 1 ? null : priorStatus,
+      scope_revision: revision,
+      scope_proposal_ref: latest.proposalRef,
+      scope_proposal_hash: latest.proposalHash,
+      scope_confirmation_ref: latest.confirmationRef,
+      scope_confirmation_hash: latest.confirmationHash,
+      updated_at:
+        latestTimestamp !== undefined &&
+        Date.parse(latestTimestamp) > Date.parse(manifest.updated_at)
+          ? latestTimestamp
+          : manifest.updated_at,
+    };
+  }
+
+  async assertScopeConfirmed(runId: string): Promise<void> {
+    validateRunId(runId);
+    const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
+    const manifest = await this.readManifest(runRoot);
+    const state = await this.assertScopeBindingLocked(runRoot, manifest);
+    if (state.confirmation === null) {
+      throw new StoreError(
+        "run.scope_confirmation_required",
+        "research requires an independent confirmation bound to the exact Scope proposal",
+        { scopeProposalRef: state.proposalRef, scopeProposalHash: state.proposalHash },
+      );
+    }
+  }
+
+  async assertResearchExecutionAllowed(runId: string): Promise<void> {
+    validateRunId(runId);
+    const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
+    const manifest = await this.readManifest(runRoot);
+    const state = await this.assertScopeBindingLocked(runRoot, manifest);
+    if (state.confirmation === null) {
+      throw new StoreError(
+        "run.scope_confirmation_required",
+        "research is blocked until the exact Scope proposal is independently confirmed",
+        { scopeProposalRef: state.proposalRef, scopeProposalHash: state.proposalHash },
+      );
+    }
+    if (manifest.status === "needs_clarification") {
+      throw new StoreError(
+        "run.scope_revision_unresolved",
+        "the latest user Scope revision must be reconciled through the current Plan workflow before research continues",
+        { scopeRevision: manifest.scope_revision },
+      );
+    }
+  }
+
+  async proposeScope(input: ProposeScopeInput): Promise<ProposeScopeResult> {
+    validateRunId(input.runId);
+    await this.assertCurrentLeaf(input.runId);
+    const runRoot = await openRunDirectory(this.runsRoot, input.runId);
+    return withRunLock(runRoot, async () => {
+      const manifest = await this.readManifest(runRoot);
+      const state = await this.assertScopeBindingLocked(runRoot, manifest);
+      if (TERMINAL_RUN_STATUSES.has(manifest.status) || manifest.status === "reporting") {
+        throw new StoreError(
+          "run.scope_change_terminal",
+          "terminal or reporting Runs cannot change Scope",
+          {
+            status: manifest.status,
+          },
+        );
+      }
+      const revision = input.expectedScopeRevision + 1;
+      const proposal = scopeProposalRecord(
+        input.runId,
+        revision,
+        input.scopeProposal,
+        input.proposedAt ?? new Date().toISOString(),
+        input.reason,
+      );
+      const proposalRef = `decisions.jsonl#${String(proposal.decision_id)}`;
+      const proposalHash = canonicalContentHash(proposal);
+      if (state.confirmation === null) {
+        if (
+          state.proposal.scope_revision === revision &&
+          state.proposalRef === proposalRef &&
+          state.proposalHash === proposalHash
+        ) {
+          return {
+            schemaVersion: "startup_opportunity.propose_scope_result.v1",
+            runId: input.runId,
+            scopeRevision: revision,
+            scopeProposalRef: proposalRef,
+            scopeProposalHash: proposalHash,
+            status: "idempotent_replay",
+          };
+        }
+        throw new StoreError(
+          "run.scope_proposal_pending",
+          "the current Scope proposal must be confirmed before proposing another revision",
+          { scopeProposalRef: state.proposalRef },
+        );
+      }
+      if (manifest.scope_revision !== input.expectedScopeRevision) {
+        throw new StoreError(
+          "run.scope_revision_conflict",
+          "Scope proposal expected a different confirmed revision",
+          { expected: input.expectedScopeRevision, actual: manifest.scope_revision },
+        );
+      }
+      const appendStatus = await this.logs.appendValidated(
+        runRoot,
+        input.runId,
+        "decisions.jsonl",
+        proposal,
+      );
+      const nextManifest: RunManifest = {
+        ...manifest,
+        status: "awaiting_scope_confirmation",
+        status_before_clarification:
+          manifest.status === "needs_clarification"
+            ? manifest.status_before_clarification
+            : manifest.status,
+        scope_revision: revision,
+        scope_proposal_ref: proposalRef,
+        scope_proposal_hash: proposalHash,
+        scope_confirmation_ref: null,
+        scope_confirmation_hash: null,
+        updated_at: String(proposal.timestamp),
+      };
+      await this.writeManifest(runRoot, nextManifest);
+      return {
+        schemaVersion: "startup_opportunity.propose_scope_result.v1",
+        runId: input.runId,
+        scopeRevision: revision,
+        scopeProposalRef: proposalRef,
+        scopeProposalHash: proposalHash,
+        status: appendStatus === "appended" ? "proposed" : "idempotent_replay",
+      };
+    });
+  }
+
+  async confirmScope(input: ConfirmScopeInput): Promise<ConfirmScopeResult> {
+    validateRunId(input.runId);
+    await this.assertCurrentLeaf(input.runId);
+    const runRoot = await openRunDirectory(this.runsRoot, input.runId);
+    return withRunLock(runRoot, async () => {
+      const manifest = await this.readManifest(runRoot);
+      const state = await this.assertScopeBindingLocked(runRoot, manifest);
+      if (TERMINAL_RUN_STATUSES.has(manifest.status) || manifest.status === "reporting") {
+        throw new StoreError(
+          "run.scope_change_terminal",
+          "terminal or reporting Runs cannot change Scope",
+          { status: manifest.status },
+        );
+      }
+      const revision = input.expectedScopeProposalRevision;
+      if (
+        state.proposal.scope_revision !== revision ||
+        state.proposalRef !== input.expectedScopeProposalRef ||
+        state.proposalHash !== input.expectedScopeProposalHash
+      ) {
+        throw new StoreError(
+          "run.scope_proposal_binding_mismatch",
+          "confirmation must bind the exact Scope proposal revision, ref, and hash shown to the user",
+          {
+            expectedRevision: state.proposal.scope_revision,
+            expectedRef: state.proposalRef,
+            expectedHash: state.proposalHash,
+          },
+        );
+      }
+      const decision = scopeConfirmationRecord(
+        input.runId,
+        state.proposal,
+        input.confirmedAt ?? new Date().toISOString(),
+        input.userConfirmationAttestation,
+      );
+      const decisionRef = `decisions.jsonl#${String(decision.decision_id)}`;
+      const decisionHash = canonicalContentHash(decision);
+      if (state.confirmation !== null) {
+        if (
+          state.confirmationRef !== decisionRef ||
+          state.confirmationHash !== decisionHash ||
+          canonicalJson(state.confirmation) !== canonicalJson(decision)
+        ) {
+          throw new StoreError(
+            "run.scope_confirmation_conflict",
+            "the Scope proposal was already confirmed with a different attestation",
+            { scopeProposalRef: state.proposalRef },
+          );
+        }
+        return {
+          schemaVersion: "startup_opportunity.confirm_scope_result.v1",
+          runId: input.runId,
+          scopeRevision: revision,
+          scopeConfirmationRef: decisionRef,
+          scopeConfirmationHash: decisionHash,
+          confirmationBasis: "caller_attested_user_confirmation",
+          harnessIdentityVerification: "not_available",
+          status: "idempotent_replay",
+        };
+      }
+      const status = await this.logs.appendValidated(
+        runRoot,
+        input.runId,
+        "decisions.jsonl",
+        decision,
+      );
+      const nextManifest: RunManifest = {
+        ...manifest,
+        status: revision === 1 ? "created" : "needs_clarification",
+        status_before_clarification: revision === 1 ? null : manifest.status_before_clarification,
+        scope_confirmation_ref: decisionRef,
+        scope_confirmation_hash: decisionHash,
+        updated_at: String(decision.timestamp),
+      };
+      await this.writeManifest(runRoot, nextManifest);
+      return {
+        schemaVersion: "startup_opportunity.confirm_scope_result.v1",
+        runId: input.runId,
+        scopeRevision: revision,
+        scopeConfirmationRef: decisionRef,
+        scopeConfirmationHash: decisionHash,
+        confirmationBasis: "caller_attested_user_confirmation",
+        harnessIdentityVerification: "not_available",
+        status: status === "appended" ? "confirmed" : "idempotent_replay",
+      };
+    });
   }
 
   private async registerContinuation(
@@ -403,6 +956,13 @@ export class RunStore {
       }
       const parentRoot = await openRunDirectoryReadOnly(this.runsRoot, input.parentRunId);
       const parent = await this.readManifest(parentRoot);
+      if (TERMINAL_RUN_STATUSES.has(parent.status) || parent.status === "reporting") {
+        throw new StoreError(
+          "run.reporting_continuation_forbidden",
+          "terminal reporting must be completed on the original research Run",
+          { parentRunId: input.parentRunId, parentStatus: parent.status },
+        );
+      }
       if (parent.mode !== input.mode) {
         throw new StoreError("run.parent_mode_mismatch", "continuation cannot change Run mode", {
           parentMode: parent.mode,
@@ -413,6 +973,23 @@ export class RunStore {
     const createdAt = input.createdAt ?? new Date().toISOString();
     const manifest = makeManifest(input, createdAt);
     this.validateManifest(manifest);
+    const proposalRecord = scopeProposalRecord(
+      input.runId,
+      1,
+      input.scopeProposal,
+      createdAt,
+      "Caller proposed this Scope for user review; no user confirmation is asserted.",
+    );
+    const proposalRef = `decisions.jsonl#${String(proposalRecord.decision_id)}`;
+    const proposalHash = canonicalContentHash(proposalRecord);
+    const scopeValidation = this.validator.validateDocument(proposalRecord, "decisions.jsonl");
+    if (!scopeValidation.valid) {
+      throw new StoreError(
+        "run.scope_proposal_invalid",
+        "initial Scope proposal is not schema-valid",
+        { errors: scopeValidation.errors },
+      );
+    }
     const event = {
       schema_version: "startup_opportunity.event.v1",
       event_id: `run_created_${sha256Hex(operationKey("run_created", { run_id: input.runId }))}`,
@@ -450,21 +1027,33 @@ export class RunStore {
           }
           throw error;
         }
+        const initialProposal = await this.logs.readExactRecord(
+          target,
+          input.runId,
+          proposalRef,
+          "decisions.jsonl",
+        );
         if (
           loaded.manifest.mode !== input.mode ||
-          loaded.manifest.parent_run_id !== (input.parentRunId ?? null)
+          loaded.manifest.parent_run_id !== (input.parentRunId ?? null) ||
+          initialProposal.scope_hash !== proposalRecord.scope_hash ||
+          canonicalJson(initialProposal.scope) !== canonicalJson(proposalRecord.scope)
         ) {
           throw new StoreError("write.conflict", "existing Run has different create parameters", {
             runId: input.runId,
           });
         }
         await this.registerContinuation(runsRoot, loaded.manifest);
+        await this.ensureWorkingDirectory(input.runId);
         return {
           schemaVersion: "startup_opportunity.create_run_result.v1",
           status: "idempotent_replay",
           runId: input.runId,
           manifest: loaded.manifest,
           checkpointRef: loaded.lastValidCheckpointRef,
+          workingDirectory: this.workingDirectory(input.runId),
+          scopeProposalRef: proposalRef,
+          scopeProposalHash: canonicalContentHash(initialProposal),
         };
       } catch (error) {
         if (!isNodeError(error, "ENOENT")) {
@@ -489,12 +1078,18 @@ export class RunStore {
           await publishTemp(stagingRoot, temporary, logPath);
         }
         await this.writeManifest(stagingRoot, manifest);
+        await this.logs.appendValidated(
+          stagingRoot,
+          input.runId,
+          "decisions.jsonl",
+          proposalRecord,
+        );
         await this.logs.appendValidated(stagingRoot, input.runId, "events.jsonl", event);
         const checkpoint = await this.checkpointLocked(stagingRoot, {
           runId: input.runId,
           checkpointId: "checkpoint_initial",
           createdAt,
-          nextStep: "Write and validate DecisionContext.",
+          nextStep: "Present the exact Scope proposal and obtain explicit confirmation.",
           beliefSummary: {
             current_belief: "No research belief has been recorded.",
             evidence_that_changed_belief: [],
@@ -502,7 +1097,7 @@ export class RunStore {
             remaining_disagreement: [],
             next_decision_relevant_question: "What decision should this Run answer?",
           },
-          inputRefs: [`events.jsonl#${event.event_id}`],
+          inputRefs: [`events.jsonl#${event.event_id}`, proposalRef],
         });
         const finalManifest = await this.readManifest(stagingRoot);
         if (input.faultAt === "before_publish") {
@@ -531,12 +1126,16 @@ export class RunStore {
           }
           throw error;
         }
+        await this.ensureWorkingDirectory(input.runId);
         return {
           schemaVersion: "startup_opportunity.create_run_result.v1",
           status: "created",
           runId: input.runId,
           manifest: finalManifest,
           checkpointRef: checkpoint.checkpointRef,
+          workingDirectory: this.workingDirectory(input.runId),
+          scopeProposalRef: proposalRef,
+          scopeProposalHash: proposalHash,
         };
       } finally {
         await rm(stagingRoot, { recursive: true, force: true });
@@ -700,10 +1299,154 @@ export class RunStore {
   async status(runId: string): Promise<StatusRunResult> {
     const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
     const manifest = await this.readManifest(runRoot);
+    await this.assertScopeBindingLocked(runRoot, manifest);
     const resolution = await this.resolveExecution(runId);
     const terminalReportStatus = TERMINAL_RUN_STATUSES.has(manifest.status)
       ? await this.terminalReportStatus(runId, runRoot, manifest)
       : { disposition: "not_required" as const, issues: [] };
+    const formal = await this.artifacts.listFormalDocuments(runRoot);
+    const effective = formal.map((entry) => {
+      const envelope = entry.document as FormalArtifactEnvelope;
+      return {
+        path: entry.path,
+        createdAt:
+          typeof envelope.created_at === "string" ? envelope.created_at : manifest.updated_at,
+        artifactType: typeof envelope.artifact_type === "string" ? envelope.artifact_type : "",
+        document: isRecord(envelope.document) ? envelope.document : entry.document,
+      };
+    });
+    const readinessByStage = new Map<string, string>();
+    for (const entry of effective) {
+      if (
+        entry.artifactType === "startup_opportunity.discovery_stage_readiness.v1" &&
+        typeof entry.document.stage_id === "string"
+      ) {
+        readinessByStage.set(entry.document.stage_id, entry.createdAt);
+      }
+      if (
+        entry.artifactType === "startup_opportunity.assessment_stage_gate.v1" &&
+        typeof entry.document.stage_id === "string"
+      ) {
+        readinessByStage.set(entry.document.stage_id, entry.createdAt);
+      }
+    }
+    const stageTimings = effective
+      .filter((entry) =>
+        ["startup_opportunity.dispatch_batch.v1", "startup_opportunity.dispatch_batch.v2"].includes(
+          entry.artifactType,
+        ),
+      )
+      .flatMap((entry) => {
+        const stageId = entry.document.stage_id;
+        const startedAt = entry.document.dispatch_requested_at ?? entry.document.requested_at;
+        if (typeof stageId !== "string" || typeof startedAt !== "string") return [];
+        const endedAt = readinessByStage.get(stageId) ?? null;
+        return [
+          {
+            stageId,
+            startedAt,
+            endedAt,
+            durationMs:
+              endedAt === null ? null : Math.max(0, Date.parse(endedAt) - Date.parse(startedAt)),
+          },
+        ];
+      })
+      .sort((left, right) => left.stageId.localeCompare(right.stageId));
+    const lifecycle = new Map<string, (typeof effective)[number][]>();
+    for (const entry of effective.filter(
+      (candidate) => candidate.artifactType === "startup_opportunity.lane_lifecycle.v1",
+    )) {
+      if (typeof entry.document.unit_id !== "string") continue;
+      lifecycle.set(entry.document.unit_id, [
+        ...(lifecycle.get(entry.document.unit_id) ?? []),
+        entry,
+      ]);
+    }
+    const failureClassifications: Record<string, number> = {};
+    const laneTimings = [...lifecycle.entries()]
+      .map(([unitId, history]) => {
+        const attempts = new Map<string, (typeof history)[number]>();
+        for (const candidate of history) {
+          const attemptId = String(candidate.document.execution_attempt_id);
+          const previous = attempts.get(attemptId);
+          if (
+            previous === undefined ||
+            Number(candidate.document.revision) > Number(previous.document.revision)
+          ) {
+            attempts.set(attemptId, candidate);
+          }
+        }
+        const completedAttempts = [...attempts.values()].sort((left, right) => {
+          const ordinal = Number(left.document.attempt) - Number(right.document.attempt);
+          return ordinal === 0 ? left.createdAt.localeCompare(right.createdAt) : ordinal;
+        });
+        for (const attempt of completedAttempts) {
+          const failure = isRecord(attempt.document.failure) ? attempt.document.failure : null;
+          if (typeof failure?.kind === "string") {
+            failureClassifications[failure.kind] = (failureClassifications[failure.kind] ?? 0) + 1;
+          }
+        }
+        const entry = completedAttempts.at(-1) ?? history[history.length - 1];
+        if (entry === undefined) {
+          throw new StoreError("status.lifecycle_missing", "lane lifecycle history is empty", {
+            unitId,
+          });
+        }
+        const timestamps = isRecord(entry.document.timestamps) ? entry.document.timestamps : {};
+        const startedAt =
+          completedAttempts
+            .map((attempt) => {
+              const values = isRecord(attempt.document.timestamps)
+                ? attempt.document.timestamps
+                : {};
+              return String(values.dispatch_requested_at ?? attempt.createdAt);
+            })
+            .sort()[0] ?? String(timestamps.dispatch_requested_at ?? entry.createdAt);
+        const endedAt =
+          [
+            timestamps.published_at,
+            timestamps.formalization_validated_at,
+            timestamps.handoff_ready_at,
+            timestamps.evidence_recorded_at,
+            timestamps.agent_started_at,
+          ].find((value): value is string => typeof value === "string") ?? null;
+        return {
+          unitId,
+          attempt: Number(entry.document.attempt),
+          executionAttemptId: String(entry.document.execution_attempt_id),
+          attemptCount: attempts.size,
+          retryCount: Math.max(0, attempts.size - 1),
+          state: String(entry.document.state),
+          startedAt,
+          endedAt,
+          durationMs:
+            endedAt === null ? null : Math.max(0, Date.parse(endedAt) - Date.parse(startedAt)),
+        };
+      })
+      .sort((left, right) => left.unitId.localeCompare(right.unitId));
+    const latestGap =
+      manifest.latest_gap_snapshot_ref === null
+        ? null
+        : effective.find((entry) => entry.path === manifest.latest_gap_snapshot_ref)?.document;
+    const blockingGapIds =
+      latestGap !== null && Array.isArray(latestGap?.gaps)
+        ? latestGap.gaps
+            .filter(
+              (gap): gap is Record<string, unknown> => isRecord(gap) && gap.severity === "blocking",
+            )
+            .map((gap) => String(gap.gap_id))
+        : [];
+    const blockingReasons = [
+      ...(manifest.status === "needs_clarification"
+        ? [`scope_revision_requires_plan_reconciliation:${manifest.scope_revision}`]
+        : []),
+      ...blockingGapIds.map((id) => `blocking_gap:${id}`),
+      ...manifest.pending_adaptation_refs.map((ref) => `pending_adaptation:${ref}`),
+      ...manifest.failed_units.map((unitId) => `failed_unit:${unitId}`),
+      ...resolution.issues,
+      ...terminalReportStatus.issues,
+    ].sort();
+    const evidenceCount = (await this.evidence.listRecords(runId)).length;
     return {
       schemaVersion: "startup_opportunity.status_run_result.v1",
       runId,
@@ -715,6 +1458,32 @@ export class RunStore {
       executionResolutionIssues: resolution.issues,
       terminalReportDisposition: terminalReportStatus.disposition,
       terminalReportIssues: terminalReportStatus.issues,
+      workingDirectory: this.workingDirectory(runId),
+      resumeContext: {
+        runId,
+        mode: manifest.mode,
+        status: manifest.status,
+        currentPhase: manifest.current_phase,
+        currentPlanRef: manifest.current_plan_ref,
+        checkpointRef: manifest.checkpoint_ref,
+        activeUnitIds: manifest.active_units,
+        blockingReasons,
+        doctorRequired: false,
+      },
+      observability: {
+        stageTimings,
+        laneTimings,
+        validationRetryCount: failureClassifications.validation_failed ?? 0,
+        publishRetryCount: failureClassifications.publication_failed ?? 0,
+        failureClassifications: Object.fromEntries(
+          Object.entries(failureClassifications).sort(([left], [right]) =>
+            left.localeCompare(right),
+          ),
+        ),
+        artifactCount: manifest.artifact_refs.length,
+        evidenceCount,
+        blockingReasons,
+      },
     };
   }
 
@@ -782,15 +1551,36 @@ export class RunStore {
           document.envelope as FormalArtifactEnvelope,
         );
       }
-      const terminalIssues = validateTerminalReportingContract([
-        {
-          path: "manifest.json",
-          schemaVersion: manifest.schema_version,
-          document: manifest,
-          envelope: null,
-        },
-        ...terminalDocuments,
-      ]);
+      const terminalIssues = validateTerminalReportingContract(
+        [
+          {
+            path: "manifest.json",
+            schemaVersion: manifest.schema_version,
+            document: manifest,
+            envelope: null,
+          },
+          ...formal
+            .filter(
+              (entry) => !entries.some((reportingEntry) => reportingEntry.path === entry.path),
+            )
+            .flatMap((entry) => {
+              const envelope = entry.document as FormalArtifactEnvelope;
+              return isRecord(envelope.document) && typeof envelope.artifact_type === "string"
+                ? [
+                    {
+                      path: entry.path,
+                      schemaVersion: envelope.artifact_type,
+                      document: envelope.document,
+                      envelope,
+                    },
+                  ]
+                : [];
+            }),
+          ...terminalDocuments,
+        ],
+        this.validator.publicationPolicy.document
+          .commercial_research_contract as unknown as import("../validators/commercial-research-validator.js").CommercialResearchPolicy,
+      );
       if (terminalIssues.length > 0) {
         return {
           disposition: "invalid",
@@ -855,135 +1645,151 @@ export class RunStore {
       );
     }
     const runRoot = await openRunDirectory(this.runsRoot, runId);
-    return withRunLock(runRoot, async () => {
-      const manifest = await this.readManifest(runRoot);
-      const stored = new Map(
-        (await this.artifacts.listFormalDocuments(runRoot)).map((entry) => [entry.path, entry]),
-      );
-      const selected = new Map<string, DocumentBundleEntry>();
-      const reservedLogs = new Set(["events.jsonl", "decisions.jsonl", "evidence/manifest.jsonl"]);
-      for (const entry of input.documents) {
-        if (reservedLogs.has(entry.path)) {
-          continue;
-        }
-        if (selected.has(entry.path)) {
-          throw new StoreError(
-            "validation_context.duplicate_path",
-            "validation context input contains a duplicate document path",
-            { path: entry.path },
-          );
-        }
-        selected.set(entry.path, entry);
+    return withRunLock(runRoot, () => this.buildValidationContextLocked(runRoot, runId, input));
+  }
+
+  private async buildValidationContextLocked(
+    runRoot: string,
+    runId: string,
+    input: DocumentBundle,
+  ): Promise<BuildValidationContextResult> {
+    const manifest = await this.readManifest(runRoot);
+    await this.assertScopeBindingLocked(runRoot, manifest);
+    const stored = new Map(
+      (await this.artifacts.listFormalDocuments(runRoot)).map((entry) => [entry.path, entry]),
+    );
+    const selected = new Map<string, DocumentBundleEntry>();
+    const reservedLogs = new Set(["events.jsonl", "decisions.jsonl", "evidence/manifest.jsonl"]);
+    for (const entry of input.documents) {
+      if (reservedLogs.has(entry.path)) {
+        continue;
       }
+      if (selected.has(entry.path)) {
+        throw new StoreError(
+          "validation_context.duplicate_path",
+          "validation context input contains a duplicate document path",
+          { path: entry.path },
+        );
+      }
+      selected.set(entry.path, entry);
+    }
 
-      const effective = (document: Record<string, unknown>): Record<string, unknown> =>
-        isCurrentEnvelopeSchema(document.schema_version) && isRecord(document.document)
-          ? document.document
-          : document;
-      const addAuthority = async (entry: DocumentBundleEntry): Promise<void> => {
-        const supplied = selected.get(entry.path);
-        const authorityDocument = effective(entry.document);
-        if (
-          supplied !== undefined &&
-          canonicalJson(effective(supplied.document)) !== canonicalJson(authorityDocument)
-        ) {
-          throw new StoreError(
-            "validation_context.authority_conflict",
-            "caller-supplied document differs from validated Run authority",
-            { path: entry.path },
-          );
-        }
-        if (
-          isCurrentEnvelopeSchema(entry.document.schema_version) &&
-          isRecord(entry.document.document)
-        ) {
-          await this.artifacts.validateStoredEnvelope(
-            runRoot,
-            runId,
-            entry.document as FormalArtifactEnvelope,
-          );
-        }
-        const validation = this.validator.validateDocument(authorityDocument, entry.path);
-        if (!validation.valid) {
-          throw new StoreError(
-            "validation_context.stored_document_invalid",
-            "stored validation-context document is not schema-valid",
-            { path: entry.path, errors: validation.errors },
-          );
-        }
-        selected.set(entry.path, {
-          path: entry.path,
-          document: isCurrentEnvelopeSchema(entry.document.schema_version)
-            ? entry.document
-            : authorityDocument,
-        });
-      };
+    const effective = (document: Record<string, unknown>): Record<string, unknown> =>
+      isCurrentEnvelopeSchema(document.schema_version) && isRecord(document.document)
+        ? document.document
+        : document;
+    const addAuthority = async (entry: DocumentBundleEntry): Promise<void> => {
+      const supplied = selected.get(entry.path);
+      const authorityDocument = effective(entry.document);
+      if (
+        supplied !== undefined &&
+        canonicalJson(effective(supplied.document)) !== canonicalJson(authorityDocument)
+      ) {
+        throw new StoreError(
+          "validation_context.authority_conflict",
+          "caller-supplied document differs from validated Run authority",
+          { path: entry.path },
+        );
+      }
+      if (
+        isCurrentEnvelopeSchema(entry.document.schema_version) &&
+        isRecord(entry.document.document)
+      ) {
+        await this.artifacts.validateStoredEnvelope(
+          runRoot,
+          runId,
+          entry.document as FormalArtifactEnvelope,
+        );
+      }
+      const validation = this.validator.validateDocument(authorityDocument, entry.path);
+      if (!validation.valid) {
+        throw new StoreError(
+          "validation_context.stored_document_invalid",
+          "stored validation-context document is not schema-valid",
+          { path: entry.path, errors: validation.errors },
+        );
+      }
+      selected.set(entry.path, {
+        path: entry.path,
+        document: isCurrentEnvelopeSchema(entry.document.schema_version)
+          ? entry.document
+          : authorityDocument,
+      });
+    };
 
-      await addAuthority({ path: "manifest.json", document: manifest });
-      const exactRecords = new Map<string, Record<string, unknown>>();
-      const processed = new Set<string>();
-      while (true) {
-        const next = [...selected.values()]
-          .sort((left, right) => left.path.localeCompare(right.path))
-          .find((entry) => !processed.has(entry.path));
-        if (next === undefined) {
-          break;
-        }
-        processed.add(next.path);
-        const nextDocument = effective(next.document);
-        if (DISCOVERY_MAP_SCHEMA_VERSIONS.has(String(nextDocument.schema_version))) {
-          for (const rootPath of DISCOVERY_MAP_AGGREGATE_ROOTS) {
-            const authority = stored.get(rootPath);
-            if (authority !== undefined) {
-              await addAuthority(authority);
-            }
-          }
-        }
-        for (const ref of artifactRefsForDocument(next)) {
-          const parsed = validateArtifactRef(ref);
-          if (parsed.path === "events.jsonl" || parsed.path === "decisions.jsonl") {
-            exactRecords.set(
-              ref,
-              await this.logs.readExactRecord(runRoot, runId, ref, parsed.path),
-            );
-            continue;
-          }
-          if (parsed.path === "evidence/manifest.jsonl") {
-            exactRecords.set(
-              ref,
-              (await this.evidence.readExactRecordLocked(runRoot, runId, ref)) as Record<
-                string,
-                unknown
-              >,
-            );
-            continue;
-          }
-          if (parsed.path === "manifest.json") {
-            continue;
-          }
-          const authority = stored.get(parsed.path);
+    await addAuthority({ path: "manifest.json", document: manifest });
+    const terminalReportRequested = [...selected.values()].some(
+      (entry) =>
+        effective(entry.document).schema_version ===
+        "startup_opportunity.terminal_report_source.v1",
+    );
+    if (terminalReportRequested) {
+      for (const authority of [...stored.values()].sort((left, right) =>
+        left.path.localeCompare(right.path),
+      )) {
+        await addAuthority(authority);
+      }
+    }
+    const exactRecords = new Map<string, Record<string, unknown>>();
+    const processed = new Set<string>();
+    while (true) {
+      const next = [...selected.values()]
+        .sort((left, right) => left.path.localeCompare(right.path))
+        .find((entry) => !processed.has(entry.path));
+      if (next === undefined) {
+        break;
+      }
+      processed.add(next.path);
+      const nextDocument = effective(next.document);
+      if (DISCOVERY_MAP_SCHEMA_VERSIONS.has(String(nextDocument.schema_version))) {
+        for (const rootPath of DISCOVERY_MAP_AGGREGATE_ROOTS) {
+          const authority = stored.get(rootPath);
           if (authority !== undefined) {
             await addAuthority(authority);
           }
         }
       }
+      for (const ref of artifactRefsForDocument(next)) {
+        const parsed = validateArtifactRef(ref);
+        if (parsed.path === "events.jsonl" || parsed.path === "decisions.jsonl") {
+          exactRecords.set(ref, await this.logs.readExactRecord(runRoot, runId, ref, parsed.path));
+          continue;
+        }
+        if (parsed.path === "evidence/manifest.jsonl") {
+          exactRecords.set(
+            ref,
+            (await this.evidence.readExactRecordLocked(runRoot, runId, ref)) as Record<
+              string,
+              unknown
+            >,
+          );
+          continue;
+        }
+        if (parsed.path === "manifest.json") {
+          continue;
+        }
+        const authority = stored.get(parsed.path);
+        if (authority !== undefined) {
+          await addAuthority(authority);
+        }
+      }
+    }
 
-      return {
-        schemaVersion: "startup_opportunity.validation_context.v1",
-        bundle: {
-          schema_version: input.schema_version,
-          documents: [...selected.values()].sort((left, right) =>
-            left.path.localeCompare(right.path),
-          ),
-          ...(input.schema_version === DOCUMENT_BUNDLE_SCHEMA_VERSION ? { exact_records: [] } : {}),
-        },
-        referenceContext: {
-          exactJsonlRecords: new Map(
-            [...exactRecords.entries()].sort(([left], [right]) => left.localeCompare(right)),
-          ),
-        },
-      };
-    });
+    return {
+      schemaVersion: "startup_opportunity.validation_context.v1",
+      bundle: {
+        schema_version: input.schema_version,
+        documents: [...selected.values()].sort((left, right) =>
+          left.path.localeCompare(right.path),
+        ),
+        ...(input.schema_version === DOCUMENT_BUNDLE_SCHEMA_VERSION ? { exact_records: [] } : {}),
+      },
+      referenceContext: {
+        exactJsonlRecords: new Map(
+          [...exactRecords.entries()].sort(([left], [right]) => left.localeCompare(right)),
+        ),
+      },
+    };
   }
 
   async publishArtifact(input: PublishArtifactInput): Promise<PublishArtifactResult> {
@@ -998,6 +1804,8 @@ export class RunStore {
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       const manifest = await this.readManifest(runRoot);
+      await this.assertScopeBindingLocked(runRoot, manifest);
+      await this.assertTransitionReadyLocked(runRoot, manifest, [input.envelope]);
       this.assertAdaptationArtifactMode(manifest, input.envelope);
       const taskPublicationMode = await this.researchTaskPublicationMode(
         runRoot,
@@ -1056,6 +1864,8 @@ export class RunStore {
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       let manifest = await this.readManifest(runRoot);
+      await this.assertScopeBindingLocked(runRoot, manifest);
+      await this.assertTransitionReadyLocked(runRoot, manifest, input.envelopes);
       const originalManifest = manifest;
       const classifications = new Map<
         string,
@@ -1201,6 +2011,352 @@ export class RunStore {
         "Adaptation Artifact identity does not match the current Run mode",
         { mode: manifest.mode, artifactType: envelope.artifact_type },
       );
+    }
+  }
+
+  async assertTransitionReady(
+    runId: string,
+    envelopes: readonly FormalArtifactEnvelope[],
+  ): Promise<void> {
+    await this.assertCurrentLeaf(runId);
+    const runRoot = await openRunDirectory(this.runsRoot, runId);
+    await withRunLock(runRoot, async () => {
+      const manifest = await this.readManifest(runRoot);
+      await this.assertScopeBindingLocked(runRoot, manifest);
+      await this.assertTransitionReadyLocked(runRoot, manifest, envelopes);
+    });
+  }
+
+  private async assertTransitionReadyLocked(
+    runRoot: string,
+    manifest: RunManifest,
+    envelopes: readonly FormalArtifactEnvelope[],
+  ): Promise<void> {
+    await this.assertScopeBindingLocked(runRoot, manifest);
+    if (manifest.status === "awaiting_scope_confirmation") {
+      throw new StoreError(
+        "run.scope_confirmation_required",
+        "research publication is blocked until confirmation binds the exact Scope proposal",
+        {
+          scopeProposalRef: manifest.scope_proposal_ref,
+          scopeProposalHash: manifest.scope_proposal_hash,
+        },
+      );
+    }
+    const scopeReconciliationTypes = new Set([
+      "startup_opportunity.gap_snapshot.discovery.plan.current",
+      "startup_opportunity.gap_snapshot.discovery.readiness.current",
+      "startup_opportunity.gap_snapshot.assessment.current",
+      "startup_opportunity.adaptation_decision.discovery.current",
+      "startup_opportunity.adaptation_decision.assessment.current",
+      "startup_opportunity.research_plan.v1",
+    ]);
+    if (
+      manifest.status === "needs_clarification" &&
+      envelopes.some((envelope) => !scopeReconciliationTypes.has(envelope.artifact_type))
+    ) {
+      throw new StoreError(
+        "run.scope_revision_unresolved",
+        "research publication is blocked until the latest confirmed Scope is reconciled through Gap, Adaptation Decision, and Plan Revision",
+        { scopeRevision: manifest.scope_revision },
+      );
+    }
+    const downstreamTypes = new Set([
+      "startup_opportunity.discovery_candidate.v1",
+      "startup_opportunity.discovery_candidate_conversion.v2",
+      "startup_opportunity.discovery_fan_in.v2",
+      "startup_opportunity.concept_evidence_assessment_fan_in.v1",
+      "startup_opportunity.enrichment_fan_in.v1",
+      "startup_opportunity.demand_thesis.v1",
+      "startup_opportunity.baseline_option.v1",
+      "startup_opportunity.solution_hypothesis.v1",
+      "startup_opportunity.solution_evaluation.v1",
+      "startup_opportunity.opportunity_thesis.v1",
+      "startup_opportunity.opportunity_comparison.v1",
+      "startup_opportunity.portfolio_view.v1",
+      "startup_opportunity.report.v1",
+      "startup_opportunity.terminal_report_source.v1",
+    ]);
+    const fanInOrConversionTypes = new Set([
+      "startup_opportunity.discovery_candidate_conversion.v2",
+      "startup_opportunity.discovery_fan_in.v2",
+      "startup_opportunity.concept_evidence_assessment_fan_in.v1",
+      "startup_opportunity.enrichment_fan_in.v1",
+    ]);
+    if (!envelopes.some((envelope) => downstreamTypes.has(envelope.artifact_type))) return;
+
+    const publishingIdentities = new Set(
+      envelopes.map(
+        (envelope) =>
+          `${envelope.artifact_path}:${envelope.artifact_type}:${envelope.content_hash}`,
+      ),
+    );
+    const operationDirectory = path.join(runRoot, ".store", "operations");
+    const pendingOperations: string[] = [];
+    let evidenceRecords: readonly Record<string, unknown>[] | null = null;
+    for (const entry of await readdir(operationDirectory, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+      let receipt: unknown;
+      try {
+        receipt = JSON.parse(await readFile(path.join(operationDirectory, entry.name), "utf8"));
+      } catch {
+        pendingOperations.push(entry.name);
+        continue;
+      }
+      if (!isRecord(receipt)) {
+        pendingOperations.push(entry.name);
+        continue;
+      }
+      if (receipt.schema_version === "startup_opportunity.jsonl_operation.v1") {
+        if (
+          (receipt.log_path !== "events.jsonl" && receipt.log_path !== "decisions.jsonl") ||
+          typeof receipt.record_id !== "string" ||
+          !isRecord(receipt.record)
+        ) {
+          pendingOperations.push(entry.name);
+          continue;
+        }
+        try {
+          const durable = await this.logs.readExactRecord(
+            runRoot,
+            manifest.run_id,
+            `${receipt.log_path}#${receipt.record_id}`,
+            receipt.log_path,
+          );
+          if (canonicalJson(durable) !== canonicalJson(receipt.record)) {
+            pendingOperations.push(entry.name);
+          }
+        } catch {
+          pendingOperations.push(entry.name);
+        }
+        continue;
+      }
+      if (receipt.schema_version === "startup_opportunity.evidence_store_operation.current") {
+        if (!isRecord(receipt.record)) {
+          pendingOperations.push(entry.name);
+          continue;
+        }
+        evidenceRecords ??= (await this.evidence.listRecordsLocked(
+          runRoot,
+          manifest.run_id,
+        )) as readonly Record<string, unknown>[];
+        const record = receipt.record;
+        const durable = evidenceRecords.find(
+          (candidate) => candidate.evidence_id === record.evidence_id,
+        );
+        try {
+          const raw = await readFile(
+            await resolveRunPath(runRoot, String(record.raw_content_ref ?? "")),
+          );
+          if (
+            durable === undefined ||
+            canonicalJson(durable) !== canonicalJson(record) ||
+            sha256Bytes(raw) !== record.content_hash
+          ) {
+            pendingOperations.push(entry.name);
+          }
+        } catch {
+          pendingOperations.push(entry.name);
+        }
+        continue;
+      }
+      if (receipt.schema_version === "startup_opportunity.report_materialization_operation.v1") {
+        try {
+          const bytes = await readFile(
+            await resolveRunPath(runRoot, String(receipt.target_path ?? "")),
+          );
+          if (sha256Bytes(bytes) !== receipt.materialized_content_hash) {
+            pendingOperations.push(entry.name);
+          }
+        } catch {
+          pendingOperations.push(entry.name);
+        }
+        continue;
+      }
+      if (
+        receipt.schema_version ===
+          "startup_opportunity.plan_revision_operation.discovery.current" ||
+        receipt.schema_version === "startup_opportunity.plan_revision_operation.assessment.current"
+      ) {
+        const expectedEnvelopes = [
+          ...(Array.isArray(receipt.control_envelopes)
+            ? receipt.control_envelopes.filter(isRecord)
+            : []),
+          ...(isRecord(receipt.checkpoint_envelope) ? [receipt.checkpoint_envelope] : []),
+        ];
+        let complete = expectedEnvelopes.length > 0;
+        for (const expected of expectedEnvelopes) {
+          try {
+            const stored = JSON.parse(
+              await readFile(
+                await resolveRunPath(runRoot, String(expected.artifact_path ?? "")),
+                "utf8",
+              ),
+            ) as unknown;
+            if (canonicalJson(stored) !== canonicalJson(expected)) complete = false;
+          } catch {
+            complete = false;
+          }
+        }
+        if (!complete) pendingOperations.push(entry.name);
+        continue;
+      }
+      if (!isRecord(receipt.envelope)) {
+        pendingOperations.push(entry.name);
+        continue;
+      }
+      const envelope = receipt.envelope;
+      if (
+        typeof envelope.artifact_path !== "string" ||
+        typeof envelope.artifact_type !== "string" ||
+        typeof envelope.content_hash !== "string"
+      ) {
+        pendingOperations.push(entry.name);
+        continue;
+      }
+      try {
+        const persisted = JSON.parse(
+          await readFile(await resolveRunPath(runRoot, envelope.artifact_path), "utf8"),
+        ) as unknown;
+        if (canonicalJson(persisted) !== canonicalJson(envelope))
+          pendingOperations.push(entry.name);
+      } catch (error) {
+        const identity = `${envelope.artifact_path}:${envelope.artifact_type}:${envelope.content_hash}`;
+        if (!publishingIdentities.has(identity) || !isNodeError(error, "ENOENT")) {
+          pendingOperations.push(entry.name);
+        }
+      }
+    }
+    if (pendingOperations.length > 0) {
+      throw new StoreError(
+        "run.transition_pending_operation",
+        "downstream publication is blocked by an unfinished Store operation",
+        { pendingOperations: pendingOperations.sort() },
+      );
+    }
+
+    let unresolvedBlockingGapIds: string[] = [];
+    if (manifest.latest_gap_snapshot_ref !== null) {
+      const stored = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, manifest.latest_gap_snapshot_ref), "utf8"),
+      ) as unknown;
+      const gapDocument =
+        isRecord(stored) && isRecord(stored.document)
+          ? stored.document
+          : isRecord(stored)
+            ? stored
+            : null;
+      unresolvedBlockingGapIds = Array.isArray(gapDocument?.gaps)
+        ? gapDocument.gaps
+            .filter(
+              (gap): gap is Record<string, unknown> => isRecord(gap) && gap.severity === "blocking",
+            )
+            .map((gap) => String(gap.gap_id))
+        : [];
+      if (unresolvedBlockingGapIds.length > 0) {
+        const handledGapIds = new Set<string>();
+        for (const ref of manifest.applied_adaptation_refs) {
+          try {
+            const storedDecision = JSON.parse(
+              await readFile(await resolveRunPath(runRoot, ref.split("#", 1)[0] ?? ref), "utf8"),
+            ) as unknown;
+            const decision =
+              isRecord(storedDecision) && isRecord(storedDecision.document)
+                ? storedDecision.document
+                : isRecord(storedDecision)
+                  ? storedDecision
+                  : null;
+            for (const triggerRef of Array.isArray(decision?.trigger_gap_refs)
+              ? decision.trigger_gap_refs
+              : []) {
+              if (
+                typeof triggerRef === "string" &&
+                triggerRef.startsWith(`${manifest.latest_gap_snapshot_ref}#`)
+              ) {
+                handledGapIds.add(triggerRef.slice(triggerRef.indexOf("#") + 1));
+              }
+            }
+          } catch {
+            // Ordinary validation reports corrupt applied decisions; this gate treats them as absent.
+          }
+        }
+        const appliedForGap = unresolvedBlockingGapIds.every((gapId) => handledGapIds.has(gapId));
+        if (!appliedForGap) {
+          throw new StoreError(
+            "run.transition_blocking_gap_unresolved",
+            "downstream publication requires a validated and applied Adaptation Decision for every blocking Gap",
+            {
+              gapSnapshotRef: manifest.latest_gap_snapshot_ref,
+              gapIds: unresolvedBlockingGapIds.sort(),
+              pendingAdaptationRefs: manifest.pending_adaptation_refs,
+            },
+          );
+        }
+      }
+    }
+    if (manifest.pending_adaptation_refs.length > 0) {
+      throw new StoreError(
+        "run.transition_adaptation_pending",
+        "downstream publication is blocked until pending Adaptation Decisions are applied or rejected",
+        { pendingAdaptationRefs: manifest.pending_adaptation_refs },
+      );
+    }
+    if (
+      envelopes.some((envelope) => fanInOrConversionTypes.has(envelope.artifact_type)) &&
+      manifest.active_units.some(
+        (unitId) =>
+          !envelopes.some(
+            (envelope) =>
+              envelope.document.unit_id === unitId &&
+              [
+                "startup_opportunity.discovery_generation_result.v1",
+                "startup_opportunity.assessment_lane_result.v1",
+                "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+                "startup_opportunity.discovery_lane_result.v1",
+                "startup_opportunity.enrichment_branch_result.v1",
+              ].includes(envelope.artifact_type),
+          ),
+      )
+    ) {
+      const closingUnitIds = new Set(
+        envelopes
+          .map((envelope) => envelope.document.unit_id)
+          .filter((unitId): unitId is string => typeof unitId === "string"),
+      );
+      throw new StoreError(
+        "run.transition_fan_in_dead_end",
+        "fan-in or conversion cannot publish while its Run still has active units",
+        { activeUnitIds: manifest.active_units.filter((unitId) => !closingUnitIds.has(unitId)) },
+      );
+    }
+    if (
+      envelopes.some(
+        (envelope) => envelope.artifact_type === "startup_opportunity.terminal_report_source.v1",
+      )
+    ) {
+      const context = await this.buildValidationContextLocked(runRoot, manifest.run_id, {
+        schema_version: DOCUMENT_BUNDLE_SCHEMA_VERSION,
+        documents: envelopes.map((envelope) => ({
+          path: envelope.artifact_path,
+          document: envelope,
+        })),
+        exact_records: [],
+      });
+      const validation = this.validator.validateDocumentBundle(
+        context.bundle,
+        context.referenceContext,
+      );
+      if (!validation.valid) {
+        throw new StoreError(
+          "run.transition_terminal_report_invalid",
+          "terminal reporting must validate against the original Run's complete Manifest and Evidence set",
+          {
+            bundleErrors: validation.bundleErrors,
+            documentErrors: validation.documents.flatMap((document) => document.errors),
+            referenceErrors: validation.referenceErrors,
+          },
+        );
+      }
     }
   }
 
@@ -1490,6 +2646,17 @@ export class RunStore {
     decision: Record<string, unknown>,
     suppliedOperationKey?: string,
   ): Promise<"appended" | "idempotent_replay"> {
+    if (
+      decision.decision_type === "scope_proposed" ||
+      decision.decision_type === "scope_assumption_confirmed" ||
+      decision.decision_type === "scope_changed_by_user"
+    ) {
+      throw new StoreError(
+        "run.scope_confirmation_dedicated_path_required",
+        "Scope proposals and confirmations must use the dedicated proposeScope() and confirmScope() paths",
+        { decisionType: decision.decision_type },
+      );
+    }
     await this.assertCurrentLeaf(runId);
     const runRoot = await openRunDirectory(this.runsRoot, runId);
     return withRunLock(runRoot, async () => {
@@ -2067,6 +3234,7 @@ export class RunStore {
     input: CheckpointRunInput,
   ): Promise<CheckpointRunResult> {
     const manifest = await this.readManifest(runRoot);
+    await this.assertScopeBindingLocked(runRoot, manifest);
     const checkpointRef = `checkpoints/${input.checkpointId.replaceAll("_", "-")}.json`;
     validateArtifactRef(checkpointRef);
     const formalDocuments = await this.artifacts.listFormalDocuments(runRoot);
@@ -2318,15 +3486,18 @@ export class RunStore {
         currentArtifactPaths.push(artifactPath);
       }
     }
-    let recoveredManifest: RunManifest = {
+    let recoveredManifest: RunManifest = await this.bindLatestScopeState(runRoot, {
       ...provisionalManifest,
+      status_before_clarification:
+        currentManifest.status_before_clarification ??
+        provisionalManifest.status_before_clarification,
       artifact_refs: [...new Set([...snapshot.artifact_refs, ...currentArtifactPaths])]
         .filter((ref) => !ignoredLateArtifactPaths.includes(ref))
         .sort(),
       ignored_late_artifact_refs: [
         ...new Set([...snapshot.ignored_late_artifact_refs, ...ignoredLateArtifactPaths]),
       ].sort(),
-    };
+    });
     const checkpointKnownPaths = new Set([
       ...snapshot.artifact_refs,
       ...snapshot.ignored_late_artifact_refs,
@@ -2358,6 +3529,7 @@ export class RunStore {
       );
     }
     this.validateManifest(recoveredManifest);
+    await this.assertScopeBindingLocked(runRoot, recoveredManifest);
     await this.assertManifestRefsExist(runRoot, recoveredManifest);
     const recoveryDocuments: DocumentBundleEntry[] = [
       { path: "manifest.json", document: recoveredManifest },

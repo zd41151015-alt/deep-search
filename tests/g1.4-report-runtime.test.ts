@@ -18,6 +18,10 @@ import {
   RunStore,
   StoreError,
 } from "../harness/src/index.js";
+import {
+  type TerminalReportingDocument,
+  validateTerminalReportingContract,
+} from "../harness/src/validators/terminal-reporting-validator.js";
 import { branchResearchEnvelopes } from "./fixtures/g1.2/research-branch-fixture.js";
 import {
   createG14ContractBundle,
@@ -30,6 +34,7 @@ import {
   g14Branches,
   replaceG14EvidenceRecords,
 } from "./fixtures/g1.4/assessment-report-fixture.js";
+import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const execFileAsync = promisify(execFile);
@@ -54,6 +59,23 @@ function documentAt(
   return effective(value);
 }
 
+function reportingDocuments(
+  documents: readonly { readonly path: string; readonly document: Record<string, unknown> }[],
+): TerminalReportingDocument[] {
+  return documents.map((entry) => {
+    const envelope = entry.document;
+    const currentEnvelope =
+      envelope.schema_version === "startup_opportunity.artifact_envelope.current" &&
+      isRecord(envelope.document);
+    return {
+      path: entry.path,
+      schemaVersion: String(currentEnvelope ? envelope.artifact_type : envelope.schema_version),
+      document: currentEnvelope ? (envelope.document as Record<string, unknown>) : envelope,
+      envelope: currentEnvelope ? envelope : null,
+    };
+  });
+}
+
 function v5Envelope(
   artifactPath: string,
   document: Record<string, unknown>,
@@ -72,6 +94,235 @@ function v5Envelope(
     content_hash: canonicalContentHash(document),
     document,
   };
+}
+
+function commercialAuditEnvelope(
+  branch: ReturnType<typeof g14Branches>[number],
+  evidenceRef: string,
+  recordedAt: string,
+): FormalArtifactEnvelope {
+  const taskRef = `tasks/${branch.unitId}.attempt-1.json`;
+  const artifactPath = `artifacts/research-audits/${branch.unitId}.json`;
+  const uncovered = [
+    "recent_user_language",
+    "purchase_signal",
+    "alternatives_pricing_usage",
+    "distribution_channel",
+    "independent_counterevidence",
+  ];
+  const coverage: Record<string, Record<string, unknown>> = Object.fromEntries(
+    uncovered.map((key) => [
+      key,
+      {
+        state: "unknown",
+        content_covered: false,
+        evidence_refs: [],
+        data_points: [],
+        inference: null,
+      },
+    ]),
+  );
+  if (branch.unitId === "unit_demand") {
+    coverage.purchase_signal = {
+      state: "inferred",
+      content_covered: true,
+      evidence_refs: [evidenceRef],
+      data_points: [],
+      inference: {
+        basis_refs: [evidenceRef],
+        starting_point: "合成材料描述了与购买相邻的行为。",
+        reasoning: "该行为可能意味着购买意向，但没有观察到交易。",
+        uncertainty: "意向可能不会转化为付款。",
+        validation_needed: "需要观察近期购买或付款承诺。",
+      },
+    };
+  }
+  const document = {
+    schema_version: "startup_opportunity.commercial_research_audit.current",
+    audit_id: `commercial_audit_${branch.unitId}`,
+    run_id: G14_RUN_ID,
+    unit_id: branch.unitId,
+    execution_plan_ref: "plans/research-execution.r1.json",
+    dispatch_task_ref: `tasks/dispatch/commercial-research.r1.json#task_${branch.unitId}`,
+    task_ref: taskRef,
+    covered_direction_ids: branch.unitId === "unit_demand" ? ["narrow_outcome_service"] : [],
+    research_stage: "solution_specific_evaluation",
+    audited_at: "2026-07-25T18:39:00Z",
+    planned_resource_allocation: {
+      customer_commercial_percent: 65,
+      market_structure_percent: 17,
+      academic_percent: 18,
+    },
+    adopted_source_distribution: {
+      total_adopted_sources: 1,
+      customer_commercial_count: 1,
+      market_structure_count: 0,
+      academic_count: 0,
+      customer_commercial_percent: 100,
+      market_structure_percent: 0,
+      academic_percent: 0,
+      guidance_deviation_observed: true,
+    },
+    search_log: [
+      {
+        query_id: `query_${branch.unitId}`,
+        query: `synthetic ${branch.unitId} commercial source`,
+        searched_at: recordedAt,
+        commercial_dimensions: ["buyer", "purchase", "pricing", "alternatives"],
+        candidate_results: [
+          {
+            url: `https://${branch.unitId}.synthetic.invalid/support`,
+            title: `Synthetic ${branch.unitId} support`,
+            retrieved_at: recordedAt,
+            published_at: null,
+            observed_at: recordedAt,
+            data_period_end: null,
+            derived_valid_as_of: recordedAt.slice(0, 10),
+            claim_type: "current_purchase_behavior",
+            adopted_evidence_ref: evidenceRef,
+            rejection_reason: null,
+          },
+        ],
+      },
+    ],
+    search_closure: {
+      closure_id: `search_closure_${branch.unitId}`,
+      lane_kind: "external_research",
+      outcome: "evidence_insufficient",
+      query_log_complete: false,
+      telemetry_basis: "unavailable",
+      remaining_gaps: uncovered,
+      termination_reason: "Synthetic fixture records no observable browser-tool telemetry.",
+    },
+    evidence_register: [
+      {
+        evidence_ref: evidenceRef,
+        source_kind: "independent",
+        evidence_character: "inference",
+        independence: "independent",
+        claim_type: "current_purchase_behavior",
+        retrieved_at: recordedAt,
+        published_at: null,
+        observed_at: recordedAt,
+        data_period_end: null,
+        derived_valid_as_of: recordedAt.slice(0, 10),
+        freshness_status: "current",
+        coverage_keys: [],
+        disposition: "adopted",
+        exclusion_reason: null,
+      },
+    ],
+    coverage,
+    uncovered_business_dimensions: uncovered,
+    wave1_signals: { demand: false, buyer: false, purchase: false },
+    stage_decision: "early_stop_insufficient_evidence",
+    ranking_eligibility: "unranked_hypothesis",
+    limitations: ["SYNTHETIC audit fixture; no market research was performed."],
+  };
+  return v5Envelope(
+    artifactPath,
+    document,
+    "lane_researcher",
+    [taskRef, evidenceRef],
+    "2026-07-25T18:39:00Z",
+  );
+}
+
+function executionPlanEnvelope(
+  bundle: Awaited<ReturnType<typeof createG14ContractBundle>>,
+): FormalArtifactEnvelope {
+  const researchPlan = documentAt(bundle, "plans/research-plan.r1.json");
+  const lanes = g14Branches().map((branch) => ({
+    unit_id: branch.unitId,
+    lane_role: branch.unitId === "unit_counter" ? "risk" : "evaluation",
+    candidate_scope: { kind: "none", candidate_refs: [] },
+    reporting_dimensions: [branch.dimensionId],
+    submission_path: branch.outputPath,
+    submission_schema: "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+    time_budget_minutes: 10,
+    max_sources: 5,
+    straggler_policy: { on_timeout: "publish_partial", grace_minutes: 0, blocks_stage: false },
+    dispatch_group: "commercial_research",
+  }));
+  return v5Envelope(
+    "plans/research-execution.r1.json",
+    {
+      schema_version: "startup_opportunity.research_execution_plan.v1",
+      execution_plan_id: "execution_plan_g1_4_synthetic",
+      run_id: G14_RUN_ID,
+      mode: "concept_evidence_assessment",
+      revision: 1,
+      parent_execution_plan_ref: null,
+      research_plan_ref: "plans/research-plan.r1.json",
+      research_plan_hash: canonicalContentHash(researchPlan),
+      created_at: "2026-07-25T18:05:00Z",
+      research_depth: "standard",
+      total_time_budget_minutes: 120,
+      resource_allocation: {
+        customer_commercial_percent: 65,
+        market_structure_percent: 17,
+        academic_percent: 18,
+      },
+      stages: [
+        {
+          stage_id: "commercial_research",
+          stage_kind: "assessment_commercial",
+          depends_on: [],
+          gate_before: null,
+          gate_after: "terminal_allowed",
+          lanes,
+        },
+      ],
+      limitations: ["SYNTHETIC execution plan; no research was performed."],
+    },
+    "main_agent",
+    ["plans/research-plan.r1.json"],
+    "2026-07-25T18:05:00Z",
+  );
+}
+
+function dispatchEnvelope(
+  bundle: Awaited<ReturnType<typeof createG14ContractBundle>>,
+): FormalArtifactEnvelope {
+  const tasks = g14Branches().map((branch) => {
+    const taskPath = `tasks/${branch.unitId}.attempt-1.json`;
+    const task = documentAt(bundle, taskPath);
+    return {
+      task_id: `task_${branch.unitId}`,
+      unit_id: branch.unitId,
+      lane_role: branch.unitId === "unit_counter" ? "risk" : "evaluation",
+      research_goal: task.research_goal,
+      input_refs: task.input_refs,
+      allowed_output_path: branch.outputPath,
+      required_artifact_schema: "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+      time_budget_minutes: 10,
+      max_sources: 5,
+      straggler_policy: { on_timeout: "publish_partial", grace_minutes: 0, blocks_stage: false },
+    };
+  });
+  return v5Envelope(
+    "tasks/dispatch/commercial-research.r1.json",
+    {
+      schema_version: "startup_opportunity.dispatch_batch.v1",
+      batch_id: "dispatch_commercial_research_g1_4",
+      revision: 1,
+      run_id: G14_RUN_ID,
+      mode: "concept_evidence_assessment",
+      execution_plan_ref: "plans/research-execution.r1.json",
+      research_plan_ref: "plans/research-plan.r1.json",
+      stage_id: "commercial_research",
+      dispatch_group: "commercial_research",
+      task_ready_at: "2026-07-25T18:10:00Z",
+      dispatch_requested_at: "2026-07-25T18:10:00Z",
+      dispatch_mode: "parallel_immediate",
+      tasks,
+      agent_dispatch_performed: false,
+      limitations: ["SYNTHETIC dispatch descriptor; no agent dispatch was performed."],
+    },
+    "harness",
+    ["plans/research-execution.r1.json", "plans/research-plan.r1.json"],
+    "2026-07-25T18:10:00Z",
+  );
 }
 
 async function snapshotTree(root: string): Promise<Readonly<Record<string, string>>> {
@@ -100,6 +351,7 @@ interface PreparedRun {
   readonly runtime: ReportRuntime;
   readonly reportEnvelope: FormalArtifactEnvelope;
   readonly evidenceRef: string;
+  readonly evidenceRefs: readonly string[];
 }
 
 function nextReportRevision(source: FormalArtifactEnvelope): FormalArtifactEnvelope {
@@ -130,9 +382,16 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
   const runRoot = path.join(runsRoot, G14_RUN_ID);
   const validator = await createArtifactValidator(repositoryRoot);
   const store = new RunStore(runsRoot, validator);
-  await store.create({
+  await createConfirmedRun(store, {
     runId: G14_RUN_ID,
     mode: "concept_evidence_assessment",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     createdAt: "2026-07-25T18:00:00Z",
   });
 
@@ -149,9 +408,9 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
   await store
     .publishArtifactBundle({
       runId: G14_RUN_ID,
-      envelopes: corePaths.map((artifactPath) =>
-        v5Envelope(artifactPath, documentAt(bundle, artifactPath)),
-      ),
+      envelopes: corePaths
+        .map((artifactPath) => v5Envelope(artifactPath, documentAt(bundle, artifactPath)))
+        .concat(executionPlanEnvelope(bundle)),
     })
     .catch((error: unknown) => {
       if (error instanceof StoreError) {
@@ -163,24 +422,34 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
   const branches = g14Branches();
   const demand = branches.find((branch) => branch.unitId === "unit_demand");
   assert.ok(demand);
-  await store.publishArtifactBundle({
-    runId: G14_RUN_ID,
-    envelopes: branches.map((branch) => {
-      const taskPath = `tasks/${branch.unitId}.attempt-1.json`;
-      return v5Envelope(
-        taskPath,
-        documentAt(bundle, taskPath),
-        "main_agent",
-        [
-          "concept-hypothesis.json",
-          "scope-frame.json",
-          "plans/research-plan.r1.json",
-          "plans/concept-evidence-assessment-plan.r1.json",
-        ],
-        "2026-07-25T18:11:00Z",
-      );
-    }),
-  });
+  await store
+    .publishArtifactBundle({
+      runId: G14_RUN_ID,
+      envelopes: [
+        dispatchEnvelope(bundle),
+        ...branches.map((branch) => {
+          const taskPath = `tasks/${branch.unitId}.attempt-1.json`;
+          return v5Envelope(
+            taskPath,
+            documentAt(bundle, taskPath),
+            "main_agent",
+            [
+              "concept-hypothesis.json",
+              "scope-frame.json",
+              "plans/research-plan.r1.json",
+              "plans/concept-evidence-assessment-plan.r1.json",
+            ],
+            "2026-07-25T18:11:00Z",
+          );
+        }),
+      ],
+    })
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }));
+      }
+      throw error;
+    });
 
   const evidence = new EvidenceStore(runsRoot);
   let demandRecords:
@@ -218,26 +487,29 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
     const evidencePaths = records.map((record) => `evidence/records/${record.evidence_id}.json`);
     await store.publishArtifactBundle({
       runId: G14_RUN_ID,
-      envelopes: branchResearchEnvelopes(branch, records, index).map((envelope) => {
-        const document = structuredClone(envelope.document);
-        if (
-          branch.unitId === demand.unitId &&
-          envelope.artifact_type === "startup_opportunity.claim.v1"
-        ) {
-          document.evidence_refs = evidencePaths;
-        }
-        return {
-          ...envelope,
-          created_at: `2026-07-25T18:${String(20 + index).padStart(2, "0")}:00Z`,
-          input_refs:
+      envelopes: [
+        ...branchResearchEnvelopes(branch, records, index).map((envelope) => {
+          const document = structuredClone(envelope.document);
+          if (
             branch.unitId === demand.unitId &&
             envelope.artifact_type === "startup_opportunity.claim.v1"
-              ? [`tasks/${branch.unitId}.attempt-1.json`, ...evidencePaths].sort()
-              : envelope.input_refs,
-          content_hash: canonicalContentHash(document),
-          document,
-        };
-      }),
+          ) {
+            document.evidence_refs = evidencePaths;
+          }
+          return {
+            ...envelope,
+            created_at: `2026-07-25T18:${String(20 + index).padStart(2, "0")}:00Z`,
+            input_refs:
+              branch.unitId === demand.unitId &&
+              envelope.artifact_type === "startup_opportunity.claim.v1"
+                ? [`tasks/${branch.unitId}.attempt-1.json`, ...evidencePaths].sort()
+                : envelope.input_refs,
+            content_hash: canonicalContentHash(document),
+            document,
+          };
+        }),
+        commercialAuditEnvelope(branch, evidencePaths[0] as string, support.record.recorded_at),
+      ],
     });
     if (branch.unitId === demand.unitId) {
       demandRecords = records;
@@ -286,6 +558,9 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
   }
   const reportEnvelope = bundle.documents.find((entry) => entry.path === G14_REPORT_REF)?.document;
   assert.ok(reportEnvelope);
+  const evidenceRefs = (await store.status(G14_RUN_ID)).manifest.artifact_refs.filter((ref) =>
+    ref.startsWith("evidence/records/"),
+  );
   return {
     runsRoot,
     runRoot,
@@ -293,6 +568,7 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
     runtime: new ReportRuntime(runsRoot, validator),
     reportEnvelope: reportEnvelope as FormalArtifactEnvelope,
     evidenceRef: `evidence/records/${demandRecords[0].evidence_id}.json`,
+    evidenceRefs,
   };
 }
 
@@ -321,7 +597,10 @@ async function markRunTerminal(state: PreparedRun): Promise<void> {
 
 function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
   const artifactPath = "artifacts/reporting/terminal-report-source.r1.json";
-  const auditRefs = [G14_ASSESSMENT_REF, state.evidenceRef].sort();
+  const commercialAuditRefs = g14Branches()
+    .map((branch) => `artifacts/research-audits/${branch.unitId}.json`)
+    .sort();
+  const auditRefs = [G14_ASSESSMENT_REF, ...commercialAuditRefs, ...state.evidenceRefs].sort();
   const document: Record<string, unknown> = {
     schema_version: "startup_opportunity.terminal_report_source.v1",
     report_id: "terminal_report_synthetic_1",
@@ -333,16 +612,16 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     materialized_path: "report.json",
     generated_at: "2026-07-25T19:16:00Z",
     terminal_outcome: "insufficient_evidence",
-    decision_question: "SYNTHETIC: should this narrow thesis receive more research?",
+    decision_question: "这个合成的窄方向是否值得继续调研？",
     execution: {
       completeness: "partial",
-      completed_stages: ["initial assessment evidence wave"],
+      completed_stages: ["初轮评估"],
       incomplete_stages: [
         {
-          stage: "buyer follow-up",
+          stage: "买方追加调研",
           cause: "runtime_blocked",
-          detail: "SYNTHETIC plan revision publication did not complete.",
-          conclusion_impact: "The current result cannot be described as a completed assessment.",
+          detail: "合成的计划修订发布没有完成。",
+          conclusion_impact: "当前结果不能描述为完整评估。",
           related_refs: [G14_ASSESSMENT_REF],
         },
       ],
@@ -350,7 +629,7 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
         {
           followup_id: "buyer_followup",
           status: "not_executed",
-          detail: "SYNTHETIC buyer evidence remains uncollected.",
+          detail: "合成的买方材料仍未收集。",
           related_refs: [G14_ASSESSMENT_REF],
         },
       ],
@@ -368,9 +647,9 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
       issues: [
         {
           code: "plan_revision_failed",
-          stage: "buyer follow-up",
-          detail: "SYNTHETIC deterministic publication fault prevented the required follow-up.",
-          conclusion_impact: "Conclusion strength is capped at insufficient evidence.",
+          stage: "买方追加调研",
+          detail: "合成的确定性发布故障阻止了必需的追加调研。",
+          conclusion_impact: "结论强度被限制为证据不足。",
           related_refs: [G14_ASSESSMENT_REF],
         },
       ],
@@ -378,7 +657,8 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     directions: [
       {
         direction_id: "narrow_outcome_service",
-        priority: 1,
+        priority: null,
+        ranking_status: "unranked_hypothesis",
         label: "窄场景结果服务",
         maturity: "testable_product_hypothesis",
         action: "validate",
@@ -386,8 +666,10 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
         narrow_scenario: "目标岗位已确定但无法把能力差距变成可展示工作样本",
         problem: "课程完成不能直接证明岗位能力。",
         current_alternative: "课程证书、通用简历修改和零散作品集模板",
+        payer: "尚未确认；个人、雇主或培训方都只是待验证假设",
         product_form: "目标岗位到实践任务、反馈和雇主可读工作样本的服务闭环",
         core_value: "把学习投入转换成可被招聘方检查的结果证据",
+        why_now: "职业转换结果与课程完成之间的落差值得继续验证，但当前尚无购买证据。",
         key_risks: ["买方与付费触发尚未得到足够证据"],
         first_testable_assumption: "目标用户会为雇主可读工作样本而不是更多课程付费",
         comparison_reason: "该假设比通用课程更直接对应当前替代方案的失效点。",
@@ -401,12 +683,66 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
         source_id: "synthetic_support",
         title: "Synthetic contract source",
         url: "https://unit_demand.synthetic.invalid/support",
+        retrieved_at: "2026-07-25T18:00:00Z",
+        published_at: "2026-07-25T00:00:00Z",
+        observed_at: null,
+        data_period_end: null,
         valid_as_of: "2026-07-25",
+        freshness_status: "current",
+        claim_type: "current_market_change",
+        claim_state: "inferred",
+        inference: {
+          basis_refs: [state.evidenceRef],
+          starting_point: "合成输入包含一个待验证方向。",
+          reasoning: "该方向只用于演示从输入到假设的推理链。",
+          uncertainty: "没有真实市场资料，无法判断方向是否成立。",
+          validation_needed: "需要收集近期用户、购买和渠道行为材料。",
+        },
+        source_kind: "independent",
+        evidence_character: "inference",
+        independence: "independent",
+        commercial_coverage_keys: [],
         stance: "supports",
         strength: "weak",
-        claim: "SYNTHETIC input only; it tests source readability and is not market evidence.",
+        claim: "仅为合成输入，用于测试来源可读性，不代表真实市场证据。",
         evidence_ref: state.evidenceRef,
       },
+    ],
+    excluded_evidence: state.evidenceRefs
+      .filter((ref) => ref !== state.evidenceRef)
+      .map((evidence_ref) => ({
+        evidence_ref,
+        reason: "该材料不是本次终态结论的决定性来源，但保留在完整审计范围中。",
+      })),
+    commercial_research_audit_refs: commercialAuditRefs,
+    commercial_uncertainties: [
+      {
+        direction_id: "narrow_outcome_service",
+        coverage_key: "purchase_signal",
+        state: "inferred",
+        statement: "当前行为可能反映购买意向，但尚未观察到实际付款。",
+        basis_refs: [state.evidenceRef],
+        starting_point: "合成材料描述了与购买相邻的行为。",
+        reasoning: "该行为可能意味着购买意向，但没有观察到交易。",
+        uncertainty: "意向可能不会转化为付款。",
+        validation_needed: "需要观察近期购买或付款承诺。",
+      },
+      ...[
+        ["recent_user_language", "尚不清楚目标用户如何描述该问题。"],
+        ["alternatives_pricing_usage", "尚不清楚用户如何使用或支付当前替代方案。"],
+        ["distribution_channel", "尚不清楚现实可达的分发渠道。"],
+        ["independent_counterevidence", "尚缺独立反对材料。"],
+      ].map(([coverage_key, statement]) => ({
+        direction_id: "narrow_outcome_service",
+        coverage_key,
+        state: "unknown",
+        statement,
+        basis_refs: [],
+        starting_point: null,
+        reasoning: null,
+        uncertainty: "当前合成材料不能支持判断。",
+        validation_needed: "需要收集对应维度的近期直接商业材料。",
+      })),
     ],
     ordered_validation_plan: [
       {
@@ -425,9 +761,9 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     freshness: {
       earliest_valid_as_of: "2026-07-25",
       latest_valid_as_of: "2026-07-25",
-      summary: "仅引用一条 2026-07-25 的 synthetic contract source；不代表真实市场新鲜度。",
+      summary: "仅引用一条 2026-07-25 的合成来源；不代表真实市场新鲜度。",
     },
-    limitations: ["SYNTHETIC fixture; no real research or external validation was performed."],
+    limitations: ["合成测试数据；未执行真实调研或外部验证。"],
     external_action_boundary: {
       execution_owner: "user",
       execution_supported: false,
@@ -467,8 +803,18 @@ test("terminal finalizer produces a localized decision-first brief with readable
     /\[Synthetic contract source\]\(https:\/\/unit_demand\.synthetic\.invalid\/support\)/,
   );
   assert.match(brief, /通过信号/);
+  assert.match(brief, /商业判断中的推测与未知/);
+  assert.match(brief, /推测：当前行为可能反映购买意向/);
+  assert.match(brief, /未知：尚不清楚目标用户如何描述该问题/);
+  assert.match(brief, /推理起点/);
+  assert.match(brief, /不确定性/);
   assert.doesNotMatch(brief.split("## 审计附录", 1)[0] ?? "", /artifacts\//);
   assert.doesNotMatch(brief, /insufficient_evidence|execution_supported: false/);
+  assert.doesNotMatch(brief, /plan_revision_failed|确定性发布故障|买方追加调研/);
+  assert.doesNotMatch(
+    brief,
+    /\b(?:same-Run|pre-thesis|baseline|counterfactual|Evidence|Harness|Artifact|opportunity_discovery|concept_evidence_assessment|runtime_blocked|not_executed)\b/u,
+  );
   const reportJson = JSON.parse(
     await readFile(path.join(state.runRoot, "report.json"), "utf8"),
   ) as Record<string, unknown>;
@@ -504,6 +850,29 @@ test("terminal report rejects false completion, derived drift, and caller-declar
       };
       (envelope as { content_hash: string }).content_hash = canonicalContentHash(envelope.document);
       return { envelope, code: "terminal_reporting.freshness_mismatch" };
+    })(),
+    (() => {
+      const envelope = structuredClone(base);
+      envelope.document.excluded_evidence = [];
+      const omittedEvidenceRefs = new Set(
+        state.evidenceRefs.filter((ref) => ref !== state.evidenceRef),
+      );
+      envelope.document.audit_refs = (envelope.document.audit_refs as string[]).filter(
+        (ref) => !omittedEvidenceRefs.has(ref),
+      );
+      Object.assign(envelope, {
+        input_refs: envelope.input_refs.filter((ref) => !omittedEvidenceRefs.has(ref)),
+      });
+      (envelope as { content_hash: string }).content_hash = canonicalContentHash(envelope.document);
+      return { envelope, code: "terminal_reporting.evidence_disposition_incomplete" };
+    })(),
+    (() => {
+      const envelope = structuredClone(base);
+      envelope.document.commercial_uncertainties = (
+        envelope.document.commercial_uncertainties as Record<string, unknown>[]
+      ).filter((entry) => entry.coverage_key !== "purchase_signal");
+      (envelope as { content_hash: string }).content_hash = canonicalContentHash(envelope.document);
+      return { envelope, code: "terminal_reporting.commercial_uncertainty_missing" };
     })(),
   ];
   for (const candidate of invalidSources) {
@@ -545,6 +914,90 @@ test("terminal report rejects false completion, derived drift, and caller-declar
   assert.equal(driftResult.valid, false);
   assert.ok(
     driftResult.referenceErrors.some((entry) => entry.code === "terminal_reporting.derived_drift"),
+  );
+});
+
+test("terminal Search Closure reconciles every planned lane before or after Task creation", async (context) => {
+  const state = await prepareRun(context);
+  await markRunTerminal(state);
+  const source = terminalReportEnvelope(state);
+  const assembled = await state.store.buildValidationContext(G14_RUN_ID, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [{ path: source.artifact_path, document: source }],
+    exact_records: [],
+  });
+  const base = reportingDocuments(assembled.bundle.documents);
+  const taskPath = "tasks/unit_counter.attempt-1.json";
+  const auditPath = "artifacts/research-audits/unit_counter.json";
+
+  const missingBeforeTask = base.filter(
+    (entry) => entry.path !== taskPath && entry.path !== auditPath,
+  );
+  assert.ok(
+    validateTerminalReportingContract(missingBeforeTask)
+      .map((issue) => issue.code)
+      .includes("terminal_reporting.search_closure_incomplete"),
+  );
+
+  const failedBeforeSearch = structuredClone(base).filter((entry) => entry.path !== taskPath);
+  const failedAudit = failedBeforeSearch.find((entry) => entry.path === auditPath);
+  assert.ok(failedAudit);
+  failedAudit.document.task_ref = null;
+  const failedClosure = failedAudit.document.search_closure as Record<string, unknown>;
+  failedClosure.outcome = "failed_before_search";
+  const failedCodes = validateTerminalReportingContract(failedBeforeSearch).map(
+    (issue) => issue.code,
+  );
+  assert.equal(failedCodes.includes("terminal_reporting.search_closure_incomplete"), false);
+  assert.equal(failedCodes.includes("terminal_reporting.search_closure_binding_mismatch"), false);
+
+  const assessmentDeliveryBeforeTask = structuredClone(base).filter(
+    (entry) => entry.path !== taskPath,
+  );
+  const assessmentPlan = assessmentDeliveryBeforeTask.find(
+    (entry) => entry.path === "plans/research-execution.r1.json",
+  );
+  assert.ok(assessmentPlan);
+  const assessmentStage = (assessmentPlan.document.stages as Record<string, unknown>[])[0];
+  assert.ok(assessmentStage);
+  assessmentStage.stage_kind = "assessment_delivery";
+  const assessmentAudit = assessmentDeliveryBeforeTask.find((entry) => entry.path === auditPath);
+  assert.ok(assessmentAudit);
+  assessmentAudit.document.task_ref = null;
+  const assessmentClosure = assessmentAudit.document.search_closure as Record<string, unknown>;
+  assessmentClosure.lane_kind = "synthesis_or_validation";
+  assessmentClosure.outcome = "search_not_required";
+  assert.ok(
+    validateTerminalReportingContract(assessmentDeliveryBeforeTask)
+      .map((issue) => issue.code)
+      .includes("terminal_reporting.search_closure_binding_mismatch"),
+  );
+
+  const synthesisBeforeTask = structuredClone(base).filter((entry) => entry.path !== taskPath);
+  const plan = synthesisBeforeTask.find(
+    (entry) => entry.path === "plans/research-execution.r1.json",
+  );
+  assert.ok(plan);
+  const stage = (plan.document.stages as Record<string, unknown>[])[0];
+  assert.ok(stage);
+  stage.stage_kind = "discovery_synthesis";
+  for (const audit of synthesisBeforeTask.filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.commercial_research_audit.current",
+  )) {
+    const closure = audit.document.search_closure as Record<string, unknown>;
+    closure.lane_kind = "synthesis_or_validation";
+    if (audit.path === auditPath) {
+      audit.document.task_ref = null;
+      closure.outcome = "search_not_required";
+    }
+  }
+  const synthesisCodes = validateTerminalReportingContract(synthesisBeforeTask).map(
+    (issue) => issue.code,
+  );
+  assert.equal(synthesisCodes.includes("terminal_reporting.search_closure_incomplete"), false);
+  assert.equal(
+    synthesisCodes.includes("terminal_reporting.search_closure_binding_mismatch"),
+    false,
   );
 });
 
@@ -637,10 +1090,25 @@ test("G1.R initializes the RunStore-report runtime cycle in both import orders a
     const validator = await createArtifactValidator(process.cwd());
     const store = new runStoreModule.RunStore(runsRoot, validator);
     const runId = order === "run-first" ? "run_g1_r_cycle_run_first" : "run_g1_r_cycle_report_first";
-    await store.create({
+    const created = await store.create({
       runId,
       mode: "concept_evidence_assessment",
+      scopeProposal: {
+        geography: "Synthetic",
+        customerModel: "b2c",
+        targetUsers: ["synthetic user"],
+        decisionGoal: "verify report runtime import order",
+        researchLanguage: "en-US",
+      },
       createdAt: "2026-07-25T18:00:00Z",
+    });
+    await store.confirmScope({
+      runId,
+      expectedScopeProposalRevision: created.manifest.scope_revision,
+      expectedScopeProposalRef: created.scopeProposalRef,
+      expectedScopeProposalHash: created.scopeProposalHash,
+      confirmedAt: "2026-07-25T18:00:01Z",
+      userConfirmationAttestation: "Fixture caller attests exact user confirmation.",
     });
     new reportRuntimeModule.ReportRuntime(runsRoot, validator);
     const reopened = await store.load(runId);

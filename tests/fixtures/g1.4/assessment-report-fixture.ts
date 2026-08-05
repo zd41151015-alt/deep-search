@@ -30,6 +30,46 @@ export const G14_REVIEW_REF = "artifacts/reviews/adversarial-review.r1.json";
 export const G14_ASSESSMENT_REF = "artifacts/assessment/concept-evidence-assessment.r1.json";
 export const G14_TRACEABILITY_REF = "artifacts/traceability/traceability.r1.json";
 
+const G14_CONFIRMED_SCOPE = {
+  revision: 1,
+  geography: "中国",
+  customer_model: "b2c",
+  target_users: ["家庭协同使用者"],
+  decision_goal: "判断当前是否值得继续验证该概念",
+  research_language: "zh-CN",
+};
+
+function g14ScopeDecisions(): readonly Record<string, unknown>[] {
+  const scopeHash = canonicalContentHash(G14_CONFIRMED_SCOPE);
+  const proposal = {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: "scope_proposal_r1_g14_fixture",
+    run_id: G14_RUN_ID,
+    decision_type: "scope_proposed",
+    timestamp: G12_BASE_TIME,
+    actor: "main_agent",
+    reason: "The main agent proposed this exact visible synthetic fixture scope.",
+    artifact_refs: [],
+    scope_revision: 1,
+    scope_hash: scopeHash,
+    scope: G14_CONFIRMED_SCOPE,
+  };
+  const proposalRef = `decisions.jsonl#${proposal.decision_id}`;
+  return [
+    proposal,
+    {
+      ...proposal,
+      decision_id: "scope_confirmation_r1_g14_fixture",
+      decision_type: "scope_assumption_confirmed",
+      reason: "The fixture caller attests that the user confirmed the exact visible proposal.",
+      scope_proposal_ref: proposalRef,
+      scope_proposal_hash: canonicalContentHash(proposal),
+      confirmation_basis: "caller_attested_user_confirmation",
+      harness_identity_verification: "not_available",
+    },
+  ];
+}
+
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const baseFixturePath = path.join(
   repositoryRoot,
@@ -282,6 +322,10 @@ function lineage() {
 }
 
 function makeManifest(): Record<string, unknown> {
+  const [scopeProposal, scopeConfirmation] = g14ScopeDecisions();
+  if (scopeProposal === undefined || scopeConfirmation === undefined) {
+    throw new Error("synthetic Scope Decisions are incomplete");
+  }
   return {
     schema_version: "startup_opportunity.run_manifest.v1",
     run_id: G14_RUN_ID,
@@ -289,6 +333,11 @@ function makeManifest(): Record<string, unknown> {
     status: "reporting",
     status_before_clarification: null,
     parent_run_id: null,
+    scope_proposal_ref: `decisions.jsonl#${String(scopeProposal.decision_id)}`,
+    scope_proposal_hash: canonicalContentHash(scopeProposal),
+    scope_confirmation_ref: `decisions.jsonl#${String(scopeConfirmation.decision_id)}`,
+    scope_confirmation_hash: canonicalContentHash(scopeConfirmation),
+    scope_revision: 1,
     created_at: G12_BASE_TIME,
     updated_at: "2026-07-25T19:00:00Z",
     current_phase: "assessment",
@@ -954,10 +1003,16 @@ export async function createG14ContractBundle(
   return {
     schema_version: "startup_opportunity.document_bundle.current",
     documents: bundleDocuments.sort((left, right) => left.path.localeCompare(right.path)),
-    exact_records: SYNTHETIC_RECORDS.map((record) => ({
-      ref: `evidence/manifest.jsonl#${record.evidence_id}`,
-      document: record,
-    })),
+    exact_records: [
+      ...g14ScopeDecisions().map((document) => ({
+        ref: `decisions.jsonl#${String(document.decision_id)}`,
+        document,
+      })),
+      ...SYNTHETIC_RECORDS.map((record) => ({
+        ref: `evidence/manifest.jsonl#${record.evidence_id}`,
+        document: record,
+      })),
+    ],
   };
 }
 
@@ -1123,9 +1178,14 @@ export function replaceG14EvidenceRecords(
   }
   return refreshG14Bundle({
     ...replaced,
-    exact_records: records.map((record) => ({
-      ref: `evidence/manifest.jsonl#${record.evidence_id}`,
-      document: record,
-    })),
+    exact_records: [
+      ...(replaced.exact_records ?? []).filter(
+        (record) => !record.ref.startsWith("evidence/manifest.jsonl#"),
+      ),
+      ...records.map((record) => ({
+        ref: `evidence/manifest.jsonl#${record.evidence_id}`,
+        document: record,
+      })),
+    ],
   });
 }

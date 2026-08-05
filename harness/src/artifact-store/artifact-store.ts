@@ -3,11 +3,13 @@ import path from "node:path";
 import { EvidenceStore } from "../evidence-store/evidence-store.js";
 import { assertRunIsCurrentContinuationLeaf } from "../run-store/continuation-guard.js";
 import { JsonlStore } from "../run-store/jsonl-store.js";
+import { assertScopeAllowsStorageMutationLocked } from "../run-store/scope-write-guard.js";
 import { storedArtifactFragmentExists } from "../validators/artifact-ref-resolver.js";
-import type {
-  ArtifactValidator,
-  DocumentBundleEntry,
-  DocumentBundleReferenceContext,
+import {
+  type ArtifactValidator,
+  artifactRefsForDocument,
+  type DocumentBundleEntry,
+  type DocumentBundleReferenceContext,
 } from "../validators/artifact-validator.js";
 import { publishTemp, removeTemp, writeSyncedTemp } from "./atomic-file.js";
 import {
@@ -424,6 +426,11 @@ export class ArtifactStore {
     referenceContext: DocumentBundleReferenceContext = {},
   ): Promise<PublishArtifactBundleResult> {
     validateRunId(input.runId);
+    await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
+    await assertScopeAllowsStorageMutationLocked(this.runsRoot, runRoot, input.runId, {
+      kind: "artifact",
+      artifactTypes: input.envelopes.map((envelope) => envelope.artifact_type),
+    });
     if (input.envelopes.length < 2) {
       throw new StoreError(
         "artifact.bundle_too_small",
@@ -469,6 +476,11 @@ export class ArtifactStore {
     referencesPrevalidated = false,
   ): Promise<PublishArtifactResult> {
     validateRunId(input.runId);
+    await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
+    await assertScopeAllowsStorageMutationLocked(this.runsRoot, runRoot, input.runId, {
+      kind: "artifact",
+      artifactTypes: [input.envelope.artifact_type],
+    });
     this.validateEnvelopeBoundary(input.runId, input.envelope);
     if (!referencesPrevalidated) {
       await this.validateEnvelopeReferences(runRoot, input.envelope);
@@ -782,7 +794,7 @@ export class ArtifactStore {
       documents.push({ path: envelope.artifact_path, document: envelope });
     }
     const typedJsonlRefs = documents
-      .flatMap((entry) => (isEnvelope(entry.document) ? collectPathRefs(entry.document) : []))
+      .flatMap((entry) => artifactRefsForDocument(entry))
       .filter((ref) => {
         const target = ref.split("#", 1)[0];
         return target === "events.jsonl" || target === "decisions.jsonl";

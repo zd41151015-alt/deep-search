@@ -19,6 +19,7 @@
     "required_candidate_kinds",
     "missing_candidate_kinds",
     "question_coverage",
+    "commercial_signal_gate",
     "next_stage_readiness",
     "blockers",
     "allowed_next_actions",
@@ -140,6 +141,19 @@
           "basis_refs": {
             "$ref": "../v12/definitions.schema.json#/$defs/artifactRefArray"
           }
+        }
+      }
+    },
+    "commercial_signal_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["demand_signal", "buyer_signal", "purchase_signal", "decision"],
+      "properties": {
+        "demand_signal": { "type": "boolean" },
+        "buyer_signal": { "type": "boolean" },
+        "purchase_signal": { "type": "boolean" },
+        "decision": {
+          "enum": ["continue_research", "early_stop_insufficient_evidence"]
         }
       }
     },

@@ -134,27 +134,31 @@ function validateConcept(
         ),
       );
     }
-    const userDecision = basisRefs.some((ref) => {
+    const callerAttestedScopeConfirmation = basisRefs.some((ref) => {
       const record = exactRecords.get(ref);
       return (
         record?.schema_version === "startup_opportunity.decision.v1" &&
         record.run_id === concept.document.run_id &&
-        record.actor === "user" &&
-        record.decision_type === "scope_assumption_confirmed"
+        record.actor === "main_agent" &&
+        ["scope_assumption_confirmed", "scope_changed_by_user"].includes(
+          String(record.decision_type),
+        ) &&
+        record.confirmation_basis === "caller_attested_user_confirmation" &&
+        record.harness_identity_verification === "not_available"
       );
     });
     const intakeBasis = basisRefs.some(
       (ref) => targetByRef(documents, ref)?.schemaVersion === "startup_opportunity.intake.v1",
     );
     if (
-      (sourceKind === "agent_assumed" && !userDecision) ||
-      (sourceKind === "user_provided" && !userDecision && !intakeBasis)
+      (sourceKind === "agent_assumed" && !callerAttestedScopeConfirmation) ||
+      (sourceKind === "user_provided" && !callerAttestedScopeConfirmation && !intakeBasis)
     ) {
       errors.push(
         issue(
           "assessment_execution.provenance_basis_invalid",
           `${concept.path}#/field_provenance/${field}/basis_refs`,
-          "field provenance is not bound to user intake or an exact user confirmation Decision",
+          "field provenance is not bound to user intake or an exact caller-attested Scope confirmation Decision",
         ),
       );
     }

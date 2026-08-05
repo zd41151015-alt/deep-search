@@ -63,7 +63,9 @@ Hooks and MCP improve guardrails and handoff ergonomics, but neither is a correc
 ```sh
 npm run harness -- help
 npm run harness -- doctor --json
-npm run harness -- create-run --run-id RUN_ID --mode concept_evidence_assessment
+npm run harness -- create-run --run-id RUN_ID --mode concept_evidence_assessment --geography GEO --customer-model b2c --target-user USER --decision-goal GOAL --research-language LANG
+npm run harness -- confirm-scope --run-id RUN_ID --expected-scope-proposal-revision N --expected-scope-proposal-ref REF --expected-scope-proposal-hash HASH --user-confirmation-attestation TEXT
+npm run harness -- propose-scope --run-id RUN_ID --expected-scope-revision N --geography GEO --customer-model b2c --target-user USER --decision-goal GOAL --research-language LANG --reason REASON
 npm run harness -- status-run --run-id RUN_ID
 npm run harness -- load-run --run-id RUN_ID
 npm run harness -- record-evidence --run-id RUN_ID --unit-id UNIT_ID --source-url URL --research-goal GOAL --content-file FILE
@@ -84,7 +86,9 @@ Command success proves mechanical validity only. It does not establish Evidence 
 
 ## Recovery
 
-Run data lives under `runs/<run_id>/` and is ignored by Git. `manifest.json` is the atomically replaced current index; plans, formal envelopes, checkpoints, and operation receipts are immutable. Reopen only through `load-run`, which validates durable state, repairs supported incomplete tails, reconciles completed operations, and fails closed on integrity conflicts. Completed Runs are not rewritten in place; use a continuation Run for refreshed Evidence or a changed decision.
+Run data lives under `runs/<run_id>/` and is ignored by Git. `manifest.json` is the atomically replaced current index; plans, formal envelopes, checkpoints, and operation receipts are immutable. `create-run` appends an exact Scope proposal to `decisions.jsonl` and leaves the Run at `awaiting_scope_confirmation`. After that exact revision/ref/hash has been shown to the user, `confirm-scope` records only caller-attested confirmation; the Harness cannot authenticate chat identity and discloses that boundary. A correction uses `propose-scope` followed by a separate exact-bound `confirm-scope`; prior records are never replaced, and research remains blocked until the corrected Scope is reconciled through Gap/Decision/Plan. Reopen only through `load-run`, which validates durable state, repairs supported incomplete tails, reconciles completed operations, and fails closed on integrity conflicts. A genuinely new market, language, decision scope, or later refresh uses a new current-contract Run. Terminal reporting always finishes on the original Run.
+
+Search allocation percentages are planning guidance, not query-count or deadline Gates. Actual adopted-source distribution is derived from the Evidence Register, and deviations are observable only. Ranking requires current, direct, dimension-specific commercial coverage; academic material cannot replace buyer, pricing, distribution, retention, or unit-economics evidence, and vendor-only support remains a low-confidence unranked hypothesis.
 
 ## Development
 

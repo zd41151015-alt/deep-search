@@ -82,12 +82,15 @@
           "const": "stop_followup"
         },
         {
+          "const": "record_runtime_failure"
+        },
+        {
           "const": "terminate_insufficient_evidence"
         }
       ],
       "items": false,
-      "minItems": 4,
-      "maxItems": 4
+      "minItems": 5,
+      "maxItems": 5
     },
     "late_artifact_rule": {
       "const": "persist_and_index_only_as_ignored_late"

@@ -10,6 +10,11 @@
         "status": "researching",
         "status_before_clarification": null,
         "parent_run_id": null,
+        "scope_proposal_ref": "decisions.jsonl#scope_proposal_r1_571d56111002b2987bb8b771bc4226d979a6f5787b1883a30fc0507db50933fe",
+        "scope_proposal_hash": "sha256:6609bd07030748c0c4c69d291bc19e8940bac457511594e8d4b7e12a3612865a",
+        "scope_confirmation_ref": "decisions.jsonl#scope_confirmation_r1_571d56111002b2987bb8b771bc4226d979a6f5787b1883a30fc0507db50933fe",
+        "scope_confirmation_hash": "sha256:c49d60972a9428937fa50b451068fa7f6099e690fb004d6d775d879b65c61427",
+        "scope_revision": 1,
         "created_at": "2026-07-23T00:00:00Z",
         "updated_at": "2026-07-23T00:20:00Z",
         "current_phase": "enrichment",
@@ -327,6 +332,58 @@
         },
         "producer_role": "main_agent",
         "created_at": "2026-07-23T00:20:30Z"
+      }
+    }
+  ],
+  "exact_records": [
+    {
+      "ref": "decisions.jsonl#scope_proposal_r1_571d56111002b2987bb8b771bc4226d979a6f5787b1883a30fc0507db50933fe",
+      "document": {
+        "schema_version": "startup_opportunity.decision.v1",
+        "decision_id": "scope_proposal_r1_571d56111002b2987bb8b771bc4226d979a6f5787b1883a30fc0507db50933fe",
+        "run_id": "run_contract_001",
+        "decision_type": "scope_proposed",
+        "timestamp": "2026-07-23T00:00:00Z",
+        "actor": "main_agent",
+        "reason": "The main agent proposed the exact visible synthetic planning scope.",
+        "artifact_refs": [],
+        "scope_revision": 1,
+        "scope_hash": "sha256:571d56111002b2987bb8b771bc4226d979a6f5787b1883a30fc0507db50933fe",
+        "scope": {
+          "revision": 1,
+          "geography": "CN",
+          "customer_model": "b2c",
+          "target_users": ["consumer households"],
+          "decision_goal": "evaluate current opportunity evidence",
+          "research_language": "zh-CN"
+        }
+      }
+    },
+    {
+      "ref": "decisions.jsonl#scope_confirmation_r1_571d56111002b2987bb8b771bc4226d979a6f5787b1883a30fc0507db50933fe",
+      "document": {
+        "schema_version": "startup_opportunity.decision.v1",
+        "decision_id": "scope_confirmation_r1_571d56111002b2987bb8b771bc4226d979a6f5787b1883a30fc0507db50933fe",
+        "run_id": "run_contract_001",
+        "decision_type": "scope_assumption_confirmed",
+        "timestamp": "2026-07-23T00:00:00Z",
+        "actor": "main_agent",
+        "reason": "The fixture caller attests that the user confirmed the exact visible proposal.",
+        "artifact_refs": [],
+        "scope_revision": 1,
+        "scope_hash": "sha256:571d56111002b2987bb8b771bc4226d979a6f5787b1883a30fc0507db50933fe",
+        "scope": {
+          "revision": 1,
+          "geography": "CN",
+          "customer_model": "b2c",
+          "target_users": ["consumer households"],
+          "decision_goal": "evaluate current opportunity evidence",
+          "research_language": "zh-CN"
+        },
+        "scope_proposal_ref": "decisions.jsonl#scope_proposal_r1_571d56111002b2987bb8b771bc4226d979a6f5787b1883a30fc0507db50933fe",
+        "scope_proposal_hash": "sha256:6609bd07030748c0c4c69d291bc19e8940bac457511594e8d4b7e12a3612865a",
+        "confirmation_basis": "caller_attested_user_confirmation",
+        "harness_identity_verification": "not_available"
       }
     }
   ]

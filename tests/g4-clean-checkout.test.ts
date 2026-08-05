@@ -103,7 +103,13 @@ test("candidate snapshot installs and runs explicit entries plus stdio MCP", asy
   };
   assert.equal(config.features?.hooks, true);
   const evidenceConfig = config.mcp_servers?.startup_opportunity_evidence;
-  assert.deepEqual(evidenceConfig?.enabled_tools, ["record_evidence", "get_evidence_manifest"]);
+  assert.deepEqual(evidenceConfig?.enabled_tools, [
+    "create_run",
+    "propose_scope",
+    "confirm_scope",
+    "record_evidence",
+    "get_evidence_manifest",
+  ]);
   await writeFile(configPath, configText.replace("hooks = true", "hooks = false"));
   assert.equal(
     (parseToml(await readFile(configPath, "utf8")) as { features?: { hooks?: boolean } }).features
@@ -122,12 +128,51 @@ test("candidate snapshot installs and runs explicit entries plus stdio MCP", asy
       runId,
       "--mode",
       "opportunity_discovery",
+      "--geography",
+      "Synthetic",
+      "--customer-model",
+      "b2c",
+      "--target-user",
+      "synthetic clean-checkout user",
+      "--decision-goal",
+      "exercise the clean-checkout current contract",
+      "--research-language",
+      "en-US",
       "--created-at",
       "2026-07-30T02:00:00Z",
     ],
     runtimeRoot,
   );
   assert.equal(create.status, 0, create.stderr);
+  const created = JSON.parse(create.stdout) as {
+    manifest: { scope_revision: number; status: string };
+    scopeProposalRef: string;
+    scopeProposalHash: string;
+  };
+  assert.equal(created.manifest.status, "awaiting_scope_confirmation");
+
+  const confirm = run(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      ".agents/skills/startup-opportunity/scripts/confirm-scope.ts",
+      "--run-id",
+      runId,
+      "--expected-scope-proposal-revision",
+      String(created.manifest.scope_revision),
+      "--expected-scope-proposal-ref",
+      created.scopeProposalRef,
+      "--expected-scope-proposal-hash",
+      created.scopeProposalHash,
+      "--user-confirmation-attestation",
+      "The clean-checkout fixture caller attests exact user confirmation.",
+      "--confirmed-at",
+      "2026-07-30T02:00:30Z",
+    ],
+    runtimeRoot,
+  );
+  assert.equal(confirm.status, 0, confirm.stderr);
 
   const status = run(
     process.execPath,
@@ -198,7 +243,10 @@ test("candidate snapshot installs and runs explicit entries plus stdio MCP", asy
   await client.connect(transport);
   const tools = await client.listTools();
   assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
+    "confirm_scope",
+    "create_run",
     "get_evidence_manifest",
+    "propose_scope",
     "record_evidence",
   ]);
   const manifest = await client.callTool({

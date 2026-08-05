@@ -179,6 +179,7 @@
               "reviewer_challenge",
               "candidate_pre_killed",
               "unit_failed",
+              "runtime_blocked",
               "scope_invalidated",
               "user_plan_change_requested",
               "source_repetition",
@@ -231,6 +232,7 @@
           "max_followup_rounds_reached",
           "no_material_new_evidence",
           "source_repetition",
+          "runtime_blocked",
           "user_stop",
           "limitation_accepted"
         ]

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -29,11 +29,64 @@ test("Harness and Skill G0.3 entries create, record, checkpoint, and reopen a re
     runId,
     "--mode",
     "concept_evidence_assessment",
+    "--geography",
+    "United States",
+    "--customer-model",
+    "b2c",
+    "--target-user",
+    "synthetic household user",
+    "--decision-goal",
+    "decide whether to investigate the synthetic concept",
+    "--research-language",
+    "en-US",
     "--created-at",
     "2026-07-23T12:00:00Z",
   ]);
   assert.equal(create.status, 0, create.stderr);
-  assert.equal((JSON.parse(create.stdout) as { status: string }).status, "created");
+  const created = JSON.parse(create.stdout) as {
+    status: string;
+    workingDirectory: string;
+    scopeProposalRef: string;
+    scopeProposalHash: string;
+    manifest: { status: string; scope_revision: number };
+  };
+  assert.equal(created.status, "created");
+  assert.equal(created.manifest.status, "awaiting_scope_confirmation");
+  assert.equal(created.workingDirectory, `dist/research-working/${runId}`);
+  await access(path.join(root, created.workingDirectory));
+  await assert.rejects(access(path.join(runsRoot, runId, "dist")));
+
+  const initialStatus = runScript("harness/src/cli.ts", [
+    "status-run",
+    "--runs-root",
+    runsRoot,
+    "--run-id",
+    runId,
+  ]);
+  assert.equal(initialStatus.status, 0, initialStatus.stderr);
+  assert.equal(
+    (JSON.parse(initialStatus.stdout) as { workingDirectory: string }).workingDirectory,
+    `dist/research-working/${runId}`,
+  );
+
+  const confirm = runScript(".agents/skills/startup-opportunity/scripts/confirm-scope.ts", [
+    "--runs-root",
+    runsRoot,
+    "--run-id",
+    runId,
+    "--expected-scope-proposal-revision",
+    String(created.manifest.scope_revision),
+    "--expected-scope-proposal-ref",
+    created.scopeProposalRef,
+    "--expected-scope-proposal-hash",
+    created.scopeProposalHash,
+    "--user-confirmation-attestation",
+    "The CLI fixture caller attests that the user confirmed the exact displayed Scope proposal.",
+    "--confirmed-at",
+    "2026-07-23T12:00:30Z",
+  ]);
+  assert.equal(confirm.status, 0, confirm.stderr);
+  assert.equal((JSON.parse(confirm.stdout) as { status: string }).status, "confirmed");
 
   const evidence = runScript(".agents/skills/startup-opportunity/scripts/record-evidence.ts", [
     "--runs-root",
@@ -236,6 +289,16 @@ test("create-run rejects retired product and build identity options", async (con
       `identity-option-${option.slice(2)}`,
       "--mode",
       "opportunity_discovery",
+      "--geography",
+      "United States",
+      "--customer-model",
+      "b2c",
+      "--target-user",
+      "synthetic user",
+      "--decision-goal",
+      "test retired option rejection",
+      "--research-language",
+      "en-US",
       option,
       value,
     ]);
@@ -244,4 +307,29 @@ test("create-run rejects retired product and build identity options", async (con
     assert.equal(failure.status, "failed");
     assert.equal(failure.error.code, "command.invalid_arguments");
   }
+});
+
+test("create-run rejects unconfirmed broad-market scope instead of inferring it", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-store-cli-scope-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const result = runScript("harness/src/cli.ts", [
+    "create-run",
+    "--runs-root",
+    path.join(root, "runs"),
+    "--run-id",
+    "broad-education-scope-synthetic",
+    "--mode",
+    "opportunity_discovery",
+    "--customer-model",
+    "b2c",
+    "--target-user",
+    "synthetic education user",
+    "--decision-goal",
+    "research education industry opportunities",
+    "--research-language",
+    "zh-CN",
+  ]);
+  assert.equal(result.status, 64, result.stderr);
+  const failure = JSON.parse(result.stderr) as { error: { code: string } };
+  assert.equal(failure.error.code, "command.invalid_arguments");
 });

@@ -151,6 +151,7 @@ test("current Envelope retains grouped ownership, path, and required-field const
       "startup_opportunity.judgment_assessment.v3",
       "startup_opportunity.source_manifest.v3",
       "startup_opportunity.enrichment_branch_result.v1",
+      "startup_opportunity.commercial_research_audit.current",
     ],
     main_agent: [
       "startup_opportunity.enrichment_fan_in.v1",
@@ -209,6 +210,10 @@ test("current Envelope retains grouped ownership, path, and required-field const
       type: "string",
       pattern: "^evidence/discovery/generation/.+\\.json$",
     },
+    "startup_opportunity.commercial_research_audit.current": {
+      type: "string",
+      pattern: "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+    },
     "startup_opportunity.concept_hypothesis.v2": { const: "concept-hypothesis.json" },
     "startup_opportunity.discovery_generation_result.v1": {
       type: "string",
@@ -257,6 +262,15 @@ test("current Envelope retains grouped ownership, path, and required-field const
       .find((constraint) => constraint !== undefined);
     assert.deepEqual(actual, expected, `${artifactType} path constraint drifted`);
   }
+
+  const producerRole = JSON.parse(
+    await readFile(
+      path.join(repositoryRoot, "harness/schemas/current/artifact-envelope.schema.json"),
+      "utf8",
+    ),
+  ) as { properties: { producer_role: { enum: readonly string[] } } };
+  assert.ok(producerRole.properties.producer_role.enum.includes("lane_researcher"));
+  assert.ok(!producerRole.properties.producer_role.enum.includes("lane-researcher"));
 
   for (const artifactType of [
     "startup_opportunity.opportunity_comparison.v1",

@@ -14,13 +14,19 @@ import {
 import { runAuditTraceability, runBuildReport } from "./reporting/report-commands.js";
 import {
   runCheckpointRun,
+  runConfirmScope,
   runCreateRun,
   runLoadRun,
+  runProposeScope,
   runPublishArtifact,
   runRecordEvidence,
   runStatusRun,
 } from "./run-store/store-commands.js";
-import { runCompileArtifacts } from "./runtime/runtime-commands.js";
+import {
+  runCompileArtifacts,
+  runMaterializeLaneResult,
+  runScaffoldArtifact,
+} from "./runtime/runtime-commands.js";
 import { runValidateArtifact } from "./validators/validate-artifact-command.js";
 
 const [command = "help", ...args] = process.argv.slice(2);
@@ -38,6 +44,12 @@ switch (command) {
   case "create-run":
     process.exitCode = await runCreateRun(args);
     break;
+  case "propose-scope":
+    process.exitCode = await runProposeScope(args);
+    break;
+  case "confirm-scope":
+    process.exitCode = await runConfirmScope(args);
+    break;
   case "load-run":
     process.exitCode = await runLoadRun(args);
     break;
@@ -52,6 +64,12 @@ switch (command) {
     break;
   case "compile-artifacts":
     process.exitCode = await runCompileArtifacts(args);
+    break;
+  case "materialize-lane-result":
+    process.exitCode = await runMaterializeLaneResult(args);
+    break;
+  case "scaffold-artifact":
+    process.exitCode = await runScaffoldArtifact(args);
     break;
   case "checkpoint-run":
     process.exitCode = await runCheckpointRun(args);

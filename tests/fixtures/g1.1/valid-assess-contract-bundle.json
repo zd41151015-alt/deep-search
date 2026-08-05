@@ -12,6 +12,14 @@
         "market": "CN",
         "language": "zh-CN",
         "principal": "local_user",
+        "scope_confirmation": {
+          "geography": "中国",
+          "customer_model": "b2c",
+          "target_users": ["家庭协同使用者"],
+          "decision_goal": "判断当前是否值得继续验证该概念",
+          "research_language": "zh-CN",
+          "user_confirmed": true
+        },
         "decision_context_ref": "decision-context.json",
         "attachments": [],
         "explicit_constraints": {

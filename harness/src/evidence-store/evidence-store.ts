@@ -17,6 +17,7 @@ import {
 import { withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { assertRunIsCurrentContinuationLeaf } from "../run-store/continuation-guard.js";
+import { assertScopeAllowsStorageMutationLocked } from "../run-store/scope-write-guard.js";
 
 export type EvidenceFaultBoundary = "after_raw_temp" | "after_intent" | "after_raw_publish";
 
@@ -344,6 +345,13 @@ export class EvidenceStore {
   }
 
   async recordLocked(runRoot: string, input: RecordEvidenceInput): Promise<RecordEvidenceResult> {
+    validateRunId(input.runId);
+    assertNonEmpty(input.unitId, "unitId");
+    assertNonEmpty(input.researchGoal, "researchGoal");
+    await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
+    await assertScopeAllowsStorageMutationLocked(this.runsRoot, runRoot, input.runId, {
+      kind: "evidence",
+    });
     const rawBytes =
       typeof input.rawContent === "string"
         ? Buffer.from(input.rawContent, "utf8")

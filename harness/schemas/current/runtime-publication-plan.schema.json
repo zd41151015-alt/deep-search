@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime-publication-plan.schema.json",
+  "title": "Startup Opportunity Runtime Publication Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "plan_id",
+    "request_id",
+    "run_id",
+    "created_at",
+    "manifest_content_hash",
+    "compiled_envelopes",
+    "validation_closure",
+    "resolved_references",
+    "publication"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.runtime_publication_plan.current" },
+    "plan_id": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" },
+    "request_id": { "$ref": "../v12/definitions.schema.json#/$defs/identifier" },
+    "run_id": { "$ref": "../v12/definitions.schema.json#/$defs/runId" },
+    "created_at": { "$ref": "../v12/definitions.schema.json#/$defs/timestamp" },
+    "manifest_content_hash": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" },
+    "compiled_envelopes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "artifact-envelope.schema.json" }
+    },
+    "validation_closure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["documents", "exact_records"],
+      "properties": {
+        "documents": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "content_hash"],
+            "properties": {
+              "path": { "$ref": "../v12/definitions.schema.json#/$defs/artifactPath" },
+              "content_hash": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" }
+            }
+          }
+        },
+        "exact_records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ref", "content_hash"],
+            "properties": {
+              "ref": { "$ref": "../v12/definitions.schema.json#/$defs/artifactRef" },
+              "content_hash": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" }
+            }
+          }
+        }
+      }
+    },
+    "resolved_references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "kind", "target_path", "fragment", "content_hash"],
+        "properties": {
+          "ref": { "type": "string", "minLength": 1 },
+          "kind": {
+            "enum": [
+              "run_artifact",
+              "run_artifact_fragment",
+              "json_pointer",
+              "evidence_exact_record",
+              "run_exact_record",
+              "repository_policy",
+              "external_url"
+            ]
+          },
+          "target_path": { "type": "string", "minLength": 1 },
+          "fragment": { "type": ["string", "null"] },
+          "content_hash": {
+            "anyOf": [
+              { "$ref": "../v12/definitions.schema.json#/$defs/sha256" },
+              { "type": "null" }
+            ]
+          }
+        }
+      }
+    },
+    "publication": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifact_path", "content_hash"],
+        "properties": {
+          "artifact_path": { "$ref": "../v12/definitions.schema.json#/$defs/artifactPath" },
+          "content_hash": { "$ref": "../v12/definitions.schema.json#/$defs/sha256" }
+        }
+      }
+    }
+  }
+}

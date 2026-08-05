@@ -15,6 +15,7 @@ import {
 } from "../.codex/hooks/research-guard.js";
 import { createArtifactValidator, RunStore, StoreError } from "../harness/src/index.js";
 import { createEvidenceMcpServer } from "../harness/src/mcp/evidence-server.js";
+import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
@@ -28,9 +29,16 @@ async function createSyntheticRun(): Promise<{
   const runsRoot = path.join(root, "runs");
   const runId = "g4-synthetic-unverified";
   const store = new RunStore(runsRoot, await createArtifactValidator(repositoryRoot));
-  await store.create({
+  await createConfirmedRun(store, {
     runId,
     mode: "concept_evidence_assessment",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     createdAt: "2026-07-30T00:00:00Z",
   });
   return { root, runsRoot, runId, store };
@@ -58,7 +66,13 @@ test("project config and hook registry expose the narrow repo-local integration"
   const evidence = config.mcp_servers?.startup_opportunity_evidence;
   assert.equal(evidence?.command, "node");
   assert.deepEqual(evidence?.args, ["--import", "tsx", "harness/src/mcp/evidence-server.ts"]);
-  assert.deepEqual(evidence?.enabled_tools, ["record_evidence", "get_evidence_manifest"]);
+  assert.deepEqual(evidence?.enabled_tools, [
+    "create_run",
+    "propose_scope",
+    "confirm_scope",
+    "record_evidence",
+    "get_evidence_manifest",
+  ]);
   assert.equal(evidence?.default_tools_approval_mode, "writes");
 
   const hooks = JSON.parse(
@@ -135,6 +149,13 @@ test("status derives a continued parent from validated child manifests without m
   await fixture.store.create({
     runId: childRunId,
     mode: "concept_evidence_assessment",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     parentRunId: fixture.runId,
     createdAt: "2026-07-30T01:05:00Z",
   });
@@ -194,9 +215,55 @@ test("Evidence MCP records and lists synthetic unverified caller-supplied bytes"
 
   const tools = await client.listTools();
   assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
+    "confirm_scope",
+    "create_run",
     "get_evidence_manifest",
+    "propose_scope",
     "record_evidence",
   ]);
+
+  const mcpRunId = "g4-mcp-two-phase-scope";
+  const createdCall = await client.callTool({
+    name: "create_run",
+    arguments: {
+      run_id: mcpRunId,
+      mode: "opportunity_discovery",
+      scope_proposal: {
+        geography: "Synthetic",
+        customer_model: "b2c",
+        target_users: ["synthetic MCP user"],
+        decision_goal: "exercise the two-phase MCP Scope contract",
+        research_language: "en-US",
+      },
+      created_at: "2026-07-30T00:00:10Z",
+    },
+  });
+  const createdResult = (
+    createdCall.structuredContent as {
+      result?: {
+        manifest?: { status?: unknown; scope_revision?: unknown };
+        scopeProposalRef?: unknown;
+        scopeProposalHash?: unknown;
+      };
+    }
+  ).result;
+  assert.equal(createdResult?.manifest?.status, "awaiting_scope_confirmation");
+  const confirmedCall = await client.callTool({
+    name: "confirm_scope",
+    arguments: {
+      run_id: mcpRunId,
+      expected_scope_proposal_revision: createdResult?.manifest?.scope_revision,
+      expected_scope_proposal_ref: createdResult?.scopeProposalRef,
+      expected_scope_proposal_hash: createdResult?.scopeProposalHash,
+      user_confirmation_attestation:
+        "The MCP fixture caller attests that the user confirmed the exact displayed proposal.",
+      confirmed_at: "2026-07-30T00:00:20Z",
+    },
+  });
+  assert.equal(
+    (confirmedCall.structuredContent as { result?: { status?: unknown } }).result?.status,
+    "confirmed",
+  );
 
   const recorded = await client.callTool({
     name: "record_evidence",
@@ -226,4 +293,62 @@ test("Evidence MCP records and lists synthetic unverified caller-supplied bytes"
   });
   const manifestResult = manifest.structuredContent as { records?: unknown[] };
   assert.equal(manifestResult.records?.length, 1);
+
+  const correctionCall = await client.callTool({
+    name: "propose_scope",
+    arguments: {
+      run_id: fixture.runId,
+      expected_scope_revision: 1,
+      scope_proposal: {
+        geography: "Synthetic corrected market",
+        customer_model: "b2c",
+        target_users: ["synthetic corrected user"],
+        decision_goal: "test corrected current contract scope",
+        research_language: "en-US",
+      },
+      reason: "The fixture user corrected the visible Scope.",
+    },
+  });
+  const correction = (
+    correctionCall.structuredContent as {
+      result?: {
+        scopeRevision?: unknown;
+        scopeProposalRef?: unknown;
+        scopeProposalHash?: unknown;
+      };
+    }
+  ).result;
+  const correctionConfirmation = await client.callTool({
+    name: "confirm_scope",
+    arguments: {
+      run_id: fixture.runId,
+      expected_scope_proposal_revision: correction?.scopeRevision,
+      expected_scope_proposal_ref: correction?.scopeProposalRef,
+      expected_scope_proposal_hash: correction?.scopeProposalHash,
+      confirmed_at: "2026-07-30T00:02:00Z",
+      user_confirmation_attestation:
+        "The fixture caller attests that the user confirmed the exact corrected Scope proposal.",
+    },
+  });
+  assert.equal(
+    (correctionConfirmation.structuredContent as { result?: { status?: unknown } }).result?.status,
+    "confirmed",
+  );
+  const blocked = await client.callTool({
+    name: "record_evidence",
+    arguments: {
+      run_id: fixture.runId,
+      unit_id: "unit_scope_unreconciled_synthetic",
+      research_goal: "This write must remain blocked until Plan reconciliation.",
+      source: {
+        kind: "public_url",
+        canonical_url: "https://example.invalid/scope-unreconciled-synthetic",
+      },
+      raw_content: "SYNTHETIC / UNVERIFIED blocked fixture bytes.",
+      recorded_at: "2026-07-30T00:03:00Z",
+    },
+  });
+  assert.equal(blocked.isError, true);
+  assert.match(JSON.stringify(blocked.content), /latest user Scope revision|Scope revision/i);
+  assert.equal((await fixture.store.status(fixture.runId)).observability.evidenceCount, 1);
 });

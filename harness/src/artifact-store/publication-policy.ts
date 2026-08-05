@@ -37,6 +37,7 @@ export interface ResearchPublicationPolicy {
   readonly ai_baseline_contract: Readonly<Record<string, unknown>>;
   readonly ai_economics_contract: Readonly<Record<string, unknown>>;
   readonly ai_mandatory_bundle_contract: Readonly<Record<string, unknown>>;
+  readonly commercial_research_contract: Readonly<Record<string, unknown>>;
   readonly terminal_reporting_contract: Readonly<Record<string, unknown>>;
   readonly declarative_runtime_contract: Readonly<Record<string, unknown>>;
   readonly assessment_execution_contract: Readonly<Record<string, unknown>>;

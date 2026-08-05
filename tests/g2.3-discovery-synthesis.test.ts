@@ -40,6 +40,7 @@ import {
   G23_SOLUTION_CONVERSION,
   synthesisEnvelope,
 } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
+import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
@@ -115,7 +116,18 @@ async function setup(context: TestContext, suffix: string): Promise<State> {
   const runId = `g2-3-${suffix}-synthetic`;
   const validator = await createArtifactValidator(repositoryRoot);
   const store = new RunStore(runsRoot, validator);
-  await store.create({ runId, mode: "opportunity_discovery", createdAt: "2026-07-27T17:00:00Z" });
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-27T17:00:00Z",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
+  });
   const evidenceStore = new EvidenceStore(runsRoot);
   const generation = (
     await evidenceStore.record({

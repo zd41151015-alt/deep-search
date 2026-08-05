@@ -77,12 +77,45 @@ test("explicit create, status, Evidence, and recovery remain usable with hooks d
     runId,
     "--mode",
     "concept_evidence_assessment",
+    "--geography",
+    "United States",
+    "--customer-model",
+    "b2c",
+    "--target-user",
+    "synthetic user",
+    "--decision-goal",
+    "assess the synthetic concept",
+    "--research-language",
+    "en-US",
     "--created-at",
     "2026-07-30T01:00:00Z",
     "--runs-root",
     runsRoot,
   ]);
   assert.equal(create.status, 0, create.stderr);
+  const created = JSON.parse(create.stdout) as {
+    manifest: { scope_revision: number; status: string };
+    scopeProposalRef: string;
+    scopeProposalHash: string;
+  };
+  assert.equal(created.manifest.status, "awaiting_scope_confirmation");
+  const confirm = runScript(".agents/skills/startup-opportunity/scripts/confirm-scope.ts", [
+    "--run-id",
+    runId,
+    "--expected-scope-proposal-revision",
+    String(created.manifest.scope_revision),
+    "--expected-scope-proposal-ref",
+    created.scopeProposalRef,
+    "--expected-scope-proposal-hash",
+    created.scopeProposalHash,
+    "--user-confirmation-attestation",
+    "The hooks-disabled fixture caller attests exact user confirmation.",
+    "--confirmed-at",
+    "2026-07-30T01:00:30Z",
+    "--runs-root",
+    runsRoot,
+  ]);
+  assert.equal(confirm.status, 0, confirm.stderr);
 
   const status = runScript(".agents/skills/startup-opportunity/scripts/status-run.ts", [
     "--run-id",

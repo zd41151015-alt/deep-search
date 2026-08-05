@@ -11,6 +11,11 @@
     "status",
     "status_before_clarification",
     "parent_run_id",
+    "scope_proposal_ref",
+    "scope_proposal_hash",
+    "scope_confirmation_ref",
+    "scope_confirmation_hash",
+    "scope_revision",
     "created_at",
     "updated_at",
     "current_phase",
@@ -46,6 +51,7 @@
     },
     "status": {
       "enum": [
+        "awaiting_scope_confirmation",
         "created",
         "decision_framed",
         "scoped",
@@ -66,13 +72,15 @@
       "anyOf": [
         {
           "enum": [
+            "awaiting_scope_confirmation",
             "created",
             "decision_framed",
             "scoped",
             "planned",
             "researching",
             "synthesizing",
-            "reviewing"
+            "reviewing",
+            "paused"
           ]
         },
         {
@@ -89,6 +97,29 @@
           "type": "null"
         }
       ]
+    },
+    "scope_proposal_ref": {
+      "type": "string",
+      "pattern": "^decisions\\.jsonl#scope_proposal_[A-Za-z0-9._-]*$"
+    },
+    "scope_proposal_hash": {
+      "$ref": "definitions.schema.json#/$defs/sha256"
+    },
+    "scope_confirmation_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^decisions\\.jsonl#scope_confirmation_[A-Za-z0-9._-]*$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "scope_confirmation_hash": {
+      "anyOf": [{ "$ref": "definitions.schema.json#/$defs/sha256" }, { "type": "null" }]
+    },
+    "scope_revision": {
+      "type": "integer",
+      "minimum": 1
     },
     "created_at": {
       "$ref": "definitions.schema.json#/$defs/timestamp"
@@ -246,10 +277,40 @@
         }
       },
       "else": {
-        "properties": {
-          "status_before_clarification": {
-            "type": "null"
+        "if": {
+          "properties": {
+            "status": {
+              "const": "awaiting_scope_confirmation"
+            }
           }
+        },
+        "else": {
+          "properties": {
+            "status_before_clarification": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "awaiting_scope_confirmation"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "scope_confirmation_ref": { "type": "null" },
+          "scope_confirmation_hash": { "type": "null" }
+        }
+      },
+      "else": {
+        "properties": {
+          "scope_confirmation_ref": { "type": "string" },
+          "scope_confirmation_hash": { "$ref": "definitions.schema.json#/$defs/sha256" }
         }
       }
     }

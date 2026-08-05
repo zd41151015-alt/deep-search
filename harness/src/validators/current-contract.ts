@@ -25,9 +25,12 @@ const DIRECT_RUNTIME_SCHEMA_VERSIONS = [
   "startup_opportunity.continuation_lineage_entry.v1",
   "startup_opportunity.document_bundle.current",
   "startup_opportunity.evidence_store_record.v2",
+  "startup_opportunity.lane_staging_document.current",
   "startup_opportunity.runtime_artifact_compilation_request.v1",
   "startup_opportunity.runtime_artifact_compilation_result.v1",
   "startup_opportunity.runtime_artifact_compilation_result.v2",
+  "startup_opportunity.scaffold_request.current",
+  "startup_opportunity.scaffold_result.current",
 ] as const;
 
 const STATIC_PRODUCTION_SCAN_PATHS = [

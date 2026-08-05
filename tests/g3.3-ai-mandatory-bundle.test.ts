@@ -48,6 +48,7 @@ import {
   refreshG3Envelope,
   refreshG33FixtureHashes,
 } from "./fixtures/g3/ai-bundle-fixture.js";
+import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -661,9 +662,16 @@ async function lifecycleFixture(context: TestContext) {
   const runId = "g3-3-lifecycle-synthetic";
   const validator = await createArtifactValidator(repositoryRoot);
   const store = new RunStore(runsRoot, validator);
-  await store.create({
+  await createConfirmedRun(store, {
     runId,
     mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
     createdAt: "2026-07-29T00:00:00Z",
   });
   const evidence = new EvidenceStore(runsRoot);

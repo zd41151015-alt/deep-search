@@ -16,6 +16,7 @@
     "created_at",
     "research_depth",
     "total_time_budget_minutes",
+    "resource_allocation",
     "stages",
     "limitations"
   ],
@@ -63,6 +64,9 @@
       "type": "integer",
       "minimum": 5,
       "maximum": 480
+    },
+    "resource_allocation": {
+      "$ref": "https://startup-opportunity.local/schemas/current/commercial-research-requirements.schema.json#/$defs/allocation"
     },
     "stages": {
       "type": "array",

@@ -31,6 +31,7 @@ import {
   G21_SOLUTION_REF,
   refreshDiscoveryMapsBundle,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
+import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const caseCatalogPath = path.join(repositoryRoot, "tests/fixtures/g2.1/discovery-map-cases.json");
@@ -286,7 +287,18 @@ async function prepareRun(context: TestContext, profile: DiscoveryProfile, suffi
   const validator = await createArtifactValidator(repositoryRoot);
   const store = new RunStore(runsRoot, validator);
   const bundle = await createDiscoveryMapsFixture(profile, runId);
-  await store.create({ runId, mode: "opportunity_discovery", createdAt: "2026-07-26T16:59:00Z" });
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-26T16:59:00Z",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
+  });
   await store.publishArtifactBundle({
     runId,
     envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
@@ -630,7 +642,18 @@ test("current publication crash after temp write is recovered only from its rece
   const validator = await createArtifactValidator(repositoryRoot);
   const store = new RunStore(runsRoot, validator);
   const bundle = await createDiscoveryMapsFixture("hybrid", runId);
-  await store.create({ runId, mode: "opportunity_discovery", createdAt: "2026-07-26T16:59:00Z" });
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-26T16:59:00Z",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test current contract",
+      researchLanguage: "en-US",
+    },
+  });
   await assert.rejects(
     store.publishArtifact({
       runId,

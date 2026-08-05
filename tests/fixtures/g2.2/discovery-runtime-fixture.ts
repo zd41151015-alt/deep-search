@@ -114,6 +114,7 @@ export async function createDiscoveryRuntimeFixture(
     exact_records: { ref: string; document: Record<string, unknown> }[];
   };
   mutable.exact_records = [
+    ...mutable.exact_records.filter((record) => !record.ref.startsWith("evidence/manifest.jsonl#")),
     {
       ref: `evidence/manifest.jsonl#${substrate.generation.evidence_id}`,
       document: substrate.generation,

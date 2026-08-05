@@ -10,6 +10,7 @@
     "continue_existing_plan",
     "request_clarification",
     "stop_followup",
+    "record_runtime_failure",
     "terminate_insufficient_evidence"
   ],
   "negative_plan_cases": [

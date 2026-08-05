@@ -68,8 +68,8 @@
     },
     "section_ids": {
       "type": "array",
-      "minItems": 9,
-      "maxItems": 9,
+      "minItems": 8,
+      "maxItems": 8,
       "uniqueItems": true,
       "items": {
         "enum": [
@@ -80,8 +80,7 @@
           "decisive_evidence",
           "ordered_validation_plan",
           "freshness",
-          "limitations",
-          "audit_appendix"
+          "limitations"
         ]
       }
     },
