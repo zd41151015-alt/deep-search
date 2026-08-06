@@ -8,11 +8,15 @@ G2.4 enrichment Evidence 使用 v3 document/v12 或 repaired v13 envelope，但�
 
 每个查询都要记录 query text、searched_at、候选结果、采用来源、拒绝来源与理由，以及仍未覆盖的商业维度。每个计划 lane 的所有终态都要留下 Search Closure；纯综合/校验标为 `search_not_required`，搜索前失败标为 `failed_before_search`，开始搜索后的失败保留已有查询记录。采用来源必须与 Evidence Register 双向对账。当前 Harness 不拦截 Codex 浏览器或搜索工具调用，因此只能将调用方提供的日志标为 `agent_supplied` 或 `unavailable`；不得把不可见调用伪装为 Harness 已记录或完整 telemetry。
 
+量化 acquisition 是 agent/caller 的显式动作，不是 Harness 网络能力。来源可以是任意合法可访问的公开 API、已授权商业 API、官方或下载数据集、用户/仓库数据或网页；没有 provider/endpoint allowlist，API 也不是必选。每次 acquisition 都把脱敏 endpoint/query、provider、method、retrieved_at、raw response ref/hash、access basis 和 limitations 绑定到 exact Evidence substrate。不得保存 credential、Cookie、Token 或敏感 header，不得绕过登录、付费、验证码或访问控制。
+
 来源时间分别记录 `retrieved_at`、`published_at`、`observed_at` 与 `data_period_end`。`valid_as_of` 由规则按 `data_period_end -> observed_at -> published_at` 推导，`retrieved_at` 只作审计，不能刷新来源年龄。当前价格、产品与竞品公开信息可用近期页面观察；当前用户语言、购买、渠道、竞品使用、留存和市场变化必须落在 claim-specific 窗口内。今天抓取的旧论文仍只能支持机制、历史基线、作用边界和反证，不能称为新鲜市场信号。
 
 默认投入分配为：60%-70% 用户语言、行为、购买、价格、替代、渠道和留存，15%-20% 经营披露、监管和市场结构，不超过 20% 学术机制、作用边界和反证。这只是查询规划提示，不要求实际检索次数严格符合比例；最终采用来源的实际分布由 Evidence Register 推导，偏差只观察、不门禁。硬门禁使用商业证据资格和逐维度覆盖。学术材料不得满足 buyer、pricing、distribution、retention 或 unit economics coverage。
 
 每个商业维度明确区分 `observed`、`inferred` 和 `unknown`。一个来源可以覆盖多个维度，但每个维度都要有自己的数据点、摘录或明确事实；不得靠给同一来源贴多个 coverage 标签通过。缺少直接材料时，能合理推测就保留为 `inferred` 并写清依据引用、推理起点、推理过程、不确定性和待验证项；无法合理推测才是 `unknown`。推测可补齐报告叙述，但不能成为已验证事实或排序资格。
+
+量化/竞争 audit 另用 `observed | partial | unavailable | not_applicable` 表达 coverage。量化 observation 必须记录 definition、地域、周期、measurement/estimation、sample/population、误差、不确定性和可比性；rank、ratings、downloads、MAU 等 proxy 不得冒充购买、付费人数或市场验证。每个 `partial`/`unavailable` 维度保留查询尝试、原因、替代指标和 decision impact，不为补 schema 伪造数值。
 
 厂商材料可以证明其公开报价、宣称功能、定位和“厂商作出某项声明”，应保留为 `vendor_claim`；它不能单独证明真实购买、价格接受度、效果、留存或市场规模。Vendor-only 候选可作为低置信度、未排序待验证假设并披露独立材料缺口，只有与行为数据或独立来源交叉验证后才能升级。
 

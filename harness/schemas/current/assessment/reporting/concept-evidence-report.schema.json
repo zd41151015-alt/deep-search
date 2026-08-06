@@ -26,6 +26,10 @@
     "business_engine_ref",
     "judgment_assessment_refs",
     "source_manifest_refs",
+    "commercial_research_audit_refs",
+    "quantitative_signal_rows",
+    "competitive_substitute_rows",
+    "research_coverage_gaps",
     "traceability_ref",
     "curated_judgment_context",
     "report_sections",
@@ -128,6 +132,32 @@
     },
     "source_manifest_refs": {
       "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "commercial_research_audit_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+      }
+    },
+    "quantitative_signal_rows": {
+      "type": "array",
+      "items": {
+        "$ref": "../commercial/quantitative-competitive-research.schema.json#/$defs/quantitativeSignalRow"
+      }
+    },
+    "competitive_substitute_rows": {
+      "type": "array",
+      "items": {
+        "$ref": "../commercial/quantitative-competitive-research.schema.json#/$defs/competitiveMatrixRow"
+      }
+    },
+    "research_coverage_gaps": {
+      "type": "array",
+      "items": {
+        "$ref": "../commercial/quantitative-competitive-research.schema.json#/$defs/coverageGapRow"
+      }
     },
     "traceability_ref": {
       "$ref": "./definitions.schema.json#/$defs/artifactRef"

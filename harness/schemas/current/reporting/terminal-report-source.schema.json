@@ -24,6 +24,9 @@
     "excluded_evidence",
     "commercial_research_audit_refs",
     "commercial_uncertainties",
+    "quantitative_signal_rows",
+    "competitive_substitute_rows",
+    "research_coverage_gaps",
     "ordered_validation_plan",
     "freshness",
     "limitations",
@@ -634,6 +637,24 @@
             }
           }
         ]
+      }
+    },
+    "quantitative_signal_rows": {
+      "type": "array",
+      "items": {
+        "$ref": "../assessment/commercial/quantitative-competitive-research.schema.json#/$defs/quantitativeSignalRow"
+      }
+    },
+    "competitive_substitute_rows": {
+      "type": "array",
+      "items": {
+        "$ref": "../assessment/commercial/quantitative-competitive-research.schema.json#/$defs/competitiveMatrixRow"
+      }
+    },
+    "research_coverage_gaps": {
+      "type": "array",
+      "items": {
+        "$ref": "../assessment/commercial/quantitative-competitive-research.schema.json#/$defs/coverageGapRow"
       }
     },
     "ordered_validation_plan": {

@@ -4,6 +4,42 @@ import { canonicalContentHash } from "../../../harness/src/index.js";
 export const G12_RUN_ID = "run_g1_2_synthetic_001";
 export const G12_BASE_TIME = "2026-07-24T20:00:00Z";
 
+function quantitativeCompetitiveScope(scanMode: "broad_scan" | "targeted_deep_dive") {
+  return {
+    scan_mode: scanMode,
+    required_metric_families: [
+      "demand_scale",
+      "usage_behavior",
+      "commercial_behavior",
+      "growth_change",
+      "competitive_intensity",
+      "distribution",
+      "retention_outcomes",
+      "unit_economics",
+    ],
+    required_competitor_types: [
+      "direct_product",
+      "adjacent_product",
+      "service",
+      "platform",
+      "manual_workaround",
+      "status_quo",
+      "non_consumption",
+    ],
+    api_is_optional: true,
+    provider_allowlist_enforced: false,
+    acquisition_execution_owner: "research_agent_or_caller",
+    harness_hidden_network_calls: false,
+    prohibited_access_methods: [
+      "bypass_access_control",
+      "circumvent_login",
+      "circumvent_paywall",
+      "circumvent_captcha",
+      "store_credentials",
+    ],
+  };
+}
+
 export interface FixtureBranch {
   readonly unitId: string;
   readonly dimensionId: string;
@@ -162,6 +198,7 @@ export function taskEnvelope(
           commercial_dimensions: ["buyer", "purchase", "pricing", "alternatives"],
         },
       ],
+      quantitative_competitive_scope: quantitativeCompetitiveScope("targeted_deep_dive"),
       required_commercial_dimensions: [
         "recent_user_language",
         "purchase_signal",

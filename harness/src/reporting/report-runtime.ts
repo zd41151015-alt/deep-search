@@ -26,6 +26,11 @@ import { RunStore } from "../run-store/run-store.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
 import { REQUIRED_REPORT_CONSISTENCY_DIMENSIONS } from "../validators/discovery-evaluation-policy.js";
 import {
+  renderCompetitiveSubstituteMatrix,
+  renderQuantitativeSignalTable,
+  renderResearchCoverageGaps,
+} from "./commercial-report-tables.js";
+import {
   REPORT_SCAN_CONTRACT_VERSION,
   REPORT_SCAN_SURFACES,
   scanDiscoveryReportSurfaces,
@@ -43,6 +48,23 @@ const REPORT_SECTION_ORDER = [
   "critical_unknowns_and_kill_criteria",
   "decision_recommendation",
   "optional_validation_suggestions",
+  "limitations_and_sources",
+] as const;
+
+const ASSESSMENT_REPORT_SECTION_IDS = [
+  "assessment_result_and_evidence_strength",
+  "concept_hypothesis",
+  "decisive_support_and_opposition",
+  "demand_alternatives_solution_failure",
+  "quantitative_signals",
+  "competitive_substitute_matrix",
+  "competition_and_differentiation",
+  "buyer_acquisition_business_engine",
+  "feasibility_compliance_ai_bundle",
+  "critical_unknowns_and_kill_criteria",
+  "decision_recommendation",
+  "optional_validation_suggestions",
+  "research_coverage_gaps",
   "limitations_and_sources",
 ] as const;
 
@@ -84,6 +106,22 @@ const DISCOVERY_REPORT_SECTION_ORDER = [
   "top_opportunities",
   "watchlist_and_reject",
   "sensitivity",
+  "traceability_and_sources",
+] as const;
+
+const DISCOVERY_REPORT_SECTION_IDS = [
+  "conclusion_summary",
+  "scope_and_profile",
+  "decision_recommendation",
+  "portfolio",
+  "comparison_and_partial_order",
+  "method_and_limitations",
+  "quantitative_signals",
+  "competitive_substitute_matrix",
+  "top_opportunities",
+  "watchlist_and_reject",
+  "sensitivity",
+  "research_coverage_gaps",
   "traceability_and_sources",
 ] as const;
 
@@ -257,6 +295,16 @@ function renderFullReport(report: Record<string, unknown>): string {
     `\nGenerated at: ${String(metadata.generated_at)}\n`,
   ];
   for (const sectionId of REPORT_SECTION_ORDER) {
+    if (sectionId === "competition_and_differentiation") {
+      parts.push("\n## Quantitative Signals\n");
+      parts.push(renderQuantitativeSignalTable(report));
+      parts.push("\n## Competitive And Substitute Matrix\n");
+      parts.push(renderCompetitiveSubstituteMatrix(report));
+    }
+    if (sectionId === "limitations_and_sources") {
+      parts.push("\n## Research Coverage Gaps And Decision Impact\n");
+      parts.push(renderResearchCoverageGaps(report));
+    }
     parts.push(`\n## ${REPORT_SECTION_TITLES[sectionId]}\n`);
     parts.push(markdownList(strings(sections[sectionId])));
   }
@@ -365,6 +413,16 @@ function renderDiscoveryFullReport(report: Record<string, unknown>): string {
     `\nGenerated at: ${String(metadata.generated_at)}\n`,
   ];
   for (const sectionId of DISCOVERY_REPORT_SECTION_ORDER) {
+    if (sectionId === "top_opportunities") {
+      parts.push("\n## Quantitative Signals\n");
+      parts.push(renderQuantitativeSignalTable(report));
+      parts.push("\n## Competitive And Substitute Matrix\n");
+      parts.push(renderCompetitiveSubstituteMatrix(report));
+    }
+    if (sectionId === "traceability_and_sources") {
+      parts.push("\n## Research Coverage Gaps And Decision Impact\n");
+      parts.push(renderResearchCoverageGaps(report));
+    }
     const title = sectionId
       .split("_")
       .map((word) => `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`)
@@ -450,7 +508,7 @@ function deriveDiscoveryReportEnvelopes(
     valid_as_of: context.valid_as_of,
     limitations: context.limitations,
     external_action_boundary: context.external_action_boundary,
-    section_ids: DISCOVERY_REPORT_SECTION_ORDER,
+    section_ids: DISCOVERY_REPORT_SECTION_IDS,
     markdown: reportMarkdown,
     markdown_content_hash: sha256Bytes(reportMarkdown),
   };
@@ -637,7 +695,7 @@ export function deriveReportEnvelopes(
     valid_as_of: context.valid_as_of,
     limitations: context.limitations,
     external_action_boundary: context.external_action_boundary,
-    section_ids: REPORT_SECTION_ORDER,
+    section_ids: ASSESSMENT_REPORT_SECTION_IDS,
     markdown: reportMarkdown,
     markdown_content_hash: sha256Bytes(reportMarkdown),
   };

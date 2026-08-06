@@ -101,8 +101,8 @@
     },
     "section_ids": {
       "type": "array",
-      "minItems": 10,
-      "maxItems": 10,
+      "minItems": 13,
+      "maxItems": 13,
       "uniqueItems": true,
       "items": {
         "enum": [
@@ -112,9 +112,12 @@
           "portfolio",
           "comparison_and_partial_order",
           "method_and_limitations",
+          "quantitative_signals",
+          "competitive_substitute_matrix",
           "top_opportunities",
           "watchlist_and_reject",
           "sensitivity",
+          "research_coverage_gaps",
           "traceability_and_sources"
         ]
       }

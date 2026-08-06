@@ -6,6 +6,8 @@ lane researcher 负责有界来源发现、支持与反对 Claim、Finding、局
 
 每个 subagent 都会收到 task envelope，其中包含 run id、unit id、mode、research goal、商业研究规划比例、planned queries、input references、唯一允许的 output path、required Artifact schema、required support/opposition stances、工具指引、stop conditions 和 completion-message contract。规划比例不要求实际查询次数严格命中，也不是 Gate；实际采用分布由 Evidence Register 推导。完成消息只包含 Artifact 路径、验证状态、局限和未解决问题；它不是正式 branch result。
 
+每个 discovery/assessment research task 还声明 `quantitative_competitive_scope`。Candidate discovery 使用 `broad_scan`，evaluation/assessment 使用 `targeted_deep_dive`；两者都覆盖 `demand_scale`、`usage_behavior`、`commercial_behavior`、`growth_change`、`competitive_intensity`、`distribution`、`retention_outcomes`、`unit_economics`，以及 direct/adjacent product、service、platform、manual workaround、status quo、non-consumption。lane 将结果写入自己的 `commercial_research_audit.current` 路径，不写报告或其他 lane 的 audit。
+
 G1.2 task envelope 使用 `tasks/<unit_id>.attempt-<n>.json`，只允许 main agent 发布。lane-researcher 只发布其 task lineage 下的 Evidence、Claim、Finding、Insight、Source Manifest 和唯一 branch output。task publication 只让 Run unit 进入 `active_units`；Harness 不创建 subagent。retry 必须显式 supersede 上一 attempt，`partial` retry 继续 fail closed，late/superseded result 不得回到 current artifact set。
 
 G1.3 `add_unit` 只能新增一个 `buyer_language` 或 `acquisition` follow-up unit，owner 固定为 `lane-researcher`，必须依赖 Gap Snapshot 中实际观察到的已终止 unit，并使用唯一 output path 与 `concept_evidence_assessment_branch_result.v1`。它不是任意 DAG 入口；`stop_followup` 不创建 unit、retry wave 或 Plan revision。
@@ -13,6 +15,8 @@ G1.3 `add_unit` 只能新增一个 `buyer_language` 或 `acquisition` follow-up 
 同一 wave 中的 unit 必须相互独立，并拥有唯一 output path。发布带 `parallel_immediate` 的 dispatch batch 后立即并发启动所有独立 lane；Harness 不负责调度。subagent 绝不写入 manifest、Plan、Adaptation Decision、comparison policy、decision brief 或 report。fan-in 只消费已经验证的 Artifact，并保留 `partial`、`failed`、`cancelled`、`skipped`、`ignored-late` 和 `superseded` 状态，不得把缺失工作当作中性 Evidence。
 
 每个外部研究 lane 在 completed、evidence insufficient、early stop 或搜索失败时都必须发布 Search Closure；综合/校验 lane 明确 `search_not_required`，搜索前失败明确 `failed_before_search`。Closure 保留查询、候选结果、采用/拒绝理由、剩余缺口和终止原因，并与 Evidence Register 对账。Harness 只验证收到的结构和 Store 引用，不观测或调度 Codex 搜索工具；telemetry 不完整时必须如实声明。
+
+竞品对象必须覆盖广义替代并记录 target segment、scenario、positioning、pricing/traction observation refs、strengths、weaknesses、differentiation gaps 和 source refs。新闻可用于背景、线索或反证，但量化结论应尽可能追溯原始 API、数据集或披露，并绑定结构化 observation 和正式 Evidence refs。
 
 lane lifecycle 的 `execution_attempt_id` 是重试身份。`attempt_count` 为完整历史中不同 execution attempt id 的数量，`retry_count=max(0, attempt_count-1)`；receipt 幂等重放、checkpoint 重读、状态刷新和同一 attempt 内的 lifecycle revision 不算重试。最终状态取最新 attempt，因此多次失败后成功显示成功并保留累计重试数。
 

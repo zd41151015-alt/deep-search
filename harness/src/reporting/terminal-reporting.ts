@@ -1,6 +1,11 @@
 import type { FormalArtifactEnvelope } from "../artifact-store/artifact-store.js";
 import { canonicalContentHash, canonicalJson, sha256Bytes } from "../artifact-store/canonical.js";
 import {
+  renderCompetitiveSubstituteMatrix,
+  renderQuantitativeSignalTable,
+  renderResearchCoverageGaps,
+} from "./commercial-report-tables.js";
+import {
   REPORT_SCAN_CONTRACT_VERSION,
   REPORT_SCAN_SURFACES,
   scanDiscoveryReportSurfaces,
@@ -12,6 +17,9 @@ const TERMINAL_REPORT_SECTION_IDS = [
   "runtime_health",
   "directions",
   "decisive_evidence",
+  "quantitative_signals",
+  "competitive_substitute_matrix",
+  "research_coverage_gaps",
   "ordered_validation_plan",
   "freshness",
   "limitations",
@@ -332,6 +340,12 @@ export function renderTerminalFullReport(source: Record<string, unknown>): strin
     renderRuntimeHealth(source, zh),
     `\n## ${zh ? "方向、成熟度与产品假设" : "Directions, Maturity, And Product Hypotheses"}\n`,
     renderDirections(source, zh, false),
+    `\n## ${zh ? "量化信号" : "Quantitative Signals"}\n`,
+    renderQuantitativeSignalTable(source, zh),
+    `\n## ${zh ? "竞品与广义替代矩阵" : "Competitive And Substitute Matrix"}\n`,
+    renderCompetitiveSubstituteMatrix(source, zh),
+    `\n## ${zh ? "数据缺口及其对排序和结论的影响" : "Research Coverage Gaps And Decision Impact"}\n`,
+    renderResearchCoverageGaps(source, zh),
     `\n## ${zh ? "来源与证据强弱" : "Sources And Evidence Strength"}\n`,
     renderSources(source, zh),
     `\n## ${zh ? "有顺序的验证建议" : "Ordered Validation Recommendations"}\n`,

@@ -20,6 +20,11 @@
     "search_log",
     "search_closure",
     "evidence_register",
+    "data_acquisitions",
+    "quantitative_observations",
+    "quantitative_coverage",
+    "competitive_objects",
+    "competitive_coverage",
     "coverage",
     "uncovered_business_dimensions",
     "wave1_signals",
@@ -208,8 +213,15 @@
       "$ref": "#/$defs/identifier"
     },
     "execution_plan_ref": {
-      "type": "string",
-      "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "dispatch_task_ref": {
       "anyOf": [
@@ -559,6 +571,36 @@
             ]
           }
         }
+      }
+    },
+    "data_acquisitions": {
+      "type": "array",
+      "items": {
+        "$ref": "./quantitative-competitive-research.schema.json#/$defs/acquisitionRecord"
+      }
+    },
+    "quantitative_observations": {
+      "type": "array",
+      "items": {
+        "$ref": "./quantitative-competitive-research.schema.json#/$defs/quantitativeObservation"
+      }
+    },
+    "quantitative_coverage": {
+      "type": "array",
+      "items": {
+        "$ref": "./quantitative-competitive-research.schema.json#/$defs/quantitativeCoverage"
+      }
+    },
+    "competitive_objects": {
+      "type": "array",
+      "items": {
+        "$ref": "./quantitative-competitive-research.schema.json#/$defs/competitiveObject"
+      }
+    },
+    "competitive_coverage": {
+      "type": "array",
+      "items": {
+        "$ref": "./quantitative-competitive-research.schema.json#/$defs/competitiveCoverage"
       }
     },
     "coverage": {

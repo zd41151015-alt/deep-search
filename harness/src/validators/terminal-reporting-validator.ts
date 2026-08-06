@@ -61,6 +61,19 @@ function referencedAuditRefs(source: Record<string, unknown>): readonly string[]
     ),
     ...strings(source.commercial_research_audit_refs),
     ...records(source.commercial_uncertainties).flatMap((entry) => strings(entry.basis_refs)),
+    ...records(source.quantitative_signal_rows).flatMap((row) => {
+      const observation = isRecord(row.observation) ? row.observation : {};
+      return [String(row.audit_ref ?? ""), ...strings(observation.evidence_refs)].filter(Boolean);
+    }),
+    ...records(source.competitive_substitute_rows).flatMap((row) => {
+      const competitiveObject = isRecord(row.competitive_object) ? row.competitive_object : {};
+      return [String(row.audit_ref ?? ""), ...strings(competitiveObject.source_refs)].filter(
+        Boolean,
+      );
+    }),
+    ...records(source.research_coverage_gaps)
+      .map((row) => String(row.audit_ref ?? ""))
+      .filter(Boolean),
     ...records(execution.incomplete_stages).flatMap((entry) => strings(entry.related_refs)),
     ...records(execution.required_followups).flatMap((entry) => strings(entry.related_refs)),
     ...strings(execution.pending_operation_refs),

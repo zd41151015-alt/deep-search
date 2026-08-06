@@ -343,6 +343,10 @@ async function publishThroughEvaluation(state: State): Promise<void> {
   const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
   await state.store.publishArtifactBundle({
     runId: state.runId,
+    envelopes: byTypes(evaluation, "startup_opportunity.commercial_research_audit.current"),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
     envelopes: byTypes(evaluation, ...EVALUATION_AGGREGATE_ARTIFACT_TYPES),
   });
 }

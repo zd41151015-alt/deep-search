@@ -660,6 +660,9 @@ function terminalReportSource(runId: string, runtimeFailure = false): FormalArti
     excluded_evidence: [],
     commercial_research_audit_refs: [],
     commercial_uncertainties: [],
+    quantitative_signal_rows: [],
+    competitive_substitute_rows: [],
+    research_coverage_gaps: [],
     ordered_validation_plan: [],
     freshness: {
       earliest_valid_as_of: null,

@@ -84,17 +84,20 @@
           "concept_hypothesis",
           "decisive_support_and_opposition",
           "demand_alternatives_solution_failure",
+          "quantitative_signals",
+          "competitive_substitute_matrix",
           "competition_and_differentiation",
           "buyer_acquisition_business_engine",
           "feasibility_compliance_ai_bundle",
           "critical_unknowns_and_kill_criteria",
           "decision_recommendation",
           "optional_validation_suggestions",
+          "research_coverage_gaps",
           "limitations_and_sources"
         ]
       },
-      "minItems": 11,
-      "maxItems": 11,
+      "minItems": 14,
+      "maxItems": 14,
       "uniqueItems": true
     },
     "markdown": {
