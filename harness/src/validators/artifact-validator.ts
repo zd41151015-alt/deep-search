@@ -3993,6 +3993,7 @@ export class ArtifactValidator {
         commercialResearchDocuments,
         this.publicationPolicy.document
           .commercial_research_contract as unknown as CommercialResearchPolicy,
+        exactJsonlRecords,
       ),
     );
     referenceErrors.push(

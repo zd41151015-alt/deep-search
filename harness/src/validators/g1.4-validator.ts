@@ -1028,6 +1028,7 @@ function validateReportSet(
       report.document.concept_evidence_assessment_ref,
       report.document.business_engine_ref,
       report.document.traceability_ref,
+      ...strings(report.document.commercial_research_audit_refs),
     ].filter((ref): ref is string => typeof ref === "string");
     const missingReportInputHashRefs = requiredReportInputHashRefs.filter(
       (ref) => !reportInputHashRefs.has(ref),

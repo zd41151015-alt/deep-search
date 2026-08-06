@@ -45,6 +45,42 @@ export const G22_FAN_IN = "artifacts/discovery/fan-in.r1.json";
 
 const createdAt = "2026-07-27T18:00:00Z";
 
+function quantitativeCompetitiveScope(scanMode: "broad_scan" | "targeted_deep_dive") {
+  return {
+    scan_mode: scanMode,
+    required_metric_families: [
+      "demand_scale",
+      "usage_behavior",
+      "commercial_behavior",
+      "growth_change",
+      "competitive_intensity",
+      "distribution",
+      "retention_outcomes",
+      "unit_economics",
+    ],
+    required_competitor_types: [
+      "direct_product",
+      "adjacent_product",
+      "service",
+      "platform",
+      "manual_workaround",
+      "status_quo",
+      "non_consumption",
+    ],
+    api_is_optional: true,
+    provider_allowlist_enforced: false,
+    acquisition_execution_owner: "research_agent_or_caller",
+    harness_hidden_network_calls: false,
+    prohibited_access_methods: [
+      "bypass_access_control",
+      "circumvent_login",
+      "circumvent_paywall",
+      "circumvent_captcha",
+      "store_credentials",
+    ],
+  };
+}
+
 function synthetic(value: string): string {
   return `SYNTHETIC ${value}; contract fixture only, not Evidence or validation.`;
 }
@@ -212,6 +248,7 @@ function task(
           ],
         },
       ],
+      quantitative_competitive_scope: quantitativeCompetitiveScope("broad_scan"),
       required_commercial_dimensions: [
         "recent_user_language",
         "purchase_signal",

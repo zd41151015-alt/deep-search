@@ -14,6 +14,10 @@ import {
   G23_SNAPSHOT,
   G23_SOLUTION,
 } from "../g2.3/discovery-synthesis-fixture.js";
+import {
+  commercialReportProjection,
+  unavailableCommercialResearchAudit,
+} from "../quantitative-competitive-fixture.js";
 
 export const G24_TASK_SUPPORT = "tasks/discovery/enrichment/unit_enrichment_support.attempt-1.json";
 export const G24_TASK_CHALLENGE =
@@ -73,6 +77,42 @@ export const G24_HARD_GATES = [
 
 const OPPORTUNITIES = [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B] as const;
 const SYNTHETIC = "SYNTHETIC G2.4 contract fixture only; no real Evidence or validation.";
+
+function quantitativeCompetitiveScope(scanMode: "broad_scan" | "targeted_deep_dive") {
+  return {
+    scan_mode: scanMode,
+    required_metric_families: [
+      "demand_scale",
+      "usage_behavior",
+      "commercial_behavior",
+      "growth_change",
+      "competitive_intensity",
+      "distribution",
+      "retention_outcomes",
+      "unit_economics",
+    ],
+    required_competitor_types: [
+      "direct_product",
+      "adjacent_product",
+      "service",
+      "platform",
+      "manual_workaround",
+      "status_quo",
+      "non_consumption",
+    ],
+    api_is_optional: true,
+    provider_allowlist_enforced: false,
+    acquisition_execution_owner: "research_agent_or_caller",
+    harness_hidden_network_calls: false,
+    prohibited_access_methods: [
+      "bypass_access_control",
+      "circumvent_login",
+      "circumvent_paywall",
+      "circumvent_captcha",
+      "store_credentials",
+    ],
+  };
+}
 
 export interface DiscoveryEvaluationSubstrate {
   readonly generation: EvidenceStoreRecord;
@@ -221,6 +261,7 @@ function task(
           ],
         },
       ],
+      quantitative_competitive_scope: quantitativeCompetitiveScope("targeted_deep_dive"),
       required_commercial_dimensions: [
         "recent_user_language",
         "purchase_signal",
@@ -1134,7 +1175,39 @@ export async function createDiscoveryEvaluationFixture(
     external_validation_claimed: false,
     limitations: [SYNTHETIC],
   });
-  const reportInputRefs = [G24_RECOMMENDATION, G24_PORTFOLIO, G24_SENSITIVITY, G24_TRACEABILITY];
+  const commercialAudits = [...documents.entries()]
+    .filter(([, document]) =>
+      [
+        "startup_opportunity.research_task.discovery_candidate.current",
+        "startup_opportunity.research_task.discovery_evaluation.current",
+      ].includes(String(document.schema_version)),
+    )
+    .map(([taskRef, taskDocument]) => {
+      const requirements = taskDocument.commercial_research_requirements as Record<string, unknown>;
+      const auditRef = String(requirements.commercial_audit_output_path);
+      const audit = unavailableCommercialResearchAudit({
+        runId,
+        taskRef,
+        task: taskDocument,
+        coveredSubjectIds:
+          taskDocument.schema_version ===
+          "startup_opportunity.research_task.discovery_candidate.current"
+            ? ["discovery_candidate_set"]
+            : ["opportunity_household", "opportunity_workflow"],
+        auditedAt: "2026-07-27T21:20:00Z",
+      });
+      add(auditRef, audit);
+      return { auditRef, audit };
+    })
+    .sort((left, right) => left.auditRef.localeCompare(right.auditRef));
+  const commercialAuditRefs = commercialAudits.map(({ auditRef }) => auditRef);
+  const reportInputRefs = [
+    G24_RECOMMENDATION,
+    G24_PORTFOLIO,
+    G24_SENSITIVITY,
+    G24_TRACEABILITY,
+    ...commercialAuditRefs,
+  ];
   const reportSections = Object.fromEntries(
     [
       "conclusion_summary",
@@ -1186,6 +1259,7 @@ export async function createDiscoveryEvaluationFixture(
       G24_JUDGMENT_B_CHALLENGE,
     ],
     source_manifest_refs: [G24_MANIFEST_SUPPORT, G24_MANIFEST_CHALLENGE],
+    ...commercialReportProjection(commercialAudits),
     traceability_ref: G24_TRACEABILITY,
     curated_judgment_context: {
       decision_question: SYNTHETIC,
@@ -1263,20 +1337,22 @@ export async function createDiscoveryEvaluationFixture(
     ...v13Paths.map((path) => {
       const document = documents.get(path) as Record<string, unknown>;
       const producerRole =
-        String(document.schema_version) ===
-        "startup_opportunity.research_task.discovery_evaluation.current"
-          ? "main_agent"
-          : [
-                "startup_opportunity.evidence.discovery_evaluation.current",
-                "startup_opportunity.claim.discovery_evaluation.current",
-                "startup_opportunity.finding.discovery_evaluation.current",
-                "startup_opportunity.insight.discovery_evaluation.current",
-                "startup_opportunity.judgment_assessment.discovery_evaluation.current",
-                "startup_opportunity.source_manifest.discovery_evaluation.current",
-                "startup_opportunity.enrichment_branch_result.v1",
-              ].includes(String(document.schema_version))
-            ? "lane_researcher"
-            : "main_agent";
+        String(document.schema_version) === "startup_opportunity.commercial_research_audit.current"
+          ? "lane_researcher"
+          : String(document.schema_version) ===
+              "startup_opportunity.research_task.discovery_evaluation.current"
+            ? "main_agent"
+            : [
+                  "startup_opportunity.evidence.discovery_evaluation.current",
+                  "startup_opportunity.claim.discovery_evaluation.current",
+                  "startup_opportunity.finding.discovery_evaluation.current",
+                  "startup_opportunity.insight.discovery_evaluation.current",
+                  "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+                  "startup_opportunity.source_manifest.discovery_evaluation.current",
+                  "startup_opportunity.enrichment_branch_result.v1",
+                ].includes(String(document.schema_version))
+              ? "lane_researcher"
+              : "main_agent";
       const wrapped = envelope(
         runId,
         path,

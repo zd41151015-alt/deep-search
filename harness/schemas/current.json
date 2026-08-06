@@ -23,6 +23,11 @@
       "document_schema_version": null
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/assessment/commercial/quantitative-competitive-research.schema.json",
+      "file": "current/assessment/commercial/quantitative-competitive-research.schema.json",
+      "document_schema_version": null
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/planning/ai-trigger-source-binding-policy.schema.json",
       "file": "current/planning/ai-trigger-source-binding-policy.schema.json",
       "document_schema_version": "startup_opportunity.ai_trigger_source_binding_policy.current"

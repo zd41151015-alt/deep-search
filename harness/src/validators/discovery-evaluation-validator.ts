@@ -1173,6 +1173,15 @@ function validateEvaluationAndReporting(
     ...records(reportContext?.decisive_support).flatMap((entry) => strings(entry.refs)),
     ...records(reportContext?.decisive_opposition).flatMap((entry) => strings(entry.refs)),
   ];
+  const reportMetadata = isRecord(report?.document.report_metadata)
+    ? report.document.report_metadata
+    : {};
+  const reportInputHashRefs = new Set(
+    records(reportMetadata.input_artifact_hashes).map((binding) => String(binding.ref ?? "")),
+  );
+  const missingCommercialAuditHashes = strings(
+    report?.document.commercial_research_audit_refs,
+  ).filter((ref) => !reportInputHashRefs.has(ref));
   if (
     report !== undefined &&
     (report.document.decision_recommendation_ref !== recommendation?.path ||
@@ -1207,6 +1216,7 @@ function validateEvaluationAndReporting(
         strings(report.document.business_engine_refs),
         strings(recommendation?.document.business_engine_refs),
       ) ||
+      missingCommercialAuditHashes.length > 0 ||
       reportDecisionRefs.some((ref) => {
         const linked = target(byPath, ref);
         return (

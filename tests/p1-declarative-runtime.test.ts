@@ -38,6 +38,7 @@ import {
   createDiscoveryRuntimeFixture,
   runtimeEnvelope,
 } from "./fixtures/g2.2/discovery-runtime-fixture.js";
+import { unavailableQuantitativeCompetitiveCoverage } from "./fixtures/quantitative-competitive-fixture.js";
 import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -558,6 +559,7 @@ function unrankedCommercialAudit(
   unitId: string,
   taskRef: string,
 ): Record<string, unknown> {
+  const coveredSubjectIds = [`direction_${unitId}`];
   const uncovered = [
     "recent_user_language",
     "purchase_signal",
@@ -573,7 +575,7 @@ function unrankedCommercialAudit(
     execution_plan_ref: "plans/research-execution.r1.json",
     dispatch_task_ref: `tasks/dispatch/runtime.r1.json#task_${unitId}`,
     task_ref: taskRef,
-    covered_direction_ids: [],
+    covered_direction_ids: coveredSubjectIds,
     research_stage: "solution_specific_evaluation",
     audited_at: "2026-07-31T16:03:00Z",
     planned_resource_allocation: {
@@ -626,6 +628,7 @@ function unrankedCommercialAudit(
     wave1_signals: { demand: false, buyer: false, purchase: false },
     stage_decision: "early_stop_insufficient_evidence",
     ranking_eligibility: "unranked_hypothesis",
+    ...unavailableQuantitativeCompetitiveCoverage(coveredSubjectIds, "2026-07-31T16:03:00Z"),
     limitations: ["SYNTHETIC contract audit; no research was performed."],
   };
 }

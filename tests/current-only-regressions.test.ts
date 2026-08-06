@@ -9,7 +9,16 @@ import {
   createArtifactValidator,
   validateCommercialResearchContract,
 } from "../harness/src/index.js";
+import {
+  renderCompetitiveSubstituteMatrix,
+  renderQuantitativeSignalTable,
+  renderResearchCoverageGaps,
+} from "../harness/src/reporting/commercial-report-tables.js";
 import type { CommercialResearchPolicy } from "../harness/src/validators/commercial-research-validator.js";
+import {
+  commercialReportProjection,
+  unavailableQuantitativeCompetitiveCoverage,
+} from "./fixtures/quantitative-competitive-fixture.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
@@ -95,6 +104,7 @@ function commercialAudit(): Record<string, unknown> {
     wave1_signals: { demand: false, buyer: false, purchase: false },
     stage_decision: "early_stop_insufficient_evidence",
     ranking_eligibility: "unranked_hypothesis",
+    ...unavailableQuantitativeCompetitiveCoverage(["direction_synthetic"], "2026-08-04T12:10:00Z"),
     limitations: ["SYNTHETIC contract fixture; no research was performed."],
   };
 }
@@ -123,6 +133,183 @@ function commercialCodes(
     ],
     policy,
   ).map((issue) => issue.code);
+}
+
+function quantitativeCommercialFixture(): {
+  audit: Record<string, unknown>;
+  documents: readonly {
+    path: string;
+    schemaVersion: string;
+    document: Record<string, unknown>;
+  }[];
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>;
+} {
+  const audit = commercialAudit();
+  const evidenceId = `ev_${"a".repeat(64)}`;
+  const evidenceRef = `evidence/records/${evidenceId}.json`;
+  const substrateRef = `evidence/manifest.jsonl#${evidenceId}`;
+  const rawHash = `sha256:${"b".repeat(64)}`;
+  const rawRef = `evidence/raw/sha256-${"b".repeat(64)}.bin`;
+  const retrievedAt = "2026-08-04T12:01:00Z";
+  const search = (audit.search_log as Record<string, unknown>[])[0];
+  assert.ok(search);
+  search.candidate_results = [
+    {
+      url: "https://metrics.example.invalid/rank?market=US&q=synthetic",
+      title: "Synthetic public metric response",
+      retrieved_at: retrievedAt,
+      published_at: null,
+      observed_at: "2026-08-04T12:00:00Z",
+      data_period_end: "2026-08-04",
+      derived_valid_as_of: "2026-08-04",
+      claim_type: "current_market_change",
+      adopted_evidence_ref: evidenceRef,
+      rejection_reason: null,
+    },
+  ];
+  audit.evidence_register = [
+    {
+      evidence_ref: evidenceRef,
+      source_kind: "independent",
+      evidence_character: "independent_report",
+      independence: "independent",
+      claim_type: "current_market_change",
+      retrieved_at: retrievedAt,
+      published_at: null,
+      observed_at: "2026-08-04T12:00:00Z",
+      data_period_end: "2026-08-04",
+      derived_valid_as_of: "2026-08-04",
+      freshness_status: "current",
+      coverage_keys: [],
+      disposition: "adopted",
+      exclusion_reason: null,
+    },
+  ];
+  audit.adopted_source_distribution = {
+    total_adopted_sources: 1,
+    customer_commercial_count: 1,
+    market_structure_count: 0,
+    academic_count: 0,
+    customer_commercial_percent: 100,
+    market_structure_percent: 0,
+    academic_percent: 0,
+    guidance_deviation_observed: true,
+  };
+  audit.data_acquisitions = [
+    {
+      acquisition_id: "acquisition_public_metric",
+      acquisition_method: "webpage",
+      provider: "Arbitrary Regional Metrics Cooperative",
+      endpoint_or_query_redacted: "https://metrics.example.invalid/rank?market=US&q=synthetic",
+      retrieved_at: retrievedAt,
+      evidence_ref: evidenceRef,
+      evidence_substrate_ref: substrateRef,
+      raw_response_ref: rawRef,
+      raw_response_hash: rawHash,
+      access_basis: "public",
+      credentials_stored: false,
+      sensitive_headers_stored: false,
+      access_control_bypassed: false,
+      limitations: ["Synthetic metric fixture only."],
+    },
+  ];
+  const observation = {
+    observation_id: "observation_rank",
+    subject_id: "direction_synthetic",
+    metric_family: "demand_scale",
+    metric_name: "category rank",
+    metric_semantics: "rank",
+    value: { shape: "point", value: 17, unit: "rank", currency: null },
+    metric_definition: "Position within one synthetic category at the stated as-of date.",
+    geography: "United States",
+    period: {
+      period_start: null,
+      period_end: null,
+      as_of: "2026-08-04",
+      label: "2026-08-04 snapshot",
+    },
+    measurement_type: "proxy",
+    estimation_method: "Platform-relative ordering supplied by the source.",
+    sample_or_population: "All entries in one synthetic source category.",
+    error_uncertainty: "Category membership and ranking method are source-defined.",
+    comparability: {
+      comparison_group: null,
+      status: "limited",
+      category: "synthetic category",
+      geography_aligned: false,
+      period_aligned: false,
+      category_aligned: false,
+      definition_aligned: false,
+      measurement_aligned: false,
+      direct_comparison_allowed: false,
+      limitations: ["No cross-market direct comparison is allowed."],
+    },
+    interpretation_boundaries: [
+      "not_purchase_count",
+      "not_paid_customer_count",
+      "not_market_validation",
+    ],
+    acquisition_id: "acquisition_public_metric",
+    evidence_refs: [evidenceRef],
+    limitations: ["Rank is a demand proxy, not a commercial outcome."],
+  };
+  audit.quantitative_observations = [observation];
+  const quantitativeCoverage = audit.quantitative_coverage as Record<string, unknown>[];
+  const demandCoverage = quantitativeCoverage.find(
+    (coverage) => coverage.metric_family === "demand_scale",
+  );
+  assert.ok(demandCoverage);
+  Object.assign(demandCoverage, {
+    state: "observed",
+    observation_ids: ["observation_rank"],
+    query_attempts: [],
+    reason: null,
+    alternative_metric: null,
+    decision_impact: "The proxy may inform follow-up selection but cannot validate demand.",
+  });
+  const evidenceDocument = {
+    schema_version: "startup_opportunity.evidence.assessment.current",
+    mechanical_binding: {
+      substrate_record_ref: substrateRef,
+      content_hash: rawHash,
+      raw_content_ref: rawRef,
+    },
+  };
+  return {
+    audit,
+    documents: [
+      {
+        path: evidenceRef,
+        schemaVersion: "startup_opportunity.evidence.assessment.current",
+        document: evidenceDocument,
+      },
+      {
+        path: "artifacts/research-audits/commercial-synthetic.json",
+        schemaVersion: "startup_opportunity.commercial_research_audit.current",
+        document: audit,
+      },
+    ],
+    exactRecords: new Map([
+      [
+        substrateRef,
+        {
+          schema_version: "startup_opportunity.evidence_store_record.v2",
+          content_hash: rawHash,
+          raw_content_ref: rawRef,
+          recorded_at: retrievedAt,
+        },
+      ],
+    ]),
+  };
+}
+
+function quantitativeCommercialCodes(
+  fixture: ReturnType<typeof quantitativeCommercialFixture>,
+  policy: CommercialResearchPolicy,
+): readonly string[] {
+  return validateCommercialResearchContract(fixture.documents, policy, fixture.exactRecords).map(
+    (issue) => issue.code,
+  );
 }
 
 test("current ref classifier separates all canonical reference classes", () => {
@@ -662,6 +849,199 @@ test("retrieval time cannot refresh old observations and Search Closure reconcil
       "commercial_research.search_telemetry_unobservable",
     ),
   );
+});
+
+test("quantitative acquisition is provider-agnostic and APIs remain optional", async () => {
+  const policy = await commercialPolicy();
+  const fixture = quantitativeCommercialFixture();
+  assert.deepEqual(quantitativeCommercialCodes(fixture, policy), []);
+
+  const validator = await createArtifactValidator(repositoryRoot);
+  assert.equal(
+    validator.validateDocument(fixture.audit, "artifacts/research-audits/commercial-synthetic.json")
+      .valid,
+    true,
+  );
+  const acquisition = (fixture.audit.data_acquisitions as Record<string, unknown>[])[0];
+  assert.ok(acquisition);
+  acquisition.acquisition_method = "authorized_commercial_api";
+  acquisition.provider = "Previously Unseen Lawful Data Provider";
+  acquisition.access_basis = "caller_authorized_commercial";
+  assert.deepEqual(quantitativeCommercialCodes(fixture, policy), []);
+  assert.equal(
+    validator.validateDocument(fixture.audit, "artifacts/research-audits/commercial-synthetic.json")
+      .valid,
+    true,
+  );
+});
+
+test("quantitative acquisition rejects raw binding drift, secrets, and access-control claims", async () => {
+  const policy = await commercialPolicy();
+
+  const mismatched = quantitativeCommercialFixture();
+  const mismatchedAcquisition = (
+    mismatched.audit.data_acquisitions as Record<string, unknown>[]
+  )[0];
+  assert.ok(mismatchedAcquisition);
+  mismatchedAcquisition.raw_response_hash = `sha256:${"c".repeat(64)}`;
+  assert.ok(
+    quantitativeCommercialCodes(mismatched, policy).includes(
+      "commercial_research.acquisition_substrate_binding_mismatch",
+    ),
+  );
+
+  const exposedSecret = quantitativeCommercialFixture();
+  const secretAcquisition = (exposedSecret.audit.data_acquisitions as Record<string, unknown>[])[0];
+  assert.ok(secretAcquisition);
+  secretAcquisition.endpoint_or_query_redacted =
+    "https://metrics.example.invalid/query?access_token=unredacted-secret";
+  assert.ok(
+    quantitativeCommercialCodes(exposedSecret, policy).includes(
+      "commercial_research.acquisition_sensitive_material",
+    ),
+  );
+
+  const bypassClaim = quantitativeCommercialFixture();
+  const bypassAcquisition = (bypassClaim.audit.data_acquisitions as Record<string, unknown>[])[0];
+  assert.ok(bypassAcquisition);
+  bypassAcquisition.access_control_bypassed = true;
+  const validator = await createArtifactValidator(repositoryRoot);
+  assert.equal(
+    validator.validateDocument(
+      bypassClaim.audit,
+      "artifacts/research-audits/commercial-synthetic.json",
+    ).valid,
+    false,
+  );
+});
+
+test("proxy semantics and direct comparisons fail closed when meanings or scopes drift", async () => {
+  const policy = await commercialPolicy();
+  const proxy = quantitativeCommercialFixture();
+  const proxyObservation = (proxy.audit.quantitative_observations as Record<string, unknown>[])[0];
+  assert.ok(proxyObservation);
+  proxyObservation.interpretation_boundaries = ["not_paid_customer_count"];
+  assert.ok(
+    quantitativeCommercialCodes(proxy, policy).includes(
+      "commercial_research.proxy_semantic_boundary_missing",
+    ),
+  );
+
+  const comparison = quantitativeCommercialFixture();
+  const first = (comparison.audit.quantitative_observations as Record<string, unknown>[])[0];
+  assert.ok(first);
+  first.comparability = {
+    comparison_group: "comparison_rank",
+    status: "comparable",
+    category: "synthetic category",
+    geography_aligned: true,
+    period_aligned: true,
+    category_aligned: true,
+    definition_aligned: true,
+    measurement_aligned: true,
+    direct_comparison_allowed: true,
+    limitations: [],
+  };
+  const second = structuredClone(first);
+  second.observation_id = "observation_rank_other_region";
+  second.metric_family = "usage_behavior";
+  second.geography = "Canada";
+  (comparison.audit.quantitative_observations as Record<string, unknown>[]).push(second);
+  const usageCoverage = (comparison.audit.quantitative_coverage as Record<string, unknown>[]).find(
+    (coverage) => coverage.metric_family === "usage_behavior",
+  );
+  assert.ok(usageCoverage);
+  Object.assign(usageCoverage, {
+    state: "observed",
+    observation_ids: ["observation_rank_other_region"],
+    query_attempts: [],
+    reason: null,
+    alternative_metric: null,
+  });
+  assert.ok(
+    quantitativeCommercialCodes(comparison, policy).includes(
+      "commercial_research.quantitative_comparison_group_incompatible",
+    ),
+  );
+});
+
+test("coverage requires every metric family and substitute type without fabricating values", async () => {
+  const policy = await commercialPolicy();
+  const completeGap = commercialAudit();
+  assert.deepEqual(commercialCodes(completeGap, policy), []);
+  assert.deepEqual(completeGap.quantitative_observations, []);
+  assert.deepEqual(completeGap.competitive_objects, []);
+
+  const missingFamily = structuredClone(completeGap);
+  (missingFamily.quantitative_coverage as Record<string, unknown>[]).pop();
+  assert.ok(
+    commercialCodes(missingFamily, policy).includes(
+      "commercial_research.quantitative_coverage_incomplete",
+    ),
+  );
+
+  const missingSubject = structuredClone(completeGap);
+  missingSubject.covered_direction_ids = [];
+  missingSubject.quantitative_coverage = [];
+  missingSubject.competitive_coverage = [];
+  assert.ok(
+    commercialCodes(missingSubject, policy).includes("commercial_research.covered_subject_missing"),
+  );
+
+  const missingAttempt = structuredClone(completeGap);
+  const unavailable = (missingAttempt.competitive_coverage as Record<string, unknown>[])[0];
+  assert.ok(unavailable);
+  unavailable.query_attempts = [];
+  unavailable.reason = null;
+  assert.ok(
+    commercialCodes(missingAttempt, policy).includes(
+      "commercial_research.competitive_coverage_state_mismatch",
+    ),
+  );
+});
+
+test("formal report projections are exact and render fixed unavailable and gap tables", async () => {
+  const policy = await commercialPolicy();
+  const audit = commercialAudit();
+  const auditRef = "artifacts/research-audits/commercial-synthetic.json";
+  const projection = commercialReportProjection([{ auditRef, audit }]);
+  const report = {
+    commercial_research_audit_refs: [auditRef],
+    ...projection,
+  };
+  const documents = [
+    {
+      path: auditRef,
+      schemaVersion: "startup_opportunity.commercial_research_audit.current",
+      document: audit,
+    },
+    {
+      path: "artifacts/reporting/report-json.r1.json",
+      schemaVersion: "startup_opportunity.report.v1",
+      document: report,
+    },
+  ];
+  assert.deepEqual(validateCommercialResearchContract(documents, policy), []);
+
+  const drifted = structuredClone(documents);
+  const driftedReport = drifted[1]?.document as Record<string, unknown>;
+  (driftedReport.research_coverage_gaps as Record<string, unknown>[]).pop();
+  assert.ok(
+    validateCommercialResearchContract(drifted, policy)
+      .map((issue) => issue.code)
+      .includes("commercial_research.report_gap_projection_mismatch"),
+  );
+
+  const quantitativeTable = renderQuantitativeSignalTable(projection);
+  const competitiveTable = renderCompetitiveSubstituteMatrix(projection);
+  const gapTable = renderResearchCoverageGaps(projection);
+  assert.match(quantitativeTable, /Metric Family \/ Metric/);
+  assert.match(quantitativeTable, /No observed quantitative signal/);
+  assert.match(competitiveTable, /Differentiation Gaps/);
+  assert.match(competitiveTable, /No observed competitive object/);
+  assert.match(gapTable, /Ranking \/ Decision Impact/);
+  assert.match(gapTable, /unavailable/);
+  assert.match(gapTable, /synthetic-fixture-provider/);
 });
 
 test("all deterministic scaffold kinds are schema-valid and preserve runtime boundaries", async () => {

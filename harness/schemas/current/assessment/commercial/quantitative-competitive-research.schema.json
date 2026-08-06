@@ -1,0 +1,523 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/commercial/quantitative-competitive-research.schema.json",
+  "title": "Startup Opportunity Quantitative And Competitive Research Definitions",
+  "$defs": {
+    "identifier": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "nonEmptyString": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "timestamp": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+    },
+    "sha256": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "artifactRef": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+    },
+    "artifactRefArray": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "uniqueStringArray": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "metricFamily": {
+      "enum": [
+        "demand_scale",
+        "usage_behavior",
+        "commercial_behavior",
+        "growth_change",
+        "competitive_intensity",
+        "distribution",
+        "retention_outcomes",
+        "unit_economics"
+      ]
+    },
+    "metricSemantics": {
+      "enum": [
+        "market_size",
+        "search_interest",
+        "rank",
+        "rating_count",
+        "review_count",
+        "downloads",
+        "active_users",
+        "usage_frequency",
+        "transaction_count",
+        "purchase_count",
+        "paid_customers",
+        "paid_customers_estimate",
+        "revenue",
+        "revenue_estimate",
+        "price",
+        "growth_rate",
+        "retention_rate",
+        "outcome_rate",
+        "distribution_reach",
+        "competitor_count",
+        "unit_cost",
+        "unit_margin",
+        "other"
+      ]
+    },
+    "competitorType": {
+      "enum": [
+        "direct_product",
+        "adjacent_product",
+        "service",
+        "platform",
+        "manual_workaround",
+        "status_quo",
+        "non_consumption"
+      ]
+    },
+    "coverageState": {
+      "enum": ["observed", "partial", "unavailable", "not_applicable"]
+    },
+    "acquisitionMethod": {
+      "enum": [
+        "public_api",
+        "authorized_commercial_api",
+        "official_dataset",
+        "downloadable_dataset",
+        "webpage",
+        "user_provided_dataset",
+        "repository_dataset",
+        "other"
+      ]
+    },
+    "acquisitionRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "acquisition_id",
+        "acquisition_method",
+        "provider",
+        "endpoint_or_query_redacted",
+        "retrieved_at",
+        "evidence_ref",
+        "evidence_substrate_ref",
+        "raw_response_ref",
+        "raw_response_hash",
+        "access_basis",
+        "credentials_stored",
+        "sensitive_headers_stored",
+        "access_control_bypassed",
+        "limitations"
+      ],
+      "properties": {
+        "acquisition_id": { "$ref": "#/$defs/identifier" },
+        "acquisition_method": { "$ref": "#/$defs/acquisitionMethod" },
+        "provider": { "$ref": "#/$defs/nonEmptyString" },
+        "endpoint_or_query_redacted": { "$ref": "#/$defs/nonEmptyString" },
+        "retrieved_at": { "$ref": "#/$defs/timestamp" },
+        "evidence_ref": { "$ref": "#/$defs/artifactRef" },
+        "evidence_substrate_ref": {
+          "type": "string",
+          "pattern": "^evidence/manifest\\.jsonl#ev_[a-f0-9]{64}$"
+        },
+        "raw_response_ref": {
+          "type": "string",
+          "pattern": "^evidence/raw/sha256-[a-f0-9]{64}\\.bin$"
+        },
+        "raw_response_hash": { "$ref": "#/$defs/sha256" },
+        "access_basis": {
+          "enum": ["public", "caller_authorized_commercial", "user_provided", "repository_existing"]
+        },
+        "credentials_stored": { "const": false },
+        "sensitive_headers_stored": { "const": false },
+        "access_control_bypassed": { "const": false },
+        "limitations": { "$ref": "#/$defs/uniqueStringArray" }
+      }
+    },
+    "metricValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["shape", "value", "unit", "currency"],
+          "properties": {
+            "shape": { "const": "point" },
+            "value": { "type": "number" },
+            "unit": { "$ref": "#/$defs/nonEmptyString" },
+            "currency": { "type": ["string", "null"], "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["shape", "lower_bound", "upper_bound", "unit", "currency"],
+          "properties": {
+            "shape": { "const": "range" },
+            "lower_bound": { "type": "number" },
+            "upper_bound": { "type": "number" },
+            "unit": { "$ref": "#/$defs/nonEmptyString" },
+            "currency": { "type": ["string", "null"], "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["shape", "value", "unit", "index_base", "currency"],
+          "properties": {
+            "shape": { "const": "index" },
+            "value": { "type": "number" },
+            "unit": { "$ref": "#/$defs/nonEmptyString" },
+            "index_base": { "$ref": "#/$defs/nonEmptyString" },
+            "currency": { "type": ["string", "null"], "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["shape", "value", "lower_bound", "upper_bound", "unit", "currency"],
+          "properties": {
+            "shape": { "const": "estimate" },
+            "value": { "type": "number" },
+            "lower_bound": { "type": ["number", "null"] },
+            "upper_bound": { "type": ["number", "null"] },
+            "unit": { "$ref": "#/$defs/nonEmptyString" },
+            "currency": { "type": ["string", "null"], "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "metricPeriod": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["period_start", "period_end", "as_of", "label"],
+      "properties": {
+        "period_start": { "type": ["string", "null"], "format": "date" },
+        "period_end": { "type": ["string", "null"], "format": "date" },
+        "as_of": { "type": ["string", "null"], "format": "date" },
+        "label": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "comparability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "comparison_group",
+        "status",
+        "category",
+        "geography_aligned",
+        "period_aligned",
+        "category_aligned",
+        "definition_aligned",
+        "measurement_aligned",
+        "direct_comparison_allowed",
+        "limitations"
+      ],
+      "properties": {
+        "comparison_group": {
+          "anyOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
+        },
+        "status": { "enum": ["comparable", "limited", "not_comparable"] },
+        "category": { "$ref": "#/$defs/nonEmptyString" },
+        "geography_aligned": { "type": "boolean" },
+        "period_aligned": { "type": "boolean" },
+        "category_aligned": { "type": "boolean" },
+        "definition_aligned": { "type": "boolean" },
+        "measurement_aligned": { "type": "boolean" },
+        "direct_comparison_allowed": { "type": "boolean" },
+        "limitations": { "$ref": "#/$defs/uniqueStringArray" }
+      }
+    },
+    "quantitativeObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_id",
+        "subject_id",
+        "metric_family",
+        "metric_name",
+        "metric_semantics",
+        "value",
+        "metric_definition",
+        "geography",
+        "period",
+        "measurement_type",
+        "estimation_method",
+        "sample_or_population",
+        "error_uncertainty",
+        "comparability",
+        "interpretation_boundaries",
+        "acquisition_id",
+        "evidence_refs",
+        "limitations"
+      ],
+      "properties": {
+        "observation_id": { "$ref": "#/$defs/identifier" },
+        "subject_id": { "$ref": "#/$defs/identifier" },
+        "metric_family": { "$ref": "#/$defs/metricFamily" },
+        "metric_name": { "$ref": "#/$defs/nonEmptyString" },
+        "metric_semantics": { "$ref": "#/$defs/metricSemantics" },
+        "value": { "$ref": "#/$defs/metricValue" },
+        "metric_definition": { "$ref": "#/$defs/nonEmptyString" },
+        "geography": { "$ref": "#/$defs/nonEmptyString" },
+        "period": { "$ref": "#/$defs/metricPeriod" },
+        "measurement_type": {
+          "enum": ["direct_measurement", "disclosed", "estimated", "modeled", "proxy"]
+        },
+        "estimation_method": {
+          "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }]
+        },
+        "sample_or_population": { "$ref": "#/$defs/nonEmptyString" },
+        "error_uncertainty": { "$ref": "#/$defs/nonEmptyString" },
+        "comparability": { "$ref": "#/$defs/comparability" },
+        "interpretation_boundaries": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "not_purchase_count",
+              "not_paid_customer_count",
+              "not_market_validation",
+              "not_revenue",
+              "estimate_not_observation"
+            ]
+          }
+        },
+        "acquisition_id": { "$ref": "#/$defs/identifier" },
+        "evidence_refs": {
+          "allOf": [{ "$ref": "#/$defs/artifactRefArray" }, { "type": "array", "minItems": 1 }]
+        },
+        "limitations": { "$ref": "#/$defs/uniqueStringArray" }
+      }
+    },
+    "queryAttempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt_id",
+        "acquisition_method",
+        "provider",
+        "endpoint_or_query_redacted",
+        "attempted_at",
+        "outcome",
+        "reason",
+        "alternative_metric",
+        "decision_impact"
+      ],
+      "properties": {
+        "attempt_id": { "$ref": "#/$defs/identifier" },
+        "acquisition_method": { "$ref": "#/$defs/acquisitionMethod" },
+        "provider": { "$ref": "#/$defs/nonEmptyString" },
+        "endpoint_or_query_redacted": { "$ref": "#/$defs/nonEmptyString" },
+        "attempted_at": { "$ref": "#/$defs/timestamp" },
+        "outcome": {
+          "enum": [
+            "no_data",
+            "access_unavailable",
+            "authorization_unavailable",
+            "rate_limited",
+            "not_found",
+            "not_applicable"
+          ]
+        },
+        "reason": { "$ref": "#/$defs/nonEmptyString" },
+        "alternative_metric": {
+          "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }]
+        },
+        "decision_impact": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "quantitativeCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_id",
+        "metric_family",
+        "state",
+        "observation_ids",
+        "query_attempts",
+        "reason",
+        "alternative_metric",
+        "decision_impact"
+      ],
+      "properties": {
+        "subject_id": { "$ref": "#/$defs/identifier" },
+        "metric_family": { "$ref": "#/$defs/metricFamily" },
+        "state": { "$ref": "#/$defs/coverageState" },
+        "observation_ids": { "$ref": "#/$defs/uniqueStringArray" },
+        "query_attempts": { "type": "array", "items": { "$ref": "#/$defs/queryAttempt" } },
+        "reason": { "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }] },
+        "alternative_metric": {
+          "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }]
+        },
+        "decision_impact": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "competitiveObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "competitive_object_id",
+        "subject_id",
+        "competitor_type",
+        "name",
+        "target_segment",
+        "scenario",
+        "positioning",
+        "pricing_observation_refs",
+        "traction_observation_refs",
+        "strengths",
+        "weaknesses",
+        "differentiation_gaps",
+        "source_refs",
+        "limitations"
+      ],
+      "properties": {
+        "competitive_object_id": { "$ref": "#/$defs/identifier" },
+        "subject_id": { "$ref": "#/$defs/identifier" },
+        "competitor_type": { "$ref": "#/$defs/competitorType" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "target_segment": { "$ref": "#/$defs/nonEmptyString" },
+        "scenario": { "$ref": "#/$defs/nonEmptyString" },
+        "positioning": { "$ref": "#/$defs/nonEmptyString" },
+        "pricing_observation_refs": { "$ref": "#/$defs/uniqueStringArray" },
+        "traction_observation_refs": { "$ref": "#/$defs/uniqueStringArray" },
+        "strengths": { "$ref": "#/$defs/uniqueStringArray" },
+        "weaknesses": { "$ref": "#/$defs/uniqueStringArray" },
+        "differentiation_gaps": { "$ref": "#/$defs/uniqueStringArray" },
+        "source_refs": {
+          "allOf": [{ "$ref": "#/$defs/artifactRefArray" }, { "type": "array", "minItems": 1 }]
+        },
+        "limitations": { "$ref": "#/$defs/uniqueStringArray" }
+      }
+    },
+    "competitiveCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_id",
+        "competitor_type",
+        "state",
+        "competitive_object_ids",
+        "query_attempts",
+        "reason",
+        "alternative_metric",
+        "decision_impact"
+      ],
+      "properties": {
+        "subject_id": { "$ref": "#/$defs/identifier" },
+        "competitor_type": { "$ref": "#/$defs/competitorType" },
+        "state": { "$ref": "#/$defs/coverageState" },
+        "competitive_object_ids": { "$ref": "#/$defs/uniqueStringArray" },
+        "query_attempts": { "type": "array", "items": { "$ref": "#/$defs/queryAttempt" } },
+        "reason": { "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }] },
+        "alternative_metric": {
+          "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }]
+        },
+        "decision_impact": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "researchScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scan_mode",
+        "required_metric_families",
+        "required_competitor_types",
+        "api_is_optional",
+        "provider_allowlist_enforced",
+        "acquisition_execution_owner",
+        "harness_hidden_network_calls",
+        "prohibited_access_methods"
+      ],
+      "properties": {
+        "scan_mode": { "enum": ["broad_scan", "targeted_deep_dive"] },
+        "required_metric_families": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/metricFamily" }
+        },
+        "required_competitor_types": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/competitorType" }
+        },
+        "api_is_optional": { "const": true },
+        "provider_allowlist_enforced": { "const": false },
+        "acquisition_execution_owner": { "const": "research_agent_or_caller" },
+        "harness_hidden_network_calls": { "const": false },
+        "prohibited_access_methods": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "bypass_access_control",
+              "circumvent_login",
+              "circumvent_paywall",
+              "circumvent_captcha",
+              "store_credentials"
+            ]
+          }
+        }
+      }
+    },
+    "quantitativeSignalRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["audit_ref", "observation"],
+      "properties": {
+        "audit_ref": {
+          "type": "string",
+          "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+        },
+        "observation": { "$ref": "#/$defs/quantitativeObservation" }
+      }
+    },
+    "competitiveMatrixRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["audit_ref", "competitive_object"],
+      "properties": {
+        "audit_ref": {
+          "type": "string",
+          "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+        },
+        "competitive_object": { "$ref": "#/$defs/competitiveObject" }
+      }
+    },
+    "coverageGapRow": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["audit_ref", "coverage_kind", "coverage"],
+          "properties": {
+            "audit_ref": {
+              "type": "string",
+              "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+            },
+            "coverage_kind": { "const": "quantitative" },
+            "coverage": { "$ref": "#/$defs/quantitativeCoverage" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["audit_ref", "coverage_kind", "coverage"],
+          "properties": {
+            "audit_ref": {
+              "type": "string",
+              "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+            },
+            "coverage_kind": { "const": "competitive" },
+            "coverage": { "$ref": "#/$defs/competitiveCoverage" }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -32,6 +32,7 @@
         "research_stage",
         "resource_allocation",
         "planned_queries",
+        "quantitative_competitive_scope",
         "required_commercial_dimensions",
         "commercial_audit_output_path"
       ],
@@ -80,6 +81,9 @@
               }
             }
           }
+        },
+        "quantitative_competitive_scope": {
+          "$ref": "./quantitative-competitive-research.schema.json#/$defs/researchScope"
         },
         "required_commercial_dimensions": {
           "type": "array",

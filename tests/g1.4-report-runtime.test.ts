@@ -32,8 +32,13 @@ import {
   G14_RUN_ID,
   G14_TRACEABILITY_REF,
   g14Branches,
+  refreshG14Bundle,
   replaceG14EvidenceRecords,
 } from "./fixtures/g1.4/assessment-report-fixture.js";
+import {
+  commercialReportProjection,
+  unavailableQuantitativeCompetitiveCoverage,
+} from "./fixtures/quantitative-competitive-fixture.js";
 import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -103,6 +108,8 @@ function commercialAuditEnvelope(
 ): FormalArtifactEnvelope {
   const taskRef = `tasks/${branch.unitId}.attempt-1.json`;
   const artifactPath = `artifacts/research-audits/${branch.unitId}.json`;
+  const coveredSubjectId =
+    branch.unitId === "unit_demand" ? "narrow_outcome_service" : `subject_${branch.unitId}`;
   const uncovered = [
     "recent_user_language",
     "purchase_signal",
@@ -145,7 +152,7 @@ function commercialAuditEnvelope(
     execution_plan_ref: "plans/research-execution.r1.json",
     dispatch_task_ref: `tasks/dispatch/commercial-research.r1.json#task_${branch.unitId}`,
     task_ref: taskRef,
-    covered_direction_ids: branch.unitId === "unit_demand" ? ["narrow_outcome_service"] : [],
+    covered_direction_ids: [coveredSubjectId],
     research_stage: "solution_specific_evaluation",
     audited_at: "2026-07-25T18:39:00Z",
     planned_resource_allocation: {
@@ -217,6 +224,7 @@ function commercialAuditEnvelope(
     wave1_signals: { demand: false, buyer: false, purchase: false },
     stage_decision: "early_stop_insufficient_evidence",
     ranking_eligibility: "unranked_hypothesis",
+    ...unavailableQuantitativeCompetitiveCoverage([coveredSubjectId], "2026-07-25T18:39:00Z"),
     limitations: ["SYNTHETIC audit fixture; no market research was performed."],
   };
   return v5Envelope(
@@ -352,6 +360,10 @@ interface PreparedRun {
   readonly reportEnvelope: FormalArtifactEnvelope;
   readonly evidenceRef: string;
   readonly evidenceRefs: readonly string[];
+  readonly commercialAudits: readonly {
+    readonly auditRef: string;
+    readonly audit: Readonly<Record<string, unknown>>;
+  }[];
 }
 
 function nextReportRevision(source: FormalArtifactEnvelope): FormalArtifactEnvelope {
@@ -459,6 +471,10 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
         Awaited<ReturnType<EvidenceStore["record"]>>["record"],
       ]
     | null = null;
+  const commercialAudits: {
+    auditRef: string;
+    audit: Readonly<Record<string, unknown>>;
+  }[] = [];
   for (const [index, branch] of branches.entries()) {
     const taskPath = `tasks/${branch.unitId}.attempt-1.json`;
     const researchGoal = String(documentAt(bundle, taskPath).research_goal);
@@ -486,6 +502,15 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
     });
     const records = [support.record, oppose.record] as const;
     const evidencePaths = records.map((record) => `evidence/records/${record.evidence_id}.json`);
+    const commercialAudit = commercialAuditEnvelope(
+      branch,
+      evidencePaths[0] as string,
+      support.record.recorded_at,
+    );
+    commercialAudits.push({
+      auditRef: commercialAudit.artifact_path,
+      audit: commercialAudit.document,
+    });
     await store.publishArtifactBundle({
       runId: G14_RUN_ID,
       envelopes: [
@@ -509,7 +534,7 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
             document,
           };
         }),
-        commercialAuditEnvelope(branch, evidencePaths[0] as string, support.record.recorded_at),
+        commercialAudit,
       ],
     });
     if (branch.unitId === demand.unitId) {
@@ -521,6 +546,20 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
     bundle,
     demandRecords as Parameters<typeof replaceG14EvidenceRecords>[1],
   );
+  const commercialAuditByRef = new Map(
+    commercialAudits.map(({ auditRef, audit }) => [auditRef, audit]),
+  );
+  bundle = refreshG14Bundle({
+    ...bundle,
+    documents: bundle.documents.map((entry) => {
+      const commercialAudit = commercialAuditByRef.get(entry.path);
+      return commercialAudit === undefined
+        ? entry
+        : { path: entry.path, document: structuredClone(commercialAudit) };
+    }),
+  });
+  Object.assign(documentAt(bundle, G14_REPORT_REF), commercialReportProjection(commercialAudits));
+  bundle = refreshG14Bundle(bundle);
 
   await store.publishArtifactBundle({
     runId: G14_RUN_ID,
@@ -570,6 +609,7 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
     reportEnvelope: reportEnvelope as FormalArtifactEnvelope,
     evidenceRef: `evidence/records/${demandRecords[0].evidence_id}.json`,
     evidenceRefs,
+    commercialAudits,
   };
 }
 
@@ -745,6 +785,7 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
         validation_needed: "需要收集对应维度的近期直接商业材料。",
       })),
     ],
+    ...commercialReportProjection(state.commercialAudits),
     ordered_validation_plan: [
       {
         order: 1,

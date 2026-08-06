@@ -462,6 +462,14 @@ validated artifacts
 
 Gap Snapshot 说明“观察到了什么”，Adaptation Decision 说明“建议改变什么以及为什么”，Plan Revision 说明“系统批准后的有效计划是什么”。语义判断与机械执行分离：LLM 负责开放式研究判断，Harness 负责边界、幂等、版本、引用和恢复。
 
+### 6.28 量化与竞争覆盖必须显式、通用且可审计
+
+Discovery 的宽扫描和方向验证的定向深挖都必须形成 `commercial_research_audit.current`。量化合同使用稳定 metric family 与开放 metric name/value，不绑定 App Store、单一 API 或固定行业；竞争合同覆盖产品、服务、平台、人工 workaround、status quo 和 non-consumption，而不只列同类 App。
+
+API 是 agent 可选择的数据获取手段，不是唯一手段。不存在 provider、endpoint 或 API allowlist；agent 可以按市场、地域和候选选择合法可访问的公开 API、已授权商业 API、官方/下载数据集、用户提供数据、仓库已有数据或网页。Harness 不自行发起网络请求，也不保存 credential、Cookie、Token 或敏感 header，不绕过登录、付费、验证码或其他访问控制。所有响应由 caller 作为 raw Evidence 提交并绑定 exact ref/hash。
+
+每个必需维度使用 `observed | partial | unavailable | not_applicable`。`partial` 和 `unavailable` 必须记录查询尝试、原因、替代指标和对排序/结论的影响；没有可辩护数据时必须显式显示 gap，绝不能为满足 schema 生成数值。
+
 ## 7. 总体架构
 
 ### 7.1 三层模型
@@ -1659,6 +1667,8 @@ stop_condition
 
 禁止只生成关键词而不说明研究目标。相同关键词可以服务不同目标，例如验证用户语言、竞品覆盖或买单信号，不能混为同一个 query。
 
+量化 acquisition 由 research agent 或 caller 执行，并记录 `acquisition_method`、开放字符串 `provider`、脱敏的 endpoint/query、`retrieved_at`、raw response ref/hash、访问依据和 limitations。允许 `public_api`、`authorized_commercial_api`、`official_dataset`、`downloadable_dataset`、网页及其他合法 caller-supplied 来源；合同不把 API 设为必选，也不按 provider 白名单放行。Harness 只验证收到的 provenance、Evidence substrate 和敏感信息边界，不发起隐藏网络或 LLM 调用。
+
 ### 15.3 Context hygiene
 
 - Raw evidence 只保存在 Evidence Store。
@@ -1755,6 +1765,8 @@ Evidence
 ```
 
 Evidence Store 使用 `(canonical_url, content_hash, research_goal)` 或等价稳定 operation key 去重。相同来源服务不同研究目标时可以复用 raw content，但必须分别记录关联关系。
+
+量化 observation 必须绑定正式 Evidence ref 和 acquisition substrate，并声明 metric definition、地域、周期、measurement type、估算方法、样本或总体、误差/不确定性、可比性和局限。值允许 point、range、index 或 estimate；排名、评分人数、下载、MAU、搜索热度和其他 proxy 不得解释为购买人数、付费人数或市场验证，收入/付费人数估算必须保持 estimate 语义。地域、周期、类别、定义或测量类型不一致时禁止直接横比。
 
 ### 16.3 Claim
 
@@ -2310,6 +2322,7 @@ pre_kill_decisions
 retained / watchlist / rejected candidate refs
 open_questions
 source_manifest
+commercial_research_audit
 limitations
 ```
 
@@ -2347,6 +2360,8 @@ AI baseline and dependency bundle when relevant
 ```
 
 完成 enrichment 后再进行全局 hard gate、四面板比较、partial order 和 portfolio view。
+
+Candidate discovery task 使用 `broad_scan`，对候选集做宽量化与广义替代扫描；discovery evaluation 和 concept assessment task 使用 `targeted_deep_dive`，围绕已形成方向定向补充口径、可比性、竞争差异和商业结果。两者共享同一 provider-agnostic audit，不建立 API 专用或行业专用旁路模型。
 
 `candidate_pre_killed` 可以触发对尚未开始且仅服务该候选 exact revision 的 enrichment unit 执行 `skip_unit`。current Discovery adaptation binding 必须要求 Gap `subject_ref` 解析为 exact `discovery_candidate.v1` Envelope，而不只是匹配 path/string；Envelope type/path、Run、Plan ref、document content hash 与完整 Envelope hash 必须闭合，target unit 仍为 pending/enabled，且其 candidate-shaped `input_refs` 只有该 subject。缺少/null/non-envelope subject、错误 type/Run/Plan/hash/revision 或同时服务 retained/shared candidate 时不得 skip，必须保留或由新 unit supersede。首次 apply 在任何 receipt/Artifact/Manifest write 前重验 durable candidate；candidate-bound immutable Plan receipt 记录 exact candidate/Plan binding，replay、checkpoint/reopen 和 crash recovery 每次都重验 receipt 与 durable bytes，不能让 transformer 或其他 receipt 路径绕过前置条件。candidate-bound Plan revision 后，validated current receipt 只授权按其 exact historical Plan ref/hash/revision 和 bound candidate refs 构造只读 Plan/Manifest validation view，以解决同一 Run 的历史/current Plan 同时存在时的 cardinality。G2.1 map 与 G2.2 candidate domain evaluator 必须在该 view 上完整执行，未被 receipt 绑定的 map/candidate 也必须重验；不得以 receipt 存在为由全局跳过 domain、schema、typed reference、receipt 或 byte-integrity validation。`uses_ai=true` 且 mandatory AI bundle 缺失时必须触发 `add_unit`，或在无法补齐时限制结论强度。
 
@@ -2567,6 +2582,8 @@ human review tolerance
 
 禁止只按下载量或榜单名次推断市场机会。必须结合功能、评论、定位、地区、价格和替代方案。
 
+排名、评分人数、评论数、下载、活跃用户、收入估算和付费人数必须使用不同 metric semantics。报告同时展示 metric definition、地域、周期、measurement type、sample/population、误差和 limitations；没有同口径 comparison group 时不得直接排序。
+
 ### 20.5 用户评论与差评挖掘
 
 目标：识别真实失败场景、流失原因、用户用词和未解决期望。
@@ -2588,6 +2605,8 @@ human review tolerance
 ### 20.8 替代方案与非 App 竞争
 
 目标：研究人工服务、表格、微信群、纸质流程、平台内置功能、通用模型和“不解决”这些真实 baseline。
+
+广义替代类型固定覆盖 `direct_product | adjacent_product | service | platform | manual_workaround | status_quo | non_consumption`。每个已观察对象记录名称、目标细分、场景、定位、pricing observation refs、traction observation refs、优势、弱点、差异化缺口和 source refs；找不到某类对象时保留查询尝试与 decision impact，不创造占位竞品。
 
 ### 20.9 现有解法失效场景
 
@@ -2677,6 +2696,8 @@ minimum_viable_scale
 ```
 
 相关字段使用区间、假设和证据 refs，不因缺少一方经营数据伪造精确数值。宽泛 TAM、内容热度或竞品融资不能替代可触达 beachhead 和业务闭环。
+
+跨行业量化使用八个稳定 family：`demand_scale`、`usage_behavior`、`commercial_behavior`、`growth_change`、`competitive_intensity`、`distribution`、`retention_outcomes`、`unit_economics`。family 只保证覆盖面；实际 metric name、value shape、unit 和定义保持开放，并由 Evidence 决定。
 
 ### 20.12 反证
 
@@ -3853,6 +3874,7 @@ startup_opportunity.research_task.discovery_candidate.current
 startup_opportunity.research_task.discovery_evaluation.current
 startup_opportunity.source_manifest.discovery_candidate.current
 startup_opportunity.source_manifest.discovery_evaluation.current
+startup_opportunity.commercial_research_audit.current
 startup_opportunity.discovery_candidate.v1
 startup_opportunity.user_language_map.v1
 startup_opportunity.solution_failure_map.v1
@@ -4170,6 +4192,8 @@ limitations
 ## 组合建议
 ## 比较面板、支配关系与排序组
 ## 研究方法与局限
+## 量化信号（口径、地域、周期、测量类型、可比性与不确定性）
+## 竞品与广义替代矩阵
 ## Top 机会详解
 ### Demand Thesis
 ### 用户语言、入口场景、心智占领与自然复述
@@ -4186,6 +4210,7 @@ limitations
 ### 决策建议和轻量验证建议
 ## Watchlist 与 Reject
 ## 敏感性与 partial-order 稳定性
+## 数据缺口及其对排序和结论的影响
 ## 审计追踪和来源
 ```
 
@@ -4198,12 +4223,15 @@ limitations
 ## Concept Hypothesis
 ## 决定性支持和反对证据
 ## 需求、替代与解法失效
+## 量化信号（口径、地域、周期、测量类型、可比性与不确定性）
+## 竞品与广义替代矩阵
 ## 竞品与差异化
 ## 买单、获客、商业化与 Business Engine
 ## 可行性、合规和 AI Bundle（适用时）
 ## 关键未知数和 Kill Criteria
 ## 决策建议
 ## 可选轻量验证建议
+## 数据缺口及其对排序和结论的影响
 ## 局限和来源
 ```
 
@@ -4614,6 +4642,9 @@ source repetition stop
 - Evidence origin 区分 public source 和用户主动提供的已有材料，不把后者自动判为高等级。
 - Evidence tier 只描述当前材料强度，不形成外部验证生命周期；缺少行为/承诺证据不自动成为反证。
 - 低等级证据触发已定义的结论上限，`prioritize` 不得绕过 evidence sufficiency。
+- 量化 acquisition 接受任意合法 provider，API 不是必选；raw response ref/hash 与 exact Evidence substrate 漂移时 fail closed，敏感 token/header 或 access-control bypass 声明被拒绝。
+- 每个 covered subject 精确覆盖八个 metric family 和七类广义替代；`partial`/`unavailable` 有查询尝试、原因、替代指标和 decision impact，无数据 fixture 不伪造 observation 或 competitor。
+- Proxy 与 estimate 保持各自语义；不同地域、周期、类别、定义、measurement type 或 metric semantics 不进入同一 direct comparison group。
 
 ### 29.6 机会发现
 
@@ -4665,6 +4696,7 @@ source repetition stop
 - 简报和报告不输出 global score，也不把 confidence 或 panel band 描述为成功概率。
 - Validation Suggestion 的 `effort_band` 只表达相对复杂度，不输出资源配置，也不声称适配用户实际资金预算。
 - 外部 Validation Suggestion 固定声明 `execution_owner=user`、`execution_supported=false` 和 `result_tracking_supported=false`。
+- 三种正式报告都固定生成量化信号表、竞品/替代矩阵和 coverage gap 表；表格是所有 cited commercial audit 的 exact projection，空数据仍显示 unavailable/gap，不退化为新闻链接列表。
 
 ### 29.10 领域合同完整性
 

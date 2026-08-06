@@ -63,6 +63,43 @@ const TASK_STAGE_BY_VERSION = new Map([
   ],
 ]);
 
+export const QUANTITATIVE_METRIC_FAMILIES = [
+  "demand_scale",
+  "usage_behavior",
+  "commercial_behavior",
+  "growth_change",
+  "competitive_intensity",
+  "distribution",
+  "retention_outcomes",
+  "unit_economics",
+] as const;
+
+export const COMPETITIVE_OBJECT_TYPES = [
+  "direct_product",
+  "adjacent_product",
+  "service",
+  "platform",
+  "manual_workaround",
+  "status_quo",
+  "non_consumption",
+] as const;
+
+const PROXY_INTERPRETATION_BOUNDARIES = [
+  "not_purchase_count",
+  "not_paid_customer_count",
+  "not_market_validation",
+] as const;
+
+const ESTIMATE_SEMANTICS = new Set(["paid_customers_estimate", "revenue_estimate"]);
+const PROXY_LIKE_SEMANTICS = new Set([
+  "search_interest",
+  "rank",
+  "rating_count",
+  "review_count",
+  "downloads",
+  "active_users",
+]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -96,6 +133,26 @@ function issue(
 function dateOnly(value: unknown): string | null {
   if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) return null;
   return value.slice(0, 10);
+}
+
+function sameStringSet(left: unknown, right: readonly string[]): boolean {
+  return canonicalJson([...strings(left)].sort()) === canonicalJson([...right].sort());
+}
+
+function containsUnredactedSensitiveMaterial(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  if (/\b(?:authorization|cookie|set-cookie)\s*:/iu.test(value) || /\bbearer\s+\S+/iu.test(value)) {
+    return true;
+  }
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    // Keep the caller-supplied text when it is not URI encoded.
+  }
+  return /(?:^|[?&;\s])(?:api[_-]?key|access[_-]?token|token|secret|password|session(?:id)?)=(?!(?:\[?redacted\]?|<redacted>)(?:[&;\s]|$))[^&;\s]+/iu.test(
+    decoded,
+  );
 }
 
 export function deriveValidAsOf(source: Readonly<Record<string, unknown>>): string | null {
@@ -253,6 +310,29 @@ function validateScopeAndStages(
             `${entry.path}#/commercial_research_requirements/research_stage`,
             "pre-thesis tasks must remain solution-neutral and post-thesis tasks must use solution-specific evaluation",
             { expectedStage, actualStage: requirements.research_stage },
+          ),
+        );
+      }
+      const quantitativeScope = isRecord(requirements.quantitative_competitive_scope)
+        ? requirements.quantitative_competitive_scope
+        : {};
+      const expectedScanMode =
+        expectedStage === policy.solution_neutral_stage ? "broad_scan" : "targeted_deep_dive";
+      if (
+        quantitativeScope.scan_mode !== expectedScanMode ||
+        !sameStringSet(quantitativeScope.required_metric_families, QUANTITATIVE_METRIC_FAMILIES) ||
+        !sameStringSet(quantitativeScope.required_competitor_types, COMPETITIVE_OBJECT_TYPES) ||
+        quantitativeScope.api_is_optional !== true ||
+        quantitativeScope.provider_allowlist_enforced !== false ||
+        quantitativeScope.acquisition_execution_owner !== "research_agent_or_caller" ||
+        quantitativeScope.harness_hidden_network_calls !== false
+      ) {
+        errors.push(
+          issue(
+            "commercial_research.quantitative_competitive_scope_invalid",
+            `${entry.path}#/commercial_research_requirements/quantitative_competitive_scope`,
+            "research tasks must require provider-agnostic quantitative and broad competitive coverage at the stage-appropriate scan depth without hidden Harness acquisition",
+            { expectedScanMode },
           ),
         );
       }
@@ -478,12 +558,481 @@ function validateSearchClosure(
   return errors;
 }
 
-function validateAudit(
+function validateQuantitativeCompetitiveAudit(
   entry: CommercialResearchDocument,
-  policy: CommercialResearchPolicy,
+  documents: readonly CommercialResearchDocument[],
+  exactJsonlRecords: ReadonlyMap<string, Record<string, unknown>>,
 ): ValidationIssue[] {
   const audit = entry.document;
   const errors: ValidationIssue[] = [];
+  const coveredSubjects = strings(audit.covered_direction_ids);
+  const coveredSubjectSet = new Set(coveredSubjects);
+  if (audit.task_ref !== null && coveredSubjects.length === 0) {
+    errors.push(
+      issue(
+        "commercial_research.covered_subject_missing",
+        `${entry.path}#/covered_direction_ids`,
+        "a commercial audit tied to a research task must cover at least one explicit subject",
+      ),
+    );
+  }
+  const evidenceRegister = records(audit.evidence_register);
+  const adoptedEvidenceRefs = new Set(
+    evidenceRegister
+      .filter((item) => item.disposition === "adopted" && typeof item.evidence_ref === "string")
+      .map((item) => String(item.evidence_ref)),
+  );
+  const documentsByPath = new Map(documents.map((document) => [document.path, document]));
+
+  const acquisitions = records(audit.data_acquisitions);
+  const acquisitionsById = new Map<string, Record<string, unknown>>();
+  for (const [index, acquisition] of acquisitions.entries()) {
+    const acquisitionId = String(acquisition.acquisition_id ?? "");
+    const acquisitionPath = `${entry.path}#/data_acquisitions/${index}`;
+    if (acquisitionsById.has(acquisitionId)) {
+      errors.push(
+        issue(
+          "commercial_research.acquisition_identity_duplicate",
+          acquisitionPath,
+          "data acquisition ids must be unique within one commercial audit",
+          { acquisitionId },
+        ),
+      );
+    }
+    acquisitionsById.set(acquisitionId, acquisition);
+    if (containsUnredactedSensitiveMaterial(acquisition.endpoint_or_query_redacted)) {
+      errors.push(
+        issue(
+          "commercial_research.acquisition_sensitive_material",
+          `${acquisitionPath}/endpoint_or_query_redacted`,
+          "acquisition provenance must redact credentials, cookies, tokens, and sensitive headers",
+        ),
+      );
+    }
+    const evidenceRef = String(acquisition.evidence_ref ?? "");
+    const substrateRef = String(acquisition.evidence_substrate_ref ?? "");
+    const substrate = exactJsonlRecords.get(substrateRef);
+    const evidence = documentsByPath.get(evidenceRef)?.document;
+    const mechanicalBinding = isRecord(evidence?.mechanical_binding)
+      ? evidence.mechanical_binding
+      : {};
+    if (!adoptedEvidenceRefs.has(evidenceRef)) {
+      errors.push(
+        issue(
+          "commercial_research.acquisition_evidence_not_adopted",
+          `${acquisitionPath}/evidence_ref`,
+          "every quantitative acquisition must bind adopted formal Evidence",
+          { evidenceRef },
+        ),
+      );
+    }
+    if (
+      substrate?.schema_version !== "startup_opportunity.evidence_store_record.v2" ||
+      substrate.content_hash !== acquisition.raw_response_hash ||
+      substrate.raw_content_ref !== acquisition.raw_response_ref ||
+      substrate.recorded_at !== acquisition.retrieved_at ||
+      mechanicalBinding.substrate_record_ref !== substrateRef ||
+      mechanicalBinding.content_hash !== acquisition.raw_response_hash ||
+      mechanicalBinding.raw_content_ref !== acquisition.raw_response_ref
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.acquisition_substrate_binding_mismatch",
+          acquisitionPath,
+          "acquisition provenance must bind the exact caller-supplied Evidence substrate and raw response hash",
+          { evidenceRef, substrateRef },
+        ),
+      );
+    }
+  }
+
+  const observations = records(audit.quantitative_observations);
+  const observationsById = new Map<string, Record<string, unknown>>();
+  const comparisonGroups = new Map<string, Record<string, unknown>[]>();
+  for (const [index, observation] of observations.entries()) {
+    const observationId = String(observation.observation_id ?? "");
+    const observationPath = `${entry.path}#/quantitative_observations/${index}`;
+    if (observationsById.has(observationId)) {
+      errors.push(
+        issue(
+          "commercial_research.quantitative_observation_duplicate",
+          observationPath,
+          "quantitative observation ids must be unique within one commercial audit",
+          { observationId },
+        ),
+      );
+    }
+    observationsById.set(observationId, observation);
+    if (!coveredSubjectSet.has(String(observation.subject_id))) {
+      errors.push(
+        issue(
+          "commercial_research.quantitative_subject_out_of_scope",
+          `${observationPath}/subject_id`,
+          "quantitative observations must belong to a direction covered by the audit",
+        ),
+      );
+    }
+    const acquisition = acquisitionsById.get(String(observation.acquisition_id));
+    if (
+      acquisition === undefined ||
+      strings(observation.evidence_refs).some((ref) => !adoptedEvidenceRefs.has(ref)) ||
+      !strings(observation.evidence_refs).includes(String(acquisition?.evidence_ref ?? ""))
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.quantitative_evidence_binding_mismatch",
+          observationPath,
+          "each quantitative observation must cite its acquisition Evidence and only adopted Evidence",
+        ),
+      );
+    }
+    const value = isRecord(observation.value) ? observation.value : {};
+    if (
+      (value.shape === "range" && Number(value.lower_bound) > Number(value.upper_bound)) ||
+      (value.shape === "estimate" &&
+        ((typeof value.lower_bound === "number" &&
+          Number(value.lower_bound) > Number(value.value)) ||
+          (typeof value.upper_bound === "number" &&
+            Number(value.value) > Number(value.upper_bound))))
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.quantitative_value_order_invalid",
+          `${observationPath}/value`,
+          "range and estimate bounds must be ordered around the reported value",
+        ),
+      );
+    }
+    const period = isRecord(observation.period) ? observation.period : {};
+    const periodStart = dateOnly(period.period_start);
+    const periodEnd = dateOnly(period.period_end);
+    const periodAsOf = dateOnly(period.as_of);
+    if (
+      (periodStart === null && periodEnd === null && periodAsOf === null) ||
+      (periodStart !== null && periodEnd !== null && periodStart > periodEnd)
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.quantitative_period_invalid",
+          `${observationPath}/period`,
+          "a quantitative observation requires an as-of date or a valid ordered period",
+        ),
+      );
+    }
+    const estimated = ["estimated", "modeled", "proxy"].includes(
+      String(observation.measurement_type),
+    );
+    if (
+      (estimated && typeof observation.estimation_method !== "string") ||
+      (!estimated && observation.estimation_method !== null) ||
+      (ESTIMATE_SEMANTICS.has(String(observation.metric_semantics)) && value.shape !== "estimate")
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.quantitative_measurement_mismatch",
+          observationPath,
+          "estimated, modeled, proxy, and estimate-semantic metrics require explicit compatible value and method semantics",
+        ),
+      );
+    }
+    const boundaries = strings(observation.interpretation_boundaries);
+    if (
+      (observation.measurement_type === "proxy" ||
+        PROXY_LIKE_SEMANTICS.has(String(observation.metric_semantics))) &&
+      PROXY_INTERPRETATION_BOUNDARIES.some((boundary) => !boundaries.includes(boundary))
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.proxy_semantic_boundary_missing",
+          `${observationPath}/interpretation_boundaries`,
+          "rank, ratings, downloads, active users, search interest, and other proxies must explicitly state that they do not establish purchases, paid customers, or market validation",
+        ),
+      );
+    }
+    if (
+      ESTIMATE_SEMANTICS.has(String(observation.metric_semantics)) &&
+      !boundaries.includes("estimate_not_observation")
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.estimate_semantic_boundary_missing",
+          `${observationPath}/interpretation_boundaries`,
+          "estimated revenue or paid-customer metrics must remain labeled as estimates rather than observations",
+        ),
+      );
+    }
+    const comparability = isRecord(observation.comparability) ? observation.comparability : {};
+    const aligned = [
+      comparability.geography_aligned,
+      comparability.period_aligned,
+      comparability.category_aligned,
+      comparability.definition_aligned,
+      comparability.measurement_aligned,
+    ].every((value) => value === true);
+    const expectedDirect = comparability.status === "comparable" && aligned;
+    if (
+      comparability.direct_comparison_allowed !== expectedDirect ||
+      (expectedDirect && typeof comparability.comparison_group !== "string") ||
+      (!expectedDirect && strings(comparability.limitations).length === 0)
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.quantitative_comparability_mismatch",
+          `${observationPath}/comparability`,
+          "direct comparison is allowed only for explicitly aligned geography, period, category, definition, and measurement type; limitations are mandatory otherwise",
+        ),
+      );
+    }
+    if (typeof comparability.comparison_group === "string") {
+      const grouped = comparisonGroups.get(comparability.comparison_group) ?? [];
+      grouped.push(observation);
+      comparisonGroups.set(comparability.comparison_group, grouped);
+    }
+  }
+  for (const [comparisonGroup, grouped] of comparisonGroups) {
+    const signatures = new Set(
+      grouped.map((observation) => {
+        const comparability = isRecord(observation.comparability) ? observation.comparability : {};
+        return canonicalJson({
+          metric_semantics: observation.metric_semantics,
+          metric_definition: observation.metric_definition,
+          geography: observation.geography,
+          period: observation.period,
+          category: comparability.category,
+          measurement_type: observation.measurement_type,
+        });
+      }),
+    );
+    if (
+      signatures.size > 1 ||
+      grouped.some(
+        (observation) =>
+          !isRecord(observation.comparability) ||
+          observation.comparability.direct_comparison_allowed !== true,
+      )
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.quantitative_comparison_group_incompatible",
+          `${entry.path}#/quantitative_observations`,
+          "one comparison group cannot mix regions, periods, categories, definitions, measurement types, or metric semantics",
+          { comparisonGroup },
+        ),
+      );
+    }
+  }
+
+  const quantitativeCoverage = records(audit.quantitative_coverage);
+  const expectedQuantitativeCoverage = new Set(
+    coveredSubjects.flatMap((subjectId) =>
+      QUANTITATIVE_METRIC_FAMILIES.map((family) => `${subjectId}:${family}`),
+    ),
+  );
+  const actualQuantitativeCoverage = new Set<string>();
+  const referencedObservationIds = new Set<string>();
+  for (const [index, coverage] of quantitativeCoverage.entries()) {
+    const identity = `${String(coverage.subject_id)}:${String(coverage.metric_family)}`;
+    const coveragePath = `${entry.path}#/quantitative_coverage/${index}`;
+    if (actualQuantitativeCoverage.has(identity)) {
+      errors.push(
+        issue(
+          "commercial_research.quantitative_coverage_duplicate",
+          coveragePath,
+          "each direction and metric family requires exactly one coverage entry",
+          { identity },
+        ),
+      );
+    }
+    actualQuantitativeCoverage.add(identity);
+    const ids = strings(coverage.observation_ids);
+    ids.forEach((id) => {
+      referencedObservationIds.add(id);
+    });
+    const matchingIds = ids.filter((id) => {
+      const observation = observationsById.get(id);
+      return (
+        observation?.subject_id === coverage.subject_id &&
+        observation?.metric_family === coverage.metric_family
+      );
+    });
+    const attempts = records(coverage.query_attempts);
+    const state = String(coverage.state);
+    const validState =
+      ((state === "observed" || state === "partial") &&
+        ids.length > 0 &&
+        matchingIds.length === ids.length &&
+        (state !== "partial" || (attempts.length > 0 && typeof coverage.reason === "string"))) ||
+      (state === "unavailable" &&
+        ids.length === 0 &&
+        attempts.length > 0 &&
+        typeof coverage.reason === "string") ||
+      (state === "not_applicable" && ids.length === 0 && typeof coverage.reason === "string");
+    if (!validState) {
+      errors.push(
+        issue(
+          "commercial_research.quantitative_coverage_state_mismatch",
+          coveragePath,
+          "coverage state must bind real observations or explicit failed attempts/reasons without fabricated values",
+        ),
+      );
+    }
+    for (const [attemptIndex, attempt] of attempts.entries()) {
+      if (containsUnredactedSensitiveMaterial(attempt.endpoint_or_query_redacted)) {
+        errors.push(
+          issue(
+            "commercial_research.acquisition_sensitive_material",
+            `${coveragePath}/query_attempts/${attemptIndex}/endpoint_or_query_redacted`,
+            "failed query provenance must also redact credentials, cookies, tokens, and sensitive headers",
+          ),
+        );
+      }
+    }
+  }
+  if (
+    canonicalJson([...actualQuantitativeCoverage].sort()) !==
+      canonicalJson([...expectedQuantitativeCoverage].sort()) ||
+    observations.some(
+      (observation) => !referencedObservationIds.has(String(observation.observation_id)),
+    )
+  ) {
+    errors.push(
+      issue(
+        "commercial_research.quantitative_coverage_incomplete",
+        `${entry.path}#/quantitative_coverage`,
+        "every covered direction requires all metric families with complete observation closure and an explicit coverage state",
+      ),
+    );
+  }
+
+  const competitiveObjects = records(audit.competitive_objects);
+  const competitiveObjectsById = new Map<string, Record<string, unknown>>();
+  for (const [index, competitiveObject] of competitiveObjects.entries()) {
+    const objectId = String(competitiveObject.competitive_object_id ?? "");
+    const objectPath = `${entry.path}#/competitive_objects/${index}`;
+    if (competitiveObjectsById.has(objectId)) {
+      errors.push(
+        issue(
+          "commercial_research.competitive_object_duplicate",
+          objectPath,
+          "competitive object ids must be unique within one commercial audit",
+          { objectId },
+        ),
+      );
+    }
+    competitiveObjectsById.set(objectId, competitiveObject);
+    const metricRefs = [
+      ...strings(competitiveObject.pricing_observation_refs),
+      ...strings(competitiveObject.traction_observation_refs),
+    ];
+    if (
+      !coveredSubjectSet.has(String(competitiveObject.subject_id)) ||
+      metricRefs.some((ref) => !observationsById.has(ref)) ||
+      strings(competitiveObject.source_refs).some((ref) => !adoptedEvidenceRefs.has(ref))
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.competitive_object_binding_mismatch",
+          objectPath,
+          "competitive objects must bind the covered subject, known pricing/traction observations, and adopted formal Evidence",
+        ),
+      );
+    }
+  }
+
+  const competitiveCoverage = records(audit.competitive_coverage);
+  const expectedCompetitiveCoverage = new Set(
+    coveredSubjects.flatMap((subjectId) =>
+      COMPETITIVE_OBJECT_TYPES.map((type) => `${subjectId}:${type}`),
+    ),
+  );
+  const actualCompetitiveCoverage = new Set<string>();
+  const referencedCompetitiveObjectIds = new Set<string>();
+  for (const [index, coverage] of competitiveCoverage.entries()) {
+    const identity = `${String(coverage.subject_id)}:${String(coverage.competitor_type)}`;
+    const coveragePath = `${entry.path}#/competitive_coverage/${index}`;
+    if (actualCompetitiveCoverage.has(identity)) {
+      errors.push(
+        issue(
+          "commercial_research.competitive_coverage_duplicate",
+          coveragePath,
+          "each direction and broad competitor type requires exactly one coverage entry",
+          { identity },
+        ),
+      );
+    }
+    actualCompetitiveCoverage.add(identity);
+    const ids = strings(coverage.competitive_object_ids);
+    ids.forEach((id) => {
+      referencedCompetitiveObjectIds.add(id);
+    });
+    const matchingIds = ids.filter((id) => {
+      const competitiveObject = competitiveObjectsById.get(id);
+      return (
+        competitiveObject?.subject_id === coverage.subject_id &&
+        competitiveObject?.competitor_type === coverage.competitor_type
+      );
+    });
+    const attempts = records(coverage.query_attempts);
+    const state = String(coverage.state);
+    const validState =
+      ((state === "observed" || state === "partial") &&
+        ids.length > 0 &&
+        matchingIds.length === ids.length &&
+        (state !== "partial" || (attempts.length > 0 && typeof coverage.reason === "string"))) ||
+      (state === "unavailable" &&
+        ids.length === 0 &&
+        attempts.length > 0 &&
+        typeof coverage.reason === "string") ||
+      (state === "not_applicable" && ids.length === 0 && typeof coverage.reason === "string");
+    if (!validState) {
+      errors.push(
+        issue(
+          "commercial_research.competitive_coverage_state_mismatch",
+          coveragePath,
+          "broad competitive coverage must bind named alternatives or explicit failed attempts/reasons without inventing objects",
+        ),
+      );
+    }
+    for (const [attemptIndex, attempt] of attempts.entries()) {
+      if (containsUnredactedSensitiveMaterial(attempt.endpoint_or_query_redacted)) {
+        errors.push(
+          issue(
+            "commercial_research.acquisition_sensitive_material",
+            `${coveragePath}/query_attempts/${attemptIndex}/endpoint_or_query_redacted`,
+            "failed query provenance must also redact credentials, cookies, tokens, and sensitive headers",
+          ),
+        );
+      }
+    }
+  }
+  if (
+    canonicalJson([...actualCompetitiveCoverage].sort()) !==
+      canonicalJson([...expectedCompetitiveCoverage].sort()) ||
+    competitiveObjects.some(
+      (competitiveObject) =>
+        !referencedCompetitiveObjectIds.has(String(competitiveObject.competitive_object_id)),
+    )
+  ) {
+    errors.push(
+      issue(
+        "commercial_research.competitive_coverage_incomplete",
+        `${entry.path}#/competitive_coverage`,
+        "every covered direction requires all broad competitor types with complete object closure and an explicit coverage state",
+      ),
+    );
+  }
+  return errors;
+}
+
+function validateAudit(
+  entry: CommercialResearchDocument,
+  policy: CommercialResearchPolicy,
+  documents: readonly CommercialResearchDocument[],
+  exactJsonlRecords: ReadonlyMap<string, Record<string, unknown>>,
+): ValidationIssue[] {
+  const audit = entry.document;
+  const errors: ValidationIssue[] = [];
+  errors.push(...validateQuantitativeCompetitiveAudit(entry, documents, exactJsonlRecords));
   const queries = records(audit.search_log);
   if (
     audit.research_stage === "solution_neutral_scan" &&
@@ -778,9 +1327,155 @@ function validateAudit(
   return errors;
 }
 
+const REPORT_SCHEMA_VERSIONS = new Set([
+  "startup_opportunity.concept_evidence_report.v1",
+  "startup_opportunity.report.v1",
+  "startup_opportunity.terminal_report_source.v1",
+]);
+
+function sortedProjection(value: unknown, identity: (entry: Record<string, unknown>) => string) {
+  return records(value).toSorted((left, right) => identity(left).localeCompare(identity(right)));
+}
+
+function validateCommercialReportProjections(
+  documents: readonly CommercialResearchDocument[],
+): ValidationIssue[] {
+  const errors: ValidationIssue[] = [];
+  const audits = documents
+    .filter(
+      (entry) => entry.schemaVersion === "startup_opportunity.commercial_research_audit.current",
+    )
+    .toSorted((left, right) => left.path.localeCompare(right.path));
+  const auditsByPath = new Map(audits.map((audit) => [audit.path, audit]));
+  const plannedAuditPaths = documents
+    .filter((entry) => TASK_STAGE_BY_VERSION.has(entry.schemaVersion))
+    .flatMap((task) => {
+      const requirements = isRecord(task.document.commercial_research_requirements)
+        ? task.document.commercial_research_requirements
+        : {};
+      return typeof requirements.commercial_audit_output_path === "string"
+        ? [requirements.commercial_audit_output_path]
+        : [];
+    });
+  const expectedQuantitativeRows = audits.flatMap((audit) =>
+    records(audit.document.quantitative_observations).map((observation) => ({
+      audit_ref: audit.path,
+      observation,
+    })),
+  );
+  const expectedCompetitiveRows = audits.flatMap((audit) =>
+    records(audit.document.competitive_objects).map((competitiveObject) => ({
+      audit_ref: audit.path,
+      competitive_object: competitiveObject,
+    })),
+  );
+  const expectedGapRows = audits.flatMap((audit) => [
+    ...records(audit.document.quantitative_coverage)
+      .filter((coverage) => coverage.state !== "observed")
+      .map((coverage) => ({
+        audit_ref: audit.path,
+        coverage_kind: "quantitative",
+        coverage,
+      })),
+    ...records(audit.document.competitive_coverage)
+      .filter((coverage) => coverage.state !== "observed")
+      .map((coverage) => ({
+        audit_ref: audit.path,
+        coverage_kind: "competitive",
+        coverage,
+      })),
+  ]);
+
+  for (const report of documents.filter((entry) =>
+    REPORT_SCHEMA_VERSIONS.has(entry.schemaVersion),
+  )) {
+    const reportAuditRefs = strings(report.document.commercial_research_audit_refs);
+    const missingPlannedAudits = [...new Set(plannedAuditPaths)].filter(
+      (auditPath) => !auditsByPath.has(auditPath),
+    );
+    if (
+      !sameStringSet(
+        reportAuditRefs,
+        audits.map((audit) => audit.path),
+      ) ||
+      missingPlannedAudits.length > 0
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.report_audit_closure_incomplete",
+          `${report.path}#/commercial_research_audit_refs`,
+          "formal reporting must include every current commercial research audit and every planned research task must have one",
+          { missingPlannedAudits: missingPlannedAudits.sort() },
+        ),
+      );
+    }
+    const actualQuantitativeRows = sortedProjection(
+      report.document.quantitative_signal_rows,
+      (row) =>
+        `${String(row.audit_ref)}:${String(isRecord(row.observation) ? row.observation.observation_id : "")}`,
+    );
+    const sortedExpectedQuantitativeRows = sortedProjection(
+      expectedQuantitativeRows,
+      (row) =>
+        `${String(row.audit_ref)}:${String(isRecord(row.observation) ? row.observation.observation_id : "")}`,
+    );
+    if (canonicalJson(actualQuantitativeRows) !== canonicalJson(sortedExpectedQuantitativeRows)) {
+      errors.push(
+        issue(
+          "commercial_research.report_quantitative_projection_mismatch",
+          `${report.path}#/quantitative_signal_rows`,
+          "the quantitative signal table must be the exact, complete projection of cited commercial audits",
+        ),
+      );
+    }
+    const actualCompetitiveRows = sortedProjection(
+      report.document.competitive_substitute_rows,
+      (row) =>
+        `${String(row.audit_ref)}:${String(isRecord(row.competitive_object) ? row.competitive_object.competitive_object_id : "")}`,
+    );
+    const sortedExpectedCompetitiveRows = sortedProjection(
+      expectedCompetitiveRows,
+      (row) =>
+        `${String(row.audit_ref)}:${String(isRecord(row.competitive_object) ? row.competitive_object.competitive_object_id : "")}`,
+    );
+    if (canonicalJson(actualCompetitiveRows) !== canonicalJson(sortedExpectedCompetitiveRows)) {
+      errors.push(
+        issue(
+          "commercial_research.report_competitive_projection_mismatch",
+          `${report.path}#/competitive_substitute_rows`,
+          "the competitor and substitute matrix must be the exact, complete projection of cited commercial audits",
+        ),
+      );
+    }
+    const actualGapRows = sortedProjection(report.document.research_coverage_gaps, (row) => {
+      const coverage = isRecord(row.coverage) ? row.coverage : {};
+      const dimension =
+        row.coverage_kind === "quantitative" ? coverage.metric_family : coverage.competitor_type;
+      return `${String(row.audit_ref)}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`;
+    });
+    const sortedExpectedGapRows = sortedProjection(expectedGapRows, (row) => {
+      const coverage = isRecord(row.coverage) ? row.coverage : {};
+      const dimension =
+        row.coverage_kind === "quantitative" ? coverage.metric_family : coverage.competitor_type;
+      return `${String(row.audit_ref)}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`;
+    });
+    if (canonicalJson(actualGapRows) !== canonicalJson(sortedExpectedGapRows)) {
+      errors.push(
+        issue(
+          "commercial_research.report_gap_projection_mismatch",
+          `${report.path}#/research_coverage_gaps`,
+          "formal reporting must show every partial, unavailable, and not-applicable quantitative or competitive dimension with its decision impact",
+        ),
+      );
+    }
+  }
+  return errors;
+}
+
 export function validateCommercialResearchContract(
   documents: readonly CommercialResearchDocument[],
   policy: CommercialResearchPolicy,
+  exactJsonlRecords: ReadonlyMap<string, Record<string, unknown>> = new Map(),
 ): readonly ValidationIssue[] {
   const errors = validateScopeAndStages(documents, policy);
   const byPath = new Map(documents.map((entry) => [entry.path, entry]));
@@ -844,7 +1539,8 @@ export function validateCommercialResearchContract(
     (candidate) =>
       candidate.schemaVersion === "startup_opportunity.commercial_research_audit.current",
   )) {
-    errors.push(...validateAudit(entry, policy));
+    errors.push(...validateAudit(entry, policy, documents, exactJsonlRecords));
   }
+  errors.push(...validateCommercialReportProjections(documents));
   return errors;
 }
