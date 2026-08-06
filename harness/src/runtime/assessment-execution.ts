@@ -1,5 +1,6 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import { evaluateAssessmentFollowupInformationGain } from "./assessment-information-gain.js";
 
 export interface AssessmentFollowupRevisionResult {
   readonly researchPlanPath: string;
@@ -57,6 +58,19 @@ export function deriveAssessmentFollowupRevision(
     throw new StoreError(
       "assessment.followup_binding_invalid",
       "assessment follow-up revision requires one exact add decision and current Plans",
+    );
+  }
+  const informationGainIssues = evaluateAssessmentFollowupInformationGain(decision);
+  if (informationGainIssues.length > 0) {
+    throw new StoreError(
+      "assessment.followup_information_gain_ineligible",
+      "assessment follow-up does not pass the current information-gain gate",
+      {
+        artifact: decisionPath,
+        issues: informationGainIssues,
+        likelyCause:
+          "The proposed Wave 2 task is unavailable, non-decision-relevant, or duplicative.",
+      },
     );
   }
   const researchRevision = Number(baseResearchPlan.revision) + 1;

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/common/runtime-publication-preflight.schema.json",
+  "title": "Startup Opportunity Runtime Publication Preflight",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "operation",
+    "issue_count",
+    "root_causes",
+    "resolved_reference_count",
+    "publication_count"
+  ],
+  "properties": {
+    "status": { "const": "ready" },
+    "operation": { "enum": ["validate_only", "publish"] },
+    "issue_count": { "const": 0 },
+    "root_causes": { "type": "array", "maxItems": 0 },
+    "resolved_reference_count": { "type": "integer", "minimum": 0 },
+    "publication_count": { "type": "integer", "minimum": 1 }
+  }
+}

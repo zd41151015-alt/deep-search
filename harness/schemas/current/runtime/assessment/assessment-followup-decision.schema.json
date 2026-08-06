@@ -18,6 +18,14 @@
     "stage_gate_ref",
     "dimension_id",
     "gap_type",
+    "target_decision",
+    "blocking_gap",
+    "expected_evidence",
+    "gap_resolution_class",
+    "acquisition_route",
+    "availability",
+    "expected_decision_change",
+    "wave_1_evidence_overlap",
     "action",
     "current_followup_round",
     "target_unit",
@@ -70,6 +78,58 @@
     },
     "gap_type": {
       "const": "decision_relevant_evidence_gap"
+    },
+    "target_decision": {
+      "enum": ["disposition", "ranking", "key_confidence"]
+    },
+    "blocking_gap": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "expected_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+      }
+    },
+    "gap_resolution_class": {
+      "enum": [
+        "public_web_resolvable",
+        "api_or_professional_data_resolvable",
+        "external_validation_only",
+        "non_decision_relevant"
+      ]
+    },
+    "acquisition_route": {
+      "enum": ["public_web", "public_api", "professional_data", "external_validation", "none"]
+    },
+    "availability": {
+      "enum": [
+        "available_now",
+        "available_with_authorized_access",
+        "external_validation_only",
+        "unavailable"
+      ]
+    },
+    "expected_decision_change": {
+      "enum": ["disposition", "ranking", "key_confidence", "none"]
+    },
+    "wave_1_evidence_overlap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["overlap_level", "overlapping_evidence_refs", "novelty_rationale"],
+      "properties": {
+        "overlap_level": {
+          "enum": ["none", "partial", "material", "duplicate"]
+        },
+        "overlapping_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "novelty_rationale": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
     },
     "action": {
       "enum": ["add_bounded_followup", "stop_followup"]

@@ -102,6 +102,35 @@ export async function resolveReferences(input: {
 }): Promise<readonly ResolvedReference[]> {
   const byPath = new Map(input.bundle.documents.map((entry) => [entry.path, entry.document]));
   const resolved: ResolvedReference[] = [];
+  const issues: {
+    readonly code: string;
+    readonly artifact: string;
+    readonly path: string;
+    readonly reference: string;
+    readonly message: string;
+    readonly likely_cause: string;
+    readonly details: Readonly<Record<string, unknown>>;
+  }[] = [];
+  const addIssue = (
+    code: string,
+    classified: ClassifiedReference,
+    message: string,
+    likelyCause: string,
+    details: Readonly<Record<string, unknown>> = {},
+  ): void => {
+    issues.push({
+      code,
+      artifact: classified.targetPath,
+      path:
+        classified.fragment === null
+          ? classified.targetPath
+          : `${classified.targetPath}#${classified.fragment}`,
+      reference: classified.ref,
+      message,
+      likely_cause: likelyCause,
+      details,
+    });
+  };
   for (const ref of [...new Set(input.refs)].sort()) {
     const classified = classifyReference(ref);
     if (classified.kind === "external_url") {
@@ -115,21 +144,25 @@ export async function resolveReferences(input: {
           await readFile(path.join(input.repositoryRoot, classified.targetPath), "utf8"),
         );
       } catch (error) {
-        throw new StoreError(
+        addIssue(
           "reference.repository_policy_missing",
+          classified,
           "repository policy ref is missing or invalid",
+          "A declared repository policy path is absent or is not valid JSON.",
           {
-            ref,
             cause: error instanceof Error ? error.message : String(error),
           },
         );
+        continue;
       }
       if (classified.fragment !== null && !jsonPointerExists(value, classified.fragment)) {
-        throw new StoreError(
+        addIssue(
           "reference.json_pointer_missing",
+          classified,
           "repository policy JSON pointer is missing",
-          { ref },
+          "The reference fragment drifted from the current repository policy shape.",
         );
+        continue;
       }
       resolved.push({ ...classified, contentHash: canonicalContentHash(value) });
       continue;
@@ -137,27 +170,29 @@ export async function resolveReferences(input: {
     if (classified.kind === "evidence_exact_record" || classified.kind === "run_exact_record") {
       const exact = input.referenceContext.exactJsonlRecords?.get(ref);
       if (classified.fragment === null || exact === undefined) {
-        throw new StoreError(
+        addIssue(
           "reference.exact_record_missing",
+          classified,
           "exact record ref is missing from the Run closure",
+          "The exact JSONL record was not persisted or its record id is incorrect.",
           {
-            ref,
             kind: classified.kind,
           },
         );
+        continue;
       }
       resolved.push({ ...classified, contentHash: canonicalContentHash(exact) });
       continue;
     }
     const target = byPath.get(classified.targetPath);
     if (target === undefined) {
-      throw new StoreError(
+      addIssue(
         "reference.run_artifact_missing",
+        classified,
         "Run Artifact ref is missing from the Run closure",
-        {
-          ref,
-        },
+        "The referenced artifact was omitted from the current Run or proposed publication bundle.",
       );
+      continue;
     }
     const effective = effectiveDocument(target);
     if (
@@ -165,24 +200,49 @@ export async function resolveReferences(input: {
       classified.fragment !== null &&
       !formalArtifactFragmentExists(effective, classified.fragment)
     ) {
-      throw new StoreError(
+      addIssue(
         "reference.artifact_fragment_missing",
+        classified,
         "Run Artifact fragment is missing",
-        { ref },
+        "The reference names an id that is not present in the current target artifact.",
       );
+      continue;
     }
     if (
       classified.kind === "json_pointer" &&
       classified.fragment !== null &&
       !jsonPointerExists(effective.document, classified.fragment)
     ) {
-      throw new StoreError(
+      addIssue(
         "reference.json_pointer_missing",
+        classified,
         "Run Artifact JSON pointer is missing",
-        { ref },
+        "The JSON pointer drifted from the current target artifact shape.",
       );
+      continue;
     }
     resolved.push({ ...classified, contentHash: canonicalContentHash(target) });
+  }
+  if (issues.length > 0) {
+    const byCause = new Map<string, typeof issues>();
+    for (const current of issues) {
+      byCause.set(current.likely_cause, [...(byCause.get(current.likely_cause) ?? []), current]);
+    }
+    throw new StoreError(
+      "reference.closure_failed",
+      "one or more declared references are missing from the validated closure",
+      {
+        issues,
+        root_causes: [...byCause.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([likelyCause, grouped]) => ({
+            likely_cause: likelyCause,
+            issue_count: grouped.length,
+            codes: [...new Set(grouped.map((current) => current.code))].sort(),
+            references: grouped.map((current) => current.reference).sort(),
+          })),
+      },
+    );
   }
   return resolved;
 }

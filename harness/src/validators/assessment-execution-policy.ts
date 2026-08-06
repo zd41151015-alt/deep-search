@@ -24,6 +24,16 @@ export interface AssessmentExecutionPolicy extends Record<string, unknown> {
     readonly max_additions_per_dimension: 1;
     readonly gap_type: "decision_relevant_evidence_gap";
     readonly requires_plan_revision: true;
+    readonly information_gain_gate: {
+      readonly eligible_gap_resolution_classes: readonly string[];
+      readonly eligible_availability: readonly string[];
+      readonly eligible_decision_changes: readonly string[];
+      readonly eligible_overlap_levels: readonly string[];
+      readonly route_class_bindings: readonly {
+        readonly acquisition_route: string;
+        readonly gap_resolution_class: string;
+      }[];
+    };
     readonly dimension_unit_types: readonly {
       readonly dimension_id: string;
       readonly unit_type: string;

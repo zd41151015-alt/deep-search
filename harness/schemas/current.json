@@ -38,6 +38,16 @@
       "document_schema_version": "startup_opportunity.lane_staging_document.current"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/lane-delivery-receipt.schema.json",
+      "file": "current/runtime/common/lane-delivery-receipt.schema.json",
+      "document_schema_version": "startup_opportunity.lane_delivery_receipt.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/lane-delivery-result.schema.json",
+      "file": "current/runtime/common/lane-delivery-result.schema.json",
+      "document_schema_version": "startup_opportunity.lane_delivery_result.current"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/store/research-publication-policy.schema.json",
       "file": "current/store/research-publication-policy.schema.json",
       "document_schema_version": "startup_opportunity.research_publication_policy.current"
@@ -46,6 +56,11 @@
       "id": "https://startup-opportunity.local/schemas/current/runtime/common/runtime-publication-plan.schema.json",
       "file": "current/runtime/common/runtime-publication-plan.schema.json",
       "document_schema_version": "startup_opportunity.runtime_publication_plan.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/runtime-publication-preflight.schema.json",
+      "file": "current/runtime/common/runtime-publication-preflight.schema.json",
+      "document_schema_version": null
     },
     {
       "id": "https://startup-opportunity.local/schemas/current/runtime/common/scaffold-request.schema.json",

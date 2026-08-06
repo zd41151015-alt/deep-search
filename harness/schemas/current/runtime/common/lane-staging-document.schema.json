@@ -13,7 +13,8 @@
     "producer_role",
     "operation",
     "evidence_receipt_refs",
-    "agent_document"
+    "delivery_contract",
+    "agent_documents"
   ],
   "properties": {
     "schema_version": {
@@ -45,20 +46,27 @@
         "pattern": "^evidence/manifest\\.jsonl#[A-Za-z0-9][A-Za-z0-9._-]*$"
       }
     },
-    "agent_document": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["artifact_type", "artifact_path", "document"],
-      "properties": {
-        "artifact_type": {
-          "type": "string",
-          "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
-        },
-        "artifact_path": {
-          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"
-        },
-        "document": {
-          "type": "object"
+    "delivery_contract": {
+      "$ref": "./lane-delivery-receipt.schema.json#/$defs/deliveryDeclaration"
+    },
+    "agent_documents": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifact_type", "artifact_path", "document"],
+        "properties": {
+          "artifact_type": {
+            "type": "string",
+            "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
+          },
+          "artifact_path": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"
+          },
+          "document": {
+            "type": "object"
+          }
         }
       }
     }

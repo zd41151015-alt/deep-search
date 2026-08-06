@@ -12,6 +12,7 @@
     "current_leaf_run_id",
     "compiled_envelopes",
     "publication_plan",
+    "publication_preflight",
     "working_directory",
     "validation_closure",
     "timing_ms",
@@ -42,6 +43,9 @@
     },
     "publication_plan": {
       "$ref": "../common/runtime-publication-plan.schema.json"
+    },
+    "publication_preflight": {
+      "$ref": "../common/runtime-publication-preflight.schema.json"
     },
     "working_directory": {
       "type": "string",

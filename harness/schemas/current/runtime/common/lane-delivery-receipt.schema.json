@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/common/lane-delivery-receipt.schema.json",
+  "title": "Startup Opportunity Lane Delivery Receipt",
+  "$defs": {
+    "requiredArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_type", "artifact_path"],
+      "properties": {
+        "artifact_type": {
+          "type": "string",
+          "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
+        },
+        "artifact_path": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"
+        }
+      }
+    },
+    "coverageEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_key", "status", "evidence_refs", "notes"],
+      "properties": {
+        "scope_key": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "status": {
+          "enum": ["covered", "no_evidence_found", "not_applicable"]
+        },
+        "evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "notes": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "searchClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "acquisition_routes_attempted", "unresolved_gaps", "stop_reason"],
+      "properties": {
+        "status": {
+          "enum": ["completed", "not_required"]
+        },
+        "acquisition_routes_attempted": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "public_web",
+              "public_api",
+              "professional_data",
+              "user_provided",
+              "repository_source",
+              "none"
+            ]
+          }
+        },
+        "unresolved_gaps": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "stop_reason": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "deliveryDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_artifacts", "assigned_scope", "scope_coverage", "search_closure"],
+      "properties": {
+        "required_artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/requiredArtifact" }
+        },
+        "assigned_scope": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          }
+        },
+        "scope_coverage": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/coverageEntry" }
+        },
+        "search_closure": { "$ref": "#/$defs/searchClosure" }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "run_id",
+    "staging_id",
+    "task_ref",
+    "required_artifacts",
+    "delivered_artifacts",
+    "assigned_scope",
+    "scope_coverage",
+    "search_closure",
+    "audit",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.lane_delivery_receipt.current" },
+    "receipt_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "run_id": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId" },
+    "staging_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "task_ref": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+    },
+    "required_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/requiredArtifact" }
+    },
+    "delivered_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifact_ref", "artifact_type", "content_hash"],
+        "properties": {
+          "artifact_ref": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+          },
+          "artifact_type": {
+            "type": "string",
+            "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
+          },
+          "content_hash": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "assigned_scope": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier" }
+    },
+    "scope_coverage": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/coverageEntry" }
+    },
+    "search_closure": { "$ref": "#/$defs/searchClosure" },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "checks",
+        "required_artifact_count",
+        "delivered_artifact_count",
+        "covered_scope_count",
+        "no_evidence_scope_count",
+        "not_applicable_scope_count",
+        "evidence_ref_count"
+      ],
+      "properties": {
+        "status": { "const": "accepted" },
+        "checks": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "required_artifacts_complete" },
+            { "const": "scope_coverage_complete" },
+            { "const": "evidence_refs_declared" },
+            { "const": "search_closure_complete" }
+          ],
+          "minItems": 4,
+          "maxItems": 4,
+          "items": false
+        },
+        "required_artifact_count": { "type": "integer", "minimum": 1 },
+        "delivered_artifact_count": { "type": "integer", "minimum": 1 },
+        "covered_scope_count": { "type": "integer", "minimum": 0 },
+        "no_evidence_scope_count": { "type": "integer", "minimum": 0 },
+        "not_applicable_scope_count": { "type": "integer", "minimum": 0 },
+        "evidence_ref_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "created_at": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+    }
+  }
+}

@@ -58,6 +58,37 @@
     "max_additions_per_dimension": 1,
     "gap_type": "decision_relevant_evidence_gap",
     "requires_plan_revision": true,
+    "information_gain_gate": {
+      "eligible_gap_resolution_classes": [
+        "public_web_resolvable",
+        "api_or_professional_data_resolvable"
+      ],
+      "eligible_availability": ["available_now", "available_with_authorized_access"],
+      "eligible_decision_changes": ["disposition", "ranking", "key_confidence"],
+      "eligible_overlap_levels": ["none", "partial"],
+      "route_class_bindings": [
+        {
+          "acquisition_route": "public_web",
+          "gap_resolution_class": "public_web_resolvable"
+        },
+        {
+          "acquisition_route": "public_api",
+          "gap_resolution_class": "api_or_professional_data_resolvable"
+        },
+        {
+          "acquisition_route": "professional_data",
+          "gap_resolution_class": "api_or_professional_data_resolvable"
+        },
+        {
+          "acquisition_route": "external_validation",
+          "gap_resolution_class": "external_validation_only"
+        },
+        {
+          "acquisition_route": "none",
+          "gap_resolution_class": "non_decision_relevant"
+        }
+      ]
+    },
     "dimension_unit_types": [
       {
         "dimension_id": "target_user_and_jtbd",

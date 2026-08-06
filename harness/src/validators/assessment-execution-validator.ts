@@ -1,4 +1,5 @@
 import { canonicalContentHash } from "../artifact-store/canonical.js";
+import { evaluateAssessmentFollowupInformationGain } from "../runtime/assessment-information-gain.js";
 import type { AssessmentExecutionPolicy } from "./assessment-execution-policy.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
@@ -807,6 +808,19 @@ function validateFollowup(
           decision.path,
           "follow-up must use the closed dimension mapping, cap, gate, and next Plan revisions",
           { allowedUnit },
+        ),
+      );
+    }
+    for (const informationGainIssue of evaluateAssessmentFollowupInformationGain(
+      decision.document,
+      policy.followup.information_gain_gate,
+    )) {
+      errors.push(
+        issue(
+          informationGainIssue.code,
+          `${decision.path}#${informationGainIssue.path}`,
+          informationGainIssue.message,
+          { likelyCause: informationGainIssue.likelyCause },
         ),
       );
     }

@@ -95,6 +95,7 @@
         "startup_opportunity.judgment_assessment.discovery_candidate.current",
         "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         "startup_opportunity.lane_lifecycle.v1",
+        "startup_opportunity.lane_delivery_receipt.current",
         "startup_opportunity.merge.v1",
         "startup_opportunity.opportunity_comparison.v1",
         "startup_opportunity.opportunity_space_map.v1",
@@ -1653,6 +1654,30 @@
           },
           "document": {
             "$ref": "../runtime/discovery/lane-lifecycle.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "const": "startup_opportunity.lane_delivery_receipt.current"
+          }
+        },
+        "required": ["artifact_type"]
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "harness"
+          },
+          "artifact_path": {
+            "type": "string",
+            "pattern": "^artifacts/runtime/lane-deliveries/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+          },
+          "document": {
+            "$ref": "../runtime/common/lane-delivery-receipt.schema.json"
           }
         }
       }

@@ -668,10 +668,21 @@ test("public compiler validates, publishes, replays, and recovers a temp-write f
   };
   const compiler = new DeclarativeRuntimeCompiler(first.runsRoot, first.validator);
   const requestId = "request_validate_synthetic";
+  const firstRunRoot = path.join(first.runsRoot, first.runId);
+  const beforeDryRun = await snapshotTree(firstRunRoot);
   const validated = await compiler.compile(
     compilationRequest(first.runId, "validate_only", [artifact], requestId),
   );
   assert.equal(validated.status, "validated");
+  assert.deepEqual(validated.publication_preflight, {
+    status: "ready",
+    operation: "validate_only",
+    issue_count: 0,
+    root_causes: [],
+    resolved_reference_count: validated.publication_plan.resolved_references.length,
+    publication_count: 1,
+  });
+  assert.deepEqual(await snapshotTree(firstRunRoot), beforeDryRun);
   assert.equal(
     validated.compiled_envelopes[0]?.schema_version,
     "startup_opportunity.artifact_envelope.current",
@@ -727,6 +738,92 @@ test("public compiler validates, publishes, replays, and recovers a temp-write f
   assert.equal(operationTiming.latestOutcome, "published");
   assert.ok(operationTiming.durationMs >= 0);
   assert.equal(faultStatus.observability.publishRetryCount, 1);
+});
+
+test("compiler preflight aggregates construction and reference root causes before any write", async (t) => {
+  const state = await prepareRun(t, "preflight-diagnostics");
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  const runRoot = path.join(state.runsRoot, state.runId);
+  const before = await snapshotTree(runRoot);
+  const invalidArtifacts = [
+    runtimeArtifact(
+      "plans/research-execution.r1.json",
+      {
+        schema_version: "startup_opportunity.research_execution_plan.discovery.current",
+        run_id: "wrong-run-synthetic",
+      },
+      "main_agent",
+    ),
+    runtimeArtifact(
+      "tasks/dispatch/runtime.r1.json",
+      {
+        schema_version: "startup_opportunity.dispatch_batch.discovery.current",
+        run_id: "wrong-run-synthetic",
+      },
+      "harness",
+    ),
+  ];
+  await assert.rejects(
+    compiler.compile(
+      compilationRequest(
+        state.runId,
+        "validate_only",
+        invalidArtifacts,
+        "request_aggregate_construction_synthetic",
+      ),
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.equal(error.code, "runtime.compilation_preflight_failed");
+      const issues = error.details.issues as Record<string, unknown>[];
+      assert.equal(issues.length, 2);
+      assert.deepEqual(issues.map((issue) => issue.artifact).sort(), [
+        "plans/research-execution.r1.json",
+        "tasks/dispatch/runtime.r1.json",
+      ]);
+      assert.ok(
+        issues.every(
+          (issue) =>
+            typeof issue.code === "string" &&
+            typeof issue.path === "string" &&
+            "reference" in issue &&
+            typeof issue.likely_cause === "string",
+        ),
+      );
+      assert.equal((error.details.root_causes as unknown[]).length, 1);
+      return true;
+    },
+  );
+  assert.deepEqual(await snapshotTree(runRoot), before);
+
+  const execution = executionPlan(state.runId, state.plan);
+  const validWithMissingRefs = {
+    ...runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+    input_refs: ["artifacts/missing/first.json", "artifacts/missing/second.json"],
+  };
+  await assert.rejects(
+    compiler.compile(
+      compilationRequest(
+        state.runId,
+        "validate_only",
+        [validWithMissingRefs],
+        "request_aggregate_references_synthetic",
+      ),
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.equal(error.code, "reference.closure_failed");
+      const issues = error.details.issues as Record<string, unknown>[];
+      assert.deepEqual(
+        issues.map((issue) => issue.reference),
+        ["artifacts/missing/first.json", "artifacts/missing/second.json"],
+      );
+      assert.ok(issues.every((issue) => typeof issue.likely_cause === "string"));
+      assert.equal((error.details.root_causes as unknown[]).length, 1);
+      return true;
+    },
+  );
+  assert.deepEqual(await snapshotTree(runRoot), before);
 });
 
 test("terminal compilation preserves current G2.1/G2.2 envelopes and aggregate roots", async (t) => {
@@ -1079,7 +1176,7 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
   });
   const auditPath = `artifacts/research-audits/${unitId}.json`;
   const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
-  const materialized = await materializer.materialize({
+  const staging = {
     schema_version: "startup_opportunity.lane_staging_document.current",
     staging_id: "staging_commercial_audit_synthetic",
     run_id: state.runId,
@@ -1088,21 +1185,163 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
     producer_role: "lane_researcher",
     operation: "publish",
     evidence_receipt_refs: [`evidence/manifest.jsonl#${substrate.record.evidence_id}`],
-    agent_document: {
-      artifact_type: "startup_opportunity.commercial_research_audit.current",
-      artifact_path: auditPath,
-      document: unrankedCommercialAudit(state.runId, unitId, task.artifact_path),
+    delivery_contract: {
+      required_artifacts: [
+        {
+          artifact_type: "startup_opportunity.commercial_research_audit.current",
+          artifact_path: auditPath,
+        },
+      ],
+      assigned_scope: ["commercial_coverage"],
+      scope_coverage: [
+        {
+          scope_key: "commercial_coverage",
+          status: "covered",
+          evidence_refs: [`evidence/manifest.jsonl#${substrate.record.evidence_id}`],
+          notes: "Synthetic Evidence Store bytes cover only this contract fixture scope.",
+        },
+      ],
+      search_closure: {
+        status: "completed",
+        acquisition_routes_attempted: ["user_provided"],
+        unresolved_gaps: ["No market research was performed by this synthetic fixture."],
+        stop_reason: "The deterministic contract fixture has exercised its assigned scope.",
+      },
     },
+    agent_documents: [
+      {
+        artifact_type: "startup_opportunity.commercial_research_audit.current",
+        artifact_path: auditPath,
+        document: unrankedCommercialAudit(state.runId, unitId, task.artifact_path),
+      },
+    ],
+  };
+
+  const invalid = structuredClone(staging);
+  invalid.delivery_contract.required_artifacts.push({
+    artifact_type: "startup_opportunity.commercial_research_audit.current",
+    artifact_path: `artifacts/research-audits/${unitId}-missing.json`,
   });
-  assert.equal(materialized.status, "published");
-  assert.deepEqual(materialized.compiled_envelopes[0]?.input_refs, [
+  invalid.delivery_contract.assigned_scope.push("unanswered_scope");
+  const invalidCoverage = invalid.delivery_contract.scope_coverage[0];
+  assert.ok(invalidCoverage);
+  invalidCoverage.evidence_refs = [];
+  invalid.delivery_contract.search_closure.acquisition_routes_attempted = ["none"];
+  const beforeRejectedPreflight = await snapshotTree(state.runRoot);
+  await assert.rejects(materializer.materialize(invalid), (error: unknown) => {
+    assert.ok(error instanceof StoreError);
+    assert.equal(error.code, "runtime.lane_preflight_failed");
+    const issues = error.details.issues as Record<string, unknown>[];
+    assert.ok(issues.length >= 4);
+    assert.ok(
+      issues.every(
+        (issue) =>
+          typeof issue.code === "string" &&
+          typeof issue.artifact === "string" &&
+          typeof issue.path === "string" &&
+          "reference" in issue &&
+          typeof issue.likely_cause === "string",
+      ),
+    );
+    assert.ok(issues.some((issue) => issue.code === "lane_delivery.required_artifact_missing"));
+    assert.ok(issues.some((issue) => issue.code === "lane_delivery.scope_coverage_missing"));
+    assert.ok(
+      issues.some((issue) => issue.code === "lane_delivery.covered_scope_without_evidence"),
+    );
+    assert.ok(issues.some((issue) => issue.code === "lane_delivery.search_closure_route_missing"));
+    assert.ok(Array.isArray(error.details.root_causes));
+    return true;
+  });
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeRejectedPreflight);
+
+  const noEvidence = structuredClone(staging);
+  noEvidence.staging_id = "staging_commercial_no_evidence_synthetic";
+  noEvidence.operation = "validate_only";
+  noEvidence.evidence_receipt_refs = [];
+  noEvidence.delivery_contract.scope_coverage[0] = {
+    scope_key: "commercial_coverage",
+    status: "no_evidence_found",
+    evidence_refs: [],
+    notes: "The declared route yielded no usable evidence for this assigned scope.",
+  };
+  noEvidence.delivery_contract.search_closure = {
+    status: "completed",
+    acquisition_routes_attempted: ["public_web"],
+    unresolved_gaps: ["Current commercial Evidence remains unavailable."],
+    stop_reason: "The bounded query set was exhausted without usable evidence.",
+  };
+  const noEvidenceDryRun = await materializer.materialize(noEvidence);
+  assert.equal(noEvidenceDryRun.status, "accepted");
+  assert.equal(noEvidenceDryRun.compilation.status, "validated");
+  assert.equal(
+    (noEvidenceDryRun.delivery_receipt.document.audit as Record<string, unknown>)
+      .no_evidence_scope_count,
+    1,
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeRejectedPreflight);
+
+  const beforeDeliveryManifest = (await state.runStore.status(state.runId)).manifest;
+  const materialized = await materializer.materialize(staging);
+  assert.equal(materialized.status, "accepted");
+  assert.equal(materialized.compilation.status, "published");
+  const auditEnvelope = materialized.compilation.compiled_envelopes.find(
+    (envelope) => envelope.artifact_path === auditPath,
+  );
+  assert.ok(auditEnvelope);
+  assert.deepEqual(auditEnvelope.input_refs, [
     `evidence/manifest.jsonl#${substrate.record.evidence_id}`,
     "plans/research-execution.r1.json",
     task.artifact_path,
     `tasks/dispatch/runtime.r1.json#task_${unitId}`,
   ]);
-  assert.equal(materialized.compiled_envelopes[0]?.producer_role, "lane_researcher");
-  assert.equal(materialized.compiled_envelopes[0]?.artifact_path, auditPath);
+  assert.equal(auditEnvelope.producer_role, "lane_researcher");
+  assert.equal(materialized.delivery_receipt.producer_role, "harness");
+  assert.equal(
+    materialized.delivery_receipt.document.schema_version,
+    "startup_opportunity.lane_delivery_receipt.current",
+  );
+  assert.equal(
+    (materialized.delivery_receipt.document.audit as Record<string, unknown>).status,
+    "accepted",
+  );
+  const deliveryPaths = [auditPath, materialized.delivery_receipt.artifact_path].sort();
+  const publishedManifest = (await state.runStore.status(state.runId)).manifest;
+  assert.ok(
+    deliveryPaths.every((artifactPath) => publishedManifest.artifact_refs.includes(artifactPath)),
+  );
+
+  const operationsRoot = path.join(state.runRoot, ".store/operations");
+  const receiptByPath = new Map<string, string>();
+  for (const operationEntry of await readdir(operationsRoot)) {
+    if (!operationEntry.startsWith("artifact-") || !operationEntry.endsWith(".json")) continue;
+    const receipt = JSON.parse(
+      await readFile(path.join(operationsRoot, operationEntry), "utf8"),
+    ) as Record<string, unknown>;
+    if (typeof receipt.artifact_path === "string") {
+      receiptByPath.set(receipt.artifact_path, operationEntry);
+    }
+  }
+  for (const artifactPath of deliveryPaths) {
+    const receiptName = receiptByPath.get(artifactPath);
+    assert.ok(receiptName);
+    await rm(path.join(state.runRoot, artifactPath));
+    await rm(path.join(operationsRoot, receiptName));
+  }
+  await writeFile(
+    path.join(state.runRoot, "manifest.json"),
+    `${canonicalJson(beforeDeliveryManifest)}\n`,
+  );
+
+  const reopenedDelivery = await new RunStore(state.runsRoot, state.validator).load(state.runId);
+  assert.deepEqual(reopenedDelivery.recoveredArtifactPaths, deliveryPaths);
+  assert.ok(
+    deliveryPaths.every((artifactPath) =>
+      reopenedDelivery.manifest.artifact_refs.includes(artifactPath),
+    ),
+  );
+  const deliveryReplay = await materializer.materialize(staging);
+  assert.equal(deliveryReplay.status, "accepted");
+  assert.equal(deliveryReplay.compilation.status, "idempotent_replay");
 
   const beforeReplay = await snapshotTree(state.runRoot);
   const replay = await state.runStore.publishArtifact({ runId: state.runId, envelope: task });

@@ -154,7 +154,10 @@ export {
   type RuntimeArtifactCompilationResult,
   type RuntimePublicationPlan,
 } from "./runtime/declarative-runtime.js";
-export { LaneResultMaterializer } from "./runtime/lane-materializer.js";
+export {
+  type LaneDeliveryResult,
+  LaneResultMaterializer,
+} from "./runtime/lane-materializer.js";
 export {
   runCompileArtifacts,
   runMaterializeLaneResult,

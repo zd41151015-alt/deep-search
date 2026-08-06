@@ -68,6 +68,14 @@ export interface RuntimeArtifactCompilationResult {
   readonly current_leaf_run_id: string;
   readonly compiled_envelopes: readonly FormalArtifactEnvelope[];
   readonly publication_plan: RuntimePublicationPlan;
+  readonly publication_preflight: {
+    readonly status: "ready";
+    readonly operation: "validate_only" | "publish";
+    readonly issue_count: 0;
+    readonly root_causes: readonly [];
+    readonly resolved_reference_count: number;
+    readonly publication_count: number;
+  };
   readonly working_directory: string;
   readonly validation_closure: {
     readonly document_bundle_schema_version: "startup_opportunity.document_bundle.current";
@@ -142,11 +150,62 @@ function elapsed(started: number): number {
   return Math.max(0, performance.now() - started);
 }
 
+interface RuntimeDiagnostic {
+  readonly code: string;
+  readonly artifact: string;
+  readonly path: string;
+  readonly reference: string | null;
+  readonly message: string;
+  readonly likely_cause: string;
+  readonly details: Readonly<Record<string, unknown>>;
+}
+
+function diagnostic(
+  code: string,
+  artifact: string,
+  path: string,
+  message: string,
+  likelyCause: string,
+  details: Readonly<Record<string, unknown>> = {},
+  reference: string | null = null,
+): RuntimeDiagnostic {
+  return {
+    code,
+    artifact,
+    path,
+    reference,
+    message,
+    likely_cause: likelyCause,
+    details,
+  };
+}
+
+function aggregateRootCauses(
+  issues: readonly RuntimeDiagnostic[],
+): readonly Record<string, unknown>[] {
+  const causes = new Map<string, RuntimeDiagnostic[]>();
+  for (const current of issues) {
+    causes.set(current.likely_cause, [...(causes.get(current.likely_cause) ?? []), current]);
+  }
+  return [...causes.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([likelyCause, grouped]) => ({
+      likely_cause: likelyCause,
+      issue_count: grouped.length,
+      codes: [...new Set(grouped.map((current) => current.code))].sort(),
+      artifacts: [...new Set(grouped.map((current) => current.artifact))].sort(),
+    }));
+}
+
 function classifyRuntimeFailure(
   error: unknown,
 ): "validation_failed" | "publication_failed" | "runtime_blocked" {
   const code = error instanceof StoreError ? error.code : "runtime.unexpected";
-  if (/(?:validation|invalid|mismatch|reference|schema|hash|stale|transition|bundle)/u.test(code)) {
+  if (
+    /(?:validation|invalid|mismatch|reference|schema|hash|stale|transition|bundle|preflight)/u.test(
+      code,
+    )
+  ) {
     return "validation_failed";
   }
   if (/(?:fault|publish|write|receipt|operation|lock|recovery)/u.test(code)) {
@@ -163,6 +222,10 @@ const ASSESSMENT_EXECUTION_ARTIFACT_TYPES = new Set([
   "startup_opportunity.assessment_lane_result.v1",
   "startup_opportunity.assessment_stage_gate.v1",
   "startup_opportunity.assessment_followup_decision.v1",
+]);
+
+const RUNTIME_NEUTRAL_ARTIFACT_TYPES = new Set([
+  "startup_opportunity.lane_delivery_receipt.current",
 ]);
 
 export class DeclarativeRuntimeCompiler {
@@ -283,17 +346,24 @@ export class DeclarativeRuntimeCompiler {
       );
     }
     const artifactFamilies = new Set(
-      sourceArtifacts.map((artifact) =>
-        ASSESSMENT_EXECUTION_ARTIFACT_TYPES.has(artifact.artifact_type) ? "assessment" : "runtime",
-      ),
+      sourceArtifacts
+        .filter((artifact) => !RUNTIME_NEUTRAL_ARTIFACT_TYPES.has(artifact.artifact_type))
+        .map((artifact) =>
+          ASSESSMENT_EXECUTION_ARTIFACT_TYPES.has(artifact.artifact_type)
+            ? "assessment"
+            : "runtime",
+        ),
     );
+    if (artifactFamilies.size === 0) artifactFamilies.add("runtime");
     if (artifactFamilies.size !== 1) {
       throw new StoreError(
         "runtime.compilation_artifact_family_mixed",
         "one compilation request cannot mix Discovery and Assessment execution artifacts",
       );
     }
-    const envelopes = sourceArtifacts.map((artifact): FormalArtifactEnvelope => {
+    const constructionIssues: RuntimeDiagnostic[] = [];
+    const envelopes: FormalArtifactEnvelope[] = [];
+    for (const artifact of sourceArtifacts) {
       const documentValidation = this.validator.validateDocument(
         artifact.document,
         artifact.artifact_path,
@@ -303,17 +373,22 @@ export class DeclarativeRuntimeCompiler {
         artifact.document.schema_version !== artifact.artifact_type ||
         artifact.document.run_id !== request.run_id
       ) {
-        throw new StoreError(
-          "runtime.compilation_document_invalid",
-          "compiled document must be schema-valid and match its declared type and Run",
-          {
-            artifactPath: artifact.artifact_path,
-            artifactType: artifact.artifact_type,
-            documentSchemaVersion: artifact.document.schema_version,
-            documentRunId: artifact.document.run_id,
-            errors: documentValidation.errors,
-          },
+        constructionIssues.push(
+          diagnostic(
+            "runtime.compilation_document_invalid",
+            artifact.artifact_path,
+            artifact.artifact_path,
+            "compiled document must be schema-valid and match its declared type and Run",
+            "The agent-authored document is incomplete or was bound to the wrong type or Run.",
+            {
+              artifactType: artifact.artifact_type,
+              documentSchemaVersion: artifact.document.schema_version,
+              documentRunId: artifact.document.run_id,
+              errors: documentValidation.errors,
+            },
+          ),
         );
+        continue;
       }
       const discoveredRefs = [
         ...new Set([
@@ -348,14 +423,30 @@ export class DeclarativeRuntimeCompiler {
       };
       const envelopeValidation = this.validator.validateDocument(envelope, artifact.artifact_path);
       if (!envelopeValidation.valid) {
-        throw new StoreError(
-          "runtime.compilation_envelope_invalid",
-          "compiled envelope violates the current runtime contract",
-          { artifactPath: artifact.artifact_path, errors: envelopeValidation.errors },
+        constructionIssues.push(
+          diagnostic(
+            "runtime.compilation_envelope_invalid",
+            artifact.artifact_path,
+            artifact.artifact_path,
+            "compiled envelope violates the current runtime contract",
+            "The declared producer, artifact type, or derived formal envelope is not allowed.",
+            { errors: envelopeValidation.errors },
+          ),
         );
+        continue;
       }
-      return envelope;
-    });
+      envelopes.push(envelope);
+    }
+    if (constructionIssues.length > 0) {
+      throw new StoreError(
+        "runtime.compilation_preflight_failed",
+        "runtime artifact construction preflight found one or more invalid artifacts",
+        {
+          issues: constructionIssues,
+          root_causes: aggregateRootCauses(constructionIssues),
+        },
+      );
+    }
     await this.runs.assertTransitionReady(request.run_id, envelopes);
     const compilation = elapsed(compilationStarted);
 
@@ -374,10 +465,47 @@ export class DeclarativeRuntimeCompiler {
       context.referenceContext,
     );
     if (!validation.valid) {
+      const validationIssues: RuntimeDiagnostic[] = [
+        ...validation.bundleErrors.map((error) =>
+          diagnostic(
+            error.code,
+            "document_bundle",
+            error.instancePath,
+            error.message,
+            "The requested bundle is structurally incomplete.",
+            error.details,
+          ),
+        ),
+        ...validation.documents.flatMap((document) =>
+          document.errors.map((error) =>
+            diagnostic(
+              error.code,
+              document.documentPath ?? "unknown_artifact",
+              error.instancePath,
+              error.message,
+              "A document in the proposed publication does not satisfy its current contract.",
+              error.details,
+            ),
+          ),
+        ),
+        ...validation.referenceErrors.map((error) =>
+          diagnostic(
+            error.code,
+            error.instancePath.split("#", 1)[0] || "document_bundle",
+            error.instancePath,
+            error.message,
+            "A formal reference is missing, stale, or bound to the wrong artifact type.",
+            error.details,
+            typeof error.details.ref === "string" ? error.details.ref : null,
+          ),
+        ),
+      ];
       throw new StoreError(
         "runtime.compilation_validation_failed",
         "compiled artifacts fail their minimal validated Run closure",
         {
+          issues: validationIssues,
+          root_causes: aggregateRootCauses(validationIssues),
           bundleErrors: validation.bundleErrors,
           documentErrors: validation.documents.flatMap((document) => document.errors),
           referenceErrors: validation.referenceErrors,
@@ -550,6 +678,14 @@ export class DeclarativeRuntimeCompiler {
       current_leaf_run_id: request.run_id,
       compiled_envelopes: envelopes,
       publication_plan: publicationPlan,
+      publication_preflight: {
+        status: "ready",
+        operation: request.operation,
+        issue_count: 0,
+        root_causes: [],
+        resolved_reference_count: resolvedReferences.length,
+        publication_count: envelopes.length,
+      },
       working_directory: `dist/research-working/${request.run_id}`,
       validation_closure: {
         document_bundle_schema_version: context.bundle.schema_version,

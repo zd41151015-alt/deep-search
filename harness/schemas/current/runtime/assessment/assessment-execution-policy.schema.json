@@ -101,6 +101,7 @@
         "max_additions_per_dimension",
         "gap_type",
         "requires_plan_revision",
+        "information_gain_gate",
         "dimension_unit_types"
       ],
       "properties": {
@@ -115,6 +116,86 @@
         },
         "requires_plan_revision": {
           "const": true
+        },
+        "information_gain_gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "eligible_gap_resolution_classes",
+            "eligible_availability",
+            "eligible_decision_changes",
+            "eligible_overlap_levels",
+            "route_class_bindings"
+          ],
+          "properties": {
+            "eligible_gap_resolution_classes": {
+              "type": "array",
+              "prefixItems": [
+                { "const": "public_web_resolvable" },
+                { "const": "api_or_professional_data_resolvable" }
+              ],
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false
+            },
+            "eligible_availability": {
+              "type": "array",
+              "prefixItems": [
+                { "const": "available_now" },
+                { "const": "available_with_authorized_access" }
+              ],
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false
+            },
+            "eligible_decision_changes": {
+              "type": "array",
+              "prefixItems": [
+                { "const": "disposition" },
+                { "const": "ranking" },
+                { "const": "key_confidence" }
+              ],
+              "minItems": 3,
+              "maxItems": 3,
+              "items": false
+            },
+            "eligible_overlap_levels": {
+              "type": "array",
+              "prefixItems": [{ "const": "none" }, { "const": "partial" }],
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false
+            },
+            "route_class_bindings": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 5,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["acquisition_route", "gap_resolution_class"],
+                "properties": {
+                  "acquisition_route": {
+                    "enum": [
+                      "public_web",
+                      "public_api",
+                      "professional_data",
+                      "external_validation",
+                      "none"
+                    ]
+                  },
+                  "gap_resolution_class": {
+                    "enum": [
+                      "public_web_resolvable",
+                      "api_or_professional_data_resolvable",
+                      "external_validation_only",
+                      "non_decision_relevant"
+                    ]
+                  }
+                }
+              }
+            }
+          }
         },
         "dimension_unit_types": {
           "type": "array",

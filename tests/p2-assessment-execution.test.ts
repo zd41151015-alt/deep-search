@@ -526,6 +526,18 @@ function followupDecision(
     stage_gate_ref: gate.path,
     dimension_id: dimensionId,
     gap_type: "decision_relevant_evidence_gap",
+    target_decision: "key_confidence",
+    blocking_gap: "A decision-critical synthetic confidence gap remains after Wave 1.",
+    expected_evidence: ["A new synthetic observation from an independent public source."],
+    gap_resolution_class: "public_web_resolvable",
+    acquisition_route: "public_web",
+    availability: "available_now",
+    expected_decision_change: "key_confidence",
+    wave_1_evidence_overlap: {
+      overlap_level: "none",
+      overlapping_evidence_refs: [],
+      novelty_rationale: "The proposed source and signal were not covered in Wave 1.",
+    },
     action: "add_bounded_followup",
     current_followup_round: execution.followup_round,
     target_unit: unit(
@@ -944,6 +956,69 @@ test("follow-up is closed by dimension, round, repetition, exact hashes, and det
       [...baseDocuments(runId, plan, execution), gate, demandDecision, repeated],
       validator.assessmentExecutionPolicy,
     ).includes("assessment_execution.followup_not_allowed"),
+  );
+
+  const externalOnly = structuredClone(demandDecision.document);
+  externalOnly.gap_resolution_class = "external_validation_only";
+  externalOnly.acquisition_route = "external_validation";
+  externalOnly.availability = "external_validation_only";
+  const externalIssues = validateAssessmentExecutionContract(
+    [...baseDocuments(runId, plan, execution), gate, entry(demandDecision.path, externalOnly)],
+    new Map(),
+    validator.assessmentExecutionPolicy,
+  );
+  assert.ok(
+    externalIssues.some(
+      (issue) =>
+        issue.code === "assessment_information_gain.gap_not_researchable" &&
+        issue.details.likelyCause ===
+          "The gap requires external validation or cannot change the decision.",
+    ),
+  );
+  assert.ok(
+    externalIssues.some(
+      (issue) => issue.code === "assessment_information_gain.evidence_unavailable",
+    ),
+  );
+  assert.throws(
+    () =>
+      deriveAssessmentFollowupRevision(
+        planPath,
+        plan,
+        executionPath,
+        execution,
+        demandDecision.path,
+        externalOnly,
+        "2026-08-02T16:30:00Z",
+      ),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "assessment.followup_information_gain_ineligible",
+  );
+
+  const duplicative = structuredClone(demandDecision.document);
+  duplicative.wave_1_evidence_overlap = {
+    overlap_level: "duplicate",
+    overlapping_evidence_refs: [gate.path],
+    novelty_rationale: "The proposed task repeats the Wave 1 gate basis.",
+  };
+  assert.ok(
+    contractCodes(
+      [...baseDocuments(runId, plan, execution), gate, entry(demandDecision.path, duplicative)],
+      validator.assessmentExecutionPolicy,
+    ).includes("assessment_information_gain.wave_1_overlap_excessive"),
+  );
+
+  const noChange = structuredClone(demandDecision.document);
+  noChange.gap_resolution_class = "non_decision_relevant";
+  noChange.acquisition_route = "none";
+  noChange.availability = "unavailable";
+  noChange.expected_decision_change = "none";
+  assert.ok(
+    contractCodes(
+      [...baseDocuments(runId, plan, execution), gate, entry(demandDecision.path, noChange)],
+      validator.assessmentExecutionPolicy,
+    ).includes("assessment_information_gain.decision_change_missing"),
   );
 
   const exhaustedExecution = structuredClone(execution);
