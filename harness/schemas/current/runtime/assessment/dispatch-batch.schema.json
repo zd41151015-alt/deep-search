@@ -71,6 +71,7 @@
           "task_id",
           "unit_id",
           "lane_role",
+          "incumbent_response_assignment",
           "reporting_dimensions",
           "submission_path",
           "time_budget_minutes",
@@ -85,6 +86,9 @@
           },
           "lane_role": {
             "enum": ["evidence", "counter_evidence", "risk", "commercial", "feasibility"]
+          },
+          "incumbent_response_assignment": {
+            "$ref": "../../assessment/commercial/incumbent-response-risk.schema.json#/$defs/assignment"
           },
           "reporting_dimensions": {
             "type": "array",

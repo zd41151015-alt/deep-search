@@ -152,6 +152,12 @@ export function deriveAssessmentFollowupRevision(
         {
           unit_id: unitId,
           lane_role: laneRoleForDimension(dimension),
+          incumbent_response_assignment: {
+            analysis_depth: "not_assigned",
+            subject_refs: [],
+            rationale:
+              "Buyer and acquisition follow-up units do not expand incumbent response scope.",
+          },
           reporting_dimensions: [dimension],
           submission_path: targetUnit.output_path,
           submission_schema: "startup_opportunity.assessment_lane_result.v1",

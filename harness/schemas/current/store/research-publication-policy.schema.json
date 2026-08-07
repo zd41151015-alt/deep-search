@@ -119,7 +119,10 @@
         "historical_claim_types",
         "solution_neutral_stage",
         "solution_specific_stage",
-        "wave1_early_stop_signal_keys"
+        "wave1_early_stop_signal_keys",
+        "incumbent_response_research_stage",
+        "incumbent_response_decision_role",
+        "incumbent_response_automatic_effects"
       ],
       "properties": {
         "primary_evidence_basis": {
@@ -255,6 +258,30 @@
         },
         "wave1_early_stop_signal_keys": {
           "const": ["demand", "buyer", "purchase"]
+        },
+        "incumbent_response_research_stage": {
+          "const": "post_candidate_only"
+        },
+        "incumbent_response_decision_role": {
+          "const": "judgment_context_only"
+        },
+        "incumbent_response_automatic_effects": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "gate",
+            "ranking_eligibility",
+            "claim_confidence",
+            "recommendation_ceiling",
+            "artifact_publication"
+          ],
+          "properties": {
+            "gate": { "const": false },
+            "ranking_eligibility": { "const": false },
+            "claim_confidence": { "const": false },
+            "recommendation_ceiling": { "const": false },
+            "artifact_publication": { "const": false }
+          }
         }
       }
     },

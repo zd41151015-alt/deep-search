@@ -1,4 +1,4 @@
-import { canonicalContentHash } from "../artifact-store/canonical.js";
+import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import { evaluateAssessmentFollowupInformationGain } from "../runtime/assessment-information-gain.js";
 import type { AssessmentExecutionPolicy } from "./assessment-execution-policy.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
@@ -362,6 +362,30 @@ function validateExecutionPlan(
   }
 
   const lanes = stages.flatMap((stage) => records(stage.lanes).map((lane) => ({ lane, stage })));
+  for (const { lane, stage } of lanes) {
+    const assignment = isRecord(lane.incumbent_response_assignment)
+      ? lane.incumbent_response_assignment
+      : {};
+    const expectedDepth =
+      stage.stage_kind === "assessment_commercial" ? "targeted_deep_dive" : "not_assigned";
+    if (
+      assignment.analysis_depth !== expectedDepth ||
+      (expectedDepth === "not_assigned" && strings(assignment.subject_refs).length !== 0) ||
+      (expectedDepth === "targeted_deep_dive" &&
+        !sameStrings(strings(assignment.subject_refs), [
+          String(execution.document.concept_hypothesis_ref),
+        ]))
+    ) {
+      errors.push(
+        issue(
+          "assessment_execution.incumbent_response_assignment_invalid",
+          `${execution.path}#${String(stage.stage_id)}/${String(lane.unit_id)}/incumbent_response_assignment`,
+          "only the post-hypothesis commercial stage may run the concept-bound targeted incumbent response deep dive",
+          { expectedDepth },
+        ),
+      );
+    }
+  }
   const initialLanes = lanes.filter((item) => item.stage.stage_kind !== "assessment_followup");
   if (
     initialLanes.length < policy.initial_lane_count.minimum ||
@@ -697,6 +721,8 @@ function validateDispatch(
     if (
       lane === undefined ||
       lane.lane_role !== task.lane_role ||
+      canonicalJson(lane.incumbent_response_assignment) !==
+        canonicalJson(task.incumbent_response_assignment) ||
       lane.submission_path !== task.submission_path ||
       !sameStrings(strings(lane.reporting_dimensions), strings(task.reporting_dimensions))
     ) {

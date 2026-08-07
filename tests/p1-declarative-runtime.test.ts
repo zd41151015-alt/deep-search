@@ -95,6 +95,14 @@ function executionPlan(
     unit_id: unit.unit_id,
     lane_role: kind === "generation" ? "opportunity" : "evaluation",
     candidate_scope: { kind: "none", candidate_refs: [] },
+    incumbent_response_assignment: {
+      analysis_depth: kind === "evaluation" ? "lightweight_scan" : "not_assigned",
+      subject_refs: kind === "evaluation" ? [G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1] : [],
+      rationale:
+        kind === "evaluation"
+          ? "Formed candidates receive a bounded lightweight response scan."
+          : "Incumbent response research starts only after candidates form.",
+    },
     reporting_dimensions: ["demand", "buyer"],
     submission_path:
       kind === "generation"
@@ -276,6 +284,7 @@ function dispatchBatch(
         task_id: `task_${String(lane.unit_id)}`,
         unit_id: lane.unit_id,
         lane_role: lane.lane_role,
+        incumbent_response_assignment: structuredClone(lane.incumbent_response_assignment),
         research_goal: unit.research_goal,
         input_refs: unit.input_refs,
         allowed_output_path: lane.submission_path,
@@ -568,6 +577,7 @@ function unrankedCommercialDelivery(runId: string, unitId: string): Record<strin
     judgments: [],
     quantitative_observations: [],
     competitive_observations: [],
+    incumbent_response_assessments: [],
     unresolved_gaps: [],
     limitations: ["SYNTHETIC contract delivery; no market research was performed."],
     stop_reason: "The fixture has no current commercial Evidence to adopt.",

@@ -28,6 +28,11 @@
       "document_schema_version": null
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/assessment/commercial/incumbent-response-risk.schema.json",
+      "file": "current/assessment/commercial/incumbent-response-risk.schema.json",
+      "document_schema_version": null
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/assessment/commercial/quantitative-competitive-research.schema.json",
       "file": "current/assessment/commercial/quantitative-competitive-research.schema.json",
       "document_schema_version": null

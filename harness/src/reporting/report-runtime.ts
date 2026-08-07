@@ -30,6 +30,7 @@ import {
   projectCommercialAuditTables,
   renderCompetitiveSubstituteMatrix,
   renderGateWarnings,
+  renderIncumbentResponseRiskTable,
   renderQuantitativeSignalTable,
   renderResearchCoverageGaps,
 } from "./commercial-report-tables.js";
@@ -61,6 +62,7 @@ const ASSESSMENT_REPORT_SECTION_IDS = [
   "demand_alternatives_solution_failure",
   "quantitative_signals",
   "competitive_substitute_matrix",
+  "incumbent_absorption_and_response_risk",
   "competition_and_differentiation",
   "buyer_acquisition_business_engine",
   "feasibility_compliance_ai_bundle",
@@ -121,6 +123,7 @@ const DISCOVERY_REPORT_SECTION_IDS = [
   "method_and_limitations",
   "quantitative_signals",
   "competitive_substitute_matrix",
+  "incumbent_absorption_and_response_risk",
   "top_opportunities",
   "watchlist_and_reject",
   "sensitivity",
@@ -258,6 +261,8 @@ function renderDecisionBrief(report: Record<string, unknown>): string {
     summaryList(context.decisive_support),
     "\n## Decisive Opposition\n",
     summaryList(context.decisive_opposition),
+    "\n## Incumbent Absorption And Response Risk\n",
+    renderIncumbentResponseRiskTable(report),
     "\n## Alternatives Not Selected\n",
     markdownList(strings(context.alternatives_not_selected)),
     "\n## Critical Unknowns\n",
@@ -303,6 +308,8 @@ function renderFullReport(report: Record<string, unknown>): string {
       parts.push(renderQuantitativeSignalTable(report));
       parts.push("\n## Competitive And Substitute Matrix\n");
       parts.push(renderCompetitiveSubstituteMatrix(report));
+      parts.push("\n## Incumbent Absorption And Response Risk\n");
+      parts.push(renderIncumbentResponseRiskTable(report));
     }
     if (sectionId === "limitations_and_sources") {
       parts.push("\n## Research Coverage Gaps And Decision Impact\n");
@@ -397,6 +404,8 @@ function renderDiscoveryDecisionBrief(report: Record<string, unknown>): string {
     summaryList(context.decisive_support),
     "\n## Decisive Opposition\n",
     summaryList(context.decisive_opposition),
+    "\n## Incumbent Absorption And Response Risk\n",
+    renderIncumbentResponseRiskTable(report),
     "\n## Critical Unknowns\n",
     markdownList(strings(context.critical_unknowns)),
     "\n## What Would Change the Decision\n",
@@ -423,6 +432,8 @@ function renderDiscoveryFullReport(report: Record<string, unknown>): string {
       parts.push(renderQuantitativeSignalTable(report));
       parts.push("\n## Competitive And Substitute Matrix\n");
       parts.push(renderCompetitiveSubstituteMatrix(report));
+      parts.push("\n## Incumbent Absorption And Response Risk\n");
+      parts.push(renderIncumbentResponseRiskTable(report));
     }
     if (sectionId === "traceability_and_sources") {
       parts.push("\n## Research Coverage Gaps And Decision Impact\n");

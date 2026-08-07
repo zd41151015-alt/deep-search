@@ -1491,6 +1491,7 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   report.document.commercial_research_audit_refs = [];
   report.document.quantitative_signal_rows = [];
   report.document.competitive_substitute_rows = [];
+  report.document.incumbent_response_risk_rows = [];
   report.document.research_coverage_gaps = [];
   report.document.gate_warnings = [];
   (report as unknown as { input_refs: string[] }).input_refs = report.input_refs.filter(
@@ -1514,6 +1515,20 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
     await readFile(path.join(state.runRoot, "report.json"), "utf8"),
   ) as Record<string, unknown>;
   assert.ok((projectedReport.commercial_research_audit_refs as unknown[]).length > 0);
+  const projectedResponseRows = projectedReport.incumbent_response_risk_rows as Record<
+    string,
+    unknown
+  >[];
+  assert.ok(projectedResponseRows.length > 0);
+  assert.ok(
+    projectedResponseRows.every((row) => {
+      const assessment = row.assessment as Record<string, unknown>;
+      return (
+        typeof assessment.assessment_id === "string" &&
+        ["lightweight_scan", "targeted_deep_dive"].includes(String(assessment.analysis_depth))
+      );
+    }),
+  );
   assert.ok((projectedReport.research_coverage_gaps as unknown[]).length > 0);
   const projectedMetadata = projectedReport.report_metadata as Record<string, unknown>;
   assert.deepEqual(
@@ -1525,6 +1540,10 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   );
   const replay = await runtime.build({ reportEnvelope: report });
   assert.equal(replay.status, "idempotent_replay");
+  const replayedReport = JSON.parse(
+    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.deepEqual(replayedReport.incumbent_response_risk_rows, projectedResponseRows);
   const loaded = await state.store.load(state.runId);
   assert.ok(loaded.manifest.artifact_refs.includes(G24_REPORT));
   assert.ok(loaded.manifest.artifact_refs.includes(first.consistencyEvaluationRef));
@@ -1532,7 +1551,13 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
     await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8"),
     /Partial Order/,
   );
-  assert.match(await readFile(path.join(state.runRoot, "report.md"), "utf8"), /Portfolio/);
+  assert.match(
+    await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8"),
+    /Incumbent Absorption And Response Risk/,
+  );
+  const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
+  assert.match(reportMarkdown, /Portfolio/);
+  assert.match(reportMarkdown, /Incumbent Absorption And Response Risk/);
   const receipts = await Promise.all(
     (await readdir(path.join(state.runRoot, ".store/operations")))
       .filter((filename) => filename.startsWith("artifact-"))

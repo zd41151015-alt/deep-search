@@ -69,6 +69,7 @@
           "task_id",
           "unit_id",
           "lane_role",
+          "incumbent_response_assignment",
           "research_goal",
           "input_refs",
           "allowed_output_path",
@@ -86,6 +87,9 @@
           },
           "lane_role": {
             "enum": ["opportunity", "evaluation", "risk"]
+          },
+          "incumbent_response_assignment": {
+            "$ref": "../../assessment/commercial/incumbent-response-risk.schema.json#/$defs/assignment"
           },
           "research_goal": {
             "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"

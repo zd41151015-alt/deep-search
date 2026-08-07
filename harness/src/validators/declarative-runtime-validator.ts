@@ -221,6 +221,34 @@ function validateExecutionPlan(
       }
       const scope = isRecord(lane.candidate_scope) ? lane.candidate_scope : {};
       const candidateRefs = strings(scope.candidate_refs);
+      const incumbentAssignment = isRecord(lane.incumbent_response_assignment)
+        ? lane.incumbent_response_assignment
+        : {};
+      const expectedIncumbentDepth =
+        kind === "candidate_evaluation"
+          ? "lightweight_scan"
+          : kind === "retained_candidate_deep_review"
+            ? "targeted_deep_dive"
+            : "not_assigned";
+      if (
+        incumbentAssignment.analysis_depth !== expectedIncumbentDepth ||
+        (expectedIncumbentDepth === "not_assigned" &&
+          strings(incumbentAssignment.subject_refs).length !== 0) ||
+        (expectedIncumbentDepth !== "not_assigned" &&
+          strings(incumbentAssignment.subject_refs).length === 0) ||
+        (scope.kind === "explicit" &&
+          expectedIncumbentDepth !== "not_assigned" &&
+          !sameStrings(strings(incumbentAssignment.subject_refs), candidateRefs))
+      ) {
+        errors.push(
+          issue(
+            "runtime.incumbent_response_assignment_invalid",
+            `${entry.path}#${stageId}/${unitId}/incumbent_response_assignment`,
+            "incumbent response work must start after candidate formation, use lightweight candidate scans, and reserve targeted deep dives for retained candidates",
+            { expectedIncumbentDepth },
+          ),
+        );
+      }
       if (
         (scope.kind === "none" && candidateRefs.length !== 0) ||
         (scope.kind === "retained" && candidateRefs.length !== 0) ||
@@ -475,6 +503,8 @@ function validateDispatchBatch(
       unit === undefined ||
       lane === undefined ||
       task.lane_role !== lane.lane_role ||
+      canonicalJson(task.incumbent_response_assignment) !==
+        canonicalJson(lane.incumbent_response_assignment) ||
       task.research_goal !== unit.research_goal ||
       !sameStrings(strings(task.input_refs), strings(unit.input_refs)) ||
       task.allowed_output_path !== lane.submission_path ||

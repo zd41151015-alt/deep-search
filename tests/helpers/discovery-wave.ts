@@ -102,10 +102,30 @@ export function discoveryWaveEnvelopes(
       blocks_stage: true,
     },
   };
+  const candidateRefs = [
+    ...new Set(
+      tasks.flatMap((task) => {
+        const requirements = task.document.commercial_research_requirements as Record<
+          string,
+          unknown
+        >;
+        const assignment = requirements.incumbent_response_assignment as Record<string, unknown>;
+        return Array.isArray(assignment.subject_refs)
+          ? assignment.subject_refs.filter((ref): ref is string => typeof ref === "string")
+          : [];
+      }),
+    ),
+  ];
+  const incumbentResponseAssignment = {
+    analysis_depth: "lightweight_scan",
+    subject_refs: candidateRefs,
+    rationale: "Formed candidates receive a bounded lightweight response scan.",
+  };
   const lanes = tasks.map((task) => ({
     unit_id: task.document.unit_id,
     lane_role: "evaluation",
     candidate_scope: { kind: "none", candidate_refs: [] },
+    incumbent_response_assignment: structuredClone(incumbentResponseAssignment),
     reporting_dimensions: ["demand"],
     submission_path: task.document.allowed_output_path,
     submission_schema: task.document.required_artifact_schema,
@@ -161,6 +181,7 @@ export function discoveryWaveEnvelopes(
         task_id: task.document.task_id,
         unit_id: task.document.unit_id,
         lane_role: "evaluation",
+        incumbent_response_assignment: structuredClone(incumbentResponseAssignment),
         research_goal: unit.research_goal,
         input_refs: unit.input_refs,
         allowed_output_path: task.document.allowed_output_path,

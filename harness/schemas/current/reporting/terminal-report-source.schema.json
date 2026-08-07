@@ -26,6 +26,7 @@
     "commercial_uncertainties",
     "quantitative_signal_rows",
     "competitive_substitute_rows",
+    "incumbent_response_risk_rows",
     "research_coverage_gaps",
     "gate_warnings",
     "ordered_validation_plan",
@@ -650,6 +651,12 @@
       "type": "array",
       "items": {
         "$ref": "../assessment/commercial/quantitative-competitive-research.schema.json#/$defs/competitiveMatrixRow"
+      }
+    },
+    "incumbent_response_risk_rows": {
+      "type": "array",
+      "items": {
+        "$ref": "../assessment/commercial/incumbent-response-risk.schema.json#/$defs/reportRow"
       }
     },
     "research_coverage_gaps": {

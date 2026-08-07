@@ -14,6 +14,7 @@ import {
 import {
   projectCommercialAuditTables,
   renderCompetitiveSubstituteMatrix,
+  renderIncumbentResponseRiskTable,
   renderQuantitativeSignalTable,
   renderResearchCoverageGaps,
 } from "../harness/src/reporting/commercial-report-tables.js";
@@ -120,6 +121,12 @@ function commercialAudit(): Record<string, unknown> {
     stage_decision: "early_stop_insufficient_evidence",
     ranking_eligibility: "unranked_hypothesis",
     ...unavailableQuantitativeCompetitiveCoverage(["direction_synthetic"], "2026-08-04T12:10:00Z"),
+    incumbent_response_assignment: {
+      analysis_depth: "not_assigned",
+      subject_refs: [],
+      rationale: "Synthetic baseline does not assign incumbent response research.",
+    },
+    incumbent_response_assessments: [],
     recommendation_ceiling: {
       maximum_decision_tier: "investigate_further",
       reason_codes: [
@@ -171,6 +178,7 @@ function commercialDelivery(
     judgments: [],
     quantitative_observations: [],
     competitive_observations: [],
+    incumbent_response_assessments: [],
     unresolved_gaps: [],
     limitations: ["Synthetic compiler fixture only."],
     stop_reason: "The assigned synthetic route was complete.",
@@ -191,6 +199,7 @@ function commercialCompilerTask(
     artifact_path: taskPath,
     document: {
       schema_version: "startup_opportunity.research_task.discovery_candidate.current",
+      source_phase: "candidate_generation",
       target_subject_ref: subjectRef,
       commercial_research_requirements: {
         research_stage: "solution_neutral_scan",
@@ -198,9 +207,254 @@ function commercialCompilerTask(
           required_metric_families: requiredMetricFamilies,
           required_competitor_types: requiredCompetitorTypes,
         },
+        incumbent_response_assignment: {
+          analysis_depth: "not_assigned",
+          subject_refs: [],
+          rationale: "Synthetic compiler task does not assign incumbent response research.",
+        },
       },
     },
   };
+}
+
+function incumbentResponseTask(
+  taskPath: string,
+  subjectRefs: readonly string[],
+  analysisDepth: "lightweight_scan" | "targeted_deep_dive",
+): {
+  readonly artifact_type: string;
+  readonly artifact_path: string;
+  readonly document: Record<string, unknown>;
+} {
+  const targeted = analysisDepth === "targeted_deep_dive";
+  return {
+    artifact_type: targeted
+      ? "startup_opportunity.research_task.discovery_evaluation.current"
+      : "startup_opportunity.research_task.discovery_candidate.current",
+    artifact_path: taskPath,
+    document: {
+      schema_version: targeted
+        ? "startup_opportunity.research_task.discovery_evaluation.current"
+        : "startup_opportunity.research_task.discovery_candidate.current",
+      unit_id: targeted ? "unit_response_targeted" : "unit_response_lightweight",
+      source_phase: targeted ? "enrichment_evaluation" : "candidate_evaluation",
+      ...(targeted
+        ? { target_opportunity_refs: [...subjectRefs] }
+        : { target_candidate_refs: [...subjectRefs] }),
+      commercial_research_requirements: {
+        research_stage: targeted ? "solution_specific_evaluation" : "solution_neutral_scan",
+        resource_allocation: {
+          customer_commercial_percent: 65,
+          market_structure_percent: 17,
+          academic_percent: 18,
+        },
+        planned_queries: [
+          {
+            query: "Synthetic bounded incumbent response review.",
+            commercial_dimensions: [targeted ? "solution_pricing" : "market_structure"],
+          },
+        ],
+        quantitative_competitive_scope: {
+          scan_mode: targeted ? "targeted_deep_dive" : "broad_scan",
+          required_metric_families: [],
+          required_competitor_types: [],
+          api_is_optional: true,
+          provider_allowlist_enforced: false,
+          acquisition_execution_owner: "research_agent_or_caller",
+          harness_hidden_network_calls: false,
+          prohibited_access_methods: [
+            "bypass_access_control",
+            "circumvent_captcha",
+            "circumvent_login",
+            "circumvent_paywall",
+            "store_credentials",
+          ],
+        },
+        incumbent_response_assignment: {
+          analysis_depth: analysisDepth,
+          subject_refs: [...subjectRefs],
+          rationale: targeted
+            ? "A retained opportunity receives a bounded targeted response deep dive."
+            : "Formed candidates receive a bounded lightweight response scan.",
+        },
+        required_commercial_dimensions: [
+          "recent_user_language",
+          "purchase_signal",
+          "alternatives_pricing_usage",
+          "distribution_channel",
+          "independent_counterevidence",
+        ],
+        commercial_audit_output_path: targeted
+          ? "artifacts/research-audits/response-targeted.json"
+          : "artifacts/research-audits/response-lightweight.json",
+      },
+    },
+  };
+}
+
+function responseSubject(
+  artifactPath: string,
+  subjectId: string,
+  kind: "candidate" | "opportunity" = "candidate",
+) {
+  return {
+    artifact_type:
+      kind === "candidate"
+        ? "startup_opportunity.discovery_candidate.v1"
+        : "startup_opportunity.opportunity_thesis.v1",
+    artifact_path: artifactPath,
+    document: {
+      schema_version:
+        kind === "candidate"
+          ? "startup_opportunity.discovery_candidate.v1"
+          : "startup_opportunity.opportunity_thesis.v1",
+      [kind === "candidate" ? "candidate_id" : "opportunity_id"]: subjectId,
+    },
+  };
+}
+
+function incumbentResponseSemantic(input: {
+  readonly subjectId: string;
+  readonly state?: "assessed" | "not_applicable";
+  readonly supportingRefs?: readonly string[];
+  readonly opposingRefs?: readonly string[];
+  readonly backgroundRefs?: readonly string[];
+}): Record<string, unknown> {
+  const state = input.state ?? "assessed";
+  const notApplicable = state === "not_applicable";
+  const rationale = notApplicable
+    ? "No actor controls a relevant response point for this subject under the bounded scope."
+    : "The responder can implement the feature cheaply, but has weak incentive and cannot reproduce the complete workflow.";
+  const graded = (level: string) => ({ level, rationale });
+  return {
+    subject_id: input.subjectId,
+    analysis_state: state,
+    responder_identity: notApplicable ? null : "Synthetic Suite Leader",
+    responder_category: notApplicable ? null : "suite incumbent",
+    control_point: notApplicable ? null : "bundled distribution and an adjacent workflow",
+    response_modes: notApplicable ? [] : ["copy", "bundle", "native_integration"],
+    capability_adjacency: graded(notApplicable ? "not_applicable" : "high"),
+    response_cost: {
+      implementation: graded(notApplicable ? "not_applicable" : "low"),
+      operational: graded(notApplicable ? "not_applicable" : "medium"),
+      compliance: graded(notApplicable ? "not_applicable" : "medium"),
+      data: graded(notApplicable ? "not_applicable" : "high"),
+      distribution: graded(notApplicable ? "not_applicable" : "low"),
+    },
+    incentive: {
+      level: notApplicable ? "not_applicable" : "low",
+      drivers: notApplicable ? [] : ["Protect suite engagement."],
+      disincentives: notApplicable
+        ? []
+        : ["The narrow segment does not justify operational complexity."],
+      cannibalization: notApplicable
+        ? rationale
+        : "Bundling may cannibalize a higher-margin adjacent product.",
+      rationale,
+    },
+    plausible_response_horizon: {
+      band: notApplicable ? "not_applicable" : "medium_term",
+      rationale,
+    },
+    distribution_leverage: {
+      level: notApplicable ? "not_applicable" : "high",
+      control_points: notApplicable ? [] : ["suite default placement"],
+      rationale,
+    },
+    thesis_coverage: {
+      scope: notApplicable ? "not_applicable" : "single_feature",
+      covered_elements: notApplicable ? [] : ["basic reminder generation"],
+      uncovered_elements: notApplicable
+        ? []
+        : ["vertical workflow", "service delivery", "trusted domain context"],
+      rationale,
+    },
+    residual_differentiation: {
+      overall_strength: notApplicable ? "not_applicable" : "high",
+      dimensions: notApplicable
+        ? []
+        : [
+            {
+              kind: "vertical_workflow",
+              strength: "high",
+              rationale: "The full workflow requires specialized delivery and trusted context.",
+            },
+          ],
+      rationale,
+    },
+    supporting_evidence_refs: [...(input.supportingRefs ?? [])],
+    opposing_evidence_refs: [...(input.opposingRefs ?? [])],
+    background_evidence_refs: [...(input.backgroundRefs ?? [])],
+    inference_boundary: "Ability does not establish incentive, timing, or full-thesis coverage.",
+    confidence: notApplicable ? "not_applicable" : "medium",
+    uncertainty: "No internal roadmap or commitment is known.",
+    unknowns: ["Actual prioritization and launch timing."],
+    data_gaps: ["No responder roadmap or full-workflow operating-cost disclosure."],
+    strategic_implication:
+      "Treat feature copying as strategic context while preserving the residual workflow differentiation; do not automatically eliminate or cap the candidate.",
+  };
+}
+
+function responseEvidenceSources(): readonly Record<string, unknown>[] {
+  const common = {
+    retrieved_at: "2026-08-04T12:01:00Z",
+    observed_at: null,
+    data_period_end: null,
+    coverage_keys: [],
+    disposition: "adopted",
+    exclusion_reason: null,
+  };
+  return [
+    {
+      ...common,
+      evidence_ref: "evidence/records/response-news.json",
+      source_kind: "independent",
+      source_profile: {
+        type: "news",
+        publisher: "Synthetic Newsroom",
+        published_at: "2026-08-01T00:00:00Z",
+        quotation: "The incumbent is evaluating an adjacent feature.",
+        primary_data_traceability_status: "untraced",
+        primary_data_ref: null,
+      },
+      evidence_character: "independent_report",
+      independence: "independent",
+      claim_type: "current_market_change",
+      content_summary: "A news item supports capability adjacency but not a launch commitment.",
+      published_at: "2026-08-01T00:00:00Z",
+    },
+    {
+      ...common,
+      evidence_ref: "evidence/records/response-review.json",
+      source_kind: "behavioral",
+      source_profile: {
+        type: "review",
+        platform: "Synthetic Review Forum",
+        sample_description: "A bounded set of public product reviews.",
+        selection_bias: "Self-selected reviewers.",
+        time_range: "2026-07",
+      },
+      evidence_character: "observed_behavior",
+      independence: "unknown",
+      claim_type: "current_competitor_usage",
+      content_summary: "Reviews oppose the claim that a copied feature covers the whole workflow.",
+      published_at: null,
+    },
+    {
+      ...common,
+      evidence_ref: "evidence/records/response-company.json",
+      source_kind: "vendor",
+      source_profile: {
+        type: "company_material",
+        supported_public_claims: ["product_capability", "company_statement"],
+      },
+      evidence_character: "vendor_claim",
+      independence: "interested_party",
+      claim_type: "current_product_capability",
+      content_summary: "Company material provides background on current product capability.",
+      published_at: "2026-07-30T00:00:00Z",
+    },
+  ];
 }
 
 function commercialCodes(
@@ -513,6 +767,318 @@ test("commercial semantic Evidence refs participate in explicit Bundle closure",
   );
 });
 
+test("incumbent response work starts after candidate formation and preserves bounded assignments", async () => {
+  const policy = await commercialPolicy();
+  const generationTaskPath = "tasks/discovery/unit_pre_candidate.attempt-1.json";
+  const preCandidate = compileCommercialResearchDelivery(
+    commercialDelivery({
+      incumbent_response_assessments: [
+        incumbentResponseSemantic({ subjectId: "direction_synthetic" }),
+      ],
+    }),
+    generationTaskPath,
+    [commercialCompilerTask(generationTaskPath)],
+    policy,
+  );
+  assert.ok(
+    preCandidate.issues.some(
+      (issue) => issue.code === "commercial_research.incumbent_response_before_candidate",
+    ),
+  );
+  assert.deepEqual(preCandidate.document.incumbent_response_assessments, []);
+
+  const candidateARef = "artifacts/discovery/candidates/response-a.r1.json";
+  const candidateBRef = "artifacts/discovery/candidates/response-b.r1.json";
+  const candidateA = responseSubject(candidateARef, "candidate_response_a");
+  const candidateB = responseSubject(candidateBRef, "candidate_response_b");
+  const lightweightTaskPath = "tasks/discovery/unit_response_lightweight.attempt-1.json";
+  const lightweightTask = incumbentResponseTask(
+    lightweightTaskPath,
+    [candidateARef, candidateBRef],
+    "lightweight_scan",
+  );
+  const lightweight = compileCommercialResearchDelivery(
+    commercialDelivery({
+      unit_id: "unit_response_lightweight",
+      incumbent_response_assessments: [
+        incumbentResponseSemantic({
+          subjectId: "candidate_response_a",
+          state: "not_applicable",
+        }),
+      ],
+    }),
+    lightweightTaskPath,
+    [lightweightTask, candidateA, candidateB],
+    policy,
+  );
+  assert.deepEqual(lightweight.issues, []);
+  const lightweightAssessments = lightweight.document.incumbent_response_assessments as Record<
+    string,
+    unknown
+  >[];
+  assert.deepEqual(
+    lightweightAssessments.map((assessment) => ({
+      depth: assessment.analysis_depth,
+      subject: (assessment.semantic as Record<string, unknown>).subject_id,
+      state: (assessment.semantic as Record<string, unknown>).analysis_state,
+    })),
+    [
+      {
+        depth: "lightweight_scan",
+        subject: "candidate_response_a",
+        state: "not_applicable",
+      },
+      { depth: "lightweight_scan", subject: "candidate_response_b", state: "unknown" },
+    ],
+  );
+  assert.equal(new Set(lightweightAssessments.map((entry) => entry.assessment_id)).size, 2);
+
+  const crossBound = compileCommercialResearchDelivery(
+    commercialDelivery({
+      unit_id: "unit_response_lightweight",
+      incumbent_response_assessments: [
+        incumbentResponseSemantic({ subjectId: "candidate_from_another_lane" }),
+      ],
+    }),
+    lightweightTaskPath,
+    [lightweightTask, candidateA, candidateB],
+    policy,
+  );
+  assert.ok(
+    crossBound.issues.some(
+      (issue) => issue.code === "commercial_research.delivery_subject_out_of_scope",
+    ),
+  );
+
+  const opportunityRef = "artifacts/discovery/opportunities/response-top.r1.json";
+  const opportunity = responseSubject(opportunityRef, "opportunity_response_top", "opportunity");
+  const targetedTaskPath = "tasks/discovery/enrichment/unit_response_targeted.attempt-1.json";
+  const targetedTask = incumbentResponseTask(
+    targetedTaskPath,
+    [opportunityRef],
+    "targeted_deep_dive",
+  );
+  const targeted = compileCommercialResearchDelivery(
+    commercialDelivery({ unit_id: "unit_response_targeted" }),
+    targetedTaskPath,
+    [targetedTask, opportunity],
+    policy,
+  );
+  const targetedAssessment = (
+    targeted.document.incumbent_response_assessments as Record<string, unknown>[]
+  )[0];
+  assert.ok(targetedAssessment);
+  assert.equal(targetedAssessment.analysis_depth, "targeted_deep_dive");
+  assert.equal((targetedAssessment.semantic as Record<string, unknown>).analysis_state, "unknown");
+});
+
+test("high response ability remains judgment context and preserves every Evidence role", async () => {
+  const policy = await commercialPolicy();
+  assert.deepEqual(policy.incumbent_response_automatic_effects, {
+    gate: false,
+    ranking_eligibility: false,
+    claim_confidence: false,
+    recommendation_ceiling: false,
+    artifact_publication: false,
+  });
+  const candidateRef = "artifacts/discovery/candidates/response-risk.r1.json";
+  const candidate = responseSubject(candidateRef, "candidate_response_risk");
+  const taskPath = "tasks/discovery/unit_response_lightweight.attempt-1.json";
+  const task = incumbentResponseTask(taskPath, [candidateRef], "lightweight_scan");
+  const sources = responseEvidenceSources();
+  const baseDelivery = commercialDelivery({
+    unit_id: "unit_response_lightweight",
+    evidence_sources: sources,
+    claims: [
+      {
+        subject_id: "candidate_response_risk",
+        statement: "The incumbent has adjacent implementation capability.",
+        evidence_refs: ["evidence/records/response-news.json"],
+        confidence: "medium",
+      },
+    ],
+  });
+  const unknown = compileCommercialResearchDelivery(
+    baseDelivery,
+    taskPath,
+    [task, candidate],
+    policy,
+  ).document;
+  const riskDelivery = structuredClone(baseDelivery);
+  riskDelivery.incumbent_response_assessments = [
+    incumbentResponseSemantic({
+      subjectId: "candidate_response_risk",
+      supportingRefs: ["evidence/records/response-news.json"],
+      opposingRefs: ["evidence/records/response-review.json"],
+      backgroundRefs: ["evidence/records/response-company.json"],
+    }),
+  ];
+  const validator = await createArtifactValidator(repositoryRoot);
+  assert.equal(validator.validateDocument(riskDelivery).valid, true);
+  const compiled = compileCommercialResearchDelivery(
+    riskDelivery,
+    taskPath,
+    [task, candidate],
+    policy,
+  ).document;
+
+  assert.equal(compiled.ranking_eligibility, unknown.ranking_eligibility);
+  assert.deepEqual(compiled.recommendation_ceiling, unknown.recommendation_ceiling);
+  assert.equal(
+    (compiled.claims as Record<string, unknown>[])[0]?.confidence,
+    (unknown.claims as Record<string, unknown>[])[0]?.confidence,
+  );
+  const assessment = (compiled.incumbent_response_assessments as Record<string, unknown>[])[0];
+  const semantic = assessment?.semantic as Record<string, unknown>;
+  assert.equal((semantic.capability_adjacency as Record<string, unknown>).level, "high");
+  assert.equal((semantic.incentive as Record<string, unknown>).level, "low");
+  assert.equal((semantic.thesis_coverage as Record<string, unknown>).scope, "single_feature");
+  assert.equal(
+    (semantic.residual_differentiation as Record<string, unknown>).overall_strength,
+    "high",
+  );
+  assert.deepEqual(
+    (compiled.evidence_register as Record<string, unknown>[]).map(
+      (entry) => (entry.source_profile as Record<string, unknown>).type,
+    ),
+    ["news", "review", "company_material"],
+  );
+  assert.deepEqual(semantic.supporting_evidence_refs, ["evidence/records/response-news.json"]);
+  assert.deepEqual(semantic.opposing_evidence_refs, ["evidence/records/response-review.json"]);
+  assert.deepEqual(semantic.background_evidence_refs, ["evidence/records/response-company.json"]);
+
+  const broken = structuredClone(compiled);
+  const brokenAssessment = (
+    broken.incumbent_response_assessments as Record<string, unknown>[]
+  )[0] as Record<string, unknown>;
+  (brokenAssessment.semantic as Record<string, unknown>).opposing_evidence_refs = [
+    "evidence/records/missing-response-counterevidence.json",
+  ];
+  const brokenCodes = validateCommercialResearchContract(
+    [
+      {
+        path: candidateRef,
+        schemaVersion: candidate.artifact_type,
+        document: candidate.document,
+      },
+      { path: taskPath, schemaVersion: task.artifact_type, document: task.document },
+      {
+        path: "artifacts/research-audits/response-lightweight.json",
+        schemaVersion: "startup_opportunity.commercial_research_audit.current",
+        document: broken,
+      },
+    ],
+    policy,
+  ).map((issue) => issue.code);
+  assert.ok(brokenCodes.includes("commercial_research.incumbent_response_evidence_unregistered"));
+});
+
+test("all formal report sources project response rows and explicit gaps", async () => {
+  const policy = await commercialPolicy();
+  const candidateARef = "artifacts/discovery/candidates/report-response-a.r1.json";
+  const candidateBRef = "artifacts/discovery/candidates/report-response-b.r1.json";
+  const candidateA = responseSubject(candidateARef, "candidate_report_response_a");
+  const candidateB = responseSubject(candidateBRef, "candidate_report_response_b");
+  const taskPath = "tasks/discovery/unit_response_lightweight.attempt-1.json";
+  const task = incumbentResponseTask(taskPath, [candidateARef, candidateBRef], "lightweight_scan");
+  const audit = compileCommercialResearchDelivery(
+    commercialDelivery({
+      unit_id: "unit_response_lightweight",
+      incumbent_response_assessments: [
+        incumbentResponseSemantic({
+          subjectId: "candidate_report_response_a",
+          state: "not_applicable",
+        }),
+      ],
+    }),
+    taskPath,
+    [task, candidateA, candidateB],
+    policy,
+  ).document;
+  const auditRef = "artifacts/research-audits/response-lightweight.json";
+  const projection = commercialReportProjection([{ auditRef, audit }]);
+  const reportDocuments = [
+    ["artifacts/reporting/discovery-report.json", "startup_opportunity.report.v1"],
+    [
+      "artifacts/reporting/concept-evidence-report.json",
+      "startup_opportunity.concept_evidence_report.v1",
+    ],
+    ["artifacts/reporting/terminal-source.json", "startup_opportunity.terminal_report_source.v1"],
+  ].map(([reportPath, schemaVersion]) => ({
+    path: reportPath as string,
+    schemaVersion: schemaVersion as string,
+    document: { ...projection },
+  }));
+  const issues = validateCommercialResearchContract(
+    [
+      {
+        path: candidateARef,
+        schemaVersion: candidateA.artifact_type,
+        document: candidateA.document,
+      },
+      {
+        path: candidateBRef,
+        schemaVersion: candidateB.artifact_type,
+        document: candidateB.document,
+      },
+      { path: taskPath, schemaVersion: task.artifact_type, document: task.document },
+      {
+        path: auditRef,
+        schemaVersion: "startup_opportunity.commercial_research_audit.current",
+        document: audit,
+      },
+      ...reportDocuments,
+    ],
+    policy,
+  );
+  assert.equal(
+    issues.some(
+      (issue) => issue.code === "commercial_research.report_incumbent_response_projection_mismatch",
+    ),
+    false,
+  );
+  assert.equal((projection.incumbent_response_risk_rows as unknown[]).length, 2);
+  const table = renderIncumbentResponseRiskTable(projection);
+  assert.match(table, /Potential Responder \/ Control Point/);
+  assert.match(table, /candidate_report_response_a/);
+  assert.match(table, /not_applicable/);
+  assert.match(table, /candidate_report_response_b/);
+  assert.match(table, /unknown/);
+  assert.match(table, /Strategic Implication/);
+
+  const drifted = structuredClone(reportDocuments);
+  for (const report of drifted) report.document.incumbent_response_risk_rows = [];
+  const driftCodes = validateCommercialResearchContract(
+    [
+      { path: taskPath, schemaVersion: task.artifact_type, document: task.document },
+      {
+        path: candidateARef,
+        schemaVersion: candidateA.artifact_type,
+        document: candidateA.document,
+      },
+      {
+        path: candidateBRef,
+        schemaVersion: candidateB.artifact_type,
+        document: candidateB.document,
+      },
+      {
+        path: auditRef,
+        schemaVersion: "startup_opportunity.commercial_research_audit.current",
+        document: audit,
+      },
+      ...drifted,
+    ],
+    policy,
+  ).filter(
+    (issue) => issue.code === "commercial_research.report_incumbent_response_projection_mismatch",
+  );
+  assert.equal(driftCodes.length, 3);
+
+  const unassignedTable = renderIncumbentResponseRiskTable({ incumbent_response_risk_rows: [] });
+  assert.match(unassignedTable, /Data gap: post-candidate incumbent absorption/);
+  assert.match(unassignedTable, /does not trigger automatic elimination/);
+});
+
 test("commercial coverage keeps incomplete candidates unranked and rejects academic or vendor substitution", async () => {
   const policy = await commercialPolicy();
   const unranked = commercialAudit();
@@ -617,6 +1183,7 @@ test("commercial coverage keeps incomplete candidates unranked and rejects acade
       path: "tasks/discovery/unit_retention_synthetic.attempt-1.json",
       schemaVersion: "startup_opportunity.research_task.discovery_candidate.current",
       document: {
+        source_phase: "candidate_generation",
         commercial_research_requirements: {
           commercial_audit_output_path: "artifacts/research-audits/unit_retention_synthetic.json",
         },
@@ -1154,6 +1721,7 @@ test("coverage follows assigned metric families and substitute types without fab
       path: "tasks/discovery/unit_commercial_synthetic.attempt-1.json",
       schemaVersion: "startup_opportunity.research_task.discovery_candidate.current",
       document: {
+        source_phase: "candidate_generation",
         commercial_research_requirements: {
           research_stage: "solution_neutral_scan",
           quantitative_competitive_scope: {
@@ -1172,6 +1740,7 @@ test("coverage follows assigned metric families and substitute types without fab
               "store_credentials",
             ],
           },
+          incumbent_response_assignment: structuredClone(completeGap.incumbent_response_assignment),
         },
       },
     },
@@ -1825,6 +2394,7 @@ test("claim confidence uses only related gaps while overall ceiling remains cons
     judgments: [],
     quantitative_observations: [],
     competitive_observations: [],
+    incumbent_response_assessments: [],
     unresolved_gaps: [
       {
         coverage_kind: "quantitative",
@@ -1848,12 +2418,18 @@ test("claim confidence uses only related gaps while overall ceiling remains cons
     artifact_path: taskPath,
     document: {
       schema_version: "startup_opportunity.research_task.discovery_candidate.current",
+      source_phase: "candidate_generation",
       target_subject_ref: "concept-price",
       commercial_research_requirements: {
         research_stage: "solution_neutral_scan",
         quantitative_competitive_scope: {
           required_metric_families: ["retention_outcomes"],
           required_competitor_types: [],
+        },
+        incumbent_response_assignment: {
+          analysis_depth: "not_assigned",
+          subject_refs: [],
+          rationale: "Synthetic price task does not assign incumbent response research.",
         },
       },
     },

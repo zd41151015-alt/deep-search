@@ -68,8 +68,8 @@
     },
     "section_ids": {
       "type": "array",
-      "minItems": 11,
-      "maxItems": 11,
+      "minItems": 12,
+      "maxItems": 12,
       "uniqueItems": true,
       "items": {
         "enum": [
@@ -80,6 +80,7 @@
           "decisive_evidence",
           "quantitative_signals",
           "competitive_substitute_matrix",
+          "incumbent_absorption_and_response_risk",
           "research_coverage_gaps",
           "ordered_validation_plan",
           "freshness",

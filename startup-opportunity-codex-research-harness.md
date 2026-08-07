@@ -470,6 +470,14 @@ API 是 agent 可选择的数据获取手段，不是唯一手段。不存在 pr
 
 每个必需维度使用 `observed | partial | unavailable | not_applicable`。`partial` 和 `unavailable` 必须记录查询尝试、原因、替代指标和对排序/结论的影响；没有可辩护数据时必须显式显示 gap，绝不能为满足 schema 生成数值。
 
+### 6.29 头部公司吸收与响应风险是候选后的参考 Artifact
+
+候选或 concept 形成后，系统才研究 Incumbent Absorption & Response Risk。solution-neutral candidate generation 不得出现该分析；formed candidate evaluation 可做 bounded `lightweight_scan`，shortlist/retained opportunity 或 assessment commercial stage 才由 Execution Plan/Dispatch 对 exact subject refs 分配 `targeted_deep_dive`。不得对所有候选执行无界深挖。
+
+潜在 responder 不限同类大公司，还包括 platform owner、suite incumbent、adjacent leader、channel/distribution controller、data owner、marketplace 或其他控制关键入口的主体。每个判断分别记录 responder/category/control point、开放 response modes（例如 copy、bundle、native integration、API/platform move、pricing/subsidy、acquire、restrict/block）、capability adjacency、implementation/operational/compliance/data/distribution cost、incentive/disincentive/cannibalization、plausible response horizon、distribution leverage、single-feature/partial-workflow/full-value-proposition thesis coverage、residual differentiation、supporting/opposing/background Evidence、inference boundary、confidence/uncertainty、unknown/data gap 和 strategic implication。
+
+Ability 不能推导 incentive、时间或必然响应；复制 feature 不能推导完整 thesis 已被覆盖。该 Artifact 只作 aggregate/synthesis 的 judgment context，不是 Gate，不自动淘汰或 unrank，不自动降低 Claim confidence，不产生 recommendation ceiling，也不阻止 Lane、候选、Audit 或报告发布。缺 Evidence 时由 Harness 为已分配 subject 投影 `unknown`；确实无相关 responder 时 Agent 提交 `not_applicable`。新闻、评论、论坛、厂商、监管、API/数据集、proxy/estimate 及支持/反对/背景材料继续 preserve first, weight later；伪造、broken exact ref/hash、跨 Run、敏感信息、访问控制和错误引用仍 fail closed。
+
 ## 7. 总体架构
 
 ### 7.1 三层模型
@@ -2902,6 +2910,7 @@ Pre-kill 规则：
 | Opportunity Clusterer | theses、semantic features | `MergeResult` | 按 user/job/scene/baseline/solution 判断合并，不只看标题相似度 |
 | Judgment Enricher | merged opportunities、evidence gaps | enrichment plan/results | 只补充会影响决策的市场、买单、获客、风险和反证 |
 | Business Engine Enricher | opportunity refs、buyer/acquisition evidence | `BusinessEngineThesis` | 所有候选适用；使用区间和 unknown，不以宽泛 TAM 替代可触达市场 |
+| Incumbent Response Analyst | formed candidate/opportunity/concept refs、assigned depth、Evidence | commercial delivery response semantics | 候选后执行；区分 ability、cost、incentive、horizon、thesis coverage 和 residual differentiation；只作 judgment context |
 | AI Capability Benchmarker | AI solution refs、target task、baseline candidates | `AICapabilityBenchmark` | 优先可复现实测；无法实测时 `desk_research_only` |
 | Value/Context/Buyer Enricher | opportunity refs、evidence | value、state/context、buyer language artifacts | workflow/outcome、授权状态和购买语言必须分别判断 |
 | Opportunity Comparator | enriched opportunities、decision/comparison policy | `OpportunityComparison` | 先 hard gate；按四个独立面板比较；unknown 不补默认高分；默认不输出全局总分 |
@@ -3839,7 +3848,9 @@ insufficient_evidence
 
 量化和竞品 Lane 覆盖由 Dispatch 驱动。每个 Lane 只闭合明确分配的 metric families 和 competitor types；定性 Lane 可分配空数组。`partial | unavailable | not_applicable` 是诚实、可发布的状态。八类量化和七类替代的整体完整性只在候选、Wave 或终态聚合时评估，不能要求每个 Lane 填满。来源集中、vendor-only 和缺少独立交叉验证产生 warning，并确定性降低 Claim confidence、ranking eligibility 或 disposition/recommendation ceiling，不能仅显示文字后继续给出强结论。
 
-Agent-authored commercial delivery 只包含研究语义：研究目标、主要 route、正式记录的搜索结果、Evidence 来源与内容、Finding/Claim/Judgment、量化与竞品 observation、未解决 Gap、limitations、停止原因及 telemetry 声明。Harness compiler 确定性生成正式 `commercial_research_audit` 的 ID、revision/hash/refs、`derived_valid_as_of`、freshness、adopted source distribution、business/coverage closure、Search/Evidence reconciliation、confidence/ranking 和 recommendation ceiling。报告中的 quantitative rows、competitive rows 和 coverage gaps 只从正式 audit 投影；caller 副本会被覆盖，projection mismatch 只表示 Harness 内部不变量失败。
+Incumbent Response 与这些强度派生隔离。Execution Plan/Dispatch 只为候选后的 exact subjects 分配 `lightweight_scan | targeted_deep_dive`，Lane 一次性交付完整语义，Harness 生成稳定 assessment ID/ref/hash 和 `unknown` coverage。Response assessment 可以被 synthesis 引用，但 policy 固定其 automatic effects 为 Gate/ranking eligibility/Claim confidence/recommendation ceiling/artifact publication 全部 `false`；任何影响排序或建议的使用都必须来自显式、可解释的 agent synthesis 文本，而不是 deterministic validator。
+
+Agent-authored commercial delivery 只包含研究语义：研究目标、主要 route、正式记录的搜索结果、Evidence 来源与内容、Finding/Claim/Judgment、量化与竞品 observation、Incumbent Response semantics、未解决 Gap、limitations、停止原因及 telemetry 声明。Harness compiler 确定性生成正式 `commercial_research_audit` 的 ID、revision/hash/refs、`derived_valid_as_of`、freshness、adopted source distribution、business/coverage closure、Search/Evidence reconciliation、confidence/ranking、recommendation ceiling 和 response report rows。报告中的 quantitative rows、competitive rows、incumbent response rows 和 coverage gaps 只从正式 audit 投影；caller 副本会被覆盖，projection mismatch 只表示 Harness 内部不变量失败。
 
 Search Log 的约束服从可观测能力。`telemetry_basis=unavailable` 和 `query_log_complete=false` 是正常披露，不要求伪造逐次浏览器查询；reconciliation 只覆盖正式记录的搜索结果与 Evidence Register。监管状态只有在 adopted Evidence 被用于支持当前监管判断时为 error；候选、历史背景或 rejected source 为 warning。Gap 到 recommendation ceiling 的映射至少覆盖缺购买/付费信号、缺独立竞品采用数据、缺留存、监管状态未确认和只有新闻趋势。
 
@@ -4716,7 +4727,8 @@ source repetition stop
 - 简报和报告不输出 global score，也不把 confidence 或 panel band 描述为成功概率。
 - Validation Suggestion 的 `effort_band` 只表达相对复杂度，不输出资源配置，也不声称适配用户实际资金预算。
 - 外部 Validation Suggestion 固定声明 `execution_owner=user`、`execution_supported=false` 和 `result_tracking_supported=false`。
-- 三种正式报告都固定生成量化信号表、竞品/替代矩阵和 coverage gap 表；表格是所有 cited commercial audit 的 exact projection，空数据仍显示 unavailable/gap，不退化为新闻链接列表。
+- 三种正式报告都固定生成量化信号表、竞品/替代矩阵、头部公司吸收与响应风险表和 coverage gap 表；表格是所有 cited commercial audit 的 exact projection，空数据仍显示 unavailable/unknown/not_applicable/gap，不退化为新闻链接列表。
+- Fixture 覆盖候选形成前 `not_assigned`、formed candidate lightweight scan、shortlist/concept targeted deep dive、unknown/not_applicable 正常发布、多候选 subject 隔离、ability 高但 incentive 低且只覆盖单一 feature 的反例、三类 Evidence role、broken ref fail closed，以及高风险不自动 unrank、降低 Claim confidence 或触发 recommendation ceiling。
 
 ### 29.10 领域合同完整性
 

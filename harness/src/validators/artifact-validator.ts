@@ -311,19 +311,56 @@ function refsFromNestedObjectArray(
   if (!Array.isArray(values)) return [];
   return values.flatMap((value, index) => {
     if (!isRecord(value) || !isRecord(value[objectField])) return [];
-    const ref = value[objectField][refField];
-    return typeof ref === "string"
-      ? [
-          {
-            instancePath: `/${arrayField}/${index}/${objectField}/${refField}`,
-            ref,
-            expectedSchemaVersions:
-              typeof expectedSchemaVersion === "string"
-                ? [expectedSchemaVersion]
-                : expectedSchemaVersion,
-          },
-        ]
-      : [];
+    const nested = value[objectField][refField];
+    const refs = typeof nested === "string" ? [nested] : Array.isArray(nested) ? nested : [];
+    return refs.flatMap((ref, refIndex) =>
+      typeof ref === "string"
+        ? [
+            {
+              instancePath: `/${arrayField}/${index}/${objectField}/${refField}${Array.isArray(nested) ? `/${refIndex}` : ""}`,
+              ref,
+              expectedSchemaVersions:
+                typeof expectedSchemaVersion === "string"
+                  ? [expectedSchemaVersion]
+                  : expectedSchemaVersion,
+            },
+          ]
+        : [],
+    );
+  });
+}
+
+function refsFromNestedNestedObjectArray(
+  document: Record<string, unknown>,
+  outerArrayField: string,
+  innerArrayField: string,
+  objectField: string,
+  refField: string,
+  expectedSchemaVersion: string | readonly string[],
+): readonly ReferenceRequirement[] {
+  const outerValues = document[outerArrayField];
+  if (!Array.isArray(outerValues)) return [];
+  return outerValues.flatMap((outer, outerIndex) => {
+    if (!isRecord(outer) || !Array.isArray(outer[innerArrayField])) return [];
+    return outer[innerArrayField].flatMap((inner, innerIndex) => {
+      if (!isRecord(inner) || !isRecord(inner[objectField])) return [];
+      const nested = inner[objectField][refField];
+      const refs = typeof nested === "string" ? [nested] : Array.isArray(nested) ? nested : [];
+      return refs.flatMap((ref, refIndex) =>
+        typeof ref === "string"
+          ? [
+              {
+                instancePath: `/${outerArrayField}/${outerIndex}/${innerArrayField}/${innerIndex}/${objectField}/${refField}${Array.isArray(nested) ? `/${refIndex}` : ""}`,
+                ref,
+                expectedSchemaVersions:
+                  typeof expectedSchemaVersion === "string"
+                    ? [expectedSchemaVersion]
+                    : expectedSchemaVersion,
+              },
+            ]
+          : [],
+      );
+    });
   });
 }
 
@@ -2869,6 +2906,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.research_task.discovery_candidate.current",
           "startup_opportunity.research_task.discovery_evaluation.current",
         ]),
+        ...refsFromObjectArray(document, "incumbent_response_assignment", "subject_refs", [
+          "startup_opportunity.discovery_candidate.v1",
+          "startup_opportunity.opportunity_thesis.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+        ]),
         ...refsFromNestedArray(document, "evidence_register", "evidence_ref", [
           "startup_opportunity.evidence.assessment.current",
           "startup_opportunity.evidence.discovery_candidate.current",
@@ -2909,6 +2952,45 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.assessment_evidence.v1",
           "startup_opportunity.candidate_neutral_evidence.v1",
         ]),
+        ...refsFromNestedObjectArray(
+          document,
+          "incumbent_response_assessments",
+          "semantic",
+          "supporting_evidence_refs",
+          [
+            "startup_opportunity.evidence.assessment.current",
+            "startup_opportunity.evidence.discovery_candidate.current",
+            "startup_opportunity.evidence.discovery_evaluation.current",
+            "startup_opportunity.assessment_evidence.v1",
+            "startup_opportunity.candidate_neutral_evidence.v1",
+          ],
+        ),
+        ...refsFromNestedObjectArray(
+          document,
+          "incumbent_response_assessments",
+          "semantic",
+          "opposing_evidence_refs",
+          [
+            "startup_opportunity.evidence.assessment.current",
+            "startup_opportunity.evidence.discovery_candidate.current",
+            "startup_opportunity.evidence.discovery_evaluation.current",
+            "startup_opportunity.assessment_evidence.v1",
+            "startup_opportunity.candidate_neutral_evidence.v1",
+          ],
+        ),
+        ...refsFromNestedObjectArray(
+          document,
+          "incumbent_response_assessments",
+          "semantic",
+          "background_evidence_refs",
+          [
+            "startup_opportunity.evidence.assessment.current",
+            "startup_opportunity.evidence.discovery_candidate.current",
+            "startup_opportunity.evidence.discovery_evaluation.current",
+            "startup_opportunity.assessment_evidence.v1",
+            "startup_opportunity.candidate_neutral_evidence.v1",
+          ],
+        ),
         ...refsFromNestedArray(document, "findings", "evidence_refs", [
           "startup_opportunity.evidence.assessment.current",
           "startup_opportunity.evidence.discovery_candidate.current",
@@ -3047,6 +3129,19 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "gate_before",
           "startup_opportunity.discovery_stage_readiness.v1",
         ),
+        ...refsFromNestedNestedObjectArray(
+          document,
+          "stages",
+          "lanes",
+          "incumbent_response_assignment",
+          "subject_refs",
+          [
+            "startup_opportunity.discovery_candidate.v1",
+            "startup_opportunity.opportunity_thesis.v1",
+            "startup_opportunity.concept_hypothesis.assessment.current",
+            "startup_opportunity.concept_hypothesis.assessment_intake.current",
+          ],
+        ),
       ];
     case "startup_opportunity.research_execution_plan.assessment.current":
       return [
@@ -3061,6 +3156,19 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "concept_hypothesis_ref",
           "startup_opportunity.concept_hypothesis.assessment_intake.current",
         ),
+        ...refsFromNestedNestedObjectArray(
+          document,
+          "stages",
+          "lanes",
+          "incumbent_response_assignment",
+          "subject_refs",
+          [
+            "startup_opportunity.discovery_candidate.v1",
+            "startup_opportunity.opportunity_thesis.v1",
+            "startup_opportunity.concept_hypothesis.assessment.current",
+            "startup_opportunity.concept_hypothesis.assessment_intake.current",
+          ],
+        ),
       ];
     case "startup_opportunity.dispatch_batch.discovery.current":
       return [
@@ -3070,6 +3178,18 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.research_execution_plan.discovery.current",
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromNestedObjectArray(
+          document,
+          "tasks",
+          "incumbent_response_assignment",
+          "subject_refs",
+          [
+            "startup_opportunity.discovery_candidate.v1",
+            "startup_opportunity.opportunity_thesis.v1",
+            "startup_opportunity.concept_hypothesis.assessment.current",
+            "startup_opportunity.concept_hypothesis.assessment_intake.current",
+          ],
+        ),
       ];
     case "startup_opportunity.dispatch_batch.assessment.current":
       return [
@@ -3080,6 +3200,18 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "gate_ref", "startup_opportunity.assessment_stage_gate.v1"),
+        ...refsFromNestedObjectArray(
+          document,
+          "tasks",
+          "incumbent_response_assignment",
+          "subject_refs",
+          [
+            "startup_opportunity.discovery_candidate.v1",
+            "startup_opportunity.opportunity_thesis.v1",
+            "startup_opportunity.concept_hypothesis.assessment.current",
+            "startup_opportunity.concept_hypothesis.assessment_intake.current",
+          ],
+        ),
       ];
     case "startup_opportunity.assessment_evidence.v1":
       return [

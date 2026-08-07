@@ -30,6 +30,8 @@
     "quantitative_coverage",
     "competitive_objects",
     "competitive_coverage",
+    "incumbent_response_assignment",
+    "incumbent_response_assessments",
     "coverage",
     "uncovered_business_dimensions",
     "wave1_signals",
@@ -834,6 +836,13 @@
       "items": {
         "$ref": "./quantitative-competitive-research.schema.json#/$defs/competitiveCoverage"
       }
+    },
+    "incumbent_response_assignment": {
+      "$ref": "./incumbent-response-risk.schema.json#/$defs/assignment"
+    },
+    "incumbent_response_assessments": {
+      "type": "array",
+      "items": { "$ref": "./incumbent-response-risk.schema.json#/$defs/assessment" }
     },
     "coverage": {
       "type": "object",

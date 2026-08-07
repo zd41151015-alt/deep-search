@@ -33,6 +33,7 @@
         "resource_allocation",
         "planned_queries",
         "quantitative_competitive_scope",
+        "incumbent_response_assignment",
         "required_commercial_dimensions",
         "commercial_audit_output_path"
       ],
@@ -84,6 +85,9 @@
         },
         "quantitative_competitive_scope": {
           "$ref": "./quantitative-competitive-research.schema.json#/$defs/researchScope"
+        },
+        "incumbent_response_assignment": {
+          "$ref": "./incumbent-response-risk.schema.json#/$defs/assignment"
         },
         "required_commercial_dimensions": {
           "type": "array",

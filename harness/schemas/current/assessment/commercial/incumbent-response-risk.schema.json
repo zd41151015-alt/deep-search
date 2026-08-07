@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/commercial/incumbent-response-risk.schema.json",
+  "title": "Startup Opportunity Incumbent Absorption And Response Risk",
+  "$defs": {
+    "analysisDepth": {
+      "enum": ["not_assigned", "lightweight_scan", "targeted_deep_dive"]
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["analysis_depth", "subject_refs", "rationale"],
+      "properties": {
+        "analysis_depth": { "$ref": "#/$defs/analysisDepth" },
+        "subject_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "rationale": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "analysis_depth": { "const": "not_assigned" } },
+            "required": ["analysis_depth"]
+          },
+          "then": {
+            "properties": { "subject_refs": { "type": "array", "maxItems": 0 } }
+          },
+          "else": {
+            "properties": { "subject_refs": { "type": "array", "minItems": 1 } }
+          }
+        }
+      ]
+    },
+    "assessmentLevel": {
+      "enum": ["high", "medium", "low", "unknown", "not_applicable"]
+    },
+    "gradedAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "rationale"],
+      "properties": {
+        "level": { "$ref": "#/$defs/assessmentLevel" },
+        "rationale": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "responseCost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["implementation", "operational", "compliance", "data", "distribution"],
+      "properties": {
+        "implementation": { "$ref": "#/$defs/gradedAssessment" },
+        "operational": { "$ref": "#/$defs/gradedAssessment" },
+        "compliance": { "$ref": "#/$defs/gradedAssessment" },
+        "data": { "$ref": "#/$defs/gradedAssessment" },
+        "distribution": { "$ref": "#/$defs/gradedAssessment" }
+      }
+    },
+    "incentive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "drivers", "disincentives", "cannibalization", "rationale"],
+      "properties": {
+        "level": { "$ref": "#/$defs/assessmentLevel" },
+        "drivers": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "disincentives": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "cannibalization": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "rationale": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "responseHorizon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["band", "rationale"],
+      "properties": {
+        "band": {
+          "enum": [
+            "immediate",
+            "near_term",
+            "medium_term",
+            "long_term",
+            "unknown",
+            "not_applicable"
+          ]
+        },
+        "rationale": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "distributionLeverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "control_points", "rationale"],
+      "properties": {
+        "level": { "$ref": "#/$defs/assessmentLevel" },
+        "control_points": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "rationale": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "thesisCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "covered_elements", "uncovered_elements", "rationale"],
+      "properties": {
+        "scope": {
+          "enum": [
+            "single_feature",
+            "partial_workflow",
+            "full_value_proposition",
+            "unknown",
+            "not_applicable"
+          ]
+        },
+        "covered_elements": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "uncovered_elements": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "rationale": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "residualDifferentiation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["overall_strength", "dimensions", "rationale"],
+      "properties": {
+        "overall_strength": { "$ref": "#/$defs/assessmentLevel" },
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "strength", "rationale"],
+            "properties": {
+              "kind": {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+              },
+              "strength": { "$ref": "#/$defs/assessmentLevel" },
+              "rationale": {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+              }
+            }
+          }
+        },
+        "rationale": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "assessmentInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_id",
+        "analysis_state",
+        "responder_identity",
+        "responder_category",
+        "control_point",
+        "response_modes",
+        "capability_adjacency",
+        "response_cost",
+        "incentive",
+        "plausible_response_horizon",
+        "distribution_leverage",
+        "thesis_coverage",
+        "residual_differentiation",
+        "supporting_evidence_refs",
+        "opposing_evidence_refs",
+        "background_evidence_refs",
+        "inference_boundary",
+        "confidence",
+        "uncertainty",
+        "unknowns",
+        "data_gaps",
+        "strategic_implication"
+      ],
+      "properties": {
+        "subject_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "analysis_state": { "enum": ["assessed", "unknown", "not_applicable"] },
+        "responder_identity": {
+          "anyOf": [
+            {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+            },
+            { "type": "null" }
+          ]
+        },
+        "responder_category": {
+          "anyOf": [
+            {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+            },
+            { "type": "null" }
+          ]
+        },
+        "control_point": {
+          "anyOf": [
+            {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+            },
+            { "type": "null" }
+          ]
+        },
+        "response_modes": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "capability_adjacency": { "$ref": "#/$defs/gradedAssessment" },
+        "response_cost": { "$ref": "#/$defs/responseCost" },
+        "incentive": { "$ref": "#/$defs/incentive" },
+        "plausible_response_horizon": { "$ref": "#/$defs/responseHorizon" },
+        "distribution_leverage": { "$ref": "#/$defs/distributionLeverage" },
+        "thesis_coverage": { "$ref": "#/$defs/thesisCoverage" },
+        "residual_differentiation": { "$ref": "#/$defs/residualDifferentiation" },
+        "supporting_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "opposing_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "background_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "inference_boundary": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "confidence": { "enum": ["high", "medium", "low", "unknown", "not_applicable"] },
+        "uncertainty": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "unknowns": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "data_gaps": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "strategic_implication": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "analysis_state": { "const": "assessed" } },
+            "required": ["analysis_state"]
+          },
+          "then": {
+            "properties": {
+              "responder_identity": { "type": "string", "minLength": 1 },
+              "responder_category": { "type": "string", "minLength": 1 },
+              "control_point": { "type": "string", "minLength": 1 },
+              "response_modes": { "type": "array", "minItems": 1 },
+              "confidence": { "enum": ["high", "medium", "low"] }
+            },
+            "anyOf": [
+              { "properties": { "supporting_evidence_refs": { "type": "array", "minItems": 1 } } },
+              { "properties": { "opposing_evidence_refs": { "type": "array", "minItems": 1 } } },
+              { "properties": { "background_evidence_refs": { "type": "array", "minItems": 1 } } }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": { "analysis_state": { "const": "unknown" } },
+            "required": ["analysis_state"]
+          },
+          "then": { "properties": { "confidence": { "const": "unknown" } } }
+        },
+        {
+          "if": {
+            "properties": { "analysis_state": { "const": "not_applicable" } },
+            "required": ["analysis_state"]
+          },
+          "then": {
+            "properties": {
+              "response_modes": { "type": "array", "maxItems": 0 },
+              "confidence": { "const": "not_applicable" }
+            }
+          }
+        }
+      ]
+    },
+    "assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assessment_id", "analysis_depth", "semantic"],
+      "properties": {
+        "assessment_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "analysis_depth": {
+          "enum": ["lightweight_scan", "targeted_deep_dive"]
+        },
+        "semantic": { "$ref": "#/$defs/assessmentInput" }
+      }
+    },
+    "reportRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["audit_ref", "assessment"],
+      "properties": {
+        "audit_ref": {
+          "type": "string",
+          "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+        },
+        "assessment": { "$ref": "#/$defs/assessment" }
+      }
+    }
+  }
+}

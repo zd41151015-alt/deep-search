@@ -14,7 +14,9 @@ Decision Brief 按 `research_language` 本地化 Harness 自己生成的固定�
 
 每个方向必须直观写清谁使用、什么场景、什么问题、产品具体做什么、当前替代、谁付款、为何现在值得看。商业维度在审计来源中明确区分 `observed`、`inferred` 和 `unknown`；用户正文可以保留有依据的推测，但必须呈现依据、推理、不确定性和待验证项，不能写成已观察事实。没有直接商业材料支持的方向不能成为第一优先或已成立机会，只能是未排序待验证假设；Vendor-only 方向也保持低置信度待验证，直到有独立或行为材料验证。
 
-所有正式完整报告固定包含量化信号表、竞品/广义替代矩阵和数据缺口表。量化表显示 metric family/name/value、definition、地域、周期、measurement type、可比性、误差/不确定性和 Evidence refs；竞争矩阵显示 direct/adjacent product、service、platform、manual workaround、status quo、non-consumption 的定位、价格/traction refs、优势、弱点和差异化缺口；gap 表显示查询尝试、原因、替代指标和对排序/结论的影响。没有 observation/object 时也输出 unavailable/gap 行，不能只列新闻链接或静默省略。
+所有正式完整报告固定包含量化信号表、竞品/广义替代矩阵、头部公司吸收与响应风险表和数据缺口表。量化表显示 metric family/name/value、definition、地域、周期、measurement type、可比性、误差/不确定性和 Evidence refs；竞争矩阵显示 direct/adjacent product、service、platform、manual workaround、status quo、non-consumption 的定位、价格/traction refs、优势、弱点和差异化缺口；响应表显示 subject/depth/state、responder/category/control point、response modes、ability/cost、incentive/disincentive/cannibalization、horizon、distribution leverage、thesis coverage、residual differentiation、supporting/opposing/background Evidence、inference boundary、uncertainty/gap 和 strategic implication；gap 表显示查询尝试、原因、替代指标和对排序/结论的影响。没有 observation/object/response research 时也输出 unavailable/unknown/not_applicable/gap 行，不能只列新闻链接或静默省略。
+
+响应风险表只提供战略判断上下文。报告不得把高 ability 写成必然响应，不得把 feature copying 写成完整 thesis 已覆盖，也不得把该表本身解释为淘汰、unrank、Claim confidence reduction 或 recommendation ceiling 的确定性原因。任何实际影响排序或建议的使用都必须出现在 agent-authored synthesis 的可解释文本中，并继续受原有 Evidence、comparison 和 recommendation contracts 约束。
 
 完整 report 在相同 judgment context 上展开来源链、业务对象、比较或评估维度、风险、停止条件、来源审计，以及可选的用户自主管理验证建议。它不得引入 `report.json` 中不存在的结论，也不得把 assessment 描述为已完成的市场验证。最终 source 必须纳入原 Run 的全部 validated Evidence：采用的来源进入结论链，未采用的来源保留明确排除理由；所有计划 lane 都必须有 Search Closure 后才能发布。
 

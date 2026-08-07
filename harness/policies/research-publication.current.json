@@ -202,7 +202,16 @@
     ],
     "solution_neutral_stage": "solution_neutral_scan",
     "solution_specific_stage": "solution_specific_evaluation",
-    "wave1_early_stop_signal_keys": ["demand", "buyer", "purchase"]
+    "wave1_early_stop_signal_keys": ["demand", "buyer", "purchase"],
+    "incumbent_response_research_stage": "post_candidate_only",
+    "incumbent_response_decision_role": "judgment_context_only",
+    "incumbent_response_automatic_effects": {
+      "gate": false,
+      "ranking_eligibility": false,
+      "claim_confidence": false,
+      "recommendation_ceiling": false,
+      "artifact_publication": false
+    }
   },
   "terminal_reporting_contract": {
     "source_artifact_type": "startup_opportunity.terminal_report_source.v1",

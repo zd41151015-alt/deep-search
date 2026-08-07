@@ -1,3 +1,4 @@
+import { canonicalContentHash } from "../../harness/src/artifact-store/canonical.js";
 import { projectCommercialAuditTables } from "../../harness/src/reporting/commercial-report-tables.js";
 
 export const SYNTHETIC_METRIC_FAMILIES = [
@@ -91,6 +92,60 @@ function records(value: unknown): readonly Record<string, unknown>[] {
     : [];
 }
 
+function unknownIncumbentResponse(subjectId: string): Record<string, unknown> {
+  const rationale =
+    "No responder-specific assessment was delivered for the assigned subject; the reference risk remains unknown and does not change ranking, confidence, ceilings, or publication.";
+  const unknown = () => ({ level: "unknown", rationale });
+  return {
+    subject_id: subjectId,
+    analysis_state: "unknown",
+    responder_identity: null,
+    responder_category: null,
+    control_point: null,
+    response_modes: [],
+    capability_adjacency: unknown(),
+    response_cost: {
+      implementation: unknown(),
+      operational: unknown(),
+      compliance: unknown(),
+      data: unknown(),
+      distribution: unknown(),
+    },
+    incentive: {
+      level: "unknown",
+      drivers: [],
+      disincentives: [],
+      cannibalization: rationale,
+      rationale,
+    },
+    plausible_response_horizon: { band: "unknown", rationale },
+    distribution_leverage: { level: "unknown", control_points: [], rationale },
+    thesis_coverage: {
+      scope: "unknown",
+      covered_elements: [],
+      uncovered_elements: [],
+      rationale,
+    },
+    residual_differentiation: {
+      overall_strength: "unknown",
+      dimensions: [],
+      rationale,
+    },
+    supporting_evidence_refs: [],
+    opposing_evidence_refs: [],
+    background_evidence_refs: [],
+    inference_boundary: rationale,
+    confidence: "unknown",
+    uncertainty: rationale,
+    unknowns: [
+      "Potential responder identity, ability, incentive, and response horizon are unknown.",
+    ],
+    data_gaps: ["No incumbent absorption and response Evidence was delivered."],
+    strategic_implication:
+      "Treat incumbent response risk as an unresolved strategic question; no automatic candidate or recommendation action follows.",
+  };
+}
+
 export function unavailableCommercialResearchAudit(input: {
   readonly runId: string;
   readonly taskRef: string;
@@ -100,7 +155,9 @@ export function unavailableCommercialResearchAudit(input: {
 }): Record<string, unknown> {
   const requirements = input.task.commercial_research_requirements as Record<string, unknown>;
   const allocation = requirements.resource_allocation as Record<string, unknown>;
+  const incumbentAssignment = requirements.incumbent_response_assignment as Record<string, unknown>;
   const unitId = String(input.task.unit_id);
+  const coveredSubjectIds = [...input.coveredSubjectIds].sort();
   const uncovered = [
     "recent_user_language",
     "purchase_signal",
@@ -109,9 +166,23 @@ export function unavailableCommercialResearchAudit(input: {
     "independent_counterevidence",
   ];
   const quantitativeCompetitive = unavailableQuantitativeCompetitiveCoverage(
-    input.coveredSubjectIds,
+    coveredSubjectIds,
     input.auditedAt,
   );
+  const incumbentResponseAssessments =
+    incumbentAssignment.analysis_depth === "not_assigned"
+      ? []
+      : coveredSubjectIds.map((subjectId) => {
+          const semantic = unknownIncumbentResponse(subjectId);
+          return {
+            assessment_id: `incumbent_response_${canonicalContentHash([unitId, semantic]).slice(
+              "sha256:".length,
+              "sha256:".length + 24,
+            )}`,
+            analysis_depth: incumbentAssignment.analysis_depth,
+            semantic,
+          };
+        });
   return {
     schema_version: "startup_opportunity.commercial_research_audit.current",
     audit_id: `commercial_audit_${unitId}`,
@@ -120,7 +191,7 @@ export function unavailableCommercialResearchAudit(input: {
     execution_plan_ref: null,
     dispatch_task_ref: null,
     task_ref: input.taskRef,
-    covered_direction_ids: [...input.coveredSubjectIds],
+    covered_direction_ids: coveredSubjectIds,
     research_stage: requirements.research_stage,
     audited_at: input.auditedAt,
     planned_resource_allocation: allocation,
@@ -157,6 +228,8 @@ export function unavailableCommercialResearchAudit(input: {
     },
     evidence_register: [],
     ...quantitativeCompetitive,
+    incumbent_response_assignment: structuredClone(incumbentAssignment),
+    incumbent_response_assessments: incumbentResponseAssessments,
     coverage: Object.fromEntries(
       uncovered.map((key) => [
         key,
@@ -181,7 +254,7 @@ export function unavailableCommercialResearchAudit(input: {
         "missing_retention_evidence",
       ],
     },
-    subject_recommendation_ceilings: input.coveredSubjectIds.map((subjectId) => ({
+    subject_recommendation_ceilings: coveredSubjectIds.map((subjectId) => ({
       subject_id: subjectId,
       maximum_decision_tier: "investigate_further",
       reason_codes: [

@@ -86,6 +86,7 @@
           "demand_alternatives_solution_failure",
           "quantitative_signals",
           "competitive_substitute_matrix",
+          "incumbent_absorption_and_response_risk",
           "competition_and_differentiation",
           "buyer_acquisition_business_engine",
           "feasibility_compliance_ai_bundle",
@@ -96,8 +97,8 @@
           "limitations_and_sources"
         ]
       },
-      "minItems": 14,
-      "maxItems": 14,
+      "minItems": 15,
+      "maxItems": 15,
       "uniqueItems": true
     },
     "markdown": {

@@ -262,6 +262,11 @@ function task(
         },
       ],
       quantitative_competitive_scope: quantitativeCompetitiveScope("targeted_deep_dive"),
+      incumbent_response_assignment: {
+        analysis_depth: "targeted_deep_dive",
+        subject_refs: [...OPPORTUNITIES],
+        rationale: "Shortlisted opportunities receive a targeted incumbent response deep dive.",
+      },
       required_commercial_dimensions: [
         "recent_user_language",
         "purchase_signal",
@@ -1185,15 +1190,29 @@ export async function createDiscoveryEvaluationFixture(
     .map(([taskRef, taskDocument]) => {
       const requirements = taskDocument.commercial_research_requirements as Record<string, unknown>;
       const auditRef = String(requirements.commercial_audit_output_path);
+      const targetRefs = [
+        ...((taskDocument.target_candidate_refs as string[] | undefined) ?? []),
+        ...((taskDocument.target_opportunity_refs as string[] | undefined) ?? []),
+      ];
+      const coveredSubjectIds = targetRefs.map((targetRef) => {
+        const target = documents.get(targetRef) ?? {};
+        return String(
+          target.candidate_id ??
+            target.opportunity_id ??
+            target.direction_id ??
+            targetRef.split("#", 2)[1] ??
+            targetRef
+              .split("/")
+              .at(-1)
+              ?.replace(/\.json$/u, "") ??
+            targetRef,
+        );
+      });
       const audit = unavailableCommercialResearchAudit({
         runId,
         taskRef,
         task: taskDocument,
-        coveredSubjectIds:
-          taskDocument.schema_version ===
-          "startup_opportunity.research_task.discovery_candidate.current"
-            ? ["discovery_candidate_set"]
-            : ["opportunity_household", "opportunity_workflow"],
+        coveredSubjectIds,
         auditedAt: "2026-07-27T21:20:00Z",
       });
       add(auditRef, audit);

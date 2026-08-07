@@ -172,6 +172,7 @@ export interface CommercialAuditProjection {
   readonly commercial_research_audit_refs: readonly string[];
   readonly quantitative_signal_rows: readonly Record<string, unknown>[];
   readonly competitive_substitute_rows: readonly Record<string, unknown>[];
+  readonly incumbent_response_risk_rows: readonly Record<string, unknown>[];
   readonly research_coverage_gaps: readonly Record<string, unknown>[];
 }
 
@@ -189,6 +190,12 @@ export function projectCommercialAuditTables(
     records(audit.document.competitive_objects).map((competitiveObject) => ({
       audit_ref: audit.path,
       competitive_object: competitiveObject,
+    })),
+  );
+  const incumbentResponseRows = sortedAudits.flatMap((audit) =>
+    records(audit.document.incumbent_response_assessments).map((assessment) => ({
+      audit_ref: audit.path,
+      assessment,
     })),
   );
   const gapRows = sortedAudits.flatMap((audit) => [
@@ -282,10 +289,128 @@ export function projectCommercialAuditTables(
         `${right.audit_ref}:${String((right.competitive_object as Record<string, unknown>).competitive_object_id)}`,
       ),
     ),
+    incumbent_response_risk_rows: incumbentResponseRows.sort((left, right) =>
+      `${left.audit_ref}:${String((left.assessment as Record<string, unknown>).assessment_id)}`.localeCompare(
+        `${right.audit_ref}:${String((right.assessment as Record<string, unknown>).assessment_id)}`,
+      ),
+    ),
     research_coverage_gaps: gapRows.sort((left, right) =>
       rowKey(left).localeCompare(rowKey(right)),
     ),
   };
+}
+
+function graded(value: unknown, zh: boolean): string {
+  if (!isRecord(value)) return "-";
+  return `${display(value.level, zh)}: ${display(value.rationale, zh)}`;
+}
+
+export function renderIncumbentResponseRiskTable(
+  source: Readonly<Record<string, unknown>>,
+  zh = false,
+): string {
+  const rows = records(source.incumbent_response_risk_rows);
+  const headers = zh
+    ? [
+        "对象 / 深度",
+        "潜在响应者 / 控制点",
+        "响应方式",
+        "能力邻近度",
+        "响应成本",
+        "动机 / 抑制因素",
+        "响应时间",
+        "分发杠杆",
+        "可覆盖 Thesis 范围",
+        "剩余差异化",
+        "支持 / 反证 / 背景来源",
+        "不确定性与数据缺口",
+        "战略含义",
+      ]
+    : [
+        "Subject / Depth",
+        "Potential Responder / Control Point",
+        "Response Modes",
+        "Capability Adjacency",
+        "Response Cost",
+        "Incentive / Disincentives",
+        "Response Horizon",
+        "Distribution Leverage",
+        "Thesis Coverage",
+        "Residual Differentiation",
+        "Supporting / Opposing / Background Evidence",
+        "Uncertainty And Data Gaps",
+        "Strategic Implication",
+      ];
+  const body = rows.map((row) => {
+    const assessment = isRecord(row.assessment) ? row.assessment : {};
+    const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+    const costs = isRecord(semantic.response_cost) ? semantic.response_cost : {};
+    const incentive = isRecord(semantic.incentive) ? semantic.incentive : {};
+    const horizon = isRecord(semantic.plausible_response_horizon)
+      ? semantic.plausible_response_horizon
+      : {};
+    const distribution = isRecord(semantic.distribution_leverage)
+      ? semantic.distribution_leverage
+      : {};
+    const coverage = isRecord(semantic.thesis_coverage) ? semantic.thesis_coverage : {};
+    const residual = isRecord(semantic.residual_differentiation)
+      ? semantic.residual_differentiation
+      : {};
+    const residualDimensions = records(residual.dimensions).map(
+      (dimension) =>
+        `${display(dimension.kind, zh)} (${display(dimension.strength, zh)}): ${display(dimension.rationale, zh)}`,
+    );
+    return [
+      `${display(semantic.subject_id, zh)} / ${display(assessment.analysis_depth, zh)} / ${display(semantic.analysis_state, zh)}`,
+      `${display(semantic.responder_identity, zh)} / ${display(semantic.responder_category, zh)} / ${display(semantic.control_point, zh)}`,
+      displayList(semantic.response_modes, zh),
+      graded(semantic.capability_adjacency, zh),
+      [
+        `${zh ? "实施" : "implementation"}: ${graded(costs.implementation, zh)}`,
+        `${zh ? "运营" : "operational"}: ${graded(costs.operational, zh)}`,
+        `${zh ? "合规" : "compliance"}: ${graded(costs.compliance, zh)}`,
+        `${zh ? "数据" : "data"}: ${graded(costs.data, zh)}`,
+        `${zh ? "分发" : "distribution"}: ${graded(costs.distribution, zh)}`,
+      ].join("<br>"),
+      `${display(incentive.level, zh)}: ${display(incentive.rationale, zh)}<br>${zh ? "驱动" : "drivers"}: ${displayList(incentive.drivers, zh)}<br>${zh ? "抑制" : "disincentives"}: ${displayList(incentive.disincentives, zh)}<br>${zh ? "自我蚕食" : "cannibalization"}: ${display(incentive.cannibalization, zh)}`,
+      `${display(horizon.band, zh)}: ${display(horizon.rationale, zh)}`,
+      `${graded(distribution, zh)}<br>${displayList(distribution.control_points, zh)}`,
+      `${display(coverage.scope, zh)}: ${display(coverage.rationale, zh)}<br>${zh ? "已覆盖" : "covered"}: ${displayList(coverage.covered_elements, zh)}<br>${zh ? "未覆盖" : "uncovered"}: ${displayList(coverage.uncovered_elements, zh)}`,
+      `${display(residual.overall_strength, zh)}: ${display(residual.rationale, zh)}${residualDimensions.length === 0 ? "" : `<br>${residualDimensions.join("<br>")}`}`,
+      `${zh ? "支持" : "supporting"}: ${auditReferenceSummary(semantic.supporting_evidence_refs, zh)}<br>${zh ? "反证" : "opposing"}: ${auditReferenceSummary(semantic.opposing_evidence_refs, zh)}<br>${zh ? "背景" : "background"}: ${auditReferenceSummary(semantic.background_evidence_refs, zh)}`,
+      `${display(semantic.confidence, zh)}: ${display(semantic.uncertainty, zh)}<br>${zh ? "推理边界" : "inference boundary"}: ${display(semantic.inference_boundary, zh)}<br>${zh ? "未知" : "unknowns"}: ${displayList(semantic.unknowns, zh)}<br>${zh ? "数据缺口" : "data gaps"}: ${displayList(semantic.data_gaps, zh)}`,
+      display(semantic.strategic_implication, zh),
+    ];
+  });
+  if (body.length === 0) {
+    body.push([
+      zh ? "报告范围 / 未分配 / 未知" : "Report scope / not assigned / unknown",
+      zh
+        ? "未知：没有已提交的潜在响应者研究"
+        : "Unknown: no potential responder research was submitted",
+      "-",
+      zh ? "未知" : "unknown",
+      zh ? "未知" : "unknown",
+      zh ? "未知" : "unknown",
+      zh ? "未知" : "unknown",
+      zh ? "未知" : "unknown",
+      zh ? "未知" : "unknown",
+      zh ? "未知" : "unknown",
+      "-",
+      zh
+        ? "数据缺口：未分配或未提交候选形成后的头部公司吸收与响应研究"
+        : "Data gap: post-candidate incumbent absorption and response research was not assigned or submitted",
+      zh
+        ? "该风险保持未知，仅作待补战略参考；不触发自动淘汰、降置信度或建议上限。"
+        : "The risk remains an open strategic question only; it does not trigger automatic elimination, confidence reduction, or a recommendation ceiling.",
+    ]);
+  }
+  return [
+    `| ${headers.join(" | ")} |`,
+    `| ${headers.map(() => "---").join(" | ")} |`,
+    ...body.map((row) => `| ${row.map(cell).join(" | ")} |`),
+    "",
+  ].join("\n");
 }
 
 function cell(value: unknown): string {

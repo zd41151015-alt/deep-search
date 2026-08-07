@@ -16,6 +16,8 @@ G2.4 enrichment Evidence 使用 v3 document/v12 或 repaired v13 envelope，但�
 
 遵循 preserve first, weight later：新闻、评论、论坛、厂商披露、监管材料、API/数据集、proxy、estimate 和支持/反对/背景材料均保留，不设置来源白名单。每个商业维度明确区分 `observed`、`inferred` 和 `unknown`；一个来源可以覆盖多个维度，但每个维度都要有自己的数据点、摘录或明确事实。缺少直接材料时，能合理推测就保留为 `inferred` 并写清依据引用、推理起点、推理过程、不确定性和待验证项；无法合理推测才是 `unknown`。来源类型、证据角色、freshness、独立性和局限决定 Claim 强度，不把弱材料过滤成不存在。
 
+Incumbent Response research 复用同一来源与 Evidence Store，不创建 provider/API 白名单或平行 Store。对每个 assigned subject 先识别可能控制关键入口的 responder，再分别研究 ability/capability adjacency、implementation/operational/compliance/data/distribution cost、incentive 与 disincentive/cannibalization、plausible horizon、distribution leverage、response modes、可覆盖的 thesis 范围和 residual differentiation。支持、反对和背景 refs 分开保存；“能做”与“会做”、单一 feature 与完整 workflow/value proposition 必须保持为不同推理命题。找不到 responder-specific 材料时记录 `unknown`、inference boundary、limitations 和 data gaps；确实无相关控制点时记录 `not_applicable`。这些状态正常发布，不构成 Gate 或自动决策副作用。
+
 量化/竞争 audit 另用 `observed | partial | unavailable | not_applicable` 表达 coverage。量化 observation 必须记录 definition、地域、周期、measurement/estimation、sample/population、误差、不确定性和可比性；rank、ratings、downloads、MAU 等 proxy 不得冒充购买、付费人数或市场验证。每个 `partial`/`unavailable` 维度保留查询尝试、原因、替代指标和 decision impact，不为补 schema 伪造数值。
 
 厂商材料可以证明其公开报价、宣称功能、定位和“厂商作出某项声明”，应保留为 `vendor_claim`；它不能单独证明真实购买、价格接受度、效果、留存或市场规模。Vendor-only 候选可作为低置信度、未排序待验证假设并披露独立材料缺口，只有与行为数据或独立来源交叉验证后才能升级。

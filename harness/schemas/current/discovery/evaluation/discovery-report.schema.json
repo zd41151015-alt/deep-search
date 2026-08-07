@@ -32,6 +32,7 @@
     "commercial_research_audit_refs",
     "quantitative_signal_rows",
     "competitive_substitute_rows",
+    "incumbent_response_risk_rows",
     "research_coverage_gaps",
     "gate_warnings",
     "traceability_ref",
@@ -194,6 +195,12 @@
       "type": "array",
       "items": {
         "$ref": "../../assessment/commercial/quantitative-competitive-research.schema.json#/$defs/competitiveMatrixRow"
+      }
+    },
+    "incumbent_response_risk_rows": {
+      "type": "array",
+      "items": {
+        "$ref": "../../assessment/commercial/incumbent-response-risk.schema.json#/$defs/reportRow"
       }
     },
     "research_coverage_gaps": {

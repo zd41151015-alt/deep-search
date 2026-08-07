@@ -72,6 +72,11 @@ function allocation() {
 
 function commercialRequirements(
   researchStage: "solution_neutral_scan" | "solution_specific_evaluation" = "solution_neutral_scan",
+  incumbentResponseAssignment: Readonly<Record<string, unknown>> = {
+    analysis_depth: "not_assigned",
+    subject_refs: [],
+    rationale: "Candidate-specific incumbent response research starts only after candidates form.",
+  },
 ) {
   return {
     research_stage: researchStage,
@@ -124,6 +129,7 @@ function commercialRequirements(
         "store_credentials",
       ],
     },
+    incumbent_response_assignment: incumbentResponseAssignment,
     required_commercial_dimensions: [
       "recent_user_language",
       "purchase_signal",
@@ -222,6 +228,19 @@ function assessmentPlanning(request: ScaffoldRequest): ScaffoldArtifact {
           {
             unit_id: `unit_assessment_${index + 1}`,
             lane_role: stage.lane_role,
+            incumbent_response_assignment:
+              stage.stage_kind === "assessment_commercial"
+                ? {
+                    analysis_depth: "targeted_deep_dive",
+                    subject_refs: [CONCEPT_REF],
+                    rationale:
+                      "The formed concept receives a targeted incumbent response deep dive in the commercial stage.",
+                  }
+                : {
+                    analysis_depth: "not_assigned",
+                    subject_refs: [],
+                    rationale: "This assessment stage does not own incumbent response research.",
+                  },
             reporting_dimensions: stage.dimensions,
             submission_path: `artifacts/assessment/lanes/unit-assessment-${index + 1}.attempt-1.json`,
             submission_schema: "startup_opportunity.assessment_lane_result.v1",
@@ -272,6 +291,12 @@ function planning(request: ScaffoldRequest): ScaffoldArtifact {
               unit_id: "unit_scaffold",
               lane_role: "opportunity",
               candidate_scope: { kind: "none", candidate_refs: [] },
+              incumbent_response_assignment: {
+                analysis_depth: "not_assigned",
+                subject_refs: [],
+                rationale:
+                  "Candidate-specific incumbent response research starts only after candidates form.",
+              },
               reporting_dimensions: ["commercial_behavior"],
               submission_path: "artifacts/discovery/generation/unit_scaffold.r1.json",
               submission_schema: "startup_opportunity.discovery_generation_result.v1",
@@ -307,7 +332,11 @@ function assessmentTask(request: ScaffoldRequest): ScaffoldArtifact {
       wave_id: "wave_assessment_scaffold",
       unit_type: "buyer_language",
       research_goal: PLACEHOLDER,
-      commercial_research_requirements: commercialRequirements("solution_specific_evaluation"),
+      commercial_research_requirements: commercialRequirements("solution_specific_evaluation", {
+        analysis_depth: "targeted_deep_dive",
+        subject_refs: [CONCEPT_REF],
+        rationale: "The formed concept receives a targeted incumbent response deep dive.",
+      }),
       target_subject_ref: CONCEPT_REF,
       scope_frame_ref: SCOPE_REF,
       research_plan_ref: PLAN_REF,
@@ -401,6 +430,11 @@ function assessmentDispatch(request: ScaffoldRequest): ScaffoldArtifact {
           task_id: "task_unit_assessment_scaffold",
           unit_id: "unit_assessment_scaffold",
           lane_role: "commercial",
+          incumbent_response_assignment: {
+            analysis_depth: "targeted_deep_dive",
+            subject_refs: [CONCEPT_REF],
+            rationale: "The formed concept receives a targeted incumbent response deep dive.",
+          },
           reporting_dimensions: [
             "buyer_language_and_willingness_to_pay",
             "acquisition_and_distribution",
@@ -438,6 +472,12 @@ function dispatch(request: ScaffoldRequest): ScaffoldArtifact {
           task_id: "task_unit_scaffold",
           unit_id: "unit_scaffold",
           lane_role: "opportunity",
+          incumbent_response_assignment: {
+            analysis_depth: "not_assigned",
+            subject_refs: [],
+            rationale:
+              "Candidate-specific incumbent response research starts only after candidates form.",
+          },
           research_goal: PLACEHOLDER,
           input_refs: [CANDIDATE_REF, SCOPE_REF],
           allowed_output_path: "artifacts/discovery/generation/unit_scaffold.r1.json",
@@ -778,6 +818,7 @@ function terminalReportSource(request: ScaffoldRequest): ScaffoldArtifact {
       commercial_uncertainties: [],
       quantitative_signal_rows: [],
       competitive_substitute_rows: [],
+      incumbent_response_risk_rows: [],
       research_coverage_gaps: [],
       gate_warnings: [],
       ordered_validation_plan: [],

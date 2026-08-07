@@ -1,4 +1,4 @@
-import { canonicalJson } from "../artifact-store/canonical.js";
+import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import { projectCommercialAuditTables } from "../reporting/commercial-report-tables.js";
 import { projectGateWarnings } from "./gate-diagnostics.js";
 import type { ValidationIssue } from "./schema-bundle.js";
@@ -24,6 +24,15 @@ export interface CommercialResearchPolicy {
   readonly solution_neutral_stage: string;
   readonly solution_specific_stage: string;
   readonly wave1_early_stop_signal_keys: readonly string[];
+  readonly incumbent_response_research_stage: "post_candidate_only";
+  readonly incumbent_response_decision_role: "judgment_context_only";
+  readonly incumbent_response_automatic_effects: Readonly<{
+    gate: false;
+    ranking_eligibility: false;
+    claim_confidence: false;
+    recommendation_ceiling: false;
+    artifact_publication: false;
+  }>;
 }
 
 export const REQUIRED_RANKING_KEYS = [
@@ -166,6 +175,35 @@ function sameStringSet(left: unknown, right: readonly string[]): boolean {
   return canonicalJson([...strings(left)].sort()) === canonicalJson([...right].sort());
 }
 
+function stableId(prefix: string, value: unknown): string {
+  return `${prefix}_${canonicalContentHash(value).slice("sha256:".length, "sha256:".length + 24)}`;
+}
+
+function subjectIdFromRef(
+  ref: string,
+  documentsByPath: ReadonlyMap<string, CommercialResearchDocument>,
+): string {
+  const [targetPath = ref, fragment] = ref.split("#", 2);
+  if (fragment !== undefined && fragment !== "") return fragment;
+  const target = documentsByPath.get(targetPath)?.document ?? {};
+  for (const field of [
+    "opportunity_id",
+    "direction_id",
+    "candidate_id",
+    "concept_hypothesis_id",
+    "hypothesis_id",
+  ]) {
+    if (typeof target[field] === "string") return target[field];
+  }
+  return (
+    targetPath
+      .split("/")
+      .at(-1)
+      ?.replace(/\.json$/u, "")
+      .replace(/[^A-Za-z0-9._:-]+/gu, "_") ?? targetPath
+  );
+}
+
 function containsUnredactedSensitiveMaterial(value: unknown): boolean {
   if (typeof value !== "string") return false;
   if (/\b(?:authorization|cookie|set-cookie)\s*:/iu.test(value) || /\bbearer\s+\S+/iu.test(value)) {
@@ -180,6 +218,14 @@ function containsUnredactedSensitiveMaterial(value: unknown): boolean {
   return /(?:^|[?&;\s])(?:api[_-]?key|access[_-]?token|token|secret|password|session(?:id)?)=(?!(?:\[?redacted\]?|<redacted>)(?:[&;\s]|$))[^&;\s]+/iu.test(
     decoded,
   );
+}
+
+function incumbentTargetRefs(document: Readonly<Record<string, unknown>>): readonly string[] {
+  return [
+    ...strings(document.target_candidate_refs),
+    ...strings(document.target_opportunity_refs),
+    ...(typeof document.target_subject_ref === "string" ? [document.target_subject_ref] : []),
+  ];
 }
 
 export function deriveValidAsOf(source: Readonly<Record<string, unknown>>): string | null {
@@ -809,6 +855,49 @@ function validateScopeAndStages(
       const quantitativeScope = isRecord(requirements.quantitative_competitive_scope)
         ? requirements.quantitative_competitive_scope
         : {};
+      const incumbentAssignment = isRecord(requirements.incumbent_response_assignment)
+        ? requirements.incumbent_response_assignment
+        : {};
+      const targetRefs = incumbentTargetRefs(entry.document);
+      const assignedRefs = strings(incumbentAssignment.subject_refs);
+      const analysisDepth = incumbentAssignment.analysis_depth;
+      const sourcePhase = entry.document.source_phase;
+      const expectedIncumbentDepth =
+        entry.schemaVersion === "startup_opportunity.research_task.discovery_candidate.current"
+          ? sourcePhase === "candidate_generation"
+            ? "not_assigned"
+            : "lightweight_scan"
+          : entry.schemaVersion === "startup_opportunity.research_task.discovery_evaluation.current"
+            ? "targeted_deep_dive"
+            : null;
+      if (
+        (expectedIncumbentDepth !== null && analysisDepth !== expectedIncumbentDepth) ||
+        (entry.schemaVersion === "startup_opportunity.research_task.assessment.current" &&
+          !["not_assigned", "targeted_deep_dive"].includes(String(analysisDepth)))
+      ) {
+        errors.push(
+          issue(
+            "commercial_research.incumbent_response_stage_mismatch",
+            `${entry.path}#/commercial_research_requirements/incumbent_response_assignment`,
+            "incumbent response research must remain absent during candidate generation, use lightweight scans for formed candidates, and reserve targeted deep dives for retained opportunities or formed concepts",
+            { expectedIncumbentDepth, actualDepth: analysisDepth, sourcePhase },
+          ),
+        );
+      }
+      if (
+        analysisDepth === "not_assigned"
+          ? assignedRefs.length !== 0
+          : !sameStringSet(assignedRefs, targetRefs)
+      ) {
+        errors.push(
+          issue(
+            "commercial_research.incumbent_response_subject_binding_mismatch",
+            `${entry.path}#/commercial_research_requirements/incumbent_response_assignment/subject_refs`,
+            "an assigned incumbent response scan must bind the task's exact candidate, opportunity, or concept subject closure",
+            { assignedRefs, targetRefs },
+          ),
+        );
+      }
       const expectedScanMode =
         expectedStage === policy.solution_neutral_stage ? "broad_scan" : "targeted_deep_dive";
       if (
@@ -1650,6 +1739,96 @@ function validateAudit(
       .filter((item) => typeof item.evidence_ref === "string")
       .map((item) => [String(item.evidence_ref), item]),
   );
+  const documentsByPath = new Map(documents.map((document) => [document.path, document]));
+  const task =
+    typeof audit.task_ref === "string" ? documentsByPath.get(audit.task_ref)?.document : undefined;
+  const requirements = isRecord(task?.commercial_research_requirements)
+    ? task.commercial_research_requirements
+    : {};
+  const expectedAssignment = isRecord(requirements.incumbent_response_assignment)
+    ? requirements.incumbent_response_assignment
+    : {};
+  const actualAssignment = isRecord(audit.incumbent_response_assignment)
+    ? audit.incumbent_response_assignment
+    : {};
+  if (task !== undefined && canonicalJson(actualAssignment) !== canonicalJson(expectedAssignment)) {
+    errors.push(
+      issue(
+        "commercial_research.incumbent_response_assignment_mismatch",
+        `${entry.path}#/incumbent_response_assignment`,
+        "the formal incumbent response assignment must be the exact immutable task assignment",
+        { expected: expectedAssignment },
+      ),
+    );
+  }
+  const incumbentAssessments = records(audit.incumbent_response_assessments);
+  const targetSubjectIds = incumbentTargetRefs(task ?? {}).map((ref) =>
+    subjectIdFromRef(ref, documentsByPath),
+  );
+  if (actualAssignment.analysis_depth === "not_assigned" && incumbentAssessments.length > 0) {
+    errors.push(
+      issue(
+        "commercial_research.incumbent_response_before_candidate",
+        `${entry.path}#/incumbent_response_assessments`,
+        "candidate-neutral work cannot contain incumbent absorption or response assessments",
+      ),
+    );
+  }
+  if (actualAssignment.analysis_depth !== "not_assigned") {
+    const assessedSubjectIds = incumbentAssessments.flatMap((assessment) => {
+      const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+      return typeof semantic.subject_id === "string" ? [semantic.subject_id] : [];
+    });
+    const missingSubjectIds = targetSubjectIds.filter(
+      (subjectId) => !assessedSubjectIds.includes(subjectId),
+    );
+    const outOfScopeSubjectIds = assessedSubjectIds.filter(
+      (subjectId) => !targetSubjectIds.includes(subjectId),
+    );
+    if (missingSubjectIds.length > 0 || outOfScopeSubjectIds.length > 0) {
+      errors.push(
+        issue(
+          "commercial_research.incumbent_response_subject_binding_mismatch",
+          `${entry.path}#/incumbent_response_assessments`,
+          "each assigned subject must have an explicit assessed, unknown, or not-applicable response row and no row may cross subjects",
+          { missingSubjectIds, outOfScopeSubjectIds },
+        ),
+      );
+    }
+    for (const [index, assessment] of incumbentAssessments.entries()) {
+      const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+      const expectedId = stableId("incumbent_response", [audit.unit_id, semantic]);
+      if (
+        assessment.assessment_id !== expectedId ||
+        assessment.analysis_depth !== actualAssignment.analysis_depth
+      ) {
+        errors.push(
+          issue(
+            "commercial_research.incumbent_response_derivation_mismatch",
+            `${entry.path}#/incumbent_response_assessments/${index}`,
+            "assessment identity and depth must be derived from the task assignment and submitted semantics",
+            { expectedId, expectedDepth: actualAssignment.analysis_depth },
+          ),
+        );
+      }
+      const roleRefs = [
+        ...strings(semantic.supporting_evidence_refs),
+        ...strings(semantic.opposing_evidence_refs),
+        ...strings(semantic.background_evidence_refs),
+      ];
+      const unregisteredRefs = roleRefs.filter((ref) => !evidenceByRef.has(ref));
+      if (unregisteredRefs.length > 0) {
+        errors.push(
+          issue(
+            "commercial_research.incumbent_response_evidence_unregistered",
+            `${entry.path}#/incumbent_response_assessments/${index}/semantic`,
+            "supporting, opposing, and background response Evidence must remain in the same Audit Evidence Register",
+            { unregisteredRefs },
+          ),
+        );
+      }
+    }
+  }
   const adoptedRefs = new Set(adoptedByRef.keys());
   errors.push(...validateSearchClosure(entry, audit, adoptedRefs));
 
@@ -2148,6 +2327,7 @@ function validateCommercialReportProjections(
         basename,
         target.opportunity_id,
         target.direction_id,
+        target.candidate_id,
         target.concept_hypothesis_id,
         target.hypothesis_id,
       ].filter((value): value is string => typeof value === "string" && value !== ""),
@@ -2258,6 +2438,25 @@ function validateCommercialReportProjections(
         ),
       );
     }
+    const actualIncumbentRows = sortedProjection(
+      report.document.incumbent_response_risk_rows,
+      (row) =>
+        `${String(row.audit_ref)}:${String(isRecord(row.assessment) ? row.assessment.assessment_id : "")}`,
+    );
+    const sortedExpectedIncumbentRows = sortedProjection(
+      expectedProjection.incumbent_response_risk_rows,
+      (row) =>
+        `${String(row.audit_ref)}:${String(isRecord(row.assessment) ? row.assessment.assessment_id : "")}`,
+    );
+    if (canonicalJson(actualIncumbentRows) !== canonicalJson(sortedExpectedIncumbentRows)) {
+      errors.push(
+        issue(
+          "commercial_research.report_incumbent_response_projection_mismatch",
+          `${report.path}#/incumbent_response_risk_rows`,
+          "the incumbent absorption and response risk table must be the exact, complete projection of cited commercial audits",
+        ),
+      );
+    }
     const actualGapRows = sortedProjection(report.document.research_coverage_gaps, (row) => {
       const coverage = isRecord(row.coverage) ? row.coverage : {};
       const dimension =
@@ -2293,6 +2492,7 @@ function validateCommercialReportProjections(
         ...strings(audit.document.covered_direction_ids),
         ...(typeof task?.target_subject_ref === "string" ? [task.target_subject_ref] : []),
         ...strings(task?.target_opportunity_refs),
+        ...strings(task?.target_candidate_refs),
       ];
       return auditSubjects.some((subject) =>
         [...subjectAliases(subject)].some((alias) => decisionSubjects.has(alias)),

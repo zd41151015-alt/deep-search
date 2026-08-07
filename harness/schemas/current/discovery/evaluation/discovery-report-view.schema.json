@@ -101,8 +101,8 @@
     },
     "section_ids": {
       "type": "array",
-      "minItems": 13,
-      "maxItems": 13,
+      "minItems": 14,
+      "maxItems": 14,
       "uniqueItems": true,
       "items": {
         "enum": [
@@ -114,6 +114,7 @@
           "method_and_limitations",
           "quantitative_signals",
           "competitive_substitute_matrix",
+          "incumbent_absorption_and_response_risk",
           "top_opportunities",
           "watchlist_and_reject",
           "sensitivity",

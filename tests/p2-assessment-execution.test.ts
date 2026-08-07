@@ -211,10 +211,19 @@ function lane(
   reportingDimensions: readonly string[],
   submissionPath: string,
   dispatchGroup: string,
+  analysisDepth: "not_assigned" | "targeted_deep_dive" = "not_assigned",
 ): Record<string, unknown> {
   return {
     unit_id: unitId,
     lane_role: laneRole,
+    incumbent_response_assignment: {
+      analysis_depth: analysisDepth,
+      subject_refs: analysisDepth === "targeted_deep_dive" ? [conceptPath] : [],
+      rationale:
+        analysisDepth === "targeted_deep_dive"
+          ? "The formed concept receives a targeted incumbent response deep dive."
+          : "This lane is outside the assigned incumbent response scope.",
+    },
     reporting_dimensions: reportingDimensions,
     submission_path: submissionPath,
     submission_schema: "startup_opportunity.assessment_lane_result.v1",
@@ -282,6 +291,7 @@ function executionPlan(runId: string, plan: Record<string, unknown>): Record<str
             dimensions.slice(3, 6),
             "artifacts/assessment/lanes/commercial.attempt-1.json",
             "assessment_commercial",
+            "targeted_deep_dive",
           ),
         ],
       },
@@ -481,6 +491,7 @@ function dispatchForStage(
     task_id: `task_${String(selectedLane.unit_id)}`,
     unit_id: selectedLane.unit_id,
     lane_role: selectedLane.lane_role,
+    incumbent_response_assignment: structuredClone(selectedLane.incumbent_response_assignment),
     reporting_dimensions: selectedLane.reporting_dimensions,
     submission_path: selectedLane.submission_path,
     time_budget_minutes: selectedLane.time_budget_minutes,

@@ -12,7 +12,9 @@ Scope 是 Run Store 领域不变量。`create-run` 只能把 main agent 提出�
 
 Evidence、Claim、Finding、Insight 和 Judgment Assessment 是不同层。决定性事实、引文、反对材料和建议必须追溯到真实 Evidence。来源需显式记录 provenance、independence、bias、retrieved_at、published_at、observed_at、data_period_end、evidence character 和 limitations；valid_as_of 由 current 规则推导。Harness 不从 URL、内容或聊天推断这些判断。
 
-`startup_opportunity.commercial_research_delivery.current` 是 Lane 提交的宽松研究语义输入；`startup_opportunity.commercial_research_audit.current` 是 Harness compiler 生成的 discovery/assessment 正式 Artifact，不是 Lane 直接编写或 API 专用旁路。Delivery 只需关闭 Dispatch 分配的 metric families 和 competitor types；Harness 补齐 assigned coverage closure、unavailable/partial 行、ID/hash/ref、freshness、来源分布、ranking 和 ceiling。八个量化 family 与七类 broad substitute 的整体计划覆盖在 candidate/Wave/report 聚合显示，不转嫁为每 Lane authoring 格式成本。
+`startup_opportunity.commercial_research_delivery.current` 是 Lane 提交的宽松研究语义输入；`startup_opportunity.commercial_research_audit.current` 是 Harness compiler 生成的 discovery/assessment 正式 Artifact，不是 Lane 直接编写或 API 专用旁路。Delivery 只需关闭 Dispatch 分配的 metric families、competitor types 和 incumbent response subjects；Harness 补齐 assigned coverage closure、unavailable/partial/unknown 行、ID/hash/ref、freshness、来源分布、ranking、ceiling 和报告投影。八个量化 family 与七类 broad substitute 的整体计划覆盖在 candidate/Wave/report 聚合显示，不转嫁为每 Lane authoring 格式成本。
+
+Incumbent Response assignment 只有 `not_assigned | lightweight_scan | targeted_deep_dive`。候选形成前必须 `not_assigned`；形成后的候选可做 lightweight scan，shortlist/retained opportunity 或 formed concept 的 commercial stage 可做 targeted deep dive。正式 assessment 绑定 exact candidate/opportunity/concept subject，记录 responder/category/control point、开放 response modes、capability adjacency、五类成本、incentive/disincentive/cannibalization、horizon、distribution leverage、thesis coverage、residual differentiation、三类 Evidence role、inference boundary、confidence/uncertainty、unknown/gap 和 strategic implication。没有提交语义时 Harness 为已分配 subject 生成显式 `unknown`；确实无相关 responder 时 Agent 提交 `not_applicable`。该 Artifact 只作 judgment context，不进入 Gate、ranking eligibility、Claim confidence 或 recommendation ceiling 派生，也不阻塞发布。
 
 Acquisition provider 为开放字符串，但 raw response ref/hash、exact Evidence substrate、脱敏和 access-control const 必须闭合。新闻、评论、论坛、厂商、监管、API/数据集、proxy、estimate、支持、反对和背景 Evidence 都保留；rejected Evidence 可用于反证、来源排除和局限。rejected 或未纳入 Audit Register 的 Evidence 不能算作直接正向支持，Harness 降低相关 Claim confidence 或 recommendation ceiling并输出诊断，而不是因来源偏弱删除材料或使 Lane 整体失败。不存在、跨 Run、类型/hash 错误的 ref 仍是 error。
 
@@ -22,6 +24,6 @@ producer role 使用 `main_agent`、`lane_researcher`、`evidence_auditor`、`ad
 
 终态报告必须在原研究 Run 上生成。`insufficient_evidence`、部分执行、runtime degraded/blocked/failed 都可以如实报告，但不能创建 reporting continuation Run 绕过原 Run 状态。所有 validated Evidence 必须在 source 中采用或明确排除；用户 Markdown view 与结构化工程审计数据分离。
 
-`report.json`/terminal source 的 `commercial_research_audit_refs` 由 Harness 从 Manifest 自动闭合所有 current formal Audit；`quantitative_signal_rows`、`competitive_substitute_rows` 和 `research_coverage_gaps` 是这些 Audit 的 exact complete projection。caller 漏 ref 或重复表格由 compiler 覆盖；计划 task 确实缺少 Audit 时必须作为 warning、数据缺口和 decision impact 明确展示，不得静默生成空表。编译后正式 projection/hash 漂移在 publication、replay 和 recovery 中仍 fail closed。
+`report.json`/terminal source 的 `commercial_research_audit_refs` 由 Harness 从 Manifest 自动闭合所有 current formal Audit；`quantitative_signal_rows`、`competitive_substitute_rows`、`incumbent_response_risk_rows` 和 `research_coverage_gaps` 是这些 Audit 的 exact complete projection。caller 漏 ref 或重复表格由 compiler 覆盖；计划 task 确实缺少 Audit 时必须作为 warning、数据缺口和 decision impact 明确展示，不得静默生成空表。编译后正式 projection/hash 漂移在 publication、replay 和 recovery 中仍 fail closed。
 
 Artifact、Store、schema、report 或 recovery 成功都只证明机械 contract，不证明来源真实、Evidence 充分、市场已验证、产品可行或建议正确。

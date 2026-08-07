@@ -3,6 +3,7 @@ import { canonicalContentHash, canonicalJson, sha256Bytes } from "../artifact-st
 import {
   renderCompetitiveSubstituteMatrix,
   renderGateWarnings,
+  renderIncumbentResponseRiskTable,
   renderQuantitativeSignalTable,
   renderResearchCoverageGaps,
 } from "./commercial-report-tables.js";
@@ -20,6 +21,7 @@ const TERMINAL_REPORT_SECTION_IDS = [
   "decisive_evidence",
   "quantitative_signals",
   "competitive_substitute_matrix",
+  "incumbent_absorption_and_response_risk",
   "research_coverage_gaps",
   "ordered_validation_plan",
   "freshness",
@@ -319,6 +321,8 @@ export function renderTerminalDecisionBrief(source: Record<string, unknown>): st
     renderDirections(source, zh, true),
     `\n## ${zh ? "决定性来源与证据强弱" : "Decisive Sources And Evidence Strength"}\n`,
     renderSources(source, zh),
+    `\n## ${zh ? "头部公司吸收与响应风险" : "Incumbent Absorption And Response Risk"}\n`,
+    renderIncumbentResponseRiskTable(source, zh),
     `\n## ${zh ? "有顺序的验证建议" : "Ordered Validation Recommendations"}\n`,
     renderValidationPlan(source, zh),
     `\n## ${zh ? "有效期与局限" : "Freshness And Limitations"}\n`,
@@ -347,6 +351,8 @@ export function renderTerminalFullReport(source: Record<string, unknown>): strin
     renderQuantitativeSignalTable(source, zh),
     `\n## ${zh ? "竞品与广义替代矩阵" : "Competitive And Substitute Matrix"}\n`,
     renderCompetitiveSubstituteMatrix(source, zh),
+    `\n## ${zh ? "头部公司吸收与响应风险" : "Incumbent Absorption And Response Risk"}\n`,
+    renderIncumbentResponseRiskTable(source, zh),
     `\n## ${zh ? "数据缺口及其对排序和结论的影响" : "Research Coverage Gaps And Decision Impact"}\n`,
     renderResearchCoverageGaps(source, zh),
     `\n## ${zh ? "非阻塞门禁及决策影响" : "Gate Warnings And Decision Impact"}\n`,

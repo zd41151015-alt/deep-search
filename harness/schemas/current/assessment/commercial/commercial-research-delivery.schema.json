@@ -18,6 +18,7 @@
     "judgments",
     "quantitative_observations",
     "competitive_observations",
+    "incumbent_response_assessments",
     "unresolved_gaps",
     "limitations",
     "stop_reason",
@@ -247,6 +248,10 @@
     "competitive_observations": {
       "type": "array",
       "items": { "$ref": "#/$defs/competitiveObservationInput" }
+    },
+    "incumbent_response_assessments": {
+      "type": "array",
+      "items": { "$ref": "./incumbent-response-risk.schema.json#/$defs/assessmentInput" }
     },
     "unresolved_gaps": {
       "type": "array",
