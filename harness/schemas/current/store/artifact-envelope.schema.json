@@ -202,8 +202,7 @@
               "startup_opportunity.insight.discovery_evaluation.current",
               "startup_opportunity.judgment_assessment.discovery_evaluation.current",
               "startup_opportunity.source_manifest.discovery_evaluation.current",
-              "startup_opportunity.enrichment_branch_result.v1",
-              "startup_opportunity.commercial_research_audit.current"
+              "startup_opportunity.enrichment_branch_result.v1"
             ]
           }
         },
@@ -739,7 +738,7 @@
       "then": {
         "properties": {
           "producer_role": {
-            "const": "lane_researcher"
+            "const": "harness"
           },
           "artifact_path": {
             "type": "string",

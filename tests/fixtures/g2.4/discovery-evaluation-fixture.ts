@@ -1338,7 +1338,7 @@ export async function createDiscoveryEvaluationFixture(
       const document = documents.get(path) as Record<string, unknown>;
       const producerRole =
         String(document.schema_version) === "startup_opportunity.commercial_research_audit.current"
-          ? "lane_researcher"
+          ? "harness"
           : String(document.schema_version) ===
               "startup_opportunity.research_task.discovery_evaluation.current"
             ? "main_agent"

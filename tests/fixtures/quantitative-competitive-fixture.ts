@@ -1,3 +1,5 @@
+import { projectCommercialAuditTables } from "../../harness/src/reporting/commercial-report-tables.js";
+
 export const SYNTHETIC_METRIC_FAMILIES = [
   "demand_scale",
   "usage_behavior",
@@ -106,6 +108,10 @@ export function unavailableCommercialResearchAudit(input: {
     "distribution_channel",
     "independent_counterevidence",
   ];
+  const quantitativeCompetitive = unavailableQuantitativeCompetitiveCoverage(
+    input.coveredSubjectIds,
+    input.auditedAt,
+  );
   return {
     schema_version: "startup_opportunity.commercial_research_audit.current",
     audit_id: `commercial_audit_${unitId}`,
@@ -128,6 +134,11 @@ export function unavailableCommercialResearchAudit(input: {
       academic_percent: 0,
       guidance_deviation_observed: false,
     },
+    research_objectives: ["Record honest commercial coverage limits for this synthetic fixture."],
+    primary_routes: ["Synthetic fixture input; no external research route was executed."],
+    findings: [],
+    claims: [],
+    judgments: [],
     search_log: records(requirements.planned_queries).map((query, index) => ({
       query_id: `query_${unitId}_${index + 1}`,
       query: query.query,
@@ -145,7 +156,7 @@ export function unavailableCommercialResearchAudit(input: {
       termination_reason: "Synthetic fixture found no defensible quantitative or competitive data.",
     },
     evidence_register: [],
-    ...unavailableQuantitativeCompetitiveCoverage(input.coveredSubjectIds, input.auditedAt),
+    ...quantitativeCompetitive,
     coverage: Object.fromEntries(
       uncovered.map((key) => [
         key,
@@ -162,6 +173,24 @@ export function unavailableCommercialResearchAudit(input: {
     wave1_signals: { demand: false, buyer: false, purchase: false },
     stage_decision: "early_stop_insufficient_evidence",
     ranking_eligibility: "unranked_hypothesis",
+    recommendation_ceiling: {
+      maximum_decision_tier: "investigate_further",
+      reason_codes: [
+        "missing_independent_competitor_adoption_data",
+        "missing_purchase_or_payment_signal",
+        "missing_retention_evidence",
+      ],
+    },
+    subject_recommendation_ceilings: input.coveredSubjectIds.map((subjectId) => ({
+      subject_id: subjectId,
+      maximum_decision_tier: "investigate_further",
+      reason_codes: [
+        "missing_independent_competitor_adoption_data",
+        "missing_purchase_or_payment_signal",
+        "missing_retention_evidence",
+      ],
+    })),
+    compiler_warnings: [],
     limitations: ["SYNTHETIC contract audit; no market research was performed."],
   };
 }
@@ -173,26 +202,12 @@ export function commercialReportProjection(
   }[],
 ): Record<string, unknown> {
   return {
-    commercial_research_audit_refs: audits.map(({ auditRef }) => auditRef),
-    quantitative_signal_rows: audits.flatMap(({ auditRef, audit }) =>
-      records(audit.quantitative_observations).map((observation) => ({
-        audit_ref: auditRef,
-        observation,
+    ...projectCommercialAuditTables(
+      audits.map(({ auditRef, audit }) => ({
+        path: auditRef,
+        document: audit as Record<string, unknown>,
       })),
     ),
-    competitive_substitute_rows: audits.flatMap(({ auditRef, audit }) =>
-      records(audit.competitive_objects).map((competitiveObject) => ({
-        audit_ref: auditRef,
-        competitive_object: competitiveObject,
-      })),
-    ),
-    research_coverage_gaps: audits.flatMap(({ auditRef, audit }) => [
-      ...records(audit.quantitative_coverage)
-        .filter((coverage) => coverage.state !== "observed")
-        .map((coverage) => ({ audit_ref: auditRef, coverage_kind: "quantitative", coverage })),
-      ...records(audit.competitive_coverage)
-        .filter((coverage) => coverage.state !== "observed")
-        .map((coverage) => ({ audit_ref: auditRef, coverage_kind: "competitive", coverage })),
-    ]),
+    gate_warnings: audits.flatMap(({ audit }) => records(audit.compiler_warnings)),
   };
 }

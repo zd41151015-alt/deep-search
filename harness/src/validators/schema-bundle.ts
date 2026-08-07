@@ -2,6 +2,12 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsImport from "ajv-formats";
+import {
+  type GateCategory,
+  type GateStage,
+  gateRegistration,
+  type ValidationSeverity,
+} from "./gate-registry.js";
 
 export const CURRENT_SCHEMA_MANIFEST_PATH = "harness/schemas/current.json" as const;
 
@@ -12,6 +18,10 @@ export interface ValidationIssue {
   readonly schemaPath: string;
   readonly message: string;
   readonly details: Readonly<Record<string, unknown>>;
+  readonly severity?: ValidationSeverity;
+  readonly category?: GateCategory;
+  readonly stages?: readonly GateStage[];
+  readonly mechanicallyDerivable?: boolean;
 }
 
 interface SchemaManifestEntry {
@@ -247,11 +257,34 @@ function inspectReferences(schemas: ReadonlyMap<string, LoadedSchema>): readonly
 }
 
 export function sortIssues(issues: readonly ValidationIssue[]): readonly ValidationIssue[] {
-  return [...issues].sort((left, right) =>
-    [left.instancePath, left.code, left.schemaPath, left.message]
-      .join("\0")
-      .localeCompare([right.instancePath, right.code, right.schemaPath, right.message].join("\0")),
-  );
+  return issues
+    .map(withGateMetadata)
+    .sort((left, right) =>
+      [left.instancePath, left.code, left.schemaPath, left.message]
+        .join("\0")
+        .localeCompare(
+          [right.instancePath, right.code, right.schemaPath, right.message].join("\0"),
+        ),
+    );
+}
+
+export function withGateMetadata(issue: ValidationIssue): ValidationIssue {
+  const registration = gateRegistration(issue.code);
+  return {
+    ...issue,
+    severity: issue.severity ?? registration.defaultSeverity,
+    category: issue.category ?? registration.category,
+    stages: issue.stages ?? registration.stages,
+    mechanicallyDerivable: issue.mechanicallyDerivable ?? registration.mechanicallyDerivable,
+  };
+}
+
+export function isBlockingIssue(issue: ValidationIssue): boolean {
+  return withGateMetadata(issue).severity === "error";
+}
+
+export function hasBlockingIssues(issues: readonly ValidationIssue[]): boolean {
+  return issues.some(isBlockingIssue);
 }
 
 export async function loadSchemaBundle(root = process.cwd()): Promise<LoadedSchemaBundle> {

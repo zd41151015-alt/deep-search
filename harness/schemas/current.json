@@ -18,6 +18,11 @@
       "document_schema_version": "startup_opportunity.commercial_research_audit.current"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/assessment/commercial/commercial-research-delivery.schema.json",
+      "file": "current/assessment/commercial/commercial-research-delivery.schema.json",
+      "document_schema_version": "startup_opportunity.commercial_research_delivery.current"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/assessment/commercial/commercial-research-requirements.schema.json",
       "file": "current/assessment/commercial/commercial-research-requirements.schema.json",
       "document_schema_version": null
@@ -36,6 +41,11 @@
       "id": "https://startup-opportunity.local/schemas/current/store/document-bundle.schema.json",
       "file": "current/store/document-bundle.schema.json",
       "document_schema_version": "startup_opportunity.document_bundle.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/gate-diagnostics.schema.json",
+      "file": "current/runtime/common/gate-diagnostics.schema.json",
+      "document_schema_version": "startup_opportunity.gate_diagnostics.current"
     },
     {
       "id": "https://startup-opportunity.local/schemas/current/runtime/common/lane-staging-document.schema.json",

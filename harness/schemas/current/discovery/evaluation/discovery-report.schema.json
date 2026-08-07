@@ -33,6 +33,7 @@
     "quantitative_signal_rows",
     "competitive_substitute_rows",
     "research_coverage_gaps",
+    "gate_warnings",
     "traceability_ref",
     "curated_judgment_context",
     "report_sections",
@@ -199,6 +200,12 @@
       "type": "array",
       "items": {
         "$ref": "../../assessment/commercial/quantitative-competitive-research.schema.json#/$defs/coverageGapRow"
+      }
+    },
+    "gate_warnings": {
+      "type": "array",
+      "items": {
+        "$ref": "../../assessment/commercial/quantitative-competitive-research.schema.json#/$defs/gateWarning"
       }
     },
     "traceability_ref": {

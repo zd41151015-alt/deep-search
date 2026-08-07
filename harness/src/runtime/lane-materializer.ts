@@ -1,6 +1,9 @@
-import { canonicalContentHash, operationKey } from "../artifact-store/canonical.js";
+import { operationKey } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
+import { summarizeGateDiagnostics } from "../validators/gate-diagnostics.js";
+import { gateRegistration } from "../validators/gate-registry.js";
+import type { ValidationIssue } from "../validators/schema-bundle.js";
 import {
   DeclarativeRuntimeCompiler,
   type RuntimeArtifactCompilationResult,
@@ -52,6 +55,9 @@ interface LaneDeliveryIssue {
   readonly reference: string | null;
   readonly message: string;
   readonly likely_cause: string;
+  readonly severity: "error" | "warning" | "info";
+  readonly category: "integrity" | "decision_validity" | "coverage" | "format" | "telemetry";
+  readonly stages: readonly string[];
 }
 
 export interface LaneDeliveryResult {
@@ -61,7 +67,7 @@ export interface LaneDeliveryResult {
   readonly status: "accepted";
   readonly preflight: {
     readonly status: "accepted";
-    readonly issues: readonly [];
+    readonly issues: readonly ValidationIssue[];
     readonly root_causes: readonly [];
     readonly required_artifact_count: number;
     readonly delivered_artifact_count: number;
@@ -99,6 +105,7 @@ function issue(
   likelyCause: string,
   reference: string | null = null,
 ): LaneDeliveryIssue {
+  const registration = gateRegistration(code);
   return {
     code,
     artifact: stagingId,
@@ -106,6 +113,9 @@ function issue(
     reference,
     message,
     likely_cause: likelyCause,
+    severity: registration.defaultSeverity,
+    category: registration.category,
+    stages: registration.stages,
   };
 }
 
@@ -373,10 +383,28 @@ export class LaneResultMaterializer {
       );
     }
 
-    const deliveredArtifacts = staging.agent_documents.map((artifact) => ({
-      artifact_ref: artifact.artifact_path,
+    const authoredArtifacts = staging.agent_documents.map((artifact) => ({
       artifact_type: artifact.artifact_type,
-      content_hash: canonicalContentHash(artifact.document),
+      artifact_path: artifact.artifact_path,
+      producer_role: staging.producer_role,
+      input_refs: [...new Set([staging.task_ref, ...staging.evidence_receipt_refs])].sort(),
+      document: { ...artifact.document },
+    }));
+    const preview = await this.compiler.compile({
+      schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+      request_id: `${staging.staging_id}_gate_preview`,
+      run_id: staging.run_id,
+      operation: "validate_only",
+      created_at: staging.created_at,
+      artifacts: authoredArtifacts,
+    });
+    const gateDiagnostics =
+      preview.publication_preflight.gate_diagnostics ??
+      summarizeGateDiagnostics([], "lane_preflight");
+    const deliveredArtifacts = preview.compiled_envelopes.map((envelope) => ({
+      artifact_ref: envelope.artifact_path,
+      artifact_type: envelope.artifact_type,
+      content_hash: envelope.content_hash,
     }));
     const receiptIdentity = {
       run_id: staging.run_id,
@@ -421,6 +449,7 @@ export class LaneResultMaterializer {
         ).length,
         evidence_ref_count: staging.evidence_receipt_refs.length,
       },
+      gate_diagnostics: gateDiagnostics,
       created_at: staging.created_at,
     };
     const compilation = await this.compiler.compile({
@@ -430,13 +459,7 @@ export class LaneResultMaterializer {
       operation: staging.operation,
       created_at: staging.created_at,
       artifacts: [
-        ...staging.agent_documents.map((artifact) => ({
-          artifact_type: artifact.artifact_type,
-          artifact_path: artifact.artifact_path,
-          producer_role: staging.producer_role,
-          input_refs: [...new Set([staging.task_ref, ...staging.evidence_receipt_refs])].sort(),
-          document: { ...artifact.document },
-        })),
+        ...authoredArtifacts,
         {
           artifact_type: "startup_opportunity.lane_delivery_receipt.current",
           artifact_path: receiptPath,
@@ -469,7 +492,7 @@ export class LaneResultMaterializer {
       status: "accepted",
       preflight: {
         status: "accepted",
-        issues: [],
+        issues: gateDiagnostics.issues,
         root_causes: [],
         required_artifact_count: staging.delivery_contract.required_artifacts.length,
         delivered_artifact_count: staging.agent_documents.length,

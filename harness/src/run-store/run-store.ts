@@ -1713,6 +1713,10 @@ export class RunStore {
   async buildValidationContext(
     runId: string,
     input: DocumentBundle,
+    options: {
+      readonly includeAllFormalArtifacts?: boolean;
+      readonly prospectiveArtifactPaths?: readonly string[];
+    } = {},
   ): Promise<BuildValidationContextResult> {
     validateRunId(runId);
     await this.assertCurrentLeaf(runId);
@@ -1725,13 +1729,23 @@ export class RunStore {
       );
     }
     const runRoot = await openRunDirectory(this.runsRoot, runId);
-    return withRunLock(runRoot, () => this.buildValidationContextLocked(runRoot, runId, input));
+    return withRunLock(runRoot, () =>
+      this.buildValidationContextLocked(
+        runRoot,
+        runId,
+        input,
+        options.includeAllFormalArtifacts === true,
+        new Set(options.prospectiveArtifactPaths ?? []),
+      ),
+    );
   }
 
   private async buildValidationContextLocked(
     runRoot: string,
     runId: string,
     input: DocumentBundle,
+    includeAllFormalArtifacts = false,
+    prospectiveArtifactPaths: ReadonlySet<string> = new Set(),
   ): Promise<BuildValidationContextResult> {
     const manifest = await this.readManifest(runRoot);
     await this.assertScopeBindingLocked(runRoot, manifest);
@@ -1763,13 +1777,17 @@ export class RunStore {
       const authorityDocument = effective(entry.document);
       if (
         supplied !== undefined &&
-        canonicalJson(effective(supplied.document)) !== canonicalJson(authorityDocument)
+        canonicalJson(effective(supplied.document)) !== canonicalJson(authorityDocument) &&
+        !prospectiveArtifactPaths.has(entry.path)
       ) {
         throw new StoreError(
           "validation_context.authority_conflict",
           "caller-supplied document differs from validated Run authority",
           { path: entry.path },
         );
+      }
+      if (supplied !== undefined && prospectiveArtifactPaths.has(entry.path)) {
+        return;
       }
       if (
         isCurrentEnvelopeSchema(entry.document.schema_version) &&
@@ -1803,10 +1821,13 @@ export class RunStore {
         effective(entry.document).schema_version ===
         "startup_opportunity.terminal_report_source.v1",
     );
-    if (terminalReportRequested) {
-      for (const authority of [...stored.values()].sort((left, right) =>
-        left.path.localeCompare(right.path),
-      )) {
+    if (terminalReportRequested || includeAllFormalArtifacts) {
+      const authorities = [...stored.values()]
+        .filter((authority) =>
+          includeAllFormalArtifacts ? manifest.artifact_refs.includes(authority.path) : true,
+        )
+        .sort((left, right) => left.path.localeCompare(right.path));
+      for (const authority of authorities) {
         await addAuthority(authority);
       }
     }

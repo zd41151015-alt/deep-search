@@ -1,4 +1,6 @@
 import { canonicalJson } from "../artifact-store/canonical.js";
+import { projectCommercialAuditTables } from "../reporting/commercial-report-tables.js";
+import { projectGateWarnings } from "./gate-diagnostics.js";
 import type { ValidationIssue } from "./schema-bundle.js";
 
 export interface CommercialResearchDocument {
@@ -24,7 +26,7 @@ export interface CommercialResearchPolicy {
   readonly wave1_early_stop_signal_keys: readonly string[];
 }
 
-const REQUIRED_RANKING_KEYS = [
+export const REQUIRED_RANKING_KEYS = [
   "recent_user_language",
   "purchase_signal",
   "alternatives_pricing_usage",
@@ -52,6 +54,31 @@ const CLAIM_ASPECTS: Readonly<Record<string, readonly string[]>> = {
   vendor_public_pricing: ["pricing"],
   vendor_public_product: ["alternative"],
   counterevidence: ["counterevidence"],
+};
+
+const CLAIM_METRIC_FAMILIES: Readonly<Record<string, readonly string[]>> = {
+  recent_user_language: ["demand_scale"],
+  current_purchase_behavior: ["commercial_behavior"],
+  current_distribution: ["distribution"],
+  current_competitor_usage: ["competitive_intensity", "usage_behavior"],
+  current_retention: ["retention_outcomes"],
+  current_market_change: ["demand_scale", "growth_change"],
+  current_pricing: ["commercial_behavior"],
+  current_product_capability: ["competitive_intensity", "usage_behavior"],
+  current_competitor_offering: ["competitive_intensity", "usage_behavior"],
+  vendor_public_pricing: ["commercial_behavior"],
+  vendor_public_product: ["competitive_intensity", "usage_behavior"],
+};
+
+const COVERAGE_KEY_METRIC_FAMILIES: Readonly<Record<string, readonly string[]>> = {
+  recent_user_language: ["demand_scale"],
+  buyer: ["commercial_behavior"],
+  purchase_signal: ["commercial_behavior"],
+  pricing: ["commercial_behavior"],
+  alternatives_pricing_usage: ["competitive_intensity", "usage_behavior"],
+  distribution_channel: ["distribution"],
+  retention: ["retention_outcomes"],
+  unit_economics: ["unit_economics"],
 };
 
 const TASK_STAGE_BY_VERSION = new Map([
@@ -174,7 +201,7 @@ function wholeDaysBetween(earlier: string, later: string): number {
   return Math.floor((Date.parse(later) - Date.parse(earlier)) / 86_400_000);
 }
 
-function deriveFreshness(
+export function deriveFreshnessStatus(
   source: Readonly<Record<string, unknown>>,
   auditedAt: unknown,
   policy: CommercialResearchPolicy,
@@ -200,7 +227,7 @@ function percentage(count: number, total: number): number {
   return total === 0 ? 0 : Math.round((count / total) * 10_000) / 100;
 }
 
-function sourceDistribution(
+export function deriveSourceDistribution(
   adopted: readonly Record<string, unknown>[],
   policy: CommercialResearchPolicy,
 ): Record<string, number | boolean> {
@@ -242,10 +269,310 @@ function sourceDistribution(
   };
 }
 
+function supportedCompanyClaim(source: Readonly<Record<string, unknown>>): boolean {
+  const profile = isRecord(source.source_profile) ? source.source_profile : {};
+  if (profile.type !== "company_material") return false;
+  const required = {
+    vendor_public_pricing: "public_pricing",
+    vendor_public_product: "product_capability",
+    vendor_positioning: "company_statement",
+    vendor_statement: "company_statement",
+  }[String(source.claim_type)];
+  return required !== undefined && strings(profile.supported_public_claims).includes(required);
+}
+
+export function isTraceableDirectSource(
+  source: Readonly<Record<string, unknown>>,
+  evidenceByRef: ReadonlyMap<string, Record<string, unknown>> = new Map(),
+): boolean {
+  const profile = isRecord(source.source_profile) ? source.source_profile : {};
+  if (profile.type !== "news") return true;
+  if (
+    profile.primary_data_traceability_status !== "traced" ||
+    typeof profile.primary_data_ref !== "string"
+  ) {
+    return false;
+  }
+  const primary = evidenceByRef.get(profile.primary_data_ref);
+  if (primary === undefined || primary.disposition !== "adopted") return false;
+  const primaryProfile = isRecord(primary.source_profile) ? primary.source_profile : {};
+  const sourceClaimType = String(source.claim_type);
+  const primaryClaimType = String(primary.claim_type);
+  if (primaryProfile.type === "company_material") {
+    return (
+      supportedCompanyClaim(primary) &&
+      ((sourceClaimType === "current_pricing" && primaryClaimType === "vendor_public_pricing") ||
+        (["current_product_capability", "current_competitor_offering"].includes(sourceClaimType) &&
+          primaryClaimType === "vendor_public_product") ||
+        sourceClaimType === primaryClaimType)
+    );
+  }
+  if (primaryProfile.type === "regulatory") {
+    return (
+      sourceClaimType === "market_structure_regulatory" &&
+      primaryClaimType === "market_structure_regulatory"
+    );
+  }
+  return primaryProfile.type === "api_dataset" && sourceClaimType === primaryClaimType;
+}
+
+function normalizedSourceIdentity(value: unknown): string | null {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const trimmed = value.trim().toLowerCase();
+  try {
+    const url = new URL(trimmed);
+    return url.hostname.replace(/^www\./u, "");
+  } catch {
+    return trimmed.replace(/\s+/gu, " ");
+  }
+}
+
+function sourceGroupIdentities(
+  source: Readonly<Record<string, unknown>>,
+  evidenceDocument: Readonly<Record<string, unknown>> = {},
+): readonly string[] {
+  const assessment = isRecord(evidenceDocument.source_assessment)
+    ? evidenceDocument.source_assessment
+    : {};
+  const sharedDataset = normalizedSourceIdentity(assessment.shared_dataset_group);
+  const syndication = normalizedSourceIdentity(assessment.syndication_group);
+  const canonical = normalizedSourceIdentity(assessment.canonical_source_group);
+  const profile = isRecord(source.source_profile) ? source.source_profile : {};
+  const profiled =
+    profile.type === "news"
+      ? normalizedSourceIdentity(profile.publisher)
+      : profile.type === "review"
+        ? normalizedSourceIdentity(profile.platform)
+        : profile.type === "api_dataset"
+          ? normalizedSourceIdentity(profile.raw_provenance)
+          : null;
+  const sourceName = normalizedSourceIdentity(evidenceDocument.source_name);
+  const provider = canonical ?? profiled ?? sourceName;
+  const groups = [
+    ...(sharedDataset === null ? [] : [`dataset:${sharedDataset}`]),
+    ...(syndication === null ? [] : [`syndication:${syndication}`]),
+    ...(provider === null ? [] : [`provider:${provider}`]),
+  ];
+  return groups.length > 0 ? groups : [`evidence:${String(source.evidence_ref ?? "unknown")}`];
+}
+
+export function canonicalSourceGroup(
+  source: Readonly<Record<string, unknown>>,
+  evidenceDocument: Readonly<Record<string, unknown>> = {},
+): string {
+  return sourceGroupIdentities(source, evidenceDocument)[0] as string;
+}
+
+export function deriveSourceConcentration(
+  adopted: readonly Record<string, unknown>[],
+  evidenceDocuments: ReadonlyMap<string, Record<string, unknown>> = new Map(),
+): {
+  readonly concentrated: boolean;
+  readonly dominantGroupCount: number;
+  readonly dominantGroup: string | null;
+} {
+  const sourceGroups = adopted.map((source) =>
+    sourceGroupIdentities(source, evidenceDocuments.get(String(source.evidence_ref)) ?? {}),
+  );
+  const groups = [...new Set(sourceGroups.flat())];
+  const counts = groups.map((group) => ({
+    group,
+    count: sourceGroups.filter((candidate) => candidate.includes(group)).length,
+  }));
+  const dominant = counts.toSorted(
+    (left, right) => right.count - left.count || left.group.localeCompare(right.group),
+  )[0];
+  return {
+    concentrated: adopted.length >= 2 && (dominant?.count ?? 0) / adopted.length >= 0.75,
+    dominantGroupCount: dominant?.count ?? 0,
+    dominantGroup: dominant?.group ?? null,
+  };
+}
+
+export function deriveRecommendationCeiling(
+  coverage: Readonly<Record<string, unknown>>,
+  quantitativeCoverage: readonly Record<string, unknown>[],
+  competitiveObjects: readonly Record<string, unknown>[],
+  evidence: readonly Record<string, unknown>[],
+  semanticStatements: readonly Record<string, unknown>[] = [],
+  evidenceDocuments: ReadonlyMap<string, Record<string, unknown>> = new Map(),
+): Record<string, unknown> {
+  const reasons: string[] = [];
+  let maximumDecisionTier = "prioritize";
+  const purchase = isRecord(coverage.purchase_signal) ? coverage.purchase_signal : {};
+  if (purchase.state !== "observed") {
+    maximumDecisionTier = "investigate_further";
+    reasons.push("missing_purchase_or_payment_signal");
+  }
+  const independentRefs = new Set(
+    evidence
+      .filter((item) => item.disposition === "adopted" && item.independence === "independent")
+      .map((item) => String(item.evidence_ref)),
+  );
+  if (
+    competitiveObjects.length === 0 ||
+    competitiveObjects.every((item) =>
+      strings(item.source_refs).every((ref) => !independentRefs.has(ref)),
+    )
+  ) {
+    if (maximumDecisionTier === "prioritize") maximumDecisionTier = "investigate_further";
+    reasons.push("missing_independent_competitor_adoption_data");
+  }
+  const retentionEntries = quantitativeCoverage.filter(
+    (item) => item.metric_family === "retention_outcomes",
+  );
+  if (
+    retentionEntries.length === 0 ||
+    retentionEntries.every((item) => item.state !== "observed")
+  ) {
+    if (maximumDecisionTier === "prioritize") maximumDecisionTier = "investigate_further";
+    reasons.push("missing_retention_evidence");
+  }
+  if (
+    evidence.some(
+      (item) =>
+        item.disposition === "adopted" &&
+        item.claim_type === "market_structure_regulatory" &&
+        (dateOnly(item.regulatory_status_verified_at) === null ||
+          item.regulatory_effective_status === undefined),
+    )
+  ) {
+    maximumDecisionTier = "watch";
+    reasons.push("regulatory_status_unconfirmed");
+  }
+  const adopted = evidence.filter((item) => item.disposition === "adopted");
+  if (deriveSourceConcentration(adopted, evidenceDocuments).concentrated) {
+    if (maximumDecisionTier === "prioritize") maximumDecisionTier = "investigate_further";
+    reasons.push("source_concentration");
+  }
+  if (adopted.length > 0 && !adopted.some((item) => item.independence === "independent")) {
+    if (maximumDecisionTier === "prioritize") maximumDecisionTier = "investigate_further";
+    reasons.push("independent_cross_validation_missing");
+  }
+  if (
+    adopted.length > 0 &&
+    adopted.every(
+      (item) =>
+        (isRecord(item.source_profile) ? item.source_profile.type : null) === "news" &&
+        item.claim_type === "current_market_change",
+    )
+  ) {
+    maximumDecisionTier = "watch";
+    reasons.push("news_trend_only");
+  }
+  const evidenceByRef = new Map(
+    evidence
+      .filter((item) => typeof item.evidence_ref === "string")
+      .map((item) => [String(item.evidence_ref), item]),
+  );
+  if (
+    semanticStatements.some((statement) =>
+      strings(statement.evidence_refs).some((ref) => {
+        const source = evidenceByRef.get(ref);
+        return source?.disposition !== "adopted";
+      }),
+    )
+  ) {
+    maximumDecisionTier = "watch";
+    reasons.push("positive_support_not_adopted");
+  }
+  return {
+    maximum_decision_tier: maximumDecisionTier,
+    reason_codes: [...new Set(reasons)].sort(),
+  };
+}
+
+export function deriveSubjectRecommendationCeilings(
+  coveredSubjectIds: readonly string[],
+  globalCoverage: Readonly<Record<string, unknown>>,
+  quantitativeCoverage: readonly Record<string, unknown>[],
+  quantitativeObservations: readonly Record<string, unknown>[],
+  competitiveObjects: readonly Record<string, unknown>[],
+  evidence: readonly Record<string, unknown>[],
+  semanticStatements: readonly Record<string, unknown>[] = [],
+  evidenceDocuments: ReadonlyMap<string, Record<string, unknown>> = new Map(),
+): readonly Record<string, unknown>[] {
+  const evidenceByRef = new Map(
+    evidence
+      .filter((item) => typeof item.evidence_ref === "string")
+      .map((item) => [String(item.evidence_ref), item]),
+  );
+  return [...new Set(coveredSubjectIds)].sort().map((subjectId) => {
+    const statements = semanticStatements.filter(
+      (statement) =>
+        statement.subject_id === subjectId ||
+        (coveredSubjectIds.length === 1 && statement.subject_id === undefined),
+    );
+    const subjectRefs = new Set([
+      ...quantitativeObservations
+        .filter((observation) => observation.subject_id === subjectId)
+        .flatMap((observation) => strings(observation.evidence_refs)),
+      ...competitiveObjects
+        .filter((competitiveObject) => competitiveObject.subject_id === subjectId)
+        .flatMap((competitiveObject) => strings(competitiveObject.source_refs)),
+      ...statements.flatMap((statement) => strings(statement.evidence_refs)),
+    ]);
+    const subjectEvidence =
+      coveredSubjectIds.length === 1
+        ? evidence
+        : evidence.filter((item) => subjectRefs.has(String(item.evidence_ref)));
+    const subjectCoverage =
+      coveredSubjectIds.length === 1
+        ? globalCoverage
+        : deriveBusinessCoverage(subjectEvidence, evidenceByRef).coverage;
+    const ceiling = deriveRecommendationCeiling(
+      subjectCoverage,
+      quantitativeCoverage.filter((coverage) => coverage.subject_id === subjectId),
+      competitiveObjects.filter((competitiveObject) => competitiveObject.subject_id === subjectId),
+      subjectEvidence,
+      statements,
+      evidenceDocuments,
+    );
+    return { subject_id: subjectId, ...ceiling };
+  });
+}
+
+export function derivePortfolioRecommendationCeiling(
+  subjectCeilings: readonly Record<string, unknown>[],
+  semanticStatements: readonly Record<string, unknown>[] = [],
+  evidence: readonly Record<string, unknown>[] = [],
+): Record<string, unknown> {
+  const rank = { watch: 0, investigate_further: 1, prioritize: 2 } as const;
+  let maximumDecisionTier = subjectCeilings.reduce<keyof typeof rank>((current, ceiling) => {
+    const candidate = ceiling.maximum_decision_tier;
+    return typeof candidate === "string" &&
+      candidate in rank &&
+      rank[candidate as keyof typeof rank] < rank[current]
+      ? (candidate as keyof typeof rank)
+      : current;
+  }, "prioritize");
+  const evidenceByRef = new Map(
+    evidence
+      .filter((item) => typeof item.evidence_ref === "string")
+      .map((item) => [String(item.evidence_ref), item]),
+  );
+  const unboundPositiveSupportMissing = semanticStatements.some(
+    (statement) =>
+      statement.subject_id === undefined &&
+      strings(statement.evidence_refs).some(
+        (ref) => evidenceByRef.get(ref)?.disposition !== "adopted",
+      ),
+  );
+  if (unboundPositiveSupportMissing) maximumDecisionTier = "watch";
+  return {
+    maximum_decision_tier: maximumDecisionTier,
+    reason_codes: [
+      ...new Set(subjectCeilings.flatMap((ceiling) => strings(ceiling.reason_codes))),
+      ...(unboundPositiveSupportMissing ? ["positive_support_not_adopted"] : []),
+    ].sort(),
+  };
+}
+
 function directObservedSupport(
   item: Record<string, unknown>,
   key: string,
   aspect: unknown,
+  evidenceByRef: ReadonlyMap<string, Record<string, unknown>>,
 ): boolean {
   if (
     item.disposition !== "adopted" ||
@@ -254,18 +581,184 @@ function directObservedSupport(
     item.evidence_character === "inference" ||
     item.evidence_character === "mechanism" ||
     item.evidence_character === "effect_boundary" ||
-    item.freshness_status === "undated"
+    item.freshness_status === "undated" ||
+    !isTraceableDirectSource(item, evidenceByRef)
   ) {
     return false;
   }
   if (!CLAIM_ASPECTS[String(item.claim_type)]?.includes(String(aspect))) return false;
   if (key !== "independent_counterevidence" && item.freshness_status !== "current") return false;
-  if (item.source_kind === "vendor" || item.evidence_character === "vendor_claim") return false;
+  if (item.source_kind === "vendor" || item.evidence_character === "vendor_claim") {
+    return supportedCompanyClaim(item);
+  }
   if (key === "independent_counterevidence") return item.independence === "independent";
   return (
     item.evidence_character === "observed_behavior" ||
     item.evidence_character === "independent_report"
   );
+}
+
+export function deriveBusinessCoverage(
+  evidence: readonly Record<string, unknown>[],
+  evidenceByRef: ReadonlyMap<string, Record<string, unknown>> = new Map(
+    evidence
+      .filter((item) => typeof item.evidence_ref === "string")
+      .map((item) => [String(item.evidence_ref), item]),
+  ),
+): {
+  readonly coverage: Readonly<Record<string, unknown>>;
+  readonly directlyCovered: ReadonlySet<string>;
+} {
+  const coverage: Record<string, unknown> = {};
+  const directlyCovered = new Set<string>();
+  for (const key of REQUIRED_RANKING_KEYS) {
+    const matching = evidence.filter(
+      (item) => item.disposition === "adopted" && strings(item.coverage_keys).includes(key),
+    );
+    const dataPoints = matching.flatMap((item) =>
+      (CLAIM_ASPECTS[String(item.claim_type)] ?? []).map((aspect) => ({
+        evidence_ref: item.evidence_ref,
+        aspect,
+        fact_or_excerpt: item.content_summary,
+      })),
+    );
+    const directPoints = dataPoints.filter((point) => {
+      const source = evidenceByRef.get(String(point.evidence_ref));
+      return (
+        source !== undefined && directObservedSupport(source, key, point.aspect, evidenceByRef)
+      );
+    });
+    const aspects = new Set(directPoints.map((point) => point.aspect));
+    const directlyObserved =
+      key === "alternatives_pricing_usage"
+        ? aspects.has("alternative") && (aspects.has("pricing") || aspects.has("usage"))
+        : aspects.has(
+            {
+              recent_user_language: "user_language",
+              purchase_signal: "purchase",
+              distribution_channel: "distribution",
+              independent_counterevidence: "counterevidence",
+            }[key] ?? "",
+          );
+    if (directlyObserved) directlyCovered.add(key);
+    const refs = [...new Set(matching.map((item) => String(item.evidence_ref)))].sort();
+    coverage[key] = directlyObserved
+      ? {
+          state: "observed",
+          content_covered: true,
+          evidence_refs: refs,
+          data_points: directPoints,
+          inference: null,
+        }
+      : refs.length > 0
+        ? {
+            state: "inferred",
+            content_covered: true,
+            evidence_refs: refs,
+            data_points: [],
+            inference: {
+              basis_refs: refs,
+              starting_point: `Evidence touching ${key} was found but did not directly observe every required aspect.`,
+              reasoning:
+                "The compiler preserves the material as a bounded inference and does not promote it to observed coverage.",
+              uncertainty: "Direct current commercial observation remains incomplete.",
+              validation_needed: `Obtain direct Evidence appropriate to ${key}.`,
+            },
+          }
+        : {
+            state: "unknown",
+            content_covered: false,
+            evidence_refs: [],
+            data_points: [],
+            inference: null,
+          };
+  }
+  return { coverage, directlyCovered };
+}
+
+export function deriveClaimConfidence(
+  requested: unknown,
+  refs: readonly string[],
+  evidenceByRef: ReadonlyMap<string, Record<string, unknown>>,
+  quantitativeCoverage: readonly Record<string, unknown>[],
+  competitiveCoverage: readonly Record<string, unknown>[],
+  allEvidence: readonly Record<string, unknown>[],
+  subjectId?: string,
+): { readonly confidence: string; readonly reasons: readonly string[] } {
+  const sources = refs.map((ref) => evidenceByRef.get(ref)).filter(isRecord);
+  const reasons: string[] = [];
+  let ceiling = 2;
+  const relevantMetricFamilies = new Set(
+    sources.flatMap((source) => [
+      ...(CLAIM_METRIC_FAMILIES[String(source.claim_type)] ?? []),
+      ...strings(source.coverage_keys).flatMap((key) => COVERAGE_KEY_METRIC_FAMILIES[key] ?? []),
+    ]),
+  );
+  const subjectMatches = (coverage: Record<string, unknown>): boolean =>
+    subjectId === undefined || coverage.subject_id === subjectId;
+  const hasRelevantGap =
+    quantitativeCoverage.some(
+      (coverage) =>
+        subjectMatches(coverage) &&
+        relevantMetricFamilies.has(String(coverage.metric_family)) &&
+        coverage.state !== "observed",
+    ) ||
+    (relevantMetricFamilies.has("competitive_intensity") &&
+      competitiveCoverage.some(
+        (coverage) => subjectMatches(coverage) && coverage.state !== "observed",
+      ));
+  if (hasRelevantGap) {
+    ceiling = Math.min(ceiling, 1);
+    reasons.push("claim_relevant_coverage_incomplete");
+  }
+  if (
+    sources.some((source) => source.disposition !== "adopted") ||
+    sources.length !== refs.length
+  ) {
+    ceiling = 0;
+    reasons.push("positive_support_not_adopted");
+  }
+  const companyFactOnly = sources.length > 0 && sources.every(supportedCompanyClaim);
+  if (
+    sources.length === 0 ||
+    (!companyFactOnly &&
+      sources.every(
+        (source) => source.source_kind === "vendor" || source.independence !== "independent",
+      ))
+  ) {
+    ceiling = 0;
+    reasons.push("independent_cross_validation_missing");
+  }
+  if (
+    sources.some(
+      (source) =>
+        source.freshness_status !== "current" ||
+        source.evidence_character === "inference" ||
+        (!supportedCompanyClaim(source) && !isTraceableDirectSource(source, evidenceByRef)),
+    )
+  ) {
+    ceiling = Math.min(ceiling, 1);
+    reasons.push("direct_current_support_limited");
+  }
+  const sourceKeys = new Set(sources.flatMap((source) => strings(source.coverage_keys)));
+  if (
+    sourceKeys.size > 0 &&
+    allEvidence.some(
+      (source) =>
+        source.disposition === "adopted" &&
+        (source.evidence_character === "counterevidence" ||
+          source.claim_type === "counterevidence") &&
+        strings(source.coverage_keys).some((key) => sourceKeys.has(key)),
+    )
+  ) {
+    ceiling = Math.min(ceiling, 1);
+    reasons.push("conflicting_evidence_present");
+  }
+  const requestedRank = { low: 0, medium: 1, high: 2 }[String(requested)] ?? 0;
+  return {
+    confidence: ["low", "medium", "high"][Math.min(requestedRank, ceiling)] ?? "low",
+    reasons: [...new Set(reasons)].sort(),
+  };
 }
 
 function validateScopeAndStages(
@@ -320,8 +813,6 @@ function validateScopeAndStages(
         expectedStage === policy.solution_neutral_stage ? "broad_scan" : "targeted_deep_dive";
       if (
         quantitativeScope.scan_mode !== expectedScanMode ||
-        !sameStringSet(quantitativeScope.required_metric_families, QUANTITATIVE_METRIC_FAMILIES) ||
-        !sameStringSet(quantitativeScope.required_competitor_types, COMPETITIVE_OBJECT_TYPES) ||
         quantitativeScope.api_is_optional !== true ||
         quantitativeScope.provider_allowlist_enforced !== false ||
         quantitativeScope.acquisition_execution_owner !== "research_agent_or_caller" ||
@@ -331,7 +822,7 @@ function validateScopeAndStages(
           issue(
             "commercial_research.quantitative_competitive_scope_invalid",
             `${entry.path}#/commercial_research_requirements/quantitative_competitive_scope`,
-            "research tasks must require provider-agnostic quantitative and broad competitive coverage at the stage-appropriate scan depth without hidden Harness acquisition",
+            "research tasks must assign an explicit provider-agnostic quantitative and competitive scope at the stage-appropriate scan depth without hidden Harness acquisition",
             { expectedScanMode },
           ),
         );
@@ -426,7 +917,12 @@ function validateSearchClosure(
       ),
     );
   }
-  if (external && audit.task_ref !== null && queries.length === 0) {
+  if (
+    external &&
+    audit.task_ref !== null &&
+    queries.length === 0 &&
+    closure.telemetry_basis !== "unavailable"
+  ) {
     errors.push(
       issue(
         "commercial_research.search_closure_log_missing",
@@ -530,24 +1026,30 @@ function validateSearchClosure(
             "unknown",
           ].includes(String(result.regulatory_effective_status)))
       ) {
-        errors.push(
-          issue(
+        errors.push({
+          ...issue(
             "commercial_research.regulatory_status_unverified",
             resultPath,
-            "regulatory search results require a recently observed effective state; publication year alone is insufficient",
+            adopted
+              ? "an adopted result supporting a current regulatory judgment requires a verified effective state and verification timestamp"
+              : "an unverified regulatory lead is retained only as background or a rejected candidate",
           ),
-        );
+          severity: adopted ? "error" : "warning",
+        });
       }
     }
   }
-  const missingFromSearch = [...adoptedEvidenceRefs].filter((ref) => !adoptedSearchRefs.has(ref));
+  const missingFromSearch =
+    closure.query_log_complete === true
+      ? [...adoptedEvidenceRefs].filter((ref) => !adoptedSearchRefs.has(ref))
+      : [];
   const missingFromRegister = [...adoptedSearchRefs].filter((ref) => !adoptedEvidenceRefs.has(ref));
   if (missingFromSearch.length > 0 || missingFromRegister.length > 0) {
     errors.push(
       issue(
         "commercial_research.search_evidence_reconciliation",
         `${entry.path}#/search_closure`,
-        "adopted search results and the adopted Evidence Register must reconcile in both directions",
+        "formally recorded search results must reconcile with the Evidence Register; a complete declared log must also cover every adopted Register record",
         {
           missingFromSearch: missingFromSearch.sort(),
           missingFromRegister: missingFromRegister.sort(),
@@ -577,12 +1079,28 @@ function validateQuantitativeCompetitiveAudit(
     );
   }
   const evidenceRegister = records(audit.evidence_register);
+  const evidenceByRef = new Map(
+    evidenceRegister
+      .filter((item) => typeof item.evidence_ref === "string")
+      .map((item) => [String(item.evidence_ref), item]),
+  );
   const adoptedEvidenceRefs = new Set(
     evidenceRegister
       .filter((item) => item.disposition === "adopted" && typeof item.evidence_ref === "string")
       .map((item) => String(item.evidence_ref)),
   );
   const documentsByPath = new Map(documents.map((document) => [document.path, document]));
+  const task =
+    typeof audit.task_ref === "string" ? documentsByPath.get(String(audit.task_ref)) : undefined;
+  const requirements = isRecord(task?.document.commercial_research_requirements)
+    ? task.document.commercial_research_requirements
+    : {};
+  const hasAssignedScope = isRecord(requirements.quantitative_competitive_scope);
+  const assignedScope = isRecord(requirements.quantitative_competitive_scope)
+    ? requirements.quantitative_competitive_scope
+    : {};
+  const assignedMetricFamilies = strings(assignedScope.required_metric_families);
+  const assignedCompetitorTypes = strings(assignedScope.required_competitor_types);
 
   const acquisitions = records(audit.data_acquisitions);
   const acquisitionsById = new Map<string, Record<string, unknown>>();
@@ -617,14 +1135,15 @@ function validateQuantitativeCompetitiveAudit(
       ? evidence.mechanical_binding
       : {};
     if (!adoptedEvidenceRefs.has(evidenceRef)) {
-      errors.push(
-        issue(
+      errors.push({
+        ...issue(
           "commercial_research.acquisition_evidence_not_adopted",
           `${acquisitionPath}/evidence_ref`,
-          "every quantitative acquisition must bind adopted formal Evidence",
+          "the acquisition is retained, but rejected or unaudited Evidence cannot count as direct quantitative support",
           { evidenceRef },
         ),
-      );
+        severity: "warning",
+      });
     }
     if (
       substrate?.schema_version !== "startup_opportunity.evidence_store_record.v2" ||
@@ -675,16 +1194,25 @@ function validateQuantitativeCompetitiveAudit(
     const acquisition = acquisitionsById.get(String(observation.acquisition_id));
     if (
       acquisition === undefined ||
-      strings(observation.evidence_refs).some((ref) => !adoptedEvidenceRefs.has(ref)) ||
       !strings(observation.evidence_refs).includes(String(acquisition?.evidence_ref ?? ""))
     ) {
       errors.push(
         issue(
           "commercial_research.quantitative_evidence_binding_mismatch",
           observationPath,
-          "each quantitative observation must cite its acquisition Evidence and only adopted Evidence",
+          "each quantitative observation must cite its exact acquisition Evidence",
         ),
       );
+    }
+    if (strings(observation.evidence_refs).some((ref) => !adoptedEvidenceRefs.has(ref))) {
+      errors.push({
+        ...issue(
+          "commercial_research.quantitative_positive_support_not_adopted",
+          observationPath,
+          "the numeric observation is retained, but rejected or unaudited Evidence cannot establish direct coverage",
+        ),
+        severity: "warning",
+      });
     }
     const value = isRecord(observation.value) ? observation.value : {};
     if (
@@ -825,7 +1353,7 @@ function validateQuantitativeCompetitiveAudit(
   const quantitativeCoverage = records(audit.quantitative_coverage);
   const expectedQuantitativeCoverage = new Set(
     coveredSubjects.flatMap((subjectId) =>
-      QUANTITATIVE_METRIC_FAMILIES.map((family) => `${subjectId}:${family}`),
+      assignedMetricFamilies.map((family) => `${subjectId}:${family}`),
     ),
   );
   const actualQuantitativeCoverage = new Set<string>();
@@ -855,17 +1383,28 @@ function validateQuantitativeCompetitiveAudit(
         observation?.metric_family === coverage.metric_family
       );
     });
+    const directlyTraceableIds = ids.filter((id) => {
+      const observation = observationsById.get(id);
+      return (
+        observation !== undefined &&
+        strings(observation.evidence_refs).some((ref) => {
+          const source = evidenceByRef.get(ref);
+          return (
+            source !== undefined &&
+            source.disposition === "adopted" &&
+            isTraceableDirectSource(source, evidenceByRef)
+          );
+        })
+      );
+    });
     const attempts = records(coverage.query_attempts);
     const state = String(coverage.state);
     const validState =
       ((state === "observed" || state === "partial") &&
         ids.length > 0 &&
         matchingIds.length === ids.length &&
-        (state !== "partial" || (attempts.length > 0 && typeof coverage.reason === "string"))) ||
-      (state === "unavailable" &&
-        ids.length === 0 &&
-        attempts.length > 0 &&
-        typeof coverage.reason === "string") ||
+        (state !== "partial" || typeof coverage.reason === "string")) ||
+      (state === "unavailable" && ids.length === 0 && typeof coverage.reason === "string") ||
       (state === "not_applicable" && ids.length === 0 && typeof coverage.reason === "string");
     if (!validState) {
       errors.push(
@@ -873,6 +1412,16 @@ function validateQuantitativeCompetitiveAudit(
           "commercial_research.quantitative_coverage_state_mismatch",
           coveragePath,
           "coverage state must bind real observations or explicit failed attempts/reasons without fabricated values",
+        ),
+      );
+    }
+    if (state === "observed" && directlyTraceableIds.length === 0) {
+      errors.push(
+        issue(
+          "commercial_research.quantitative_coverage_derivation_mismatch",
+          coveragePath,
+          "a coverage row may be observed only when at least one retained observation has adopted, traceable direct Evidence",
+          { directlyTraceableIds, observationIds: ids },
         ),
       );
     }
@@ -889,8 +1438,9 @@ function validateQuantitativeCompetitiveAudit(
     }
   }
   if (
-    canonicalJson([...actualQuantitativeCoverage].sort()) !==
-      canonicalJson([...expectedQuantitativeCoverage].sort()) ||
+    (hasAssignedScope &&
+      canonicalJson([...actualQuantitativeCoverage].sort()) !==
+        canonicalJson([...expectedQuantitativeCoverage].sort())) ||
     observations.some(
       (observation) => !referencedObservationIds.has(String(observation.observation_id)),
     )
@@ -899,7 +1449,7 @@ function validateQuantitativeCompetitiveAudit(
       issue(
         "commercial_research.quantitative_coverage_incomplete",
         `${entry.path}#/quantitative_coverage`,
-        "every covered direction requires all metric families with complete observation closure and an explicit coverage state",
+        "each covered direction must close only the metric families assigned by its Dispatch task, and every observation must belong to that closure",
       ),
     );
   }
@@ -926,23 +1476,32 @@ function validateQuantitativeCompetitiveAudit(
     ];
     if (
       !coveredSubjectSet.has(String(competitiveObject.subject_id)) ||
-      metricRefs.some((ref) => !observationsById.has(ref)) ||
-      strings(competitiveObject.source_refs).some((ref) => !adoptedEvidenceRefs.has(ref))
+      metricRefs.some((ref) => !observationsById.has(ref))
     ) {
       errors.push(
         issue(
           "commercial_research.competitive_object_binding_mismatch",
           objectPath,
-          "competitive objects must bind the covered subject, known pricing/traction observations, and adopted formal Evidence",
+          "competitive objects must bind the covered subject and known pricing/traction observations",
         ),
       );
+    }
+    if (strings(competitiveObject.source_refs).some((ref) => !adoptedEvidenceRefs.has(ref))) {
+      errors.push({
+        ...issue(
+          "commercial_research.competitive_positive_support_not_adopted",
+          objectPath,
+          "the substitute observation is retained, but rejected or unaudited Evidence cannot establish direct coverage",
+        ),
+        severity: "warning",
+      });
     }
   }
 
   const competitiveCoverage = records(audit.competitive_coverage);
   const expectedCompetitiveCoverage = new Set(
     coveredSubjects.flatMap((subjectId) =>
-      COMPETITIVE_OBJECT_TYPES.map((type) => `${subjectId}:${type}`),
+      assignedCompetitorTypes.map((type) => `${subjectId}:${type}`),
     ),
   );
   const actualCompetitiveCoverage = new Set<string>();
@@ -972,17 +1531,18 @@ function validateQuantitativeCompetitiveAudit(
         competitiveObject?.competitor_type === coverage.competitor_type
       );
     });
+    const directlySupportedIds = matchingIds.filter((id) => {
+      const competitiveObject = competitiveObjectsById.get(id);
+      return strings(competitiveObject?.source_refs).some((ref) => adoptedEvidenceRefs.has(ref));
+    });
     const attempts = records(coverage.query_attempts);
     const state = String(coverage.state);
     const validState =
       ((state === "observed" || state === "partial") &&
         ids.length > 0 &&
         matchingIds.length === ids.length &&
-        (state !== "partial" || (attempts.length > 0 && typeof coverage.reason === "string"))) ||
-      (state === "unavailable" &&
-        ids.length === 0 &&
-        attempts.length > 0 &&
-        typeof coverage.reason === "string") ||
+        (state !== "partial" || typeof coverage.reason === "string")) ||
+      (state === "unavailable" && ids.length === 0 && typeof coverage.reason === "string") ||
       (state === "not_applicable" && ids.length === 0 && typeof coverage.reason === "string");
     if (!validState) {
       errors.push(
@@ -990,6 +1550,16 @@ function validateQuantitativeCompetitiveAudit(
           "commercial_research.competitive_coverage_state_mismatch",
           coveragePath,
           "broad competitive coverage must bind named alternatives or explicit failed attempts/reasons without inventing objects",
+        ),
+      );
+    }
+    if (state === "observed" && directlySupportedIds.length === 0) {
+      errors.push(
+        issue(
+          "commercial_research.competitive_coverage_derivation_mismatch",
+          coveragePath,
+          "competitive coverage may be observed only when at least one retained object has adopted Evidence",
+          { directlySupportedIds, competitiveObjectIds: ids },
         ),
       );
     }
@@ -1006,8 +1576,9 @@ function validateQuantitativeCompetitiveAudit(
     }
   }
   if (
-    canonicalJson([...actualCompetitiveCoverage].sort()) !==
-      canonicalJson([...expectedCompetitiveCoverage].sort()) ||
+    (hasAssignedScope &&
+      canonicalJson([...actualCompetitiveCoverage].sort()) !==
+        canonicalJson([...expectedCompetitiveCoverage].sort())) ||
     competitiveObjects.some(
       (competitiveObject) =>
         !referencedCompetitiveObjectIds.has(String(competitiveObject.competitive_object_id)),
@@ -1017,7 +1588,7 @@ function validateQuantitativeCompetitiveAudit(
       issue(
         "commercial_research.competitive_coverage_incomplete",
         `${entry.path}#/competitive_coverage`,
-        "every covered direction requires all broad competitor types with complete object closure and an explicit coverage state",
+        "each covered direction must close only the competitor types assigned by its Dispatch task, and every named alternative must belong to that closure",
       ),
     );
   }
@@ -1074,10 +1645,46 @@ function validateAudit(
       .filter((item) => typeof item.evidence_ref === "string")
       .map((item) => [String(item.evidence_ref), item]),
   );
+  const evidenceByRef = new Map(
+    evidence
+      .filter((item) => typeof item.evidence_ref === "string")
+      .map((item) => [String(item.evidence_ref), item]),
+  );
   const adoptedRefs = new Set(adoptedByRef.keys());
   errors.push(...validateSearchClosure(entry, audit, adoptedRefs));
 
-  const expectedDistribution = sourceDistribution(adopted, policy);
+  const evidenceDocuments = new Map(
+    documents.map((document) => [document.path, document.document]),
+  );
+  const concentration = deriveSourceConcentration(adopted, evidenceDocuments);
+  if (concentration.concentrated) {
+    errors.push(
+      issue(
+        "commercial_research.source_concentration",
+        `${entry.path}#/evidence_register`,
+        "adopted Evidence is concentrated in one canonical provider, shared dataset, or syndication group; conclusions remain usable but require a lower confidence or disposition ceiling",
+        {
+          adoptedSourceCount: adopted.length,
+          dominantGroupCount: concentration.dominantGroupCount,
+          dominantGroup: concentration.dominantGroup,
+        },
+      ),
+    );
+  }
+  if (
+    adopted.some((item) => item.source_kind === "vendor") &&
+    !adopted.some((item) => item.independence === "independent")
+  ) {
+    errors.push(
+      issue(
+        "commercial_research.independent_cross_validation_missing",
+        `${entry.path}#/evidence_register`,
+        "vendor Evidence has no independent cross-validation; it may describe the vendor but cannot support a strong market conclusion",
+      ),
+    );
+  }
+
+  const expectedDistribution = deriveSourceDistribution(adopted, policy);
   if (
     canonicalJson(
       isRecord(audit.adopted_source_distribution) ? audit.adopted_source_distribution : {},
@@ -1096,6 +1703,7 @@ function validateAudit(
   for (const [index, item] of evidence.entries()) {
     const itemPath = `${entry.path}#/evidence_register/${index}`;
     const keys = strings(item.coverage_keys);
+    const sourceProfile = isRecord(item.source_profile) ? item.source_profile : {};
     if (item.source_kind === "academic" && keys.some((key) => !ACADEMIC_KEYS.has(key))) {
       errors.push(
         issue(
@@ -1119,6 +1727,50 @@ function validateAudit(
         ),
       );
     }
+    if (
+      item.source_kind === "vendor" &&
+      (sourceProfile.type !== "company_material" || !supportedCompanyClaim(item))
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.vendor_claim_scope_invalid",
+          `${itemPath}/source_profile`,
+          "company material must declare whether it supports only public pricing, product capability, or the company's own statement",
+        ),
+      );
+    }
+    if (sourceProfile.type === "news") {
+      const primaryRef =
+        typeof sourceProfile.primary_data_ref === "string" ? sourceProfile.primary_data_ref : null;
+      const traceable = isTraceableDirectSource(item, evidenceByRef);
+      if (
+        item.published_at !== sourceProfile.published_at ||
+        (sourceProfile.primary_data_traceability_status === "traced" && !traceable) ||
+        (sourceProfile.primary_data_traceability_status !== "traced" && primaryRef !== null)
+      ) {
+        errors.push(
+          issue(
+            "commercial_research.news_primary_traceability_mismatch",
+            `${itemPath}/source_profile`,
+            "news dates and traced primary-data status must be derived from an adopted API, dataset, regulatory, or official company Evidence ref",
+            { primaryRef, traceable },
+          ),
+        );
+      }
+    }
+    if (
+      sourceProfile.type === "regulatory" &&
+      (item.regulatory_effective_status !== sourceProfile.effective_status ||
+        (item.regulatory_status_verified_at ?? null) !== sourceProfile.verified_at)
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.regulatory_profile_derivation_mismatch",
+          `${itemPath}/source_profile`,
+          "formal regulatory status and verification time must exactly match the typed source profile",
+        ),
+      );
+    }
     if (item.disposition === "rejected" && typeof item.exclusion_reason !== "string") {
       errors.push(
         issue(
@@ -1137,6 +1789,10 @@ function validateAudit(
         ),
       );
     }
+    const adoptedForCurrentRegulatoryJudgment =
+      item.disposition === "adopted" &&
+      item.claim_type === "market_structure_regulatory" &&
+      keys.length > 0;
     if (
       item.claim_type === "market_structure_regulatory" &&
       (dateOnly(item.regulatory_status_verified_at) === null ||
@@ -1144,13 +1800,16 @@ function validateAudit(
           String(item.regulatory_effective_status),
         ))
     ) {
-      errors.push(
-        issue(
+      errors.push({
+        ...issue(
           "commercial_research.regulatory_status_unverified",
           itemPath,
-          "regulatory claims require an explicit effective-state observation and verification timestamp; enactment or publication year alone is insufficient",
+          adoptedForCurrentRegulatoryJudgment
+            ? "adopted Evidence used for a current regulatory judgment requires an effective-state observation and verification timestamp"
+            : "unverified regulatory Evidence is retained only as a candidate, rejected source, or historical background",
         ),
-      );
+        severity: adoptedForCurrentRegulatoryJudgment ? "error" : "warning",
+      });
     }
     const derivedValidAsOf = deriveValidAsOf(item);
     if (item.derived_valid_as_of !== derivedValidAsOf) {
@@ -1163,7 +1822,7 @@ function validateAudit(
         ),
       );
     }
-    const expectedFreshness = deriveFreshness(item, audit.audited_at, policy);
+    const expectedFreshness = deriveFreshnessStatus(item, audit.audited_at, policy);
     if (item.freshness_status !== expectedFreshness) {
       errors.push(
         issue(
@@ -1171,6 +1830,78 @@ function validateAudit(
           `${itemPath}/freshness_status`,
           "freshness status must follow the claim-specific observation window",
           { expected: expectedFreshness, claimType: item.claim_type },
+        ),
+      );
+    }
+  }
+
+  const findings = records(audit.findings);
+  const claims = records(audit.claims);
+  const judgments = records(audit.judgments);
+  const semanticStatements = [...findings, ...claims, ...judgments];
+  for (const statement of semanticStatements) {
+    if (
+      typeof statement.subject_id === "string" &&
+      !strings(audit.covered_direction_ids).includes(statement.subject_id)
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.semantic_subject_out_of_scope",
+          `${entry.path}#/covered_direction_ids`,
+          "semantic statements may bind only a subject assigned to this Audit",
+          { subjectId: statement.subject_id },
+        ),
+      );
+    }
+    for (const ref of strings(statement.evidence_refs)) {
+      const source = evidenceByRef.get(ref);
+      if (source === undefined) {
+        errors.push(
+          issue(
+            "commercial_research.semantic_evidence_not_registered",
+            `${entry.path}#/evidence_register`,
+            "semantic Evidence is in the Run closure but absent from this Audit register, so it cannot count as audited direct support",
+            { ref },
+          ),
+        );
+      }
+    }
+  }
+  for (const statement of [...claims, ...judgments]) {
+    for (const ref of strings(statement.evidence_refs)) {
+      const source = evidenceByRef.get(ref);
+      if (source === undefined || source.disposition !== "adopted") {
+        errors.push(
+          issue(
+            "commercial_research.positive_support_not_adopted",
+            `${entry.path}#/evidence_register`,
+            "rejected Evidence is retained but cannot count as direct positive Claim or Judgment support",
+            { ref },
+          ),
+        );
+      }
+    }
+  }
+  for (const [claimIndex, claim] of claims.entries()) {
+    const expected = deriveClaimConfidence(
+      claim.requested_confidence,
+      strings(claim.evidence_refs),
+      evidenceByRef,
+      records(audit.quantitative_coverage),
+      records(audit.competitive_coverage),
+      evidence,
+      typeof claim.subject_id === "string" ? claim.subject_id : undefined,
+    );
+    if (
+      claim.confidence !== expected.confidence ||
+      canonicalJson(strings(claim.confidence_ceiling_reasons)) !== canonicalJson(expected.reasons)
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.claim_confidence_mismatch",
+          `${entry.path}#/claims/${claimIndex}`,
+          "formal Claim confidence and reasons must equal the deterministic Evidence-local ceiling",
+          { expected },
         ),
       );
     }
@@ -1227,7 +1958,8 @@ function validateAudit(
       const evidenceRef = String(dataPoint.evidence_ref ?? "");
       const evidenceItem = adoptedByRef.get(evidenceRef);
       return (
-        evidenceItem !== undefined && directObservedSupport(evidenceItem, key, dataPoint.aspect)
+        evidenceItem !== undefined &&
+        directObservedSupport(evidenceItem, key, dataPoint.aspect, evidenceByRef)
       );
     });
     const aspects = new Set(eligibleDataPoints.map((dataPoint) => String(dataPoint.aspect)));
@@ -1283,7 +2015,10 @@ function validateAudit(
   }
 
   const completeCoverage = REQUIRED_RANKING_KEYS.every((key) => directlyCovered.has(key));
-  const expectedRanking = completeCoverage ? "ranked" : "unranked_hypothesis";
+  const concentrated = concentration.concentrated;
+  const hasIndependent = adopted.some((item) => item.independence === "independent");
+  const expectedRanking =
+    completeCoverage && !concentrated && hasIndependent ? "ranked" : "unranked_hypothesis";
   if (audit.ranking_eligibility !== expectedRanking) {
     errors.push(
       issue(
@@ -1324,6 +2059,44 @@ function validateAudit(
       ),
     );
   }
+  const expectedSubjectCeilings = deriveSubjectRecommendationCeilings(
+    strings(audit.covered_direction_ids),
+    coverage,
+    records(audit.quantitative_coverage),
+    records(audit.quantitative_observations),
+    records(audit.competitive_objects),
+    evidence,
+    [...claims, ...judgments],
+    evidenceDocuments,
+  );
+  if (
+    canonicalJson(records(audit.subject_recommendation_ceilings)) !==
+    canonicalJson(expectedSubjectCeilings)
+  ) {
+    errors.push(
+      issue(
+        "commercial_research.subject_recommendation_ceiling_mismatch",
+        `${entry.path}#/subject_recommendation_ceilings`,
+        "each formal subject ceiling must be derived only from Evidence, observations, statements, and Gaps bound to that subject",
+        { expected: expectedSubjectCeilings },
+      ),
+    );
+  }
+  const expectedCeiling = derivePortfolioRecommendationCeiling(
+    expectedSubjectCeilings,
+    [...claims, ...judgments],
+    evidence,
+  );
+  if (canonicalJson(audit.recommendation_ceiling ?? null) !== canonicalJson(expectedCeiling)) {
+    errors.push(
+      issue(
+        "commercial_research.recommendation_ceiling_mismatch",
+        `${entry.path}#/recommendation_ceiling`,
+        "recommendation ceiling must be the deterministic consequence of decision-relevant research Gaps",
+        { expected: expectedCeiling },
+      ),
+    );
+  }
   return errors;
 }
 
@@ -1357,34 +2130,75 @@ function validateCommercialReportProjections(
         ? [requirements.commercial_audit_output_path]
         : [];
     });
-  const expectedQuantitativeRows = audits.flatMap((audit) =>
-    records(audit.document.quantitative_observations).map((observation) => ({
-      audit_ref: audit.path,
-      observation,
-    })),
-  );
-  const expectedCompetitiveRows = audits.flatMap((audit) =>
-    records(audit.document.competitive_objects).map((competitiveObject) => ({
-      audit_ref: audit.path,
-      competitive_object: competitiveObject,
-    })),
-  );
-  const expectedGapRows = audits.flatMap((audit) => [
-    ...records(audit.document.quantitative_coverage)
-      .filter((coverage) => coverage.state !== "observed")
-      .map((coverage) => ({
-        audit_ref: audit.path,
-        coverage_kind: "quantitative",
-        coverage,
-      })),
-    ...records(audit.document.competitive_coverage)
-      .filter((coverage) => coverage.state !== "observed")
-      .map((coverage) => ({
-        audit_ref: audit.path,
-        coverage_kind: "competitive",
-        coverage,
-      })),
-  ]);
+  const expectedProjection = projectCommercialAuditTables(audits);
+  const documentsByPath = new Map(documents.map((document) => [document.path, document.document]));
+  const subjectAliases = (subject: string): Set<string> => {
+    const path = subject.split("#", 1)[0] ?? subject;
+    const fragment = subject.includes("#") ? subject.split("#", 2)[1] : undefined;
+    const basename = path
+      .split("/")
+      .at(-1)
+      ?.replace(/\.json$/u, "");
+    const target = documentsByPath.get(path) ?? {};
+    return new Set(
+      [
+        subject,
+        path,
+        fragment,
+        basename,
+        target.opportunity_id,
+        target.direction_id,
+        target.concept_hypothesis_id,
+        target.hypothesis_id,
+      ].filter((value): value is string => typeof value === "string" && value !== ""),
+    );
+  };
+  const reportDecisionSubjects = (report: CommercialResearchDocument): Set<string> => {
+    if (report.schemaVersion === "startup_opportunity.concept_evidence_report.v1") {
+      return typeof report.document.concept_hypothesis_ref === "string"
+        ? subjectAliases(report.document.concept_hypothesis_ref)
+        : new Set();
+    }
+    if (report.schemaVersion === "startup_opportunity.report.v1") {
+      const context = isRecord(report.document.curated_judgment_context)
+        ? report.document.curated_judgment_context
+        : {};
+      const selected = [
+        ...(typeof context.recommended_first_bet === "string"
+          ? [context.recommended_first_bet]
+          : []),
+        ...strings(report.document.top_opportunity_refs),
+      ];
+      return new Set(selected.flatMap((subject) => [...subjectAliases(subject)]));
+    }
+    if (report.document.mode === "concept_evidence_assessment") {
+      const concepts = documents.filter((document) =>
+        [
+          "startup_opportunity.concept_hypothesis.assessment.current",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+        ].includes(document.schemaVersion),
+      );
+      if (concepts.length > 0) {
+        return new Set(concepts.flatMap((concept) => [...subjectAliases(concept.path)]));
+      }
+    }
+    const conclusion = isRecord(report.document.research_conclusion)
+      ? report.document.research_conclusion
+      : {};
+    const selected = records(report.document.directions).filter(
+      (direction) =>
+        direction.action === "invest" ||
+        direction.priority === 1 ||
+        (direction.action === "validate" && conclusion.outcome === "investigate_further"),
+    );
+    return new Set(
+      selected.flatMap((direction) =>
+        typeof direction.direction_id === "string"
+          ? [...subjectAliases(direction.direction_id)]
+          : [],
+      ),
+    );
+  };
 
   for (const report of documents.filter((entry) =>
     REPORT_SCHEMA_VERSIONS.has(entry.schemaVersion),
@@ -1394,10 +2208,7 @@ function validateCommercialReportProjections(
       (auditPath) => !auditsByPath.has(auditPath),
     );
     if (
-      !sameStringSet(
-        reportAuditRefs,
-        audits.map((audit) => audit.path),
-      ) ||
+      !sameStringSet(reportAuditRefs, expectedProjection.commercial_research_audit_refs) ||
       missingPlannedAudits.length > 0
     ) {
       errors.push(
@@ -1415,7 +2226,7 @@ function validateCommercialReportProjections(
         `${String(row.audit_ref)}:${String(isRecord(row.observation) ? row.observation.observation_id : "")}`,
     );
     const sortedExpectedQuantitativeRows = sortedProjection(
-      expectedQuantitativeRows,
+      expectedProjection.quantitative_signal_rows,
       (row) =>
         `${String(row.audit_ref)}:${String(isRecord(row.observation) ? row.observation.observation_id : "")}`,
     );
@@ -1434,7 +2245,7 @@ function validateCommercialReportProjections(
         `${String(row.audit_ref)}:${String(isRecord(row.competitive_object) ? row.competitive_object.competitive_object_id : "")}`,
     );
     const sortedExpectedCompetitiveRows = sortedProjection(
-      expectedCompetitiveRows,
+      expectedProjection.competitive_substitute_rows,
       (row) =>
         `${String(row.audit_ref)}:${String(isRecord(row.competitive_object) ? row.competitive_object.competitive_object_id : "")}`,
     );
@@ -1453,18 +2264,104 @@ function validateCommercialReportProjections(
         row.coverage_kind === "quantitative" ? coverage.metric_family : coverage.competitor_type;
       return `${String(row.audit_ref)}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`;
     });
-    const sortedExpectedGapRows = sortedProjection(expectedGapRows, (row) => {
-      const coverage = isRecord(row.coverage) ? row.coverage : {};
-      const dimension =
-        row.coverage_kind === "quantitative" ? coverage.metric_family : coverage.competitor_type;
-      return `${String(row.audit_ref)}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`;
-    });
+    const sortedExpectedGapRows = sortedProjection(
+      expectedProjection.research_coverage_gaps,
+      (row) => {
+        const coverage = isRecord(row.coverage) ? row.coverage : {};
+        const dimension =
+          row.coverage_kind === "quantitative" ? coverage.metric_family : coverage.competitor_type;
+        return `${String(row.audit_ref)}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`;
+      },
+    );
     if (canonicalJson(actualGapRows) !== canonicalJson(sortedExpectedGapRows)) {
       errors.push(
         issue(
           "commercial_research.report_gap_projection_mismatch",
           `${report.path}#/research_coverage_gaps`,
           "formal reporting must show every partial, unavailable, and not-applicable quantitative or competitive dimension with its decision impact",
+        ),
+      );
+    }
+    const ceilingRank = { watch: 0, investigate_further: 1, prioritize: 2 } as const;
+    const decisionSubjects = reportDecisionSubjects(report);
+    const relevantAudits = audits.filter((audit) => {
+      const task =
+        typeof audit.document.task_ref === "string"
+          ? documentsByPath.get(audit.document.task_ref)
+          : undefined;
+      const auditSubjects = [
+        ...strings(audit.document.covered_direction_ids),
+        ...(typeof task?.target_subject_ref === "string" ? [task.target_subject_ref] : []),
+        ...strings(task?.target_opportunity_refs),
+      ];
+      return auditSubjects.some((subject) =>
+        [...subjectAliases(subject)].some((alias) => decisionSubjects.has(alias)),
+      );
+    });
+    const relevantSubjectCeilings = relevantAudits.flatMap((audit) =>
+      records(audit.document.subject_recommendation_ceilings)
+        .filter(
+          (ceiling) =>
+            typeof ceiling.subject_id === "string" &&
+            [...subjectAliases(ceiling.subject_id)].some((alias) => decisionSubjects.has(alias)),
+        )
+        .map((ceiling) => ({ auditRef: audit.path, ceiling })),
+    );
+    const strictestCeiling = relevantSubjectCeilings.reduce<keyof typeof ceilingRank>(
+      (current, entry) => {
+        const ceiling = entry.ceiling.maximum_decision_tier;
+        return typeof ceiling === "string" &&
+          ceiling in ceilingRank &&
+          ceilingRank[ceiling as keyof typeof ceilingRank] < ceilingRank[current]
+          ? (ceiling as keyof typeof ceilingRank)
+          : current;
+      },
+      "prioritize",
+    );
+    const reportTier =
+      report.schemaVersion === "startup_opportunity.terminal_report_source.v1"
+        ? isRecord(report.document.research_conclusion)
+          ? report.document.research_conclusion.outcome
+          : null
+        : report.schemaVersion === "startup_opportunity.report.v1" &&
+            isRecord(report.document.curated_judgment_context)
+          ? report.document.curated_judgment_context.decision_tier
+          : report.schemaVersion === "startup_opportunity.concept_evidence_report.v1" &&
+              isRecord(report.document.curated_judgment_context)
+            ? report.document.curated_judgment_context.assessment_result
+            : null;
+    const normalizedTier =
+      reportTier === "prioritize"
+        ? "prioritize"
+        : reportTier === "investigate_further"
+          ? "investigate_further"
+          : "watch";
+    if (ceilingRank[normalizedTier] > ceilingRank[strictestCeiling]) {
+      errors.push(
+        issue(
+          "terminal_reporting.recommendation_ceiling_exceeded",
+          `${report.path}#/research_conclusion`,
+          "the report conclusion exceeds the deterministic ceiling imposed by unresolved commercial research Gaps",
+          {
+            reportTier,
+            strictestCeiling,
+            decisionSubjects: [...decisionSubjects].sort(),
+            relevantAuditRefs: [...new Set(relevantSubjectCeilings.map((entry) => entry.auditRef))],
+          },
+        ),
+      );
+    }
+    if (
+      normalizedTier === "prioritize" &&
+      decisionSubjects.size > 0 &&
+      relevantSubjectCeilings.length === 0
+    ) {
+      errors.push(
+        issue(
+          "terminal_reporting.recommendation_ceiling_subject_unresolved",
+          `${report.path}#/commercial_research_audit_refs`,
+          "a prioritize conclusion requires at least one commercial Audit bound to the selected decision subject",
+          { decisionSubjects: [...decisionSubjects].sort() },
         ),
       );
     }
@@ -1519,7 +2416,7 @@ export function validateCommercialResearchContract(
           return (
             supportingRefs.includes(evidenceRef) &&
             item !== undefined &&
-            directObservedSupport(item, coverageKey, dataPoint.aspect)
+            directObservedSupport(item, coverageKey, dataPoint.aspect, registerByRef)
           );
         });
       });
@@ -1535,12 +2432,49 @@ export function validateCommercialResearchContract(
       }
     }
   }
-  for (const entry of documents.filter(
+  const auditIssues: ValidationIssue[] = [];
+  const auditDocuments = documents.filter(
     (candidate) =>
       candidate.schemaVersion === "startup_opportunity.commercial_research_audit.current",
-  )) {
-    errors.push(...validateAudit(entry, policy, documents, exactJsonlRecords));
+  );
+  for (const entry of auditDocuments) {
+    const currentIssues = validateAudit(entry, policy, documents, exactJsonlRecords);
+    auditIssues.push(...currentIssues);
+    errors.push(...currentIssues);
   }
-  errors.push(...validateCommercialReportProjections(documents));
+  const reportProjectionIssues = validateCommercialReportProjections(documents);
+  errors.push(...reportProjectionIssues);
+  const expectedWarnings = projectGateWarnings([...auditIssues, ...reportProjectionIssues]);
+  const compilerWarnings = auditDocuments.flatMap((entry) =>
+    records(entry.document.compiler_warnings),
+  );
+  const allExpectedWarnings = [...expectedWarnings, ...compilerWarnings].toSorted((left, right) =>
+    `${String(left.code)}:${String(left.message)}`.localeCompare(
+      `${String(right.code)}:${String(right.message)}`,
+    ),
+  );
+  for (const report of documents.filter((entry) =>
+    REPORT_SCHEMA_VERSIONS.has(entry.schemaVersion),
+  )) {
+    const actualWarnings = records(report.document.gate_warnings).toSorted((left, right) =>
+      `${String(left.code)}:${String(left.message)}`.localeCompare(
+        `${String(right.code)}:${String(right.message)}`,
+      ),
+    );
+    const missingWarnings = allExpectedWarnings.filter(
+      (expected) =>
+        !actualWarnings.some((actual) => canonicalJson(actual) === canonicalJson(expected)),
+    );
+    if (missingWarnings.length > 0) {
+      errors.push(
+        issue(
+          "terminal_reporting.gate_warning_missing",
+          `${report.path}#/gate_warnings`,
+          "formal reporting must deterministically disclose every non-blocking commercial Gate with its decision impact",
+          { expected: allExpectedWarnings, missing: missingWarnings },
+        ),
+      );
+    }
+  }
   return errors;
 }

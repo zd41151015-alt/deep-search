@@ -896,11 +896,21 @@ export class ArtifactStore {
         }
       }
     }
-    const documents = [...(await this.listFormalDocuments(runRoot))];
+    const storedDocuments = [...(await this.listFormalDocuments(runRoot))];
+    let documents = storedDocuments;
     try {
       const manifest = JSON.parse(
         await readFile(await resolveRunPath(runRoot, "manifest.json"), "utf8"),
       ) as Record<string, unknown>;
+      const currentArtifactRefs = new Set(
+        Array.isArray(manifest.artifact_refs)
+          ? manifest.artifact_refs.filter((ref): ref is string => typeof ref === "string")
+          : [],
+      );
+      for (const ref of artifactRefsForDocument({ path: "manifest.json", document: manifest })) {
+        currentArtifactRefs.add(ref.split("#", 1)[0] ?? ref);
+      }
+      documents = storedDocuments.filter((entry) => currentArtifactRefs.has(entry.path));
       documents.push({ path: "manifest.json", document: manifest });
     } catch (error) {
       if (!isNodeError(error, "ENOENT")) {

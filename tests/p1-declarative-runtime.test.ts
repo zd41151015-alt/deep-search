@@ -38,7 +38,6 @@ import {
   createDiscoveryRuntimeFixture,
   runtimeEnvelope,
 } from "./fixtures/g2.2/discovery-runtime-fixture.js";
-import { unavailableQuantitativeCompetitiveCoverage } from "./fixtures/quantitative-competitive-fixture.js";
 import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -554,82 +553,81 @@ function alternateTask(
   return envelope;
 }
 
-function unrankedCommercialAudit(
-  runId: string,
-  unitId: string,
-  taskRef: string,
-): Record<string, unknown> {
-  const coveredSubjectIds = [`direction_${unitId}`];
-  const uncovered = [
-    "recent_user_language",
-    "purchase_signal",
-    "alternatives_pricing_usage",
-    "distribution_channel",
-    "independent_counterevidence",
-  ];
+function unrankedCommercialDelivery(runId: string, unitId: string): Record<string, unknown> {
   return {
-    schema_version: "startup_opportunity.commercial_research_audit.current",
-    audit_id: `commercial_audit_${unitId}`,
+    schema_version: "startup_opportunity.commercial_research_delivery.current",
     run_id: runId,
     unit_id: unitId,
-    execution_plan_ref: "plans/research-execution.r1.json",
-    dispatch_task_ref: `tasks/dispatch/runtime.r1.json#task_${unitId}`,
-    task_ref: taskRef,
-    covered_direction_ids: coveredSubjectIds,
-    research_stage: "solution_specific_evaluation",
     audited_at: "2026-07-31T16:03:00Z",
-    planned_resource_allocation: {
-      customer_commercial_percent: 65,
-      market_structure_percent: 17,
-      academic_percent: 18,
-    },
-    adopted_source_distribution: {
-      total_adopted_sources: 0,
-      customer_commercial_count: 0,
-      market_structure_count: 0,
-      academic_count: 0,
-      customer_commercial_percent: 0,
-      market_structure_percent: 0,
-      academic_percent: 0,
-      guidance_deviation_observed: false,
-    },
-    search_log: [
+    research_objectives: ["Disclose that no current commercial Evidence was available."],
+    primary_routes: ["Synthetic fixture route; no external research was performed."],
+    search_results: [],
+    evidence_sources: [],
+    findings: [],
+    claims: [],
+    judgments: [],
+    quantitative_observations: [],
+    competitive_observations: [],
+    unresolved_gaps: [],
+    limitations: ["SYNTHETIC contract delivery; no market research was performed."],
+    stop_reason: "The fixture has no current commercial Evidence to adopt.",
+    telemetry_basis: "unavailable",
+    query_log_complete: false,
+  };
+}
+
+function commercialDeliveryWithSemanticEvidence(
+  runId: string,
+  unitId: string,
+  evidenceRef: string,
+): Record<string, unknown> {
+  return {
+    ...unrankedCommercialDelivery(runId, unitId),
+    research_objectives: ["Preserve a typed counterevidence record across semantic statements."],
+    primary_routes: ["Repository-existing typed Evidence."],
+    evidence_sources: [
       {
-        query_id: `query_${unitId}`,
-        query: "SYNTHETIC commercial audit query; no research was performed.",
-        searched_at: "2026-07-31T16:02:00Z",
-        commercial_dimensions: ["solution_pricing"],
-        candidate_results: [],
+        evidence_ref: evidenceRef,
+        source_kind: "independent",
+        source_profile: {
+          type: "other",
+          description: "Synthetic typed Evidence used only to exercise formal reference closure.",
+        },
+        evidence_character: "counterevidence",
+        independence: "unknown",
+        claim_type: "counterevidence",
+        content_summary:
+          "The fixture preserves a typed Evidence dependency without a market claim.",
+        retrieved_at: "2026-07-31T16:02:00Z",
+        published_at: null,
+        observed_at: "2026-07-31T16:02:00Z",
+        data_period_end: null,
+        coverage_keys: ["counterevidence"],
+        disposition: "adopted",
+        exclusion_reason: null,
       },
     ],
-    search_closure: {
-      closure_id: `search_closure_${unitId}`,
-      lane_kind: "external_research",
-      outcome: "evidence_insufficient",
-      query_log_complete: false,
-      telemetry_basis: "agent_supplied",
-      remaining_gaps: uncovered,
-      termination_reason: "Synthetic fixture did not adopt any source.",
-    },
-    evidence_register: [],
-    coverage: Object.fromEntries(
-      uncovered.map((key) => [
-        key,
-        {
-          state: "unknown",
-          content_covered: false,
-          evidence_refs: [],
-          data_points: [],
-          inference: null,
-        },
-      ]),
-    ),
-    uncovered_business_dimensions: uncovered,
-    wave1_signals: { demand: false, buyer: false, purchase: false },
-    stage_decision: "early_stop_insufficient_evidence",
-    ranking_eligibility: "unranked_hypothesis",
-    ...unavailableQuantitativeCompetitiveCoverage(coveredSubjectIds, "2026-07-31T16:03:00Z"),
-    limitations: ["SYNTHETIC contract audit; no research was performed."],
+    findings: [
+      {
+        statement: "The typed fixture Evidence is retained as counterevidence.",
+        evidence_refs: [evidenceRef],
+      },
+    ],
+    claims: [
+      {
+        statement: "The formal Audit retains the typed fixture Evidence dependency.",
+        evidence_refs: [evidenceRef],
+        confidence: "low",
+      },
+    ],
+    judgments: [
+      {
+        statement: "No commercial conclusion is drawn from the synthetic counterevidence.",
+        evidence_refs: [evidenceRef],
+      },
+    ],
+    limitations: ["SYNTHETIC contract fixture; no market research was performed."],
+    stop_reason: "The typed reference-closure fixture was complete.",
   };
 }
 
@@ -1166,17 +1164,6 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
   assert.ok(afterPublish.manifest.active_units.includes(unitId));
   assert.ok(afterPublish.manifest.artifact_refs.includes(task.artifact_path));
 
-  const substrate = await new EvidenceStore(state.runsRoot).record({
-    runId: state.runId,
-    unitId,
-    researchGoal: String(task.document.research_goal),
-    source: {
-      kind: "user_provided",
-      canonical_uri: `urn:startup-opportunity:user-provided:${state.runId}-commercial-audit`,
-    },
-    rawContent: "SYNTHETIC commercial audit substrate; not market Evidence.",
-    recordedAt: "2026-07-31T16:02:00Z",
-  });
   const auditPath = `artifacts/research-audits/${unitId}.json`;
   const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
   const staging = {
@@ -1187,7 +1174,7 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
     created_at: "2026-07-31T16:03:00Z",
     producer_role: "lane_researcher",
     operation: "publish",
-    evidence_receipt_refs: [`evidence/manifest.jsonl#${substrate.record.evidence_id}`],
+    evidence_receipt_refs: [],
     delivery_contract: {
       required_artifacts: [
         {
@@ -1199,9 +1186,9 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
       scope_coverage: [
         {
           scope_key: "commercial_coverage",
-          status: "covered",
-          evidence_refs: [`evidence/manifest.jsonl#${substrate.record.evidence_id}`],
-          notes: "Synthetic Evidence Store bytes cover only this contract fixture scope.",
+          status: "no_evidence_found",
+          evidence_refs: [],
+          notes: "Synthetic fixture bytes are not market Evidence and do not cover this scope.",
         },
       ],
       search_closure: {
@@ -1215,7 +1202,7 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
       {
         artifact_type: "startup_opportunity.commercial_research_audit.current",
         artifact_path: auditPath,
-        document: unrankedCommercialAudit(state.runId, unitId, task.artifact_path),
+        document: unrankedCommercialDelivery(state.runId, unitId),
       },
     ],
   };
@@ -1228,7 +1215,7 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
   invalid.delivery_contract.assigned_scope.push("unanswered_scope");
   const invalidCoverage = invalid.delivery_contract.scope_coverage[0];
   assert.ok(invalidCoverage);
-  invalidCoverage.evidence_refs = [];
+  invalidCoverage.status = "covered";
   invalid.delivery_contract.search_closure.acquisition_routes_attempted = ["none"];
   const beforeRejectedPreflight = await snapshotTree(state.runRoot);
   await assert.rejects(materializer.materialize(invalid), (error: unknown) => {
@@ -1287,17 +1274,54 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
   const materialized = await materializer.materialize(staging);
   assert.equal(materialized.status, "accepted");
   assert.equal(materialized.compilation.status, "published");
+  const gateDiagnostics = materialized.delivery_receipt.document.gate_diagnostics as Record<
+    string,
+    unknown
+  >;
+  const gateIssues = gateDiagnostics.issues as Record<string, unknown>[];
+  assert.ok(
+    gateIssues.some(
+      (issue) =>
+        issue.code === "commercial_research.assigned_scope_undisclosed" &&
+        issue.severity === "warning" &&
+        issue.category === "coverage",
+    ),
+  );
+  const gateStatistics = gateDiagnostics.statistics as Record<string, unknown>[];
+  assert.ok(
+    gateStatistics.some(
+      (statistic) =>
+        statistic.validator_code === "commercial_research.assigned_scope_undisclosed" &&
+        Number(statistic.trigger_count) > 1 &&
+        statistic.repair_rounds === null &&
+        statistic.repair_time_ms === null &&
+        statistic.changed_evidence_claim_or_disposition === null,
+    ),
+  );
+  const downgradeCandidates = gateDiagnostics.downgrade_candidates as Record<string, unknown>[];
+  assert.ok(
+    downgradeCandidates.some(
+      (candidate) =>
+        candidate.validator_code === "commercial_research.assigned_scope_undisclosed" &&
+        candidate.candidate_action === "automate" &&
+        candidate.integrity_gate_automatically_relaxed === false,
+    ),
+  );
   const auditEnvelope = materialized.compilation.compiled_envelopes.find(
     (envelope) => envelope.artifact_path === auditPath,
   );
   assert.ok(auditEnvelope);
   assert.deepEqual(auditEnvelope.input_refs, [
-    `evidence/manifest.jsonl#${substrate.record.evidence_id}`,
     "plans/research-execution.r1.json",
     task.artifact_path,
     `tasks/dispatch/runtime.r1.json#task_${unitId}`,
   ]);
-  assert.equal(auditEnvelope.producer_role, "lane_researcher");
+  assert.equal(auditEnvelope.producer_role, "harness");
+  assert.equal(
+    auditEnvelope.document.schema_version,
+    "startup_opportunity.commercial_research_audit.current",
+  );
+  assert.ok(Array.isArray(auditEnvelope.document.compiler_warnings));
   assert.equal(materialized.delivery_receipt.producer_role, "harness");
   assert.equal(
     materialized.delivery_receipt.document.schema_version,
@@ -1345,11 +1369,213 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
   const deliveryReplay = await materializer.materialize(staging);
   assert.equal(deliveryReplay.status, "accepted");
   assert.equal(deliveryReplay.compilation.status, "idempotent_replay");
+  assert.deepEqual(
+    deliveryReplay.delivery_receipt.document.gate_diagnostics,
+    materialized.delivery_receipt.document.gate_diagnostics,
+  );
 
   const beforeReplay = await snapshotTree(state.runRoot);
   const replay = await state.runStore.publishArtifact({ runId: state.runId, envelope: task });
   assert.equal(replay.status, "idempotent_replay");
   assert.deepEqual(await snapshotTree(state.runRoot), beforeReplay);
+});
+
+test("commercial Audit semantic input closure is compiler-owned across validation, publication, and recovery", async (t) => {
+  const state = await prepareDiscoveryTaskBridgeRun(t, "commercial-input-closure");
+  const execution = executionPlan(state.runId, state.plan, "evaluation");
+  const batch = dispatchBatch(state.runId, state.plan, execution);
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  const wave = await compiler.compile(
+    compilationRequest(state.runId, "publish", [
+      runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+      runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
+      ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
+    ]),
+  );
+  const task = wave.compiled_envelopes.find(
+    (envelope) =>
+      envelope.artifact_type === "startup_opportunity.research_task.discovery_candidate.current" &&
+      envelope.document.unit_id === "unit_seed_independent_demand",
+  );
+  assert.ok(task);
+  const unitId = String(task.document.unit_id);
+  const evidenceEnvelope = state.bundle.documents
+    .map((entry) => entry.document as unknown as FormalArtifactEnvelope)
+    .find(
+      (envelope) =>
+        envelope.schema_version === "startup_opportunity.artifact_envelope.current" &&
+        envelope.artifact_type === "startup_opportunity.evidence.discovery_candidate.current" &&
+        envelope.document.unit_id === unitId,
+    );
+  assert.ok(evidenceEnvelope);
+  await state.runStore.publishArtifact({ runId: state.runId, envelope: evidenceEnvelope });
+
+  const evidenceRef = evidenceEnvelope.artifact_path;
+  const substrateRef = String(
+    (evidenceEnvelope.document.mechanical_binding as Record<string, unknown>).substrate_record_ref,
+  );
+  const auditPath = `artifacts/research-audits/${unitId}-semantic-closure.json`;
+  const staging = {
+    schema_version: "startup_opportunity.lane_staging_document.current",
+    staging_id: "staging_commercial_semantic_closure_synthetic",
+    run_id: state.runId,
+    task_ref: task.artifact_path,
+    created_at: "2026-07-31T16:03:00Z",
+    producer_role: "lane_researcher",
+    operation: "publish",
+    evidence_receipt_refs: [substrateRef],
+    delivery_contract: {
+      required_artifacts: [
+        {
+          artifact_type: "startup_opportunity.commercial_research_audit.current",
+          artifact_path: auditPath,
+        },
+      ],
+      assigned_scope: ["commercial_coverage"],
+      scope_coverage: [
+        {
+          scope_key: "commercial_coverage",
+          status: "covered",
+          evidence_refs: [substrateRef],
+          notes: "Typed synthetic Evidence exercises semantic closure only.",
+        },
+      ],
+      search_closure: {
+        status: "completed",
+        acquisition_routes_attempted: ["repository_source"],
+        unresolved_gaps: ["No market research was performed by this synthetic fixture."],
+        stop_reason: "The deterministic typed-reference fixture was complete.",
+      },
+    },
+    agent_documents: [
+      {
+        artifact_type: "startup_opportunity.commercial_research_audit.current",
+        artifact_path: auditPath,
+        document: commercialDeliveryWithSemanticEvidence(state.runId, unitId, evidenceRef),
+      },
+    ],
+  };
+  const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const materialized = await materializer.materialize(staging);
+  assert.equal(materialized.compilation.status, "published");
+  const auditEnvelope = materialized.compilation.compiled_envelopes.find(
+    (envelope) => envelope.artifact_path === auditPath,
+  );
+  assert.ok(auditEnvelope);
+  const expectedInputRefs = [
+    evidenceRef,
+    "plans/research-execution.r1.json",
+    task.artifact_path,
+    `tasks/dispatch/runtime.r1.json#task_${unitId}`,
+  ].sort();
+  assert.deepEqual(auditEnvelope.input_refs, expectedInputRefs);
+  for (const field of ["findings", "claims", "judgments"] as const) {
+    const statement: Record<string, unknown> | undefined = (
+      auditEnvelope.document[field] as Record<string, unknown>[]
+    )[0];
+    assert.ok(statement);
+    assert.deepEqual(statement.evidence_refs, [evidenceRef]);
+  }
+
+  const currentContext = await state.runStore.buildValidationContext(
+    state.runId,
+    {
+      schema_version: "startup_opportunity.document_bundle.current",
+      documents: [{ path: auditPath, document: auditEnvelope }],
+      exact_records: [],
+    },
+    { includeAllFormalArtifacts: true },
+  );
+  const currentValidation = state.validator.validateDocumentBundle(
+    currentContext.bundle,
+    currentContext.referenceContext,
+  );
+  assert.equal(currentValidation.valid, true);
+
+  const validateWithInputRefs = (inputRefs: readonly string[]) => {
+    const bundle = structuredClone(currentContext.bundle);
+    const auditEntry = bundle.documents.find((entry) => entry.path === auditPath);
+    assert.ok(auditEntry);
+    const envelope = auditEntry.document as unknown as FormalArtifactEnvelope;
+    (envelope as unknown as { input_refs: readonly string[] }).input_refs = inputRefs;
+    return state.validator.validateDocumentBundle(bundle, currentContext.referenceContext);
+  };
+  for (const inputRefs of [
+    expectedInputRefs.filter((ref) => ref !== evidenceRef),
+    [...expectedInputRefs, G21_SCOPE_REF].sort(),
+  ]) {
+    const validation = validateWithInputRefs(inputRefs);
+    assert.equal(validation.valid, false);
+    const closureIssue = validation.referenceErrors.find(
+      (issue) => issue.code === "reference.commercial_audit_input_closure_mismatch",
+    );
+    assert.ok(closureIssue);
+    assert.deepEqual(closureIssue.details.expectedInputRefs, expectedInputRefs);
+    assert.deepEqual(closureIssue.details.actualInputRefs, inputRefs);
+  }
+
+  const missingEvidenceRefEnvelope = structuredClone(auditEnvelope);
+  (
+    missingEvidenceRefEnvelope as unknown as {
+      artifact_path: string;
+      input_refs: readonly string[];
+    }
+  ).artifact_path = `artifacts/research-audits/${unitId}-publication-drift.json`;
+  (
+    missingEvidenceRefEnvelope as unknown as {
+      artifact_path: string;
+      input_refs: readonly string[];
+    }
+  ).input_refs = expectedInputRefs.filter((ref) => ref !== evidenceRef);
+  await assert.rejects(
+    new ArtifactStore(state.runsRoot, state.validator).publish({
+      runId: state.runId,
+      envelope: missingEvidenceRefEnvelope,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.equal(error.code, "artifact.reference_invalid");
+      const issues = error.details.referenceErrors as Record<string, unknown>[];
+      assert.ok(
+        issues.some((issue) => issue.code === "reference.commercial_audit_input_closure_mismatch"),
+      );
+      return true;
+    },
+  );
+
+  const storedEnvelope = JSON.parse(
+    await readFile(path.join(state.runRoot, auditPath), "utf8"),
+  ) as FormalArtifactEnvelope;
+  (storedEnvelope as unknown as { input_refs: readonly string[] }).input_refs =
+    expectedInputRefs.filter((ref) => ref !== evidenceRef);
+  await writeFile(path.join(state.runRoot, auditPath), `${canonicalJson(storedEnvelope)}\n`);
+  const operationsRoot = path.join(state.runRoot, ".store/operations");
+  for (const entry of await readdir(operationsRoot)) {
+    if (!entry.endsWith(".json")) continue;
+    const operationPath = path.join(operationsRoot, entry);
+    const operation = JSON.parse(await readFile(operationPath, "utf8")) as Record<string, unknown>;
+    const publishesAudit =
+      operation.artifact_path === auditPath ||
+      (Array.isArray(operation.envelopes) &&
+        operation.envelopes.some(
+          (envelope) =>
+            typeof envelope === "object" &&
+            envelope !== null &&
+            "artifact_path" in envelope &&
+            envelope.artifact_path === auditPath,
+        ));
+    if (publishesAudit) await rm(operationPath);
+  }
+  await assert.rejects(
+    new RunStore(state.runsRoot, state.validator).load(state.runId),
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.equal(error.code, "recovery.reference_invalid");
+      const codes = error.details.referenceErrorCodes as string[];
+      assert.ok(codes.includes("reference.commercial_audit_input_closure_mismatch"));
+      return true;
+    },
+  );
 });
 
 test("whole-wave intent restores every Dispatch and canonical task before Manifest recovery", async (t) => {

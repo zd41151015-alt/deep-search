@@ -411,7 +411,7 @@ export async function createG14ContractBundle(
       runId: G14_RUN_ID,
       taskRef,
       task,
-      coveredSubjectIds: ["concept_hypothesis"],
+      coveredSubjectIds: ["concept-hypothesis.json"],
       auditedAt: "2026-07-25T18:39:00Z",
     });
     documents.set(auditRef, audit);

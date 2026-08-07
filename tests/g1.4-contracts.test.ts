@@ -59,7 +59,7 @@ async function codes(bundle: DocumentBundle): Promise<readonly string[]> {
   ].map((issue) => issue.code);
 }
 
-test("default bundle retains G1.4 and validates all four closed Assessment results", async () => {
+test("default bundle retains G1.4 and enforces the commercial ceiling across Assessment results", async () => {
   const schema = await inspectSchemaBundle(repositoryRoot);
   assert.equal(schema.valid, true, JSON.stringify(schema.errors));
   assert.ok(schema.schemaCount > 0);
@@ -67,7 +67,6 @@ test("default bundle retains G1.4 and validates all four closed Assessment resul
 
   const validator = await createArtifactValidator(repositoryRoot);
   for (const assessmentResult of [
-    "prioritize",
     "investigate_further",
     "deprioritize",
     "insufficient_evidence",
@@ -77,6 +76,14 @@ test("default bundle retains G1.4 and validates all four closed Assessment resul
     assert.equal(result.valid, true, `${assessmentResult}: ${JSON.stringify(result)}`);
     assert.equal(effective(bundle, G14_ASSESSMENT_REF).assessment_result, assessmentResult);
   }
+  const prioritize = await createG14ContractBundle("prioritize");
+  const prioritizeResult = validator.validateDocumentBundle(prioritize);
+  assert.equal(prioritizeResult.valid, false);
+  assert.ok(
+    prioritizeResult.referenceErrors.some(
+      (issue) => issue.code === "terminal_reporting.recommendation_ceiling_exceeded",
+    ),
+  );
 });
 
 test("Evidence audit fails closed for stale, single-source, unavailable, and unsupported inputs", async () => {
