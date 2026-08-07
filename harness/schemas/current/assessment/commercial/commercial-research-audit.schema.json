@@ -269,7 +269,9 @@
               "source_concentration",
               "independent_cross_validation_missing",
               "aggregate_business_coverage_incomplete",
-              "conflicting_evidence_present"
+              "conflicting_evidence_present",
+              "evidence_interpretation_disagreement",
+              "subject_research_gap_present"
             ]
           }
         }
@@ -350,6 +352,54 @@
               "type": "null"
             }
           ]
+        }
+      }
+    },
+    "researchGap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_ids",
+        "subject_binding_basis",
+        "coverage_kind",
+        "dimension",
+        "state",
+        "reason",
+        "alternative_metric",
+        "decision_impact",
+        "query_attempts",
+        "task_ref",
+        "audit_ref"
+      ],
+      "properties": {
+        "subject_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "subject_binding_basis": {
+          "enum": ["explicit", "single_subject_auto", "unbound"]
+        },
+        "coverage_kind": {
+          "enum": ["quantitative", "competitive", "business", "research"]
+        },
+        "dimension": { "$ref": "#/$defs/nonEmptyString" },
+        "state": { "enum": ["partial", "unavailable", "not_applicable"] },
+        "reason": { "$ref": "#/$defs/nonEmptyString" },
+        "alternative_metric": {
+          "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }]
+        },
+        "decision_impact": { "$ref": "#/$defs/nonEmptyString" },
+        "query_attempts": {
+          "type": "array",
+          "items": { "$ref": "./quantitative-competitive-research.schema.json#/$defs/queryAttempt" }
+        },
+        "task_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "audit_ref": {
+          "type": "string",
+          "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
         }
       }
     }
@@ -701,7 +751,8 @@
           "enum": ["agent_supplied", "unavailable"]
         },
         "remaining_gaps": {
-          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+          "type": "array",
+          "items": { "$ref": "#/$defs/researchGap" }
         },
         "termination_reason": {
           "$ref": "#/$defs/nonEmptyString"

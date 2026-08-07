@@ -88,6 +88,7 @@ export function compileCommercialResearchDelivery(
   const scope = isRecord(requirements.quantitative_competitive_scope)
     ? requirements.quantitative_competitive_scope
     : {};
+  const auditPath = String(requirements.commercial_audit_output_path);
   const subjectIdFromRef = (ref: string): string => {
     const [targetPath = ref, fragment] = ref.split("#", 2);
     if (fragment !== undefined && fragment !== "") return fragment;
@@ -214,7 +215,10 @@ export function compileCommercialResearchDelivery(
       ),
       ...records(delivery.quantitative_observations).map((item) => String(item.subject_id)),
       ...records(delivery.competitive_observations).map((item) => String(item.subject_id)),
-      ...records(delivery.unresolved_gaps).map((item) => String(item.subject_id)),
+      ...records(delivery.unresolved_gaps).flatMap((item) => [
+        ...strings(item.subject_ids),
+        ...(typeof item.subject_id === "string" ? [item.subject_id] : []),
+      ]),
     ]),
   ].filter(Boolean);
   const subjectIds = assignedSubjectIds.length > 0 ? assignedSubjectIds : authoredSubjectIds;
@@ -342,12 +346,58 @@ export function compileCommercialResearchDelivery(
       );
     }
   }
-  const gaps = new Map(
-    records(delivery.unresolved_gaps).map((gap) => [
-      gapKey(String(gap.coverage_kind), String(gap.subject_id), String(gap.dimension)),
-      gap,
-    ]),
-  );
+  const structuredGaps = records(delivery.unresolved_gaps)
+    .map((gap) => {
+      const explicitSubjects = [
+        ...new Set([
+          ...strings(gap.subject_ids),
+          ...(typeof gap.subject_id === "string" ? [gap.subject_id] : []),
+        ]),
+      ]
+        .filter((subjectId) => subjectIds.includes(subjectId))
+        .sort();
+      const boundSubjects =
+        explicitSubjects.length > 0
+          ? explicitSubjects
+          : subjectIds.length === 1
+            ? [...subjectIds]
+            : [];
+      const subjectBindingBasis =
+        explicitSubjects.length > 0
+          ? "explicit"
+          : subjectIds.length === 1
+            ? "single_subject_auto"
+            : "unbound";
+      if (subjectBindingBasis === "unbound") {
+        issues.push(
+          issue(
+            "commercial_research.gap_subject_unbound",
+            "/unresolved_gaps",
+            "a multi-subject unresolved Gap was retained as portfolio research context because no subject binding could be derived",
+            { coverageKind: gap.coverage_kind, dimension: gap.dimension },
+          ),
+        );
+      }
+      const { subject_id: _subjectId, subject_ids: _subjectIds, ...researchSemantics } = gap;
+      return {
+        ...researchSemantics,
+        subject_ids: boundSubjects,
+        subject_binding_basis: subjectBindingBasis,
+        task_ref: taskPath,
+        audit_ref: auditPath,
+      } as Record<string, unknown>;
+    })
+    .sort((left, right) =>
+      `${strings(left.subject_ids).join(",")}\u0000${String(left.coverage_kind)}\u0000${String(left.dimension)}\u0000${String(left.reason)}`.localeCompare(
+        `${strings(right.subject_ids).join(",")}\u0000${String(right.coverage_kind)}\u0000${String(right.dimension)}\u0000${String(right.reason)}`,
+      ),
+    );
+  const gaps = new Map<string, Record<string, unknown>>();
+  for (const gap of structuredGaps) {
+    for (const subjectId of strings(gap.subject_ids)) {
+      gaps.set(gapKey(String(gap.coverage_kind), subjectId, String(gap.dimension)), gap);
+    }
+  }
   const quantitativeCoverage = subjectIds.flatMap((subjectId) =>
     strings(scope.required_metric_families).map((family) => {
       const observations = quantitativeObservations.filter(
@@ -474,7 +524,8 @@ export function compileCommercialResearchDelivery(
   const hasGaps =
     quantitativeCoverage.some((item) => item.state !== "observed") ||
     competitiveCoverage.some((item) => item.state !== "observed") ||
-    uncovered.length > 0;
+    uncovered.length > 0 ||
+    structuredGaps.some((gap) => gap.state !== "not_applicable");
   const claims = records(delivery.claims).map((claim) => {
     const refs = strings(claim.evidence_refs);
     const subjectId =
@@ -593,7 +644,7 @@ export function compileCommercialResearchDelivery(
       outcome: hasGaps ? "evidence_insufficient" : "completed",
       query_log_complete: delivery.query_log_complete,
       telemetry_basis: delivery.telemetry_basis,
-      remaining_gaps: records(delivery.unresolved_gaps).map((gap) => String(gap.reason)),
+      remaining_gaps: structuredGaps,
       termination_reason: delivery.stop_reason,
     },
     evidence_register: evidence,

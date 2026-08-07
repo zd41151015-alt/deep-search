@@ -158,6 +158,24 @@ const REGISTRY: Readonly<Record<string, GateRegistration>> = {
     stages: ["artifact_compilation", "bundle_validation", "aggregation", "terminal_reporting"],
     mechanicallyDerivable: true,
   },
+  "commercial_research.gap_subject_unbound": {
+    category: "coverage",
+    defaultSeverity: WARNING,
+    stages: ["artifact_compilation", "bundle_validation", "aggregation", "terminal_reporting"],
+    mechanicallyDerivable: true,
+  },
+  "commercial_research.gap_derivation_mismatch": {
+    category: "integrity",
+    defaultSeverity: ERROR,
+    stages: ["bundle_validation", "aggregation", "recovery"],
+    mechanicallyDerivable: true,
+  },
+  "commercial_research.cross_lane_evidence_interpretation_conflict": {
+    category: "decision_validity",
+    defaultSeverity: WARNING,
+    stages: ["aggregation", "terminal_reporting", "recovery"],
+    mechanicallyDerivable: true,
+  },
   "commercial_research.evidence_subject_binding_invalid": {
     category: "integrity",
     defaultSeverity: ERROR,
@@ -270,6 +288,12 @@ const REGISTRY: Readonly<Record<string, GateRegistration>> = {
     category: "decision_validity",
     defaultSeverity: ERROR,
     stages: ["terminal_reporting"],
+    mechanicallyDerivable: true,
+  },
+  "terminal_reporting.direction_commercial_ceiling_exceeded": {
+    category: "decision_validity",
+    defaultSeverity: ERROR,
+    stages: ["terminal_reporting", "recovery"],
     mechanicallyDerivable: true,
   },
   "g2_4.candidate_commercial_ceiling_violation": {

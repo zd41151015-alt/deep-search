@@ -1104,6 +1104,36 @@ function validateSearchClosure(
       ),
     );
   }
+  for (const [index, gap] of records(closure.remaining_gaps).entries()) {
+    const boundSubjects = strings(gap.subject_ids);
+    const coveredSubjects = strings(audit.covered_direction_ids);
+    const outOfScope = boundSubjects.filter((subjectId) => !coveredSubjects.includes(subjectId));
+    const bindingInvalid =
+      outOfScope.length > 0 ||
+      gap.audit_ref !== entry.path ||
+      gap.task_ref !== audit.task_ref ||
+      (gap.subject_binding_basis === "unbound" && boundSubjects.length > 0) ||
+      (gap.subject_binding_basis === "explicit" && boundSubjects.length === 0) ||
+      (gap.subject_binding_basis === "single_subject_auto" &&
+        (coveredSubjects.length !== 1 ||
+          boundSubjects.length !== 1 ||
+          boundSubjects[0] !== coveredSubjects[0]));
+    if (bindingInvalid) {
+      errors.push(
+        issue(
+          "commercial_research.gap_derivation_mismatch",
+          `${entry.path}#/search_closure/remaining_gaps/${index}`,
+          "formal research Gaps must preserve the compiler-derived subject, task, and Audit binding",
+          {
+            boundSubjects,
+            coveredSubjects,
+            taskRef: gap.task_ref,
+            auditRef: gap.audit_ref,
+          },
+        ),
+      );
+    }
+  }
   return errors;
 }
 
@@ -1972,6 +2002,11 @@ function validateAudit(
           ),
         );
       }
+    }
+  }
+  for (const statement of semanticStatements) {
+    for (const ref of strings(statement.evidence_refs)) {
+      const source = evidenceByRef.get(ref);
       if (
         typeof statement.subject_id === "string" &&
         source !== undefined &&
@@ -2295,6 +2330,47 @@ function validateCommercialReportProjections(
     plannedTasks.map((task) => ({ path: task.path, document: task.document })),
     documentsByPath,
   );
+  const interpretationsBySubjectAndRef = new Map<
+    string,
+    { readonly path: string; readonly source: Record<string, unknown> }[]
+  >();
+  for (const audit of audits) {
+    for (const source of records(audit.document.evidence_register)) {
+      for (const subjectId of strings(source.subject_ids)) {
+        const key = `${subjectId}\u0000${String(source.evidence_ref)}`;
+        interpretationsBySubjectAndRef.set(key, [
+          ...(interpretationsBySubjectAndRef.get(key) ?? []),
+          { path: audit.path, source },
+        ]);
+      }
+    }
+  }
+  for (const [key, interpretations] of interpretationsBySubjectAndRef) {
+    const counterStates = new Set(
+      interpretations.map(
+        ({ source }) =>
+          source.evidence_character === "counterevidence" ||
+          source.claim_type === "counterevidence",
+      ),
+    );
+    const dispositions = new Set(interpretations.map(({ source }) => String(source.disposition)));
+    if (counterStates.size > 1 || dispositions.size > 1) {
+      const [subjectId, evidenceRef] = key.split("\u0000", 2);
+      errors.push(
+        issue(
+          "commercial_research.cross_lane_evidence_interpretation_conflict",
+          `${interpretations[0]?.path ?? "commercial-research"}#/evidence_register`,
+          "the same subject-bound Evidence has contradictory current Lane interpretations; all interpretations remain visible and constrain the aggregate conclusion",
+          {
+            subjectId,
+            evidenceRef,
+            auditRefs: [...new Set(interpretations.map(({ path }) => path))].sort(),
+            dispositions: [...dispositions].sort(),
+          },
+        ),
+      );
+    }
+  }
   const subjectAliases = (subject: string): Set<string> => {
     const path = subject.split("#", 1)[0] ?? subject;
     const fragment = subject.includes("#") ? subject.split("#", 2)[1] : undefined;
@@ -2316,11 +2392,22 @@ function validateCommercialReportProjections(
       ].filter((value): value is string => typeof value === "string" && value !== ""),
     );
   };
-  const reportDecisionSubjects = (report: CommercialResearchDocument): Set<string> => {
+  const reportDecisionBinding = (
+    report: CommercialResearchDocument,
+  ): {
+    readonly subjects: Set<string>;
+    readonly bestCandidatePortfolio: boolean;
+    readonly terminalOpportunityDiscovery: boolean;
+  } => {
     if (report.schemaVersion === "startup_opportunity.concept_evidence_report.v1") {
-      return typeof report.document.concept_hypothesis_ref === "string"
-        ? subjectAliases(report.document.concept_hypothesis_ref)
-        : new Set();
+      return {
+        subjects:
+          typeof report.document.concept_hypothesis_ref === "string"
+            ? subjectAliases(report.document.concept_hypothesis_ref)
+            : new Set(),
+        bestCandidatePortfolio: false,
+        terminalOpportunityDiscovery: false,
+      };
     }
     if (report.schemaVersion === "startup_opportunity.report.v1") {
       const context = isRecord(report.document.curated_judgment_context)
@@ -2328,7 +2415,11 @@ function validateCommercialReportProjections(
         : {};
       const selected =
         typeof context.recommended_first_bet === "string" ? [context.recommended_first_bet] : [];
-      return new Set(selected.flatMap((subject) => [...subjectAliases(subject)]));
+      return {
+        subjects: new Set(selected.flatMap((subject) => [...subjectAliases(subject)])),
+        bestCandidatePortfolio: false,
+        terminalOpportunityDiscovery: false,
+      };
     }
     if (report.document.mode === "concept_evidence_assessment") {
       const concepts = documents.filter((document) =>
@@ -2338,25 +2429,41 @@ function validateCommercialReportProjections(
         ].includes(document.schemaVersion),
       );
       if (concepts.length > 0) {
-        return new Set(concepts.flatMap((concept) => [...subjectAliases(concept.path)]));
+        return {
+          subjects: new Set(concepts.flatMap((concept) => [...subjectAliases(concept.path)])),
+          bestCandidatePortfolio: false,
+          terminalOpportunityDiscovery: false,
+        };
       }
+      return {
+        subjects: new Set(),
+        bestCandidatePortfolio: false,
+        terminalOpportunityDiscovery: false,
+      };
     }
-    const conclusion = isRecord(report.document.research_conclusion)
-      ? report.document.research_conclusion
-      : {};
-    const selected = records(report.document.directions).filter(
-      (direction) =>
-        direction.action === "invest" ||
-        direction.priority === 1 ||
-        (direction.action === "validate" && conclusion.outcome === "investigate_further"),
-    );
-    return new Set(
-      selected.flatMap((direction) =>
-        typeof direction.direction_id === "string"
-          ? [...subjectAliases(direction.direction_id)]
-          : [],
-      ),
-    );
+    const directions = records(report.document.directions);
+    const priorityOne = directions.filter((direction) => direction.priority === 1);
+    const invest = directions.filter((direction) => direction.action === "invest");
+    const primary =
+      priorityOne.length === 1 ? priorityOne[0] : invest.length === 1 ? invest[0] : undefined;
+    const primaryId =
+      primary !== undefined && typeof primary.direction_id === "string"
+        ? primary.direction_id
+        : null;
+    return {
+      subjects:
+        primaryId === null
+          ? new Set(
+              directions.flatMap((direction) =>
+                typeof direction.direction_id === "string"
+                  ? [...subjectAliases(direction.direction_id)]
+                  : [],
+              ),
+            )
+          : subjectAliases(primaryId),
+      bestCandidatePortfolio: primaryId === null,
+      terminalOpportunityDiscovery: true,
+    };
   };
 
   for (const report of documents.filter((entry) =>
@@ -2419,6 +2526,9 @@ function validateCommercialReportProjections(
     }
     const actualGapRows = sortedProjection(report.document.research_coverage_gaps, (row) => {
       if (row.coverage_kind === "execution") return `execution:${String(row.task_ref)}`;
+      if (["business", "research"].includes(String(row.coverage_kind))) {
+        return `${strings(row.audit_refs).join(",")}:${String(row.coverage_kind)}:${strings(row.subject_ids).join(",")}:${String(row.dimension)}:${String(row.reason)}`;
+      }
       const coverage = isRecord(row.coverage) ? row.coverage : {};
       const dimension =
         row.coverage_kind === "quantitative" ? coverage.metric_family : coverage.competitor_type;
@@ -2428,6 +2538,9 @@ function validateCommercialReportProjections(
       expectedProjection.research_coverage_gaps,
       (row) => {
         if (row.coverage_kind === "execution") return `execution:${String(row.task_ref)}`;
+        if (["business", "research"].includes(String(row.coverage_kind))) {
+          return `${strings(row.audit_refs).join(",")}:${String(row.coverage_kind)}:${strings(row.subject_ids).join(",")}:${String(row.dimension)}:${String(row.reason)}`;
+        }
         const coverage = isRecord(row.coverage) ? row.coverage : {};
         const dimension =
           row.coverage_kind === "quantitative" ? coverage.metric_family : coverage.competitor_type;
@@ -2439,7 +2552,7 @@ function validateCommercialReportProjections(
         issue(
           "commercial_research.report_gap_projection_mismatch",
           `${report.path}#/research_coverage_gaps`,
-          "formal reporting must show every partial, unavailable, and not-applicable quantitative or competitive dimension with its decision impact",
+          "formal reporting must show every subject-bound quantitative, competitive, business, research, and execution Gap with its decision impact",
         ),
       );
     }
@@ -2465,28 +2578,38 @@ function validateCommercialReportProjections(
       }
     }
     const ceilingRank = { watch: 0, investigate_further: 1, prioritize: 2 } as const;
-    const decisionSubjects = reportDecisionSubjects(report);
-    const relevantSubjectCeilings = records(report.document.commercial_subject_aggregates)
+    const decisionBinding = reportDecisionBinding(report);
+    const decisionSubjects = decisionBinding.subjects;
+    const subjectAggregates = records(report.document.commercial_subject_aggregates);
+    const relevantSubjectCeilings = subjectAggregates
       .filter(
         (aggregate) =>
           typeof aggregate.subject_id === "string" &&
           [...subjectAliases(aggregate.subject_id)].some((alias) => decisionSubjects.has(alias)),
       )
       .map((aggregate) => ({
+        subjectId: String(aggregate.subject_id),
         auditRefs: strings(aggregate.audit_refs),
         ceiling: isRecord(aggregate.recommendation_ceiling) ? aggregate.recommendation_ceiling : {},
       }));
-    const strictestCeiling = relevantSubjectCeilings.reduce<keyof typeof ceilingRank>(
-      (current, entry) => {
-        const ceiling = entry.ceiling.maximum_decision_tier;
-        return typeof ceiling === "string" &&
-          ceiling in ceilingRank &&
-          ceilingRank[ceiling as keyof typeof ceilingRank] < ceilingRank[current]
-          ? (ceiling as keyof typeof ceilingRank)
-          : current;
-      },
-      "prioritize",
-    );
+    const applicableCeiling = decisionBinding.bestCandidatePortfolio
+      ? relevantSubjectCeilings.reduce<keyof typeof ceilingRank>((current, entry) => {
+          const ceiling = entry.ceiling.maximum_decision_tier;
+          const normalized =
+            typeof ceiling === "string" && ceiling in ceilingRank
+              ? (ceiling as keyof typeof ceilingRank)
+              : "watch";
+          const capped = normalized === "prioritize" ? "investigate_further" : normalized;
+          return ceilingRank[capped] > ceilingRank[current] ? capped : current;
+        }, "watch")
+      : relevantSubjectCeilings.reduce<keyof typeof ceilingRank>((current, entry) => {
+          const ceiling = entry.ceiling.maximum_decision_tier;
+          return typeof ceiling === "string" &&
+            ceiling in ceilingRank &&
+            ceilingRank[ceiling as keyof typeof ceilingRank] < ceilingRank[current]
+            ? (ceiling as keyof typeof ceilingRank)
+            : current;
+        }, "prioritize");
     const reportTier =
       report.schemaVersion === "startup_opportunity.terminal_report_source.v1"
         ? isRecord(report.document.research_conclusion)
@@ -2505,7 +2628,7 @@ function validateCommercialReportProjections(
         : reportTier === "investigate_further"
           ? "investigate_further"
           : "watch";
-    if (ceilingRank[normalizedTier] > ceilingRank[strictestCeiling]) {
+    if (ceilingRank[normalizedTier] > ceilingRank[applicableCeiling]) {
       errors.push(
         issue(
           "terminal_reporting.recommendation_ceiling_exceeded",
@@ -2513,7 +2636,8 @@ function validateCommercialReportProjections(
           "the report conclusion exceeds the deterministic ceiling imposed by unresolved commercial research Gaps",
           {
             reportTier,
-            strictestCeiling,
+            strictestCeiling: applicableCeiling,
+            portfolioReadiness: decisionBinding.bestCandidatePortfolio,
             decisionSubjects: [...decisionSubjects].sort(),
             relevantAuditRefs: [
               ...new Set(relevantSubjectCeilings.flatMap((entry) => entry.auditRefs)),
@@ -2521,6 +2645,46 @@ function validateCommercialReportProjections(
           },
         ),
       );
+    }
+    if (decisionBinding.terminalOpportunityDiscovery) {
+      for (const [directionIndex, direction] of records(report.document.directions).entries()) {
+        if (typeof direction.direction_id !== "string") continue;
+        const aliases = subjectAliases(direction.direction_id);
+        const aggregate = subjectAggregates.find(
+          (candidate) =>
+            typeof candidate.subject_id === "string" &&
+            [...subjectAliases(candidate.subject_id)].some((alias) => aliases.has(alias)),
+        );
+        if (aggregate === undefined) continue;
+        const ceiling = isRecord(aggregate.recommendation_ceiling)
+          ? aggregate.recommendation_ceiling.maximum_decision_tier
+          : "watch";
+        const claimedTier =
+          direction.action === "invest"
+            ? "prioritize"
+            : direction.action === "validate"
+              ? "investigate_further"
+              : "watch";
+        if (
+          typeof ceiling !== "string" ||
+          !(ceiling in ceilingRank) ||
+          ceilingRank[claimedTier] > ceilingRank[ceiling as keyof typeof ceilingRank]
+        ) {
+          errors.push(
+            issue(
+              "terminal_reporting.direction_commercial_ceiling_exceeded",
+              `${report.path}#/directions/${directionIndex}/action`,
+              "each displayed direction action must remain within that direction's own commercial Evidence ceiling",
+              {
+                directionId: direction.direction_id,
+                action: direction.action,
+                claimedTier,
+                ceiling,
+              },
+            ),
+          );
+        }
+      }
     }
     if (
       normalizedTier === "prioritize" &&

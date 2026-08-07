@@ -205,7 +205,23 @@ export function unavailableCommercialResearchAudit(input: {
       outcome: "evidence_insufficient",
       query_log_complete: false,
       telemetry_basis: "unavailable",
-      remaining_gaps: uncovered,
+      remaining_gaps: uncovered.flatMap((dimension) =>
+        coveredSubjectIds.map((subjectId) => ({
+          subject_ids: [subjectId],
+          subject_binding_basis:
+            coveredSubjectIds.length === 1 ? "single_subject_auto" : "explicit",
+          coverage_kind: "business",
+          dimension,
+          state: "unavailable",
+          reason: `No direct ${dimension} material was available in the synthetic fixture.`,
+          alternative_metric: null,
+          decision_impact:
+            "The subject remains unranked until this business dimension is observed.",
+          query_attempts: [],
+          task_ref: input.taskRef,
+          audit_ref: String(requirements.commercial_audit_output_path),
+        })),
+      ),
       termination_reason: "Synthetic fixture found no defensible quantitative or competitive data.",
     },
     evidence_register: [],

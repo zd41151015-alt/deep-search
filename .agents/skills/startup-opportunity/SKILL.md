@@ -35,7 +35,7 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 - 每个新 dispatch wave 必须把 execution overlay 和完整 Dispatch batch 放进同一个 `compile-artifacts` publish request；Discovery research lane 还必须同包包含该 batch 的全部 canonical task envelopes。发布成功前不得启动任何 lane，不得先发布 Dispatch 激活 unit 再补 task。whole-wave intent 会在 crash recovery 时先补齐全部成员，再投影 Manifest。
 - 同一 dispatch batch 中彼此独立的 lane 在 `dispatch_mode=parallel_immediate` 发布后立即并发启动；Harness 只验证机械投影，不调度 agent。
 - 搜索规划以 60%-70% 用户/商业行为、15%-20% 经营披露/监管/市场结构、不超过 20% 学术机制/边界/反证为默认提示，不要求实际查询次数严格命中比例，也不以偏差作为 Gate。实际采用来源分布只能由 Evidence Register 机械推导，不能使用 agent 自报比例；比例偏差只进入审计观察。真实性、安全、exact ref/hash、数值/proxy 语义和强结论 Evidence ceiling 是强门禁；覆盖不足或来源偏弱只降低 confidence、ranking 或 recommendation ceiling。
-- 商业覆盖必须标为 `observed`、`inferred` 或 `unknown`。缺少直接材料时保留合理推测，但必须写出依据引用、推理起点、推理过程、不确定性和待验证项；`inferred` 可满足报告内容完整性，不得冒充已观察事实或满足排序 Gate。
+- 商业覆盖必须标为 `observed`、`inferred` 或 `unknown`。缺少直接材料时保留合理推测，但必须写出依据引用、推理起点、推理过程、不确定性和待验证项；`inferred` 可满足报告内容完整性，不得冒充已观察事实或满足排序 Gate。多候选 Lane 的 unresolved gap 要提供可推导的 subject 语义（单候选可省略，真正共享可显式列多个 subject）；Harness 会机械补齐 exact task/Audit binding 并投影 subject-local 正式 gap，不得把一个候选的 gap 复制到其他候选。
 - 每个计划 lane 都必须在 `completed`、证据不足、early stop 或搜索失败等终态留下 Search Closure；纯综合/校验使用 `search_not_required`，搜索前失败使用 `failed_before_search`。只对正式提交的 search results 与 Evidence Register 对账；`telemetry_basis=unavailable` 时提交研究目标、主要 route、采用来源、已有记录和停止原因即可，`query_log_complete=false` 是正常披露，不得伪装为 Harness 已验证的完整浏览器日志。
 - Wave 1 没有需求、买方或购买信号时，立即以证据不足收口，不进入具体方案评估。
 - 每次 wave 后先验证 Artifact，再形成 Gap Snapshot；需要改计划时按 Adaptation Decision -> policy validation -> immutable Plan Revision -> checkpoint 顺序执行。

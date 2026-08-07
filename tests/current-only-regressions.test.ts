@@ -106,7 +106,19 @@ function commercialAudit(): Record<string, unknown> {
       outcome: "evidence_insufficient",
       query_log_complete: false,
       telemetry_basis: "agent_supplied",
-      remaining_gaps: uncovered,
+      remaining_gaps: uncovered.map((dimension) => ({
+        subject_ids: ["direction_synthetic"],
+        subject_binding_basis: "single_subject_auto",
+        coverage_kind: "business",
+        dimension,
+        state: "unavailable",
+        reason: `No direct ${dimension} material was available in the synthetic fixture.`,
+        alternative_metric: null,
+        decision_impact: "The subject remains unranked until this business dimension is observed.",
+        query_attempts: [],
+        task_ref: "tasks/discovery/unit_commercial_synthetic.attempt-1.json",
+        audit_ref: "artifacts/research-audits/commercial-synthetic.json",
+      })),
       termination_reason: "Synthetic fixture reached its evidence ceiling.",
     },
     evidence_register: [],
@@ -206,6 +218,7 @@ function commercialCompilerTask(
       target_subject_ref: subjectRef,
       commercial_research_requirements: {
         research_stage: "solution_neutral_scan",
+        commercial_audit_output_path: "artifacts/research-audits/commercial-synthetic.json",
         quantitative_competitive_scope: {
           required_metric_families: requiredMetricFamilies,
           required_competitor_types: requiredCompetitorTypes,
@@ -1027,7 +1040,8 @@ test("retrieval time cannot refresh old observations and Search Closure reconcil
     outcome: "early_stop",
     query_log_complete: true,
     telemetry_basis: "agent_supplied",
-    remaining_gaps: earlyStopBeforeSearch.uncovered_business_dimensions,
+    remaining_gaps: (earlyStopBeforeSearch.search_closure as Record<string, unknown>)
+      .remaining_gaps,
     termination_reason: "An upstream commercial signal gate stopped this lane before search.",
   };
   assert.ok(
@@ -1605,6 +1619,175 @@ test("commercial ceilings bind selected subjects instead of unrelated weak candi
     (issue) => issue.code,
   );
   assert.ok(exceededCodes.includes("terminal_reporting.recommendation_ceiling_exceeded"));
+});
+
+test("terminal opportunity conclusions bind the primary while every direction keeps its own ceiling", async () => {
+  const policy = await commercialPolicy();
+  const dimensions = [
+    "recent_user_language",
+    "purchase_signal",
+    "alternatives_pricing_usage",
+    "distribution_channel",
+    "independent_counterevidence",
+  ];
+  const audit = (
+    subjectId: string,
+    hardReason: string | null,
+  ): { path: string; document: Record<string, unknown> } => {
+    const evidenceRef = `evidence/records/${subjectId}-terminal.json`;
+    const quantitativeCoverage = [
+      {
+        subject_id: subjectId,
+        metric_family: "retention_outcomes",
+        state: "observed",
+        observation_ids: [`observation_${subjectId}`],
+        query_attempts: [],
+        reason: null,
+        alternative_metric: null,
+        decision_impact: "Synthetic terminal ceiling fixture.",
+      },
+    ];
+    const competitiveCoverage = [
+      {
+        subject_id: subjectId,
+        competitor_type: "direct_product",
+        state: "observed",
+        competitive_object_ids: [`competitor_${subjectId}`],
+        query_attempts: [],
+        reason: null,
+        alternative_metric: null,
+        decision_impact: "Synthetic terminal ceiling fixture.",
+      },
+    ];
+    const coverage = Object.fromEntries(
+      dimensions.map((dimension) => [
+        dimension,
+        {
+          state: "observed",
+          content_covered: true,
+          evidence_refs: [evidenceRef],
+          data_points: [],
+          inference: null,
+        },
+      ]),
+    );
+    return {
+      path: `artifacts/research-audits/${subjectId}-terminal.json`,
+      document: {
+        task_ref: `tasks/discovery/${subjectId}-terminal.json`,
+        covered_direction_ids: [subjectId],
+        subject_assessments: [
+          {
+            subject_id: subjectId,
+            evidence_refs: [evidenceRef],
+            coverage,
+            uncovered_business_dimensions: [],
+            quantitative_coverage: quantitativeCoverage,
+            competitive_coverage: competitiveCoverage,
+            wave1_signals: { demand: true, buyer: true, purchase: true },
+            ranking_eligibility: "ranked",
+            recommendation_ceiling: {
+              maximum_decision_tier: hardReason === null ? "prioritize" : "watch",
+              reason_codes: hardReason === null ? [] : [hardReason],
+            },
+            conflict_evidence_refs: [],
+            limitations: [],
+          },
+        ],
+        quantitative_coverage: quantitativeCoverage,
+        quantitative_observations: [],
+        competitive_coverage: competitiveCoverage,
+        competitive_objects: [
+          {
+            competitive_object_id: `competitor_${subjectId}`,
+            subject_id: subjectId,
+            source_refs: [evidenceRef],
+          },
+        ],
+        evidence_register: [
+          {
+            evidence_ref: evidenceRef,
+            subject_ids: [subjectId],
+            subject_binding_basis: "single_subject_auto",
+            source_profile: { type: "other", description: "Synthetic terminal Evidence." },
+            evidence_character: "independent_report",
+            independence: "independent",
+            claim_type: "current_purchase_behavior",
+            disposition: "adopted",
+          },
+        ],
+        limitations: [],
+      },
+    };
+  };
+  const aAudit = audit("opportunity_a", null);
+  const bAudit = audit("opportunity_b", "positive_support_not_adopted");
+  const audits = [aAudit, bAudit];
+  const projection = projectCommercialAuditTables(audits);
+  const report: Record<string, unknown> = {
+    ...projection,
+    mode: "opportunity_discovery",
+    research_conclusion: { outcome: "investigate_further" },
+    directions: [
+      {
+        direction_id: "opportunity_a",
+        priority: 1,
+        ranking_status: "ranked",
+        action: "validate",
+      },
+      {
+        direction_id: "opportunity_b",
+        priority: 2,
+        ranking_status: "ranked",
+        action: "defer",
+      },
+    ],
+  };
+  const documents = [
+    ...audits.map((entry) => ({
+      path: entry.path,
+      schemaVersion: "startup_opportunity.commercial_research_audit.current",
+      document: entry.document,
+    })),
+    {
+      path: "artifacts/reporting/terminal-opportunity.r1.json",
+      schemaVersion: "startup_opportunity.terminal_report_source.v1",
+      document: report,
+    },
+  ];
+  const codes = (): readonly string[] =>
+    validateCommercialResearchContract(documents, policy).map((issue) => issue.code);
+  assert.equal(codes().includes("terminal_reporting.recommendation_ceiling_exceeded"), false);
+  assert.equal(codes().includes("terminal_reporting.direction_commercial_ceiling_exceeded"), false);
+
+  const directions = report.directions as Record<string, unknown>[];
+  assert.ok(directions[0] && directions[1]);
+  directions[0].priority = 2;
+  directions[1].priority = 1;
+  assert.ok(codes().includes("terminal_reporting.recommendation_ceiling_exceeded"));
+
+  directions[0].priority = null;
+  directions[0].ranking_status = "unranked_hypothesis";
+  directions[1].priority = null;
+  directions[1].ranking_status = "unranked_hypothesis";
+  assert.equal(codes().includes("terminal_reporting.recommendation_ceiling_exceeded"), false);
+  (report.research_conclusion as Record<string, unknown>).outcome = "prioritize";
+  assert.ok(codes().includes("terminal_reporting.recommendation_ceiling_exceeded"));
+
+  (report.research_conclusion as Record<string, unknown>).outcome = "investigate_further";
+  directions[0].priority = 1;
+  directions[0].ranking_status = "ranked";
+  directions[1].priority = 2;
+  directions[1].ranking_status = "ranked";
+  directions[1].action = "validate";
+  const alternativeOverstatement = codes();
+  assert.equal(
+    alternativeOverstatement.includes("terminal_reporting.recommendation_ceiling_exceeded"),
+    false,
+  );
+  assert.ok(
+    alternativeOverstatement.includes("terminal_reporting.direction_commercial_ceiling_exceeded"),
+  );
 });
 
 test("concept prioritize is checked against its bound commercial ceiling", async () => {
@@ -2501,6 +2684,170 @@ test("subject aggregation merges complementary lanes while preserving conflictin
   );
 });
 
+test("cross-Lane interpretation conflicts are invariant to Audit path and input order", async () => {
+  const subjectId = "opportunity_path_invariant";
+  const evidenceRef = "evidence/records/path-invariant-shared.json";
+  const dimensions = [
+    "recent_user_language",
+    "purchase_signal",
+    "alternatives_pricing_usage",
+    "distribution_channel",
+    "independent_counterevidence",
+  ];
+  const lane = (
+    pathValue: string,
+    evidenceCharacter: "independent_report" | "counterevidence",
+  ): { path: string; document: Record<string, unknown> } => ({
+    path: pathValue,
+    document: {
+      task_ref: `tasks/discovery/${evidenceCharacter}.json`,
+      covered_direction_ids: [subjectId],
+      subject_assessments: [
+        {
+          subject_id: subjectId,
+          evidence_refs: [evidenceRef],
+          coverage: Object.fromEntries(
+            dimensions.map((dimension) => [
+              dimension,
+              {
+                state: "observed",
+                content_covered: true,
+                evidence_refs: [evidenceRef],
+                data_points: [],
+                inference: null,
+              },
+            ]),
+          ),
+          uncovered_business_dimensions: [],
+          quantitative_coverage: [
+            {
+              subject_id: subjectId,
+              metric_family: "retention_outcomes",
+              state: "observed",
+              observation_ids: ["observation_path_invariant"],
+              query_attempts: [],
+              reason: null,
+              alternative_metric: null,
+              decision_impact: "Synthetic path-invariance coverage.",
+            },
+          ],
+          competitive_coverage: [
+            {
+              subject_id: subjectId,
+              competitor_type: "direct_product",
+              state: "observed",
+              competitive_object_ids: ["competitor_path_invariant"],
+              query_attempts: [],
+              reason: null,
+              alternative_metric: null,
+              decision_impact: "Synthetic path-invariance coverage.",
+            },
+          ],
+          wave1_signals: { demand: true, buyer: true, purchase: true },
+          ranking_eligibility: "ranked",
+          recommendation_ceiling: {
+            maximum_decision_tier: "prioritize",
+            reason_codes: [],
+          },
+          conflict_evidence_refs: [],
+          limitations: [],
+        },
+      ],
+      quantitative_coverage: [],
+      quantitative_observations: [],
+      competitive_coverage: [],
+      competitive_objects: [
+        {
+          competitive_object_id: "competitor_path_invariant",
+          subject_id: subjectId,
+          source_refs: [evidenceRef],
+        },
+      ],
+      evidence_register: [
+        {
+          evidence_ref: evidenceRef,
+          subject_ids: [subjectId],
+          subject_binding_basis: "single_subject_auto",
+          source_profile: { type: "other", description: "Synthetic shared Evidence." },
+          evidence_character: evidenceCharacter,
+          independence: "independent",
+          claim_type: evidenceCharacter,
+          disposition: "adopted",
+        },
+      ],
+      limitations: [],
+    },
+  });
+  const aggregateFor = (
+    supportPath: string,
+    counterPath: string,
+    reverseInput: boolean,
+  ): Record<string, unknown> => {
+    const support = lane(supportPath, "independent_report");
+    const counter = lane(counterPath, "counterevidence");
+    const audits = reverseInput ? [counter, support] : [support, counter];
+    return projectCommercialAuditTables(audits).commercial_subject_aggregates[0] as Record<
+      string,
+      unknown
+    >;
+  };
+  const counterLast = aggregateFor(
+    "artifacts/research-audits/a-path-invariant.json",
+    "artifacts/research-audits/z-path-invariant.json",
+    false,
+  );
+  const supportLast = aggregateFor(
+    "artifacts/research-audits/z-path-invariant.json",
+    "artifacts/research-audits/a-path-invariant.json",
+    true,
+  );
+  assert.deepEqual(counterLast, supportLast);
+  assert.deepEqual(counterLast.conflict_evidence_refs, [evidenceRef]);
+  const ceiling = counterLast.recommendation_ceiling as Record<string, unknown>;
+  assert.equal(ceiling.maximum_decision_tier, "investigate_further");
+  assert.ok((ceiling.reason_codes as string[]).includes("conflicting_evidence_present"));
+  assert.ok((ceiling.reason_codes as string[]).includes("evidence_interpretation_disagreement"));
+  assert.ok(
+    (counterLast.limitations as string[]).some((limitation) =>
+      limitation.includes("conflicting current Lane interpretations"),
+    ),
+  );
+  const policy = await commercialPolicy();
+  const support = lane(
+    "artifacts/research-audits/a-path-invariant-support.json",
+    "independent_report",
+  );
+  const counter = lane(
+    "artifacts/research-audits/z-path-invariant-counter.json",
+    "counterevidence",
+  );
+  const projection = projectCommercialAuditTables([support, counter]);
+  const warningCodes = validateCommercialResearchContract(
+    [
+      ...[support, counter].map((entry) => ({
+        path: entry.path,
+        schemaVersion: "startup_opportunity.commercial_research_audit.current",
+        document: entry.document,
+      })),
+      {
+        path: "artifacts/reporting/path-invariant-report.r1.json",
+        schemaVersion: "startup_opportunity.report.v1",
+        document: {
+          ...projection,
+          curated_judgment_context: {
+            decision_tier: "investigate_further",
+            recommended_first_bet: subjectId,
+          },
+        },
+      },
+    ],
+    policy,
+  ).map((issue) => issue.code);
+  assert.ok(
+    warningCodes.includes("commercial_research.cross_lane_evidence_interpretation_conflict"),
+  );
+});
+
 test("multi-subject compiler binds direct and shared Evidence without lending unbound material", async () => {
   const policy = await commercialPolicy();
   const taskPath = "tasks/discovery/unit_multi_subject.attempt-1.json";
@@ -2547,6 +2894,11 @@ test("multi-subject compiler binds direct and shared Evidence without lending un
           subject_id: "opportunity_a",
           statement: "Synthetic A-only finding.",
           evidence_refs: [onlyA],
+        },
+        {
+          subject_id: "opportunity_b",
+          statement: "Synthetic shared market finding for B.",
+          evidence_refs: [shared],
         },
       ],
       claims: [
@@ -2603,6 +2955,188 @@ test("multi-subject compiler binds direct and shared Evidence without lending un
       subject_binding_basis: "unbound",
     },
   ]);
+
+  const validCodes = validateCommercialResearchContract(
+    [
+      {
+        path: "artifacts/research-audits/commercial-synthetic.json",
+        schemaVersion: "startup_opportunity.commercial_research_audit.current",
+        document: compilation.document,
+      },
+    ],
+    policy,
+  ).map((issue) => issue.code);
+  assert.equal(validCodes.includes("commercial_research.cross_subject_evidence_reuse"), false);
+
+  const driftedFinding = structuredClone(compilation.document);
+  const finding = (driftedFinding.findings as Record<string, unknown>[])[0];
+  assert.ok(finding);
+  finding.subject_id = "opportunity_b";
+  const driftedCodes = validateCommercialResearchContract(
+    [
+      {
+        path: "artifacts/research-audits/commercial-synthetic.json",
+        schemaVersion: "startup_opportunity.commercial_research_audit.current",
+        document: driftedFinding,
+      },
+    ],
+    policy,
+  ).map((issue) => issue.code);
+  assert.ok(driftedCodes.includes("commercial_research.cross_subject_evidence_reuse"));
+
+  const singleTaskPath = "tasks/discovery/unit_single_finding.attempt-1.json";
+  const singleTask = commercialCompilerTask(singleTaskPath, "opportunity_single") as {
+    artifact_type: string;
+    artifact_path: string;
+    document: Record<string, unknown>;
+  };
+  const singleRef = "evidence/records/single-finding.json";
+  const single = compileCommercialResearchDelivery(
+    commercialDelivery({
+      unit_id: "unit_single_finding",
+      evidence_sources: [source(singleRef)],
+      findings: [
+        {
+          statement: "Synthetic single-subject Finding.",
+          evidence_refs: [singleRef],
+        },
+      ],
+    }),
+    singleTaskPath,
+    [singleTask],
+    policy,
+  );
+  assert.equal(
+    (single.document.findings as Record<string, unknown>[])[0]?.subject_id,
+    "opportunity_single",
+  );
+  assert.deepEqual(
+    (single.document.evidence_register as Record<string, unknown>[])[0]?.subject_ids,
+    ["opportunity_single"],
+  );
+  assert.equal(
+    validateCommercialResearchContract(
+      [
+        {
+          path: "artifacts/research-audits/commercial-synthetic.json",
+          schemaVersion: "startup_opportunity.commercial_research_audit.current",
+          document: single.document,
+        },
+      ],
+      policy,
+    ).some((issue) => issue.code === "commercial_research.cross_subject_evidence_reuse"),
+    false,
+  );
+});
+
+test("structured research Gaps remain subject-local and explicit shared Gaps fan out", async () => {
+  const policy = await commercialPolicy();
+  const taskPath = "tasks/discovery/unit_subject_gaps.attempt-1.json";
+  const auditPath = "artifacts/research-audits/unit-subject-gaps.json";
+  const task = commercialCompilerTask(taskPath) as {
+    artifact_type: string;
+    artifact_path: string;
+    document: Record<string, unknown>;
+  };
+  delete task.document.target_subject_ref;
+  task.document.target_opportunity_refs = ["opportunity_a", "opportunity_b"];
+  const requirements = task.document.commercial_research_requirements as Record<string, unknown>;
+  requirements.commercial_audit_output_path = auditPath;
+  const compile = (unresolvedGaps: readonly Record<string, unknown>[]) =>
+    compileCommercialResearchDelivery(
+      commercialDelivery({
+        unit_id: "unit_subject_gaps",
+        unresolved_gaps: unresolvedGaps,
+      }),
+      taskPath,
+      [task],
+      policy,
+    );
+  const baseline = compile([]);
+  const bOnlyReason = "Candidate B retention data is unavailable.";
+  const bOnly = compile([
+    {
+      coverage_kind: "research",
+      subject_id: "opportunity_b",
+      dimension: "retention_data",
+      state: "unavailable",
+      reason: bOnlyReason,
+      alternative_metric: null,
+      decision_impact: "Candidate B cannot support a retention conclusion.",
+      query_attempts: [],
+    },
+  ]);
+  const formalGap = (
+    (bOnly.document.search_closure as Record<string, unknown>).remaining_gaps as Record<
+      string,
+      unknown
+    >[]
+  )[0];
+  assert.ok(formalGap);
+  assert.deepEqual(formalGap.subject_ids, ["opportunity_b"]);
+  assert.equal(formalGap.task_ref, taskPath);
+  assert.equal(formalGap.audit_ref, auditPath);
+
+  const project = (document: Record<string, unknown>) =>
+    projectCommercialAuditTables([{ path: auditPath, document }]);
+  const baselineProjection = project(baseline.document);
+  const bOnlyProjection = project(bOnly.document);
+  const aggregate = (
+    projection: ReturnType<typeof project>,
+    subjectId: string,
+  ): Record<string, unknown> => {
+    const candidate = projection.commercial_subject_aggregates.find(
+      (entry) => entry.subject_id === subjectId,
+    );
+    assert.ok(candidate);
+    return candidate;
+  };
+  const baselineA = aggregate(baselineProjection, "opportunity_a");
+  const bOnlyA = aggregate(bOnlyProjection, "opportunity_a");
+  const bOnlyB = aggregate(bOnlyProjection, "opportunity_b");
+  for (const field of [
+    "ranking_eligibility",
+    "recommendation_ceiling",
+    "research_status",
+    "limitations",
+  ]) {
+    assert.deepEqual(bOnlyA[field], baselineA[field], field);
+  }
+  assert.ok(!(bOnlyA.limitations as string[]).includes(bOnlyReason));
+  assert.ok((bOnlyB.limitations as string[]).includes(bOnlyReason));
+  assert.ok(
+    bOnlyProjection.research_coverage_gaps.some(
+      (row) =>
+        row.coverage_kind === "research" &&
+        (row.subject_ids as string[]).includes("opportunity_b") &&
+        row.reason === bOnlyReason,
+    ),
+  );
+  assert.match(renderResearchCoverageGaps({ ...bOnlyProjection }), /Candidate B retention data/);
+
+  const sharedReason = "The shared category baseline is incomplete.";
+  const shared = project(
+    compile([
+      {
+        coverage_kind: "research",
+        subject_ids: ["opportunity_a", "opportunity_b"],
+        dimension: "shared_category_baseline",
+        state: "partial",
+        reason: sharedReason,
+        alternative_metric: null,
+        decision_impact: "Both candidates retain the shared portfolio uncertainty.",
+        query_attempts: [],
+      },
+    ]).document,
+  );
+  assert.ok((aggregate(shared, "opportunity_a").limitations as string[]).includes(sharedReason));
+  assert.ok((aggregate(shared, "opportunity_b").limitations as string[]).includes(sharedReason));
+  assert.equal(
+    shared.research_coverage_gaps.filter(
+      (row) => row.coverage_kind === "research" && row.reason === sharedReason,
+    ).length,
+    2,
+  );
 });
 
 test("quantitative direct support cannot reuse Evidence bound to another subject", async () => {

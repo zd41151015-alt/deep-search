@@ -211,7 +211,23 @@ function commercialAuditEnvelope(
       outcome: "evidence_insufficient",
       query_log_complete: false,
       telemetry_basis: "unavailable",
-      remaining_gaps: uncovered,
+      remaining_gaps: uncovered.flatMap((dimension) =>
+        coveredSubjectIds.map((subjectId) => ({
+          subject_ids: [subjectId],
+          subject_binding_basis:
+            coveredSubjectIds.length === 1 ? "single_subject_auto" : "explicit",
+          coverage_kind: "business",
+          dimension,
+          state: "unavailable",
+          reason: `No direct ${dimension} material was available in the synthetic fixture.`,
+          alternative_metric: null,
+          decision_impact:
+            "The subject remains unranked until this business dimension is observed.",
+          query_attempts: [],
+          task_ref: taskRef,
+          audit_ref: `artifacts/research-audits/${branch.unitId}.json`,
+        })),
+      ),
       termination_reason: "Synthetic fixture records no observable browser-tool telemetry.",
     },
     evidence_register: [
@@ -960,7 +976,18 @@ test("terminal finalizer produces a localized decision-first brief with readable
       (reportJson.audit_refs as string[]).includes(`tasks/${branch.unitId}.attempt-1.json`),
     );
   }
-  assert.ok((reportJson.research_coverage_gaps as unknown[]).length > 0);
+  const coverageGaps = reportJson.research_coverage_gaps as Record<string, unknown>[];
+  assert.ok(coverageGaps.length > 0);
+  assert.ok(
+    coverageGaps.some(
+      (gap) =>
+        gap.coverage_kind === "business" &&
+        gap.dimension === "recent_user_language" &&
+        (gap.subject_ids as string[]).length === 1,
+    ),
+  );
+  const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
+  assert.match(reportMarkdown, /No direct recent_user_language material was available/);
   assert.ok(
     (reportJson.gate_warnings as Record<string, unknown>[]).some(
       (warning) =>
@@ -1281,6 +1308,10 @@ test("ReportRuntime excludes a formally stored ignored-late commercial Audit", a
   const ignoredAuditRef = "artifacts/research-audits/ignored-late-extra.json";
   const ignoredDocument = structuredClone(storedAudit.document);
   ignoredDocument.audit_id = "commercial_audit_ignored_late_extra";
+  const ignoredClosure = ignoredDocument.search_closure as Record<string, unknown>;
+  ignoredClosure.remaining_gaps = (ignoredClosure.remaining_gaps as Record<string, unknown>[]).map(
+    (gap) => ({ ...gap, audit_ref: ignoredAuditRef }),
+  );
   const ignoredEnvelope: FormalArtifactEnvelope = {
     ...storedAudit,
     artifact_path: ignoredAuditRef,

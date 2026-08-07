@@ -578,6 +578,50 @@
               "items": { "$ref": "#/$defs/competitorType" }
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "audit_refs",
+            "task_refs",
+            "coverage_kind",
+            "subject_ids",
+            "dimension",
+            "state",
+            "reason",
+            "alternative_metric",
+            "decision_impact",
+            "query_attempts"
+          ],
+          "properties": {
+            "audit_refs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+              }
+            },
+            "task_refs": { "$ref": "#/$defs/artifactRefArray" },
+            "coverage_kind": { "enum": ["business", "research"] },
+            "subject_ids": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/identifier" }
+            },
+            "dimension": { "$ref": "#/$defs/nonEmptyString" },
+            "state": { "enum": ["partial", "unavailable", "not_applicable"] },
+            "reason": { "$ref": "#/$defs/nonEmptyString" },
+            "alternative_metric": {
+              "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }]
+            },
+            "decision_impact": { "$ref": "#/$defs/nonEmptyString" },
+            "query_attempts": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/queryAttempt" }
+            }
+          }
         }
       ]
     },
