@@ -718,10 +718,19 @@ test("G2.4 decision tier obeys null, insufficient, and mixed readiness ceilings"
   }
 });
 
-test("G2.4 decision tier uses the strictest fan-in, comparison, gate, panel, and portfolio ceiling", async (context) => {
+test("G2.4 decision tier uses the strictest commercial, fan-in, comparison, gate, panel, and portfolio ceiling", async (context) => {
   const state = await setup(context, "decision-ceiling-matrix");
   const ready = clone(state.bundle);
   makeFirstBetReady(ready);
+  const overCommercialCeiling = state.validator.validateDocumentBundle(ready);
+  assert.equal(overCommercialCeiling.valid, false);
+  assert.ok(
+    overCommercialCeiling.referenceErrors.some(
+      (error) => error.code === "terminal_reporting.recommendation_ceiling_exceeded",
+    ),
+    JSON.stringify(overCommercialCeiling.referenceErrors, null, 2),
+  );
+  setDecisionTier(ready, "investigate_further");
   assert.equal(
     state.validator.validateDocumentBundle(ready).valid,
     true,
@@ -749,7 +758,9 @@ test("G2.4 decision tier uses the strictest fan-in, comparison, gate, panel, and
     assert.equal(invalidResult.valid, false, `${name} over-ceiling`);
     assert.ok(
       invalidResult.referenceErrors.some(
-        (error) => error.code === "g2_4.decision_tier_ceiling_violation",
+        (error) =>
+          error.code === "g2_4.decision_tier_ceiling_violation" ||
+          error.code === "terminal_reporting.recommendation_ceiling_exceeded",
       ),
       `${name}: ${JSON.stringify(invalidResult.referenceErrors, null, 2)}`,
     );
@@ -768,7 +779,7 @@ test("G2.4 decision tier uses the strictest fan-in, comparison, gate, panel, and
       band: "investigate_further",
       tier: "investigate_further",
     },
-    { fan: "strong_candidate", band: "strong_candidate", tier: "prioritize" },
+    { fan: "strong_candidate", band: "strong_candidate", tier: "investigate_further" },
   ] as const) {
     const bundle = clone(ready);
     opportunityFanInCeiling(bundle).conclusion_ceiling = candidate.fan;
@@ -811,7 +822,7 @@ test("G2.4 decision tier uses the strictest fan-in, comparison, gate, panel, and
       gate: "passed",
       outcome: "eligible",
       band: "strong_candidate",
-      tier: "prioritize",
+      tier: "investigate_further",
     },
   ] as const) {
     const bundle = clone(ready);
@@ -831,7 +842,12 @@ test("G2.4 decision tier uses the strictest fan-in, comparison, gate, panel, and
       tier: "insufficient_evidence",
     },
     { name: "panel-partial", sufficiency: "partial", band: "medium", tier: "investigate_further" },
-    { name: "panel-sufficient", sufficiency: "sufficient", band: "medium", tier: "prioritize" },
+    {
+      name: "panel-sufficient",
+      sufficiency: "sufficient",
+      band: "medium",
+      tier: "investigate_further",
+    },
   ] as const) {
     const bundle = clone(ready);
     const comparison = effective(bundle, G24_COMPARISON_A);
@@ -1471,6 +1487,20 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   await publishThroughEvaluation(state);
   const runtime = new ReportRuntime(state.runsRoot, state.validator);
   const report = evaluationEnvelope(state.bundle, G24_REPORT);
+  const omittedAuditRefs = new Set(report.document.commercial_research_audit_refs as string[]);
+  report.document.commercial_research_audit_refs = [];
+  report.document.quantitative_signal_rows = [];
+  report.document.competitive_substitute_rows = [];
+  report.document.research_coverage_gaps = [];
+  report.document.gate_warnings = [];
+  (report as unknown as { input_refs: string[] }).input_refs = report.input_refs.filter(
+    (ref) => !omittedAuditRefs.has(ref),
+  );
+  const reportMetadata = report.document.report_metadata as Record<string, unknown>;
+  reportMetadata.input_artifact_hashes = (
+    reportMetadata.input_artifact_hashes as Record<string, unknown>[]
+  ).filter((binding) => !omittedAuditRefs.has(String(binding.ref)));
+  (report as { content_hash: string }).content_hash = canonicalContentHash(report.document);
   const first = await runtime.build({ reportEnvelope: report });
   assert.equal(first.status, "published");
   assert.deepEqual(first.formalArtifactPaths, [
@@ -1480,6 +1510,19 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
     "artifacts/reporting/consistency-evaluation.r1.json",
   ]);
   assert.deepEqual(first.materializedPaths, ["report.json", "decision-brief.md", "report.md"]);
+  const projectedReport = JSON.parse(
+    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.ok((projectedReport.commercial_research_audit_refs as unknown[]).length > 0);
+  assert.ok((projectedReport.research_coverage_gaps as unknown[]).length > 0);
+  const projectedMetadata = projectedReport.report_metadata as Record<string, unknown>;
+  assert.deepEqual(
+    (projectedMetadata.input_artifact_hashes as Record<string, unknown>[])
+      .map((binding) => String(binding.ref))
+      .filter((ref) => omittedAuditRefs.has(ref))
+      .sort(),
+    [...omittedAuditRefs].sort(),
+  );
   const replay = await runtime.build({ reportEnvelope: report });
   assert.equal(replay.status, "idempotent_replay");
   const loaded = await state.store.load(state.runId);

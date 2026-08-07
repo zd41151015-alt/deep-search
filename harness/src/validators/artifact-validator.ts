@@ -1,5 +1,5 @@
 import type { ErrorObject } from "ajv";
-import { canonicalContentHash } from "../artifact-store/canonical.js";
+import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import {
   loadResearchPublicationPolicy,
   type PublicationPolicy,
@@ -78,6 +78,7 @@ import {
   validateResearchBranchContract,
 } from "./research-branch-validator.js";
 import {
+  hasBlockingIssues,
   type LoadedSchemaBundle,
   loadSchemaBundle,
   sortIssues,
@@ -296,6 +297,33 @@ function refsFromNestedArray(
           ]
         : [],
     );
+  });
+}
+
+function refsFromNestedObjectArray(
+  document: Record<string, unknown>,
+  arrayField: string,
+  objectField: string,
+  refField: string,
+  expectedSchemaVersion: string | readonly string[],
+): readonly ReferenceRequirement[] {
+  const values = document[arrayField];
+  if (!Array.isArray(values)) return [];
+  return values.flatMap((value, index) => {
+    if (!isRecord(value) || !isRecord(value[objectField])) return [];
+    const ref = value[objectField][refField];
+    return typeof ref === "string"
+      ? [
+          {
+            instancePath: `/${arrayField}/${index}/${objectField}/${refField}`,
+            ref,
+            expectedSchemaVersions:
+              typeof expectedSchemaVersion === "string"
+                ? [expectedSchemaVersion]
+                : expectedSchemaVersion,
+          },
+        ]
+      : [];
   });
 }
 
@@ -1215,6 +1243,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "source_manifest_refs",
           "startup_opportunity.source_manifest.assessment.current",
+        ),
+        ...refsFromArray(
+          document,
+          "commercial_research_audit_refs",
+          "startup_opportunity.commercial_research_audit.current",
         ),
         ...optionalRef(
           document,
@@ -2734,6 +2767,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "source_manifest_refs",
           "startup_opportunity.source_manifest.discovery_evaluation.current",
         ),
+        ...refsFromArray(
+          document,
+          "commercial_research_audit_refs",
+          "startup_opportunity.commercial_research_audit.current",
+        ),
         ...optionalRef(
           document,
           "traceability_ref",
@@ -2832,6 +2870,60 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.research_task.discovery_evaluation.current",
         ]),
         ...refsFromNestedArray(document, "evidence_register", "evidence_ref", [
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+          "startup_opportunity.assessment_evidence.v1",
+          "startup_opportunity.candidate_neutral_evidence.v1",
+        ]),
+        ...refsFromNestedObjectArray(
+          document,
+          "evidence_register",
+          "source_profile",
+          "primary_data_ref",
+          [
+            "startup_opportunity.evidence.assessment.current",
+            "startup_opportunity.evidence.discovery_candidate.current",
+            "startup_opportunity.evidence.discovery_evaluation.current",
+            "startup_opportunity.assessment_evidence.v1",
+            "startup_opportunity.candidate_neutral_evidence.v1",
+          ],
+        ),
+        ...refsFromNestedArray(
+          document,
+          "data_acquisitions",
+          "evidence_substrate_ref",
+          "startup_opportunity.evidence_store_record.v2",
+        ),
+        ...refsFromNestedArray(document, "quantitative_observations", "evidence_refs", [
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+          "startup_opportunity.assessment_evidence.v1",
+          "startup_opportunity.candidate_neutral_evidence.v1",
+        ]),
+        ...refsFromNestedArray(document, "competitive_objects", "source_refs", [
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+          "startup_opportunity.assessment_evidence.v1",
+          "startup_opportunity.candidate_neutral_evidence.v1",
+        ]),
+        ...refsFromNestedArray(document, "findings", "evidence_refs", [
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+          "startup_opportunity.assessment_evidence.v1",
+          "startup_opportunity.candidate_neutral_evidence.v1",
+        ]),
+        ...refsFromNestedArray(document, "claims", "evidence_refs", [
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+          "startup_opportunity.assessment_evidence.v1",
+          "startup_opportunity.candidate_neutral_evidence.v1",
+        ]),
+        ...refsFromNestedArray(document, "judgments", "evidence_refs", [
           "startup_opportunity.evidence.assessment.current",
           "startup_opportunity.evidence.discovery_candidate.current",
           "startup_opportunity.evidence.discovery_evaluation.current",
@@ -3674,7 +3766,7 @@ export class ArtifactValidator {
       : normalizeAjvErrors(validator.errors);
     return {
       schemaVersion: ARTIFACT_VALIDATION_RESULT_VERSION,
-      valid: errors.length === 0,
+      valid: !hasBlockingIssues(errors),
       documentPath,
       artifactSchemaVersion,
       errors,
@@ -3774,6 +3866,37 @@ export class ArtifactValidator {
       }
     }
     referenceErrors.push(...adaptationArtifactModeIssues(documentsByPath));
+
+    for (const source of effectiveDocuments) {
+      if (
+        source.schemaVersion !== "startup_opportunity.commercial_research_audit.current" ||
+        source.envelope === null
+      ) {
+        continue;
+      }
+      const expectedInputRefs = [
+        ...new Set(
+          referenceRequirements(source)
+            .map((requirement) => requirement.ref)
+            .filter((ref) => (ref.split("#", 1)[0] ?? ref) !== source.path),
+        ),
+      ].sort();
+      const actualInputRefs = Array.isArray(source.envelope.input_refs)
+        ? source.envelope.input_refs
+            .filter((ref): ref is string => typeof ref === "string")
+            .toSorted()
+        : [];
+      if (canonicalJson(actualInputRefs) !== canonicalJson(expectedInputRefs)) {
+        referenceErrors.push(
+          referenceIssue(
+            "reference.commercial_audit_input_closure_mismatch",
+            `${source.path}#/input_refs`,
+            "a formal commercial Audit envelope must carry the exact Harness-derived semantic and provenance reference closure",
+            { actualInputRefs, expectedInputRefs },
+          ),
+        );
+      }
+    }
 
     for (const source of effectiveDocuments) {
       for (const requirement of referenceRequirements(source)) {
@@ -4021,7 +4144,7 @@ export class ArtifactValidator {
     const valid =
       bundleResult.valid &&
       sortedDocuments.every((document) => document.valid) &&
-      sortedReferenceErrors.length === 0;
+      !hasBlockingIssues(sortedReferenceErrors);
     return {
       schemaVersion: DOCUMENT_BUNDLE_VALIDATION_RESULT_VERSION,
       valid,

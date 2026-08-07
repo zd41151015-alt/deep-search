@@ -663,6 +663,7 @@ function terminalReportSource(runId: string, runtimeFailure = false): FormalArti
     quantitative_signal_rows: [],
     competitive_substitute_rows: [],
     research_coverage_gaps: [],
+    gate_warnings: [],
     ordered_validation_plan: [],
     freshness: {
       earliest_valid_as_of: null,

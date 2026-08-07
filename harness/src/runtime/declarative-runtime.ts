@@ -5,17 +5,25 @@ import type {
 } from "../artifact-store/artifact-store.js";
 import { canonicalContentHash, canonicalJson, operationKey } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import { compileCommercialResearchDelivery } from "../compiler/commercial-research-compiler.js";
 import { RunStore } from "../run-store/run-store.js";
 import {
   type ArtifactValidator,
   artifactRefsForDocument,
   type DocumentBundle,
 } from "../validators/artifact-validator.js";
+import type { CommercialResearchPolicy } from "../validators/commercial-research-validator.js";
+import {
+  type GateDiagnosticSummary,
+  summarizeGateDiagnostics,
+} from "../validators/gate-diagnostics.js";
+import { gateRegistration } from "../validators/gate-registry.js";
 import {
   classifyReference,
   type ResolvedReference,
   resolveReferences,
 } from "../validators/reference-classifier.js";
+import type { ValidationIssue } from "../validators/schema-bundle.js";
 
 export interface RuntimeArtifactCompilationRequest extends Record<string, unknown> {
   readonly schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1";
@@ -75,6 +83,7 @@ export interface RuntimeArtifactCompilationResult {
     readonly root_causes: readonly [];
     readonly resolved_reference_count: number;
     readonly publication_count: number;
+    readonly gate_diagnostics?: GateDiagnosticSummary;
   };
   readonly working_directory: string;
   readonly validation_closure: {
@@ -158,6 +167,10 @@ interface RuntimeDiagnostic {
   readonly message: string;
   readonly likely_cause: string;
   readonly details: Readonly<Record<string, unknown>>;
+  readonly severity: "error" | "warning" | "info";
+  readonly category: "integrity" | "decision_validity" | "coverage" | "format" | "telemetry";
+  readonly stages: readonly string[];
+  readonly mechanically_derivable: boolean;
 }
 
 function diagnostic(
@@ -169,6 +182,7 @@ function diagnostic(
   details: Readonly<Record<string, unknown>> = {},
   reference: string | null = null,
 ): RuntimeDiagnostic {
+  const registration = gateRegistration(code);
   return {
     code,
     artifact,
@@ -177,6 +191,10 @@ function diagnostic(
     message,
     likely_cause: likelyCause,
     details,
+    severity: registration.defaultSeverity,
+    category: registration.category,
+    stages: registration.stages,
+    mechanically_derivable: registration.mechanicallyDerivable,
   };
 }
 
@@ -330,7 +348,7 @@ export class DeclarativeRuntimeCompiler {
     }
 
     const compilationStarted = performance.now();
-    const sourceArtifacts =
+    const rawSourceArtifacts =
       request.publication_plan?.compiled_envelopes.map((envelope) => ({
         artifact_type: envelope.artifact_type,
         artifact_path: envelope.artifact_path,
@@ -338,6 +356,66 @@ export class DeclarativeRuntimeCompiler {
         input_refs: envelope.input_refs,
         document: envelope.document,
       })) ?? request.artifacts;
+    const transformationIssues: ValidationIssue[] = [];
+    const commercialDeliveryPresent = rawSourceArtifacts.some(
+      (artifact) =>
+        artifact.artifact_type === "startup_opportunity.commercial_research_audit.current" &&
+        artifact.document.schema_version ===
+          "startup_opportunity.commercial_research_delivery.current",
+    );
+    const availableArtifacts = commercialDeliveryPresent
+      ? (
+          await this.runs.buildValidationContext(
+            request.run_id,
+            {
+              schema_version: "startup_opportunity.document_bundle.current",
+              documents: [
+                {
+                  path: `artifacts/runtime/compilation-context/${request.request_id}.json`,
+                  document: request as unknown as Record<string, unknown>,
+                },
+              ],
+              exact_records: [],
+            },
+            { includeAllFormalArtifacts: true },
+          )
+        ).bundle.documents.map((entry) => ({
+          artifact_type:
+            isRecord(entry.document) && typeof entry.document.artifact_type === "string"
+              ? entry.document.artifact_type
+              : String(entry.document.schema_version ?? ""),
+          artifact_path: entry.path,
+          document: entry.document,
+        }))
+      : [];
+    const sourceArtifacts = rawSourceArtifacts.map((artifact) => {
+      if (
+        artifact.artifact_type !== "startup_opportunity.commercial_research_audit.current" ||
+        artifact.document.schema_version !==
+          "startup_opportunity.commercial_research_delivery.current"
+      ) {
+        return artifact;
+      }
+      const deliveryValidation = this.validator.validateDocument(
+        artifact.document,
+        artifact.artifact_path,
+      );
+      if (!deliveryValidation.valid) return artifact;
+      const compiled = compileCommercialResearchDelivery(
+        artifact.document,
+        String(artifact.input_refs?.find((ref) => ref.startsWith("tasks/")) ?? ""),
+        [...availableArtifacts, ...rawSourceArtifacts],
+        this.validator.publicationPolicy.document
+          .commercial_research_contract as unknown as CommercialResearchPolicy,
+      );
+      transformationIssues.push(...deliveryValidation.errors, ...compiled.issues);
+      return {
+        ...artifact,
+        producer_role: "harness" as const,
+        input_refs: [],
+        document: compiled.document,
+      };
+    });
     const paths = sourceArtifacts.map((artifact) => artifact.artifact_path);
     if (new Set(paths).size !== paths.length) {
       throw new StoreError(
@@ -362,12 +440,14 @@ export class DeclarativeRuntimeCompiler {
       );
     }
     const constructionIssues: RuntimeDiagnostic[] = [];
+    const gateIssues: ValidationIssue[] = [...transformationIssues];
     const envelopes: FormalArtifactEnvelope[] = [];
     for (const artifact of sourceArtifacts) {
       const documentValidation = this.validator.validateDocument(
         artifact.document,
         artifact.artifact_path,
       );
+      gateIssues.push(...documentValidation.errors);
       if (
         !documentValidation.valid ||
         artifact.document.schema_version !== artifact.artifact_type ||
@@ -422,6 +502,7 @@ export class DeclarativeRuntimeCompiler {
         document: artifact.document,
       };
       const envelopeValidation = this.validator.validateDocument(envelope, artifact.artifact_path);
+      gateIssues.push(...envelopeValidation.errors);
       if (!envelopeValidation.valid) {
         constructionIssues.push(
           diagnostic(
@@ -463,6 +544,11 @@ export class DeclarativeRuntimeCompiler {
     const validation = this.validator.validateDocumentBundle(
       context.bundle,
       context.referenceContext,
+    );
+    gateIssues.push(
+      ...validation.bundleErrors,
+      ...validation.documents.flatMap((document) => document.errors),
+      ...validation.referenceErrors,
     );
     if (!validation.valid) {
       const validationIssues: RuntimeDiagnostic[] = [
@@ -685,6 +771,9 @@ export class DeclarativeRuntimeCompiler {
         root_causes: [],
         resolved_reference_count: resolvedReferences.length,
         publication_count: envelopes.length,
+        ...(gateIssues.length === 0
+          ? {}
+          : { gate_diagnostics: summarizeGateDiagnostics(gateIssues, "artifact_compilation") }),
       },
       working_directory: `dist/research-working/${request.run_id}`,
       validation_closure: {

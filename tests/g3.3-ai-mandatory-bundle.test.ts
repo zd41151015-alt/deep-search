@@ -262,11 +262,19 @@ test("opportunity comparison requires an exact AI bundle binding", async (t) => 
   });
 });
 
-test("G3.3 complete bundle permits the v3 first-bet path when every other ceiling is ready", async () => {
+test("G3.3 complete bundle leaves the unresolved commercial ceiling binding", async () => {
   const bundle = await completeFixture("valid");
   const validator = await createArtifactValidator(repositoryRoot);
   const result = validator.validateDocumentBundle(bundle);
-  assert.equal(result.valid, true, JSON.stringify(allErrors(result), null, 2));
+  assert.equal(result.valid, false);
+  assert.ok(
+    allErrors(result).some(
+      (error) =>
+        error.code === "terminal_reporting.recommendation_ceiling_exceeded" &&
+        error.details?.strictestCeiling === "investigate_further",
+    ),
+    JSON.stringify(allErrors(result), null, 2),
+  );
 
   const mandatory = g3Envelope(bundle, G33_MANDATORY_BUNDLE).document;
   assert.equal(mandatory.bundle_status, "complete");
@@ -274,7 +282,14 @@ test("G3.3 complete bundle permits the v3 first-bet path when every other ceilin
   const comparison = g3Envelope(bundle, G24_COMPARISON_A);
   assert.equal(binding(comparison).coverage_state, "complete");
   assert.equal(comparison.document.recommendation_band, "strong_candidate");
-  assert.equal(g3Envelope(bundle, G24_RECOMMENDATION).document.decision_tier, "prioritize");
+
+  g3Envelope(bundle, G24_RECOMMENDATION).document.decision_tier = "investigate_further";
+  const report = g3Envelope(bundle, G24_REPORT).document;
+  (report.curated_judgment_context as Record<string, unknown>).decision_tier =
+    "investigate_further";
+  refreshG33FixtureHashes(bundle);
+  const cappedResult = validator.validateDocumentBundle(bundle);
+  assert.equal(cappedResult.valid, true, JSON.stringify(allErrors(cappedResult), null, 2));
 });
 
 test("G3.3 mandatory ceiling aggregates each specialized input and uses the strictest value", async (t) => {

@@ -1,0 +1,509 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/commercial/commercial-research-delivery.schema.json",
+  "title": "Startup Opportunity Agent Authored Commercial Research Delivery",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "unit_id",
+    "audited_at",
+    "research_objectives",
+    "primary_routes",
+    "search_results",
+    "evidence_sources",
+    "findings",
+    "claims",
+    "judgments",
+    "quantitative_observations",
+    "competitive_observations",
+    "unresolved_gaps",
+    "limitations",
+    "stop_reason",
+    "telemetry_basis",
+    "query_log_complete"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.commercial_research_delivery.current" },
+    "run_id": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId" },
+    "unit_id": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier" },
+    "audited_at": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp" },
+    "research_objectives": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+      }
+    },
+    "primary_routes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+      }
+    },
+    "search_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "objective",
+          "route",
+          "url",
+          "title",
+          "retrieved_at",
+          "published_at",
+          "observed_at",
+          "data_period_end",
+          "claim_type",
+          "commercial_dimensions",
+          "adopted_evidence_ref",
+          "rejection_reason"
+        ],
+        "properties": {
+          "objective": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "route": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "url": { "type": "string", "format": "uri" },
+          "title": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "retrieved_at": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+          },
+          "published_at": {
+            "$ref": "./commercial-research-audit.schema.json#/$defs/nullableTimestamp"
+          },
+          "observed_at": {
+            "$ref": "./commercial-research-audit.schema.json#/$defs/nullableTimestamp"
+          },
+          "data_period_end": {
+            "$ref": "./commercial-research-audit.schema.json#/$defs/nullableDate"
+          },
+          "claim_type": { "$ref": "./commercial-research-audit.schema.json#/$defs/claimType" },
+          "regulatory_effective_status": {
+            "enum": ["effective", "partially_effective", "not_yet_effective", "repealed", "unknown"]
+          },
+          "regulatory_status_verified_at": {
+            "$ref": "./commercial-research-audit.schema.json#/$defs/nullableTimestamp"
+          },
+          "commercial_dimensions": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "user_language",
+                "buyer",
+                "purchase",
+                "pricing",
+                "alternatives",
+                "usage",
+                "distribution",
+                "retention",
+                "unit_economics",
+                "regulation",
+                "market_structure",
+                "mechanism",
+                "counterevidence",
+                "solution_pricing",
+                "solution_acquisition",
+                "solution_retention"
+              ]
+            }
+          },
+          "adopted_evidence_ref": {
+            "anyOf": [
+              { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef" },
+              { "type": "null" }
+            ]
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+              },
+              { "type": "null" }
+            ]
+          }
+        }
+      }
+    },
+    "evidence_sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_ref",
+          "source_kind",
+          "source_profile",
+          "evidence_character",
+          "independence",
+          "claim_type",
+          "content_summary",
+          "retrieved_at",
+          "published_at",
+          "observed_at",
+          "data_period_end",
+          "coverage_keys",
+          "disposition",
+          "exclusion_reason"
+        ],
+        "properties": {
+          "evidence_ref": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+          },
+          "source_kind": {
+            "enum": ["behavioral", "independent", "vendor", "academic", "regulatory"]
+          },
+          "source_profile": {
+            "$ref": "./commercial-research-audit.schema.json#/$defs/sourceProfile"
+          },
+          "evidence_character": {
+            "enum": [
+              "observed_behavior",
+              "independent_report",
+              "vendor_claim",
+              "inference",
+              "mechanism",
+              "effect_boundary",
+              "counterevidence"
+            ]
+          },
+          "independence": { "enum": ["independent", "interested_party", "unknown"] },
+          "claim_type": { "$ref": "./commercial-research-audit.schema.json#/$defs/claimType" },
+          "content_summary": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "regulatory_effective_status": {
+            "enum": ["effective", "partially_effective", "not_yet_effective", "repealed", "unknown"]
+          },
+          "regulatory_status_verified_at": {
+            "$ref": "./commercial-research-audit.schema.json#/$defs/nullableTimestamp"
+          },
+          "retrieved_at": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+          },
+          "published_at": {
+            "$ref": "./commercial-research-audit.schema.json#/$defs/nullableTimestamp"
+          },
+          "observed_at": {
+            "$ref": "./commercial-research-audit.schema.json#/$defs/nullableTimestamp"
+          },
+          "data_period_end": {
+            "$ref": "./commercial-research-audit.schema.json#/$defs/nullableDate"
+          },
+          "coverage_keys": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "./commercial-research-audit.schema.json#/$defs/coverageKey" }
+          },
+          "disposition": { "enum": ["adopted", "rejected"] },
+          "exclusion_reason": {
+            "anyOf": [
+              {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+              },
+              { "type": "null" }
+            ]
+          }
+        }
+      }
+    },
+    "findings": { "$ref": "#/$defs/semanticStatements" },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["statement", "evidence_refs", "confidence"],
+        "properties": {
+          "statement": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "subject_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "evidence_refs": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "confidence": { "enum": ["high", "medium", "low"] }
+        }
+      }
+    },
+    "judgments": { "$ref": "#/$defs/semanticStatements" },
+    "quantitative_observations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/quantitativeObservationInput" }
+    },
+    "competitive_observations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/competitiveObservationInput" }
+    },
+    "unresolved_gaps": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gap" }
+    },
+    "limitations": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "stop_reason": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "telemetry_basis": { "enum": ["agent_supplied", "unavailable"] },
+    "query_log_complete": { "type": "boolean" }
+  },
+  "$defs": {
+    "semanticStatements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["statement", "evidence_refs"],
+        "properties": {
+          "statement": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "subject_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "evidence_refs": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          }
+        }
+      }
+    },
+    "acquisitionInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "acquisition_method",
+        "provider",
+        "endpoint_or_query_redacted",
+        "access_basis",
+        "limitations"
+      ],
+      "properties": {
+        "acquisition_method": {
+          "$ref": "./quantitative-competitive-research.schema.json#/$defs/acquisitionMethod"
+        },
+        "provider": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "endpoint_or_query_redacted": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "access_basis": {
+          "enum": ["public", "caller_authorized_commercial", "user_provided", "repository_existing"]
+        },
+        "limitations": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        }
+      }
+    },
+    "quantitativeObservationInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_id",
+        "metric_family",
+        "metric_name",
+        "metric_semantics",
+        "value",
+        "metric_definition",
+        "geography",
+        "period",
+        "measurement_type",
+        "estimation_method",
+        "sample_or_population",
+        "error_uncertainty",
+        "comparability",
+        "interpretation_boundaries",
+        "acquisition",
+        "evidence_refs",
+        "limitations"
+      ],
+      "properties": {
+        "subject_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "metric_family": {
+          "$ref": "./quantitative-competitive-research.schema.json#/$defs/metricFamily"
+        },
+        "metric_name": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "metric_semantics": {
+          "$ref": "./quantitative-competitive-research.schema.json#/$defs/metricSemantics"
+        },
+        "value": { "$ref": "./quantitative-competitive-research.schema.json#/$defs/metricValue" },
+        "metric_definition": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "geography": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "period": { "$ref": "./quantitative-competitive-research.schema.json#/$defs/metricPeriod" },
+        "measurement_type": {
+          "enum": ["direct_measurement", "disclosed", "estimated", "modeled", "proxy"]
+        },
+        "estimation_method": {
+          "anyOf": [
+            { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString" },
+            { "type": "null" }
+          ]
+        },
+        "sample_or_population": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "error_uncertainty": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "comparability": {
+          "$ref": "./quantitative-competitive-research.schema.json#/$defs/comparability"
+        },
+        "interpretation_boundaries": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "not_purchase_count",
+              "not_paid_customer_count",
+              "not_market_validation",
+              "not_revenue",
+              "estimate_not_observation"
+            ]
+          }
+        },
+        "acquisition": { "$ref": "#/$defs/acquisitionInput" },
+        "evidence_refs": {
+          "allOf": [
+            {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+            },
+            { "type": "array", "minItems": 1 }
+          ]
+        },
+        "limitations": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        }
+      }
+    },
+    "competitiveObservationInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_id",
+        "competitor_type",
+        "name",
+        "target_segment",
+        "scenario",
+        "positioning",
+        "pricing_metric_names",
+        "traction_metric_names",
+        "strengths",
+        "weaknesses",
+        "differentiation_gaps",
+        "source_refs",
+        "limitations"
+      ],
+      "properties": {
+        "subject_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "competitor_type": {
+          "$ref": "./quantitative-competitive-research.schema.json#/$defs/competitorType"
+        },
+        "name": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "target_segment": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "scenario": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "positioning": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "pricing_metric_names": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "traction_metric_names": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "strengths": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "weaknesses": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "differentiation_gaps": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "source_refs": {
+          "allOf": [
+            {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+            },
+            { "type": "array", "minItems": 1 }
+          ]
+        },
+        "limitations": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        }
+      }
+    },
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coverage_kind",
+        "subject_id",
+        "dimension",
+        "state",
+        "reason",
+        "alternative_metric",
+        "decision_impact",
+        "query_attempts"
+      ],
+      "properties": {
+        "coverage_kind": { "enum": ["quantitative", "competitive"] },
+        "subject_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "dimension": {
+          "anyOf": [
+            { "$ref": "./quantitative-competitive-research.schema.json#/$defs/metricFamily" },
+            { "$ref": "./quantitative-competitive-research.schema.json#/$defs/competitorType" }
+          ]
+        },
+        "state": { "enum": ["partial", "unavailable", "not_applicable"] },
+        "reason": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "alternative_metric": {
+          "anyOf": [
+            { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString" },
+            { "type": "null" }
+          ]
+        },
+        "decision_impact": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "query_attempts": {
+          "type": "array",
+          "items": { "$ref": "./quantitative-competitive-research.schema.json#/$defs/queryAttempt" }
+        }
+      }
+    }
+  }
+}

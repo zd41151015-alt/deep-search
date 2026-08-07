@@ -35,7 +35,10 @@
       ],
       "properties": {
         "status": { "const": "accepted" },
-        "issues": { "type": "array", "maxItems": 0 },
+        "issues": {
+          "type": "array",
+          "items": { "$ref": "./gate-diagnostics.schema.json#/$defs/issue" }
+        },
         "root_causes": { "type": "array", "maxItems": 0 },
         "required_artifact_count": { "type": "integer", "minimum": 1 },
         "delivered_artifact_count": { "type": "integer", "minimum": 1 },

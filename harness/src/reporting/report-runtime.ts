@@ -25,8 +25,11 @@ import { StoreError } from "../artifact-store/store-error.js";
 import { RunStore } from "../run-store/run-store.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
 import { REQUIRED_REPORT_CONSISTENCY_DIMENSIONS } from "../validators/discovery-evaluation-policy.js";
+import { projectGateWarnings } from "../validators/gate-diagnostics.js";
 import {
+  projectCommercialAuditTables,
   renderCompetitiveSubstituteMatrix,
+  renderGateWarnings,
   renderQuantitativeSignalTable,
   renderResearchCoverageGaps,
 } from "./commercial-report-tables.js";
@@ -304,6 +307,8 @@ function renderFullReport(report: Record<string, unknown>): string {
     if (sectionId === "limitations_and_sources") {
       parts.push("\n## Research Coverage Gaps And Decision Impact\n");
       parts.push(renderResearchCoverageGaps(report));
+      parts.push("\n## Gate Warnings And Decision Impact\n");
+      parts.push(renderGateWarnings(report));
     }
     parts.push(`\n## ${REPORT_SECTION_TITLES[sectionId]}\n`);
     parts.push(markdownList(strings(sections[sectionId])));
@@ -422,6 +427,8 @@ function renderDiscoveryFullReport(report: Record<string, unknown>): string {
     if (sectionId === "traceability_and_sources") {
       parts.push("\n## Research Coverage Gaps And Decision Impact\n");
       parts.push(renderResearchCoverageGaps(report));
+      parts.push("\n## Gate Warnings And Decision Impact\n");
+      parts.push(renderGateWarnings(report));
     }
     const title = sectionId
       .split("_")
@@ -837,6 +844,29 @@ async function assertReportBuildCompatibleLocked(
   await assertMaterializedTargetsCompatibleLocked(runRoot, [source, ...derived]);
 }
 
+async function assertNoOtherFinalReportLocked(
+  runRoot: string,
+  source: FormalArtifactEnvelope,
+): Promise<void> {
+  const conflictingReport = (await reportingEnvelopes(runRoot)).find(
+    (envelope) =>
+      (envelope.artifact_type === "startup_opportunity.concept_evidence_report.v1" ||
+        envelope.artifact_type === "startup_opportunity.report.v1" ||
+        envelope.artifact_type === "startup_opportunity.terminal_report_source.v1") &&
+      envelope.artifact_path !== source.artifact_path,
+  );
+  if (conflictingReport !== undefined) {
+    throw new StoreError(
+      "report.final_revision_conflict",
+      "a different final report revision is already published for this Run",
+      {
+        existingArtifactPath: conflictingReport.artifact_path,
+        candidateArtifactPath: source.artifact_path,
+      },
+    );
+  }
+}
+
 function hasExactlyKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
   const actual = Object.keys(value).sort();
   const sortedExpected = [...expected].sort();
@@ -1039,6 +1069,7 @@ export async function recoverReportOperationsLocked(
     if (reportMaterialization?.status === "materialized") {
       materializedRecovered.push(reportMaterialization.targetPath);
     }
+    const missingDerivedPaths = new Set<string>();
     for (const derivedEnvelope of derived) {
       const existing = envelopes.find(
         (candidate) => candidate.artifact_path === derivedEnvelope.artifact_path,
@@ -1048,11 +1079,29 @@ export async function recoverReportOperationsLocked(
           artifactPath: derivedEnvelope.artifact_path,
         });
       }
-      const result = await artifacts.publishLocked(runRoot, {
-        runId,
-        envelope: derivedEnvelope,
-      });
-      if (result.status === "published") {
+      if (existing === undefined) {
+        missingDerivedPaths.add(derivedEnvelope.artifact_path);
+      }
+    }
+    const publication =
+      missingDerivedPaths.size > 0
+        ? await artifacts.publishBundleLocked(runRoot, { runId, envelopes: derived })
+        : null;
+    for (const derivedEnvelope of derived) {
+      const result = publication?.artifacts.find(
+        (candidate) => candidate.artifactPath === derivedEnvelope.artifact_path,
+      );
+      if (publication !== null && result === undefined) {
+        throw new StoreError(
+          "report.recovery_invalid_operation",
+          "derived report publication omitted a bundle result",
+          { artifactPath: derivedEnvelope.artifact_path },
+        );
+      }
+      if (
+        result?.status === "published" &&
+        missingDerivedPaths.has(derivedEnvelope.artifact_path)
+      ) {
         formalRecovered.push(derivedEnvelope.artifact_path);
       }
       const derivedMaterialization = await materializeLocked(runRoot, derivedEnvelope);
@@ -1093,17 +1142,21 @@ export class ReportRuntime {
   }
 
   async build(input: BuildReportInput): Promise<BuildReportResult> {
-    const source = input.reportEnvelope;
-    const derived = deriveReportEnvelopes(source);
-    assertDerivedConsistencyPassed(derived);
-    const validation = this.validator.validateDocument(source, source.artifact_path);
-    if (!validation.valid) {
-      throw new StoreError("report.source_invalid", "report source envelope is invalid", {
-        errors: validation.errors,
-      });
-    }
-    const runRoot = await openRunDirectory(this.runsRoot, source.run_id);
+    const runRoot = await openRunDirectory(this.runsRoot, input.reportEnvelope.run_id);
     return withReportLock(runRoot, async () => {
+      assertDerivedConsistencyPassed(deriveReportEnvelopes(input.reportEnvelope));
+      await withRunLock(runRoot, () =>
+        assertNoOtherFinalReportLocked(runRoot, input.reportEnvelope),
+      );
+      const source = await this.compileCommercialReportFields(input.reportEnvelope);
+      const derived = deriveReportEnvelopes(source);
+      assertDerivedConsistencyPassed(derived);
+      const validation = this.validator.validateDocument(source, source.artifact_path);
+      if (!validation.valid) {
+        throw new StoreError("report.source_invalid", "report source envelope is invalid", {
+          errors: validation.errors,
+        });
+      }
       await withRunLock(runRoot, () => assertReportBuildCompatibleLocked(runRoot, source, derived));
       const publicationResults: PublishArtifactResult[] = [];
       publicationResults.push(
@@ -1165,6 +1218,169 @@ export class ReportRuntime {
         consistencyEvaluationRef: (derived[2] as FormalArtifactEnvelope).artifact_path,
       };
     });
+  }
+
+  private async compileCommercialReportFields(
+    source: FormalArtifactEnvelope,
+  ): Promise<FormalArtifactEnvelope> {
+    if (
+      ![
+        "startup_opportunity.report.v1",
+        "startup_opportunity.concept_evidence_report.v1",
+        "startup_opportunity.terminal_report_source.v1",
+      ].includes(source.artifact_type)
+    ) {
+      return source;
+    }
+    const context = await this.store
+      .buildValidationContext(
+        source.run_id,
+        {
+          schema_version: "startup_opportunity.document_bundle.current",
+          documents: [{ path: source.artifact_path, document: source }],
+          exact_records: [],
+        },
+        {
+          includeAllFormalArtifacts: true,
+          prospectiveArtifactPaths: [source.artifact_path],
+        },
+      )
+      .catch((error: unknown) => {
+        if (error instanceof StoreError && error.code === "validation_context.authority_conflict") {
+          throw new StoreError(
+            "report.final_revision_conflict",
+            "a different immutable report revision already exists",
+            error.details,
+          );
+        }
+        throw error;
+      });
+    const audits = context.bundle.documents.flatMap((entry) => {
+      if (
+        entry.document.schema_version !== "startup_opportunity.artifact_envelope.current" ||
+        entry.document.artifact_type !== "startup_opportunity.commercial_research_audit.current" ||
+        !isRecord(entry.document.document) ||
+        typeof entry.document.content_hash !== "string"
+      ) {
+        return [];
+      }
+      return [
+        {
+          path: entry.path,
+          contentHash: entry.document.content_hash,
+          document: entry.document.document,
+        },
+      ];
+    });
+    const projection = projectCommercialAuditTables(audits);
+    const sourceDocument = structuredClone(source.document);
+    if (
+      source.artifact_type === "startup_opportunity.report.v1" ||
+      source.artifact_type === "startup_opportunity.concept_evidence_report.v1"
+    ) {
+      const metadata = isRecord(sourceDocument.report_metadata)
+        ? sourceDocument.report_metadata
+        : {};
+      const inputHashes = new Map(
+        records(metadata.input_artifact_hashes)
+          .filter(
+            (binding) =>
+              typeof binding.ref === "string" &&
+              !binding.ref.startsWith("artifacts/research-audits/"),
+          )
+          .map((binding) => [String(binding.ref), binding]),
+      );
+      for (const audit of audits) {
+        inputHashes.set(audit.path, { ref: audit.path, content_hash: audit.contentHash });
+      }
+      sourceDocument.report_metadata = {
+        ...metadata,
+        input_artifact_hashes: [...inputHashes.values()].sort((left, right) =>
+          String(left.ref).localeCompare(String(right.ref)),
+        ),
+      };
+    }
+    const provisionalDocument = {
+      ...sourceDocument,
+      ...projection,
+      gate_warnings: audits.flatMap((audit) => records(audit.document.compiler_warnings)),
+    };
+    const provisional = {
+      ...source,
+      input_refs: [
+        ...new Set([
+          ...source.input_refs.filter((ref) => !ref.startsWith("artifacts/research-audits/")),
+          ...projection.commercial_research_audit_refs,
+        ]),
+      ].sort(),
+      content_hash: canonicalContentHash(provisionalDocument),
+      document: provisionalDocument,
+    };
+    const provisionalContext = await this.store.buildValidationContext(
+      source.run_id,
+      {
+        schema_version: "startup_opportunity.document_bundle.current",
+        documents: [{ path: source.artifact_path, document: provisional }],
+        exact_records: [],
+      },
+      {
+        includeAllFormalArtifacts: true,
+        prospectiveArtifactPaths: [source.artifact_path],
+      },
+    );
+    const provisionalValidation = this.validator.validateDocumentBundle(
+      provisionalContext.bundle,
+      provisionalContext.referenceContext,
+    );
+    const provisionalIssues = [
+      ...provisionalValidation.bundleErrors,
+      ...provisionalValidation.documents.flatMap((entry) => entry.errors),
+      ...provisionalValidation.referenceErrors,
+    ];
+    const gateWarnings = [
+      ...projectGateWarnings(provisionalIssues),
+      ...audits.flatMap((audit) => records(audit.document.compiler_warnings)),
+    ].sort((left, right) =>
+      `${String(left.code)}:${String(left.message)}`.localeCompare(
+        `${String(right.code)}:${String(right.message)}`,
+      ),
+    );
+    const document = { ...provisionalDocument, gate_warnings: gateWarnings };
+    const compiled = {
+      ...provisional,
+      content_hash: canonicalContentHash(document),
+      document,
+    };
+    const finalContext = await this.store.buildValidationContext(
+      source.run_id,
+      {
+        schema_version: "startup_opportunity.document_bundle.current",
+        documents: [{ path: source.artifact_path, document: compiled }],
+        exact_records: [],
+      },
+      {
+        includeAllFormalArtifacts: true,
+        prospectiveArtifactPaths: [source.artifact_path],
+      },
+    );
+    const finalValidation = this.validator.validateDocumentBundle(
+      finalContext.bundle,
+      finalContext.referenceContext,
+    );
+    if (!finalValidation.valid) {
+      throw new StoreError(
+        "report.source_invalid",
+        "compiled report fails final current-Run semantic validation",
+        {
+          errors: [
+            ...finalValidation.bundleErrors,
+            ...finalValidation.documents.flatMap((entry) => entry.errors),
+            ...finalValidation.referenceErrors,
+          ],
+        },
+      );
+    }
+    return compiled;
   }
 
   async materialize(

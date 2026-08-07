@@ -108,6 +108,7 @@
     "scope_coverage",
     "search_closure",
     "audit",
+    "gate_diagnostics",
     "created_at"
   ],
   "properties": {
@@ -194,6 +195,9 @@
         "not_applicable_scope_count": { "type": "integer", "minimum": 0 },
         "evidence_ref_count": { "type": "integer", "minimum": 0 }
       }
+    },
+    "gate_diagnostics": {
+      "$ref": "./gate-diagnostics.schema.json"
     },
     "created_at": {
       "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"

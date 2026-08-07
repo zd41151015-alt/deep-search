@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/common/gate-diagnostics.schema.json",
+  "title": "Startup Opportunity Gate Diagnostics",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "triggered_stage", "issues", "statistics", "downgrade_candidates"],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.gate_diagnostics.current" },
+    "triggered_stage": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "issues": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/issue" }
+    },
+    "statistics": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/statistic" }
+    },
+    "downgrade_candidates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/candidate" }
+    }
+  },
+  "$defs": {
+    "severity": { "enum": ["error", "warning", "info"] },
+    "category": { "enum": ["integrity", "decision_validity", "coverage", "format", "telemetry"] },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "keyword",
+        "instancePath",
+        "schemaPath",
+        "message",
+        "details",
+        "severity",
+        "category",
+        "stages",
+        "mechanicallyDerivable"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "keyword": { "type": "string" },
+        "instancePath": { "type": "string" },
+        "schemaPath": { "type": "string" },
+        "message": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "details": { "type": "object" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "category": { "$ref": "#/$defs/category" },
+        "stages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "schema",
+              "lane_preflight",
+              "artifact_compilation",
+              "bundle_validation",
+              "aggregation",
+              "terminal_reporting",
+              "recovery"
+            ]
+          }
+        },
+        "mechanicallyDerivable": { "type": "boolean" }
+      }
+    },
+    "statistic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "validator_code",
+        "severity",
+        "category",
+        "triggered_stage",
+        "trigger_count",
+        "first_occurrence_stage",
+        "repair_rounds",
+        "repair_time_ms",
+        "artifact_count",
+        "changed_evidence_claim_or_disposition",
+        "format_only",
+        "mechanically_derivable"
+      ],
+      "properties": {
+        "validator_code": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "severity": { "$ref": "#/$defs/severity" },
+        "category": { "$ref": "#/$defs/category" },
+        "triggered_stage": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "trigger_count": { "type": "integer", "minimum": 1 },
+        "first_occurrence_stage": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "repair_rounds": { "type": ["integer", "null"], "minimum": 0 },
+        "repair_time_ms": { "type": ["number", "null"], "minimum": 0 },
+        "artifact_count": { "type": "integer", "minimum": 1 },
+        "changed_evidence_claim_or_disposition": { "type": ["boolean", "null"] },
+        "format_only": { "type": "boolean" },
+        "mechanically_derivable": { "type": "boolean" }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "validator_code",
+        "candidate_action",
+        "reason_codes",
+        "integrity_gate_automatically_relaxed"
+      ],
+      "properties": {
+        "validator_code": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "candidate_action": { "enum": ["automate", "downgrade"] },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "high_frequency",
+              "high_repair_cost",
+              "format_only",
+              "no_evidence_claim_or_disposition_change",
+              "mechanically_derivable"
+            ]
+          }
+        },
+        "integrity_gate_automatically_relaxed": { "const": false }
+      }
+    }
+  }
+}

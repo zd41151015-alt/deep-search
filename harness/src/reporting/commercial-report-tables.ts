@@ -147,6 +147,147 @@ function auditReferenceSummary(value: unknown, zh: boolean, recorded = false): s
   return recorded ? "已记录（详见结构化审计）" : "详见结构化审计";
 }
 
+const METRIC_FAMILIES = [
+  "demand_scale",
+  "usage_behavior",
+  "commercial_behavior",
+  "growth_change",
+  "competitive_intensity",
+  "distribution",
+  "retention_outcomes",
+  "unit_economics",
+] as const;
+
+const COMPETITOR_TYPES = [
+  "direct_product",
+  "adjacent_product",
+  "service",
+  "platform",
+  "manual_workaround",
+  "status_quo",
+  "non_consumption",
+] as const;
+
+export interface CommercialAuditProjection {
+  readonly commercial_research_audit_refs: readonly string[];
+  readonly quantitative_signal_rows: readonly Record<string, unknown>[];
+  readonly competitive_substitute_rows: readonly Record<string, unknown>[];
+  readonly research_coverage_gaps: readonly Record<string, unknown>[];
+}
+
+export function projectCommercialAuditTables(
+  audits: readonly { readonly path: string; readonly document: Record<string, unknown> }[],
+): CommercialAuditProjection {
+  const sortedAudits = [...audits].sort((left, right) => left.path.localeCompare(right.path));
+  const quantitativeRows = sortedAudits.flatMap((audit) =>
+    records(audit.document.quantitative_observations).map((observation) => ({
+      audit_ref: audit.path,
+      observation,
+    })),
+  );
+  const competitiveRows = sortedAudits.flatMap((audit) =>
+    records(audit.document.competitive_objects).map((competitiveObject) => ({
+      audit_ref: audit.path,
+      competitive_object: competitiveObject,
+    })),
+  );
+  const gapRows = sortedAudits.flatMap((audit) => [
+    ...records(audit.document.quantitative_coverage)
+      .filter((coverage) => coverage.state !== "observed")
+      .map((coverage) => ({
+        audit_ref: audit.path,
+        coverage_kind: "quantitative",
+        coverage,
+      })),
+    ...records(audit.document.competitive_coverage)
+      .filter((coverage) => coverage.state !== "observed")
+      .map((coverage) => ({
+        audit_ref: audit.path,
+        coverage_kind: "competitive",
+        coverage,
+      })),
+  ]);
+  const auditsBySubject = new Map<string, typeof sortedAudits>();
+  for (const audit of sortedAudits) {
+    for (const subject of strings(audit.document.covered_direction_ids)) {
+      auditsBySubject.set(subject, [...(auditsBySubject.get(subject) ?? []), audit]);
+    }
+  }
+  for (const [subject, subjectAudits] of auditsBySubject) {
+    const owner = subjectAudits[0];
+    if (owner === undefined) continue;
+    const quantitativeCovered = new Set(
+      subjectAudits.flatMap((audit) =>
+        records(audit.document.quantitative_coverage)
+          .filter((entry) => entry.subject_id === subject)
+          .map((entry) => String(entry.metric_family)),
+      ),
+    );
+    const competitiveCovered = new Set(
+      subjectAudits.flatMap((audit) =>
+        records(audit.document.competitive_coverage)
+          .filter((entry) => entry.subject_id === subject)
+          .map((entry) => String(entry.competitor_type)),
+      ),
+    );
+    for (const family of METRIC_FAMILIES.filter((entry) => !quantitativeCovered.has(entry))) {
+      gapRows.push({
+        audit_ref: owner.path,
+        coverage_kind: "quantitative",
+        coverage: {
+          subject_id: subject,
+          metric_family: family,
+          state: "unavailable",
+          observation_ids: [],
+          query_attempts: [],
+          reason: "This metric family was not assigned in any submitted Dispatch for the subject.",
+          alternative_metric: null,
+          decision_impact:
+            "Aggregate completeness is limited; the absence constrains confidence and recommendation strength without invalidating the Lane artifact.",
+        },
+      });
+    }
+    for (const type of COMPETITOR_TYPES.filter((entry) => !competitiveCovered.has(entry))) {
+      gapRows.push({
+        audit_ref: owner.path,
+        coverage_kind: "competitive",
+        coverage: {
+          subject_id: subject,
+          competitor_type: type,
+          state: "unavailable",
+          competitive_object_ids: [],
+          query_attempts: [],
+          reason:
+            "This competitor type was not assigned in any submitted Dispatch for the subject.",
+          alternative_metric: null,
+          decision_impact:
+            "Aggregate substitute coverage is incomplete; ranking and strong recommendation remain constrained.",
+        },
+      });
+    }
+  }
+  const rowKey = (row: Record<string, unknown>): string => {
+    const coverage = isRecord(row.coverage) ? row.coverage : {};
+    return `${String(row.audit_ref)}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(coverage.metric_family ?? coverage.competitor_type)}`;
+  };
+  return {
+    commercial_research_audit_refs: sortedAudits.map((audit) => audit.path),
+    quantitative_signal_rows: quantitativeRows.sort((left, right) =>
+      `${left.audit_ref}:${String((left.observation as Record<string, unknown>).observation_id)}`.localeCompare(
+        `${right.audit_ref}:${String((right.observation as Record<string, unknown>).observation_id)}`,
+      ),
+    ),
+    competitive_substitute_rows: competitiveRows.sort((left, right) =>
+      `${left.audit_ref}:${String((left.competitive_object as Record<string, unknown>).competitive_object_id)}`.localeCompare(
+        `${right.audit_ref}:${String((right.competitive_object as Record<string, unknown>).competitive_object_id)}`,
+      ),
+    ),
+    research_coverage_gaps: gapRows.sort((left, right) =>
+      rowKey(left).localeCompare(rowKey(right)),
+    ),
+  };
+}
+
 function cell(value: unknown): string {
   if (value === null || value === undefined || value === "") return "-";
   return String(value).replaceAll("|", "\\|").replaceAll("\n", " ");
@@ -387,4 +528,17 @@ export function renderResearchCoverageGaps(
     ...body.map((row) => `| ${row.map(cell).join(" | ")} |`),
     "",
   ].join("\n");
+}
+
+export function renderGateWarnings(source: Readonly<Record<string, unknown>>, zh = false): string {
+  const warnings = records(source.gate_warnings);
+  if (warnings.length === 0) {
+    return zh ? "- 没有非阻塞门禁诊断。\n" : "- No non-blocking Gate diagnostics.\n";
+  }
+  return `${warnings
+    .map(
+      (warning) =>
+        `- [${cell(warning.severity)} / ${cell(warning.category)}] ${cell(warning.code)}: ${cell(warning.message)} ${zh ? "决策影响" : "Decision impact"}: ${cell(warning.decision_impact)}`,
+    )
+    .join("\n")}\n`;
 }

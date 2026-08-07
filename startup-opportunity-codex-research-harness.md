@@ -3833,6 +3833,26 @@ insufficient_evidence
 
 `decision_tier` 受 comparison、enrichment fan-in、Portfolio 和 first-bet readiness 的 closed ceiling 共同约束。`recommended_first_bet=null` 时最高为 `investigate_further`；`prioritize` 只允许 first bet 与 Portfolio exact 一致、其 comparison 为 `strong_candidate`/`eligible`、全部 hard gate 为 `passed | not_applicable`、fan-in conclusion ceiling 为 `strong_candidate`、四个 panel 均 `sufficient` 且不为 `weak | unknown`，并且 AI mandatory bundle 已完整或确实不适用。上述输入出现混合档位时采用最严格 ceiling；不能用某个 caller recommendation 字段覆盖 Evidence insufficiency。
 
+### 23.8 Gate Rationalization
+
+当前合同采用“严格边界、宽松研究表达”。`ValidationIssue` 必须通过 Gate 注册表取得 `severity = error | warning | info`、`category = integrity | decision_validity | coverage | format | telemetry` 和适用阶段。分类以 validator code 为依据，不得解析错误消息。只有 `error` 阻塞发布；Evidence 真伪、exact ref/hash、敏感信息和访问控制、Claim-Evidence 闭包、数值与 proxy/estimate 语义、超出 Evidence 的强结论、Manifest 原子发布及 current Run 恢复继续是强门禁。`warning` 和 `info` 是正式诊断，随 compiler result 和 Lane receipt 保存，并由正式报告显示其数据缺口和 decision impact。
+
+量化和竞品 Lane 覆盖由 Dispatch 驱动。每个 Lane 只闭合明确分配的 metric families 和 competitor types；定性 Lane 可分配空数组。`partial | unavailable | not_applicable` 是诚实、可发布的状态。八类量化和七类替代的整体完整性只在候选、Wave 或终态聚合时评估，不能要求每个 Lane 填满。来源集中、vendor-only 和缺少独立交叉验证产生 warning，并确定性降低 Claim confidence、ranking eligibility 或 disposition/recommendation ceiling，不能仅显示文字后继续给出强结论。
+
+Agent-authored commercial delivery 只包含研究语义：研究目标、主要 route、正式记录的搜索结果、Evidence 来源与内容、Finding/Claim/Judgment、量化与竞品 observation、未解决 Gap、limitations、停止原因及 telemetry 声明。Harness compiler 确定性生成正式 `commercial_research_audit` 的 ID、revision/hash/refs、`derived_valid_as_of`、freshness、adopted source distribution、business/coverage closure、Search/Evidence reconciliation、confidence/ranking 和 recommendation ceiling。报告中的 quantitative rows、competitive rows 和 coverage gaps 只从正式 audit 投影；caller 副本会被覆盖，projection mismatch 只表示 Harness 内部不变量失败。
+
+Search Log 的约束服从可观测能力。`telemetry_basis=unavailable` 和 `query_log_complete=false` 是正常披露，不要求伪造逐次浏览器查询；reconciliation 只覆盖正式记录的搜索结果与 Evidence Register。监管状态只有在 adopted Evidence 被用于支持当前监管判断时为 error；候选、历史背景或 rejected source 为 warning。Gap 到 recommendation ceiling 的映射至少覆盖缺购买/付费信号、缺独立竞品采用数据、缺留存、监管状态未确认和只有新闻趋势。
+
+Delivery 可以省略 Harness 派生字段；正式 Audit 不可以漂移。Compiler 必须补齐 freshness/valid-as-of、Dispatch assigned coverage closure、来源分布、confidence/ranking/ceiling 和 semantic refs。编译后的 Audit 与这些确定性结果不一致属于 formal invariant error；真实无数据则生成 `partial | unavailable | not_applicable` 行而不是 error。正式报告先覆盖 caller projection，再使用完整 current Run closure 做最终语义校验；Discovery、Concept Assessment 和 Terminal 三种报告都自动发现全部正式 Audit 与计划 task。
+
+Recommendation ceiling 按报告实际决策对象绑定。Discovery 使用 selected/top opportunity，Concept Assessment 使用 concept hypothesis，Terminal 使用当前被推荐/验证的 direction；watchlist、deprioritized 或 rejected 对象的弱 Audit 只作为 portfolio risk 展示，不能压低无关对象，也不能让所选对象绕过自身 ceiling。Claim confidence 只受其 Evidence refs、claim type/coverage keys、freshness、independence、direct/inference、冲突材料和相关维度 Gap 影响；例如 retention Gap 不降低由当前直接 Evidence 支持的公开价格 Claim，但整体 ranking 和 recommendation 仍受决策相关 Gap 限制。
+
+Evidence 遵循 preserve first, weight later。未追溯原始数据的新闻保留用于背景、趋势、线索、用户/市场叙述和反证，但不能通过自报 `independent_report` 直接成为购买、使用、留存或市场规模观察；追溯到原始 API、数据集或官方披露后按原始数据语义处理。来源集中按 canonical provider/domain/publisher、shared dataset 或 syndication/reprint group 计算，不按粗粒度 `source_kind` 聚合。不同 independent provider 不构成集中，共享底层数据或转载链仍构成集中。
+
+Audit 的 `findings[].evidence_refs`、`claims[].evidence_refs` 和 `judgments[].evidence_refs` 与 Envelope `input_refs` 都进入显式引用闭包。不存在、跨 Run、类型或 hash 错误继续为 error。Rejected Evidence 可保留为反证、来源排除或 limitation；用于正向 Claim/Judgment 时不计 direct support，并确定性降低相关 confidence/ceiling、输出 warning，而不是因来源弱删除 Evidence 或使整个 Lane 失败。
+
+每次可观测 Gate 运行记录 validator code、severity/category、触发与首次出现阶段、次数、涉及 Artifact 数，以及可观测时的修复轮数/耗时、是否改变 Evidence/Claim/disposition、是否仅格式变化。不可观测字段写 `null`，不得推测。高频、高修复成本、format-only、未改变决策材料或可由 Harness 派生的 Gate 可进入 `automate | downgrade` 诊断候选；该诊断永远不能自动放松 integrity gate。
+
 ## 24. Artifact Contract 与 Evaluator
 
 ### 24.1 Artifact catalog
@@ -4643,7 +4663,7 @@ source repetition stop
 - Evidence tier 只描述当前材料强度，不形成外部验证生命周期；缺少行为/承诺证据不自动成为反证。
 - 低等级证据触发已定义的结论上限，`prioritize` 不得绕过 evidence sufficiency。
 - 量化 acquisition 接受任意合法 provider，API 不是必选；raw response ref/hash 与 exact Evidence substrate 漂移时 fail closed，敏感 token/header 或 access-control bypass 声明被拒绝。
-- 每个 covered subject 精确覆盖八个 metric family 和七类广义替代；`partial`/`unavailable` 有查询尝试、原因、替代指标和 decision impact，无数据 fixture 不伪造 observation 或 competitor。
+- 每个 Lane 精确关闭 Dispatch 分配的 metric families 和 competitor types；candidate/Wave/report 聚合显示八个 family 与七类广义替代的整体计划覆盖和缺口。`partial`/`unavailable` 有查询尝试、原因、替代指标和 decision impact，无数据 fixture 不伪造 observation 或 competitor。
 - Proxy 与 estimate 保持各自语义；不同地域、周期、类别、定义、measurement type 或 metric semantics 不进入同一 direct comparison group。
 
 ### 29.6 机会发现

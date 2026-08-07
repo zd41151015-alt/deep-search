@@ -179,7 +179,6 @@ test("current Envelope retains grouped ownership, path, and required-field const
       "startup_opportunity.judgment_assessment.discovery_evaluation.current",
       "startup_opportunity.source_manifest.discovery_evaluation.current",
       "startup_opportunity.enrichment_branch_result.v1",
-      "startup_opportunity.commercial_research_audit.current",
     ],
     main_agent: [
       "startup_opportunity.enrichment_fan_in.v1",
@@ -199,6 +198,7 @@ test("current Envelope retains grouped ownership, path, and required-field const
       "startup_opportunity.discovery_report_view.v1",
       "startup_opportunity.report_consistency_evaluation.discovery.current",
       "startup_opportunity.checkpoint.v1",
+      "startup_opportunity.commercial_research_audit.current",
     ],
   } as const;
   for (const [role, artifactTypes] of Object.entries(ownershipGroups)) {

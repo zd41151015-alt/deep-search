@@ -2,6 +2,7 @@ import type { FormalArtifactEnvelope } from "../artifact-store/artifact-store.js
 import { canonicalContentHash, canonicalJson, sha256Bytes } from "../artifact-store/canonical.js";
 import {
   renderCompetitiveSubstituteMatrix,
+  renderGateWarnings,
   renderQuantitativeSignalTable,
   renderResearchCoverageGaps,
 } from "./commercial-report-tables.js";
@@ -312,6 +313,8 @@ export function renderTerminalDecisionBrief(source: Record<string, unknown>): st
     renderExecution(source, zh),
     `\n## ${zh ? "运行健康" : "Runtime Health"}\n`,
     renderRuntimeHealth(source, zh),
+    `\n## ${zh ? "非阻塞门禁及决策影响" : "Gate Warnings And Decision Impact"}\n`,
+    renderGateWarnings(source, zh),
     `\n## ${zh ? "优先方向与可测试产品假设" : "Priority Directions And Testable Product Hypotheses"}\n`,
     renderDirections(source, zh, true),
     `\n## ${zh ? "决定性来源与证据强弱" : "Decisive Sources And Evidence Strength"}\n`,
@@ -346,6 +349,8 @@ export function renderTerminalFullReport(source: Record<string, unknown>): strin
     renderCompetitiveSubstituteMatrix(source, zh),
     `\n## ${zh ? "数据缺口及其对排序和结论的影响" : "Research Coverage Gaps And Decision Impact"}\n`,
     renderResearchCoverageGaps(source, zh),
+    `\n## ${zh ? "非阻塞门禁及决策影响" : "Gate Warnings And Decision Impact"}\n`,
+    renderGateWarnings(source, zh),
     `\n## ${zh ? "来源与证据强弱" : "Sources And Evidence Strength"}\n`,
     renderSources(source, zh),
     `\n## ${zh ? "有顺序的验证建议" : "Ordered Validation Recommendations"}\n`,

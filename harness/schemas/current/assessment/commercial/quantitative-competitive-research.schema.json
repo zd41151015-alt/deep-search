@@ -432,14 +432,12 @@
         "scan_mode": { "enum": ["broad_scan", "targeted_deep_dive"] },
         "required_metric_families": {
           "type": "array",
-          "minItems": 8,
           "maxItems": 8,
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/metricFamily" }
         },
         "required_competitor_types": {
           "type": "array",
-          "minItems": 7,
           "maxItems": 7,
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/competitorType" }
@@ -518,6 +516,21 @@
           }
         }
       ]
+    },
+    "gateWarning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "category", "message", "decision_impact", "artifact_refs"],
+      "properties": {
+        "code": { "$ref": "#/$defs/nonEmptyString" },
+        "severity": { "enum": ["warning", "info"] },
+        "category": {
+          "enum": ["integrity", "decision_validity", "coverage", "format", "telemetry"]
+        },
+        "message": { "$ref": "#/$defs/nonEmptyString" },
+        "decision_impact": { "$ref": "#/$defs/nonEmptyString" },
+        "artifact_refs": { "$ref": "#/$defs/artifactRefArray" }
+      }
     }
   }
 }

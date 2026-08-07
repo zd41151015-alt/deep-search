@@ -17,6 +17,11 @@
     "audited_at",
     "planned_resource_allocation",
     "adopted_source_distribution",
+    "research_objectives",
+    "primary_routes",
+    "findings",
+    "claims",
+    "judgments",
     "search_log",
     "search_closure",
     "evidence_register",
@@ -30,6 +35,9 @@
     "wave1_signals",
     "stage_decision",
     "ranking_eligibility",
+    "recommendation_ceiling",
+    "subject_recommendation_ceilings",
+    "compiler_warnings",
     "limitations"
   ],
   "$defs": {
@@ -117,6 +125,150 @@
           "type": "number",
           "minimum": 0,
           "maximum": 100
+        }
+      }
+    },
+    "sourceProfile": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "platform", "sample_description", "selection_bias", "time_range"],
+          "properties": {
+            "type": { "const": "review" },
+            "platform": { "$ref": "#/$defs/nonEmptyString" },
+            "sample_description": { "$ref": "#/$defs/nonEmptyString" },
+            "selection_bias": { "$ref": "#/$defs/nonEmptyString" },
+            "time_range": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "publisher",
+            "published_at",
+            "quotation",
+            "primary_data_traceability_status",
+            "primary_data_ref"
+          ],
+          "properties": {
+            "type": { "const": "news" },
+            "publisher": { "$ref": "#/$defs/nonEmptyString" },
+            "published_at": { "$ref": "#/$defs/nullableTimestamp" },
+            "quotation": { "$ref": "#/$defs/nonEmptyString" },
+            "primary_data_traceability_status": {
+              "enum": ["traced", "untraced", "not_claimed"]
+            },
+            "primary_data_ref": {
+              "anyOf": [
+                {
+                  "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+                },
+                { "type": "null" }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "effective_status", "verified_at"],
+          "properties": {
+            "type": { "const": "regulatory" },
+            "effective_status": {
+              "enum": [
+                "effective",
+                "partially_effective",
+                "not_yet_effective",
+                "repealed",
+                "unknown"
+              ]
+            },
+            "verified_at": { "$ref": "#/$defs/nullableTimestamp" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "metric_definition",
+            "period",
+            "geography",
+            "methodology",
+            "raw_provenance"
+          ],
+          "properties": {
+            "type": { "const": "api_dataset" },
+            "metric_definition": { "$ref": "#/$defs/nonEmptyString" },
+            "period": { "$ref": "#/$defs/nonEmptyString" },
+            "geography": { "$ref": "#/$defs/nonEmptyString" },
+            "methodology": { "$ref": "#/$defs/nonEmptyString" },
+            "raw_provenance": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "supported_public_claims"],
+          "properties": {
+            "type": { "const": "company_material" },
+            "supported_public_claims": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "enum": ["public_pricing", "product_capability", "company_statement"] }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "description"],
+          "properties": {
+            "type": { "const": "other" },
+            "description": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        }
+      ]
+    },
+    "semanticStatement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement", "evidence_refs"],
+      "properties": {
+        "statement": { "$ref": "#/$defs/nonEmptyString" },
+        "subject_id": { "$ref": "#/$defs/identifier" },
+        "evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        }
+      }
+    },
+    "recommendationCeiling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximum_decision_tier", "reason_codes"],
+      "properties": {
+        "maximum_decision_tier": {
+          "enum": ["prioritize", "investigate_further", "watch"]
+        },
+        "reason_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "missing_purchase_or_payment_signal",
+              "missing_independent_competitor_adoption_data",
+              "missing_retention_evidence",
+              "regulatory_status_unconfirmed",
+              "news_trend_only",
+              "positive_support_not_adopted",
+              "source_concentration",
+              "independent_cross_validation_missing"
+            ]
+          }
         }
       }
     },
@@ -310,6 +462,78 @@
         }
       }
     },
+    "research_objectives": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/nonEmptyString" }
+    },
+    "primary_routes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/nonEmptyString" }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["finding_id", "statement", "evidence_refs"],
+        "properties": {
+          "finding_id": { "$ref": "#/$defs/identifier" },
+          "statement": { "$ref": "#/$defs/nonEmptyString" },
+          "subject_id": { "$ref": "#/$defs/identifier" },
+          "evidence_refs": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          }
+        }
+      }
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claim_id",
+          "statement",
+          "evidence_refs",
+          "requested_confidence",
+          "confidence",
+          "confidence_ceiling_reasons"
+        ],
+        "properties": {
+          "claim_id": { "$ref": "#/$defs/identifier" },
+          "statement": { "$ref": "#/$defs/nonEmptyString" },
+          "subject_id": { "$ref": "#/$defs/identifier" },
+          "evidence_refs": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "requested_confidence": { "enum": ["high", "medium", "low"] },
+          "confidence": { "enum": ["high", "medium", "low"] },
+          "confidence_ceiling_reasons": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "judgments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["judgment_id", "statement", "evidence_refs"],
+        "properties": {
+          "judgment_id": { "$ref": "#/$defs/identifier" },
+          "statement": { "$ref": "#/$defs/nonEmptyString" },
+          "subject_id": { "$ref": "#/$defs/identifier" },
+          "evidence_refs": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          }
+        }
+      }
+    },
     "search_log": {
       "type": "array",
       "items": {
@@ -489,9 +713,11 @@
         "required": [
           "evidence_ref",
           "source_kind",
+          "source_profile",
           "evidence_character",
           "independence",
           "claim_type",
+          "content_summary",
           "retrieved_at",
           "published_at",
           "observed_at",
@@ -509,6 +735,9 @@
           "source_kind": {
             "enum": ["behavioral", "independent", "vendor", "academic", "regulatory"]
           },
+          "source_profile": {
+            "$ref": "#/$defs/sourceProfile"
+          },
           "evidence_character": {
             "enum": [
               "observed_behavior",
@@ -525,6 +754,9 @@
           },
           "claim_type": {
             "$ref": "#/$defs/claimType"
+          },
+          "content_summary": {
+            "$ref": "#/$defs/nonEmptyString"
           },
           "regulatory_effective_status": {
             "enum": ["effective", "partially_effective", "not_yet_effective", "repealed", "unknown"]
@@ -662,6 +894,31 @@
     },
     "limitations": {
       "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "recommendation_ceiling": { "$ref": "#/$defs/recommendationCeiling" },
+    "subject_recommendation_ceilings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subject_id", "maximum_decision_tier", "reason_codes"],
+        "properties": {
+          "subject_id": { "$ref": "#/$defs/identifier" },
+          "maximum_decision_tier": {
+            "enum": ["prioritize", "investigate_further", "watch"]
+          },
+          "reason_codes": {
+            "$ref": "#/$defs/recommendationCeiling/properties/reason_codes"
+          }
+        }
+      }
+    },
+    "compiler_warnings": {
+      "type": "array",
+      "items": {
+        "$ref": "./quantitative-competitive-research.schema.json#/$defs/gateWarning"
+      }
     }
   }
 }

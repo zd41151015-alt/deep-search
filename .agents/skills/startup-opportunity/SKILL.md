@@ -9,7 +9,7 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 
 ## Current Execution Gate
 
-每个任务第一次依赖此仓库前运行一次 `npm run harness -- doctor --json`；同一任务内不要在每个 phase、lane 或 context transition 后重复运行。Harness 提供 caller-supplied Artifact 的确定性 Run、Evidence、validation、adaptation、comparison、scaffold 与 report surface。Harness 不分派 agent、调用 LLM、执行 lane、benchmark 或 network research，也不自行形成 coverage、comparison、recommendation 或 AI bundle 判断。
+每个任务第一次依赖此仓库前运行一次 `npm run harness -- doctor --json`；同一任务内不要在每个 phase、lane 或 context transition 后重复运行。Harness 提供 caller-supplied Artifact 的确定性 Run、Evidence、validation、adaptation、comparison、scaffold 与 report surface，并从 Lane 研究语义机械生成正式 Audit 的 ID/hash/ref、freshness、coverage closure、ranking/ceiling 和报告投影。Harness 不分派 agent、调用 LLM、执行 lane、benchmark 或 network research，也不替 agent 形成研究语义、comparison、recommendation 或 AI bundle 判断。
 
 ## Action Routing
 
@@ -34,9 +34,9 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 - 每个 wave 只使用 typed task envelope 启动 bounded custom agent。agent completion summary 只作通知，父任务必须从唯一 output path 重新读取并验证正式 Artifact。
 - 每个新 dispatch wave 必须把 execution overlay 和完整 Dispatch batch 放进同一个 `compile-artifacts` publish request；Discovery research lane 还必须同包包含该 batch 的全部 canonical task envelopes。发布成功前不得启动任何 lane，不得先发布 Dispatch 激活 unit 再补 task。whole-wave intent 会在 crash recovery 时先补齐全部成员，再投影 Manifest。
 - 同一 dispatch batch 中彼此独立的 lane 在 `dispatch_mode=parallel_immediate` 发布后立即并发启动；Harness 只验证机械投影，不调度 agent。
-- 搜索规划以 60%-70% 用户/商业行为、15%-20% 经营披露/监管/市场结构、不超过 20% 学术机制/边界/反证为默认提示，不要求实际查询次数严格命中比例，也不以偏差作为 Gate。实际采用来源分布只能由 Evidence Register 机械推导，不能使用 agent 自报比例；比例偏差只进入审计观察。硬门禁仍是直接、近期、逐维度的商业证据资格与覆盖质量。
+- 搜索规划以 60%-70% 用户/商业行为、15%-20% 经营披露/监管/市场结构、不超过 20% 学术机制/边界/反证为默认提示，不要求实际查询次数严格命中比例，也不以偏差作为 Gate。实际采用来源分布只能由 Evidence Register 机械推导，不能使用 agent 自报比例；比例偏差只进入审计观察。真实性、安全、exact ref/hash、数值/proxy 语义和强结论 Evidence ceiling 是强门禁；覆盖不足或来源偏弱只降低 confidence、ranking 或 recommendation ceiling。
 - 商业覆盖必须标为 `observed`、`inferred` 或 `unknown`。缺少直接材料时保留合理推测，但必须写出依据引用、推理起点、推理过程、不确定性和待验证项；`inferred` 可满足报告内容完整性，不得冒充已观察事实或满足排序 Gate。
-- 每个计划 lane 都必须在 `completed`、证据不足、early stop 或搜索失败等终态留下 Search Closure；纯综合/校验使用 `search_not_required`，搜索前失败使用 `failed_before_search`。记录 query、时间、查看结果、采用/拒绝及原因、剩余缺口和终止原因，并与 Evidence Register 双向对账；无法观测的工具调用必须声明 telemetry 不完整，不得伪装为 Harness 已验证。
+- 每个计划 lane 都必须在 `completed`、证据不足、early stop 或搜索失败等终态留下 Search Closure；纯综合/校验使用 `search_not_required`，搜索前失败使用 `failed_before_search`。只对正式提交的 search results 与 Evidence Register 对账；`telemetry_basis=unavailable` 时提交研究目标、主要 route、采用来源、已有记录和停止原因即可，`query_log_complete=false` 是正常披露，不得伪装为 Harness 已验证的完整浏览器日志。
 - Wave 1 没有需求、买方或购买信号时，立即以证据不足收口，不进入具体方案评估。
 - 每次 wave 后先验证 Artifact，再形成 Gap Snapshot；需要改计划时按 Adaptation Decision -> policy validation -> immutable Plan Revision -> checkpoint 顺序执行。
 - 综合、审计、比较和报告完成后，必须从原 Run 的完整 validated Manifest/Evidence 集派生 `report.json`、`decision-brief.md` 与 `report.md`，并完成 schema、traceability、freshness 和 consistency checks。所有 validated Evidence 必须被采用或给出排除理由。`terminate_insufficient_evidence` 或 `record_runtime_failure` 的 apply input 必须携带 main-agent terminal report source；后者只处置 blocking `runtime_blocked` Gap，并把原 Run 如实终止为运行失败。不能创建 reporting continuation Run、先改终态或用 chat 代替 Brief。

@@ -779,6 +779,7 @@ function terminalReportSource(request: ScaffoldRequest): ScaffoldArtifact {
       quantitative_signal_rows: [],
       competitive_substitute_rows: [],
       research_coverage_gaps: [],
+      gate_warnings: [],
       ordered_validation_plan: [],
       freshness: {
         earliest_valid_as_of: null,

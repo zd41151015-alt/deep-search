@@ -67,7 +67,26 @@
           "document": {
             "type": "object"
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "artifact_type": {
+                  "const": "startup_opportunity.commercial_research_audit.current"
+                }
+              },
+              "required": ["artifact_type"]
+            },
+            "then": {
+              "properties": {
+                "document": {
+                  "$ref": "../../assessment/commercial/commercial-research-delivery.schema.json"
+                }
+              }
+            }
+          }
+        ]
       }
     }
   }
