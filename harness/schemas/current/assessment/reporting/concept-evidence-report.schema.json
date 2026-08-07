@@ -30,6 +30,9 @@
     "quantitative_signal_rows",
     "competitive_substitute_rows",
     "research_coverage_gaps",
+    "commercial_subject_aggregates",
+    "commercial_background_material",
+    "commercial_research_status",
     "gate_warnings",
     "traceability_ref",
     "curated_judgment_context",
@@ -159,6 +162,21 @@
       "items": {
         "$ref": "../commercial/quantitative-competitive-research.schema.json#/$defs/coverageGapRow"
       }
+    },
+    "commercial_subject_aggregates": {
+      "type": "array",
+      "items": {
+        "$ref": "../commercial/commercial-report-projection.schema.json#/$defs/commercialSubjectAggregate"
+      }
+    },
+    "commercial_background_material": {
+      "type": "array",
+      "items": {
+        "$ref": "../commercial/commercial-report-projection.schema.json#/$defs/commercialBackgroundMaterial"
+      }
+    },
+    "commercial_research_status": {
+      "$ref": "../commercial/commercial-report-projection.schema.json#/$defs/commercialResearchStatus"
     },
     "gate_warnings": {
       "type": "array",

@@ -37,6 +37,7 @@
     "ranking_eligibility",
     "recommendation_ceiling",
     "subject_recommendation_ceilings",
+    "subject_assessments",
     "compiler_warnings",
     "limitations"
   ],
@@ -266,7 +267,9 @@
               "news_trend_only",
               "positive_support_not_adopted",
               "source_concentration",
-              "independent_cross_validation_missing"
+              "independent_cross_validation_missing",
+              "aggregate_business_coverage_incomplete",
+              "conflicting_evidence_present"
             ]
           }
         }
@@ -712,6 +715,8 @@
         "additionalProperties": false,
         "required": [
           "evidence_ref",
+          "subject_ids",
+          "subject_binding_basis",
           "source_kind",
           "source_profile",
           "evidence_character",
@@ -731,6 +736,14 @@
         "properties": {
           "evidence_ref": {
             "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+          },
+          "subject_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/identifier" }
+          },
+          "subject_binding_basis": {
+            "enum": ["single_subject_auto", "explicit", "derived_from_material", "unbound"]
           },
           "source_kind": {
             "enum": ["behavioral", "independent", "vendor", "academic", "regulatory"]
@@ -913,6 +926,11 @@
           }
         }
       }
+    },
+    "subject_assessments": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "./commercial-report-projection.schema.json#/$defs/subjectAssessment" }
     },
     "compiler_warnings": {
       "type": "array",

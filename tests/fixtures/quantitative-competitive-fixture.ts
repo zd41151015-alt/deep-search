@@ -21,6 +21,57 @@ export const SYNTHETIC_COMPETITOR_TYPES = [
   "non_consumption",
 ] as const;
 
+const SYNTHETIC_BUSINESS_DIMENSIONS = [
+  "recent_user_language",
+  "purchase_signal",
+  "alternatives_pricing_usage",
+  "distribution_channel",
+  "independent_counterevidence",
+] as const;
+
+export function unavailableSubjectAssessments(
+  subjectIds: readonly string[],
+  quantitativeCompetitive: Readonly<Record<string, unknown>>,
+  limitations: readonly string[],
+  evidenceRefs: readonly string[] = [],
+): readonly Record<string, unknown>[] {
+  return subjectIds.map((subjectId) => ({
+    subject_id: subjectId,
+    evidence_refs: [...evidenceRefs],
+    coverage: Object.fromEntries(
+      SYNTHETIC_BUSINESS_DIMENSIONS.map((key) => [
+        key,
+        {
+          state: "unknown",
+          content_covered: false,
+          evidence_refs: [],
+          data_points: [],
+          inference: null,
+        },
+      ]),
+    ),
+    uncovered_business_dimensions: [...SYNTHETIC_BUSINESS_DIMENSIONS],
+    quantitative_coverage: records(quantitativeCompetitive.quantitative_coverage).filter(
+      (row) => row.subject_id === subjectId,
+    ),
+    competitive_coverage: records(quantitativeCompetitive.competitive_coverage).filter(
+      (row) => row.subject_id === subjectId,
+    ),
+    wave1_signals: { demand: false, buyer: false, purchase: false },
+    ranking_eligibility: "unranked_hypothesis",
+    recommendation_ceiling: {
+      maximum_decision_tier: "investigate_further",
+      reason_codes: [
+        "missing_independent_competitor_adoption_data",
+        "missing_purchase_or_payment_signal",
+        "missing_retention_evidence",
+      ],
+    },
+    conflict_evidence_refs: [],
+    limitations: [...limitations].sort(),
+  }));
+}
+
 export function unavailableQuantitativeCompetitiveCoverage(
   subjectIds: readonly string[],
   attemptedAt: string,
@@ -101,6 +152,7 @@ export function unavailableCommercialResearchAudit(input: {
   const requirements = input.task.commercial_research_requirements as Record<string, unknown>;
   const allocation = requirements.resource_allocation as Record<string, unknown>;
   const unitId = String(input.task.unit_id);
+  const coveredSubjectIds = [...input.coveredSubjectIds].sort();
   const uncovered = [
     "recent_user_language",
     "purchase_signal",
@@ -109,9 +161,10 @@ export function unavailableCommercialResearchAudit(input: {
     "independent_counterevidence",
   ];
   const quantitativeCompetitive = unavailableQuantitativeCompetitiveCoverage(
-    input.coveredSubjectIds,
+    coveredSubjectIds,
     input.auditedAt,
   );
+  const limitations = ["SYNTHETIC contract audit; no market research was performed."];
   return {
     schema_version: "startup_opportunity.commercial_research_audit.current",
     audit_id: `commercial_audit_${unitId}`,
@@ -120,7 +173,7 @@ export function unavailableCommercialResearchAudit(input: {
     execution_plan_ref: null,
     dispatch_task_ref: null,
     task_ref: input.taskRef,
-    covered_direction_ids: [...input.coveredSubjectIds],
+    covered_direction_ids: coveredSubjectIds,
     research_stage: requirements.research_stage,
     audited_at: input.auditedAt,
     planned_resource_allocation: allocation,
@@ -181,7 +234,7 @@ export function unavailableCommercialResearchAudit(input: {
         "missing_retention_evidence",
       ],
     },
-    subject_recommendation_ceilings: input.coveredSubjectIds.map((subjectId) => ({
+    subject_recommendation_ceilings: coveredSubjectIds.map((subjectId) => ({
       subject_id: subjectId,
       maximum_decision_tier: "investigate_further",
       reason_codes: [
@@ -190,8 +243,13 @@ export function unavailableCommercialResearchAudit(input: {
         "missing_retention_evidence",
       ],
     })),
+    subject_assessments: unavailableSubjectAssessments(
+      coveredSubjectIds,
+      quantitativeCompetitive,
+      limitations,
+    ),
     compiler_warnings: [],
-    limitations: ["SYNTHETIC contract audit; no market research was performed."],
+    limitations,
   };
 }
 
@@ -200,6 +258,11 @@ export function commercialReportProjection(
     readonly auditRef: string;
     readonly audit: Readonly<Record<string, unknown>>;
   }[],
+  tasks: readonly {
+    readonly taskRef: string;
+    readonly task: Readonly<Record<string, unknown>>;
+  }[] = [],
+  documentsByPath: ReadonlyMap<string, Record<string, unknown>> = new Map(),
 ): Record<string, unknown> {
   return {
     ...projectCommercialAuditTables(
@@ -207,6 +270,11 @@ export function commercialReportProjection(
         path: auditRef,
         document: audit as Record<string, unknown>,
       })),
+      tasks.map(({ taskRef, task }) => ({
+        path: taskRef,
+        document: task as Record<string, unknown>,
+      })),
+      documentsByPath,
     ),
     gate_warnings: audits.flatMap(({ audit }) => records(audit.compiler_warnings)),
   };

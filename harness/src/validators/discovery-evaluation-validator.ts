@@ -734,6 +734,91 @@ function comparisonTier(comparison: DiscoveryEvaluationDocument | undefined): st
   return strictestTier([outcomeTier, bandTier]);
 }
 
+function subjectAliases(
+  subject: string,
+  byPath: ReadonlyMap<string, DiscoveryEvaluationDocument>,
+): ReadonlySet<string> {
+  const path = subject.split("#", 1)[0] ?? subject;
+  const fragment = subject.includes("#") ? subject.split("#", 2)[1] : undefined;
+  const basename = path
+    .split("/")
+    .at(-1)
+    ?.replace(/\.json$/u, "");
+  const targetDocument = byPath.get(path)?.document ?? {};
+  return new Set(
+    [
+      subject,
+      path,
+      fragment,
+      basename,
+      targetDocument.opportunity_id,
+      targetDocument.direction_id,
+      targetDocument.candidate_id,
+      targetDocument.concept_hypothesis_id,
+      targetDocument.hypothesis_id,
+    ].filter((value): value is string => typeof value === "string" && value !== ""),
+  );
+}
+
+function commercialSubjectAggregate(
+  report: DiscoveryEvaluationDocument | undefined,
+  opportunityRef: string,
+  byPath: ReadonlyMap<string, DiscoveryEvaluationDocument>,
+): Record<string, unknown> | undefined {
+  if (report === undefined) return undefined;
+  const opportunityAliases = subjectAliases(opportunityRef, byPath);
+  return records(report.document.commercial_subject_aggregates).find((aggregate) => {
+    if (typeof aggregate.subject_id !== "string") return false;
+    return [...subjectAliases(aggregate.subject_id, byPath)].some((alias) =>
+      opportunityAliases.has(alias),
+    );
+  });
+}
+
+function commercialTier(aggregate: Record<string, unknown> | undefined): string {
+  const ceiling = isRecord(aggregate?.recommendation_ceiling)
+    ? aggregate.recommendation_ceiling
+    : {};
+  const maximum = ceiling.maximum_decision_tier;
+  return typeof maximum === "string" &&
+    ["watch", "investigate_further", "prioritize"].includes(maximum)
+    ? maximum
+    : "insufficient_evidence";
+}
+
+function candidateReadinessTier(
+  comparison: DiscoveryEvaluationDocument,
+  byPath: ReadonlyMap<string, DiscoveryEvaluationDocument>,
+  commercialAggregate: Record<string, unknown> | undefined,
+): string {
+  const opportunityRef = String(comparison.document.opportunity_ref);
+  const fanIn = target(byPath, comparison.document.enrichment_fan_in_ref);
+  const fanInCeiling = records(fanIn?.document.opportunity_conclusion_ceilings).find(
+    (entry) => entry.opportunity_ref === opportunityRef,
+  )?.conclusion_ceiling;
+  const selectedSolution = selectedSolutionUsesAi(opportunityRef, byPath);
+  return strictestTier([
+    comparisonTier(comparison),
+    fanInTier(fanInCeiling),
+    gateTier(records(comparison.document.hard_gate_results)),
+    panelTier(records(comparison.document.comparison_panels)),
+    aiBundleCompleteOrNotRequired(comparison, selectedSolution.usesAi)
+      ? "prioritize"
+      : "investigate_further",
+    commercialTier(commercialAggregate),
+  ]);
+}
+
+function portfolioReadinessTier(candidateTiers: readonly string[]): string {
+  if (candidateTiers.some((tier) => tier === "prioritize" || tier === "investigate_further")) {
+    return "investigate_further";
+  }
+  if (candidateTiers.some((tier) => tier === "watch")) {
+    return "watch";
+  }
+  return "insufficient_evidence";
+}
+
 function gateTier(gates: readonly Record<string, unknown>[]): string {
   if (gates.some((gate) => gate.status === "failed")) {
     return "reject";
@@ -774,6 +859,7 @@ function validateEvaluationAndReporting(
   const comparisons = entries.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.opportunity_comparison.v1",
   );
+  const report = entries.find((entry) => entry.schemaVersion === "startup_opportunity.report.v1");
   const judgmentSubjectMatches = (refs: readonly string[], opportunityRef: unknown): boolean =>
     refs.every((ref) => {
       const judgment = target(byPath, ref);
@@ -949,6 +1035,24 @@ function validateEvaluationAndReporting(
         ),
       );
     }
+    const aggregate = commercialSubjectAggregate(report, String(opportunityRef), byPath);
+    if (
+      report !== undefined &&
+      tierExceeds(fanInTier(comparison.document.recommendation_band), commercialTier(aggregate))
+    ) {
+      errors.push(
+        issue(
+          "g2_4.candidate_commercial_ceiling_violation",
+          `${comparison.path}#/recommendation_band`,
+          "each candidate recommendation band must obey that subject's aggregate commercial Evidence ceiling",
+          {
+            opportunityRef,
+            recommendationBand: comparison.document.recommendation_band,
+            commercialCeiling: commercialTier(aggregate),
+          },
+        ),
+      );
+    }
   }
 
   for (const sensitivity of entries.filter(
@@ -1045,7 +1149,7 @@ function validateEvaluationAndReporting(
   }
   if (recommendation !== undefined && portfolio !== undefined) {
     const firstBet = recommendation.document.recommended_first_bet;
-    let ceiling = typeof firstBet === "string" ? "prioritize" : "investigate_further";
+    let ceiling = "insufficient_evidence";
     let firstBetReady = false;
     if (typeof firstBet === "string") {
       const selectedComparison = comparisons.find(
@@ -1062,14 +1166,11 @@ function validateEvaluationAndReporting(
         selectedComparison,
         selectedSolution.usesAi,
       );
-      const componentCeilings = [
-        comparisonTier(selectedComparison),
-        fanInTier(fanInCeiling),
-        gateTier(gates),
-        panelTier(panels),
-        aiBundleReady ? "prioritize" : "investigate_further",
-      ];
-      ceiling = strictestTier(componentCeilings);
+      const aggregate = commercialSubjectAggregate(report, firstBet, byPath);
+      ceiling =
+        selectedComparison === undefined
+          ? "insufficient_evidence"
+          : candidateReadinessTier(selectedComparison, byPath, aggregate);
       firstBetReady =
         portfolio.document.recommended_first_bet === firstBet &&
         selectedComparison?.document.recommendation_band === "strong_candidate" &&
@@ -1081,17 +1182,28 @@ function validateEvaluationAndReporting(
             panel.decision_sufficiency === "sufficient" &&
             !["weak", "unknown"].includes(String(panel.band)),
         ) &&
-        aiBundleReady;
+        aiBundleReady &&
+        commercialTier(aggregate) === "prioritize";
       if (!firstBetReady) {
         ceiling = strictestTier([ceiling, "investigate_further"]);
       }
+    } else {
+      ceiling = portfolioReadinessTier(
+        comparisons.map((comparison) =>
+          candidateReadinessTier(
+            comparison,
+            byPath,
+            commercialSubjectAggregate(report, String(comparison.document.opportunity_ref), byPath),
+          ),
+        ),
+      );
     }
     if (tierExceeds(recommendation.document.decision_tier, ceiling)) {
       errors.push(
         issue(
           "g2_4.decision_tier_ceiling_violation",
           `${recommendation.path}#/decision_tier`,
-          "decision tier exceeds comparison, fan-in, portfolio, or first-bet readiness",
+          "decision tier exceeds the selected subject ceiling or explicit portfolio readiness",
           {
             actual: recommendation.document.decision_tier,
             ceiling,
@@ -1165,7 +1277,6 @@ function validateEvaluationAndReporting(
     }
   }
 
-  const report = entries.find((entry) => entry.schemaVersion === "startup_opportunity.report.v1");
   const reportContext = isRecord(report?.document.curated_judgment_context)
     ? report.document.curated_judgment_context
     : null;

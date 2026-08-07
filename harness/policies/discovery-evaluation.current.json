@@ -63,14 +63,19 @@
   },
   "decision_tier_ceiling": {
     "tier_order": ["reject", "insufficient_evidence", "watch", "investigate_further", "prioritize"],
-    "no_first_bet_ceiling": "investigate_further",
+    "first_bet_subject_scope": "selected_subject_only",
+    "alternative_bet_effect": "candidate_only",
+    "candidate_commercial_ceiling_required": true,
+    "no_first_bet_strategy": "best_candidate_readiness",
+    "no_first_bet_tiers": ["investigate_further", "watch", "insufficient_evidence"],
     "first_bet_ready_requirements": [
       "portfolio_first_bet_exact",
       "comparison_strong_candidate",
       "hard_gates_eligible",
       "fan_in_strong_candidate",
       "panels_sufficient",
-      "ai_bundle_complete_or_not_required"
+      "ai_bundle_complete_or_not_required",
+      "commercial_subject_prioritize"
     ],
     "mixed_inputs_use_strictest_ceiling": true
   },

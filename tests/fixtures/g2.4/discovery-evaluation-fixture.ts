@@ -1067,7 +1067,7 @@ export async function createDiscoveryEvaluationFixture(
     recommended_first_bet: null,
     alternative_bets: [...OPPORTUNITIES],
     rejected_or_watchlist_refs: [],
-    decision_tier: "investigate_further",
+    decision_tier: "insufficient_evidence",
     decision_value_band: "unknown",
     uncertainty_band: "high",
     decisive_supporting_refs: [G24_CLAIM_SUPPORT],
@@ -1185,15 +1185,38 @@ export async function createDiscoveryEvaluationFixture(
     .map(([taskRef, taskDocument]) => {
       const requirements = taskDocument.commercial_research_requirements as Record<string, unknown>;
       const auditRef = String(requirements.commercial_audit_output_path);
+      const targetRefs = [
+        ...((taskDocument.target_opportunity_refs as string[] | undefined) ?? []),
+        ...((taskDocument.target_candidate_refs as string[] | undefined) ?? []),
+        ...(typeof taskDocument.target_subject_ref === "string"
+          ? [taskDocument.target_subject_ref]
+          : []),
+      ];
+      const coveredSubjectIds = targetRefs.map((targetRef) => {
+        const [targetPath = targetRef, fragment] = targetRef.split("#", 2);
+        if (fragment !== undefined && fragment !== "") return fragment;
+        const target = documents.get(targetPath) ?? {};
+        for (const field of [
+          "opportunity_id",
+          "direction_id",
+          "candidate_id",
+          "concept_hypothesis_id",
+          "hypothesis_id",
+        ]) {
+          if (typeof target[field] === "string") return String(target[field]);
+        }
+        return (
+          targetPath
+            .split("/")
+            .at(-1)
+            ?.replace(/\.json$/u, "") ?? targetPath
+        );
+      });
       const audit = unavailableCommercialResearchAudit({
         runId,
         taskRef,
         task: taskDocument,
-        coveredSubjectIds:
-          taskDocument.schema_version ===
-          "startup_opportunity.research_task.discovery_candidate.current"
-            ? ["discovery_candidate_set"]
-            : ["opportunity_household", "opportunity_workflow"],
+        coveredSubjectIds,
         auditedAt: "2026-07-27T21:20:00Z",
       });
       add(auditRef, audit);
@@ -1201,6 +1224,14 @@ export async function createDiscoveryEvaluationFixture(
     })
     .sort((left, right) => left.auditRef.localeCompare(right.auditRef));
   const commercialAuditRefs = commercialAudits.map(({ auditRef }) => auditRef);
+  const commercialTasks = [...documents.entries()]
+    .filter(([, document]) =>
+      [
+        "startup_opportunity.research_task.discovery_candidate.current",
+        "startup_opportunity.research_task.discovery_evaluation.current",
+      ].includes(String(document.schema_version)),
+    )
+    .map(([taskRef, taskDocument]) => ({ taskRef, task: taskDocument }));
   const reportInputRefs = [
     G24_RECOMMENDATION,
     G24_PORTFOLIO,
@@ -1259,12 +1290,12 @@ export async function createDiscoveryEvaluationFixture(
       G24_JUDGMENT_B_CHALLENGE,
     ],
     source_manifest_refs: [G24_MANIFEST_SUPPORT, G24_MANIFEST_CHALLENGE],
-    ...commercialReportProjection(commercialAudits),
+    ...commercialReportProjection(commercialAudits, commercialTasks, documents),
     traceability_ref: G24_TRACEABILITY,
     curated_judgment_context: {
       decision_question: SYNTHETIC,
       current_recommendation: SYNTHETIC,
-      decision_tier: "investigate_further",
+      decision_tier: "insufficient_evidence",
       recommendation_meaning: SYNTHETIC,
       recommended_first_bet: null,
       alternative_bets: [...OPPORTUNITIES],

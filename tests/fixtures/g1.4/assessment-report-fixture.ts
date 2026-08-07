@@ -411,13 +411,19 @@ export async function createG14ContractBundle(
       runId: G14_RUN_ID,
       taskRef,
       task,
-      coveredSubjectIds: ["concept-hypothesis.json"],
+      coveredSubjectIds: ["concept_assess_001"],
       auditedAt: "2026-07-25T18:39:00Z",
     });
     documents.set(auditRef, audit);
     return { auditRef, audit };
   });
   const commercialAuditRefs = commercialAudits.map(({ auditRef }) => auditRef);
+  const commercialTasks = BRANCHES.map((branch) => {
+    const taskRef = `tasks/${branch.unitId}.attempt-1.json`;
+    const task = documents.get(taskRef);
+    if (task === undefined) throw new Error(`missing synthetic task ${taskRef}`);
+    return { taskRef, task };
+  });
 
   const demandBranch = BRANCHES.find((branch) => branch.unitId === "unit_demand");
   if (demandBranch === undefined) {
@@ -900,7 +906,7 @@ export async function createG14ContractBundle(
     business_engine_ref: "artifacts/synthesis/business-engine.json",
     judgment_assessment_refs: BRANCHES.map((branch) => branch.judgmentRef),
     source_manifest_refs: [SOURCE_MANIFEST_REF],
-    ...commercialReportProjection(commercialAudits),
+    ...commercialReportProjection(commercialAudits, commercialTasks, documents),
     traceability_ref: G14_TRACEABILITY_REF,
     curated_judgment_context: {
       decision_question: "What does the current synthetic desk-Evidence gate scenario permit?",

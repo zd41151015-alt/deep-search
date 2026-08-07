@@ -18,6 +18,11 @@
       "document_schema_version": "startup_opportunity.commercial_research_audit.current"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/assessment/commercial/commercial-report-projection.schema.json",
+      "file": "current/assessment/commercial/commercial-report-projection.schema.json",
+      "document_schema_version": null
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/assessment/commercial/commercial-research-delivery.schema.json",
       "file": "current/assessment/commercial/commercial-research-delivery.schema.json",
       "document_schema_version": "startup_opportunity.commercial_research_delivery.current"

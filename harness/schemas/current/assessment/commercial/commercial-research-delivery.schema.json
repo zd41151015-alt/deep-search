@@ -161,6 +161,14 @@
           "evidence_ref": {
             "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
           },
+          "subject_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+            }
+          },
           "source_kind": {
             "enum": ["behavioral", "independent", "vendor", "academic", "regulatory"]
           },

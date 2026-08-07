@@ -7,6 +7,7 @@ import {
   derivePortfolioRecommendationCeiling,
   deriveSourceConcentration,
   deriveSourceDistribution,
+  deriveSubjectAssessments,
   deriveSubjectRecommendationCeilings,
   deriveValidAsOf,
   isTraceableDirectSource,
@@ -94,6 +95,7 @@ export function compileCommercialResearchDelivery(
     for (const field of [
       "opportunity_id",
       "direction_id",
+      "candidate_id",
       "concept_hypothesis_id",
       "hypothesis_id",
     ]) {
@@ -192,6 +194,7 @@ export function compileCommercialResearchDelivery(
   const assignedSubjectIds = [
     ...new Set([
       ...strings(task.target_opportunity_refs).map(subjectIdFromRef),
+      ...strings(task.target_candidate_refs).map(subjectIdFromRef),
       ...(typeof task.target_subject_ref === "string"
         ? [subjectIdFromRef(task.target_subject_ref)]
         : []),
@@ -199,6 +202,16 @@ export function compileCommercialResearchDelivery(
   ].filter(Boolean);
   const authoredSubjectIds = [
     ...new Set([
+      ...records(delivery.evidence_sources).flatMap((item) => strings(item.subject_ids)),
+      ...records(delivery.findings).flatMap((item) =>
+        typeof item.subject_id === "string" ? [item.subject_id] : [],
+      ),
+      ...records(delivery.claims).flatMap((item) =>
+        typeof item.subject_id === "string" ? [item.subject_id] : [],
+      ),
+      ...records(delivery.judgments).flatMap((item) =>
+        typeof item.subject_id === "string" ? [item.subject_id] : [],
+      ),
       ...records(delivery.quantitative_observations).map((item) => String(item.subject_id)),
       ...records(delivery.competitive_observations).map((item) => String(item.subject_id)),
       ...records(delivery.unresolved_gaps).map((item) => String(item.subject_id)),
@@ -211,7 +224,7 @@ export function compileCommercialResearchDelivery(
     issues.push(
       issue(
         "commercial_research.delivery_subject_out_of_scope",
-        "/quantitative_observations",
+        "/",
         "delivery subjects must remain within the Dispatch task target closure",
         { assignedSubjectIds: subjectIds, outOfScopeSubjects },
       ),
@@ -280,6 +293,55 @@ export function compileCommercialResearchDelivery(
         .filter((value): value is string => value !== undefined),
     } as Record<string, unknown>;
   });
+  const derivedBindings = new Map<string, Set<string>>();
+  const bindRefs = (subjectId: unknown, refs: readonly string[]): void => {
+    if (typeof subjectId !== "string" || !subjectIds.includes(subjectId)) return;
+    for (const ref of refs) {
+      const subjects = derivedBindings.get(ref) ?? new Set<string>();
+      subjects.add(subjectId);
+      derivedBindings.set(ref, subjects);
+    }
+  };
+  for (const statement of [
+    ...records(delivery.findings),
+    ...records(delivery.claims),
+    ...records(delivery.judgments),
+  ]) {
+    bindRefs(statement.subject_id, strings(statement.evidence_refs));
+  }
+  for (const observation of quantitativeObservations) {
+    bindRefs(observation.subject_id, strings(observation.evidence_refs));
+  }
+  for (const competitiveObject of competitiveObjects) {
+    bindRefs(competitiveObject.subject_id, strings(competitiveObject.source_refs));
+  }
+  for (const source of evidence) {
+    const explicit = strings(source.subject_ids).filter((subjectId) =>
+      subjectIds.includes(subjectId),
+    );
+    const derived = [...(derivedBindings.get(String(source.evidence_ref)) ?? new Set())].sort();
+    const subjectBindings =
+      explicit.length > 0 ? explicit : subjectIds.length === 1 ? subjectIds : derived;
+    source.subject_ids = [...new Set(subjectBindings)].sort();
+    source.subject_binding_basis =
+      explicit.length > 0
+        ? "explicit"
+        : subjectIds.length === 1
+          ? "single_subject_auto"
+          : derived.length > 0
+            ? "derived_from_material"
+            : "unbound";
+    if (source.subject_binding_basis === "unbound" && source.disposition === "adopted") {
+      issues.push(
+        issue(
+          "commercial_research.evidence_subject_unbound",
+          "/evidence_sources",
+          "multi-subject Evidence was retained as portfolio/background material because no direct subject binding could be derived",
+          { evidenceRef: source.evidence_ref, coveredSubjectIds: subjectIds },
+        ),
+      );
+    }
+  }
   const gaps = new Map(
     records(delivery.unresolved_gaps).map((gap) => [
       gapKey(String(gap.coverage_kind), String(gap.subject_id), String(gap.dimension)),
@@ -464,6 +526,17 @@ export function compileCommercialResearchDelivery(
     [...claims, ...judgments],
     evidenceDocuments,
   );
+  const subjectAssessments = deriveSubjectAssessments(
+    subjectIds,
+    quantitativeCoverage,
+    quantitativeObservations,
+    competitiveCoverage,
+    competitiveObjects,
+    evidence,
+    [...claims, ...judgments],
+    evidenceDocuments,
+    strings(delivery.limitations),
+  );
   const portfolioRecommendationCeiling = derivePortfolioRecommendationCeiling(
     subjectRecommendationCeilings,
     [...claims, ...judgments],
@@ -537,6 +610,7 @@ export function compileCommercialResearchDelivery(
       uncovered.length === 0 && !concentrated && hasIndependent ? "ranked" : "unranked_hypothesis",
     recommendation_ceiling: portfolioRecommendationCeiling,
     subject_recommendation_ceilings: subjectRecommendationCeilings,
+    subject_assessments: subjectAssessments,
     compiler_warnings: projectGateWarnings(issues),
     limitations: delivery.limitations,
   };

@@ -22,12 +22,14 @@ import {
   type CommercialResearchPolicy,
   derivePortfolioRecommendationCeiling,
   deriveSourceDistribution,
+  deriveSubjectAssessments,
   isTraceableDirectSource,
 } from "../harness/src/validators/commercial-research-validator.js";
 import { isBlockingIssue } from "../harness/src/validators/schema-bundle.js";
 import {
   commercialReportProjection,
   unavailableQuantitativeCompetitiveCoverage,
+  unavailableSubjectAssessments,
 } from "./fixtures/quantitative-competitive-fixture.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -40,6 +42,11 @@ function commercialAudit(): Record<string, unknown> {
     "distribution_channel",
     "independent_counterevidence",
   ];
+  const quantitativeCompetitive = unavailableQuantitativeCompetitiveCoverage(
+    ["direction_synthetic"],
+    "2026-08-04T12:10:00Z",
+  );
+  const limitations = ["SYNTHETIC contract fixture; no research was performed."];
   return {
     schema_version: "startup_opportunity.commercial_research_audit.current",
     audit_id: "commercial_audit_synthetic",
@@ -119,7 +126,7 @@ function commercialAudit(): Record<string, unknown> {
     wave1_signals: { demand: false, buyer: false, purchase: false },
     stage_decision: "early_stop_insufficient_evidence",
     ranking_eligibility: "unranked_hypothesis",
-    ...unavailableQuantitativeCompetitiveCoverage(["direction_synthetic"], "2026-08-04T12:10:00Z"),
+    ...quantitativeCompetitive,
     recommendation_ceiling: {
       maximum_decision_tier: "investigate_further",
       reason_codes: [
@@ -139,8 +146,13 @@ function commercialAudit(): Record<string, unknown> {
         ],
       },
     ],
+    subject_assessments: unavailableSubjectAssessments(
+      ["direction_synthetic"],
+      quantitativeCompetitive,
+      limitations,
+    ),
     compiler_warnings: [],
-    limitations: ["SYNTHETIC contract fixture; no research was performed."],
+    limitations,
   };
 }
 
@@ -207,6 +219,7 @@ function commercialCodes(
   document: Record<string, unknown>,
   policy: CommercialResearchPolicy,
 ): readonly string[] {
+  refreshSubjectAssessments(document);
   return validateCommercialResearchContract(
     [
       {
@@ -217,6 +230,26 @@ function commercialCodes(
     ],
     policy,
   ).map((issue) => issue.code);
+}
+
+function refreshSubjectAssessments(
+  audit: Record<string, unknown>,
+  evidenceDocuments: ReadonlyMap<string, Record<string, unknown>> = new Map(),
+): void {
+  audit.subject_assessments = deriveSubjectAssessments(
+    audit.covered_direction_ids as string[],
+    audit.quantitative_coverage as Record<string, unknown>[],
+    audit.quantitative_observations as Record<string, unknown>[],
+    audit.competitive_coverage as Record<string, unknown>[],
+    audit.competitive_objects as Record<string, unknown>[],
+    audit.evidence_register as Record<string, unknown>[],
+    [
+      ...(audit.claims as Record<string, unknown>[]),
+      ...(audit.judgments as Record<string, unknown>[]),
+    ],
+    evidenceDocuments,
+    audit.limitations as string[],
+  );
 }
 
 function quantitativeCommercialFixture(): {
@@ -254,6 +287,8 @@ function quantitativeCommercialFixture(): {
   audit.evidence_register = [
     {
       evidence_ref: evidenceRef,
+      subject_ids: ["direction_synthetic"],
+      subject_binding_basis: "single_subject_auto",
       source_kind: "independent",
       source_profile: { type: "other", description: "Synthetic public metric fixture." },
       evidence_character: "independent_report",
@@ -393,6 +428,10 @@ function quantitativeCommercialCodes(
   fixture: ReturnType<typeof quantitativeCommercialFixture>,
   policy: CommercialResearchPolicy,
 ): readonly string[] {
+  refreshSubjectAssessments(
+    fixture.audit,
+    new Map(fixture.documents.map((entry) => [entry.path, entry.document])),
+  );
   return validateCommercialResearchContract(fixture.documents, policy, fixture.exactRecords).map(
     (issue) => issue.code,
   );
@@ -1149,6 +1188,7 @@ test("coverage follows assigned metric families and substitute types without fab
   assignedFamily.competitive_coverage = (
     assignedFamily.competitive_coverage as Record<string, unknown>[]
   ).filter((entry) => entry.competitor_type === "status_quo");
+  refreshSubjectAssessments(assignedFamily);
   const assignedDocuments = [
     {
       path: "tasks/discovery/unit_commercial_synthetic.attempt-1.json",
@@ -1195,6 +1235,7 @@ test("coverage follows assigned metric families and substitute types without fab
   qualitativeScope.required_competitor_types = [];
   qualitativeAudit.document.quantitative_coverage = [];
   qualitativeAudit.document.competitive_coverage = [];
+  refreshSubjectAssessments(qualitativeAudit.document);
   assert.deepEqual(validateCommercialResearchContract(qualitativeDocuments, policy), []);
 
   const missingFamily = structuredClone(assignedDocuments);
@@ -1874,6 +1915,8 @@ test("rejected counterevidence is allowed while rejected positive support is dow
   counter.evidence_register = [
     {
       evidence_ref: ref,
+      subject_ids: ["direction_synthetic"],
+      subject_binding_basis: "single_subject_auto",
       source_kind: "independent",
       source_profile: { type: "other", description: "Rejected counterevidence fixture." },
       evidence_character: "counterevidence",
@@ -1939,6 +1982,7 @@ test("rejected counterevidence is allowed while rejected positive support is dow
       ],
     },
   ];
+  refreshSubjectAssessments(positive);
   const positiveIssues = validateCommercialResearchContract(
     [
       {
@@ -2277,6 +2321,432 @@ test("company material supports matching public facts while portfolio strength s
   ).filter((issue) => issue.code === "commercial_research.vendor_claim_scope_invalid");
   assert.ok(scopeIssues.length > 0);
   assert.ok(scopeIssues.every((issue) => !isBlockingIssue(issue)));
+});
+
+test("subject aggregation merges complementary lanes while preserving conflicting Evidence", () => {
+  const subjectId = "opportunity_complementary";
+  const dimensions = [
+    "recent_user_language",
+    "purchase_signal",
+    "alternatives_pricing_usage",
+    "distribution_channel",
+    "independent_counterevidence",
+  ];
+  const coverageEntry = (observed: boolean, evidenceRef: string): Record<string, unknown> => ({
+    state: observed ? "observed" : "unknown",
+    content_covered: observed,
+    evidence_refs: observed ? [evidenceRef] : [],
+    data_points: [],
+    inference: null,
+  });
+  const lane = (
+    suffix: string,
+    observedDimensions: readonly string[],
+    metricFamily: string,
+    evidenceCharacter: "independent_report" | "counterevidence",
+  ): { path: string; document: Record<string, unknown> } => {
+    const evidenceRef = `evidence/records/complementary-${suffix}.json`;
+    const coverage = Object.fromEntries(
+      dimensions.map((dimension) => [
+        dimension,
+        coverageEntry(observedDimensions.includes(dimension), evidenceRef),
+      ]),
+    );
+    const quantitativeCoverage = [
+      {
+        subject_id: subjectId,
+        metric_family: metricFamily,
+        state: "observed",
+        observation_ids: [`observation_${suffix}`],
+        query_attempts: [],
+        reason: null,
+        alternative_metric: null,
+        decision_impact: "Synthetic complementary coverage only.",
+      },
+    ];
+    const competitiveCoverage =
+      suffix === "market"
+        ? [
+            {
+              subject_id: subjectId,
+              competitor_type: "direct_product",
+              state: "observed",
+              competitive_object_ids: ["competitor_market"],
+              query_attempts: [],
+              reason: null,
+              decision_impact: "Synthetic complementary coverage only.",
+            },
+          ]
+        : [];
+    const evidence = {
+      evidence_ref: evidenceRef,
+      subject_ids: [subjectId],
+      subject_binding_basis: "single_subject_auto",
+      source_profile: { type: "other", description: `Synthetic ${suffix} source.` },
+      evidence_character: evidenceCharacter,
+      independence: "independent",
+      claim_type: evidenceCharacter,
+      disposition: "adopted",
+    };
+    return {
+      path: `artifacts/research-audits/complementary-${suffix}.json`,
+      document: {
+        task_ref: `tasks/discovery/complementary-${suffix}.json`,
+        covered_direction_ids: [subjectId],
+        subject_assessments: [
+          {
+            subject_id: subjectId,
+            evidence_refs: [evidenceRef],
+            coverage,
+            uncovered_business_dimensions: dimensions.filter(
+              (dimension) => !observedDimensions.includes(dimension),
+            ),
+            quantitative_coverage: quantitativeCoverage,
+            competitive_coverage: competitiveCoverage,
+            wave1_signals: { demand: true, buyer: true, purchase: true },
+            ranking_eligibility: "unranked_hypothesis",
+            recommendation_ceiling: {
+              maximum_decision_tier: "investigate_further",
+              reason_codes:
+                suffix === "demand"
+                  ? ["news_trend_only", "single_lane_scope_incomplete"]
+                  : ["single_lane_scope_incomplete"],
+            },
+            conflict_evidence_refs: evidenceCharacter === "counterevidence" ? [evidenceRef] : [],
+            limitations: [],
+          },
+        ],
+        quantitative_coverage: quantitativeCoverage,
+        quantitative_observations: [],
+        competitive_coverage: competitiveCoverage,
+        competitive_objects:
+          suffix === "market"
+            ? [
+                {
+                  competitive_object_id: "competitor_market",
+                  subject_id: subjectId,
+                  source_refs: [evidenceRef],
+                },
+              ]
+            : [],
+        evidence_register: [evidence],
+        limitations: [],
+      },
+    };
+  };
+  const demandLane = lane(
+    "demand",
+    ["recent_user_language", "purchase_signal"],
+    "demand_scale",
+    "independent_report",
+  );
+  const marketLane = lane(
+    "market",
+    ["alternatives_pricing_usage", "distribution_channel", "independent_counterevidence"],
+    "retention_outcomes",
+    "counterevidence",
+  );
+
+  const single = projectCommercialAuditTables([demandLane]);
+  const singleAggregate = single.commercial_subject_aggregates[0] as Record<string, unknown>;
+  assert.ok(
+    (singleAggregate.uncovered_business_dimensions as string[]).includes("distribution_channel"),
+  );
+
+  const merged = projectCommercialAuditTables([demandLane, marketLane]);
+  const aggregate = merged.commercial_subject_aggregates[0] as Record<string, unknown>;
+  assert.ok(aggregate);
+  assert.deepEqual(aggregate.uncovered_business_dimensions, []);
+  assert.ok(
+    (aggregate.quantitative_coverage as Record<string, unknown>[]).every(
+      (row) => row.state === "observed",
+    ),
+  );
+  assert.ok(
+    (aggregate.competitive_coverage as Record<string, unknown>[]).every(
+      (row) => row.state === "observed",
+    ),
+  );
+  assert.equal(aggregate.ranking_eligibility, "ranked");
+  assert.deepEqual(aggregate.conflict_evidence_refs, [
+    "evidence/records/complementary-market.json",
+  ]);
+  const aggregateCeiling = aggregate.recommendation_ceiling as Record<string, unknown>;
+  assert.equal(aggregateCeiling.maximum_decision_tier, "investigate_further");
+  assert.ok((aggregateCeiling.reason_codes as string[]).includes("conflicting_evidence_present"));
+  assert.ok(!(aggregateCeiling.reason_codes as string[]).includes("news_trend_only"));
+
+  const sharedProvenance = new Map(
+    [demandLane, marketLane].map((audit) => {
+      const source = (audit.document.evidence_register as Record<string, unknown>[])[0];
+      assert.ok(source);
+      return [
+        String(source.evidence_ref),
+        {
+          source_assessment: {
+            canonical_source_group: String(source.evidence_ref),
+            shared_dataset_group: "shared_complementary_dataset",
+            syndication_group: null,
+          },
+        },
+      ] as const;
+    }),
+  );
+  const concentrated = projectCommercialAuditTables([demandLane, marketLane], [], sharedProvenance)
+    .commercial_subject_aggregates[0] as Record<string, unknown>;
+  assert.ok(
+    (
+      (concentrated.recommendation_ceiling as Record<string, unknown>).reason_codes as string[]
+    ).includes("source_concentration"),
+  );
+});
+
+test("multi-subject compiler binds direct and shared Evidence without lending unbound material", async () => {
+  const policy = await commercialPolicy();
+  const taskPath = "tasks/discovery/unit_multi_subject.attempt-1.json";
+  const task = commercialCompilerTask(taskPath) as {
+    artifact_type: string;
+    artifact_path: string;
+    document: Record<string, unknown>;
+  };
+  delete task.document.target_subject_ref;
+  task.document.target_opportunity_refs = ["opportunity_a", "opportunity_b"];
+  const source = (
+    evidenceRef: string,
+    subjectIds?: readonly string[],
+  ): Record<string, unknown> => ({
+    evidence_ref: evidenceRef,
+    ...(subjectIds === undefined ? {} : { subject_ids: subjectIds }),
+    source_kind: "independent",
+    source_profile: { type: "other", description: "Synthetic multi-subject source." },
+    evidence_character: "independent_report",
+    independence: "independent",
+    claim_type: "current_market_change",
+    content_summary: "Synthetic subject-binding material only.",
+    retrieved_at: "2026-08-04T12:01:00Z",
+    published_at: "2026-08-01T00:00:00Z",
+    observed_at: null,
+    data_period_end: null,
+    coverage_keys: ["recent_user_language"],
+    disposition: "adopted",
+    exclusion_reason: null,
+  });
+  const onlyA = "evidence/records/multi-only-a.json";
+  const shared = "evidence/records/multi-shared.json";
+  const background = "evidence/records/multi-background.json";
+  const compilation = compileCommercialResearchDelivery(
+    commercialDelivery({
+      unit_id: "unit_multi_subject",
+      evidence_sources: [
+        source(onlyA),
+        source(shared, ["opportunity_a", "opportunity_b"]),
+        source(background),
+      ],
+      findings: [
+        {
+          subject_id: "opportunity_a",
+          statement: "Synthetic A-only finding.",
+          evidence_refs: [onlyA],
+        },
+      ],
+      claims: [
+        {
+          subject_id: "opportunity_a",
+          statement: "Synthetic shared market fact for A.",
+          evidence_refs: [shared],
+          confidence: "medium",
+        },
+        {
+          subject_id: "opportunity_b",
+          statement: "Synthetic shared market fact for B.",
+          evidence_refs: [shared],
+          confidence: "medium",
+        },
+      ],
+    }),
+    taskPath,
+    [task],
+    policy,
+  );
+  const register = compilation.document.evidence_register as Record<string, unknown>[];
+  const byRef = new Map(register.map((entry) => [String(entry.evidence_ref), entry]));
+  assert.deepEqual(byRef.get(onlyA)?.subject_ids, ["opportunity_a"]);
+  assert.equal(byRef.get(onlyA)?.subject_binding_basis, "derived_from_material");
+  assert.deepEqual(byRef.get(shared)?.subject_ids, ["opportunity_a", "opportunity_b"]);
+  assert.equal(byRef.get(shared)?.subject_binding_basis, "explicit");
+  assert.deepEqual(byRef.get(background)?.subject_ids, []);
+  assert.equal(byRef.get(background)?.subject_binding_basis, "unbound");
+  assert.ok(
+    compilation.issues.some(
+      (issue) => issue.code === "commercial_research.evidence_subject_unbound",
+    ),
+  );
+  const assessments = compilation.document.subject_assessments as Record<string, unknown>[];
+  const subjectA = assessments.find((assessment) => assessment.subject_id === "opportunity_a");
+  const subjectB = assessments.find((assessment) => assessment.subject_id === "opportunity_b");
+  assert.ok(subjectA && subjectB);
+  assert.ok((subjectA.evidence_refs as string[]).includes(onlyA));
+  assert.ok(!(subjectB.evidence_refs as string[]).includes(onlyA));
+  assert.ok((subjectA.evidence_refs as string[]).includes(shared));
+  assert.ok((subjectB.evidence_refs as string[]).includes(shared));
+  assert.ok(!(subjectA.evidence_refs as string[]).includes(background));
+  assert.ok(!(subjectB.evidence_refs as string[]).includes(background));
+  assert.equal(subjectB.ranking_eligibility, "unranked_hypothesis");
+
+  const projection = projectCommercialAuditTables([
+    { path: "artifacts/research-audits/multi-subject.json", document: compilation.document },
+  ]);
+  assert.deepEqual(projection.commercial_background_material, [
+    {
+      audit_ref: "artifacts/research-audits/multi-subject.json",
+      evidence_ref: background,
+      subject_binding_basis: "unbound",
+    },
+  ]);
+});
+
+test("quantitative direct support cannot reuse Evidence bound to another subject", async () => {
+  const policy = await commercialPolicy();
+  const fixture = quantitativeCommercialFixture();
+  const source = (fixture.audit.evidence_register as Record<string, unknown>[])[0];
+  assert.ok(source);
+  source.subject_ids = [];
+  source.subject_binding_basis = "unbound";
+  assert.ok(
+    quantitativeCommercialCodes(fixture, policy).includes(
+      "commercial_research.cross_subject_evidence_reuse",
+    ),
+  );
+});
+
+test("missing planned Audits create subject-local gaps without reopening duplicate coverage", () => {
+  const task = (
+    pathValue: string,
+    auditPath: string,
+    subjectId: string,
+    metricFamily: string,
+  ): { path: string; document: Record<string, unknown> } => ({
+    path: pathValue,
+    document: {
+      target_subject_ref: subjectId,
+      commercial_research_requirements: {
+        commercial_audit_output_path: auditPath,
+        quantitative_competitive_scope: {
+          required_metric_families: [metricFamily],
+          required_competitor_types: [],
+        },
+      },
+    },
+  });
+  const observedAuditPath = "artifacts/research-audits/subject-a-demand.json";
+  const observedTask = task(
+    "tasks/discovery/subject-a-demand.json",
+    observedAuditPath,
+    "subject_a",
+    "demand_scale",
+  );
+  const duplicateMissing = task(
+    "tasks/discovery/subject-a-demand-duplicate.json",
+    "artifacts/research-audits/subject-a-demand-duplicate.json",
+    "subject_a",
+    "demand_scale",
+  );
+  const uniqueMissing = task(
+    "tasks/discovery/subject-a-retention.json",
+    "artifacts/research-audits/subject-a-retention.json",
+    "subject_a",
+    "retention_outcomes",
+  );
+  const otherSubjectMissing = task(
+    "tasks/discovery/subject-b-unit-economics.json",
+    "artifacts/research-audits/subject-b-unit-economics.json",
+    "subject_b",
+    "unit_economics",
+  );
+  const observedCoverage = {
+    subject_id: "subject_a",
+    metric_family: "demand_scale",
+    state: "observed",
+    observation_ids: ["observation_subject_a_demand"],
+    query_attempts: [],
+    reason: null,
+    alternative_metric: null,
+    decision_impact: "Synthetic observed coverage.",
+  };
+  const observedAudit = {
+    path: observedAuditPath,
+    document: {
+      task_ref: observedTask.path,
+      covered_direction_ids: ["subject_a"],
+      subject_assessments: [
+        {
+          subject_id: "subject_a",
+          evidence_refs: [],
+          coverage: {},
+          uncovered_business_dimensions: [],
+          quantitative_coverage: [observedCoverage],
+          competitive_coverage: [],
+          wave1_signals: { demand: true, buyer: false, purchase: false },
+          ranking_eligibility: "unranked_hypothesis",
+          recommendation_ceiling: {
+            maximum_decision_tier: "investigate_further",
+            reason_codes: [],
+          },
+          conflict_evidence_refs: [],
+          limitations: [],
+        },
+      ],
+      quantitative_coverage: [observedCoverage],
+      quantitative_observations: [],
+      competitive_coverage: [],
+      competitive_objects: [],
+      evidence_register: [],
+      limitations: [],
+    },
+  };
+  const tasks = [observedTask, duplicateMissing, uniqueMissing, otherSubjectMissing];
+  const projection = projectCommercialAuditTables([observedAudit], tasks);
+  const aAggregate = projection.commercial_subject_aggregates.find(
+    (aggregate) => aggregate.subject_id === "subject_a",
+  ) as Record<string, unknown> | undefined;
+  const bAggregate = projection.commercial_subject_aggregates.find(
+    (aggregate) => aggregate.subject_id === "subject_b",
+  ) as Record<string, unknown> | undefined;
+  assert.ok(aAggregate && bAggregate);
+  const aQuantitativeCoverage = aAggregate.quantitative_coverage as Record<string, unknown>[];
+  assert.equal(
+    aQuantitativeCoverage.find((row) => row.metric_family === "demand_scale")?.state,
+    "observed",
+  );
+  assert.equal(
+    aQuantitativeCoverage.find((row) => row.metric_family === "retention_outcomes")?.state,
+    "unavailable",
+  );
+  assert.ok(
+    !projection.research_coverage_gaps.some(
+      (row) =>
+        row.coverage_kind === "quantitative" &&
+        (row.coverage as Record<string, unknown>).subject_id === "subject_a" &&
+        (row.coverage as Record<string, unknown>).metric_family === "demand_scale",
+    ),
+  );
+  assert.ok((aAggregate.execution_warning_task_refs as string[]).includes(duplicateMissing.path));
+  assert.ok((aAggregate.execution_warning_task_refs as string[]).includes(uniqueMissing.path));
+  assert.deepEqual(bAggregate.task_refs, [otherSubjectMissing.path]);
+  assert.ok(!(aAggregate.task_refs as string[]).includes(otherSubjectMissing.path));
+
+  const allMissing = projectCommercialAuditTables([], tasks);
+  assert.equal(allMissing.commercial_research_status.state, "planned_but_missing");
+  assert.ok(
+    allMissing.commercial_subject_aggregates.every((aggregate) =>
+      (aggregate.quantitative_coverage as Record<string, unknown>[]).every(
+        (row) => row.state === "unavailable",
+      ),
+    ),
+  );
+  const rendered = renderResearchCoverageGaps({ ...allMissing });
+  assert.match(rendered, /execution \/ research/);
+  assert.doesNotMatch(rendered, /all planned dimensions.*observed/is);
 });
 
 test("all deterministic scaffold kinds are schema-valid and preserve runtime boundaries", async () => {

@@ -27,6 +27,7 @@ import type { ArtifactValidator } from "../validators/artifact-validator.js";
 import { REQUIRED_REPORT_CONSISTENCY_DIMENSIONS } from "../validators/discovery-evaluation-policy.js";
 import { projectGateWarnings } from "../validators/gate-diagnostics.js";
 import {
+  commercialProjectionRefs,
   projectCommercialAuditTables,
   renderCompetitiveSubstituteMatrix,
   renderGateWarnings,
@@ -1255,6 +1256,23 @@ export class ReportRuntime {
         }
         throw error;
       });
+    const formalDocuments = context.bundle.documents.flatMap((entry) => {
+      if (
+        entry.document.schema_version !== "startup_opportunity.artifact_envelope.current" ||
+        !isRecord(entry.document.document)
+      ) {
+        return [];
+      }
+      return [{ path: entry.path, document: entry.document.document }];
+    });
+    const documentsByPath = new Map(formalDocuments.map((entry) => [entry.path, entry.document]));
+    const tasks = formalDocuments.filter((entry) =>
+      [
+        "startup_opportunity.research_task.assessment.current",
+        "startup_opportunity.research_task.discovery_candidate.current",
+        "startup_opportunity.research_task.discovery_evaluation.current",
+      ].includes(String(entry.document.schema_version)),
+    );
     const audits = context.bundle.documents.flatMap((entry) => {
       if (
         entry.document.schema_version !== "startup_opportunity.artifact_envelope.current" ||
@@ -1272,7 +1290,7 @@ export class ReportRuntime {
         },
       ];
     });
-    const projection = projectCommercialAuditTables(audits);
+    const projection = projectCommercialAuditTables(audits, tasks, documentsByPath);
     const sourceDocument = structuredClone(source.document);
     if (
       source.artifact_type === "startup_opportunity.report.v1" ||
@@ -1300,9 +1318,19 @@ export class ReportRuntime {
         ),
       };
     }
+    const projectedAuditRefs = commercialProjectionRefs(
+      projection as unknown as Record<string, unknown>,
+    );
     const provisionalDocument = {
       ...sourceDocument,
       ...projection,
+      ...(source.artifact_type === "startup_opportunity.terminal_report_source.v1"
+        ? {
+            audit_refs: [
+              ...new Set([...strings(sourceDocument.audit_refs), ...projectedAuditRefs]),
+            ].sort(),
+          }
+        : {}),
       gate_warnings: audits.flatMap((audit) => records(audit.document.compiler_warnings)),
     };
     const provisional = {

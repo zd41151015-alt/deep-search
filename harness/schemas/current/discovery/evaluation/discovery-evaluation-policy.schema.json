@@ -240,7 +240,11 @@
       "additionalProperties": false,
       "required": [
         "tier_order",
-        "no_first_bet_ceiling",
+        "first_bet_subject_scope",
+        "alternative_bet_effect",
+        "candidate_commercial_ceiling_required",
+        "no_first_bet_strategy",
+        "no_first_bet_tiers",
         "first_bet_ready_requirements",
         "mixed_inputs_use_strictest_ceiling"
       ],
@@ -268,13 +272,33 @@
           "maxItems": 5,
           "items": false
         },
-        "no_first_bet_ceiling": {
-          "const": "investigate_further"
+        "first_bet_subject_scope": {
+          "const": "selected_subject_only"
+        },
+        "alternative_bet_effect": {
+          "const": "candidate_only"
+        },
+        "candidate_commercial_ceiling_required": {
+          "const": true
+        },
+        "no_first_bet_strategy": {
+          "const": "best_candidate_readiness"
+        },
+        "no_first_bet_tiers": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "investigate_further" },
+            { "const": "watch" },
+            { "const": "insufficient_evidence" }
+          ],
+          "minItems": 3,
+          "maxItems": 3,
+          "items": false
         },
         "first_bet_ready_requirements": {
           "type": "array",
-          "minItems": 6,
-          "maxItems": 6,
+          "minItems": 7,
+          "maxItems": 7,
           "uniqueItems": true,
           "items": {
             "enum": [
@@ -283,7 +307,8 @@
               "hard_gates_eligible",
               "fan_in_strong_candidate",
               "panels_sufficient",
-              "ai_bundle_complete_or_not_required"
+              "ai_bundle_complete_or_not_required",
+              "commercial_subject_prioritize"
             ]
           }
         },
