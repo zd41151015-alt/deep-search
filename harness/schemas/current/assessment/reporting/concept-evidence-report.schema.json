@@ -164,7 +164,12 @@
     "research_coverage_gaps": {
       "type": "array",
       "items": {
-        "$ref": "../commercial/quantitative-competitive-research.schema.json#/$defs/coverageGapRow"
+        "oneOf": [
+          {
+            "$ref": "../commercial/quantitative-competitive-research.schema.json#/$defs/coverageGapRow"
+          },
+          { "$ref": "../commercial/incumbent-response-risk.schema.json#/$defs/coverageGapRow" }
+        ]
       }
     },
     "gate_warnings": {

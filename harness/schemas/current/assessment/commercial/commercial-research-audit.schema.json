@@ -32,6 +32,7 @@
     "competitive_coverage",
     "incumbent_response_assignment",
     "incumbent_response_assessments",
+    "incumbent_response_coverage",
     "coverage",
     "uncovered_business_dimensions",
     "wave1_signals",
@@ -353,6 +354,40 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "incumbent_response_assignment": {
+            "type": "object",
+            "properties": {
+              "analysis_depth": {
+                "type": "string",
+                "enum": ["lightweight_scan", "targeted_deep_dive"]
+              }
+            },
+            "required": ["analysis_depth"]
+          }
+        },
+        "required": ["incumbent_response_assignment"]
+      },
+      "then": {
+        "properties": {
+          "execution_plan_ref": {
+            "type": "string",
+            "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+          },
+          "dispatch_task_ref": {
+            "type": "string",
+            "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z][A-Za-z0-9._-]*$"
+          },
+          "task_ref": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+          }
+        }
+      }
+    }
+  ],
   "properties": {
     "schema_version": {
       "const": "startup_opportunity.commercial_research_audit.current"
@@ -843,6 +878,10 @@
     "incumbent_response_assessments": {
       "type": "array",
       "items": { "$ref": "./incumbent-response-risk.schema.json#/$defs/assessment" }
+    },
+    "incumbent_response_coverage": {
+      "type": "array",
+      "items": { "$ref": "./incumbent-response-risk.schema.json#/$defs/coverage" }
     },
     "coverage": {
       "type": "object",

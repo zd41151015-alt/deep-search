@@ -57,6 +57,8 @@ import {
   G24_TASK_SUPPORT,
   G24_TRACEABILITY,
 } from "./fixtures/g2.4/discovery-evaluation-fixture.js";
+import { commercialReportProjection } from "./fixtures/quantitative-competitive-fixture.js";
+import { projectCommercialAuditsForRuntime } from "./helpers/commercial-runtime.js";
 import { createConfirmedRun } from "./helpers/current-run.js";
 import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
@@ -340,6 +342,25 @@ async function publishThroughEnrichmentBranches(state: State): Promise<void> {
 
 async function publishThroughEvaluation(state: State): Promise<void> {
   await publishThroughEnrichmentBranches(state);
+  const runtimeWaves = [
+    discoveryWaveEnvelopes(
+      state.bundle,
+      state.runId,
+      "startup_opportunity.research_task.discovery_candidate.current",
+      1,
+      "candidate_runtime",
+    ),
+    discoveryWaveEnvelopes(
+      state.bundle,
+      state.runId,
+      "startup_opportunity.research_task.discovery_evaluation.current",
+      2,
+      "enrichment_runtime",
+    ),
+  ];
+  const runtimeAudits = projectCommercialAuditsForRuntime(state.bundle, state.runId, runtimeWaves);
+  Object.assign(effective(state.bundle, G24_REPORT), commercialReportProjection(runtimeAudits));
+  refreshAllInputHashes(state.bundle);
   const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
   await state.store.publishArtifactBundle({
     runId: state.runId,

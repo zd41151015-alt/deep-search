@@ -201,6 +201,7 @@ export function taskEnvelope(
       quantitative_competitive_scope: quantitativeCompetitiveScope("targeted_deep_dive"),
       incumbent_response_assignment: {
         analysis_depth: "not_assigned",
+        assignment_role: "none",
         subject_refs: [],
         rationale:
           "This synthetic branch does not own the separately planned incumbent response deep dive.",

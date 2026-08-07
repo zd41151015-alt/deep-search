@@ -74,6 +74,7 @@ function commercialRequirements(
   researchStage: "solution_neutral_scan" | "solution_specific_evaluation" = "solution_neutral_scan",
   incumbentResponseAssignment: Readonly<Record<string, unknown>> = {
     analysis_depth: "not_assigned",
+    assignment_role: "none",
     subject_refs: [],
     rationale: "Candidate-specific incumbent response research starts only after candidates form.",
   },
@@ -232,12 +233,14 @@ function assessmentPlanning(request: ScaffoldRequest): ScaffoldArtifact {
               stage.stage_kind === "assessment_commercial"
                 ? {
                     analysis_depth: "targeted_deep_dive",
+                    assignment_role: "owner",
                     subject_refs: [CONCEPT_REF],
                     rationale:
                       "The formed concept receives a targeted incumbent response deep dive in the commercial stage.",
                   }
                 : {
                     analysis_depth: "not_assigned",
+                    assignment_role: "none",
                     subject_refs: [],
                     rationale: "This assessment stage does not own incumbent response research.",
                   },
@@ -293,6 +296,7 @@ function planning(request: ScaffoldRequest): ScaffoldArtifact {
               candidate_scope: { kind: "none", candidate_refs: [] },
               incumbent_response_assignment: {
                 analysis_depth: "not_assigned",
+                assignment_role: "none",
                 subject_refs: [],
                 rationale:
                   "Candidate-specific incumbent response research starts only after candidates form.",
@@ -334,6 +338,7 @@ function assessmentTask(request: ScaffoldRequest): ScaffoldArtifact {
       research_goal: PLACEHOLDER,
       commercial_research_requirements: commercialRequirements("solution_specific_evaluation", {
         analysis_depth: "targeted_deep_dive",
+        assignment_role: "owner",
         subject_refs: [CONCEPT_REF],
         rationale: "The formed concept receives a targeted incumbent response deep dive.",
       }),
@@ -432,6 +437,7 @@ function assessmentDispatch(request: ScaffoldRequest): ScaffoldArtifact {
           lane_role: "commercial",
           incumbent_response_assignment: {
             analysis_depth: "targeted_deep_dive",
+            assignment_role: "owner",
             subject_refs: [CONCEPT_REF],
             rationale: "The formed concept receives a targeted incumbent response deep dive.",
           },
@@ -474,6 +480,7 @@ function dispatch(request: ScaffoldRequest): ScaffoldArtifact {
           lane_role: "opportunity",
           incumbent_response_assignment: {
             analysis_depth: "not_assigned",
+            assignment_role: "none",
             subject_refs: [],
             rationale:
               "Candidate-specific incumbent response research starts only after candidates form.",

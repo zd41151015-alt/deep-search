@@ -249,18 +249,15 @@ function task(
         },
       ],
       quantitative_competitive_scope: quantitativeCompetitiveScope("broad_scan"),
-      incumbent_response_assignment:
-        sourcePhase === "candidate_generation"
-          ? {
-              analysis_depth: "not_assigned",
-              subject_refs: [],
-              rationale: "Incumbent response research starts only after candidates form.",
-            }
-          : {
-              analysis_depth: "lightweight_scan",
-              subject_refs: [G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1],
-              rationale: "Formed candidates receive a bounded lightweight response scan.",
-            },
+      incumbent_response_assignment: {
+        analysis_depth: "not_assigned",
+        assignment_role: "none",
+        subject_refs: [],
+        rationale:
+          sourcePhase === "candidate_generation"
+            ? "Incumbent response research starts only after candidates form."
+            : "The static fixture has no Execution Plan assignment; Runtime projects the unique owner from its Plan.",
+      },
       required_commercial_dimensions: [
         "recent_user_language",
         "purchase_signal",

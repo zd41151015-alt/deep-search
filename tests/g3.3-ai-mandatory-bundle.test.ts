@@ -48,6 +48,8 @@ import {
   refreshG3Envelope,
   refreshG33FixtureHashes,
 } from "./fixtures/g3/ai-bundle-fixture.js";
+import { commercialReportProjection } from "./fixtures/quantitative-competitive-fixture.js";
+import { projectCommercialAuditsForRuntime } from "./helpers/commercial-runtime.js";
 import { createConfirmedRun } from "./helpers/current-run.js";
 import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
@@ -774,15 +776,16 @@ async function publishG33Prerequisites(
       (candidate) => candidate.document.revision === 1,
     ),
   });
+  const candidateRuntimeWave = discoveryWaveEnvelopes(
+    state.bundle,
+    state.runId,
+    "startup_opportunity.research_task.discovery_candidate.current",
+    1,
+    "candidate_runtime",
+  );
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: discoveryWaveEnvelopes(
-      state.bundle,
-      state.runId,
-      "startup_opportunity.research_task.discovery_candidate.current",
-      1,
-      "candidate_runtime",
-    ),
+    envelopes: candidateRuntimeWave,
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
@@ -818,15 +821,16 @@ async function publishG33Prerequisites(
   });
 
   const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
+  const enrichmentRuntimeWave = discoveryWaveEnvelopes(
+    state.bundle,
+    state.runId,
+    "startup_opportunity.research_task.discovery_evaluation.current",
+    2,
+    "enrichment_runtime",
+  );
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: discoveryWaveEnvelopes(
-      state.bundle,
-      state.runId,
-      "startup_opportunity.research_task.discovery_evaluation.current",
-      2,
-      "enrichment_runtime",
-    ),
+    envelopes: enrichmentRuntimeWave,
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
@@ -867,6 +871,15 @@ async function publishG33Prerequisites(
   const [mandatoryBundle] = byTypes(evaluation, "startup_opportunity.ai_mandatory_bundle.v1");
   assert.ok(mandatoryBundle);
   await state.store.publishArtifact({ runId: state.runId, envelope: mandatoryBundle });
+  const runtimeAudits = projectCommercialAuditsForRuntime(state.bundle, state.runId, [
+    candidateRuntimeWave,
+    enrichmentRuntimeWave,
+  ]);
+  Object.assign(
+    g3Envelope(state.bundle, G24_REPORT).document,
+    commercialReportProjection(runtimeAudits),
+  );
+  refreshG33FixtureHashes(state.bundle);
   return evaluation;
 }
 

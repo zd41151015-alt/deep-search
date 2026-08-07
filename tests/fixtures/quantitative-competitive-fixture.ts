@@ -152,6 +152,8 @@ export function unavailableCommercialResearchAudit(input: {
   readonly task: Readonly<Record<string, unknown>>;
   readonly coveredSubjectIds: readonly string[];
   readonly auditedAt: string;
+  readonly executionPlanRef?: string | null;
+  readonly dispatchTaskRef?: string | null;
 }): Record<string, unknown> {
   const requirements = input.task.commercial_research_requirements as Record<string, unknown>;
   const allocation = requirements.resource_allocation as Record<string, unknown>;
@@ -183,13 +185,32 @@ export function unavailableCommercialResearchAudit(input: {
             semantic,
           };
         });
+  const incumbentResponseCoverage = incumbentResponseAssessments.map((assessment) => {
+    const semantic = assessment.semantic as Record<string, unknown>;
+    return {
+      subject_id: semantic.subject_id,
+      analysis_depth: incumbentAssignment.analysis_depth,
+      assignment_role: incumbentAssignment.assignment_role,
+      state: "unknown",
+      assessment_ids: [assessment.assessment_id],
+      reason: "Assigned incumbent absorption and response risk remains unknown.",
+      data_gaps: semantic.data_gaps,
+      decision_impact: "Context only; no automatic decision effect.",
+      automatic_effects: {
+        ranking_eligibility: false,
+        claim_confidence: false,
+        recommendation_ceiling: false,
+        artifact_publication: false,
+      },
+    };
+  });
   return {
     schema_version: "startup_opportunity.commercial_research_audit.current",
     audit_id: `commercial_audit_${unitId}`,
     run_id: input.runId,
     unit_id: unitId,
-    execution_plan_ref: null,
-    dispatch_task_ref: null,
+    execution_plan_ref: input.executionPlanRef ?? null,
+    dispatch_task_ref: input.dispatchTaskRef ?? null,
     task_ref: input.taskRef,
     covered_direction_ids: coveredSubjectIds,
     research_stage: requirements.research_stage,
@@ -223,13 +244,21 @@ export function unavailableCommercialResearchAudit(input: {
       outcome: "evidence_insufficient",
       query_log_complete: false,
       telemetry_basis: "unavailable",
-      remaining_gaps: uncovered,
+      remaining_gaps: [
+        ...uncovered,
+        ...incumbentResponseCoverage.flatMap((coverage) =>
+          (coverage.data_gaps as string[]).map(
+            (gap) => `Incumbent response coverage for ${String(coverage.subject_id)}: ${gap}`,
+          ),
+        ),
+      ],
       termination_reason: "Synthetic fixture found no defensible quantitative or competitive data.",
     },
     evidence_register: [],
     ...quantitativeCompetitive,
     incumbent_response_assignment: structuredClone(incumbentAssignment),
     incumbent_response_assessments: incumbentResponseAssessments,
+    incumbent_response_coverage: incumbentResponseCoverage,
     coverage: Object.fromEntries(
       uncovered.map((key) => [
         key,

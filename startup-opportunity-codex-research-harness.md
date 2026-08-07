@@ -472,11 +472,11 @@ API 是 agent 可选择的数据获取手段，不是唯一手段。不存在 pr
 
 ### 6.29 头部公司吸收与响应风险是候选后的参考 Artifact
 
-候选或 concept 形成后，系统才研究 Incumbent Absorption & Response Risk。solution-neutral candidate generation 不得出现该分析；formed candidate evaluation 可做 bounded `lightweight_scan`，shortlist/retained opportunity 或 assessment commercial stage 才由 Execution Plan/Dispatch 对 exact subject refs 分配 `targeted_deep_dive`。不得对所有候选执行无界深挖。
+候选或 concept 形成后，系统才研究 Incumbent Absorption & Response Risk。solution-neutral candidate generation 不得出现该分析；formed candidate evaluation 可做 bounded `lightweight_scan`，shortlist/retained opportunity 或 assessment commercial stage 才可分配 `targeted_deep_dive`。Execution Plan 是 assignment 唯一权威：每个响应研究 stage 恰有一个 `owner`，独立复核必须显式标为 `independent_review`，其他 Lane 为 `not_assigned/none`；Dispatch、Research Task 与 Audit 必须是 exact subject/role/depth 投影。不得对所有候选执行无界深挖。
 
 潜在 responder 不限同类大公司，还包括 platform owner、suite incumbent、adjacent leader、channel/distribution controller、data owner、marketplace 或其他控制关键入口的主体。每个判断分别记录 responder/category/control point、开放 response modes（例如 copy、bundle、native integration、API/platform move、pricing/subsidy、acquire、restrict/block）、capability adjacency、implementation/operational/compliance/data/distribution cost、incentive/disincentive/cannibalization、plausible response horizon、distribution leverage、single-feature/partial-workflow/full-value-proposition thesis coverage、residual differentiation、supporting/opposing/background Evidence、inference boundary、confidence/uncertainty、unknown/data gap 和 strategic implication。
 
-Ability 不能推导 incentive、时间或必然响应；复制 feature 不能推导完整 thesis 已被覆盖。该 Artifact 只作 aggregate/synthesis 的 judgment context，不是 Gate，不自动淘汰或 unrank，不自动降低 Claim confidence，不产生 recommendation ceiling，也不阻止 Lane、候选、Audit 或报告发布。缺 Evidence 时由 Harness 为已分配 subject 投影 `unknown`；确实无相关 responder 时 Agent 提交 `not_applicable`。新闻、评论、论坛、厂商、监管、API/数据集、proxy/estimate 及支持/反对/背景材料继续 preserve first, weight later；伪造、broken exact ref/hash、跨 Run、敏感信息、访问控制和错误引用仍 fail closed。
+Ability 不能推导 incentive、时间或必然响应；复制 feature 不能推导完整 thesis 已被覆盖。该 Artifact 只作 aggregate/synthesis 的 judgment context，不是 Gate，不自动淘汰或 unrank，不自动降低 Claim confidence，不产生 recommendation ceiling，也不阻止 Lane、候选、Audit 或报告发布。`assessed` 使用完整输入；缺 Evidence 时 Agent 只提交 `unknown` 的 uncertainty/unknowns/data gaps，确实无相关 responder 时只提交 `not_applicable` 理由，Harness 将最小输入扩展为统一安全正式行。`unknown` 必须进入 Search Closure 与正式报告 gap，`not_applicable` 不算 gap；每个正式响应风险表固定显示 context-only/非门禁声明。新闻、评论、论坛、厂商、监管、API/数据集、proxy/estimate 及支持/反对/背景材料继续 preserve first, weight later；伪造、broken exact ref/hash、跨 Run、敏感信息、访问控制和错误引用仍 fail closed。
 
 ## 7. 总体架构
 

@@ -263,9 +263,11 @@ function task(
       ],
       quantitative_competitive_scope: quantitativeCompetitiveScope("targeted_deep_dive"),
       incumbent_response_assignment: {
-        analysis_depth: "targeted_deep_dive",
-        subject_refs: [...OPPORTUNITIES],
-        rationale: "Shortlisted opportunities receive a targeted incumbent response deep dive.",
+        analysis_depth: "not_assigned",
+        assignment_role: "none",
+        subject_refs: [],
+        rationale:
+          "The static fixture has no Execution Plan assignment; Runtime projects the unique owner from its Plan.",
       },
       required_commercial_dimensions: [
         "recent_user_language",

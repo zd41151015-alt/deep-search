@@ -236,11 +236,13 @@ function commercialAuditEnvelope(
     ...unavailableQuantitativeCompetitiveCoverage(coveredSubjectIds, "2026-07-25T18:39:00Z"),
     incumbent_response_assignment: {
       analysis_depth: "not_assigned",
+      assignment_role: "none",
       subject_refs: [],
       rationale:
         "This synthetic branch does not own the separately planned incumbent response deep dive.",
     },
     incumbent_response_assessments: [],
+    incumbent_response_coverage: [],
     recommendation_ceiling: {
       maximum_decision_tier: "investigate_further",
       reason_codes: [
@@ -297,8 +299,10 @@ function executionPlanEnvelope(
     candidate_scope: { kind: "none", candidate_refs: [] },
     incumbent_response_assignment: {
       analysis_depth: "not_assigned",
+      assignment_role: "none",
       subject_refs: [],
-      rationale: "This report fixture does not assign incumbent response research.",
+      rationale:
+        "This synthetic branch does not own the separately planned incumbent response deep dive.",
     },
     reporting_dimensions: [branch.dimensionId],
     submission_path: branch.outputPath,
@@ -357,8 +361,10 @@ function dispatchEnvelope(
       lane_role: branch.unitId === "unit_counter" ? "risk" : "evaluation",
       incumbent_response_assignment: {
         analysis_depth: "not_assigned",
+        assignment_role: "none",
         subject_refs: [],
-        rationale: "This report fixture does not assign incumbent response research.",
+        rationale:
+          "This synthetic branch does not own the separately planned incumbent response deep dive.",
       },
       research_goal: task.research_goal,
       input_refs: task.input_refs,

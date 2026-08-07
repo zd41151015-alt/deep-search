@@ -213,6 +213,13 @@ export function projectCommercialAuditTables(
         coverage_kind: "competitive",
         coverage,
       })),
+    ...records(audit.document.incumbent_response_coverage)
+      .filter((coverage) => coverage.state === "unknown")
+      .map((coverage) => ({
+        audit_ref: audit.path,
+        coverage_kind: "incumbent_response",
+        coverage,
+      })),
   ]);
   const auditsBySubject = new Map<string, typeof sortedAudits>();
   for (const audit of sortedAudits) {
@@ -275,7 +282,7 @@ export function projectCommercialAuditTables(
   }
   const rowKey = (row: Record<string, unknown>): string => {
     const coverage = isRecord(row.coverage) ? row.coverage : {};
-    return `${String(row.audit_ref)}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(coverage.metric_family ?? coverage.competitor_type)}`;
+    return `${String(row.audit_ref)}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(coverage.metric_family ?? coverage.competitor_type ?? "response_risk")}`;
   };
   return {
     commercial_research_audit_refs: sortedAudits.map((audit) => audit.path),
@@ -405,7 +412,12 @@ export function renderIncumbentResponseRiskTable(
         : "The risk remains an open strategic question only; it does not trigger automatic elimination, confidence reduction, or a recommendation ceiling.",
     ]);
   }
+  const contextOnly = zh
+    ? "> 仅作背景参考：头部公司吸收与响应风险不是门禁，不会自动淘汰候选、取消排名资格、降低 Claim 置信度、施加建议上限或阻止发布。"
+    : "> Context only: incumbent absorption and response risk is not a Gate and does not automatically eliminate or unrank a candidate, reduce Claim confidence, impose a recommendation ceiling, or block publication.";
   return [
+    contextOnly,
+    "",
     `| ${headers.join(" | ")} |`,
     `| ${headers.map(() => "---").join(" | ")} |`,
     ...body.map((row) => `| ${row.map(cell).join(" | ")} |`),
@@ -625,13 +637,19 @@ export function renderResearchCoverageGaps(
       display(coverage.subject_id, zh),
       display(row.coverage_kind, zh),
       display(
-        row.coverage_kind === "quantitative" ? coverage.metric_family : coverage.competitor_type,
+        row.coverage_kind === "quantitative"
+          ? coverage.metric_family
+          : row.coverage_kind === "competitive"
+            ? coverage.competitor_type
+            : "absorption_and_response_risk",
         zh,
       ),
       display(coverage.state, zh),
       attempts.length === 0 ? "-" : attempts.join("<br>"),
       display(coverage.reason, zh),
-      display(coverage.alternative_metric, zh),
+      row.coverage_kind === "incumbent_response"
+        ? displayList(coverage.data_gaps, zh)
+        : display(coverage.alternative_metric, zh),
       display(coverage.decision_impact, zh),
     ];
   });

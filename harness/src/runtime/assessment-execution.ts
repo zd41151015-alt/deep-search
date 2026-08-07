@@ -154,6 +154,7 @@ export function deriveAssessmentFollowupRevision(
           lane_role: laneRoleForDimension(dimension),
           incumbent_response_assignment: {
             analysis_depth: "not_assigned",
+            assignment_role: "none",
             subject_refs: [],
             rationale:
               "Buyer and acquisition follow-up units do not expand incumbent response scope.",
