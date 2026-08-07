@@ -14,6 +14,7 @@ import {
   renderQuantitativeSignalTable,
   renderResearchCoverageGaps,
 } from "../harness/src/reporting/commercial-report-tables.js";
+import { localizedTerminalUserViewIssues } from "../harness/src/reporting/terminal-reporting.js";
 import type { CommercialResearchPolicy } from "../harness/src/validators/commercial-research-validator.js";
 import {
   commercialReportProjection,
@@ -1042,6 +1043,98 @@ test("formal report projections are exact and render fixed unavailable and gap t
   assert.match(gapTable, /Ranking \/ Decision Impact/);
   assert.match(gapTable, /unavailable/);
   assert.match(gapTable, /synthetic-fixture-provider/);
+});
+
+test("Chinese commercial tables keep exact refs in structured data but hide internal audit terms", () => {
+  const evidenceRef =
+    "evidence/records/ev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json";
+  const source = {
+    quantitative_signal_rows: [
+      {
+        audit_ref: "artifacts/research-audits/synthetic.json",
+        observation: {
+          subject_id: "china_b2c_education_alternatives_baseline",
+          metric_family: "commercial_behavior",
+          metric_name: "前期产品价格",
+          metric_semantics: "price",
+          value: { shape: "point", value: 99, unit: "每月", currency: "CNY" },
+          metric_definition: "pre-thesis baseline evidence price",
+          geography: "中国大陆",
+          period: {
+            period_start: null,
+            period_end: null,
+            as_of: "2026-08-07",
+            label: "页面观察",
+          },
+          measurement_type: "disclosed",
+          comparability: {
+            status: "not_comparable",
+            category: "candidate_evaluation",
+            direct_comparison_allowed: false,
+          },
+          error_uncertainty: "Evidence is not market validation.",
+          evidence_refs: [evidenceRef],
+        },
+      },
+    ],
+    competitive_substitute_rows: [
+      {
+        audit_ref: "artifacts/research-audits/synthetic.json",
+        competitive_object: {
+          competitor_type: "direct_product",
+          name: "合成替代",
+          target_segment: "成人学习者",
+          scenario: "same-run comparison",
+          positioning: "baseline alternative",
+          pricing_observation_refs: ["obs_price"],
+          traction_observation_refs: ["obs_usage"],
+          strengths: ["低成本"],
+          weaknesses: ["pre-thesis fit unknown"],
+          differentiation_gaps: ["unranked_hypothesis"],
+          source_refs: [evidenceRef],
+        },
+      },
+    ],
+    research_coverage_gaps: [
+      {
+        audit_ref: "artifacts/research-audits/synthetic.json",
+        coverage_kind: "quantitative",
+        coverage: {
+          subject_id: "candidate_solution_purchase_decision_dossier",
+          metric_family: "unit_economics",
+          state: "unavailable",
+          query_attempts: [
+            {
+              acquisition_method: "public_api",
+              provider: "synthetic-fixture-provider",
+              outcome: "not_found",
+              reason: "artifact evidence unavailable",
+            },
+          ],
+          reason: "runtime_blocked evidence gap",
+          alternative_metric: null,
+          decision_impact: "candidate_evaluation remains unranked_hypothesis",
+        },
+      },
+    ],
+  };
+
+  const chinese = [
+    renderQuantitativeSignalTable(source, true),
+    renderCompetitiveSubstituteMatrix(source, true),
+    renderResearchCoverageGaps(source, true),
+  ].join("\n");
+  assert.deepEqual(
+    localizedTerminalUserViewIssues({ research_language: "zh-CN", sources: [] }, chinese),
+    [],
+  );
+  assert.doesNotMatch(chinese, /evidence\/records|artifacts\/research-audits/iu);
+  assert.match(chinese, /中国大陆 B2C 教育替代基线/);
+  assert.match(chinese, /详见结构化审计/);
+
+  const english = renderQuantitativeSignalTable(source);
+  assert.match(english, /china_b2c_education_alternatives_baseline/);
+  assert.match(english, /evidence\/records/);
 });
 
 test("all deterministic scaffold kinds are schema-valid and preserve runtime boundaries", async () => {
