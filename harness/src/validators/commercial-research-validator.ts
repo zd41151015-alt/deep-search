@@ -2356,16 +2356,18 @@ function validateCommercialReportProjections(
     const dispositions = new Set(interpretations.map(({ source }) => String(source.disposition)));
     if (counterStates.size > 1 || dispositions.size > 1) {
       const [subjectId, evidenceRef] = key.split("\u0000", 2);
+      const decisionActive = interpretations.some(({ source }) => source.disposition === "adopted");
       errors.push(
         issue(
           "commercial_research.cross_lane_evidence_interpretation_conflict",
           `${interpretations[0]?.path ?? "commercial-research"}#/evidence_register`,
-          "the same subject-bound Evidence has contradictory current Lane interpretations; all interpretations remain visible and constrain the aggregate conclusion",
+          "the same subject-bound Evidence has contradictory current Lane interpretations; all interpretations remain visible, while only disagreements involving an adopted interpretation constrain the aggregate conclusion",
           {
             subjectId,
             evidenceRef,
             auditRefs: [...new Set(interpretations.map(({ path }) => path))].sort(),
             dispositions: [...dispositions].sort(),
+            decisionActive,
           },
         ),
       );

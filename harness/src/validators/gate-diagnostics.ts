@@ -37,7 +37,7 @@ const DECISION_IMPACT: Readonly<Record<string, string>> = {
   "commercial_research.gap_subject_unbound":
     "The unresolved item is retained as portfolio research context but does not lower any candidate-specific ceiling without a deterministic binding.",
   "commercial_research.cross_lane_evidence_interpretation_conflict":
-    "All current Lane interpretations remain visible, and the disagreement limits aggregate recommendation strength.",
+    "All current Lane interpretations remain visible; only a disagreement involving at least one adopted interpretation limits aggregate recommendation strength.",
   "commercial_research.search_objective_unplanned":
     "The recorded result is preserved; the undeclared route limits completeness claims about the planned search.",
   "commercial_research.acquisition_evidence_not_adopted":

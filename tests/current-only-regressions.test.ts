@@ -2697,6 +2697,8 @@ test("cross-Lane interpretation conflicts are invariant to Audit path and input 
   const lane = (
     pathValue: string,
     evidenceCharacter: "independent_report" | "counterevidence",
+    evidenceRefValue = evidenceRef,
+    disposition: "adopted" | "rejected" = "adopted",
   ): { path: string; document: Record<string, unknown> } => ({
     path: pathValue,
     document: {
@@ -2705,14 +2707,14 @@ test("cross-Lane interpretation conflicts are invariant to Audit path and input 
       subject_assessments: [
         {
           subject_id: subjectId,
-          evidence_refs: [evidenceRef],
+          evidence_refs: [evidenceRefValue],
           coverage: Object.fromEntries(
             dimensions.map((dimension) => [
               dimension,
               {
                 state: "observed",
                 content_covered: true,
-                evidence_refs: [evidenceRef],
+                evidence_refs: [evidenceRefValue],
                 data_points: [],
                 inference: null,
               },
@@ -2753,26 +2755,50 @@ test("cross-Lane interpretation conflicts are invariant to Audit path and input 
           limitations: [],
         },
       ],
-      quantitative_coverage: [],
+      quantitative_coverage: [
+        {
+          subject_id: subjectId,
+          metric_family: "retention_outcomes",
+          state: "observed",
+          observation_ids: ["observation_path_invariant"],
+          query_attempts: [],
+          reason: null,
+          alternative_metric: null,
+          decision_impact: "Synthetic path-invariance coverage.",
+        },
+      ],
       quantitative_observations: [],
-      competitive_coverage: [],
+      competitive_coverage: [
+        {
+          subject_id: subjectId,
+          competitor_type: "direct_product",
+          state: "observed",
+          competitive_object_ids: ["competitor_path_invariant"],
+          query_attempts: [],
+          reason: null,
+          alternative_metric: null,
+          decision_impact: "Synthetic path-invariance coverage.",
+        },
+      ],
       competitive_objects: [
         {
           competitive_object_id: "competitor_path_invariant",
           subject_id: subjectId,
-          source_refs: [evidenceRef],
+          source_refs: [evidenceRefValue],
         },
       ],
       evidence_register: [
         {
-          evidence_ref: evidenceRef,
+          evidence_ref: evidenceRefValue,
           subject_ids: [subjectId],
           subject_binding_basis: "single_subject_auto",
           source_profile: { type: "other", description: "Synthetic shared Evidence." },
           evidence_character: evidenceCharacter,
           independence: "independent",
           claim_type: evidenceCharacter,
-          disposition: "adopted",
+          disposition,
+          exclusion_reason:
+            disposition === "rejected" ? "The sample was not representative." : null,
         },
       ],
       limitations: [],
@@ -2784,7 +2810,7 @@ test("cross-Lane interpretation conflicts are invariant to Audit path and input 
     reverseInput: boolean,
   ): Record<string, unknown> => {
     const support = lane(supportPath, "independent_report");
-    const counter = lane(counterPath, "counterevidence");
+    const counter = lane(counterPath, "counterevidence", evidenceRef, "rejected");
     const audits = reverseInput ? [counter, support] : [support, counter];
     return projectCommercialAuditTables(audits).commercial_subject_aggregates[0] as Record<
       string,
@@ -2805,14 +2831,13 @@ test("cross-Lane interpretation conflicts are invariant to Audit path and input 
   assert.deepEqual(counterLast.conflict_evidence_refs, [evidenceRef]);
   const ceiling = counterLast.recommendation_ceiling as Record<string, unknown>;
   assert.equal(ceiling.maximum_decision_tier, "investigate_further");
-  assert.ok((ceiling.reason_codes as string[]).includes("conflicting_evidence_present"));
+  assert.equal((ceiling.reason_codes as string[]).includes("conflicting_evidence_present"), false);
   assert.ok((ceiling.reason_codes as string[]).includes("evidence_interpretation_disagreement"));
   assert.ok(
     (counterLast.limitations as string[]).some((limitation) =>
       limitation.includes("conflicting current Lane interpretations"),
     ),
   );
-  const policy = await commercialPolicy();
   const support = lane(
     "artifacts/research-audits/a-path-invariant-support.json",
     "independent_report",
@@ -2820,9 +2845,12 @@ test("cross-Lane interpretation conflicts are invariant to Audit path and input 
   const counter = lane(
     "artifacts/research-audits/z-path-invariant-counter.json",
     "counterevidence",
+    evidenceRef,
+    "rejected",
   );
   const projection = projectCommercialAuditTables([support, counter]);
-  const warningCodes = validateCommercialResearchContract(
+  const policy = await commercialPolicy();
+  const interpretationIssues = validateCommercialResearchContract(
     [
       ...[support, counter].map((entry) => ({
         path: entry.path,
@@ -2842,10 +2870,121 @@ test("cross-Lane interpretation conflicts are invariant to Audit path and input 
       },
     ],
     policy,
-  ).map((issue) => issue.code);
-  assert.ok(
-    warningCodes.includes("commercial_research.cross_lane_evidence_interpretation_conflict"),
   );
+  assert.ok(
+    interpretationIssues.some(
+      (issue) => issue.code === "commercial_research.cross_lane_evidence_interpretation_conflict",
+    ),
+  );
+
+  const anchorRef = "evidence/records/path-invariant-anchor.json";
+  const rejectedCounterRef = "evidence/records/path-invariant-rejected-counter.json";
+  const anchor = lane(
+    "artifacts/research-audits/adopted-anchor.json",
+    "independent_report",
+    anchorRef,
+  );
+  const rejectedOnlyCounter = lane(
+    "artifacts/research-audits/rejected-only-counter.json",
+    "counterevidence",
+    rejectedCounterRef,
+    "rejected",
+  );
+  const rejectedOnlyAggregate = projectCommercialAuditTables([anchor, rejectedOnlyCounter])
+    .commercial_subject_aggregates[0] as Record<string, unknown>;
+  const rejectedOnlyCeiling = rejectedOnlyAggregate.recommendation_ceiling as Record<
+    string,
+    unknown
+  >;
+  assert.equal(rejectedOnlyAggregate.ranking_eligibility, "ranked");
+  assert.equal(
+    rejectedOnlyCeiling.maximum_decision_tier,
+    "prioritize",
+    JSON.stringify(rejectedOnlyCeiling),
+  );
+  assert.equal(
+    (rejectedOnlyCeiling.reason_codes as string[]).includes("conflicting_evidence_present"),
+    false,
+  );
+  assert.deepEqual(rejectedOnlyAggregate.conflict_evidence_refs, []);
+  assert.ok((rejectedOnlyAggregate.evidence_refs as string[]).includes(rejectedCounterRef));
+
+  const adoptedCounterRef = "evidence/records/path-invariant-adopted-counter.json";
+  const adoptedCounter = lane(
+    "artifacts/research-audits/adopted-counter.json",
+    "counterevidence",
+    adoptedCounterRef,
+  );
+  const adoptedCounterAggregate = projectCommercialAuditTables([anchor, adoptedCounter])
+    .commercial_subject_aggregates[0] as Record<string, unknown>;
+  const adoptedCounterCeiling = adoptedCounterAggregate.recommendation_ceiling as Record<
+    string,
+    unknown
+  >;
+  assert.equal(adoptedCounterCeiling.maximum_decision_tier, "investigate_further");
+  assert.ok(
+    (adoptedCounterCeiling.reason_codes as string[]).includes("conflicting_evidence_present"),
+  );
+  assert.deepEqual(adoptedCounterAggregate.conflict_evidence_refs, [adoptedCounterRef]);
+
+  const allRejectedRef = "evidence/records/path-invariant-all-rejected.json";
+  const rejectedSupport = lane(
+    "artifacts/research-audits/all-rejected-support.json",
+    "independent_report",
+    allRejectedRef,
+    "rejected",
+  );
+  const rejectedCounter = lane(
+    "artifacts/research-audits/all-rejected-counter.json",
+    "counterevidence",
+    allRejectedRef,
+    "rejected",
+  );
+  const allRejectedAudits = [anchor, rejectedSupport, rejectedCounter];
+  const allRejectedProjection = projectCommercialAuditTables(allRejectedAudits);
+  const allRejectedAggregate = allRejectedProjection.commercial_subject_aggregates[0] as Record<
+    string,
+    unknown
+  >;
+  const allRejectedCeiling = allRejectedAggregate.recommendation_ceiling as Record<string, unknown>;
+  assert.equal(allRejectedCeiling.maximum_decision_tier, "prioritize");
+  assert.equal(
+    (allRejectedCeiling.reason_codes as string[]).includes("evidence_interpretation_disagreement"),
+    false,
+  );
+  assert.deepEqual(allRejectedAggregate.conflict_evidence_refs, []);
+  assert.ok((allRejectedAggregate.evidence_refs as string[]).includes(allRejectedRef));
+  assert.ok(
+    (allRejectedAggregate.limitations as string[]).some((limitation) =>
+      limitation.includes("conflicting current Lane interpretations"),
+    ),
+  );
+  const allRejectedIssues = validateCommercialResearchContract(
+    [
+      ...allRejectedAudits.map((entry) => ({
+        path: entry.path,
+        schemaVersion: "startup_opportunity.commercial_research_audit.current",
+        document: entry.document,
+      })),
+      {
+        path: "artifacts/reporting/all-rejected-report.r1.json",
+        schemaVersion: "startup_opportunity.report.v1",
+        document: {
+          ...allRejectedProjection,
+          curated_judgment_context: {
+            decision_tier: "prioritize",
+            recommended_first_bet: subjectId,
+          },
+        },
+      },
+    ],
+    policy,
+  );
+  const allRejectedWarning = allRejectedIssues.find(
+    (issue) => issue.code === "commercial_research.cross_lane_evidence_interpretation_conflict",
+  );
+  assert.ok(allRejectedWarning);
+  assert.equal(allRejectedWarning.details?.decisionActive, false);
 });
 
 test("multi-subject compiler binds direct and shared Evidence without lending unbound material", async () => {

@@ -380,6 +380,30 @@ function isCounterInterpretation(source: Readonly<Record<string, unknown>>): boo
   return source.evidence_character === "counterevidence" || source.claim_type === "counterevidence";
 }
 
+function evidenceInterpretationState(interpretations: readonly Record<string, unknown>[]): {
+  readonly counterStates: ReadonlySet<boolean>;
+  readonly dispositions: ReadonlySet<string>;
+  readonly disagreement: boolean;
+  readonly decisionActiveDisagreement: boolean;
+  readonly adoptedCounter: boolean;
+} {
+  const counterStates = new Set(interpretations.map(isCounterInterpretation));
+  const dispositions = new Set(interpretations.map((source) => String(source.disposition)));
+  const disagreement = counterStates.size > 1 || dispositions.size > 1;
+  const hasAdoptedInterpretation = interpretations.some(
+    (source) => source.disposition === "adopted",
+  );
+  return {
+    counterStates,
+    dispositions,
+    disagreement,
+    decisionActiveDisagreement: disagreement && hasAdoptedInterpretation,
+    adoptedCounter: interpretations.some(
+      (source) => source.disposition === "adopted" && isCounterInterpretation(source),
+    ),
+  };
+}
+
 function evidenceInterpretationGroups(
   evidence: readonly Record<string, unknown>[],
 ): ReadonlyMap<string, readonly Record<string, unknown>[]> {
@@ -415,8 +439,7 @@ function evidenceInterpretationLimitations(
 ): readonly string[] {
   const limitations: string[] = [];
   for (const [ref, interpretations] of groups) {
-    const counterStates = new Set(interpretations.map(isCounterInterpretation));
-    const dispositions = new Set(interpretations.map((source) => String(source.disposition)));
+    const { counterStates, dispositions } = evidenceInterpretationState(interpretations);
     if (counterStates.size > 1) {
       limitations.push(
         `Evidence ${ref} has conflicting current Lane interpretations as supporting/contextual material and counterevidence.`,
@@ -490,14 +513,19 @@ function aggregateRecommendationCeiling(input: {
     if (tier === "prioritize") tier = "investigate_further";
     reasons.push("independent_cross_validation_missing");
   }
-  if (input.evidence.some(isCounterInterpretation)) {
+  if (
+    input.evidence.some(
+      (source) => source.disposition === "adopted" && isCounterInterpretation(source),
+    )
+  ) {
     if (tier === "prioritize") tier = "investigate_further";
     reasons.push("conflicting_evidence_present");
   }
-  const interpretationDisagreement = evidenceInterpretationLimitations(
-    evidenceInterpretationGroups(input.evidence),
+  const interpretationGroups = evidenceInterpretationGroups(input.evidence);
+  const decisionActiveDisagreement = [...interpretationGroups.values()].some(
+    (interpretations) => evidenceInterpretationState(interpretations).decisionActiveDisagreement,
   );
-  if (interpretationDisagreement.length > 0) {
+  if (decisionActiveDisagreement) {
     if (tier === "prioritize") tier = "investigate_further";
     reasons.push("evidence_interpretation_disagreement");
   }
@@ -725,13 +753,8 @@ export function projectCommercialAuditTables(
     });
     const conflicts = [...evidenceGroups.entries()]
       .filter(([, interpretations]) => {
-        const counterStates = new Set(interpretations.map(isCounterInterpretation));
-        const dispositions = new Set(interpretations.map((source) => String(source.disposition)));
-        return (
-          interpretations.some(isCounterInterpretation) ||
-          counterStates.size > 1 ||
-          dispositions.size > 1
-        );
+        const state = evidenceInterpretationState(interpretations);
+        return state.adoptedCounter || state.decisionActiveDisagreement;
       })
       .map(([ref]) => ref)
       .sort();
