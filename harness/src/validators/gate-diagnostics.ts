@@ -32,6 +32,12 @@ const DECISION_IMPACT: Readonly<Record<string, string>> = {
     "The material remains traceable, but rejected or unaudited Evidence cannot count as direct positive support.",
   "commercial_research.semantic_evidence_not_registered":
     "The referenced Evidence is preserved in the Run closure but cannot count as audited direct support.",
+  "commercial_research.evidence_subject_unbound":
+    "The material is retained as background or portfolio context but cannot close direct coverage for any candidate.",
+  "commercial_research.gap_subject_unbound":
+    "The unresolved item is retained as portfolio research context but does not lower any candidate-specific ceiling without a deterministic binding.",
+  "commercial_research.cross_lane_evidence_interpretation_conflict":
+    "All current Lane interpretations remain visible; only a disagreement involving at least one adopted interpretation limits aggregate recommendation strength.",
   "commercial_research.search_objective_unplanned":
     "The recorded result is preserved; the undeclared route limits completeness claims about the planned search.",
   "commercial_research.acquisition_evidence_not_adopted":
@@ -41,7 +47,7 @@ const DECISION_IMPACT: Readonly<Record<string, string>> = {
   "commercial_research.competitive_positive_support_not_adopted":
     "The substitute row is retained as limited material and cannot close direct competitive coverage.",
   "commercial_research.report_audit_closure_incomplete":
-    "A planned commercial Audit is missing; report coverage is partial and cannot authorize a stronger conclusion.",
+    "A planned commercial Audit is missing; uncovered assigned dimensions constrain only their subjects while duplicate coverage remains an execution warning.",
   "terminal_reporting.search_closure_incomplete":
     "A planned Search Closure is missing; the report discloses incomplete execution and the related decision limit.",
 };

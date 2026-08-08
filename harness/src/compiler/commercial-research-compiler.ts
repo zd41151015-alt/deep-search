@@ -7,6 +7,7 @@ import {
   derivePortfolioRecommendationCeiling,
   deriveSourceConcentration,
   deriveSourceDistribution,
+  deriveSubjectAssessments,
   deriveSubjectRecommendationCeilings,
   deriveValidAsOf,
   isTraceableDirectSource,
@@ -144,6 +145,7 @@ export function compileCommercialResearchDelivery(
   const incumbentAssignment = isRecord(requirements.incumbent_response_assignment)
     ? requirements.incumbent_response_assignment
     : { analysis_depth: "not_assigned", subject_refs: [], rationale: "Not assigned." };
+  const auditPath = String(requirements.commercial_audit_output_path);
   const subjectIdFromRef = (ref: string): string => {
     const [targetPath = ref, fragment] = ref.split("#", 2);
     if (fragment !== undefined && fragment !== "") return fragment;
@@ -258,10 +260,23 @@ export function compileCommercialResearchDelivery(
   ].filter(Boolean);
   const authoredSubjectIds = [
     ...new Set([
+      ...records(delivery.evidence_sources).flatMap((item) => strings(item.subject_ids)),
+      ...records(delivery.findings).flatMap((item) =>
+        typeof item.subject_id === "string" ? [item.subject_id] : [],
+      ),
+      ...records(delivery.claims).flatMap((item) =>
+        typeof item.subject_id === "string" ? [item.subject_id] : [],
+      ),
+      ...records(delivery.judgments).flatMap((item) =>
+        typeof item.subject_id === "string" ? [item.subject_id] : [],
+      ),
       ...records(delivery.quantitative_observations).map((item) => String(item.subject_id)),
       ...records(delivery.competitive_observations).map((item) => String(item.subject_id)),
       ...records(delivery.incumbent_response_assessments).map((item) => String(item.subject_id)),
-      ...records(delivery.unresolved_gaps).map((item) => String(item.subject_id)),
+      ...records(delivery.unresolved_gaps).flatMap((item) => [
+        ...strings(item.subject_ids),
+        ...(typeof item.subject_id === "string" ? [item.subject_id] : []),
+      ]),
     ]),
   ].filter(Boolean);
   if (
@@ -283,7 +298,7 @@ export function compileCommercialResearchDelivery(
     issues.push(
       issue(
         "commercial_research.delivery_subject_out_of_scope",
-        "/quantitative_observations",
+        "/",
         "delivery subjects must remain within the Dispatch task target closure",
         { assignedSubjectIds: subjectIds, outOfScopeSubjects },
       ),
@@ -366,12 +381,107 @@ export function compileCommercialResearchDelivery(
             semantic,
           }));
         });
-  const gaps = new Map(
-    records(delivery.unresolved_gaps).map((gap) => [
-      gapKey(String(gap.coverage_kind), String(gap.subject_id), String(gap.dimension)),
-      gap,
-    ]),
-  );
+  const derivedBindings = new Map<string, Set<string>>();
+  const bindRefs = (subjectId: unknown, refs: readonly string[]): void => {
+    if (typeof subjectId !== "string" || !subjectIds.includes(subjectId)) return;
+    for (const ref of refs) {
+      const subjects = derivedBindings.get(ref) ?? new Set<string>();
+      subjects.add(subjectId);
+      derivedBindings.set(ref, subjects);
+    }
+  };
+  for (const statement of [
+    ...records(delivery.findings),
+    ...records(delivery.claims),
+    ...records(delivery.judgments),
+  ]) {
+    bindRefs(statement.subject_id, strings(statement.evidence_refs));
+  }
+  for (const observation of quantitativeObservations) {
+    bindRefs(observation.subject_id, strings(observation.evidence_refs));
+  }
+  for (const competitiveObject of competitiveObjects) {
+    bindRefs(competitiveObject.subject_id, strings(competitiveObject.source_refs));
+  }
+  for (const source of evidence) {
+    const explicit = strings(source.subject_ids).filter((subjectId) =>
+      subjectIds.includes(subjectId),
+    );
+    const derived = [...(derivedBindings.get(String(source.evidence_ref)) ?? new Set())].sort();
+    const subjectBindings =
+      explicit.length > 0 ? explicit : subjectIds.length === 1 ? subjectIds : derived;
+    source.subject_ids = [...new Set(subjectBindings)].sort();
+    source.subject_binding_basis =
+      explicit.length > 0
+        ? "explicit"
+        : subjectIds.length === 1
+          ? "single_subject_auto"
+          : derived.length > 0
+            ? "derived_from_material"
+            : "unbound";
+    if (source.subject_binding_basis === "unbound" && source.disposition === "adopted") {
+      issues.push(
+        issue(
+          "commercial_research.evidence_subject_unbound",
+          "/evidence_sources",
+          "multi-subject Evidence was retained as portfolio/background material because no direct subject binding could be derived",
+          { evidenceRef: source.evidence_ref, coveredSubjectIds: subjectIds },
+        ),
+      );
+    }
+  }
+  const structuredGaps = records(delivery.unresolved_gaps)
+    .map((gap) => {
+      const explicitSubjects = [
+        ...new Set([
+          ...strings(gap.subject_ids),
+          ...(typeof gap.subject_id === "string" ? [gap.subject_id] : []),
+        ]),
+      ]
+        .filter((subjectId) => subjectIds.includes(subjectId))
+        .sort();
+      const boundSubjects =
+        explicitSubjects.length > 0
+          ? explicitSubjects
+          : subjectIds.length === 1
+            ? [...subjectIds]
+            : [];
+      const subjectBindingBasis =
+        explicitSubjects.length > 0
+          ? "explicit"
+          : subjectIds.length === 1
+            ? "single_subject_auto"
+            : "unbound";
+      if (subjectBindingBasis === "unbound") {
+        issues.push(
+          issue(
+            "commercial_research.gap_subject_unbound",
+            "/unresolved_gaps",
+            "a multi-subject unresolved Gap was retained as portfolio research context because no subject binding could be derived",
+            { coverageKind: gap.coverage_kind, dimension: gap.dimension },
+          ),
+        );
+      }
+      const { subject_id: _subjectId, subject_ids: _subjectIds, ...researchSemantics } = gap;
+      return {
+        ...researchSemantics,
+        subject_ids: boundSubjects,
+        subject_binding_basis: subjectBindingBasis,
+        task_ref: taskPath,
+        audit_ref: auditPath,
+      } as Record<string, unknown>;
+    })
+    .sort((left, right) =>
+      `${strings(left.subject_ids).join(",")}\u0000${String(left.coverage_kind)}\u0000${String(left.dimension)}\u0000${String(left.reason)}`.localeCompare(
+        `${strings(right.subject_ids).join(",")}\u0000${String(right.coverage_kind)}\u0000${String(right.dimension)}\u0000${String(right.reason)}`,
+      ),
+    );
+  const gaps = new Map<string, Record<string, unknown>>();
+  for (const gap of structuredGaps) {
+    for (const subjectId of strings(gap.subject_ids)) {
+      gaps.set(gapKey(String(gap.coverage_kind), subjectId, String(gap.dimension)), gap);
+    }
+  }
   const quantitativeCoverage = subjectIds.flatMap((subjectId) =>
     strings(scope.required_metric_families).map((family) => {
       const observations = quantitativeObservations.filter(
@@ -498,7 +608,8 @@ export function compileCommercialResearchDelivery(
   const hasGaps =
     quantitativeCoverage.some((item) => item.state !== "observed") ||
     competitiveCoverage.some((item) => item.state !== "observed") ||
-    uncovered.length > 0;
+    uncovered.length > 0 ||
+    structuredGaps.some((gap) => gap.state !== "not_applicable");
   const claims = records(delivery.claims).map((claim) => {
     const refs = strings(claim.evidence_refs);
     const subjectId =
@@ -549,6 +660,17 @@ export function compileCommercialResearchDelivery(
     evidence,
     [...claims, ...judgments],
     evidenceDocuments,
+  );
+  const subjectAssessments = deriveSubjectAssessments(
+    subjectIds,
+    quantitativeCoverage,
+    quantitativeObservations,
+    competitiveCoverage,
+    competitiveObjects,
+    evidence,
+    [...claims, ...judgments],
+    evidenceDocuments,
+    strings(delivery.limitations),
   );
   const portfolioRecommendationCeiling = derivePortfolioRecommendationCeiling(
     subjectRecommendationCeilings,
@@ -606,7 +728,7 @@ export function compileCommercialResearchDelivery(
       outcome: hasGaps ? "evidence_insufficient" : "completed",
       query_log_complete: delivery.query_log_complete,
       telemetry_basis: delivery.telemetry_basis,
-      remaining_gaps: records(delivery.unresolved_gaps).map((gap) => String(gap.reason)),
+      remaining_gaps: structuredGaps,
       termination_reason: delivery.stop_reason,
     },
     evidence_register: evidence,
@@ -625,6 +747,7 @@ export function compileCommercialResearchDelivery(
       uncovered.length === 0 && !concentrated && hasIndependent ? "ranked" : "unranked_hypothesis",
     recommendation_ceiling: portfolioRecommendationCeiling,
     subject_recommendation_ceilings: subjectRecommendationCeilings,
+    subject_assessments: subjectAssessments,
     compiler_warnings: projectGateWarnings(issues),
     limitations: delivery.limitations,
   };

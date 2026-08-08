@@ -87,6 +87,7 @@ export const FIRST_BET_READY_REQUIREMENTS = [
   "fan_in_strong_candidate",
   "panels_sufficient",
   "ai_bundle_complete_or_not_required",
+  "commercial_subject_prioritize",
 ] as const;
 
 const PUBLICATION_ORDER = [
@@ -148,7 +149,12 @@ export async function loadDiscoveryEvaluationPolicy(
       "investigate_further" ||
     policy.ai_solution_gate_contract.g3_bundle_generated_by_g2 !== false ||
     canonicalJson(policy.decision_tier_ceiling.tier_order) !== canonicalJson(DECISION_TIER_ORDER) ||
-    policy.decision_tier_ceiling.no_first_bet_ceiling !== "investigate_further" ||
+    policy.decision_tier_ceiling.first_bet_subject_scope !== "selected_subject_only" ||
+    policy.decision_tier_ceiling.alternative_bet_effect !== "candidate_only" ||
+    policy.decision_tier_ceiling.candidate_commercial_ceiling_required !== true ||
+    policy.decision_tier_ceiling.no_first_bet_strategy !== "best_candidate_readiness" ||
+    canonicalJson(policy.decision_tier_ceiling.no_first_bet_tiers) !==
+      canonicalJson(["investigate_further", "watch", "insufficient_evidence"]) ||
     canonicalJson(policy.decision_tier_ceiling.first_bet_ready_requirements) !==
       canonicalJson(FIRST_BET_READY_REQUIREMENTS) ||
     policy.decision_tier_ceiling.mixed_inputs_use_strictest_ceiling !== true ||

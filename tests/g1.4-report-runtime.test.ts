@@ -38,6 +38,7 @@ import {
 import {
   commercialReportProjection,
   unavailableQuantitativeCompetitiveCoverage,
+  unavailableSubjectAssessments,
 } from "./fixtures/quantitative-competitive-fixture.js";
 import { createConfirmedRun } from "./helpers/current-run.js";
 
@@ -111,7 +112,7 @@ function commercialAuditEnvelope(
   const coveredSubjectIds =
     branch.unitId === "unit_demand"
       ? ["concept_assess_001", "narrow_outcome_service"]
-      : [`subject_${branch.unitId}`];
+      : ["concept_assess_001"];
   const uncovered = [
     "recent_user_language",
     "purchase_signal",
@@ -146,6 +147,11 @@ function commercialAuditEnvelope(
       },
     };
   }
+  const quantitativeCompetitive = unavailableQuantitativeCompetitiveCoverage(
+    coveredSubjectIds,
+    "2026-07-25T18:39:00Z",
+  );
+  const limitations = ["SYNTHETIC audit fixture; no market research was performed."];
   const document = {
     schema_version: "startup_opportunity.commercial_research_audit.current",
     audit_id: `commercial_audit_${branch.unitId}`,
@@ -205,12 +211,30 @@ function commercialAuditEnvelope(
       outcome: "evidence_insufficient",
       query_log_complete: false,
       telemetry_basis: "unavailable",
-      remaining_gaps: uncovered,
+      remaining_gaps: uncovered.flatMap((dimension) =>
+        coveredSubjectIds.map((subjectId) => ({
+          subject_ids: [subjectId],
+          subject_binding_basis:
+            coveredSubjectIds.length === 1 ? "single_subject_auto" : "explicit",
+          coverage_kind: "business",
+          dimension,
+          state: "unavailable",
+          reason: `No direct ${dimension} material was available in the synthetic fixture.`,
+          alternative_metric: null,
+          decision_impact:
+            "The subject remains unranked until this business dimension is observed.",
+          query_attempts: [],
+          task_ref: taskRef,
+          audit_ref: `artifacts/research-audits/${branch.unitId}.json`,
+        })),
+      ),
       termination_reason: "Synthetic fixture records no observable browser-tool telemetry.",
     },
     evidence_register: [
       {
         evidence_ref: evidenceRef,
+        subject_ids: [...coveredSubjectIds],
+        subject_binding_basis: coveredSubjectIds.length === 1 ? "single_subject_auto" : "explicit",
         source_kind: "independent",
         source_profile: { type: "other", description: "Synthetic contract Evidence." },
         evidence_character: "inference",
@@ -233,7 +257,7 @@ function commercialAuditEnvelope(
     wave1_signals: { demand: false, buyer: false, purchase: false },
     stage_decision: "early_stop_insufficient_evidence",
     ranking_eligibility: "unranked_hypothesis",
-    ...unavailableQuantitativeCompetitiveCoverage(coveredSubjectIds, "2026-07-25T18:39:00Z"),
+    ...quantitativeCompetitive,
     incumbent_response_assignment: {
       analysis_depth: "not_assigned",
       subject_refs: [],
@@ -258,6 +282,12 @@ function commercialAuditEnvelope(
         "missing_retention_evidence",
       ],
     })),
+    subject_assessments: unavailableSubjectAssessments(
+      coveredSubjectIds,
+      quantitativeCompetitive,
+      limitations,
+      [evidenceRef],
+    ),
     compiler_warnings:
       branch.unitId === "unit_demand"
         ? [
@@ -271,7 +301,7 @@ function commercialAuditEnvelope(
             },
           ]
         : [],
-    limitations: ["SYNTHETIC audit fixture; no market research was performed."],
+    limitations,
   };
   return v5Envelope(
     artifactPath,
@@ -417,6 +447,7 @@ interface PreparedRun {
   readonly runsRoot: string;
   readonly runRoot: string;
   readonly store: RunStore;
+  readonly validator: Awaited<ReturnType<typeof createArtifactValidator>>;
   readonly runtime: ReportRuntime;
   readonly reportEnvelope: FormalArtifactEnvelope;
   readonly evidenceRef: string;
@@ -425,6 +456,10 @@ interface PreparedRun {
     readonly auditRef: string;
     readonly audit: Readonly<Record<string, unknown>>;
   }[];
+  readonly omittedCommercialAudit?: {
+    readonly auditRef: string;
+    readonly audit: Readonly<Record<string, unknown>>;
+  };
 }
 
 function nextReportRevision(source: FormalArtifactEnvelope): FormalArtifactEnvelope {
@@ -448,7 +483,10 @@ function nextReportRevision(source: FormalArtifactEnvelope): FormalArtifactEnvel
   };
 }
 
-async function prepareRun(context: TestContext): Promise<PreparedRun> {
+async function prepareRun(
+  context: TestContext,
+  options: { readonly omitCommercialAuditUnitId?: string } = {},
+): Promise<PreparedRun> {
   const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g1-4-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const runsRoot = path.join(root, "runs");
@@ -536,6 +574,7 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
     auditRef: string;
     audit: Readonly<Record<string, unknown>>;
   }[] = [];
+  let omittedCommercialAudit: PreparedRun["omittedCommercialAudit"];
   for (const [index, branch] of branches.entries()) {
     const taskPath = `tasks/${branch.unitId}.attempt-1.json`;
     const researchGoal = String(documentAt(bundle, taskPath).research_goal);
@@ -568,10 +607,16 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
       evidencePaths[0] as string,
       support.record.recorded_at,
     );
-    commercialAudits.push({
+    const commercialAuditEntry = {
       auditRef: commercialAudit.artifact_path,
       audit: commercialAudit.document,
-    });
+    };
+    const commercialAuditOmitted = options.omitCommercialAuditUnitId === branch.unitId;
+    if (commercialAuditOmitted) {
+      omittedCommercialAudit = commercialAuditEntry;
+    } else {
+      commercialAudits.push(commercialAuditEntry);
+    }
     await store.publishArtifactBundle({
       runId: G14_RUN_ID,
       envelopes: [
@@ -595,7 +640,7 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
             document,
           };
         }),
-        commercialAudit,
+        ...(commercialAuditOmitted ? [] : [commercialAudit]),
       ],
     });
     if (branch.unitId === demand.unitId) {
@@ -666,11 +711,13 @@ async function prepareRun(context: TestContext): Promise<PreparedRun> {
     runsRoot,
     runRoot,
     store,
+    validator,
     runtime: new ReportRuntime(runsRoot, validator),
     reportEnvelope: reportEnvelope as FormalArtifactEnvelope,
     evidenceRef: `evidence/records/${demandRecords[0].evidence_id}.json`,
     evidenceRefs,
     commercialAudits,
+    ...(omittedCommercialAudit === undefined ? {} : { omittedCommercialAudit }),
   };
 }
 
@@ -941,7 +988,23 @@ test("terminal finalizer produces a localized decision-first brief with readable
     reportJson.commercial_research_audit_refs,
     state.commercialAudits.map((entry) => entry.auditRef).sort(),
   );
-  assert.ok((reportJson.research_coverage_gaps as unknown[]).length > 0);
+  for (const branch of g14Branches()) {
+    assert.ok(
+      (reportJson.audit_refs as string[]).includes(`tasks/${branch.unitId}.attempt-1.json`),
+    );
+  }
+  const coverageGaps = reportJson.research_coverage_gaps as Record<string, unknown>[];
+  assert.ok(coverageGaps.length > 0);
+  assert.ok(
+    coverageGaps.some(
+      (gap) =>
+        gap.coverage_kind === "business" &&
+        gap.dimension === "recent_user_language" &&
+        (gap.subject_ids as string[]).length === 1,
+    ),
+  );
+  const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
+  assert.match(reportMarkdown, /No direct recent_user_language material was available/);
   assert.ok(
     (reportJson.gate_warnings as Record<string, unknown>[]).some(
       (warning) =>
@@ -1157,6 +1220,10 @@ test("terminal report fault recovery completes immutable sidecars and materializ
     await readFile(path.join(state.runRoot, "report.md"), "utf8"),
     /# 创业机会研究终态报告/,
   );
+  const recoveredReport = JSON.parse(
+    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.ok((recoveredReport.audit_refs as string[]).includes("tasks/unit_demand.attempt-1.json"));
 });
 
 test("build-report publishes formal sidecars, materializes three outputs, and exactly replays", async (context) => {
@@ -1258,6 +1325,10 @@ test("ReportRuntime excludes a formally stored ignored-late commercial Audit", a
   const ignoredAuditRef = "artifacts/research-audits/ignored-late-extra.json";
   const ignoredDocument = structuredClone(storedAudit.document);
   ignoredDocument.audit_id = "commercial_audit_ignored_late_extra";
+  const ignoredClosure = ignoredDocument.search_closure as Record<string, unknown>;
+  ignoredClosure.remaining_gaps = (ignoredClosure.remaining_gaps as Record<string, unknown>[]).map(
+    (gap) => ({ ...gap, audit_ref: ignoredAuditRef }),
+  );
   const ignoredEnvelope: FormalArtifactEnvelope = {
     ...storedAudit,
     artifact_path: ignoredAuditRef,
@@ -1291,15 +1362,11 @@ test("ReportRuntime excludes a formally stored ignored-late commercial Audit", a
 });
 
 test("ReportRuntime publishes an explicit warning when a planned commercial Audit is missing", async (context) => {
-  const state = await prepareRun(context);
-  const missingAuditRef = state.commercialAudits[0]?.auditRef;
-  assert.ok(missingAuditRef);
-  const manifestPath = path.join(state.runRoot, "manifest.json");
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
-  manifest.artifact_refs = (manifest.artifact_refs as string[]).filter(
-    (ref) => ref !== missingAuditRef,
-  );
-  await writeFile(manifestPath, `${canonicalJson(manifest)}\n`);
+  const state = await prepareRun(context, { omitCommercialAuditUnitId: "unit_demand" });
+  const missingAudit = state.omittedCommercialAudit;
+  assert.ok(missingAudit);
+  const missingAuditRef = missingAudit.auditRef;
+  const missingTaskRef = String(missingAudit.audit.task_ref);
 
   const source = structuredClone(state.reportEnvelope);
   source.document.commercial_research_audit_refs = [];
@@ -1316,17 +1383,31 @@ test("ReportRuntime publishes an explicit warning when a planned commercial Audi
   ).filter((binding) => !String(binding.ref).startsWith("artifacts/research-audits/"));
   (source as { content_hash: string }).content_hash = canonicalContentHash(source.document);
 
-  const result = await state.runtime.build({ reportEnvelope: source }).catch((error: unknown) => {
-    if (error instanceof StoreError) {
-      assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
-    }
-    throw error;
-  });
-  assert.equal(result.status, "published");
+  await assert.rejects(
+    state.runtime.build({ reportEnvelope: source, faultAt: "after_view_materialization" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const recovered = await state.store.load(G14_RUN_ID);
+  assert.ok(recovered.manifest.artifact_refs.includes(G14_REPORT_REF));
+  assert.ok(recovered.reportRecovery.recoveredFormalArtifactPaths.length > 0);
+  const result = await state.runtime.build({ reportEnvelope: source });
+  assert.equal(result.status, "idempotent_replay");
   const report = JSON.parse(
     await readFile(path.join(state.runRoot, "report.json"), "utf8"),
   ) as Record<string, unknown>;
   assert.ok(!(report.commercial_research_audit_refs as string[]).includes(missingAuditRef));
+  assert.equal(
+    (report.commercial_research_status as Record<string, unknown>).state,
+    "planned_with_gaps",
+  );
+  assert.ok(
+    (report.research_coverage_gaps as Record<string, unknown>[]).some(
+      (row) => row.coverage_kind === "execution" && row.task_ref === missingTaskRef,
+    ),
+  );
+  const markdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
+  assert.match(markdown, /execution \/ research/);
+  assert.doesNotMatch(markdown, /all planned dimensions.*observed/is);
   const warnings = report.gate_warnings as Record<string, unknown>[];
   for (const code of ["commercial_research.report_audit_closure_incomplete"]) {
     const warning = warnings.find((entry) => entry.code === code);
@@ -1335,6 +1416,27 @@ test("ReportRuntime publishes an explicit warning when a planned commercial Audi
     assert.equal(warning.category, "coverage");
     assert.equal(typeof warning.decision_impact, "string");
   }
+  const checkpoint = await state.store.checkpoint({
+    runId: G14_RUN_ID,
+    checkpointId: "checkpoint_g1_4_missing_commercial_audit",
+    createdAt: "2026-07-25T19:06:00Z",
+    nextStep: "SYNTHETIC retain the disclosed execution gap.",
+    beliefSummary: {
+      current_belief: "SYNTHETIC report remains honest with one missing Audit.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["No missing result or numeric observation was fabricated."],
+      remaining_disagreement: ["The missing research task remains unresolved."],
+      next_decision_relevant_question: "Should the user commission more research?",
+    },
+    inputRefs: result.formalArtifactPaths,
+  });
+  assert.equal(checkpoint.status, "published");
+  const reopened = await new RunStore(state.runsRoot, state.validator).load(G14_RUN_ID);
+  assert.equal(
+    reopened.lastValidCheckpointRef,
+    "checkpoints/checkpoint-g1-4-missing-commercial-audit.json",
+  );
+  assert.equal(reopened.reportRecovery.recoveredFormalArtifactPaths.length, 0);
 });
 
 test("ReportRuntime rejects a concept prioritize conclusion above the compiled ceiling", async (context) => {

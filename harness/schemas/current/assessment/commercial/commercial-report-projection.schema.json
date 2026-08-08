@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/assessment/commercial/commercial-report-projection.schema.json",
+  "title": "Startup Opportunity Commercial Report Projection Definitions",
+  "$defs": {
+    "subjectAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_id",
+        "evidence_refs",
+        "coverage",
+        "uncovered_business_dimensions",
+        "quantitative_coverage",
+        "competitive_coverage",
+        "wave1_signals",
+        "ranking_eligibility",
+        "recommendation_ceiling",
+        "conflict_evidence_refs",
+        "limitations"
+      ],
+      "properties": {
+        "subject_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "coverage": {
+          "$ref": "./commercial-research-audit.schema.json#/properties/coverage"
+        },
+        "uncovered_business_dimensions": {
+          "$ref": "./commercial-research-audit.schema.json#/properties/uncovered_business_dimensions"
+        },
+        "quantitative_coverage": {
+          "type": "array",
+          "items": {
+            "$ref": "./quantitative-competitive-research.schema.json#/$defs/quantitativeCoverage"
+          }
+        },
+        "competitive_coverage": {
+          "type": "array",
+          "items": {
+            "$ref": "./quantitative-competitive-research.schema.json#/$defs/competitiveCoverage"
+          }
+        },
+        "wave1_signals": {
+          "$ref": "./commercial-research-audit.schema.json#/properties/wave1_signals"
+        },
+        "ranking_eligibility": {
+          "$ref": "./commercial-research-audit.schema.json#/properties/ranking_eligibility"
+        },
+        "recommendation_ceiling": {
+          "$ref": "./commercial-research-audit.schema.json#/$defs/recommendationCeiling"
+        },
+        "conflict_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "limitations": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        }
+      }
+    },
+    "commercialSubjectAggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_id",
+        "audit_refs",
+        "task_refs",
+        "evidence_refs",
+        "coverage",
+        "uncovered_business_dimensions",
+        "quantitative_coverage",
+        "competitive_coverage",
+        "wave1_signals",
+        "ranking_eligibility",
+        "recommendation_ceiling",
+        "conflict_evidence_refs",
+        "limitations",
+        "research_status",
+        "execution_warning_task_refs"
+      ],
+      "properties": {
+        "subject_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "audit_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+          }
+        },
+        "task_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "coverage": {
+          "$ref": "./commercial-research-audit.schema.json#/properties/coverage"
+        },
+        "uncovered_business_dimensions": {
+          "$ref": "./commercial-research-audit.schema.json#/properties/uncovered_business_dimensions"
+        },
+        "quantitative_coverage": {
+          "type": "array",
+          "items": {
+            "$ref": "./quantitative-competitive-research.schema.json#/$defs/quantitativeCoverage"
+          }
+        },
+        "competitive_coverage": {
+          "type": "array",
+          "items": {
+            "$ref": "./quantitative-competitive-research.schema.json#/$defs/competitiveCoverage"
+          }
+        },
+        "wave1_signals": {
+          "$ref": "./commercial-research-audit.schema.json#/properties/wave1_signals"
+        },
+        "ranking_eligibility": {
+          "$ref": "./commercial-research-audit.schema.json#/properties/ranking_eligibility"
+        },
+        "recommendation_ceiling": {
+          "$ref": "./commercial-research-audit.schema.json#/$defs/recommendationCeiling"
+        },
+        "conflict_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "limitations": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "research_status": {
+          "enum": ["complete", "planned_with_gaps", "planned_but_missing", "not_planned"]
+        },
+        "execution_warning_task_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        }
+      }
+    },
+    "commercialBackgroundMaterial": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["audit_ref", "evidence_ref", "subject_binding_basis"],
+      "properties": {
+        "audit_ref": {
+          "type": "string",
+          "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+        },
+        "evidence_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "subject_binding_basis": { "const": "unbound" }
+      }
+    },
+    "commercialResearchStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "planned_task_refs", "missing_task_refs", "submitted_audit_refs"],
+      "properties": {
+        "state": {
+          "enum": ["complete", "planned_with_gaps", "planned_but_missing", "not_planned"]
+        },
+        "planned_task_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "missing_task_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "submitted_audit_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+          }
+        }
+      }
+    }
+  }
+}

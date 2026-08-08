@@ -492,11 +492,18 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["audit_ref", "coverage_kind", "coverage"],
+          "required": ["audit_refs", "task_refs", "coverage_kind", "coverage"],
           "properties": {
-            "audit_ref": {
-              "type": "string",
-              "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+            "audit_refs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+              }
+            },
+            "task_refs": {
+              "$ref": "#/$defs/artifactRefArray"
             },
             "coverage_kind": { "const": "quantitative" },
             "coverage": { "$ref": "#/$defs/quantitativeCoverage" }
@@ -505,14 +512,115 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["audit_ref", "coverage_kind", "coverage"],
+          "required": ["audit_refs", "task_refs", "coverage_kind", "coverage"],
           "properties": {
-            "audit_ref": {
-              "type": "string",
-              "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+            "audit_refs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+              }
+            },
+            "task_refs": {
+              "$ref": "#/$defs/artifactRefArray"
             },
             "coverage_kind": { "const": "competitive" },
             "coverage": { "$ref": "#/$defs/competitiveCoverage" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "task_ref",
+            "coverage_kind",
+            "subject_ids",
+            "state",
+            "reason",
+            "decision_impact",
+            "assigned_commercial_dimensions",
+            "assigned_metric_families",
+            "assigned_competitor_types"
+          ],
+          "properties": {
+            "task_ref": { "$ref": "#/$defs/artifactRef" },
+            "coverage_kind": { "const": "execution" },
+            "subject_ids": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/identifier" }
+            },
+            "state": { "const": "unavailable" },
+            "reason": { "$ref": "#/$defs/nonEmptyString" },
+            "decision_impact": { "$ref": "#/$defs/nonEmptyString" },
+            "assigned_commercial_dimensions": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "recent_user_language",
+                  "purchase_signal",
+                  "alternatives_pricing_usage",
+                  "distribution_channel",
+                  "independent_counterevidence"
+                ]
+              }
+            },
+            "assigned_metric_families": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/metricFamily" }
+            },
+            "assigned_competitor_types": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/competitorType" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "audit_refs",
+            "task_refs",
+            "coverage_kind",
+            "subject_ids",
+            "dimension",
+            "state",
+            "reason",
+            "alternative_metric",
+            "decision_impact",
+            "query_attempts"
+          ],
+          "properties": {
+            "audit_refs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+              }
+            },
+            "task_refs": { "$ref": "#/$defs/artifactRefArray" },
+            "coverage_kind": { "enum": ["business", "research"] },
+            "subject_ids": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/identifier" }
+            },
+            "dimension": { "$ref": "#/$defs/nonEmptyString" },
+            "state": { "enum": ["partial", "unavailable", "not_applicable"] },
+            "reason": { "$ref": "#/$defs/nonEmptyString" },
+            "alternative_metric": {
+              "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }]
+            },
+            "decision_impact": { "$ref": "#/$defs/nonEmptyString" },
+            "query_attempts": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/queryAttempt" }
+            }
           }
         }
       ]

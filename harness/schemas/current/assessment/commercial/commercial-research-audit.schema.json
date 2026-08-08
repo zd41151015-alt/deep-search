@@ -39,6 +39,7 @@
     "ranking_eligibility",
     "recommendation_ceiling",
     "subject_recommendation_ceilings",
+    "subject_assessments",
     "compiler_warnings",
     "limitations"
   ],
@@ -268,7 +269,11 @@
               "news_trend_only",
               "positive_support_not_adopted",
               "source_concentration",
-              "independent_cross_validation_missing"
+              "independent_cross_validation_missing",
+              "aggregate_business_coverage_incomplete",
+              "conflicting_evidence_present",
+              "evidence_interpretation_disagreement",
+              "subject_research_gap_present"
             ]
           }
         }
@@ -349,6 +354,54 @@
               "type": "null"
             }
           ]
+        }
+      }
+    },
+    "researchGap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_ids",
+        "subject_binding_basis",
+        "coverage_kind",
+        "dimension",
+        "state",
+        "reason",
+        "alternative_metric",
+        "decision_impact",
+        "query_attempts",
+        "task_ref",
+        "audit_ref"
+      ],
+      "properties": {
+        "subject_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "subject_binding_basis": {
+          "enum": ["explicit", "single_subject_auto", "unbound"]
+        },
+        "coverage_kind": {
+          "enum": ["quantitative", "competitive", "business", "research"]
+        },
+        "dimension": { "$ref": "#/$defs/nonEmptyString" },
+        "state": { "enum": ["partial", "unavailable", "not_applicable"] },
+        "reason": { "$ref": "#/$defs/nonEmptyString" },
+        "alternative_metric": {
+          "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }]
+        },
+        "decision_impact": { "$ref": "#/$defs/nonEmptyString" },
+        "query_attempts": {
+          "type": "array",
+          "items": { "$ref": "./quantitative-competitive-research.schema.json#/$defs/queryAttempt" }
+        },
+        "task_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "audit_ref": {
+          "type": "string",
+          "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
         }
       }
     }
@@ -700,7 +753,8 @@
           "enum": ["agent_supplied", "unavailable"]
         },
         "remaining_gaps": {
-          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+          "type": "array",
+          "items": { "$ref": "#/$defs/researchGap" }
         },
         "termination_reason": {
           "$ref": "#/$defs/nonEmptyString"
@@ -714,6 +768,8 @@
         "additionalProperties": false,
         "required": [
           "evidence_ref",
+          "subject_ids",
+          "subject_binding_basis",
           "source_kind",
           "source_profile",
           "evidence_character",
@@ -733,6 +789,14 @@
         "properties": {
           "evidence_ref": {
             "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+          },
+          "subject_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/identifier" }
+          },
+          "subject_binding_basis": {
+            "enum": ["single_subject_auto", "explicit", "derived_from_material", "unbound"]
           },
           "source_kind": {
             "enum": ["behavioral", "independent", "vendor", "academic", "regulatory"]
@@ -922,6 +986,11 @@
           }
         }
       }
+    },
+    "subject_assessments": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "./commercial-report-projection.schema.json#/$defs/subjectAssessment" }
     },
     "compiler_warnings": {
       "type": "array",

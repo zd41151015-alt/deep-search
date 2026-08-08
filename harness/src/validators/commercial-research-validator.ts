@@ -1,7 +1,13 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import { projectCommercialAuditTables } from "../reporting/commercial-report-tables.js";
+import {
+  canonicalSourceGroup,
+  deriveSourceConcentration,
+} from "./commercial-source-concentration.js";
 import { projectGateWarnings } from "./gate-diagnostics.js";
 import type { ValidationIssue } from "./schema-bundle.js";
+
+export { canonicalSourceGroup, deriveSourceConcentration };
 
 export interface CommercialResearchDocument {
   readonly path: string;
@@ -362,79 +368,6 @@ export function isTraceableDirectSource(
   return primaryProfile.type === "api_dataset" && sourceClaimType === primaryClaimType;
 }
 
-function normalizedSourceIdentity(value: unknown): string | null {
-  if (typeof value !== "string" || value.trim() === "") return null;
-  const trimmed = value.trim().toLowerCase();
-  try {
-    const url = new URL(trimmed);
-    return url.hostname.replace(/^www\./u, "");
-  } catch {
-    return trimmed.replace(/\s+/gu, " ");
-  }
-}
-
-function sourceGroupIdentities(
-  source: Readonly<Record<string, unknown>>,
-  evidenceDocument: Readonly<Record<string, unknown>> = {},
-): readonly string[] {
-  const assessment = isRecord(evidenceDocument.source_assessment)
-    ? evidenceDocument.source_assessment
-    : {};
-  const sharedDataset = normalizedSourceIdentity(assessment.shared_dataset_group);
-  const syndication = normalizedSourceIdentity(assessment.syndication_group);
-  const canonical = normalizedSourceIdentity(assessment.canonical_source_group);
-  const profile = isRecord(source.source_profile) ? source.source_profile : {};
-  const profiled =
-    profile.type === "news"
-      ? normalizedSourceIdentity(profile.publisher)
-      : profile.type === "review"
-        ? normalizedSourceIdentity(profile.platform)
-        : profile.type === "api_dataset"
-          ? normalizedSourceIdentity(profile.raw_provenance)
-          : null;
-  const sourceName = normalizedSourceIdentity(evidenceDocument.source_name);
-  const provider = canonical ?? profiled ?? sourceName;
-  const groups = [
-    ...(sharedDataset === null ? [] : [`dataset:${sharedDataset}`]),
-    ...(syndication === null ? [] : [`syndication:${syndication}`]),
-    ...(provider === null ? [] : [`provider:${provider}`]),
-  ];
-  return groups.length > 0 ? groups : [`evidence:${String(source.evidence_ref ?? "unknown")}`];
-}
-
-export function canonicalSourceGroup(
-  source: Readonly<Record<string, unknown>>,
-  evidenceDocument: Readonly<Record<string, unknown>> = {},
-): string {
-  return sourceGroupIdentities(source, evidenceDocument)[0] as string;
-}
-
-export function deriveSourceConcentration(
-  adopted: readonly Record<string, unknown>[],
-  evidenceDocuments: ReadonlyMap<string, Record<string, unknown>> = new Map(),
-): {
-  readonly concentrated: boolean;
-  readonly dominantGroupCount: number;
-  readonly dominantGroup: string | null;
-} {
-  const sourceGroups = adopted.map((source) =>
-    sourceGroupIdentities(source, evidenceDocuments.get(String(source.evidence_ref)) ?? {}),
-  );
-  const groups = [...new Set(sourceGroups.flat())];
-  const counts = groups.map((group) => ({
-    group,
-    count: sourceGroups.filter((candidate) => candidate.includes(group)).length,
-  }));
-  const dominant = counts.toSorted(
-    (left, right) => right.count - left.count || left.group.localeCompare(right.group),
-  )[0];
-  return {
-    concentrated: adopted.length >= 2 && (dominant?.count ?? 0) / adopted.length >= 0.75,
-    dominantGroupCount: dominant?.count ?? 0,
-    dominantGroup: dominant?.group ?? null,
-  };
-}
-
 export function deriveRecommendationCeiling(
   coverage: Readonly<Record<string, unknown>>,
   quantitativeCoverage: readonly Record<string, unknown>[],
@@ -496,6 +429,15 @@ export function deriveRecommendationCeiling(
     reasons.push("independent_cross_validation_missing");
   }
   if (
+    adopted.some(
+      (item) =>
+        item.evidence_character === "counterevidence" || item.claim_type === "counterevidence",
+    )
+  ) {
+    if (maximumDecisionTier === "prioritize") maximumDecisionTier = "investigate_further";
+    reasons.push("conflicting_evidence_present");
+  }
+  if (
     adopted.length > 0 &&
     adopted.every(
       (item) =>
@@ -530,7 +472,7 @@ export function deriveRecommendationCeiling(
 
 export function deriveSubjectRecommendationCeilings(
   coveredSubjectIds: readonly string[],
-  globalCoverage: Readonly<Record<string, unknown>>,
+  _globalCoverage: Readonly<Record<string, unknown>>,
   quantitativeCoverage: readonly Record<string, unknown>[],
   quantitativeObservations: readonly Record<string, unknown>[],
   competitiveObjects: readonly Record<string, unknown>[],
@@ -558,14 +500,14 @@ export function deriveSubjectRecommendationCeilings(
         .flatMap((competitiveObject) => strings(competitiveObject.source_refs)),
       ...statements.flatMap((statement) => strings(statement.evidence_refs)),
     ]);
-    const subjectEvidence =
-      coveredSubjectIds.length === 1
-        ? evidence
-        : evidence.filter((item) => subjectRefs.has(String(item.evidence_ref)));
-    const subjectCoverage =
-      coveredSubjectIds.length === 1
-        ? globalCoverage
-        : deriveBusinessCoverage(subjectEvidence, evidenceByRef).coverage;
+    const subjectEvidence = evidence.filter(
+      (item) =>
+        strings(item.subject_ids).includes(subjectId) ||
+        (coveredSubjectIds.length === 1 &&
+          item.subject_ids === undefined &&
+          subjectRefs.has(String(item.evidence_ref))),
+    );
+    const subjectCoverage = deriveBusinessCoverage(subjectEvidence, evidenceByRef).coverage;
     const ceiling = deriveRecommendationCeiling(
       subjectCoverage,
       quantitativeCoverage.filter((coverage) => coverage.subject_id === subjectId),
@@ -575,6 +517,101 @@ export function deriveSubjectRecommendationCeilings(
       evidenceDocuments,
     );
     return { subject_id: subjectId, ...ceiling };
+  });
+}
+
+export function deriveSubjectAssessments(
+  coveredSubjectIds: readonly string[],
+  quantitativeCoverage: readonly Record<string, unknown>[],
+  quantitativeObservations: readonly Record<string, unknown>[],
+  competitiveCoverage: readonly Record<string, unknown>[],
+  competitiveObjects: readonly Record<string, unknown>[],
+  evidence: readonly Record<string, unknown>[],
+  semanticStatements: readonly Record<string, unknown>[] = [],
+  evidenceDocuments: ReadonlyMap<string, Record<string, unknown>> = new Map(),
+  limitations: readonly string[] = [],
+): readonly Record<string, unknown>[] {
+  const subjectCeilings = deriveSubjectRecommendationCeilings(
+    coveredSubjectIds,
+    {},
+    quantitativeCoverage,
+    quantitativeObservations,
+    competitiveObjects,
+    evidence,
+    semanticStatements,
+    evidenceDocuments,
+  );
+  return [...new Set(coveredSubjectIds)].sort().map((subjectId) => {
+    const subjectEvidence = evidence.filter((item) =>
+      strings(item.subject_ids).includes(subjectId),
+    );
+    const subjectEvidenceByRef = new Map(
+      subjectEvidence.map((item) => [String(item.evidence_ref), item]),
+    );
+    const subjectCoverage = deriveBusinessCoverage(subjectEvidence, subjectEvidenceByRef);
+    const uncovered = REQUIRED_RANKING_KEYS.filter(
+      (key) => !subjectCoverage.directlyCovered.has(key),
+    );
+    const subjectQuantitativeCoverage = quantitativeCoverage.filter(
+      (item) => item.subject_id === subjectId,
+    );
+    const subjectCompetitiveCoverage = competitiveCoverage.filter(
+      (item) => item.subject_id === subjectId,
+    );
+    const adopted = subjectEvidence.filter((item) => item.disposition === "adopted");
+    const demand =
+      subjectCoverage.directlyCovered.has("recent_user_language") ||
+      subjectQuantitativeCoverage.some(
+        (item) =>
+          item.state === "observed" &&
+          ["demand_scale", "growth_change"].includes(String(item.metric_family)),
+      );
+    const buyer = subjectEvidence.some(
+      (item) =>
+        item.disposition === "adopted" &&
+        strings(item.coverage_keys).includes("buyer") &&
+        item.freshness_status === "current" &&
+        item.source_kind !== "academic" &&
+        !["inference", "mechanism", "effect_boundary"].includes(String(item.evidence_character)) &&
+        isTraceableDirectSource(item, subjectEvidenceByRef),
+    );
+    const ceiling = subjectCeilings.find((item) => item.subject_id === subjectId) ?? {
+      maximum_decision_tier: "watch",
+      reason_codes: ["subject_assessment_unresolved"],
+    };
+    return {
+      subject_id: subjectId,
+      evidence_refs: subjectEvidence.map((item) => String(item.evidence_ref)).sort(),
+      coverage: subjectCoverage.coverage,
+      uncovered_business_dimensions: uncovered,
+      quantitative_coverage: subjectQuantitativeCoverage,
+      competitive_coverage: subjectCompetitiveCoverage,
+      wave1_signals: {
+        demand,
+        buyer,
+        purchase: subjectCoverage.directlyCovered.has("purchase_signal"),
+      },
+      ranking_eligibility:
+        uncovered.length === 0 &&
+        !deriveSourceConcentration(adopted, evidenceDocuments).concentrated &&
+        adopted.some((item) => item.independence === "independent")
+          ? "ranked"
+          : "unranked_hypothesis",
+      recommendation_ceiling: {
+        maximum_decision_tier: ceiling.maximum_decision_tier,
+        reason_codes: ceiling.reason_codes,
+      },
+      conflict_evidence_refs: subjectEvidence
+        .filter(
+          (item) =>
+            item.disposition === "adopted" &&
+            (item.evidence_character === "counterevidence" ||
+              item.claim_type === "counterevidence"),
+        )
+        .map((item) => String(item.evidence_ref))
+        .sort(),
+      limitations: [...new Set(limitations)].sort(),
+    };
   });
 }
 
@@ -763,6 +800,16 @@ export function deriveClaimConfidence(
   ) {
     ceiling = 0;
     reasons.push("positive_support_not_adopted");
+  }
+  if (
+    sources.some(
+      (source) =>
+        source.subject_binding_basis === "unbound" ||
+        (subjectId !== undefined && !strings(source.subject_ids).includes(subjectId)),
+    )
+  ) {
+    ceiling = 0;
+    reasons.push("evidence_subject_unbound");
   }
   const companyFactOnly = sources.length > 0 && sources.every(supportedCompanyClaim);
   if (
@@ -1146,6 +1193,36 @@ function validateSearchClosure(
       ),
     );
   }
+  for (const [index, gap] of records(closure.remaining_gaps).entries()) {
+    const boundSubjects = strings(gap.subject_ids);
+    const coveredSubjects = strings(audit.covered_direction_ids);
+    const outOfScope = boundSubjects.filter((subjectId) => !coveredSubjects.includes(subjectId));
+    const bindingInvalid =
+      outOfScope.length > 0 ||
+      gap.audit_ref !== entry.path ||
+      gap.task_ref !== audit.task_ref ||
+      (gap.subject_binding_basis === "unbound" && boundSubjects.length > 0) ||
+      (gap.subject_binding_basis === "explicit" && boundSubjects.length === 0) ||
+      (gap.subject_binding_basis === "single_subject_auto" &&
+        (coveredSubjects.length !== 1 ||
+          boundSubjects.length !== 1 ||
+          boundSubjects[0] !== coveredSubjects[0]));
+    if (bindingInvalid) {
+      errors.push(
+        issue(
+          "commercial_research.gap_derivation_mismatch",
+          `${entry.path}#/search_closure/remaining_gaps/${index}`,
+          "formal research Gaps must preserve the compiler-derived subject, task, and Audit binding",
+          {
+            boundSubjects,
+            coveredSubjects,
+            taskRef: gap.task_ref,
+            auditRef: gap.audit_ref,
+          },
+        ),
+      );
+    }
+  }
   return errors;
 }
 
@@ -1302,6 +1379,23 @@ function validateQuantitativeCompetitiveAudit(
         ),
         severity: "warning",
       });
+    }
+    const crossSubjectEvidenceRefs = strings(observation.evidence_refs).filter((ref) => {
+      const source = evidenceByRef.get(ref);
+      return (
+        source !== undefined &&
+        !strings(source.subject_ids).includes(String(observation.subject_id))
+      );
+    });
+    if (crossSubjectEvidenceRefs.length > 0) {
+      errors.push(
+        issue(
+          "commercial_research.cross_subject_evidence_reuse",
+          observationPath,
+          "quantitative observations may use direct Evidence only when it is bound to the same subject",
+          { subjectId: observation.subject_id, evidenceRefs: crossSubjectEvidenceRefs },
+        ),
+      );
     }
     const value = isRecord(observation.value) ? observation.value : {};
     if (
@@ -1481,6 +1575,7 @@ function validateQuantitativeCompetitiveAudit(
           return (
             source !== undefined &&
             source.disposition === "adopted" &&
+            strings(source.subject_ids).includes(String(observation.subject_id)) &&
             isTraceableDirectSource(source, evidenceByRef)
           );
         })
@@ -1565,7 +1660,11 @@ function validateQuantitativeCompetitiveAudit(
     ];
     if (
       !coveredSubjectSet.has(String(competitiveObject.subject_id)) ||
-      metricRefs.some((ref) => !observationsById.has(ref))
+      metricRefs.some(
+        (ref) =>
+          !observationsById.has(ref) ||
+          observationsById.get(ref)?.subject_id !== competitiveObject.subject_id,
+      )
     ) {
       errors.push(
         issue(
@@ -1584,6 +1683,23 @@ function validateQuantitativeCompetitiveAudit(
         ),
         severity: "warning",
       });
+    }
+    const crossSubjectEvidenceRefs = strings(competitiveObject.source_refs).filter((ref) => {
+      const source = evidenceByRef.get(ref);
+      return (
+        source !== undefined &&
+        !strings(source.subject_ids).includes(String(competitiveObject.subject_id))
+      );
+    });
+    if (crossSubjectEvidenceRefs.length > 0) {
+      errors.push(
+        issue(
+          "commercial_research.cross_subject_evidence_reuse",
+          objectPath,
+          "competitive observations may use direct Evidence only when it is bound to the same subject",
+          { subjectId: competitiveObject.subject_id, evidenceRefs: crossSubjectEvidenceRefs },
+        ),
+      );
     }
   }
 
@@ -1622,7 +1738,13 @@ function validateQuantitativeCompetitiveAudit(
     });
     const directlySupportedIds = matchingIds.filter((id) => {
       const competitiveObject = competitiveObjectsById.get(id);
-      return strings(competitiveObject?.source_refs).some((ref) => adoptedEvidenceRefs.has(ref));
+      return strings(competitiveObject?.source_refs).some((ref) => {
+        const source = evidenceByRef.get(ref);
+        return (
+          source?.disposition === "adopted" &&
+          strings(source.subject_ids).includes(String(competitiveObject?.subject_id))
+        );
+      });
     });
     const attempts = records(coverage.query_attempts);
     const state = String(coverage.state);
@@ -2061,6 +2183,56 @@ function validateAudit(
       }
     }
   }
+  for (const statement of semanticStatements) {
+    for (const ref of strings(statement.evidence_refs)) {
+      const source = evidenceByRef.get(ref);
+      if (
+        typeof statement.subject_id === "string" &&
+        source !== undefined &&
+        !strings(source.subject_ids).includes(statement.subject_id)
+      ) {
+        errors.push(
+          issue(
+            "commercial_research.cross_subject_evidence_reuse",
+            `${entry.path}#/evidence_register`,
+            "subject-specific positive support must cite Evidence explicitly or deterministically bound to the same subject",
+            { ref, subjectId: statement.subject_id, evidenceSubjectIds: source.subject_ids },
+          ),
+        );
+      }
+    }
+  }
+  for (const [evidenceIndex, source] of evidence.entries()) {
+    const boundSubjects = strings(source.subject_ids);
+    const outOfScope = boundSubjects.filter(
+      (subjectId) => !strings(audit.covered_direction_ids).includes(subjectId),
+    );
+    if (
+      outOfScope.length > 0 ||
+      (source.subject_binding_basis === "unbound" && boundSubjects.length > 0) ||
+      (source.subject_binding_basis === "single_subject_auto" &&
+        (strings(audit.covered_direction_ids).length !== 1 || boundSubjects.length !== 1))
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.evidence_subject_binding_invalid",
+          `${entry.path}#/evidence_register/${evidenceIndex}`,
+          "Evidence subject bindings must remain within the Audit scope and agree with their deterministic binding basis",
+          { outOfScope, boundSubjects, bindingBasis: source.subject_binding_basis },
+        ),
+      );
+    }
+    if (source.subject_binding_basis === "unbound" && source.disposition === "adopted") {
+      errors.push(
+        issue(
+          "commercial_research.evidence_subject_unbound",
+          `${entry.path}#/evidence_register/${evidenceIndex}`,
+          "unbound multi-subject Evidence is retained as background material and cannot close direct subject coverage",
+          { evidenceRef: source.evidence_ref },
+        ),
+      );
+    }
+  }
   for (const [claimIndex, claim] of claims.entries()) {
     const expected = deriveClaimConfidence(
       claim.requested_confidence,
@@ -2261,6 +2433,29 @@ function validateAudit(
       ),
     );
   }
+  const expectedSubjectAssessments = deriveSubjectAssessments(
+    strings(audit.covered_direction_ids),
+    records(audit.quantitative_coverage),
+    records(audit.quantitative_observations),
+    records(audit.competitive_coverage),
+    records(audit.competitive_objects),
+    evidence,
+    [...claims, ...judgments],
+    evidenceDocuments,
+    strings(audit.limitations),
+  );
+  if (
+    canonicalJson(records(audit.subject_assessments)) !== canonicalJson(expectedSubjectAssessments)
+  ) {
+    errors.push(
+      issue(
+        "commercial_research.subject_assessment_mismatch",
+        `${entry.path}#/subject_assessments`,
+        "each subject assessment must be the exact deterministic projection of only that subject's bound Evidence and assigned coverage",
+        { expected: expectedSubjectAssessments },
+      ),
+    );
+  }
   const expectedCeiling = derivePortfolioRecommendationCeiling(
     expectedSubjectCeilings,
     [...claims, ...judgments],
@@ -2299,18 +2494,64 @@ function validateCommercialReportProjections(
     )
     .toSorted((left, right) => left.path.localeCompare(right.path));
   const auditsByPath = new Map(audits.map((audit) => [audit.path, audit]));
-  const plannedAuditPaths = documents
-    .filter((entry) => TASK_STAGE_BY_VERSION.has(entry.schemaVersion))
-    .flatMap((task) => {
-      const requirements = isRecord(task.document.commercial_research_requirements)
-        ? task.document.commercial_research_requirements
-        : {};
-      return typeof requirements.commercial_audit_output_path === "string"
-        ? [requirements.commercial_audit_output_path]
-        : [];
-    });
-  const expectedProjection = projectCommercialAuditTables(audits);
+  const plannedTasks = documents.filter((entry) => TASK_STAGE_BY_VERSION.has(entry.schemaVersion));
+  const plannedAuditPaths = plannedTasks.flatMap((task) => {
+    const requirements = isRecord(task.document.commercial_research_requirements)
+      ? task.document.commercial_research_requirements
+      : {};
+    return typeof requirements.commercial_audit_output_path === "string"
+      ? [requirements.commercial_audit_output_path]
+      : [];
+  });
   const documentsByPath = new Map(documents.map((document) => [document.path, document.document]));
+  const expectedProjection = projectCommercialAuditTables(
+    audits,
+    plannedTasks.map((task) => ({ path: task.path, document: task.document })),
+    documentsByPath,
+  );
+  const interpretationsBySubjectAndRef = new Map<
+    string,
+    { readonly path: string; readonly source: Record<string, unknown> }[]
+  >();
+  for (const audit of audits) {
+    for (const source of records(audit.document.evidence_register)) {
+      for (const subjectId of strings(source.subject_ids)) {
+        const key = `${subjectId}\u0000${String(source.evidence_ref)}`;
+        interpretationsBySubjectAndRef.set(key, [
+          ...(interpretationsBySubjectAndRef.get(key) ?? []),
+          { path: audit.path, source },
+        ]);
+      }
+    }
+  }
+  for (const [key, interpretations] of interpretationsBySubjectAndRef) {
+    const counterStates = new Set(
+      interpretations.map(
+        ({ source }) =>
+          source.evidence_character === "counterevidence" ||
+          source.claim_type === "counterevidence",
+      ),
+    );
+    const dispositions = new Set(interpretations.map(({ source }) => String(source.disposition)));
+    if (counterStates.size > 1 || dispositions.size > 1) {
+      const [subjectId, evidenceRef] = key.split("\u0000", 2);
+      const decisionActive = interpretations.some(({ source }) => source.disposition === "adopted");
+      errors.push(
+        issue(
+          "commercial_research.cross_lane_evidence_interpretation_conflict",
+          `${interpretations[0]?.path ?? "commercial-research"}#/evidence_register`,
+          "the same subject-bound Evidence has contradictory current Lane interpretations; all interpretations remain visible, while only disagreements involving an adopted interpretation constrain the aggregate conclusion",
+          {
+            subjectId,
+            evidenceRef,
+            auditRefs: [...new Set(interpretations.map(({ path }) => path))].sort(),
+            dispositions: [...dispositions].sort(),
+            decisionActive,
+          },
+        ),
+      );
+    }
+  }
   const subjectAliases = (subject: string): Set<string> => {
     const path = subject.split("#", 1)[0] ?? subject;
     const fragment = subject.includes("#") ? subject.split("#", 2)[1] : undefined;
@@ -2333,23 +2574,34 @@ function validateCommercialReportProjections(
       ].filter((value): value is string => typeof value === "string" && value !== ""),
     );
   };
-  const reportDecisionSubjects = (report: CommercialResearchDocument): Set<string> => {
+  const reportDecisionBinding = (
+    report: CommercialResearchDocument,
+  ): {
+    readonly subjects: Set<string>;
+    readonly bestCandidatePortfolio: boolean;
+    readonly terminalOpportunityDiscovery: boolean;
+  } => {
     if (report.schemaVersion === "startup_opportunity.concept_evidence_report.v1") {
-      return typeof report.document.concept_hypothesis_ref === "string"
-        ? subjectAliases(report.document.concept_hypothesis_ref)
-        : new Set();
+      return {
+        subjects:
+          typeof report.document.concept_hypothesis_ref === "string"
+            ? subjectAliases(report.document.concept_hypothesis_ref)
+            : new Set(),
+        bestCandidatePortfolio: false,
+        terminalOpportunityDiscovery: false,
+      };
     }
     if (report.schemaVersion === "startup_opportunity.report.v1") {
       const context = isRecord(report.document.curated_judgment_context)
         ? report.document.curated_judgment_context
         : {};
-      const selected = [
-        ...(typeof context.recommended_first_bet === "string"
-          ? [context.recommended_first_bet]
-          : []),
-        ...strings(report.document.top_opportunity_refs),
-      ];
-      return new Set(selected.flatMap((subject) => [...subjectAliases(subject)]));
+      const selected =
+        typeof context.recommended_first_bet === "string" ? [context.recommended_first_bet] : [];
+      return {
+        subjects: new Set(selected.flatMap((subject) => [...subjectAliases(subject)])),
+        bestCandidatePortfolio: false,
+        terminalOpportunityDiscovery: false,
+      };
     }
     if (report.document.mode === "concept_evidence_assessment") {
       const concepts = documents.filter((document) =>
@@ -2359,25 +2611,41 @@ function validateCommercialReportProjections(
         ].includes(document.schemaVersion),
       );
       if (concepts.length > 0) {
-        return new Set(concepts.flatMap((concept) => [...subjectAliases(concept.path)]));
+        return {
+          subjects: new Set(concepts.flatMap((concept) => [...subjectAliases(concept.path)])),
+          bestCandidatePortfolio: false,
+          terminalOpportunityDiscovery: false,
+        };
       }
+      return {
+        subjects: new Set(),
+        bestCandidatePortfolio: false,
+        terminalOpportunityDiscovery: false,
+      };
     }
-    const conclusion = isRecord(report.document.research_conclusion)
-      ? report.document.research_conclusion
-      : {};
-    const selected = records(report.document.directions).filter(
-      (direction) =>
-        direction.action === "invest" ||
-        direction.priority === 1 ||
-        (direction.action === "validate" && conclusion.outcome === "investigate_further"),
-    );
-    return new Set(
-      selected.flatMap((direction) =>
-        typeof direction.direction_id === "string"
-          ? [...subjectAliases(direction.direction_id)]
-          : [],
-      ),
-    );
+    const directions = records(report.document.directions);
+    const priorityOne = directions.filter((direction) => direction.priority === 1);
+    const invest = directions.filter((direction) => direction.action === "invest");
+    const primary =
+      priorityOne.length === 1 ? priorityOne[0] : invest.length === 1 ? invest[0] : undefined;
+    const primaryId =
+      primary !== undefined && typeof primary.direction_id === "string"
+        ? primary.direction_id
+        : null;
+    return {
+      subjects:
+        primaryId === null
+          ? new Set(
+              directions.flatMap((direction) =>
+                typeof direction.direction_id === "string"
+                  ? [...subjectAliases(direction.direction_id)]
+                  : [],
+              ),
+            )
+          : subjectAliases(primaryId),
+      bestCandidatePortfolio: primaryId === null,
+      terminalOpportunityDiscovery: true,
+    };
   };
 
   for (const report of documents.filter((entry) =>
@@ -2395,7 +2663,7 @@ function validateCommercialReportProjections(
         issue(
           "commercial_research.report_audit_closure_incomplete",
           `${report.path}#/commercial_research_audit_refs`,
-          "formal reporting must include every current commercial research audit and every planned research task must have one",
+          "formal reporting must include every current Audit and disclose each planned task that has no current Audit",
           { missingPlannedAudits: missingPlannedAudits.sort() },
         ),
       );
@@ -2458,18 +2726,26 @@ function validateCommercialReportProjections(
       );
     }
     const actualGapRows = sortedProjection(report.document.research_coverage_gaps, (row) => {
+      if (row.coverage_kind === "execution") return `execution:${String(row.task_ref)}`;
+      if (["business", "research"].includes(String(row.coverage_kind))) {
+        return `${strings(row.audit_refs).join(",")}:${String(row.coverage_kind)}:${strings(row.subject_ids).join(",")}:${String(row.dimension)}:${String(row.reason)}`;
+      }
       const coverage = isRecord(row.coverage) ? row.coverage : {};
       const dimension =
         row.coverage_kind === "quantitative" ? coverage.metric_family : coverage.competitor_type;
-      return `${String(row.audit_ref)}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`;
+      return `${strings(row.audit_refs).join(",")}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`;
     });
     const sortedExpectedGapRows = sortedProjection(
       expectedProjection.research_coverage_gaps,
       (row) => {
+        if (row.coverage_kind === "execution") return `execution:${String(row.task_ref)}`;
+        if (["business", "research"].includes(String(row.coverage_kind))) {
+          return `${strings(row.audit_refs).join(",")}:${String(row.coverage_kind)}:${strings(row.subject_ids).join(",")}:${String(row.dimension)}:${String(row.reason)}`;
+        }
         const coverage = isRecord(row.coverage) ? row.coverage : {};
         const dimension =
           row.coverage_kind === "quantitative" ? coverage.metric_family : coverage.competitor_type;
-        return `${String(row.audit_ref)}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`;
+        return `${strings(row.audit_refs).join(",")}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`;
       },
     );
     if (canonicalJson(actualGapRows) !== canonicalJson(sortedExpectedGapRows)) {
@@ -2477,47 +2753,64 @@ function validateCommercialReportProjections(
         issue(
           "commercial_research.report_gap_projection_mismatch",
           `${report.path}#/research_coverage_gaps`,
-          "formal reporting must show every partial, unavailable, and not-applicable quantitative or competitive dimension with its decision impact",
+          "formal reporting must show every subject-bound quantitative, competitive, business, research, and execution Gap with its decision impact",
         ),
       );
     }
+    for (const [field, code] of [
+      ["commercial_subject_aggregates", "commercial_research.report_subject_aggregate_mismatch"],
+      [
+        "commercial_background_material",
+        "commercial_research.report_background_projection_mismatch",
+      ],
+      ["commercial_research_status", "commercial_research.report_status_projection_mismatch"],
+    ] as const) {
+      if (
+        canonicalJson(report.document[field] ?? null) !==
+        canonicalJson(expectedProjection[field] ?? null)
+      ) {
+        errors.push(
+          issue(
+            code,
+            `${report.path}#/${field}`,
+            "the report field must equal the deterministic current Audit and planned-task projection",
+          ),
+        );
+      }
+    }
     const ceilingRank = { watch: 0, investigate_further: 1, prioritize: 2 } as const;
-    const decisionSubjects = reportDecisionSubjects(report);
-    const relevantAudits = audits.filter((audit) => {
-      const task =
-        typeof audit.document.task_ref === "string"
-          ? documentsByPath.get(audit.document.task_ref)
-          : undefined;
-      const auditSubjects = [
-        ...strings(audit.document.covered_direction_ids),
-        ...(typeof task?.target_subject_ref === "string" ? [task.target_subject_ref] : []),
-        ...strings(task?.target_opportunity_refs),
-        ...strings(task?.target_candidate_refs),
-      ];
-      return auditSubjects.some((subject) =>
-        [...subjectAliases(subject)].some((alias) => decisionSubjects.has(alias)),
-      );
-    });
-    const relevantSubjectCeilings = relevantAudits.flatMap((audit) =>
-      records(audit.document.subject_recommendation_ceilings)
-        .filter(
-          (ceiling) =>
-            typeof ceiling.subject_id === "string" &&
-            [...subjectAliases(ceiling.subject_id)].some((alias) => decisionSubjects.has(alias)),
-        )
-        .map((ceiling) => ({ auditRef: audit.path, ceiling })),
-    );
-    const strictestCeiling = relevantSubjectCeilings.reduce<keyof typeof ceilingRank>(
-      (current, entry) => {
-        const ceiling = entry.ceiling.maximum_decision_tier;
-        return typeof ceiling === "string" &&
-          ceiling in ceilingRank &&
-          ceilingRank[ceiling as keyof typeof ceilingRank] < ceilingRank[current]
-          ? (ceiling as keyof typeof ceilingRank)
-          : current;
-      },
-      "prioritize",
-    );
+    const decisionBinding = reportDecisionBinding(report);
+    const decisionSubjects = decisionBinding.subjects;
+    const subjectAggregates = records(report.document.commercial_subject_aggregates);
+    const relevantSubjectCeilings = subjectAggregates
+      .filter(
+        (aggregate) =>
+          typeof aggregate.subject_id === "string" &&
+          [...subjectAliases(aggregate.subject_id)].some((alias) => decisionSubjects.has(alias)),
+      )
+      .map((aggregate) => ({
+        subjectId: String(aggregate.subject_id),
+        auditRefs: strings(aggregate.audit_refs),
+        ceiling: isRecord(aggregate.recommendation_ceiling) ? aggregate.recommendation_ceiling : {},
+      }));
+    const applicableCeiling = decisionBinding.bestCandidatePortfolio
+      ? relevantSubjectCeilings.reduce<keyof typeof ceilingRank>((current, entry) => {
+          const ceiling = entry.ceiling.maximum_decision_tier;
+          const normalized =
+            typeof ceiling === "string" && ceiling in ceilingRank
+              ? (ceiling as keyof typeof ceilingRank)
+              : "watch";
+          const capped = normalized === "prioritize" ? "investigate_further" : normalized;
+          return ceilingRank[capped] > ceilingRank[current] ? capped : current;
+        }, "watch")
+      : relevantSubjectCeilings.reduce<keyof typeof ceilingRank>((current, entry) => {
+          const ceiling = entry.ceiling.maximum_decision_tier;
+          return typeof ceiling === "string" &&
+            ceiling in ceilingRank &&
+            ceilingRank[ceiling as keyof typeof ceilingRank] < ceilingRank[current]
+            ? (ceiling as keyof typeof ceilingRank)
+            : current;
+        }, "prioritize");
     const reportTier =
       report.schemaVersion === "startup_opportunity.terminal_report_source.v1"
         ? isRecord(report.document.research_conclusion)
@@ -2536,7 +2829,7 @@ function validateCommercialReportProjections(
         : reportTier === "investigate_further"
           ? "investigate_further"
           : "watch";
-    if (ceilingRank[normalizedTier] > ceilingRank[strictestCeiling]) {
+    if (ceilingRank[normalizedTier] > ceilingRank[applicableCeiling]) {
       errors.push(
         issue(
           "terminal_reporting.recommendation_ceiling_exceeded",
@@ -2544,12 +2837,55 @@ function validateCommercialReportProjections(
           "the report conclusion exceeds the deterministic ceiling imposed by unresolved commercial research Gaps",
           {
             reportTier,
-            strictestCeiling,
+            strictestCeiling: applicableCeiling,
+            portfolioReadiness: decisionBinding.bestCandidatePortfolio,
             decisionSubjects: [...decisionSubjects].sort(),
-            relevantAuditRefs: [...new Set(relevantSubjectCeilings.map((entry) => entry.auditRef))],
+            relevantAuditRefs: [
+              ...new Set(relevantSubjectCeilings.flatMap((entry) => entry.auditRefs)),
+            ],
           },
         ),
       );
+    }
+    if (decisionBinding.terminalOpportunityDiscovery) {
+      for (const [directionIndex, direction] of records(report.document.directions).entries()) {
+        if (typeof direction.direction_id !== "string") continue;
+        const aliases = subjectAliases(direction.direction_id);
+        const aggregate = subjectAggregates.find(
+          (candidate) =>
+            typeof candidate.subject_id === "string" &&
+            [...subjectAliases(candidate.subject_id)].some((alias) => aliases.has(alias)),
+        );
+        if (aggregate === undefined) continue;
+        const ceiling = isRecord(aggregate.recommendation_ceiling)
+          ? aggregate.recommendation_ceiling.maximum_decision_tier
+          : "watch";
+        const claimedTier =
+          direction.action === "invest"
+            ? "prioritize"
+            : direction.action === "validate"
+              ? "investigate_further"
+              : "watch";
+        if (
+          typeof ceiling !== "string" ||
+          !(ceiling in ceilingRank) ||
+          ceilingRank[claimedTier] > ceilingRank[ceiling as keyof typeof ceilingRank]
+        ) {
+          errors.push(
+            issue(
+              "terminal_reporting.direction_commercial_ceiling_exceeded",
+              `${report.path}#/directions/${directionIndex}/action`,
+              "each displayed direction action must remain within that direction's own commercial Evidence ceiling",
+              {
+                directionId: direction.direction_id,
+                action: direction.action,
+                claimedTier,
+                ceiling,
+              },
+            ),
+          );
+        }
+      }
     }
     if (
       normalizedTier === "prioritize" &&

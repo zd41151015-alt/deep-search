@@ -104,6 +104,26 @@ function effective(bundle: DocumentBundle, artifactPath: string): Record<string,
     : outer;
 }
 
+function collectTypedRefs(value: unknown): readonly string[] {
+  if (Array.isArray(value)) return value.flatMap(collectTypedRefs);
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([key, child]) => {
+    if ((key.endsWith("_refs") || key === "input_refs") && Array.isArray(child)) {
+      return child.filter(
+        (ref): ref is string => typeof ref === "string" && (ref.includes("/") || ref.includes("#")),
+      );
+    }
+    if (
+      (key.endsWith("_ref") || key.endsWith("_refs") || key === "ref") &&
+      typeof child === "string" &&
+      (child.includes("/") || child.includes("#"))
+    ) {
+      return [child];
+    }
+    return collectTypedRefs(child);
+  });
+}
+
 function refresh(bundle: DocumentBundle, artifactPath: string): void {
   const outer = entry(bundle, artifactPath);
   if (String(outer.schema_version).startsWith("startup_opportunity.artifact_envelope.")) {
@@ -413,10 +433,12 @@ function setFirstBet(bundle: DocumentBundle, firstBet: string): void {
   const reportEnvelope = entry(bundle, G24_REPORT);
   reportEnvelope.input_refs = [
     ...new Set([
-      ...(reportEnvelope.input_refs as string[]).filter((ref) => ref !== alternative),
-      firstBet,
+      ...collectTypedRefs(report),
+      ...collectTypedRefs(reportEnvelope.ai_bundle_binding),
     ]),
-  ].sort();
+  ]
+    .filter((ref) => ref !== G24_REPORT)
+    .sort();
 }
 
 type DecisionTier =
@@ -474,13 +496,45 @@ function makeFirstBetReady(bundle: DocumentBundle): void {
     gate.status = String(gate.gate_id).startsWith("ai_") ? "not_applicable" : "passed";
   }
   comparison.hard_gate_outcome = "eligible";
-  comparison.recommendation_band = "strong_candidate";
+  comparison.recommendation_band = "investigate_further";
   for (const panel of comparison.comparison_panels as Record<string, unknown>[]) {
     panel.band = "medium";
     panel.decision_sufficiency = "sufficient";
   }
   refresh(bundle, G24_COMPARISON_A);
   setFirstBet(bundle, G23_OPPORTUNITY_A);
+  refreshAllInputHashes(bundle);
+}
+
+function setCandidateReadiness(
+  bundle: DocumentBundle,
+  opportunityRef: string,
+  comparisonPath: string,
+  tier: "investigate_further" | "watch",
+): void {
+  const fanIn = effective(bundle, G24_FAN_IN);
+  for (const gate of fanIn.hard_gate_inputs as Record<string, unknown>[]) {
+    if (gate.opportunity_ref === opportunityRef) {
+      gate.status = String(gate.gate_id).startsWith("ai_") ? "not_applicable" : "passed";
+    }
+  }
+  const fanInCeiling = (fanIn.opportunity_conclusion_ceilings as Record<string, unknown>[]).find(
+    (entry) => entry.opportunity_ref === opportunityRef,
+  );
+  assert.ok(fanInCeiling);
+  fanInCeiling.conclusion_ceiling = tier === "watch" ? "watchlist" : "strong_candidate";
+  refresh(bundle, G24_FAN_IN);
+
+  const comparison = effective(bundle, comparisonPath);
+  for (const gate of comparison.hard_gate_results as Record<string, unknown>[]) {
+    gate.status = String(gate.gate_id).startsWith("ai_") ? "not_applicable" : "passed";
+  }
+  comparison.hard_gate_outcome = tier === "watch" ? "watchlist" : "eligible";
+  comparison.recommendation_band = tier === "watch" ? "watchlist" : "investigate_further";
+  for (const panel of comparison.comparison_panels as Record<string, unknown>[]) {
+    panel.band = "medium";
+    panel.decision_sufficiency = "sufficient";
+  }
   refreshAllInputHashes(bundle);
 }
 
@@ -779,7 +833,11 @@ test("G2.4 decision tier uses the strictest commercial, fan-in, comparison, gate
       band: "investigate_further",
       tier: "investigate_further",
     },
-    { fan: "strong_candidate", band: "strong_candidate", tier: "investigate_further" },
+    {
+      fan: "strong_candidate",
+      band: "investigate_further",
+      tier: "investigate_further",
+    },
   ] as const) {
     const bundle = clone(ready);
     opportunityFanInCeiling(bundle).conclusion_ceiling = candidate.fan;
@@ -818,10 +876,10 @@ test("G2.4 decision tier uses the strictest commercial, fan-in, comparison, gate
       tier: "investigate_further",
     },
     {
-      name: "comparison-prioritize",
+      name: "comparison-investigate-commercial-ceiling",
       gate: "passed",
       outcome: "eligible",
-      band: "strong_candidate",
+      band: "investigate_further",
       tier: "investigate_further",
     },
   ] as const) {
@@ -865,7 +923,7 @@ test("G2.4 decision tier uses the strictest commercial, fan-in, comparison, gate
   }
 
   const nullFirstBet = clone(state.bundle);
-  assertAtAndAbove("portfolio-null-first-bet", nullFirstBet, "investigate_further");
+  assertAtAndAbove("portfolio-null-first-bet", nullFirstBet, "insufficient_evidence");
 
   const portfolioMismatch = clone(ready);
   effective(portfolioMismatch, G24_PORTFOLIO).recommended_first_bet = G23_OPPORTUNITY_B;
@@ -899,6 +957,86 @@ test("G2.4 decision tier uses the strictest commercial, fan-in, comparison, gate
       (error) => error.code === "g2_4.decision_tier_ceiling_violation",
     ),
     JSON.stringify(recoveryValidation.referenceErrors, null, 2),
+  );
+});
+
+test("G2.4 binds first-bet and candidate ceilings per subject and derives null portfolio readiness", async (context) => {
+  const state = await setup(context, "per-subject-decision-ceilings");
+  const selectedA = clone(state.bundle);
+  setCandidateReadiness(selectedA, G23_OPPORTUNITY_A, G24_COMPARISON_A, "investigate_further");
+  setCandidateReadiness(selectedA, G23_OPPORTUNITY_B, G24_COMPARISON_B, "watch");
+  setFirstBet(selectedA, G23_OPPORTUNITY_A);
+  setDecisionTier(selectedA, "investigate_further");
+  const selectedAResult = state.validator.validateDocumentBundle(selectedA);
+  assert.equal(selectedAResult.valid, true, JSON.stringify(selectedAResult, null, 2));
+  assert.deepEqual(effective(selectedA, G24_PORTFOLIO).alternative_bets, [G23_OPPORTUNITY_B]);
+
+  const switchedToB = clone(selectedA);
+  setFirstBet(switchedToB, G23_OPPORTUNITY_B);
+  setDecisionTier(switchedToB, "investigate_further");
+  const switchedOverstatement = state.validator.validateDocumentBundle(switchedToB);
+  assert.equal(switchedOverstatement.valid, false);
+  assert.ok(
+    switchedOverstatement.referenceErrors.some(
+      (error) => error.code === "g2_4.decision_tier_ceiling_violation",
+    ),
+    JSON.stringify(switchedOverstatement.referenceErrors, null, 2),
+  );
+  setDecisionTier(switchedToB, "watch");
+  const switchedLegal = state.validator.validateDocumentBundle(switchedToB);
+  assert.equal(switchedLegal.valid, true, JSON.stringify(switchedLegal, null, 2));
+
+  const overstatedAlternative = clone(selectedA);
+  setCandidateReadiness(
+    overstatedAlternative,
+    G23_OPPORTUNITY_B,
+    G24_COMPARISON_B,
+    "investigate_further",
+  );
+  effective(overstatedAlternative, G24_COMPARISON_B).recommendation_band = "strong_candidate";
+  refreshAllInputHashes(overstatedAlternative);
+  const overstatedAlternativeResult = state.validator.validateDocumentBundle(overstatedAlternative);
+  assert.equal(overstatedAlternativeResult.valid, false);
+  assert.ok(
+    overstatedAlternativeResult.referenceErrors.some(
+      (error) => error.code === "g2_4.candidate_commercial_ceiling_violation",
+    ),
+    JSON.stringify(overstatedAlternativeResult.referenceErrors, null, 2),
+  );
+
+  const nullInvestigate = clone(state.bundle);
+  setCandidateReadiness(
+    nullInvestigate,
+    G23_OPPORTUNITY_A,
+    G24_COMPARISON_A,
+    "investigate_further",
+  );
+  setCandidateReadiness(nullInvestigate, G23_OPPORTUNITY_B, G24_COMPARISON_B, "watch");
+  setDecisionTier(nullInvestigate, "investigate_further");
+  const nullInvestigateResult = state.validator.validateDocumentBundle(nullInvestigate);
+  assert.equal(nullInvestigateResult.valid, true, JSON.stringify(nullInvestigateResult, null, 2));
+  setDecisionTier(nullInvestigate, "prioritize");
+  const nullPrioritizeResult = state.validator.validateDocumentBundle(nullInvestigate);
+  assert.equal(nullPrioritizeResult.valid, false);
+  assert.ok(
+    nullPrioritizeResult.referenceErrors.some(
+      (error) => error.code === "g2_4.decision_tier_ceiling_violation",
+    ),
+  );
+
+  const nullWatch = clone(state.bundle);
+  setCandidateReadiness(nullWatch, G23_OPPORTUNITY_A, G24_COMPARISON_A, "watch");
+  setCandidateReadiness(nullWatch, G23_OPPORTUNITY_B, G24_COMPARISON_B, "watch");
+  setDecisionTier(nullWatch, "watch");
+  const nullWatchResult = state.validator.validateDocumentBundle(nullWatch);
+  assert.equal(nullWatchResult.valid, true, JSON.stringify(nullWatchResult, null, 2));
+
+  const nullInsufficient = clone(state.bundle);
+  const nullInsufficientResult = state.validator.validateDocumentBundle(nullInsufficient);
+  assert.equal(nullInsufficientResult.valid, true, JSON.stringify(nullInsufficientResult, null, 2));
+  assert.equal(
+    effective(nullInsufficient, G24_RECOMMENDATION).decision_tier,
+    "insufficient_evidence",
   );
 });
 

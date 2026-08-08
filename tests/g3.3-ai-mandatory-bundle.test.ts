@@ -275,6 +275,10 @@ test("G3.3 complete bundle leaves the unresolved commercial ceiling binding", as
     ),
     JSON.stringify(allErrors(result), null, 2),
   );
+  assert.ok(
+    codes(result).includes("g2_4.candidate_commercial_ceiling_violation"),
+    JSON.stringify(allErrors(result), null, 2),
+  );
 
   const mandatory = g3Envelope(bundle, G33_MANDATORY_BUNDLE).document;
   assert.equal(mandatory.bundle_status, "complete");
@@ -283,6 +287,7 @@ test("G3.3 complete bundle leaves the unresolved commercial ceiling binding", as
   assert.equal(binding(comparison).coverage_state, "complete");
   assert.equal(comparison.document.recommendation_band, "strong_candidate");
 
+  comparison.document.recommendation_band = "investigate_further";
   g3Envelope(bundle, G24_RECOMMENDATION).document.decision_tier = "investigate_further";
   const report = g3Envelope(bundle, G24_REPORT).document;
   (report.curated_judgment_context as Record<string, unknown>).decision_tier =

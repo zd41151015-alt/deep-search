@@ -664,6 +664,14 @@ function terminalReportSource(runId: string, runtimeFailure = false): FormalArti
     competitive_substitute_rows: [],
     incumbent_response_risk_rows: [],
     research_coverage_gaps: [],
+    commercial_subject_aggregates: [],
+    commercial_background_material: [],
+    commercial_research_status: {
+      state: "not_planned",
+      planned_task_refs: [],
+      missing_task_refs: [],
+      submitted_audit_refs: [],
+    },
     gate_warnings: [],
     ordered_validation_plan: [],
     freshness: {
