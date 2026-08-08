@@ -104,12 +104,90 @@ export function envelope(
   };
 }
 
-export function initialFixtureEnvelopes(baseBundle: {
-  readonly documents: readonly {
-    readonly path: string;
-    readonly document: Record<string, unknown>;
-  }[];
-}): readonly FormalArtifactEnvelope[] {
+export function executionPlanEnvelope(
+  baseBundle: {
+    readonly documents: readonly {
+      readonly path: string;
+      readonly document: Record<string, unknown>;
+    }[];
+  },
+  branches: readonly FixtureBranch[] = G12_BRANCHES,
+): FormalArtifactEnvelope {
+  const sourcePlan = baseBundle.documents.find(
+    (entry) => entry.path === "plans/research-plan.r1.json",
+  )?.document;
+  if (sourcePlan === undefined) throw new Error("missing synthetic Research Plan");
+  const researchPlan = { ...sourcePlan, run_id: G12_RUN_ID };
+  const tasks = branches.map((branch, index) => taskEnvelope(baseBundle, branch, index + 2));
+  const assignmentFor = (task: FormalArtifactEnvelope): Record<string, unknown> => {
+    const requirements = task.document.commercial_research_requirements as Record<string, unknown>;
+    return structuredClone(requirements.incumbent_response_assignment as Record<string, unknown>);
+  };
+  const executionPlanRef = "plans/research-execution.r1.json";
+  const stageId = "commercial_research";
+  const executionPlan = {
+    schema_version: "startup_opportunity.research_execution_plan.discovery.current",
+    execution_plan_id: "execution_plan_g1_2_synthetic",
+    run_id: G12_RUN_ID,
+    mode: "concept_evidence_assessment",
+    revision: 1,
+    parent_execution_plan_ref: null,
+    research_plan_ref: "plans/research-plan.r1.json",
+    research_plan_hash: canonicalContentHash(researchPlan),
+    created_at: "2026-07-24T20:01:30Z",
+    research_depth: "standard",
+    total_time_budget_minutes: 120,
+    resource_allocation: {
+      customer_commercial_percent: 65,
+      market_structure_percent: 17,
+      academic_percent: 18,
+    },
+    stages: [
+      {
+        stage_id: stageId,
+        stage_kind: "assessment_commercial",
+        depends_on: [],
+        gate_before: null,
+        gate_after: "terminal_allowed",
+        lanes: tasks.map((task, index) => ({
+          unit_id: task.document.unit_id,
+          lane_role: index === tasks.length - 1 ? "risk" : "evaluation",
+          candidate_scope: { kind: "none", candidate_refs: [] },
+          incumbent_response_assignment: assignmentFor(task),
+          reporting_dimensions: [branches[index]?.dimensionId],
+          submission_path: task.document.allowed_output_path,
+          submission_schema: task.document.required_artifact_schema,
+          time_budget_minutes: 10,
+          max_sources: 5,
+          straggler_policy: {
+            on_timeout: "publish_partial",
+            grace_minutes: 0,
+            blocks_stage: false,
+          },
+          dispatch_group: "commercial_research",
+        })),
+      },
+    ],
+    limitations: ["SYNTHETIC execution plan; no research was performed."],
+  };
+  return envelope(
+    executionPlan,
+    executionPlanRef,
+    "main_agent",
+    ["plans/research-plan.r1.json"],
+    "2026-07-24T20:01:30Z",
+  );
+}
+
+export function initialFixtureEnvelopes(
+  baseBundle: {
+    readonly documents: readonly {
+      readonly path: string;
+      readonly document: Record<string, unknown>;
+    }[];
+  },
+  branches: readonly FixtureBranch[] = G12_BRANCHES,
+): readonly FormalArtifactEnvelope[] {
   const selectedPaths = new Set([
     "intake.json",
     "decision-context.json",
@@ -119,7 +197,7 @@ export function initialFixtureEnvelopes(baseBundle: {
     "plans/concept-evidence-assessment-plan.r1.json",
     ...G12_BRANCHES.map((branch) => branch.judgmentRef),
   ]);
-  return baseBundle.documents
+  const initial = baseBundle.documents
     .filter((entry) => selectedPaths.has(entry.path))
     .map((entry) =>
       envelope(
@@ -130,6 +208,7 @@ export function initialFixtureEnvelopes(baseBundle: {
         "2026-07-24T20:01:00Z",
       ),
     );
+  return [...initial, executionPlanEnvelope(baseBundle, branches)];
 }
 
 function planUnit(
@@ -253,6 +332,64 @@ export function taskEnvelope(
       "plans/concept-evidence-assessment-plan.r1.json",
     ],
     document.dispatched_at,
+  );
+}
+
+export function dispatchEnvelope(
+  baseBundle: {
+    readonly documents: readonly {
+      readonly path: string;
+      readonly document: Record<string, unknown>;
+    }[];
+  },
+  branches: readonly FixtureBranch[] = G12_BRANCHES,
+): FormalArtifactEnvelope {
+  const tasks = branches.map((branch, index) => taskEnvelope(baseBundle, branch, index + 2));
+  const assignmentFor = (task: FormalArtifactEnvelope): Record<string, unknown> => {
+    const requirements = task.document.commercial_research_requirements as Record<string, unknown>;
+    return structuredClone(requirements.incumbent_response_assignment as Record<string, unknown>);
+  };
+  const executionPlanRef = "plans/research-execution.r1.json";
+  const dispatchPath = "tasks/dispatch/commercial-research.r1.json";
+  const document = {
+    schema_version: "startup_opportunity.dispatch_batch.discovery.current",
+    batch_id: `dispatch_commercial_research_${branches.map((branch) => branch.unitId).join("_")}`,
+    revision: 1,
+    run_id: G12_RUN_ID,
+    mode: "concept_evidence_assessment",
+    execution_plan_ref: executionPlanRef,
+    research_plan_ref: "plans/research-plan.r1.json",
+    stage_id: "commercial_research",
+    dispatch_group: "commercial_research",
+    task_ready_at: "2026-07-24T20:01:40Z",
+    dispatch_requested_at: "2026-07-24T20:01:40Z",
+    dispatch_mode: "parallel_immediate",
+    tasks: tasks.map((task, index) => ({
+      task_id: task.document.task_id,
+      unit_id: task.document.unit_id,
+      lane_role: index === tasks.length - 1 ? "risk" : "evaluation",
+      incumbent_response_assignment: assignmentFor(task),
+      research_goal: task.document.research_goal,
+      input_refs: task.document.input_refs,
+      allowed_output_path: task.document.allowed_output_path,
+      required_artifact_schema: task.document.required_artifact_schema,
+      time_budget_minutes: 10,
+      max_sources: 5,
+      straggler_policy: {
+        on_timeout: "publish_partial",
+        grace_minutes: 0,
+        blocks_stage: false,
+      },
+    })),
+    agent_dispatch_performed: false,
+    limitations: ["SYNTHETIC dispatch descriptor; no agent dispatch was performed."],
+  };
+  return envelope(
+    document,
+    dispatchPath,
+    "harness",
+    [executionPlanRef, "plans/research-plan.r1.json"],
+    "2026-07-24T20:01:40Z",
   );
 }
 

@@ -354,40 +354,6 @@
       }
     }
   },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "incumbent_response_assignment": {
-            "type": "object",
-            "properties": {
-              "analysis_depth": {
-                "type": "string",
-                "enum": ["lightweight_scan", "targeted_deep_dive"]
-              }
-            },
-            "required": ["analysis_depth"]
-          }
-        },
-        "required": ["incumbent_response_assignment"]
-      },
-      "then": {
-        "properties": {
-          "execution_plan_ref": {
-            "type": "string",
-            "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
-          },
-          "dispatch_task_ref": {
-            "type": "string",
-            "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z][A-Za-z0-9._-]*$"
-          },
-          "task_ref": {
-            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
-          }
-        }
-      }
-    }
-  ],
   "properties": {
     "schema_version": {
       "const": "startup_opportunity.commercial_research_audit.current"
@@ -402,36 +368,15 @@
       "$ref": "#/$defs/identifier"
     },
     "execution_plan_ref": {
-      "anyOf": [
-        {
-          "type": "string",
-          "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "type": "string",
+      "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
     },
     "dispatch_task_ref": {
-      "anyOf": [
-        {
-          "type": "string",
-          "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z][A-Za-z0-9._-]*$"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "type": "string",
+      "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z][A-Za-z0-9._-]*$"
     },
     "task_ref": {
-      "anyOf": [
-        {
-          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
     },
     "covered_direction_ids": {
       "type": "array",

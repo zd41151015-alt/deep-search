@@ -3,6 +3,7 @@ import {
   type DiscoveryProfile,
   type DocumentBundle,
 } from "../../../harness/src/index.js";
+import { discoveryWaveEnvelopes } from "../../helpers/discovery-wave.js";
 import {
   createDiscoveryMapsFixture,
   fixtureDocument,
@@ -11,6 +12,7 @@ import {
   G21_PLAN_REF,
   G21_SCOPE_REF,
   G21_SOLUTION_REF,
+  refreshDiscoveryMapsBundle,
 } from "../g2.1/discovery-maps-fixture.js";
 
 export const G22_RUN_ID = "g2-2-contract-synthetic";
@@ -560,6 +562,21 @@ export async function createDiscoveryCandidateFixture(
   const bundle = await createDiscoveryMapsFixture(profile, G22_RUN_ID, additionalPlanWaves);
   (bundle as { schema_version: string }).schema_version =
     "startup_opportunity.document_bundle.current";
+  const researchPlan = fixtureEffective(bundle, G21_PLAN_REF);
+  const outputPathsByUnit = new Map([
+    ["unit_seed_independent_demand", G22_GENERATION_LANE],
+    ["unit_counterfactual", G22_EVALUATION_LANE],
+  ]);
+  for (const wave of researchPlan.waves as Record<string, unknown>[]) {
+    for (const unit of wave.units as Record<string, unknown>[]) {
+      const outputPath = outputPathsByUnit.get(String(unit.unit_id));
+      if (outputPath !== undefined) {
+        unit.output_path = outputPath;
+        unit.required_artifact_schema = "startup_opportunity.discovery_lane_result.v1";
+      }
+    }
+  }
+  refreshDiscoveryMapsBundle(bundle);
   const demandR1 = initialCandidate(
     bundle,
     "candidate_demand",
@@ -1111,6 +1128,24 @@ export async function createDiscoveryCandidateFixture(
       document: candidateEnvelope(path, document, producer, inputRefs),
     })),
   );
+  const runtimeWave = discoveryWaveEnvelopes(
+    bundle,
+    G22_RUN_ID,
+    "startup_opportunity.research_task.discovery_candidate.current",
+    1,
+    "candidate_runtime",
+  );
+  for (const artifact of runtimeWave) {
+    const entry = {
+      path: artifact.artifact_path,
+      document: artifact as unknown as Record<string, unknown>,
+    };
+    const existingIndex = mutableBundle.documents.findIndex(
+      (candidate) => candidate.path === artifact.artifact_path,
+    );
+    if (existingIndex === -1) mutableBundle.documents.push(entry);
+    else mutableBundle.documents[existingIndex] = entry;
+  }
   mutableBundle.exact_records.push(
     {
       ref: `evidence/manifest.jsonl#${generationEvidenceId}`,

@@ -41,6 +41,23 @@ function envelope(
   } as FormalArtifactEnvelope;
 }
 
+export function refreshDiscoveryRuntimeLineage(bundle: DocumentBundle): DocumentBundle {
+  for (const entry of bundle.documents) {
+    const stored = entry.document;
+    if (
+      !String(stored.schema_version).startsWith("startup_opportunity.artifact_envelope.") ||
+      stored.artifact_type !== "startup_opportunity.research_execution_plan.discovery.current"
+    ) {
+      continue;
+    }
+    const execution = stored.document as Record<string, unknown>;
+    const planRef = String(execution.research_plan_ref);
+    execution.research_plan_hash = canonicalContentHash(effectiveDocument(bundle, planRef));
+    stored.content_hash = canonicalContentHash(execution);
+  }
+  return bundle;
+}
+
 export function discoveryWaveEnvelopes(
   bundle: DocumentBundle,
   runId: string,

@@ -140,7 +140,9 @@ function unknownIncumbentResponse(subjectId: string): Record<string, unknown> {
     unknowns: [
       "Potential responder identity, ability, incentive, and response horizon are unknown.",
     ],
-    data_gaps: ["No incumbent absorption and response Evidence was delivered."],
+    data_gaps: [
+      "No Evidence-role binding and assessment semantics sufficient to complete the incumbent response assessment were submitted.",
+    ],
     strategic_implication:
       "Treat incumbent response risk as an unresolved strategic question; no automatic candidate or recommendation action follows.",
   };
@@ -152,8 +154,8 @@ export function unavailableCommercialResearchAudit(input: {
   readonly task: Readonly<Record<string, unknown>>;
   readonly coveredSubjectIds: readonly string[];
   readonly auditedAt: string;
-  readonly executionPlanRef?: string | null;
-  readonly dispatchTaskRef?: string | null;
+  readonly executionPlanRef: string;
+  readonly dispatchTaskRef: string;
 }): Record<string, unknown> {
   const requirements = input.task.commercial_research_requirements as Record<string, unknown>;
   const allocation = requirements.resource_allocation as Record<string, unknown>;
@@ -209,8 +211,8 @@ export function unavailableCommercialResearchAudit(input: {
     audit_id: `commercial_audit_${unitId}`,
     run_id: input.runId,
     unit_id: unitId,
-    execution_plan_ref: input.executionPlanRef ?? null,
-    dispatch_task_ref: input.dispatchTaskRef ?? null,
+    execution_plan_ref: input.executionPlanRef,
+    dispatch_task_ref: input.dispatchTaskRef,
     task_ref: input.taskRef,
     covered_direction_ids: coveredSubjectIds,
     research_stage: requirements.research_stage,

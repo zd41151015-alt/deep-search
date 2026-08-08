@@ -916,12 +916,12 @@ function validateScopeAndStages(
           )
           .map((task) => ({ dispatch, task })),
       );
-      if (assigned && dispatchMatches.length !== 1) {
+      if (dispatchMatches.length !== 1) {
         errors.push(
           issue(
             "commercial_research.incumbent_response_dispatch_projection_missing",
             `${entry.path}#/commercial_research_requirements/incumbent_response_assignment`,
-            "an assigned Research Task requires exactly one Dispatch projection bound by task_id and unit_id",
+            "every Research Task response assignment requires exactly one Dispatch projection bound by task_id and unit_id",
             { taskId, unitId, dispatchCount: dispatchMatches.length },
           ),
         );
@@ -1840,28 +1840,18 @@ function validateAudit(
   const actualAssignment = isRecord(audit.incumbent_response_assignment)
     ? audit.incumbent_response_assignment
     : {};
-  const assignedSomewhere = [
-    taskAssignment,
-    dispatchAssignment,
-    expectedAssignment,
-    actualAssignment,
-  ].some(
-    (assignment) =>
-      assignment.analysis_depth !== undefined && assignment.analysis_depth !== "not_assigned",
-  );
   if (
-    assignedSomewhere &&
-    (audit.execution_plan_ref === null ||
-      audit.dispatch_task_ref === null ||
-      task === undefined ||
-      dispatchTask === undefined ||
-      executionLane === undefined)
+    typeof audit.execution_plan_ref !== "string" ||
+    typeof audit.dispatch_task_ref !== "string" ||
+    task === undefined ||
+    dispatchTask === undefined ||
+    executionLane === undefined
   ) {
     errors.push(
       issue(
         "commercial_research.incumbent_response_lineage_incomplete",
         `${entry.path}#/incumbent_response_assignment`,
-        "assigned response research requires exact Plan, Dispatch, Task, and Audit lineage",
+        "every response assignment requires exact Plan, Dispatch, Task, and Audit lineage",
         {
           executionPlanRef: audit.execution_plan_ref,
           dispatchTaskRef: audit.dispatch_task_ref,

@@ -17,6 +17,8 @@ import {
 } from "../harness/src/index.js";
 import {
   branchResearchEnvelopes,
+  dispatchEnvelope,
+  executionPlanEnvelope,
   G12_BASE_TIME,
   G12_BRANCHES,
   G12_RUN_ID,
@@ -83,12 +85,15 @@ async function snapshotTree(root: string): Promise<Readonly<Record<string, strin
 async function prepareSingleBranch(context: TestContext, runId = G12_RUN_ID) {
   const state = await setup(context, runId);
   const base = await baseFixture();
-  const initial = initialFixtureEnvelopes(base);
-  await state.store.publishArtifactBundle({ runId, envelopes: initial });
   const branch = G12_BRANCHES[0];
   assert.ok(branch);
+  const initial = initialFixtureEnvelopes(base, [branch]);
+  await state.store.publishArtifactBundle({ runId, envelopes: initial });
   const task = taskEnvelope(base, branch, 2);
-  await state.store.publishArtifact({ runId, envelope: task });
+  await state.store.publishArtifactBundle({
+    runId,
+    envelopes: [executionPlanEnvelope(base, [branch]), dispatchEnvelope(base, [branch]), task],
+  });
   const evidenceStore = new EvidenceStore(state.runsRoot);
   const researchGoal = String(task.document.research_goal);
   const publicRecord = await evidenceStore.record({
@@ -138,7 +143,11 @@ async function publishVerticalFixture(context: TestContext) {
   assert.equal(initialResult.status, "published");
 
   const tasks = G12_BRANCHES.map((branch, index) => taskEnvelope(base, branch, index + 2));
-  await state.store.publishArtifactBundle({ runId: G12_RUN_ID, envelopes: tasks });
+  const dispatch = dispatchEnvelope(base);
+  await state.store.publishArtifactBundle({
+    runId: G12_RUN_ID,
+    envelopes: [executionPlanEnvelope(base), dispatch, ...tasks],
+  });
 
   const evidenceStore = new EvidenceStore(state.runsRoot);
   const records = new Map<string, readonly [EvidenceStoreRecord, EvidenceStoreRecord]>();
@@ -192,7 +201,7 @@ async function publishVerticalFixture(context: TestContext) {
     },
     inputRefs: G12_BRANCHES.map((branch) => branch.outputPath),
   });
-  return { ...state, initial, tasks, records, branchBundles };
+  return { ...state, initial, dispatch, tasks, records, branchBundles };
 }
 
 test("current bundle publishes Evidence Store and research branch schemas", async () => {
@@ -275,25 +284,28 @@ test("research task publication is pending-to-active only and exact replay prese
 
   const recoveryState = await setup(context);
   const base = await baseFixture();
-  await recoveryState.store.publishArtifactBundle({
-    runId: G12_RUN_ID,
-    envelopes: initialFixtureEnvelopes(base),
-  });
   const recoveryBranch = G12_BRANCHES[0];
   assert.ok(recoveryBranch);
+  await recoveryState.store.publishArtifactBundle({
+    runId: G12_RUN_ID,
+    envelopes: initialFixtureEnvelopes(base, [recoveryBranch]),
+  });
   const recoveryTask = taskEnvelope(base, recoveryBranch, 2);
-  await assert.rejects(
-    recoveryState.store.publishArtifact({
-      runId: G12_RUN_ID,
-      envelope: recoveryTask,
-      faultAt: "after_publish",
-    }),
-    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
-  );
-  const beforeRecovery = JSON.parse(
-    await readFile(path.join(recoveryState.runRoot, "manifest.json"), "utf8"),
-  ) as { active_units: string[] };
-  assert.deepEqual(beforeRecovery.active_units, []);
+  const recoveryWave = [
+    executionPlanEnvelope(base, [recoveryBranch]),
+    dispatchEnvelope(base, [recoveryBranch]),
+    recoveryTask,
+  ];
+  const publishedWave = await recoveryState.store.publishArtifactBundle({
+    runId: G12_RUN_ID,
+    envelopes: recoveryWave,
+  });
+  assert.equal(publishedWave.status, "published");
+  const replayedWave = await recoveryState.store.publishArtifactBundle({
+    runId: G12_RUN_ID,
+    envelopes: recoveryWave,
+  });
+  assert.equal(replayedWave.status, "idempotent_replay");
   const recovered = await recoveryState.store.load(G12_RUN_ID);
   assert.ok(recovered.manifest.active_units.includes(String(recoveryTask.document.unit_id)));
   assert.ok(recovered.manifest.artifact_refs.includes(recoveryTask.artifact_path));
@@ -425,9 +437,12 @@ test("research chain rejects substrate drift, cross-task lineage, and cross-unit
 
 test("research chain closes formal input refs and Source Manifest Evidence coverage", async (context) => {
   const state = await publishVerticalFixture(context);
-  const documents = [...state.initial, ...state.tasks, ...state.branchBundles.flat()].map(
-    (entry) => ({ path: entry.artifact_path, document: structuredClone(entry) }),
-  );
+  const documents = [
+    ...state.initial,
+    state.dispatch,
+    ...state.tasks,
+    ...state.branchBundles.flat(),
+  ].map((entry) => ({ path: entry.artifact_path, document: structuredClone(entry) }));
   const exactRecords = [...state.records.values()].flatMap((pair) =>
     pair.map((record) => ({
       ref: `evidence/manifest.jsonl#${record.evidence_id}`,

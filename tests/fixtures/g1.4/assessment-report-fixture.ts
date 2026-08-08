@@ -400,6 +400,103 @@ export async function createG14ContractBundle(
       clone(taskEnvelope(base, branch, 2).document),
     );
   }
+  const executionPlanRef = "plans/research-execution.r1.json";
+  const dispatchPath = "tasks/dispatch/commercial-research.r1.json";
+  const executionStageId = "commercial_research";
+  const researchPlan = documents.get("plans/research-plan.r1.json");
+  if (researchPlan === undefined) {
+    throw new Error("missing synthetic Research Plan");
+  }
+  const taskAssignment = (branch: FixtureBranch): Record<string, unknown> => {
+    const task = documents.get(`tasks/${branch.unitId}.attempt-1.json`);
+    const requirements = task?.commercial_research_requirements as
+      | Record<string, unknown>
+      | undefined;
+    return clone(requirements?.incumbent_response_assignment as Record<string, unknown>);
+  };
+  documents.set(executionPlanRef, {
+    schema_version: "startup_opportunity.research_execution_plan.discovery.current",
+    execution_plan_id: "execution_plan_g1_4_synthetic",
+    run_id: G14_RUN_ID,
+    mode: "concept_evidence_assessment",
+    revision: 1,
+    parent_execution_plan_ref: null,
+    research_plan_ref: "plans/research-plan.r1.json",
+    research_plan_hash: canonicalContentHash(researchPlan),
+    created_at: "2026-07-25T18:05:00Z",
+    research_depth: "standard",
+    total_time_budget_minutes: 120,
+    resource_allocation: {
+      customer_commercial_percent: 65,
+      market_structure_percent: 17,
+      academic_percent: 18,
+    },
+    stages: [
+      {
+        stage_id: executionStageId,
+        stage_kind: "assessment_commercial",
+        depends_on: [],
+        gate_before: null,
+        gate_after: "terminal_allowed",
+        lanes: BRANCHES.map((branch) => ({
+          unit_id: branch.unitId,
+          lane_role: branch.unitId === "unit_counter" ? "risk" : "evaluation",
+          candidate_scope: { kind: "none", candidate_refs: [] },
+          incumbent_response_assignment: taskAssignment(branch),
+          reporting_dimensions: [branch.dimensionId],
+          submission_path: branch.outputPath,
+          submission_schema: "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+          time_budget_minutes: 10,
+          max_sources: 5,
+          straggler_policy: {
+            on_timeout: "publish_partial",
+            grace_minutes: 0,
+            blocks_stage: false,
+          },
+          dispatch_group: "commercial_research",
+        })),
+      },
+    ],
+    limitations: ["SYNTHETIC execution plan; no research was performed."],
+  });
+  documents.set(dispatchPath, {
+    schema_version: "startup_opportunity.dispatch_batch.discovery.current",
+    batch_id: "dispatch_commercial_research_g1_4",
+    revision: 1,
+    run_id: G14_RUN_ID,
+    mode: "concept_evidence_assessment",
+    execution_plan_ref: executionPlanRef,
+    research_plan_ref: "plans/research-plan.r1.json",
+    stage_id: executionStageId,
+    dispatch_group: "commercial_research",
+    task_ready_at: "2026-07-25T18:10:00Z",
+    dispatch_requested_at: "2026-07-25T18:10:00Z",
+    dispatch_mode: "parallel_immediate",
+    tasks: BRANCHES.map((branch) => {
+      const task = documents.get(`tasks/${branch.unitId}.attempt-1.json`);
+      if (task === undefined) throw new Error(`missing synthetic task ${branch.unitId}`);
+      return {
+        task_id: task.task_id,
+        unit_id: branch.unitId,
+        lane_role: branch.unitId === "unit_counter" ? "risk" : "evaluation",
+        incumbent_response_assignment: taskAssignment(branch),
+        research_goal: task.research_goal,
+        input_refs: task.input_refs,
+        allowed_output_path: branch.outputPath,
+        required_artifact_schema:
+          "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        time_budget_minutes: 10,
+        max_sources: 5,
+        straggler_policy: {
+          on_timeout: "publish_partial",
+          grace_minutes: 0,
+          blocks_stage: false,
+        },
+      };
+    }),
+    agent_dispatch_performed: false,
+    limitations: ["SYNTHETIC dispatch descriptor; no agent dispatch was performed."],
+  });
   const commercialAudits = BRANCHES.map((branch) => {
     const taskRef = `tasks/${branch.unitId}.attempt-1.json`;
     const task = documents.get(taskRef);
@@ -413,6 +510,8 @@ export async function createG14ContractBundle(
       task,
       coveredSubjectIds: ["concept-hypothesis.json"],
       auditedAt: "2026-07-25T18:39:00Z",
+      executionPlanRef,
+      dispatchTaskRef: `${dispatchPath}#${String(task.task_id)}`,
     });
     documents.set(auditRef, audit);
     return { auditRef, audit };

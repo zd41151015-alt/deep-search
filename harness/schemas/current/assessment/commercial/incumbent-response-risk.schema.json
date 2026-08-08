@@ -213,6 +213,15 @@
           "items": {
             "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
           }
+        },
+        "supporting_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "opposing_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "background_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
         }
       }
     },
@@ -406,9 +415,6 @@
                 "type": "object",
                 "properties": { "overall_strength": { "const": "unknown" } }
               },
-              "supporting_evidence_refs": { "type": "array", "maxItems": 0 },
-              "opposing_evidence_refs": { "type": "array", "maxItems": 0 },
-              "background_evidence_refs": { "type": "array", "maxItems": 0 },
               "confidence": { "const": "unknown" }
             }
           }

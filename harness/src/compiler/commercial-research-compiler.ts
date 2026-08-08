@@ -121,9 +121,9 @@ function unknownIncumbentResponse(
       dimensions: [],
       rationale,
     },
-    supporting_evidence_refs: [],
-    opposing_evidence_refs: [],
-    background_evidence_refs: [],
+    supporting_evidence_refs: strings(input.supporting_evidence_refs),
+    opposing_evidence_refs: strings(input.opposing_evidence_refs),
+    background_evidence_refs: strings(input.background_evidence_refs),
     inference_boundary: rationale,
     confidence: "unknown",
     uncertainty: typeof input.uncertainty === "string" ? input.uncertainty : rationale,
@@ -134,7 +134,9 @@ function unknownIncumbentResponse(
     data_gaps:
       strings(input.data_gaps).length > 0
         ? strings(input.data_gaps)
-        : ["No incumbent absorption and response Evidence was delivered."],
+        : [
+            "No Evidence-role binding and assessment semantics sufficient to complete the incumbent response assessment were submitted.",
+          ],
     strategic_implication:
       "Treat incumbent response risk as an unresolved strategic question; no automatic candidate or recommendation action follows.",
   };
@@ -283,26 +285,22 @@ export function compileCommercialResearchDelivery(
   const dispatchAssignment = isRecord(dispatchTask?.incumbent_response_assignment)
     ? dispatchTask.incumbent_response_assignment
     : undefined;
-  const assignedSomewhere = [taskAssignment, dispatchAssignment, planAssignment].some(
-    (assignment) =>
-      assignment?.analysis_depth !== undefined && assignment.analysis_depth !== "not_assigned",
-  );
-  if (assignedSomewhere && dispatchArtifacts.length !== 1) {
+  if (dispatchArtifacts.length !== 1) {
     issues.push(
       issue(
         "commercial_research.incumbent_response_dispatch_resolution_invalid",
         "/unit_id",
-        "assigned incumbent response work requires exactly one Dispatch task bound by task_id and unit_id",
+        "every incumbent response assignment requires exactly one Dispatch task bound by task_id and unit_id",
         { taskId, unitId, dispatchCount: dispatchArtifacts.length },
       ),
     );
   }
-  if (assignedSomewhere && (executionPlanRef === null || executionLane === undefined)) {
+  if (executionPlanRef === null || executionLane === undefined) {
     issues.push(
       issue(
         "commercial_research.incumbent_response_plan_resolution_invalid",
         "/unit_id",
-        "assigned incumbent response work requires the exact Execution Plan stage and owner lane",
+        "every incumbent response assignment requires the exact Execution Plan stage and lane",
         { executionPlanRef, stageId: dispatch.stage_id, unitId },
       ),
     );
@@ -332,16 +330,12 @@ export function compileCommercialResearchDelivery(
       ),
     );
   }
-  const incumbentAssignment =
-    planAssignment ??
-    (assignedSomewhere
-      ? {
-          analysis_depth: "not_assigned",
-          assignment_role: "none",
-          subject_refs: [],
-          rationale: "No valid Execution Plan assignment was resolved.",
-        }
-      : taskAssignment);
+  const incumbentAssignment = planAssignment ?? {
+    analysis_depth: "not_assigned",
+    assignment_role: "none",
+    subject_refs: [],
+    rationale: "No valid Execution Plan assignment was resolved.",
+  };
 
   const evidence: Record<string, unknown>[] = records(delivery.evidence_sources).map((source) => {
     const copy = structuredClone(source);

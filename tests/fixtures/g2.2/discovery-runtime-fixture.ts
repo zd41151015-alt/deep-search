@@ -5,6 +5,7 @@ import {
   type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
 } from "../../../harness/src/index.js";
+import { refreshDiscoveryRuntimeLineage } from "../../helpers/discovery-wave.js";
 import {
   fixtureEnvelope,
   G21_OPPORTUNITY_REF,
@@ -126,6 +127,7 @@ export async function createDiscoveryRuntimeFixture(
   ];
 
   refreshDiscoveryMapsBundle(bundle);
+  refreshDiscoveryRuntimeLineage(bundle);
   applyMechanicalBinding(bundle, generationPath, substrate.generation);
   applyMechanicalBinding(bundle, evaluationPath, substrate.evaluation);
 
