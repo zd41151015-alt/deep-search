@@ -7,6 +7,7 @@ import { canonicalContentHash } from "../harness/src/artifact-store/canonical.js
 import { compileCommercialResearchDelivery } from "../harness/src/compiler/commercial-research-compiler.js";
 import {
   INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+  INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH,
   INCUMBENT_RESPONSE_UNKNOWN_RATIONALE,
 } from "../harness/src/incumbent-response-contract.js";
 import {
@@ -2711,6 +2712,22 @@ test("Chinese commercial tables keep exact refs in structured data but hide inte
         },
       },
     ],
+    incumbent_response_risk_rows: [
+      {
+        audit_ref: "artifacts/research-audits/synthetic.json",
+        assessment: {
+          assessment_id: "incumbent_response_synthetic_chinese",
+          analysis_depth: "lightweight_scan",
+          semantic: {
+            ...incumbentResponseSemantic({
+              subjectId: "candidate_solution_purchase_decision_dossier",
+              backgroundRefs: [evidenceRef],
+            }),
+            strategic_implication: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+          },
+        },
+      },
+    ],
     research_coverage_gaps: [
       {
         audit_ref: "artifacts/research-audits/synthetic.json",
@@ -2738,6 +2755,7 @@ test("Chinese commercial tables keep exact refs in structured data but hide inte
   const chinese = [
     renderQuantitativeSignalTable(source, true),
     renderCompetitiveSubstituteMatrix(source, true),
+    renderIncumbentResponseRiskTable(source, true),
     renderResearchCoverageGaps(source, true),
   ].join("\n");
   assert.deepEqual(
@@ -2747,10 +2765,22 @@ test("Chinese commercial tables keep exact refs in structured data but hide inte
   assert.doesNotMatch(chinese, /evidence\/records|artifacts\/research-audits/iu);
   assert.match(chinese, /中国大陆 B2C 教育替代基线/);
   assert.match(chinese, /详见结构化审计/);
+  assert.ok(chinese.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
+  assert.equal(chinese.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT), false);
+  assert.doesNotMatch(chinese, /Reference only/iu);
+  const structuredResponseSemantic = source.incumbent_response_risk_rows[0]?.assessment
+    .semantic as Record<string, unknown>;
+  assert.equal(
+    structuredResponseSemantic.strategic_implication,
+    INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+  );
 
   const english = renderQuantitativeSignalTable(source);
   assert.match(english, /china_b2c_education_alternatives_baseline/);
   assert.match(english, /evidence\/records/);
+  const englishResponse = renderIncumbentResponseRiskTable(source);
+  assert.ok(englishResponse.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT));
+  assert.equal(englishResponse.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH), false);
 });
 
 test("commercial ceilings bind selected subjects instead of unrelated weak candidates", async () => {
