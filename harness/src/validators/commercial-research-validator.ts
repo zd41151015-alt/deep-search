@@ -1,4 +1,5 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
+import { INCUMBENT_RESPONSE_STRATEGIC_CONTEXT } from "../incumbent-response-contract.js";
 import { projectCommercialAuditTables } from "../reporting/commercial-report-tables.js";
 import { projectGateWarnings } from "./gate-diagnostics.js";
 import type { ValidationIssue } from "./schema-bundle.js";
@@ -1923,6 +1924,16 @@ function validateAudit(
     }
     for (const [index, assessment] of incumbentAssessments.entries()) {
       const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+      if (semantic.strategic_implication !== INCUMBENT_RESPONSE_STRATEGIC_CONTEXT) {
+        errors.push(
+          issue(
+            "commercial_research.incumbent_response_strategic_context_mismatch",
+            `${entry.path}#/incumbent_response_assessments/${index}/semantic/strategic_implication`,
+            "the Harness-owned strategic implication must remain the fixed reference-only decision boundary",
+            { expected: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT },
+          ),
+        );
+      }
       const expectedId = stableId("incumbent_response", [audit.unit_id, semantic]);
       if (
         assessment.assessment_id !== expectedId ||

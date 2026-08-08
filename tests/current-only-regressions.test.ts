@@ -3,7 +3,12 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { canonicalContentHash } from "../harness/src/artifact-store/canonical.js";
 import { compileCommercialResearchDelivery } from "../harness/src/compiler/commercial-research-compiler.js";
+import {
+  INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+  INCUMBENT_RESPONSE_UNKNOWN_RATIONALE,
+} from "../harness/src/incumbent-response-contract.js";
 import {
   artifactRefsForDocument,
   buildArtifactScaffold,
@@ -465,7 +470,9 @@ function incumbentResponseSemantic(input: {
       analysis_state: "unknown",
       uncertainty: "Responder identity, intent, timing, and thesis coverage are unresolved.",
       unknowns: ["Potential responder identity and response horizon."],
-      data_gaps: ["No responder-specific Evidence was found in the bounded scan."],
+      data_gaps: [
+        "The submitted responder Evidence is insufficient to complete the bounded assessment.",
+      ],
       ...(input.supportingRefs === undefined
         ? {}
         : { supporting_evidence_refs: [...input.supportingRefs] }),
@@ -546,8 +553,6 @@ function incumbentResponseSemantic(input: {
     uncertainty: "No internal roadmap or commitment is known.",
     unknowns: ["Actual prioritization and launch timing."],
     data_gaps: ["No responder roadmap or full-workflow operating-cost disclosure."],
-    strategic_implication:
-      "Treat feature copying as strategic context while preserving the residual workflow differentiation; do not automatically eliminate or cap the candidate.",
   };
 }
 
@@ -1118,6 +1123,22 @@ test("incumbent response work starts after candidate formation and preserves bou
     ],
   );
   assert.equal(new Set(lightweightAssessments.map((entry) => entry.assessment_id)).size, 2);
+  const defaultUnknownSemantic = lightweightAssessments.find(
+    (assessment) =>
+      (assessment.semantic as Record<string, unknown>).subject_id === "candidate_response_b",
+  )?.semantic as Record<string, unknown>;
+  assert.equal(defaultUnknownSemantic.inference_boundary, INCUMBENT_RESPONSE_UNKNOWN_RATIONALE);
+  assert.equal(
+    (defaultUnknownSemantic.capability_adjacency as Record<string, unknown>).rationale,
+    INCUMBENT_RESPONSE_UNKNOWN_RATIONALE,
+  );
+  assert.deepEqual(defaultUnknownSemantic.supporting_evidence_refs, []);
+  assert.equal(
+    JSON.stringify(defaultUnknownSemantic).includes(
+      "No responder-specific assessment was delivered",
+    ),
+    false,
+  );
   const lightweightCoverage = lightweight.document.incumbent_response_coverage as Record<
     string,
     unknown
@@ -1357,6 +1378,15 @@ test("high response ability remains judgment context and preserves every Evidenc
   assert.equal((unknownSemantic.incentive as Record<string, unknown>).level, "unknown");
   assert.equal((unknownSemantic.thesis_coverage as Record<string, unknown>).scope, "unknown");
   assert.equal(unknownSemantic.confidence, "unknown");
+  assert.equal(unknownSemantic.inference_boundary, INCUMBENT_RESPONSE_UNKNOWN_RATIONALE);
+  assert.equal(
+    (unknownSemantic.capability_adjacency as Record<string, unknown>).rationale,
+    INCUMBENT_RESPONSE_UNKNOWN_RATIONALE,
+  );
+  assert.equal(
+    JSON.stringify(unknown).includes("No responder-specific assessment was delivered"),
+    false,
+  );
   const unknownProjection = projectCommercialAuditTables([
     { path: "artifacts/research-audits/response-unknown.json", document: unknown },
   ]);
@@ -1378,6 +1408,12 @@ test("high response ability remains judgment context and preserves every Evidenc
     projectedUnknownSemantic.background_evidence_refs,
     unknownSemantic.background_evidence_refs,
   );
+  const unknownTable = renderIncumbentResponseRiskTable(unknownProjection);
+  assert.ok(unknownTable.includes("insufficient to form a complete responder-specific conclusion"));
+  assert.ok(unknownTable.includes("evidence/records/response-news.json"));
+  assert.ok(unknownTable.includes("evidence/records/response-review.json"));
+  assert.ok(unknownTable.includes("evidence/records/response-company.json"));
+  assert.equal(unknownTable.includes("No responder-specific assessment was delivered"), false);
   const riskDelivery = structuredClone(baseDelivery);
   riskDelivery.incumbent_response_assessments = [
     incumbentResponseSemantic({
@@ -1419,6 +1455,80 @@ test("high response ability remains judgment context and preserves every Evidenc
   assert.deepEqual(semantic.supporting_evidence_refs, ["evidence/records/response-news.json"]);
   assert.deepEqual(semantic.opposing_evidence_refs, ["evidence/records/response-review.json"]);
   assert.deepEqual(semantic.background_evidence_refs, ["evidence/records/response-company.json"]);
+  assert.equal(semantic.strategic_implication, INCUMBENT_RESPONSE_STRATEGIC_CONTEXT);
+
+  const actionBearingText =
+    "Fail this candidate and eliminate it immediately; impose a recommendation ceiling.";
+  const actionBearingDelivery = structuredClone(riskDelivery);
+  const actionBearingInput = (
+    actionBearingDelivery.incumbent_response_assessments as Record<string, unknown>[]
+  )[0];
+  assert.ok(actionBearingInput);
+  actionBearingInput.strategic_implication = actionBearingText;
+  assert.equal(validator.validateDocument(actionBearingDelivery).valid, false);
+  const actionBearingCompiled = compileCommercialResearchDelivery(
+    actionBearingDelivery,
+    taskPath,
+    [task, ...lineage, candidate],
+    policy,
+  ).document;
+  const actionBearingSemantic = (
+    actionBearingCompiled.incumbent_response_assessments as Record<string, unknown>[]
+  )[0]?.semantic as Record<string, unknown>;
+  assert.equal(actionBearingSemantic.strategic_implication, INCUMBENT_RESPONSE_STRATEGIC_CONTEXT);
+  assert.equal(JSON.stringify(actionBearingCompiled).includes(actionBearingText), false);
+  assert.equal(validator.validateDocument(actionBearingCompiled).valid, true);
+  assert.equal(actionBearingCompiled.ranking_eligibility, compiled.ranking_eligibility);
+  assert.deepEqual(actionBearingCompiled.recommendation_ceiling, compiled.recommendation_ceiling);
+  assert.deepEqual(actionBearingCompiled.claims, compiled.claims);
+
+  const mutatedAudit = structuredClone(compiled);
+  const mutatedAssessment = (
+    mutatedAudit.incumbent_response_assessments as Record<string, unknown>[]
+  )[0] as Record<string, unknown>;
+  const mutatedSemantic = mutatedAssessment.semantic as Record<string, unknown>;
+  mutatedSemantic.strategic_implication = actionBearingText;
+  const mutatedAssessmentId = `incumbent_response_${canonicalContentHash([
+    "unit_response_lightweight",
+    mutatedSemantic,
+  ]).slice("sha256:".length, "sha256:".length + 24)}`;
+  mutatedAssessment.assessment_id = mutatedAssessmentId;
+  const mutatedCoverage = (
+    mutatedAudit.incumbent_response_coverage as Record<string, unknown>[]
+  )[0] as Record<string, unknown>;
+  mutatedCoverage.assessment_ids = [mutatedAssessmentId];
+  assert.equal(validator.validateDocument(mutatedAudit).valid, false);
+  const mutatedCodes = validateCommercialResearchContract(
+    [
+      { path: taskPath, schemaVersion: task.artifact_type, document: task.document },
+      ...lineage.map((artifact) => ({
+        path: artifact.artifact_path,
+        schemaVersion: artifact.artifact_type,
+        document: artifact.document,
+      })),
+      {
+        path: candidateRef,
+        schemaVersion: candidate.artifact_type,
+        document: candidate.document,
+      },
+      {
+        path: "artifacts/research-audits/response-mutated.json",
+        schemaVersion: "startup_opportunity.commercial_research_audit.current",
+        document: mutatedAudit,
+      },
+    ],
+    policy,
+  ).map((issue) => issue.code);
+  assert.ok(
+    mutatedCodes.includes("commercial_research.incumbent_response_strategic_context_mismatch"),
+  );
+  const sanitizedProjection = projectCommercialAuditTables([
+    { path: "artifacts/research-audits/response-mutated.json", document: mutatedAudit },
+  ]);
+  assert.equal(JSON.stringify(sanitizedProjection).includes(actionBearingText), false);
+  const sanitizedTable = renderIncumbentResponseRiskTable(sanitizedProjection);
+  assert.equal(sanitizedTable.includes(actionBearingText), false);
+  assert.ok(sanitizedTable.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT));
 
   const broken = structuredClone(unknown);
   const brokenAssessment = (
@@ -1552,6 +1662,19 @@ test("all formal report sources project response rows and explicit gaps", async 
     false,
   );
   assert.equal((projection.incumbent_response_risk_rows as unknown[]).length, 2);
+  for (const report of reportDocuments) {
+    const rows = report.document.incumbent_response_risk_rows as Record<string, unknown>[];
+    assert.equal(rows.length, 2);
+    for (const row of rows) {
+      const reportAssessment = row.assessment as Record<string, unknown>;
+      const reportSemantic = reportAssessment.semantic as Record<string, unknown>;
+      assert.equal(reportSemantic.strategic_implication, INCUMBENT_RESPONSE_STRATEGIC_CONTEXT);
+    }
+    assert.equal(
+      JSON.stringify(report.document).includes("No responder-specific assessment was delivered"),
+      false,
+    );
+  }
   const table = renderIncumbentResponseRiskTable(projection);
   assert.match(table, /Potential Responder \/ Control Point/);
   assert.match(table, /candidate_report_response_a/);
@@ -1562,6 +1685,9 @@ test("all formal report sources project response rows and explicit gaps", async 
   assert.match(table, /evidence\/records\/response-review\.json/);
   assert.match(table, /evidence\/records\/response-company\.json/);
   assert.match(table, /Strategic Implication/);
+  assert.ok(table.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT));
+  assert.ok(table.includes("insufficient to form a complete responder-specific conclusion"));
+  assert.equal(table.includes("No responder-specific assessment was delivered"), false);
   assert.match(table, /Context only: incumbent absorption and response risk is not a Gate/);
 
   const drifted = structuredClone(reportDocuments);

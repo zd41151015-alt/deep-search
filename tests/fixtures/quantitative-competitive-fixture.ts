@@ -1,4 +1,8 @@
 import { canonicalContentHash } from "../../harness/src/artifact-store/canonical.js";
+import {
+  INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+  INCUMBENT_RESPONSE_UNKNOWN_RATIONALE,
+} from "../../harness/src/incumbent-response-contract.js";
 import { projectCommercialAuditTables } from "../../harness/src/reporting/commercial-report-tables.js";
 
 export const SYNTHETIC_METRIC_FAMILIES = [
@@ -93,8 +97,7 @@ function records(value: unknown): readonly Record<string, unknown>[] {
 }
 
 function unknownIncumbentResponse(subjectId: string): Record<string, unknown> {
-  const rationale =
-    "No responder-specific assessment was delivered for the assigned subject; the reference risk remains unknown and does not change ranking, confidence, ceilings, or publication.";
+  const rationale = INCUMBENT_RESPONSE_UNKNOWN_RATIONALE;
   const unknown = () => ({ level: "unknown", rationale });
   return {
     subject_id: subjectId,
@@ -143,8 +146,7 @@ function unknownIncumbentResponse(subjectId: string): Record<string, unknown> {
     data_gaps: [
       "No Evidence-role binding and assessment semantics sufficient to complete the incumbent response assessment were submitted.",
     ],
-    strategic_implication:
-      "Treat incumbent response risk as an unresolved strategic question; no automatic candidate or recommendation action follows.",
+    strategic_implication: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
   };
 }
 

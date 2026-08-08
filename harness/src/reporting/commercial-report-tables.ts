@@ -1,3 +1,5 @@
+import { INCUMBENT_RESPONSE_STRATEGIC_CONTEXT } from "../incumbent-response-contract.js";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -193,10 +195,20 @@ export function projectCommercialAuditTables(
     })),
   );
   const incumbentResponseRows = sortedAudits.flatMap((audit) =>
-    records(audit.document.incumbent_response_assessments).map((assessment) => ({
-      audit_ref: audit.path,
-      assessment,
-    })),
+    records(audit.document.incumbent_response_assessments).map((assessment) => {
+      const projectedAssessment = structuredClone(assessment);
+      const semantic = isRecord(projectedAssessment.semantic) ? projectedAssessment.semantic : {};
+      return {
+        audit_ref: audit.path,
+        assessment: {
+          ...projectedAssessment,
+          semantic: {
+            ...semantic,
+            strategic_implication: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+          },
+        },
+      };
+    }),
   );
   const gapRows = sortedAudits.flatMap((audit) => [
     ...records(audit.document.quantitative_coverage)
@@ -313,7 +325,7 @@ function graded(value: unknown, zh: boolean): string {
 }
 
 export function renderIncumbentResponseRiskTable(
-  source: Readonly<Record<string, unknown>>,
+  source: Readonly<{ readonly incumbent_response_risk_rows?: unknown }>,
   zh = false,
 ): string {
   const rows = records(source.incumbent_response_risk_rows);
@@ -386,7 +398,7 @@ export function renderIncumbentResponseRiskTable(
       `${display(residual.overall_strength, zh)}: ${display(residual.rationale, zh)}${residualDimensions.length === 0 ? "" : `<br>${residualDimensions.join("<br>")}`}`,
       `${zh ? "支持" : "supporting"}: ${auditReferenceSummary(semantic.supporting_evidence_refs, zh)}<br>${zh ? "反证" : "opposing"}: ${auditReferenceSummary(semantic.opposing_evidence_refs, zh)}<br>${zh ? "背景" : "background"}: ${auditReferenceSummary(semantic.background_evidence_refs, zh)}`,
       `${display(semantic.confidence, zh)}: ${display(semantic.uncertainty, zh)}<br>${zh ? "推理边界" : "inference boundary"}: ${display(semantic.inference_boundary, zh)}<br>${zh ? "未知" : "unknowns"}: ${displayList(semantic.unknowns, zh)}<br>${zh ? "数据缺口" : "data gaps"}: ${displayList(semantic.data_gaps, zh)}`,
-      display(semantic.strategic_implication, zh),
+      display(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT, zh),
     ];
   });
   if (body.length === 0) {

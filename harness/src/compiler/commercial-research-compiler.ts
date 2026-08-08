@@ -1,4 +1,9 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
+import {
+  INCUMBENT_RESPONSE_CONTEXT_ONLY,
+  INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+  INCUMBENT_RESPONSE_UNKNOWN_RATIONALE,
+} from "../incumbent-response-contract.js";
 import type { CommercialResearchPolicy } from "../validators/commercial-research-validator.js";
 import {
   deriveBusinessCoverage,
@@ -70,8 +75,6 @@ function acquisitionMethod(value: unknown): string {
   return typeof value === "string" ? value : "other";
 }
 
-const INCUMBENT_RESPONSE_CONTEXT_ONLY = "Context only; no automatic decision effect.";
-
 const INCUMBENT_RESPONSE_AUTOMATIC_EFFECTS = {
   ranking_eligibility: false,
   claim_confidence: false,
@@ -84,8 +87,7 @@ function unknownIncumbentResponse(
   input: Readonly<Record<string, unknown>> = {},
 ): Record<string, unknown> {
   const unknown = (rationale: string) => ({ level: "unknown", rationale });
-  const rationale =
-    "No responder-specific assessment was delivered for the assigned subject; the reference risk remains unknown and does not change ranking, confidence, ceilings, or publication.";
+  const rationale = INCUMBENT_RESPONSE_UNKNOWN_RATIONALE;
   return {
     subject_id: subjectId,
     analysis_state: "unknown",
@@ -137,8 +139,7 @@ function unknownIncumbentResponse(
         : [
             "No Evidence-role binding and assessment semantics sufficient to complete the incumbent response assessment were submitted.",
           ],
-    strategic_implication:
-      "Treat incumbent response risk as an unresolved strategic question; no automatic candidate or recommendation action follows.",
+    strategic_implication: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
   };
 }
 
@@ -194,8 +195,7 @@ function notApplicableIncumbentResponse(
     uncertainty: rationale,
     unknowns: [],
     data_gaps: [],
-    strategic_implication:
-      "No incumbent response assessment applies within the bounded scope; no automatic candidate or recommendation action follows.",
+    strategic_implication: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
   };
 }
 
@@ -207,7 +207,30 @@ function normalizeIncumbentResponse(
   if (input.analysis_state === "not_applicable") {
     return notApplicableIncumbentResponse(subjectId, input);
   }
-  return structuredClone(input);
+  return {
+    subject_id: subjectId,
+    analysis_state: "assessed",
+    responder_identity: structuredClone(input.responder_identity),
+    responder_category: structuredClone(input.responder_category),
+    control_point: structuredClone(input.control_point),
+    response_modes: structuredClone(input.response_modes),
+    capability_adjacency: structuredClone(input.capability_adjacency),
+    response_cost: structuredClone(input.response_cost),
+    incentive: structuredClone(input.incentive),
+    plausible_response_horizon: structuredClone(input.plausible_response_horizon),
+    distribution_leverage: structuredClone(input.distribution_leverage),
+    thesis_coverage: structuredClone(input.thesis_coverage),
+    residual_differentiation: structuredClone(input.residual_differentiation),
+    supporting_evidence_refs: structuredClone(input.supporting_evidence_refs),
+    opposing_evidence_refs: structuredClone(input.opposing_evidence_refs),
+    background_evidence_refs: structuredClone(input.background_evidence_refs),
+    inference_boundary: structuredClone(input.inference_boundary),
+    confidence: structuredClone(input.confidence),
+    uncertainty: structuredClone(input.uncertainty),
+    unknowns: structuredClone(input.unknowns),
+    data_gaps: structuredClone(input.data_gaps),
+    strategic_implication: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+  };
 }
 
 export function compileCommercialResearchDelivery(

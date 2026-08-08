@@ -182,13 +182,87 @@
       ]
     },
     "assessedInput": {
-      "allOf": [
-        { "$ref": "#/$defs/formalAssessmentSemantic" },
-        {
-          "type": "object",
-          "properties": { "analysis_state": { "const": "assessed" } },
-          "required": ["analysis_state"]
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_id",
+        "analysis_state",
+        "responder_identity",
+        "responder_category",
+        "control_point",
+        "response_modes",
+        "capability_adjacency",
+        "response_cost",
+        "incentive",
+        "plausible_response_horizon",
+        "distribution_leverage",
+        "thesis_coverage",
+        "residual_differentiation",
+        "supporting_evidence_refs",
+        "opposing_evidence_refs",
+        "background_evidence_refs",
+        "inference_boundary",
+        "confidence",
+        "uncertainty",
+        "unknowns",
+        "data_gaps"
+      ],
+      "properties": {
+        "subject_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "analysis_state": { "const": "assessed" },
+        "responder_identity": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "responder_category": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "control_point": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "response_modes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          }
+        },
+        "capability_adjacency": { "$ref": "#/$defs/gradedAssessment" },
+        "response_cost": { "$ref": "#/$defs/responseCost" },
+        "incentive": { "$ref": "#/$defs/incentive" },
+        "plausible_response_horizon": { "$ref": "#/$defs/responseHorizon" },
+        "distribution_leverage": { "$ref": "#/$defs/distributionLeverage" },
+        "thesis_coverage": { "$ref": "#/$defs/thesisCoverage" },
+        "residual_differentiation": { "$ref": "#/$defs/residualDifferentiation" },
+        "supporting_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "opposing_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "background_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "inference_boundary": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "uncertainty": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "unknowns": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "data_gaps": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
         }
+      },
+      "anyOf": [
+        { "properties": { "supporting_evidence_refs": { "type": "array", "minItems": 1 } } },
+        { "properties": { "opposing_evidence_refs": { "type": "array", "minItems": 1 } } },
+        { "properties": { "background_evidence_refs": { "type": "array", "minItems": 1 } } }
       ]
     },
     "unknownInput": {
@@ -331,7 +405,7 @@
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
         },
         "strategic_implication": {
-          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          "const": "Reference only: use this response assessment as judgment context alongside the subject's other Evidence and synthesis; it does not prescribe pass/fail, elimination, ranking, Claim confidence, a recommendation ceiling, or publication action."
         }
       },
       "allOf": [
