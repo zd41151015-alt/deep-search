@@ -665,7 +665,14 @@
     "research_coverage_gaps": {
       "type": "array",
       "items": {
-        "$ref": "../assessment/commercial/quantitative-competitive-research.schema.json#/$defs/coverageGapRow"
+        "oneOf": [
+          {
+            "$ref": "../assessment/commercial/quantitative-competitive-research.schema.json#/$defs/coverageGapRow"
+          },
+          {
+            "$ref": "../assessment/commercial/incumbent-response-risk.schema.json#/$defs/coverageGapRow"
+          }
+        ]
       }
     },
     "commercial_subject_aggregates": {

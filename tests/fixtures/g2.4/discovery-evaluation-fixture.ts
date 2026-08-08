@@ -5,6 +5,7 @@ import {
   type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
 } from "../../../harness/src/index.js";
+import { discoveryWaveEnvelopes } from "../../helpers/discovery-wave.js";
 import { G21_DECISION_REF, G21_PLAN_REF, G21_SCOPE_REF } from "../g2.1/discovery-maps-fixture.js";
 import {
   createDiscoverySynthesisFixture,
@@ -263,9 +264,11 @@ function task(
       ],
       quantitative_competitive_scope: quantitativeCompetitiveScope("targeted_deep_dive"),
       incumbent_response_assignment: {
-        analysis_depth: "targeted_deep_dive",
-        subject_refs: [...OPPORTUNITIES],
-        rationale: "Shortlisted opportunities receive a targeted incumbent response deep dive.",
+        analysis_depth: "not_assigned",
+        assignment_role: "none",
+        subject_refs: [],
+        rationale:
+          "The static fixture has no Execution Plan assignment; Runtime projects the unique owner from its Plan.",
       },
       required_commercial_dimensions: [
         "recent_user_language",
@@ -1180,6 +1183,84 @@ export async function createDiscoveryEvaluationFixture(
     external_validation_claimed: false,
     limitations: [SYNTHETIC],
   });
+  const lineageFixture: DocumentBundle = {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [
+      {
+        path: G21_PLAN_REF,
+        document: documents.get(G21_PLAN_REF) as Record<string, unknown>,
+      },
+      ...[...documents.entries()]
+        .filter(([, document]) =>
+          [
+            "startup_opportunity.research_task.discovery_candidate.current",
+            "startup_opportunity.research_task.discovery_evaluation.current",
+          ].includes(String(document.schema_version)),
+        )
+        .map(([taskPath, taskDocument]) => ({
+          path: taskPath,
+          document: envelope(
+            runId,
+            taskPath,
+            taskDocument,
+            "2026-07-27T17:59:00Z",
+            "main_agent",
+          ) as unknown as Record<string, unknown>,
+        })),
+    ],
+  };
+  const runtimeWaves = [
+    discoveryWaveEnvelopes(
+      lineageFixture,
+      runId,
+      "startup_opportunity.research_task.discovery_candidate.current",
+      1,
+      "candidate_runtime",
+    ),
+    discoveryWaveEnvelopes(
+      lineageFixture,
+      runId,
+      "startup_opportunity.research_task.discovery_evaluation.current",
+      2,
+      "enrichment_runtime",
+    ),
+  ];
+  const runtimeLineageByTaskPath = new Map<
+    string,
+    { executionPlanRef: string; dispatchTaskRef: string }
+  >();
+  const mutableBundleDocuments = bundle.documents as {
+    path: string;
+    document: Record<string, unknown>;
+  }[];
+  for (const wave of runtimeWaves) {
+    const execution = wave.find((artifact) =>
+      artifact.artifact_type.includes("research_execution_plan"),
+    );
+    const dispatch = wave.find((artifact) => artifact.artifact_type.includes("dispatch_batch"));
+    if (execution === undefined || dispatch === undefined) {
+      throw new Error("synthetic commercial Runtime projection is incomplete");
+    }
+    for (const artifact of wave) {
+      documents.set(artifact.artifact_path, artifact.document);
+      const existingIndex = mutableBundleDocuments.findIndex(
+        (entry) => entry.path === artifact.artifact_path,
+      );
+      const entry = {
+        path: artifact.artifact_path,
+        document: artifact as unknown as Record<string, unknown>,
+      };
+      if (existingIndex === -1) mutableBundleDocuments.push(entry);
+      else mutableBundleDocuments[existingIndex] = entry;
+      if (artifact.artifact_type.includes("research_task")) {
+        runtimeLineageByTaskPath.set(artifact.artifact_path, {
+          executionPlanRef: execution.artifact_path,
+          dispatchTaskRef: `${dispatch.artifact_path}#${String(artifact.document.task_id)}`,
+        });
+      }
+    }
+  }
+
   const commercialAudits = [...documents.entries()]
     .filter(([, document]) =>
       [
@@ -1188,6 +1269,10 @@ export async function createDiscoveryEvaluationFixture(
       ].includes(String(document.schema_version)),
     )
     .map(([taskRef, taskDocument]) => {
+      const runtimeLineage = runtimeLineageByTaskPath.get(taskRef);
+      if (runtimeLineage === undefined) {
+        throw new Error(`missing synthetic commercial Runtime lineage for ${taskRef}`);
+      }
       const requirements = taskDocument.commercial_research_requirements as Record<string, unknown>;
       const auditRef = String(requirements.commercial_audit_output_path);
       const targetRefs = [
@@ -1223,6 +1308,8 @@ export async function createDiscoveryEvaluationFixture(
         task: taskDocument,
         coveredSubjectIds,
         auditedAt: "2026-07-27T21:20:00Z",
+        executionPlanRef: runtimeLineage.executionPlanRef,
+        dispatchTaskRef: runtimeLineage.dispatchTaskRef,
       });
       add(auditRef, audit);
       return { auditRef, audit };

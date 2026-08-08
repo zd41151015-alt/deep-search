@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
+import { INCUMBENT_RESPONSE_STRATEGIC_CONTEXT } from "../harness/src/incumbent-response-contract.js";
 import {
   canonicalContentHash,
   canonicalJson,
@@ -57,6 +58,8 @@ import {
   G24_TASK_SUPPORT,
   G24_TRACEABILITY,
 } from "./fixtures/g2.4/discovery-evaluation-fixture.js";
+import { commercialReportProjection } from "./fixtures/quantitative-competitive-fixture.js";
+import { projectCommercialAuditsForRuntime } from "./helpers/commercial-runtime.js";
 import { createConfirmedRun } from "./helpers/current-run.js";
 import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
@@ -360,6 +363,25 @@ async function publishThroughEnrichmentBranches(state: State): Promise<void> {
 
 async function publishThroughEvaluation(state: State): Promise<void> {
   await publishThroughEnrichmentBranches(state);
+  const runtimeWaves = [
+    discoveryWaveEnvelopes(
+      state.bundle,
+      state.runId,
+      "startup_opportunity.research_task.discovery_candidate.current",
+      1,
+      "candidate_runtime",
+    ),
+    discoveryWaveEnvelopes(
+      state.bundle,
+      state.runId,
+      "startup_opportunity.research_task.discovery_evaluation.current",
+      2,
+      "enrichment_runtime",
+    ),
+  ];
+  const runtimeAudits = projectCommercialAuditsForRuntime(state.bundle, state.runId, runtimeWaves);
+  Object.assign(effective(state.bundle, G24_REPORT), commercialReportProjection(runtimeAudits));
+  refreshAllInputHashes(state.bundle);
   const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
   await state.store.publishArtifactBundle({
     runId: state.runId,
@@ -1661,9 +1683,11 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   assert.ok(
     projectedResponseRows.every((row) => {
       const assessment = row.assessment as Record<string, unknown>;
+      const semantic = assessment.semantic as Record<string, unknown>;
       return (
         typeof assessment.assessment_id === "string" &&
-        ["lightweight_scan", "targeted_deep_dive"].includes(String(assessment.analysis_depth))
+        ["lightweight_scan", "targeted_deep_dive"].includes(String(assessment.analysis_depth)) &&
+        semantic.strategic_implication === INCUMBENT_RESPONSE_STRATEGIC_CONTEXT
       );
     }),
   );
@@ -1685,17 +1709,14 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   const loaded = await state.store.load(state.runId);
   assert.ok(loaded.manifest.artifact_refs.includes(G24_REPORT));
   assert.ok(loaded.manifest.artifact_refs.includes(first.consistencyEvaluationRef));
-  assert.match(
-    await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8"),
-    /Partial Order/,
-  );
-  assert.match(
-    await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8"),
-    /Incumbent Absorption And Response Risk/,
-  );
+  const decisionBrief = await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8");
+  assert.match(decisionBrief, /Partial Order/);
+  assert.match(decisionBrief, /Incumbent Absorption And Response Risk/);
+  assert.ok(decisionBrief.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT));
   const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
   assert.match(reportMarkdown, /Portfolio/);
   assert.match(reportMarkdown, /Incumbent Absorption And Response Risk/);
+  assert.ok(reportMarkdown.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT));
   const receipts = await Promise.all(
     (await readdir(path.join(state.runRoot, ".store/operations")))
       .filter((filename) => filename.startsWith("artifact-"))

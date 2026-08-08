@@ -2709,6 +2709,13 @@ export class RunStore {
             dispatched.required_artifact_schema,
             task.document.required_artifact_schema,
           ],
+          [
+            "incumbent_response_assignment",
+            dispatched.incumbent_response_assignment,
+            isRecord(task.document.commercial_research_requirements)
+              ? task.document.commercial_research_requirements.incumbent_response_assignment
+              : undefined,
+          ],
         ].flatMap(([field, expected, actual]) =>
           canonicalJson(expected) === canonicalJson(actual) ? [] : [field],
         );

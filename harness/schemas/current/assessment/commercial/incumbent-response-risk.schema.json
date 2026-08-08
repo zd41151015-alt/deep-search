@@ -9,9 +9,10 @@
     "assignment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["analysis_depth", "subject_refs", "rationale"],
+      "required": ["analysis_depth", "assignment_role", "subject_refs", "rationale"],
       "properties": {
         "analysis_depth": { "$ref": "#/$defs/analysisDepth" },
+        "assignment_role": { "enum": ["none", "owner", "independent_review"] },
         "subject_refs": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
         },
@@ -26,10 +27,16 @@
             "required": ["analysis_depth"]
           },
           "then": {
-            "properties": { "subject_refs": { "type": "array", "maxItems": 0 } }
+            "properties": {
+              "assignment_role": { "const": "none" },
+              "subject_refs": { "type": "array", "maxItems": 0 }
+            }
           },
           "else": {
-            "properties": { "subject_refs": { "type": "array", "minItems": 1 } }
+            "properties": {
+              "assignment_role": { "enum": ["owner", "independent_review"] },
+              "subject_refs": { "type": "array", "minItems": 1 }
+            }
           }
         }
       ]
@@ -168,6 +175,148 @@
       }
     },
     "assessmentInput": {
+      "oneOf": [
+        { "$ref": "#/$defs/assessedInput" },
+        { "$ref": "#/$defs/unknownInput" },
+        { "$ref": "#/$defs/notApplicableInput" }
+      ]
+    },
+    "assessedInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_id",
+        "analysis_state",
+        "responder_identity",
+        "responder_category",
+        "control_point",
+        "response_modes",
+        "capability_adjacency",
+        "response_cost",
+        "incentive",
+        "plausible_response_horizon",
+        "distribution_leverage",
+        "thesis_coverage",
+        "residual_differentiation",
+        "supporting_evidence_refs",
+        "opposing_evidence_refs",
+        "background_evidence_refs",
+        "inference_boundary",
+        "confidence",
+        "uncertainty",
+        "unknowns",
+        "data_gaps"
+      ],
+      "properties": {
+        "subject_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "analysis_state": { "const": "assessed" },
+        "responder_identity": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "responder_category": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "control_point": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "response_modes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          }
+        },
+        "capability_adjacency": { "$ref": "#/$defs/gradedAssessment" },
+        "response_cost": { "$ref": "#/$defs/responseCost" },
+        "incentive": { "$ref": "#/$defs/incentive" },
+        "plausible_response_horizon": { "$ref": "#/$defs/responseHorizon" },
+        "distribution_leverage": { "$ref": "#/$defs/distributionLeverage" },
+        "thesis_coverage": { "$ref": "#/$defs/thesisCoverage" },
+        "residual_differentiation": { "$ref": "#/$defs/residualDifferentiation" },
+        "supporting_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "opposing_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "background_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "inference_boundary": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "uncertainty": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "unknowns": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "data_gaps": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        }
+      },
+      "anyOf": [
+        { "properties": { "supporting_evidence_refs": { "type": "array", "minItems": 1 } } },
+        { "properties": { "opposing_evidence_refs": { "type": "array", "minItems": 1 } } },
+        { "properties": { "background_evidence_refs": { "type": "array", "minItems": 1 } } }
+      ]
+    },
+    "unknownInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject_id", "analysis_state", "uncertainty", "unknowns", "data_gaps"],
+      "properties": {
+        "subject_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "analysis_state": { "const": "unknown" },
+        "uncertainty": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "unknowns": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "data_gaps": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          }
+        },
+        "supporting_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "opposing_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "background_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        }
+      }
+    },
+    "notApplicableInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject_id", "analysis_state", "rationale"],
+      "properties": {
+        "subject_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "analysis_state": { "const": "not_applicable" },
+        "rationale": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "background_evidence_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        }
+      }
+    },
+    "formalAssessmentSemantic": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -256,7 +405,7 @@
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
         },
         "strategic_implication": {
-          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          "const": "Reference only: use this response assessment as judgment context alongside the subject's other Evidence and synthesis; it does not prescribe pass/fail, elimination, ranking, Claim confidence, a recommendation ceiling, or publication action."
         }
       },
       "allOf": [
@@ -285,7 +434,64 @@
             "properties": { "analysis_state": { "const": "unknown" } },
             "required": ["analysis_state"]
           },
-          "then": { "properties": { "confidence": { "const": "unknown" } } }
+          "then": {
+            "properties": {
+              "responder_identity": { "type": "null" },
+              "responder_category": { "type": "null" },
+              "control_point": { "type": "null" },
+              "response_modes": { "type": "array", "maxItems": 0 },
+              "capability_adjacency": {
+                "type": "object",
+                "properties": { "level": { "const": "unknown" } }
+              },
+              "response_cost": {
+                "type": "object",
+                "properties": {
+                  "implementation": {
+                    "type": "object",
+                    "properties": { "level": { "const": "unknown" } }
+                  },
+                  "operational": {
+                    "type": "object",
+                    "properties": { "level": { "const": "unknown" } }
+                  },
+                  "compliance": {
+                    "type": "object",
+                    "properties": { "level": { "const": "unknown" } }
+                  },
+                  "data": {
+                    "type": "object",
+                    "properties": { "level": { "const": "unknown" } }
+                  },
+                  "distribution": {
+                    "type": "object",
+                    "properties": { "level": { "const": "unknown" } }
+                  }
+                }
+              },
+              "incentive": {
+                "type": "object",
+                "properties": { "level": { "const": "unknown" } }
+              },
+              "plausible_response_horizon": {
+                "type": "object",
+                "properties": { "band": { "const": "unknown" } }
+              },
+              "distribution_leverage": {
+                "type": "object",
+                "properties": { "level": { "const": "unknown" } }
+              },
+              "thesis_coverage": {
+                "type": "object",
+                "properties": { "scope": { "const": "unknown" } }
+              },
+              "residual_differentiation": {
+                "type": "object",
+                "properties": { "overall_strength": { "const": "unknown" } }
+              },
+              "confidence": { "const": "unknown" }
+            }
+          }
         },
         {
           "if": {
@@ -295,6 +501,60 @@
           "then": {
             "properties": {
               "response_modes": { "type": "array", "maxItems": 0 },
+              "responder_identity": { "type": "null" },
+              "responder_category": { "type": "null" },
+              "control_point": { "type": "null" },
+              "capability_adjacency": {
+                "type": "object",
+                "properties": { "level": { "const": "not_applicable" } }
+              },
+              "response_cost": {
+                "type": "object",
+                "properties": {
+                  "implementation": {
+                    "type": "object",
+                    "properties": { "level": { "const": "not_applicable" } }
+                  },
+                  "operational": {
+                    "type": "object",
+                    "properties": { "level": { "const": "not_applicable" } }
+                  },
+                  "compliance": {
+                    "type": "object",
+                    "properties": { "level": { "const": "not_applicable" } }
+                  },
+                  "data": {
+                    "type": "object",
+                    "properties": { "level": { "const": "not_applicable" } }
+                  },
+                  "distribution": {
+                    "type": "object",
+                    "properties": { "level": { "const": "not_applicable" } }
+                  }
+                }
+              },
+              "incentive": {
+                "type": "object",
+                "properties": { "level": { "const": "not_applicable" } }
+              },
+              "plausible_response_horizon": {
+                "type": "object",
+                "properties": { "band": { "const": "not_applicable" } }
+              },
+              "distribution_leverage": {
+                "type": "object",
+                "properties": { "level": { "const": "not_applicable" } }
+              },
+              "thesis_coverage": {
+                "type": "object",
+                "properties": { "scope": { "const": "not_applicable" } }
+              },
+              "residual_differentiation": {
+                "type": "object",
+                "properties": { "overall_strength": { "const": "not_applicable" } }
+              },
+              "supporting_evidence_refs": { "type": "array", "maxItems": 0 },
+              "opposing_evidence_refs": { "type": "array", "maxItems": 0 },
               "confidence": { "const": "not_applicable" }
             }
           }
@@ -312,7 +572,77 @@
         "analysis_depth": {
           "enum": ["lightweight_scan", "targeted_deep_dive"]
         },
-        "semantic": { "$ref": "#/$defs/assessmentInput" }
+        "semantic": { "$ref": "#/$defs/formalAssessmentSemantic" }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_id",
+        "analysis_depth",
+        "assignment_role",
+        "state",
+        "assessment_ids",
+        "reason",
+        "data_gaps",
+        "decision_impact",
+        "automatic_effects"
+      ],
+      "properties": {
+        "subject_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "analysis_depth": { "enum": ["lightweight_scan", "targeted_deep_dive"] },
+        "assignment_role": { "enum": ["owner", "independent_review"] },
+        "state": { "enum": ["assessed", "unknown", "not_applicable"] },
+        "assessment_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          }
+        },
+        "reason": {
+          "anyOf": [
+            { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString" },
+            { "type": "null" }
+          ]
+        },
+        "data_gaps": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "decision_impact": { "const": "Context only; no automatic decision effect." },
+        "automatic_effects": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ranking_eligibility",
+            "claim_confidence",
+            "recommendation_ceiling",
+            "artifact_publication"
+          ],
+          "properties": {
+            "ranking_eligibility": { "const": false },
+            "claim_confidence": { "const": false },
+            "recommendation_ceiling": { "const": false },
+            "artifact_publication": { "const": false }
+          }
+        }
+      }
+    },
+    "coverageGapRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["audit_ref", "coverage_kind", "coverage"],
+      "properties": {
+        "audit_ref": {
+          "type": "string",
+          "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+        },
+        "coverage_kind": { "const": "incumbent_response" },
+        "coverage": { "$ref": "#/$defs/coverage" }
       }
     },
     "reportRow": {

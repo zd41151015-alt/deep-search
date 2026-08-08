@@ -41,6 +41,23 @@ function envelope(
   } as FormalArtifactEnvelope;
 }
 
+export function refreshDiscoveryRuntimeLineage(bundle: DocumentBundle): DocumentBundle {
+  for (const entry of bundle.documents) {
+    const stored = entry.document;
+    if (
+      !String(stored.schema_version).startsWith("startup_opportunity.artifact_envelope.") ||
+      stored.artifact_type !== "startup_opportunity.research_execution_plan.discovery.current"
+    ) {
+      continue;
+    }
+    const execution = stored.document as Record<string, unknown>;
+    const planRef = String(execution.research_plan_ref);
+    execution.research_plan_hash = canonicalContentHash(effectiveDocument(bundle, planRef));
+    stored.content_hash = canonicalContentHash(execution);
+  }
+  return bundle;
+}
+
 export function discoveryWaveEnvelopes(
   bundle: DocumentBundle,
   runId: string,
@@ -105,27 +122,52 @@ export function discoveryWaveEnvelopes(
   const candidateRefs = [
     ...new Set(
       tasks.flatMap((task) => {
-        const requirements = task.document.commercial_research_requirements as Record<
-          string,
-          unknown
-        >;
-        const assignment = requirements.incumbent_response_assignment as Record<string, unknown>;
-        return Array.isArray(assignment.subject_refs)
-          ? assignment.subject_refs.filter((ref): ref is string => typeof ref === "string")
-          : [];
+        const targetRefs = [
+          ...(Array.isArray(task.document.target_candidate_refs)
+            ? task.document.target_candidate_refs
+            : []),
+          ...(Array.isArray(task.document.target_opportunity_refs)
+            ? task.document.target_opportunity_refs
+            : []),
+        ];
+        return targetRefs.filter((ref): ref is string => typeof ref === "string");
       }),
     ),
   ];
+  const targetedResponse =
+    taskType === "startup_opportunity.research_task.discovery_evaluation.current";
   const incumbentResponseAssignment = {
-    analysis_depth: "lightweight_scan",
+    analysis_depth: targetedResponse ? "targeted_deep_dive" : "lightweight_scan",
+    assignment_role: "owner",
     subject_refs: candidateRefs,
-    rationale: "Formed candidates receive a bounded lightweight response scan.",
+    rationale: targetedResponse
+      ? "Shortlisted opportunities receive a bounded targeted response deep dive."
+      : "Formed candidates receive a bounded lightweight response scan.",
   };
-  const lanes = tasks.map((task) => ({
+  const unassignedIncumbentResponse = {
+    analysis_depth: "not_assigned",
+    assignment_role: "none",
+    subject_refs: [],
+    rationale: "This lane is not the assigned incumbent response owner.",
+  };
+  const ownerIndex = Math.max(
+    0,
+    tasks.findIndex((task) => task.document.source_phase !== "candidate_generation"),
+  );
+  tasks.forEach((task, index) => {
+    const requirements = task.document.commercial_research_requirements as Record<string, unknown>;
+    requirements.incumbent_response_assignment = structuredClone(
+      index === ownerIndex ? incumbentResponseAssignment : unassignedIncumbentResponse,
+    );
+    (task as { content_hash: string }).content_hash = canonicalContentHash(task.document);
+  });
+  const lanes = tasks.map((task, index) => ({
     unit_id: task.document.unit_id,
     lane_role: "evaluation",
-    candidate_scope: { kind: "none", candidate_refs: [] },
-    incumbent_response_assignment: structuredClone(incumbentResponseAssignment),
+    candidate_scope: { kind: targetedResponse ? "retained" : "none", candidate_refs: [] },
+    incumbent_response_assignment: structuredClone(
+      index === ownerIndex ? incumbentResponseAssignment : unassignedIncumbentResponse,
+    ),
     reporting_dimensions: ["demand"],
     submission_path: task.document.allowed_output_path,
     submission_schema: task.document.required_artifact_schema,
@@ -153,7 +195,7 @@ export function discoveryWaveEnvelopes(
     stages: [
       {
         stage_id: stageId,
-        stage_kind: "candidate_evaluation",
+        stage_kind: targetedResponse ? "retained_candidate_deep_review" : "candidate_evaluation",
         depends_on: [],
         gate_before: null,
         gate_after: "required",
@@ -175,13 +217,15 @@ export function discoveryWaveEnvelopes(
     task_ready_at: "2026-07-27T18:01:00Z",
     dispatch_requested_at: "2026-07-27T18:01:01Z",
     dispatch_mode: "parallel_immediate",
-    tasks: tasks.map((task) => {
+    tasks: tasks.map((task, index) => {
       const unit = unitBindings.get(String(task.document.unit_id))?.unit as Record<string, unknown>;
       return {
         task_id: task.document.task_id,
         unit_id: task.document.unit_id,
         lane_role: "evaluation",
-        incumbent_response_assignment: structuredClone(incumbentResponseAssignment),
+        incumbent_response_assignment: structuredClone(
+          index === ownerIndex ? incumbentResponseAssignment : unassignedIncumbentResponse,
+        ),
         research_goal: unit.research_goal,
         input_refs: unit.input_refs,
         allowed_output_path: task.document.allowed_output_path,

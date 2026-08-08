@@ -32,6 +32,7 @@
     "competitive_coverage",
     "incumbent_response_assignment",
     "incumbent_response_assessments",
+    "incumbent_response_coverage",
     "coverage",
     "uncovered_business_dimensions",
     "wave1_signals",
@@ -383,7 +384,7 @@
           "enum": ["explicit", "single_subject_auto", "unbound"]
         },
         "coverage_kind": {
-          "enum": ["quantitative", "competitive", "business", "research"]
+          "enum": ["quantitative", "competitive", "business", "research", "incumbent_response"]
         },
         "dimension": { "$ref": "#/$defs/nonEmptyString" },
         "state": { "enum": ["partial", "unavailable", "not_applicable"] },
@@ -420,36 +421,15 @@
       "$ref": "#/$defs/identifier"
     },
     "execution_plan_ref": {
-      "anyOf": [
-        {
-          "type": "string",
-          "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "type": "string",
+      "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
     },
     "dispatch_task_ref": {
-      "anyOf": [
-        {
-          "type": "string",
-          "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z][A-Za-z0-9._-]*$"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "type": "string",
+      "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z][A-Za-z0-9._-]*$"
     },
     "task_ref": {
-      "anyOf": [
-        {
-          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
     },
     "covered_direction_ids": {
       "type": "array",
@@ -907,6 +887,10 @@
     "incumbent_response_assessments": {
       "type": "array",
       "items": { "$ref": "./incumbent-response-risk.schema.json#/$defs/assessment" }
+    },
+    "incumbent_response_coverage": {
+      "type": "array",
+      "items": { "$ref": "./incumbent-response-risk.schema.json#/$defs/coverage" }
     },
     "coverage": {
       "type": "object",

@@ -361,17 +361,44 @@ function validateExecutionPlan(
     }
   }
 
+  for (const stage of stages) {
+    const stageAssignments = records(stage.lanes).map((lane) =>
+      isRecord(lane.incumbent_response_assignment) ? lane.incumbent_response_assignment : {},
+    );
+    const owners = stageAssignments.filter((assignment) => assignment.assignment_role === "owner");
+    const reviewers = stageAssignments.filter(
+      (assignment) => assignment.assignment_role === "independent_review",
+    );
+    const responseStage = stage.stage_kind === "assessment_commercial";
+    if (
+      (responseStage && owners.length !== 1) ||
+      (!responseStage && owners.length !== 0) ||
+      (reviewers.length > 0 && owners.length !== 1)
+    ) {
+      errors.push(
+        issue(
+          "assessment_execution.incumbent_response_owner_invalid",
+          `${execution.path}#${String(stage.stage_id)}/lanes`,
+          "the commercial stage requires exactly one explicit incumbent response owner; independent review is allowed only alongside that owner",
+          { ownerCount: owners.length, reviewerCount: reviewers.length },
+        ),
+      );
+    }
+  }
   const lanes = stages.flatMap((stage) => records(stage.lanes).map((lane) => ({ lane, stage })));
   for (const { lane, stage } of lanes) {
     const assignment = isRecord(lane.incumbent_response_assignment)
       ? lane.incumbent_response_assignment
       : {};
-    const expectedDepth =
-      stage.stage_kind === "assessment_commercial" ? "targeted_deep_dive" : "not_assigned";
+    const responseStage = stage.stage_kind === "assessment_commercial";
+    const allowedDepths = responseStage ? ["not_assigned", "targeted_deep_dive"] : ["not_assigned"];
+    const assigned = assignment.analysis_depth !== "not_assigned";
     if (
-      assignment.analysis_depth !== expectedDepth ||
-      (expectedDepth === "not_assigned" && strings(assignment.subject_refs).length !== 0) ||
-      (expectedDepth === "targeted_deep_dive" &&
+      !allowedDepths.includes(String(assignment.analysis_depth)) ||
+      (assigned && !["owner", "independent_review"].includes(String(assignment.assignment_role))) ||
+      (!assigned && assignment.assignment_role !== "none") ||
+      (!assigned && strings(assignment.subject_refs).length !== 0) ||
+      (assigned &&
         !sameStrings(strings(assignment.subject_refs), [
           String(execution.document.concept_hypothesis_ref),
         ]))
@@ -381,7 +408,7 @@ function validateExecutionPlan(
           "assessment_execution.incumbent_response_assignment_invalid",
           `${execution.path}#${String(stage.stage_id)}/${String(lane.unit_id)}/incumbent_response_assignment`,
           "only the post-hypothesis commercial stage may run the concept-bound targeted incumbent response deep dive",
-          { expectedDepth },
+          { allowedDepths },
         ),
       );
     }

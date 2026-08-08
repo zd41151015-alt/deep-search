@@ -91,32 +91,35 @@ function executionPlan(
   plan: Record<string, unknown>,
   kind: "generation" | "evaluation" = "generation",
 ): Record<string, unknown> {
-  const lanes = planUnits(plan).map((unit) => ({
-    unit_id: unit.unit_id,
-    lane_role: kind === "generation" ? "opportunity" : "evaluation",
-    candidate_scope: { kind: "none", candidate_refs: [] },
-    incumbent_response_assignment: {
-      analysis_depth: kind === "evaluation" ? "lightweight_scan" : "not_assigned",
-      subject_refs: kind === "evaluation" ? [G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1] : [],
-      rationale:
-        kind === "evaluation"
+  const lanes = planUnits(plan).map((unit) => {
+    const ownsResponse = kind === "evaluation" && unit.unit_id === "unit_counterfactual";
+    return {
+      unit_id: unit.unit_id,
+      lane_role: kind === "generation" ? "opportunity" : "evaluation",
+      candidate_scope: { kind: "none", candidate_refs: [] },
+      incumbent_response_assignment: {
+        analysis_depth: ownsResponse ? "lightweight_scan" : "not_assigned",
+        assignment_role: ownsResponse ? "owner" : "none",
+        subject_refs: ownsResponse ? [G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1] : [],
+        rationale: ownsResponse
           ? "Formed candidates receive a bounded lightweight response scan."
-          : "Incumbent response research starts only after candidates form.",
-    },
-    reporting_dimensions: ["demand", "buyer"],
-    submission_path:
-      kind === "generation"
-        ? `artifacts/discovery/generation/${String(unit.unit_id)}.r1.json`
-        : unit.output_path,
-    submission_schema:
-      kind === "generation"
-        ? "startup_opportunity.discovery_generation_result.v1"
-        : unit.required_artifact_schema,
-    time_budget_minutes: 10,
-    max_sources: 5,
-    straggler_policy: { on_timeout: "publish_partial", grace_minutes: 2, blocks_stage: true },
-    dispatch_group: `group_${kind}`,
-  }));
+          : "This lane is not the assigned incumbent response owner.",
+      },
+      reporting_dimensions: ["demand", "buyer"],
+      submission_path:
+        kind === "generation"
+          ? `artifacts/discovery/generation/${String(unit.unit_id)}.r1.json`
+          : unit.output_path,
+      submission_schema:
+        kind === "generation"
+          ? "startup_opportunity.discovery_generation_result.v1"
+          : unit.required_artifact_schema,
+      time_budget_minutes: 10,
+      max_sources: 5,
+      straggler_policy: { on_timeout: "publish_partial", grace_minutes: 2, blocks_stage: true },
+      dispatch_group: `group_${kind}`,
+    };
+  });
   return {
     schema_version: "startup_opportunity.research_execution_plan.discovery.current",
     execution_plan_id: `execution_${kind}_synthetic`,
@@ -529,7 +532,24 @@ function canonicalDiscoveryTasks(
   );
   return [G22_GENERATION_TASK, G22_EVALUATION_TASK]
     .map((taskRef) => canonicalDiscoveryTask(bundle, plan, taskRef))
-    .filter((task) => dispatchedUnitIds.has(String(task.document.unit_id)));
+    .filter((task) => dispatchedUnitIds.has(String(task.document.unit_id)))
+    .map((task) => {
+      const dispatched = (batch.tasks as Record<string, unknown>[]).find(
+        (candidate) => candidate.unit_id === task.document.unit_id,
+      );
+      assert.ok(dispatched);
+      const requirements = task.document.commercial_research_requirements as Record<
+        string,
+        unknown
+      >;
+      requirements.incumbent_response_assignment = structuredClone(
+        dispatched.incumbent_response_assignment,
+      );
+      (task as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+        task.document,
+      );
+      return task;
+    });
 }
 
 function canonicalTaskArtifacts(
@@ -967,6 +987,53 @@ test("complete same-wave dispatch activates both units and lifecycle revisions c
   const state = await prepareDiscoveryTaskBridgeRun(t, "dispatch");
   const execution = executionPlan(state.runId, state.plan, "evaluation");
   const batch = dispatchBatch(state.runId, state.plan, execution);
+  const responseAssignments = (execution.stages as Record<string, unknown>[]).flatMap((stage) =>
+    (stage.lanes as Record<string, unknown>[]).map(
+      (lane) => lane.incumbent_response_assignment as Record<string, unknown>,
+    ),
+  );
+  assert.equal(
+    responseAssignments.filter((assignment) => assignment.assignment_role === "owner").length,
+    1,
+  );
+  assert.ok(
+    responseAssignments
+      .filter((assignment) => assignment.assignment_role !== "owner")
+      .every(
+        (assignment) =>
+          assignment.assignment_role === "none" && assignment.analysis_depth === "not_assigned",
+      ),
+  );
+  const duplicateOwner = structuredClone(execution);
+  const duplicateLanes = (duplicateOwner.stages as Record<string, unknown>[])[0]?.lanes as Record<
+    string,
+    unknown
+  >[];
+  const ownerAssignment = responseAssignments.find(
+    (assignment) => assignment.assignment_role === "owner",
+  );
+  assert.ok(ownerAssignment);
+  const unassignedLane = duplicateLanes.find((lane) => {
+    const assignment = lane.incumbent_response_assignment as Record<string, unknown>;
+    return assignment.assignment_role === "none";
+  });
+  assert.ok(unassignedLane);
+  unassignedLane.incumbent_response_assignment = structuredClone(ownerAssignment);
+  const duplicateOwnerCodes = validateDeclarativeRuntimeContract([
+    {
+      path: G21_PLAN_REF,
+      schemaVersion: String(state.plan.schema_version),
+      document: state.plan,
+      envelope: null,
+    },
+    {
+      path: "plans/research-execution.r1.json",
+      schemaVersion: String(duplicateOwner.schema_version),
+      document: duplicateOwner,
+      envelope: null,
+    },
+  ]).map((issue) => issue.code);
+  assert.ok(duplicateOwnerCodes.includes("runtime.incumbent_response_owner_invalid"));
   const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
   const executionArtifact = runtimeArtifact(
     "plans/research-execution.r1.json",

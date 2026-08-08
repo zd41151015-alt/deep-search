@@ -15,6 +15,8 @@ import {
 import { createConfirmedRun } from "../../helpers/current-run.js";
 import {
   branchResearchEnvelopes,
+  dispatchEnvelope,
+  executionPlanEnvelope,
   type FixtureBranch,
   taskEnvelope,
 } from "../g1.2/research-branch-fixture.js";
@@ -263,7 +265,13 @@ export async function prepareG13Run(
   await store.publishArtifactBundle({ runId, envelopes: initial });
 
   const task = withRun(taskEnvelope(baseBundle, branch, 2), runId);
-  await store.publishArtifact({ runId, envelope: task });
+  const currentPlan = initial.find((entry) => entry.artifact_path === G13_PLAN_REF)?.document;
+  if (currentPlan === undefined) throw new Error("missing synthetic current Research Plan");
+  const execution = withRun(executionPlanEnvelope(baseBundle, [branch]), runId);
+  execution.document.research_plan_hash = canonicalContentHash(currentPlan);
+  (execution as { content_hash: string }).content_hash = canonicalContentHash(execution.document);
+  const dispatch = withRun(dispatchEnvelope(baseBundle, [branch]), runId);
+  await store.publishArtifactBundle({ runId, envelopes: [execution, dispatch, task] });
   const evidenceStore = new EvidenceStore(runsRoot);
   const researchGoal = String(task.document.research_goal);
   const first = await evidenceStore.record({
@@ -335,7 +343,46 @@ export async function publishAdditionalG13Branch(
   branch: FixtureBranch,
 ): Promise<void> {
   const task = withRun(taskEnvelope(state.baseBundle, branch, 7), state.runId);
-  await state.store.publishArtifact({ runId: state.runId, envelope: task });
+  const storedPlan = JSON.parse(
+    await readFile(path.join(state.runRoot, G13_PLAN_REF), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const baseExecution = withRun(executionPlanEnvelope(state.baseBundle, [branch]), state.runId);
+  const executionDocument = structuredClone(baseExecution.document);
+  executionDocument.execution_plan_id = "execution_plan_g1_3_followup_synthetic";
+  executionDocument.revision = 2;
+  executionDocument.parent_execution_plan_ref = "plans/research-execution.r1.json";
+  executionDocument.research_plan_hash = canonicalContentHash(storedPlan.document);
+  const executionStage = (executionDocument.stages as Record<string, unknown>[])[0];
+  if (executionStage === undefined) throw new Error("missing synthetic follow-up execution stage");
+  executionStage.stage_id = "commercial_research_followup";
+  for (const lane of executionStage.lanes as Record<string, unknown>[]) {
+    lane.dispatch_group = "commercial_research_followup";
+  }
+  const execution: FormalArtifactEnvelope = {
+    ...baseExecution,
+    artifact_path: "plans/research-execution.r2.json",
+    input_refs: [G13_PLAN_REF, "plans/research-execution.r1.json"],
+    content_hash: canonicalContentHash(executionDocument),
+    document: executionDocument,
+  };
+
+  const baseDispatch = withRun(dispatchEnvelope(state.baseBundle, [branch]), state.runId);
+  const dispatchDocument = structuredClone(baseDispatch.document);
+  dispatchDocument.batch_id = "dispatch_commercial_research_followup";
+  dispatchDocument.execution_plan_ref = execution.artifact_path;
+  dispatchDocument.stage_id = executionStage.stage_id;
+  dispatchDocument.dispatch_group = "commercial_research_followup";
+  const dispatch: FormalArtifactEnvelope = {
+    ...baseDispatch,
+    artifact_path: "tasks/dispatch/commercial-research-followup.r1.json",
+    input_refs: [execution.artifact_path, G13_PLAN_REF],
+    content_hash: canonicalContentHash(dispatchDocument),
+    document: dispatchDocument,
+  };
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: [execution, dispatch, task],
+  });
   const evidenceStore = new EvidenceStore(state.runsRoot);
   const researchGoal = String(task.document.research_goal);
   const first = await evidenceStore.record({

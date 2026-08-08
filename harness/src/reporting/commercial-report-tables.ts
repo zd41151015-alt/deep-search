@@ -1,4 +1,8 @@
 import { canonicalJson } from "../artifact-store/canonical.js";
+import {
+  INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+  INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH,
+} from "../incumbent-response-contract.js";
 import { deriveSourceConcentration } from "../validators/commercial-source-concentration.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -591,10 +595,20 @@ export function projectCommercialAuditTables(
     })),
   );
   const incumbentResponseRows = sortedAudits.flatMap((audit) =>
-    records(audit.document.incumbent_response_assessments).map((assessment) => ({
-      audit_ref: audit.path,
-      assessment,
-    })),
+    records(audit.document.incumbent_response_assessments).map((assessment) => {
+      const projectedAssessment = structuredClone(assessment);
+      const semantic = isRecord(projectedAssessment.semantic) ? projectedAssessment.semantic : {};
+      return {
+        audit_ref: audit.path,
+        assessment: {
+          ...projectedAssessment,
+          semantic: {
+            ...semantic,
+            strategic_implication: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+          },
+        },
+      };
+    }),
   );
   const auditByExpectedPath = new Map(sortedAudits.map((audit) => [audit.path, audit]));
   const missingTasks = sortedTasks.filter((task) => {
@@ -755,6 +769,12 @@ export function projectCommercialAuditTables(
     const unresolvedGenericGaps = currentGenericGapEntries
       .map(({ gap }) => gap)
       .filter((gap) => gap.state !== "not_applicable");
+    const hasIncumbentResponseGap = subjectAudits.some((audit) =>
+      records(audit.document.incumbent_response_coverage).some(
+        (responseCoverage) =>
+          responseCoverage.subject_id === subjectId && responseCoverage.state === "unknown",
+      ),
+    );
     const competitiveObjects = subjectAudits.flatMap((audit) =>
       records(audit.document.competitive_objects).filter((item) => item.subject_id === subjectId),
     );
@@ -830,12 +850,23 @@ export function projectCommercialAuditTables(
           ? "not_planned"
           : missingSubjectTasks.length > 0 && subjectAudits.length === 0
             ? "planned_but_missing"
-            : missingSubjectTasks.length > 0 || !completeDimensions
+            : missingSubjectTasks.length > 0 || !completeDimensions || hasIncumbentResponseGap
               ? "planned_with_gaps"
               : "complete",
       execution_warning_task_refs: missingSubjectTasks.map((task) => task.path),
     };
   });
+  for (const audit of sortedAudits) {
+    for (const coverage of records(audit.document.incumbent_response_coverage).filter(
+      (entry) => entry.state === "unknown",
+    )) {
+      gapRows.push({
+        audit_ref: audit.path,
+        coverage_kind: "incumbent_response",
+        coverage,
+      });
+    }
+  }
   for (const task of missingTasks) {
     const dimensions = assignedDimensions(task);
     gapRows.push({
@@ -892,7 +923,9 @@ export function projectCommercialAuditTables(
       ? `execution:${String(row.task_ref)}`
       : ["business", "research"].includes(String(row.coverage_kind))
         ? `${strings(row.audit_refs).join(",")}:${String(row.coverage_kind)}:${strings(row.subject_ids).join(",")}:${String(row.dimension)}:${String(row.reason)}`
-        : `${strings(row.audit_refs).join(",")}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(coverage.metric_family ?? coverage.competitor_type)}`;
+        : row.coverage_kind === "incumbent_response"
+          ? `${String(row.audit_ref)}:incumbent_response:${String(coverage.subject_id)}:response_risk`
+          : `${strings(row.audit_refs).join(",")}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(coverage.metric_family ?? coverage.competitor_type)}`;
   };
   return {
     commercial_research_audit_refs: sortedAudits.map((audit) => audit.path),
@@ -943,7 +976,7 @@ function graded(value: unknown, zh: boolean): string {
 }
 
 export function renderIncumbentResponseRiskTable(
-  source: Readonly<Record<string, unknown>>,
+  source: Readonly<{ readonly incumbent_response_risk_rows?: unknown }>,
   zh = false,
 ): string {
   const rows = records(source.incumbent_response_risk_rows);
@@ -1016,7 +1049,7 @@ export function renderIncumbentResponseRiskTable(
       `${display(residual.overall_strength, zh)}: ${display(residual.rationale, zh)}${residualDimensions.length === 0 ? "" : `<br>${residualDimensions.join("<br>")}`}`,
       `${zh ? "支持" : "supporting"}: ${auditReferenceSummary(semantic.supporting_evidence_refs, zh)}<br>${zh ? "反证" : "opposing"}: ${auditReferenceSummary(semantic.opposing_evidence_refs, zh)}<br>${zh ? "背景" : "background"}: ${auditReferenceSummary(semantic.background_evidence_refs, zh)}`,
       `${display(semantic.confidence, zh)}: ${display(semantic.uncertainty, zh)}<br>${zh ? "推理边界" : "inference boundary"}: ${display(semantic.inference_boundary, zh)}<br>${zh ? "未知" : "unknowns"}: ${displayList(semantic.unknowns, zh)}<br>${zh ? "数据缺口" : "data gaps"}: ${displayList(semantic.data_gaps, zh)}`,
-      display(semantic.strategic_implication, zh),
+      zh ? INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH : INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
     ];
   });
   if (body.length === 0) {
@@ -1042,7 +1075,12 @@ export function renderIncumbentResponseRiskTable(
         : "The risk remains an open strategic question only; it does not trigger automatic elimination, confidence reduction, or a recommendation ceiling.",
     ]);
   }
+  const contextOnly = zh
+    ? "> 仅作背景参考：头部公司吸收与响应风险不是门禁，不会自动淘汰候选、取消排名资格、降低 Claim 置信度、施加建议上限或阻止发布。"
+    : "> Context only: incumbent absorption and response risk is not a Gate and does not automatically eliminate or unrank a candidate, reduce Claim confidence, impose a recommendation ceiling, or block publication.";
   return [
+    contextOnly,
+    "",
     `| ${headers.join(" | ")} |`,
     `| ${headers.map(() => "---").join(" | ")} |`,
     ...body.map((row) => `| ${row.map(cell).join(" | ")} |`),
@@ -1297,13 +1335,19 @@ export function renderResearchCoverageGaps(
       display(coverage.subject_id, zh),
       display(row.coverage_kind, zh),
       display(
-        row.coverage_kind === "quantitative" ? coverage.metric_family : coverage.competitor_type,
+        row.coverage_kind === "quantitative"
+          ? coverage.metric_family
+          : row.coverage_kind === "competitive"
+            ? coverage.competitor_type
+            : "absorption_and_response_risk",
         zh,
       ),
       display(coverage.state, zh),
       attempts.length === 0 ? "-" : attempts.join("<br>"),
       display(coverage.reason, zh),
-      display(coverage.alternative_metric, zh),
+      row.coverage_kind === "incumbent_response"
+        ? displayList(coverage.data_gaps, zh)
+        : display(coverage.alternative_metric, zh),
       display(coverage.decision_impact, zh),
     ];
   });

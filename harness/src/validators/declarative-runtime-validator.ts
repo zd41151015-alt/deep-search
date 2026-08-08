@@ -194,7 +194,39 @@ function validateExecutionPlan(
   for (const stage of stages) {
     const stageId = String(stage.stage_id ?? "");
     const kind = String(stage.stage_kind ?? "");
-    for (const lane of records(stage.lanes)) {
+    const stageLanes = records(stage.lanes);
+    const incumbentOwners = stageLanes.filter((lane) => {
+      const assignment = isRecord(lane.incumbent_response_assignment)
+        ? lane.incumbent_response_assignment
+        : {};
+      return assignment.assignment_role === "owner";
+    });
+    const incumbentReviewers = stageLanes.filter((lane) => {
+      const assignment = isRecord(lane.incumbent_response_assignment)
+        ? lane.incumbent_response_assignment
+        : {};
+      return assignment.assignment_role === "independent_review";
+    });
+    const responseStage = ["candidate_evaluation", "retained_candidate_deep_review"].includes(kind);
+    if (
+      (responseStage && incumbentOwners.length !== 1) ||
+      (!responseStage && incumbentOwners.length !== 0) ||
+      (incumbentReviewers.length > 0 && incumbentOwners.length !== 1)
+    ) {
+      errors.push(
+        issue(
+          "runtime.incumbent_response_owner_invalid",
+          `${entry.path}#${stageId}/lanes`,
+          "each incumbent response stage requires exactly one explicit owner; independent review is allowed only alongside that owner",
+          {
+            stageKind: kind,
+            ownerUnitIds: incumbentOwners.map((lane) => lane.unit_id),
+            reviewerUnitIds: incumbentReviewers.map((lane) => lane.unit_id),
+          },
+        ),
+      );
+    }
+    for (const lane of stageLanes) {
       const unitId = String(lane.unit_id ?? "");
       const planned = units.get(unitId);
       if (seenUnits.has(unitId)) {
@@ -224,20 +256,22 @@ function validateExecutionPlan(
       const incumbentAssignment = isRecord(lane.incumbent_response_assignment)
         ? lane.incumbent_response_assignment
         : {};
-      const expectedIncumbentDepth =
+      const allowedIncumbentDepths =
         kind === "candidate_evaluation"
-          ? "lightweight_scan"
+          ? ["not_assigned", "lightweight_scan"]
           : kind === "retained_candidate_deep_review"
-            ? "targeted_deep_dive"
-            : "not_assigned";
+            ? ["not_assigned", "targeted_deep_dive"]
+            : ["not_assigned"];
+      const assigned = incumbentAssignment.analysis_depth !== "not_assigned";
       if (
-        incumbentAssignment.analysis_depth !== expectedIncumbentDepth ||
-        (expectedIncumbentDepth === "not_assigned" &&
-          strings(incumbentAssignment.subject_refs).length !== 0) ||
-        (expectedIncumbentDepth !== "not_assigned" &&
-          strings(incumbentAssignment.subject_refs).length === 0) ||
+        !allowedIncumbentDepths.includes(String(incumbentAssignment.analysis_depth)) ||
+        (assigned &&
+          !["owner", "independent_review"].includes(String(incumbentAssignment.assignment_role))) ||
+        (!assigned && incumbentAssignment.assignment_role !== "none") ||
+        (!assigned && strings(incumbentAssignment.subject_refs).length !== 0) ||
+        (assigned && strings(incumbentAssignment.subject_refs).length === 0) ||
         (scope.kind === "explicit" &&
-          expectedIncumbentDepth !== "not_assigned" &&
+          assigned &&
           !sameStrings(strings(incumbentAssignment.subject_refs), candidateRefs))
       ) {
         errors.push(
@@ -245,7 +279,7 @@ function validateExecutionPlan(
             "runtime.incumbent_response_assignment_invalid",
             `${entry.path}#${stageId}/${unitId}/incumbent_response_assignment`,
             "incumbent response work must start after candidate formation, use lightweight candidate scans, and reserve targeted deep dives for retained candidates",
-            { expectedIncumbentDepth },
+            { allowedIncumbentDepths },
           ),
         );
       }

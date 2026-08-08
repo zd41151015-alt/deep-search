@@ -218,6 +218,7 @@ function lane(
     lane_role: laneRole,
     incumbent_response_assignment: {
       analysis_depth: analysisDepth,
+      assignment_role: analysisDepth === "targeted_deep_dive" ? "owner" : "none",
       subject_refs: analysisDepth === "targeted_deep_dive" ? [conceptPath] : [],
       rationale:
         analysisDepth === "targeted_deep_dive"

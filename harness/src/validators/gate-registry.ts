@@ -122,6 +122,18 @@ const REGISTRY: Readonly<Record<string, GateRegistration>> = {
     stages: ["artifact_compilation", "bundle_validation"],
     mechanicallyDerivable: true,
   },
+  "commercial_research.incumbent_response_legacy_state_semantics_ignored": {
+    category: "format",
+    defaultSeverity: WARNING,
+    stages: ["artifact_compilation"],
+    mechanicallyDerivable: true,
+  },
+  "commercial_research.incumbent_response_strategic_context_mismatch": {
+    category: "integrity",
+    defaultSeverity: ERROR,
+    stages: ["bundle_validation", "aggregation", "recovery"],
+    mechanicallyDerivable: true,
+  },
   "commercial_research.acquisition_evidence_not_adopted": {
     category: "decision_validity",
     defaultSeverity: WARNING,

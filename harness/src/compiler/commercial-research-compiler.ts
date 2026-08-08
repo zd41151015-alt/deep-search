@@ -1,4 +1,9 @@
-import { canonicalContentHash } from "../artifact-store/canonical.js";
+import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
+import {
+  INCUMBENT_RESPONSE_CONTEXT_ONLY,
+  INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+  INCUMBENT_RESPONSE_UNKNOWN_RATIONALE,
+} from "../incumbent-response-contract.js";
 import type { CommercialResearchPolicy } from "../validators/commercial-research-validator.js";
 import {
   deriveBusinessCoverage,
@@ -71,10 +76,19 @@ function acquisitionMethod(value: unknown): string {
   return typeof value === "string" ? value : "other";
 }
 
-function unknownIncumbentResponse(subjectId: string): Record<string, unknown> {
+const INCUMBENT_RESPONSE_AUTOMATIC_EFFECTS = {
+  ranking_eligibility: false,
+  claim_confidence: false,
+  recommendation_ceiling: false,
+  artifact_publication: false,
+} as const;
+
+function unknownIncumbentResponse(
+  subjectId: string,
+  input: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
   const unknown = (rationale: string) => ({ level: "unknown", rationale });
-  const rationale =
-    "No responder-specific assessment was delivered for the assigned subject; the reference risk remains unknown and does not change ranking, confidence, ceilings, or publication.";
+  const rationale = INCUMBENT_RESPONSE_UNKNOWN_RATIONALE;
   return {
     subject_id: subjectId,
     analysis_state: "unknown",
@@ -110,18 +124,113 @@ function unknownIncumbentResponse(subjectId: string): Record<string, unknown> {
       dimensions: [],
       rationale,
     },
-    supporting_evidence_refs: [],
-    opposing_evidence_refs: [],
-    background_evidence_refs: [],
+    supporting_evidence_refs: strings(input.supporting_evidence_refs),
+    opposing_evidence_refs: strings(input.opposing_evidence_refs),
+    background_evidence_refs: strings(input.background_evidence_refs),
     inference_boundary: rationale,
     confidence: "unknown",
+    uncertainty: typeof input.uncertainty === "string" ? input.uncertainty : rationale,
+    unknowns:
+      strings(input.unknowns).length > 0
+        ? strings(input.unknowns)
+        : ["Potential responder identity, ability, incentive, and response horizon are unknown."],
+    data_gaps:
+      strings(input.data_gaps).length > 0
+        ? strings(input.data_gaps)
+        : [
+            "No Evidence-role binding and assessment semantics sufficient to complete the incumbent response assessment were submitted.",
+          ],
+    strategic_implication: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+  };
+}
+
+function notApplicableIncumbentResponse(
+  subjectId: string,
+  input: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const rationale =
+    typeof input.rationale === "string"
+      ? input.rationale
+      : "No relevant potential responder or controlled response point applies within the assigned scope.";
+  const graded = { level: "not_applicable", rationale };
+  return {
+    subject_id: subjectId,
+    analysis_state: "not_applicable",
+    responder_identity: null,
+    responder_category: null,
+    control_point: null,
+    response_modes: [],
+    capability_adjacency: graded,
+    response_cost: {
+      implementation: graded,
+      operational: graded,
+      compliance: graded,
+      data: graded,
+      distribution: graded,
+    },
+    incentive: {
+      level: "not_applicable",
+      drivers: [],
+      disincentives: [],
+      cannibalization: rationale,
+      rationale,
+    },
+    plausible_response_horizon: { band: "not_applicable", rationale },
+    distribution_leverage: { level: "not_applicable", control_points: [], rationale },
+    thesis_coverage: {
+      scope: "not_applicable",
+      covered_elements: [],
+      uncovered_elements: [],
+      rationale,
+    },
+    residual_differentiation: {
+      overall_strength: "not_applicable",
+      dimensions: [],
+      rationale,
+    },
+    supporting_evidence_refs: [],
+    opposing_evidence_refs: [],
+    background_evidence_refs: strings(input.background_evidence_refs),
+    inference_boundary: rationale,
+    confidence: "not_applicable",
     uncertainty: rationale,
-    unknowns: [
-      "Potential responder identity, ability, incentive, and response horizon are unknown.",
-    ],
-    data_gaps: ["No incumbent absorption and response Evidence was delivered."],
-    strategic_implication:
-      "Treat incumbent response risk as an unresolved strategic question; no automatic candidate or recommendation action follows.",
+    unknowns: [],
+    data_gaps: [],
+    strategic_implication: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+  };
+}
+
+function normalizeIncumbentResponse(
+  subjectId: string,
+  input: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  if (input.analysis_state === "unknown") return unknownIncumbentResponse(subjectId, input);
+  if (input.analysis_state === "not_applicable") {
+    return notApplicableIncumbentResponse(subjectId, input);
+  }
+  return {
+    subject_id: subjectId,
+    analysis_state: "assessed",
+    responder_identity: structuredClone(input.responder_identity),
+    responder_category: structuredClone(input.responder_category),
+    control_point: structuredClone(input.control_point),
+    response_modes: structuredClone(input.response_modes),
+    capability_adjacency: structuredClone(input.capability_adjacency),
+    response_cost: structuredClone(input.response_cost),
+    incentive: structuredClone(input.incentive),
+    plausible_response_horizon: structuredClone(input.plausible_response_horizon),
+    distribution_leverage: structuredClone(input.distribution_leverage),
+    thesis_coverage: structuredClone(input.thesis_coverage),
+    residual_differentiation: structuredClone(input.residual_differentiation),
+    supporting_evidence_refs: structuredClone(input.supporting_evidence_refs),
+    opposing_evidence_refs: structuredClone(input.opposing_evidence_refs),
+    background_evidence_refs: structuredClone(input.background_evidence_refs),
+    inference_boundary: structuredClone(input.inference_boundary),
+    confidence: structuredClone(input.confidence),
+    uncertainty: structuredClone(input.uncertainty),
+    unknowns: structuredClone(input.unknowns),
+    data_gaps: structuredClone(input.data_gaps),
+    strategic_implication: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
   };
 }
 
@@ -142,9 +251,14 @@ export function compileCommercialResearchDelivery(
   const scope = isRecord(requirements.quantitative_competitive_scope)
     ? requirements.quantitative_competitive_scope
     : {};
-  const incumbentAssignment = isRecord(requirements.incumbent_response_assignment)
+  const taskAssignment = isRecord(requirements.incumbent_response_assignment)
     ? requirements.incumbent_response_assignment
-    : { analysis_depth: "not_assigned", subject_refs: [], rationale: "Not assigned." };
+    : {
+        analysis_depth: "not_assigned",
+        assignment_role: "none",
+        subject_refs: [],
+        rationale: "Not assigned.",
+      };
   const auditPath = String(requirements.commercial_audit_output_path);
   const subjectIdFromRef = (ref: string): string => {
     const [targetPath = ref, fragment] = ref.split("#", 2);
@@ -168,17 +282,85 @@ export function compileCommercialResearchDelivery(
     );
   };
   const unitId = String(delivery.unit_id);
-  const dispatchArtifact = availableArtifacts.find((artifact) =>
-    records(effectiveDocument(artifact).tasks).some((item) => item.unit_id === unitId),
+  const taskId = typeof task.task_id === "string" ? task.task_id : null;
+  const dispatchArtifacts = availableArtifacts.filter((artifact) =>
+    records(effectiveDocument(artifact).tasks).some(
+      (item) => item.unit_id === unitId && (taskId === null || item.task_id === taskId),
+    ),
   );
+  const dispatchArtifact = dispatchArtifacts.length === 1 ? dispatchArtifacts[0] : undefined;
   const dispatch = dispatchArtifact === undefined ? {} : effectiveDocument(dispatchArtifact);
-  const dispatchTask = records(dispatch.tasks).find((item) => item.unit_id === unitId);
+  const dispatchTask = records(dispatch.tasks).find(
+    (item) => item.unit_id === unitId && (taskId === null || item.task_id === taskId),
+  );
   const dispatchTaskRef =
     dispatchArtifact !== undefined && typeof dispatchTask?.task_id === "string"
       ? `${dispatchArtifact.artifact_path}#${dispatchTask.task_id}`
       : null;
   const executionPlanRef =
     typeof dispatch.execution_plan_ref === "string" ? dispatch.execution_plan_ref : null;
+  const executionPlan = executionPlanRef === null ? {} : (byPath.get(executionPlanRef) ?? {});
+  const executionStage = records(executionPlan.stages).find(
+    (stage) => stage.stage_id === dispatch.stage_id,
+  );
+  const executionLane = records(executionStage?.lanes).find((lane) => lane.unit_id === unitId);
+  const planAssignment = isRecord(executionLane?.incumbent_response_assignment)
+    ? executionLane.incumbent_response_assignment
+    : undefined;
+  const dispatchAssignment = isRecord(dispatchTask?.incumbent_response_assignment)
+    ? dispatchTask.incumbent_response_assignment
+    : undefined;
+  if (dispatchArtifacts.length !== 1) {
+    issues.push(
+      issue(
+        "commercial_research.incumbent_response_dispatch_resolution_invalid",
+        "/unit_id",
+        "every incumbent response assignment requires exactly one Dispatch task bound by task_id and unit_id",
+        { taskId, unitId, dispatchCount: dispatchArtifacts.length },
+      ),
+    );
+  }
+  if (executionPlanRef === null || executionLane === undefined) {
+    issues.push(
+      issue(
+        "commercial_research.incumbent_response_plan_resolution_invalid",
+        "/unit_id",
+        "every incumbent response assignment requires the exact Execution Plan stage and lane",
+        { executionPlanRef, stageId: dispatch.stage_id, unitId },
+      ),
+    );
+  }
+  if (
+    planAssignment !== undefined &&
+    dispatchAssignment !== undefined &&
+    canonicalJson(planAssignment) !== canonicalJson(dispatchAssignment)
+  ) {
+    issues.push(
+      issue(
+        "commercial_research.incumbent_response_plan_dispatch_mismatch",
+        "/incumbent_response_assignment",
+        "Dispatch must be the deterministic projection of the Execution Plan incumbent response assignment",
+      ),
+    );
+  }
+  if (
+    planAssignment !== undefined &&
+    canonicalJson(planAssignment) !== canonicalJson(taskAssignment)
+  ) {
+    issues.push(
+      issue(
+        "commercial_research.incumbent_response_plan_task_mismatch",
+        "/commercial_research_requirements/incumbent_response_assignment",
+        "Research Task must be the deterministic projection of the Execution Plan incumbent response assignment",
+      ),
+    );
+  }
+  const incumbentAssignment = planAssignment ?? {
+    analysis_depth: "not_assigned",
+    assignment_role: "none",
+    subject_refs: [],
+    rationale: "No valid Execution Plan assignment was resolved.",
+  };
 
   const evidence: Record<string, unknown>[] = records(delivery.evidence_sources).map((source) => {
     const copy = structuredClone(source);
@@ -374,12 +556,36 @@ export function compileCommercialResearchDelivery(
           const authored = records(delivery.incumbent_response_assessments).filter(
             (item) => item.subject_id === subjectId,
           );
-          const semantics = authored.length > 0 ? authored : [unknownIncumbentResponse(subjectId)];
-          return semantics.map((semantic) => ({
-            assessment_id: stableId("incumbent_response", [unitId, semantic]),
-            analysis_depth: incumbentAssignment.analysis_depth,
-            semantic,
-          }));
+          const inputs = authored.length > 0 ? authored : [unknownIncumbentResponse(subjectId)];
+          return inputs.map((input) => {
+            if (
+              authored.length > 0 &&
+              ["unknown", "not_applicable"].includes(String(input.analysis_state)) &&
+              [
+                "responder_identity",
+                "response_modes",
+                "capability_adjacency",
+                "response_cost",
+                "incentive",
+                "strategic_implication",
+              ].some((field) => field in input)
+            ) {
+              issues.push(
+                issue(
+                  "commercial_research.incumbent_response_legacy_state_semantics_ignored",
+                  "/incumbent_response_assessments",
+                  "legacy strong fields on unknown/not_applicable input were ignored during deterministic normalization",
+                  { subjectId, analysisState: input.analysis_state },
+                ),
+              );
+            }
+            const semantic = normalizeIncumbentResponse(subjectId, input);
+            return {
+              assessment_id: stableId("incumbent_response", [unitId, semantic]),
+              analysis_depth: incumbentAssignment.analysis_depth,
+              semantic,
+            };
+          });
         });
   const derivedBindings = new Map<string, Set<string>>();
   const bindRefs = (subjectId: unknown, refs: readonly string[]): void => {
@@ -402,6 +608,14 @@ export function compileCommercialResearchDelivery(
   }
   for (const competitiveObject of competitiveObjects) {
     bindRefs(competitiveObject.subject_id, strings(competitiveObject.source_refs));
+  }
+  for (const assessment of incumbentResponseAssessments) {
+    const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+    bindRefs(semantic.subject_id, [
+      ...strings(semantic.supporting_evidence_refs),
+      ...strings(semantic.opposing_evidence_refs),
+      ...strings(semantic.background_evidence_refs),
+    ]);
   }
   for (const source of evidence) {
     const explicit = strings(source.subject_ids).filter((subjectId) =>
@@ -482,6 +696,61 @@ export function compileCommercialResearchDelivery(
       gaps.set(gapKey(String(gap.coverage_kind), subjectId, String(gap.dimension)), gap);
     }
   }
+  const incumbentResponseCoverage = subjectIds
+    .flatMap((subjectId) => {
+      const assessments = incumbentResponseAssessments.filter(
+        (assessment) =>
+          isRecord(assessment.semantic) && assessment.semantic.subject_id === subjectId,
+      );
+      if (assessments.length === 0) return [];
+      const states = assessments.map((assessment) =>
+        String((assessment.semantic as Record<string, unknown>).analysis_state),
+      );
+      const state = states.includes("unknown")
+        ? "unknown"
+        : states.includes("assessed")
+          ? "assessed"
+          : "not_applicable";
+      const unknownSemantics = assessments
+        .map((assessment) => assessment.semantic as Record<string, unknown>)
+        .filter((semantic) => semantic.analysis_state === "unknown");
+      return [
+        {
+          subject_id: subjectId,
+          analysis_depth: incumbentAssignment.analysis_depth,
+          assignment_role: incumbentAssignment.assignment_role,
+          state,
+          assessment_ids: assessments.map((assessment) => assessment.assessment_id),
+          reason:
+            state === "unknown"
+              ? "Assigned incumbent absorption and response risk remains unknown."
+              : state === "not_applicable"
+                ? "No relevant incumbent response assessment applies within the bounded scope."
+                : null,
+          data_gaps: [
+            ...new Set(unknownSemantics.flatMap((semantic) => strings(semantic.data_gaps))),
+          ].sort(),
+          decision_impact: INCUMBENT_RESPONSE_CONTEXT_ONLY,
+          automatic_effects: INCUMBENT_RESPONSE_AUTOMATIC_EFFECTS,
+        },
+      ];
+    })
+    .sort((left, right) => String(left.subject_id).localeCompare(String(right.subject_id)));
+  const incumbentResponseGaps = incumbentResponseCoverage
+    .filter((coverage) => coverage.state === "unknown")
+    .map((coverage) => ({
+      subject_ids: [String(coverage.subject_id)],
+      subject_binding_basis: subjectIds.length === 1 ? "single_subject_auto" : "explicit",
+      coverage_kind: "incumbent_response",
+      dimension: "absorption_and_response_risk",
+      state: "unavailable",
+      reason: String(coverage.reason),
+      alternative_metric: null,
+      decision_impact: INCUMBENT_RESPONSE_CONTEXT_ONLY,
+      query_attempts: [],
+      task_ref: taskPath,
+      audit_ref: auditPath,
+    }));
   const quantitativeCoverage = subjectIds.flatMap((subjectId) =>
     strings(scope.required_metric_families).map((family) => {
       const observations = quantitativeObservations.filter(
@@ -609,7 +878,8 @@ export function compileCommercialResearchDelivery(
     quantitativeCoverage.some((item) => item.state !== "observed") ||
     competitiveCoverage.some((item) => item.state !== "observed") ||
     uncovered.length > 0 ||
-    structuredGaps.some((gap) => gap.state !== "not_applicable");
+    structuredGaps.some((gap) => gap.state !== "not_applicable") ||
+    incumbentResponseCoverage.some((item) => item.state === "unknown");
   const claims = records(delivery.claims).map((claim) => {
     const refs = strings(claim.evidence_refs);
     const subjectId =
@@ -728,7 +998,7 @@ export function compileCommercialResearchDelivery(
       outcome: hasGaps ? "evidence_insufficient" : "completed",
       query_log_complete: delivery.query_log_complete,
       telemetry_basis: delivery.telemetry_basis,
-      remaining_gaps: structuredGaps,
+      remaining_gaps: [...structuredGaps, ...incumbentResponseGaps],
       termination_reason: delivery.stop_reason,
     },
     evidence_register: evidence,
@@ -739,6 +1009,7 @@ export function compileCommercialResearchDelivery(
     competitive_coverage: competitiveCoverage,
     incumbent_response_assignment: incumbentAssignment,
     incumbent_response_assessments: incumbentResponseAssessments,
+    incumbent_response_coverage: incumbentResponseCoverage,
     coverage,
     uncovered_business_dimensions: uncovered,
     wave1_signals: { demand: demandObserved, buyer: buyerObserved, purchase: purchaseObserved },

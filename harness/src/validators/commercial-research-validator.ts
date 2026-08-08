@@ -1,4 +1,5 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
+import { INCUMBENT_RESPONSE_STRATEGIC_CONTEXT } from "../incumbent-response-contract.js";
 import { projectCommercialAuditTables } from "../reporting/commercial-report-tables.js";
 import {
   canonicalSourceGroup,
@@ -859,6 +860,13 @@ function validateScopeAndStages(
   policy: CommercialResearchPolicy,
 ): ValidationIssue[] {
   const errors: ValidationIssue[] = [];
+  const documentsByPath = new Map(documents.map((entry) => [entry.path, entry]));
+  const dispatches = documents.filter((entry) =>
+    [
+      "startup_opportunity.dispatch_batch.discovery.current",
+      "startup_opportunity.dispatch_batch.assessment.current",
+    ].includes(entry.schemaVersion),
+  );
   for (const entry of documents) {
     if (entry.schemaVersion === "startup_opportunity.intake.v1") {
       const confirmation = isRecord(entry.document.scope_confirmation)
@@ -909,33 +917,31 @@ function validateScopeAndStages(
       const assignedRefs = strings(incumbentAssignment.subject_refs);
       const analysisDepth = incumbentAssignment.analysis_depth;
       const sourcePhase = entry.document.source_phase;
-      const expectedIncumbentDepth =
+      const allowedIncumbentDepths =
         entry.schemaVersion === "startup_opportunity.research_task.discovery_candidate.current"
           ? sourcePhase === "candidate_generation"
-            ? "not_assigned"
-            : "lightweight_scan"
+            ? ["not_assigned"]
+            : ["not_assigned", "lightweight_scan"]
           : entry.schemaVersion === "startup_opportunity.research_task.discovery_evaluation.current"
-            ? "targeted_deep_dive"
-            : null;
+            ? ["not_assigned", "targeted_deep_dive"]
+            : ["not_assigned", "targeted_deep_dive"];
+      const assigned = analysisDepth !== "not_assigned";
       if (
-        (expectedIncumbentDepth !== null && analysisDepth !== expectedIncumbentDepth) ||
-        (entry.schemaVersion === "startup_opportunity.research_task.assessment.current" &&
-          !["not_assigned", "targeted_deep_dive"].includes(String(analysisDepth)))
+        !allowedIncumbentDepths.includes(String(analysisDepth)) ||
+        (assigned &&
+          !["owner", "independent_review"].includes(String(incumbentAssignment.assignment_role))) ||
+        (!assigned && incumbentAssignment.assignment_role !== "none")
       ) {
         errors.push(
           issue(
             "commercial_research.incumbent_response_stage_mismatch",
             `${entry.path}#/commercial_research_requirements/incumbent_response_assignment`,
             "incumbent response research must remain absent during candidate generation, use lightweight scans for formed candidates, and reserve targeted deep dives for retained opportunities or formed concepts",
-            { expectedIncumbentDepth, actualDepth: analysisDepth, sourcePhase },
+            { allowedIncumbentDepths, actualDepth: analysisDepth, sourcePhase },
           ),
         );
       }
-      if (
-        analysisDepth === "not_assigned"
-          ? assignedRefs.length !== 0
-          : !sameStringSet(assignedRefs, targetRefs)
-      ) {
+      if (!assigned ? assignedRefs.length !== 0 : !sameStringSet(assignedRefs, targetRefs)) {
         errors.push(
           issue(
             "commercial_research.incumbent_response_subject_binding_mismatch",
@@ -944,6 +950,68 @@ function validateScopeAndStages(
             { assignedRefs, targetRefs },
           ),
         );
+      }
+      const taskId = typeof entry.document.task_id === "string" ? entry.document.task_id : null;
+      const unitId = typeof entry.document.unit_id === "string" ? entry.document.unit_id : null;
+      const dispatchMatches = dispatches.flatMap((dispatch) =>
+        records(dispatch.document.tasks)
+          .filter(
+            (task) =>
+              task.task_id === taskId &&
+              task.unit_id === unitId &&
+              taskId !== null &&
+              unitId !== null,
+          )
+          .map((task) => ({ dispatch, task })),
+      );
+      if (dispatchMatches.length !== 1) {
+        errors.push(
+          issue(
+            "commercial_research.incumbent_response_dispatch_projection_missing",
+            `${entry.path}#/commercial_research_requirements/incumbent_response_assignment`,
+            "every Research Task response assignment requires exactly one Dispatch projection bound by task_id and unit_id",
+            { taskId, unitId, dispatchCount: dispatchMatches.length },
+          ),
+        );
+      }
+      if (dispatchMatches.length === 1) {
+        const match = dispatchMatches[0];
+        if (match !== undefined) {
+          const planRef = String(match.dispatch.document.execution_plan_ref ?? "");
+          const plan = documentsByPath.get(planRef)?.document;
+          const stage = records(plan?.stages).find(
+            (candidate) => candidate.stage_id === match.dispatch.document.stage_id,
+          );
+          const lane = records(stage?.lanes).find((candidate) => candidate.unit_id === unitId);
+          const planAssignment = isRecord(lane?.incumbent_response_assignment)
+            ? lane.incumbent_response_assignment
+            : null;
+          const dispatchAssignment = isRecord(match.task.incumbent_response_assignment)
+            ? match.task.incumbent_response_assignment
+            : null;
+          if (planAssignment === null) {
+            errors.push(
+              issue(
+                "commercial_research.incumbent_response_plan_projection_missing",
+                `${entry.path}#/commercial_research_requirements/incumbent_response_assignment`,
+                "Dispatch must resolve the exact Execution Plan stage and lane assignment",
+                { planRef, stageId: match.dispatch.document.stage_id, unitId },
+              ),
+            );
+          } else if (
+            canonicalJson(planAssignment) !== canonicalJson(dispatchAssignment) ||
+            canonicalJson(planAssignment) !== canonicalJson(incumbentAssignment)
+          ) {
+            errors.push(
+              issue(
+                "commercial_research.incumbent_response_assignment_projection_mismatch",
+                `${entry.path}#/commercial_research_requirements/incumbent_response_assignment`,
+                "Execution Plan is the assignment authority and its Dispatch and Task projections must match exactly",
+                { expected: planAssignment },
+              ),
+            );
+          }
+        }
       }
       const expectedScanMode =
         expectedStage === policy.solution_neutral_stage ? "broad_scan" : "targeted_deep_dive";
@@ -1867,18 +1935,65 @@ function validateAudit(
   const requirements = isRecord(task?.commercial_research_requirements)
     ? task.commercial_research_requirements
     : {};
-  const expectedAssignment = isRecord(requirements.incumbent_response_assignment)
+  const taskAssignment = isRecord(requirements.incumbent_response_assignment)
     ? requirements.incumbent_response_assignment
+    : {};
+  const [dispatchPath = "", dispatchTaskId = ""] =
+    typeof audit.dispatch_task_ref === "string" ? audit.dispatch_task_ref.split("#", 2) : [];
+  const dispatch = documentsByPath.get(dispatchPath)?.document;
+  const dispatchTask = records(dispatch?.tasks).find(
+    (candidate) => candidate.task_id === dispatchTaskId && candidate.unit_id === audit.unit_id,
+  );
+  const executionPlan =
+    typeof audit.execution_plan_ref === "string"
+      ? documentsByPath.get(audit.execution_plan_ref)?.document
+      : undefined;
+  const executionStage = records(executionPlan?.stages).find(
+    (candidate) => candidate.stage_id === dispatch?.stage_id,
+  );
+  const executionLane = records(executionStage?.lanes).find(
+    (candidate) => candidate.unit_id === audit.unit_id,
+  );
+  const expectedAssignment = isRecord(executionLane?.incumbent_response_assignment)
+    ? executionLane.incumbent_response_assignment
+    : {};
+  const dispatchAssignment = isRecord(dispatchTask?.incumbent_response_assignment)
+    ? dispatchTask.incumbent_response_assignment
     : {};
   const actualAssignment = isRecord(audit.incumbent_response_assignment)
     ? audit.incumbent_response_assignment
     : {};
-  if (task !== undefined && canonicalJson(actualAssignment) !== canonicalJson(expectedAssignment)) {
+  if (
+    typeof audit.execution_plan_ref !== "string" ||
+    typeof audit.dispatch_task_ref !== "string" ||
+    task === undefined ||
+    dispatchTask === undefined ||
+    executionLane === undefined
+  ) {
+    errors.push(
+      issue(
+        "commercial_research.incumbent_response_lineage_incomplete",
+        `${entry.path}#/incumbent_response_assignment`,
+        "every response assignment requires exact Plan, Dispatch, Task, and Audit lineage",
+        {
+          executionPlanRef: audit.execution_plan_ref,
+          dispatchTaskRef: audit.dispatch_task_ref,
+          taskRef: audit.task_ref,
+        },
+      ),
+    );
+  }
+  if (
+    executionLane !== undefined &&
+    [dispatchAssignment, taskAssignment, actualAssignment].some(
+      (assignment) => canonicalJson(assignment) !== canonicalJson(expectedAssignment),
+    )
+  ) {
     errors.push(
       issue(
         "commercial_research.incumbent_response_assignment_mismatch",
         `${entry.path}#/incumbent_response_assignment`,
-        "the formal incumbent response assignment must be the exact immutable task assignment",
+        "Execution Plan is the incumbent response assignment authority; Dispatch, Task, and Audit must be exact projections",
         { expected: expectedAssignment },
       ),
     );
@@ -1893,6 +2008,18 @@ function validateAudit(
         "commercial_research.incumbent_response_before_candidate",
         `${entry.path}#/incumbent_response_assessments`,
         "candidate-neutral work cannot contain incumbent absorption or response assessments",
+      ),
+    );
+  }
+  if (
+    actualAssignment.analysis_depth === "not_assigned" &&
+    records(audit.incumbent_response_coverage).length > 0
+  ) {
+    errors.push(
+      issue(
+        "commercial_research.incumbent_response_coverage_unassigned",
+        `${entry.path}#/incumbent_response_coverage`,
+        "an unassigned lane cannot publish incumbent response coverage",
       ),
     );
   }
@@ -1919,6 +2046,16 @@ function validateAudit(
     }
     for (const [index, assessment] of incumbentAssessments.entries()) {
       const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+      if (semantic.strategic_implication !== INCUMBENT_RESPONSE_STRATEGIC_CONTEXT) {
+        errors.push(
+          issue(
+            "commercial_research.incumbent_response_strategic_context_mismatch",
+            `${entry.path}#/incumbent_response_assessments/${index}/semantic/strategic_implication`,
+            "the Harness-owned strategic implication must remain the fixed reference-only decision boundary",
+            { expected: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT },
+          ),
+        );
+      }
       const expectedId = stableId("incumbent_response", [audit.unit_id, semantic]);
       if (
         assessment.assessment_id !== expectedId ||
@@ -1949,6 +2086,91 @@ function validateAudit(
           ),
         );
       }
+    }
+    const expectedCoverage = targetSubjectIds
+      .map((subjectId) => {
+        const assessments = incumbentAssessments.filter((assessment) => {
+          const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+          return semantic.subject_id === subjectId;
+        });
+        const states = assessments.map((assessment) => {
+          const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+          return String(semantic.analysis_state);
+        });
+        const state = states.includes("unknown")
+          ? "unknown"
+          : states.includes("assessed")
+            ? "assessed"
+            : "not_applicable";
+        const dataGaps = [
+          ...new Set(
+            assessments.flatMap((assessment) => {
+              const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+              return semantic.analysis_state === "unknown" ? strings(semantic.data_gaps) : [];
+            }),
+          ),
+        ].sort();
+        return {
+          subject_id: subjectId,
+          analysis_depth: actualAssignment.analysis_depth,
+          assignment_role: actualAssignment.assignment_role,
+          state,
+          assessment_ids: assessments.map((assessment) => assessment.assessment_id),
+          reason:
+            state === "unknown"
+              ? "Assigned incumbent absorption and response risk remains unknown."
+              : state === "not_applicable"
+                ? "No relevant incumbent response assessment applies within the bounded scope."
+                : null,
+          data_gaps: dataGaps,
+          decision_impact: "Context only; no automatic decision effect.",
+          automatic_effects: {
+            ranking_eligibility: false,
+            claim_confidence: false,
+            recommendation_ceiling: false,
+            artifact_publication: false,
+          },
+        };
+      })
+      .sort((left, right) => String(left.subject_id).localeCompare(String(right.subject_id)));
+    if (
+      canonicalJson(records(audit.incumbent_response_coverage)) !== canonicalJson(expectedCoverage)
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.incumbent_response_coverage_mismatch",
+          `${entry.path}#/incumbent_response_coverage`,
+          "incumbent response coverage must be the deterministic projection of assigned assessment states",
+          { expected: expectedCoverage },
+        ),
+      );
+    }
+    const responseGapRows = expectedCoverage.filter((coverage) => coverage.state === "unknown");
+    const closure = isRecord(audit.search_closure) ? audit.search_closure : {};
+    const remainingGaps = records(closure.remaining_gaps);
+    const missingClosureGaps = responseGapRows.filter(
+      (coverage) =>
+        !remainingGaps.some(
+          (gap) =>
+            gap.coverage_kind === "incumbent_response" &&
+            gap.dimension === "absorption_and_response_risk" &&
+            strings(gap.subject_ids).includes(String(coverage.subject_id)) &&
+            gap.state === "unavailable" &&
+            gap.decision_impact === "Context only; no automatic decision effect.",
+        ),
+    );
+    if (
+      missingClosureGaps.length > 0 ||
+      (responseGapRows.length > 0 && closure.outcome !== "evidence_insufficient")
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.incumbent_response_search_closure_gap_missing",
+          `${entry.path}#/search_closure`,
+          "unknown incumbent response coverage must remain visible in Search Closure without changing decision mechanics",
+          { missingSubjectIds: missingClosureGaps.map((coverage) => coverage.subject_id) },
+        ),
+      );
     }
   }
   const adoptedRefs = new Set(adoptedByRef.keys());
@@ -2732,8 +2954,14 @@ function validateCommercialReportProjections(
       }
       const coverage = isRecord(row.coverage) ? row.coverage : {};
       const dimension =
-        row.coverage_kind === "quantitative" ? coverage.metric_family : coverage.competitor_type;
-      return `${strings(row.audit_refs).join(",")}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`;
+        row.coverage_kind === "quantitative"
+          ? coverage.metric_family
+          : row.coverage_kind === "competitive"
+            ? coverage.competitor_type
+            : "response_risk";
+      return row.coverage_kind === "incumbent_response"
+        ? `${String(row.audit_ref)}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`
+        : `${strings(row.audit_refs).join(",")}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`;
     });
     const sortedExpectedGapRows = sortedProjection(
       expectedProjection.research_coverage_gaps,
@@ -2744,8 +2972,14 @@ function validateCommercialReportProjections(
         }
         const coverage = isRecord(row.coverage) ? row.coverage : {};
         const dimension =
-          row.coverage_kind === "quantitative" ? coverage.metric_family : coverage.competitor_type;
-        return `${strings(row.audit_refs).join(",")}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`;
+          row.coverage_kind === "quantitative"
+            ? coverage.metric_family
+            : row.coverage_kind === "competitive"
+              ? coverage.competitor_type
+              : "response_risk";
+        return row.coverage_kind === "incumbent_response"
+          ? `${String(row.audit_ref)}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`
+          : `${strings(row.audit_refs).join(",")}:${String(row.coverage_kind)}:${String(coverage.subject_id)}:${String(dimension)}`;
       },
     );
     if (canonicalJson(actualGapRows) !== canonicalJson(sortedExpectedGapRows)) {
@@ -2753,7 +2987,7 @@ function validateCommercialReportProjections(
         issue(
           "commercial_research.report_gap_projection_mismatch",
           `${report.path}#/research_coverage_gaps`,
-          "formal reporting must show every subject-bound quantitative, competitive, business, research, and execution Gap with its decision impact",
+          "formal reporting must show every subject-bound quantitative, competitive, business, research, execution, and unknown incumbent-response Gap with its decision impact",
         ),
       );
     }
