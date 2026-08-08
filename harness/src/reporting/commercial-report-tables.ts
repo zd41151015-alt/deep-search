@@ -59,6 +59,7 @@ const ZH_LABELS: Readonly<Record<string, string>> = {
   growth_change: "增长变化",
   growth_rate: "增长率",
   harness: "研究系统",
+  independent_counterevidence: "独立反向证据",
   limited: "有限可比",
   manual_workaround: "人工替代",
   market_size: "市场规模",
@@ -1422,7 +1423,7 @@ export function renderGateWarnings(source: Readonly<Record<string, unknown>>, zh
   return `${warnings
     .map(
       (warning) =>
-        `- [${cell(warning.severity)} / ${cell(warning.category)}] ${cell(warning.code)}: ${cell(warning.message)} ${zh ? "决策影响" : "Decision impact"}: ${cell(warning.decision_impact)}`,
+        `- [${display(warning.severity, zh)} / ${display(warning.category, zh)}] ${display(warning.code, zh)}: ${display(warning.message, zh)} ${zh ? "决策影响" : "Decision impact"}: ${display(warning.decision_impact, zh)}`,
     )
     .join("\n")}\n`;
 }

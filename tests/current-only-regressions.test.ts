@@ -20,6 +20,7 @@ import {
 import {
   projectCommercialAuditTables,
   renderCompetitiveSubstituteMatrix,
+  renderGateWarnings,
   renderIncumbentResponseRiskTable,
   renderQuantitativeSignalTable,
   renderResearchCoverageGaps,
@@ -2825,6 +2826,42 @@ test("Chinese commercial tables keep exact refs in structured data but hide inte
   assert.doesNotMatch(chinese, /evidence\/records|artifacts\/research-audits/iu);
   assert.match(chinese, /中国大陆 B2C 教育替代基线/);
   assert.match(chinese, /详见结构化审计/);
+  const researchGap = renderResearchCoverageGaps(
+    {
+      research_coverage_gaps: [
+        {
+          coverage_kind: "research",
+          subject_ids: ["candidate_solution_purchase_decision_dossier"],
+          dimension: "independent_counterevidence",
+          state: "partial",
+          query_attempts: [],
+          reason: "尚缺第二个独立来源。",
+          alternative_metric: null,
+          decision_impact: "保持低置信度。",
+        },
+      ],
+    },
+    true,
+  );
+  assert.match(researchGap, /独立反向证据/);
+  assert.doesNotMatch(researchGap, /independent_counterevidence/);
+  const gateWarnings = renderGateWarnings(
+    {
+      gate_warnings: [
+        {
+          severity: "warning",
+          category: "decision_validity",
+          code: "commercial_research.source_concentration",
+          message: "采用的 Evidence 集中在一个来源组。",
+          decision_impact: "Evidence 置信度仍然有限。",
+        },
+      ],
+    },
+    true,
+  );
+  assert.match(gateWarnings, /采用的\s*证据\s*集中在一个来源组/);
+  assert.match(gateWarnings, /证据\s*置信度仍然有限/);
+  assert.doesNotMatch(gateWarnings, /\bevidence\b/iu);
   assert.ok(chinese.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   assert.equal(chinese.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT), false);
   assert.doesNotMatch(chinese, /Reference only/iu);
