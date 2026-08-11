@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -57,6 +57,79 @@ async function checkpointInput(runId: string, checkpointId: string, createdAt: s
     unresolvedGapRefs: [],
     inputRefs: [],
   };
+}
+
+function recoveryEventEnvelope(
+  runId: string,
+  suffix: string,
+  createdAt: string,
+): FormalArtifactEnvelope {
+  const document = {
+    schema_version: "startup_opportunity.event.v1",
+    event_id: `publication_${suffix}`,
+    run_id: runId,
+    event_type: "decision_context_written",
+    timestamp: createdAt,
+    actor: "harness",
+    reason: `SYNTHETIC publication order fixture ${suffix}.`,
+    artifact_refs: [],
+  };
+  return {
+    schema_version: "startup_opportunity.artifact_envelope.current",
+    artifact_type: "startup_opportunity.event.v1",
+    artifact_path: `events/publication-${suffix}.json`,
+    run_id: runId,
+    created_at: createdAt,
+    producer_role: "harness",
+    input_refs: [],
+    content_hash: canonicalContentHash(document),
+    document,
+  };
+}
+
+interface StoredPublicationCommit extends Record<string, unknown> {
+  schema_version: string;
+  run_id: string;
+  publication_ordinal: number;
+  previous_commit_hash: string | null;
+  operation_key: string;
+  artifact_path: string;
+  artifact_type: string;
+  content_hash: string;
+  publication_commit_hash: string;
+}
+
+function refreshPublicationCommit(commit: StoredPublicationCommit): void {
+  const { publication_commit_hash: _discarded, ...identity } = commit;
+  commit.publication_commit_hash = canonicalContentHash(identity);
+}
+
+function publicationCommitFilename(commit: StoredPublicationCommit): string {
+  return `publication-${String(commit.publication_ordinal).padStart(12, "0")}-${commit.publication_commit_hash.slice("sha256:".length)}.json`;
+}
+
+async function readPublicationCommits(runRoot: string): Promise<StoredPublicationCommit[]> {
+  const directory = path.join(runRoot, ".store/publications");
+  return Promise.all(
+    (await readdir(directory))
+      .sort()
+      .map(async (entry) => JSON.parse(await readFile(path.join(directory, entry), "utf8"))),
+  );
+}
+
+async function replacePublicationCommits(
+  runRoot: string,
+  commits: readonly StoredPublicationCommit[],
+): Promise<void> {
+  const directory = path.join(runRoot, ".store/publications");
+  await rm(directory, { recursive: true, force: true });
+  await mkdir(directory, { recursive: true });
+  for (const commit of commits) {
+    await writeFile(
+      path.join(directory, publicationCommitFilename(commit)),
+      `${canonicalJson(commit)}\n`,
+    );
+  }
 }
 
 test("checkpoint publish without manifest update recovers to the newest valid snapshot", async (context) => {
@@ -333,6 +406,214 @@ test("publication rejects a plan revision with broken parent lineage", async (co
     (error: unknown) =>
       error instanceof StoreError &&
       (error.code === "reference.missing" || error.code === "artifact.reference_invalid"),
+  );
+});
+
+test("publication commit chain rejects ordinal and operation identity tampering", async (t) => {
+  const scenarios = [
+    {
+      name: "swapped-ordinals",
+      mutate: (first: StoredPublicationCommit, second: StoredPublicationCommit) => {
+        [first.publication_ordinal, second.publication_ordinal] = [
+          second.publication_ordinal,
+          first.publication_ordinal,
+        ];
+        refreshPublicationCommit(first);
+        refreshPublicationCommit(second);
+      },
+    },
+    {
+      name: "single-ordinal",
+      mutate: (_first: StoredPublicationCommit, second: StoredPublicationCommit) => {
+        second.publication_ordinal += 7;
+        refreshPublicationCommit(second);
+      },
+    },
+    {
+      name: "broken-previous-hash",
+      mutate: (_first: StoredPublicationCommit, second: StoredPublicationCommit) => {
+        second.previous_commit_hash = `sha256:${"0".repeat(64)}`;
+        refreshPublicationCommit(second);
+      },
+    },
+    {
+      name: "duplicate-ordinal",
+      mutate: (first: StoredPublicationCommit, second: StoredPublicationCommit) => {
+        second.publication_ordinal = first.publication_ordinal;
+        refreshPublicationCommit(second);
+      },
+    },
+    {
+      name: "skipped-ordinal",
+      mutate: (_first: StoredPublicationCommit, second: StoredPublicationCommit) => {
+        second.publication_ordinal += 1;
+        refreshPublicationCommit(second);
+      },
+    },
+    {
+      name: "receipt-commit-identity-drift",
+      mutate: (_first: StoredPublicationCommit, second: StoredPublicationCommit) => {
+        second.artifact_path = "events/publication-drifted.json";
+        refreshPublicationCommit(second);
+      },
+    },
+  ] as const;
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async (context) => {
+      const runId = `publication-chain-${scenario.name}`;
+      const { runRoot, store } = await setup(context, runId);
+      const firstEnvelope = recoveryEventEnvelope(runId, "first", "2026-07-23T12:05:00Z");
+      const secondEnvelope = recoveryEventEnvelope(runId, "second", "2026-07-23T12:06:00Z");
+      await store.publishArtifact({ runId, envelope: firstEnvelope });
+      await store.publishArtifact({ runId, envelope: secondEnvelope });
+      const commits = await readPublicationCommits(runRoot);
+      const first = commits.find((commit) => commit.artifact_path === firstEnvelope.artifact_path);
+      const second = commits.find(
+        (commit) => commit.artifact_path === secondEnvelope.artifact_path,
+      );
+      assert.ok(first);
+      assert.ok(second);
+      scenario.mutate(first, second);
+      await replacePublicationCommits(runRoot, commits);
+
+      await assert.rejects(
+        store.load(runId),
+        (error: unknown) =>
+          error instanceof StoreError &&
+          ["recovery.invalid_publication_commit", "recovery.publication_chain_invalid"].includes(
+            error.code,
+          ),
+      );
+    });
+  }
+});
+
+test("formal publication order is committed only after the Artifact target exists", async (t) => {
+  await t.test("after_intent first then second then first retry", async (context) => {
+    const runId = "publication-order-after-intent";
+    const { runRoot, store } = await setup(context, runId);
+    const first = recoveryEventEnvelope(runId, "first", "2026-07-23T12:05:00Z");
+    const second = recoveryEventEnvelope(runId, "second", "2026-07-23T12:06:00Z");
+    await assert.rejects(
+      store.publishArtifact({ runId, envelope: first, faultAt: "after_intent" }),
+      (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+    );
+    await store.publishArtifact({ runId, envelope: second });
+    await store.publishArtifact({ runId, envelope: first });
+    const commits = await readPublicationCommits(runRoot);
+    const firstOrdinal = commits.find(
+      (commit) => commit.artifact_path === first.artifact_path,
+    )?.publication_ordinal;
+    const secondOrdinal = commits.find(
+      (commit) => commit.artifact_path === second.artifact_path,
+    )?.publication_ordinal;
+    assert.ok(firstOrdinal);
+    assert.ok(secondOrdinal);
+    assert.ok(secondOrdinal < firstOrdinal);
+    await store.checkpoint(
+      await checkpointInput(runId, "checkpoint_publication_order", "2026-07-23T12:30:00Z"),
+    );
+    assert.equal((await store.load(runId)).recovered, false);
+  });
+
+  await t.test("after_temp_write is published and committed during recovery", async (context) => {
+    const runId = "publication-order-after-temp";
+    const { runRoot, store } = await setup(context, runId);
+    const first = recoveryEventEnvelope(runId, "first", "2026-07-23T12:05:00Z");
+    const second = recoveryEventEnvelope(runId, "second", "2026-07-23T12:06:00Z");
+    await assert.rejects(
+      store.publishArtifact({ runId, envelope: first, faultAt: "after_temp_write" }),
+      (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+    );
+    const recovered = await store.load(runId);
+    assert.deepEqual(recovered.recoveredArtifactPaths, [first.artifact_path]);
+    await store.publishArtifact({ runId, envelope: second });
+    const commits = await readPublicationCommits(runRoot);
+    const firstOrdinal = commits.find(
+      (commit) => commit.artifact_path === first.artifact_path,
+    )?.publication_ordinal;
+    const secondOrdinal = commits.find(
+      (commit) => commit.artifact_path === second.artifact_path,
+    )?.publication_ordinal;
+    assert.ok(firstOrdinal);
+    assert.ok(secondOrdinal);
+    assert.ok(firstOrdinal < secondOrdinal);
+    await store.checkpoint(
+      await checkpointInput(runId, "checkpoint_publication_order", "2026-07-23T12:30:00Z"),
+    );
+    assert.equal((await store.load(runId)).recovered, false);
+  });
+
+  await t.test(
+    "recovery commits an existing target before publishing an older temp intent",
+    async (context) => {
+      const runId = "publication-order-mixed-faults";
+      const { runRoot, store } = await setup(context, runId);
+      const tempOnly = recoveryEventEnvelope(runId, "temp-only", "2026-07-23T12:05:00Z");
+      const published = recoveryEventEnvelope(runId, "published", "2026-07-23T12:06:00Z");
+      await assert.rejects(
+        store.publishArtifact({ runId, envelope: tempOnly, faultAt: "after_temp_write" }),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+      await assert.rejects(
+        store.publishArtifact({ runId, envelope: published, faultAt: "after_publish" }),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+
+      const recovered = await store.load(runId);
+      assert.ok(recovered.manifest.artifact_refs.includes(tempOnly.artifact_path));
+      assert.ok(recovered.manifest.artifact_refs.includes(published.artifact_path));
+      const commits = await readPublicationCommits(runRoot);
+      const tempOrdinal = commits.find(
+        (commit) => commit.artifact_path === tempOnly.artifact_path,
+      )?.publication_ordinal;
+      const publishedOrdinal = commits.find(
+        (commit) => commit.artifact_path === published.artifact_path,
+      )?.publication_ordinal;
+      assert.ok(tempOrdinal);
+      assert.ok(publishedOrdinal);
+      assert.ok(publishedOrdinal < tempOrdinal);
+      await store.checkpoint(
+        await checkpointInput(runId, "checkpoint_publication_order", "2026-07-23T12:30:00Z"),
+      );
+      assert.equal((await store.load(runId)).recovered, false);
+    },
+  );
+
+  await t.test(
+    "after_publish blocks later order until reopen commits the target",
+    async (context) => {
+      const runId = "publication-order-after-publish";
+      const { runRoot, store } = await setup(context, runId);
+      const first = recoveryEventEnvelope(runId, "first", "2026-07-23T12:05:00Z");
+      const second = recoveryEventEnvelope(runId, "second", "2026-07-23T12:06:00Z");
+      await assert.rejects(
+        store.publishArtifact({ runId, envelope: first, faultAt: "after_publish" }),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+      await assert.rejects(
+        store.publishArtifact({ runId, envelope: second }),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "recovery.publication_commit_required",
+      );
+      await store.load(runId);
+      await store.publishArtifact({ runId, envelope: second });
+      const commits = await readPublicationCommits(runRoot);
+      const firstOrdinal = commits.find(
+        (commit) => commit.artifact_path === first.artifact_path,
+      )?.publication_ordinal;
+      const secondOrdinal = commits.find(
+        (commit) => commit.artifact_path === second.artifact_path,
+      )?.publication_ordinal;
+      assert.ok(firstOrdinal);
+      assert.ok(secondOrdinal);
+      assert.ok(firstOrdinal < secondOrdinal);
+      await store.checkpoint(
+        await checkpointInput(runId, "checkpoint_publication_order", "2026-07-23T12:30:00Z"),
+      );
+      assert.equal((await store.load(runId)).recovered, false);
+    },
   );
 });
 

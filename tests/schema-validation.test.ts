@@ -526,6 +526,7 @@ test("current publication policy selects the current Store contracts", async () 
     envelope_schema_version: "startup_opportunity.artifact_envelope.current",
     document_bundle_schema_version: "startup_opportunity.document_bundle.current",
     receipt_schema_version: "startup_opportunity.artifact_store_operation.current",
+    publication_commit_schema_version: "startup_opportunity.artifact_publication_commit.current",
   });
 });
 

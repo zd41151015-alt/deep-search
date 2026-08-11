@@ -11,6 +11,7 @@ The current Store surface is:
 - `startup_opportunity.artifact_envelope.current`
 - `startup_opportunity.document_bundle.current`
 - `startup_opportunity.artifact_store_operation.current`
+- `startup_opportunity.artifact_publication_commit.current`
 - `startup_opportunity.research_publication_policy.current`
 
 `schema-bundle.ts` validates manifest shape, local paths, duplicate IDs/files/document versions, schema `$id`, complete local `$ref` and JSON Pointer resolution, and AJV compilation. `npm run validate:current-contract` additionally checks Envelope dispatch completeness, active policy roots, full manifest reachability, and forbidden version-selection structures. Neither check freezes schema counts or bytes.

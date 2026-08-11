@@ -1,4 +1,4 @@
-import { readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { EvidenceStore } from "../evidence-store/evidence-store.js";
 import { assertRunIsCurrentContinuationLeaf } from "../run-store/continuation-guard.js";
@@ -29,6 +29,7 @@ import {
 } from "./path-policy.js";
 import {
   ARTIFACT_ENVELOPE_SCHEMA_VERSION,
+  ARTIFACT_PUBLICATION_COMMIT_SCHEMA_VERSION,
   ARTIFACT_RECEIPT_SCHEMA_VERSION,
   DOCUMENT_BUNDLE_SCHEMA_VERSION,
 } from "./publication-policy.js";
@@ -53,16 +54,31 @@ interface ArtifactOperationReceipt {
   readonly schema_version: typeof ARTIFACT_RECEIPT_SCHEMA_VERSION;
   readonly operation_key: string;
   readonly run_id: string;
-  readonly publication_ordinal: number;
   readonly artifact_path: string;
   readonly artifact_type: string;
   readonly content_hash: string;
   readonly envelope: FormalArtifactEnvelope;
 }
 
+interface ArtifactPublicationCommitIdentity {
+  readonly schema_version: typeof ARTIFACT_PUBLICATION_COMMIT_SCHEMA_VERSION;
+  readonly run_id: string;
+  readonly publication_ordinal: number;
+  readonly previous_commit_hash: string | null;
+  readonly operation_key: string;
+  readonly artifact_path: string;
+  readonly artifact_type: string;
+  readonly content_hash: string;
+}
+
+interface ArtifactPublicationCommit extends ArtifactPublicationCommitIdentity {
+  readonly publication_commit_hash: string;
+}
+
 export interface ArtifactPublicationRecord {
   readonly publicationOrdinal: number;
   readonly contentHash: string;
+  readonly publicationCommitHash: string;
 }
 
 interface ArtifactBundleOperationReceipt {
@@ -212,7 +228,6 @@ function validateArtifactReceipt(
       "schema_version",
       "operation_key",
       "run_id",
-      "publication_ordinal",
       "artifact_path",
       "artifact_type",
       "content_hash",
@@ -221,8 +236,6 @@ function validateArtifactReceipt(
     value.schema_version !== ARTIFACT_RECEIPT_SCHEMA_VERSION ||
     !isSha256(value.operation_key) ||
     value.run_id !== runId ||
-    !Number.isInteger(value.publication_ordinal) ||
-    Number(value.publication_ordinal) < 1 ||
     !isEnvelope(value.envelope)
   ) {
     throw new StoreError("recovery.invalid_operation", "artifact operation receipt is invalid", {
@@ -247,6 +260,79 @@ function validateArtifactReceipt(
     );
   }
   return receipt;
+}
+
+const PUBLICATION_ORDINAL_WIDTH = 12;
+
+function publicationCommitIdentity(
+  value: ArtifactPublicationCommit,
+): ArtifactPublicationCommitIdentity {
+  return {
+    schema_version: value.schema_version,
+    run_id: value.run_id,
+    publication_ordinal: value.publication_ordinal,
+    previous_commit_hash: value.previous_commit_hash,
+    operation_key: value.operation_key,
+    artifact_path: value.artifact_path,
+    artifact_type: value.artifact_type,
+    content_hash: value.content_hash,
+  };
+}
+
+function publicationCommitFilename(commit: ArtifactPublicationCommit): string {
+  return `publication-${String(commit.publication_ordinal).padStart(
+    PUBLICATION_ORDINAL_WIDTH,
+    "0",
+  )}-${sha256Hex(commit.publication_commit_hash)}.json`;
+}
+
+function validateArtifactPublicationCommit(
+  value: unknown,
+  filename: string,
+  runId: string,
+): ArtifactPublicationCommit {
+  if (
+    !isRecord(value) ||
+    !hasExactlyKeys(value, [
+      "schema_version",
+      "run_id",
+      "publication_ordinal",
+      "previous_commit_hash",
+      "operation_key",
+      "artifact_path",
+      "artifact_type",
+      "content_hash",
+      "publication_commit_hash",
+    ]) ||
+    value.schema_version !== ARTIFACT_PUBLICATION_COMMIT_SCHEMA_VERSION ||
+    value.run_id !== runId ||
+    !Number.isInteger(value.publication_ordinal) ||
+    Number(value.publication_ordinal) < 1 ||
+    (value.previous_commit_hash !== null && !isSha256(value.previous_commit_hash)) ||
+    !isSha256(value.operation_key) ||
+    typeof value.artifact_path !== "string" ||
+    typeof value.artifact_type !== "string" ||
+    !isSha256(value.content_hash) ||
+    !isSha256(value.publication_commit_hash)
+  ) {
+    throw new StoreError(
+      "recovery.invalid_publication_commit",
+      "Artifact publication commit is invalid",
+      { path: `.store/publications/${filename}` },
+    );
+  }
+  const commit = value as unknown as ArtifactPublicationCommit;
+  if (
+    commit.publication_commit_hash !== canonicalContentHash(publicationCommitIdentity(commit)) ||
+    filename !== publicationCommitFilename(commit)
+  ) {
+    throw new StoreError(
+      "recovery.invalid_publication_commit",
+      "Artifact publication commit hash or filename differs from its identity",
+      { path: `.store/publications/${filename}` },
+    );
+  }
+  return commit;
 }
 
 function assertFault(boundary: ArtifactFaultBoundary, requested?: ArtifactFaultBoundary): void {
@@ -581,10 +667,6 @@ export class ArtifactStore {
       artifactTypes: [input.envelope.artifact_type],
     });
     this.validateEnvelopeBoundary(input.runId, input.envelope);
-    if (!referencesPrevalidated) {
-      await this.validateEnvelopeReferences(runRoot, input.envelope, referenceContext);
-    }
-
     const computedOperationKey = expectedArtifactOperationKey(input.envelope);
     if (input.operationKey !== undefined && input.operationKey !== computedOperationKey) {
       throw new StoreError(
@@ -594,6 +676,15 @@ export class ArtifactStore {
       );
     }
     const stableOperationKey = computedOperationKey;
+    await this.assertNoUncommittedPublishedArtifactsLocked(
+      runRoot,
+      input.runId,
+      stableOperationKey,
+    );
+    if (!referencesPrevalidated) {
+      await this.validateEnvelopeReferences(runRoot, input.envelope, referenceContext);
+    }
+
     const operationHex = sha256Hex(stableOperationKey);
     const receiptPath = `.store/operations/artifact-${operationHex}.json`;
     const receiptFilename = await resolveRunPath(runRoot, receiptPath, { createParents: true });
@@ -617,17 +708,10 @@ export class ArtifactStore {
       if (!isNodeError(error, "ENOENT")) {
         throw error;
       }
-      const publicationRecords = await this.publicationRecordsLocked(runRoot, input.runId);
-      const nextPublicationOrdinal =
-        Math.max(
-          0,
-          ...[...publicationRecords.values()].map((record) => record.publicationOrdinal),
-        ) + 1;
       receipt = {
         schema_version: ARTIFACT_RECEIPT_SCHEMA_VERSION,
         operation_key: stableOperationKey,
         run_id: input.runId,
-        publication_ordinal: nextPublicationOrdinal,
         artifact_path: input.envelope.artifact_path,
         artifact_type: input.envelope.artifact_type,
         content_hash: input.envelope.content_hash,
@@ -641,6 +725,7 @@ export class ArtifactStore {
     try {
       const existing = JSON.parse(await readFile(target, "utf8")) as unknown;
       if (receiptExisted && canonicalJson(existing) === canonicalJson(input.envelope)) {
+        await this.appendPublicationCommitLocked(runRoot, input.runId, receipt);
         return {
           schemaVersion: "startup_opportunity.artifact_publish_result.v1",
           runId: input.runId,
@@ -671,6 +756,7 @@ export class ArtifactStore {
     assertFault("after_temp_write", input.faultAt);
     await publishTemp(runRoot, temporaryPath, input.envelope.artifact_path);
     assertFault("after_publish", input.faultAt);
+    await this.appendPublicationCommitLocked(runRoot, input.runId, receipt);
     return {
       schemaVersion: "startup_opportunity.artifact_publish_result.v1",
       runId: input.runId,
@@ -681,49 +767,192 @@ export class ArtifactStore {
     };
   }
 
+  private async artifactOperationReceiptsLocked(
+    runRoot: string,
+    runId: string,
+  ): Promise<readonly ArtifactOperationReceipt[]> {
+    const operationDirectory = await resolveRunPath(runRoot, ".store/operations", {
+      createParents: true,
+    });
+    const receipts: ArtifactOperationReceipt[] = [];
+    for (const entry of (await readdir(operationDirectory)).sort()) {
+      if (!entry.startsWith("artifact-") || !entry.endsWith(".json")) continue;
+      receipts.push(
+        validateArtifactReceipt(
+          JSON.parse(
+            await readFile(await resolveRunPath(runRoot, `.store/operations/${entry}`), "utf8"),
+          ) as unknown,
+          entry,
+          runId,
+        ),
+      );
+    }
+    return receipts;
+  }
+
+  private async publicationCommitsLocked(
+    runRoot: string,
+    runId: string,
+  ): Promise<readonly ArtifactPublicationCommit[]> {
+    const publicationDirectory = await resolveRunPath(runRoot, ".store/publications", {
+      createParents: true,
+    });
+    await mkdir(publicationDirectory, { recursive: true });
+    const commits: ArtifactPublicationCommit[] = [];
+    for (const entry of (await readdir(publicationDirectory)).sort()) {
+      if (!/^publication-[0-9]{12}-[a-f0-9]{64}\.json$/.test(entry)) {
+        throw new StoreError(
+          "recovery.invalid_publication_commit",
+          "publication ledger contains an unrecognized entry",
+          { path: `.store/publications/${entry}` },
+        );
+      }
+      commits.push(
+        validateArtifactPublicationCommit(
+          JSON.parse(
+            await readFile(await resolveRunPath(runRoot, `.store/publications/${entry}`), "utf8"),
+          ) as unknown,
+          entry,
+          runId,
+        ),
+      );
+    }
+    commits.sort((left, right) => left.publication_ordinal - right.publication_ordinal);
+
+    const receipts = await this.artifactOperationReceiptsLocked(runRoot, runId);
+    const receiptsByOperation = new Map(
+      receipts.map((receipt) => [receipt.operation_key, receipt]),
+    );
+    const seenOperations = new Set<string>();
+    const seenPaths = new Set<string>();
+    let previousCommitHash: string | null = null;
+    for (const [index, commit] of commits.entries()) {
+      const receipt = receiptsByOperation.get(commit.operation_key);
+      if (
+        commit.publication_ordinal !== index + 1 ||
+        commit.previous_commit_hash !== previousCommitHash ||
+        receipt === undefined ||
+        receipt.artifact_path !== commit.artifact_path ||
+        receipt.artifact_type !== commit.artifact_type ||
+        receipt.content_hash !== commit.content_hash ||
+        seenOperations.has(commit.operation_key) ||
+        seenPaths.has(commit.artifact_path)
+      ) {
+        throw new StoreError(
+          "recovery.publication_chain_invalid",
+          "Artifact publication commits must form one continuous exact operation-bound chain",
+          {
+            publicationOrdinal: commit.publication_ordinal,
+            artifactPath: commit.artifact_path,
+          },
+        );
+      }
+      seenOperations.add(commit.operation_key);
+      seenPaths.add(commit.artifact_path);
+      previousCommitHash = commit.publication_commit_hash;
+    }
+    return commits;
+  }
+
+  private async appendPublicationCommitLocked(
+    runRoot: string,
+    runId: string,
+    receipt: ArtifactOperationReceipt,
+  ): Promise<ArtifactPublicationCommit> {
+    const commits = await this.publicationCommitsLocked(runRoot, runId);
+    const existing = commits.find((commit) => commit.operation_key === receipt.operation_key);
+    if (existing !== undefined) {
+      if (
+        existing.artifact_path !== receipt.artifact_path ||
+        existing.artifact_type !== receipt.artifact_type ||
+        existing.content_hash !== receipt.content_hash
+      ) {
+        throw new StoreError(
+          "recovery.publication_commit_conflict",
+          "Artifact operation is already bound to a different publication commit",
+          { operationKey: receipt.operation_key },
+        );
+      }
+      return existing;
+    }
+    const identity: ArtifactPublicationCommitIdentity = {
+      schema_version: ARTIFACT_PUBLICATION_COMMIT_SCHEMA_VERSION,
+      run_id: runId,
+      publication_ordinal: commits.length + 1,
+      previous_commit_hash: commits.at(-1)?.publication_commit_hash ?? null,
+      operation_key: receipt.operation_key,
+      artifact_path: receipt.artifact_path,
+      artifact_type: receipt.artifact_type,
+      content_hash: receipt.content_hash,
+    };
+    const commit: ArtifactPublicationCommit = {
+      ...identity,
+      publication_commit_hash: canonicalContentHash(identity),
+    };
+    const targetPath = `.store/publications/${publicationCommitFilename(commit)}`;
+    const temporaryPath = `.store/temp/publication-${sha256Hex(
+      commit.publication_commit_hash,
+    )}.tmp`;
+    await writeSyncedTemp(runRoot, temporaryPath, `${canonicalJson(commit)}\n`);
+    await publishTemp(runRoot, temporaryPath, targetPath);
+    return commit;
+  }
+
+  private async assertNoUncommittedPublishedArtifactsLocked(
+    runRoot: string,
+    runId: string,
+    allowedOperationKey: string,
+  ): Promise<void> {
+    const commits = await this.publicationCommitsLocked(runRoot, runId);
+    const committedOperations = new Set(commits.map((commit) => commit.operation_key));
+    for (const receipt of await this.artifactOperationReceiptsLocked(runRoot, runId)) {
+      if (
+        committedOperations.has(receipt.operation_key) ||
+        receipt.operation_key === allowedOperationKey
+      ) {
+        continue;
+      }
+      try {
+        const target = JSON.parse(
+          await readFile(await resolveRunPath(runRoot, receipt.artifact_path), "utf8"),
+        ) as unknown;
+        if (canonicalJson(target) !== canonicalJson(receipt.envelope)) {
+          throw new StoreError(
+            "write.conflict",
+            "published artifact differs from its pending operation",
+            { path: receipt.artifact_path },
+          );
+        }
+        throw new StoreError(
+          "recovery.publication_commit_required",
+          "a formally published Artifact must be committed before another publication",
+          { path: receipt.artifact_path },
+        );
+      } catch (error) {
+        if (!isNodeError(error, "ENOENT")) throw error;
+      }
+    }
+  }
+
   async recoverLocked(runRoot: string, runId: string): Promise<ArtifactRecoveryResult> {
     const operationDirectory = await resolveRunPath(runRoot, ".store/operations", {
       createParents: true,
     });
     const tempDirectory = await resolveRunPath(runRoot, ".store/temp", { createParents: true });
     const recovered: string[] = [];
-    for (const entry of (await readdir(operationDirectory)).sort()) {
-      if (!entry.startsWith("bundle-") || !entry.endsWith(".json")) continue;
-      const receiptValue = JSON.parse(
-        await readFile(await resolveRunPath(runRoot, `.store/operations/${entry}`), "utf8"),
-      ) as unknown;
-      const receipt = validateArtifactBundleReceipt(receiptValue, entry, runId);
-      for (const envelope of receipt.envelopes) {
-        this.validateEnvelopeBoundary(runId, envelope);
-        const target = await resolveRunPath(runRoot, envelope.artifact_path, {
-          createParents: true,
-        });
-        let missing = false;
-        try {
-          const existing = JSON.parse(await readFile(target, "utf8")) as unknown;
-          if (canonicalJson(existing) !== canonicalJson(envelope)) {
-            throw new StoreError(
-              "write.conflict",
-              "published bundle artifact differs from its operation",
-              { path: envelope.artifact_path },
-            );
-          }
-        } catch (error) {
-          if (!isNodeError(error, "ENOENT")) throw error;
-          missing = true;
-        }
-        if (missing) {
-          await this.publishLocked(runRoot, { runId, envelope }, true);
-          recovered.push(envelope.artifact_path);
-        }
-      }
-    }
-    const retainedTemps = new Set<string>();
+    const existingCommits = await this.publicationCommitsLocked(runRoot, runId);
+    const committedOperations = new Set(existingCommits.map((commit) => commit.operation_key));
     const operations: {
       readonly receiptPath: string;
       readonly receipt: ArtifactOperationReceipt;
       readonly tempPath: string;
-      readonly action: "complete" | "recover" | "discard" | "ignore_invalid_checkpoint";
+      readonly action:
+        | "complete"
+        | "commit"
+        | "recover"
+        | "restore"
+        | "discard"
+        | "ignore_invalid_checkpoint";
     }[] = [];
     for (const entry of (await readdir(operationDirectory)).sort()) {
       if (!entry.startsWith("artifact-") || !entry.endsWith(".json")) {
@@ -746,7 +975,9 @@ export class ArtifactStore {
               receiptPath,
               receipt,
               tempPath,
-              action: "ignore_invalid_checkpoint",
+              action: committedOperations.has(receipt.operation_key)
+                ? "ignore_invalid_checkpoint"
+                : "discard",
             });
             continue;
           }
@@ -754,7 +985,12 @@ export class ArtifactStore {
             path: receipt.artifact_path,
           });
         }
-        operations.push({ receiptPath, receipt, tempPath, action: "complete" });
+        operations.push({
+          receiptPath,
+          receipt,
+          tempPath,
+          action: committedOperations.has(receipt.operation_key) ? "complete" : "commit",
+        });
         continue;
       } catch (error) {
         if (!isNodeError(error, "ENOENT")) {
@@ -775,23 +1011,92 @@ export class ArtifactStore {
         if (!isNodeError(error, "ENOENT")) {
           throw error;
         }
-        operations.push({ receiptPath, receipt, tempPath, action: "discard" });
+        operations.push({
+          receiptPath,
+          receipt,
+          tempPath,
+          action: committedOperations.has(receipt.operation_key) ? "restore" : "discard",
+        });
       }
+    }
+
+    const uncommittedPublished = operations.filter((operation) => operation.action === "commit");
+    if (uncommittedPublished.length > 1) {
+      throw new StoreError(
+        "recovery.publication_order_ambiguous",
+        "multiple formally published Artifacts lack publication commits",
+        { artifactPaths: uncommittedPublished.map((operation) => operation.receipt.artifact_path) },
+      );
+    }
+
+    // A target that already exists was formally published before any temp-only
+    // intent recovered below. Commit that observed order before creating targets.
+    for (const operation of uncommittedPublished) {
+      await this.appendPublicationCommitLocked(runRoot, runId, operation.receipt);
     }
 
     for (const operation of operations) {
       if (operation.action === "recover") {
-        retainedTemps.add(path.basename(operation.tempPath));
         await publishTemp(runRoot, operation.tempPath, operation.receipt.artifact_path);
+        await this.appendPublicationCommitLocked(runRoot, runId, operation.receipt);
+        recovered.push(operation.receipt.artifact_path);
+      } else if (operation.action === "restore") {
+        await writeSyncedTemp(
+          runRoot,
+          operation.tempPath,
+          `${canonicalJson(operation.receipt.envelope)}\n`,
+        );
+        await publishTemp(runRoot, operation.tempPath, operation.receipt.artifact_path);
+        await this.appendPublicationCommitLocked(runRoot, runId, operation.receipt);
         recovered.push(operation.receipt.artifact_path);
       } else if (operation.action === "discard") {
         await rm(await resolveRunPath(runRoot, operation.receiptPath), { force: true });
       }
     }
 
+    const committedRecords = await this.publicationRecordsLocked(runRoot, runId);
+    for (const entry of (await readdir(operationDirectory)).sort()) {
+      if (!entry.startsWith("bundle-") || !entry.endsWith(".json")) continue;
+      const receiptValue = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, `.store/operations/${entry}`), "utf8"),
+      ) as unknown;
+      const receipt = validateArtifactBundleReceipt(receiptValue, entry, runId);
+      for (const envelope of receipt.envelopes) {
+        this.validateEnvelopeBoundary(runId, envelope);
+        const target = await resolveRunPath(runRoot, envelope.artifact_path, {
+          createParents: true,
+        });
+        let missing = false;
+        try {
+          const existing = JSON.parse(await readFile(target, "utf8")) as unknown;
+          if (canonicalJson(existing) !== canonicalJson(envelope)) {
+            throw new StoreError(
+              "write.conflict",
+              "published bundle artifact differs from its operation",
+              { path: envelope.artifact_path },
+            );
+          }
+          if (committedRecords.get(envelope.artifact_path)?.contentHash !== envelope.content_hash) {
+            throw new StoreError(
+              "recovery.publication_commit_missing",
+              "published bundle artifact lacks its exact publication commit",
+              { path: envelope.artifact_path },
+            );
+          }
+        } catch (error) {
+          if (!isNodeError(error, "ENOENT")) throw error;
+          missing = true;
+        }
+        if (missing) {
+          await this.publishLocked(runRoot, { runId, envelope }, true);
+          recovered.push(envelope.artifact_path);
+        }
+      }
+    }
+
     const removedTemps: string[] = [];
     for (const entry of (await readdir(tempDirectory)).sort()) {
-      if (entry.startsWith("artifact-") && !retainedTemps.has(entry)) {
+      if (entry.startsWith("artifact-") || entry.startsWith("publication-")) {
         await removeTemp(runRoot, `.store/temp/${entry}`);
         removedTemps.push(`.store/temp/${entry}`);
       }
@@ -806,45 +1111,13 @@ export class ArtifactStore {
     runRoot: string,
     runId: string,
   ): Promise<ReadonlyMap<string, ArtifactPublicationRecord>> {
-    const operationDirectory = await resolveRunPath(runRoot, ".store/operations", {
-      createParents: true,
-    });
     const records = new Map<string, ArtifactPublicationRecord>();
-    const pathsByOrdinal = new Map<number, string>();
-    for (const entry of (await readdir(operationDirectory)).sort()) {
-      if (!entry.startsWith("artifact-") || !entry.endsWith(".json")) continue;
-      const receipt = validateArtifactReceipt(
-        JSON.parse(
-          await readFile(await resolveRunPath(runRoot, `.store/operations/${entry}`), "utf8"),
-        ) as unknown,
-        entry,
-        runId,
-      );
-      const existingPath = pathsByOrdinal.get(receipt.publication_ordinal);
-      if (existingPath !== undefined && existingPath !== receipt.artifact_path) {
-        throw new StoreError(
-          "recovery.publication_ordinal_conflict",
-          "Store-owned Artifact publication ordinals must be unique within one Run",
-          {
-            publicationOrdinal: receipt.publication_ordinal,
-            artifactPaths: [existingPath, receipt.artifact_path].sort(),
-          },
-        );
-      }
-      const existingRecord = records.get(receipt.artifact_path);
-      const record = {
-        publicationOrdinal: receipt.publication_ordinal,
-        contentHash: receipt.content_hash,
-      };
-      if (existingRecord !== undefined && canonicalJson(existingRecord) !== canonicalJson(record)) {
-        throw new StoreError(
-          "recovery.publication_path_conflict",
-          "one immutable Artifact path cannot have multiple publication records",
-          { artifactPath: receipt.artifact_path },
-        );
-      }
-      pathsByOrdinal.set(receipt.publication_ordinal, receipt.artifact_path);
-      records.set(receipt.artifact_path, record);
+    for (const commit of await this.publicationCommitsLocked(runRoot, runId)) {
+      records.set(commit.artifact_path, {
+        publicationOrdinal: commit.publication_ordinal,
+        contentHash: commit.content_hash,
+        publicationCommitHash: commit.publication_commit_hash,
+      });
     }
     return new Map([...records.entries()].sort(([left], [right]) => left.localeCompare(right)));
   }

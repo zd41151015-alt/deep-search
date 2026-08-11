@@ -95,8 +95,7 @@ function exactStringSet(actual: readonly string[], expected: readonly string[]):
 }
 
 function conceptRevisionChainValid(entries: readonly AssessDomainDocument[]): boolean {
-  if (entries.length < 2) return true;
-  const byPath = new Map(entries.map((entry) => [entry.path, entry]));
+  if (entries.length === 0) return true;
   const ids = new Set(entries.map((entry) => entry.document.concept_hypothesis_id));
   const revisions = entries.map((entry) =>
     entry.document.revision === undefined ? 1 : Number(entry.document.revision),
@@ -110,24 +109,28 @@ function conceptRevisionChainValid(entries: readonly AssessDomainDocument[]): bo
   ) {
     return false;
   }
+  const byRevision = new Map(
+    entries.map((entry) => [
+      entry.document.revision === undefined ? 1 : Number(entry.document.revision),
+      entry,
+    ]),
+  );
   return entries.every((entry) => {
     const revision = entry.document.revision === undefined ? 1 : Number(entry.document.revision);
     if (revision === 1) {
       return (
+        entry.path === "concept-hypothesis.json" &&
         entry.document.parent_concept_ref === undefined &&
         entry.document.parent_content_hash === undefined
       );
     }
-    const parent =
-      typeof entry.document.parent_concept_ref === "string"
-        ? byPath.get(entry.document.parent_concept_ref)
-        : undefined;
+    const parent = byRevision.get(revision - 1);
     return (
+      entry.schemaVersion === "startup_opportunity.concept_hypothesis.assessment.current" &&
       entry.path ===
         `artifacts/assessment/concepts/${String(entry.document.concept_hypothesis_id)}.r${revision}.json` &&
       parent !== undefined &&
-      (parent.document.revision === undefined ? 1 : Number(parent.document.revision)) ===
-        revision - 1 &&
+      entry.document.parent_concept_ref === parent.path &&
       parent.document.concept_hypothesis_id === entry.document.concept_hypothesis_id &&
       entry.document.parent_content_hash === canonicalContentHash(parent.document)
     );
@@ -232,6 +235,24 @@ function validateRootIdentity(
     );
   }
 
+  const conceptEntries = documents.filter((entry) =>
+    [
+      "startup_opportunity.concept_hypothesis.assessment.current",
+      "startup_opportunity.concept_hypothesis.assessment_intake.current",
+    ].includes(entry.schemaVersion),
+  );
+  const conceptChainValid = conceptRevisionChainValid(conceptEntries);
+  if (!conceptChainValid) {
+    errors.push(
+      issue(
+        "assess_contract.concept_revision_lineage_invalid",
+        "",
+        "Concept revisions must form one exact intake r1 to assessment r2+ immutable lineage",
+        { paths: conceptEntries.map((entry) => entry.path).sort() },
+      ),
+    );
+  }
+
   for (const [schemaVersion, entries] of new Map(
     [...ASSESS_SCHEMA_VERSIONS].map((version) => [version, bySchema(documents, version)]),
   )) {
@@ -248,7 +269,7 @@ function validateRootIdentity(
       entries.length > 1 &&
       !(
         schemaVersion === "startup_opportunity.concept_hypothesis.assessment.current" &&
-        conceptRevisionChainValid(entries)
+        conceptChainValid
       )
     ) {
       errors.push(

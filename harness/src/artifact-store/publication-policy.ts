@@ -11,11 +11,14 @@ export const DOCUMENT_BUNDLE_SCHEMA_VERSION =
   "startup_opportunity.document_bundle.current" as const;
 export const ARTIFACT_RECEIPT_SCHEMA_VERSION =
   "startup_opportunity.artifact_store_operation.current" as const;
+export const ARTIFACT_PUBLICATION_COMMIT_SCHEMA_VERSION =
+  "startup_opportunity.artifact_publication_commit.current" as const;
 
 interface PublicationContract {
   readonly envelope_schema_version: typeof ARTIFACT_ENVELOPE_SCHEMA_VERSION;
   readonly document_bundle_schema_version: typeof DOCUMENT_BUNDLE_SCHEMA_VERSION;
   readonly receipt_schema_version: typeof ARTIFACT_RECEIPT_SCHEMA_VERSION;
+  readonly publication_commit_schema_version: typeof ARTIFACT_PUBLICATION_COMMIT_SCHEMA_VERSION;
 }
 
 export interface ResearchPublicationPolicy {
@@ -89,7 +92,9 @@ export async function loadResearchPublicationPolicy(
   if (
     policy.publication.envelope_schema_version !== ARTIFACT_ENVELOPE_SCHEMA_VERSION ||
     policy.publication.document_bundle_schema_version !== DOCUMENT_BUNDLE_SCHEMA_VERSION ||
-    policy.publication.receipt_schema_version !== ARTIFACT_RECEIPT_SCHEMA_VERSION
+    policy.publication.receipt_schema_version !== ARTIFACT_RECEIPT_SCHEMA_VERSION ||
+    policy.publication.publication_commit_schema_version !==
+      ARTIFACT_PUBLICATION_COMMIT_SCHEMA_VERSION
   ) {
     throw new StoreError(
       "publication_policy.invalid",

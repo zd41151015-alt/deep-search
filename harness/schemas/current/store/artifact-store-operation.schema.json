@@ -8,7 +8,6 @@
     "schema_version",
     "operation_key",
     "run_id",
-    "publication_ordinal",
     "artifact_path",
     "artifact_type",
     "content_hash",
@@ -23,10 +22,6 @@
     },
     "run_id": {
       "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/runId"
-    },
-    "publication_ordinal": {
-      "type": "integer",
-      "minimum": 1
     },
     "artifact_path": {
       "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"

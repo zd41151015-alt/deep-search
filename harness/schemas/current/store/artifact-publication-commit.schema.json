@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/store/artifact-publication-commit.schema.json",
+  "title": "Startup Opportunity Current Artifact Publication Commit",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "publication_ordinal",
+    "previous_commit_hash",
+    "operation_key",
+    "artifact_path",
+    "artifact_type",
+    "content_hash",
+    "publication_commit_hash"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.artifact_publication_commit.current"
+    },
+    "run_id": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "publication_ordinal": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "previous_commit_hash": {
+      "oneOf": [
+        {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "operation_key": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "artifact_path": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"
+    },
+    "artifact_type": {
+      "type": "string",
+      "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
+    },
+    "content_hash": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "publication_commit_hash": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    }
+  }
+}

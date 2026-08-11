@@ -95,12 +95,23 @@ function hasPriorRunDynamicRead(contents: string): boolean {
       .replace(/^\$\{?/, "")
       .replace(/\}$/, "")
       .toUpperCase();
-    return (
-      /(?:^|_)(?:PRIOR|PREVIOUS)(?:_|$)/.test(name) ||
+    const parts = new Set(name.split("_"));
+    const explicitlyPrior =
+      parts.has("PRIOR") ||
+      parts.has("PREVIOUS") ||
       /(?:^|_)OLD_RUN(?:_|$)/.test(name) ||
-      /(?:^|_)RUNS_ROOT(?:_|$)/.test(name) ||
-      /(?:^|_)SOURCE_RUN(?:_|$)/.test(name)
-    );
+      /(?:^|_)SOURCE_RUN(?:_|$)/.test(name);
+    const explicitlyRunOrPath = [
+      "RUN",
+      "RUNS",
+      "ARTIFACT",
+      "PATH",
+      "ROOT",
+      "DIR",
+      "FILE",
+      "REF",
+    ].some((part) => parts.has(part));
+    return /(?:^|_)RUNS_ROOT(?:_|$)/.test(name) || (explicitlyPrior && explicitlyRunOrPath);
   });
 }
 

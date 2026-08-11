@@ -9,6 +9,7 @@ export { CURRENT_POLICY_PATHS };
 
 const DIRECT_RUNTIME_SCHEMA_VERSIONS = [
   "startup_opportunity.artifact_envelope.current",
+  "startup_opportunity.artifact_publication_commit.current",
   "startup_opportunity.artifact_store_operation.current",
   "startup_opportunity.continuation_lineage_entry.v1",
   "startup_opportunity.document_bundle.current",

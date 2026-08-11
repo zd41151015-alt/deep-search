@@ -629,14 +629,41 @@ test("Store re-forms a terminal Candidate only from post-terminal causal inputs 
     content_hash: canonicalContentHash(snapshotR1Document),
     document: snapshotR1Document,
   };
-  await state.store.publishArtifact({ runId: state.runId, envelope: snapshotR1 });
+  await assert.rejects(
+    state.store.publishArtifact({
+      runId: state.runId,
+      envelope: snapshotR1,
+      faultAt: "after_publish",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
 
   const laneInputs = [G22_GENERATION_LANE, G22_EVALUATION_LANE].map((ref) => {
     const envelope = clone(runtimeEnvelope(state.bundle, ref));
     (envelope as { created_at: string }).created_at = "2026-07-27T18:06:00Z";
     return envelope;
   });
-  await state.store.publishArtifactBundle({ runId: state.runId, envelopes: laneInputs });
+  const [firstLaneInput, secondLaneInput] = laneInputs;
+  assert.ok(firstLaneInput);
+  assert.ok(secondLaneInput);
+  await assert.rejects(
+    state.store.publishArtifact({ runId: state.runId, envelope: firstLaneInput }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "recovery.publication_commit_required",
+  );
+  const recoveredTerminal = await state.store.load(state.runId);
+  assert.ok(recoveredTerminal.manifest.artifact_refs.includes(snapshotR1Ref));
+
+  await assert.rejects(
+    state.store.publishArtifact({
+      runId: state.runId,
+      envelope: firstLaneInput,
+      faultAt: "after_temp_write",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  await state.store.publishArtifact({ runId: state.runId, envelope: secondLaneInput });
+  await state.store.publishArtifact({ runId: state.runId, envelope: firstLaneInput });
   const reformedCandidate = clone(runtimeEnvelope(state.bundle, G22_DEMAND_R2));
   (reformedCandidate as { created_at: string }).created_at = "2026-07-27T18:07:00Z";
   const reformedSubject = reformedCandidate.document.subject as Record<string, unknown>;
@@ -647,7 +674,14 @@ test("Store re-forms a terminal Candidate only from post-terminal causal inputs 
   (reformedCandidate as { content_hash: string }).content_hash = canonicalContentHash(
     reformedCandidate.document,
   );
-  await state.store.publishArtifact({ runId: state.runId, envelope: reformedCandidate });
+  await assert.rejects(
+    state.store.publishArtifact({
+      runId: state.runId,
+      envelope: reformedCandidate,
+      faultAt: "after_publish",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
 
   const reformInput = {
     runId: state.runId,
@@ -657,6 +691,16 @@ test("Store re-forms a terminal Candidate only from post-terminal causal inputs 
     reason: "SYNTHETIC post-terminal lane results caused a materially new subject revision.",
     reformedAt: "2026-07-27T18:08:00Z",
   } as const;
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformationInputRefs: [G22_GENERATION_LANE, G22_EVALUATION_LANE],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "subject_reformation.artifact_unpublished",
+  );
+  const recoveredSubject = await state.store.load(state.runId);
+  assert.ok(recoveredSubject.manifest.artifact_refs.includes(reformedCandidate.artifact_path));
   await assert.rejects(
     state.store.reformDecisionSubject({
       ...reformInput,

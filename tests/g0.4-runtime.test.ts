@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -1292,6 +1292,44 @@ async function rewriteStoredArtifactAndReceipt(
     if (bundleFile !== nextBundleFile) {
       await rm(bundleFile);
     }
+  }
+
+  const publications = path.join(runRoot, ".store/publications");
+  const commits = await Promise.all(
+    (await readdir(publications)).map(
+      async (filename) =>
+        JSON.parse(await readFile(path.join(publications, filename), "utf8")) as Record<
+          string,
+          unknown
+        >,
+    ),
+  );
+  commits.sort(
+    (left, right) => Number(left.publication_ordinal) - Number(right.publication_ordinal),
+  );
+  let previousCommitHash: string | null = null;
+  let rewriteChain = false;
+  for (const commit of commits) {
+    if (commit.artifact_path === artifactPath) {
+      commit.operation_key = nextOperationKey;
+      commit.content_hash = envelope.content_hash;
+      rewriteChain = true;
+    }
+    if (rewriteChain) {
+      commit.previous_commit_hash = previousCommitHash;
+      const { publication_commit_hash: _discarded, ...identity } = commit;
+      commit.publication_commit_hash = canonicalContentHash(identity);
+    }
+    previousCommitHash = String(commit.publication_commit_hash);
+  }
+  assert.equal(rewriteChain, true, artifactPath);
+  await rm(publications, { recursive: true, force: true });
+  await mkdir(publications, { recursive: true });
+  for (const commit of commits) {
+    const filename = `publication-${String(commit.publication_ordinal).padStart(12, "0")}-${sha256Hex(
+      String(commit.publication_commit_hash),
+    )}.json`;
+    await writeFile(path.join(publications, filename), `${canonicalJson(commit)}\n`);
   }
 }
 

@@ -219,6 +219,7 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     'for p in runs/*/artifacts/discovery/opportunity-space-map.r1.json; do cat "$p"; done',
     "find runs -name opportunity-space-map.r1.json -exec cat {} \\;",
     'cat "$PRIOR_ARTIFACT_PATH"',
+    'cat "$PRIOR_RUN_ROOT/artifacts/discovery/opportunity-space-map.r1.json"',
   ]) {
     const indirect = await evaluatePreToolUse(
       { cwd: fixture.root, tool_name: "Bash", tool_input: { command } },
@@ -233,7 +234,12 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
       /Dynamic, globbed, variable, or broad Run reads/,
     );
   }
-  for (const command of ['find harness -name "*.ts"', 'cat "$TMP_FILE"']) {
+  for (const command of [
+    'find harness -name "*.ts"',
+    'cat "$TMP_FILE"',
+    'cat "$PREVIOUS_API_RESPONSE"',
+    'jq . "$PRIOR_QUERY_RESULT"',
+  ]) {
     assert.equal(
       await evaluatePreToolUse(
         { cwd: fixture.root, tool_name: "Bash", tool_input: { command } },

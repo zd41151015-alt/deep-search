@@ -43,6 +43,39 @@ import { createConfirmedRun } from "./helpers/current-run.js";
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const createdAt = "2026-07-31T16:00:00Z";
 
+async function removePublicationCommitTail(
+  runRoot: string,
+  artifactPaths: readonly string[],
+): Promise<void> {
+  const publicationRoot = path.join(runRoot, ".store/publications");
+  const commits = await Promise.all(
+    (await readdir(publicationRoot)).map(async (filename) => ({
+      filename,
+      document: JSON.parse(await readFile(path.join(publicationRoot, filename), "utf8")) as Record<
+        string,
+        unknown
+      >,
+    })),
+  );
+  commits.sort(
+    (left, right) =>
+      Number(left.document.publication_ordinal) - Number(right.document.publication_ordinal),
+  );
+  const targets = new Set(artifactPaths);
+  const firstTarget = commits.findIndex((commit) =>
+    targets.has(String(commit.document.artifact_path)),
+  );
+  assert.ok(firstTarget >= 0);
+  const tail = commits.slice(firstTarget);
+  assert.deepEqual(
+    tail.map((commit) => String(commit.document.artifact_path)).sort(),
+    [...targets].sort(),
+  );
+  for (const commit of tail) {
+    await rm(path.join(publicationRoot, commit.filename));
+  }
+}
+
 type RuntimeArtifact = {
   readonly artifact_type: string;
   readonly artifact_path: string;
@@ -1415,6 +1448,7 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
   );
 
   const operationsRoot = path.join(state.runRoot, ".store/operations");
+  await removePublicationCommitTail(state.runRoot, deliveryPaths);
   const receiptByPath = new Map<string, string>();
   for (const operationEntry of await readdir(operationsRoot)) {
     if (!operationEntry.startsWith("artifact-") || !operationEntry.endsWith(".json")) continue;
@@ -1641,7 +1675,13 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
             "artifact_path" in envelope &&
             envelope.artifact_path === auditPath,
         ));
-    if (publishesAudit) await rm(operationPath);
+    if (!publishesAudit) continue;
+    if (operation.artifact_path === auditPath) {
+      operation.envelope = storedEnvelope;
+      await writeFile(operationPath, `${canonicalJson(operation)}\n`);
+      continue;
+    }
+    await rm(operationPath);
   }
   await assert.rejects(
     new RunStore(state.runsRoot, state.validator).load(state.runId),
@@ -1670,6 +1710,7 @@ test("whole-wave intent restores every Dispatch and canonical task before Manife
   );
   const wavePaths = published.compiled_envelopes.map((envelope) => envelope.artifact_path).sort();
   const operationsRoot = path.join(state.runRoot, ".store/operations");
+  await removePublicationCommitTail(state.runRoot, wavePaths);
   const operationEntries = await readdir(operationsRoot);
   const receiptByPath = new Map<string, string>();
   for (const entry of operationEntries) {

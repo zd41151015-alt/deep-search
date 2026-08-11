@@ -13,6 +13,11 @@
       "document_schema_version": "startup_opportunity.artifact_store_operation.current"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/store/artifact-publication-commit.schema.json",
+      "file": "current/store/artifact-publication-commit.schema.json",
+      "document_schema_version": "startup_opportunity.artifact_publication_commit.current"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/assessment/commercial/commercial-research-audit.schema.json",
       "file": "current/assessment/commercial/commercial-research-audit.schema.json",
       "document_schema_version": "startup_opportunity.commercial_research_audit.current"

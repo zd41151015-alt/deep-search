@@ -41,7 +41,8 @@
       "required": [
         "envelope_schema_version",
         "document_bundle_schema_version",
-        "receipt_schema_version"
+        "receipt_schema_version",
+        "publication_commit_schema_version"
       ],
       "properties": {
         "envelope_schema_version": {
@@ -52,6 +53,9 @@
         },
         "receipt_schema_version": {
           "const": "startup_opportunity.artifact_store_operation.current"
+        },
+        "publication_commit_schema_version": {
+          "const": "startup_opportunity.artifact_publication_commit.current"
         }
       }
     },

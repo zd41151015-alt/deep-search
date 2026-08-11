@@ -49,6 +49,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function storeReferenceCodes(error: StoreError): readonly string[] {
+  const referenceErrors = error.details.referenceErrors;
+  return Array.isArray(referenceErrors)
+    ? referenceErrors.flatMap((entry) =>
+        isRecord(entry) && typeof entry.code === "string" ? [entry.code] : [],
+      )
+    : [];
+}
+
 function effective(entry: Record<string, unknown>): Record<string, unknown> {
   return String(entry.schema_version).startsWith("startup_opportunity.artifact_envelope.") &&
     isRecord(entry.document)
@@ -906,10 +915,11 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     .map((branch) => `artifacts/research-audits/${branch.unitId}.json`)
     .sort();
   const auditRefs = [G14_ASSESSMENT_REF, ...commercialAuditRefs, ...state.evidenceRefs].sort();
+  const subjectRef = String(state.decisionSubjectSynthesisEnvelope.document.subject_ref);
   const subjectHash = String(state.decisionSubjectSynthesisEnvelope.document.subject_content_hash);
   const projectedDirection = {
     direction_id: "concept_assess_001",
-    subject_ref: "concept-hypothesis.json",
+    subject_ref: subjectRef,
     subject_content_hash: subjectHash,
     synthesis_ref: state.decisionSubjectSynthesisRef,
     synthesis_content_hash: state.decisionSubjectSynthesisHash,
@@ -918,7 +928,7 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
   const projectedValidationPlan = decisionSubjectValidationSteps().map((step) => ({
     order: step.order,
     direction_id: "concept_assess_001",
-    subject_ref: "concept-hypothesis.json",
+    subject_ref: subjectRef,
     subject_content_hash: subjectHash,
     synthesis_ref: state.decisionSubjectSynthesisRef,
     synthesis_content_hash: state.decisionSubjectSynthesisHash,
@@ -1080,7 +1090,7 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
       ...auditRefs,
       state.decisionSubjectSnapshotRef,
       state.decisionSubjectSynthesisRef,
-      "concept-hypothesis.json",
+      subjectRef,
     ].sort(),
     content_hash: canonicalContentHash(document),
     document,
@@ -1483,12 +1493,74 @@ test("decision subject snapshots advance atomically and historical exact replay 
   );
 });
 
+test("Store rejects a Concept assessment revision when the intake r1 lineage is absent", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-concept-lineage-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runRoot = path.join(runsRoot, G14_RUN_ID);
+  const validator = await createArtifactValidator(repositoryRoot);
+  const store = new RunStore(runsRoot, validator);
+  await createConfirmedRun(store, {
+    runId: G14_RUN_ID,
+    mode: "concept_evidence_assessment",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test missing Concept intake lineage",
+      researchLanguage: "en-US",
+    },
+    createdAt: "2026-07-25T18:00:00Z",
+  });
+  const bundle = await createG14ContractBundle("insufficient_evidence");
+  await store.publishArtifactBundle({
+    runId: G14_RUN_ID,
+    envelopes: ["intake.json", "decision-context.json", "scope-frame.json"].map((artifactPath) =>
+      v5Envelope(artifactPath, documentAt(bundle, artifactPath)),
+    ),
+  });
+  const scope = JSON.parse(
+    await readFile(path.join(runRoot, "scope-frame.json"), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const conceptR2Document = structuredClone(documentAt(bundle, "concept-hypothesis.json"));
+  conceptR2Document.schema_version = "startup_opportunity.concept_hypothesis.assessment.current";
+  conceptR2Document.revision = 2;
+  conceptR2Document.parent_concept_ref = scope.artifact_path;
+  conceptR2Document.parent_content_hash = scope.content_hash;
+  conceptR2Document.formation_input_hashes = [
+    { ref: scope.artifact_path, content_hash: scope.content_hash },
+  ];
+  delete conceptR2Document.field_provenance;
+  delete conceptR2Document.research_readiness;
+  const conceptR2 = v5Envelope(
+    "artifacts/assessment/concepts/concept_assess_001.r2.json",
+    conceptR2Document,
+    "main_agent",
+    [scope.artifact_path],
+    "2026-07-25T18:01:00Z",
+  );
+  await assert.rejects(
+    store.publishArtifact({ runId: G14_RUN_ID, envelope: conceptR2 }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "artifact.reference_invalid" &&
+      storeReferenceCodes(error).includes("assess_contract.concept_revision_lineage_invalid"),
+  );
+  assert.equal(
+    (await store.status(G14_RUN_ID)).manifest.artifact_refs.includes(conceptR2.artifact_path),
+    false,
+  );
+});
+
 test("Store re-forms a Concept only through an explicit post-terminal revision and reopens", async (context) => {
   const state = await prepareRun(context, { omitCommercialAuditUnitId: "unit_demand" });
   const missingAudit = state.omittedCommercialAudit;
   assert.ok(missingAudit);
   const conceptR1 = JSON.parse(
     await readFile(path.join(state.runRoot, "concept-hypothesis.json"), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const storedScope = JSON.parse(
+    await readFile(path.join(state.runRoot, "scope-frame.json"), "utf8"),
   ) as FormalArtifactEnvelope;
 
   const snapshotR2Ref = "artifacts/reporting/decision-subject-snapshot.r2.json";
@@ -1555,6 +1627,44 @@ test("Store re-forms a Concept only through an explicit post-terminal revision a
   ];
   delete conceptR2Document.field_provenance;
   delete conceptR2Document.research_readiness;
+  const expectLineageRejection = async (
+    artifactPath: string,
+    mutate: (document: Record<string, unknown>) => void,
+  ): Promise<void> => {
+    const invalidDocument = structuredClone(conceptR2Document);
+    mutate(invalidDocument);
+    const invalidEnvelope = v5Envelope(
+      artifactPath,
+      invalidDocument,
+      "main_agent",
+      [conceptR1.artifact_path, "scope-frame.json", G14_ASSESSMENT_REF, missingAudit.auditRef],
+      "2026-07-25T19:03:00Z",
+    );
+    await assert.rejects(
+      state.store.publishArtifact({ runId: G14_RUN_ID, envelope: invalidEnvelope }),
+      (error: unknown) =>
+        error instanceof StoreError &&
+        error.code === "artifact.reference_invalid" &&
+        storeReferenceCodes(error).includes("assess_contract.concept_revision_lineage_invalid"),
+      artifactPath,
+    );
+  };
+  await expectLineageRejection(conceptR2Ref, (document) => {
+    document.parent_content_hash = `sha256:${"0".repeat(64)}`;
+  });
+  await expectLineageRejection(conceptR2Ref, (document) => {
+    document.concept_hypothesis_id = "concept_assess_alias";
+  });
+  await expectLineageRejection(conceptR2Ref, (document) => {
+    document.parent_concept_ref = "scope-frame.json";
+    document.parent_content_hash = storedScope.content_hash;
+  });
+  await expectLineageRejection(
+    "artifacts/assessment/concepts/concept_assess_001.r3.json",
+    (document) => {
+      document.revision = 3;
+    },
+  );
   const conceptR2 = v5Envelope(
     conceptR2Ref,
     conceptR2Document,
@@ -1645,6 +1755,26 @@ test("Store re-forms a Concept only through an explicit post-terminal revision a
     "2026-07-25T19:05:00Z",
   );
   await state.store.publishArtifact({ runId: G14_RUN_ID, envelope: snapshotR3 });
+  const synthesisR2Ref =
+    "artifacts/reporting/decision-subject-synthesis/concept-assess-001.r2.json";
+  const synthesisR2Document = structuredClone(state.decisionSubjectSynthesisEnvelope.document);
+  synthesisR2Document.synthesis_id = "decision_subject_synthesis_concept_assess_001_r2";
+  synthesisR2Document.subject_ref = conceptR2Ref;
+  synthesisR2Document.subject_content_hash = conceptR2.content_hash;
+  synthesisR2Document.synthesis_basis_hashes = [
+    { ref: conceptR2Ref, content_hash: conceptR2.content_hash },
+    { ref: G14_ASSESSMENT_REF, content_hash: storedAssessment.content_hash },
+    { ref: missingAudit.auditRef, content_hash: auditEnvelope.content_hash },
+  ];
+  synthesisR2Document.created_at = "2026-07-25T19:06:00Z";
+  const synthesisR2 = v5Envelope(
+    synthesisR2Ref,
+    synthesisR2Document,
+    "main_agent",
+    [conceptR2Ref, G14_ASSESSMENT_REF, missingAudit.auditRef],
+    "2026-07-25T19:06:00Z",
+  );
+  await state.store.publishArtifact({ runId: G14_RUN_ID, envelope: synthesisR2 });
   await state.store.checkpoint({
     runId: G14_RUN_ID,
     checkpointId: "checkpoint_concept_reformation",
@@ -1663,6 +1793,32 @@ test("Store re-forms a Concept only through an explicit post-terminal revision a
   assert.equal(reopened.recovered, false);
   assert.equal(reopened.manifest.current_decision_subject_snapshot_ref, snapshotR3Ref);
   assert.equal(reopened.manifest.current_decision_subject_snapshot_hash, snapshotR3.content_hash);
+
+  const reportState: PreparedRun = {
+    ...state,
+    decisionSubjectSnapshotRef: snapshotR3Ref,
+    decisionSubjectSnapshotHash: snapshotR3.content_hash,
+    decisionSubjectSnapshotEnvelope: snapshotR3,
+    decisionSubjectSynthesisRef: synthesisR2Ref,
+    decisionSubjectSynthesisHash: synthesisR2.content_hash,
+    decisionSubjectSynthesisEnvelope: synthesisR2,
+    commercialAudits: [
+      ...state.commercialAudits,
+      { auditRef: missingAudit.auditRef, audit: auditDocument },
+    ],
+  };
+  await markRunTerminal(reportState);
+  const reportResult = await reportState.runtime.build({
+    reportEnvelope: terminalReportEnvelope(reportState),
+  });
+  assert.equal(reportResult.status, "published");
+  const reportJson = JSON.parse(
+    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  const projectedDirection = (reportJson.directions as Record<string, unknown>[])[0];
+  assert.equal(projectedDirection?.subject_ref, conceptR2Ref);
+  assert.equal(projectedDirection?.subject_content_hash, conceptR2.content_hash);
+  assert.match(await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8"), /家庭协同/);
 });
 
 test("build-report publishes formal sidecars, materializes three outputs, and exactly replays", async (context) => {
