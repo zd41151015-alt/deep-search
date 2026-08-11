@@ -461,6 +461,9 @@ interface PreparedRun {
   readonly decisionSubjectSnapshotRef: string;
   readonly decisionSubjectSnapshotHash: string;
   readonly decisionSubjectSnapshotEnvelope: FormalArtifactEnvelope;
+  readonly decisionSubjectSynthesisRef: string;
+  readonly decisionSubjectSynthesisHash: string;
+  readonly decisionSubjectSynthesisEnvelope: FormalArtifactEnvelope;
   readonly commercialAudits: readonly {
     readonly auditRef: string;
     readonly audit: Readonly<Record<string, unknown>>;
@@ -472,6 +475,49 @@ interface PreparedRun {
 }
 
 const DECISION_SUBJECT_SNAPSHOT_REF = "artifacts/reporting/decision-subject-snapshot.r1.json";
+const DECISION_SUBJECT_SYNTHESIS_REF =
+  "artifacts/reporting/decision-subject-synthesis/concept-assess-001.r1.json";
+
+function decisionSubjectDirection(): Record<string, unknown> {
+  return {
+    priority: null,
+    ranking_status: "unranked_hypothesis",
+    label: "家庭协同遗漏的共享工作流",
+    maturity: "testable_product_hypothesis",
+    action: "validate",
+    target_user: "需要家庭协同的消费者",
+    narrow_scenario: "家庭成员需要确认共同任务是否完成时",
+    problem: "共同任务散落在即时通讯和个人备忘录中，成员难以确认完成状态",
+    current_alternative: "即时通讯 | 备忘录 | 维持现状",
+    payer: "家庭付款者",
+    product_form: "mini_program",
+    core_value: "降低重复沟通与遗漏",
+    why_now: "家庭协同遗漏是否足以触发付费仍值得验证，但当前尚无购买证据。",
+    key_risks: ["家庭付款者与付费触发尚未得到足够证据"],
+    first_testable_assumption: "家庭付款者会为减少协同遗漏的共享工作流付费",
+    comparison_reason: "该假设直接对应即时通讯和备忘录之间的协同断点。",
+    decisive_support_source_ids: ["synthetic_support"],
+    decisive_opposition_source_ids: [],
+    open_questions: ["哪位家庭成员实际付款，以及何种协同遗漏触发购买？"],
+  };
+}
+
+function decisionSubjectValidationSteps(): readonly Record<string, unknown>[] {
+  return [
+    {
+      order: 1,
+      hypothesis: "家庭付款者愿意为减少共同任务遗漏的共享工作流付费",
+      why_now: "该问题决定家庭协同痛点是否存在明确买方和可持续价值。",
+      method: "user_owned_external_validation",
+      pass_signal: "家庭付款者在不被提示产品功能时明确选择并承诺为减少协同遗漏付费。",
+      fail_signal: "家庭付款者只愿继续使用即时通讯、备忘录或现有免费工具。",
+      decision_effect: "通过后继续研究获客和交付；失败则淘汰该家庭协同方向。",
+      execution_owner: "user",
+      execution_supported: false,
+      result_tracking_supported: false,
+    },
+  ];
+}
 
 function nextReportRevision(source: FormalArtifactEnvelope): FormalArtifactEnvelope {
   const artifactPath = "artifacts/reporting/report-json.r2.json";
@@ -767,7 +813,6 @@ async function prepareRun(
         reporting_role: "final",
         superseded_by_subject_id: null,
         formation_reason: "SYNTHETIC current final direction for terminal projection tests.",
-        reformation_basis_hashes: [],
         lifecycle_reason: "SYNTHETIC retained as the only current decision subject.",
       },
     ],
@@ -786,6 +831,32 @@ async function prepareRun(
     "2026-07-25T19:00:30Z",
   );
   await store.publishArtifact({ runId: G14_RUN_ID, envelope: snapshotEnvelope });
+  const conceptHash = canonicalContentHash(documentAt(bundle, "concept-hypothesis.json"));
+  const assessmentHash = canonicalContentHash(documentAt(bundle, G14_ASSESSMENT_REF));
+  const synthesisDocument = {
+    schema_version: "startup_opportunity.decision_subject_synthesis.current",
+    synthesis_id: "decision_subject_synthesis_concept_assess_001_r1",
+    run_id: G14_RUN_ID,
+    subject_id: "concept_assess_001",
+    subject_ref: "concept-hypothesis.json",
+    subject_content_hash: conceptHash,
+    synthesis_basis_hashes: [
+      { ref: "concept-hypothesis.json", content_hash: conceptHash },
+      { ref: G14_ASSESSMENT_REF, content_hash: assessmentHash },
+    ],
+    direction: decisionSubjectDirection(),
+    validation_steps: decisionSubjectValidationSteps(),
+    created_at: "2026-07-25T19:00:45Z",
+    limitations: ["SYNTHETIC report synthesis; not market Evidence."],
+  };
+  const synthesisEnvelope = v5Envelope(
+    DECISION_SUBJECT_SYNTHESIS_REF,
+    synthesisDocument,
+    "main_agent",
+    ["concept-hypothesis.json", G14_ASSESSMENT_REF],
+    "2026-07-25T19:00:45Z",
+  );
+  await store.publishArtifact({ runId: G14_RUN_ID, envelope: synthesisEnvelope });
   return {
     runsRoot,
     runRoot,
@@ -798,6 +869,9 @@ async function prepareRun(
     decisionSubjectSnapshotRef: DECISION_SUBJECT_SNAPSHOT_REF,
     decisionSubjectSnapshotHash: snapshotEnvelope.content_hash,
     decisionSubjectSnapshotEnvelope: snapshotEnvelope,
+    decisionSubjectSynthesisRef: DECISION_SUBJECT_SYNTHESIS_REF,
+    decisionSubjectSynthesisHash: synthesisEnvelope.content_hash,
+    decisionSubjectSynthesisEnvelope: synthesisEnvelope,
     commercialAudits,
     ...(omittedCommercialAudit === undefined ? {} : { omittedCommercialAudit }),
   };
@@ -832,6 +906,24 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     .map((branch) => `artifacts/research-audits/${branch.unitId}.json`)
     .sort();
   const auditRefs = [G14_ASSESSMENT_REF, ...commercialAuditRefs, ...state.evidenceRefs].sort();
+  const subjectHash = String(state.decisionSubjectSynthesisEnvelope.document.subject_content_hash);
+  const projectedDirection = {
+    direction_id: "concept_assess_001",
+    subject_ref: "concept-hypothesis.json",
+    subject_content_hash: subjectHash,
+    synthesis_ref: state.decisionSubjectSynthesisRef,
+    synthesis_content_hash: state.decisionSubjectSynthesisHash,
+    ...structuredClone(decisionSubjectDirection()),
+  };
+  const projectedValidationPlan = decisionSubjectValidationSteps().map((step) => ({
+    order: step.order,
+    direction_id: "concept_assess_001",
+    subject_ref: "concept-hypothesis.json",
+    subject_content_hash: subjectHash,
+    synthesis_ref: state.decisionSubjectSynthesisRef,
+    synthesis_content_hash: state.decisionSubjectSynthesisHash,
+    ...structuredClone(step),
+  }));
   const document: Record<string, unknown> = {
     schema_version: "startup_opportunity.terminal_report_source.v1",
     report_id: "terminal_report_synthetic_1",
@@ -844,6 +936,12 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     generated_at: "2026-07-25T19:16:00Z",
     decision_subject_snapshot_ref: state.decisionSubjectSnapshotRef,
     decision_subject_snapshot_hash: state.decisionSubjectSnapshotHash,
+    decision_subject_synthesis_hashes: [
+      {
+        ref: state.decisionSubjectSynthesisRef,
+        content_hash: state.decisionSubjectSynthesisHash,
+      },
+    ],
     current_decision_subject_ids: ["concept_assess_001"],
     terminal_outcome: "insufficient_evidence",
     decision_question: "这个合成的窄方向是否值得继续调研？",
@@ -888,45 +986,7 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
         },
       ],
     },
-    directions: [
-      {
-        direction_id: "concept_assess_001",
-        subject_ref: "concept-hypothesis.json",
-        subject_content_hash: String(
-          (state.decisionSubjectSnapshotEnvelope.document.subjects as Record<string, unknown>[])[0]
-            ?.subject_content_hash,
-        ),
-        synthesis_basis_hashes: [
-          {
-            ref: "concept-hypothesis.json",
-            content_hash: String(
-              (
-                state.decisionSubjectSnapshotEnvelope.document.subjects as Record<string, unknown>[]
-              )[0]?.subject_content_hash,
-            ),
-          },
-        ],
-        priority: null,
-        ranking_status: "unranked_hypothesis",
-        label: "消费者家庭可以通过共享工作流降低协同遗漏",
-        maturity: "testable_product_hypothesis",
-        action: "validate",
-        target_user: "需要家庭协同的消费者",
-        narrow_scenario: "家庭成员需要确认共同任务是否完成时",
-        problem: "消费者家庭可以通过共享工作流降低协同遗漏",
-        current_alternative: "即时通讯 | 备忘录 | 维持现状",
-        payer: "家庭付款者",
-        product_form: "mini_program",
-        core_value: "降低重复沟通与遗漏",
-        why_now: "家庭协同遗漏是否足以触发付费仍值得验证，但当前尚无购买证据。",
-        key_risks: ["家庭付款者与付费触发尚未得到足够证据"],
-        first_testable_assumption: "家庭付款者会为减少协同遗漏的共享工作流付费",
-        comparison_reason: "该假设直接对应即时通讯和备忘录之间的协同断点。",
-        decisive_support_source_ids: ["synthetic_support"],
-        decisive_opposition_source_ids: [],
-        open_questions: ["哪位家庭成员实际付款，以及何种协同遗漏触发购买？"],
-      },
-    ],
+    directions: [projectedDirection],
     sources: [
       {
         source_id: "synthetic_support",
@@ -994,20 +1054,7 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
       })),
     ],
     ...commercialReportProjection(state.commercialAudits),
-    ordered_validation_plan: [
-      {
-        order: 1,
-        hypothesis: "用户愿意为雇主可读工作样本而不是新增课程付费",
-        why_now: "该问题决定是否存在买方和可持续价值。",
-        method: "user_owned_external_validation",
-        pass_signal: "用户在不被提示产品功能时明确选择并承诺为结果服务付费。",
-        fail_signal: "用户只愿继续使用免费课程、简历模板或自助工具。",
-        decision_effect: "通过后继续研究获客和交付；失败则淘汰该方向。",
-        execution_owner: "user",
-        execution_supported: false,
-        result_tracking_supported: false,
-      },
-    ],
+    ordered_validation_plan: projectedValidationPlan,
     freshness: {
       earliest_valid_as_of: "2026-07-25",
       latest_valid_as_of: "2026-07-25",
@@ -1029,7 +1076,12 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     run_id: G14_RUN_ID,
     created_at: "2026-07-25T19:16:00Z",
     producer_role: "main_agent",
-    input_refs: [...auditRefs, state.decisionSubjectSnapshotRef, "concept-hypothesis.json"].sort(),
+    input_refs: [
+      ...auditRefs,
+      state.decisionSubjectSnapshotRef,
+      state.decisionSubjectSynthesisRef,
+      "concept-hypothesis.json",
+    ].sort(),
     content_hash: canonicalContentHash(document),
     document,
   };
@@ -1106,10 +1158,10 @@ test("terminal finalizer produces a localized decision-first brief with readable
     {
       direction_id: "concept_assess_001",
       subject_ref: "concept-hypothesis.json",
-      label: "消费者家庭可以通过共享工作流降低协同遗漏",
+      label: "家庭协同遗漏的共享工作流",
       target_user: "需要家庭协同的消费者",
       narrow_scenario: "家庭成员需要确认共同任务是否完成时",
-      problem: "消费者家庭可以通过共享工作流降低协同遗漏",
+      problem: "共同任务散落在即时通讯和个人备忘录中，成员难以确认完成状态",
       current_alternative: "即时通讯 | 备忘录 | 维持现状",
       payer: "家庭付款者",
       product_form: "mini_program",
@@ -1144,15 +1196,16 @@ test("terminal finalizer produces a localized decision-first brief with readable
   const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
   assert.match(reportMarkdown, /No direct recent_user_language material was available/);
   for (const rendered of [brief, reportMarkdown]) {
-    assert.match(rendered, /消费者家庭可以通过共享工作流降低协同遗漏/);
+    assert.match(rendered, /家庭协同遗漏的共享工作流/);
     assert.match(rendered, /需要家庭协同的消费者/);
     assert.match(rendered, /家庭成员需要确认共同任务是否完成时/);
     assert.match(rendered, /即时通讯 \| 备忘录 \| 维持现状/);
     assert.match(rendered, /家庭付款者/);
     assert.match(rendered, /mini_program/);
     assert.match(rendered, /降低重复沟通与遗漏/);
-    assert.doesNotMatch(rendered, /正在完成一次明确职业转换|目标岗位到实践任务/);
+    assert.doesNotMatch(rendered, /职业转换|雇主|工作样本|课程/);
   }
+  assert.doesNotMatch(canonicalJson(reportJson), /职业转换|雇主|工作样本|课程/);
   assert.ok(
     (reportJson.gate_warnings as Record<string, unknown>[]).some(
       (warning) =>
@@ -1226,7 +1279,10 @@ test("terminal report rejects false completion, derived drift, and caller-declar
     assert.equal(result.valid, false, candidate.code);
     assert.ok(
       result.referenceErrors.some((entry) => entry.code === candidate.code),
-      JSON.stringify(result, null, 2),
+      JSON.stringify({
+        expected: candidate.code,
+        codes: result.referenceErrors.map((entry) => entry.code),
+      }),
     );
   }
 

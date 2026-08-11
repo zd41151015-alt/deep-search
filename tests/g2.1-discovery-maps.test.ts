@@ -493,6 +493,67 @@ test("Store rejects an admitted prior Map relabelled as unmarked current discove
   );
 });
 
+test("a controlled prior read taints every later Map target, not only its declared target", async (context) => {
+  const state = await prepareRun(context, "general", "prior-map-global-taint");
+  const sourceRunId = "g2-1-prior-map-global-taint-source";
+  const sourceArtifactPath = "prior-opportunity-map.json";
+  await state.store.create({
+    runId: sourceRunId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic prior market",
+      customerModel: "b2c",
+      targetUsers: ["synthetic prior user"],
+      decisionGoal: "SYNTHETIC global taint source",
+      researchLanguage: "en-US",
+    },
+    createdAt: "2026-07-26T16:00:00Z",
+  });
+  await writeFile(
+    path.join(state.runsRoot, sourceRunId, sourceArtifactPath),
+    '{"run_id":"prior-run","body":"OLD MAP SEMANTICS"}\n',
+  );
+  const admission = await state.store.admitPriorInput({
+    runId: state.runId,
+    priorInputId: "prior_map_global_taint",
+    sourceRunId,
+    sourceArtifactPath,
+    targetArtifactPath: G21_OPPORTUNITY_REF,
+    consumer: "discovery_maps",
+    reason: "SYNTHETIC hypothesis-only prior input.",
+    admittedAt: "2026-07-26T17:00:30Z",
+  });
+  await state.store.readPriorInput({
+    runId: state.runId,
+    admissionRef: admission.decisionRef,
+    consumedAt: "2026-07-26T17:00:45Z",
+  });
+  for (const ref of [G21_OPPORTUNITY_REF, G21_SOLUTION_REF]) {
+    const provenance = fixtureDocument(state.bundle, ref).content_provenance as Record<
+      string,
+      unknown
+    >;
+    provenance.synthesis_origin = "prior_informed_synthesis";
+    provenance.prior_input_decision_refs = [admission.decisionRef];
+    rehashEnvelope(state.bundle, ref);
+  }
+
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "artifact.reference_invalid" &&
+      JSON.stringify(error.details).includes("discovery_maps.prior_input_taint_not_propagated"),
+  );
+  assert.equal(
+    (await state.store.status(state.runId)).manifest.artifact_refs.includes(G21_SEED_REF),
+    false,
+  );
+});
+
 test("empty decision subject scaffold compiles and publishes through exact Store closure", async (context) => {
   const state = await prepareRun(context, "general", "snapshot-scaffold");
   const scaffold = buildArtifactScaffold(

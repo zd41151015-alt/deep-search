@@ -105,7 +105,6 @@
           "reporting_role",
           "superseded_by_subject_id",
           "formation_reason",
-          "reformation_basis_hashes",
           "lifecycle_reason"
         ],
         "properties": {
@@ -140,22 +139,8 @@
           "formation_reason": {
             "$ref": "../core/definitions.schema.json#/$defs/nonEmptyString"
           },
-          "reformation_basis_hashes": {
-            "type": "array",
-            "uniqueItems": true,
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["ref", "content_hash"],
-              "properties": {
-                "ref": {
-                  "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
-                },
-                "content_hash": {
-                  "$ref": "../core/definitions.schema.json#/$defs/sha256"
-                }
-              }
-            }
+          "reformation_decision_ref": {
+            "$ref": "../core/definitions.schema.json#/$defs/decisionRef"
           },
           "lifecycle_reason": {
             "$ref": "../core/definitions.schema.json#/$defs/nonEmptyString"

@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/reporting/decision-subject-synthesis.schema.json",
+  "title": "Startup Opportunity Decision Subject Report Synthesis",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "synthesis_id",
+    "run_id",
+    "subject_id",
+    "subject_ref",
+    "subject_content_hash",
+    "synthesis_basis_hashes",
+    "direction",
+    "validation_steps",
+    "created_at",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.decision_subject_synthesis.current"
+    },
+    "synthesis_id": {
+      "$ref": "../core/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../core/definitions.schema.json#/$defs/runId"
+    },
+    "subject_id": {
+      "$ref": "../core/definitions.schema.json#/$defs/identifier"
+    },
+    "subject_ref": {
+      "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
+    },
+    "subject_content_hash": {
+      "$ref": "../core/definitions.schema.json#/$defs/sha256"
+    },
+    "synthesis_basis_hashes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "content_hash"],
+        "properties": {
+          "ref": {
+            "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
+          },
+          "content_hash": {
+            "$ref": "../core/definitions.schema.json#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "direction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "priority",
+        "ranking_status",
+        "label",
+        "maturity",
+        "action",
+        "target_user",
+        "narrow_scenario",
+        "problem",
+        "current_alternative",
+        "payer",
+        "product_form",
+        "core_value",
+        "why_now",
+        "key_risks",
+        "first_testable_assumption",
+        "comparison_reason",
+        "decisive_support_source_ids",
+        "decisive_opposition_source_ids",
+        "open_questions"
+      ],
+      "properties": {
+        "priority": {
+          "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }]
+        },
+        "ranking_status": {
+          "enum": ["ranked", "unranked_hypothesis"]
+        },
+        "label": { "$ref": "#/$defs/nonEmptyString" },
+        "maturity": {
+          "enum": [
+            "problem_space",
+            "demand_hypothesis",
+            "solution_seed",
+            "testable_product_hypothesis",
+            "supported_opportunity_thesis"
+          ]
+        },
+        "action": { "enum": ["invest", "validate", "defer", "reject"] },
+        "target_user": { "$ref": "#/$defs/nonEmptyString" },
+        "narrow_scenario": { "$ref": "#/$defs/nonEmptyString" },
+        "problem": { "$ref": "#/$defs/nonEmptyString" },
+        "current_alternative": { "$ref": "#/$defs/nonEmptyString" },
+        "payer": { "$ref": "#/$defs/nonEmptyString" },
+        "product_form": { "$ref": "#/$defs/nonEmptyString" },
+        "core_value": { "$ref": "#/$defs/nonEmptyString" },
+        "why_now": { "$ref": "#/$defs/nonEmptyString" },
+        "key_risks": { "$ref": "#/$defs/uniqueStrings" },
+        "first_testable_assumption": { "$ref": "#/$defs/nonEmptyString" },
+        "comparison_reason": { "$ref": "#/$defs/nonEmptyString" },
+        "decisive_support_source_ids": { "$ref": "#/$defs/sourceIdArray" },
+        "decisive_opposition_source_ids": { "$ref": "#/$defs/sourceIdArray" },
+        "open_questions": { "$ref": "#/$defs/uniqueStrings" }
+      }
+    },
+    "validation_steps": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "order",
+          "hypothesis",
+          "why_now",
+          "method",
+          "pass_signal",
+          "fail_signal",
+          "decision_effect",
+          "execution_owner",
+          "execution_supported",
+          "result_tracking_supported"
+        ],
+        "properties": {
+          "order": { "type": "integer", "minimum": 1 },
+          "hypothesis": { "$ref": "#/$defs/nonEmptyString" },
+          "why_now": { "$ref": "#/$defs/nonEmptyString" },
+          "method": { "enum": ["desk_research", "user_owned_external_validation"] },
+          "pass_signal": { "$ref": "#/$defs/nonEmptyString" },
+          "fail_signal": { "$ref": "#/$defs/nonEmptyString" },
+          "decision_effect": { "$ref": "#/$defs/nonEmptyString" },
+          "execution_owner": { "enum": ["main_agent", "user"] },
+          "execution_supported": { "type": "boolean" },
+          "result_tracking_supported": { "type": "boolean" }
+        }
+      }
+    },
+    "created_at": {
+      "$ref": "../core/definitions.schema.json#/$defs/timestamp"
+    },
+    "limitations": {
+      "$ref": "#/$defs/uniqueStrings"
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "$ref": "../core/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "uniqueStrings": {
+      "$ref": "../core/definitions.schema.json#/$defs/uniqueStringArray"
+    },
+    "sourceIdArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"
+      }
+    }
+  }
+}

@@ -7,6 +7,8 @@ import {
   type BeliefSummary,
   type CheckpointRunInput,
   type CreateRunInput,
+  type ReadPriorInputInput,
+  type ReformDecisionSubjectInput,
   type ResearchScope,
   type RunMode,
   RunStore,
@@ -281,6 +283,55 @@ export async function runAdmitPriorInput(
       reason: required(parsed, "--reason"),
       ...(admittedAt === undefined ? {} : { admittedAt }),
     });
+  });
+}
+
+export async function runReadPriorInput(
+  args: readonly string[],
+  repositoryRoot = process.cwd(),
+): Promise<number> {
+  return runCommand(async () => {
+    const parsed = parseArguments(args);
+    rejectUnknown(parsed, ["--run-id", "--admission-ref", "--consumed-at", "--runs-root"]);
+    const consumedAt = parsed.values.get("--consumed-at");
+    const input: ReadPriorInputInput = {
+      runId: required(parsed, "--run-id"),
+      admissionRef: required(parsed, "--admission-ref"),
+      ...(consumedAt === undefined ? {} : { consumedAt }),
+    };
+    const validator = await createArtifactValidator(repositoryRoot);
+    return new RunStore(roots(parsed, repositoryRoot), validator).readPriorInput(input);
+  });
+}
+
+export async function runReformDecisionSubject(
+  args: readonly string[],
+  repositoryRoot = process.cwd(),
+): Promise<number> {
+  return runCommand(async () => {
+    const parsed = parseArguments(args, ["--reformation-input-ref"]);
+    rejectUnknown(parsed, [
+      "--run-id",
+      "--terminal-snapshot-ref",
+      "--terminal-subject-id",
+      "--reformed-subject-ref",
+      "--reformation-input-ref",
+      "--reason",
+      "--reformed-at",
+      "--runs-root",
+    ]);
+    const reformedAt = parsed.values.get("--reformed-at");
+    const input: ReformDecisionSubjectInput = {
+      runId: required(parsed, "--run-id"),
+      terminalSnapshotRef: required(parsed, "--terminal-snapshot-ref"),
+      terminalSubjectId: required(parsed, "--terminal-subject-id"),
+      reformedSubjectRef: required(parsed, "--reformed-subject-ref"),
+      reformationInputRefs: parsed.repeated.get("--reformation-input-ref") ?? [],
+      reason: required(parsed, "--reason"),
+      ...(reformedAt === undefined ? {} : { reformedAt }),
+    };
+    const validator = await createArtifactValidator(repositoryRoot);
+    return new RunStore(roots(parsed, repositoryRoot), validator).reformDecisionSubject(input);
   });
 }
 

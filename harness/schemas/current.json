@@ -373,6 +373,11 @@
       "document_schema_version": "startup_opportunity.decision_subject_snapshot.current"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/reporting/decision-subject-synthesis.schema.json",
+      "file": "current/reporting/decision-subject-synthesis.schema.json",
+      "document_schema_version": "startup_opportunity.decision_subject_synthesis.current"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/reporting/report-consistency-evaluation.schema.json",
       "file": "current/reporting/report-consistency-evaluation.schema.json",
       "document_schema_version": "startup_opportunity.report_consistency_evaluation.terminal.current"

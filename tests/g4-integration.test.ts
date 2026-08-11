@@ -213,8 +213,26 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
   );
   assert.match(
     String((blocked?.hookSpecificOutput as Record<string, unknown>)?.permissionDecisionReason),
-    /admit-prior-input/,
+    /read-prior-input/,
   );
+  for (const command of [
+    'for p in runs/*/artifacts/discovery/opportunity-space-map.r1.json; do cat "$p"; done',
+    "find runs -name opportunity-space-map.r1.json -exec cat {} \\;",
+    'cat "$PRIOR_ARTIFACT_PATH"',
+  ]) {
+    const indirect = await evaluatePreToolUse(
+      { cwd: fixture.root, tool_name: "Bash", tool_input: { command } },
+      activeRunId,
+    );
+    assert.equal(
+      (indirect?.hookSpecificOutput as Record<string, unknown>)?.permissionDecision,
+      "deny",
+    );
+    assert.match(
+      String((indirect?.hookSpecificOutput as Record<string, unknown>)?.permissionDecisionReason),
+      /Dynamic, globbed, variable, or broad Run reads/,
+    );
+  }
   await assert.rejects(
     fixture.store.appendDecision(activeRunId, {
       schema_version: "startup_opportunity.decision.v1",
@@ -237,6 +255,7 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
       error instanceof StoreError && error.code === "run.prior_input_dedicated_path_required",
   );
 
+  let candidateAdmissionRef = "";
   for (const [priorInputId, sourceArtifactPath, targetArtifactPath, sourceBytes, consumer] of [
     [
       "prior_map_hypothesis",
@@ -282,15 +301,62 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     );
     assert.equal(admission.status, 0, admission.stderr);
     const receipt = JSON.parse(admission.stdout) as Record<string, unknown>;
+    if (consumer === "discovery_candidates") {
+      candidateAdmissionRef = String(receipt.decisionRef);
+    }
     assert.equal(receipt.useBoundary, "hypothesis_input_only");
     assert.equal(receipt.sourceContentHash, sha256Bytes(sourceBytes));
     assert.equal("document" in receipt, false);
     assert.doesNotMatch(admission.stdout, /COPYING THIS MAP|OLD SEMANTICS/);
+    const controlledRead = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        ".agents/skills/startup-opportunity/scripts/read-prior-input.ts",
+        "--run-id",
+        activeRunId,
+        "--admission-ref",
+        String(receipt.decisionRef),
+        "--consumed-at",
+        "2026-07-30T00:11:00Z",
+        "--runs-root",
+        fixture.runsRoot,
+      ],
+      { cwd: repositoryRoot, encoding: "utf8" },
+    );
+    assert.equal(controlledRead.status, 0, controlledRead.stderr);
+    const readResult = JSON.parse(controlledRead.stdout) as Record<string, unknown>;
+    assert.equal(readResult.sourceText, sourceBytes.toString("utf8"));
+    assert.match(String(readResult.consumptionDecisionRef), /^decisions\.jsonl#/);
+    const replayedRead = await fixture.store.readPriorInput({
+      runId: activeRunId,
+      admissionRef: String(receipt.decisionRef),
+    });
+    assert.equal(replayedRead.status, "idempotent_replay");
+    assert.equal(replayedRead.consumptionDecisionRef, readResult.consumptionDecisionRef);
+    assert.equal(replayedRead.sourceText, sourceBytes.toString("utf8"));
   }
 
-  assert.equal(await evaluatePreToolUse(accidentInput, activeRunId), undefined);
+  assert.equal(
+    (
+      (await evaluatePreToolUse(accidentInput, activeRunId))?.hookSpecificOutput as Record<
+        string,
+        unknown
+      >
+    )?.permissionDecision,
+    "deny",
+  );
   await writeFile(path.join(priorRoot, candidatePath), `${candidateBytes.toString()}tampered\n`);
-  assert.ok(await evaluatePreToolUse(accidentInput, activeRunId));
+  const candidateAdmission = (await fixture.store
+    .readPriorInput({
+      runId: activeRunId,
+      admissionRef: candidateAdmissionRef,
+      consumedAt: "2026-07-30T00:12:30Z",
+    })
+    .catch((error: unknown) => error)) as unknown;
+  assert.ok(candidateAdmission instanceof StoreError);
+  assert.equal(candidateAdmission.code, "prior_input.source_drift");
 });
 
 test("status reads a validated manifest without mutating the Run", async (context) => {

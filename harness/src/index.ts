@@ -128,6 +128,10 @@ export {
   type LoadRunResult,
   type ProposeScopeInput,
   type ProposeScopeResult,
+  type ReadPriorInputInput,
+  type ReadPriorInputResult,
+  type ReformDecisionSubjectInput,
+  type ReformDecisionSubjectResult,
   type ResearchScope,
   type RunManifest,
   type RunMode,
@@ -142,7 +146,9 @@ export {
   runLoadRun,
   runProposeScope,
   runPublishArtifact,
+  runReadPriorInput,
   runRecordEvidence,
+  runReformDecisionSubject,
   runStatusRun,
 } from "./run-store/store-commands.js";
 export { buildArtifactScaffold } from "./runtime/artifact-scaffolds.js";

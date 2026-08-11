@@ -63,6 +63,7 @@
         "startup_opportunity.decision_brief.terminal.current",
         "startup_opportunity.decision_context.v1",
         "startup_opportunity.decision_subject_snapshot.current",
+        "startup_opportunity.decision_subject_synthesis.current",
         "startup_opportunity.decision_recommendation.v1",
         "startup_opportunity.demand_thesis.v1",
         "startup_opportunity.discovery_candidate.v1",
@@ -1050,6 +1051,30 @@
           },
           "document": {
             "$ref": "../reporting/decision-subject-snapshot.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "const": "startup_opportunity.decision_subject_synthesis.current"
+          }
+        },
+        "required": ["artifact_type"]
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "main_agent"
+          },
+          "artifact_path": {
+            "type": "string",
+            "pattern": "^artifacts/reporting/decision-subject-synthesis/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+          },
+          "document": {
+            "$ref": "../reporting/decision-subject-synthesis.schema.json"
           }
         }
       }

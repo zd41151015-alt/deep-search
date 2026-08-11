@@ -20,7 +20,9 @@ import {
   runLoadRun,
   runProposeScope,
   runPublishArtifact,
+  runReadPriorInput,
   runRecordEvidence,
+  runReformDecisionSubject,
   runStatusRun,
 } from "./run-store/store-commands.js";
 import {
@@ -59,6 +61,12 @@ switch (command) {
     break;
   case "admit-prior-input":
     process.exitCode = await runAdmitPriorInput(args);
+    break;
+  case "read-prior-input":
+    process.exitCode = await runReadPriorInput(args);
+    break;
+  case "reform-decision-subject":
+    process.exitCode = await runReformDecisionSubject(args);
     break;
   case "record-evidence":
     process.exitCode = await runRecordEvidence(args);

@@ -1156,7 +1156,9 @@ export class ReportRuntime {
   async build(input: BuildReportInput): Promise<BuildReportResult> {
     const runRoot = await openRunDirectory(this.runsRoot, input.reportEnvelope.run_id);
     return withReportLock(runRoot, async () => {
-      assertDerivedConsistencyPassed(deriveReportEnvelopes(input.reportEnvelope));
+      if (input.reportEnvelope.artifact_type !== "startup_opportunity.terminal_report_source.v1") {
+        assertDerivedConsistencyPassed(deriveReportEnvelopes(input.reportEnvelope));
+      }
       await withRunLock(runRoot, () =>
         assertNoOtherFinalReportLocked(runRoot, input.reportEnvelope),
       );
@@ -1276,6 +1278,15 @@ export class ReportRuntime {
       }
       return [{ path: entry.path, document: entry.document.document }];
     });
+    const envelopesByPath = new Map<string, FormalArtifactEnvelope>(
+      context.bundle.documents.flatMap((entry) =>
+        entry.document.schema_version === "startup_opportunity.artifact_envelope.current" &&
+        typeof entry.document.content_hash === "string" &&
+        isRecord(entry.document.document)
+          ? [[entry.path, entry.document as FormalArtifactEnvelope] as const]
+          : [],
+      ),
+    );
     const documentsByPath = new Map(formalDocuments.map((entry) => [entry.path, entry.document]));
     const tasks = formalDocuments.filter((entry) =>
       [
@@ -1313,6 +1324,60 @@ export class ReportRuntime {
       )
       .map((subject) => String(subject.subject_id))
       .sort();
+    const synthesisBindings = records(sourceDocument.decision_subject_synthesis_hashes);
+    const subjectSyntheses = synthesisBindings.map((binding) => {
+      const synthesis =
+        typeof binding.ref === "string" ? envelopesByPath.get(binding.ref) : undefined;
+      if (
+        synthesis?.artifact_type !== "startup_opportunity.decision_subject_synthesis.current" ||
+        synthesis.content_hash !== binding.content_hash ||
+        !isRecord(synthesis.document.direction)
+      ) {
+        throw new StoreError(
+          "report.source_invalid",
+          "terminal report references an invalid decision subject synthesis",
+          { binding },
+        );
+      }
+      return synthesis;
+    });
+    const synthesizedDirections = subjectSyntheses
+      .map((synthesis) => ({
+        direction_id: synthesis.document.subject_id,
+        subject_ref: synthesis.document.subject_ref,
+        subject_content_hash: synthesis.document.subject_content_hash,
+        synthesis_ref: synthesis.artifact_path,
+        synthesis_content_hash: synthesis.content_hash,
+        ...structuredClone(synthesis.document.direction as Record<string, unknown>),
+      }))
+      .sort((left, right) => String(left.direction_id).localeCompare(String(right.direction_id)));
+    const synthesizedValidationPlan = subjectSyntheses
+      .flatMap((synthesis) =>
+        records(synthesis.document.validation_steps).map((step) => ({
+          order: step.order,
+          direction_id: synthesis.document.subject_id,
+          subject_ref: synthesis.document.subject_ref,
+          subject_content_hash: synthesis.document.subject_content_hash,
+          synthesis_ref: synthesis.artifact_path,
+          synthesis_content_hash: synthesis.content_hash,
+          ...structuredClone(step),
+        })),
+      )
+      .sort((left, right) => Number(left.order) - Number(right.order));
+    if (
+      source.artifact_type === "startup_opportunity.terminal_report_source.v1" &&
+      ((records(sourceDocument.directions).length > 0 &&
+        canonicalJson(records(sourceDocument.directions)) !==
+          canonicalJson(synthesizedDirections)) ||
+        (records(sourceDocument.ordered_validation_plan).length > 0 &&
+          canonicalJson(records(sourceDocument.ordered_validation_plan)) !==
+            canonicalJson(synthesizedValidationPlan)))
+    ) {
+      throw new StoreError(
+        "report.source_invalid",
+        "caller-supplied Direction or validation-plan text drifts from the exact current-subject synthesis",
+      );
+    }
     const fullProjection = projectCommercialAuditTables(audits, tasks, documentsByPath);
     const projection =
       source.artifact_type === "startup_opportunity.terminal_report_source.v1"
@@ -1365,6 +1430,8 @@ export class ReportRuntime {
       ...(source.artifact_type === "startup_opportunity.terminal_report_source.v1"
         ? {
             current_decision_subject_ids: currentDecisionSubjectIds,
+            directions: synthesizedDirections,
+            ordered_validation_plan: synthesizedValidationPlan,
             audit_refs: [
               ...new Set([...strings(sourceDocument.audit_refs), ...projectedAuditRefs]),
             ].sort(),
@@ -1378,6 +1445,9 @@ export class ReportRuntime {
         ...new Set([
           ...source.input_refs.filter((ref) => !ref.startsWith("artifacts/research-audits/")),
           ...projection.commercial_research_audit_refs,
+          ...synthesisBindings.flatMap((binding) =>
+            typeof binding.ref === "string" ? [binding.ref] : [],
+          ),
         ]),
       ].sort(),
       content_hash: canonicalContentHash(provisionalDocument),

@@ -204,6 +204,19 @@ function validateContentProvenance(
     ? source.document.content_provenance
     : {};
   const refs = stringArray(provenance.prior_input_decision_refs);
+  const taintRequiredRefs = [...exactRecords.values()]
+    .filter(
+      (decision) =>
+        decision.schema_version === "startup_opportunity.decision.v1" &&
+        decision.decision_type === "prior_input_consumed" &&
+        decision.run_id === source.document.run_id &&
+        !stringArray(decision.prior_taint_exempt_artifact_refs).includes(source.path),
+    )
+    .flatMap((decision) =>
+      typeof decision.prior_admission_ref === "string" ? [decision.prior_admission_ref] : [],
+    )
+    .filter((ref, index, values) => values.indexOf(ref) === index)
+    .sort();
   const targetedAdmissionRefs = [...exactRecords.entries()]
     .filter(
       ([, decision]) =>
@@ -251,6 +264,17 @@ function validateContentProvenance(
       ),
     );
   }
+  const missingTaintRefs = taintRequiredRefs.filter((ref) => !refs.includes(ref));
+  if (missingTaintRefs.length > 0) {
+    errors.push(
+      issue(
+        "discovery_maps.prior_input_taint_not_propagated",
+        `${source.path}#/content_provenance/prior_input_decision_refs`,
+        "every Map published after a controlled prior-input read must retain its hypothesis-only admission provenance",
+        { missingTaintRefs },
+      ),
+    );
+  }
   if (
     (provenance.synthesis_origin === "current_run_synthesis" && refs.length > 0) ||
     (provenance.synthesis_origin === "prior_informed_synthesis" && refs.length === 0)
@@ -271,6 +295,7 @@ function validateContentProvenance(
       decision.run_id !== source.document.run_id ||
       decision.prior_source_run_id === source.document.run_id ||
       (!inheritedRefs.includes(ref) &&
+        !taintRequiredRefs.includes(ref) &&
         (decision.prior_input_consumer !== "discovery_maps" ||
           decision.prior_target_artifact_path !== source.path)) ||
       decision.prior_use_boundary !== "hypothesis_input_only"

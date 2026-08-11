@@ -797,6 +797,7 @@ function terminalReportSource(request: ScaffoldRequest): ScaffoldArtifact {
       generated_at: request.created_at,
       decision_subject_snapshot_ref: DECISION_SUBJECT_SNAPSHOT_REF,
       decision_subject_snapshot_hash: `sha256:${"0".repeat(64)}`,
+      decision_subject_synthesis_hashes: [],
       current_decision_subject_ids: [],
       terminal_outcome: "insufficient_evidence",
       decision_question: request.scope_confirmation.decision_goal,

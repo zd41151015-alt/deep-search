@@ -9,6 +9,7 @@ export interface DecisionSubjectDocument {
 }
 
 const SNAPSHOT_SCHEMA = "startup_opportunity.decision_subject_snapshot.current";
+const SYNTHESIS_SCHEMA = "startup_opportunity.decision_subject_synthesis.current";
 
 const SUBJECT_SCHEMA_BY_KIND: Readonly<Record<string, readonly string[]>> = {
   discovery_candidate: ["startup_opportunity.discovery_candidate.v1"],
@@ -70,110 +71,336 @@ function ancestorSnapshots(
   return ancestors;
 }
 
-function strings(value: unknown): readonly string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === "string")
-    : [];
+function createdAt(target: DecisionSubjectDocument | undefined): number | null {
+  const value = target?.envelope?.created_at;
+  if (typeof value !== "string") return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
-function joined(value: unknown): string | undefined {
-  const values = strings(value);
-  return values.length === 0 ? undefined : values.join(" | ");
+function candidateClosureRefs(document: Record<string, unknown>): ReadonlySet<string> {
+  const formation = isRecord(document.formation) ? document.formation : {};
+  const evidenceLineage = isRecord(document.evidence_lineage) ? document.evidence_lineage : {};
+  const enrichment = isRecord(document.enrichment) ? document.enrichment : {};
+  return new Set([
+    ...records(formation.synthesis_input_hashes).flatMap((binding) =>
+      typeof binding.ref === "string" ? [binding.ref] : [],
+    ),
+    ...Object.values(evidenceLineage).flatMap((value) =>
+      Array.isArray(value)
+        ? value.filter((entry): entry is string => typeof entry === "string")
+        : [],
+    ),
+    ...(Array.isArray(enrichment.basis_refs)
+      ? enrichment.basis_refs.filter((entry): entry is string => typeof entry === "string")
+      : []),
+  ]);
 }
 
-function directionSubjectProjection(
-  target: DecisionSubjectDocument,
+function validateReformation(
+  snapshot: DecisionSubjectDocument,
+  subject: Record<string, unknown>,
+  subjectIndex: number,
+  terminalSnapshots: readonly DecisionSubjectDocument[],
   byPath: ReadonlyMap<string, DecisionSubjectDocument>,
-): Readonly<Record<string, string>> {
-  const document = target.document;
-  if (
-    target.schemaVersion === "startup_opportunity.concept_hypothesis.assessment.current" ||
-    target.schemaVersion === "startup_opportunity.concept_hypothesis.assessment_intake.current"
-  ) {
-    return Object.fromEntries(
-      [
-        ["label", document.product_thesis],
-        ["target_user", joined(document.target_user)],
-        ["narrow_scenario", document.entry_scene],
-        ["problem", document.product_thesis],
-        ["current_alternative", joined(document.current_alternative)],
-        ["payer", joined(document.buyer)],
-        ["product_form", document.delivery_form],
-        ["core_value", document.claimed_value],
-      ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-    );
-  }
-  if (target.schemaVersion === "startup_opportunity.opportunity_thesis.v1") {
-    return Object.fromEntries(
-      [
-        ["label", document.title],
-        ["target_user", document.beachhead_segment],
-        ["narrow_scenario", document.entry_scene],
-        ["problem", document.job_to_be_done],
-        ["current_alternative", document.description],
-        ["payer", joined(document.payer)],
-        ["product_form", document.selected_delivery_form],
-        ["core_value", document.incremental_value_over_baseline],
-        ["why_now", document.why_now],
-      ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-    );
-  }
-  if (target.schemaVersion !== "startup_opportunity.discovery_candidate.v1") return {};
-  const subject = isRecord(document.subject) ? document.subject : {};
-  const demandRef =
-    typeof subject.demand_candidate_ref === "string" ? subject.demand_candidate_ref : undefined;
-  const demand = demandRef === undefined ? undefined : byPath.get(demandRef);
-  const demandSubject = isRecord(demand?.document.subject) ? demand.document.subject : {};
-  if (document.candidate_kind === "demand_seed") {
-    return Object.fromEntries(
-      [
-        ["label", document.candidate_id],
-        ["target_user", joined(subject.user_hypotheses)],
-        ["narrow_scenario", subject.entry_scene],
-        ["problem", subject.job_to_be_done],
-        ["current_alternative", joined(subject.current_alternatives)],
-        ["payer", joined(subject.buyer_hypotheses)],
-        ["product_form", "unformed"],
-        ["core_value", subject.desired_outcome],
-      ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-    );
-  }
-  if (document.candidate_kind === "baseline_seed") {
-    return Object.fromEntries(
-      [
-        ["label", subject.current_workflow],
-        ["target_user", joined(demandSubject.user_hypotheses)],
-        ["narrow_scenario", demandSubject.entry_scene ?? subject.current_workflow],
-        ["problem", subject.current_cost_or_burden],
-        ["current_alternative", subject.current_workflow],
-        ["payer", joined(demandSubject.buyer_hypotheses)],
-        ["product_form", "status_quo"],
-        ["core_value", subject.minimum_incremental_value_required],
-      ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-    );
-  }
-  const baselineRef =
-    typeof subject.baseline_candidate_ref === "string" ? subject.baseline_candidate_ref : undefined;
-  const baseline = baselineRef === undefined ? undefined : byPath.get(baselineRef);
-  const baselineSubject = isRecord(baseline?.document.subject) ? baseline.document.subject : {};
-  return Object.fromEntries(
-    [
-      ["label", subject.solution_class],
-      ["target_user", joined(demandSubject.user_hypotheses)],
-      ["narrow_scenario", demandSubject.entry_scene],
-      ["problem", demandSubject.job_to_be_done],
-      ["current_alternative", baselineSubject.current_workflow],
-      ["payer", joined(demandSubject.buyer_hypotheses)],
-      ["product_form", joined(subject.delivery_forms)],
-      ["core_value", subject.incremental_value_hypothesis],
-    ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+  errors: ValidationIssue[],
+): void {
+  const terminalOccurrences = terminalSnapshots.flatMap((terminalSnapshot) =>
+    records(terminalSnapshot.document.subjects)
+      .filter(
+        (candidate) =>
+          candidate.subject_id === subject.subject_id &&
+          candidate.subject_kind === subject.subject_kind &&
+          ["dropped", "superseded"].includes(String(candidate.lifecycle_status)),
+      )
+      .map((candidate) => ({ terminalSnapshot, candidate })),
   );
+  const decisionRef = subject.reformation_decision_ref;
+  if (terminalOccurrences.length === 0) {
+    if (typeof decisionRef === "string") {
+      errors.push(
+        issue(
+          "decision_subject.reformation_decision_unexpected",
+          `${snapshot.path}#/subjects/${subjectIndex}/reformation_decision_ref`,
+          "a reformation Decision is allowed only when reconsidering a terminal subject identity",
+        ),
+      );
+    }
+    return;
+  }
+  if (
+    terminalOccurrences.some(
+      ({ candidate }) =>
+        candidate.subject_ref === subject.subject_ref &&
+        candidate.subject_content_hash === subject.subject_content_hash,
+    )
+  ) {
+    errors.push(
+      issue(
+        "decision_subject.terminal_lifecycle_revival",
+        `${snapshot.path}#/subjects/${subjectIndex}`,
+        "a dropped or superseded exact subject artifact cannot return to the current decision set",
+        { subjectId: subject.subject_id },
+      ),
+    );
+    return;
+  }
+  if (typeof decisionRef !== "string") {
+    errors.push(
+      issue(
+        "decision_subject.reformation_decision_required",
+        `${snapshot.path}#/subjects/${subjectIndex}/reformation_decision_ref`,
+        "reconsidering a terminal subject identity requires an exact Store-authored reformation Decision",
+        { subjectId: subject.subject_id },
+      ),
+    );
+    return;
+  }
+  const decision = exactRecords.get(decisionRef);
+  const terminalSnapshot =
+    typeof decision?.terminal_snapshot_ref === "string"
+      ? byPath.get(decision.terminal_snapshot_ref)
+      : undefined;
+  const terminal = terminalOccurrences.find(
+    (occurrence) => occurrence.terminalSnapshot.path === terminalSnapshot?.path,
+  );
+  const reformed =
+    typeof subject.subject_ref === "string" ? byPath.get(subject.subject_ref) : undefined;
+  if (
+    decision?.decision_type !== "subject_reformed" ||
+    decision.actor !== "main_agent" ||
+    decision.run_id !== snapshot.document.run_id ||
+    terminalSnapshot === undefined ||
+    decision.terminal_snapshot_hash !== targetHash(terminalSnapshot) ||
+    terminal === undefined ||
+    decision.terminal_subject_id !== terminal.candidate.subject_id ||
+    decision.terminal_subject_ref !== terminal.candidate.subject_ref ||
+    decision.terminal_subject_content_hash !== terminal.candidate.subject_content_hash ||
+    decision.reformed_subject_ref !== subject.subject_ref ||
+    decision.reformed_subject_content_hash !== subject.subject_content_hash
+  ) {
+    errors.push(
+      issue(
+        "decision_subject.reformation_decision_binding_mismatch",
+        `${snapshot.path}#/subjects/${subjectIndex}/reformation_decision_ref`,
+        "reformation Decision must exactly bind an ancestor terminal snapshot/subject and the new immutable subject revision",
+      ),
+    );
+    return;
+  }
+  if (
+    reformed?.schemaVersion !== "startup_opportunity.discovery_candidate.v1" ||
+    terminal.candidate.subject_kind !== "discovery_candidate"
+  ) {
+    errors.push(
+      issue(
+        "decision_subject.reformation_subject_kind_unsupported",
+        `${snapshot.path}#/subjects/${subjectIndex}`,
+        "reformation requires a subject kind with mechanically verifiable immutable revision and formation closure",
+      ),
+    );
+    return;
+  }
+  const terminalArtifact =
+    typeof terminal.candidate.subject_ref === "string"
+      ? byPath.get(terminal.candidate.subject_ref)
+      : undefined;
+  if (
+    terminalArtifact?.schemaVersion !== "startup_opportunity.discovery_candidate.v1" ||
+    reformed.document.parent_candidate_ref !== terminalArtifact.path ||
+    reformed.document.parent_content_hash !== targetHash(terminalArtifact) ||
+    reformed.document.candidate_id !== terminalArtifact.document.candidate_id ||
+    Number(reformed.document.revision) !== Number(terminalArtifact.document.revision) + 1
+  ) {
+    errors.push(
+      issue(
+        "decision_subject.reformation_revision_lineage_mismatch",
+        `${snapshot.path}#/subjects/${subjectIndex}`,
+        "reformed Candidate must be the direct next immutable revision of the exact terminal Candidate",
+      ),
+    );
+  }
+  if (
+    canonicalJson(reformed.document.subject) === canonicalJson(terminalArtifact?.document.subject)
+  ) {
+    errors.push(
+      issue(
+        "decision_subject.reformation_semantics_unchanged",
+        `${snapshot.path}#/subjects/${subjectIndex}`,
+        "reformation must materially change Candidate subject semantics, not only its path or revision metadata",
+      ),
+    );
+  }
+  const closureRefs = candidateClosureRefs(reformed.document);
+  const terminalClosureRefs = candidateClosureRefs(terminalArtifact?.document ?? {});
+  const terminalCreatedAt = createdAt(terminalSnapshot);
+  const reformedCreatedAt = createdAt(reformed);
+  const decisionCreatedAt =
+    typeof decision.timestamp === "string" ? Date.parse(decision.timestamp) : Number.NaN;
+  const inputs = records(decision.reformation_input_hashes);
+  if (
+    inputs.length === 0 ||
+    terminalCreatedAt === null ||
+    reformedCreatedAt === null ||
+    !Number.isFinite(decisionCreatedAt) ||
+    decisionCreatedAt < reformedCreatedAt
+  ) {
+    errors.push(
+      issue(
+        "decision_subject.reformation_temporal_basis_invalid",
+        `${snapshot.path}#/subjects/${subjectIndex}/reformation_decision_ref`,
+        "reformation requires at least one exact formal input created after the terminal snapshot and before the new subject",
+      ),
+    );
+  }
+  for (const [inputIndex, binding] of inputs.entries()) {
+    const ref = typeof binding.ref === "string" ? binding.ref : "";
+    const input = byPath.get(ref);
+    const inputCreatedAt = createdAt(input);
+    if (
+      input === undefined ||
+      input.document.run_id !== snapshot.document.run_id ||
+      binding.content_hash !== targetHash(input) ||
+      [snapshot.path, terminalSnapshot.path, terminalArtifact?.path, reformed.path].includes(ref) ||
+      !closureRefs.has(ref) ||
+      terminalClosureRefs.has(ref)
+    ) {
+      errors.push(
+        issue(
+          "decision_subject.reformation_input_unrelated",
+          `${snapshot.path}#/subjects/${subjectIndex}/reformation_decision_ref`,
+          "each reformation input must be a newly added exact same-Run artifact in the new Candidate formation, Evidence, or enrichment closure",
+          { inputIndex, ref },
+        ),
+      );
+    }
+    if (
+      terminalCreatedAt === null ||
+      reformedCreatedAt === null ||
+      inputCreatedAt === null ||
+      inputCreatedAt <= terminalCreatedAt ||
+      inputCreatedAt > reformedCreatedAt
+    ) {
+      errors.push(
+        issue(
+          "decision_subject.reformation_input_not_post_terminal",
+          `${snapshot.path}#/subjects/${subjectIndex}/reformation_decision_ref`,
+          "each reformation input must be newly created after the terminal snapshot and no later than the new Candidate revision",
+          { inputIndex, ref },
+        ),
+      );
+    }
+  }
+}
+
+function projectedDirection(synthesis: DecisionSubjectDocument): Record<string, unknown> {
+  return {
+    direction_id: synthesis.document.subject_id,
+    subject_ref: synthesis.document.subject_ref,
+    subject_content_hash: synthesis.document.subject_content_hash,
+    synthesis_ref: synthesis.path,
+    synthesis_content_hash: targetHash(synthesis),
+    ...structuredClone(isRecord(synthesis.document.direction) ? synthesis.document.direction : {}),
+  };
+}
+
+function projectedValidationSteps(
+  synthesis: DecisionSubjectDocument,
+): readonly Record<string, unknown>[] {
+  return records(synthesis.document.validation_steps).map((step) => ({
+    order: step.order,
+    direction_id: synthesis.document.subject_id,
+    subject_ref: synthesis.document.subject_ref,
+    subject_content_hash: synthesis.document.subject_content_hash,
+    synthesis_ref: synthesis.path,
+    synthesis_content_hash: targetHash(synthesis),
+    ...structuredClone(step),
+  }));
+}
+
+function validateSynthesis(
+  synthesis: DecisionSubjectDocument,
+  byPath: ReadonlyMap<string, DecisionSubjectDocument>,
+  errors: ValidationIssue[],
+): void {
+  const document = synthesis.document;
+  const subject =
+    typeof document.subject_ref === "string" ? byPath.get(document.subject_ref) : undefined;
+  if (
+    synthesis.envelope === null ||
+    synthesis.envelope.artifact_type !== SYNTHESIS_SCHEMA ||
+    synthesis.envelope.artifact_path !== synthesis.path ||
+    synthesis.envelope.run_id !== document.run_id ||
+    synthesis.envelope.producer_role !== "main_agent" ||
+    synthesis.envelope.content_hash !== canonicalContentHash(document)
+  ) {
+    errors.push(
+      issue(
+        "decision_subject.synthesis_envelope_mismatch",
+        synthesis.path,
+        "decision subject synthesis requires an exact immutable main-agent envelope",
+      ),
+    );
+  }
+  if (
+    subject === undefined ||
+    document.run_id !== subject.document.run_id ||
+    document.subject_content_hash !== targetHash(subject) ||
+    document.subject_id !==
+      (subject.schemaVersion === "startup_opportunity.discovery_candidate.v1"
+        ? subject.document.candidate_id
+        : subject.schemaVersion === "startup_opportunity.opportunity_thesis.v1"
+          ? subject.document.opportunity_id
+          : subject.document.concept_hypothesis_id)
+  ) {
+    errors.push(
+      issue(
+        "decision_subject.synthesis_subject_binding_mismatch",
+        synthesis.path,
+        "decision subject synthesis must bind an exact same-Run subject ref and content hash",
+      ),
+    );
+  }
+  const basis = records(document.synthesis_basis_hashes);
+  for (const [index, binding] of basis.entries()) {
+    const target = typeof binding.ref === "string" ? byPath.get(binding.ref) : undefined;
+    if (
+      target === undefined ||
+      target.document.run_id !== document.run_id ||
+      binding.content_hash !== targetHash(target)
+    ) {
+      errors.push(
+        issue(
+          "decision_subject.synthesis_basis_binding_mismatch",
+          `${synthesis.path}#/synthesis_basis_hashes/${index}`,
+          "report synthesis basis must bind exact same-Run subject, Evidence, Comparison, or Audit inputs",
+        ),
+      );
+    }
+  }
+  if (
+    !basis.some(
+      (binding) =>
+        binding.ref === document.subject_ref &&
+        binding.content_hash === document.subject_content_hash,
+    )
+  ) {
+    errors.push(
+      issue(
+        "decision_subject.synthesis_subject_basis_required",
+        `${synthesis.path}#/synthesis_basis_hashes`,
+        "report synthesis must include its exact current subject as a basis",
+      ),
+    );
+  }
 }
 
 function validateSnapshot(
   snapshot: DecisionSubjectDocument,
   byPath: ReadonlyMap<string, DecisionSubjectDocument>,
   manifest: DecisionSubjectDocument | undefined,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
   errors: ValidationIssue[],
 ): void {
   const document = snapshot.document;
@@ -359,23 +586,6 @@ function validateSnapshot(
         ),
       );
     }
-    const reformationBindings = records(subject.reformation_basis_hashes);
-    for (const [bindingIndex, binding] of reformationBindings.entries()) {
-      const basis = typeof binding.ref === "string" ? byPath.get(binding.ref) : undefined;
-      if (
-        basis === undefined ||
-        basis.document.run_id !== document.run_id ||
-        binding.content_hash !== targetHash(basis)
-      ) {
-        errors.push(
-          issue(
-            "decision_subject.reformation_basis_binding_mismatch",
-            `${snapshot.path}#/subjects/${index}/reformation_basis_hashes/${bindingIndex}`,
-            "subject re-formation basis must bind an exact same-Run formal input",
-          ),
-        );
-      }
-    }
     if (
       subject.lifecycle_status === "superseded" &&
       !currentFinalIds.has(String(subject.superseded_by_subject_id))
@@ -407,66 +617,33 @@ function validateSnapshot(
     }
   }
 
-  const historicalSubjects = ancestorSnapshots(snapshot, byPath).flatMap((ancestor) =>
-    records(ancestor.document.subjects),
-  );
+  const terminalSnapshots = ancestorSnapshots(snapshot, byPath);
   for (const [index, subject] of subjects.entries()) {
     if (subject.lifecycle_status !== "current") continue;
-    const historicalTerminal = historicalSubjects.filter(
-      (candidate) =>
-        candidate.subject_id === subject.subject_id &&
-        candidate.subject_kind === subject.subject_kind &&
-        ["dropped", "superseded"].includes(String(candidate.lifecycle_status)),
-    );
-    if (historicalTerminal.length === 0) continue;
-    if (
-      historicalTerminal.some(
-        (candidate) =>
-          candidate.subject_ref === subject.subject_ref &&
-          candidate.subject_content_hash === subject.subject_content_hash,
-      )
-    ) {
-      errors.push(
-        issue(
-          "decision_subject.terminal_lifecycle_revival",
-          `${snapshot.path}#/subjects/${index}`,
-          "a dropped or superseded exact subject artifact cannot silently return to the current decision set",
-          { subjectId: subject.subject_id },
-        ),
-      );
-      continue;
-    }
-    if (
-      historicalTerminal.some((candidate) => candidate.subject_ref === subject.subject_ref) ||
-      records(subject.reformation_basis_hashes).length === 0
-    ) {
-      errors.push(
-        issue(
-          "decision_subject.reformation_basis_required",
-          `${snapshot.path}#/subjects/${index}/reformation_basis_hashes`,
-          "reconsidering a terminal subject identity requires a new immutable artifact ref and exact same-Run re-formation basis",
-          { subjectId: subject.subject_id },
-        ),
-      );
-    }
+    validateReformation(snapshot, subject, index, terminalSnapshots, byPath, exactRecords, errors);
   }
 }
 
 export function validateDecisionSubjectContract(
   documents: readonly DecisionSubjectDocument[],
+  exactRecords: ReadonlyMap<string, Record<string, unknown>> = new Map(),
 ): readonly ValidationIssue[] {
   const snapshots = documents.filter((entry) => entry.schemaVersion === SNAPSHOT_SCHEMA);
+  const syntheses = documents.filter((entry) => entry.schemaVersion === SYNTHESIS_SCHEMA);
   const terminalSources = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.terminal_report_source.v1",
   );
-  if (snapshots.length === 0 && terminalSources.length === 0) return [];
+  if (snapshots.length === 0 && syntheses.length === 0 && terminalSources.length === 0) return [];
 
   const errors: ValidationIssue[] = [];
   const byPath = new Map(documents.map((entry) => [entry.path, entry]));
   const manifest = documents.find(
     (entry) => entry.schemaVersion === "startup_opportunity.run_manifest.v1",
   );
-  for (const snapshot of snapshots) validateSnapshot(snapshot, byPath, manifest, errors);
+  for (const snapshot of snapshots) {
+    validateSnapshot(snapshot, byPath, manifest, exactRecords, errors);
+  }
+  for (const synthesis of syntheses) validateSynthesis(synthesis, byPath, errors);
 
   if (manifest !== undefined && manifest.document.current_decision_subject_snapshot_ref !== null) {
     const current = byPath.get(String(manifest.document.current_decision_subject_snapshot_ref));
@@ -510,67 +687,72 @@ export function validateDecisionSubjectContract(
     const currentSubjects = records(snapshot?.document.subjects).filter(
       (subject) => subject.lifecycle_status === "current" && subject.reporting_role === "final",
     );
-    for (const [index, direction] of records(source.document.directions).entries()) {
-      const subject = currentSubjects.find(
-        (candidate) => candidate.subject_id === direction.direction_id,
-      );
-      const target =
-        typeof subject?.subject_ref === "string" ? byPath.get(subject.subject_ref) : undefined;
+    const synthesisBindings = records(source.document.decision_subject_synthesis_hashes);
+    const boundSyntheses = synthesisBindings.flatMap((binding) => {
+      const synthesis = typeof binding.ref === "string" ? byPath.get(binding.ref) : undefined;
       if (
-        subject === undefined ||
-        target === undefined ||
-        direction.subject_ref !== subject.subject_ref ||
-        direction.subject_content_hash !== subject.subject_content_hash
+        synthesis?.schemaVersion !== SYNTHESIS_SCHEMA ||
+        binding.content_hash !== targetHash(synthesis)
       ) {
         errors.push(
           issue(
-            "decision_subject.direction_subject_binding_mismatch",
-            `${source.path}#/directions/${index}`,
-            "each report Direction must bind the exact authoritative current subject ref and content hash",
+            "decision_subject.report_synthesis_binding_mismatch",
+            `${source.path}#/decision_subject_synthesis_hashes`,
+            "terminal report synthesis refs must resolve to exact immutable subject syntheses",
           ),
         );
-        continue;
+        return [];
       }
-      for (const [basisIndex, binding] of records(direction.synthesis_basis_hashes).entries()) {
-        const basis = typeof binding.ref === "string" ? byPath.get(binding.ref) : undefined;
-        if (
-          basis === undefined ||
-          basis.document.run_id !== source.document.run_id ||
-          binding.content_hash !== targetHash(basis)
-        ) {
-          errors.push(
-            issue(
-              "decision_subject.direction_basis_binding_mismatch",
-              `${source.path}#/directions/${index}/synthesis_basis_hashes/${basisIndex}`,
-              "Direction synthesis basis must bind exact same-Run current subject or Evidence inputs",
-            ),
-          );
-        }
-      }
-      if (records(direction.synthesis_basis_hashes).length === 0) {
+      return [synthesis];
+    });
+    const expectedSynthesisIds = boundSyntheses
+      .map((synthesis) => String(synthesis.document.subject_id))
+      .sort();
+    for (const subject of currentSubjects) {
+      const synthesis = boundSyntheses.find(
+        (candidate) => candidate.document.subject_id === subject.subject_id,
+      );
+      if (
+        synthesis === undefined ||
+        synthesis.document.subject_ref !== subject.subject_ref ||
+        synthesis.document.subject_content_hash !== subject.subject_content_hash
+      ) {
         errors.push(
           issue(
-            "decision_subject.direction_basis_required",
-            `${source.path}#/directions/${index}/synthesis_basis_hashes`,
-            "Direction judgment fields require at least one exact same-Run subject or Evidence basis",
+            "decision_subject.current_subject_synthesis_missing",
+            source.path,
+            "every authoritative current final subject requires one exact report synthesis",
+            { subjectId: subject.subject_id },
           ),
         );
       }
-      const expectedProjection = directionSubjectProjection(target, byPath);
-      const mismatchedFields = Object.entries(expectedProjection)
-        .filter(([field, expected]) => direction[field] !== expected)
-        .map(([field]) => field)
-        .sort();
-      if (mismatchedFields.length > 0) {
-        errors.push(
-          issue(
-            "decision_subject.direction_body_mismatch",
-            `${source.path}#/directions/${index}`,
-            "Direction identity fields must be the deterministic projection of its bound authoritative subject",
-            { directionId: direction.direction_id, mismatchedFields },
-          ),
-        );
-      }
+    }
+    const expectedDirections = boundSyntheses
+      .map(projectedDirection)
+      .sort((left, right) => String(left.direction_id).localeCompare(String(right.direction_id)));
+    if (canonicalJson(records(source.document.directions)) !== canonicalJson(expectedDirections)) {
+      errors.push(
+        issue(
+          "decision_subject.direction_body_mismatch",
+          `${source.path}#/directions`,
+          "every user-visible Direction field must exactly project its bound current-subject synthesis",
+        ),
+      );
+    }
+    const expectedValidationPlan = boundSyntheses
+      .flatMap(projectedValidationSteps)
+      .sort((left, right) => Number(left.order) - Number(right.order));
+    if (
+      canonicalJson(records(source.document.ordered_validation_plan)) !==
+      canonicalJson(expectedValidationPlan)
+    ) {
+      errors.push(
+        issue(
+          "decision_subject.validation_plan_subject_binding_mismatch",
+          `${source.path}#/ordered_validation_plan`,
+          "every user-visible validation step must exactly project a current-subject synthesis",
+        ),
+      );
     }
     if (
       snapshot?.schemaVersion !== SNAPSHOT_SCHEMA ||
@@ -583,7 +765,8 @@ export function validateDecisionSubjectContract(
       currentPlan?.schemaVersion !== "startup_opportunity.research_plan.v1" ||
       snapshot.document.research_plan_hash !== targetHash(currentPlan) ||
       canonicalJson(reportIds) !== canonicalJson(currentIds) ||
-      canonicalJson(directionIds) !== canonicalJson(currentIds)
+      canonicalJson(directionIds) !== canonicalJson(currentIds) ||
+      canonicalJson(expectedSynthesisIds) !== canonicalJson(currentIds)
     ) {
       errors.push(
         issue(

@@ -176,6 +176,53 @@ export interface AdmitPriorInputResult {
   readonly status: "appended" | "idempotent_replay";
 }
 
+export interface ReadPriorInputInput {
+  readonly runId: string;
+  readonly admissionRef: string;
+  readonly consumedAt?: string;
+}
+
+export interface ReadPriorInputResult {
+  readonly schemaVersion: "startup_opportunity.read_prior_input_result.v1";
+  readonly runId: string;
+  readonly admissionRef: string;
+  readonly consumptionDecisionRef: string;
+  readonly consumptionDecisionHash: string;
+  readonly sourceRunId: string;
+  readonly sourceArtifactPath: string;
+  readonly sourceContentHash: string;
+  readonly targetArtifactPath: string;
+  readonly consumer: "discovery_maps" | "discovery_candidates";
+  readonly useBoundary: "hypothesis_input_only";
+  readonly sourceText: string;
+  readonly status: "appended" | "idempotent_replay";
+}
+
+export interface ReformDecisionSubjectInput {
+  readonly runId: string;
+  readonly terminalSnapshotRef: string;
+  readonly terminalSubjectId: string;
+  readonly reformedSubjectRef: string;
+  readonly reformationInputRefs: readonly string[];
+  readonly reason: string;
+  readonly reformedAt?: string;
+}
+
+export interface ReformDecisionSubjectResult {
+  readonly schemaVersion: "startup_opportunity.reform_decision_subject_result.v1";
+  readonly runId: string;
+  readonly decisionRef: string;
+  readonly decisionHash: string;
+  readonly terminalSnapshotRef: string;
+  readonly terminalSubjectRef: string;
+  readonly reformedSubjectRef: string;
+  readonly reformationInputHashes: readonly {
+    readonly ref: string;
+    readonly content_hash: string;
+  }[];
+  readonly status: "appended" | "idempotent_replay";
+}
+
 export interface CreateRunResult {
   readonly schemaVersion: "startup_opportunity.create_run_result.v1";
   readonly status: "created" | "idempotent_replay";
@@ -1919,7 +1966,11 @@ export class RunStore {
       runId,
       "decisions.jsonl",
     )) {
-      if (decision.decision_type === "prior_input_admitted") {
+      if (
+        decision.decision_type === "prior_input_admitted" ||
+        decision.decision_type === "prior_input_consumed" ||
+        decision.decision_type === "subject_reformed"
+      ) {
         exactRecords.set(`decisions.jsonl#${String(decision.decision_id)}`, decision);
       }
     }
@@ -2978,15 +3029,22 @@ export class RunStore {
       decision.decision_type === "scope_proposed" ||
       decision.decision_type === "scope_assumption_confirmed" ||
       decision.decision_type === "scope_changed_by_user" ||
-      decision.decision_type === "prior_input_admitted"
+      decision.decision_type === "prior_input_admitted" ||
+      decision.decision_type === "prior_input_consumed" ||
+      decision.decision_type === "subject_reformed"
     ) {
       throw new StoreError(
-        decision.decision_type === "prior_input_admitted"
-          ? "run.prior_input_dedicated_path_required"
-          : "run.scope_confirmation_dedicated_path_required",
+        decision.decision_type === "subject_reformed"
+          ? "run.subject_reformation_dedicated_path_required"
+          : decision.decision_type === "prior_input_admitted" ||
+              decision.decision_type === "prior_input_consumed"
+            ? "run.prior_input_dedicated_path_required"
+            : "run.scope_confirmation_dedicated_path_required",
         decision.decision_type === "prior_input_admitted"
           ? "prior input admission must use admitPriorInput() so the Store hashes the exact explicitly named source bytes"
-          : "Scope proposals and confirmations must use the dedicated proposeScope() and confirmScope() paths",
+          : decision.decision_type === "subject_reformed"
+            ? "subject reformation must use reformDecisionSubject() so the Store verifies terminal lineage and post-terminal causal inputs"
+            : "Scope proposals and confirmations must use the dedicated proposeScope() and confirmScope() paths",
         { decisionType: decision.decision_type },
       );
     }
@@ -3138,6 +3196,424 @@ export class RunStore {
         sourceContentHash,
         consumer: input.consumer,
         useBoundary: "hypothesis_input_only",
+        status,
+      };
+    });
+  }
+
+  async readPriorInput(input: ReadPriorInputInput): Promise<ReadPriorInputResult> {
+    await this.assertCurrentLeaf(input.runId);
+    const runRoot = await openRunDirectory(this.runsRoot, input.runId);
+    return withRunLock(runRoot, async () => {
+      const manifest = await this.readManifest(runRoot);
+      await this.assertScopeBindingLocked(runRoot, manifest);
+      if (
+        manifest.mode !== "opportunity_discovery" ||
+        manifest.scope_confirmation_ref === null ||
+        manifest.current_plan_ref === null
+      ) {
+        throw new StoreError(
+          "prior_input.current_scope_plan_required",
+          "prior input reading requires an opportunity-discovery Run with confirmed Scope and a current Plan",
+        );
+      }
+      const admission = await this.logs.readExactRecord(
+        runRoot,
+        input.runId,
+        input.admissionRef,
+        "decisions.jsonl",
+      );
+      if (
+        admission.decision_type !== "prior_input_admitted" ||
+        admission.actor !== "main_agent" ||
+        admission.prior_use_boundary !== "hypothesis_input_only" ||
+        typeof admission.prior_source_run_id !== "string" ||
+        typeof admission.prior_source_artifact_path !== "string" ||
+        typeof admission.prior_source_content_hash !== "string" ||
+        typeof admission.prior_target_artifact_path !== "string" ||
+        (admission.prior_input_consumer !== "discovery_maps" &&
+          admission.prior_input_consumer !== "discovery_candidates")
+      ) {
+        throw new StoreError(
+          "prior_input.admission_invalid",
+          "controlled prior input reading requires an exact Store-authored admission decision",
+          { admissionRef: input.admissionRef },
+        );
+      }
+      const sourceRunRoot = await openRunDirectoryReadOnly(
+        this.runsRoot,
+        admission.prior_source_run_id,
+      );
+      const sourceBytes = await readFile(
+        await resolveRunPath(sourceRunRoot, admission.prior_source_artifact_path),
+      );
+      const sourceContentHash = sha256Bytes(sourceBytes);
+      if (sourceContentHash !== admission.prior_source_content_hash) {
+        throw new StoreError(
+          "prior_input.source_drift",
+          "admitted prior input bytes changed before the controlled read",
+          {
+            admissionRef: input.admissionRef,
+            expected: admission.prior_source_content_hash,
+            actual: sourceContentHash,
+          },
+        );
+      }
+      const exemptArtifactRefs = manifest.artifact_refs
+        .filter(
+          (ref) =>
+            [
+              "artifacts/discovery/seed-probe.r1.json",
+              "artifacts/discovery/opportunity-space-map.r1.json",
+              "artifacts/discovery/solution-space-map.r1.json",
+            ].includes(ref) ||
+            /^artifacts\/discovery\/candidates\/[A-Za-z0-9._-]+\.r[1-9][0-9]*\.json$/.test(ref),
+        )
+        .sort();
+      const admissionHash = canonicalContentHash(admission);
+      const decisionId = `prior_input_consumed_${sha256Hex(
+        operationKey("prior_input_consumption_identity", {
+          run_id: input.runId,
+          prior_admission_ref: input.admissionRef,
+          prior_admission_hash: admissionHash,
+        }),
+      ).slice(0, 24)}`;
+      const identity = {
+        prior_input_id: admission.prior_input_id,
+        prior_admission_ref: input.admissionRef,
+        prior_admission_hash: admissionHash,
+        prior_source_run_id: admission.prior_source_run_id,
+        prior_source_artifact_path: admission.prior_source_artifact_path,
+        prior_source_content_hash: sourceContentHash,
+        prior_input_consumer: admission.prior_input_consumer,
+        prior_target_artifact_path: admission.prior_target_artifact_path,
+        prior_use_boundary: "hypothesis_input_only",
+        prior_taint_exempt_artifact_refs: exemptArtifactRefs,
+      };
+      const existing = (
+        await this.logs.listValidatedRecords(runRoot, input.runId, "decisions.jsonl")
+      ).find((record) => record.decision_id === decisionId);
+      if (
+        existing !== undefined &&
+        (existing.schema_version !== "startup_opportunity.decision.v1" ||
+          existing.run_id !== input.runId ||
+          existing.decision_type !== "prior_input_consumed" ||
+          existing.actor !== "main_agent" ||
+          canonicalJson(
+            Object.fromEntries(Object.keys(identity).map((key) => [key, existing[key]])),
+          ) !== canonicalJson(identity) ||
+          (input.consumedAt !== undefined && existing.timestamp !== input.consumedAt))
+      ) {
+        throw new StoreError(
+          "prior_input.consumption_conflict",
+          "prior input consumption identity is already bound to different provenance metadata",
+          { decisionId },
+        );
+      }
+      const decision =
+        existing ??
+        ({
+          schema_version: "startup_opportunity.decision.v1",
+          decision_id: decisionId,
+          run_id: input.runId,
+          decision_type: "prior_input_consumed",
+          timestamp: input.consumedAt ?? new Date().toISOString(),
+          actor: "main_agent",
+          reason:
+            "Controlled read of an admitted prior input; all later discovery artifacts inherit hypothesis-only provenance.",
+          artifact_refs: [input.admissionRef],
+          ...identity,
+        } satisfies Record<string, unknown>);
+      const status =
+        existing === undefined
+          ? await this.logs.appendValidated(runRoot, input.runId, "decisions.jsonl", decision)
+          : "idempotent_replay";
+      return {
+        schemaVersion: "startup_opportunity.read_prior_input_result.v1",
+        runId: input.runId,
+        admissionRef: input.admissionRef,
+        consumptionDecisionRef: `decisions.jsonl#${decisionId}`,
+        consumptionDecisionHash: canonicalContentHash(decision),
+        sourceRunId: admission.prior_source_run_id,
+        sourceArtifactPath: admission.prior_source_artifact_path,
+        sourceContentHash,
+        targetArtifactPath: admission.prior_target_artifact_path,
+        consumer: admission.prior_input_consumer,
+        useBoundary: "hypothesis_input_only",
+        sourceText: sourceBytes.toString("utf8"),
+        status,
+      };
+    });
+  }
+
+  async reformDecisionSubject(
+    input: ReformDecisionSubjectInput,
+  ): Promise<ReformDecisionSubjectResult> {
+    await this.assertCurrentLeaf(input.runId);
+    validateRelativePath(input.terminalSnapshotRef);
+    validateRelativePath(input.reformedSubjectRef);
+    if (input.reformationInputRefs.length === 0) {
+      throw new StoreError(
+        "subject_reformation.input_required",
+        "subject reformation requires at least one newly formed causal input",
+      );
+    }
+    const uniqueInputRefs = [...new Set(input.reformationInputRefs)].sort();
+    if (uniqueInputRefs.length !== input.reformationInputRefs.length) {
+      throw new StoreError(
+        "subject_reformation.input_duplicate",
+        "subject reformation inputs must be unique exact artifact refs",
+      );
+    }
+    for (const ref of uniqueInputRefs) validateRelativePath(ref);
+    const runRoot = await openRunDirectory(this.runsRoot, input.runId);
+    return withRunLock(runRoot, async () => {
+      const manifest = await this.readManifest(runRoot);
+      const readEnvelope = async (ref: string): Promise<FormalArtifactEnvelope> => {
+        if (!manifest.artifact_refs.includes(ref)) {
+          throw new StoreError(
+            "subject_reformation.artifact_unpublished",
+            "subject reformation may bind only immutable artifacts already published in this Run",
+            { ref },
+          );
+        }
+        const value = JSON.parse(
+          await readFile(await resolveRunPath(runRoot, ref), "utf8"),
+        ) as unknown;
+        if (
+          !isRecord(value) ||
+          value.schema_version !== ARTIFACT_ENVELOPE_SCHEMA_VERSION ||
+          value.artifact_path !== ref ||
+          value.run_id !== input.runId ||
+          !isRecord(value.document) ||
+          value.content_hash !== canonicalContentHash(value.document)
+        ) {
+          throw new StoreError(
+            "subject_reformation.artifact_invalid",
+            "subject reformation requires exact same-Run immutable formal envelopes",
+            { ref },
+          );
+        }
+        return value as FormalArtifactEnvelope;
+      };
+      if (manifest.current_decision_subject_snapshot_ref === null) {
+        throw new StoreError(
+          "subject_reformation.snapshot_required",
+          "subject reformation requires a published decision subject snapshot authority",
+        );
+      }
+      const snapshotChain: FormalArtifactEnvelope[] = [];
+      const visited = new Set<string>();
+      let snapshotRef: string | null = manifest.current_decision_subject_snapshot_ref;
+      while (snapshotRef !== null && !visited.has(snapshotRef)) {
+        visited.add(snapshotRef);
+        const snapshot = await readEnvelope(snapshotRef);
+        if (snapshot.artifact_type !== "startup_opportunity.decision_subject_snapshot.current") {
+          break;
+        }
+        snapshotChain.push(snapshot);
+        snapshotRef =
+          typeof snapshot.document.parent_snapshot_ref === "string"
+            ? snapshot.document.parent_snapshot_ref
+            : null;
+      }
+      const terminalSnapshot = snapshotChain.find(
+        (snapshot) => snapshot.artifact_path === input.terminalSnapshotRef,
+      );
+      const terminalSubject = (
+        Array.isArray(terminalSnapshot?.document.subjects)
+          ? terminalSnapshot.document.subjects.filter(isRecord)
+          : []
+      ).find(
+        (subject) =>
+          subject.subject_id === input.terminalSubjectId &&
+          ["dropped", "superseded"].includes(String(subject.lifecycle_status)),
+      );
+      if (terminalSnapshot === undefined || terminalSubject === undefined) {
+        throw new StoreError(
+          "subject_reformation.terminal_binding_invalid",
+          "terminal snapshot must be in the authoritative ancestry and contain the named dropped or superseded subject",
+        );
+      }
+      const terminalSubjectRef = String(terminalSubject.subject_ref);
+      const terminalArtifact = await readEnvelope(terminalSubjectRef);
+      const reformedArtifact = await readEnvelope(input.reformedSubjectRef);
+      if (
+        terminalSubject.subject_content_hash !== terminalArtifact.content_hash ||
+        terminalArtifact.artifact_type !== "startup_opportunity.discovery_candidate.v1" ||
+        reformedArtifact.artifact_type !== "startup_opportunity.discovery_candidate.v1" ||
+        reformedArtifact.artifact_path === terminalArtifact.artifact_path ||
+        reformedArtifact.document.parent_candidate_ref !== terminalArtifact.artifact_path ||
+        reformedArtifact.document.parent_content_hash !== terminalArtifact.content_hash ||
+        reformedArtifact.document.candidate_id !== terminalArtifact.document.candidate_id ||
+        reformedArtifact.document.candidate_id !== input.terminalSubjectId ||
+        Number(reformedArtifact.document.revision) !==
+          Number(terminalArtifact.document.revision) + 1
+      ) {
+        throw new StoreError(
+          "subject_reformation.revision_lineage_invalid",
+          "reformed subject must be the direct next immutable Candidate revision of the exact terminal subject",
+        );
+      }
+      if (
+        canonicalJson(reformedArtifact.document.subject) ===
+        canonicalJson(terminalArtifact.document.subject)
+      ) {
+        throw new StoreError(
+          "subject_reformation.semantics_unchanged",
+          "reformation must materially change Candidate subject semantics",
+        );
+      }
+      const formation = isRecord(reformedArtifact.document.formation)
+        ? reformedArtifact.document.formation
+        : {};
+      const evidenceLineage = isRecord(reformedArtifact.document.evidence_lineage)
+        ? reformedArtifact.document.evidence_lineage
+        : {};
+      const enrichment = isRecord(reformedArtifact.document.enrichment)
+        ? reformedArtifact.document.enrichment
+        : {};
+      const closureRefs = new Set([
+        ...(Array.isArray(formation.synthesis_input_hashes)
+          ? formation.synthesis_input_hashes.flatMap((binding) =>
+              isRecord(binding) && typeof binding.ref === "string" ? [binding.ref] : [],
+            )
+          : []),
+        ...Object.values(evidenceLineage).flatMap((value) =>
+          Array.isArray(value)
+            ? value.filter((entry): entry is string => typeof entry === "string")
+            : [],
+        ),
+        ...(Array.isArray(enrichment.basis_refs)
+          ? enrichment.basis_refs.filter((entry): entry is string => typeof entry === "string")
+          : []),
+      ]);
+      const terminalFormation = isRecord(terminalArtifact.document.formation)
+        ? terminalArtifact.document.formation
+        : {};
+      const terminalEvidenceLineage = isRecord(terminalArtifact.document.evidence_lineage)
+        ? terminalArtifact.document.evidence_lineage
+        : {};
+      const terminalEnrichment = isRecord(terminalArtifact.document.enrichment)
+        ? terminalArtifact.document.enrichment
+        : {};
+      const terminalClosureRefs = new Set([
+        ...(Array.isArray(terminalFormation.synthesis_input_hashes)
+          ? terminalFormation.synthesis_input_hashes.flatMap((binding) =>
+              isRecord(binding) && typeof binding.ref === "string" ? [binding.ref] : [],
+            )
+          : []),
+        ...Object.values(terminalEvidenceLineage).flatMap((value) =>
+          Array.isArray(value)
+            ? value.filter((entry): entry is string => typeof entry === "string")
+            : [],
+        ),
+        ...(Array.isArray(terminalEnrichment.basis_refs)
+          ? terminalEnrichment.basis_refs.filter(
+              (entry): entry is string => typeof entry === "string",
+            )
+          : []),
+      ]);
+      const terminalTime = Date.parse(terminalSnapshot.created_at);
+      const reformedTime = Date.parse(reformedArtifact.created_at);
+      const decisionTime = Date.parse(input.reformedAt ?? new Date().toISOString());
+      if (!Number.isFinite(decisionTime) || decisionTime < reformedTime) {
+        throw new StoreError(
+          "subject_reformation.decision_time_invalid",
+          "subject reformation Decision must be recorded no earlier than the new Candidate revision",
+        );
+      }
+      const reformationInputHashes = [] as { ref: string; content_hash: string }[];
+      for (const ref of uniqueInputRefs) {
+        if (
+          [
+            terminalSnapshot.artifact_path,
+            terminalArtifact.artifact_path,
+            reformedArtifact.artifact_path,
+          ].includes(ref) ||
+          !closureRefs.has(ref) ||
+          terminalClosureRefs.has(ref)
+        ) {
+          throw new StoreError(
+            "subject_reformation.input_unrelated",
+            "each reformation input must be newly added to the new Candidate formation, Evidence, or enrichment closure",
+            { ref },
+          );
+        }
+        const artifact = await readEnvelope(ref);
+        const inputTime = Date.parse(artifact.created_at);
+        if (
+          !Number.isFinite(terminalTime) ||
+          !Number.isFinite(reformedTime) ||
+          !Number.isFinite(inputTime) ||
+          inputTime <= terminalTime ||
+          inputTime > reformedTime
+        ) {
+          throw new StoreError(
+            "subject_reformation.input_not_post_terminal",
+            "each reformation input must be created after the terminal snapshot and no later than the new Candidate",
+            { ref },
+          );
+        }
+        reformationInputHashes.push({ ref, content_hash: artifact.content_hash });
+      }
+      const identity = {
+        run_id: input.runId,
+        terminal_snapshot_ref: terminalSnapshot.artifact_path,
+        terminal_snapshot_hash: terminalSnapshot.content_hash,
+        terminal_subject_id: input.terminalSubjectId,
+        terminal_subject_ref: terminalArtifact.artifact_path,
+        terminal_subject_content_hash: terminalArtifact.content_hash,
+        reformed_subject_ref: reformedArtifact.artifact_path,
+        reformed_subject_content_hash: reformedArtifact.content_hash,
+        reformation_input_hashes: reformationInputHashes,
+      };
+      const decisionId = `subject_reformed_${sha256Hex(
+        operationKey("subject_reformation_identity", identity),
+      ).slice(0, 24)}`;
+      const existing = (
+        await this.logs.listValidatedRecords(runRoot, input.runId, "decisions.jsonl")
+      ).find((record) => record.decision_id === decisionId);
+      if (
+        existing !== undefined &&
+        (existing.reason !== input.reason ||
+          (input.reformedAt !== undefined && existing.timestamp !== input.reformedAt))
+      ) {
+        throw new StoreError(
+          "subject_reformation.decision_conflict",
+          "subject reformation identity is already bound to different reason or timestamp metadata",
+        );
+      }
+      const decision =
+        existing ??
+        ({
+          schema_version: "startup_opportunity.decision.v1",
+          decision_id: decisionId,
+          decision_type: "subject_reformed",
+          timestamp: input.reformedAt ?? new Date().toISOString(),
+          actor: "main_agent",
+          reason: input.reason,
+          artifact_refs: [
+            terminalSnapshot.artifact_path,
+            terminalArtifact.artifact_path,
+            reformedArtifact.artifact_path,
+            ...uniqueInputRefs,
+          ].sort(),
+          ...identity,
+        } satisfies Record<string, unknown>);
+      const status =
+        existing === undefined
+          ? await this.logs.appendValidated(runRoot, input.runId, "decisions.jsonl", decision)
+          : "idempotent_replay";
+      return {
+        schemaVersion: "startup_opportunity.reform_decision_subject_result.v1",
+        runId: input.runId,
+        decisionRef: `decisions.jsonl#${decisionId}`,
+        decisionHash: canonicalContentHash(decision),
+        terminalSnapshotRef: terminalSnapshot.artifact_path,
+        terminalSubjectRef: terminalArtifact.artifact_path,
+        reformedSubjectRef: reformedArtifact.artifact_path,
+        reformationInputHashes,
         status,
       };
     });

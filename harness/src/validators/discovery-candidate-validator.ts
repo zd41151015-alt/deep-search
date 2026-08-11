@@ -462,6 +462,19 @@ function validateCandidateFormation(
   }
 
   const priorRefs = strings(formation.prior_input_decision_refs);
+  const taintRequiredRefs = [...exactRecords.values()]
+    .filter(
+      (decision) =>
+        decision.schema_version === "startup_opportunity.decision.v1" &&
+        decision.decision_type === "prior_input_consumed" &&
+        decision.run_id === candidate.document.run_id &&
+        !strings(decision.prior_taint_exempt_artifact_refs).includes(candidate.path),
+    )
+    .flatMap((decision) =>
+      typeof decision.prior_admission_ref === "string" ? [decision.prior_admission_ref] : [],
+    )
+    .filter((ref, index, values) => values.indexOf(ref) === index)
+    .sort();
   const targetedAdmissionRefs = [...exactRecords.entries()]
     .filter(
       ([, decision]) =>
@@ -512,6 +525,17 @@ function validateCandidateFormation(
       ),
     );
   }
+  const missingTaintRefs = taintRequiredRefs.filter((ref) => !priorRefs.includes(ref));
+  if (missingTaintRefs.length > 0) {
+    errors.push(
+      issue(
+        "discovery_candidate.prior_input_taint_not_propagated",
+        `${candidate.path}#/formation/prior_input_decision_refs`,
+        "every Candidate published after a controlled prior-input read must retain its hypothesis-only admission provenance",
+        { missingTaintRefs },
+      ),
+    );
+  }
   if (
     (formation.synthesis_origin === "current_run_synthesis" && priorRefs.length > 0) ||
     (formation.synthesis_origin === "prior_informed_synthesis" && priorRefs.length === 0)
@@ -532,6 +556,7 @@ function validateCandidateFormation(
       decision.run_id !== candidate.document.run_id ||
       decision.prior_source_run_id === candidate.document.run_id ||
       (!inheritedPriorRefs.includes(ref) &&
+        !taintRequiredRefs.includes(ref) &&
         (decision.prior_input_consumer !== "discovery_candidates" ||
           decision.prior_target_artifact_path !== candidate.path)) ||
       decision.prior_use_boundary !== "hypothesis_input_only"

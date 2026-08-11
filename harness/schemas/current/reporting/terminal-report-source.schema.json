@@ -16,6 +16,7 @@
     "generated_at",
     "decision_subject_snapshot_ref",
     "decision_subject_snapshot_hash",
+    "decision_subject_synthesis_hashes",
     "current_decision_subject_ids",
     "terminal_outcome",
     "decision_question",
@@ -274,7 +275,8 @@
           "direction_id",
           "subject_ref",
           "subject_content_hash",
-          "synthesis_basis_hashes",
+          "synthesis_ref",
+          "synthesis_content_hash",
           "priority",
           "ranking_status",
           "label",
@@ -305,23 +307,11 @@
           "subject_content_hash": {
             "$ref": "../core/definitions.schema.json#/$defs/sha256"
           },
-          "synthesis_basis_hashes": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": true,
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["ref", "content_hash"],
-              "properties": {
-                "ref": {
-                  "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
-                },
-                "content_hash": {
-                  "$ref": "../core/definitions.schema.json#/$defs/sha256"
-                }
-              }
-            }
+          "synthesis_ref": {
+            "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
+          },
+          "synthesis_content_hash": {
+            "$ref": "../core/definitions.schema.json#/$defs/sha256"
           },
           "priority": {
             "anyOf": [
@@ -393,6 +383,23 @@
           },
           "open_questions": {
             "$ref": "#/$defs/uniqueStrings"
+          }
+        }
+      }
+    },
+    "decision_subject_synthesis_hashes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "content_hash"],
+        "properties": {
+          "ref": {
+            "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
+          },
+          "content_hash": {
+            "$ref": "../core/definitions.schema.json#/$defs/sha256"
           }
         }
       }
@@ -747,6 +754,11 @@
         "additionalProperties": false,
         "required": [
           "order",
+          "direction_id",
+          "subject_ref",
+          "subject_content_hash",
+          "synthesis_ref",
+          "synthesis_content_hash",
           "hypothesis",
           "why_now",
           "method",
@@ -761,6 +773,21 @@
           "order": {
             "type": "integer",
             "minimum": 1
+          },
+          "direction_id": {
+            "$ref": "../core/definitions.schema.json#/$defs/identifier"
+          },
+          "subject_ref": {
+            "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
+          },
+          "subject_content_hash": {
+            "$ref": "../core/definitions.schema.json#/$defs/sha256"
+          },
+          "synthesis_ref": {
+            "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
+          },
+          "synthesis_content_hash": {
+            "$ref": "../core/definitions.schema.json#/$defs/sha256"
           },
           "hypothesis": {
             "$ref": "#/$defs/nonEmptyString"

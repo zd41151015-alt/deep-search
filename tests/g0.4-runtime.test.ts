@@ -619,6 +619,7 @@ function terminalReportSource(
     generated_at: generatedAt,
     decision_subject_snapshot_ref: decisionSubjectSnapshotRef,
     decision_subject_snapshot_hash: decisionSubjectSnapshotHash,
+    decision_subject_synthesis_hashes: [],
     current_decision_subject_ids: [],
     terminal_outcome: runtimeFailure ? "failed" : "insufficient_evidence",
     decision_question: "合成测试：这次有边界的机会发现是否应继续？",

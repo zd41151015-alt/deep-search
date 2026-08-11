@@ -2,11 +2,6 @@
 
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { sha256Bytes } from "../../harness/src/artifact-store/canonical.js";
-import {
-  openRunDirectoryReadOnly,
-  resolveRunPath,
-} from "../../harness/src/artifact-store/path-policy.js";
 
 type HookMode = "pre-tool-use" | "post-tool-use" | "stop";
 
@@ -71,41 +66,34 @@ function referencedRunTargets(contents: string): readonly ReferencedRunTarget[] 
   return [...targets.values()];
 }
 
-async function hasExactPriorAdmission(
-  root: string,
-  activeRunId: string,
-  target: ReferencedRunTarget,
-): Promise<boolean> {
-  if (target.artifactPath === null) return false;
-  try {
-    const decisions = (
-      await readFile(path.join(root, "runs", activeRunId, "decisions.jsonl"), "utf8")
-    )
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as unknown)
-      .filter(isRecord);
-    const sourceRoot = await openRunDirectoryReadOnly(path.join(root, "runs"), target.runId);
-    const sourceHash = sha256Bytes(
-      await readFile(await resolveRunPath(sourceRoot, target.artifactPath)),
+function runAccessText(input: HookInput): string {
+  const contents = `${toolInputText(input)}\n${typeof input.cwd === "string" ? input.cwd : ""}`;
+  return contents.replace(
+    /--runs-root(?:=|\s+)(?:"[^"]*"|'[^']*'|[^\s]+)/g,
+    "--runs-root <controlled-store-root>",
+  );
+}
+
+function hasUnresolvedRunReference(contents: string, activeRunId: string): boolean {
+  const escapedRunId = activeRunId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const withoutCurrentRunPaths = contents.replace(
+    new RegExp(`(?:^|[/\\s"'=])runs/${escapedRunId}(?:/[A-Za-z0-9._/*?\\[\\]-]+)?`, "g"),
+    " <current-run-path>",
+  );
+  return /(?:^|[/\s"'=])runs(?:\/|\b)/.test(withoutCurrentRunPaths);
+}
+
+function hasUnresolvedFileRead(contents: string): boolean {
+  const readsFiles =
+    /(?:^|[;&|]\s*|\b)(?:cat|head|tail|sed|awk|grep|rg|find|less|more|jq|dd|strings)\b/.test(
+      contents,
     );
-    return decisions.some(
-      (decision) =>
-        decision.schema_version === "startup_opportunity.decision.v1" &&
-        decision.run_id === activeRunId &&
-        decision.decision_type === "prior_input_admitted" &&
-        decision.actor === "main_agent" &&
-        decision.prior_source_run_id === target.runId &&
-        decision.prior_source_artifact_path === target.artifactPath &&
-        decision.prior_source_content_hash === sourceHash &&
-        ["discovery_maps", "discovery_candidates"].includes(
-          String(decision.prior_input_consumer),
-        ) &&
-        decision.prior_use_boundary === "hypothesis_input_only",
-    );
-  } catch {
-    return false;
-  }
+  if (!readsFiles) return false;
+  return (
+    /\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/.test(contents) ||
+    /(?:^|\s)[^\s"']*[*?[][^\s"']*/.test(contents) ||
+    /\bfind\b/.test(contents)
+  );
 }
 
 function mutatesProductionSurface(input: HookInput): boolean {
@@ -149,13 +137,17 @@ export async function evaluatePreToolUse(
     return deny("The active Startup Opportunity Run id is invalid.");
   }
   const root = await findRepositoryRoot(typeof input.cwd === "string" ? input.cwd : process.cwd());
-  for (const target of referencedRunTargets(toolInputText(input))) {
+  const accessText = runAccessText(input);
+  for (const target of referencedRunTargets(accessText)) {
     if (target.runId === activeRunId) continue;
-    if (!(await hasExactPriorAdmission(root, activeRunId, target))) {
-      return deny(
-        `Reading Run ${target.runId}/${target.artifactPath ?? ""} is blocked until admit-prior-input records an exact hypothesis_input_only admission for those bytes.`,
-      );
-    }
+    return deny(
+      `Direct reading of Run ${target.runId}/${target.artifactPath ?? ""} is blocked; use read-prior-input with an exact admission ref.`,
+    );
+  }
+  if (hasUnresolvedRunReference(accessText, activeRunId) || hasUnresolvedFileRead(accessText)) {
+    return deny(
+      "Dynamic, globbed, variable, or broad Run reads are blocked; prior semantics are readable only through read-prior-input.",
+    );
   }
   if (!mutatesProductionSurface(input)) {
     return undefined;

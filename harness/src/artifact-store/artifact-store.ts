@@ -949,7 +949,11 @@ export class ArtifactStore {
       envelopes[0]?.run_id ?? "",
       "decisions.jsonl",
     )) {
-      if (decision.decision_type === "prior_input_admitted") {
+      if (
+        decision.decision_type === "prior_input_admitted" ||
+        decision.decision_type === "prior_input_consumed" ||
+        decision.decision_type === "subject_reformed"
+      ) {
         exactJsonlRecords.set(`decisions.jsonl#${String(decision.decision_id)}`, decision);
       }
     }

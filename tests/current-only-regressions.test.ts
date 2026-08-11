@@ -2752,14 +2752,72 @@ test("the decision subject snapshot is authoritative for current, superseded, an
     candidate_kind: "demand_seed",
     scope_frame_ref: scopeRef,
     research_plan_ref: planRef,
+    revision: 1,
+    parent_candidate_ref: null,
+    parent_content_hash: null,
     formation: {
       scope_frame_hash: canonicalContentHash(scope),
       research_plan_hash: canonicalContentHash(plan),
     },
+    subject: { summary: `SYNTHETIC ${candidateId} subject semantics.` },
+    evidence_lineage: {},
+    enrichment: { basis_refs: [] },
   });
   const current = candidate("candidate_current_final");
   const superseded = candidate("candidate_superseded_intermediate");
   const dropped = candidate("candidate_dropped_audit");
+  const currentRef = "artifacts/discovery/candidates/current.r1.json";
+  const synthesisRef =
+    "artifacts/reporting/decision-subject-synthesis/candidate-current-final.r1.json";
+  const direction = {
+    priority: 1,
+    ranking_status: "ranked",
+    label: "Household handoff visibility",
+    maturity: "demand_hypothesis",
+    action: "validate",
+    target_user: "Households coordinating recurring responsibilities",
+    narrow_scenario: "A family member needs to know whether a shared task was completed",
+    problem: "Task completion is fragmented across chat and personal reminders",
+    current_alternative: "Group chat, reminders, and manual follow-up",
+    payer: "The household organizer",
+    product_form: "Shared lightweight workflow",
+    core_value: "Reduce missed handoffs and repeated status questions",
+    why_now: "The present synthesis found a narrow coordination gap worth testing",
+    key_risks: ["The gap may not be painful enough to support payment"],
+    first_testable_assumption: "Household organizers will pay to reduce missed handoffs",
+    comparison_reason: "The direction targets the handoff state missing from chat and reminders",
+    decisive_support_source_ids: ["current_subject_support"],
+    decisive_opposition_source_ids: ["current_subject_opposition"],
+    open_questions: ["Which recurring task creates the strongest payment trigger?"],
+  };
+  const validationSteps = [
+    {
+      order: 1,
+      hypothesis: "Household organizers recognize missed handoffs as a recurring problem",
+      why_now: "Problem frequency must be established before testing willingness to pay",
+      method: "desk_research",
+      pass_signal: "Current same-Run sources show repeated handoff failures in the narrow scenario",
+      fail_signal: "Current same-Run sources show only isolated inconvenience",
+      decision_effect: "Continue to buyer validation only when the recurring problem is supported",
+      execution_owner: "main_agent",
+      execution_supported: true,
+      result_tracking_supported: true,
+    },
+  ];
+  const synthesisDocument = {
+    schema_version: "startup_opportunity.decision_subject_synthesis.current",
+    synthesis_id: "decision_subject_synthesis_candidate_current_final_r1",
+    run_id: runId,
+    subject_id: "candidate_current_final",
+    subject_ref: currentRef,
+    subject_content_hash: canonicalContentHash(current),
+    synthesis_basis_hashes: [{ ref: currentRef, content_hash: canonicalContentHash(current) }],
+    direction,
+    validation_steps: validationSteps,
+    created_at: "2026-08-10T12:00:30Z",
+    limitations: ["SYNTHETIC decision subject synthesis."],
+  };
+  const synthesisHash = canonicalContentHash(synthesisDocument);
   const snapshotDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.decision_subject_snapshot.current",
     snapshot_id: "decision_subjects_synthetic",
@@ -2774,7 +2832,7 @@ test("the decision subject snapshot is authoritative for current, superseded, an
     research_plan_hash: canonicalContentHash(plan),
     synthesis_input_hashes: [
       {
-        ref: "artifacts/discovery/candidates/current.r1.json",
+        ref: currentRef,
         content_hash: canonicalContentHash(current),
       },
     ],
@@ -2782,14 +2840,13 @@ test("the decision subject snapshot is authoritative for current, superseded, an
     subjects: [
       {
         subject_id: "candidate_current_final",
-        subject_ref: "artifacts/discovery/candidates/current.r1.json",
+        subject_ref: currentRef,
         subject_content_hash: canonicalContentHash(current),
         subject_kind: "discovery_candidate",
         lifecycle_status: "current",
         reporting_role: "final",
         superseded_by_subject_id: null,
         formation_reason: "SYNTHETIC current-Run synthesis selected this final subject.",
-        reformation_basis_hashes: [],
         lifecycle_reason: "SYNTHETIC current final decision subject.",
       },
       {
@@ -2801,7 +2858,6 @@ test("the decision subject snapshot is authoritative for current, superseded, an
         reporting_role: "intermediate",
         superseded_by_subject_id: "candidate_current_final",
         formation_reason: "SYNTHETIC intermediate current-Run synthesis output.",
-        reformation_basis_hashes: [],
         lifecycle_reason: "SYNTHETIC superseded by the final subject.",
       },
       {
@@ -2813,7 +2869,6 @@ test("the decision subject snapshot is authoritative for current, superseded, an
         reporting_role: "audit_only",
         superseded_by_subject_id: null,
         formation_reason: "SYNTHETIC intermediate current-Run synthesis output.",
-        reformation_basis_hashes: [],
         lifecycle_reason: "SYNTHETIC dropped from the current decision set.",
       },
     ],
@@ -2841,7 +2896,7 @@ test("the decision subject snapshot is authoritative for current, superseded, an
     },
     { path: planRef, schemaVersion: String(plan.schema_version), document: plan, envelope: null },
     {
-      path: "artifacts/discovery/candidates/current.r1.json",
+      path: currentRef,
       schemaVersion: String(current.schema_version),
       document: current,
       envelope: null,
@@ -2867,7 +2922,20 @@ test("the decision subject snapshot is authoritative for current, superseded, an
         artifact_path: snapshotRef,
         run_id: runId,
         producer_role: "main_agent",
+        created_at: "2026-08-10T12:00:00Z",
         content_hash: snapshotHash,
+      },
+    },
+    {
+      path: synthesisRef,
+      schemaVersion: "startup_opportunity.decision_subject_synthesis.current",
+      document: synthesisDocument,
+      envelope: {
+        artifact_type: "startup_opportunity.decision_subject_synthesis.current",
+        artifact_path: synthesisRef,
+        run_id: runId,
+        producer_role: "main_agent",
+        content_hash: synthesisHash,
       },
     },
     {
@@ -2878,22 +2946,26 @@ test("the decision subject snapshot is authoritative for current, superseded, an
         mode: "opportunity_discovery",
         decision_subject_snapshot_ref: snapshotRef,
         decision_subject_snapshot_hash: snapshotHash,
+        decision_subject_synthesis_hashes: [{ ref: synthesisRef, content_hash: synthesisHash }],
         current_decision_subject_ids: ["candidate_current_final"],
         directions: [
           {
             direction_id: "candidate_current_final",
-            subject_ref: "artifacts/discovery/candidates/current.r1.json",
+            subject_ref: currentRef,
             subject_content_hash: canonicalContentHash(current),
-            synthesis_basis_hashes: [
-              {
-                ref: "artifacts/discovery/candidates/current.r1.json",
-                content_hash: canonicalContentHash(current),
-              },
-            ],
-            label: "candidate_current_final",
-            product_form: "unformed",
+            synthesis_ref: synthesisRef,
+            synthesis_content_hash: synthesisHash,
+            ...structuredClone(direction),
           },
         ],
+        ordered_validation_plan: validationSteps.map((step) => ({
+          direction_id: "candidate_current_final",
+          subject_ref: currentRef,
+          subject_content_hash: canonicalContentHash(current),
+          synthesis_ref: synthesisRef,
+          synthesis_content_hash: synthesisHash,
+          ...structuredClone(step),
+        })),
       },
       envelope: null,
     },
@@ -2937,19 +3009,71 @@ test("the decision subject snapshot is authoritative for current, superseded, an
     ),
   );
 
-  const staleDirectionBody = structuredClone(documents);
-  const staleReport = staleDirectionBody.find(
-    (entry) => entry.schemaVersion === "startup_opportunity.terminal_report_source.v1",
-  );
-  assert.ok(staleReport);
-  const staleDirection = (staleReport.document.directions as Record<string, unknown>[])[0];
-  assert.ok(staleDirection);
-  staleDirection.label = "old_candidate_body_with_only_a_current_id";
-  assert.ok(
-    validateDecisionSubjectContract(staleDirectionBody).some(
-      (issue) => issue.code === "decision_subject.direction_body_mismatch",
-    ),
-  );
+  for (const field of [
+    "label",
+    "target_user",
+    "narrow_scenario",
+    "problem",
+    "current_alternative",
+    "payer",
+    "product_form",
+    "core_value",
+    "why_now",
+    "first_testable_assumption",
+    "comparison_reason",
+  ]) {
+    const drifted = structuredClone(documents);
+    const report = drifted.find(
+      (entry) => entry.schemaVersion === "startup_opportunity.terminal_report_source.v1",
+    );
+    assert.ok(report);
+    const visibleDirection = (report.document.directions as Record<string, unknown>[])[0];
+    assert.ok(visibleDirection);
+    visibleDirection[field] = `old unrelated subject ${field}`;
+    assert.ok(
+      validateDecisionSubjectContract(drifted).some(
+        (entry) => entry.code === "decision_subject.direction_body_mismatch",
+      ),
+      field,
+    );
+  }
+  for (const field of [
+    "key_risks",
+    "decisive_support_source_ids",
+    "decisive_opposition_source_ids",
+    "open_questions",
+  ]) {
+    const drifted = structuredClone(documents);
+    const report = drifted.find(
+      (entry) => entry.schemaVersion === "startup_opportunity.terminal_report_source.v1",
+    );
+    assert.ok(report);
+    const visibleDirection = (report.document.directions as Record<string, unknown>[])[0];
+    assert.ok(visibleDirection);
+    visibleDirection[field] = [`old_unrelated_subject_${field}`];
+    assert.ok(
+      validateDecisionSubjectContract(drifted).some(
+        (entry) => entry.code === "decision_subject.direction_body_mismatch",
+      ),
+      field,
+    );
+  }
+  for (const field of ["hypothesis", "why_now", "pass_signal", "fail_signal", "decision_effect"]) {
+    const drifted = structuredClone(documents);
+    const report = drifted.find(
+      (entry) => entry.schemaVersion === "startup_opportunity.terminal_report_source.v1",
+    );
+    assert.ok(report);
+    const visibleStep = (report.document.ordered_validation_plan as Record<string, unknown>[])[0];
+    assert.ok(visibleStep);
+    visibleStep[field] = `old unrelated subject ${field}`;
+    assert.ok(
+      validateDecisionSubjectContract(drifted).some(
+        (entry) => entry.code === "decision_subject.validation_plan_subject_binding_mismatch",
+      ),
+      field,
+    );
+  }
 
   for (const conceptSchema of [
     "startup_opportunity.concept_hypothesis.assessment.current",
@@ -2997,6 +3121,29 @@ test("the decision subject snapshot is authoritative for current, superseded, an
       ),
       false,
     );
+    const conceptSynthesisRef =
+      "artifacts/reporting/decision-subject-synthesis/concept-true-identity.r1.json";
+    const conceptSynthesisDocument = {
+      ...structuredClone(synthesisDocument),
+      synthesis_id: "decision_subject_synthesis_concept_true_identity_r1",
+      subject_id: "concept_true_identity",
+      subject_ref: conceptRef,
+      subject_content_hash: canonicalContentHash(concept),
+      synthesis_basis_hashes: [{ ref: conceptRef, content_hash: canonicalContentHash(concept) }],
+    };
+    const conceptSynthesisHash = canonicalContentHash(conceptSynthesisDocument);
+    conceptIdentity.push({
+      path: conceptSynthesisRef,
+      schemaVersion: "startup_opportunity.decision_subject_synthesis.current",
+      document: conceptSynthesisDocument,
+      envelope: {
+        artifact_type: "startup_opportunity.decision_subject_synthesis.current",
+        artifact_path: conceptSynthesisRef,
+        run_id: runId,
+        producer_role: "main_agent",
+        content_hash: conceptSynthesisHash,
+      },
+    });
     const conceptTerminal = {
       path: "artifacts/reporting/terminal-report-source.r1.json",
       schemaVersion: "startup_opportunity.terminal_report_source.v1",
@@ -3006,17 +3153,28 @@ test("the decision subject snapshot is authoritative for current, superseded, an
         mode: "opportunity_discovery",
         decision_subject_snapshot_ref: snapshotRef,
         decision_subject_snapshot_hash: conceptHash,
+        decision_subject_synthesis_hashes: [
+          { ref: conceptSynthesisRef, content_hash: conceptSynthesisHash },
+        ],
         current_decision_subject_ids: ["concept_true_identity"],
         directions: [
           {
             direction_id: "concept_true_identity",
             subject_ref: conceptRef,
             subject_content_hash: canonicalContentHash(concept),
-            synthesis_basis_hashes: [
-              { ref: conceptRef, content_hash: canonicalContentHash(concept) },
-            ],
+            synthesis_ref: conceptSynthesisRef,
+            synthesis_content_hash: conceptSynthesisHash,
+            ...structuredClone(direction),
           },
         ],
+        ordered_validation_plan: validationSteps.map((step) => ({
+          direction_id: "concept_true_identity",
+          subject_ref: conceptRef,
+          subject_content_hash: canonicalContentHash(concept),
+          synthesis_ref: conceptSynthesisRef,
+          synthesis_content_hash: conceptSynthesisHash,
+          ...structuredClone(step),
+        })),
       },
       envelope: null,
     };
@@ -3037,9 +3195,8 @@ test("the decision subject snapshot is authoritative for current, superseded, an
     assert.ok(
       aliasIssues.some((issue) => issue.code === "decision_subject.subject_identity_mismatch"),
     );
-    assert.equal(
+    assert.ok(
       aliasIssues.some((issue) => issue.code === "decision_subject.terminal_projection_mismatch"),
-      false,
     );
   }
 
@@ -3200,7 +3357,17 @@ test("the decision subject snapshot is authoritative for current, superseded, an
     revision: 2,
     parent_candidate_ref: "artifacts/discovery/candidates/dropped.r1.json",
     parent_content_hash: canonicalContentHash(dropped),
+    subject: { summary: "SYNTHETIC newly formed household coordination semantics." },
+    enrichment: { basis_refs: ["findings/discovery/reformation-input.json"] },
   };
+  const reformationInputRef = "findings/discovery/reformation-input.json";
+  const reformationInputDocument = {
+    schema_version: "startup_opportunity.finding.discovery_candidate.current",
+    run_id: runId,
+    finding_id: "reformation_input",
+  };
+  const reformationInputHash = canonicalContentHash(reformationInputDocument);
+  const reformationDecisionRef = "decisions.jsonl#subject_reformed_synthetic";
   const reformedSnapshotDocument = {
     ...structuredClone(snapshotDocument),
     revision: 2,
@@ -3218,12 +3385,7 @@ test("the decision subject snapshot is authoritative for current, superseded, an
         lifecycle_status: "current",
         reporting_role: "final",
         lifecycle_reason: "SYNTHETIC explicitly re-formed from a new immutable revision.",
-        reformation_basis_hashes: [
-          {
-            ref: "artifacts/discovery/candidates/current.r1.json",
-            content_hash: canonicalContentHash(current),
-          },
-        ],
+        reformation_decision_ref: reformationDecisionRef,
       },
     ],
   };
@@ -3237,12 +3399,55 @@ test("the decision subject snapshot is authoritative for current, superseded, an
   assert.ok(reformedManifest);
   reformedManifest.document.current_decision_subject_snapshot_ref = snapshotR2Ref;
   reformedManifest.document.current_decision_subject_snapshot_hash = reformedSnapshotHash;
+  const reformationDecision = {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: "subject_reformed_synthetic",
+    run_id: runId,
+    decision_type: "subject_reformed",
+    timestamp: "2026-08-10T12:08:45Z",
+    actor: "main_agent",
+    reason: "SYNTHETIC post-terminal formation input changed the Candidate semantics.",
+    artifact_refs: [
+      snapshotRef,
+      "artifacts/discovery/candidates/dropped.r1.json",
+      reformedCandidateRef,
+      reformationInputRef,
+    ],
+    terminal_snapshot_ref: snapshotRef,
+    terminal_snapshot_hash: snapshotHash,
+    terminal_subject_id: "candidate_dropped_audit",
+    terminal_subject_ref: "artifacts/discovery/candidates/dropped.r1.json",
+    terminal_subject_content_hash: canonicalContentHash(dropped),
+    reformed_subject_ref: reformedCandidateRef,
+    reformed_subject_content_hash: canonicalContentHash(reformedCandidate),
+    reformation_input_hashes: [{ ref: reformationInputRef, content_hash: reformationInputHash }],
+  };
   reformed.push(
+    {
+      path: reformationInputRef,
+      schemaVersion: "startup_opportunity.finding.discovery_candidate.current",
+      document: reformationInputDocument,
+      envelope: {
+        artifact_type: "startup_opportunity.finding.discovery_candidate.current",
+        artifact_path: reformationInputRef,
+        run_id: runId,
+        producer_role: "lane_researcher",
+        created_at: "2026-08-10T12:08:30Z",
+        content_hash: reformationInputHash,
+      },
+    },
     {
       path: reformedCandidateRef,
       schemaVersion: "startup_opportunity.discovery_candidate.v1",
       document: reformedCandidate,
-      envelope: null,
+      envelope: {
+        artifact_type: "startup_opportunity.discovery_candidate.v1",
+        artifact_path: reformedCandidateRef,
+        run_id: runId,
+        producer_role: "main_agent",
+        created_at: "2026-08-10T12:08:40Z",
+        content_hash: canonicalContentHash(reformedCandidate),
+      },
     },
     {
       path: snapshotR2Ref,
@@ -3253,19 +3458,83 @@ test("the decision subject snapshot is authoritative for current, superseded, an
         artifact_path: snapshotR2Ref,
         run_id: runId,
         producer_role: "main_agent",
+        created_at: "2026-08-10T12:09:00Z",
         content_hash: reformedSnapshotHash,
       },
     },
   );
-  assert.equal(
-    validateDecisionSubjectContract(reformed).some((issue) =>
-      [
-        "decision_subject.terminal_lifecycle_revival",
-        "decision_subject.reformation_basis_required",
-        "decision_subject.reformation_basis_binding_mismatch",
-      ].includes(issue.code),
+  const exactReformation = new Map([[reformationDecisionRef, reformationDecision]]);
+  assert.deepEqual(validateDecisionSubjectContract(reformed, exactReformation), []);
+
+  const withoutDecision = structuredClone(reformed);
+  const withoutDecisionSnapshot = withoutDecision.find((entry) => entry.path === snapshotR2Ref);
+  assert.ok(withoutDecisionSnapshot);
+  delete (withoutDecisionSnapshot.document.subjects as Record<string, unknown>[])[0]
+    ?.reformation_decision_ref;
+  assert.ok(
+    validateDecisionSubjectContract(withoutDecision, exactReformation).some(
+      (issue) => issue.code === "decision_subject.reformation_decision_required",
     ),
-    false,
+  );
+
+  const selfBasis = structuredClone(reformationDecision);
+  selfBasis.reformation_input_hashes = [
+    { ref: reformedCandidateRef, content_hash: canonicalContentHash(reformedCandidate) },
+  ];
+  assert.ok(
+    validateDecisionSubjectContract(reformed, new Map([[reformationDecisionRef, selfBasis]])).some(
+      (issue) => issue.code === "decision_subject.reformation_input_unrelated",
+    ),
+  );
+
+  const unrelatedRef = "findings/discovery/unrelated-reformation-input.json";
+  const unrelatedDocument = {
+    schema_version: "startup_opportunity.finding.discovery_candidate.current",
+    run_id: runId,
+  };
+  const unrelated = structuredClone(reformed);
+  unrelated.push({
+    path: unrelatedRef,
+    schemaVersion: "startup_opportunity.finding.discovery_candidate.current",
+    document: unrelatedDocument,
+    envelope: {
+      artifact_type: "startup_opportunity.finding.discovery_candidate.current",
+      artifact_path: unrelatedRef,
+      run_id: runId,
+      producer_role: "lane_researcher",
+      created_at: "2026-08-10T12:08:35Z",
+      content_hash: canonicalContentHash(unrelatedDocument),
+    },
+  });
+  const unrelatedBasis = structuredClone(reformationDecision);
+  unrelatedBasis.reformation_input_hashes = [
+    { ref: unrelatedRef, content_hash: canonicalContentHash(unrelatedDocument) },
+  ];
+  assert.ok(
+    validateDecisionSubjectContract(
+      unrelated,
+      new Map([[reformationDecisionRef, unrelatedBasis]]),
+    ).some((issue) => issue.code === "decision_subject.reformation_input_unrelated"),
+  );
+
+  const preTerminal = structuredClone(reformed);
+  const preTerminalInput = preTerminal.find((entry) => entry.path === reformationInputRef);
+  assert.ok(preTerminalInput?.envelope);
+  preTerminalInput.envelope.created_at = "2026-08-10T11:59:00Z";
+  assert.ok(
+    validateDecisionSubjectContract(preTerminal, exactReformation).some(
+      (issue) => issue.code === "decision_subject.reformation_input_not_post_terminal",
+    ),
+  );
+
+  const semanticClone = structuredClone(reformed);
+  const semanticCloneCandidate = semanticClone.find((entry) => entry.path === reformedCandidateRef);
+  assert.ok(semanticCloneCandidate);
+  semanticCloneCandidate.document.subject = structuredClone(dropped.subject);
+  assert.ok(
+    validateDecisionSubjectContract(semanticClone, exactReformation).some(
+      (issue) => issue.code === "decision_subject.reformation_semantics_unchanged",
+    ),
   );
 });
 

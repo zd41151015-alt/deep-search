@@ -24,6 +24,8 @@ import {
   G21_CORE_REFS,
   G21_MAP_REFS,
   G21_OPPORTUNITY_REF,
+  G21_PLAN_REF,
+  G21_SCOPE_REF,
   G21_SOLUTION_REF,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import {
@@ -31,7 +33,9 @@ import {
   G22_BASELINE_R1,
   G22_DEMAND_R1,
   G22_DEMAND_R2,
+  G22_EVALUATION_LANE,
   G22_FAN_IN,
+  G22_GENERATION_CLAIM,
   G22_GENERATION_LANE,
   G22_RUN_ID,
   refreshDiscoveryCandidateFormation,
@@ -501,6 +505,31 @@ test("Store rejects an admitted prior Candidate relabelled as unmarked current d
     (await state.store.status(state.runId)).manifest.artifact_refs.includes(G22_DEMAND_R1),
     false,
   );
+
+  await state.store.readPriorInput({
+    runId: state.runId,
+    admissionRef: admission.decisionRef,
+    consumedAt: "2026-07-27T17:43:00Z",
+  });
+  const admittedTarget = runtimeEnvelope(state.bundle, G22_DEMAND_R1);
+  const admittedFormation = admittedTarget.document.formation as Record<string, unknown>;
+  admittedFormation.synthesis_origin = "prior_informed_synthesis";
+  admittedFormation.prior_input_decision_refs = [admission.decisionRef];
+  (admittedTarget as unknown as { input_refs: string[] }).input_refs = [
+    ...new Set([...admittedTarget.input_refs, admission.decisionRef]),
+  ].sort();
+  (admittedTarget as { content_hash: string }).content_hash = canonicalContentHash(
+    admittedTarget.document,
+  );
+  await assert.rejects(
+    publishCandidates(state),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "artifact.reference_invalid" &&
+      JSON.stringify(error.details).includes(
+        "discovery_candidate.prior_input_provenance_not_propagated",
+      ),
+  );
 });
 
 test("G2.2 publishes explicit candidates, tasks, typed lane material, pre-kill results, and fan-in", async (context) => {
@@ -549,6 +578,180 @@ test("G2.2 publishes explicit candidates, tasks, typed lane material, pre-kill r
         receipt.schema_version === "startup_opportunity.artifact_store_operation.current",
     ),
   );
+});
+
+test("Store re-forms a terminal Candidate only from post-terminal causal inputs and reopens exactly", async (context) => {
+  const state = await setup(context, "subject-reformation");
+  await publishThroughMaterials(state);
+  const scope = runtimeEnvelope(state.bundle, G21_SCOPE_REF);
+  const plan = runtimeEnvelope(state.bundle, G21_PLAN_REF);
+  const demandR1 = runtimeEnvelope(state.bundle, G22_DEMAND_R1);
+  const snapshotR1Ref = "artifacts/reporting/decision-subject-snapshot.r1.json";
+  const snapshotR1Document = {
+    schema_version: "startup_opportunity.decision_subject_snapshot.current",
+    snapshot_id: "decision_subjects_subject_reformation",
+    revision: 1,
+    parent_snapshot_ref: null,
+    parent_snapshot_hash: null,
+    run_id: state.runId,
+    mode: "opportunity_discovery",
+    scope_frame_ref: scope.artifact_path,
+    scope_frame_hash: scope.content_hash,
+    research_plan_ref: plan.artifact_path,
+    research_plan_hash: plan.content_hash,
+    synthesis_input_hashes: [{ ref: demandR1.artifact_path, content_hash: demandR1.content_hash }],
+    created_at: "2026-07-27T18:05:00Z",
+    subjects: [
+      {
+        subject_id: demandR1.document.candidate_id,
+        subject_ref: demandR1.artifact_path,
+        subject_content_hash: demandR1.content_hash,
+        subject_kind: "discovery_candidate",
+        lifecycle_status: "dropped",
+        reporting_role: "audit_only",
+        superseded_by_subject_id: null,
+        formation_reason: "SYNTHETIC initial current-Run formation.",
+        lifecycle_reason: "SYNTHETIC terminal lifecycle state before new inputs.",
+      },
+    ],
+    limitations: ["SYNTHETIC lifecycle fixture; not market Evidence."],
+  };
+  const snapshotR1: FormalArtifactEnvelope = {
+    schema_version: "startup_opportunity.artifact_envelope.current",
+    artifact_type: "startup_opportunity.decision_subject_snapshot.current",
+    artifact_path: snapshotR1Ref,
+    run_id: state.runId,
+    created_at: "2026-07-27T18:05:00Z",
+    producer_role: "main_agent",
+    input_refs: [scope.artifact_path, plan.artifact_path, demandR1.artifact_path].sort(),
+    content_hash: canonicalContentHash(snapshotR1Document),
+    document: snapshotR1Document,
+  };
+  await state.store.publishArtifact({ runId: state.runId, envelope: snapshotR1 });
+
+  const laneInputs = [G22_GENERATION_LANE, G22_EVALUATION_LANE].map((ref) => {
+    const envelope = clone(runtimeEnvelope(state.bundle, ref));
+    (envelope as { created_at: string }).created_at = "2026-07-27T18:06:00Z";
+    return envelope;
+  });
+  await state.store.publishArtifactBundle({ runId: state.runId, envelopes: laneInputs });
+  const reformedCandidate = clone(runtimeEnvelope(state.bundle, G22_DEMAND_R2));
+  (reformedCandidate as { created_at: string }).created_at = "2026-07-27T18:07:00Z";
+  const reformedSubject = reformedCandidate.document.subject as Record<string, unknown>;
+  reformedSubject.job_to_be_done =
+    "SYNTHETIC newly bounded household handoff job from post-terminal lane inputs.";
+  const enrichment = reformedCandidate.document.enrichment as Record<string, unknown>;
+  enrichment.changed_fields = [...(enrichment.changed_fields as string[]), "subject"].sort();
+  (reformedCandidate as { content_hash: string }).content_hash = canonicalContentHash(
+    reformedCandidate.document,
+  );
+  await state.store.publishArtifact({ runId: state.runId, envelope: reformedCandidate });
+
+  const reformInput = {
+    runId: state.runId,
+    terminalSnapshotRef: snapshotR1Ref,
+    terminalSubjectId: String(demandR1.document.candidate_id),
+    reformedSubjectRef: reformedCandidate.artifact_path,
+    reason: "SYNTHETIC post-terminal lane results caused a materially new subject revision.",
+    reformedAt: "2026-07-27T18:08:00Z",
+  } as const;
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformedSubjectRef: demandR1.artifact_path,
+      reformationInputRefs: [G22_GENERATION_LANE],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "subject_reformation.revision_lineage_invalid",
+  );
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformationInputRefs: [reformedCandidate.artifact_path],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "subject_reformation.input_unrelated",
+  );
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformationInputRefs: [G21_SOLUTION_REF],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "subject_reformation.input_unrelated",
+  );
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformationInputRefs: [G22_GENERATION_CLAIM],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "subject_reformation.input_not_post_terminal",
+  );
+  const reformation = await state.store.reformDecisionSubject({
+    ...reformInput,
+    reformationInputRefs: [G22_GENERATION_LANE, G22_EVALUATION_LANE],
+  });
+  assert.equal(reformation.status, "appended");
+
+  const snapshotR2Ref = "artifacts/reporting/decision-subject-snapshot.r2.json";
+  const snapshotR2Document = {
+    ...structuredClone(snapshotR1Document),
+    revision: 2,
+    parent_snapshot_ref: snapshotR1Ref,
+    parent_snapshot_hash: snapshotR1.content_hash,
+    synthesis_input_hashes: [
+      { ref: reformedCandidate.artifact_path, content_hash: reformedCandidate.content_hash },
+    ],
+    created_at: "2026-07-27T18:09:00Z",
+    subjects: [
+      {
+        ...(structuredClone(snapshotR1Document.subjects) as Record<string, unknown>[])[0],
+        subject_ref: reformedCandidate.artifact_path,
+        subject_content_hash: reformedCandidate.content_hash,
+        lifecycle_status: "current",
+        reporting_role: "final",
+        reformation_decision_ref: reformation.decisionRef,
+        lifecycle_reason: "SYNTHETIC causally re-formed after new lane inputs.",
+      },
+    ],
+  };
+  const snapshotR2: FormalArtifactEnvelope = {
+    ...snapshotR1,
+    artifact_path: snapshotR2Ref,
+    created_at: "2026-07-27T18:09:00Z",
+    input_refs: [
+      snapshotR1Ref,
+      scope.artifact_path,
+      plan.artifact_path,
+      reformedCandidate.artifact_path,
+      reformation.decisionRef,
+    ].sort(),
+    content_hash: canonicalContentHash(snapshotR2Document),
+    document: snapshotR2Document,
+  };
+  await state.store.publishArtifact({ runId: state.runId, envelope: snapshotR2 });
+  await state.store.checkpoint({
+    runId: state.runId,
+    checkpointId: "checkpoint_subject_reformation",
+    createdAt: "2026-07-27T18:10:00Z",
+    nextStep: "SYNTHETIC continue from the exact re-formed subject authority.",
+    beliefSummary: {
+      current_belief: "SYNTHETIC subject was re-formed from post-terminal inputs.",
+      evidence_that_changed_belief: [G22_GENERATION_LANE, G22_EVALUATION_LANE],
+      unchanged_assumptions: ["No market validation is claimed."],
+      remaining_disagreement: ["Actual demand remains unknown."],
+      next_decision_relevant_question: "What current Evidence would test the new subject?",
+    },
+    inputRefs: [snapshotR2Ref, reformation.decisionRef],
+  });
+  const reopened = await new RunStore(
+    state.runsRoot,
+    await createArtifactValidator(repositoryRoot),
+  ).load(state.runId);
+  assert.equal(reopened.manifest.current_decision_subject_snapshot_ref, snapshotR2Ref);
+  assert.equal(reopened.manifest.current_decision_subject_snapshot_hash, snapshotR2.content_hash);
+  assert.equal(reopened.recovered, false);
 });
 
 test("G2.2 lane terminal states project mechanically and keep late/superseded refs non-current", async (t) => {

@@ -304,34 +304,6 @@ function refsFromNestedArray(
   });
 }
 
-function refsFromDoubleNestedArray(
-  document: Record<string, unknown>,
-  outerArrayField: string,
-  innerArrayField: string,
-  refField: string,
-  expectedSchemaVersion: string | readonly string[],
-): readonly ReferenceRequirement[] {
-  const outer = document[outerArrayField];
-  if (!Array.isArray(outer)) return [];
-  return outer.flatMap((value, outerIndex) => {
-    if (!isRecord(value) || !Array.isArray(value[innerArrayField])) return [];
-    return value[innerArrayField].flatMap((binding, innerIndex) =>
-      isRecord(binding) && typeof binding[refField] === "string"
-        ? [
-            {
-              instancePath: `/${outerArrayField}/${outerIndex}/${innerArrayField}/${innerIndex}/${refField}`,
-              ref: binding[refField],
-              expectedSchemaVersions:
-                typeof expectedSchemaVersion === "string"
-                  ? [expectedSchemaVersion]
-                  : expectedSchemaVersion,
-            },
-          ]
-        : [],
-    );
-  });
-}
-
 function refsFromNestedObjectArray(
   document: Record<string, unknown>,
   arrayField: string,
@@ -2972,15 +2944,47 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.concept_hypothesis.assessment.current",
           "startup_opportunity.concept_hypothesis.assessment_intake.current",
         ]),
-        ...refsFromDoubleNestedArray(document, "subjects", "reformation_basis_hashes", "ref", [
+        ...refsFromNestedArray(
+          document,
+          "subjects",
+          "reformation_decision_ref",
+          "startup_opportunity.decision.v1",
+        ),
+      ];
+    case "startup_opportunity.decision_subject_synthesis.current":
+      return [
+        ...optionalRef(document, "subject_ref", [
           "startup_opportunity.discovery_candidate.v1",
-          "startup_opportunity.discovery_fan_in.v2",
-          "startup_opportunity.merge.v1",
           "startup_opportunity.opportunity_thesis.v1",
-          "startup_opportunity.opportunity_comparison.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+        ]),
+        ...refsFromNestedArray(document, "synthesis_basis_hashes", "ref", [
+          "startup_opportunity.discovery_candidate.v1",
+          "startup_opportunity.opportunity_thesis.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+          "startup_opportunity.assessment_evidence.v1",
+          "startup_opportunity.candidate_neutral_evidence.v1",
+          "startup_opportunity.claim.assessment.current",
+          "startup_opportunity.claim.discovery_candidate.current",
+          "startup_opportunity.claim.discovery_evaluation.current",
+          "startup_opportunity.finding.assessment.current",
+          "startup_opportunity.finding.discovery_candidate.current",
+          "startup_opportunity.finding.discovery_evaluation.current",
+          "startup_opportunity.insight.assessment.current",
+          "startup_opportunity.insight.discovery_candidate.current",
+          "startup_opportunity.insight.discovery_evaluation.current",
+          "startup_opportunity.judgment_assessment.assessment.current",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
+          "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+          "startup_opportunity.commercial_research_audit.current",
           "startup_opportunity.concept_evidence_assessment.analysis.current",
           "startup_opportunity.concept_evidence_assessment.reporting.current",
-          "startup_opportunity.concept_evidence_assessment_fan_in.v1",
+          "startup_opportunity.opportunity_comparison.v1",
         ]),
       ];
     case "startup_opportunity.terminal_report_source.v1":
@@ -2996,21 +3000,30 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.concept_hypothesis.assessment.current",
           "startup_opportunity.concept_hypothesis.assessment_intake.current",
         ]),
-        ...refsFromDoubleNestedArray(document, "directions", "synthesis_basis_hashes", "ref", [
+        ...refsFromNestedArray(
+          document,
+          "decision_subject_synthesis_hashes",
+          "ref",
+          "startup_opportunity.decision_subject_synthesis.current",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "directions",
+          "synthesis_ref",
+          "startup_opportunity.decision_subject_synthesis.current",
+        ),
+        ...refsFromNestedArray(document, "ordered_validation_plan", "subject_ref", [
           "startup_opportunity.discovery_candidate.v1",
           "startup_opportunity.opportunity_thesis.v1",
           "startup_opportunity.concept_hypothesis.assessment.current",
           "startup_opportunity.concept_hypothesis.assessment_intake.current",
-          "startup_opportunity.evidence.assessment.current",
-          "startup_opportunity.evidence.discovery_candidate.current",
-          "startup_opportunity.evidence.discovery_evaluation.current",
-          "startup_opportunity.assessment_evidence.v1",
-          "startup_opportunity.candidate_neutral_evidence.v1",
-          "startup_opportunity.commercial_research_audit.current",
-          "startup_opportunity.concept_evidence_assessment.analysis.current",
-          "startup_opportunity.concept_evidence_assessment.reporting.current",
-          "startup_opportunity.opportunity_comparison.v1",
         ]),
+        ...refsFromNestedArray(
+          document,
+          "ordered_validation_plan",
+          "synthesis_ref",
+          "startup_opportunity.decision_subject_synthesis.current",
+        ),
         ...refsFromNestedArray(document, "sources", "evidence_ref", [
           "startup_opportunity.evidence.assessment.current",
           "startup_opportunity.evidence.discovery_candidate.current",
@@ -4391,7 +4404,9 @@ export class ArtifactValidator {
         envelope: entry.envelope,
       }),
     );
-    referenceErrors.push(...validateDecisionSubjectContract(decisionSubjectDocuments));
+    referenceErrors.push(
+      ...validateDecisionSubjectContract(decisionSubjectDocuments, exactJsonlRecords),
+    );
     const commercialResearchDocuments: readonly CommercialResearchDocument[] =
       effectiveDocuments.map((entry) => ({
         path: entry.path,

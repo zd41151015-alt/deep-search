@@ -36,6 +36,8 @@
         "followup_requested_by_user",
         "plan_change_requested_by_user",
         "prior_input_admitted",
+        "prior_input_consumed",
+        "subject_reformed",
         "limitation_accepted",
         "run_paused",
         "run_cancelled"
@@ -73,6 +75,56 @@
     },
     "prior_use_boundary": {
       "const": "hypothesis_input_only"
+    },
+    "prior_admission_ref": {
+      "type": "string",
+      "pattern": "^decisions\\.jsonl#prior_input_admitted_[A-Za-z0-9._-]+$"
+    },
+    "prior_admission_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "prior_taint_exempt_artifact_refs": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "terminal_snapshot_ref": {
+      "type": "string",
+      "pattern": "^artifacts/reporting/decision-subject-snapshot\\.r[1-9][0-9]*\\.json$"
+    },
+    "terminal_snapshot_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "terminal_subject_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "terminal_subject_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "terminal_subject_content_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "reformed_subject_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "reformed_subject_content_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "reformation_input_hashes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "content_hash"],
+        "properties": {
+          "ref": {
+            "$ref": "./definitions.schema.json#/$defs/artifactRef"
+          },
+          "content_hash": {
+            "$ref": "./definitions.schema.json#/$defs/sha256"
+          }
+        }
+      }
     },
     "scope_revision": {
       "type": "integer",
@@ -138,6 +190,33 @@
       "if": {
         "properties": {
           "decision_type": {
+            "const": "subject_reformed"
+          }
+        },
+        "required": ["decision_type"]
+      },
+      "then": {
+        "required": [
+          "terminal_snapshot_ref",
+          "terminal_snapshot_hash",
+          "terminal_subject_id",
+          "terminal_subject_ref",
+          "terminal_subject_content_hash",
+          "reformed_subject_ref",
+          "reformed_subject_content_hash",
+          "reformation_input_hashes"
+        ],
+        "properties": {
+          "actor": {
+            "const": "main_agent"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision_type": {
             "const": "prior_input_admitted"
           }
         },
@@ -152,6 +231,35 @@
           "prior_input_consumer",
           "prior_target_artifact_path",
           "prior_use_boundary"
+        ],
+        "properties": {
+          "actor": {
+            "const": "main_agent"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision_type": {
+            "const": "prior_input_consumed"
+          }
+        },
+        "required": ["decision_type"]
+      },
+      "then": {
+        "required": [
+          "prior_input_id",
+          "prior_admission_ref",
+          "prior_admission_hash",
+          "prior_source_run_id",
+          "prior_source_artifact_path",
+          "prior_source_content_hash",
+          "prior_input_consumer",
+          "prior_target_artifact_path",
+          "prior_use_boundary",
+          "prior_taint_exempt_artifact_refs"
         ],
         "properties": {
           "actor": {
