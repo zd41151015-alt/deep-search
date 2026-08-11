@@ -462,6 +462,17 @@ function validateCandidateFormation(
   }
 
   const priorRefs = strings(formation.prior_input_decision_refs);
+  const targetedAdmissionRefs = [...exactRecords.entries()]
+    .filter(
+      ([, decision]) =>
+        decision.schema_version === "startup_opportunity.decision.v1" &&
+        decision.decision_type === "prior_input_admitted" &&
+        decision.run_id === candidate.document.run_id &&
+        decision.prior_input_consumer === "discovery_candidates" &&
+        decision.prior_target_artifact_path === candidate.path,
+    )
+    .map(([ref]) => ref)
+    .sort();
   const inheritedPriorRefs = [
     ...new Set(
       refs.flatMap((ref) => {
@@ -490,6 +501,17 @@ function validateCandidateFormation(
       ),
     );
   }
+  const missingTargetedRefs = targetedAdmissionRefs.filter((ref) => !priorRefs.includes(ref));
+  if (missingTargetedRefs.length > 0) {
+    errors.push(
+      issue(
+        "discovery_candidate.prior_input_target_not_propagated",
+        `${candidate.path}#/formation/prior_input_decision_refs`,
+        "a Candidate targeted by an admitted prior input must declare prior-informed synthesis and propagate the exact admission ref",
+        { missingTargetedRefs },
+      ),
+    );
+  }
   if (
     (formation.synthesis_origin === "current_run_synthesis" && priorRefs.length > 0) ||
     (formation.synthesis_origin === "prior_informed_synthesis" && priorRefs.length === 0)
@@ -509,6 +531,9 @@ function validateCandidateFormation(
       decision.decision_type !== "prior_input_admitted" ||
       decision.run_id !== candidate.document.run_id ||
       decision.prior_source_run_id === candidate.document.run_id ||
+      (!inheritedPriorRefs.includes(ref) &&
+        (decision.prior_input_consumer !== "discovery_candidates" ||
+          decision.prior_target_artifact_path !== candidate.path)) ||
       decision.prior_use_boundary !== "hypothesis_input_only"
     ) {
       errors.push(

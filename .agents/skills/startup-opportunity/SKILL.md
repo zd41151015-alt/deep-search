@@ -26,6 +26,7 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 
 - 按需渐进读取 mode 与 phase reference；默认不得同时加载两套完整工作流。
 - 正式结论只能来自已经验证的仓库 Artifact，绝不能来自 chat 或 subagent 完成消息。
+- 旧 Run 的 Map、Candidate 或任何结论语义不得直接进入当前 Agent 上下文。当前 opportunity-discovery Run 必须先确认 Scope 并发布 current Plan，调用方再用 `scripts/admit-prior-input.ts` 显式指定 source run/path、唯一且尚未发布的当前 Map/Candidate target artifact path 和 `discovery_maps | discovery_candidates` consumer；该命令只 hash exact bytes 并追加 `prior_input_admitted` receipt，不回显语义内容。随后只能把它作为 `hypothesis_input_only` 使用，并在对应当前 Map/Candidate 中标为 `prior_informed_synthesis`、传播 exact decision ref；不得改写元数据后伪装成 `current_run_synthesis`。不扫描、恢复或解析旧 Run contract。
 - 绝不伪造 Evidence、来源 provenance、用户原话、市场数据、验证结果或引用。
 - 为每个 subagent 提供 typed task envelope 和唯一 output path。main agent 始终是唯一 orchestrator。
 - 语义判断留给 agent；deterministic 验证、存储、版本控制和报告机制留给 Harness。
@@ -59,4 +60,4 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 
 ## Script Surface
 
-`scripts/doctor.ts`、`validate-artifact.ts`、`create-run.ts`、`propose-scope.ts`、`confirm-scope.ts`、`load-run.ts`、`status-run.ts`、`record-evidence.ts`、`publish-artifact.ts`、`checkpoint-run.ts`、`validate-plan.ts`、`analyze-gaps.ts`、`validate-adaptation.ts`、`apply-plan-revision.ts`、`calculate-comparison.ts`、`calculate-sensitivity.ts`、`audit-traceability.ts` 和 `build-report.ts` 已可运行。Harness CLI 另提供 `scaffold-artifact`、`compile-artifacts` 与 `materialize-lane-result`。terminal gate 可把后续 unit 标为 `skipped`，但 execution completeness、research conclusion 和 runtime health 仍分别报告；`build-report` 只消费显式 main-agent source 并确定性派生本地化用户 view 和分离的结构化审计数据。没有 research、benchmark、agent/LLM dispatch 或 hidden judgment command。Store/schema success 不代表 Evidence 真实/充分、决策就绪、research 完成、产品可行或 validation success。
+`scripts/doctor.ts`、`validate-artifact.ts`、`create-run.ts`、`propose-scope.ts`、`confirm-scope.ts`、`load-run.ts`、`status-run.ts`、`admit-prior-input.ts`、`record-evidence.ts`、`publish-artifact.ts`、`checkpoint-run.ts`、`validate-plan.ts`、`analyze-gaps.ts`、`validate-adaptation.ts`、`apply-plan-revision.ts`、`calculate-comparison.ts`、`calculate-sensitivity.ts`、`audit-traceability.ts` 和 `build-report.ts` 已可运行。Harness CLI 另提供 `scaffold-artifact`、`compile-artifacts` 与 `materialize-lane-result`。terminal gate 可把后续 unit 标为 `skipped`，但 execution completeness、research conclusion 和 runtime health 仍分别报告；`build-report` 只消费显式 main-agent source 并确定性派生本地化用户 view 和分离的结构化审计数据。没有 research、benchmark、agent/LLM dispatch 或 hidden judgment command。Store/schema success 不代表 Evidence 真实/充分、决策就绪、research 完成、产品可行或 validation success。

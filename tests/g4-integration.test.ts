@@ -13,8 +13,18 @@ import {
   evaluatePreToolUse,
   evaluateStop,
 } from "../.codex/hooks/research-guard.js";
-import { createArtifactValidator, RunStore, StoreError } from "../harness/src/index.js";
+import {
+  createArtifactValidator,
+  RunStore,
+  StoreError,
+  sha256Bytes,
+} from "../harness/src/index.js";
 import { createEvidenceMcpServer } from "../harness/src/mcp/evidence-server.js";
+import {
+  createDiscoveryMapsFixture,
+  fixtureEnvelope,
+  G21_CORE_REFS,
+} from "./fixtures/g2.1/discovery-maps-fixture.js";
 import { createConfirmedRun } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -133,6 +143,154 @@ test("research guard blocks production hot-fixes until the active Run is termina
 
   await writeFile(manifestPath, JSON.stringify({ status: "failed" }));
   assert.equal(await evaluatePreToolUse(patchInput, runId), undefined);
+});
+
+test("prior Run semantics require exact admission before Agent reads and cannot use generic Decision append", async (context) => {
+  const fixture = await createSyntheticRun();
+  context.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const activeRunId = "g4-prior-admission-current";
+  await createConfirmedRun(fixture.store, {
+    runId: activeRunId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic current user"],
+      decisionGoal: "test exact prior-input admission",
+      researchLanguage: "en-US",
+    },
+    createdAt: "2026-07-30T00:00:00Z",
+  });
+  const currentBundle = await createDiscoveryMapsFixture("general", activeRunId);
+  await fixture.store.publishArtifactBundle({
+    runId: activeRunId,
+    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(currentBundle, ref)),
+  });
+  const priorRunId = "g4-prior-semantics-synthetic";
+  await fixture.store.create({
+    runId: priorRunId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic prior market",
+      customerModel: "b2c",
+      targetUsers: ["synthetic prior user"],
+      decisionGoal: "SYNTHETIC prior discovery only",
+      researchLanguage: "en-US",
+    },
+    createdAt: "2026-07-29T00:00:00Z",
+  });
+  await mkdir(path.join(fixture.root, ".agents/skills/startup-opportunity"), {
+    recursive: true,
+  });
+  await writeFile(
+    path.join(fixture.root, ".agents/skills/startup-opportunity/SKILL.md"),
+    "SYNTHETIC hook root marker\n",
+  );
+  const priorRoot = path.join(fixture.runsRoot, priorRunId);
+  const mapPath = "artifacts/discovery/opportunity-space-map.json";
+  const candidatePath = "artifacts/discovery/candidates/copied.r1.json";
+  const mapBytes = Buffer.from(
+    '{"run_id":"old-run","conclusion":"COPYING THIS MAP IS NOT CURRENT DISCOVERY"}\n',
+  );
+  const candidateBytes = Buffer.from(
+    '{"run_id":"old-run","candidate_id":"copied_candidate","formation":"OLD SEMANTICS"}\n',
+  );
+  await mkdir(path.join(priorRoot, "artifacts/discovery/candidates"), { recursive: true });
+  await writeFile(path.join(priorRoot, mapPath), mapBytes);
+  await writeFile(path.join(priorRoot, candidatePath), candidateBytes);
+
+  const accidentInput = {
+    cwd: fixture.root,
+    tool_name: "Bash",
+    tool_input: {
+      command: `cp runs/${priorRunId}/${mapPath} /tmp/current-map.json && cp runs/${priorRunId}/${candidatePath} /tmp/current-candidate.json && sed -i 's/old-run/${activeRunId}/g' /tmp/current-*.json`,
+    },
+  };
+  const blocked = await evaluatePreToolUse(accidentInput, activeRunId);
+  assert.equal(
+    (blocked?.hookSpecificOutput as Record<string, unknown>)?.permissionDecision,
+    "deny",
+  );
+  assert.match(
+    String((blocked?.hookSpecificOutput as Record<string, unknown>)?.permissionDecisionReason),
+    /admit-prior-input/,
+  );
+  await assert.rejects(
+    fixture.store.appendDecision(activeRunId, {
+      schema_version: "startup_opportunity.decision.v1",
+      decision_id: "prior_input_admitted_forged",
+      run_id: activeRunId,
+      decision_type: "prior_input_admitted",
+      timestamp: "2026-07-30T00:10:00Z",
+      actor: "main_agent",
+      reason: "SYNTHETIC attempted bypass.",
+      artifact_refs: [],
+      prior_input_id: "forged_prior",
+      prior_source_run_id: priorRunId,
+      prior_source_artifact_path: mapPath,
+      prior_source_content_hash: sha256Bytes(mapBytes),
+      prior_input_consumer: "discovery_maps",
+      prior_target_artifact_path: mapPath,
+      prior_use_boundary: "hypothesis_input_only",
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.prior_input_dedicated_path_required",
+  );
+
+  for (const [priorInputId, sourceArtifactPath, targetArtifactPath, sourceBytes, consumer] of [
+    [
+      "prior_map_hypothesis",
+      mapPath,
+      "artifacts/discovery/opportunity-space-map.r1.json",
+      mapBytes,
+      "discovery_maps",
+    ],
+    [
+      "prior_candidate_hypothesis",
+      candidatePath,
+      candidatePath,
+      candidateBytes,
+      "discovery_candidates",
+    ],
+  ] as const) {
+    const admission = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        ".agents/skills/startup-opportunity/scripts/admit-prior-input.ts",
+        "--run-id",
+        activeRunId,
+        "--prior-input-id",
+        priorInputId,
+        "--source-run-id",
+        priorRunId,
+        "--source-artifact-path",
+        sourceArtifactPath,
+        "--target-artifact-path",
+        targetArtifactPath,
+        "--consumer",
+        consumer,
+        "--reason",
+        "SYNTHETIC prior hypothesis input only.",
+        "--admitted-at",
+        "2026-07-30T00:10:00Z",
+        "--runs-root",
+        fixture.runsRoot,
+      ],
+      { cwd: repositoryRoot, encoding: "utf8" },
+    );
+    assert.equal(admission.status, 0, admission.stderr);
+    const receipt = JSON.parse(admission.stdout) as Record<string, unknown>;
+    assert.equal(receipt.useBoundary, "hypothesis_input_only");
+    assert.equal(receipt.sourceContentHash, sha256Bytes(sourceBytes));
+    assert.equal("document" in receipt, false);
+    assert.doesNotMatch(admission.stdout, /COPYING THIS MAP|OLD SEMANTICS/);
+  }
+
+  assert.equal(await evaluatePreToolUse(accidentInput, activeRunId), undefined);
+  await writeFile(path.join(priorRoot, candidatePath), `${candidateBytes.toString()}tampered\n`);
+  assert.ok(await evaluatePreToolUse(accidentInput, activeRunId));
 });
 
 test("status reads a validated manifest without mutating the Run", async (context) => {

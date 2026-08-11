@@ -13,6 +13,7 @@ import {
 } from "./comparison/comparison-commands.js";
 import { runAuditTraceability, runBuildReport } from "./reporting/report-commands.js";
 import {
+  runAdmitPriorInput,
   runCheckpointRun,
   runConfirmScope,
   runCreateRun,
@@ -55,6 +56,9 @@ switch (command) {
     break;
   case "status-run":
     process.exitCode = await runStatusRun(args);
+    break;
+  case "admit-prior-input":
+    process.exitCode = await runAdmitPriorInput(args);
     break;
   case "record-evidence":
     process.exitCode = await runRecordEvidence(args);

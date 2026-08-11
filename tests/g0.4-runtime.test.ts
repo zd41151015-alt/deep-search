@@ -601,9 +601,12 @@ function terminalReportSource(
   runId: string,
   decisionSubjectSnapshotHash: string,
   runtimeFailure = false,
+  decisionSubjectSnapshotRef = DECISION_SUBJECT_SNAPSHOT_REF,
+  currentPlanRef = PLAN_REF,
+  generatedAt = "2026-07-24T12:09:30Z",
 ): FormalArtifactEnvelope {
   const artifactPath = "artifacts/reporting/terminal-report-source.r1.json";
-  const auditRefs = [DECISION_REF, GAP_REF, PLAN_REF].sort();
+  const auditRefs = [DECISION_REF, GAP_REF, currentPlanRef].sort();
   const document: Record<string, unknown> = {
     schema_version: "startup_opportunity.terminal_report_source.v1",
     report_id: "terminal_report_runtime_1",
@@ -613,8 +616,8 @@ function terminalReportSource(
     producer_role: "main_agent",
     owned_output_path: artifactPath,
     materialized_path: "report.json",
-    generated_at: "2026-07-24T12:09:30Z",
-    decision_subject_snapshot_ref: DECISION_SUBJECT_SNAPSHOT_REF,
+    generated_at: generatedAt,
+    decision_subject_snapshot_ref: decisionSubjectSnapshotRef,
     decision_subject_snapshot_hash: decisionSubjectSnapshotHash,
     current_decision_subject_ids: [],
     terminal_outcome: runtimeFailure ? "failed" : "insufficient_evidence",
@@ -707,10 +710,10 @@ function terminalReportSource(
     runId,
     artifactPath,
     document,
-    [...auditRefs, DECISION_SUBJECT_SNAPSHOT_REF].sort(),
+    [...auditRefs, decisionSubjectSnapshotRef].sort(),
     "startup_opportunity.artifact_envelope.current",
   );
-  return { ...source, created_at: "2026-07-24T12:09:30Z" };
+  return { ...source, created_at: generatedAt };
 }
 
 async function setupPersistedRun(
@@ -1042,51 +1045,61 @@ async function prepareTerminalReporting(
   runtimeFailure = false,
 ) {
   const runId = String(setup.currentManifest.run_id);
-  const decisionContext = {
-    schema_version: "startup_opportunity.decision_context.v1",
-    run_id: runId,
-    decision_to_make: "choose_opportunity",
-    decision_question: "SYNTHETIC terminal fixture question; not market Evidence.",
-    decision_options: ["SYNTHETIC stop without a recommendation."],
-    venture_goal: "strategic_exploration",
-    decision_horizon: "SYNTHETIC no validated decision horizon.",
-    founder_advantages: [],
-    non_negotiable_constraints: ["SYNTHETIC external validation remains out of scope."],
-    team_capability_refs: [],
-    risk_preferences: ["SYNTHETIC preserve an insufficient-evidence conclusion."],
-    initial_belief: "SYNTHETIC no opportunity has been established.",
-    favored_hypothesis: null,
-    assumed_truths: [],
-    final_decision_owner: "user",
-    assumptions: ["SYNTHETIC fixture content is not Evidence."],
-    open_questions: ["SYNTHETIC demand remains unknown."],
-  };
-  const scopeFrame = {
-    schema_version: "startup_opportunity.scope_frame.discovery.current",
-    run_id: runId,
-    mode: "opportunity_discovery",
-    decision_context_ref: DECISION_CONTEXT_REF,
-    direction: "SYNTHETIC bounded opportunity discovery fixture.",
-    discovery_profile: "general",
-    research_axes: ["user_language", "jtbd_workflow"],
-    market: "Synthetic",
-    language: "en-US",
-    target_users: ["synthetic user"],
-    excluded_users: [],
-    platform: "SYNTHETIC delivery platform remains unknown.",
-    market_motion: "consumer",
-    acquisition_motion: ["direct"],
-    buyer_models: ["self_payer"],
-    payment_modes: ["subscription"],
-    native_app_required: false,
-    delivery_form_preferences: [],
-    business_model_preferences: [],
-    team_capability_constraints: [],
-    risk_preferences: ["SYNTHETIC avoid unsupported conclusions."],
-    ai_scope: "optional",
-    assumptions: ["SYNTHETIC Scope is not market Evidence."],
-    open_questions: ["SYNTHETIC all demand questions remain open."],
-  };
+  const storedDecisionContextEnvelope =
+    setup.discoveryBundle === null
+      ? null
+      : fixtureEnvelope(setup.discoveryBundle, DECISION_CONTEXT_REF);
+  const storedScopeFrameEnvelope =
+    setup.discoveryBundle === null ? null : fixtureEnvelope(setup.discoveryBundle, SCOPE_FRAME_REF);
+  const decisionContext =
+    storedDecisionContextEnvelope?.document ??
+    ({
+      schema_version: "startup_opportunity.decision_context.v1",
+      run_id: runId,
+      decision_to_make: "choose_opportunity",
+      decision_question: "SYNTHETIC terminal fixture question; not market Evidence.",
+      decision_options: ["SYNTHETIC stop without a recommendation."],
+      venture_goal: "strategic_exploration",
+      decision_horizon: "SYNTHETIC no validated decision horizon.",
+      founder_advantages: [],
+      non_negotiable_constraints: ["SYNTHETIC external validation remains out of scope."],
+      team_capability_refs: [],
+      risk_preferences: ["SYNTHETIC preserve an insufficient-evidence conclusion."],
+      initial_belief: "SYNTHETIC no opportunity has been established.",
+      favored_hypothesis: null,
+      assumed_truths: [],
+      final_decision_owner: "user",
+      assumptions: ["SYNTHETIC fixture content is not Evidence."],
+      open_questions: ["SYNTHETIC demand remains unknown."],
+    } satisfies Record<string, unknown>);
+  const scopeFrame =
+    storedScopeFrameEnvelope?.document ??
+    ({
+      schema_version: "startup_opportunity.scope_frame.discovery.current",
+      run_id: runId,
+      mode: "opportunity_discovery",
+      decision_context_ref: DECISION_CONTEXT_REF,
+      direction: "SYNTHETIC bounded opportunity discovery fixture.",
+      discovery_profile: "general",
+      research_axes: ["user_language", "jtbd_workflow"],
+      market: "Synthetic",
+      language: "en-US",
+      target_users: ["synthetic user"],
+      excluded_users: [],
+      platform: "SYNTHETIC delivery platform remains unknown.",
+      market_motion: "consumer",
+      acquisition_motion: ["direct"],
+      buyer_models: ["self_payer"],
+      payment_modes: ["subscription"],
+      native_app_required: false,
+      delivery_form_preferences: [],
+      business_model_preferences: [],
+      team_capability_constraints: [],
+      risk_preferences: ["SYNTHETIC avoid unsupported conclusions."],
+      ai_scope: "optional",
+      assumptions: ["SYNTHETIC Scope is not market Evidence."],
+      open_questions: ["SYNTHETIC all demand questions remain open."],
+    } satisfies Record<string, unknown>);
   const snapshotDocument = {
     schema_version: "startup_opportunity.decision_subject_snapshot.current",
     snapshot_id: `decision_subjects_${runId.replaceAll("-", "_")}`,
@@ -1106,10 +1119,11 @@ async function prepareTerminalReporting(
       "SYNTHETIC empty authority: the Run stopped before any final decision subject formed.",
     ],
   };
-  const decisionContextEnvelope = formalEnvelope(runId, DECISION_CONTEXT_REF, decisionContext);
-  const scopeFrameEnvelope = formalEnvelope(runId, SCOPE_FRAME_REF, scopeFrame, [
-    DECISION_CONTEXT_REF,
-  ]);
+  const decisionContextEnvelope =
+    storedDecisionContextEnvelope ?? formalEnvelope(runId, DECISION_CONTEXT_REF, decisionContext);
+  const scopeFrameEnvelope =
+    storedScopeFrameEnvelope ??
+    formalEnvelope(runId, SCOPE_FRAME_REF, scopeFrame, [DECISION_CONTEXT_REF]);
   const snapshotEnvelope = formalEnvelope(runId, DECISION_SUBJECT_SNAPSHOT_REF, snapshotDocument, [
     PLAN_REF,
     SCOPE_FRAME_REF,
@@ -3003,6 +3017,251 @@ test("terminal adaptation requires and materializes a validated main-agent decis
   const replay = await runtime.apply(input);
   assert.equal(replay.status, "idempotent_replay");
   assert.equal(replay.terminalReport?.status, "idempotent_replay");
+});
+
+test("decision subject authority survives Plan r2 transition, terminal reporting, checkpoint, and reopen", async (contextTest) => {
+  const runId = "runtime-decision-subject-plan-transition";
+  const setup = await setupPersistedRun(contextTest, runId, "post-g2-add");
+  const terminalAuthority = await prepareTerminalReporting(setup).catch((error: unknown) => {
+    if (error instanceof StoreError) {
+      assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+    }
+    throw error;
+  });
+  const afterR1 = await setup.store.status(runId);
+  assert.equal(
+    afterR1.manifest.current_decision_subject_snapshot_ref,
+    DECISION_SUBJECT_SNAPSHOT_REF,
+  );
+
+  const transitionSetup = {
+    ...setup,
+    currentManifest: afterR1.manifest as unknown as Record<string, unknown>,
+    adaptationBundle: terminalAuthority.adaptationBundle,
+  };
+  const { candidateBundle: baseCandidateBundle } = candidateFor(
+    transitionSetup,
+    PRE_KILL_APPLY_AT,
+    PRE_KILL_CONTEXT_AT,
+  );
+  const candidateAuthorityEntries = [
+    DECISION_CONTEXT_REF,
+    SCOPE_FRAME_REF,
+    DECISION_SUBJECT_SNAPSHOT_REF,
+  ].map((ref) => {
+    const entry = terminalAuthority.adaptationBundle.documents.find(
+      (candidate) => candidate.path === ref,
+    );
+    assert.ok(entry);
+    return structuredClone(entry);
+  });
+  const candidateBundle: DocumentBundle = {
+    ...baseCandidateBundle,
+    documents: [...baseCandidateBundle.documents, ...candidateAuthorityEntries],
+  };
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const applied = await runtime
+    .apply({
+      runId,
+      adaptationBundle: terminalAuthority.adaptationBundle,
+      adaptationRefs: [DECISION_REF],
+      candidateBundle,
+      createdAt: PRE_KILL_APPLY_AT,
+      checkpointCreatedAt: PRE_KILL_CHECKPOINT_AT,
+      nextStep: "Publish a new decision subject snapshot for the revised Plan.",
+      beliefSummary: {
+        current_belief: "SYNTHETIC Plan r2 requires a refreshed decision subject authority.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Does snapshot r2 bind the revised Plan exactly?",
+      },
+    })
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+      }
+      throw error;
+    });
+  assert.equal(applied.currentPlanRef, "plans/research-plan.r2.json");
+  const afterPlanR2 = await setup.store.load(runId);
+  assert.equal(afterPlanR2.manifest.current_plan_ref, "plans/research-plan.r2.json");
+  assert.equal(
+    afterPlanR2.manifest.current_decision_subject_snapshot_ref,
+    DECISION_SUBJECT_SNAPSHOT_REF,
+  );
+
+  const r1Envelope = JSON.parse(
+    await readFile(path.join(setup.runRoot, DECISION_SUBJECT_SNAPSHOT_REF), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const planR2Envelope = JSON.parse(
+    await readFile(path.join(setup.runRoot, "plans/research-plan.r2.json"), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const snapshotR2Ref = "artifacts/reporting/decision-subject-snapshot.r2.json";
+  const snapshotR2Document = {
+    ...structuredClone(r1Envelope.document),
+    revision: 2,
+    parent_snapshot_ref: DECISION_SUBJECT_SNAPSHOT_REF,
+    parent_snapshot_hash: r1Envelope.content_hash,
+    research_plan_ref: planR2Envelope.artifact_path,
+    research_plan_hash: planR2Envelope.content_hash,
+    created_at: "2026-07-28T12:10:00Z",
+  };
+  const snapshotR2Envelope = formalEnvelope(runId, snapshotR2Ref, snapshotR2Document, [
+    DECISION_SUBJECT_SNAPSHOT_REF,
+    SCOPE_FRAME_REF,
+    planR2Envelope.artifact_path,
+  ]);
+  await setup.store.publishArtifact({ runId, envelope: snapshotR2Envelope });
+  assert.equal(
+    (await setup.store.status(runId)).manifest.current_decision_subject_snapshot_ref,
+    snapshotR2Ref,
+  );
+
+  const terminalGapRef = "adaptations/gap-snapshots/gap-runtime-terminal.r2.json";
+  const terminalGap = gapSnapshot(runId, "runtime_blocked", planR2Envelope.artifact_path);
+  terminalGap.revision = 2;
+  terminalGap.parent_snapshot_ref = GAP_REF;
+  terminalGap.based_on_plan_ref = planR2Envelope.artifact_path;
+  terminalGap.created_at = "2026-07-28T12:10:15Z";
+  terminalGap.snapshot_cycle_key = "enrichment:wave_runtime_1:fixture";
+  terminalGap.stop_signals = ["runtime_blocked"];
+  const terminalGapEntry = (terminalGap.gaps as Record<string, unknown>[])[0];
+  assert.ok(terminalGapEntry);
+  terminalGapEntry.gap_id = "gap_runtime_terminal_r2";
+  terminalGapEntry.basis_refs = ["manifest.json", planR2Envelope.artifact_path];
+  terminalGapEntry.recommended_unit_types = [];
+  const terminalGapEnvelope = formalEnvelope(runId, terminalGapRef, terminalGap, [
+    GAP_REF,
+    planR2Envelope.artifact_path,
+  ]);
+  await setup.store
+    .publishArtifact({ runId, envelope: terminalGapEnvelope })
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+      }
+      throw error;
+    });
+
+  const terminalDecisionRef = "adaptations/decisions/adapt-runtime-terminal-r2.json";
+  const terminalDecision = runtimeFailureDecision(runId);
+  terminalDecision.adaptation_id = "adapt_runtime_terminal_r2";
+  terminalDecision.based_on_plan_ref = planR2Envelope.artifact_path;
+  terminalDecision.trigger_gap_refs = [`${terminalGapRef}#gap_runtime_terminal_r2`];
+  terminalDecision.created_at = "2026-07-28T12:10:30Z";
+  const terminalDecisionEnvelope = formalEnvelope(runId, terminalDecisionRef, terminalDecision, [
+    planR2Envelope.artifact_path,
+    terminalGapRef,
+  ]);
+  await setup.store.publishArtifact({ runId, envelope: terminalDecisionEnvelope });
+
+  const reportEnvelope = terminalReportSource(
+    runId,
+    snapshotR2Envelope.content_hash,
+    true,
+    snapshotR2Ref,
+    planR2Envelope.artifact_path,
+    "2026-07-28T12:11:00Z",
+  );
+  reportEnvelope.document.audit_refs = [
+    DECISION_REF,
+    GAP_REF,
+    terminalDecisionRef,
+    terminalGapRef,
+    planR2Envelope.artifact_path,
+  ].sort();
+  (reportEnvelope as unknown as { input_refs: string[] }).input_refs = [
+    ...(reportEnvelope.document.audit_refs as string[]),
+    snapshotR2Ref,
+  ].sort();
+  (reportEnvelope as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+    reportEnvelope.document,
+  );
+  const terminalClosurePaths = [
+    "plans/planning-context.r2.json",
+    ...G21_MAP_REFS,
+    "artifacts/discovery/candidates/candidate_baseline.r1.json",
+    PRE_KILL_CANDIDATE_REF,
+    RETAINED_SHARED_CANDIDATE_REF,
+  ];
+  const terminalClosure = await Promise.all(
+    terminalClosurePaths.map(async (artifactPath) => ({
+      path: artifactPath,
+      document: JSON.parse(
+        await readFile(path.join(setup.runRoot, artifactPath), "utf8"),
+      ) as FormalArtifactEnvelope,
+    })),
+  );
+  const assembledTerminal = await setup.store.buildValidationContext(runId, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [
+      { path: terminalGapRef, document: terminalGapEnvelope },
+      { path: terminalDecisionRef, document: terminalDecisionEnvelope },
+      ...terminalClosure,
+    ],
+    exact_records: [],
+  });
+  const terminated = await runtime
+    .apply({
+      runId,
+      adaptationBundle: assembledTerminal.bundle,
+      adaptationRefs: [terminalDecisionRef],
+      terminalReportEnvelope: reportEnvelope,
+      createdAt: "2026-07-28T12:11:15Z",
+      checkpointCreatedAt: "2026-07-28T12:11:30Z",
+      nextStep: "Deliver the terminal report bound to snapshot r2 and Plan r2.",
+      beliefSummary: {
+        current_belief: "SYNTHETIC runtime failure prevents a research conclusion.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Can a future new Run proceed after the runtime fix?",
+      },
+    })
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+      }
+      throw error;
+    });
+  assert.equal(terminated.terminalReport?.status, "published");
+  assert.equal((await setup.store.status(runId)).manifest.status, "failed");
+  const checkpoint = await setup.store
+    .checkpoint({
+      runId,
+      checkpointId: "checkpoint_decision_subject_plan_r2",
+      createdAt: "2026-07-28T12:12:00Z",
+      nextStep: "Reopen and verify snapshot r2 remains authoritative.",
+      beliefSummary: {
+        current_belief: "SYNTHETIC report is bound to snapshot r2 and Plan r2.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Does exact historical replay preserve r2 authority?",
+      },
+      inputRefs: terminated.terminalReport?.formalArtifactPaths ?? [],
+    })
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+      }
+      throw error;
+    });
+  assert.equal(checkpoint.status, "published");
+  const reopened = await setup.store.load(runId);
+  assert.equal(reopened.manifest.current_decision_subject_snapshot_ref, snapshotR2Ref);
+  assert.equal(
+    reopened.manifest.current_decision_subject_snapshot_hash,
+    snapshotR2Envelope.content_hash,
+  );
+
+  const replay = await setup.store.publishArtifact({ runId, envelope: r1Envelope });
+  assert.equal(replay.status, "idempotent_replay");
+  assert.equal(
+    (await setup.store.status(runId)).manifest.current_decision_subject_snapshot_ref,
+    snapshotR2Ref,
+  );
 });
 
 test("Discovery runtime failure terminates and reports from the original Run", async (contextTest) => {

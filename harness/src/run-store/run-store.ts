@@ -32,6 +32,7 @@ import {
   openRunDirectoryReadOnly,
   resolveRunPath,
   validateArtifactRef,
+  validateRelativePath,
   validateRunId,
 } from "../artifact-store/path-policy.js";
 import {
@@ -147,6 +148,32 @@ export interface ConfirmScopeResult {
   readonly confirmationBasis: "caller_attested_user_confirmation";
   readonly harnessIdentityVerification: "not_available";
   readonly status: "confirmed" | "idempotent_replay";
+}
+
+export interface AdmitPriorInputInput {
+  readonly runId: string;
+  readonly priorInputId: string;
+  readonly sourceRunId: string;
+  readonly sourceArtifactPath: string;
+  readonly targetArtifactPath: string;
+  readonly consumer: "discovery_maps" | "discovery_candidates";
+  readonly reason: string;
+  readonly admittedAt?: string;
+}
+
+export interface AdmitPriorInputResult {
+  readonly schemaVersion: "startup_opportunity.admit_prior_input_result.v1";
+  readonly runId: string;
+  readonly priorInputId: string;
+  readonly decisionRef: string;
+  readonly decisionHash: string;
+  readonly sourceRunId: string;
+  readonly sourceArtifactPath: string;
+  readonly targetArtifactPath: string;
+  readonly sourceContentHash: string;
+  readonly consumer: "discovery_maps" | "discovery_candidates";
+  readonly useBoundary: "hypothesis_input_only";
+  readonly status: "appended" | "idempotent_replay";
 }
 
 export interface CreateRunResult {
@@ -1887,6 +1914,15 @@ export class RunStore {
       this.artifacts,
       this.logs,
     );
+    for (const decision of await this.logs.listValidatedRecords(
+      runRoot,
+      runId,
+      "decisions.jsonl",
+    )) {
+      if (decision.decision_type === "prior_input_admitted") {
+        exactRecords.set(`decisions.jsonl#${String(decision.decision_id)}`, decision);
+      }
+    }
 
     return {
       schemaVersion: "startup_opportunity.validation_context.v1",
@@ -1968,7 +2004,7 @@ export class RunStore {
       this.assertDiscoveryLanePublicationTransition(manifest, input.envelope, ignoredLate);
       this.assertEnrichmentBranchPublicationTransition(manifest, input.envelope, ignoredLate);
       this.assertDeclarativeRuntimeTransition(manifest, input.envelope, new Set());
-      this.assertDecisionSubjectPublicationTransition(manifest, input.envelope);
+      await this.assertDecisionSubjectPublicationTransition(runRoot, manifest, input.envelope);
       const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
         runRoot,
         input.runId,
@@ -2094,7 +2130,7 @@ export class RunStore {
           effectiveClassification.ignoredLate,
         );
         this.assertDeclarativeRuntimeTransition(manifest, envelope, runtimeActivations);
-        this.assertDecisionSubjectPublicationTransition(manifest, envelope);
+        await this.assertDecisionSubjectPublicationTransition(runRoot, manifest, envelope);
         classifications.set(envelope.artifact_path, effectiveClassification);
       }
       const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
@@ -2941,11 +2977,16 @@ export class RunStore {
     if (
       decision.decision_type === "scope_proposed" ||
       decision.decision_type === "scope_assumption_confirmed" ||
-      decision.decision_type === "scope_changed_by_user"
+      decision.decision_type === "scope_changed_by_user" ||
+      decision.decision_type === "prior_input_admitted"
     ) {
       throw new StoreError(
-        "run.scope_confirmation_dedicated_path_required",
-        "Scope proposals and confirmations must use the dedicated proposeScope() and confirmScope() paths",
+        decision.decision_type === "prior_input_admitted"
+          ? "run.prior_input_dedicated_path_required"
+          : "run.scope_confirmation_dedicated_path_required",
+        decision.decision_type === "prior_input_admitted"
+          ? "prior input admission must use admitPriorInput() so the Store hashes the exact explicitly named source bytes"
+          : "Scope proposals and confirmations must use the dedicated proposeScope() and confirmScope() paths",
         { decisionType: decision.decision_type },
       );
     }
@@ -2960,6 +3001,145 @@ export class RunStore {
         decision,
         suppliedOperationKey,
       );
+    });
+  }
+
+  async admitPriorInput(input: AdmitPriorInputInput): Promise<AdmitPriorInputResult> {
+    await this.assertCurrentLeaf(input.runId);
+    validateRunId(input.sourceRunId);
+    validateRelativePath(input.sourceArtifactPath);
+    validateRelativePath(input.targetArtifactPath);
+    const validMapTargets = new Set([
+      "artifacts/discovery/seed-probe.r1.json",
+      "artifacts/discovery/opportunity-space-map.r1.json",
+      "artifacts/discovery/solution-space-map.r1.json",
+    ]);
+    if (
+      !["discovery_maps", "discovery_candidates"].includes(input.consumer) ||
+      (input.consumer === "discovery_maps" && !validMapTargets.has(input.targetArtifactPath)) ||
+      (input.consumer === "discovery_candidates" &&
+        !/^artifacts\/discovery\/candidates\/[A-Za-z0-9._-]+\.r[1-9][0-9]*\.json$/.test(
+          input.targetArtifactPath,
+        ))
+    ) {
+      throw new StoreError(
+        "prior_input.target_consumer_invalid",
+        "prior input consumer must bind one exact current Map or Candidate target artifact path",
+        { consumer: input.consumer, targetArtifactPath: input.targetArtifactPath },
+      );
+    }
+    if (input.sourceRunId === input.runId) {
+      throw new StoreError(
+        "prior_input.source_run_invalid",
+        "prior input admission requires an explicitly named different source Run",
+        { runId: input.runId, sourceRunId: input.sourceRunId },
+      );
+    }
+    const runRoot = await openRunDirectory(this.runsRoot, input.runId);
+    const sourceRunRoot = await openRunDirectoryReadOnly(this.runsRoot, input.sourceRunId);
+    return withRunLock(runRoot, async () => {
+      const manifest = await this.readManifest(runRoot);
+      await this.assertScopeBindingLocked(runRoot, manifest);
+      if (
+        manifest.mode !== "opportunity_discovery" ||
+        manifest.scope_confirmation_ref === null ||
+        manifest.scope_confirmation_hash === null ||
+        manifest.current_plan_ref === null
+      ) {
+        throw new StoreError(
+          "prior_input.current_scope_plan_required",
+          "prior input admission requires an opportunity-discovery Run with an exact confirmed current Scope and Research Plan",
+        );
+      }
+      if (manifest.artifact_refs.includes(input.targetArtifactPath)) {
+        throw new StoreError(
+          "prior_input.target_already_published",
+          "prior input must be admitted before its unique current target artifact is published",
+          { targetArtifactPath: input.targetArtifactPath },
+        );
+      }
+      const sourceBytes = await readFile(
+        await resolveRunPath(sourceRunRoot, input.sourceArtifactPath),
+      );
+      const sourceContentHash = sha256Bytes(sourceBytes);
+      const decisionIdentity = {
+        run_id: input.runId,
+        prior_input_id: input.priorInputId,
+        prior_source_run_id: input.sourceRunId,
+        prior_source_artifact_path: input.sourceArtifactPath,
+        prior_source_content_hash: sourceContentHash,
+        prior_target_artifact_path: input.targetArtifactPath,
+        prior_input_consumer: input.consumer,
+      };
+      const decisionId = `prior_input_admitted_${sha256Hex(
+        operationKey("prior_input_admission_identity", decisionIdentity),
+      ).slice(0, 24)}`;
+      const existing = (
+        await this.logs.listValidatedRecords(runRoot, input.runId, "decisions.jsonl")
+      ).find((record) => record.decision_id === decisionId);
+      if (existing !== undefined) {
+        if (
+          existing.reason !== input.reason ||
+          (input.admittedAt !== undefined && existing.timestamp !== input.admittedAt)
+        ) {
+          throw new StoreError(
+            "prior_input.admission_conflict",
+            "prior input admission identity is already bound to different provenance metadata",
+            { decisionId },
+          );
+        }
+        return {
+          schemaVersion: "startup_opportunity.admit_prior_input_result.v1",
+          runId: input.runId,
+          priorInputId: input.priorInputId,
+          decisionRef: `decisions.jsonl#${decisionId}`,
+          decisionHash: canonicalContentHash(existing),
+          sourceRunId: input.sourceRunId,
+          sourceArtifactPath: input.sourceArtifactPath,
+          targetArtifactPath: input.targetArtifactPath,
+          sourceContentHash,
+          consumer: input.consumer,
+          useBoundary: "hypothesis_input_only",
+          status: "idempotent_replay",
+        };
+      }
+      const decision = {
+        schema_version: "startup_opportunity.decision.v1",
+        decision_id: decisionId,
+        run_id: input.runId,
+        decision_type: "prior_input_admitted",
+        timestamp: input.admittedAt ?? new Date().toISOString(),
+        actor: "main_agent",
+        reason: input.reason,
+        artifact_refs: [],
+        prior_input_id: input.priorInputId,
+        prior_source_run_id: input.sourceRunId,
+        prior_source_artifact_path: input.sourceArtifactPath,
+        prior_source_content_hash: sourceContentHash,
+        prior_target_artifact_path: input.targetArtifactPath,
+        prior_input_consumer: input.consumer,
+        prior_use_boundary: "hypothesis_input_only",
+      };
+      const status = await this.logs.appendValidated(
+        runRoot,
+        input.runId,
+        "decisions.jsonl",
+        decision,
+      );
+      return {
+        schemaVersion: "startup_opportunity.admit_prior_input_result.v1",
+        runId: input.runId,
+        priorInputId: input.priorInputId,
+        decisionRef: `decisions.jsonl#${decisionId}`,
+        decisionHash: canonicalContentHash(decision),
+        sourceRunId: input.sourceRunId,
+        sourceArtifactPath: input.sourceArtifactPath,
+        targetArtifactPath: input.targetArtifactPath,
+        sourceContentHash,
+        consumer: input.consumer,
+        useBoundary: "hypothesis_input_only",
+        status,
+      };
     });
   }
 
@@ -3291,10 +3471,11 @@ export class RunStore {
     }
   }
 
-  private assertDecisionSubjectPublicationTransition(
+  private async assertDecisionSubjectPublicationTransition(
+    runRoot: string,
     manifest: RunManifest,
     envelope: FormalArtifactEnvelope,
-  ): void {
+  ): Promise<void> {
     if (envelope.artifact_type !== "startup_opportunity.decision_subject_snapshot.current") {
       return;
     }
@@ -3305,6 +3486,41 @@ export class RunStore {
     }
     if (currentRef === envelope.artifact_path && currentHash === envelope.content_hash) {
       return;
+    }
+    if (manifest.current_plan_ref === null) {
+      throw new StoreError(
+        "artifact.decision_subject_snapshot_plan_invalid",
+        "a new decision subject snapshot requires a current Research Plan",
+      );
+    }
+    const currentPlan = JSON.parse(
+      await readFile(await resolveRunPath(runRoot, manifest.current_plan_ref), "utf8"),
+    ) as unknown;
+    if (!isRecord(currentPlan) || !isCurrentEnvelopeSchema(currentPlan.schema_version)) {
+      throw new StoreError(
+        "artifact.decision_subject_snapshot_plan_invalid",
+        "Manifest current Plan must resolve to a formal envelope before snapshot publication",
+        { currentPlanRef: manifest.current_plan_ref },
+      );
+    }
+    const currentPlanEnvelope = currentPlan as FormalArtifactEnvelope;
+    await this.artifacts.validateStoredEnvelope(runRoot, manifest.run_id, currentPlanEnvelope);
+    if (
+      currentPlanEnvelope.artifact_type !== "startup_opportunity.research_plan.v1" ||
+      currentPlanEnvelope.artifact_path !== manifest.current_plan_ref ||
+      envelope.document.research_plan_ref !== manifest.current_plan_ref ||
+      envelope.document.research_plan_hash !== currentPlanEnvelope.content_hash
+    ) {
+      throw new StoreError(
+        "artifact.decision_subject_snapshot_plan_invalid",
+        "a new decision subject snapshot must bind the Manifest current Plan exact ref and content hash",
+        {
+          currentPlanRef: manifest.current_plan_ref,
+          currentPlanHash: currentPlanEnvelope.content_hash,
+          snapshotPlanRef: envelope.document.research_plan_ref,
+          snapshotPlanHash: envelope.document.research_plan_hash,
+        },
+      );
     }
     const currentRevision =
       currentRef === null
@@ -3583,6 +3799,16 @@ export class RunStore {
     runRoot: string,
     input: CheckpointRunInput,
   ): Promise<CheckpointRunResult> {
+    const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
+      runRoot,
+      input.runId,
+      this.validator,
+      this.artifacts,
+      this.logs,
+    );
+    const referenceContext: DocumentBundleReferenceContext = {
+      historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
+    };
     const manifest = await this.readManifest(runRoot);
     await this.assertScopeBindingLocked(runRoot, manifest);
     const checkpointRef = `checkpoints/${input.checkpointId.replaceAll("_", "-")}.json`;
@@ -3614,10 +3840,15 @@ export class RunStore {
           path: checkpointRef,
         });
       }
-      await this.artifacts.publishLocked(runRoot, {
-        runId: input.runId,
-        envelope: existing.envelope,
-      });
+      await this.artifacts.publishLocked(
+        runRoot,
+        {
+          runId: input.runId,
+          envelope: existing.envelope,
+        },
+        false,
+        referenceContext,
+      );
       await this.recoverLocked(runRoot, input.runId);
       return {
         schemaVersion: "startup_opportunity.checkpoint_result.v1",
@@ -3696,10 +3927,15 @@ export class RunStore {
       content_hash: canonicalContentHash(document),
       document,
     };
-    const published = await this.artifacts.publishLocked(runRoot, {
-      runId: input.runId,
-      envelope,
-    });
+    const published = await this.artifacts.publishLocked(
+      runRoot,
+      {
+        runId: input.runId,
+        envelope,
+      },
+      false,
+      referenceContext,
+    );
     if (input.faultAt === "after_checkpoint_publish") {
       throw new StoreError("fault.injected", "injected failure after checkpoint publish");
     }

@@ -304,6 +304,34 @@ function refsFromNestedArray(
   });
 }
 
+function refsFromDoubleNestedArray(
+  document: Record<string, unknown>,
+  outerArrayField: string,
+  innerArrayField: string,
+  refField: string,
+  expectedSchemaVersion: string | readonly string[],
+): readonly ReferenceRequirement[] {
+  const outer = document[outerArrayField];
+  if (!Array.isArray(outer)) return [];
+  return outer.flatMap((value, outerIndex) => {
+    if (!isRecord(value) || !Array.isArray(value[innerArrayField])) return [];
+    return value[innerArrayField].flatMap((binding, innerIndex) =>
+      isRecord(binding) && typeof binding[refField] === "string"
+        ? [
+            {
+              instancePath: `/${outerArrayField}/${outerIndex}/${innerArrayField}/${innerIndex}/${refField}`,
+              ref: binding[refField],
+              expectedSchemaVersions:
+                typeof expectedSchemaVersion === "string"
+                  ? [expectedSchemaVersion]
+                  : expectedSchemaVersion,
+            },
+          ]
+        : [],
+    );
+  });
+}
+
 function refsFromNestedObjectArray(
   document: Record<string, unknown>,
   arrayField: string,
@@ -2944,6 +2972,16 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.concept_hypothesis.assessment.current",
           "startup_opportunity.concept_hypothesis.assessment_intake.current",
         ]),
+        ...refsFromDoubleNestedArray(document, "subjects", "reformation_basis_hashes", "ref", [
+          "startup_opportunity.discovery_candidate.v1",
+          "startup_opportunity.discovery_fan_in.v2",
+          "startup_opportunity.merge.v1",
+          "startup_opportunity.opportunity_thesis.v1",
+          "startup_opportunity.opportunity_comparison.v1",
+          "startup_opportunity.concept_evidence_assessment.analysis.current",
+          "startup_opportunity.concept_evidence_assessment.reporting.current",
+          "startup_opportunity.concept_evidence_assessment_fan_in.v1",
+        ]),
       ];
     case "startup_opportunity.terminal_report_source.v1":
       return [
@@ -2952,6 +2990,27 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "decision_subject_snapshot_ref",
           "startup_opportunity.decision_subject_snapshot.current",
         ),
+        ...refsFromNestedArray(document, "directions", "subject_ref", [
+          "startup_opportunity.discovery_candidate.v1",
+          "startup_opportunity.opportunity_thesis.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+        ]),
+        ...refsFromDoubleNestedArray(document, "directions", "synthesis_basis_hashes", "ref", [
+          "startup_opportunity.discovery_candidate.v1",
+          "startup_opportunity.opportunity_thesis.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+          "startup_opportunity.evidence.assessment.current",
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.evidence.discovery_evaluation.current",
+          "startup_opportunity.assessment_evidence.v1",
+          "startup_opportunity.candidate_neutral_evidence.v1",
+          "startup_opportunity.commercial_research_audit.current",
+          "startup_opportunity.concept_evidence_assessment.analysis.current",
+          "startup_opportunity.concept_evidence_assessment.reporting.current",
+          "startup_opportunity.opportunity_comparison.v1",
+        ]),
         ...refsFromNestedArray(document, "sources", "evidence_ref", [
           "startup_opportunity.evidence.assessment.current",
           "startup_opportunity.evidence.discovery_candidate.current",

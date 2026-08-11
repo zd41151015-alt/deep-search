@@ -11,6 +11,7 @@ Usage:
   npm run harness -- confirm-scope --run-id ID --expected-scope-proposal-revision N --expected-scope-proposal-ref REF --expected-scope-proposal-hash HASH --user-confirmation-attestation TEXT
   npm run harness -- load-run --run-id ID
   npm run harness -- status-run --run-id ID
+  npm run harness -- admit-prior-input --run-id ID --prior-input-id ID --source-run-id ID --source-artifact-path PATH --target-artifact-path PATH --consumer CONSUMER --reason REASON
   npm run harness -- record-evidence --run-id ID --unit-id ID (--source-url URL | --source-uri URN) --research-goal GOAL --content-file FILE
   npm run harness -- publish-artifact --file FILE [--runs-root DIR]
   npm run harness -- compile-artifacts --file FILE [--runs-root DIR]
@@ -35,6 +36,7 @@ Commands:
   confirm-scope      Bind caller-attested confirmation to the exact proposal revision/ref/hash.
   load-run           Validate, reconcile, and reopen a persisted Run.
   status-run         Read and validate current Run manifest state without recovery or mutation.
+  admit-prior-input  Hash one explicitly named prior-Run artifact and append its hypothesis-only admission receipt.
   record-evidence    Persist raw evidence with canonical hashes and deterministic deduplication.
   publish-artifact   Validate and publish one formal envelope or an explicit envelope bundle.
   compile-artifacts  Compile semantic JSON into an immutable publication plan, Run closure, and optional publication.

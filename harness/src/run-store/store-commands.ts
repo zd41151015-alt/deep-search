@@ -252,6 +252,38 @@ export async function runStatusRun(
   });
 }
 
+export async function runAdmitPriorInput(
+  args: readonly string[],
+  repositoryRoot = process.cwd(),
+): Promise<number> {
+  return runCommand(async () => {
+    const parsed = parseArguments(args);
+    rejectUnknown(parsed, [
+      "--run-id",
+      "--prior-input-id",
+      "--source-run-id",
+      "--source-artifact-path",
+      "--target-artifact-path",
+      "--consumer",
+      "--reason",
+      "--admitted-at",
+      "--runs-root",
+    ]);
+    const admittedAt = parsed.values.get("--admitted-at");
+    const validator = await createArtifactValidator(repositoryRoot);
+    return new RunStore(roots(parsed, repositoryRoot), validator).admitPriorInput({
+      runId: required(parsed, "--run-id"),
+      priorInputId: required(parsed, "--prior-input-id"),
+      sourceRunId: required(parsed, "--source-run-id"),
+      sourceArtifactPath: required(parsed, "--source-artifact-path"),
+      targetArtifactPath: required(parsed, "--target-artifact-path"),
+      consumer: required(parsed, "--consumer") as "discovery_maps" | "discovery_candidates",
+      reason: required(parsed, "--reason"),
+      ...(admittedAt === undefined ? {} : { admittedAt }),
+    });
+  });
+}
+
 export async function runRecordEvidence(
   args: readonly string[],
   repositoryRoot = process.cwd(),

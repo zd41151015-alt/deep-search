@@ -115,6 +115,8 @@ export {
   VALIDATOR_SOURCE_PATHS,
 } from "./repository-contract.js";
 export {
+  type AdmitPriorInputInput,
+  type AdmitPriorInputResult,
   type BeliefSummary,
   type BuildValidationContextResult,
   type CheckpointRunInput,
@@ -133,6 +135,7 @@ export {
   type StatusRunResult,
 } from "./run-store/run-store.js";
 export {
+  runAdmitPriorInput,
   runCheckpointRun,
   runConfirmScope,
   runCreateRun,

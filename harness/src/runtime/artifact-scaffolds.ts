@@ -877,7 +877,7 @@ function decisionSubjectSnapshot(request: ScaffoldRequest): ScaffoldArtifact {
       scope_frame_hash: hash,
       research_plan_ref: PLAN_REF,
       research_plan_hash: hash,
-      synthesis_input_hashes: [{ ref: SCOPE_REF, content_hash: hash }],
+      synthesis_input_hashes: [],
       created_at: request.created_at,
       subjects: [],
       limitations: [PLACEHOLDER],

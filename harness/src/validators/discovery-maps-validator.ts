@@ -204,6 +204,17 @@ function validateContentProvenance(
     ? source.document.content_provenance
     : {};
   const refs = stringArray(provenance.prior_input_decision_refs);
+  const targetedAdmissionRefs = [...exactRecords.entries()]
+    .filter(
+      ([, decision]) =>
+        decision.schema_version === "startup_opportunity.decision.v1" &&
+        decision.decision_type === "prior_input_admitted" &&
+        decision.run_id === source.document.run_id &&
+        decision.prior_input_consumer === "discovery_maps" &&
+        decision.prior_target_artifact_path === source.path,
+    )
+    .map(([ref]) => ref)
+    .sort();
   const inheritedRefs = [
     ...new Set(
       (Array.isArray(source.document.input_artifact_hashes)
@@ -229,6 +240,17 @@ function validateContentProvenance(
       ),
     );
   }
+  const missingTargetedRefs = targetedAdmissionRefs.filter((ref) => !refs.includes(ref));
+  if (missingTargetedRefs.length > 0) {
+    errors.push(
+      issue(
+        "discovery_maps.prior_input_target_not_propagated",
+        `${source.path}#/content_provenance/prior_input_decision_refs`,
+        "a Map targeted by an admitted prior input must declare prior-informed synthesis and propagate the exact admission ref",
+        { missingTargetedRefs },
+      ),
+    );
+  }
   if (
     (provenance.synthesis_origin === "current_run_synthesis" && refs.length > 0) ||
     (provenance.synthesis_origin === "prior_informed_synthesis" && refs.length === 0)
@@ -248,6 +270,9 @@ function validateContentProvenance(
       decision.decision_type !== "prior_input_admitted" ||
       decision.run_id !== source.document.run_id ||
       decision.prior_source_run_id === source.document.run_id ||
+      (!inheritedRefs.includes(ref) &&
+        (decision.prior_input_consumer !== "discovery_maps" ||
+          decision.prior_target_artifact_path !== source.path)) ||
       decision.prior_use_boundary !== "hypothesis_input_only"
     ) {
       errors.push(

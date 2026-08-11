@@ -112,7 +112,7 @@ function commercialAuditEnvelope(
   const coveredSubjectIds =
     branch.unitId === "unit_demand"
       ? ["concept_assess_001", "narrow_outcome_service"]
-      : ["concept_assess_001"];
+      : ["narrow_outcome_service"];
   const uncovered = [
     "recent_user_language",
     "purchase_signal",
@@ -759,7 +759,7 @@ async function prepareRun(
     created_at: "2026-07-25T19:00:30Z",
     subjects: [
       {
-        subject_id: "narrow_outcome_service",
+        subject_id: "concept_assess_001",
         subject_ref: "concept-hypothesis.json",
         subject_content_hash: canonicalContentHash(documentAt(bundle, "concept-hypothesis.json")),
         subject_kind: "concept_hypothesis",
@@ -767,6 +767,7 @@ async function prepareRun(
         reporting_role: "final",
         superseded_by_subject_id: null,
         formation_reason: "SYNTHETIC current final direction for terminal projection tests.",
+        reformation_basis_hashes: [],
         lifecycle_reason: "SYNTHETIC retained as the only current decision subject.",
       },
     ],
@@ -843,7 +844,7 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     generated_at: "2026-07-25T19:16:00Z",
     decision_subject_snapshot_ref: state.decisionSubjectSnapshotRef,
     decision_subject_snapshot_hash: state.decisionSubjectSnapshotHash,
-    current_decision_subject_ids: ["narrow_outcome_service"],
+    current_decision_subject_ids: ["concept_assess_001"],
     terminal_outcome: "insufficient_evidence",
     decision_question: "这个合成的窄方向是否值得继续调研？",
     execution: {
@@ -889,26 +890,41 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     },
     directions: [
       {
-        direction_id: "narrow_outcome_service",
+        direction_id: "concept_assess_001",
+        subject_ref: "concept-hypothesis.json",
+        subject_content_hash: String(
+          (state.decisionSubjectSnapshotEnvelope.document.subjects as Record<string, unknown>[])[0]
+            ?.subject_content_hash,
+        ),
+        synthesis_basis_hashes: [
+          {
+            ref: "concept-hypothesis.json",
+            content_hash: String(
+              (
+                state.decisionSubjectSnapshotEnvelope.document.subjects as Record<string, unknown>[]
+              )[0]?.subject_content_hash,
+            ),
+          },
+        ],
         priority: null,
         ranking_status: "unranked_hypothesis",
-        label: "窄场景结果服务",
+        label: "消费者家庭可以通过共享工作流降低协同遗漏",
         maturity: "testable_product_hypothesis",
         action: "validate",
-        target_user: "正在完成一次明确职业转换的成年人",
-        narrow_scenario: "目标岗位已确定但无法把能力差距变成可展示工作样本",
-        problem: "课程完成不能直接证明岗位能力。",
-        current_alternative: "课程证书、通用简历修改和零散作品集模板",
-        payer: "尚未确认；个人、雇主或培训方都只是待验证假设",
-        product_form: "目标岗位到实践任务、反馈和雇主可读工作样本的服务闭环",
-        core_value: "把学习投入转换成可被招聘方检查的结果证据",
-        why_now: "职业转换结果与课程完成之间的落差值得继续验证，但当前尚无购买证据。",
-        key_risks: ["买方与付费触发尚未得到足够证据"],
-        first_testable_assumption: "目标用户会为雇主可读工作样本而不是更多课程付费",
-        comparison_reason: "该假设比通用课程更直接对应当前替代方案的失效点。",
+        target_user: "需要家庭协同的消费者",
+        narrow_scenario: "家庭成员需要确认共同任务是否完成时",
+        problem: "消费者家庭可以通过共享工作流降低协同遗漏",
+        current_alternative: "即时通讯 | 备忘录 | 维持现状",
+        payer: "家庭付款者",
+        product_form: "mini_program",
+        core_value: "降低重复沟通与遗漏",
+        why_now: "家庭协同遗漏是否足以触发付费仍值得验证，但当前尚无购买证据。",
+        key_risks: ["家庭付款者与付费触发尚未得到足够证据"],
+        first_testable_assumption: "家庭付款者会为减少协同遗漏的共享工作流付费",
+        comparison_reason: "该假设直接对应即时通讯和备忘录之间的协同断点。",
         decisive_support_source_ids: ["synthetic_support"],
         decisive_opposition_source_ids: [],
-        open_questions: ["谁实际付款，以及购买发生在求职流程的哪个时点？"],
+        open_questions: ["哪位家庭成员实际付款，以及何种协同遗漏触发购买？"],
       },
     ],
     sources: [
@@ -950,7 +966,7 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     commercial_research_audit_refs: commercialAuditRefs,
     commercial_uncertainties: [
       {
-        direction_id: "narrow_outcome_service",
+        direction_id: "concept_assess_001",
         coverage_key: "purchase_signal",
         state: "inferred",
         statement: "当前行为可能反映购买意向，但尚未观察到实际付款。",
@@ -966,7 +982,7 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
         ["distribution_channel", "尚不清楚现实可达的分发渠道。"],
         ["independent_counterevidence", "尚缺独立反对材料。"],
       ].map(([coverage_key, statement]) => ({
-        direction_id: "narrow_outcome_service",
+        direction_id: "concept_assess_001",
         coverage_key,
         state: "unknown",
         statement,
@@ -1013,7 +1029,7 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     run_id: G14_RUN_ID,
     created_at: "2026-07-25T19:16:00Z",
     producer_role: "main_agent",
-    input_refs: [...auditRefs, state.decisionSubjectSnapshotRef].sort(),
+    input_refs: [...auditRefs, state.decisionSubjectSnapshotRef, "concept-hypothesis.json"].sort(),
     content_hash: canonicalContentHash(document),
     document,
   };
@@ -1069,6 +1085,37 @@ test("terminal finalizer produces a localized decision-first brief with readable
     await readFile(path.join(state.runRoot, "report.json"), "utf8"),
   ) as Record<string, unknown>;
   assert.equal(reportJson.schema_version, "startup_opportunity.terminal_report_source.v1");
+  assert.deepEqual(reportJson.current_decision_subject_ids, ["concept_assess_001"]);
+  const direction = (reportJson.directions as Record<string, unknown>[])[0];
+  assert.ok(direction);
+  assert.deepEqual(
+    Object.fromEntries(
+      [
+        "direction_id",
+        "subject_ref",
+        "label",
+        "target_user",
+        "narrow_scenario",
+        "problem",
+        "current_alternative",
+        "payer",
+        "product_form",
+        "core_value",
+      ].map((field) => [field, direction[field]]),
+    ),
+    {
+      direction_id: "concept_assess_001",
+      subject_ref: "concept-hypothesis.json",
+      label: "消费者家庭可以通过共享工作流降低协同遗漏",
+      target_user: "需要家庭协同的消费者",
+      narrow_scenario: "家庭成员需要确认共同任务是否完成时",
+      problem: "消费者家庭可以通过共享工作流降低协同遗漏",
+      current_alternative: "即时通讯 | 备忘录 | 维持现状",
+      payer: "家庭付款者",
+      product_form: "mini_program",
+      core_value: "降低重复沟通与遗漏",
+    },
+  );
   assert.deepEqual(
     reportJson.commercial_research_audit_refs,
     state.commercialAudits.map((entry) => entry.auditRef).sort(),
@@ -1096,6 +1143,16 @@ test("terminal finalizer produces a localized decision-first brief with readable
   );
   const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
   assert.match(reportMarkdown, /No direct recent_user_language material was available/);
+  for (const rendered of [brief, reportMarkdown]) {
+    assert.match(rendered, /消费者家庭可以通过共享工作流降低协同遗漏/);
+    assert.match(rendered, /需要家庭协同的消费者/);
+    assert.match(rendered, /家庭成员需要确认共同任务是否完成时/);
+    assert.match(rendered, /即时通讯 \| 备忘录 \| 维持现状/);
+    assert.match(rendered, /家庭付款者/);
+    assert.match(rendered, /mini_program/);
+    assert.match(rendered, /降低重复沟通与遗漏/);
+    assert.doesNotMatch(rendered, /正在完成一次明确职业转换|目标岗位到实践任务/);
+  }
   assert.ok(
     (reportJson.gate_warnings as Record<string, unknown>[]).some(
       (warning) =>
@@ -1848,11 +1905,17 @@ test("wrong Run and final subject, scope, Plan, or assessment-plan lineage fail 
 
 test("a different report envelope cannot replay into the same immutable path", async (context) => {
   const state = await prepareRun(context);
-  await state.store.publishArtifact({
-    runId: G14_RUN_ID,
-    envelope: state.reportEnvelope,
-  });
-  const conflicting = structuredClone(state.reportEnvelope);
+  await assert.rejects(
+    state.runtime.build({
+      reportEnvelope: state.reportEnvelope,
+      faultAt: "after_report_sidecar",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const published = JSON.parse(
+    await readFile(path.join(state.runRoot, state.reportEnvelope.artifact_path), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const conflicting = structuredClone(published);
   const sections = conflicting.document.report_sections as Record<string, unknown>;
   sections.concept_hypothesis = [
     "SYNTHETIC conflicting report wording; this is not external validation.",

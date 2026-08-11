@@ -272,6 +272,9 @@
         "additionalProperties": false,
         "required": [
           "direction_id",
+          "subject_ref",
+          "subject_content_hash",
+          "synthesis_basis_hashes",
           "priority",
           "ranking_status",
           "label",
@@ -295,6 +298,30 @@
         "properties": {
           "direction_id": {
             "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "subject_ref": {
+            "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
+          },
+          "subject_content_hash": {
+            "$ref": "../core/definitions.schema.json#/$defs/sha256"
+          },
+          "synthesis_basis_hashes": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["ref", "content_hash"],
+              "properties": {
+                "ref": {
+                  "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
+                },
+                "content_hash": {
+                  "$ref": "../core/definitions.schema.json#/$defs/sha256"
+                }
+              }
+            }
           },
           "priority": {
             "anyOf": [

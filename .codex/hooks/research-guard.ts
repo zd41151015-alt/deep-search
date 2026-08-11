@@ -2,6 +2,11 @@
 
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { sha256Bytes } from "../../harness/src/artifact-store/canonical.js";
+import {
+  openRunDirectoryReadOnly,
+  resolveRunPath,
+} from "../../harness/src/artifact-store/path-policy.js";
 
 type HookMode = "pre-tool-use" | "post-tool-use" | "stop";
 
@@ -48,6 +53,61 @@ function toolInputText(input: HookInput): string {
     .join("\n");
 }
 
+interface ReferencedRunTarget {
+  readonly runId: string;
+  readonly artifactPath: string | null;
+}
+
+function referencedRunTargets(contents: string): readonly ReferencedRunTarget[] {
+  const targets = new Map<string, ReferencedRunTarget>();
+  const pattern =
+    /(?:^|[/\s"'=])runs\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\/([A-Za-z0-9._/-]+))?/g;
+  for (const match of contents.matchAll(pattern)) {
+    const runId = match[1];
+    if (runId === undefined) continue;
+    const artifactPath = match[2] ?? null;
+    targets.set(`${runId}:${artifactPath ?? ""}`, { runId, artifactPath });
+  }
+  return [...targets.values()];
+}
+
+async function hasExactPriorAdmission(
+  root: string,
+  activeRunId: string,
+  target: ReferencedRunTarget,
+): Promise<boolean> {
+  if (target.artifactPath === null) return false;
+  try {
+    const decisions = (
+      await readFile(path.join(root, "runs", activeRunId, "decisions.jsonl"), "utf8")
+    )
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as unknown)
+      .filter(isRecord);
+    const sourceRoot = await openRunDirectoryReadOnly(path.join(root, "runs"), target.runId);
+    const sourceHash = sha256Bytes(
+      await readFile(await resolveRunPath(sourceRoot, target.artifactPath)),
+    );
+    return decisions.some(
+      (decision) =>
+        decision.schema_version === "startup_opportunity.decision.v1" &&
+        decision.run_id === activeRunId &&
+        decision.decision_type === "prior_input_admitted" &&
+        decision.actor === "main_agent" &&
+        decision.prior_source_run_id === target.runId &&
+        decision.prior_source_artifact_path === target.artifactPath &&
+        decision.prior_source_content_hash === sourceHash &&
+        ["discovery_maps", "discovery_candidates"].includes(
+          String(decision.prior_input_consumer),
+        ) &&
+        decision.prior_use_boundary === "hypothesis_input_only",
+    );
+  } catch {
+    return false;
+  }
+}
+
 function mutatesProductionSurface(input: HookInput): boolean {
   const toolName = typeof input.tool_name === "string" ? input.tool_name : "";
   const contents = toolInputText(input);
@@ -74,7 +134,7 @@ export async function evaluatePreToolUse(
     return deny("Destructive repository commands are outside the research hook boundary.");
   }
   const directRunMutation =
-    /runs\/[A-Za-z0-9._:-]+\/(?:manifest\.json|evidence\/(?:manifest\.jsonl|raw\/)|plans\/|adaptations\/|report\.json|decision-brief\.md|report\.md)/;
+    /runs\/[A-Za-z0-9._:-]+\/(?:manifest\.json|decisions\.jsonl|evidence\/(?:manifest\.jsonl|raw\/)|plans\/|adaptations\/|report\.json|decision-brief\.md|report\.md)/;
   const mutationOperator =
     /(?:\*\*\*\s+(?:Add|Update|Delete) File:|\b(?:rm|mv|cp|truncate|tee)\b|(?:^|\s)(?:>|>>))/m;
   if (directRunMutation.test(command) && mutationOperator.test(command)) {
@@ -82,13 +142,24 @@ export async function evaluatePreToolUse(
       "Direct mutation of controlled Run state is blocked; use the explicit Harness publication or recovery command.",
     );
   }
-  if (activeRunId === undefined || !mutatesProductionSurface(input)) {
+  if (activeRunId === undefined) {
     return undefined;
   }
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(activeRunId)) {
     return deny("The active Startup Opportunity Run id is invalid.");
   }
   const root = await findRepositoryRoot(typeof input.cwd === "string" ? input.cwd : process.cwd());
+  for (const target of referencedRunTargets(toolInputText(input))) {
+    if (target.runId === activeRunId) continue;
+    if (!(await hasExactPriorAdmission(root, activeRunId, target))) {
+      return deny(
+        `Reading Run ${target.runId}/${target.artifactPath ?? ""} is blocked until admit-prior-input records an exact hypothesis_input_only admission for those bytes.`,
+      );
+    }
+  }
+  if (!mutatesProductionSurface(input)) {
+    return undefined;
+  }
   let status: unknown;
   try {
     const manifest = JSON.parse(

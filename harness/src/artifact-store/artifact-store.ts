@@ -944,6 +944,15 @@ export class ArtifactStore {
         await this.logs.readExactRecord(runRoot, envelopes[0]?.run_id ?? "", ref, parsed.path),
       );
     }
+    for (const decision of await this.logs.listValidatedRecords(
+      runRoot,
+      envelopes[0]?.run_id ?? "",
+      "decisions.jsonl",
+    )) {
+      if (decision.decision_type === "prior_input_admitted") {
+        exactJsonlRecords.set(`decisions.jsonl#${String(decision.decision_id)}`, decision);
+      }
+    }
     for (const record of await this.evidence.listRecordsLocked(
       runRoot,
       envelopes[0]?.run_id ?? "",

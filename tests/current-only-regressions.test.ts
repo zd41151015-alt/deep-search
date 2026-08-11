@@ -2749,6 +2749,7 @@ test("the decision subject snapshot is authoritative for current, superseded, an
     schema_version: "startup_opportunity.discovery_candidate.v1",
     run_id: runId,
     candidate_id: candidateId,
+    candidate_kind: "demand_seed",
     scope_frame_ref: scopeRef,
     research_plan_ref: planRef,
     formation: {
@@ -2788,6 +2789,7 @@ test("the decision subject snapshot is authoritative for current, superseded, an
         reporting_role: "final",
         superseded_by_subject_id: null,
         formation_reason: "SYNTHETIC current-Run synthesis selected this final subject.",
+        reformation_basis_hashes: [],
         lifecycle_reason: "SYNTHETIC current final decision subject.",
       },
       {
@@ -2799,6 +2801,7 @@ test("the decision subject snapshot is authoritative for current, superseded, an
         reporting_role: "intermediate",
         superseded_by_subject_id: "candidate_current_final",
         formation_reason: "SYNTHETIC intermediate current-Run synthesis output.",
+        reformation_basis_hashes: [],
         lifecycle_reason: "SYNTHETIC superseded by the final subject.",
       },
       {
@@ -2810,6 +2813,7 @@ test("the decision subject snapshot is authoritative for current, superseded, an
         reporting_role: "audit_only",
         superseded_by_subject_id: null,
         formation_reason: "SYNTHETIC intermediate current-Run synthesis output.",
+        reformation_basis_hashes: [],
         lifecycle_reason: "SYNTHETIC dropped from the current decision set.",
       },
     ],
@@ -2875,7 +2879,21 @@ test("the decision subject snapshot is authoritative for current, superseded, an
         decision_subject_snapshot_ref: snapshotRef,
         decision_subject_snapshot_hash: snapshotHash,
         current_decision_subject_ids: ["candidate_current_final"],
-        directions: [{ direction_id: "candidate_current_final" }],
+        directions: [
+          {
+            direction_id: "candidate_current_final",
+            subject_ref: "artifacts/discovery/candidates/current.r1.json",
+            subject_content_hash: canonicalContentHash(current),
+            synthesis_basis_hashes: [
+              {
+                ref: "artifacts/discovery/candidates/current.r1.json",
+                content_hash: canonicalContentHash(current),
+              },
+            ],
+            label: "candidate_current_final",
+            product_form: "unformed",
+          },
+        ],
       },
       envelope: null,
     },
@@ -2892,10 +2910,12 @@ test("the decision subject snapshot is authoritative for current, superseded, an
     "candidate_superseded_intermediate",
     "candidate_dropped_audit",
   ];
+  const currentDirection = (leakedReport.document.directions as Record<string, unknown>[])[0];
+  assert.ok(currentDirection);
   leakedReport.document.directions = [
-    { direction_id: "candidate_current_final" },
-    { direction_id: "candidate_superseded_intermediate" },
-    { direction_id: "candidate_dropped_audit" },
+    currentDirection,
+    { ...currentDirection, direction_id: "candidate_superseded_intermediate" },
+    { ...currentDirection, direction_id: "candidate_dropped_audit" },
   ];
   assert.ok(
     validateDecisionSubjectContract(leaked).some(
@@ -2916,6 +2936,112 @@ test("the decision subject snapshot is authoritative for current, superseded, an
       (issue) => issue.code === "decision_subject.subject_identity_mismatch",
     ),
   );
+
+  const staleDirectionBody = structuredClone(documents);
+  const staleReport = staleDirectionBody.find(
+    (entry) => entry.schemaVersion === "startup_opportunity.terminal_report_source.v1",
+  );
+  assert.ok(staleReport);
+  const staleDirection = (staleReport.document.directions as Record<string, unknown>[])[0];
+  assert.ok(staleDirection);
+  staleDirection.label = "old_candidate_body_with_only_a_current_id";
+  assert.ok(
+    validateDecisionSubjectContract(staleDirectionBody).some(
+      (issue) => issue.code === "decision_subject.direction_body_mismatch",
+    ),
+  );
+
+  for (const conceptSchema of [
+    "startup_opportunity.concept_hypothesis.assessment.current",
+    "startup_opportunity.concept_hypothesis.assessment_intake.current",
+  ]) {
+    const conceptIdentity = structuredClone(documents).filter(
+      (entry) => entry.schemaVersion !== "startup_opportunity.terminal_report_source.v1",
+    );
+    const conceptSnapshot = conceptIdentity.find(
+      (entry) => entry.schemaVersion === "startup_opportunity.decision_subject_snapshot.current",
+    );
+    assert.ok(conceptSnapshot);
+    const concept = {
+      schema_version: conceptSchema,
+      run_id: runId,
+      concept_hypothesis_id: "concept_true_identity",
+    };
+    const conceptRef = "concept-hypothesis.json";
+    conceptIdentity.push({
+      path: conceptRef,
+      schemaVersion: conceptSchema,
+      document: concept,
+      envelope: null,
+    });
+    const conceptSubject = (conceptSnapshot.document.subjects as Record<string, unknown>[])[0];
+    assert.ok(conceptSubject);
+    conceptSubject.subject_id = "concept_true_identity";
+    conceptSubject.subject_ref = conceptRef;
+    conceptSubject.subject_content_hash = canonicalContentHash(concept);
+    conceptSubject.subject_kind = "concept_hypothesis";
+    const conceptSubjects = conceptSnapshot.document.subjects as Record<string, unknown>[];
+    const conceptSupersededSubject = conceptSubjects[1];
+    assert.ok(conceptSupersededSubject);
+    conceptSupersededSubject.superseded_by_subject_id = "concept_true_identity";
+    const conceptHash = canonicalContentHash(conceptSnapshot.document);
+    (conceptSnapshot.envelope as Record<string, unknown>).content_hash = conceptHash;
+    const conceptManifest = conceptIdentity.find(
+      (entry) => entry.schemaVersion === "startup_opportunity.run_manifest.v1",
+    );
+    assert.ok(conceptManifest);
+    conceptManifest.document.current_decision_subject_snapshot_hash = conceptHash;
+    assert.equal(
+      validateDecisionSubjectContract(conceptIdentity).some(
+        (issue) => issue.code === "decision_subject.subject_identity_mismatch",
+      ),
+      false,
+    );
+    const conceptTerminal = {
+      path: "artifacts/reporting/terminal-report-source.r1.json",
+      schemaVersion: "startup_opportunity.terminal_report_source.v1",
+      document: {
+        schema_version: "startup_opportunity.terminal_report_source.v1",
+        run_id: runId,
+        mode: "opportunity_discovery",
+        decision_subject_snapshot_ref: snapshotRef,
+        decision_subject_snapshot_hash: conceptHash,
+        current_decision_subject_ids: ["concept_true_identity"],
+        directions: [
+          {
+            direction_id: "concept_true_identity",
+            subject_ref: conceptRef,
+            subject_content_hash: canonicalContentHash(concept),
+            synthesis_basis_hashes: [
+              { ref: conceptRef, content_hash: canonicalContentHash(concept) },
+            ],
+          },
+        ],
+      },
+      envelope: null,
+    };
+    conceptIdentity.push(conceptTerminal);
+    assert.deepEqual(validateDecisionSubjectContract(conceptIdentity), []);
+
+    conceptSubject.subject_id = "concept_alias_not_business_identity";
+    conceptSupersededSubject.superseded_by_subject_id = "concept_alias_not_business_identity";
+    const aliasSnapshotHash = canonicalContentHash(conceptSnapshot.document);
+    (conceptSnapshot.envelope as Record<string, unknown>).content_hash = aliasSnapshotHash;
+    conceptManifest.document.current_decision_subject_snapshot_hash = aliasSnapshotHash;
+    conceptTerminal.document.decision_subject_snapshot_hash = aliasSnapshotHash;
+    conceptTerminal.document.current_decision_subject_ids = ["concept_alias_not_business_identity"];
+    const aliasDirection = (conceptTerminal.document.directions as Record<string, unknown>[])[0];
+    assert.ok(aliasDirection);
+    aliasDirection.direction_id = "concept_alias_not_business_identity";
+    const aliasIssues = validateDecisionSubjectContract(conceptIdentity);
+    assert.ok(
+      aliasIssues.some((issue) => issue.code === "decision_subject.subject_identity_mismatch"),
+    );
+    assert.equal(
+      aliasIssues.some((issue) => issue.code === "decision_subject.terminal_projection_mismatch"),
+      false,
+    );
+  }
 
   const planR2Ref = "plans/research-plan.r2.json";
   const planR2 = { ...plan, revision: 2 };
@@ -2939,29 +3065,208 @@ test("the decision subject snapshot is authoritative for current, superseded, an
   );
   assert.ok(planAdvancedManifest);
   planAdvancedManifest.document.current_plan_ref = planR2Ref;
+  planAdvancedManifest.document.current_decision_subject_snapshot_ref = snapshotRef;
+  planAdvancedManifest.document.current_decision_subject_snapshot_hash = snapshotHash;
+  planAdvancedDocuments.push({
+    path: planR2Ref,
+    schemaVersion: "startup_opportunity.research_plan.v1",
+    document: planR2,
+    envelope: null,
+  });
+  assert.deepEqual(validateDecisionSubjectContract(planAdvancedDocuments), []);
+  planAdvancedDocuments.push({
+    path: snapshotR2Ref,
+    schemaVersion: "startup_opportunity.decision_subject_snapshot.current",
+    document: snapshotR2Document,
+    envelope: {
+      artifact_type: "startup_opportunity.decision_subject_snapshot.current",
+      artifact_path: snapshotR2Ref,
+      run_id: runId,
+      producer_role: "main_agent",
+      content_hash: snapshotR2Hash,
+    },
+  });
+  assert.deepEqual(validateDecisionSubjectContract(planAdvancedDocuments), []);
   planAdvancedManifest.document.current_decision_subject_snapshot_ref = snapshotR2Ref;
   planAdvancedManifest.document.current_decision_subject_snapshot_hash = snapshotR2Hash;
-  planAdvancedDocuments.push(
-    {
-      path: planR2Ref,
-      schemaVersion: "startup_opportunity.research_plan.v1",
-      document: planR2,
-      envelope: null,
+  assert.deepEqual(validateDecisionSubjectContract(planAdvancedDocuments), []);
+
+  const revivedR2Document = {
+    ...structuredClone(snapshotDocument),
+    revision: 2,
+    parent_snapshot_ref: snapshotRef,
+    parent_snapshot_hash: snapshotHash,
+    created_at: "2026-08-10T12:06:00Z",
+    subjects: [
+      {
+        ...(structuredClone(snapshotDocument.subjects) as Record<string, unknown>[])[2],
+        lifecycle_status: "current",
+        reporting_role: "final",
+        lifecycle_reason: "SYNTHETIC attempted exact revival.",
+      },
+    ],
+  };
+  const revivedR2Ref = snapshotR2Ref;
+  const revivedR2Hash = canonicalContentHash(revivedR2Document);
+  const revived = structuredClone(documents).filter(
+    (entry) => entry.schemaVersion !== "startup_opportunity.terminal_report_source.v1",
+  );
+  const revivedManifest = revived.find(
+    (entry) => entry.schemaVersion === "startup_opportunity.run_manifest.v1",
+  );
+  assert.ok(revivedManifest);
+  revivedManifest.document.current_decision_subject_snapshot_ref = revivedR2Ref;
+  revivedManifest.document.current_decision_subject_snapshot_hash = revivedR2Hash;
+  revived.push({
+    path: revivedR2Ref,
+    schemaVersion: "startup_opportunity.decision_subject_snapshot.current",
+    document: revivedR2Document,
+    envelope: {
+      artifact_type: "startup_opportunity.decision_subject_snapshot.current",
+      artifact_path: revivedR2Ref,
+      run_id: runId,
+      producer_role: "main_agent",
+      content_hash: revivedR2Hash,
     },
+  });
+  assert.ok(
+    validateDecisionSubjectContract(revived).some(
+      (issue) => issue.code === "decision_subject.terminal_lifecycle_revival",
+    ),
+  );
+
+  const omittedR2Document = {
+    ...structuredClone(snapshotDocument),
+    revision: 2,
+    parent_snapshot_ref: snapshotRef,
+    parent_snapshot_hash: snapshotHash,
+    created_at: "2026-08-10T12:07:00Z",
+    subjects: [],
+  };
+  const omittedR2Hash = canonicalContentHash(omittedR2Document);
+  const revivedR3Document = {
+    ...structuredClone(revivedR2Document),
+    revision: 3,
+    parent_snapshot_ref: snapshotR2Ref,
+    parent_snapshot_hash: omittedR2Hash,
+    created_at: "2026-08-10T12:08:00Z",
+  };
+  const revivedR3Ref = "artifacts/reporting/decision-subject-snapshot.r3.json";
+  const revivedR3Hash = canonicalContentHash(revivedR3Document);
+  const deletedThenRevived = structuredClone(documents).filter(
+    (entry) => entry.schemaVersion !== "startup_opportunity.terminal_report_source.v1",
+  );
+  const deletedManifest = deletedThenRevived.find(
+    (entry) => entry.schemaVersion === "startup_opportunity.run_manifest.v1",
+  );
+  assert.ok(deletedManifest);
+  deletedManifest.document.current_decision_subject_snapshot_ref = revivedR3Ref;
+  deletedManifest.document.current_decision_subject_snapshot_hash = revivedR3Hash;
+  deletedThenRevived.push(
     {
       path: snapshotR2Ref,
       schemaVersion: "startup_opportunity.decision_subject_snapshot.current",
-      document: snapshotR2Document,
+      document: omittedR2Document,
       envelope: {
         artifact_type: "startup_opportunity.decision_subject_snapshot.current",
         artifact_path: snapshotR2Ref,
         run_id: runId,
         producer_role: "main_agent",
-        content_hash: snapshotR2Hash,
+        content_hash: omittedR2Hash,
+      },
+    },
+    {
+      path: revivedR3Ref,
+      schemaVersion: "startup_opportunity.decision_subject_snapshot.current",
+      document: revivedR3Document,
+      envelope: {
+        artifact_type: "startup_opportunity.decision_subject_snapshot.current",
+        artifact_path: revivedR3Ref,
+        run_id: runId,
+        producer_role: "main_agent",
+        content_hash: revivedR3Hash,
       },
     },
   );
-  assert.deepEqual(validateDecisionSubjectContract(planAdvancedDocuments), []);
+  assert.ok(
+    validateDecisionSubjectContract(deletedThenRevived).some(
+      (issue) => issue.code === "decision_subject.terminal_lifecycle_revival",
+    ),
+  );
+
+  const reformedCandidateRef = "artifacts/discovery/candidates/dropped.r2.json";
+  const reformedCandidate = {
+    ...structuredClone(dropped),
+    revision: 2,
+    parent_candidate_ref: "artifacts/discovery/candidates/dropped.r1.json",
+    parent_content_hash: canonicalContentHash(dropped),
+  };
+  const reformedSnapshotDocument = {
+    ...structuredClone(snapshotDocument),
+    revision: 2,
+    parent_snapshot_ref: snapshotRef,
+    parent_snapshot_hash: snapshotHash,
+    created_at: "2026-08-10T12:09:00Z",
+    synthesis_input_hashes: [
+      { ref: reformedCandidateRef, content_hash: canonicalContentHash(reformedCandidate) },
+    ],
+    subjects: [
+      {
+        ...(structuredClone(snapshotDocument.subjects) as Record<string, unknown>[])[2],
+        subject_ref: reformedCandidateRef,
+        subject_content_hash: canonicalContentHash(reformedCandidate),
+        lifecycle_status: "current",
+        reporting_role: "final",
+        lifecycle_reason: "SYNTHETIC explicitly re-formed from a new immutable revision.",
+        reformation_basis_hashes: [
+          {
+            ref: "artifacts/discovery/candidates/current.r1.json",
+            content_hash: canonicalContentHash(current),
+          },
+        ],
+      },
+    ],
+  };
+  const reformedSnapshotHash = canonicalContentHash(reformedSnapshotDocument);
+  const reformed = structuredClone(documents).filter(
+    (entry) => entry.schemaVersion !== "startup_opportunity.terminal_report_source.v1",
+  );
+  const reformedManifest = reformed.find(
+    (entry) => entry.schemaVersion === "startup_opportunity.run_manifest.v1",
+  );
+  assert.ok(reformedManifest);
+  reformedManifest.document.current_decision_subject_snapshot_ref = snapshotR2Ref;
+  reformedManifest.document.current_decision_subject_snapshot_hash = reformedSnapshotHash;
+  reformed.push(
+    {
+      path: reformedCandidateRef,
+      schemaVersion: "startup_opportunity.discovery_candidate.v1",
+      document: reformedCandidate,
+      envelope: null,
+    },
+    {
+      path: snapshotR2Ref,
+      schemaVersion: "startup_opportunity.decision_subject_snapshot.current",
+      document: reformedSnapshotDocument,
+      envelope: {
+        artifact_type: "startup_opportunity.decision_subject_snapshot.current",
+        artifact_path: snapshotR2Ref,
+        run_id: runId,
+        producer_role: "main_agent",
+        content_hash: reformedSnapshotHash,
+      },
+    },
+  );
+  assert.equal(
+    validateDecisionSubjectContract(reformed).some((issue) =>
+      [
+        "decision_subject.terminal_lifecycle_revival",
+        "decision_subject.reformation_basis_required",
+        "decision_subject.reformation_basis_binding_mismatch",
+      ].includes(issue.code),
+    ),
+    false,
+  );
 });
 
 test("terminal commercial tables project only current final subjects and never backfill incumbent context", () => {
@@ -5205,6 +5510,7 @@ test("all deterministic scaffold kinds are schema-valid and preserve runtime bou
     "readiness",
     "gap",
     "decision",
+    "decision_subject_snapshot",
     "terminal_report_source",
   ] as const;
   for (const mode of modes) {

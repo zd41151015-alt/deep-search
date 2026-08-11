@@ -53,6 +53,123 @@ function revisionPath(revision: unknown): string {
   return `artifacts/reporting/decision-subject-snapshot.r${String(revision)}.json`;
 }
 
+function ancestorSnapshots(
+  snapshot: DecisionSubjectDocument,
+  byPath: ReadonlyMap<string, DecisionSubjectDocument>,
+): readonly DecisionSubjectDocument[] {
+  const ancestors: DecisionSubjectDocument[] = [];
+  const visited = new Set<string>();
+  let parentRef = snapshot.document.parent_snapshot_ref;
+  while (typeof parentRef === "string" && !visited.has(parentRef)) {
+    visited.add(parentRef);
+    const parent = byPath.get(parentRef);
+    if (parent?.schemaVersion !== SNAPSHOT_SCHEMA) break;
+    ancestors.push(parent);
+    parentRef = parent.document.parent_snapshot_ref;
+  }
+  return ancestors;
+}
+
+function strings(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
+function joined(value: unknown): string | undefined {
+  const values = strings(value);
+  return values.length === 0 ? undefined : values.join(" | ");
+}
+
+function directionSubjectProjection(
+  target: DecisionSubjectDocument,
+  byPath: ReadonlyMap<string, DecisionSubjectDocument>,
+): Readonly<Record<string, string>> {
+  const document = target.document;
+  if (
+    target.schemaVersion === "startup_opportunity.concept_hypothesis.assessment.current" ||
+    target.schemaVersion === "startup_opportunity.concept_hypothesis.assessment_intake.current"
+  ) {
+    return Object.fromEntries(
+      [
+        ["label", document.product_thesis],
+        ["target_user", joined(document.target_user)],
+        ["narrow_scenario", document.entry_scene],
+        ["problem", document.product_thesis],
+        ["current_alternative", joined(document.current_alternative)],
+        ["payer", joined(document.buyer)],
+        ["product_form", document.delivery_form],
+        ["core_value", document.claimed_value],
+      ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    );
+  }
+  if (target.schemaVersion === "startup_opportunity.opportunity_thesis.v1") {
+    return Object.fromEntries(
+      [
+        ["label", document.title],
+        ["target_user", document.beachhead_segment],
+        ["narrow_scenario", document.entry_scene],
+        ["problem", document.job_to_be_done],
+        ["current_alternative", document.description],
+        ["payer", joined(document.payer)],
+        ["product_form", document.selected_delivery_form],
+        ["core_value", document.incremental_value_over_baseline],
+        ["why_now", document.why_now],
+      ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    );
+  }
+  if (target.schemaVersion !== "startup_opportunity.discovery_candidate.v1") return {};
+  const subject = isRecord(document.subject) ? document.subject : {};
+  const demandRef =
+    typeof subject.demand_candidate_ref === "string" ? subject.demand_candidate_ref : undefined;
+  const demand = demandRef === undefined ? undefined : byPath.get(demandRef);
+  const demandSubject = isRecord(demand?.document.subject) ? demand.document.subject : {};
+  if (document.candidate_kind === "demand_seed") {
+    return Object.fromEntries(
+      [
+        ["label", document.candidate_id],
+        ["target_user", joined(subject.user_hypotheses)],
+        ["narrow_scenario", subject.entry_scene],
+        ["problem", subject.job_to_be_done],
+        ["current_alternative", joined(subject.current_alternatives)],
+        ["payer", joined(subject.buyer_hypotheses)],
+        ["product_form", "unformed"],
+        ["core_value", subject.desired_outcome],
+      ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    );
+  }
+  if (document.candidate_kind === "baseline_seed") {
+    return Object.fromEntries(
+      [
+        ["label", subject.current_workflow],
+        ["target_user", joined(demandSubject.user_hypotheses)],
+        ["narrow_scenario", demandSubject.entry_scene ?? subject.current_workflow],
+        ["problem", subject.current_cost_or_burden],
+        ["current_alternative", subject.current_workflow],
+        ["payer", joined(demandSubject.buyer_hypotheses)],
+        ["product_form", "status_quo"],
+        ["core_value", subject.minimum_incremental_value_required],
+      ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    );
+  }
+  const baselineRef =
+    typeof subject.baseline_candidate_ref === "string" ? subject.baseline_candidate_ref : undefined;
+  const baseline = baselineRef === undefined ? undefined : byPath.get(baselineRef);
+  const baselineSubject = isRecord(baseline?.document.subject) ? baseline.document.subject : {};
+  return Object.fromEntries(
+    [
+      ["label", subject.solution_class],
+      ["target_user", joined(demandSubject.user_hypotheses)],
+      ["narrow_scenario", demandSubject.entry_scene],
+      ["problem", demandSubject.job_to_be_done],
+      ["current_alternative", baselineSubject.current_workflow],
+      ["payer", joined(demandSubject.buyer_hypotheses)],
+      ["product_form", joined(subject.delivery_forms)],
+      ["core_value", subject.incremental_value_hypothesis],
+    ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
+}
+
 function validateSnapshot(
   snapshot: DecisionSubjectDocument,
   byPath: ReadonlyMap<string, DecisionSubjectDocument>,
@@ -128,14 +245,10 @@ function validateSnapshot(
     document.mode === "opportunity_discovery"
       ? "startup_opportunity.scope_frame.discovery.current"
       : "startup_opportunity.scope_frame.assessment.current";
-  const manifestSelectsSnapshot =
-    manifest?.document.current_decision_subject_snapshot_ref === snapshot.path;
   if (
     manifest?.schemaVersion !== "startup_opportunity.run_manifest.v1" ||
     manifest.document.run_id !== document.run_id ||
     manifest.document.mode !== document.mode ||
-    (manifestSelectsSnapshot &&
-      manifest.document.current_plan_ref !== document.research_plan_ref) ||
     scope?.schemaVersion !== expectedScopeSchema ||
     scope.document.run_id !== document.run_id ||
     document.scope_frame_hash !== targetHash(scope) ||
@@ -147,7 +260,7 @@ function validateSnapshot(
       issue(
         "decision_subject.current_run_binding_mismatch",
         snapshot.path,
-        "snapshot must bind same-Run Scope and Plan content hashes; the Manifest-selected snapshot must bind the current Plan",
+        "snapshot must bind exact same-Run Scope and Plan content hashes",
       ),
     );
   }
@@ -235,16 +348,33 @@ function validateSnapshot(
         ? target?.document.candidate_id
         : subject.subject_kind === "opportunity_thesis"
           ? target?.document.opportunity_id
-          : subject.subject_id;
+          : target?.document.concept_hypothesis_id;
     if (subject.subject_id !== expectedSubjectId) {
       errors.push(
         issue(
           "decision_subject.subject_identity_mismatch",
           `${snapshot.path}#/subjects/${index}/subject_id`,
-          "Candidate and Opportunity Thesis snapshot identities must equal their bound artifact business identities",
+          "snapshot subject identity must equal the bound Candidate, Opportunity Thesis, or Concept business identity",
           { subjectId: subject.subject_id, expectedSubjectId },
         ),
       );
+    }
+    const reformationBindings = records(subject.reformation_basis_hashes);
+    for (const [bindingIndex, binding] of reformationBindings.entries()) {
+      const basis = typeof binding.ref === "string" ? byPath.get(binding.ref) : undefined;
+      if (
+        basis === undefined ||
+        basis.document.run_id !== document.run_id ||
+        binding.content_hash !== targetHash(basis)
+      ) {
+        errors.push(
+          issue(
+            "decision_subject.reformation_basis_binding_mismatch",
+            `${snapshot.path}#/subjects/${index}/reformation_basis_hashes/${bindingIndex}`,
+            "subject re-formation basis must bind an exact same-Run formal input",
+          ),
+        );
+      }
     }
     if (
       subject.lifecycle_status === "superseded" &&
@@ -274,6 +404,50 @@ function validateSnapshot(
           ),
         );
       }
+    }
+  }
+
+  const historicalSubjects = ancestorSnapshots(snapshot, byPath).flatMap((ancestor) =>
+    records(ancestor.document.subjects),
+  );
+  for (const [index, subject] of subjects.entries()) {
+    if (subject.lifecycle_status !== "current") continue;
+    const historicalTerminal = historicalSubjects.filter(
+      (candidate) =>
+        candidate.subject_id === subject.subject_id &&
+        candidate.subject_kind === subject.subject_kind &&
+        ["dropped", "superseded"].includes(String(candidate.lifecycle_status)),
+    );
+    if (historicalTerminal.length === 0) continue;
+    if (
+      historicalTerminal.some(
+        (candidate) =>
+          candidate.subject_ref === subject.subject_ref &&
+          candidate.subject_content_hash === subject.subject_content_hash,
+      )
+    ) {
+      errors.push(
+        issue(
+          "decision_subject.terminal_lifecycle_revival",
+          `${snapshot.path}#/subjects/${index}`,
+          "a dropped or superseded exact subject artifact cannot silently return to the current decision set",
+          { subjectId: subject.subject_id },
+        ),
+      );
+      continue;
+    }
+    if (
+      historicalTerminal.some((candidate) => candidate.subject_ref === subject.subject_ref) ||
+      records(subject.reformation_basis_hashes).length === 0
+    ) {
+      errors.push(
+        issue(
+          "decision_subject.reformation_basis_required",
+          `${snapshot.path}#/subjects/${index}/reformation_basis_hashes`,
+          "reconsidering a terminal subject identity requires a new immutable artifact ref and exact same-Run re-formation basis",
+          { subjectId: subject.subject_id },
+        ),
+      );
     }
   }
 }
@@ -329,6 +503,75 @@ export function validateDecisionSubjectContract(
     const directionIds = records(source.document.directions)
       .map((direction) => String(direction.direction_id))
       .sort();
+    const currentPlan =
+      typeof manifest?.document.current_plan_ref === "string"
+        ? byPath.get(manifest.document.current_plan_ref)
+        : undefined;
+    const currentSubjects = records(snapshot?.document.subjects).filter(
+      (subject) => subject.lifecycle_status === "current" && subject.reporting_role === "final",
+    );
+    for (const [index, direction] of records(source.document.directions).entries()) {
+      const subject = currentSubjects.find(
+        (candidate) => candidate.subject_id === direction.direction_id,
+      );
+      const target =
+        typeof subject?.subject_ref === "string" ? byPath.get(subject.subject_ref) : undefined;
+      if (
+        subject === undefined ||
+        target === undefined ||
+        direction.subject_ref !== subject.subject_ref ||
+        direction.subject_content_hash !== subject.subject_content_hash
+      ) {
+        errors.push(
+          issue(
+            "decision_subject.direction_subject_binding_mismatch",
+            `${source.path}#/directions/${index}`,
+            "each report Direction must bind the exact authoritative current subject ref and content hash",
+          ),
+        );
+        continue;
+      }
+      for (const [basisIndex, binding] of records(direction.synthesis_basis_hashes).entries()) {
+        const basis = typeof binding.ref === "string" ? byPath.get(binding.ref) : undefined;
+        if (
+          basis === undefined ||
+          basis.document.run_id !== source.document.run_id ||
+          binding.content_hash !== targetHash(basis)
+        ) {
+          errors.push(
+            issue(
+              "decision_subject.direction_basis_binding_mismatch",
+              `${source.path}#/directions/${index}/synthesis_basis_hashes/${basisIndex}`,
+              "Direction synthesis basis must bind exact same-Run current subject or Evidence inputs",
+            ),
+          );
+        }
+      }
+      if (records(direction.synthesis_basis_hashes).length === 0) {
+        errors.push(
+          issue(
+            "decision_subject.direction_basis_required",
+            `${source.path}#/directions/${index}/synthesis_basis_hashes`,
+            "Direction judgment fields require at least one exact same-Run subject or Evidence basis",
+          ),
+        );
+      }
+      const expectedProjection = directionSubjectProjection(target, byPath);
+      const mismatchedFields = Object.entries(expectedProjection)
+        .filter(([field, expected]) => direction[field] !== expected)
+        .map(([field]) => field)
+        .sort();
+      if (mismatchedFields.length > 0) {
+        errors.push(
+          issue(
+            "decision_subject.direction_body_mismatch",
+            `${source.path}#/directions/${index}`,
+            "Direction identity fields must be the deterministic projection of its bound authoritative subject",
+            { directionId: direction.direction_id, mismatchedFields },
+          ),
+        );
+      }
+    }
     if (
       snapshot?.schemaVersion !== SNAPSHOT_SCHEMA ||
       source.document.run_id !== snapshot.document.run_id ||
@@ -336,6 +579,9 @@ export function validateDecisionSubjectContract(
       source.document.decision_subject_snapshot_hash !== targetHash(snapshot) ||
       manifest?.document.current_decision_subject_snapshot_ref !== snapshot.path ||
       manifest.document.current_decision_subject_snapshot_hash !== targetHash(snapshot) ||
+      snapshot.document.research_plan_ref !== manifest.document.current_plan_ref ||
+      currentPlan?.schemaVersion !== "startup_opportunity.research_plan.v1" ||
+      snapshot.document.research_plan_hash !== targetHash(currentPlan) ||
       canonicalJson(reportIds) !== canonicalJson(currentIds) ||
       canonicalJson(directionIds) !== canonicalJson(currentIds)
     ) {

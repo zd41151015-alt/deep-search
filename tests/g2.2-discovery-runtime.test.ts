@@ -355,15 +355,31 @@ test("G2.2 Candidate formation closes current Scope, Plan, synthesis inputs, and
     prior_source_run_id: "g2-2-prior-synthetic",
     prior_source_artifact_path: "artifacts/discovery/candidates/prior.r1.json",
     prior_source_content_hash: `sha256:${"7".repeat(64)}`,
+    prior_input_consumer: "discovery_candidates",
+    prior_target_artifact_path: G22_DEMAND_R1,
     prior_use_boundary: "hypothesis_input_only",
   };
+  const unlabelledCopy = await createDiscoveryCandidateFixture();
+  assert.ok(
+    validateDiscoveryCandidateContract(
+      candidateContractDocuments(unlabelledCopy),
+      policy,
+      new Set(),
+      new Map([[decisionRef, admission]]),
+    ).some((issue) => issue.code === "discovery_candidate.prior_input_target_not_propagated"),
+  );
   assert.equal(
     validateDiscoveryCandidateContract(
       priorDocuments,
       policy,
       new Set(),
       new Map([[decisionRef, admission]]),
-    ).some((issue) => issue.code === "discovery_candidate.prior_input_admission_invalid"),
+    ).some((issue) =>
+      [
+        "discovery_candidate.prior_input_admission_invalid",
+        "discovery_candidate.prior_input_target_not_propagated",
+      ].includes(issue.code),
+    ),
     false,
   );
 
@@ -436,6 +452,53 @@ test("G2.2 Candidate formation closes current Scope, Plan, synthesis inputs, and
       new Set(),
       new Map([[decisionRef, admission]]),
     ).some((issue) => issue.code === "discovery_candidate.prior_input_provenance_not_propagated"),
+    false,
+  );
+});
+
+test("Store rejects an admitted prior Candidate relabelled as unmarked current discovery", async (context) => {
+  const state = await setup(context, "prior-candidate-copy");
+  const sourceRunId = "g2-2-prior-candidate-copy-source";
+  const sourceArtifactPath = "prior-candidate.json";
+  await state.store.create({
+    runId: sourceRunId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic prior market",
+      customerModel: "b2c",
+      targetUsers: ["synthetic prior user"],
+      decisionGoal: "SYNTHETIC prior Candidate source only",
+      researchLanguage: "en-US",
+    },
+    createdAt: "2026-07-27T16:00:00Z",
+  });
+  await writeFile(
+    path.join(state.runsRoot, sourceRunId, sourceArtifactPath),
+    '{"run_id":"prior-run","candidate_id":"copied","body":"OLD CANDIDATE SEMANTICS"}\n',
+  );
+  const admission = await state.store.admitPriorInput({
+    runId: state.runId,
+    priorInputId: "prior_candidate_copy_hypothesis",
+    sourceRunId,
+    sourceArtifactPath,
+    targetArtifactPath: G22_DEMAND_R1,
+    consumer: "discovery_candidates",
+    reason: "SYNTHETIC prior Candidate may be used only as a labelled hypothesis input.",
+    admittedAt: "2026-07-27T17:42:00Z",
+  });
+  assert.equal(admission.useBoundary, "hypothesis_input_only");
+
+  await assert.rejects(
+    publishCandidates(state),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "artifact.reference_invalid" &&
+      JSON.stringify(error.details).includes(
+        "discovery_candidate.prior_input_target_not_propagated",
+      ),
+  );
+  assert.equal(
+    (await state.store.status(state.runId)).manifest.artifact_refs.includes(G22_DEMAND_R1),
     false,
   );
 });

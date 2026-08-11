@@ -8,6 +8,8 @@ Scope 是 Run Store 领域不变量。`create-run` 只能把 main agent 提出�
 
 正式研究状态位于 `runs/<run_id>/`。chat、任务摘要、subagent 完成消息以及 `dist/research-working/<run_id>/` 的临时 JSON 都不是正式 Artifact。安全工作目录用于 caller staging；`materialize-lane-result` 消费 caller-supplied staging document、exact Evidence receipts 和 current Manifest，并通过与 `compile-artifacts` 相同的 ref resolver、closure、publication plan 和 Store 路径生成正式 envelope。
 
+跨 Run 语义只有一个显式准入入口：当前 opportunity-discovery Run 的 Scope 必须已经确认且 current Plan 已经发布；在读取旧 Map、Candidate 或结论内容之前，main agent 必须调用 `admit-prior-input`，同时指定当前 `run_id`、source `run_id`、单个 exact Run-relative source path、唯一且尚未发布的当前 Map/Candidate target artifact path、prior input id、`discovery_maps | discovery_candidates` consumer 和使用理由。Store 直接 hash 指定文件的原始 bytes，向当前 `decisions.jsonl` 追加唯一 `prior_input_admitted`，并只返回 receipt/ref/hash；它不扫描旧 Run、不选择旧 schema、不恢复旧 Run，也不把语义 bytes 输出给 Agent。准入后的内容仍只能作为 `hypothesis_input_only`，对应 target/consumer 的下游必须标为 `prior_informed_synthesis` 并传播 exact decision ref。通用 Decision append 不能创建该记录；仅替换旧文件的 run_id、时间或 lineage 永远不能把它变成本次 discovery。
+
 正式 ref 分类只有以下权威语义：Run Artifact、Run Artifact fragment、JSON Pointer、exact Evidence/Event/Decision record、repo policy JSON ref 和外部 HTTP(S) URL。Evidence raw bytes 由 exact Evidence substrate record 的 hash/ref 绑定，不伪装成 JSON Artifact。编译 validate-only 输出不可变 publication plan；publish 必须消费同一 plan，并在 current Manifest 或 closure 漂移时失败。
 
 Evidence、Claim、Finding、Insight 和 Judgment Assessment 是不同层。决定性事实、引文、反对材料和建议必须追溯到真实 Evidence。来源需显式记录 provenance、independence、bias、retrieved_at、published_at、observed_at、data_period_end、evidence character 和 limitations；valid_as_of 由 current 规则推导。Harness 不从 URL、内容或聊天推断这些判断。

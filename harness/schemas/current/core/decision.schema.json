@@ -65,6 +65,12 @@
     "prior_source_content_hash": {
       "$ref": "./definitions.schema.json#/$defs/sha256"
     },
+    "prior_input_consumer": {
+      "enum": ["discovery_maps", "discovery_candidates"]
+    },
+    "prior_target_artifact_path": {
+      "$ref": "./definitions.schema.json#/$defs/artifactPath"
+    },
     "prior_use_boundary": {
       "const": "hypothesis_input_only"
     },
@@ -143,6 +149,8 @@
           "prior_source_run_id",
           "prior_source_artifact_path",
           "prior_source_content_hash",
+          "prior_input_consumer",
+          "prior_target_artifact_path",
           "prior_use_boundary"
         ],
         "properties": {

@@ -7,9 +7,11 @@ import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   artifactRefsForDocument,
+  buildArtifactScaffold,
   canonicalContentHash,
   canonicalJson,
   createArtifactValidator,
+  DeclarativeRuntimeCompiler,
   type DiscoveryMapDocument,
   type DiscoveryProfile,
   type DocumentBundle,
@@ -406,8 +408,18 @@ test("G2.1 prior-informed Map semantics require an explicit same-Run admission d
     prior_source_run_id: "g2-1-prior-synthetic",
     prior_source_artifact_path: "artifacts/discovery/opportunity-space-map.json",
     prior_source_content_hash: `sha256:${"9".repeat(64)}`,
+    prior_input_consumer: "discovery_maps",
+    prior_target_artifact_path: G21_OPPORTUNITY_REF,
     prior_use_boundary: "hypothesis_input_only",
   };
+  const unlabelledCopy = await createDiscoveryMapsFixture("general");
+  assert.ok(
+    validateDiscoveryMapsContract(
+      discoveryMapDocuments(unlabelledCopy),
+      policy,
+      new Map([[decisionRef, admission]]),
+    ).some((issue) => issue.code === "discovery_maps.prior_input_target_not_propagated"),
+  );
   assert.equal(
     validateDiscoveryMapsContract(
       discoveryMapDocuments(bundle),
@@ -417,6 +429,7 @@ test("G2.1 prior-informed Map semantics require an explicit same-Run admission d
       [
         "discovery_maps.prior_input_admission_invalid",
         "discovery_maps.prior_input_provenance_not_propagated",
+        "discovery_maps.prior_input_target_not_propagated",
       ].includes(issue.code),
     ),
     false,
@@ -429,6 +442,111 @@ test("G2.1 prior-informed Map semantics require an explicit same-Run admission d
       policy,
       new Map([[decisionRef, admission]]),
     ).some((issue) => issue.code === "discovery_maps.prior_input_admission_invalid"),
+  );
+});
+
+test("Store rejects an admitted prior Map relabelled as unmarked current discovery", async (context) => {
+  const state = await prepareRun(context, "general", "prior-map-copy");
+  const sourceRunId = "g2-1-prior-map-copy-source";
+  const sourceArtifactPath = "prior-opportunity-map.json";
+  await state.store.create({
+    runId: sourceRunId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic prior market",
+      customerModel: "b2c",
+      targetUsers: ["synthetic prior user"],
+      decisionGoal: "SYNTHETIC prior map source only",
+      researchLanguage: "en-US",
+    },
+    createdAt: "2026-07-26T16:00:00Z",
+  });
+  await writeFile(
+    path.join(state.runsRoot, sourceRunId, sourceArtifactPath),
+    '{"run_id":"prior-run","conclusion":"OLD MAP SEMANTICS"}\n',
+  );
+  const admission = await state.store.admitPriorInput({
+    runId: state.runId,
+    priorInputId: "prior_map_copy_hypothesis",
+    sourceRunId,
+    sourceArtifactPath,
+    targetArtifactPath: G21_OPPORTUNITY_REF,
+    consumer: "discovery_maps",
+    reason: "SYNTHETIC prior Map may be used only as a labelled hypothesis input.",
+    admittedAt: "2026-07-26T17:00:30Z",
+  });
+  assert.equal(admission.useBoundary, "hypothesis_input_only");
+
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "artifact.reference_invalid" &&
+      JSON.stringify(error.details).includes("discovery_maps.prior_input_target_not_propagated"),
+  );
+  assert.equal(
+    (await state.store.status(state.runId)).manifest.artifact_refs.includes(G21_OPPORTUNITY_REF),
+    false,
+  );
+});
+
+test("empty decision subject scaffold compiles and publishes through exact Store closure", async (context) => {
+  const state = await prepareRun(context, "general", "snapshot-scaffold");
+  const scaffold = buildArtifactScaffold(
+    {
+      schema_version: "startup_opportunity.scaffold_request.current",
+      scaffold_id: "decision_subject_snapshot_store_synthetic",
+      kind: "decision_subject_snapshot",
+      run_id: state.runId,
+      mode: "opportunity_discovery",
+      created_at: "2026-07-26T17:01:00Z",
+      scope_confirmation: {
+        geography: "Synthetic",
+        customer_model: "b2c",
+        target_users: ["synthetic user"],
+        decision_goal: "test current snapshot scaffold publication",
+        research_language: "en-US",
+        user_confirmed: true,
+      },
+    },
+    state.validator,
+  );
+  const request = structuredClone(scaffold.compilation_request as Record<string, unknown>);
+  const artifact = (request.artifacts as Record<string, unknown>[])[0];
+  assert.ok(artifact);
+  const document = artifact.document as Record<string, unknown>;
+  assert.deepEqual(document.synthesis_input_hashes, []);
+  document.scope_frame_ref = G21_SCOPE_REF;
+  document.scope_frame_hash = fixtureEnvelope(state.bundle, G21_SCOPE_REF).content_hash;
+  document.research_plan_ref = G21_PLAN_REF;
+  document.research_plan_hash = fixtureEnvelope(state.bundle, G21_PLAN_REF).content_hash;
+  document.limitations = [
+    "SYNTHETIC empty authority: no final decision subject has formed in this Run.",
+  ];
+  artifact.input_refs = [G21_PLAN_REF, G21_SCOPE_REF];
+
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  const validated = await compiler.compile(request as never);
+  assert.equal(validated.status, "validated");
+  assert.ok(
+    validated.publication_plan.resolved_references.some(
+      (reference) => reference.ref === G21_SCOPE_REF,
+    ),
+  );
+  const published = await compiler.compile({
+    ...request,
+    operation: "publish",
+    artifacts: [],
+    publication_plan: validated.publication_plan,
+  } as never);
+  assert.equal(published.status, "published");
+  const status = await state.store.status(state.runId);
+  assert.equal(
+    status.manifest.current_decision_subject_snapshot_ref,
+    "artifacts/reporting/decision-subject-snapshot.r1.json",
   );
 });
 
