@@ -582,6 +582,8 @@ test("G2.2 publishes explicit candidates, tasks, typed lane material, pre-kill r
 
 test("Store re-forms a terminal Candidate only from post-terminal causal inputs and reopens exactly", async (context) => {
   const state = await setup(context, "subject-reformation");
+  (runtimeEnvelope(state.bundle, G22_GENERATION_CLAIM) as { created_at: string }).created_at =
+    "2026-07-27T18:06:30Z";
   await publishThroughMaterials(state);
   const scope = runtimeEnvelope(state.bundle, G21_SCOPE_REF);
   const plan = runtimeEnvelope(state.bundle, G21_PLAN_REF);

@@ -1,3 +1,4 @@
+import { canonicalContentHash } from "../artifact-store/canonical.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
 export interface AssessDomainDocument {
@@ -91,6 +92,46 @@ function exactStringSet(actual: readonly string[], expected: readonly string[]):
     actual.length === expected.length &&
     [...actual].sort().every((value, index) => value === [...expected].sort()[index])
   );
+}
+
+function conceptRevisionChainValid(entries: readonly AssessDomainDocument[]): boolean {
+  if (entries.length < 2) return true;
+  const byPath = new Map(entries.map((entry) => [entry.path, entry]));
+  const ids = new Set(entries.map((entry) => entry.document.concept_hypothesis_id));
+  const revisions = entries.map((entry) =>
+    entry.document.revision === undefined ? 1 : Number(entry.document.revision),
+  );
+  if (
+    ids.size !== 1 ||
+    revisions.some((revision) => !Number.isInteger(revision) || revision < 1) ||
+    new Set(revisions).size !== revisions.length ||
+    Math.min(...revisions) !== 1 ||
+    Math.max(...revisions) !== entries.length
+  ) {
+    return false;
+  }
+  return entries.every((entry) => {
+    const revision = entry.document.revision === undefined ? 1 : Number(entry.document.revision);
+    if (revision === 1) {
+      return (
+        entry.document.parent_concept_ref === undefined &&
+        entry.document.parent_content_hash === undefined
+      );
+    }
+    const parent =
+      typeof entry.document.parent_concept_ref === "string"
+        ? byPath.get(entry.document.parent_concept_ref)
+        : undefined;
+    return (
+      entry.path ===
+        `artifacts/assessment/concepts/${String(entry.document.concept_hypothesis_id)}.r${revision}.json` &&
+      parent !== undefined &&
+      (parent.document.revision === undefined ? 1 : Number(parent.document.revision)) ===
+        revision - 1 &&
+      parent.document.concept_hypothesis_id === entry.document.concept_hypothesis_id &&
+      entry.document.parent_content_hash === canonicalContentHash(parent.document)
+    );
+  });
 }
 
 function duplicateValues(values: readonly string[]): readonly string[] {
@@ -203,7 +244,13 @@ function validateRootIdentity(
     if (schemaVersion === "startup_opportunity.concept_evidence_assessment_plan.v1") {
       continue;
     }
-    if (entries.length > 1) {
+    if (
+      entries.length > 1 &&
+      !(
+        schemaVersion === "startup_opportunity.concept_hypothesis.assessment.current" &&
+        conceptRevisionChainValid(entries)
+      )
+    ) {
       errors.push(
         issue(
           "assess_contract.duplicate_singleton",
@@ -226,6 +273,8 @@ function validateFraming(
   const concept = bySchema(
     documents,
     "startup_opportunity.concept_hypothesis.assessment.current",
+  ).toSorted(
+    (left, right) => Number(right.document.revision ?? 1) - Number(left.document.revision ?? 1),
   )[0];
   if (intake && scope) {
     if (

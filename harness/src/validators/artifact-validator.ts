@@ -123,6 +123,10 @@ export interface DocumentBundle {
 export interface DocumentBundleReferenceContext {
   readonly exactJsonlRecords?: ReadonlyMap<string, Record<string, unknown>>;
   readonly historicalDiscoveryPlanBindings?: readonly HistoricalDiscoveryPlanBinding[];
+  readonly artifactPublicationRecords?: ReadonlyMap<
+    string,
+    { readonly publicationOrdinal: number; readonly contentHash: string }
+  >;
 }
 
 export interface HistoricalDiscoveryPlanBinding {
@@ -153,6 +157,33 @@ interface ReferenceRequirement {
   readonly expectedSchemaVersions: readonly string[];
   readonly expectedIdField?: string;
 }
+
+const SUBJECT_REFORMATION_INPUT_SCHEMAS = [
+  "startup_opportunity.assessment_evidence.v1",
+  "startup_opportunity.candidate_neutral_evidence.v1",
+  "startup_opportunity.evidence.assessment.current",
+  "startup_opportunity.evidence.discovery_candidate.current",
+  "startup_opportunity.evidence.discovery_evaluation.current",
+  "startup_opportunity.claim.assessment.current",
+  "startup_opportunity.claim.discovery_candidate.current",
+  "startup_opportunity.claim.discovery_evaluation.current",
+  "startup_opportunity.finding.assessment.current",
+  "startup_opportunity.finding.discovery_candidate.current",
+  "startup_opportunity.finding.discovery_evaluation.current",
+  "startup_opportunity.insight.assessment.current",
+  "startup_opportunity.insight.discovery_candidate.current",
+  "startup_opportunity.insight.discovery_evaluation.current",
+  "startup_opportunity.judgment_assessment.assessment.current",
+  "startup_opportunity.judgment_assessment.discovery_candidate.current",
+  "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+  "startup_opportunity.commercial_research_audit.current",
+  "startup_opportunity.concept_evidence_assessment.analysis.current",
+  "startup_opportunity.concept_evidence_assessment.reporting.current",
+  "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+  "startup_opportunity.discovery_lane_result.v1",
+  "startup_opportunity.enrichment_branch_result.v1",
+  "startup_opportunity.opportunity_comparison.v1",
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -761,14 +792,28 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       ];
     case "startup_opportunity.concept_hypothesis.assessment.current":
       return [
+        ...optionalRef(document, "parent_concept_ref", [
+          "startup_opportunity.concept_hypothesis.assessment.current",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+        ]),
         ...optionalRef(
           document,
           "scope_frame_ref",
           "startup_opportunity.scope_frame.assessment.current",
         ),
+        ...refsFromNestedArray(
+          document,
+          "formation_input_hashes",
+          "ref",
+          SUBJECT_REFORMATION_INPUT_SCHEMAS,
+        ),
       ];
     case "startup_opportunity.concept_hypothesis.assessment_intake.current":
       return [
+        ...optionalRef(document, "parent_concept_ref", [
+          "startup_opportunity.concept_hypothesis.assessment.current",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+        ]),
         ...optionalRef(
           document,
           "scope_frame_ref",
@@ -778,6 +823,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.intake.v1",
           "startup_opportunity.decision.v1",
         ]),
+        ...refsFromNestedArray(
+          document,
+          "formation_input_hashes",
+          "ref",
+          SUBJECT_REFORMATION_INPUT_SCHEMAS,
+        ),
       ];
     case "startup_opportunity.judgment_assessment.assessment.current":
       return [
@@ -4405,7 +4456,11 @@ export class ArtifactValidator {
       }),
     );
     referenceErrors.push(
-      ...validateDecisionSubjectContract(decisionSubjectDocuments, exactJsonlRecords),
+      ...validateDecisionSubjectContract(
+        decisionSubjectDocuments,
+        exactJsonlRecords,
+        referenceContext.artifactPublicationRecords,
+      ),
     );
     const commercialResearchDocuments: readonly CommercialResearchDocument[] =
       effectiveDocuments.map((entry) => ({

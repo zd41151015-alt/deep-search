@@ -1,4 +1,9 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
+import {
+  type DecisionSubjectKind,
+  subjectRevisionDescriptor,
+  subjectSchemaAllowed,
+} from "../reporting/decision-subject-reformation.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
 export interface DecisionSubjectDocument {
@@ -71,30 +76,15 @@ function ancestorSnapshots(
   return ancestors;
 }
 
-function createdAt(target: DecisionSubjectDocument | undefined): number | null {
-  const value = target?.envelope?.created_at;
-  if (typeof value !== "string") return null;
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp : null;
+interface ArtifactPublicationRecord {
+  readonly publicationOrdinal: number;
+  readonly contentHash: string;
 }
 
-function candidateClosureRefs(document: Record<string, unknown>): ReadonlySet<string> {
-  const formation = isRecord(document.formation) ? document.formation : {};
-  const evidenceLineage = isRecord(document.evidence_lineage) ? document.evidence_lineage : {};
-  const enrichment = isRecord(document.enrichment) ? document.enrichment : {};
-  return new Set([
-    ...records(formation.synthesis_input_hashes).flatMap((binding) =>
-      typeof binding.ref === "string" ? [binding.ref] : [],
-    ),
-    ...Object.values(evidenceLineage).flatMap((value) =>
-      Array.isArray(value)
-        ? value.filter((entry): entry is string => typeof entry === "string")
-        : [],
-    ),
-    ...(Array.isArray(enrichment.basis_refs)
-      ? enrichment.basis_refs.filter((entry): entry is string => typeof entry === "string")
-      : []),
-  ]);
+function isDecisionSubjectKind(value: unknown): value is DecisionSubjectKind {
+  return ["discovery_candidate", "opportunity_thesis", "concept_hypothesis"].includes(
+    String(value),
+  );
 }
 
 function validateReformation(
@@ -104,6 +94,7 @@ function validateReformation(
   terminalSnapshots: readonly DecisionSubjectDocument[],
   byPath: ReadonlyMap<string, DecisionSubjectDocument>,
   exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+  artifactPublicationRecords: ReadonlyMap<string, ArtifactPublicationRecord>,
   errors: ValidationIssue[],
 ): void {
   const terminalOccurrences = terminalSnapshots.flatMap((terminalSnapshot) =>
@@ -173,6 +164,7 @@ function validateReformation(
     decision.run_id !== snapshot.document.run_id ||
     terminalSnapshot === undefined ||
     decision.terminal_snapshot_hash !== targetHash(terminalSnapshot) ||
+    decision.reformation_subject_kind !== subject.subject_kind ||
     terminal === undefined ||
     decision.terminal_subject_id !== terminal.candidate.subject_id ||
     decision.terminal_subject_ref !== terminal.candidate.subject_ref ||
@@ -189,104 +181,112 @@ function validateReformation(
     );
     return;
   }
-  if (
-    reformed?.schemaVersion !== "startup_opportunity.discovery_candidate.v1" ||
-    terminal.candidate.subject_kind !== "discovery_candidate"
-  ) {
-    errors.push(
-      issue(
-        "decision_subject.reformation_subject_kind_unsupported",
-        `${snapshot.path}#/subjects/${subjectIndex}`,
-        "reformation requires a subject kind with mechanically verifiable immutable revision and formation closure",
-      ),
-    );
-    return;
-  }
+  const subjectKind = terminal.candidate.subject_kind;
   const terminalArtifact =
     typeof terminal.candidate.subject_ref === "string"
       ? byPath.get(terminal.candidate.subject_ref)
       : undefined;
   if (
-    terminalArtifact?.schemaVersion !== "startup_opportunity.discovery_candidate.v1" ||
-    reformed.document.parent_candidate_ref !== terminalArtifact.path ||
-    reformed.document.parent_content_hash !== targetHash(terminalArtifact) ||
-    reformed.document.candidate_id !== terminalArtifact.document.candidate_id ||
-    Number(reformed.document.revision) !== Number(terminalArtifact.document.revision) + 1
+    !isDecisionSubjectKind(subjectKind) ||
+    terminalArtifact === undefined ||
+    reformed === undefined ||
+    !subjectSchemaAllowed(subjectKind, terminalArtifact.schemaVersion) ||
+    !subjectSchemaAllowed(subjectKind, reformed.schemaVersion)
+  ) {
+    errors.push(
+      issue(
+        "decision_subject.reformation_subject_kind_unsupported",
+        `${snapshot.path}#/subjects/${subjectIndex}`,
+        "reformation requires a supported subject kind with mechanically verifiable immutable revision and formation closure",
+      ),
+    );
+    return;
+  }
+  const terminalRevision = subjectRevisionDescriptor(subjectKind, terminalArtifact.document);
+  const reformedRevision = subjectRevisionDescriptor(subjectKind, reformed.document);
+  if (
+    reformed.path === terminalArtifact.path ||
+    reformedRevision.parentRef !== terminalArtifact.path ||
+    reformedRevision.parentContentHash !== targetHash(terminalArtifact) ||
+    reformedRevision.subjectId !== terminalRevision.subjectId ||
+    reformedRevision.subjectId !== subject.subject_id ||
+    reformedRevision.revision !== terminalRevision.revision + 1 ||
+    (reformedRevision.expectedPath !== null && reformed.path !== reformedRevision.expectedPath)
   ) {
     errors.push(
       issue(
         "decision_subject.reformation_revision_lineage_mismatch",
         `${snapshot.path}#/subjects/${subjectIndex}`,
-        "reformed Candidate must be the direct next immutable revision of the exact terminal Candidate",
+        "reformed subject must be the direct next immutable revision of the exact terminal subject kind and identity",
       ),
     );
   }
-  if (
-    canonicalJson(reformed.document.subject) === canonicalJson(terminalArtifact?.document.subject)
-  ) {
+  if (canonicalJson(reformedRevision.semantics) === canonicalJson(terminalRevision.semantics)) {
     errors.push(
       issue(
         "decision_subject.reformation_semantics_unchanged",
         `${snapshot.path}#/subjects/${subjectIndex}`,
-        "reformation must materially change Candidate subject semantics, not only its path or revision metadata",
+        "reformation must materially change subject business semantics, not only path or revision metadata",
       ),
     );
   }
-  const closureRefs = candidateClosureRefs(reformed.document);
-  const terminalClosureRefs = candidateClosureRefs(terminalArtifact?.document ?? {});
-  const terminalCreatedAt = createdAt(terminalSnapshot);
-  const reformedCreatedAt = createdAt(reformed);
-  const decisionCreatedAt =
-    typeof decision.timestamp === "string" ? Date.parse(decision.timestamp) : Number.NaN;
+  const terminalPublication = artifactPublicationRecords.get(terminalSnapshot.path);
+  const reformedPublication = artifactPublicationRecords.get(reformed.path);
   const inputs = records(decision.reformation_input_hashes);
   if (
     inputs.length === 0 ||
-    terminalCreatedAt === null ||
-    reformedCreatedAt === null ||
-    !Number.isFinite(decisionCreatedAt) ||
-    decisionCreatedAt < reformedCreatedAt
+    terminalPublication === undefined ||
+    terminalPublication.contentHash !== targetHash(terminalSnapshot) ||
+    decision.terminal_snapshot_publication_ordinal !== terminalPublication.publicationOrdinal ||
+    reformedPublication === undefined ||
+    reformedPublication.contentHash !== targetHash(reformed) ||
+    decision.reformed_subject_publication_ordinal !== reformedPublication.publicationOrdinal ||
+    reformedPublication.publicationOrdinal <= terminalPublication.publicationOrdinal
   ) {
     errors.push(
       issue(
-        "decision_subject.reformation_temporal_basis_invalid",
+        "decision_subject.reformation_publication_order_invalid",
         `${snapshot.path}#/subjects/${subjectIndex}/reformation_decision_ref`,
-        "reformation requires at least one exact formal input created after the terminal snapshot and before the new subject",
+        "reformation requires exact Store-owned publication records ordered terminal snapshot before causal inputs before new subject",
       ),
     );
   }
   for (const [inputIndex, binding] of inputs.entries()) {
     const ref = typeof binding.ref === "string" ? binding.ref : "";
     const input = byPath.get(ref);
-    const inputCreatedAt = createdAt(input);
+    const inputPublication = artifactPublicationRecords.get(ref);
     if (
       input === undefined ||
       input.document.run_id !== snapshot.document.run_id ||
       binding.content_hash !== targetHash(input) ||
       [snapshot.path, terminalSnapshot.path, terminalArtifact?.path, reformed.path].includes(ref) ||
-      !closureRefs.has(ref) ||
-      terminalClosureRefs.has(ref)
+      !reformedRevision.closureRefs.has(ref) ||
+      terminalRevision.closureRefs.has(ref)
     ) {
       errors.push(
         issue(
           "decision_subject.reformation_input_unrelated",
           `${snapshot.path}#/subjects/${subjectIndex}/reformation_decision_ref`,
-          "each reformation input must be a newly added exact same-Run artifact in the new Candidate formation, Evidence, or enrichment closure",
+          "each reformation input must be a newly added exact same-Run artifact in the new subject's kind-specific formation or synthesis closure",
           { inputIndex, ref },
         ),
       );
     }
     if (
-      terminalCreatedAt === null ||
-      reformedCreatedAt === null ||
-      inputCreatedAt === null ||
-      inputCreatedAt <= terminalCreatedAt ||
-      inputCreatedAt > reformedCreatedAt
+      terminalPublication === undefined ||
+      reformedPublication === undefined ||
+      input === undefined ||
+      inputPublication === undefined ||
+      inputPublication.contentHash !== targetHash(input) ||
+      binding.publication_ordinal !== inputPublication.publicationOrdinal ||
+      inputPublication.publicationOrdinal <= terminalPublication.publicationOrdinal ||
+      inputPublication.publicationOrdinal >= reformedPublication.publicationOrdinal
     ) {
       errors.push(
         issue(
           "decision_subject.reformation_input_not_post_terminal",
           `${snapshot.path}#/subjects/${subjectIndex}/reformation_decision_ref`,
-          "each reformation input must be newly created after the terminal snapshot and no later than the new Candidate revision",
+          "Store-owned publication order must place each causal input after the terminal snapshot and before the new subject",
           { inputIndex, ref },
         ),
       );
@@ -401,6 +401,7 @@ function validateSnapshot(
   byPath: ReadonlyMap<string, DecisionSubjectDocument>,
   manifest: DecisionSubjectDocument | undefined,
   exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+  artifactPublicationRecords: ReadonlyMap<string, ArtifactPublicationRecord>,
   errors: ValidationIssue[],
 ): void {
   const document = snapshot.document;
@@ -620,13 +621,23 @@ function validateSnapshot(
   const terminalSnapshots = ancestorSnapshots(snapshot, byPath);
   for (const [index, subject] of subjects.entries()) {
     if (subject.lifecycle_status !== "current") continue;
-    validateReformation(snapshot, subject, index, terminalSnapshots, byPath, exactRecords, errors);
+    validateReformation(
+      snapshot,
+      subject,
+      index,
+      terminalSnapshots,
+      byPath,
+      exactRecords,
+      artifactPublicationRecords,
+      errors,
+    );
   }
 }
 
 export function validateDecisionSubjectContract(
   documents: readonly DecisionSubjectDocument[],
   exactRecords: ReadonlyMap<string, Record<string, unknown>> = new Map(),
+  artifactPublicationRecords: ReadonlyMap<string, ArtifactPublicationRecord> = new Map(),
 ): readonly ValidationIssue[] {
   const snapshots = documents.filter((entry) => entry.schemaVersion === SNAPSHOT_SCHEMA);
   const syntheses = documents.filter((entry) => entry.schemaVersion === SYNTHESIS_SCHEMA);
@@ -641,7 +652,7 @@ export function validateDecisionSubjectContract(
     (entry) => entry.schemaVersion === "startup_opportunity.run_manifest.v1",
   );
   for (const snapshot of snapshots) {
-    validateSnapshot(snapshot, byPath, manifest, exactRecords, errors);
+    validateSnapshot(snapshot, byPath, manifest, exactRecords, artifactPublicationRecords, errors);
   }
   for (const synthesis of syntheses) validateSynthesis(synthesis, byPath, errors);
 

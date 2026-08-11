@@ -83,17 +83,25 @@ function hasUnresolvedRunReference(contents: string, activeRunId: string): boole
   return /(?:^|[/\s"'=])runs(?:\/|\b)/.test(withoutCurrentRunPaths);
 }
 
-function hasUnresolvedFileRead(contents: string): boolean {
+function hasPriorRunDynamicRead(contents: string): boolean {
   const readsFiles =
     /(?:^|[;&|]\s*|\b)(?:cat|head|tail|sed|awk|grep|rg|find|less|more|jq|dd|strings)\b/.test(
       contents,
     );
   if (!readsFiles) return false;
-  return (
-    /\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/.test(contents) ||
-    /(?:^|\s)[^\s"']*[*?[][^\s"']*/.test(contents) ||
-    /\bfind\b/.test(contents)
-  );
+  const variables = contents.match(/\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/g);
+  return (variables ?? []).some((token) => {
+    const name = token
+      .replace(/^\$\{?/, "")
+      .replace(/\}$/, "")
+      .toUpperCase();
+    return (
+      /(?:^|_)(?:PRIOR|PREVIOUS)(?:_|$)/.test(name) ||
+      /(?:^|_)OLD_RUN(?:_|$)/.test(name) ||
+      /(?:^|_)RUNS_ROOT(?:_|$)/.test(name) ||
+      /(?:^|_)SOURCE_RUN(?:_|$)/.test(name)
+    );
+  });
 }
 
 function mutatesProductionSurface(input: HookInput): boolean {
@@ -144,7 +152,7 @@ export async function evaluatePreToolUse(
       `Direct reading of Run ${target.runId}/${target.artifactPath ?? ""} is blocked; use read-prior-input with an exact admission ref.`,
     );
   }
-  if (hasUnresolvedRunReference(accessText, activeRunId) || hasUnresolvedFileRead(accessText)) {
+  if (hasUnresolvedRunReference(accessText, activeRunId) || hasPriorRunDynamicRead(accessText)) {
     return deny(
       "Dynamic, globbed, variable, or broad Run reads are blocked; prior semantics are readable only through read-prior-input.",
     );

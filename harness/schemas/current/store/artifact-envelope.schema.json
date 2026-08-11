@@ -891,10 +891,33 @@
       },
       "then": {
         "properties": {
+          "producer_role": {
+            "const": "main_agent"
+          },
           "document": {
             "$ref": "../assessment/core/concept-hypothesis.schema.json"
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "document": {
+                  "type": "object",
+                  "required": ["revision"]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "artifact_path": {
+                  "type": "string",
+                  "pattern": "^artifacts/assessment/concepts/[A-Za-z0-9][A-Za-z0-9._-]*\\.r(?:[2-9]|[1-9][0-9]+)\\.json$"
+                }
+              }
+            }
+          }
+        ]
       }
     },
     {

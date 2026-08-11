@@ -2862,7 +2862,7 @@ test("the decision subject snapshot is authoritative for current, superseded, an
       },
       {
         subject_id: "candidate_dropped_audit",
-        subject_ref: "artifacts/discovery/candidates/dropped.r1.json",
+        subject_ref: "artifacts/discovery/candidates/candidate_dropped_audit.r1.json",
         subject_content_hash: canonicalContentHash(dropped),
         subject_kind: "discovery_candidate",
         lifecycle_status: "dropped",
@@ -2908,7 +2908,7 @@ test("the decision subject snapshot is authoritative for current, superseded, an
       envelope: null,
     },
     {
-      path: "artifacts/discovery/candidates/dropped.r1.json",
+      path: "artifacts/discovery/candidates/candidate_dropped_audit.r1.json",
       schemaVersion: String(dropped.schema_version),
       document: dropped,
       envelope: null,
@@ -3351,11 +3351,12 @@ test("the decision subject snapshot is authoritative for current, superseded, an
     ),
   );
 
-  const reformedCandidateRef = "artifacts/discovery/candidates/dropped.r2.json";
+  const droppedCandidateRef = "artifacts/discovery/candidates/candidate_dropped_audit.r1.json";
+  const reformedCandidateRef = "artifacts/discovery/candidates/candidate_dropped_audit.r2.json";
   const reformedCandidate = {
     ...structuredClone(dropped),
     revision: 2,
-    parent_candidate_ref: "artifacts/discovery/candidates/dropped.r1.json",
+    parent_candidate_ref: droppedCandidateRef,
     parent_content_hash: canonicalContentHash(dropped),
     subject: { summary: "SYNTHETIC newly formed household coordination semantics." },
     enrichment: { basis_refs: ["findings/discovery/reformation-input.json"] },
@@ -3407,20 +3408,20 @@ test("the decision subject snapshot is authoritative for current, superseded, an
     timestamp: "2026-08-10T12:08:45Z",
     actor: "main_agent",
     reason: "SYNTHETIC post-terminal formation input changed the Candidate semantics.",
-    artifact_refs: [
-      snapshotRef,
-      "artifacts/discovery/candidates/dropped.r1.json",
-      reformedCandidateRef,
-      reformationInputRef,
-    ],
+    artifact_refs: [snapshotRef, droppedCandidateRef, reformedCandidateRef, reformationInputRef],
     terminal_snapshot_ref: snapshotRef,
     terminal_snapshot_hash: snapshotHash,
+    terminal_snapshot_publication_ordinal: 10,
+    reformation_subject_kind: "discovery_candidate",
     terminal_subject_id: "candidate_dropped_audit",
-    terminal_subject_ref: "artifacts/discovery/candidates/dropped.r1.json",
+    terminal_subject_ref: droppedCandidateRef,
     terminal_subject_content_hash: canonicalContentHash(dropped),
     reformed_subject_ref: reformedCandidateRef,
     reformed_subject_content_hash: canonicalContentHash(reformedCandidate),
-    reformation_input_hashes: [{ ref: reformationInputRef, content_hash: reformationInputHash }],
+    reformed_subject_publication_ordinal: 12,
+    reformation_input_hashes: [
+      { ref: reformationInputRef, content_hash: reformationInputHash, publication_ordinal: 11 },
+    ],
   };
   reformed.push(
     {
@@ -3464,7 +3465,21 @@ test("the decision subject snapshot is authoritative for current, superseded, an
     },
   );
   const exactReformation = new Map([[reformationDecisionRef, reformationDecision]]);
-  assert.deepEqual(validateDecisionSubjectContract(reformed, exactReformation), []);
+  const reformationPublications = new Map([
+    [snapshotRef, { publicationOrdinal: 10, contentHash: snapshotHash }],
+    [reformationInputRef, { publicationOrdinal: 11, contentHash: reformationInputHash }],
+    [
+      reformedCandidateRef,
+      {
+        publicationOrdinal: 12,
+        contentHash: canonicalContentHash(reformedCandidate),
+      },
+    ],
+  ]);
+  assert.deepEqual(
+    validateDecisionSubjectContract(reformed, exactReformation, reformationPublications),
+    [],
+  );
 
   const withoutDecision = structuredClone(reformed);
   const withoutDecisionSnapshot = withoutDecision.find((entry) => entry.path === snapshotR2Ref);
@@ -3472,19 +3487,27 @@ test("the decision subject snapshot is authoritative for current, superseded, an
   delete (withoutDecisionSnapshot.document.subjects as Record<string, unknown>[])[0]
     ?.reformation_decision_ref;
   assert.ok(
-    validateDecisionSubjectContract(withoutDecision, exactReformation).some(
-      (issue) => issue.code === "decision_subject.reformation_decision_required",
-    ),
+    validateDecisionSubjectContract(
+      withoutDecision,
+      exactReformation,
+      reformationPublications,
+    ).some((issue) => issue.code === "decision_subject.reformation_decision_required"),
   );
 
   const selfBasis = structuredClone(reformationDecision);
   selfBasis.reformation_input_hashes = [
-    { ref: reformedCandidateRef, content_hash: canonicalContentHash(reformedCandidate) },
+    {
+      ref: reformedCandidateRef,
+      content_hash: canonicalContentHash(reformedCandidate),
+      publication_ordinal: 12,
+    },
   ];
   assert.ok(
-    validateDecisionSubjectContract(reformed, new Map([[reformationDecisionRef, selfBasis]])).some(
-      (issue) => issue.code === "decision_subject.reformation_input_unrelated",
-    ),
+    validateDecisionSubjectContract(
+      reformed,
+      new Map([[reformationDecisionRef, selfBasis]]),
+      reformationPublications,
+    ).some((issue) => issue.code === "decision_subject.reformation_input_unrelated"),
   );
 
   const unrelatedRef = "findings/discovery/unrelated-reformation-input.json";
@@ -3508,21 +3531,32 @@ test("the decision subject snapshot is authoritative for current, superseded, an
   });
   const unrelatedBasis = structuredClone(reformationDecision);
   unrelatedBasis.reformation_input_hashes = [
-    { ref: unrelatedRef, content_hash: canonicalContentHash(unrelatedDocument) },
+    {
+      ref: unrelatedRef,
+      content_hash: canonicalContentHash(unrelatedDocument),
+      publication_ordinal: 11,
+    },
   ];
+  const unrelatedPublications = new Map(reformationPublications);
+  unrelatedPublications.set(unrelatedRef, {
+    publicationOrdinal: 11,
+    contentHash: canonicalContentHash(unrelatedDocument),
+  });
   assert.ok(
     validateDecisionSubjectContract(
       unrelated,
       new Map([[reformationDecisionRef, unrelatedBasis]]),
+      unrelatedPublications,
     ).some((issue) => issue.code === "decision_subject.reformation_input_unrelated"),
   );
 
-  const preTerminal = structuredClone(reformed);
-  const preTerminalInput = preTerminal.find((entry) => entry.path === reformationInputRef);
-  assert.ok(preTerminalInput?.envelope);
-  preTerminalInput.envelope.created_at = "2026-08-10T11:59:00Z";
+  const preTerminalPublications = new Map(reformationPublications);
+  preTerminalPublications.set(reformationInputRef, {
+    publicationOrdinal: 9,
+    contentHash: reformationInputHash,
+  });
   assert.ok(
-    validateDecisionSubjectContract(preTerminal, exactReformation).some(
+    validateDecisionSubjectContract(reformed, exactReformation, preTerminalPublications).some(
       (issue) => issue.code === "decision_subject.reformation_input_not_post_terminal",
     ),
   );
@@ -3532,7 +3566,7 @@ test("the decision subject snapshot is authoritative for current, superseded, an
   assert.ok(semanticCloneCandidate);
   semanticCloneCandidate.document.subject = structuredClone(dropped.subject);
   assert.ok(
-    validateDecisionSubjectContract(semanticClone, exactReformation).some(
+    validateDecisionSubjectContract(semanticClone, exactReformation, reformationPublications).some(
       (issue) => issue.code === "decision_subject.reformation_semantics_unchanged",
     ),
   );

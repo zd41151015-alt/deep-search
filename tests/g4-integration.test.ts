@@ -233,6 +233,24 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
       /Dynamic, globbed, variable, or broad Run reads/,
     );
   }
+  for (const command of ['find harness -name "*.ts"', 'cat "$TMP_FILE"']) {
+    assert.equal(
+      await evaluatePreToolUse(
+        { cwd: fixture.root, tool_name: "Bash", tool_input: { command } },
+        activeRunId,
+      ),
+      undefined,
+      command,
+    );
+  }
+  const priorCwdRead = await evaluatePreToolUse(
+    { cwd: priorRoot, tool_name: "Bash", tool_input: { command: "cat manifest.json" } },
+    activeRunId,
+  );
+  assert.equal(
+    (priorCwdRead?.hookSpecificOutput as Record<string, unknown>)?.permissionDecision,
+    "deny",
+  );
   await assert.rejects(
     fixture.store.appendDecision(activeRunId, {
       schema_version: "startup_opportunity.decision.v1",

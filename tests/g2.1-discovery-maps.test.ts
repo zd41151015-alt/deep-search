@@ -554,6 +554,94 @@ test("a controlled prior read taints every later Map target, not only its declar
   );
 });
 
+test("prior consumption replays exactly after tainted Maps, checkpoint, and reopen", async (context) => {
+  const state = await prepareRun(context, "general", "prior-map-replay");
+  const sourceRunId = "g2-1-prior-map-replay-source";
+  const sourceArtifactPath = "prior-opportunity-map.json";
+  const sourceText = '{"run_id":"prior-run","body":"OLD MAP HYPOTHESIS"}\n';
+  await state.store.create({
+    runId: sourceRunId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic prior market",
+      customerModel: "b2c",
+      targetUsers: ["synthetic prior user"],
+      decisionGoal: "SYNTHETIC replay source",
+      researchLanguage: "en-US",
+    },
+    createdAt: "2026-07-26T16:00:00Z",
+  });
+  await writeFile(path.join(state.runsRoot, sourceRunId, sourceArtifactPath), sourceText);
+  const admission = await state.store.admitPriorInput({
+    runId: state.runId,
+    priorInputId: "prior_map_replay_hypothesis",
+    sourceRunId,
+    sourceArtifactPath,
+    targetArtifactPath: G21_OPPORTUNITY_REF,
+    consumer: "discovery_maps",
+    reason: "SYNTHETIC hypothesis-only prior input for exact replay.",
+    admittedAt: "2026-07-26T17:00:30Z",
+  });
+  const firstRead = await state.store.readPriorInput({
+    runId: state.runId,
+    admissionRef: admission.decisionRef,
+    consumedAt: "2026-07-26T17:00:45Z",
+  });
+  assert.equal(firstRead.status, "appended");
+  assert.equal(firstRead.sourceText, sourceText);
+
+  for (const ref of G21_MAP_REFS) {
+    const provenance = fixtureDocument(state.bundle, ref).content_provenance as Record<
+      string,
+      unknown
+    >;
+    provenance.synthesis_origin = "prior_informed_synthesis";
+    provenance.prior_input_decision_refs = [admission.decisionRef];
+  }
+  refreshDiscoveryMapsBundle(state.bundle);
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
+  });
+  await state.store.checkpoint({
+    runId: state.runId,
+    checkpointId: "checkpoint_prior_map_replay",
+    createdAt: "2026-07-26T18:30:00Z",
+    nextStep: "SYNTHETIC retain prior provenance on every later discovery artifact.",
+    beliefSummary: {
+      current_belief: "SYNTHETIC prior semantics remain hypothesis-only.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["No market validation is claimed."],
+      remaining_disagreement: ["The hypothesis remains unverified."],
+      next_decision_relevant_question: "What current-Run Evidence tests the hypothesis?",
+    },
+    inputRefs: [...G21_MAP_REFS, firstRead.consumptionDecisionRef],
+  });
+
+  const reopenedStore = new RunStore(state.runsRoot, await createArtifactValidator(repositoryRoot));
+  const reopened = await reopenedStore.load(state.runId);
+  assert.equal(reopened.recovered, false);
+  const replay = await reopenedStore.readPriorInput({
+    runId: state.runId,
+    admissionRef: admission.decisionRef,
+    consumedAt: "2026-07-26T17:00:45Z",
+  });
+  assert.equal(replay.status, "idempotent_replay");
+  assert.equal(replay.sourceText, sourceText);
+  assert.equal(replay.sourceContentHash, firstRead.sourceContentHash);
+  assert.equal(replay.consumptionDecisionHash, firstRead.consumptionDecisionHash);
+
+  const decisions = (await readFile(path.join(state.runRoot, "decisions.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  const consumption = decisions.find(
+    (decision) => decision.decision_type === "prior_input_consumed",
+  );
+  assert.ok(consumption);
+  assert.deepEqual(consumption.prior_taint_exempt_artifact_refs, []);
+});
+
 test("empty decision subject scaffold compiles and publishes through exact Store closure", async (context) => {
   const state = await prepareRun(context, "general", "snapshot-scaffold");
   const scaffold = buildArtifactScaffold(

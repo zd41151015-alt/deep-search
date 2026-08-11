@@ -53,10 +53,16 @@ interface ArtifactOperationReceipt {
   readonly schema_version: typeof ARTIFACT_RECEIPT_SCHEMA_VERSION;
   readonly operation_key: string;
   readonly run_id: string;
+  readonly publication_ordinal: number;
   readonly artifact_path: string;
   readonly artifact_type: string;
   readonly content_hash: string;
   readonly envelope: FormalArtifactEnvelope;
+}
+
+export interface ArtifactPublicationRecord {
+  readonly publicationOrdinal: number;
+  readonly contentHash: string;
 }
 
 interface ArtifactBundleOperationReceipt {
@@ -206,6 +212,7 @@ function validateArtifactReceipt(
       "schema_version",
       "operation_key",
       "run_id",
+      "publication_ordinal",
       "artifact_path",
       "artifact_type",
       "content_hash",
@@ -214,6 +221,8 @@ function validateArtifactReceipt(
     value.schema_version !== ARTIFACT_RECEIPT_SCHEMA_VERSION ||
     !isSha256(value.operation_key) ||
     value.run_id !== runId ||
+    !Number.isInteger(value.publication_ordinal) ||
+    Number(value.publication_ordinal) < 1 ||
     !isEnvelope(value.envelope)
   ) {
     throw new StoreError("recovery.invalid_operation", "artifact operation receipt is invalid", {
@@ -586,22 +595,18 @@ export class ArtifactStore {
     }
     const stableOperationKey = computedOperationKey;
     const operationHex = sha256Hex(stableOperationKey);
-    const receipt: ArtifactOperationReceipt = {
-      schema_version: ARTIFACT_RECEIPT_SCHEMA_VERSION,
-      operation_key: stableOperationKey,
-      run_id: input.runId,
-      artifact_path: input.envelope.artifact_path,
-      artifact_type: input.envelope.artifact_type,
-      content_hash: input.envelope.content_hash,
-      envelope: input.envelope,
-    };
     const receiptPath = `.store/operations/artifact-${operationHex}.json`;
     const receiptFilename = await resolveRunPath(runRoot, receiptPath, { createParents: true });
     let receiptExisted = false;
+    let receipt: ArtifactOperationReceipt;
     try {
       const existing = JSON.parse(await readFile(receiptFilename, "utf8")) as unknown;
       receiptExisted = true;
-      if (canonicalJson(existing) !== canonicalJson(receipt)) {
+      receipt = validateArtifactReceipt(existing, path.basename(receiptPath), input.runId);
+      if (
+        receipt.operation_key !== stableOperationKey ||
+        canonicalJson(receipt.envelope) !== canonicalJson(input.envelope)
+      ) {
         throw new StoreError(
           "write.operation_conflict",
           "operation key was previously used with different content",
@@ -612,6 +617,22 @@ export class ArtifactStore {
       if (!isNodeError(error, "ENOENT")) {
         throw error;
       }
+      const publicationRecords = await this.publicationRecordsLocked(runRoot, input.runId);
+      const nextPublicationOrdinal =
+        Math.max(
+          0,
+          ...[...publicationRecords.values()].map((record) => record.publicationOrdinal),
+        ) + 1;
+      receipt = {
+        schema_version: ARTIFACT_RECEIPT_SCHEMA_VERSION,
+        operation_key: stableOperationKey,
+        run_id: input.runId,
+        publication_ordinal: nextPublicationOrdinal,
+        artifact_path: input.envelope.artifact_path,
+        artifact_type: input.envelope.artifact_type,
+        content_hash: input.envelope.content_hash,
+        envelope: input.envelope,
+      };
     }
 
     const target = await resolveRunPath(runRoot, input.envelope.artifact_path, {
@@ -779,6 +800,53 @@ export class ArtifactStore {
       recoveredArtifactPaths: [...new Set(recovered)].sort(),
       removedTemporaryPaths: removedTemps.sort(),
     };
+  }
+
+  async publicationRecordsLocked(
+    runRoot: string,
+    runId: string,
+  ): Promise<ReadonlyMap<string, ArtifactPublicationRecord>> {
+    const operationDirectory = await resolveRunPath(runRoot, ".store/operations", {
+      createParents: true,
+    });
+    const records = new Map<string, ArtifactPublicationRecord>();
+    const pathsByOrdinal = new Map<number, string>();
+    for (const entry of (await readdir(operationDirectory)).sort()) {
+      if (!entry.startsWith("artifact-") || !entry.endsWith(".json")) continue;
+      const receipt = validateArtifactReceipt(
+        JSON.parse(
+          await readFile(await resolveRunPath(runRoot, `.store/operations/${entry}`), "utf8"),
+        ) as unknown,
+        entry,
+        runId,
+      );
+      const existingPath = pathsByOrdinal.get(receipt.publication_ordinal);
+      if (existingPath !== undefined && existingPath !== receipt.artifact_path) {
+        throw new StoreError(
+          "recovery.publication_ordinal_conflict",
+          "Store-owned Artifact publication ordinals must be unique within one Run",
+          {
+            publicationOrdinal: receipt.publication_ordinal,
+            artifactPaths: [existingPath, receipt.artifact_path].sort(),
+          },
+        );
+      }
+      const existingRecord = records.get(receipt.artifact_path);
+      const record = {
+        publicationOrdinal: receipt.publication_ordinal,
+        contentHash: receipt.content_hash,
+      };
+      if (existingRecord !== undefined && canonicalJson(existingRecord) !== canonicalJson(record)) {
+        throw new StoreError(
+          "recovery.publication_path_conflict",
+          "one immutable Artifact path cannot have multiple publication records",
+          { artifactPath: receipt.artifact_path },
+        );
+      }
+      pathsByOrdinal.set(receipt.publication_ordinal, receipt.artifact_path);
+      records.set(receipt.artifact_path, record);
+    }
+    return new Map([...records.entries()].sort(([left], [right]) => left.localeCompare(right)));
   }
 
   async listFormalDocuments(runRoot: string): Promise<readonly DocumentBundleEntry[]> {
@@ -971,7 +1039,14 @@ export class ArtifactStore {
         documents,
         exact_records: [],
       },
-      { ...referenceContext, exactJsonlRecords },
+      {
+        ...referenceContext,
+        exactJsonlRecords,
+        artifactPublicationRecords: await this.publicationRecordsLocked(
+          runRoot,
+          envelopes[0]?.run_id ?? "",
+        ),
+      },
     );
     if (!bundleResult.valid) {
       throw new StoreError("artifact.reference_invalid", "formal artifact references are invalid", {

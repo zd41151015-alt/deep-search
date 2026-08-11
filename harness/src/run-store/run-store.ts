@@ -43,6 +43,11 @@ import { withRunCreationLock, withRunLock } from "../artifact-store/run-lock.js"
 import { StoreError } from "../artifact-store/store-error.js";
 import { type EvidenceRecoveryResult, EvidenceStore } from "../evidence-store/evidence-store.js";
 import {
+  type DecisionSubjectKind,
+  subjectRevisionDescriptor,
+  subjectSchemaAllowed,
+} from "../reporting/decision-subject-reformation.js";
+import {
   type ReportRecoveryResult,
   recoverReportOperationsLocked,
 } from "../reporting/report-runtime.js";
@@ -219,6 +224,7 @@ export interface ReformDecisionSubjectResult {
   readonly reformationInputHashes: readonly {
     readonly ref: string;
     readonly content_hash: string;
+    readonly publication_ordinal: number;
   }[];
   readonly status: "appended" | "idempotent_replay";
 }
@@ -1989,6 +1995,7 @@ export class RunStore {
           [...exactRecords.entries()].sort(([left], [right]) => left.localeCompare(right)),
         ),
         historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
+        artifactPublicationRecords: await this.artifacts.publicationRecordsLocked(runRoot, runId),
       },
     };
   }
@@ -3259,17 +3266,6 @@ export class RunStore {
           },
         );
       }
-      const exemptArtifactRefs = manifest.artifact_refs
-        .filter(
-          (ref) =>
-            [
-              "artifacts/discovery/seed-probe.r1.json",
-              "artifacts/discovery/opportunity-space-map.r1.json",
-              "artifacts/discovery/solution-space-map.r1.json",
-            ].includes(ref) ||
-            /^artifacts\/discovery\/candidates\/[A-Za-z0-9._-]+\.r[1-9][0-9]*\.json$/.test(ref),
-        )
-        .sort();
       const admissionHash = canonicalContentHash(admission);
       const decisionId = `prior_input_consumed_${sha256Hex(
         operationKey("prior_input_consumption_identity", {
@@ -3278,7 +3274,7 @@ export class RunStore {
           prior_admission_hash: admissionHash,
         }),
       ).slice(0, 24)}`;
-      const identity = {
+      const immutableIdentity = {
         prior_input_id: admission.prior_input_id,
         prior_admission_ref: input.admissionRef,
         prior_admission_hash: admissionHash,
@@ -3288,20 +3284,36 @@ export class RunStore {
         prior_input_consumer: admission.prior_input_consumer,
         prior_target_artifact_path: admission.prior_target_artifact_path,
         prior_use_boundary: "hypothesis_input_only",
-        prior_taint_exempt_artifact_refs: exemptArtifactRefs,
       };
       const existing = (
         await this.logs.listValidatedRecords(runRoot, input.runId, "decisions.jsonl")
       ).find((record) => record.decision_id === decisionId);
+      const existingExemptArtifactRefs = Array.isArray(existing?.prior_taint_exempt_artifact_refs)
+        ? existing.prior_taint_exempt_artifact_refs.filter(
+            (ref): ref is string => typeof ref === "string",
+          )
+        : null;
+      const isDiscoveryArtifactRef = (ref: string): boolean =>
+        [
+          "artifacts/discovery/seed-probe.r1.json",
+          "artifacts/discovery/opportunity-space-map.r1.json",
+          "artifacts/discovery/solution-space-map.r1.json",
+        ].includes(ref) ||
+        /^artifacts\/discovery\/candidates\/[A-Za-z0-9._-]+\.r[1-9][0-9]*\.json$/.test(ref);
       if (
         existing !== undefined &&
         (existing.schema_version !== "startup_opportunity.decision.v1" ||
           existing.run_id !== input.runId ||
           existing.decision_type !== "prior_input_consumed" ||
           existing.actor !== "main_agent" ||
+          canonicalJson(existing.artifact_refs) !== canonicalJson([input.admissionRef]) ||
           canonicalJson(
-            Object.fromEntries(Object.keys(identity).map((key) => [key, existing[key]])),
-          ) !== canonicalJson(identity) ||
+            Object.fromEntries(Object.keys(immutableIdentity).map((key) => [key, existing[key]])),
+          ) !== canonicalJson(immutableIdentity) ||
+          existingExemptArtifactRefs === null ||
+          existingExemptArtifactRefs.length !==
+            (existing.prior_taint_exempt_artifact_refs as unknown[]).length ||
+          existingExemptArtifactRefs.some((ref) => !isDiscoveryArtifactRef(ref)) ||
           (input.consumedAt !== undefined && existing.timestamp !== input.consumedAt))
       ) {
         throw new StoreError(
@@ -3310,6 +3322,12 @@ export class RunStore {
           { decisionId },
         );
       }
+      const exemptArtifactRefs =
+        existingExemptArtifactRefs ?? manifest.artifact_refs.filter(isDiscoveryArtifactRef).sort();
+      const identity = {
+        ...immutableIdentity,
+        prior_taint_exempt_artifact_refs: exemptArtifactRefs,
+      };
       const decision =
         existing ??
         ({
@@ -3438,92 +3456,71 @@ export class RunStore {
       const terminalSubjectRef = String(terminalSubject.subject_ref);
       const terminalArtifact = await readEnvelope(terminalSubjectRef);
       const reformedArtifact = await readEnvelope(input.reformedSubjectRef);
+      const subjectKind = terminalSubject.subject_kind as DecisionSubjectKind;
+      const supportedSubjectKinds = new Set<DecisionSubjectKind>([
+        "discovery_candidate",
+        "opportunity_thesis",
+        "concept_hypothesis",
+      ]);
+      if (
+        !supportedSubjectKinds.has(subjectKind) ||
+        !subjectSchemaAllowed(subjectKind, terminalArtifact.artifact_type) ||
+        !subjectSchemaAllowed(subjectKind, reformedArtifact.artifact_type)
+      ) {
+        throw new StoreError(
+          "subject_reformation.subject_kind_invalid",
+          "subject reformation requires a supported exact subject kind and schema",
+          { subjectKind },
+        );
+      }
+      const terminalRevision = subjectRevisionDescriptor(subjectKind, terminalArtifact.document);
+      const reformedRevision = subjectRevisionDescriptor(subjectKind, reformedArtifact.document);
       if (
         terminalSubject.subject_content_hash !== terminalArtifact.content_hash ||
-        terminalArtifact.artifact_type !== "startup_opportunity.discovery_candidate.v1" ||
-        reformedArtifact.artifact_type !== "startup_opportunity.discovery_candidate.v1" ||
         reformedArtifact.artifact_path === terminalArtifact.artifact_path ||
-        reformedArtifact.document.parent_candidate_ref !== terminalArtifact.artifact_path ||
-        reformedArtifact.document.parent_content_hash !== terminalArtifact.content_hash ||
-        reformedArtifact.document.candidate_id !== terminalArtifact.document.candidate_id ||
-        reformedArtifact.document.candidate_id !== input.terminalSubjectId ||
-        Number(reformedArtifact.document.revision) !==
-          Number(terminalArtifact.document.revision) + 1
+        reformedRevision.parentRef !== terminalArtifact.artifact_path ||
+        reformedRevision.parentContentHash !== terminalArtifact.content_hash ||
+        reformedRevision.subjectId !== terminalRevision.subjectId ||
+        reformedRevision.subjectId !== input.terminalSubjectId ||
+        reformedRevision.revision !== terminalRevision.revision + 1 ||
+        (reformedRevision.expectedPath !== null &&
+          reformedArtifact.artifact_path !== reformedRevision.expectedPath)
       ) {
         throw new StoreError(
           "subject_reformation.revision_lineage_invalid",
-          "reformed subject must be the direct next immutable Candidate revision of the exact terminal subject",
+          "reformed subject must be the direct next immutable revision of the exact terminal subject kind and identity",
         );
       }
-      if (
-        canonicalJson(reformedArtifact.document.subject) ===
-        canonicalJson(terminalArtifact.document.subject)
-      ) {
+      if (canonicalJson(reformedRevision.semantics) === canonicalJson(terminalRevision.semantics)) {
         throw new StoreError(
           "subject_reformation.semantics_unchanged",
-          "reformation must materially change Candidate subject semantics",
+          "reformation must materially change the subject's business semantics",
         );
       }
-      const formation = isRecord(reformedArtifact.document.formation)
-        ? reformedArtifact.document.formation
-        : {};
-      const evidenceLineage = isRecord(reformedArtifact.document.evidence_lineage)
-        ? reformedArtifact.document.evidence_lineage
-        : {};
-      const enrichment = isRecord(reformedArtifact.document.enrichment)
-        ? reformedArtifact.document.enrichment
-        : {};
-      const closureRefs = new Set([
-        ...(Array.isArray(formation.synthesis_input_hashes)
-          ? formation.synthesis_input_hashes.flatMap((binding) =>
-              isRecord(binding) && typeof binding.ref === "string" ? [binding.ref] : [],
-            )
-          : []),
-        ...Object.values(evidenceLineage).flatMap((value) =>
-          Array.isArray(value)
-            ? value.filter((entry): entry is string => typeof entry === "string")
-            : [],
-        ),
-        ...(Array.isArray(enrichment.basis_refs)
-          ? enrichment.basis_refs.filter((entry): entry is string => typeof entry === "string")
-          : []),
-      ]);
-      const terminalFormation = isRecord(terminalArtifact.document.formation)
-        ? terminalArtifact.document.formation
-        : {};
-      const terminalEvidenceLineage = isRecord(terminalArtifact.document.evidence_lineage)
-        ? terminalArtifact.document.evidence_lineage
-        : {};
-      const terminalEnrichment = isRecord(terminalArtifact.document.enrichment)
-        ? terminalArtifact.document.enrichment
-        : {};
-      const terminalClosureRefs = new Set([
-        ...(Array.isArray(terminalFormation.synthesis_input_hashes)
-          ? terminalFormation.synthesis_input_hashes.flatMap((binding) =>
-              isRecord(binding) && typeof binding.ref === "string" ? [binding.ref] : [],
-            )
-          : []),
-        ...Object.values(terminalEvidenceLineage).flatMap((value) =>
-          Array.isArray(value)
-            ? value.filter((entry): entry is string => typeof entry === "string")
-            : [],
-        ),
-        ...(Array.isArray(terminalEnrichment.basis_refs)
-          ? terminalEnrichment.basis_refs.filter(
-              (entry): entry is string => typeof entry === "string",
-            )
-          : []),
-      ]);
-      const terminalTime = Date.parse(terminalSnapshot.created_at);
-      const reformedTime = Date.parse(reformedArtifact.created_at);
-      const decisionTime = Date.parse(input.reformedAt ?? new Date().toISOString());
-      if (!Number.isFinite(decisionTime) || decisionTime < reformedTime) {
+      const publicationRecords = await this.artifacts.publicationRecordsLocked(
+        runRoot,
+        input.runId,
+      );
+      const terminalSnapshotPublication = publicationRecords.get(terminalSnapshot.artifact_path);
+      const reformedSubjectPublication = publicationRecords.get(reformedArtifact.artifact_path);
+      if (
+        terminalSnapshotPublication === undefined ||
+        reformedSubjectPublication === undefined ||
+        terminalSnapshotPublication.contentHash !== terminalSnapshot.content_hash ||
+        reformedSubjectPublication.contentHash !== reformedArtifact.content_hash ||
+        reformedSubjectPublication.publicationOrdinal <=
+          terminalSnapshotPublication.publicationOrdinal
+      ) {
         throw new StoreError(
-          "subject_reformation.decision_time_invalid",
-          "subject reformation Decision must be recorded no earlier than the new Candidate revision",
+          "subject_reformation.publication_order_invalid",
+          "Store-owned publication order must place the new subject after the terminal snapshot",
         );
       }
-      const reformationInputHashes = [] as { ref: string; content_hash: string }[];
+      const reformationInputHashes = [] as {
+        ref: string;
+        content_hash: string;
+        publication_ordinal: number;
+      }[];
       for (const ref of uniqueInputRefs) {
         if (
           [
@@ -3531,41 +3528,47 @@ export class RunStore {
             terminalArtifact.artifact_path,
             reformedArtifact.artifact_path,
           ].includes(ref) ||
-          !closureRefs.has(ref) ||
-          terminalClosureRefs.has(ref)
+          !reformedRevision.closureRefs.has(ref) ||
+          terminalRevision.closureRefs.has(ref)
         ) {
           throw new StoreError(
             "subject_reformation.input_unrelated",
-            "each reformation input must be newly added to the new Candidate formation, Evidence, or enrichment closure",
+            "each reformation input must be newly added to the new subject's kind-specific formation or synthesis closure",
             { ref },
           );
         }
         const artifact = await readEnvelope(ref);
-        const inputTime = Date.parse(artifact.created_at);
+        const inputPublication = publicationRecords.get(ref);
         if (
-          !Number.isFinite(terminalTime) ||
-          !Number.isFinite(reformedTime) ||
-          !Number.isFinite(inputTime) ||
-          inputTime <= terminalTime ||
-          inputTime > reformedTime
+          inputPublication === undefined ||
+          inputPublication.contentHash !== artifact.content_hash ||
+          inputPublication.publicationOrdinal <= terminalSnapshotPublication.publicationOrdinal ||
+          inputPublication.publicationOrdinal >= reformedSubjectPublication.publicationOrdinal
         ) {
           throw new StoreError(
             "subject_reformation.input_not_post_terminal",
-            "each reformation input must be created after the terminal snapshot and no later than the new Candidate",
+            "Store-owned publication order must place each causal input after the terminal snapshot and before the new subject",
             { ref },
           );
         }
-        reformationInputHashes.push({ ref, content_hash: artifact.content_hash });
+        reformationInputHashes.push({
+          ref,
+          content_hash: artifact.content_hash,
+          publication_ordinal: inputPublication.publicationOrdinal,
+        });
       }
       const identity = {
         run_id: input.runId,
         terminal_snapshot_ref: terminalSnapshot.artifact_path,
         terminal_snapshot_hash: terminalSnapshot.content_hash,
+        terminal_snapshot_publication_ordinal: terminalSnapshotPublication.publicationOrdinal,
+        reformation_subject_kind: subjectKind,
         terminal_subject_id: input.terminalSubjectId,
         terminal_subject_ref: terminalArtifact.artifact_path,
         terminal_subject_content_hash: terminalArtifact.content_hash,
         reformed_subject_ref: reformedArtifact.artifact_path,
         reformed_subject_content_hash: reformedArtifact.content_hash,
+        reformed_subject_publication_ordinal: reformedSubjectPublication.publicationOrdinal,
         reformation_input_hashes: reformationInputHashes,
       };
       const decisionId = `subject_reformed_${sha256Hex(
@@ -4564,6 +4567,10 @@ export class RunStore {
       ...snapshot.artifact_refs,
       ...snapshot.ignored_late_artifact_refs,
     ]);
+    const artifactPublicationRecords = await this.artifacts.publicationRecordsLocked(
+      runRoot,
+      runId,
+    );
     const postCheckpointEnvelopes = formalDocuments
       .filter(
         (entry) =>
@@ -4574,9 +4581,12 @@ export class RunStore {
       )
       .map((entry) => entry.document as FormalArtifactEnvelope)
       .sort((left, right) => {
-        const time = Date.parse(left.created_at) - Date.parse(right.created_at);
-        if (time !== 0) {
-          return time;
+        const leftOrdinal = artifactPublicationRecords.get(left.artifact_path)?.publicationOrdinal;
+        const rightOrdinal = artifactPublicationRecords.get(
+          right.artifact_path,
+        )?.publicationOrdinal;
+        if (leftOrdinal !== undefined && rightOrdinal !== undefined) {
+          return leftOrdinal - rightOrdinal;
         }
         const rank = recoveryTransitionRank(left) - recoveryTransitionRank(right);
         return rank === 0 ? left.artifact_path.localeCompare(right.artifact_path) : rank;
@@ -4620,6 +4630,7 @@ export class RunStore {
       {
         exactJsonlRecords,
         historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
+        artifactPublicationRecords,
       },
     );
     if (!bundle.valid) {

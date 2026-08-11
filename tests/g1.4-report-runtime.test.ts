@@ -1483,6 +1483,188 @@ test("decision subject snapshots advance atomically and historical exact replay 
   );
 });
 
+test("Store re-forms a Concept only through an explicit post-terminal revision and reopens", async (context) => {
+  const state = await prepareRun(context, { omitCommercialAuditUnitId: "unit_demand" });
+  const missingAudit = state.omittedCommercialAudit;
+  assert.ok(missingAudit);
+  const conceptR1 = JSON.parse(
+    await readFile(path.join(state.runRoot, "concept-hypothesis.json"), "utf8"),
+  ) as FormalArtifactEnvelope;
+
+  const snapshotR2Ref = "artifacts/reporting/decision-subject-snapshot.r2.json";
+  const snapshotR2Document = structuredClone(state.decisionSubjectSnapshotEnvelope.document);
+  snapshotR2Document.revision = 2;
+  snapshotR2Document.parent_snapshot_ref = state.decisionSubjectSnapshotRef;
+  snapshotR2Document.parent_snapshot_hash = state.decisionSubjectSnapshotHash;
+  snapshotR2Document.created_at = "2026-07-25T19:01:00Z";
+  const terminalSubject = (snapshotR2Document.subjects as Record<string, unknown>[])[0];
+  assert.ok(terminalSubject);
+  terminalSubject.lifecycle_status = "dropped";
+  terminalSubject.reporting_role = "audit_only";
+  terminalSubject.lifecycle_reason = "SYNTHETIC terminal state before new commercial analysis.";
+  const snapshotR2 = v5Envelope(
+    snapshotR2Ref,
+    snapshotR2Document,
+    "main_agent",
+    [
+      state.decisionSubjectSnapshotRef,
+      "scope-frame.json",
+      "plans/research-plan.r1.json",
+      G14_ASSESSMENT_REF,
+      conceptR1.artifact_path,
+    ],
+    "2026-07-25T19:01:00Z",
+  );
+  await state.store.publishArtifact({ runId: G14_RUN_ID, envelope: snapshotR2 });
+
+  const auditDocument = structuredClone(missingAudit.audit) as Record<string, unknown>;
+  const auditEvidenceRef = String(
+    (auditDocument.evidence_register as Record<string, unknown>[])[0]?.evidence_ref,
+  );
+  const auditUnitId = String(auditDocument.unit_id);
+  const auditEnvelope = v5Envelope(
+    missingAudit.auditRef,
+    auditDocument,
+    "harness",
+    [
+      "plans/research-execution.r1.json",
+      `tasks/dispatch/commercial-research.r1.json#task_${auditUnitId}`,
+      String(auditDocument.task_ref),
+      auditEvidenceRef,
+    ],
+    "2026-07-25T19:02:00Z",
+  );
+  await state.store.publishArtifact({ runId: G14_RUN_ID, envelope: auditEnvelope });
+
+  const conceptR2Ref = "artifacts/assessment/concepts/concept_assess_001.r2.json";
+  const storedAssessment = JSON.parse(
+    await readFile(path.join(state.runRoot, G14_ASSESSMENT_REF), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const conceptR2Document = structuredClone(conceptR1.document);
+  conceptR2Document.schema_version = "startup_opportunity.concept_hypothesis.assessment.current";
+  conceptR2Document.revision = 2;
+  conceptR2Document.parent_concept_ref = conceptR1.artifact_path;
+  conceptR2Document.parent_content_hash = conceptR1.content_hash;
+  conceptR2Document.formation_input_hashes = [
+    { ref: G14_ASSESSMENT_REF, content_hash: storedAssessment.content_hash },
+    { ref: missingAudit.auditRef, content_hash: auditEnvelope.content_hash },
+  ];
+  conceptR2Document.assumptions = [
+    ...(conceptR2Document.assumptions as string[]),
+    "SYNTHETIC post-terminal commercial analysis changes the bounded buyer assumption.",
+  ];
+  delete conceptR2Document.field_provenance;
+  delete conceptR2Document.research_readiness;
+  const conceptR2 = v5Envelope(
+    conceptR2Ref,
+    conceptR2Document,
+    "main_agent",
+    [conceptR1.artifact_path, "scope-frame.json", G14_ASSESSMENT_REF, missingAudit.auditRef],
+    "2026-07-25T19:03:00Z",
+  );
+  await state.store
+    .publishArtifact({ runId: G14_RUN_ID, envelope: conceptR2 })
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) assert.fail(JSON.stringify(error.details, null, 2));
+      throw error;
+    });
+
+  const reformInput = {
+    runId: G14_RUN_ID,
+    terminalSnapshotRef: snapshotR2Ref,
+    terminalSubjectId: "concept_assess_001",
+    reformedSubjectRef: conceptR2Ref,
+    reason: "SYNTHETIC post-terminal commercial Audit changed the Concept semantics.",
+    reformedAt: "2026-07-25T19:04:00Z",
+  } as const;
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformedSubjectRef: conceptR1.artifact_path,
+      reformationInputRefs: [missingAudit.auditRef],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "subject_reformation.revision_lineage_invalid",
+  );
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformationInputRefs: [conceptR2Ref],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "subject_reformation.input_unrelated",
+  );
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformationInputRefs: [state.decisionSubjectSynthesisRef],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "subject_reformation.input_unrelated",
+  );
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformationInputRefs: [G14_ASSESSMENT_REF],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "subject_reformation.input_not_post_terminal",
+  );
+  const reformation = await state.store.reformDecisionSubject({
+    ...reformInput,
+    reformationInputRefs: [missingAudit.auditRef],
+  });
+  assert.equal(reformation.status, "appended");
+
+  const snapshotR3Ref = "artifacts/reporting/decision-subject-snapshot.r3.json";
+  const snapshotR3Document = structuredClone(snapshotR2Document);
+  snapshotR3Document.revision = 3;
+  snapshotR3Document.parent_snapshot_ref = snapshotR2Ref;
+  snapshotR3Document.parent_snapshot_hash = snapshotR2.content_hash;
+  snapshotR3Document.created_at = "2026-07-25T19:05:00Z";
+  const reformedSubject = (snapshotR3Document.subjects as Record<string, unknown>[])[0];
+  assert.ok(reformedSubject);
+  reformedSubject.subject_ref = conceptR2Ref;
+  reformedSubject.subject_content_hash = conceptR2.content_hash;
+  reformedSubject.lifecycle_status = "current";
+  reformedSubject.reporting_role = "final";
+  reformedSubject.lifecycle_reason = "SYNTHETIC causally re-formed from a post-terminal Audit.";
+  reformedSubject.reformation_decision_ref = reformation.decisionRef;
+  const snapshotR3 = v5Envelope(
+    snapshotR3Ref,
+    snapshotR3Document,
+    "main_agent",
+    [
+      snapshotR2Ref,
+      "scope-frame.json",
+      "plans/research-plan.r1.json",
+      G14_ASSESSMENT_REF,
+      conceptR2Ref,
+      reformation.decisionRef,
+    ],
+    "2026-07-25T19:05:00Z",
+  );
+  await state.store.publishArtifact({ runId: G14_RUN_ID, envelope: snapshotR3 });
+  await state.store.checkpoint({
+    runId: G14_RUN_ID,
+    checkpointId: "checkpoint_concept_reformation",
+    createdAt: "2026-07-25T19:10:00Z",
+    nextStep: "SYNTHETIC continue from the exact re-formed Concept authority.",
+    beliefSummary: {
+      current_belief: "SYNTHETIC Concept was re-formed from post-terminal analysis.",
+      evidence_that_changed_belief: [missingAudit.auditRef],
+      unchanged_assumptions: ["No market validation is claimed."],
+      remaining_disagreement: ["Actual willingness to pay remains unknown."],
+      next_decision_relevant_question: "What current Evidence would test the revision?",
+    },
+    inputRefs: [snapshotR3Ref, reformation.decisionRef],
+  });
+  const reopened = await new RunStore(state.runsRoot, state.validator).load(G14_RUN_ID);
+  assert.equal(reopened.recovered, false);
+  assert.equal(reopened.manifest.current_decision_subject_snapshot_ref, snapshotR3Ref);
+  assert.equal(reopened.manifest.current_decision_subject_snapshot_hash, snapshotR3.content_hash);
+});
+
 test("build-report publishes formal sidecars, materializes three outputs, and exactly replays", async (context) => {
   const state = await prepareRun(context);
   const first = await state.runtime.build({ reportEnvelope: state.reportEnvelope });

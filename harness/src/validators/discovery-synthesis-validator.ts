@@ -921,13 +921,27 @@ function validateThesesSnapshotsAndMerge(
     );
     const frozenAt = Date.parse(String(snapshot.document.frozen_at));
     const createdTimes = subjects.map((entry) => Date.parse(String(entry?.envelope?.created_at)));
+    const latestFrozenOpportunities = new Map<string, DiscoverySynthesisDocument>();
+    for (const opportunity of opportunities) {
+      const opportunityCreatedAt = createdAt(opportunity);
+      if (!Number.isFinite(frozenAt) || !Number.isFinite(opportunityCreatedAt)) continue;
+      if (opportunityCreatedAt > frozenAt) continue;
+      const opportunityId = String(opportunity.document.opportunity_id);
+      const current = latestFrozenOpportunities.get(opportunityId);
+      if (
+        current === undefined ||
+        Number(opportunity.document.revision) > Number(current.document.revision)
+      ) {
+        latestFrozenOpportunities.set(opportunityId, opportunity);
+      }
+    }
     if (
       subjects.some(
         (entry) => entry?.schemaVersion !== "startup_opportunity.opportunity_thesis.v1",
       ) ||
       !setEqual(
         subjectRefs,
-        opportunities.map((entry) => entry.path),
+        [...latestFrozenOpportunities.values()].map((entry) => entry.path),
       ) ||
       !setEqual(strings(snapshot.document.demand_thesis_refs), expectedDemands) ||
       !setEqual(strings(snapshot.document.baseline_option_refs), expectedBaselines) ||

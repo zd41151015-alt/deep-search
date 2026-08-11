@@ -17,12 +17,17 @@ import {
   fixtureEnvelope,
   G21_CORE_REFS,
   G21_MAP_REFS,
+  G21_PLAN_REF,
+  G21_SCOPE_REF,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import {
   G22_BASELINE_EVALUATION_JUDGMENT,
   G22_BASELINE_GENERATION_JUDGMENT,
   G22_DEMAND_R2,
   G22_FAN_IN,
+  G22_FINDING,
+  G22_GENERATION_CLAIM,
+  G22_INSIGHT,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import { runtimeEnvelope } from "./fixtures/g2.2/discovery-runtime-fixture.js";
 import {
@@ -392,6 +397,226 @@ test("G2.3 publishes caller-supplied synthesis artifacts with current receipts a
           receipt.schema_version === "startup_opportunity.artifact_store_operation.current",
       ),
   );
+});
+
+test("Store re-forms an Opportunity Thesis only from a post-terminal causal closure", async (context) => {
+  const state = await setup(context, "opportunity-reformation");
+  await publishThroughFanIn(state);
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: synthesisEnvelopes(state.bundle),
+  });
+
+  const scope = fixtureEnvelope(state.bundle, G21_SCOPE_REF);
+  const plan = fixtureEnvelope(state.bundle, G21_PLAN_REF);
+  const opportunityR1 = synthesisEnvelope(state.bundle, G23_OPPORTUNITY_A);
+  const snapshotR1Ref = "artifacts/reporting/decision-subject-snapshot.r1.json";
+  const snapshotR1Document = {
+    schema_version: "startup_opportunity.decision_subject_snapshot.current",
+    snapshot_id: "decision_subjects_opportunity_reformation",
+    revision: 1,
+    parent_snapshot_ref: null,
+    parent_snapshot_hash: null,
+    run_id: state.runId,
+    mode: "opportunity_discovery",
+    scope_frame_ref: scope.artifact_path,
+    scope_frame_hash: scope.content_hash,
+    research_plan_ref: plan.artifact_path,
+    research_plan_hash: plan.content_hash,
+    synthesis_input_hashes: [
+      { ref: opportunityR1.artifact_path, content_hash: opportunityR1.content_hash },
+    ],
+    created_at: "2026-07-27T20:12:00Z",
+    subjects: [
+      {
+        subject_id: opportunityR1.document.opportunity_id,
+        subject_ref: opportunityR1.artifact_path,
+        subject_content_hash: opportunityR1.content_hash,
+        subject_kind: "opportunity_thesis",
+        lifecycle_status: "dropped",
+        reporting_role: "audit_only",
+        superseded_by_subject_id: null,
+        formation_reason: "SYNTHETIC current-Run Opportunity Thesis.",
+        lifecycle_reason: "SYNTHETIC terminal state before a new causal input.",
+      },
+    ],
+    limitations: ["SYNTHETIC lifecycle fixture; not market Evidence."],
+  };
+  const snapshotR1: FormalArtifactEnvelope = {
+    schema_version: "startup_opportunity.artifact_envelope.current",
+    artifact_type: "startup_opportunity.decision_subject_snapshot.current",
+    artifact_path: snapshotR1Ref,
+    run_id: state.runId,
+    created_at: "2026-07-27T20:12:00Z",
+    producer_role: "main_agent",
+    input_refs: [scope.artifact_path, plan.artifact_path, opportunityR1.artifact_path].sort(),
+    content_hash: canonicalContentHash(snapshotR1Document),
+    document: snapshotR1Document,
+  };
+  await state.store.publishArtifact({ runId: state.runId, envelope: snapshotR1 });
+
+  const newFindingRef = "findings/discovery/finding-opportunity-reformation.json";
+  const newFinding = clone(runtimeEnvelope(state.bundle, G22_FINDING));
+  (newFinding as { artifact_path: string }).artifact_path = newFindingRef;
+  (newFinding as { created_at: string }).created_at = "2026-07-27T20:13:00Z";
+  newFinding.document.finding_id = "finding_opportunity_reformation";
+  newFinding.document.summary =
+    "SYNTHETIC post-terminal finding that materially changes the Opportunity Thesis.";
+  (newFinding as { content_hash: string }).content_hash = canonicalContentHash(newFinding.document);
+  await state.store.publishArtifact({ runId: state.runId, envelope: newFinding });
+
+  const newInsightRef = "insights/discovery/insight-opportunity-reformation.json";
+  const newInsight = clone(runtimeEnvelope(state.bundle, G22_INSIGHT));
+  (newInsight as { artifact_path: string }).artifact_path = newInsightRef;
+  (newInsight as { created_at: string }).created_at = "2026-07-27T20:14:00Z";
+  (newInsight as unknown as { input_refs: string[] }).input_refs = newInsight.input_refs
+    .map((ref) => (ref === G22_FINDING ? newFindingRef : ref))
+    .sort();
+  newInsight.document.insight_id = "insight_opportunity_reformation";
+  newInsight.document.summary =
+    "SYNTHETIC post-terminal insight used by the revised Opportunity Thesis.";
+  newInsight.document.finding_refs = [newFindingRef];
+  (newInsight as { content_hash: string }).content_hash = canonicalContentHash(newInsight.document);
+  await state.store.publishArtifact({ runId: state.runId, envelope: newInsight });
+
+  const opportunityR2Ref = "artifacts/discovery/opportunities/opportunity_household.r2.json";
+  const opportunityR2 = clone(opportunityR1);
+  (opportunityR2 as { artifact_path: string }).artifact_path = opportunityR2Ref;
+  (opportunityR2 as { created_at: string }).created_at = "2026-07-27T20:15:00Z";
+  opportunityR2.document.revision = 2;
+  opportunityR2.document.parent_opportunity_ref = opportunityR1.artifact_path;
+  opportunityR2.document.parent_content_hash = opportunityR1.content_hash;
+  opportunityR2.document.title =
+    "SYNTHETIC revised household coordination Opportunity from post-terminal input";
+  opportunityR2.document.supporting_insight_refs = [
+    ...(opportunityR2.document.supporting_insight_refs as string[]),
+    newInsightRef,
+  ].sort();
+  opportunityR2.document.opposing_claim_refs = [
+    ...(opportunityR2.document.opposing_claim_refs as string[]),
+    G22_GENERATION_CLAIM,
+  ].sort();
+  (opportunityR2 as unknown as { input_refs: string[] }).input_refs = [
+    ...new Set([
+      ...opportunityR2.input_refs,
+      opportunityR1.artifact_path,
+      newInsightRef,
+      G22_GENERATION_CLAIM,
+    ]),
+  ].sort();
+  (opportunityR2 as { content_hash: string }).content_hash = canonicalContentHash(
+    opportunityR2.document,
+  );
+  await state.store
+    .publishArtifact({ runId: state.runId, envelope: opportunityR2 })
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) assert.fail(JSON.stringify(error.details, null, 2));
+      throw error;
+    });
+
+  const reformInput = {
+    runId: state.runId,
+    terminalSnapshotRef: snapshotR1Ref,
+    terminalSubjectId: String(opportunityR1.document.opportunity_id),
+    reformedSubjectRef: opportunityR2Ref,
+    reason: "SYNTHETIC post-terminal insight caused a materially revised Opportunity Thesis.",
+    reformedAt: "2026-07-27T20:16:00Z",
+  } as const;
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformedSubjectRef: opportunityR1.artifact_path,
+      reformationInputRefs: [newInsightRef],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "subject_reformation.revision_lineage_invalid",
+  );
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformationInputRefs: [opportunityR2Ref],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "subject_reformation.input_unrelated",
+  );
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformationInputRefs: [G23_MERGE],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "subject_reformation.input_unrelated",
+  );
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformationInputRefs: [G22_GENERATION_CLAIM],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "subject_reformation.input_not_post_terminal",
+  );
+  const reformation = await state.store.reformDecisionSubject({
+    ...reformInput,
+    reformationInputRefs: [newInsightRef],
+  });
+  assert.equal(reformation.status, "appended");
+
+  const snapshotR2Ref = "artifacts/reporting/decision-subject-snapshot.r2.json";
+  const snapshotR2Document = {
+    ...structuredClone(snapshotR1Document),
+    revision: 2,
+    parent_snapshot_ref: snapshotR1Ref,
+    parent_snapshot_hash: snapshotR1.content_hash,
+    synthesis_input_hashes: [{ ref: opportunityR2Ref, content_hash: opportunityR2.content_hash }],
+    created_at: "2026-07-27T20:17:00Z",
+    subjects: [
+      {
+        ...(structuredClone(snapshotR1Document.subjects) as Record<string, unknown>[])[0],
+        subject_ref: opportunityR2Ref,
+        subject_content_hash: opportunityR2.content_hash,
+        lifecycle_status: "current",
+        reporting_role: "final",
+        reformation_decision_ref: reformation.decisionRef,
+        lifecycle_reason: "SYNTHETIC causally re-formed from a post-terminal insight.",
+      },
+    ],
+  };
+  const snapshotR2: FormalArtifactEnvelope = {
+    ...snapshotR1,
+    artifact_path: snapshotR2Ref,
+    created_at: "2026-07-27T20:17:00Z",
+    input_refs: [
+      snapshotR1Ref,
+      scope.artifact_path,
+      plan.artifact_path,
+      opportunityR2Ref,
+      reformation.decisionRef,
+    ].sort(),
+    content_hash: canonicalContentHash(snapshotR2Document),
+    document: snapshotR2Document,
+  };
+  await state.store.publishArtifact({ runId: state.runId, envelope: snapshotR2 });
+  await state.store.checkpoint({
+    runId: state.runId,
+    checkpointId: "checkpoint_opportunity_reformation",
+    createdAt: "2026-07-27T20:30:00Z",
+    nextStep: "SYNTHETIC continue from the exact re-formed Opportunity authority.",
+    beliefSummary: {
+      current_belief: "SYNTHETIC Opportunity was re-formed from post-terminal analysis.",
+      evidence_that_changed_belief: [newFindingRef, newInsightRef],
+      unchanged_assumptions: ["No market validation is claimed."],
+      remaining_disagreement: ["Actual demand remains unknown."],
+      next_decision_relevant_question: "What current Evidence would test the revision?",
+    },
+    inputRefs: [snapshotR2Ref, reformation.decisionRef],
+  });
+  const reopened = await new RunStore(
+    state.runsRoot,
+    await createArtifactValidator(repositoryRoot),
+  ).load(state.runId);
+  assert.equal(reopened.recovered, false);
+  assert.equal(reopened.manifest.current_decision_subject_snapshot_ref, snapshotR2Ref);
+  assert.equal(reopened.manifest.current_decision_subject_snapshot_hash, snapshotR2.content_hash);
 });
 
 test("G2.3 current checkpoint and reopen preserve the frozen synthesis index", async (context) => {
