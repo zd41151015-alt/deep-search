@@ -21,6 +21,7 @@
     "scope_frame_ref",
     "research_plan_ref",
     "map_lineage",
+    "formation",
     "subject",
     "evidence_lineage",
     "source_partition",
@@ -141,6 +142,9 @@
           "enum": ["unvalidated_question", "unvalidated_hypothesis", "unvalidated_option"]
         }
       }
+    },
+    "formation": {
+      "$ref": "./definitions.schema.json#/$defs/formation"
     },
     "subject": {
       "type": "object"

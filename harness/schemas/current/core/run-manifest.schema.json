@@ -21,6 +21,8 @@
     "current_phase",
     "current_plan_ref",
     "plan_revision",
+    "current_decision_subject_snapshot_ref",
+    "current_decision_subject_snapshot_hash",
     "followup_round",
     "latest_gap_snapshot_ref",
     "pending_adaptation_refs",
@@ -160,6 +162,27 @@
       "type": "integer",
       "minimum": 0
     },
+    "current_decision_subject_snapshot_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^artifacts/reporting/decision-subject-snapshot\\.r[1-9][0-9]*\\.json$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "current_decision_subject_snapshot_hash": {
+      "anyOf": [
+        {
+          "$ref": "./definitions.schema.json#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "followup_round": {
       "type": "integer",
       "minimum": 0
@@ -244,6 +267,30 @@
     }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": {
+          "current_decision_subject_snapshot_ref": {
+            "type": "null"
+          }
+        },
+        "required": ["current_decision_subject_snapshot_ref"]
+      },
+      "then": {
+        "properties": {
+          "current_decision_subject_snapshot_hash": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "current_decision_subject_snapshot_hash": {
+            "$ref": "./definitions.schema.json#/$defs/sha256"
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {

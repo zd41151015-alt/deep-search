@@ -6,6 +6,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  artifactRefsForDocument,
   canonicalContentHash,
   canonicalJson,
   createArtifactValidator,
@@ -22,12 +23,18 @@ import {
   fixtureEnvelope,
   G21_CORE_REFS,
   G21_MAP_REFS,
+  G21_OPPORTUNITY_REF,
+  G21_SOLUTION_REF,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import {
   createDiscoveryCandidateFixture,
+  G22_BASELINE_R1,
+  G22_DEMAND_R1,
   G22_DEMAND_R2,
   G22_FAN_IN,
   G22_GENERATION_LANE,
+  G22_RUN_ID,
+  refreshDiscoveryCandidateFormation,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
   createDiscoveryRuntimeFixture,
@@ -291,6 +298,146 @@ test("G2.2 selects the Manifest current Plan while retaining Plan history", asyn
     const codes = validateDiscoveryCandidateContract(documents, policy).map((issue) => issue.code);
     assert.ok(codes.includes("discovery_candidate.bundle_cardinality"), JSON.stringify(codes));
   });
+});
+
+test("G2.2 Candidate formation closes current Scope, Plan, synthesis inputs, and prior admission", async () => {
+  const policy = JSON.parse(
+    await readFile(
+      path.join(repositoryRoot, "harness/policies/discovery-candidates.current.json"),
+      "utf8",
+    ),
+  ) as DiscoveryCandidatePolicy;
+  const bundle = await createDiscoveryCandidateFixture();
+  const documents = candidateContractDocuments(bundle);
+  const candidate = documents.find((entry) => entry.path === G22_DEMAND_R1);
+  assert.ok(candidate?.envelope);
+  const formation = candidate.document.formation as Record<string, unknown>;
+
+  formation.scope_frame_hash = `sha256:${"8".repeat(64)}`;
+  candidate.envelope.content_hash = canonicalContentHash(candidate.document);
+  assert.ok(
+    validateDiscoveryCandidateContract(documents, policy).some(
+      (issue) => issue.code === "discovery_candidate.formation_scope_plan_mismatch",
+    ),
+  );
+
+  const refreshed = await createDiscoveryCandidateFixture();
+  const priorDocuments = candidateContractDocuments(refreshed);
+  const priorCandidate = priorDocuments.find((entry) => entry.path === G22_DEMAND_R1);
+  assert.ok(priorCandidate?.envelope);
+  const priorFormation = priorCandidate.document.formation as Record<string, unknown>;
+  const decisionRef = "decisions.jsonl#prior_input_admitted_g2_2_fixture";
+  priorFormation.synthesis_origin = "prior_informed_synthesis";
+  priorFormation.prior_input_decision_refs = [decisionRef];
+  priorCandidate.envelope.content_hash = canonicalContentHash(priorCandidate.document);
+  assert.ok(
+    artifactRefsForDocument({
+      path: priorCandidate.path,
+      document: priorCandidate.envelope,
+    }).includes(decisionRef),
+  );
+
+  assert.ok(
+    validateDiscoveryCandidateContract(priorDocuments, policy).some(
+      (issue) => issue.code === "discovery_candidate.prior_input_admission_invalid",
+    ),
+  );
+  const admission = {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: "prior_input_admitted_g2_2_fixture",
+    run_id: G22_RUN_ID,
+    decision_type: "prior_input_admitted",
+    timestamp: "2026-07-27T17:00:00Z",
+    actor: "main_agent",
+    reason: "SYNTHETIC prior Candidate admitted only as a hypothesis input.",
+    artifact_refs: [],
+    prior_input_id: "prior_candidate_hypothesis_g2_2_fixture",
+    prior_source_run_id: "g2-2-prior-synthetic",
+    prior_source_artifact_path: "artifacts/discovery/candidates/prior.r1.json",
+    prior_source_content_hash: `sha256:${"7".repeat(64)}`,
+    prior_use_boundary: "hypothesis_input_only",
+  };
+  assert.equal(
+    validateDiscoveryCandidateContract(
+      priorDocuments,
+      policy,
+      new Set(),
+      new Map([[decisionRef, admission]]),
+    ).some((issue) => issue.code === "discovery_candidate.prior_input_admission_invalid"),
+    false,
+  );
+
+  const foreignInput = structuredClone(priorDocuments);
+  const foreignMap = foreignInput.find((entry) => entry.path === G21_OPPORTUNITY_REF);
+  const foreignCandidate = foreignInput.find((entry) => entry.path === G22_DEMAND_R1);
+  assert.ok(foreignMap?.envelope && foreignCandidate?.envelope);
+  foreignMap.document.run_id = "g2-2-foreign-synthetic";
+  foreignMap.envelope.content_hash = canonicalContentHash(foreignMap.document);
+  const foreignFormation = foreignCandidate.document.formation as Record<string, unknown>;
+  const bindings = foreignFormation.synthesis_input_hashes as Record<string, unknown>[];
+  const mapBinding = bindings.find((binding) => binding.ref === foreignMap.path);
+  assert.ok(mapBinding);
+  mapBinding.content_hash = foreignMap.envelope.content_hash;
+  foreignCandidate.envelope.content_hash = canonicalContentHash(foreignCandidate.document);
+  assert.ok(
+    validateDiscoveryCandidateContract(foreignInput, policy).some(
+      (issue) => issue.code === "discovery_candidate.formation_input_binding_mismatch",
+    ),
+  );
+
+  const inheritedBundle = await createDiscoveryCandidateFixture();
+  const inheritedMapEnvelope = fixtureEnvelope(inheritedBundle, G21_OPPORTUNITY_REF);
+  const inheritedMap = inheritedMapEnvelope.document;
+  const inheritedProvenance = inheritedMap.content_provenance as Record<string, unknown>;
+  inheritedProvenance.synthesis_origin = "prior_informed_synthesis";
+  inheritedProvenance.prior_input_decision_refs = [decisionRef];
+  (inheritedMapEnvelope as unknown as { content_hash: string }).content_hash =
+    canonicalContentHash(inheritedMap);
+  const inheritedSolutionEnvelope = fixtureEnvelope(inheritedBundle, G21_SOLUTION_REF);
+  const inheritedSolutionProvenance = inheritedSolutionEnvelope.document
+    .content_provenance as Record<string, unknown>;
+  inheritedSolutionProvenance.synthesis_origin = "prior_informed_synthesis";
+  inheritedSolutionProvenance.prior_input_decision_refs = [decisionRef];
+  (inheritedSolutionEnvelope as unknown as { content_hash: string }).content_hash =
+    canonicalContentHash(inheritedSolutionEnvelope.document);
+  for (const entry of candidateContractDocuments(inheritedBundle).filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.discovery_candidate.v1",
+  )) {
+    const candidateFormation = entry.document.formation as Record<string, unknown>;
+    if (entry.path !== G22_BASELINE_R1) {
+      candidateFormation.synthesis_origin = "prior_informed_synthesis";
+      candidateFormation.prior_input_decision_refs = [decisionRef];
+    }
+  }
+  refreshDiscoveryCandidateFormation(inheritedBundle);
+  const inheritedDocuments = candidateContractDocuments(inheritedBundle);
+  assert.ok(
+    validateDiscoveryCandidateContract(
+      inheritedDocuments,
+      policy,
+      new Set(),
+      new Map([[decisionRef, admission]]),
+    ).some((issue) => issue.code === "discovery_candidate.prior_input_provenance_not_propagated"),
+  );
+
+  const inheritedBaseline = inheritedDocuments.find((entry) => entry.path === G22_BASELINE_R1);
+  assert.ok(inheritedBaseline?.envelope);
+  const inheritedBaselineFormation = inheritedBaseline.document.formation as Record<
+    string,
+    unknown
+  >;
+  inheritedBaselineFormation.synthesis_origin = "prior_informed_synthesis";
+  inheritedBaselineFormation.prior_input_decision_refs = [decisionRef];
+  inheritedBaseline.envelope.content_hash = canonicalContentHash(inheritedBaseline.document);
+  assert.equal(
+    validateDiscoveryCandidateContract(
+      inheritedDocuments,
+      policy,
+      new Set(),
+      new Map([[decisionRef, admission]]),
+    ).some((issue) => issue.code === "discovery_candidate.prior_input_provenance_not_propagated"),
+    false,
+  );
 });
 
 test("G2.2 publishes explicit candidates, tasks, typed lane material, pre-kill results, and fan-in", async (context) => {

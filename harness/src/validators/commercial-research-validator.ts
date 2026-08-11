@@ -2717,20 +2717,7 @@ function validateCommercialReportProjections(
     .toSorted((left, right) => left.path.localeCompare(right.path));
   const auditsByPath = new Map(audits.map((audit) => [audit.path, audit]));
   const plannedTasks = documents.filter((entry) => TASK_STAGE_BY_VERSION.has(entry.schemaVersion));
-  const plannedAuditPaths = plannedTasks.flatMap((task) => {
-    const requirements = isRecord(task.document.commercial_research_requirements)
-      ? task.document.commercial_research_requirements
-      : {};
-    return typeof requirements.commercial_audit_output_path === "string"
-      ? [requirements.commercial_audit_output_path]
-      : [];
-  });
   const documentsByPath = new Map(documents.map((document) => [document.path, document.document]));
-  const expectedProjection = projectCommercialAuditTables(
-    audits,
-    plannedTasks.map((task) => ({ path: task.path, document: task.document })),
-    documentsByPath,
-  );
   const interpretationsBySubjectAndRef = new Map<
     string,
     { readonly path: string; readonly source: Record<string, unknown> }[]
@@ -2873,10 +2860,37 @@ function validateCommercialReportProjections(
   for (const report of documents.filter((entry) =>
     REPORT_SCHEMA_VERSIONS.has(entry.schemaVersion),
   )) {
-    const reportAuditRefs = strings(report.document.commercial_research_audit_refs);
-    const missingPlannedAudits = [...new Set(plannedAuditPaths)].filter(
-      (auditPath) => !auditsByPath.has(auditPath),
+    const expectedProjection = projectCommercialAuditTables(
+      audits,
+      plannedTasks.map((task) => ({ path: task.path, document: task.document })),
+      documentsByPath,
+      report.schemaVersion === "startup_opportunity.terminal_report_source.v1"
+        ? strings(report.document.current_decision_subject_ids)
+        : undefined,
     );
+    const reportAuditRefs = strings(report.document.commercial_research_audit_refs);
+    const expectedStatus = isRecord(expectedProjection.commercial_research_status)
+      ? expectedProjection.commercial_research_status
+      : {};
+    const relevantTaskRefs = new Set(strings(expectedStatus.planned_task_refs));
+    const missingPlannedAudits = [
+      ...new Set(
+        plannedTasks
+          .filter(
+            (task) =>
+              report.schemaVersion !== "startup_opportunity.terminal_report_source.v1" ||
+              relevantTaskRefs.has(task.path),
+          )
+          .flatMap((task) => {
+            const requirements = isRecord(task.document.commercial_research_requirements)
+              ? task.document.commercial_research_requirements
+              : {};
+            return typeof requirements.commercial_audit_output_path === "string"
+              ? [requirements.commercial_audit_output_path]
+              : [];
+          }),
+      ),
+    ].filter((auditPath) => !auditsByPath.has(auditPath));
     if (
       !sameStringSet(reportAuditRefs, expectedProjection.commercial_research_audit_refs) ||
       missingPlannedAudits.length > 0
@@ -3214,18 +3228,41 @@ export function validateCommercialResearchContract(
   }
   const reportProjectionIssues = validateCommercialReportProjections(documents);
   errors.push(...reportProjectionIssues);
-  const expectedWarnings = projectGateWarnings([...auditIssues, ...reportProjectionIssues]);
-  const compilerWarnings = auditDocuments.flatMap((entry) =>
-    records(entry.document.compiler_warnings),
-  );
-  const allExpectedWarnings = [...expectedWarnings, ...compilerWarnings].toSorted((left, right) =>
-    `${String(left.code)}:${String(left.message)}`.localeCompare(
-      `${String(right.code)}:${String(right.message)}`,
-    ),
+  const auditPaths = new Set(auditDocuments.map((entry) => entry.path));
+  const reportPaths = new Set(
+    documents
+      .filter((entry) => REPORT_SCHEMA_VERSIONS.has(entry.schemaVersion))
+      .map((entry) => entry.path),
   );
   for (const report of documents.filter((entry) =>
     REPORT_SCHEMA_VERSIONS.has(entry.schemaVersion),
   )) {
+    const currentAuditRefs = new Set(
+      records(report.document.commercial_subject_aggregates).flatMap((aggregate) =>
+        strings(aggregate.audit_refs),
+      ),
+    );
+    const terminalProjection =
+      report.schemaVersion === "startup_opportunity.terminal_report_source.v1";
+    const relevantIssues = terminalProjection
+      ? [...auditIssues, ...reportProjectionIssues].filter((entry) => {
+          const artifactPath = entry.instancePath.split("#", 1)[0] ?? "";
+          if (auditPaths.has(artifactPath)) return currentAuditRefs.has(artifactPath);
+          if (reportPaths.has(artifactPath)) return artifactPath === report.path;
+          return true;
+        })
+      : [...auditIssues, ...reportProjectionIssues];
+    const relevantCompilerWarnings = auditDocuments
+      .filter((entry) => !terminalProjection || currentAuditRefs.has(entry.path))
+      .flatMap((entry) => records(entry.document.compiler_warnings));
+    const allExpectedWarnings = [
+      ...projectGateWarnings(relevantIssues),
+      ...relevantCompilerWarnings,
+    ].toSorted((left, right) =>
+      `${String(left.code)}:${String(left.message)}`.localeCompare(
+        `${String(right.code)}:${String(right.message)}`,
+      ),
+    );
     const actualWarnings = records(report.document.gate_warnings).toSorted((left, right) =>
       `${String(left.code)}:${String(left.message)}`.localeCompare(
         `${String(right.code)}:${String(right.message)}`,

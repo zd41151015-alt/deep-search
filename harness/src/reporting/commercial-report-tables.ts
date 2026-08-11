@@ -580,59 +580,95 @@ export function projectCommercialAuditTables(
   audits: readonly { readonly path: string; readonly document: Record<string, unknown> }[],
   tasks: readonly CommercialTaskProjectionInput[] = [],
   documentsByPath: ReadonlyMap<string, Record<string, unknown>> = new Map(),
+  decisionSubjectIds?: readonly string[],
 ): CommercialAuditProjection {
   const sortedAudits = [...audits].sort((left, right) => left.path.localeCompare(right.path));
   const sortedTasks = [...tasks].sort((left, right) => left.path.localeCompare(right.path));
+  const decisionSubjectSet = decisionSubjectIds === undefined ? null : new Set(decisionSubjectIds);
+  const includesDecisionSubject = (subjectId: unknown): boolean =>
+    decisionSubjectSet === null || decisionSubjectSet.has(String(subjectId));
+  const relevantTasks =
+    decisionSubjectSet === null
+      ? sortedTasks
+      : sortedTasks.filter((task) =>
+          taskSubjects(task, documentsByPath).some((subjectId) =>
+            decisionSubjectSet.has(subjectId),
+          ),
+        );
+  const relevantAudits =
+    decisionSubjectSet === null
+      ? sortedAudits
+      : sortedAudits.filter(
+          (audit) =>
+            records(audit.document.subject_assessments).some((assessment) =>
+              includesDecisionSubject(assessment.subject_id),
+            ) ||
+            strings(audit.document.covered_direction_ids).some((subjectId) =>
+              decisionSubjectSet.has(subjectId),
+            ),
+        );
   const quantitativeRows = sortedAudits.flatMap((audit) =>
-    records(audit.document.quantitative_observations).map((observation) => ({
-      audit_ref: audit.path,
-      observation,
-    })),
+    records(audit.document.quantitative_observations)
+      .filter((observation) => includesDecisionSubject(observation.subject_id))
+      .map((observation) => ({
+        audit_ref: audit.path,
+        observation,
+      })),
   );
   const competitiveRows = sortedAudits.flatMap((audit) =>
-    records(audit.document.competitive_objects).map((competitiveObject) => ({
-      audit_ref: audit.path,
-      competitive_object: competitiveObject,
-    })),
+    records(audit.document.competitive_objects)
+      .filter((competitiveObject) => includesDecisionSubject(competitiveObject.subject_id))
+      .map((competitiveObject) => ({
+        audit_ref: audit.path,
+        competitive_object: competitiveObject,
+      })),
   );
   const incumbentResponseRows = sortedAudits.flatMap((audit) =>
-    records(audit.document.incumbent_response_assessments).map((assessment) => {
-      const projectedAssessment = structuredClone(assessment);
-      const semantic = isRecord(projectedAssessment.semantic) ? projectedAssessment.semantic : {};
-      return {
-        audit_ref: audit.path,
-        assessment: {
-          ...projectedAssessment,
-          semantic: {
-            ...semantic,
-            strategic_implication: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+    records(audit.document.incumbent_response_assessments)
+      .filter((assessment) => {
+        const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+        return includesDecisionSubject(semantic.subject_id);
+      })
+      .map((assessment) => {
+        const projectedAssessment = structuredClone(assessment);
+        const semantic = isRecord(projectedAssessment.semantic) ? projectedAssessment.semantic : {};
+        return {
+          audit_ref: audit.path,
+          assessment: {
+            ...projectedAssessment,
+            semantic: {
+              ...semantic,
+              strategic_implication: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+            },
           },
-        },
-      };
-    }),
+        };
+      }),
   );
   const auditByExpectedPath = new Map(sortedAudits.map((audit) => [audit.path, audit]));
-  const missingTasks = sortedTasks.filter((task) => {
+  const missingTasks = relevantTasks.filter((task) => {
     const expected = expectedAuditPath(task);
     return expected !== null && !auditByExpectedPath.has(expected);
   });
   const inferredTaskRefs =
-    sortedTasks.length > 0
-      ? sortedTasks.map((task) => task.path)
-      : sortedAudits.flatMap((audit) =>
+    relevantTasks.length > 0
+      ? relevantTasks.map((task) => task.path)
+      : relevantAudits.flatMap((audit) =>
           typeof audit.document.task_ref === "string" ? [audit.document.task_ref] : [],
         );
-  const subjectIds = [
-    ...new Set([
-      ...sortedAudits.flatMap((audit) =>
-        records(audit.document.subject_assessments).map((assessment) =>
-          String(assessment.subject_id),
-        ),
-      ),
-      ...sortedAudits.flatMap((audit) => strings(audit.document.covered_direction_ids)),
-      ...sortedTasks.flatMap((task) => taskSubjects(task, documentsByPath)),
-    ]),
-  ].sort();
+  const subjectIds =
+    decisionSubjectIds === undefined
+      ? [
+          ...new Set([
+            ...sortedAudits.flatMap((audit) =>
+              records(audit.document.subject_assessments).map((assessment) =>
+                String(assessment.subject_id),
+              ),
+            ),
+            ...sortedAudits.flatMap((audit) => strings(audit.document.covered_direction_ids)),
+            ...sortedTasks.flatMap((task) => taskSubjects(task, documentsByPath)),
+          ]),
+        ].sort()
+      : [...new Set(decisionSubjectIds)].sort();
   const gapRows: Record<string, unknown>[] = [];
   const subjectAggregates = subjectIds.map((subjectId) => {
     const subjectAudits = sortedAudits.filter((audit) =>
@@ -802,6 +838,21 @@ export function projectCommercialAuditTables(
       quantitativeCoverage.every((row) => row.state === "observed") &&
       competitiveCoverage.every((row) => row.state === "observed") &&
       unresolvedGenericGaps.length === 0;
+    if (subjectTasks.length === 0 && subjectAudits.length === 0) {
+      gapRows.push({
+        audit_refs: [],
+        task_refs: [],
+        coverage_kind: "research",
+        subject_ids: [subjectId],
+        dimension: "commercial_research",
+        state: "unavailable",
+        reason: "No current commercial research task or Audit is bound to this decision subject.",
+        alternative_metric: null,
+        decision_impact:
+          "The subject remains visible, but its commercial evidence coverage is unknown and cannot be borrowed from another subject.",
+        query_attempts: [],
+      });
+    }
     return {
       subject_id: subjectId,
       audit_refs: subjectAudits.map((audit) => audit.path),
@@ -859,7 +910,7 @@ export function projectCommercialAuditTables(
   });
   for (const audit of sortedAudits) {
     for (const coverage of records(audit.document.incumbent_response_coverage).filter(
-      (entry) => entry.state === "unknown",
+      (entry) => entry.state === "unknown" && includesDecisionSubject(entry.subject_id),
     )) {
       gapRows.push({
         audit_ref: audit.path,
@@ -870,10 +921,14 @@ export function projectCommercialAuditTables(
   }
   for (const task of missingTasks) {
     const dimensions = assignedDimensions(task);
+    const subjects = taskSubjects(task, documentsByPath).filter((subjectId) =>
+      includesDecisionSubject(subjectId),
+    );
+    if (subjects.length === 0) continue;
     gapRows.push({
       task_ref: task.path,
       coverage_kind: "execution",
-      subject_ids: taskSubjects(task, documentsByPath),
+      subject_ids: subjects,
       state: "unavailable",
       reason: "The planned commercial research task has no current valid Audit artifact.",
       decision_impact:
@@ -883,7 +938,7 @@ export function projectCommercialAuditTables(
       assigned_commercial_dimensions: dimensions.commercialDimensions,
     });
   }
-  for (const audit of sortedAudits) {
+  for (const audit of decisionSubjectSet === null ? sortedAudits : []) {
     const closure = isRecord(audit.document.search_closure) ? audit.document.search_closure : {};
     for (const gap of records(closure.remaining_gaps).filter(
       (candidate) =>
@@ -956,9 +1011,9 @@ export function projectCommercialAuditTables(
     ),
     commercial_research_status: {
       state:
-        sortedTasks.length === 0 && sortedAudits.length === 0
+        relevantTasks.length === 0 && relevantAudits.length === 0
           ? "not_planned"
-          : missingTasks.length > 0 && sortedAudits.length === 0
+          : missingTasks.length > 0 && relevantAudits.length === 0
             ? "planned_but_missing"
             : missingTasks.length > 0 ||
                 subjectAggregates.some((aggregate) => aggregate.research_status !== "complete")
@@ -977,7 +1032,10 @@ function graded(value: unknown, zh: boolean): string {
 }
 
 export function renderIncumbentResponseRiskTable(
-  source: Readonly<{ readonly incumbent_response_risk_rows?: unknown }>,
+  source: Readonly<{
+    readonly incumbent_response_risk_rows?: unknown;
+    readonly current_decision_subject_ids?: unknown;
+  }>,
   zh = false,
 ): string {
   const rows = records(source.incumbent_response_risk_rows);
@@ -1053,6 +1111,38 @@ export function renderIncumbentResponseRiskTable(
       zh ? INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH : INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
     ];
   });
+  const assessedSubjectIds = new Set(
+    rows.flatMap((row) => {
+      const assessment = isRecord(row.assessment) ? row.assessment : {};
+      const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+      return typeof semantic.subject_id === "string" ? [semantic.subject_id] : [];
+    }),
+  );
+  for (const subjectId of strings(source.current_decision_subject_ids).filter(
+    (candidate) => !assessedSubjectIds.has(candidate),
+  )) {
+    body.push([
+      `${display(subjectId, zh)} / ${zh ? "未提交" : "not submitted"} / ${zh ? "未知" : "unknown"}`,
+      zh
+        ? "未知：没有该当前方向的潜在响应者研究"
+        : "Unknown: no responder research for this current direction",
+      "-",
+      zh ? "未知" : "unknown",
+      zh ? "未知" : "unknown",
+      zh ? "未知" : "unknown",
+      zh ? "未知" : "unknown",
+      zh ? "未知" : "unknown",
+      zh ? "未知" : "unknown",
+      zh ? "未知" : "unknown",
+      "-",
+      zh
+        ? "数据缺口：不得从历史或被取代方向补用 incumbent assessment"
+        : "Data gap: an incumbent assessment cannot be borrowed from a historical or superseded direction",
+      zh
+        ? "该风险保持未知，仅作待补战略参考；不触发自动淘汰、降置信度或建议上限。"
+        : "The risk remains an open strategic question only; it does not trigger automatic elimination, confidence reduction, or a recommendation ceiling.",
+    ]);
+  }
   if (body.length === 0) {
     body.push([
       zh ? "报告范围 / 未分配 / 未知" : "Report scope / not assigned / unknown",

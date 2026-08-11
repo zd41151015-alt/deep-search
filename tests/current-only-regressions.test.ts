@@ -15,7 +15,9 @@ import {
   buildArtifactScaffold,
   classifyReference,
   createArtifactValidator,
+  type DecisionSubjectDocument,
   validateCommercialResearchContract,
+  validateDecisionSubjectContract,
 } from "../harness/src/index.js";
 import {
   projectCommercialAuditTables,
@@ -1685,7 +1687,17 @@ test("all formal report sources project response rows and explicit gaps", async 
   ].map(([reportPath, schemaVersion]) => ({
     path: reportPath as string,
     schemaVersion: schemaVersion as string,
-    document: { ...projection },
+    document: {
+      ...projection,
+      ...(schemaVersion === "startup_opportunity.terminal_report_source.v1"
+        ? {
+            current_decision_subject_ids: [
+              "candidate_report_response_a",
+              "candidate_report_response_b",
+            ],
+          }
+        : {}),
+    } as Record<string, unknown>,
   }));
   const issues = validateCommercialResearchContract(
     [
@@ -2721,6 +2733,345 @@ test("formal report projections are exact and render fixed unavailable and gap t
   assert.match(gapTable, /Ranking \/ Decision Impact/);
   assert.match(gapTable, /unavailable/);
   assert.match(gapTable, /synthetic-fixture-provider/);
+});
+
+test("the decision subject snapshot is authoritative for current, superseded, and dropped subjects", () => {
+  const runId = "decision-subject-snapshot-synthetic";
+  const scopeRef = "scope-frame.json";
+  const planRef = "plans/research-plan.r1.json";
+  const snapshotRef = "artifacts/reporting/decision-subject-snapshot.r1.json";
+  const scope = {
+    schema_version: "startup_opportunity.scope_frame.discovery.current",
+    run_id: runId,
+  };
+  const plan = { schema_version: "startup_opportunity.research_plan.v1", run_id: runId };
+  const candidate = (candidateId: string) => ({
+    schema_version: "startup_opportunity.discovery_candidate.v1",
+    run_id: runId,
+    candidate_id: candidateId,
+    scope_frame_ref: scopeRef,
+    research_plan_ref: planRef,
+    formation: {
+      scope_frame_hash: canonicalContentHash(scope),
+      research_plan_hash: canonicalContentHash(plan),
+    },
+  });
+  const current = candidate("candidate_current_final");
+  const superseded = candidate("candidate_superseded_intermediate");
+  const dropped = candidate("candidate_dropped_audit");
+  const snapshotDocument: Record<string, unknown> = {
+    schema_version: "startup_opportunity.decision_subject_snapshot.current",
+    snapshot_id: "decision_subjects_synthetic",
+    revision: 1,
+    parent_snapshot_ref: null,
+    parent_snapshot_hash: null,
+    run_id: runId,
+    mode: "opportunity_discovery",
+    scope_frame_ref: scopeRef,
+    scope_frame_hash: canonicalContentHash(scope),
+    research_plan_ref: planRef,
+    research_plan_hash: canonicalContentHash(plan),
+    synthesis_input_hashes: [
+      {
+        ref: "artifacts/discovery/candidates/current.r1.json",
+        content_hash: canonicalContentHash(current),
+      },
+    ],
+    created_at: "2026-08-10T12:00:00Z",
+    subjects: [
+      {
+        subject_id: "candidate_current_final",
+        subject_ref: "artifacts/discovery/candidates/current.r1.json",
+        subject_content_hash: canonicalContentHash(current),
+        subject_kind: "discovery_candidate",
+        lifecycle_status: "current",
+        reporting_role: "final",
+        superseded_by_subject_id: null,
+        formation_reason: "SYNTHETIC current-Run synthesis selected this final subject.",
+        lifecycle_reason: "SYNTHETIC current final decision subject.",
+      },
+      {
+        subject_id: "candidate_superseded_intermediate",
+        subject_ref: "artifacts/discovery/candidates/superseded.r1.json",
+        subject_content_hash: canonicalContentHash(superseded),
+        subject_kind: "discovery_candidate",
+        lifecycle_status: "superseded",
+        reporting_role: "intermediate",
+        superseded_by_subject_id: "candidate_current_final",
+        formation_reason: "SYNTHETIC intermediate current-Run synthesis output.",
+        lifecycle_reason: "SYNTHETIC superseded by the final subject.",
+      },
+      {
+        subject_id: "candidate_dropped_audit",
+        subject_ref: "artifacts/discovery/candidates/dropped.r1.json",
+        subject_content_hash: canonicalContentHash(dropped),
+        subject_kind: "discovery_candidate",
+        lifecycle_status: "dropped",
+        reporting_role: "audit_only",
+        superseded_by_subject_id: null,
+        formation_reason: "SYNTHETIC intermediate current-Run synthesis output.",
+        lifecycle_reason: "SYNTHETIC dropped from the current decision set.",
+      },
+    ],
+    limitations: ["SYNTHETIC snapshot; not market Evidence."],
+  };
+  const snapshotHash = canonicalContentHash(snapshotDocument);
+  const documents: DecisionSubjectDocument[] = [
+    {
+      path: "manifest.json",
+      schemaVersion: "startup_opportunity.run_manifest.v1",
+      document: {
+        run_id: runId,
+        mode: "opportunity_discovery",
+        current_plan_ref: planRef,
+        current_decision_subject_snapshot_ref: snapshotRef,
+        current_decision_subject_snapshot_hash: snapshotHash,
+      },
+      envelope: null,
+    },
+    {
+      path: scopeRef,
+      schemaVersion: String(scope.schema_version),
+      document: scope,
+      envelope: null,
+    },
+    { path: planRef, schemaVersion: String(plan.schema_version), document: plan, envelope: null },
+    {
+      path: "artifacts/discovery/candidates/current.r1.json",
+      schemaVersion: String(current.schema_version),
+      document: current,
+      envelope: null,
+    },
+    {
+      path: "artifacts/discovery/candidates/superseded.r1.json",
+      schemaVersion: String(superseded.schema_version),
+      document: superseded,
+      envelope: null,
+    },
+    {
+      path: "artifacts/discovery/candidates/dropped.r1.json",
+      schemaVersion: String(dropped.schema_version),
+      document: dropped,
+      envelope: null,
+    },
+    {
+      path: snapshotRef,
+      schemaVersion: "startup_opportunity.decision_subject_snapshot.current",
+      document: snapshotDocument,
+      envelope: {
+        artifact_type: "startup_opportunity.decision_subject_snapshot.current",
+        artifact_path: snapshotRef,
+        run_id: runId,
+        producer_role: "main_agent",
+        content_hash: snapshotHash,
+      },
+    },
+    {
+      path: "artifacts/reporting/terminal-report-source.r1.json",
+      schemaVersion: "startup_opportunity.terminal_report_source.v1",
+      document: {
+        run_id: runId,
+        mode: "opportunity_discovery",
+        decision_subject_snapshot_ref: snapshotRef,
+        decision_subject_snapshot_hash: snapshotHash,
+        current_decision_subject_ids: ["candidate_current_final"],
+        directions: [{ direction_id: "candidate_current_final" }],
+      },
+      envelope: null,
+    },
+  ];
+  assert.deepEqual(validateDecisionSubjectContract(documents), []);
+
+  const leaked = structuredClone(documents);
+  const leakedReport = leaked.find(
+    (entry) => entry.schemaVersion === "startup_opportunity.terminal_report_source.v1",
+  );
+  assert.ok(leakedReport);
+  leakedReport.document.current_decision_subject_ids = [
+    "candidate_current_final",
+    "candidate_superseded_intermediate",
+    "candidate_dropped_audit",
+  ];
+  leakedReport.document.directions = [
+    { direction_id: "candidate_current_final" },
+    { direction_id: "candidate_superseded_intermediate" },
+    { direction_id: "candidate_dropped_audit" },
+  ];
+  assert.ok(
+    validateDecisionSubjectContract(leaked).some(
+      (issue) => issue.code === "decision_subject.terminal_projection_mismatch",
+    ),
+  );
+
+  const identityDrift = structuredClone(documents);
+  const identitySnapshot = identityDrift.find(
+    (entry) => entry.schemaVersion === "startup_opportunity.decision_subject_snapshot.current",
+  );
+  assert.ok(identitySnapshot);
+  const identitySubjects = identitySnapshot.document.subjects as Record<string, unknown>[];
+  assert.ok(identitySubjects[0]);
+  identitySubjects[0].subject_id = "candidate_relabelled_without_artifact_identity";
+  assert.ok(
+    validateDecisionSubjectContract(identityDrift).some(
+      (issue) => issue.code === "decision_subject.subject_identity_mismatch",
+    ),
+  );
+
+  const planR2Ref = "plans/research-plan.r2.json";
+  const planR2 = { ...plan, revision: 2 };
+  const snapshotR2Ref = "artifacts/reporting/decision-subject-snapshot.r2.json";
+  const snapshotR2Document = {
+    ...structuredClone(snapshotDocument),
+    revision: 2,
+    parent_snapshot_ref: snapshotRef,
+    parent_snapshot_hash: snapshotHash,
+    research_plan_ref: planR2Ref,
+    research_plan_hash: canonicalContentHash(planR2),
+    created_at: "2026-08-10T12:05:00Z",
+    subjects: [],
+  };
+  const snapshotR2Hash = canonicalContentHash(snapshotR2Document);
+  const planAdvancedDocuments = structuredClone(documents).filter(
+    (entry) => entry.schemaVersion !== "startup_opportunity.terminal_report_source.v1",
+  );
+  const planAdvancedManifest = planAdvancedDocuments.find(
+    (entry) => entry.schemaVersion === "startup_opportunity.run_manifest.v1",
+  );
+  assert.ok(planAdvancedManifest);
+  planAdvancedManifest.document.current_plan_ref = planR2Ref;
+  planAdvancedManifest.document.current_decision_subject_snapshot_ref = snapshotR2Ref;
+  planAdvancedManifest.document.current_decision_subject_snapshot_hash = snapshotR2Hash;
+  planAdvancedDocuments.push(
+    {
+      path: planR2Ref,
+      schemaVersion: "startup_opportunity.research_plan.v1",
+      document: planR2,
+      envelope: null,
+    },
+    {
+      path: snapshotR2Ref,
+      schemaVersion: "startup_opportunity.decision_subject_snapshot.current",
+      document: snapshotR2Document,
+      envelope: {
+        artifact_type: "startup_opportunity.decision_subject_snapshot.current",
+        artifact_path: snapshotR2Ref,
+        run_id: runId,
+        producer_role: "main_agent",
+        content_hash: snapshotR2Hash,
+      },
+    },
+  );
+  assert.deepEqual(validateDecisionSubjectContract(planAdvancedDocuments), []);
+});
+
+test("terminal commercial tables project only current final subjects and never backfill incumbent context", () => {
+  const audit = (
+    subjectId: string,
+    withIncumbentAssessment: boolean,
+  ): { path: string; document: Record<string, unknown> } => ({
+    path: `artifacts/research-audits/${subjectId}.json`,
+    document: {
+      task_ref: `tasks/discovery/${subjectId}.json`,
+      covered_direction_ids: [subjectId],
+      subject_assessments: [
+        {
+          subject_id: subjectId,
+          evidence_refs: [],
+          coverage: {},
+          uncovered_business_dimensions: [],
+          quantitative_coverage: [],
+          competitive_coverage: [],
+          wave1_signals: { demand: false, buyer: false, purchase: false },
+          ranking_eligibility: "unranked_hypothesis",
+          recommendation_ceiling: {
+            maximum_decision_tier: "investigate_further",
+            reason_codes: ["missing_purchase_or_payment_signal"],
+          },
+          conflict_evidence_refs: [],
+          limitations: [],
+        },
+      ],
+      quantitative_observations: [
+        { observation_id: `observation_${subjectId}`, subject_id: subjectId },
+      ],
+      quantitative_coverage: [],
+      competitive_objects: [
+        { competitive_object_id: `competitor_${subjectId}`, subject_id: subjectId },
+      ],
+      competitive_coverage: [],
+      incumbent_response_assessments: withIncumbentAssessment
+        ? [
+            {
+              assessment_id: `incumbent_${subjectId}`,
+              semantic: {
+                subject_id: subjectId,
+                strategic_implication: INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+              },
+            },
+          ]
+        : [],
+      incumbent_response_coverage: [{ subject_id: subjectId, state: "unknown" }],
+      evidence_register: [],
+      limitations: [],
+    },
+  });
+  const currentId = "candidate_current_final";
+  const supersededId = "candidate_superseded_intermediate";
+  const droppedId = "candidate_dropped_audit";
+  const audits = [audit(currentId, false), audit(supersededId, true), audit(droppedId, true)];
+  const projection = projectCommercialAuditTables(audits, [], new Map(), [currentId]);
+
+  assert.deepEqual(
+    (projection.quantitative_signal_rows as Record<string, unknown>[]).map((row) =>
+      String((row.observation as Record<string, unknown>).subject_id),
+    ),
+    [currentId],
+  );
+  assert.deepEqual(
+    (projection.competitive_substitute_rows as Record<string, unknown>[]).map((row) =>
+      String((row.competitive_object as Record<string, unknown>).subject_id),
+    ),
+    [currentId],
+  );
+  assert.deepEqual(projection.incumbent_response_risk_rows, []);
+  assert.deepEqual(
+    (projection.commercial_subject_aggregates as Record<string, unknown>[]).map((row) =>
+      String(row.subject_id),
+    ),
+    [currentId],
+  );
+  const gapSubjectIds = (projection.research_coverage_gaps as Record<string, unknown>[]).flatMap(
+    (row) => {
+      const coverage = row.coverage as Record<string, unknown> | undefined;
+      return typeof coverage?.subject_id === "string"
+        ? [coverage.subject_id]
+        : Array.isArray(row.subject_ids)
+          ? row.subject_ids
+          : [];
+    },
+  );
+  assert.ok(gapSubjectIds.length > 0);
+  assert.deepEqual([...new Set(gapSubjectIds)], [currentId]);
+
+  const incumbentTable = renderIncumbentResponseRiskTable({
+    ...projection,
+    current_decision_subject_ids: [currentId],
+  });
+  assert.match(incumbentTable, /candidate_current_final/);
+  assert.match(incumbentTable, /Unknown: no responder research for this current direction/);
+  assert.doesNotMatch(incumbentTable, /candidate_superseded_intermediate|candidate_dropped_audit/);
+
+  const currentWithIncumbent = audit(currentId, true);
+  const withContext = projectCommercialAuditTables(
+    [currentWithIncumbent, ...audits.slice(1)],
+    [],
+    new Map(),
+    [currentId],
+  );
+  assert.deepEqual(
+    withContext.commercial_subject_aggregates,
+    projection.commercial_subject_aggregates,
+  );
 });
 
 test("Chinese commercial tables keep exact refs in structured data but hide internal audit terms", () => {

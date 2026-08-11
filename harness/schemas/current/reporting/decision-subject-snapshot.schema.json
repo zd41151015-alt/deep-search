@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/reporting/decision-subject-snapshot.schema.json",
+  "title": "Startup Opportunity Current Decision Subject Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "revision",
+    "parent_snapshot_ref",
+    "parent_snapshot_hash",
+    "run_id",
+    "mode",
+    "scope_frame_ref",
+    "scope_frame_hash",
+    "research_plan_ref",
+    "research_plan_hash",
+    "synthesis_input_hashes",
+    "created_at",
+    "subjects",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.decision_subject_snapshot.current"
+    },
+    "snapshot_id": {
+      "$ref": "../core/definitions.schema.json#/$defs/identifier"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "parent_snapshot_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^artifacts/reporting/decision-subject-snapshot\\.r[1-9][0-9]*\\.json$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "parent_snapshot_hash": {
+      "anyOf": [
+        {
+          "$ref": "../core/definitions.schema.json#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "run_id": {
+      "$ref": "../core/definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "enum": ["opportunity_discovery", "concept_evidence_assessment"]
+    },
+    "scope_frame_ref": {
+      "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
+    },
+    "scope_frame_hash": {
+      "$ref": "../core/definitions.schema.json#/$defs/sha256"
+    },
+    "research_plan_ref": {
+      "$ref": "../core/definitions.schema.json#/$defs/planRef"
+    },
+    "research_plan_hash": {
+      "$ref": "../core/definitions.schema.json#/$defs/sha256"
+    },
+    "synthesis_input_hashes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "content_hash"],
+        "properties": {
+          "ref": {
+            "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
+          },
+          "content_hash": {
+            "$ref": "../core/definitions.schema.json#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "created_at": {
+      "$ref": "../core/definitions.schema.json#/$defs/timestamp"
+    },
+    "subjects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subject_id",
+          "subject_ref",
+          "subject_content_hash",
+          "subject_kind",
+          "lifecycle_status",
+          "reporting_role",
+          "superseded_by_subject_id",
+          "formation_reason",
+          "lifecycle_reason"
+        ],
+        "properties": {
+          "subject_id": {
+            "$ref": "../core/definitions.schema.json#/$defs/identifier"
+          },
+          "subject_ref": {
+            "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
+          },
+          "subject_content_hash": {
+            "$ref": "../core/definitions.schema.json#/$defs/sha256"
+          },
+          "subject_kind": {
+            "enum": ["discovery_candidate", "opportunity_thesis", "concept_hypothesis"]
+          },
+          "lifecycle_status": {
+            "enum": ["current", "superseded", "dropped"]
+          },
+          "reporting_role": {
+            "enum": ["final", "intermediate", "audit_only"]
+          },
+          "superseded_by_subject_id": {
+            "anyOf": [
+              {
+                "$ref": "../core/definitions.schema.json#/$defs/identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "formation_reason": {
+            "$ref": "../core/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "lifecycle_reason": {
+            "$ref": "../core/definitions.schema.json#/$defs/nonEmptyString"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "lifecycle_status": {
+                  "const": "current"
+                }
+              },
+              "required": ["lifecycle_status"]
+            },
+            "then": {
+              "properties": {
+                "reporting_role": {
+                  "const": "final"
+                },
+                "superseded_by_subject_id": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "reporting_role": {
+                  "enum": ["intermediate", "audit_only"]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "lifecycle_status": {
+                  "const": "superseded"
+                }
+              },
+              "required": ["lifecycle_status"]
+            },
+            "then": {
+              "properties": {
+                "superseded_by_subject_id": {
+                  "$ref": "../core/definitions.schema.json#/$defs/identifier"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "superseded_by_subject_id": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "limitations": {
+      "$ref": "../core/definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "revision": {
+            "const": 1
+          }
+        },
+        "required": ["revision"]
+      },
+      "then": {
+        "properties": {
+          "parent_snapshot_ref": {
+            "type": "null"
+          },
+          "parent_snapshot_hash": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "parent_snapshot_ref": {
+            "type": "string"
+          },
+          "parent_snapshot_hash": {
+            "$ref": "../core/definitions.schema.json#/$defs/sha256"
+          }
+        }
+      }
+    }
+  ]
+}

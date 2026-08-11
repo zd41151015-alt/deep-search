@@ -1301,8 +1301,33 @@ export class ReportRuntime {
         },
       ];
     });
-    const projection = projectCommercialAuditTables(audits, tasks, documentsByPath);
     const sourceDocument = structuredClone(source.document);
+    const decisionSnapshot =
+      source.artifact_type === "startup_opportunity.terminal_report_source.v1" &&
+      typeof sourceDocument.decision_subject_snapshot_ref === "string"
+        ? documentsByPath.get(sourceDocument.decision_subject_snapshot_ref)
+        : undefined;
+    const currentDecisionSubjectIds = records(decisionSnapshot?.subjects)
+      .filter(
+        (subject) => subject.lifecycle_status === "current" && subject.reporting_role === "final",
+      )
+      .map((subject) => String(subject.subject_id))
+      .sort();
+    const fullProjection = projectCommercialAuditTables(audits, tasks, documentsByPath);
+    const projection =
+      source.artifact_type === "startup_opportunity.terminal_report_source.v1"
+        ? projectCommercialAuditTables(audits, tasks, documentsByPath, currentDecisionSubjectIds)
+        : fullProjection;
+    const currentAuditRefs = new Set(
+      records(projection.commercial_subject_aggregates).flatMap((aggregate) =>
+        strings(aggregate.audit_refs),
+      ),
+    );
+    const terminalProjection =
+      source.artifact_type === "startup_opportunity.terminal_report_source.v1";
+    const gateAudits = terminalProjection
+      ? audits.filter((audit) => currentAuditRefs.has(audit.path))
+      : audits;
     if (
       source.artifact_type === "startup_opportunity.report.v1" ||
       source.artifact_type === "startup_opportunity.concept_evidence_report.v1"
@@ -1330,19 +1355,22 @@ export class ReportRuntime {
       };
     }
     const projectedAuditRefs = commercialProjectionRefs(
-      projection as unknown as Record<string, unknown>,
+      (source.artifact_type === "startup_opportunity.terminal_report_source.v1"
+        ? fullProjection
+        : projection) as unknown as Record<string, unknown>,
     );
     const provisionalDocument = {
       ...sourceDocument,
       ...projection,
       ...(source.artifact_type === "startup_opportunity.terminal_report_source.v1"
         ? {
+            current_decision_subject_ids: currentDecisionSubjectIds,
             audit_refs: [
               ...new Set([...strings(sourceDocument.audit_refs), ...projectedAuditRefs]),
             ].sort(),
           }
         : {}),
-      gate_warnings: audits.flatMap((audit) => records(audit.document.compiler_warnings)),
+      gate_warnings: gateAudits.flatMap((audit) => records(audit.document.compiler_warnings)),
     };
     const provisional = {
       ...source,
@@ -1376,9 +1404,29 @@ export class ReportRuntime {
       ...provisionalValidation.documents.flatMap((entry) => entry.errors),
       ...provisionalValidation.referenceErrors,
     ];
+    const auditPaths = new Set(audits.map((audit) => audit.path));
+    const reportPaths = new Set(
+      formalDocuments
+        .filter((entry) =>
+          [
+            "startup_opportunity.report.v1",
+            "startup_opportunity.concept_evidence_report.v1",
+            "startup_opportunity.terminal_report_source.v1",
+          ].includes(String(entry.document.schema_version)),
+        )
+        .map((entry) => entry.path),
+    );
+    const relevantProvisionalIssues = terminalProjection
+      ? provisionalIssues.filter((entry) => {
+          const artifactPath = entry.instancePath.split("#", 1)[0] ?? "";
+          if (auditPaths.has(artifactPath)) return currentAuditRefs.has(artifactPath);
+          if (reportPaths.has(artifactPath)) return artifactPath === source.artifact_path;
+          return true;
+        })
+      : provisionalIssues;
     const gateWarnings = [
-      ...projectGateWarnings(provisionalIssues),
-      ...audits.flatMap((audit) => records(audit.document.compiler_warnings)),
+      ...projectGateWarnings(relevantProvisionalIssues),
+      ...gateAudits.flatMap((audit) => records(audit.document.compiler_warnings)),
     ].sort((left, right) =>
       `${String(left.code)}:${String(left.message)}`.localeCompare(
         `${String(right.code)}:${String(right.message)}`,

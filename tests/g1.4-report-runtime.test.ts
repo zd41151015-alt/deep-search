@@ -458,6 +458,9 @@ interface PreparedRun {
   readonly reportEnvelope: FormalArtifactEnvelope;
   readonly evidenceRef: string;
   readonly evidenceRefs: readonly string[];
+  readonly decisionSubjectSnapshotRef: string;
+  readonly decisionSubjectSnapshotHash: string;
+  readonly decisionSubjectSnapshotEnvelope: FormalArtifactEnvelope;
   readonly commercialAudits: readonly {
     readonly auditRef: string;
     readonly audit: Readonly<Record<string, unknown>>;
@@ -467,6 +470,8 @@ interface PreparedRun {
     readonly audit: Readonly<Record<string, unknown>>;
   };
 }
+
+const DECISION_SUBJECT_SNAPSHOT_REF = "artifacts/reporting/decision-subject-snapshot.r1.json";
 
 function nextReportRevision(source: FormalArtifactEnvelope): FormalArtifactEnvelope {
   const artifactPath = "artifacts/reporting/report-json.r2.json";
@@ -491,7 +496,10 @@ function nextReportRevision(source: FormalArtifactEnvelope): FormalArtifactEnvel
 
 async function prepareRun(
   context: TestContext,
-  options: { readonly omitCommercialAuditUnitId?: string } = {},
+  options: {
+    readonly omitCommercialAuditUnitId?: string;
+    readonly injectHistoricalCompilerWarning?: boolean;
+  } = {},
 ): Promise<PreparedRun> {
   const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g1-4-"));
   context.after(() => rm(root, { recursive: true, force: true }));
@@ -613,6 +621,23 @@ async function prepareRun(
       evidencePaths[0] as string,
       support.record.recorded_at,
     );
+    if (options.injectHistoricalCompilerWarning === true && branch.unitId === "unit_target_user") {
+      const compilerWarnings = commercialAudit.document.compiler_warnings as Record<
+        string,
+        unknown
+      >[];
+      compilerWarnings.push({
+        code: "commercial_research.independent_cross_validation_missing",
+        severity: "warning",
+        category: "decision_validity",
+        message: "SYNTHETIC historical-only warning must remain outside the terminal Brief.",
+        decision_impact: "SYNTHETIC audit-only context; no current decision impact.",
+        artifact_refs: [commercialAudit.artifact_path],
+      });
+      (commercialAudit as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+        commercialAudit.document,
+      );
+    }
     const commercialAuditEntry = {
       auditRef: commercialAudit.artifact_path,
       audit: commercialAudit.document,
@@ -713,6 +738,53 @@ async function prepareRun(
   const evidenceRefs = (await store.status(G14_RUN_ID)).manifest.artifact_refs.filter((ref) =>
     ref.startsWith("evidence/records/"),
   );
+  const snapshotDocument = {
+    schema_version: "startup_opportunity.decision_subject_snapshot.current",
+    snapshot_id: "decision_subjects_g1_4_synthetic",
+    revision: 1,
+    parent_snapshot_ref: null,
+    parent_snapshot_hash: null,
+    run_id: G14_RUN_ID,
+    mode: "concept_evidence_assessment",
+    scope_frame_ref: "scope-frame.json",
+    scope_frame_hash: canonicalContentHash(documentAt(bundle, "scope-frame.json")),
+    research_plan_ref: "plans/research-plan.r1.json",
+    research_plan_hash: canonicalContentHash(documentAt(bundle, "plans/research-plan.r1.json")),
+    synthesis_input_hashes: [
+      {
+        ref: G14_ASSESSMENT_REF,
+        content_hash: canonicalContentHash(documentAt(bundle, G14_ASSESSMENT_REF)),
+      },
+    ],
+    created_at: "2026-07-25T19:00:30Z",
+    subjects: [
+      {
+        subject_id: "narrow_outcome_service",
+        subject_ref: "concept-hypothesis.json",
+        subject_content_hash: canonicalContentHash(documentAt(bundle, "concept-hypothesis.json")),
+        subject_kind: "concept_hypothesis",
+        lifecycle_status: "current",
+        reporting_role: "final",
+        superseded_by_subject_id: null,
+        formation_reason: "SYNTHETIC current final direction for terminal projection tests.",
+        lifecycle_reason: "SYNTHETIC retained as the only current decision subject.",
+      },
+    ],
+    limitations: ["SYNTHETIC decision subject snapshot; not market Evidence."],
+  };
+  const snapshotEnvelope = v5Envelope(
+    DECISION_SUBJECT_SNAPSHOT_REF,
+    snapshotDocument,
+    "main_agent",
+    [
+      "scope-frame.json",
+      "plans/research-plan.r1.json",
+      G14_ASSESSMENT_REF,
+      "concept-hypothesis.json",
+    ],
+    "2026-07-25T19:00:30Z",
+  );
+  await store.publishArtifact({ runId: G14_RUN_ID, envelope: snapshotEnvelope });
   return {
     runsRoot,
     runRoot,
@@ -722,6 +794,9 @@ async function prepareRun(
     reportEnvelope: reportEnvelope as FormalArtifactEnvelope,
     evidenceRef: `evidence/records/${demandRecords[0].evidence_id}.json`,
     evidenceRefs,
+    decisionSubjectSnapshotRef: DECISION_SUBJECT_SNAPSHOT_REF,
+    decisionSubjectSnapshotHash: snapshotEnvelope.content_hash,
+    decisionSubjectSnapshotEnvelope: snapshotEnvelope,
     commercialAudits,
     ...(omittedCommercialAudit === undefined ? {} : { omittedCommercialAudit }),
   };
@@ -766,6 +841,9 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     owned_output_path: artifactPath,
     materialized_path: "report.json",
     generated_at: "2026-07-25T19:16:00Z",
+    decision_subject_snapshot_ref: state.decisionSubjectSnapshotRef,
+    decision_subject_snapshot_hash: state.decisionSubjectSnapshotHash,
+    current_decision_subject_ids: ["narrow_outcome_service"],
     terminal_outcome: "insufficient_evidence",
     decision_question: "这个合成的窄方向是否值得继续调研？",
     execution: {
@@ -935,14 +1013,14 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     run_id: G14_RUN_ID,
     created_at: "2026-07-25T19:16:00Z",
     producer_role: "main_agent",
-    input_refs: auditRefs,
+    input_refs: [...auditRefs, state.decisionSubjectSnapshotRef].sort(),
     content_hash: canonicalContentHash(document),
     document,
   };
 }
 
 test("terminal finalizer produces a localized decision-first brief with readable sources and hypotheses", async (context) => {
-  const state = await prepareRun(context);
+  const state = await prepareRun(context, { injectHistoricalCompilerWarning: true });
   await markRunTerminal(state);
   const reportEnvelope = terminalReportEnvelope(state);
   reportEnvelope.document.commercial_research_audit_refs = [];
@@ -982,6 +1060,7 @@ test("terminal finalizer produces a localized decision-first brief with readable
   assert.doesNotMatch(brief.split("## 审计附录", 1)[0] ?? "", /artifacts\//);
   assert.doesNotMatch(brief, /insufficient_evidence|execution_supported: false/);
   assert.doesNotMatch(brief, /plan_revision_failed|确定性发布故障|买方追加调研/);
+  assert.doesNotMatch(brief, /historical-only warning/);
   assert.doesNotMatch(
     brief,
     /\b(?:same-Run|pre-thesis|baseline|counterfactual|Evidence|Harness|Artifact|opportunity_discovery|concept_evidence_assessment|runtime_blocked|not_executed)\b/u,
@@ -993,6 +1072,12 @@ test("terminal finalizer produces a localized decision-first brief with readable
   assert.deepEqual(
     reportJson.commercial_research_audit_refs,
     state.commercialAudits.map((entry) => entry.auditRef).sort(),
+  );
+  assert.equal(
+    (reportJson.gate_warnings as Record<string, unknown>[]).some((warning) =>
+      String(warning.message).includes("historical-only warning"),
+    ),
+    false,
   );
   for (const branch of g14Branches()) {
     assert.ok(
@@ -1230,6 +1315,59 @@ test("terminal report fault recovery completes immutable sidecars and materializ
     await readFile(path.join(state.runRoot, "report.json"), "utf8"),
   ) as Record<string, unknown>;
   assert.ok((recoveredReport.audit_refs as string[]).includes("tasks/unit_demand.attempt-1.json"));
+});
+
+test("decision subject snapshots advance atomically and historical exact replay cannot roll back authority", async (context) => {
+  const state = await prepareRun(context);
+  const r1Replay = await state.store.publishArtifact({
+    runId: G14_RUN_ID,
+    envelope: state.decisionSubjectSnapshotEnvelope,
+  });
+  assert.equal(r1Replay.status, "idempotent_replay");
+
+  const r2Document = structuredClone(state.decisionSubjectSnapshotEnvelope.document);
+  r2Document.revision = 2;
+  r2Document.parent_snapshot_ref = state.decisionSubjectSnapshotRef;
+  r2Document.parent_snapshot_hash = state.decisionSubjectSnapshotHash;
+  r2Document.created_at = "2026-07-25T19:01:00Z";
+  const r2Envelope = v5Envelope(
+    "artifacts/reporting/decision-subject-snapshot.r2.json",
+    r2Document,
+    "main_agent",
+    [
+      state.decisionSubjectSnapshotRef,
+      "scope-frame.json",
+      "plans/research-plan.r1.json",
+      G14_ASSESSMENT_REF,
+      "concept-hypothesis.json",
+    ],
+    "2026-07-25T19:01:00Z",
+  );
+  const r2Publication = await state.store.publishArtifact({
+    runId: G14_RUN_ID,
+    envelope: r2Envelope,
+  });
+  assert.equal(r2Publication.status, "published");
+  const afterR2 = await state.store.status(G14_RUN_ID);
+  assert.equal(afterR2.manifest.current_decision_subject_snapshot_ref, r2Envelope.artifact_path);
+  assert.equal(afterR2.manifest.current_decision_subject_snapshot_hash, r2Envelope.content_hash);
+
+  const beforeHistoricalReplay = await snapshotTree(state.runRoot);
+  const historicalReplay = await state.store.publishArtifact({
+    runId: G14_RUN_ID,
+    envelope: state.decisionSubjectSnapshotEnvelope,
+  });
+  assert.equal(historicalReplay.status, "idempotent_replay");
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeHistoricalReplay);
+  const afterHistoricalReplay = await state.store.status(G14_RUN_ID);
+  assert.equal(
+    afterHistoricalReplay.manifest.current_decision_subject_snapshot_ref,
+    r2Envelope.artifact_path,
+  );
+  assert.equal(
+    afterHistoricalReplay.manifest.current_decision_subject_snapshot_hash,
+    r2Envelope.content_hash,
+  );
 });
 
 test("build-report publishes formal sidecars, materializes three outputs, and exactly replays", async (context) => {

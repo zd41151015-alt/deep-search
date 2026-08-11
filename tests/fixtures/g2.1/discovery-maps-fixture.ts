@@ -89,6 +89,17 @@ function sourceBoundary(): Record<string, unknown> {
   };
 }
 
+function contentProvenance(): Record<string, unknown> {
+  return {
+    synthesis_origin: "current_run_synthesis",
+    current_run_scope_and_plan_used: true,
+    formation_rationale: synthetic(
+      "authored from this Run Scope and Plan as pre-research search material",
+    ),
+    prior_input_decision_refs: [],
+  };
+}
+
 function envelope(
   runId: string,
   artifactPath: string,
@@ -428,6 +439,7 @@ export async function createDiscoveryMapsFixture(
       may_claim_success_probability: false,
     },
     input_artifact_hashes: [],
+    content_provenance: contentProvenance(),
     policy_binding: policyBinding,
     evidence_refs: [],
     audit_refs: [],
@@ -510,6 +522,7 @@ export async function createDiscoveryMapsFixture(
       ),
     ],
     input_artifact_hashes: [],
+    content_provenance: contentProvenance(),
     policy_binding: policyBinding,
     evidence_refs: [],
     audit_refs: [],
@@ -562,6 +575,7 @@ export async function createDiscoveryMapsFixture(
       question("solution_disconfirmation", "solution", "does status quo dominate every option"),
     ],
     input_artifact_hashes: [],
+    content_provenance: contentProvenance(),
     policy_binding: policyBinding,
     evidence_refs: [],
     audit_refs: [],
@@ -633,6 +647,8 @@ export async function createDiscoveryMapsFixture(
     current_phase: "discovery",
     current_plan_ref: G21_PLAN_REF,
     plan_revision: 1,
+    current_decision_subject_snapshot_ref: null,
+    current_decision_subject_snapshot_hash: null,
     followup_round: 0,
     latest_gap_snapshot_ref: null,
     pending_adaptation_refs: [],

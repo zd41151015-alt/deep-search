@@ -29,6 +29,7 @@
         "readiness",
         "gap",
         "decision",
+        "decision_subject_snapshot",
         "terminal_report_source"
       ]
     },

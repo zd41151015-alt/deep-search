@@ -35,6 +35,7 @@
         "candidate_rejected_by_user",
         "followup_requested_by_user",
         "plan_change_requested_by_user",
+        "prior_input_admitted",
         "limitation_accepted",
         "run_paused",
         "run_cancelled"
@@ -51,6 +52,21 @@
     },
     "artifact_refs": {
       "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "prior_input_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "prior_source_run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "prior_source_artifact_path": {
+      "$ref": "./definitions.schema.json#/$defs/artifactPath"
+    },
+    "prior_source_content_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "prior_use_boundary": {
+      "const": "hypothesis_input_only"
     },
     "scope_revision": {
       "type": "integer",
@@ -112,6 +128,30 @@
     }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision_type": {
+            "const": "prior_input_admitted"
+          }
+        },
+        "required": ["decision_type"]
+      },
+      "then": {
+        "required": [
+          "prior_input_id",
+          "prior_source_run_id",
+          "prior_source_artifact_path",
+          "prior_source_content_hash",
+          "prior_use_boundary"
+        ],
+        "properties": {
+          "actor": {
+            "const": "main_agent"
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {

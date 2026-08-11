@@ -11,6 +11,7 @@ export type ScaffoldKind =
   | "readiness"
   | "gap"
   | "decision"
+  | "decision_subject_snapshot"
   | "terminal_report_source";
 
 interface ScaffoldRequest extends Record<string, unknown> {
@@ -50,6 +51,7 @@ const ASSESSMENT_TASK_REF = "tasks/unit_assessment_scaffold.attempt-1.json";
 const ASSESSMENT_LANE_REF = "artifacts/assessment/lanes/unit-assessment-scaffold.attempt-1.json";
 const ASSESSMENT_GATE_REF = "artifacts/assessment/gates/assessment-scaffold.r1.json";
 const ASSESSMENT_BRANCH_REF = "artifacts/assessment/branches/unit-assessment-scaffold.json";
+const DECISION_SUBJECT_SNAPSHOT_REF = "artifacts/reporting/decision-subject-snapshot.r1.json";
 
 function boundary() {
   return {
@@ -793,6 +795,9 @@ function terminalReportSource(request: ScaffoldRequest): ScaffoldArtifact {
       owned_output_path: artifactPath,
       materialized_path: "report.json",
       generated_at: request.created_at,
+      decision_subject_snapshot_ref: DECISION_SUBJECT_SNAPSHOT_REF,
+      decision_subject_snapshot_hash: `sha256:${"0".repeat(64)}`,
+      current_decision_subject_ids: [],
       terminal_outcome: "insufficient_evidence",
       decision_question: request.scope_confirmation.decision_goal,
       execution: {
@@ -854,6 +859,32 @@ function terminalReportSource(request: ScaffoldRequest): ScaffoldArtifact {
   };
 }
 
+function decisionSubjectSnapshot(request: ScaffoldRequest): ScaffoldArtifact {
+  const hash = `sha256:${"0".repeat(64)}`;
+  return {
+    artifact_type: "startup_opportunity.decision_subject_snapshot.current",
+    artifact_path: DECISION_SUBJECT_SNAPSHOT_REF,
+    producer_role: "main_agent",
+    document: {
+      schema_version: "startup_opportunity.decision_subject_snapshot.current",
+      snapshot_id: "decision_subject_snapshot_scaffold",
+      revision: 1,
+      parent_snapshot_ref: null,
+      parent_snapshot_hash: null,
+      run_id: request.run_id,
+      mode: request.mode,
+      scope_frame_ref: SCOPE_REF,
+      scope_frame_hash: hash,
+      research_plan_ref: PLAN_REF,
+      research_plan_hash: hash,
+      synthesis_input_hashes: [{ ref: SCOPE_REF, content_hash: hash }],
+      created_at: request.created_at,
+      subjects: [],
+      limitations: [PLACEHOLDER],
+    },
+  };
+}
+
 const BUILDERS: Readonly<Record<ScaffoldKind, (request: ScaffoldRequest) => ScaffoldArtifact>> = {
   intake,
   planning,
@@ -862,6 +893,7 @@ const BUILDERS: Readonly<Record<ScaffoldKind, (request: ScaffoldRequest) => Scaf
   readiness,
   gap,
   decision,
+  decision_subject_snapshot: decisionSubjectSnapshot,
   terminal_report_source: terminalReportSource,
 };
 

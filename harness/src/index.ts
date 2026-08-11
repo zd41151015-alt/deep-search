@@ -206,6 +206,10 @@ export {
   validateCommercialResearchContract,
 } from "./validators/commercial-research-validator.js";
 export {
+  type DecisionSubjectDocument,
+  validateDecisionSubjectContract,
+} from "./validators/decision-subject-validator.js";
+export {
   type DeclarativeRuntimeDocument,
   isDeclarativeRuntimeSchemaVersion,
   validateDeclarativeRuntimeContract,

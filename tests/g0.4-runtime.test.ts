@@ -42,6 +42,9 @@ const PLAN_REF = "plans/research-plan.r1.json";
 const CONTEXT_REF = "plans/planning-context.r1.json";
 const GAP_REF = "adaptations/gap-snapshots/gap-runtime.r1.json";
 const DECISION_REF = "adaptations/decisions/adapt-retry-runtime.json";
+const DECISION_CONTEXT_REF = "decision-context.json";
+const SCOPE_FRAME_REF = "scope-frame.json";
+const DECISION_SUBJECT_SNAPSHOT_REF = "artifacts/reporting/decision-subject-snapshot.r1.json";
 const SUBJECT_REF = "subject_001";
 const PRE_KILL_CANDIDATE_REF = "artifacts/discovery/candidates/candidate_demand.r1.json";
 const RETAINED_SHARED_CANDIDATE_REF = "artifacts/discovery/candidates/candidate_solution.r1.json";
@@ -229,6 +232,8 @@ function manifest(runId: string, plan: Record<string, unknown>): Record<string, 
     current_phase: "enrichment",
     current_plan_ref: PLAN_REF,
     plan_revision: plan.revision,
+    current_decision_subject_snapshot_ref: null,
+    current_decision_subject_snapshot_hash: null,
     followup_round: 0,
     latest_gap_snapshot_ref: GAP_REF,
     pending_adaptation_refs: [DECISION_REF],
@@ -580,7 +585,10 @@ function formalEnvelope(
     producer_role:
       document.producer_role === "main_agent" ||
       artifactType === "startup_opportunity.adaptation_decision.discovery.current" ||
-      artifactType === "startup_opportunity.adaptation_decision.assessment.current"
+      artifactType === "startup_opportunity.adaptation_decision.assessment.current" ||
+      artifactType === "startup_opportunity.decision_context.v1" ||
+      artifactType === "startup_opportunity.scope_frame.discovery.current" ||
+      artifactType === "startup_opportunity.decision_subject_snapshot.current"
         ? "main_agent"
         : "harness",
     input_refs: inputRefs,
@@ -589,7 +597,11 @@ function formalEnvelope(
   };
 }
 
-function terminalReportSource(runId: string, runtimeFailure = false): FormalArtifactEnvelope {
+function terminalReportSource(
+  runId: string,
+  decisionSubjectSnapshotHash: string,
+  runtimeFailure = false,
+): FormalArtifactEnvelope {
   const artifactPath = "artifacts/reporting/terminal-report-source.r1.json";
   const auditRefs = [DECISION_REF, GAP_REF, PLAN_REF].sort();
   const document: Record<string, unknown> = {
@@ -602,6 +614,9 @@ function terminalReportSource(runId: string, runtimeFailure = false): FormalArti
     owned_output_path: artifactPath,
     materialized_path: "report.json",
     generated_at: "2026-07-24T12:09:30Z",
+    decision_subject_snapshot_ref: DECISION_SUBJECT_SNAPSHOT_REF,
+    decision_subject_snapshot_hash: decisionSubjectSnapshotHash,
+    current_decision_subject_ids: [],
     terminal_outcome: runtimeFailure ? "failed" : "insufficient_evidence",
     decision_question: "合成测试：这次有边界的机会发现是否应继续？",
     execution: {
@@ -692,7 +707,7 @@ function terminalReportSource(runId: string, runtimeFailure = false): FormalArti
     runId,
     artifactPath,
     document,
-    auditRefs,
+    [...auditRefs, DECISION_SUBJECT_SNAPSHOT_REF].sort(),
     "startup_opportunity.artifact_envelope.current",
   );
   return { ...source, created_at: "2026-07-24T12:09:30Z" };
@@ -1019,6 +1034,114 @@ async function setupPersistedRun(
     adaptationBundle,
     checkpointEntry,
     discoveryBundle,
+  };
+}
+
+async function prepareTerminalReporting(
+  setup: Awaited<ReturnType<typeof setupPersistedRun>>,
+  runtimeFailure = false,
+) {
+  const runId = String(setup.currentManifest.run_id);
+  const decisionContext = {
+    schema_version: "startup_opportunity.decision_context.v1",
+    run_id: runId,
+    decision_to_make: "choose_opportunity",
+    decision_question: "SYNTHETIC terminal fixture question; not market Evidence.",
+    decision_options: ["SYNTHETIC stop without a recommendation."],
+    venture_goal: "strategic_exploration",
+    decision_horizon: "SYNTHETIC no validated decision horizon.",
+    founder_advantages: [],
+    non_negotiable_constraints: ["SYNTHETIC external validation remains out of scope."],
+    team_capability_refs: [],
+    risk_preferences: ["SYNTHETIC preserve an insufficient-evidence conclusion."],
+    initial_belief: "SYNTHETIC no opportunity has been established.",
+    favored_hypothesis: null,
+    assumed_truths: [],
+    final_decision_owner: "user",
+    assumptions: ["SYNTHETIC fixture content is not Evidence."],
+    open_questions: ["SYNTHETIC demand remains unknown."],
+  };
+  const scopeFrame = {
+    schema_version: "startup_opportunity.scope_frame.discovery.current",
+    run_id: runId,
+    mode: "opportunity_discovery",
+    decision_context_ref: DECISION_CONTEXT_REF,
+    direction: "SYNTHETIC bounded opportunity discovery fixture.",
+    discovery_profile: "general",
+    research_axes: ["user_language", "jtbd_workflow"],
+    market: "Synthetic",
+    language: "en-US",
+    target_users: ["synthetic user"],
+    excluded_users: [],
+    platform: "SYNTHETIC delivery platform remains unknown.",
+    market_motion: "consumer",
+    acquisition_motion: ["direct"],
+    buyer_models: ["self_payer"],
+    payment_modes: ["subscription"],
+    native_app_required: false,
+    delivery_form_preferences: [],
+    business_model_preferences: [],
+    team_capability_constraints: [],
+    risk_preferences: ["SYNTHETIC avoid unsupported conclusions."],
+    ai_scope: "optional",
+    assumptions: ["SYNTHETIC Scope is not market Evidence."],
+    open_questions: ["SYNTHETIC all demand questions remain open."],
+  };
+  const snapshotDocument = {
+    schema_version: "startup_opportunity.decision_subject_snapshot.current",
+    snapshot_id: `decision_subjects_${runId.replaceAll("-", "_")}`,
+    revision: 1,
+    parent_snapshot_ref: null,
+    parent_snapshot_hash: null,
+    run_id: runId,
+    mode: "opportunity_discovery",
+    scope_frame_ref: SCOPE_FRAME_REF,
+    scope_frame_hash: canonicalContentHash(scopeFrame),
+    research_plan_ref: PLAN_REF,
+    research_plan_hash: canonicalContentHash(setup.plan),
+    synthesis_input_hashes: [],
+    created_at: "2026-07-24T12:07:30Z",
+    subjects: [],
+    limitations: [
+      "SYNTHETIC empty authority: the Run stopped before any final decision subject formed.",
+    ],
+  };
+  const decisionContextEnvelope = formalEnvelope(runId, DECISION_CONTEXT_REF, decisionContext);
+  const scopeFrameEnvelope = formalEnvelope(runId, SCOPE_FRAME_REF, scopeFrame, [
+    DECISION_CONTEXT_REF,
+  ]);
+  const snapshotEnvelope = formalEnvelope(runId, DECISION_SUBJECT_SNAPSHOT_REF, snapshotDocument, [
+    PLAN_REF,
+    SCOPE_FRAME_REF,
+  ]);
+  await setup.store.publishArtifactBundle({
+    runId,
+    envelopes: [decisionContextEnvelope, scopeFrameEnvelope, snapshotEnvelope],
+  });
+
+  const currentManifest = (await setup.store.status(runId)).manifest;
+  const documentsByPath = new Map(
+    structuredClone(setup.adaptationBundle.documents).map((entry) => [entry.path, entry]),
+  );
+  documentsByPath.set("manifest.json", {
+    path: "manifest.json",
+    document: currentManifest as unknown as Record<string, unknown>,
+  });
+  for (const envelope of [decisionContextEnvelope, scopeFrameEnvelope, snapshotEnvelope]) {
+    documentsByPath.set(envelope.artifact_path, {
+      path: envelope.artifact_path,
+      document: envelope as unknown as Record<string, unknown>,
+    });
+  }
+  const adaptationBundle: DocumentBundle = {
+    ...setup.adaptationBundle,
+    documents: [...documentsByPath.values()].sort((left, right) =>
+      left.path.localeCompare(right.path),
+    ),
+  };
+  return {
+    adaptationBundle,
+    reportEnvelope: terminalReportSource(runId, snapshotEnvelope.content_hash, runtimeFailure),
   };
 }
 
@@ -2857,7 +2980,12 @@ test("terminal adaptation requires and materializes a validated main-agent decis
   );
   assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
 
-  const input = { ...baseInput, terminalReportEnvelope: terminalReportSource(runId) };
+  const terminal = await prepareTerminalReporting(setup);
+  const input = {
+    ...baseInput,
+    adaptationBundle: terminal.adaptationBundle,
+    terminalReportEnvelope: terminal.reportEnvelope,
+  };
   const result = await runtime.apply(input);
   assert.equal(result.status, "applied");
   assert.equal(result.terminalReport?.status, "published");
@@ -2880,12 +3008,13 @@ test("terminal adaptation requires and materializes a validated main-agent decis
 test("Discovery runtime failure terminates and reports from the original Run", async (contextTest) => {
   const runId = "runtime-failure-original-run";
   const setup = await setupPersistedRun(contextTest, runId, "runtime-failure");
+  const terminal = await prepareTerminalReporting(setup, true);
   const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
   const input = {
     runId,
-    adaptationBundle: setup.adaptationBundle,
+    adaptationBundle: terminal.adaptationBundle,
     adaptationRefs: [DECISION_REF],
-    terminalReportEnvelope: terminalReportSource(runId, true),
+    terminalReportEnvelope: terminal.reportEnvelope,
     createdAt: "2026-07-24T12:08:00Z",
     checkpointCreatedAt: "2026-07-24T12:09:00Z",
     nextStep: "Report the runtime failure without creating a continuation Run.",
@@ -2912,13 +3041,14 @@ test("Discovery runtime failure terminates and reports from the original Run", a
 test("terminal report publication fault recovers from the immutable source on reopen", async (contextTest) => {
   const runId = "runtime-terminal-report-fault";
   const setup = await setupPersistedRun(contextTest, runId, "terminate");
+  const terminal = await prepareTerminalReporting(setup);
   const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
   await assert.rejects(
     runtime.apply({
       runId,
-      adaptationBundle: setup.adaptationBundle,
+      adaptationBundle: terminal.adaptationBundle,
       adaptationRefs: [DECISION_REF],
-      terminalReportEnvelope: terminalReportSource(runId),
+      terminalReportEnvelope: terminal.reportEnvelope,
       terminalReportFaultAt: "after_report_sidecar",
       createdAt: "2026-07-24T12:08:00Z",
       checkpointCreatedAt: "2026-07-24T12:09:00Z",
@@ -2952,12 +3082,13 @@ test("terminal report publication fault recovers from the immutable source on re
 test("post-manifest terminal fault is visible until exact replay finalizes delivery", async (contextTest) => {
   const runId = "runtime-terminal-plan-fault";
   const setup = await setupPersistedRun(contextTest, runId, "terminate");
+  const terminal = await prepareTerminalReporting(setup);
   const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
   const input = {
     runId,
-    adaptationBundle: setup.adaptationBundle,
+    adaptationBundle: terminal.adaptationBundle,
     adaptationRefs: [DECISION_REF],
-    terminalReportEnvelope: terminalReportSource(runId),
+    terminalReportEnvelope: terminal.reportEnvelope,
     createdAt: "2026-07-24T12:08:00Z",
     checkpointCreatedAt: "2026-07-24T12:09:00Z",
     nextStep: "Replay terminal delivery after the Plan operation fault.",

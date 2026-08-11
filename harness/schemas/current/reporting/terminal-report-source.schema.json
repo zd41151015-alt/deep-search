@@ -14,6 +14,9 @@
     "owned_output_path",
     "materialized_path",
     "generated_at",
+    "decision_subject_snapshot_ref",
+    "decision_subject_snapshot_hash",
+    "current_decision_subject_ids",
     "terminal_outcome",
     "decision_question",
     "execution",
@@ -88,6 +91,20 @@
     },
     "generated_at": {
       "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+    },
+    "decision_subject_snapshot_ref": {
+      "type": "string",
+      "pattern": "^artifacts/reporting/decision-subject-snapshot\\.r[1-9][0-9]*\\.json$"
+    },
+    "decision_subject_snapshot_hash": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "current_decision_subject_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+      }
     },
     "terminal_outcome": {
       "enum": [

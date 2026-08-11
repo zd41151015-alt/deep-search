@@ -35,6 +35,10 @@ import {
   type CommercialResearchPolicy,
   validateCommercialResearchContract,
 } from "./commercial-research-validator.js";
+import {
+  type DecisionSubjectDocument,
+  validateDecisionSubjectContract,
+} from "./decision-subject-validator.js";
 import { validateDeclarativeRuntimeContract } from "./declarative-runtime-validator.js";
 import {
   type DiscoveryCandidatePolicy,
@@ -460,6 +464,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "decision_id",
         ),
         ...optionalRef(document, "current_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(
+          document,
+          "current_decision_subject_snapshot_ref",
+          "startup_opportunity.decision_subject_snapshot.current",
+        ),
         ...optionalRef(document, "latest_gap_snapshot_ref", [
           "startup_opportunity.gap_snapshot.discovery.plan.current",
           "startup_opportunity.gap_snapshot.assessment.current",
@@ -706,6 +715,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.scope_frame.discovery.current",
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromObjectArray(
+          document,
+          "content_provenance",
+          "prior_input_decision_refs",
+          "startup_opportunity.decision.v1",
+        ),
       ];
     case "startup_opportunity.opportunity_space_map.v1":
       return [
@@ -716,6 +731,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ),
         ...optionalRef(document, "seed_probe_ref", "startup_opportunity.seed_probe.v1"),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromObjectArray(
+          document,
+          "content_provenance",
+          "prior_input_decision_refs",
+          "startup_opportunity.decision.v1",
+        ),
       ];
     case "startup_opportunity.solution_space_map.v1":
       return [
@@ -731,6 +752,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.opportunity_space_map.v1",
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromObjectArray(
+          document,
+          "content_provenance",
+          "prior_input_decision_refs",
+          "startup_opportunity.decision.v1",
+        ),
       ];
     case "startup_opportunity.concept_hypothesis.assessment.current":
       return [
@@ -1353,6 +1380,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       ];
     case "startup_opportunity.discovery_candidate.v1": {
       const subject = isRecord(document.subject) ? document.subject : {};
+      const formation = isRecord(document.formation) ? document.formation : {};
       const candidateKind = document.candidate_kind;
       return [
         ...optionalRef(
@@ -1366,6 +1394,27 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.scope_frame.discovery.current",
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromNestedArray(formation, "synthesis_input_hashes", "ref", [
+          "startup_opportunity.seed_probe.v1",
+          "startup_opportunity.opportunity_space_map.v1",
+          "startup_opportunity.solution_space_map.v1",
+          "startup_opportunity.discovery_candidate.v1",
+          "startup_opportunity.discovery_lane_result.v1",
+          "startup_opportunity.discovery_fan_in.v2",
+          "startup_opportunity.discovery_generation_result.v1",
+          "startup_opportunity.candidate_neutral_evidence.v1",
+        ]).map((requirement) => ({
+          ...requirement,
+          instancePath: `/formation${requirement.instancePath}`,
+        })),
+        ...refsFromArray(
+          formation,
+          "prior_input_decision_refs",
+          "startup_opportunity.decision.v1",
+        ).map((requirement) => ({
+          ...requirement,
+          instancePath: `/formation${requirement.instancePath}`,
+        })),
         ...nestedRef(
           document,
           "map_lineage",
@@ -2865,8 +2914,44 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.traceability.discovery.current",
         ),
       ];
+    case "startup_opportunity.decision_subject_snapshot.current":
+      return [
+        ...optionalRef(
+          document,
+          "parent_snapshot_ref",
+          "startup_opportunity.decision_subject_snapshot.current",
+        ),
+        ...optionalRef(document, "scope_frame_ref", [
+          "startup_opportunity.scope_frame.discovery.current",
+          "startup_opportunity.scope_frame.assessment.current",
+        ]),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromNestedArray(document, "synthesis_input_hashes", "ref", [
+          "startup_opportunity.discovery_candidate.v1",
+          "startup_opportunity.discovery_fan_in.v2",
+          "startup_opportunity.discovery_generation_result.v1",
+          "startup_opportunity.merge.v1",
+          "startup_opportunity.opportunity_thesis.v1",
+          "startup_opportunity.opportunity_comparison.v1",
+          "startup_opportunity.portfolio_view.v1",
+          "startup_opportunity.concept_evidence_assessment.analysis.current",
+          "startup_opportunity.concept_evidence_assessment.reporting.current",
+          "startup_opportunity.concept_evidence_assessment_fan_in.v1",
+        ]),
+        ...refsFromNestedArray(document, "subjects", "subject_ref", [
+          "startup_opportunity.discovery_candidate.v1",
+          "startup_opportunity.opportunity_thesis.v1",
+          "startup_opportunity.concept_hypothesis.assessment.current",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+        ]),
+      ];
     case "startup_opportunity.terminal_report_source.v1":
       return [
+        ...optionalRef(
+          document,
+          "decision_subject_snapshot_ref",
+          "startup_opportunity.decision_subject_snapshot.current",
+        ),
         ...refsFromNestedArray(document, "sources", "evidence_ref", [
           "startup_opportunity.evidence.assessment.current",
           "startup_opportunity.evidence.discovery_candidate.current",
@@ -4164,6 +4249,7 @@ export class ArtifactValidator {
             !isDiscoveryEvaluationSchemaVersion(entry.schemaVersion),
         ),
         this.discoveryMapsPolicy,
+        exactJsonlRecords,
       ),
     );
     const discoveryCandidateView = historicalDiscoveryView(
@@ -4185,6 +4271,7 @@ export class ArtifactValidator {
         discoveryCandidateDocuments,
         this.discoveryCandidatePolicy,
         historicalPlanRefs,
+        exactJsonlRecords,
       ),
     );
     const discoverySynthesisDocuments: readonly DiscoverySynthesisDocument[] =
@@ -4237,6 +4324,15 @@ export class ArtifactValidator {
           .commercial_research_contract as unknown as CommercialResearchPolicy,
       ),
     );
+    const decisionSubjectDocuments: readonly DecisionSubjectDocument[] = effectiveDocuments.map(
+      (entry) => ({
+        path: entry.path,
+        schemaVersion: entry.schemaVersion,
+        document: entry.document,
+        envelope: entry.envelope,
+      }),
+    );
+    referenceErrors.push(...validateDecisionSubjectContract(decisionSubjectDocuments));
     const commercialResearchDocuments: readonly CommercialResearchDocument[] =
       effectiveDocuments.map((entry) => ({
         path: entry.path,

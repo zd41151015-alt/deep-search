@@ -265,6 +265,7 @@ function validateCandidateRevision(
     "scope_frame_ref",
     "research_plan_ref",
     "map_lineage",
+    "formation",
     "pre_thesis_boundary",
   ]) {
     if (canonicalJson(parent.document[field]) !== canonicalJson(candidate.document[field])) {
@@ -374,6 +375,150 @@ function validateCandidateEnrichmentBindings(
           ),
         );
       }
+    }
+  }
+}
+
+function validateCandidateFormation(
+  candidate: DiscoveryCandidateDocument,
+  documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+  errors: ValidationIssue[],
+): void {
+  const formation = isRecord(candidate.document.formation) ? candidate.document.formation : {};
+  const scope =
+    typeof candidate.document.scope_frame_ref === "string"
+      ? documentsByPath.get(candidate.document.scope_frame_ref)
+      : undefined;
+  const plan =
+    typeof candidate.document.research_plan_ref === "string"
+      ? documentsByPath.get(candidate.document.research_plan_ref)
+      : undefined;
+  if (
+    scope?.schemaVersion !== "startup_opportunity.scope_frame.discovery.current" ||
+    scope.document.run_id !== candidate.document.run_id ||
+    formation.scope_frame_hash !== targetHash(scope) ||
+    plan?.schemaVersion !== "startup_opportunity.research_plan.v1" ||
+    plan.document.run_id !== candidate.document.run_id ||
+    formation.research_plan_hash !== targetHash(plan)
+  ) {
+    errors.push(
+      issue(
+        "discovery_candidate.formation_scope_plan_mismatch",
+        `${candidate.path}#/formation`,
+        "Candidate formation must bind exact same-Run Scope and Plan content hashes",
+      ),
+    );
+  }
+
+  const bindings = Array.isArray(formation.synthesis_input_hashes)
+    ? formation.synthesis_input_hashes.filter(isRecord)
+    : [];
+  const refs = bindings.flatMap((binding) =>
+    typeof binding.ref === "string" ? [binding.ref] : [],
+  );
+  const subject = isRecord(candidate.document.subject) ? candidate.document.subject : {};
+  const requiredRefs = [
+    isRecord(candidate.document.map_lineage)
+      ? String(candidate.document.map_lineage.source_map_ref)
+      : "",
+    ...(typeof subject.demand_candidate_ref === "string" ? [subject.demand_candidate_ref] : []),
+    ...(typeof subject.baseline_candidate_ref === "string" ? [subject.baseline_candidate_ref] : []),
+  ].filter((ref) => ref.length > 0);
+  const envelopeInputs = strings(candidate.envelope?.input_refs);
+  const formationEnvelopeMismatch =
+    candidate.document.revision === 1
+      ? refs.some((ref) => !envelopeInputs.includes(ref))
+      : !envelopeInputs.includes(String(candidate.document.parent_candidate_ref));
+  if (
+    new Set(refs).size !== refs.length ||
+    requiredRefs.some((ref) => !refs.includes(ref)) ||
+    formationEnvelopeMismatch
+  ) {
+    errors.push(
+      issue(
+        "discovery_candidate.formation_input_set_mismatch",
+        `${candidate.path}#/formation/synthesis_input_hashes`,
+        "Candidate formation inputs must uniquely include its Map and typed subject lineage and remain declared by the envelope",
+        { requiredRefs, refs },
+      ),
+    );
+  }
+  for (const [index, binding] of bindings.entries()) {
+    const target = typeof binding.ref === "string" ? documentsByPath.get(binding.ref) : undefined;
+    if (
+      target === undefined ||
+      target.document.run_id !== candidate.document.run_id ||
+      binding.content_hash !== targetHash(target)
+    ) {
+      errors.push(
+        issue(
+          "discovery_candidate.formation_input_binding_mismatch",
+          `${candidate.path}#/formation/synthesis_input_hashes/${index}`,
+          "Candidate formation inputs must resolve to exact same-Run formal artifacts and content hashes",
+        ),
+      );
+    }
+  }
+
+  const priorRefs = strings(formation.prior_input_decision_refs);
+  const inheritedPriorRefs = [
+    ...new Set(
+      refs.flatMap((ref) => {
+        const target = documentsByPath.get(ref);
+        const targetProvenance = isRecord(target?.document.content_provenance)
+          ? target.document.content_provenance
+          : {};
+        const targetFormation = isRecord(target?.document.formation)
+          ? target.document.formation
+          : {};
+        return [
+          ...strings(targetProvenance.prior_input_decision_refs),
+          ...strings(targetFormation.prior_input_decision_refs),
+        ];
+      }),
+    ),
+  ].sort();
+  const missingInheritedPriorRefs = inheritedPriorRefs.filter((ref) => !priorRefs.includes(ref));
+  if (missingInheritedPriorRefs.length > 0) {
+    errors.push(
+      issue(
+        "discovery_candidate.prior_input_provenance_not_propagated",
+        `${candidate.path}#/formation/prior_input_decision_refs`,
+        "Candidate formation must retain every prior admission inherited through its current-Run synthesis inputs",
+        { missingInheritedPriorRefs },
+      ),
+    );
+  }
+  if (
+    (formation.synthesis_origin === "current_run_synthesis" && priorRefs.length > 0) ||
+    (formation.synthesis_origin === "prior_informed_synthesis" && priorRefs.length === 0)
+  ) {
+    errors.push(
+      issue(
+        "discovery_candidate.prior_provenance_state_mismatch",
+        `${candidate.path}#/formation`,
+        "Candidate synthesis origin must explicitly agree with its admitted prior inputs",
+      ),
+    );
+  }
+  for (const ref of priorRefs) {
+    const decision = exactRecords.get(ref);
+    if (
+      decision?.schema_version !== "startup_opportunity.decision.v1" ||
+      decision.decision_type !== "prior_input_admitted" ||
+      decision.run_id !== candidate.document.run_id ||
+      decision.prior_source_run_id === candidate.document.run_id ||
+      decision.prior_use_boundary !== "hypothesis_input_only"
+    ) {
+      errors.push(
+        issue(
+          "discovery_candidate.prior_input_admission_invalid",
+          `${candidate.path}#/formation/prior_input_decision_refs`,
+          "historical Candidate input requires an exact same-Run admission decision with distinct source Run and hypothesis-only use",
+          { ref },
+        ),
+      );
     }
   }
 }
@@ -1072,6 +1217,7 @@ export function validateDiscoveryCandidateContract(
   documents: readonly DiscoveryCandidateDocument[],
   policy: DiscoveryCandidatePolicy,
   historicalPlanRefs: ReadonlySet<string> = new Set(),
+  exactRecords: ReadonlyMap<string, Record<string, unknown>> = new Map(),
 ): readonly ValidationIssue[] {
   if (!documents.some((entry) => CONTRACT_SCHEMA_VERSIONS.has(entry.schemaVersion))) {
     return [];
@@ -1127,6 +1273,7 @@ export function validateDiscoveryCandidateContract(
     validateCandidateSubject(candidate, documentsByPath, errors);
     validateCandidateRevision(candidate, candidatesByPath, errors);
     validateCandidateEnrichmentBindings(candidate, documentsByPath, candidatesByPath, errors);
+    validateCandidateFormation(candidate, documentsByPath, exactRecords, errors);
     validateMapLineage(candidate, documentsByPath, policy, errors);
     validateSourcePartition(candidate, documentsByPath, errors);
   }

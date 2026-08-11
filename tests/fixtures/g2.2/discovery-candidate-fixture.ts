@@ -194,6 +194,19 @@ function initialCandidate(
     scope_frame_ref: G21_SCOPE_REF,
     research_plan_ref: G21_PLAN_REF,
     map_lineage: mapLineage(bundle, mapRef, pointer, idField),
+    formation: {
+      synthesis_origin: "current_run_synthesis",
+      current_run_scope_and_plan_used: true,
+      scope_frame_hash: fixtureEnvelope(bundle, G21_SCOPE_REF).content_hash,
+      research_plan_hash: fixtureEnvelope(bundle, G21_PLAN_REF).content_hash,
+      synthesis_input_hashes: [
+        { ref: mapRef, content_hash: fixtureEnvelope(bundle, mapRef).content_hash },
+      ],
+      formation_rationale: synthetic(
+        `${kind} formed from this Run Scope, Plan, and exact Map fragment`,
+      ),
+      prior_input_decision_refs: [],
+    },
     subject,
     evidence_lineage: emptyEvidenceLineage(),
     source_partition: {
@@ -555,6 +568,41 @@ export function fixtureEffective(
     : entry;
 }
 
+export function refreshDiscoveryCandidateFormation(bundle: DocumentBundle): DocumentBundle {
+  for (const candidateRef of [G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1, G22_DEMAND_R2]) {
+    const candidate = fixtureEffective(bundle, candidateRef);
+    const formation = candidate.formation as Record<string, unknown>;
+    formation.scope_frame_hash = fixtureEnvelope(
+      bundle,
+      String(candidate.scope_frame_ref),
+    ).content_hash;
+    formation.research_plan_hash = fixtureEnvelope(
+      bundle,
+      String(candidate.research_plan_ref),
+    ).content_hash;
+    formation.synthesis_input_hashes = (
+      formation.synthesis_input_hashes as Record<string, unknown>[]
+    ).map((binding) => ({
+      ref: binding.ref,
+      content_hash: fixtureEnvelope(bundle, String(binding.ref)).content_hash,
+    }));
+    const mapLineage = candidate.map_lineage as Record<string, unknown>;
+    mapLineage.source_map_content_hash = fixtureEnvelope(
+      bundle,
+      String(mapLineage.source_map_ref),
+    ).content_hash;
+    if (typeof candidate.parent_candidate_ref === "string") {
+      candidate.parent_content_hash = fixtureEnvelope(
+        bundle,
+        candidate.parent_candidate_ref,
+      ).content_hash;
+    }
+    (fixtureEnvelope(bundle, candidateRef) as unknown as { content_hash: string }).content_hash =
+      canonicalContentHash(candidate);
+  }
+  return bundle;
+}
+
 export async function createDiscoveryCandidateFixture(
   additionalPlanWaves: readonly Record<string, unknown>[] = [],
   profile: DiscoveryProfile = "general",
@@ -612,6 +660,10 @@ export async function createDiscoveryCandidateFixture(
       minimum_incremental_value_required: synthetic("unknown incremental value threshold"),
     },
   );
+  (baselineR1.formation as Record<string, unknown>).synthesis_input_hashes = [
+    ...((baselineR1.formation as Record<string, unknown>).synthesis_input_hashes as unknown[]),
+    { ref: G22_DEMAND_R1, content_hash: canonicalContentHash(demandR1) },
+  ];
   const solutionProfile = {
     general: {
       pointer: "/solution_candidates/0",
@@ -657,6 +709,11 @@ export async function createDiscoveryCandidateFixture(
       kill_criteria: [synthetic("baseline remains sufficient")],
     },
   );
+  (solutionR1.formation as Record<string, unknown>).synthesis_input_hashes = [
+    ...((solutionR1.formation as Record<string, unknown>).synthesis_input_hashes as unknown[]),
+    { ref: G22_DEMAND_R1, content_hash: canonicalContentHash(demandR1) },
+    { ref: G22_BASELINE_R1, content_hash: canonicalContentHash(baselineR1) },
+  ];
   const generationTask = task(
     "unit_seed_independent_demand",
     "user_language_mining",
@@ -1156,5 +1213,5 @@ export async function createDiscoveryCandidateFixture(
       document: substrateRecord(evaluationEvidenceId, "unit_counterfactual", "b"),
     },
   );
-  return bundle;
+  return refreshDiscoveryCandidateFormation(bundle);
 }

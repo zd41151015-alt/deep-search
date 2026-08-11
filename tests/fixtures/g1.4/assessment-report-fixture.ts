@@ -347,6 +347,8 @@ function makeManifest(): Record<string, unknown> {
     current_phase: "assessment",
     current_plan_ref: "plans/research-plan.r1.json",
     plan_revision: 1,
+    current_decision_subject_snapshot_ref: null,
+    current_decision_subject_snapshot_hash: null,
     followup_round: 0,
     latest_gap_snapshot_ref: null,
     pending_adaptation_refs: [],

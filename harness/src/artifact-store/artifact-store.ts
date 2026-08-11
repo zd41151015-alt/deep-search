@@ -415,6 +415,7 @@ function publicationRank(envelope: FormalArtifactEnvelope): number {
     "startup_opportunity.portfolio_view.v1": 80,
     "startup_opportunity.decision_recommendation.v1": 81,
     "startup_opportunity.traceability.discovery.current": 90,
+    "startup_opportunity.decision_subject_snapshot.current": 91,
     "startup_opportunity.report.v1": 100,
     "startup_opportunity.decision_brief.discovery.current": 101,
     "startup_opportunity.discovery_report_view.v1": 102,

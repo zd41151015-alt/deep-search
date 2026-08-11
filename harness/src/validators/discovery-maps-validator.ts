@@ -194,6 +194,74 @@ function validateInputHashes(
   }
 }
 
+function validateContentProvenance(
+  source: DiscoveryMapDocument,
+  byPath: ReadonlyMap<string, DiscoveryMapDocument>,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+  errors: ValidationIssue[],
+): void {
+  const provenance = isRecord(source.document.content_provenance)
+    ? source.document.content_provenance
+    : {};
+  const refs = stringArray(provenance.prior_input_decision_refs);
+  const inheritedRefs = [
+    ...new Set(
+      (Array.isArray(source.document.input_artifact_hashes)
+        ? source.document.input_artifact_hashes.filter(isRecord)
+        : []
+      ).flatMap((binding) => {
+        const target = typeof binding.ref === "string" ? byPath.get(binding.ref) : undefined;
+        const targetProvenance = isRecord(target?.document.content_provenance)
+          ? target.document.content_provenance
+          : {};
+        return stringArray(targetProvenance.prior_input_decision_refs);
+      }),
+    ),
+  ].sort();
+  const missingInheritedRefs = inheritedRefs.filter((ref) => !refs.includes(ref));
+  if (missingInheritedRefs.length > 0) {
+    errors.push(
+      issue(
+        "discovery_maps.prior_input_provenance_not_propagated",
+        `${source.path}#/content_provenance/prior_input_decision_refs`,
+        "Map provenance must retain every prior admission inherited through its current-Run synthesis inputs",
+        { missingInheritedRefs },
+      ),
+    );
+  }
+  if (
+    (provenance.synthesis_origin === "current_run_synthesis" && refs.length > 0) ||
+    (provenance.synthesis_origin === "prior_informed_synthesis" && refs.length === 0)
+  ) {
+    errors.push(
+      issue(
+        "discovery_maps.prior_provenance_state_mismatch",
+        `${source.path}#/content_provenance`,
+        "Map synthesis origin must explicitly agree with its admitted prior inputs",
+      ),
+    );
+  }
+  for (const ref of refs) {
+    const decision = exactRecords.get(ref);
+    if (
+      decision?.schema_version !== "startup_opportunity.decision.v1" ||
+      decision.decision_type !== "prior_input_admitted" ||
+      decision.run_id !== source.document.run_id ||
+      decision.prior_source_run_id === source.document.run_id ||
+      decision.prior_use_boundary !== "hypothesis_input_only"
+    ) {
+      errors.push(
+        issue(
+          "discovery_maps.prior_input_admission_invalid",
+          `${source.path}#/content_provenance/prior_input_decision_refs`,
+          "historical Map input requires an exact same-Run admission decision with distinct source Run and hypothesis-only use",
+          { ref },
+        ),
+      );
+    }
+  }
+}
+
 function validateEnvelopeIdentity(
   entry: DiscoveryMapDocument,
   errors: ValidationIssue[],
@@ -598,6 +666,7 @@ export function isDiscoveryMapSchemaVersion(schemaVersion: string): boolean {
 export function validateDiscoveryMapsContract(
   documents: readonly DiscoveryMapDocument[],
   loadedPolicy: LoadedDiscoveryMapsPolicy,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>> = new Map(),
 ): readonly ValidationIssue[] {
   if (!documents.some((entry) => MAP_SCHEMA_VERSIONS.has(entry.schemaVersion))) {
     return [];
@@ -772,6 +841,9 @@ export function validateDiscoveryMapsContract(
   validateInputHashes(seed, expectedSeedRefs, byPath, errors);
   validateInputHashes(opportunity, expectedOpportunityRefs, byPath, errors);
   validateInputHashes(solution, expectedSolutionRefs, byPath, errors);
+  validateContentProvenance(seed, byPath, exactRecords, errors);
+  validateContentProvenance(opportunity, byPath, exactRecords, errors);
+  validateContentProvenance(solution, byPath, exactRecords, errors);
   if (
     seed.document.scope_frame_ref !== scope.path ||
     opportunity.document.scope_frame_ref !== scope.path ||

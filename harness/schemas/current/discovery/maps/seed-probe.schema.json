@@ -21,6 +21,7 @@
     "unit_contracts",
     "seed_policy",
     "input_artifact_hashes",
+    "content_provenance",
     "policy_binding",
     "evidence_refs",
     "audit_refs",
@@ -215,6 +216,9 @@
     },
     "input_artifact_hashes": {
       "$ref": "./definitions.schema.json#/$defs/inputHashes"
+    },
+    "content_provenance": {
+      "$ref": "./definitions.schema.json#/$defs/contentProvenance"
     },
     "policy_binding": {
       "$ref": "./definitions.schema.json#/$defs/policyBinding"

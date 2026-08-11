@@ -35,6 +35,92 @@
     "candidateKind": {
       "enum": ["demand_seed", "baseline_seed", "solution_seed"]
     },
+    "inputHash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "content_hash"],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/artifactRef"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "formation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "synthesis_origin",
+        "current_run_scope_and_plan_used",
+        "scope_frame_hash",
+        "research_plan_hash",
+        "synthesis_input_hashes",
+        "formation_rationale",
+        "prior_input_decision_refs"
+      ],
+      "properties": {
+        "synthesis_origin": {
+          "enum": ["current_run_synthesis", "prior_informed_synthesis"]
+        },
+        "current_run_scope_and_plan_used": {
+          "const": true
+        },
+        "scope_frame_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "research_plan_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "synthesis_input_hashes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/inputHash"
+          }
+        },
+        "formation_rationale": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "prior_input_decision_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../maps/definitions.schema.json#/$defs/priorInputDecisionRef"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "synthesis_origin": {
+                "const": "current_run_synthesis"
+              }
+            },
+            "required": ["synthesis_origin"]
+          },
+          "then": {
+            "properties": {
+              "prior_input_decision_refs": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "prior_input_decision_refs": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
     "candidateRef": {
       "type": "string",
       "pattern": "^artifacts/discovery/candidates/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"

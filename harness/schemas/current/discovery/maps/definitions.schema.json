@@ -66,6 +66,66 @@
         "$ref": "#/$defs/inputHash"
       }
     },
+    "priorInputDecisionRef": {
+      "type": "string",
+      "pattern": "^decisions\\.jsonl#[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "contentProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "synthesis_origin",
+        "current_run_scope_and_plan_used",
+        "formation_rationale",
+        "prior_input_decision_refs"
+      ],
+      "properties": {
+        "synthesis_origin": {
+          "enum": ["current_run_synthesis", "prior_informed_synthesis"]
+        },
+        "current_run_scope_and_plan_used": {
+          "const": true
+        },
+        "formation_rationale": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "prior_input_decision_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/priorInputDecisionRef"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "synthesis_origin": {
+                "const": "current_run_synthesis"
+              }
+            },
+            "required": ["synthesis_origin"]
+          },
+          "then": {
+            "properties": {
+              "prior_input_decision_refs": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "prior_input_decision_refs": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
     "policyBinding": {
       "type": "object",
       "additionalProperties": false,

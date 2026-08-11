@@ -181,6 +181,7 @@ test("current Envelope retains grouped ownership, path, and required-field const
       "startup_opportunity.enrichment_branch_result.v1",
     ],
     main_agent: [
+      "startup_opportunity.decision_subject_snapshot.current",
       "startup_opportunity.enrichment_fan_in.v1",
       "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
       "startup_opportunity.buyer_purchase_language.v1",
@@ -213,6 +214,10 @@ test("current Envelope retains grouped ownership, path, and required-field const
   }
 
   const pathConstraints = {
+    "startup_opportunity.decision_subject_snapshot.current": {
+      type: "string",
+      pattern: "^artifacts/reporting/decision-subject-snapshot\\.r[1-9][0-9]*\\.json$",
+    },
     "startup_opportunity.adaptation_decision.discovery.current": {
       type: "string",
       pattern: "^adaptations/decisions/.+\\.json$",

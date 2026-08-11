@@ -162,6 +162,7 @@ function validateSource(
 
   const conclusion = isRecord(source.research_conclusion) ? source.research_conclusion : {};
   const directions = records(source.directions);
+  const currentDecisionSubjectIds = new Set(strings(source.current_decision_subject_ids));
   if (
     conclusion.outcome === "prioritize" &&
     (completeness !== "complete" ||
@@ -210,6 +211,51 @@ function validateSource(
         ),
       );
     }
+  }
+  const projectedSubjectIds = [
+    ...records(source.quantitative_signal_rows).map((row) => {
+      const observation = isRecord(row.observation) ? row.observation : {};
+      return String(observation.subject_id);
+    }),
+    ...records(source.competitive_substitute_rows).map((row) => {
+      const competitiveObject = isRecord(row.competitive_object) ? row.competitive_object : {};
+      return String(competitiveObject.subject_id);
+    }),
+    ...records(source.incumbent_response_risk_rows).map((row) => {
+      const assessment = isRecord(row.assessment) ? row.assessment : {};
+      const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+      return String(semantic.subject_id);
+    }),
+    ...records(source.research_coverage_gaps).flatMap((row) => {
+      const coverage = isRecord(row.coverage) ? row.coverage : {};
+      return typeof coverage.subject_id === "string"
+        ? [coverage.subject_id]
+        : strings(row.subject_ids);
+    }),
+    ...records(source.commercial_subject_aggregates).map((aggregate) =>
+      String(aggregate.subject_id),
+    ),
+    ...records(source.commercial_uncertainties).map((entry) => String(entry.direction_id)),
+  ].filter((subjectId) => subjectId !== "undefined");
+  const unrelatedProjectionIds = projectedSubjectIds.filter(
+    (subjectId) => !currentDecisionSubjectIds.has(subjectId),
+  );
+  const aggregateIds = records(source.commercial_subject_aggregates)
+    .map((aggregate) => String(aggregate.subject_id))
+    .sort();
+  if (
+    unrelatedProjectionIds.length > 0 ||
+    canonicalContentHash(aggregateIds) !==
+      canonicalContentHash([...currentDecisionSubjectIds].sort())
+  ) {
+    errors.push(
+      issue(
+        "terminal_reporting.decision_subject_projection_mismatch",
+        entry.path,
+        "directions and all primary commercial report projections must contain only the authoritative current final subjects; aggregates must cover that set exactly",
+        { unrelatedProjectionIds: [...new Set(unrelatedProjectionIds)].sort(), aggregateIds },
+      ),
+    );
   }
   const sources = records(source.sources);
   const sourceIds = sources.map((candidate) => String(candidate.source_id));

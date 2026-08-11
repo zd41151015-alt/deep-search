@@ -74,6 +74,8 @@ export interface RunManifest extends Record<string, unknown> {
   readonly current_phase: string | null;
   readonly current_plan_ref: string | null;
   readonly plan_revision: number;
+  readonly current_decision_subject_snapshot_ref: string | null;
+  readonly current_decision_subject_snapshot_hash: string | null;
   readonly followup_round: number;
   readonly latest_gap_snapshot_ref: string | null;
   readonly pending_adaptation_refs: readonly string[];
@@ -431,6 +433,8 @@ function makeManifest(input: CreateRunInput, createdAt: string): RunManifest {
     current_phase: null,
     current_plan_ref: null,
     plan_revision: 0,
+    current_decision_subject_snapshot_ref: null,
+    current_decision_subject_snapshot_hash: null,
     followup_round: 0,
     latest_gap_snapshot_ref: null,
     pending_adaptation_refs: [],
@@ -1964,6 +1968,7 @@ export class RunStore {
       this.assertDiscoveryLanePublicationTransition(manifest, input.envelope, ignoredLate);
       this.assertEnrichmentBranchPublicationTransition(manifest, input.envelope, ignoredLate);
       this.assertDeclarativeRuntimeTransition(manifest, input.envelope, new Set());
+      this.assertDecisionSubjectPublicationTransition(manifest, input.envelope);
       const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
         runRoot,
         input.runId,
@@ -2089,6 +2094,7 @@ export class RunStore {
           effectiveClassification.ignoredLate,
         );
         this.assertDeclarativeRuntimeTransition(manifest, envelope, runtimeActivations);
+        this.assertDecisionSubjectPublicationTransition(manifest, envelope);
         classifications.set(envelope.artifact_path, effectiveClassification);
       }
       const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
@@ -3070,6 +3076,18 @@ export class RunStore {
     }
     if (
       !ignoredLate &&
+      (!exactReplay || !artifactWasTracked) &&
+      envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
+      envelope.artifact_type === "startup_opportunity.decision_subject_snapshot.current"
+    ) {
+      next = {
+        ...next,
+        current_decision_subject_snapshot_ref: envelope.artifact_path,
+        current_decision_subject_snapshot_hash: envelope.content_hash,
+      };
+    }
+    if (
+      !ignoredLate &&
       envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
       [
         "startup_opportunity.research_task.assessment.current",
@@ -3270,6 +3288,49 @@ export class RunStore {
           { unitId: envelope.document.unit_id, state },
         );
       }
+    }
+  }
+
+  private assertDecisionSubjectPublicationTransition(
+    manifest: RunManifest,
+    envelope: FormalArtifactEnvelope,
+  ): void {
+    if (envelope.artifact_type !== "startup_opportunity.decision_subject_snapshot.current") {
+      return;
+    }
+    const currentRef = manifest.current_decision_subject_snapshot_ref;
+    const currentHash = manifest.current_decision_subject_snapshot_hash;
+    if (manifest.artifact_refs.includes(envelope.artifact_path)) {
+      return;
+    }
+    if (currentRef === envelope.artifact_path && currentHash === envelope.content_hash) {
+      return;
+    }
+    const currentRevision =
+      currentRef === null
+        ? 0
+        : Number(
+            currentRef.match(
+              /^artifacts\/reporting\/decision-subject-snapshot\.r([1-9][0-9]*)\.json$/,
+            )?.[1] ?? Number.NaN,
+          );
+    if (
+      !Number.isInteger(currentRevision) ||
+      envelope.document.revision !== currentRevision + 1 ||
+      envelope.document.parent_snapshot_ref !== currentRef ||
+      envelope.document.parent_snapshot_hash !== currentHash
+    ) {
+      throw new StoreError(
+        "artifact.decision_subject_snapshot_transition_invalid",
+        "decision subject snapshot must advance the Manifest-selected immutable revision exactly",
+        {
+          currentRef,
+          currentHash,
+          revision: envelope.document.revision,
+          parentRef: envelope.document.parent_snapshot_ref,
+          parentHash: envelope.document.parent_snapshot_hash,
+        },
+      );
     }
   }
 

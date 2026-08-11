@@ -22,6 +22,7 @@ import {
   G22_FAN_IN,
   G22_GENERATION_EVIDENCE,
   G22_RUN_ID,
+  refreshDiscoveryCandidateFormation,
 } from "./discovery-candidate-fixture.js";
 
 export interface DiscoveryRuntimeSubstrate {
@@ -149,6 +150,7 @@ export async function createDiscoveryRuntimeFixture(
       .map_lineage as Record<string, unknown>),
     source_map_content_hash: fixtureEnvelope(bundle, G21_SOLUTION_REF).content_hash,
   };
+  refreshDiscoveryCandidateFormation(bundle);
   fixtureEffective(bundle, G22_DEMAND_R2).parent_content_hash = canonicalContentHash(
     fixtureEffective(bundle, G22_DEMAND_R1),
   );

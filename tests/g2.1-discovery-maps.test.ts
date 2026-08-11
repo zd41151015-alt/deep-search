@@ -6,6 +6,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  artifactRefsForDocument,
   canonicalContentHash,
   canonicalJson,
   createArtifactValidator,
@@ -359,6 +360,76 @@ test("all four G2.1 discovery profiles validate as closed synthetic map bundles"
     assert.equal(result.valid, true, `${profile}: ${JSON.stringify(result)}`);
     assert.equal(fixtureDocument(bundle, G21_SEED_REF).discovery_profile, profile);
   }
+});
+
+test("G2.1 prior-informed Map semantics require an explicit same-Run admission decision", async () => {
+  const bundle = await createDiscoveryMapsFixture("general");
+  const opportunity = fixtureDocument(bundle, G21_OPPORTUNITY_REF);
+  const runId = String(opportunity.run_id);
+  const provenance = opportunity.content_provenance as Record<string, unknown>;
+  const decisionRef = "decisions.jsonl#prior_input_admitted_g2_1_fixture";
+  provenance.synthesis_origin = "prior_informed_synthesis";
+  provenance.prior_input_decision_refs = [decisionRef];
+  rehashEnvelope(bundle, G21_OPPORTUNITY_REF);
+
+  const policy = await discoveryMapsPolicy();
+  const withoutAdmission = validateDiscoveryMapsContract(discoveryMapDocuments(bundle), policy).map(
+    (issue) => issue.code,
+  );
+  assert.ok(withoutAdmission.includes("discovery_maps.prior_input_admission_invalid"));
+  assert.ok(withoutAdmission.includes("discovery_maps.prior_input_provenance_not_propagated"));
+
+  const solutionProvenance = fixtureDocument(bundle, G21_SOLUTION_REF).content_provenance as Record<
+    string,
+    unknown
+  >;
+  solutionProvenance.synthesis_origin = "prior_informed_synthesis";
+  solutionProvenance.prior_input_decision_refs = [decisionRef];
+  rehashEnvelope(bundle, G21_SOLUTION_REF);
+  assert.ok(
+    artifactRefsForDocument({
+      path: G21_OPPORTUNITY_REF,
+      document: fixtureEnvelope(bundle, G21_OPPORTUNITY_REF),
+    }).includes(decisionRef),
+  );
+
+  const admission = {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: "prior_input_admitted_g2_1_fixture",
+    run_id: runId,
+    decision_type: "prior_input_admitted",
+    timestamp: "2026-07-26T17:00:00Z",
+    actor: "main_agent",
+    reason: "SYNTHETIC historical hypothesis admitted only as an input to current synthesis.",
+    artifact_refs: [],
+    prior_input_id: "prior_map_hypothesis_g2_1_fixture",
+    prior_source_run_id: "g2-1-prior-synthetic",
+    prior_source_artifact_path: "artifacts/discovery/opportunity-space-map.json",
+    prior_source_content_hash: `sha256:${"9".repeat(64)}`,
+    prior_use_boundary: "hypothesis_input_only",
+  };
+  assert.equal(
+    validateDiscoveryMapsContract(
+      discoveryMapDocuments(bundle),
+      policy,
+      new Map([[decisionRef, admission]]),
+    ).some((issue) =>
+      [
+        "discovery_maps.prior_input_admission_invalid",
+        "discovery_maps.prior_input_provenance_not_propagated",
+      ].includes(issue.code),
+    ),
+    false,
+  );
+
+  admission.prior_source_run_id = runId;
+  assert.ok(
+    validateDiscoveryMapsContract(
+      discoveryMapDocuments(bundle),
+      policy,
+      new Map([[decisionRef, admission]]),
+    ).some((issue) => issue.code === "discovery_maps.prior_input_admission_invalid"),
+  );
 });
 
 test("G2.1 maps accept current main-agent and harness Plan envelopes", async (t) => {
