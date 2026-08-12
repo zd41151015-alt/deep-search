@@ -88,7 +88,12 @@ function validateSource(
       ),
     );
   } else {
-    const expected = deriveResearchProvenance(String(source.run_id), documents, exactRecords);
+    const expected = deriveResearchProvenance(
+      String(source.run_id),
+      documents,
+      exactRecords,
+      entry.path,
+    );
     if (canonicalJson(source.research_provenance) !== canonicalJson(expected)) {
       errors.push(
         issue(

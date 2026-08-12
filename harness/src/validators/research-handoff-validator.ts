@@ -275,6 +275,33 @@ function inheritedHandoffRefs(
   return refs.filter((ref, index, values) => values.indexOf(ref) === index).sort();
 }
 
+function consumerPlanApplicable(
+  consumer: ResearchHandoffDocument,
+  handoff: ResearchHandoffDocument | undefined,
+  byPath: ReadonlyMap<string, ResearchHandoffDocument>,
+): boolean {
+  if (handoff?.document.target_formation_stage !== "plan_bound") return true;
+  const targetPlanRef = handoff.document.target_plan_ref;
+  if (consumer.document.research_plan_ref === targetPlanRef) return true;
+  if (
+    ![
+      "startup_opportunity.concept_hypothesis.assessment.current",
+      "startup_opportunity.concept_hypothesis.assessment_intake.current",
+    ].includes(consumer.schemaVersion) ||
+    typeof targetPlanRef !== "string"
+  ) {
+    return false;
+  }
+  const targetPlan = byPath.get(targetPlanRef);
+  return (
+    targetPlan?.schemaVersion === "startup_opportunity.research_plan.v1" &&
+    targetPlan.document.run_id === consumer.document.run_id &&
+    records(consumer.document.formation_input_hashes).some(
+      (binding) => binding.ref === targetPlanRef && binding.content_hash === targetHash(targetPlan),
+    )
+  );
+}
+
 function refsInValue(value: unknown, refs: Set<string>): void {
   if (typeof value === "string") {
     refs.add(value);
@@ -289,17 +316,13 @@ function refsInValue(value: unknown, refs: Set<string>): void {
   }
 }
 
-function reportCausalPaths(documents: readonly ResearchHandoffDocument[]): ReadonlySet<string> {
+function reportCausalPaths(
+  documents: readonly ResearchHandoffDocument[],
+  reportRootPath: string,
+): ReadonlySet<string> {
   const byPath = new Map(documents.map((entry) => [entry.path, entry]));
-  const roots = documents.filter((entry) =>
-    [
-      "startup_opportunity.terminal_report_source.v1",
-      "startup_opportunity.report.v1",
-      "startup_opportunity.concept_evidence_report.v1",
-    ].includes(entry.schemaVersion),
-  );
   const reachable = new Set<string>();
-  const pending = roots.map((entry) => entry.path);
+  const pending = byPath.has(reportRootPath) ? [reportRootPath] : [];
   while (pending.length > 0) {
     const path = pending.pop();
     if (path === undefined || reachable.has(path)) continue;
@@ -332,6 +355,7 @@ export function deriveResearchProvenance(
   runId: string,
   documents: readonly ResearchHandoffDocument[],
   exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+  reportRootPath: string,
 ): ResearchProvenanceProjection {
   const handoffs = documents
     .filter(
@@ -381,7 +405,7 @@ export function deriveResearchProvenance(
     .flatMap((record) => strings(record.research_handoff_item_refs))
     .filter((ref, index, values) => values.indexOf(ref) === index)
     .sort();
-  const causalPaths = reportCausalPaths(documents);
+  const causalPaths = reportCausalPaths(documents, reportRootPath);
   const directUsedItemRefs = documents
     .filter(
       (entry) =>
@@ -429,13 +453,7 @@ export function deriveResearchProvenance(
     };
   });
   const citedRefs = new Set<string>();
-  for (const entry of documents.filter((candidate) =>
-    [
-      "startup_opportunity.terminal_report_source.v1",
-      "startup_opportunity.report.v1",
-      "startup_opportunity.concept_evidence_report.v1",
-    ].includes(candidate.schemaVersion),
-  )) {
+  for (const entry of documents.filter((candidate) => causalPaths.has(candidate.path))) {
     refsInValue(
       Object.fromEntries(
         Object.entries(entry.document).filter(([key]) => key !== "research_provenance"),
@@ -732,9 +750,7 @@ function validateConsumerBindings(
     );
     const direct = item?.target_artifact_ref === consumer.path;
     const inherited = inheritedHandoffRefs(consumer, byPath).includes(String(binding.ref));
-    const planApplicable =
-      handoff?.document.target_formation_stage !== "plan_bound" ||
-      consumer.document.research_plan_ref === handoff.document.target_plan_ref;
+    const planApplicable = consumerPlanApplicable(consumer, handoff, byPath);
     if (
       handoff?.schemaVersion !== "startup_opportunity.research_handoff.current" ||
       handoff.document.run_id !== consumer.document.run_id ||
@@ -743,8 +759,9 @@ function validateConsumerBindings(
       item.role === "reusable_evidence" ||
       consumption === undefined ||
       (!direct && !inherited) ||
-      !planApplicable ||
-      (handoff.document.target_formation_stage === "pre_plan_assessment_formation" &&
+      (direct && !planApplicable) ||
+      (direct &&
+        handoff.document.target_formation_stage === "pre_plan_assessment_formation" &&
         (consumer.schemaVersion !==
           "startup_opportunity.concept_hypothesis.assessment_intake.current" ||
           consumer.path !== "concept-hypothesis.json")) ||
@@ -754,7 +771,7 @@ function validateConsumerBindings(
         issue(
           "research_handoff.consumer_binding_mismatch",
           `${consumer.path}#/research_handoff_input_hashes/${index}`,
-          "Prior formation input must bind an exact consumed handoff item scoped to this direct target or an explicitly bound same-Run parent under the applicable Plan",
+          "Prior formation input must bind an exact consumed handoff item scoped to this direct target under the applicable Plan, or retain immutable provenance inherited from a typed same-Run parent",
           { ref: binding.ref, direct, inherited, planApplicable },
         ),
       );

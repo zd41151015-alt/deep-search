@@ -2580,6 +2580,20 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
   current = await reopenedBeforeReconciliation.load(runId);
   assert.equal(current.manifest.status, "needs_clarification");
 
+  for (const action of ["retry_unit", "supersede_unit"] as const) {
+    const ordinaryDecision = structuredClone(setup.decision);
+    ordinaryDecision.action = action;
+    const ordinaryRevision = transformPlan(
+      PLAN_REF,
+      setup.plan,
+      current.manifest,
+      [{ path: `adaptations/decisions/ordinary-${action}.json`, document: ordinaryDecision }],
+      "2026-07-28T12:10:35Z",
+    );
+    assert.equal(ordinaryRevision.manifest.status, "needs_clarification");
+    assert.equal(ordinaryRevision.manifest.status_before_clarification, "researching");
+  }
+
   const event = triggerEvent(runId, "scope_reconciliation_event");
   event.timestamp = "2026-07-28T12:10:40Z";
   event.reason = "The confirmed Scope revision invalidated the current Plan.";

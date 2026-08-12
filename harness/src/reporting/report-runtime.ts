@@ -1345,6 +1345,7 @@ export class ReportRuntime {
       source.run_id,
       provenanceDocuments,
       exactRecords,
+      source.artifact_path,
     );
     if (
       source.artifact_type === "startup_opportunity.terminal_report_source.v1" &&

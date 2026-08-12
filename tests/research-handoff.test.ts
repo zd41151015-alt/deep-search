@@ -20,6 +20,7 @@ import {
 } from "../harness/src/index.js";
 import {
   deriveResearchProvenance,
+  type ResearchHandoffDocument,
   researchHandoffSourceRoleAllowed,
   validateResearchHandoffContract,
 } from "../harness/src/validators/research-handoff-validator.js";
@@ -1136,6 +1137,219 @@ test("Opportunity Thesis publication preserves exact handoff formation closure",
   );
 });
 
+test("typed subject revisions retain historical handoff provenance across Plan revisions without tainting siblings", () => {
+  const runId = "handoff-cross-plan-subject-revision";
+  const planR1 = "plans/research-plan.r1.json";
+  const planR2 = "plans/research-plan.r2.json";
+  const planDocuments = [planR1, planR2].map((pathValue, index) => ({
+    path: pathValue,
+    schemaVersion: "startup_opportunity.research_plan.v1",
+    document: { run_id: runId, revision: index + 1 },
+    envelope: null,
+  }));
+  const planHash = (pathValue: string): string => {
+    const plan = planDocuments.find((entry) => entry.path === pathValue);
+    assert.ok(plan);
+    return canonicalContentHash(plan.document);
+  };
+  interface RevisionVariant {
+    readonly name: string;
+    readonly schemaVersion: string;
+    readonly r1SchemaVersion?: string;
+    readonly r1Path: string;
+    readonly r2Path: string;
+    readonly siblingPath: string;
+    readonly stage: string;
+    readonly document: (
+      pathValue: string,
+      parentRef: string | null,
+      binding?: unknown,
+    ) => Record<string, unknown>;
+  }
+  const variants: readonly RevisionVariant[] = [
+    {
+      name: "Candidate",
+      schemaVersion: "startup_opportunity.discovery_candidate.v1",
+      r1Path: "artifacts/discovery/candidates/candidate_cross_plan.r1.json",
+      r2Path: "artifacts/discovery/candidates/candidate_cross_plan.r2.json",
+      siblingPath: "artifacts/discovery/candidates/candidate_sibling.r1.json",
+      stage: "plan_bound",
+      document: (pathValue: string, parentRef: string | null, binding?: unknown) => ({
+        run_id: runId,
+        research_plan_ref: pathValue.endsWith("r1.json") ? planR1 : planR2,
+        parent_candidate_ref: parentRef,
+        formation: {
+          synthesis_input_hashes: parentRef === null ? [] : [{ ref: parentRef }],
+          ...(binding === undefined ? {} : { research_handoff_input_hashes: [binding] }),
+        },
+        map_lineage: {},
+      }),
+    },
+    {
+      name: "Opportunity Thesis",
+      schemaVersion: "startup_opportunity.opportunity_thesis.v1",
+      r1Path: "artifacts/discovery/opportunities/opportunity_cross_plan.r1.json",
+      r2Path: "artifacts/discovery/opportunities/opportunity_cross_plan.r2.json",
+      siblingPath: "artifacts/discovery/opportunities/opportunity_sibling.r1.json",
+      stage: "plan_bound",
+      document: (pathValue: string, parentRef: string | null, binding?: unknown) => ({
+        run_id: runId,
+        research_plan_ref: pathValue.endsWith("r1.json") ? planR1 : planR2,
+        parent_opportunity_ref: parentRef,
+        ...(binding === undefined ? {} : { research_handoff_input_hashes: [binding] }),
+      }),
+    },
+    {
+      name: "Concept",
+      schemaVersion: "startup_opportunity.concept_hypothesis.assessment.current",
+      r1Path: "artifacts/assessment/concepts/concept_cross_plan.r2.json",
+      r2Path: "artifacts/assessment/concepts/concept_cross_plan.r3.json",
+      siblingPath: "artifacts/assessment/concepts/concept_sibling.r3.json",
+      stage: "plan_bound",
+      document: (pathValue: string, parentRef: string | null, binding?: unknown) => ({
+        run_id: runId,
+        parent_concept_ref: parentRef,
+        formation_input_hashes: [
+          ...(parentRef === null
+            ? []
+            : [{ ref: parentRef, content_hash: canonicalContentHash({}) }]),
+          {
+            ref: pathValue.endsWith("concept_cross_plan.r2.json") ? planR1 : planR2,
+            content_hash: planHash(
+              pathValue.endsWith("concept_cross_plan.r2.json") ? planR1 : planR2,
+            ),
+          },
+        ],
+        ...(binding === undefined ? {} : { research_handoff_input_hashes: [binding] }),
+      }),
+    },
+  ];
+
+  for (const variant of variants) {
+    const handoffPath = `artifacts/research-handoffs/handoff_${variant.name
+      .toLowerCase()
+      .replaceAll(" ", "_")}.json`;
+    const itemId = `prior_${variant.name.toLowerCase().replaceAll(" ", "_")}`;
+    const handoffDocument = {
+      run_id: runId,
+      target_formation_stage: variant.stage,
+      target_plan_ref: variant.stage === "plan_bound" ? planR1 : null,
+      items: [
+        {
+          item_id: itemId,
+          role: "prior_synthesis",
+          target_artifact_ref: variant.r1Path,
+        },
+      ],
+    };
+    const handoffHash = canonicalContentHash(handoffDocument);
+    const binding = { ref: `${handoffPath}#${itemId}`, content_hash: handoffHash };
+    const r1 = {
+      path: variant.r1Path,
+      schemaVersion: variant.r1SchemaVersion ?? variant.schemaVersion,
+      document: variant.document(variant.r1Path, null, binding),
+      envelope: { input_refs: [binding.ref] },
+    };
+    const r2 = {
+      path: variant.r2Path,
+      schemaVersion: variant.schemaVersion,
+      document: variant.document(variant.r2Path, variant.r1Path, binding),
+      envelope: { input_refs: [variant.r1Path, binding.ref] },
+    };
+    const sibling = {
+      path: variant.siblingPath,
+      schemaVersion: variant.schemaVersion,
+      document: variant.document(variant.siblingPath, null),
+      envelope: { input_refs: [] },
+    };
+    const handoff = {
+      path: handoffPath,
+      schemaVersion: "startup_opportunity.research_handoff.current",
+      document: handoffDocument,
+      envelope: { content_hash: handoffHash, input_refs: [] },
+    };
+    const exactRecords = new Map([
+      [
+        `decisions.jsonl#consume_${itemId}`,
+        {
+          schema_version: "startup_opportunity.decision.v1",
+          decision_type: "research_handoff_consumed",
+          run_id: runId,
+          research_handoff_ref: handoffPath,
+          research_handoff_hash: handoffHash,
+          research_handoff_item_refs: [binding.ref],
+          research_handoff_target_artifact_refs: [variant.r1Path],
+        },
+      ],
+    ]);
+    const issues = validateResearchHandoffContract(
+      [...planDocuments, handoff, r1, r2, sibling],
+      exactRecords,
+    );
+    assert.equal(
+      issues.some(
+        (issue) =>
+          issue.instancePath.startsWith(variant.r2Path) &&
+          [
+            "research_handoff.consumer_binding_mismatch",
+            "research_handoff.target_provenance_not_bound",
+          ].includes(issue.code),
+      ),
+      false,
+      `${variant.name}: ${JSON.stringify(issues)}`,
+    );
+    assert.equal(
+      issues.some((issue) => issue.instancePath.startsWith(variant.siblingPath)),
+      false,
+      `${variant.name} sibling: ${JSON.stringify(issues)}`,
+    );
+
+    const wrongDirectPlan = structuredClone(r1);
+    if (variant.name === "Concept") {
+      const planBinding = (
+        wrongDirectPlan.document.formation_input_hashes as Record<string, unknown>[]
+      ).find((entry) => entry.ref === planR1);
+      assert.ok(planBinding);
+      planBinding.ref = planR2;
+      planBinding.content_hash = planHash(planR2);
+    } else {
+      wrongDirectPlan.document.research_plan_ref = planR2;
+    }
+    const wrongDirectIssues = validateResearchHandoffContract(
+      [...planDocuments, handoff, wrongDirectPlan, r2, sibling],
+      exactRecords,
+    );
+    assert.ok(
+      wrongDirectIssues.some(
+        (issue) =>
+          issue.code === "research_handoff.consumer_binding_mismatch" &&
+          issue.instancePath.startsWith(variant.r1Path),
+      ),
+      `${variant.name} direct Plan: ${JSON.stringify(wrongDirectIssues)}`,
+    );
+
+    const missing = structuredClone(r2);
+    if (variant.schemaVersion === "startup_opportunity.discovery_candidate.v1") {
+      delete (missing.document.formation as Record<string, unknown>).research_handoff_input_hashes;
+    } else {
+      delete missing.document.research_handoff_input_hashes;
+    }
+    missing.envelope.input_refs = [variant.r1Path];
+    const missingIssues = validateResearchHandoffContract(
+      [...planDocuments, handoff, r1, missing, sibling],
+      exactRecords,
+    );
+    assert.ok(
+      missingIssues.some(
+        (issue) =>
+          issue.code === "research_handoff.target_provenance_not_bound" &&
+          issue.instancePath.startsWith(variant.r2Path),
+      ),
+      `${variant.name}: ${JSON.stringify(missingIssues)}`,
+    );
+  }
+});
+
 test("report provenance excludes formal Evidence outside the report causal closure", () => {
   const runId = "handoff-report-causal-closure";
   const handoffRef = "artifacts/research-handoffs/handoff_inventory_only.json";
@@ -1161,6 +1375,7 @@ test("report provenance excludes formal Evidence outside the report causal closu
   });
   const currentSourceManifestRef = "sources/current-in-report.json";
   const inheritedSourceManifestRef = "sources/inherited-outside-report.json";
+  const terminalRoot = "artifacts/reporting/terminal-report-source.r1.json";
   const projection = deriveResearchProvenance(
     runId,
     [
@@ -1175,7 +1390,7 @@ test("report provenance excludes formal Evidence outside the report causal closu
       sourceManifest(inheritedSourceManifestRef, inheritedEvidenceRef),
       sourceManifest(currentSourceManifestRef, currentEvidenceRef),
       {
-        path: "artifacts/reporting/terminal-report-source.r1.json",
+        path: terminalRoot,
         schemaVersion: "startup_opportunity.terminal_report_source.v1",
         document: {
           audit_refs: [currentEvidenceRef, currentSourceManifestRef],
@@ -1197,6 +1412,7 @@ test("report provenance excludes formal Evidence outside the report causal closu
       ],
       [currentSubstrateRef, {}],
     ]),
+    terminalRoot,
   );
   assert.equal(projection.available_handoff_count, 1);
   assert.deepEqual(projection.formal_inherited_evidence_refs, []);
@@ -1205,6 +1421,87 @@ test("report provenance excludes formal Evidence outside the report causal closu
   assert.deepEqual(projection.formal_current_evidence_refs, [currentEvidenceRef]);
   assert.deepEqual(projection.adopted_current_evidence_refs, [currentEvidenceRef]);
   assert.deepEqual(projection.cited_current_evidence_refs, [currentEvidenceRef]);
+});
+
+test("terminal provenance follows only its explicit report root", () => {
+  const runId = "handoff-single-report-root";
+  const handoffPath = "artifacts/research-handoffs/handoff_old_report.json";
+  const itemRef = `${handoffPath}#old_concept_input`;
+  const conceptPath = "artifacts/assessment/concepts/concept_old_report.r2.json";
+  const oldReportPath = "artifacts/reporting/concept-evidence-report.old.json";
+  const terminalPath = "artifacts/reporting/terminal-report-source.current.json";
+  const handoffDocument = {
+    run_id: runId,
+    items: [
+      {
+        item_id: "old_concept_input",
+        role: "prior_synthesis",
+        freshness_disposition: "historical",
+        applicability_disposition: "partially_applicable",
+        revalidation_status: "required",
+      },
+    ],
+  };
+  const handoffHash = canonicalContentHash(handoffDocument);
+  const common = [
+    {
+      path: handoffPath,
+      schemaVersion: "startup_opportunity.research_handoff.current",
+      document: handoffDocument,
+      envelope: { content_hash: handoffHash, input_refs: [] },
+    },
+    {
+      path: conceptPath,
+      schemaVersion: "startup_opportunity.concept_hypothesis.assessment.current",
+      document: {
+        run_id: runId,
+        research_handoff_input_hashes: [{ ref: itemRef, content_hash: handoffHash }],
+      },
+      envelope: { input_refs: [itemRef] },
+    },
+    {
+      path: oldReportPath,
+      schemaVersion: "startup_opportunity.concept_evidence_report.v1",
+      document: { concept_hypothesis_ref: conceptPath },
+      envelope: { input_refs: [conceptPath] },
+    },
+  ];
+  const disconnectedTerminal: ResearchHandoffDocument = {
+    path: terminalPath,
+    schemaVersion: "startup_opportunity.terminal_report_source.v1",
+    document: { run_id: runId, audit_refs: [] },
+    envelope: { input_refs: [] },
+  };
+  const disconnected = deriveResearchProvenance(
+    runId,
+    [...common, disconnectedTerminal],
+    new Map(),
+    terminalPath,
+  );
+  assert.deepEqual(disconnected.causal_handoff_refs, []);
+  assert.deepEqual(disconnected.used_handoff_items, []);
+
+  const connectedTerminal = structuredClone(disconnectedTerminal) as {
+    path: string;
+    schemaVersion: string;
+    document: Record<string, unknown>;
+    envelope: Record<string, unknown>;
+  };
+  connectedTerminal.document.audit_refs = [oldReportPath];
+  connectedTerminal.envelope.input_refs = [oldReportPath];
+  const connected = deriveResearchProvenance(
+    runId,
+    [...common, connectedTerminal],
+    new Map(),
+    terminalPath,
+  );
+  assert.deepEqual(connected.causal_handoff_refs, [handoffPath]);
+  assert.deepEqual(
+    connected.used_handoff_items.map(
+      (item) => `${String(item.handoff_ref)}#${String(item.handoff_item_id)}`,
+    ),
+    [itemRef],
+  );
 });
 
 test("Concept intake formation binds the exact handoff item without treating copied Evidence as prior synthesis", async (context) => {

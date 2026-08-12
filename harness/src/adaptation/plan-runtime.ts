@@ -749,6 +749,56 @@ function preKillCandidateBindings(
   });
 }
 
+function scopeReconciliationAuthorized(
+  manifest: RunManifest,
+  decisions: readonly AdaptationInputDocument[],
+  documents: readonly EffectiveDocument[],
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+): boolean {
+  if (
+    manifest.status !== "needs_clarification" ||
+    manifest.scope_confirmation_ref === null ||
+    manifest.scope_confirmation_hash === null
+  ) {
+    return false;
+  }
+  const confirmation = exactRecords.get(manifest.scope_confirmation_ref);
+  if (
+    confirmation?.schema_version !== "startup_opportunity.decision.v1" ||
+    confirmation.decision_type !== "scope_changed_by_user" ||
+    confirmation.run_id !== manifest.run_id ||
+    confirmation.scope_revision !== manifest.scope_revision ||
+    canonicalContentHash(confirmation) !== manifest.scope_confirmation_hash
+  ) {
+    return false;
+  }
+  const byPath = new Map(documents.map((document) => [document.path, document]));
+  return decisions.some((decision) =>
+    (Array.isArray(decision.document.trigger_gap_refs)
+      ? decision.document.trigger_gap_refs
+      : []
+    ).some((ref) => {
+      if (typeof ref !== "string") return false;
+      const [gapPath = "", gapId] = ref.split("#", 2);
+      const snapshot = byPath.get(gapPath);
+      const gap = Array.isArray(snapshot?.document.gaps)
+        ? snapshot.document.gaps.find(
+            (candidate) => isRecord(candidate) && candidate.gap_id === gapId,
+          )
+        : undefined;
+      return (
+        snapshot?.document.run_id === manifest.run_id &&
+        snapshot.document.based_on_plan_ref === manifest.current_plan_ref &&
+        snapshot.document.trigger_kind === "resume_reconciliation" &&
+        isRecord(gap) &&
+        gap.gap_type === "scope_invalidated" &&
+        Array.isArray(gap.basis_refs) &&
+        gap.basis_refs.includes(manifest.scope_confirmation_ref)
+      );
+    }),
+  );
+}
+
 async function durableDiscoveryCandidateBindings(
   runRoot: string,
   manifest: RunManifest,
@@ -1886,6 +1936,12 @@ export class PlanRevisionRuntime {
       manifest,
       selectedDecisions,
       input.createdAt,
+      scopeReconciliationAuthorized(
+        manifest,
+        selectedDecisions,
+        effectiveDocuments(patchedBundle),
+        new Map(referenceContext.exactJsonlRecords ?? []),
+      ),
     );
     if (transformed.operationKey !== expectedOperationKey) {
       throw new StoreError(

@@ -143,6 +143,7 @@ export function transformPlan(
   manifest: RunManifest,
   decisions: readonly AdaptationInputDocument[],
   createdAt: string,
+  resumeClarificationAuthorized = false,
 ): PlanTransformationResult {
   const sortedDecisions = [...decisions].sort((left, right) => left.path.localeCompare(right.path));
   const adaptationRefs = sortedDecisions.map((decision) => decision.path);
@@ -301,7 +302,11 @@ export function transformPlan(
   const addsFollowupWork = actions.some((action) =>
     ["add_unit", "retry_unit", "supersede_unit"].includes(action),
   );
-  if (manifest.status === "needs_clarification" && manifest.status_before_clarification === null) {
+  if (
+    manifest.status === "needs_clarification" &&
+    resumeClarificationAuthorized &&
+    manifest.status_before_clarification === null
+  ) {
     throw new StoreError(
       "adaptation.clarification_resume_state_missing",
       "Scope reconciliation cannot resume a Run without its exact pre-clarification status",
@@ -310,11 +315,13 @@ export function transformPlan(
   nextManifest = {
     ...nextManifest,
     status:
-      manifest.status === "needs_clarification"
+      manifest.status === "needs_clarification" && resumeClarificationAuthorized
         ? (manifest.status_before_clarification as RunManifest["status"])
         : manifest.status,
     status_before_clarification:
-      manifest.status === "needs_clarification" ? null : manifest.status_before_clarification,
+      manifest.status === "needs_clarification" && resumeClarificationAuthorized
+        ? null
+        : manifest.status_before_clarification,
     current_plan_ref: planPath,
     plan_revision: revision,
     followup_round:
