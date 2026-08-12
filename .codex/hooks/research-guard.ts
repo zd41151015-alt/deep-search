@@ -247,6 +247,27 @@ interface ShellLexFrame {
   quote: "ansi_c" | "single" | "double" | null;
 }
 
+interface BacktickDollarFold {
+  readonly dollarOffset: number;
+  readonly expands: boolean;
+}
+
+function foldBacktickBackslashesBeforeDollar(
+  line: string,
+  slashOffset: number,
+): BacktickDollarFold | null {
+  let dollarOffset = slashOffset;
+  while (line[dollarOffset] === "\\") dollarOffset += 1;
+  if (line[dollarOffset] !== "$") return null;
+  // Backticks fold the outer slash run before the inner shell decides whether $ is escaped.
+  const rawSlashCount = dollarOffset - slashOffset;
+  const innerSlashCount = Math.floor(rawSlashCount / 2);
+  return {
+    dollarOffset,
+    expands: innerSlashCount % 2 === 0,
+  };
+}
+
 function scanShellLine(
   line: string,
   frames: ShellLexFrame[],
@@ -337,6 +358,17 @@ function scanShellLine(
       }
       if (character === "'") frame.quote = null;
       continue;
+    }
+    if (frame.kind === "backtick" && character === "\\") {
+      const foldedDollar = foldBacktickBackslashesBeforeDollar(line, index);
+      if (foldedDollar !== null) {
+        index = foldedDollar.dollarOffset;
+        if (foldedDollar.expands) {
+          const name = shellVariableNameAt(line, index);
+          if (name !== null) names.push(name);
+        }
+        continue;
+      }
     }
     if (frame.kind === "backtick" && character === "\\" && line[index + 1] === "`") {
       if (frame.backtickTerminator === "escaped") frames.pop();
