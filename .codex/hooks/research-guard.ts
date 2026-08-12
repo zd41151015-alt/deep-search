@@ -417,6 +417,7 @@ function scanShellLine(
   names: string[],
   heredocs: ShellHeredoc[] | null,
   failClosedState?: FailClosedShellState,
+  inheritedFailClosedHeredocs: readonly ShellHeredoc[] = [],
 ): void {
   if (failClosedState?.active === true) {
     scanFailClosedShellLine(line, 0, failClosedState, names);
@@ -534,6 +535,7 @@ function scanShellLine(
           });
         } else if (failClosedState !== undefined) {
           failClosedState.active = true;
+          failClosedState.heredocs.push(...inheritedFailClosedHeredocs);
           scanFailClosedShellLine(line, index + 1, failClosedState, names);
           // The ambiguous delimiter leaves the remainder's inherited quote context unknowable.
           // Start the persistent fallback at the next complete physical line instead.
@@ -735,8 +737,7 @@ function shellVariableNames(contents: string): readonly string[] {
       const candidate = heredoc.stripLeadingTabs ? line.replace(/^\t+/, "") : line;
       if (candidate === heredoc.delimiter) heredocs.shift();
       else if (heredoc.expandsVariables) {
-        scanShellLine(line, heredoc.expansionFrames, names, null, failClosedState);
-        if (failClosedState.active) failClosedState.heredocs.push(...heredocs);
+        scanShellLine(line, heredoc.expansionFrames, names, null, failClosedState, heredocs);
       }
       continue;
     }

@@ -331,6 +331,31 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
       "\n",
     ),
   ]);
+  const ambiguousOuterHeredoc = (
+    fakeDelimiter: "'FAKE'" | "FAKE",
+    sensitiveLineOffset: 1 | 2,
+  ): string =>
+    [
+      "cat <<EOF",
+      `${ambiguousBacktickLine(2)} <<${fakeDelimiter}`,
+      ...(sensitiveLineOffset === 2 ? ["literal"] : []),
+      "$PRIOR_ARTIFACT_PATH",
+      "FAKE",
+      "EOF",
+    ].join("\n");
+  const ambiguousOuterHeredocSensitiveCommands = (["'FAKE'", "FAKE"] as const).flatMap(
+    (fakeDelimiter) =>
+      ([1, 2] as const).map((sensitiveLineOffset) =>
+        ambiguousOuterHeredoc(fakeDelimiter, sensitiveLineOffset),
+      ),
+  );
+  const ambiguousQuotedOuterHeredoc = [
+    "cat <<'EOF'",
+    `${ambiguousBacktickLine(2)} <<'FAKE'`,
+    "$PRIOR_ARTIFACT_PATH",
+    "FAKE",
+    "EOF",
+  ].join("\n");
 
   const accidentInput = {
     cwd: fixture.root,
@@ -371,6 +396,7 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
   for (const command of [
     ...backtickMatrixCommands(true),
     ...ambiguousSensitiveCommands,
+    ...ambiguousOuterHeredocSensitiveCommands,
     'for p in runs/*/artifacts/discovery/opportunity-space-map.r1.json; do cat "$p"; done',
     "find runs -name opportunity-space-map.r1.json -exec cat {} \\;",
     'cat "$PRIOR_ARTIFACT_PATH"',
@@ -441,6 +467,7 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
   for (const command of [
     ...backtickMatrixCommands(false),
     ...ambiguousAllowedCommands,
+    ambiguousQuotedOuterHeredoc,
     'find harness -name "*.ts"',
     'cat "$TMP_FILE"',
     'cat "$PREVIOUS_API_RESPONSE"',
