@@ -240,22 +240,6 @@ function shellVariableNameAt(contents: string, dollarOffset: number): string | n
   return contents.slice(nameStart, nameEnd);
 }
 
-function isPriorRunVariableName(variableName: string): boolean {
-  const name = variableName.toUpperCase();
-  return (
-    /(?:^|_)(?:PRIOR|PREVIOUS)_(?:RUN|RUNS|ARTIFACT)(?:_|$)/.test(name) ||
-    /(?:^|_)OLD_RUN(?:_|$)/.test(name) ||
-    /(?:^|_)SOURCE_RUN(?:_|$)/.test(name) ||
-    /(?:^|_)RUNS_ROOT(?:_|$)/.test(name)
-  );
-}
-
-function hasRawPriorRunVariable(contents: string): boolean {
-  const names: string[] = [];
-  collectRawShellVariableNames(contents.replace(/\\\r?\n/g, ""), 0, names);
-  return names.some(isPriorRunVariableName);
-}
-
 interface ShellLexFrame {
   readonly backtickFoldingDepth?: number;
   readonly backtickTerminator?: "escaped" | "plain";
@@ -762,80 +746,34 @@ function shellVariableNames(contents: string): readonly string[] {
   return names;
 }
 
-interface ShellCommandWord {
-  readonly raw: string;
-  readonly value: string;
+function isPriorRunVariableName(variableName: string): boolean {
+  const name = variableName.toUpperCase();
+  return (
+    /(?:^|_)(?:PRIOR|PREVIOUS)_(?:RUN|RUNS|ARTIFACT)(?:_|$)/.test(name) ||
+    /(?:^|_)OLD_RUN(?:_|$)/.test(name) ||
+    /(?:^|_)SOURCE_RUN(?:_|$)/.test(name) ||
+    /(?:^|_)RUNS_ROOT(?:_|$)/.test(name)
+  );
 }
 
-interface ShellCommandSegment {
-  readonly heredocs: ShellHeredoc[];
-  readonly stdinHeredocs: readonly ShellHeredoc[];
-  readonly stdinPayloads: readonly string[];
-  readonly words: ShellCommandWord[];
+function hasRawPriorRunVariable(contents: string): boolean {
+  const names: string[] = [];
+  collectRawShellVariableNames(contents.replace(/\\\r?\n/g, ""), 0, names);
+  return names.some(isPriorRunVariableName);
 }
 
-interface ShellCommandParse {
-  readonly hasUnclosedQuote: boolean;
-  readonly segments: readonly ShellCommandSegment[];
+interface ReinterpreterLineScan {
+  readonly heredocs: readonly ShellHeredoc[];
+  readonly segmentStarts: readonly number[];
 }
 
-interface ReinterpretedHeredoc extends ShellHeredoc {
-  bodyBuffer: string;
-  readonly inspectBody: boolean;
-}
-
-function arithmeticEnd(contents: string, offset: number): number | null {
-  const prefixLength = contents.startsWith("$((", offset)
-    ? 3
-    : contents.startsWith("((", offset)
-      ? 2
-      : 0;
-  if (prefixLength === 0) return null;
-  let depth = 2;
-  let quote: "double" | "single" | null = null;
-  for (let index = offset + prefixLength; index < contents.length; index += 1) {
-    const character = contents[index];
-    if (character === "\\" && quote !== "single") {
-      index += 1;
-      continue;
-    }
-    if (character === "'" && quote !== "double") {
-      quote = quote === "single" ? null : "single";
-      continue;
-    }
-    if (character === '"' && quote !== "single") {
-      quote = quote === "double" ? null : "double";
-      continue;
-    }
-    if (quote !== null) continue;
-    if (character === "(") depth += 1;
-    else if (character === ")") {
-      depth -= 1;
-      if (depth === 0) return index + 1;
-    }
-  }
-  return null;
-}
-
-function backtickEnd(contents: string, offset: number): number | null {
-  for (let index = offset + 1; index < contents.length; index += 1) {
-    if (contents[index] === "\\") index += 1;
-    else if (contents[index] === "`") return index;
-  }
-  return null;
-}
-
-interface CommandSubstitution {
-  readonly body: string;
-  readonly end: number;
-}
-
-function commandSubstitutionAt(contents: string, offset: number): CommandSubstitution | null {
-  if (!contents.startsWith("$(", offset) || contents.startsWith("$((", offset)) return null;
-  let depth = 1;
+function reinterpreterLineScan(line: string): ReinterpreterLineScan {
+  const heredocs: ShellHeredoc[] = [];
+  const segmentStarts = [0];
+  let arithmeticDepth = 0;
   let quote: "ansi_c" | "double" | "single" | null = null;
-  for (let index = offset + 2; index < contents.length; index += 1) {
-    const character = contents[index];
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
     if (quote === "single") {
       if (character === "'") quote = null;
       continue;
@@ -849,13 +787,23 @@ function commandSubstitutionAt(contents: string, offset: number): CommandSubstit
       index += 1;
       continue;
     }
-    if (quote === "double") {
-      if (character === '"') quote = null;
-      else if (character === "$" && contents[index + 1] === "(") depth += 1;
-      else if (character === ")" && depth > 1) depth -= 1;
+    if (arithmeticDepth > 0) {
+      if (character === "(") arithmeticDepth += 1;
+      else if (character === ")") arithmeticDepth -= 1;
       continue;
     }
-    if (character === "$" && contents[index + 1] === "'") {
+    if (quote === "double") {
+      if (character === '"') quote = null;
+      else if (line.startsWith("$((", index)) {
+        arithmeticDepth = 2;
+        index += 2;
+      } else if (line.startsWith("$(", index) && !line.startsWith("$((", index)) {
+        segmentStarts.push(index + 2);
+        index += 1;
+      } else if (character === "`") segmentStarts.push(index + 1);
+      continue;
+    }
+    if (character === "$" && line[index + 1] === "'") {
       quote = "ansi_c";
       index += 1;
       continue;
@@ -868,425 +816,62 @@ function commandSubstitutionAt(contents: string, offset: number): CommandSubstit
       quote = "double";
       continue;
     }
-    if (character === "`") {
-      const end = backtickEnd(contents, index);
-      if (end === null) return null;
-      index = end;
+    if (character === "#" && (index === 0 || /[\s;&|()]/.test(line[index - 1] ?? ""))) break;
+    if (line.startsWith("$((", index)) {
+      arithmeticDepth = 2;
+      index += 2;
       continue;
     }
-    if (character === "(") depth += 1;
-    else if (character === ")") {
-      depth -= 1;
-      if (depth === 0) return { body: contents.slice(offset + 2, index), end: index };
-    }
-  }
-  return null;
-}
-
-function nestedShellBodies(contents: string): readonly string[] {
-  const bodies: string[] = [];
-  let quote: "ansi_c" | "double" | "single" | null = null;
-  for (let index = 0; index < contents.length; index += 1) {
-    const character = contents[index];
-    if (quote === "single") {
-      if (character === "'") quote = null;
-      continue;
-    }
-    if (quote === "ansi_c") {
-      if (character === "\\") index += 1;
-      else if (character === "'") quote = null;
-      continue;
-    }
-    if (character === "\\") {
+    if (line.startsWith("((", index)) {
+      arithmeticDepth = 2;
       index += 1;
       continue;
     }
-    if (character === "$" && contents[index + 1] === "(") {
-      const substitution = commandSubstitutionAt(contents, index);
-      if (substitution !== null) {
-        bodies.push(substitution.body);
-        index = substitution.end;
-        continue;
-      }
-    }
-    if (character === "`") {
-      const end = backtickEnd(contents, index);
-      if (end !== null) {
-        bodies.push(contents.slice(index + 1, end));
-        index = end;
-        continue;
-      }
-    }
-    if (quote === "double") {
-      if (character === '"') quote = null;
-      continue;
-    }
-    if (character === "$" && contents[index + 1] === "'") {
-      quote = "ansi_c";
-      index += 1;
-    } else if (character === "'") quote = "single";
-    else if (character === '"') quote = "double";
-  }
-  return bodies;
-}
-
-function parseShellCommandSegments(line: string): ShellCommandParse {
-  const segments: ShellCommandSegment[] = [];
-  let hasUnclosedQuote = false;
-  let heredocs: ShellHeredoc[] = [];
-  let stdinHeredocs: ShellHeredoc[] = [];
-  let stdinPayloads: string[] = [];
-  let words: ShellCommandWord[] = [];
-  let redirectionTarget: "ignore" | "stdin_payload" | null = null;
-  const finishSegment = (): void => {
-    if (words.length > 0 || heredocs.length > 0) {
-      segments.push({ heredocs, stdinHeredocs, stdinPayloads, words });
-    }
-    heredocs = [];
-    stdinHeredocs = [];
-    stdinPayloads = [];
-    words = [];
-  };
-  for (let index = 0; index < line.length; ) {
-    const character = line[index];
-    if (/\s/.test(character ?? "")) {
-      index += 1;
-      continue;
-    }
-    if (character === "#") break;
     if (character === "<") {
-      const declaration = heredocAt(line, index);
-      if (declaration !== null) {
-        heredocs.push(declaration);
-        index = declaration.declarationEnd;
+      const heredoc = heredocAt(line, index);
+      if (heredoc !== null) {
+        heredocs.push(heredoc);
+        index = heredoc.declarationEnd - 1;
         continue;
       }
     }
-    if (character === "<" || character === ">") {
-      const isHereString = line.startsWith("<<<", index);
-      index += isHereString ? 3 : line[index + 1] === character ? 2 : 1;
-      redirectionTarget = isHereString ? "stdin_payload" : "ignore";
-      continue;
-    }
-    const topLevelArithmeticEnd = arithmeticEnd(line, index);
-    if (topLevelArithmeticEnd !== null) {
-      index = topLevelArithmeticEnd;
-      continue;
-    }
-    if (/[;&|()]/.test(character ?? "")) {
-      const isPipe = character === "|" && line[index + 1] !== "|";
-      finishSegment();
-      if (isPipe) {
-        const source = segments.at(-1);
-        stdinPayloads = [
-          ...(source?.stdinPayloads ?? []),
-          ...(source?.words.flatMap((word) => [word.raw, word.value]) ?? []),
-        ];
-        stdinHeredocs = [...(source?.stdinHeredocs ?? []), ...(source?.heredocs ?? [])];
-      }
-      index +=
-        (character === "|" && line[index + 1] === "&") || line[index + 1] === character ? 2 : 1;
-      continue;
-    }
-    const wordStart = index;
-    let quote: "ansi_c" | "double" | "single" | null = null;
-    let value = "";
-    for (; index < line.length; index += 1) {
-      const current = line[index];
-      const embeddedArithmeticEnd = quote === null ? arithmeticEnd(line, index) : null;
-      if (embeddedArithmeticEnd !== null) {
-        value += line.slice(index, embeddedArithmeticEnd);
-        index = embeddedArithmeticEnd - 1;
-        continue;
-      }
-      if (quote === null && (/\s/.test(current ?? "") || /[;&|()<>]/.test(current ?? ""))) {
-        break;
-      }
-      if (quote === "single") {
-        if (current === "'") quote = null;
-        else value += current;
-        continue;
-      }
-      if (quote === "ansi_c") {
-        if (current === "'") {
-          quote = null;
-          continue;
-        }
-        if (current === "\\") {
-          const decoded = decodeAnsiCEscape(line, index);
-          if (decoded === null) {
-            value += current;
-            continue;
-          }
-          value += decoded.value;
-          index = decoded.nextOffset - 1;
-          continue;
-        }
-        value += current;
-        continue;
-      }
-      if (quote === "double") {
-        if (current === '"') {
-          quote = null;
-          continue;
-        }
-        if (current === "\\" && /[\\"`$]/.test(line[index + 1] ?? "")) {
-          index += 1;
-          value += line[index];
-          continue;
-        }
-        value += current;
-        continue;
-      }
-      if (current === "\\") {
-        const escaped = line[index + 1];
-        if (escaped !== undefined) {
-          value += escaped;
-          index += 1;
-        }
-        continue;
-      }
-      if (current === "$" && line[index + 1] === "'") {
-        quote = "ansi_c";
-        index += 1;
-        continue;
-      }
-      if (current === "'") {
-        quote = "single";
-        continue;
-      }
-      if (current === '"') {
-        quote = "double";
-        continue;
-      }
-      value += current;
-    }
-    if (quote !== null) hasUnclosedQuote = true;
-    const raw = line.slice(wordStart, index);
-    if (redirectionTarget === "stdin_payload") {
-      stdinPayloads.push(raw, value);
-      redirectionTarget = null;
-    } else if (redirectionTarget === "ignore") redirectionTarget = null;
-    else if (!(line[index] === "<" || line[index] === ">") || !/^\d+$/.test(value)) {
-      words.push({ raw, value });
-    }
-  }
-  finishSegment();
-  return { hasUnclosedQuote, segments };
-}
-
-function commandName(word: ShellCommandWord | undefined): string | null {
-  if (word === undefined) return null;
-  const basename = word.value.slice(word.value.lastIndexOf("/") + 1);
-  return basename === "bash" || basename === "sh" || basename === "zsh" ? basename : null;
-}
-
-function isShellAssignment(word: ShellCommandWord | undefined): boolean {
-  return word !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(word.value);
-}
-
-type ReinterpreterTarget = "eval_only" | "shell_or_eval";
-
-interface WrapperTarget {
-  readonly index: number;
-  readonly target: ReinterpreterTarget;
-}
-
-function consumeExecOptions(words: readonly ShellCommandWord[], start: number): number | null {
-  let index = start + 1;
-  while (words[index] !== undefined) {
-    const option = words[index]?.value ?? "";
-    if (option === "--") return index + 1;
-    const namedArgv = /^-[cl]*a(.*)$/.exec(option);
-    if (namedArgv !== null) {
-      if (namedArgv[1] === "") {
-        if (words[index + 1] === undefined) return null;
-        index += 2;
-      } else index += 1;
-      continue;
-    }
-    if (/^-[cl]+$/.test(option)) {
+    if (line.startsWith("$(", index) && !line.startsWith("$((", index)) {
+      segmentStarts.push(index + 2);
       index += 1;
-      continue;
-    }
-    if (option.startsWith("-") && option !== "-") return null;
-    break;
+    } else if (character === "`") segmentStarts.push(index + 1);
+    else if (/[;&|()]/.test(character ?? "")) segmentStarts.push(index + 1);
   }
-  return index;
+  return { heredocs, segmentStarts };
 }
 
-function wrapperTarget(words: readonly ShellCommandWord[], start: number): WrapperTarget | null {
-  const wrapper = words[start]?.value;
-  if (wrapper === "exec") {
-    const index = consumeExecOptions(words, start);
-    return index === null ? null : { index, target: "shell_or_eval" };
+function hasInterpreterAtSegmentStart(segment: string): boolean {
+  const candidate = segment.trimStart();
+  if (/^(?:(?:\/usr)?\/bin\/)?(?:bash|sh|zsh)(?=$|[\s<>])/.test(candidate)) return true;
+  if (/^eval(?=$|\s)/.test(candidate)) return true;
+  if (/^command\s+-[pVv]*[Vv][pVv]*(?=$|\s)/.test(candidate)) return false;
+  if (
+    !/^(?:!\s+|(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)+|(?:command|builtin|do|elif|else|exec|then|time)\b|(?:(?:\/usr)?\/bin\/)?env\b)/.test(
+      candidate,
+    )
+  ) {
+    return false;
   }
-  if (wrapper === "builtin") {
-    const option = words[start + 1]?.value;
-    if (option?.startsWith("-") === true && option !== "--") return null;
-    return { index: option === "--" ? start + 2 : start + 1, target: "eval_only" };
-  }
-  if (wrapper === "command") {
-    let index = start + 1;
-    while (words[index] !== undefined) {
-      const option = words[index]?.value ?? "";
-      if (option === "--") {
-        index += 1;
-        break;
-      }
-      if (!option.startsWith("-") || option === "-") break;
-      if (!/^-[pVv]+$/.test(option) || /[Vv]/.test(option)) return null;
-      index += 1;
-    }
-    return { index, target: "shell_or_eval" };
-  }
-  return { index: start, target: "shell_or_eval" };
+  return /(?:^|[\s/])(?:bash|sh|zsh)(?=$|[\s<>])|(?:^|\s)eval(?=$|\s)/.test(candidate);
 }
 
-function reinterpreterStart(words: readonly ShellCommandWord[]): number | null {
-  let index = 0;
-  const controlPrefixes = new Set([
-    "!",
-    "{",
-    "do",
-    "elif",
-    "else",
-    "if",
-    "then",
-    "time",
-    "until",
-    "while",
-  ]);
-  while (true) {
-    while (isShellAssignment(words[index])) index += 1;
-    const controlPrefix = words[index]?.value;
-    if (controlPrefix === undefined || !controlPrefixes.has(controlPrefix)) break;
-    index += 1;
-    if (controlPrefix === "time" && words[index]?.value === "-p") index += 1;
-  }
-  const wrapped = wrapperTarget(words, index);
-  if (wrapped === null) return null;
-  index = wrapped.index;
-  if (wrapped.target === "eval_only") return words[index]?.value === "eval" ? index : null;
-  let passedEnv = false;
-  if (words[index] !== undefined && commandName(words[index]) === null) {
-    const basename = words[index]?.value.slice((words[index]?.value.lastIndexOf("/") ?? -1) + 1);
-    if (basename !== "env") {
-      return wrapped.target === "shell_or_eval" && words[index]?.value === "eval" ? index : null;
-    }
-    passedEnv = true;
-    index += 1;
-    while (words[index] !== undefined) {
-      const option = words[index]?.value ?? "";
-      if (isShellAssignment(words[index])) index += 1;
-      else if (/^(?:-u|-C|-S|--unset|--chdir|--split-string|--argv0)$/.test(option)) index += 2;
-      else if (/^--(?:unset|chdir|split-string|argv0)=/.test(option) || /^-/.test(option))
-        index += 1;
-      else break;
-    }
-  }
-  return commandName(words[index]) !== null ||
-    (!passedEnv && wrapped.target === "shell_or_eval" && words[index]?.value === "eval")
-    ? index
-    : null;
-}
-
-function hasPriorRunShellReinterpretation(contents: string, recursionDepth = 0): boolean {
-  const pendingHeredocs: ReinterpretedHeredoc[] = [];
-  let commandBuffer = "";
+function hasShellReinterpreterSignal(contents: string): boolean {
+  const pendingHeredocs: ShellHeredoc[] = [];
   for (const line of contents.split(/\r?\n/)) {
     const pending = pendingHeredocs[0];
     if (pending !== undefined) {
       const candidate = pending.stripLeadingTabs ? line.replace(/^\t+/, "") : line;
       if (candidate === pending.delimiter) pendingHeredocs.shift();
-      else {
-        pending.bodyBuffer = pending.bodyBuffer === "" ? line : `${pending.bodyBuffer}\n${line}`;
-        if (pending.inspectBody && hasRawPriorRunVariable(pending.bodyBuffer)) return true;
-        if (
-          pending.expandsVariables &&
-          recursionDepth < 8 &&
-          nestedShellBodies(pending.bodyBuffer).some((body) =>
-            hasPriorRunShellReinterpretation(body, recursionDepth + 1),
-          )
-        ) {
-          return true;
-        }
-      }
       continue;
     }
-    commandBuffer = commandBuffer === "" ? line : `${commandBuffer}\n${line}`;
-    const parsed = parseShellCommandSegments(commandBuffer);
-    if (parsed.hasUnclosedQuote) continue;
-    if (
-      recursionDepth < 8 &&
-      nestedShellBodies(commandBuffer).some((body) =>
-        hasPriorRunShellReinterpretation(body, recursionDepth + 1),
-      )
-    ) {
+    const scan = reinterpreterLineScan(line);
+    pendingHeredocs.push(...scan.heredocs);
+    if (scan.segmentStarts.some((offset) => hasInterpreterAtSegmentStart(line.slice(offset)))) {
       return true;
-    }
-    commandBuffer = "";
-    const shellStdinHeredocs = new Set(
-      parsed.segments.flatMap((segment) => {
-        const start = reinterpreterStart(segment.words);
-        return start !== null && commandName(segment.words[start]) !== null
-          ? segment.stdinHeredocs
-          : [];
-      }),
-    );
-    for (const segment of parsed.segments) {
-      const start = reinterpreterStart(segment.words);
-      if (start === null) {
-        pendingHeredocs.push(
-          ...segment.heredocs.map((heredoc) => ({
-            ...heredoc,
-            bodyBuffer: "",
-            inspectBody: shellStdinHeredocs.has(heredoc),
-          })),
-        );
-        continue;
-      }
-      const name = segment.words[start]?.value;
-      const shellName = commandName(segment.words[start]);
-      if (name === "eval") {
-        if (
-          segment.words
-            .slice(start + 1)
-            .some((word) => hasRawPriorRunVariable(word.raw) || hasRawPriorRunVariable(word.value))
-        ) {
-          return true;
-        }
-      } else if (shellName !== null) {
-        if (segment.stdinPayloads.some(hasRawPriorRunVariable)) return true;
-        let commandStringOffset: number | null = null;
-        for (let index = start + 1; index < segment.words.length; index += 1) {
-          const option = segment.words[index]?.value ?? "";
-          if (/^-[^-]*c/.test(option)) {
-            commandStringOffset = index + 1;
-            break;
-          }
-          if (/^(?:-O|\+O|-o|\+o|--rcfile|--init-file)$/.test(option)) {
-            index += 1;
-            continue;
-          }
-          if (option === "--") break;
-          if (!option.startsWith("-")) break;
-        }
-        if (
-          commandStringOffset !== null &&
-          (hasRawPriorRunVariable(segment.words[commandStringOffset]?.raw ?? "") ||
-            hasRawPriorRunVariable(segment.words[commandStringOffset]?.value ?? ""))
-        ) {
-          return true;
-        }
-      }
-      pendingHeredocs.push(
-        ...segment.heredocs.map((heredoc) => ({
-          ...heredoc,
-          bodyBuffer: "",
-          inspectBody: shellName !== null || shellStdinHeredocs.has(heredoc),
-        })),
-      );
     }
   }
   return false;
@@ -1295,7 +880,7 @@ function hasPriorRunShellReinterpretation(contents: string, recursionDepth = 0):
 function hasPriorRunDynamicReference(contents: string): boolean {
   return (
     shellVariableNames(contents).some(isPriorRunVariableName) ||
-    hasPriorRunShellReinterpretation(contents)
+    (hasShellReinterpreterSignal(contents) && hasRawPriorRunVariable(contents))
   );
 }
 
