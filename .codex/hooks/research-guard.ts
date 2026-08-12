@@ -846,7 +846,7 @@ function reinterpreterLineScan(line: string): ReinterpreterLineScan {
 
 function hasInterpreterAtSegmentStart(segment: string): boolean {
   const candidate = segment.trimStart();
-  if (/^(?:(?:\/usr)?\/bin\/)?(?:bash|sh|zsh)(?=$|[\s<>])/.test(candidate)) return true;
+  if (/^(?:[^\s;&|()<>]+\/)?(?:bash|sh|zsh)(?=$|[\s<>])/.test(candidate)) return true;
   if (/^eval(?=$|\s)/.test(candidate)) return true;
   if (/^command\s+-[pVv]*[Vv][pVv]*(?=$|\s)/.test(candidate)) return false;
   if (

@@ -359,6 +359,8 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
   const reinterpreterSensitiveCommands = [
     `bash -c 'cat "$PRIOR_ARTIFACT_PATH"'`,
     `/bin/sh -lc 'cat "$PRIOR_ARTIFACT_PATH"'`,
+    `/opt/tools/bash -c 'cat "$PRIOR_ARTIFACT_PATH"'`,
+    `./tools/zsh -c 'cat "$PRIOR_ARTIFACT_PATH"'`,
     `eval 'cat "$PRIOR_ARTIFACT_PATH"'`,
     [`zsh <<'SCRIPT'`, `cat "$PRIOR_ARTIFACT_PATH"`, "SCRIPT"].join("\n"),
     `bash <<< 'cat "$PRIOR_ARTIFACT_PATH"'`,
@@ -375,6 +377,7 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
   ];
   const reinterpreterAllowedCommands = [
     `printf '%s' '$PRIOR_ARTIFACT_PATH'`,
+    `printf '%s' '/tmp/bash $PRIOR_ARTIFACT_PATH'`,
     `rg '\\$PRIOR_ARTIFACT_PATH' .codex`,
     [`cat <<'DOC'`, `bash -c 'cat "$PRIOR_ARTIFACT_PATH"'`, "DOC"].join("\n"),
     `bash -c 'cat "$PREVIOUS_API_RESPONSE_FILE"'`,
