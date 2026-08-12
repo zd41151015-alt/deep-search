@@ -276,6 +276,12 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     "printf '%s\\n' \"`printf '%s' \\`printf '%s' \\\"$PRIOR_ARTIFACT_PATH\\\"\\``\"",
     ["cat <<EOF", "`printf '%s' \\\"$PRIOR_ARTIFACT_PATH\\\"`", "EOF"].join("\n"),
     `printf "%s\\n" "$(printf %s "$PRIOR_ARTIFACT_PATH")"`,
+    "printf '%s' $'literal\\''\"$PRIOR_ARTIFACT_PATH\"",
+    "printf '%s' $'literal\\''$PRIOR_ARTIFACT_PATH",
+    "printf '%s' \"$(printf '%s' $'literal\\''\"$PRIOR_ARTIFACT_PATH\")\"",
+    "printf '%s' \"`printf '%s' $'literal\\''\\\"$PRIOR_ARTIFACT_PATH\\\"`\"",
+    ["cat <<EOF", "$(printf '%s' $'literal\\''\"$PRIOR_ARTIFACT_PATH\")", "EOF"].join("\n"),
+    ["cat <<EOF", "`printf '%s' $'literal\\''\\\"$PRIOR_ARTIFACT_PATH\\\"`", "EOF"].join("\n"),
     `value=$((1 << 2))\ncat "$PRIOR_ARTIFACT_PATH"`,
     `(( value = 1 << 2 ))\ncat "$PRIOR_ARTIFACT_PATH"`,
   ]) {
@@ -333,6 +339,16 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     `value=$((1 << 2))\nprintf "%s\\n" '$PRIOR_ARTIFACT_PATH'`,
     `(( value = 1 << 2 ))\nprintf "%s\\n" '$PRIOR_ARTIFACT_PATH'`,
     `printf "%s\\n" "$(printf %s '$PRIOR_ARTIFACT_PATH')"`,
+    "printf '%s' $'$PRIOR_ARTIFACT_PATH'",
+    "printf '%s' $'literal\\''\"\\$PRIOR_ARTIFACT_PATH\"",
+    "printf '%s' \"$(printf '%s' $'$PRIOR_ARTIFACT_PATH')\"",
+    "printf '%s' \"$(printf '%s' $'literal\\''\"\\$PRIOR_ARTIFACT_PATH\")\"",
+    "printf '%s' \"`printf '%s' $'$PRIOR_ARTIFACT_PATH'`\"",
+    "printf '%s' \"`printf '%s' $'literal\\''\\\"\\$PRIOR_ARTIFACT_PATH\\\"`\"",
+    ["cat <<EOF", "$(printf '%s' $'$PRIOR_ARTIFACT_PATH')", "EOF"].join("\n"),
+    ["cat <<EOF", "$(printf '%s' $'literal\\''\"\\$PRIOR_ARTIFACT_PATH\")", "EOF"].join("\n"),
+    ["cat <<EOF", "`printf '%s' $'$PRIOR_ARTIFACT_PATH'`", "EOF"].join("\n"),
+    ["cat <<EOF", "`printf '%s' $'literal\\''\\\"\\$PRIOR_ARTIFACT_PATH\\\"`", "EOF"].join("\n"),
   ]) {
     assert.equal(
       await evaluatePreToolUse(

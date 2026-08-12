@@ -244,7 +244,7 @@ interface ShellLexFrame {
   readonly backtickTerminator?: "escaped" | "plain";
   readonly kind: "arithmetic" | "backtick" | "command" | "heredoc";
   parenDepth: number | null;
-  quote: "single" | "double" | null;
+  quote: "ansi_c" | "single" | "double" | null;
 }
 
 function scanShellLine(
@@ -330,6 +330,14 @@ function scanShellLine(
       if (character === "'") frame.quote = null;
       continue;
     }
+    if (frame.quote === "ansi_c") {
+      if (character === "\\") {
+        index += 1;
+        continue;
+      }
+      if (character === "'") frame.quote = null;
+      continue;
+    }
     if (frame.kind === "backtick" && character === "\\" && line[index + 1] === "`") {
       if (frame.backtickTerminator === "escaped") frames.pop();
       else {
@@ -379,6 +387,11 @@ function scanShellLine(
         const name = shellVariableNameAt(line, index);
         if (name !== null) names.push(name);
       }
+      continue;
+    }
+    if (character === "$" && line[index + 1] === "'") {
+      frame.quote = "ansi_c";
+      index += 1;
       continue;
     }
     if (character === "'") {
@@ -451,7 +464,8 @@ function removesTrailingLineContinuation(line: string, frames: readonly ShellLex
   if (slashCount % 2 === 0) return false;
   const probeFrames = cloneShellFrames(frames);
   scanShellLine(line.slice(0, -1), probeFrames, [], null);
-  return probeFrames.at(-1)?.quote !== "single";
+  const quote = probeFrames.at(-1)?.quote;
+  return quote !== "single" && quote !== "ansi_c";
 }
 
 function normalizeShellLineContinuations(contents: string): string {
