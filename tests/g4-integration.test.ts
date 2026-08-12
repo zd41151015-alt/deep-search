@@ -235,6 +235,8 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     `printf "%s\\n" "\${OLD_RUN_PATH:+alternate}"`,
     `printf "%s\\n" "\${RUNS_ROOT+alternate}"`,
     `cat "\${TMP_FILE:-$PRIOR_ARTIFACT_PATH}"`,
+    `cat <<EOF\n$PRIOR_ARTIFACT_PATH\nEOF`,
+    `cat <<EOF\n'$PRIOR_ARTIFACT_PATH'\nEOF`,
   ]) {
     const indirect = await evaluatePreToolUse(
       { cwd: fixture.root, tool_name: "Bash", tool_input: { command } },
@@ -266,6 +268,15 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     `shasum "\${PREVIOUS_API_RESPONSE_FILE:+/tmp/alternate}"`,
     `printf "%s\\n" "\${PRIOR_QUERY_RESULT_PATH+/tmp/alternate}"`,
     `cat "\${TMP_FILE:-PRIOR_ARTIFACT_PATH}"`,
+    `printf "%s\\n" '$PRIOR_ARTIFACT_PATH'`,
+    `printf "%s\\n" "\\$PRIOR_ARTIFACT_PATH"`,
+    `rg '\\$PRIOR_ARTIFACT_PATH' .codex`,
+    `cat <<'EOF'\n$PRIOR_ARTIFACT_PATH\nEOF`,
+    `cat <<"EOF"\n$PRIOR_ARTIFACT_PATH\nEOF`,
+    `cat <<\\EOF\n$PRIOR_ARTIFACT_PATH\nEOF`,
+    `cat <<E'OF'\n$PRIOR_ARTIFACT_PATH\nEOF`,
+    `printf "%s\\n" "\${TMP_FILE:-\\$PRIOR_ARTIFACT_PATH}"`,
+    `printf "%s\\n" literal # $PRIOR_ARTIFACT_PATH`,
   ]) {
     assert.equal(
       await evaluatePreToolUse(

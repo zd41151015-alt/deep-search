@@ -83,12 +83,123 @@ function hasUnresolvedRunReference(contents: string, activeRunId: string): boole
   return /(?:^|[/\s"'=])runs(?:\/|\b)/.test(withoutCurrentRunPaths);
 }
 
+interface ShellHeredoc {
+  readonly delimiter: string;
+  readonly declarationEnd: number;
+  readonly expandsVariables: boolean;
+  readonly stripLeadingTabs: boolean;
+}
+
+function heredocAt(line: string, offset: number): ShellHeredoc | null {
+  if (line[offset] !== "<" || line[offset + 1] !== "<" || line[offset + 2] === "<") {
+    return null;
+  }
+  let cursor = offset + 2;
+  const stripLeadingTabs = line[cursor] === "-";
+  if (stripLeadingTabs) cursor += 1;
+  while (line[cursor] === " " || line[cursor] === "\t") cursor += 1;
+  let quoted = false;
+  let quote: "single" | "double" | null = null;
+  let delimiter = "";
+  const wordStart = cursor;
+  for (; cursor < line.length; cursor += 1) {
+    const character = line[cursor];
+    if (quote === null && /[\s;&|<>]/.test(character ?? "")) break;
+    if (character === "\\" && quote !== "single") {
+      quoted = true;
+      cursor += 1;
+      if (cursor < line.length) delimiter += line[cursor];
+      continue;
+    }
+    if (character === "'" && quote !== "double") {
+      quoted = true;
+      quote = quote === "single" ? null : "single";
+      continue;
+    }
+    if (character === '"' && quote !== "single") {
+      quoted = true;
+      quote = quote === "double" ? null : "double";
+      continue;
+    }
+    delimiter += character;
+  }
+  if (cursor === wordStart || quote !== null) return null;
+  return {
+    declarationEnd: cursor,
+    delimiter,
+    expandsVariables: !quoted,
+    stripLeadingTabs,
+  };
+}
+
+function shellVariableNameAt(contents: string, dollarOffset: number): string | null {
+  const nameStart = contents[dollarOffset + 1] === "{" ? dollarOffset + 2 : dollarOffset + 1;
+  const first = contents[nameStart];
+  if (first === undefined || !/[A-Za-z_]/.test(first)) return null;
+  let nameEnd = nameStart + 1;
+  while (/[A-Za-z0-9_]/.test(contents[nameEnd] ?? "")) nameEnd += 1;
+  return contents.slice(nameStart, nameEnd);
+}
+
 function shellVariableNames(contents: string): readonly string[] {
   const names: string[] = [];
-  const pattern = /\$([A-Za-z_][A-Za-z0-9_]*)|\$\{([A-Za-z_][A-Za-z0-9_]*)/g;
-  for (const match of contents.matchAll(pattern)) {
-    const name = match[1] ?? match[2];
-    if (name !== undefined) names.push(name);
+  const heredocs: ShellHeredoc[] = [];
+  let quote: "single" | "double" | null = null;
+  for (const line of contents.split(/\r?\n/)) {
+    const heredoc = heredocs[0];
+    if (heredoc !== undefined) {
+      const candidate = heredoc.stripLeadingTabs ? line.replace(/^\t+/, "") : line;
+      if (candidate === heredoc.delimiter) heredocs.shift();
+      else if (heredoc.expandsVariables) {
+        for (let index = 0; index < line.length; index += 1) {
+          if (line[index] === "\\") {
+            index += 1;
+            continue;
+          }
+          if (line[index] !== "$") continue;
+          const name = shellVariableNameAt(line, index);
+          if (name !== null) names.push(name);
+        }
+      }
+      continue;
+    }
+    for (let index = 0; index < line.length; index += 1) {
+      const character = line[index];
+      if (quote === "single") {
+        if (character === "'") quote = null;
+        continue;
+      }
+      if (character === "\\") {
+        index += 1;
+        continue;
+      }
+      if (character === "'") {
+        if (quote === null) quote = "single";
+        continue;
+      }
+      if (character === '"') {
+        quote = quote === "double" ? null : "double";
+        continue;
+      }
+      if (
+        quote === null &&
+        character === "#" &&
+        (index === 0 || /[\s;&|()]/.test(line[index - 1] ?? ""))
+      ) {
+        break;
+      }
+      if (quote === null && character === "<") {
+        const declaration = heredocAt(line, index);
+        if (declaration !== null) {
+          heredocs.push(declaration);
+          index = declaration.declarationEnd - 1;
+          continue;
+        }
+      }
+      if (character !== "$") continue;
+      const name = shellVariableNameAt(line, index);
+      if (name !== null) names.push(name);
+    }
   }
   return names;
 }
