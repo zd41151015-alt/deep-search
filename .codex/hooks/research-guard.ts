@@ -263,6 +263,12 @@ interface BacktickDelimiterFold {
   readonly backtickOffset: number;
 }
 
+interface FailClosedShellState {
+  active: boolean;
+  readonly heredocs: ShellHeredoc[];
+  quote: "ansi_c" | "double" | "single" | null;
+}
+
 function escapedBacktickSlashCount(depth: number, limit: number): number | null {
   let slashCount = 0;
   for (let level = 1; level < depth; level += 1) {
@@ -295,6 +301,73 @@ function foldBacktickDelimiter(
 function collectRawShellVariableNames(line: string, offset: number, names: string[]): void {
   for (let index = offset; index < line.length; index += 1) {
     if (line[index] !== "$") continue;
+    const name = shellVariableNameAt(line, index);
+    if (name !== null) names.push(name);
+  }
+}
+
+function scanFailClosedShellLine(
+  line: string,
+  offset: number,
+  state: FailClosedShellState,
+  names: string[],
+): void {
+  const heredoc = state.heredocs[0];
+  if (heredoc !== undefined) {
+    const candidate = heredoc.stripLeadingTabs ? line.replace(/^\t+/, "") : line;
+    if (candidate === heredoc.delimiter) state.heredocs.shift();
+    else if (heredoc.expandsVariables) collectRawShellVariableNames(line, 0, names);
+    return;
+  }
+  for (let index = offset; index < line.length; index += 1) {
+    const character = line[index];
+    if (state.quote === "single") {
+      if (character === "'") state.quote = null;
+      continue;
+    }
+    if (state.quote === "ansi_c") {
+      if (character === "\\") index += 1;
+      else if (character === "'") state.quote = null;
+      continue;
+    }
+    if (state.quote === "double") {
+      if (character === "\\" && /[\\"`$]/.test(line[index + 1] ?? "")) index += 1;
+      else if (character === '"') state.quote = null;
+      else if (character === "$") {
+        const name = shellVariableNameAt(line, index);
+        if (name !== null) names.push(name);
+      }
+      continue;
+    }
+    if (character === "\\" && line[index + 1] === "'") {
+      index += 1;
+      continue;
+    }
+    if (character === "$" && line[index + 1] === "'") {
+      state.quote = "ansi_c";
+      index += 1;
+      continue;
+    }
+    if (character === "'") {
+      state.quote = "single";
+      continue;
+    }
+    if (character === '"') {
+      state.quote = "double";
+      continue;
+    }
+    if (character === "#" && (index === 0 || /[\s;&|()]/.test(line[index - 1] ?? ""))) {
+      break;
+    }
+    if (character === "<") {
+      const declaration = heredocAt(line, index);
+      if (declaration !== null) {
+        state.heredocs.push(declaration);
+        index = declaration.declarationEnd - 1;
+        continue;
+      }
+    }
+    if (character !== "$") continue;
     const name = shellVariableNameAt(line, index);
     if (name !== null) names.push(name);
   }
@@ -343,7 +416,12 @@ function scanShellLine(
   frames: ShellLexFrame[],
   names: string[],
   heredocs: ShellHeredoc[] | null,
+  failClosedState?: FailClosedShellState,
 ): void {
+  if (failClosedState?.active === true) {
+    scanFailClosedShellLine(line, 0, failClosedState, names);
+    return;
+  }
   for (let index = 0; index < line.length; index += 1) {
     const character = line[index];
     const frame = frames.at(-1);
@@ -454,6 +532,13 @@ function scanShellLine(
             parenDepth: null,
             quote: null,
           });
+        } else if (failClosedState !== undefined) {
+          failClosedState.active = true;
+          scanFailClosedShellLine(line, index + 1, failClosedState, names);
+          // The ambiguous delimiter leaves the remainder's inherited quote context unknowable.
+          // Start the persistent fallback at the next complete physical line instead.
+          failClosedState.quote = null;
+          return;
         } else collectRawShellVariableNames(line, index + 1, names);
         continue;
       }
@@ -635,17 +720,27 @@ function shellVariableNames(contents: string): readonly string[] {
   const names: string[] = [];
   const heredocs: ShellHeredoc[] = [];
   const frames: ShellLexFrame[] = [{ kind: "command", parenDepth: null, quote: null }];
+  const failClosedState: FailClosedShellState = {
+    active: false,
+    heredocs: [],
+    quote: null,
+  };
   for (const line of contents.split(/\r?\n/)) {
+    if (failClosedState.active) {
+      scanFailClosedShellLine(line, 0, failClosedState, names);
+      continue;
+    }
     const heredoc = heredocs[0];
     if (heredoc !== undefined) {
       const candidate = heredoc.stripLeadingTabs ? line.replace(/^\t+/, "") : line;
       if (candidate === heredoc.delimiter) heredocs.shift();
       else if (heredoc.expandsVariables) {
-        scanShellLine(line, heredoc.expansionFrames, names, null);
+        scanShellLine(line, heredoc.expansionFrames, names, null, failClosedState);
+        if (failClosedState.active) failClosedState.heredocs.push(...heredocs);
       }
       continue;
     }
-    scanShellLine(line, frames, names, heredocs);
+    scanShellLine(line, frames, names, heredocs, failClosedState);
   }
   return names;
 }

@@ -282,6 +282,55 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
         : [],
     ),
   ];
+  const ambiguousBacktickLine = (delimiterSlashCount: number): string =>
+    `printf '<1:%s>\\n' "\`printf x ${"\\".repeat(delimiterSlashCount)}\`"`;
+  const variableLine = (slashCount: number, variableName: string): string =>
+    `printf '<2:%s>\\n' ${"\\".repeat(slashCount)}$${variableName}`;
+  const ambiguousDelimiterCounts = [2, 4, 6, 8, 10];
+  const ambiguousSensitiveCommands = ambiguousDelimiterCounts.flatMap((delimiterSlashCount) =>
+    Array.from({ length: 11 }, (_, variableSlashCount) => [
+      [
+        ambiguousBacktickLine(delimiterSlashCount),
+        variableLine(variableSlashCount, "PRIOR_ARTIFACT_PATH"),
+      ].join("\n"),
+      [
+        ambiguousBacktickLine(delimiterSlashCount),
+        "printf '<MID>'",
+        variableLine(variableSlashCount, "PRIOR_ARTIFACT_PATH"),
+      ].join("\n"),
+      [
+        ambiguousBacktickLine(delimiterSlashCount),
+        `printf '%s\\n' "'"`,
+        variableLine(variableSlashCount, "PRIOR_ARTIFACT_PATH"),
+      ].join("\n"),
+      [
+        ambiguousBacktickLine(delimiterSlashCount),
+        `printf '%s\\n' "<<'EOF'"`,
+        variableLine(variableSlashCount, "PRIOR_ARTIFACT_PATH"),
+      ].join("\n"),
+      [
+        "cat <<EOF",
+        ambiguousBacktickLine(delimiterSlashCount),
+        variableLine(variableSlashCount, "PRIOR_ARTIFACT_PATH"),
+        "EOF",
+      ].join("\n"),
+    ]).flat(),
+  );
+  const ambiguousAllowedCommands = ambiguousDelimiterCounts.flatMap((delimiterSlashCount) => [
+    [
+      ambiguousBacktickLine(delimiterSlashCount),
+      variableLine(2, "PREVIOUS_API_RESPONSE_FILE"),
+    ].join("\n"),
+    [ambiguousBacktickLine(delimiterSlashCount), variableLine(6, "PRIOR_QUERY_RESULT_PATH")].join(
+      "\n",
+    ),
+    [ambiguousBacktickLine(delimiterSlashCount), "printf '%s\\n' '$PRIOR_ARTIFACT_PATH'"].join(
+      "\n",
+    ),
+    [ambiguousBacktickLine(delimiterSlashCount), "cat <<'EOF'", "$PRIOR_ARTIFACT_PATH", "EOF"].join(
+      "\n",
+    ),
+  ]);
 
   const accidentInput = {
     cwd: fixture.root,
@@ -321,6 +370,7 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
   );
   for (const command of [
     ...backtickMatrixCommands(true),
+    ...ambiguousSensitiveCommands,
     'for p in runs/*/artifacts/discovery/opportunity-space-map.r1.json; do cat "$p"; done',
     "find runs -name opportunity-space-map.r1.json -exec cat {} \\;",
     'cat "$PRIOR_ARTIFACT_PATH"',
@@ -390,6 +440,7 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
   }
   for (const command of [
     ...backtickMatrixCommands(false),
+    ...ambiguousAllowedCommands,
     'find harness -name "*.ts"',
     'cat "$TMP_FILE"',
     'cat "$PREVIOUS_API_RESPONSE"',
