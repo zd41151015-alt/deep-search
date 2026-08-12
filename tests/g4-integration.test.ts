@@ -219,8 +219,44 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     '\\"\\``"';
   const nestedBacktickAnsiHeredoc = (slashCount: number): string =>
     ["cat <<EOF", nestedBacktickAnsiAdjacent(slashCount), "EOF"].join("\n");
+  const escapedBacktick = (slashCount: number): string => `${"\\".repeat(slashCount)}\``;
+  const tripleBacktickCommand = (slashCount: number): string =>
+    "printf '<O:%s>' \"`printf '<A:%s>' " +
+    escapedBacktick(1) +
+    "printf '<B:%s>' " +
+    escapedBacktick(3) +
+    "printf '<C:%s>' \"" +
+    "\\".repeat(slashCount) +
+    priorVariable +
+    '\\"' +
+    escapedBacktick(3) +
+    escapedBacktick(1) +
+    '`"';
+  const tripleBacktickHeredoc = (slashCount: number): string =>
+    ["cat <<EOF", tripleBacktickCommand(slashCount), "EOF"].join("\n");
+  const tripleBacktickAnsiAdjacent = (slashCount: number): string =>
+    "printf '<O:%s>' \"`printf '<A:%s>' " +
+    escapedBacktick(1) +
+    "printf '<B:%s>' " +
+    escapedBacktick(3) +
+    "printf '<C:%s>' $'a\\\\''\"" +
+    "\\".repeat(slashCount) +
+    priorVariable +
+    '\\"' +
+    escapedBacktick(3) +
+    escapedBacktick(1) +
+    '`"';
+  const tripleBacktickAnsiHeredoc = (slashCount: number): string =>
+    ["cat <<EOF", tripleBacktickAnsiAdjacent(slashCount), "EOF"].join("\n");
   const singleBacktickExpands = [true, true, false, false, true, true, false, false, true];
   const nestedBacktickExpands = [true, true, true, true, false, false, false, false, true];
+  const tripleBacktickExpands = [
+    ...Array<boolean>(8).fill(true),
+    ...Array<boolean>(8).fill(false),
+    ...Array<boolean>(8).fill(true),
+    ...Array<boolean>(8).fill(false),
+    true,
+  ];
   const backtickMatrixCommands = (expands: boolean): readonly string[] => [
     ...singleBacktickExpands.flatMap((doesExpand, slashCount) =>
       doesExpand === expands ? [singleBacktickCommand(slashCount)] : [],
@@ -232,6 +268,16 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
             nestedBacktickHeredoc(slashCount),
             nestedBacktickAnsiAdjacent(slashCount),
             nestedBacktickAnsiHeredoc(slashCount),
+          ]
+        : [],
+    ),
+    ...tripleBacktickExpands.flatMap((doesExpand, slashCount) =>
+      doesExpand === expands
+        ? [
+            tripleBacktickCommand(slashCount),
+            tripleBacktickHeredoc(slashCount),
+            tripleBacktickAnsiAdjacent(slashCount),
+            tripleBacktickAnsiHeredoc(slashCount),
           ]
         : [],
     ),

@@ -258,6 +258,48 @@ interface AnsiCQuoteFold {
   readonly quoteOffset: number;
 }
 
+interface BacktickDelimiterFold {
+  readonly action: "ambiguous" | "close" | "open";
+  readonly backtickOffset: number;
+}
+
+function escapedBacktickSlashCount(depth: number, limit: number): number | null {
+  let slashCount = 0;
+  for (let level = 1; level < depth; level += 1) {
+    if (slashCount > (limit - 1) / 2) return null;
+    slashCount = slashCount * 2 + 1;
+  }
+  return slashCount;
+}
+
+function foldBacktickDelimiter(
+  line: string,
+  slashOffset: number,
+  foldingDepth: number,
+): BacktickDelimiterFold | null {
+  let backtickOffset = slashOffset;
+  while (line[backtickOffset] === "\\") backtickOffset += 1;
+  if (line[backtickOffset] !== "`") return null;
+  const rawSlashCount = backtickOffset - slashOffset;
+  const currentSlashCount = escapedBacktickSlashCount(foldingDepth, rawSlashCount);
+  const nextSlashCount = escapedBacktickSlashCount(foldingDepth + 1, rawSlashCount);
+  const action =
+    currentSlashCount === rawSlashCount
+      ? "close"
+      : nextSlashCount === rawSlashCount
+        ? "open"
+        : "ambiguous";
+  return { action, backtickOffset };
+}
+
+function collectRawShellVariableNames(line: string, offset: number, names: string[]): void {
+  for (let index = offset; index < line.length; index += 1) {
+    if (line[index] !== "$") continue;
+    const name = shellVariableNameAt(line, index);
+    if (name !== null) names.push(name);
+  }
+}
+
 function foldBacktickBackslashesBeforeAnsiCQuote(
   line: string,
   slashOffset: number,
@@ -400,6 +442,21 @@ function scanShellLine(
       continue;
     }
     if (frame.kind === "backtick" && character === "\\") {
+      const delimiter = foldBacktickDelimiter(line, index, frame.backtickFoldingDepth ?? 1);
+      if (delimiter !== null) {
+        index = delimiter.backtickOffset;
+        if (delimiter.action === "close") frames.pop();
+        else if (delimiter.action === "open") {
+          frames.push({
+            backtickFoldingDepth: (frame.backtickFoldingDepth ?? 1) + 1,
+            backtickTerminator: "escaped",
+            kind: "backtick",
+            parenDepth: null,
+            quote: null,
+          });
+        } else collectRawShellVariableNames(line, index + 1, names);
+        continue;
+      }
       const foldedDollar = foldBacktickBackslashesBeforeDollar(
         line,
         index,
@@ -413,20 +470,6 @@ function scanShellLine(
         }
         continue;
       }
-    }
-    if (frame.kind === "backtick" && character === "\\" && line[index + 1] === "`") {
-      if (frame.backtickTerminator === "escaped") frames.pop();
-      else {
-        frames.push({
-          backtickFoldingDepth: (frame.backtickFoldingDepth ?? 1) + 1,
-          backtickTerminator: "escaped",
-          kind: "backtick",
-          parenDepth: null,
-          quote: null,
-        });
-      }
-      index += 1;
-      continue;
     }
     if (character === "\\") {
       index += 1;
