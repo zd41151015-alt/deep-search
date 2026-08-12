@@ -215,6 +215,26 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     String((blocked?.hookSpecificOutput as Record<string, unknown>)?.permissionDecisionReason),
     /read-prior-input/,
   );
+  const splitPriorPath = await evaluatePreToolUse(
+    {
+      cwd: fixture.root,
+      tool_name: "Bash",
+      tool_input: {
+        command: ["cat ru\\", `ns/${priorRunId}/manifest.json`].join("\n"),
+      },
+    },
+    activeRunId,
+  );
+  assert.equal(
+    (splitPriorPath?.hookSpecificOutput as Record<string, unknown>)?.permissionDecision,
+    "deny",
+  );
+  assert.match(
+    String(
+      (splitPriorPath?.hookSpecificOutput as Record<string, unknown>)?.permissionDecisionReason,
+    ),
+    /read-prior-input/,
+  );
   for (const command of [
     'for p in runs/*/artifacts/discovery/opportunity-space-map.r1.json; do cat "$p"; done',
     "find runs -name opportunity-space-map.r1.json -exec cat {} \\;",
@@ -246,6 +266,15 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     `cat <<$'\\U00000045OF'\nliteral\nEOF\ncat "$PRIOR_ARTIFACT_PATH"`,
     `cat <<$'\\xZZ'\nliteral\nEOF\ncat "$PRIOR_ARTIFACT_PATH"`,
     `cat <<EOF\n$(printf '%s' "$PRIOR_ARTIFACT_PATH")\nEOF`,
+    ["printf '%s' \"$PRIOR_\\", 'ARTIFACT_PATH"'].join("\n"),
+    ["printf '%s' \"${PRIOR_\\", 'ARTIFACT_PATH:-fallback}"'].join("\n"),
+    ["printf '%s' \"$(printf '%s' \"$PRIOR_\\", 'ARTIFACT_PATH")"'].join("\n"),
+    ["cat <<E\\", "OF", "literal", "EOF", 'cat "$PRIOR_ARTIFACT_PATH"'].join("\n"),
+    ["cat <<EOF", "$PRIOR_\\", "ARTIFACT_PATH", "EOF"].join("\n"),
+    ["printf '%s' \"`printf '%s' \"$PRIOR_\\", 'ARTIFACT_PATH"`"'].join("\n"),
+    "printf '%s\\n' \"`printf '%s' \\\"$PRIOR_ARTIFACT_PATH\\\"`\"",
+    "printf '%s\\n' \"`printf '%s' \\`printf '%s' \\\"$PRIOR_ARTIFACT_PATH\\\"\\``\"",
+    ["cat <<EOF", "`printf '%s' \\\"$PRIOR_ARTIFACT_PATH\\\"`", "EOF"].join("\n"),
     `printf "%s\\n" "$(printf %s "$PRIOR_ARTIFACT_PATH")"`,
     `value=$((1 << 2))\ncat "$PRIOR_ARTIFACT_PATH"`,
     `(( value = 1 << 2 ))\ncat "$PRIOR_ARTIFACT_PATH"`,
@@ -292,9 +321,13 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     `cat <<$'\\x45OF'\n$PRIOR_ARTIFACT_PATH\nEOF`,
     `cat <<$'\\105OF'\n$PRIOR_ARTIFACT_PATH\nEOF`,
     `cat <<$'E\\x4fF'\n$PRIOR_ARTIFACT_PATH\nEOF`,
-    `cat <<$'\\u0045OF'\n$PRIOR_ARTIFACT_PATH\nEOF`,
-    `cat <<$'\\U00000045OF'\n$PRIOR_ARTIFACT_PATH\nEOF`,
     `cat <<EOF\n$(printf '%s' '$PRIOR_ARTIFACT_PATH')\nEOF`,
+    ["printf '%s' '$PRIOR_\\", "ARTIFACT_PATH'"].join("\n"),
+    ["cat <<'E'\\", "'OF'", "$PRIOR_ARTIFACT_PATH", "EOF"].join("\n"),
+    [`cat ru\\`, `ns/${activeRunId}/manifest.json`].join("\n"),
+    "printf '%s\\n' \"`printf '%s' '$PRIOR_ARTIFACT_PATH'`\"",
+    "printf '%s\\n' \"`printf '%s' \\`printf '%s' '$PRIOR_ARTIFACT_PATH'\\``\"",
+    ["cat <<EOF", "`printf '%s' '$PRIOR_ARTIFACT_PATH'`", "EOF"].join("\n"),
     `printf "%s\\n" "\${TMP_FILE:-\\$PRIOR_ARTIFACT_PATH}"`,
     `printf "%s\\n" literal # $PRIOR_ARTIFACT_PATH`,
     `value=$((1 << 2))\nprintf "%s\\n" '$PRIOR_ARTIFACT_PATH'`,

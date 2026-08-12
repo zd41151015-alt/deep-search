@@ -41,9 +41,12 @@ function commandText(input: HookInput): string {
   return input.tool_input.command;
 }
 
-function toolInputText(input: HookInput): string {
+function toolInputText(input: HookInput, commandOverride?: string): string {
   if (!isRecord(input.tool_input)) return "";
-  return Object.values(input.tool_input)
+  return Object.entries(input.tool_input)
+    .map(([key, value]) =>
+      key === "command" && commandOverride !== undefined ? commandOverride : value,
+    )
     .filter((value): value is string => typeof value === "string")
     .join("\n");
 }
@@ -66,8 +69,8 @@ function referencedRunTargets(contents: string): readonly ReferencedRunTarget[] 
   return [...targets.values()];
 }
 
-function runAccessText(input: HookInput): string {
-  const contents = `${toolInputText(input)}\n${typeof input.cwd === "string" ? input.cwd : ""}`;
+function runAccessText(input: HookInput, commandOverride?: string): string {
+  const contents = `${toolInputText(input, commandOverride)}\n${typeof input.cwd === "string" ? input.cwd : ""}`;
   return contents.replace(
     /--runs-root(?:=|\s+)(?:"[^"]*"|'[^']*'|[^\s]+)/g,
     "--runs-root <controlled-store-root>",
@@ -125,22 +128,20 @@ function decodeAnsiCEscape(contents: string, slashOffset: number): DecodedAnsiCE
     if (byte > 0x7f) return null;
     return { nextOffset: end, value: String.fromCodePoint(byte) };
   }
-  const digitLimits: readonly [number, number] | null =
-    escaped === "x" ? [1, 2] : escaped === "u" ? [1, 4] : escaped === "U" ? [1, 8] : null;
-  if (digitLimits !== null) {
+  // Bash 3.2 and zsh disagree on Unicode ANSI-C escapes; ambiguous delimiter bytes fail closed.
+  if (escaped === "x") {
     const digitStart = slashOffset + 2;
     let digitEnd = digitStart;
     while (
       digitEnd < contents.length &&
-      digitEnd < digitStart + digitLimits[1] &&
+      digitEnd < digitStart + 2 &&
       /[A-Fa-f0-9]/.test(contents[digitEnd] ?? "")
     ) {
       digitEnd += 1;
     }
-    if (digitEnd - digitStart < digitLimits[0]) return null;
+    if (digitEnd === digitStart) return null;
     const codePoint = Number.parseInt(contents.slice(digitStart, digitEnd), 16);
-    if (escaped === "x" && codePoint > 0x7f) return null;
-    if (codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) return null;
+    if (codePoint > 0x7f) return null;
     return { nextOffset: digitEnd, value: String.fromCodePoint(codePoint) };
   }
   if (escaped === "c") {
@@ -240,7 +241,8 @@ function shellVariableNameAt(contents: string, dollarOffset: number): string | n
 }
 
 interface ShellLexFrame {
-  readonly kind: "arithmetic" | "command" | "heredoc";
+  readonly backtickTerminator?: "escaped" | "plain";
+  readonly kind: "arithmetic" | "backtick" | "command" | "heredoc";
   parenDepth: number | null;
   quote: "single" | "double" | null;
 }
@@ -270,6 +272,15 @@ function scanShellLine(
         index += 1;
         continue;
       }
+      if (character === "`") {
+        frames.push({
+          backtickTerminator: "plain",
+          kind: "backtick",
+          parenDepth: null,
+          quote: null,
+        });
+        continue;
+      }
       if (character === "$") {
         const name = shellVariableNameAt(line, index);
         if (name !== null) names.push(name);
@@ -291,6 +302,15 @@ function scanShellLine(
         index += 1;
         continue;
       }
+      if (character === "`") {
+        frames.push({
+          backtickTerminator: "plain",
+          kind: "backtick",
+          parenDepth: null,
+          quote: null,
+        });
+        continue;
+      }
       if (character === "$") {
         const name = shellVariableNameAt(line, index);
         if (name !== null) names.push(name);
@@ -310,8 +330,25 @@ function scanShellLine(
       if (character === "'") frame.quote = null;
       continue;
     }
+    if (frame.kind === "backtick" && character === "\\" && line[index + 1] === "`") {
+      if (frame.backtickTerminator === "escaped") frames.pop();
+      else {
+        frames.push({
+          backtickTerminator: "escaped",
+          kind: "backtick",
+          parenDepth: null,
+          quote: null,
+        });
+      }
+      index += 1;
+      continue;
+    }
     if (character === "\\") {
       index += 1;
+      continue;
+    }
+    if (frame.kind === "backtick" && frame.backtickTerminator === "plain" && character === "`") {
+      frames.pop();
       continue;
     }
     if (frame.quote === "double") {
@@ -327,6 +364,15 @@ function scanShellLine(
       if (character === "$" && line.slice(index, index + 2) === "$(") {
         frames.push({ kind: "command", parenDepth: 1, quote: null });
         index += 1;
+        continue;
+      }
+      if (character === "`") {
+        frames.push({
+          backtickTerminator: "plain",
+          kind: "backtick",
+          parenDepth: null,
+          quote: null,
+        });
         continue;
       }
       if (character === "$") {
@@ -356,6 +402,15 @@ function scanShellLine(
       index += 1;
       continue;
     }
+    if (character === "`") {
+      frames.push({
+        backtickTerminator: "plain",
+        kind: "backtick",
+        parenDepth: null,
+        quote: null,
+      });
+      continue;
+    }
     if (character === "(" && line[index + 1] === "(") {
       frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
       index += 1;
@@ -382,6 +437,62 @@ function scanShellLine(
     const name = shellVariableNameAt(line, index);
     if (name !== null) names.push(name);
   }
+}
+
+function cloneShellFrames(frames: readonly ShellLexFrame[]): ShellLexFrame[] {
+  return frames.map((frame) => ({ ...frame }));
+}
+
+function removesTrailingLineContinuation(line: string, frames: readonly ShellLexFrame[]): boolean {
+  let slashCount = 0;
+  for (let index = line.length - 1; index >= 0 && line[index] === "\\"; index -= 1) {
+    slashCount += 1;
+  }
+  if (slashCount % 2 === 0) return false;
+  const probeFrames = cloneShellFrames(frames);
+  scanShellLine(line.slice(0, -1), probeFrames, [], null);
+  return probeFrames.at(-1)?.quote !== "single";
+}
+
+function normalizeShellLineContinuations(contents: string): string {
+  const commandFrames: ShellLexFrame[] = [{ kind: "command", parenDepth: null, quote: null }];
+  const heredocs: ShellHeredoc[] = [];
+  const normalizedLines: string[] = [];
+  let pending = "";
+  for (const physicalLine of contents.split(/\r?\n/)) {
+    const heredoc = heredocs[0];
+    if (heredoc !== undefined) {
+      if (!heredoc.expandsVariables) {
+        normalizedLines.push(physicalLine);
+        const candidate = heredoc.stripLeadingTabs
+          ? physicalLine.replace(/^\t+/, "")
+          : physicalLine;
+        if (candidate === heredoc.delimiter) heredocs.shift();
+        continue;
+      }
+      pending += physicalLine;
+      if (removesTrailingLineContinuation(pending, heredoc.expansionFrames)) {
+        pending = pending.slice(0, -1);
+        continue;
+      }
+      normalizedLines.push(pending);
+      const candidate = heredoc.stripLeadingTabs ? pending.replace(/^\t+/, "") : pending;
+      if (candidate === heredoc.delimiter) heredocs.shift();
+      else scanShellLine(pending, heredoc.expansionFrames, [], null);
+      pending = "";
+      continue;
+    }
+    pending += physicalLine;
+    if (removesTrailingLineContinuation(pending, commandFrames)) {
+      pending = pending.slice(0, -1);
+      continue;
+    }
+    normalizedLines.push(pending);
+    scanShellLine(pending, commandFrames, [], heredocs);
+    pending = "";
+  }
+  if (pending !== "") normalizedLines.push(pending);
+  return normalizedLines.join("\n");
 }
 
 function shellVariableNames(contents: string): readonly string[] {
@@ -415,9 +526,9 @@ function hasPriorRunDynamicReference(contents: string): boolean {
   });
 }
 
-function mutatesProductionSurface(input: HookInput): boolean {
+function mutatesProductionSurface(input: HookInput, commandOverride?: string): boolean {
   const toolName = typeof input.tool_name === "string" ? input.tool_name : "";
-  const contents = toolInputText(input);
+  const contents = toolInputText(input, commandOverride);
   const productionPath =
     /(?:^|[\s"'])(?:[^\s"']+\/)?(?:harness\/|scripts\/|\.agents\/skills\/startup-opportunity\/|\.codex\/|package(?:-lock)?\.json|\.node-version|\.npmrc|tsconfig\.json)/m;
   if (!productionPath.test(contents)) return false;
@@ -437,14 +548,16 @@ export async function evaluatePreToolUse(
   }
 
   const command = commandText(input);
-  if (/\b(?:git\s+(?:reset|checkout)\s+--|rm\s+-[^\n]*r[^\n]*f)\b/.test(command)) {
+  const isShellTool = toolName === "Bash" || toolName === "Shell";
+  const normalizedCommand = isShellTool ? normalizeShellLineContinuations(command) : command;
+  if (/\b(?:git\s+(?:reset|checkout)\s+--|rm\s+-[^\n]*r[^\n]*f)\b/.test(normalizedCommand)) {
     return deny("Destructive repository commands are outside the research hook boundary.");
   }
   const directRunMutation =
     /runs\/[A-Za-z0-9._:-]+\/(?:manifest\.json|decisions\.jsonl|evidence\/(?:manifest\.jsonl|raw\/)|plans\/|adaptations\/|report\.json|decision-brief\.md|report\.md)/;
   const mutationOperator =
     /(?:\*\*\*\s+(?:Add|Update|Delete) File:|\b(?:rm|mv|cp|truncate|tee)\b|(?:^|\s)(?:>|>>))/m;
-  if (directRunMutation.test(command) && mutationOperator.test(command)) {
+  if (directRunMutation.test(normalizedCommand) && mutationOperator.test(normalizedCommand)) {
     return deny(
       "Direct mutation of controlled Run state is blocked; use the explicit Harness publication or recovery command.",
     );
@@ -456,8 +569,7 @@ export async function evaluatePreToolUse(
     return deny("The active Startup Opportunity Run id is invalid.");
   }
   const root = await findRepositoryRoot(typeof input.cwd === "string" ? input.cwd : process.cwd());
-  const accessText = runAccessText(input);
-  const isShellTool = toolName === "Bash" || toolName === "Shell";
+  const accessText = runAccessText(input, normalizedCommand);
   for (const target of referencedRunTargets(accessText)) {
     if (target.runId === activeRunId) continue;
     return deny(
@@ -466,13 +578,13 @@ export async function evaluatePreToolUse(
   }
   if (
     hasUnresolvedRunReference(accessText, activeRunId) ||
-    (isShellTool && hasPriorRunDynamicReference(command))
+    (isShellTool && hasPriorRunDynamicReference(normalizedCommand))
   ) {
     return deny(
       "Dynamic, globbed, variable, or broad Run reads are blocked; prior semantics are readable only through read-prior-input.",
     );
   }
-  if (!mutatesProductionSurface(input)) {
+  if (!mutatesProductionSurface(input, normalizedCommand)) {
     return undefined;
   }
   let status: unknown;
