@@ -220,6 +220,8 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     "find runs -name opportunity-space-map.r1.json -exec cat {} \\;",
     'cat "$PRIOR_ARTIFACT_PATH"',
     'cat "$PRIOR_RUN_ROOT/artifacts/discovery/opportunity-space-map.r1.json"',
+    'cat "$PREVIOUS_ARTIFACT_REF"',
+    'find "$SOURCE_RUN_ROOT" -name "*.json"',
   ]) {
     const indirect = await evaluatePreToolUse(
       { cwd: fixture.root, tool_name: "Bash", tool_input: { command } },
@@ -239,6 +241,10 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     'cat "$TMP_FILE"',
     'cat "$PREVIOUS_API_RESPONSE"',
     'jq . "$PRIOR_QUERY_RESULT"',
+    'cat "$PREVIOUS_API_RESPONSE_FILE"',
+    'jq . "$PRIOR_QUERY_RESULT_PATH"',
+    'find "$PREVIOUS_QUERY_STAGING_DIR" -name "*.json"',
+    'cat "$PRIOR_RESPONSE_REF"',
   ]) {
     assert.equal(
       await evaluatePreToolUse(

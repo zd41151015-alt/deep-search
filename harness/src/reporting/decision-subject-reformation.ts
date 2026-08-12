@@ -10,7 +10,13 @@ export interface SubjectRevisionDescriptor {
   readonly parentContentHash: unknown;
   readonly semantics: Readonly<Record<string, unknown>>;
   readonly closureRefs: ReadonlySet<string>;
+  readonly formationBindings: readonly SubjectFormationBinding[];
   readonly expectedPath: string | null;
+}
+
+export interface SubjectFormationBinding {
+  readonly ref: string;
+  readonly contentHash: unknown;
 }
 
 const CONCEPT_SEMANTIC_FIELDS = [
@@ -75,6 +81,16 @@ function bindingRefs(value: unknown): readonly string[] {
     : [];
 }
 
+function formationBindings(value: unknown): readonly SubjectFormationBinding[] {
+  return Array.isArray(value)
+    ? value.flatMap((entry) =>
+        isRecord(entry) && typeof entry.ref === "string"
+          ? [{ ref: entry.ref, contentHash: entry.content_hash }]
+          : [],
+      )
+    : [];
+}
+
 function selectedFields(
   document: Record<string, unknown>,
   fields: readonly string[],
@@ -114,6 +130,7 @@ export function subjectRevisionDescriptor(
         ...Object.values(evidenceLineage).flatMap(strings),
         ...strings(enrichment.basis_refs),
       ]),
+      formationBindings: [],
       expectedPath:
         typeof document.candidate_id === "string" && Number.isInteger(Number(document.revision))
           ? `artifacts/discovery/candidates/${document.candidate_id}.r${String(document.revision)}.json`
@@ -148,6 +165,7 @@ export function subjectRevisionDescriptor(
         ...strings(document.audit_refs),
         ...strings(mentalPosition.evidence_refs),
       ]),
+      formationBindings: [],
       expectedPath:
         typeof document.opportunity_id === "string" && Number.isInteger(Number(document.revision))
           ? `artifacts/discovery/opportunities/${document.opportunity_id}.r${String(document.revision)}.json`
@@ -158,6 +176,7 @@ export function subjectRevisionDescriptor(
     ? document.field_provenance.filter(isRecord)
     : [];
   const revision = document.revision === undefined ? 1 : Number(document.revision);
+  const conceptFormationBindings = formationBindings(document.formation_input_hashes);
   return {
     subjectId: document.concept_hypothesis_id,
     revision,
@@ -165,9 +184,10 @@ export function subjectRevisionDescriptor(
     parentContentHash: document.parent_content_hash ?? null,
     semantics: selectedFields(document, CONCEPT_SEMANTIC_FIELDS),
     closureRefs: new Set([
-      ...bindingRefs(document.formation_input_hashes),
+      ...conceptFormationBindings.map((binding) => binding.ref),
       ...fieldProvenance.flatMap((entry) => strings(entry.basis_refs)),
     ]),
+    formationBindings: conceptFormationBindings,
     expectedPath:
       revision > 1 && typeof document.concept_hypothesis_id === "string"
         ? `artifacts/assessment/concepts/${document.concept_hypothesis_id}.r${revision}.json`

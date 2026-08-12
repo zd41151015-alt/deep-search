@@ -3497,6 +3497,22 @@ export class RunStore {
           "reformation must materially change the subject's business semantics",
         );
       }
+      if (subjectKind === "concept_hypothesis") {
+        for (const binding of reformedRevision.formationBindings) {
+          const formationInput = await readEnvelope(binding.ref);
+          if (binding.contentHash !== formationInput.content_hash) {
+            throw new StoreError(
+              "subject_reformation.formation_input_hash_mismatch",
+              "Concept reformation must bind every formation input to its exact published content hash",
+              {
+                ref: binding.ref,
+                declaredContentHash: binding.contentHash,
+                actualContentHash: formationInput.content_hash,
+              },
+            );
+          }
+        }
+      }
       const publicationRecords = await this.artifacts.publicationRecordsLocked(
         runRoot,
         input.runId,

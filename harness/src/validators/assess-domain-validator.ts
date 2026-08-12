@@ -137,6 +137,46 @@ function conceptRevisionChainValid(entries: readonly AssessDomainDocument[]): bo
   });
 }
 
+function validateConceptFormationBindings(
+  documents: readonly AssessDomainDocument[],
+  documentsByPath: ReadonlyMap<string, AssessDomainDocument>,
+  errors: ValidationIssue[],
+): void {
+  for (const concept of documents.filter((entry) =>
+    [
+      "startup_opportunity.concept_hypothesis.assessment.current",
+      "startup_opportunity.concept_hypothesis.assessment_intake.current",
+    ].includes(entry.schemaVersion),
+  )) {
+    for (const [index, binding] of records(concept.document.formation_input_hashes).entries()) {
+      const target = targetByRef(documentsByPath, binding.ref);
+      const sourceRunId = concept.document.run_id;
+      const targetRunId = target?.document.run_id;
+      if (
+        target === null ||
+        typeof sourceRunId !== "string" ||
+        targetRunId !== sourceRunId ||
+        binding.content_hash !== canonicalContentHash(target.document)
+      ) {
+        errors.push(
+          issue(
+            "assess_contract.concept_formation_input_binding_mismatch",
+            `${concept.path}#/formation_input_hashes/${index}`,
+            "Concept formation input must bind the exact same-Run Artifact content hash",
+            {
+              ref: binding.ref,
+              declaredContentHash: binding.content_hash,
+              actualContentHash: target === null ? null : canonicalContentHash(target.document),
+              sourceRunId,
+              targetRunId: targetRunId ?? null,
+            },
+          ),
+        );
+      }
+    }
+  }
+}
+
 function duplicateValues(values: readonly string[]): readonly string[] {
   const seen = new Set<string>();
   const duplicates = new Set<string>();
@@ -1099,6 +1139,7 @@ export function validateAssessDomainContract(
   const errors: ValidationIssue[] = [];
   const documentsByPath = new Map(documents.map((entry) => [entry.path, entry]));
   validateRootIdentity(documents, errors);
+  validateConceptFormationBindings(documents, documentsByPath, errors);
   validateFraming(documents, documentsByPath, errors);
 
   for (const plan of bySchema(

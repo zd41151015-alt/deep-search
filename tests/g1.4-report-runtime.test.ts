@@ -1627,6 +1627,63 @@ test("Store re-forms a Concept only through an explicit post-terminal revision a
   ];
   delete conceptR2Document.field_provenance;
   delete conceptR2Document.research_readiness;
+  const wrongFormationHash = `sha256:${"0".repeat(64)}`;
+  const invalidFormationDocument = structuredClone(conceptR2Document);
+  const invalidFormationBindings = invalidFormationDocument.formation_input_hashes as Record<
+    string,
+    unknown
+  >[];
+  const stableFormationBinding = invalidFormationBindings.find(
+    (binding) => binding.ref === G14_ASSESSMENT_REF,
+  );
+  assert.ok(stableFormationBinding);
+  stableFormationBinding.content_hash = wrongFormationHash;
+  const invalidFormationEnvelope = v5Envelope(
+    conceptR2Ref,
+    invalidFormationDocument,
+    "main_agent",
+    [conceptR1.artifact_path, "scope-frame.json", G14_ASSESSMENT_REF, missingAudit.auditRef],
+    "2026-07-25T19:03:00Z",
+  );
+  const invalidFormationContext = await state.store.buildValidationContext(G14_RUN_ID, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [{ path: conceptR2Ref, document: invalidFormationEnvelope }],
+    exact_records: [],
+  });
+  const invalidFormationBundle = state.validator.validateDocumentBundle(
+    invalidFormationContext.bundle,
+    invalidFormationContext.referenceContext,
+  );
+  assert.equal(invalidFormationBundle.valid, false);
+  assert.ok(
+    invalidFormationBundle.referenceErrors.some(
+      (entry) => entry.code === "assess_contract.concept_formation_input_binding_mismatch",
+    ),
+  );
+  await assert.rejects(
+    state.store.publishArtifact({
+      runId: G14_RUN_ID,
+      envelope: invalidFormationEnvelope,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "artifact.reference_invalid" &&
+      storeReferenceCodes(error).includes(
+        "assess_contract.concept_formation_input_binding_mismatch",
+      ),
+  );
+  const reopenedAfterInvalidPublication = await new RunStore(state.runsRoot, state.validator).load(
+    G14_RUN_ID,
+  );
+  assert.equal(reopenedAfterInvalidPublication.recovered, false);
+  assert.equal(
+    reopenedAfterInvalidPublication.manifest.current_decision_subject_snapshot_ref,
+    snapshotR2Ref,
+  );
+  assert.equal(
+    reopenedAfterInvalidPublication.manifest.artifact_refs.includes(conceptR2Ref),
+    false,
+  );
   const expectLineageRejection = async (
     artifactPath: string,
     mutate: (document: Record<string, unknown>) => void,
@@ -1687,6 +1744,39 @@ test("Store re-forms a Concept only through an explicit post-terminal revision a
     reason: "SYNTHETIC post-terminal commercial Audit changed the Concept semantics.",
     reformedAt: "2026-07-25T19:04:00Z",
   } as const;
+  const tamperedConceptR2 = structuredClone(conceptR2);
+  const tamperedFormationBindings = tamperedConceptR2.document.formation_input_hashes as Record<
+    string,
+    unknown
+  >[];
+  const tamperedStableBinding = tamperedFormationBindings.find(
+    (binding) => binding.ref === G14_ASSESSMENT_REF,
+  );
+  assert.ok(tamperedStableBinding);
+  tamperedStableBinding.content_hash = wrongFormationHash;
+  (tamperedConceptR2 as { content_hash: string }).content_hash = canonicalContentHash(
+    tamperedConceptR2.document,
+  );
+  await writeFile(path.join(state.runRoot, conceptR2Ref), `${canonicalJson(tamperedConceptR2)}\n`);
+  await assert.rejects(
+    state.store.reformDecisionSubject({
+      ...reformInput,
+      reformationInputRefs: [missingAudit.auditRef],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "subject_reformation.formation_input_hash_mismatch" &&
+      error.details.ref === G14_ASSESSMENT_REF,
+  );
+  await writeFile(path.join(state.runRoot, conceptR2Ref), `${canonicalJson(conceptR2)}\n`);
+  const reopenedAfterInvalidReformation = await new RunStore(state.runsRoot, state.validator).load(
+    G14_RUN_ID,
+  );
+  assert.equal(reopenedAfterInvalidReformation.recovered, false);
+  assert.equal(
+    reopenedAfterInvalidReformation.manifest.current_decision_subject_snapshot_ref,
+    snapshotR2Ref,
+  );
   await assert.rejects(
     state.store.reformDecisionSubject({
       ...reformInput,
