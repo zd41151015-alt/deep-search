@@ -86,8 +86,74 @@ function hasUnresolvedRunReference(contents: string, activeRunId: string): boole
 interface ShellHeredoc {
   readonly delimiter: string;
   readonly declarationEnd: number;
+  readonly expansionFrames: ShellLexFrame[];
   readonly expandsVariables: boolean;
   readonly stripLeadingTabs: boolean;
+}
+
+interface DecodedAnsiCEscape {
+  readonly nextOffset: number;
+  readonly value: string;
+}
+
+function decodeAnsiCEscape(contents: string, slashOffset: number): DecodedAnsiCEscape | null {
+  const escaped = contents[slashOffset + 1];
+  if (escaped === undefined) return null;
+  const simpleEscapes: Readonly<Record<string, string>> = {
+    a: "\u0007",
+    b: "\b",
+    e: "\u001b",
+    E: "\u001b",
+    f: "\f",
+    n: "\n",
+    r: "\r",
+    t: "\t",
+    v: "\v",
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+    "?": "?",
+  };
+  const simple = simpleEscapes[escaped];
+  if (simple !== undefined) return { nextOffset: slashOffset + 2, value: simple };
+  if (/[0-7]/.test(escaped)) {
+    let end = slashOffset + 1;
+    while (end < contents.length && end < slashOffset + 4 && /[0-7]/.test(contents[end] ?? "")) {
+      end += 1;
+    }
+    const byte = Number.parseInt(contents.slice(slashOffset + 1, end), 8) & 0xff;
+    if (byte > 0x7f) return null;
+    return { nextOffset: end, value: String.fromCodePoint(byte) };
+  }
+  const digitLimits: readonly [number, number] | null =
+    escaped === "x" ? [1, 2] : escaped === "u" ? [1, 4] : escaped === "U" ? [1, 8] : null;
+  if (digitLimits !== null) {
+    const digitStart = slashOffset + 2;
+    let digitEnd = digitStart;
+    while (
+      digitEnd < contents.length &&
+      digitEnd < digitStart + digitLimits[1] &&
+      /[A-Fa-f0-9]/.test(contents[digitEnd] ?? "")
+    ) {
+      digitEnd += 1;
+    }
+    if (digitEnd - digitStart < digitLimits[0]) return null;
+    const codePoint = Number.parseInt(contents.slice(digitStart, digitEnd), 16);
+    if (escaped === "x" && codePoint > 0x7f) return null;
+    if (codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) return null;
+    return { nextOffset: digitEnd, value: String.fromCodePoint(codePoint) };
+  }
+  if (escaped === "c") {
+    const controlled = contents[slashOffset + 2];
+    if (controlled === undefined) return null;
+    const codePoint = controlled === "?" ? 0x7f : controlled.toUpperCase().codePointAt(0);
+    if (codePoint === undefined || codePoint > 0x7f) return null;
+    return {
+      nextOffset: slashOffset + 3,
+      value: String.fromCodePoint(codePoint === 0x7f ? codePoint : codePoint & 0x1f),
+    };
+  }
+  return null;
 }
 
 function heredocAt(line: string, offset: number): ShellHeredoc | null {
@@ -99,16 +165,37 @@ function heredocAt(line: string, offset: number): ShellHeredoc | null {
   if (stripLeadingTabs) cursor += 1;
   while (line[cursor] === " " || line[cursor] === "\t") cursor += 1;
   let quoted = false;
-  let quote: "single" | "double" | null = null;
+  let quote: "ansi_c" | "single" | "double" | null = null;
   let delimiter = "";
   const wordStart = cursor;
   for (; cursor < line.length; cursor += 1) {
     const character = line[cursor];
     if (quote === null && /[\s;&|<>]/.test(character ?? "")) break;
+    if (quote === "ansi_c") {
+      if (character === "'") {
+        quote = null;
+        continue;
+      }
+      if (character === "\\") {
+        const decoded = decodeAnsiCEscape(line, cursor);
+        if (decoded === null) return null;
+        delimiter += decoded.value;
+        cursor = decoded.nextOffset - 1;
+        continue;
+      }
+      delimiter += character;
+      continue;
+    }
     if (character === "\\" && quote !== "single") {
       quoted = true;
-      cursor += 1;
-      if (cursor < line.length) delimiter += line[cursor];
+      const escaped = line[cursor + 1];
+      if (escaped === undefined) return null;
+      if (quote !== "double" || /[$`"\\]/.test(escaped)) {
+        cursor += 1;
+        delimiter += escaped;
+      } else {
+        delimiter += character;
+      }
       continue;
     }
     if (
@@ -118,7 +205,7 @@ function heredocAt(line: string, offset: number): ShellHeredoc | null {
     ) {
       quoted = true;
       cursor += 1;
-      quote = line[cursor] === "'" ? "single" : "double";
+      quote = line[cursor] === "'" ? "ansi_c" : "double";
       continue;
     }
     if (character === "'" && quote !== "double") {
@@ -133,10 +220,11 @@ function heredocAt(line: string, offset: number): ShellHeredoc | null {
     }
     delimiter += character;
   }
-  if (cursor === wordStart || quote !== null) return null;
+  if (cursor === wordStart || quote !== null || /[\0\r\n]/.test(delimiter)) return null;
   return {
     declarationEnd: cursor,
     delimiter,
+    expansionFrames: [{ kind: "heredoc", parenDepth: null, quote: null }],
     expandsVariables: !quoted,
     stripLeadingTabs,
   };
@@ -152,9 +240,148 @@ function shellVariableNameAt(contents: string, dollarOffset: number): string | n
 }
 
 interface ShellLexFrame {
-  readonly kind: "arithmetic" | "command";
+  readonly kind: "arithmetic" | "command" | "heredoc";
   parenDepth: number | null;
   quote: "single" | "double" | null;
+}
+
+function scanShellLine(
+  line: string,
+  frames: ShellLexFrame[],
+  names: string[],
+  heredocs: ShellHeredoc[] | null,
+): void {
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    const frame = frames.at(-1);
+    if (frame === undefined) break;
+    if (frame.kind === "heredoc") {
+      if (character === "\\") {
+        index += 1;
+        continue;
+      }
+      if (character === "$" && line.slice(index, index + 3) === "$((") {
+        frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
+        index += 2;
+        continue;
+      }
+      if (character === "$" && line.slice(index, index + 2) === "$(") {
+        frames.push({ kind: "command", parenDepth: 1, quote: null });
+        index += 1;
+        continue;
+      }
+      if (character === "$") {
+        const name = shellVariableNameAt(line, index);
+        if (name !== null) names.push(name);
+      }
+      continue;
+    }
+    if (frame.kind === "arithmetic") {
+      if (character === "\\") {
+        index += 1;
+        continue;
+      }
+      if (character === "$" && line.slice(index, index + 3) === "$((") {
+        frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
+        index += 2;
+        continue;
+      }
+      if (character === "$" && line.slice(index, index + 2) === "$(") {
+        frames.push({ kind: "command", parenDepth: 1, quote: null });
+        index += 1;
+        continue;
+      }
+      if (character === "$") {
+        const name = shellVariableNameAt(line, index);
+        if (name !== null) names.push(name);
+        continue;
+      }
+      if (character === "(") {
+        frame.parenDepth = (frame.parenDepth ?? 0) + 1;
+        continue;
+      }
+      if (character === ")") {
+        frame.parenDepth = (frame.parenDepth ?? 1) - 1;
+        if (frame.parenDepth === 0) frames.pop();
+      }
+      continue;
+    }
+    if (frame.quote === "single") {
+      if (character === "'") frame.quote = null;
+      continue;
+    }
+    if (character === "\\") {
+      index += 1;
+      continue;
+    }
+    if (frame.quote === "double") {
+      if (character === '"') {
+        frame.quote = null;
+        continue;
+      }
+      if (character === "$" && line.slice(index, index + 3) === "$((") {
+        frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
+        index += 2;
+        continue;
+      }
+      if (character === "$" && line.slice(index, index + 2) === "$(") {
+        frames.push({ kind: "command", parenDepth: 1, quote: null });
+        index += 1;
+        continue;
+      }
+      if (character === "$") {
+        const name = shellVariableNameAt(line, index);
+        if (name !== null) names.push(name);
+      }
+      continue;
+    }
+    if (character === "'") {
+      frame.quote = "single";
+      continue;
+    }
+    if (character === '"') {
+      frame.quote = "double";
+      continue;
+    }
+    if (character === "#" && (index === 0 || /[\s;&|()]/.test(line[index - 1] ?? ""))) {
+      break;
+    }
+    if (character === "$" && line.slice(index, index + 3) === "$((") {
+      frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
+      index += 2;
+      continue;
+    }
+    if (character === "$" && line.slice(index, index + 2) === "$(") {
+      frames.push({ kind: "command", parenDepth: 1, quote: null });
+      index += 1;
+      continue;
+    }
+    if (character === "(" && line[index + 1] === "(") {
+      frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
+      index += 1;
+      continue;
+    }
+    if (character === "(" && frame.parenDepth !== null) {
+      frame.parenDepth += 1;
+      continue;
+    }
+    if (character === ")" && frame.parenDepth !== null) {
+      frame.parenDepth -= 1;
+      if (frame.parenDepth === 0) frames.pop();
+      continue;
+    }
+    if (character === "<" && heredocs !== null) {
+      const declaration = heredocAt(line, index);
+      if (declaration !== null) {
+        heredocs.push(declaration);
+        index = declaration.declarationEnd - 1;
+        continue;
+      }
+    }
+    if (character !== "$") continue;
+    const name = shellVariableNameAt(line, index);
+    if (name !== null) names.push(name);
+  }
 }
 
 function shellVariableNames(contents: string): readonly string[] {
@@ -167,128 +394,11 @@ function shellVariableNames(contents: string): readonly string[] {
       const candidate = heredoc.stripLeadingTabs ? line.replace(/^\t+/, "") : line;
       if (candidate === heredoc.delimiter) heredocs.shift();
       else if (heredoc.expandsVariables) {
-        for (let index = 0; index < line.length; index += 1) {
-          if (line[index] === "\\") {
-            index += 1;
-            continue;
-          }
-          if (line[index] !== "$") continue;
-          const name = shellVariableNameAt(line, index);
-          if (name !== null) names.push(name);
-        }
+        scanShellLine(line, heredoc.expansionFrames, names, null);
       }
       continue;
     }
-    for (let index = 0; index < line.length; index += 1) {
-      const character = line[index];
-      const frame = frames.at(-1);
-      if (frame === undefined) break;
-      if (frame.kind === "arithmetic") {
-        if (character === "\\") {
-          index += 1;
-          continue;
-        }
-        if (character === "$" && line.slice(index, index + 3) === "$((") {
-          frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
-          index += 2;
-          continue;
-        }
-        if (character === "$" && line.slice(index, index + 2) === "$(") {
-          frames.push({ kind: "command", parenDepth: 1, quote: null });
-          index += 1;
-          continue;
-        }
-        if (character === "$") {
-          const name = shellVariableNameAt(line, index);
-          if (name !== null) names.push(name);
-          continue;
-        }
-        if (character === "(") {
-          frame.parenDepth = (frame.parenDepth ?? 0) + 1;
-          continue;
-        }
-        if (character === ")") {
-          frame.parenDepth = (frame.parenDepth ?? 1) - 1;
-          if (frame.parenDepth === 0) frames.pop();
-        }
-        continue;
-      }
-      if (frame.quote === "single") {
-        if (character === "'") frame.quote = null;
-        continue;
-      }
-      if (character === "\\") {
-        index += 1;
-        continue;
-      }
-      if (frame.quote === "double") {
-        if (character === '"') {
-          frame.quote = null;
-          continue;
-        }
-        if (character === "$" && line.slice(index, index + 3) === "$((") {
-          frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
-          index += 2;
-          continue;
-        }
-        if (character === "$" && line.slice(index, index + 2) === "$(") {
-          frames.push({ kind: "command", parenDepth: 1, quote: null });
-          index += 1;
-          continue;
-        }
-        if (character === "$") {
-          const name = shellVariableNameAt(line, index);
-          if (name !== null) names.push(name);
-        }
-        continue;
-      }
-      if (character === "'") {
-        frame.quote = "single";
-        continue;
-      }
-      if (character === '"') {
-        frame.quote = "double";
-        continue;
-      }
-      if (character === "#" && (index === 0 || /[\s;&|()]/.test(line[index - 1] ?? ""))) {
-        break;
-      }
-      if (character === "$" && line.slice(index, index + 3) === "$((") {
-        frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
-        index += 2;
-        continue;
-      }
-      if (character === "$" && line.slice(index, index + 2) === "$(") {
-        frames.push({ kind: "command", parenDepth: 1, quote: null });
-        index += 1;
-        continue;
-      }
-      if (character === "(" && line[index + 1] === "(") {
-        frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
-        index += 1;
-        continue;
-      }
-      if (character === "(" && frame.parenDepth !== null) {
-        frame.parenDepth += 1;
-        continue;
-      }
-      if (character === ")" && frame.parenDepth !== null) {
-        frame.parenDepth -= 1;
-        if (frame.parenDepth === 0) frames.pop();
-        continue;
-      }
-      if (character === "<") {
-        const declaration = heredocAt(line, index);
-        if (declaration !== null) {
-          heredocs.push(declaration);
-          index = declaration.declarationEnd - 1;
-          continue;
-        }
-      }
-      if (character !== "$") continue;
-      const name = shellVariableNameAt(line, index);
-      if (name !== null) names.push(name);
-    }
+    scanShellLine(line, frames, names, heredocs);
   }
   return names;
 }
