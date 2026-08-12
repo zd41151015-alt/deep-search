@@ -118,6 +118,60 @@ test("ordinary hook inputs continue without manufacturing telemetry or formal Ar
   assert.equal(await evaluateStop({}, undefined), undefined);
 });
 
+test("research guard routes target-owned handoff payload reads through the controlled command", async () => {
+  const activeRunId = "active-handoff-guard-synthetic";
+  const denyCases = [
+    `cat runs/${activeRunId}/artifacts/research-handoffs/authorized.json`,
+    `jq . runs/${activeRunId}/.store/operations/research-handoff-operation.json`,
+  ];
+  for (const command of denyCases) {
+    const blocked = await evaluatePreToolUse(
+      { cwd: repositoryRoot, tool_name: "Bash", tool_input: { command } },
+      activeRunId,
+    );
+    assert.equal(
+      (blocked?.hookSpecificOutput as Record<string, unknown>)?.permissionDecision,
+      "deny",
+      command,
+    );
+  }
+
+  const runCwd = path.join(repositoryRoot, "runs", activeRunId);
+  for (const command of [
+    "cat artifacts/research-handoffs/authorized.json",
+    "cat .store/operations/research-handoff-operation.json",
+  ]) {
+    const blocked = await evaluatePreToolUse(
+      { cwd: runCwd, tool_name: "Shell", tool_input: { command } },
+      activeRunId,
+    );
+    assert.equal(
+      (blocked?.hookSpecificOutput as Record<string, unknown>)?.permissionDecision,
+      "deny",
+      command,
+    );
+  }
+
+  for (const command of [
+    `cat runs/${activeRunId}/artifacts/discovery/opportunity-space-map.r1.json`,
+    "printf '%s' 'artifacts/research-handoffs/authorized.json'",
+    "npm run harness -- read-research-handoff --run-id active-handoff-guard-synthetic --handoff-ref artifacts/research-handoffs/authorized.json --item-id prior_map",
+  ]) {
+    assert.equal(
+      await evaluatePreToolUse(
+        {
+          cwd: command.includes("read-research-handoff") ? runCwd : repositoryRoot,
+          tool_name: "Bash",
+          tool_input: { command },
+        },
+        activeRunId,
+      ),
+      undefined,
+      command,
+    );
+  }
+});
+
 test("research guard blocks production hot-fixes until the active Run is terminal", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-hotfix-guard-"));
   t.after(() => rm(root, { recursive: true, force: true }));

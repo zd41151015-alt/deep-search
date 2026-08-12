@@ -91,6 +91,9 @@
     "research_plan_ref": {
       "$ref": "../../core/definitions.schema.json#/$defs/planRef"
     },
+    "research_handoff_input_hashes": {
+      "$ref": "../../core/research-handoff.schema.json#/$defs/handoffBindings"
+    },
     "discovery_fan_in_ref": {
       "$ref": "./definitions.schema.json#/$defs/fanInRef"
     },

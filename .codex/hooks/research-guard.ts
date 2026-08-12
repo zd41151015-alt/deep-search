@@ -86,6 +86,27 @@ function hasUnresolvedRunReference(contents: string, activeRunId: string): boole
   return /(?:^|[/\s"'=])runs(?:\/|\b)/.test(withoutCurrentRunPaths);
 }
 
+function directlyReadsResearchHandoffState(
+  contents: string,
+  command: string,
+  cwd: unknown,
+  activeRunId: string,
+): boolean {
+  if (/\bread-research-handoff\b/.test(command)) return false;
+  const escapedRunId = activeRunId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const explicitTargetPath = new RegExp(
+    `(?:^|[/\\s"'=])runs/${escapedRunId}/(?:artifacts/research-handoffs/|\\.store/operations/research-handoff-)`,
+  ).test(contents);
+  const cwdIsTargetRun =
+    typeof cwd === "string" &&
+    new RegExp(`(?:^|/)runs/${escapedRunId}(?:/|$)`).test(cwd.replaceAll("\\", "/"));
+  const relativeTargetPath =
+    /(?:^|[\s"'=])(?:\.\/)?(?:artifacts\/research-handoffs\/|\.store\/operations\/research-handoff-)/.test(
+      command,
+    );
+  return explicitTargetPath || (cwdIsTargetRun && relativeTargetPath);
+}
+
 interface ShellHeredoc {
   readonly delimiter: string;
   readonly declarationEnd: number;
@@ -928,6 +949,11 @@ export async function evaluatePreToolUse(
   }
   const root = await findRepositoryRoot(typeof input.cwd === "string" ? input.cwd : process.cwd());
   const accessText = runAccessText(input, normalizedCommand);
+  if (directlyReadsResearchHandoffState(accessText, normalizedCommand, input.cwd, activeRunId)) {
+    return deny(
+      "Direct reading of target-owned research handoff bytes is blocked; use read-research-handoff so consumption provenance is recorded before payload delivery.",
+    );
+  }
   for (const target of referencedRunTargets(accessText)) {
     if (target.runId === activeRunId) continue;
     return deny(

@@ -133,6 +133,12 @@ export function formalArtifactFragmentExists(
   if (target.schemaVersion === "startup_opportunity.research_plan.v1") {
     return planFragmentExists(target.document, fragment, expectedIdField);
   }
+  if (target.schemaVersion === "startup_opportunity.research_handoff.current") {
+    return (
+      (expectedIdField === undefined || expectedIdField === "item_id") &&
+      nestedIdExists(target.document, "items", "item_id", fragment)
+    );
+  }
   if (discoveryMapFragmentExists(target, fragment, expectedIdField)) {
     return true;
   }

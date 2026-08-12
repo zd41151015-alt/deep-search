@@ -204,6 +204,11 @@ function validateContentProvenance(
     ? source.document.content_provenance
     : {};
   const refs = stringArray(provenance.prior_input_decision_refs);
+  const handoffRefs = (
+    Array.isArray(source.document.research_handoff_input_hashes)
+      ? source.document.research_handoff_input_hashes.filter(isRecord)
+      : []
+  ).flatMap((binding) => (typeof binding.ref === "string" ? [binding.ref] : []));
   const taintRequiredRefs = [...exactRecords.values()]
     .filter(
       (decision) =>
@@ -276,14 +281,17 @@ function validateContentProvenance(
     );
   }
   if (
-    (provenance.synthesis_origin === "current_run_synthesis" && refs.length > 0) ||
-    (provenance.synthesis_origin === "prior_informed_synthesis" && refs.length === 0)
+    (provenance.synthesis_origin === "current_run_synthesis" &&
+      (refs.length > 0 || handoffRefs.length > 0)) ||
+    (provenance.synthesis_origin === "prior_informed_synthesis" && refs.length === 0) ||
+    (provenance.synthesis_origin === "research_handoff_informed_synthesis" &&
+      (handoffRefs.length === 0 || refs.length > 0))
   ) {
     errors.push(
       issue(
         "discovery_maps.prior_provenance_state_mismatch",
         `${source.path}#/content_provenance`,
-        "Map synthesis origin must explicitly agree with its admitted prior inputs",
+        "Map synthesis origin must explicitly agree with its prior-input Decision or research handoff bindings",
       ),
     );
   }
@@ -352,9 +360,14 @@ function validateEnvelope(
   if (envelope === null) {
     return;
   }
+  const handoffRefs = (
+    Array.isArray(entry.document.research_handoff_input_hashes)
+      ? entry.document.research_handoff_input_hashes.filter(isRecord)
+      : []
+  ).flatMap((binding) => (typeof binding.ref === "string" ? [binding.ref] : []));
   validateExactRefs(
     envelope.input_refs,
-    expectedInputRefs,
+    [...expectedInputRefs, ...handoffRefs],
     `${entry.path}#/input_refs`,
     errors,
     "discovery_maps.envelope_input_mismatch",

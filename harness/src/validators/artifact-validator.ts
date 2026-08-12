@@ -82,6 +82,10 @@ import {
   validateResearchBranchContract,
 } from "./research-branch-validator.js";
 import {
+  type ResearchHandoffDocument,
+  validateResearchHandoffContract,
+} from "./research-handoff-validator.js";
+import {
   hasBlockingIssues,
   type LoadedSchemaBundle,
   loadSchemaBundle,
@@ -333,6 +337,18 @@ function refsFromNestedArray(
         : [],
     );
   });
+}
+
+function refsFromHandoffBindings(
+  document: Record<string, unknown>,
+  field = "research_handoff_input_hashes",
+): readonly ReferenceRequirement[] {
+  return refsFromNestedArray(
+    document,
+    field,
+    "ref",
+    "startup_opportunity.research_handoff.current",
+  ).map((requirement) => ({ ...requirement, expectedIdField: "item_id" }));
 }
 
 function refsFromNestedObjectArray(
@@ -738,6 +754,20 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       return [
         ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
       ];
+    case "startup_opportunity.research_handoff.current":
+      return [
+        ...optionalRef(document, "target_scope_ref", [
+          "startup_opportunity.scope_frame.discovery.current",
+          "startup_opportunity.scope_frame.assessment.current",
+        ]),
+        ...optionalRef(document, "target_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromNestedArray(
+          document,
+          "items",
+          "target_evidence_ref",
+          "startup_opportunity.evidence_store_record.v2",
+        ),
+      ];
     case "startup_opportunity.seed_probe.v1":
       return [
         ...optionalRef(
@@ -752,6 +782,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "prior_input_decision_refs",
           "startup_opportunity.decision.v1",
         ),
+        ...refsFromHandoffBindings(document),
       ];
     case "startup_opportunity.opportunity_space_map.v1":
       return [
@@ -768,6 +799,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "prior_input_decision_refs",
           "startup_opportunity.decision.v1",
         ),
+        ...refsFromHandoffBindings(document),
       ];
     case "startup_opportunity.solution_space_map.v1":
       return [
@@ -789,6 +821,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "prior_input_decision_refs",
           "startup_opportunity.decision.v1",
         ),
+        ...refsFromHandoffBindings(document),
       ];
     case "startup_opportunity.concept_hypothesis.assessment.current":
       return [
@@ -807,6 +840,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "ref",
           SUBJECT_REFORMATION_INPUT_SCHEMAS,
         ),
+        ...refsFromHandoffBindings(document),
       ];
     case "startup_opportunity.concept_hypothesis.assessment_intake.current":
       return [
@@ -829,6 +863,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "ref",
           SUBJECT_REFORMATION_INPUT_SCHEMAS,
         ),
+        ...refsFromHandoffBindings(document),
       ];
     case "startup_opportunity.judgment_assessment.assessment.current":
       return [
@@ -1463,6 +1498,10 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "prior_input_decision_refs",
           "startup_opportunity.decision.v1",
         ).map((requirement) => ({
+          ...requirement,
+          instancePath: `/formation${requirement.instancePath}`,
+        })),
+        ...refsFromHandoffBindings(formation).map((requirement) => ({
           ...requirement,
           instancePath: `/formation${requirement.instancePath}`,
         })),
@@ -2165,6 +2204,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       ];
     case "startup_opportunity.opportunity_thesis.v1":
       return [
+        ...refsFromHandoffBindings(document),
         ...optionalRef(
           document,
           "parent_opportunity_ref",
@@ -4338,6 +4378,15 @@ export class ArtifactValidator {
       }),
     );
     referenceErrors.push(...validateResearchBranchContract(researchDocuments, exactJsonlRecords));
+    const handoffDocuments: readonly ResearchHandoffDocument[] = effectiveDocuments.map(
+      (entry) => ({
+        path: entry.path,
+        schemaVersion: entry.schemaVersion,
+        document: entry.document,
+        envelope: entry.envelope,
+      }),
+    );
+    referenceErrors.push(...validateResearchHandoffContract(handoffDocuments, exactJsonlRecords));
     const assessmentAdaptationDocuments: readonly AssessmentAdaptationDocument[] =
       effectiveDocuments.map((entry) => ({
         path: entry.path,
@@ -4445,6 +4494,7 @@ export class ArtifactValidator {
         terminalReportingDocuments,
         this.publicationPolicy.document
           .commercial_research_contract as unknown as CommercialResearchPolicy,
+        exactJsonlRecords,
       ),
     );
     const decisionSubjectDocuments: readonly DecisionSubjectDocument[] = effectiveDocuments.map(

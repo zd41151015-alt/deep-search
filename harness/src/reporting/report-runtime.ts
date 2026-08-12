@@ -22,10 +22,12 @@ import {
 } from "../artifact-store/path-policy.js";
 import { withReportLock, withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import { EvidenceStore } from "../evidence-store/evidence-store.js";
 import { RunStore } from "../run-store/run-store.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
 import { REQUIRED_REPORT_CONSISTENCY_DIMENSIONS } from "../validators/discovery-evaluation-policy.js";
 import { projectGateWarnings } from "../validators/gate-diagnostics.js";
+import { deriveResearchProvenance } from "../validators/research-handoff-validator.js";
 import {
   commercialProjectionRefs,
   projectCommercialAuditTables,
@@ -1144,6 +1146,7 @@ export async function recoverReportOperationsLocked(
 export class ReportRuntime {
   private readonly store: RunStore;
   private readonly artifacts: ArtifactStore;
+  private readonly evidence: EvidenceStore;
 
   constructor(
     private readonly runsRoot: string,
@@ -1151,6 +1154,7 @@ export class ReportRuntime {
   ) {
     this.store = new RunStore(runsRoot, validator);
     this.artifacts = new ArtifactStore(runsRoot, validator);
+    this.evidence = new EvidenceStore(runsRoot);
   }
 
   async build(input: BuildReportInput): Promise<BuildReportResult> {
@@ -1313,6 +1317,42 @@ export class ReportRuntime {
       ];
     });
     const sourceDocument = structuredClone(source.document);
+    const handoffs = context.bundle.documents.flatMap((entry) => {
+      if (
+        entry.document.schema_version !== "startup_opportunity.artifact_envelope.current" ||
+        entry.document.artifact_type !== "startup_opportunity.research_handoff.current" ||
+        !isRecord(entry.document.document)
+      ) {
+        return [];
+      }
+      return [{ path: entry.path, document: entry.document.document }];
+    });
+    const evidenceRecords = await this.evidence.listRecords(source.run_id);
+    const researchProvenance = deriveResearchProvenance(
+      source.run_id,
+      handoffs.map((handoff) => ({
+        path: handoff.path,
+        schemaVersion: "startup_opportunity.research_handoff.current",
+        document: handoff.document,
+        envelope: null,
+      })),
+      new Map(
+        evidenceRecords.map((record) => [
+          `evidence/manifest.jsonl#${record.evidence_id}`,
+          record as Record<string, unknown>,
+        ]),
+      ),
+    );
+    if (
+      source.artifact_type === "startup_opportunity.terminal_report_source.v1" &&
+      sourceDocument.research_provenance !== undefined &&
+      canonicalJson(sourceDocument.research_provenance) !== canonicalJson(researchProvenance)
+    ) {
+      throw new StoreError(
+        "report.source_invalid",
+        "caller-supplied research provenance drifts from exact current-Run handoff and Evidence records",
+      );
+    }
     const decisionSnapshot =
       source.artifact_type === "startup_opportunity.terminal_report_source.v1" &&
       typeof sourceDocument.decision_subject_snapshot_ref === "string"
@@ -1430,6 +1470,7 @@ export class ReportRuntime {
       ...(source.artifact_type === "startup_opportunity.terminal_report_source.v1"
         ? {
             current_decision_subject_ids: currentDecisionSubjectIds,
+            research_provenance: researchProvenance,
             directions: synthesizedDirections,
             ordered_validation_plan: synthesizedValidationPlan,
             audit_refs: [
@@ -1444,6 +1485,7 @@ export class ReportRuntime {
       input_refs: [
         ...new Set([
           ...source.input_refs.filter((ref) => !ref.startsWith("artifacts/research-audits/")),
+          ...handoffs.map((handoff) => handoff.path),
           ...projection.commercial_research_audit_refs,
           ...synthesisBindings.flatMap((binding) =>
             typeof binding.ref === "string" ? [binding.ref] : [],

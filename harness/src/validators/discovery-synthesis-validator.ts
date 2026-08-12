@@ -234,6 +234,12 @@ function refsFromSourceGroups(document: Record<string, unknown>): readonly strin
   ];
 }
 
+function refsFromResearchHandoffs(document: Record<string, unknown>): readonly string[] {
+  return records(document.research_handoff_input_hashes).flatMap((binding) =>
+    typeof binding.ref === "string" ? [binding.ref] : [],
+  );
+}
+
 function expectedInputRefs(entry: DiscoverySynthesisDocument): readonly string[] {
   const document = entry.document;
   const common = [
@@ -312,6 +318,7 @@ function expectedInputRefs(entry: DiscoverySynthesisDocument): readonly string[]
     case "startup_opportunity.opportunity_thesis.v1":
       return uniqueSorted([
         ...common,
+        ...refsFromResearchHandoffs(document),
         ...strings([
           document.parent_opportunity_ref,
           document.demand_thesis_ref,

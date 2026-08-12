@@ -56,6 +56,8 @@ Scope confirmation is durable Run state, not a CLI-only boolean. `create-run` at
 
 Recovery applies only to a Run created and operated by the same current contract. After code or contract changes, start with a new `run_id`; the Harness does not identify, migrate, adapt, or restore old Run formats. An old Run may simply fail current Manifest, receipt, or Artifact validation. This cross-update boundary is separate from same-Run crash recovery.
 
+When the user explicitly authorizes research reuse from another Run created under the current contract, first create and confirm the target Scope. Discovery requires its current Plan before `create-research-handoff`; Assessment may create a Harness-marked pre-Plan handoff only to form its initial intake Concept, then publishes the Plan through the ordinary exact closure. Submit exact source byte/content hashes and item roles. Reusable Evidence is copied into the target Evidence Store; prior synthesis remains hypothesis-only or revalidation-required context. Use `read-research-handoff` to read selected captured items from the target Artifact. Direct source-Run reads, schema adaptation, Plan/Task/Gate/ranking/execution inheritance, and source-dependent target recovery remain prohibited.
+
 If an active formal Run exposes a production blocker, finish the original Run through the `record_runtime_failure` terminal path before editing Harness code, schemas, policies, the Skill/hooks, or toolchain metadata. Never hot-fix production and then continue, recover, or revalidate that same `run_id`. The optional research guard enforces this boundary when `STARTUP_OPPORTUNITY_ACTIVE_RUN_ID` is set; the Skill rule remains authoritative when hooks are disabled.
 
 After recovery:

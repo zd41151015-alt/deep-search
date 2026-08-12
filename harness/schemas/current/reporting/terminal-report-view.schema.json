@@ -16,6 +16,7 @@
     "report_ref",
     "report_content_hash",
     "terminal_outcome",
+    "research_provenance",
     "section_ids",
     "limitations",
     "audit_appendix_refs",
@@ -66,10 +67,13 @@
         "cancelled"
       ]
     },
+    "research_provenance": {
+      "$ref": "./terminal-report-source.schema.json#/$defs/researchProvenance"
+    },
     "section_ids": {
       "type": "array",
-      "minItems": 12,
-      "maxItems": 12,
+      "minItems": 13,
+      "maxItems": 13,
       "uniqueItems": true,
       "items": {
         "enum": [
@@ -78,6 +82,7 @@
           "runtime_health",
           "directions",
           "decisive_evidence",
+          "research_provenance",
           "quantitative_signals",
           "competitive_substitute_matrix",
           "incumbent_absorption_and_response_risk",

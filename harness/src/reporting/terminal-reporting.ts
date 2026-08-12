@@ -19,6 +19,7 @@ const TERMINAL_REPORT_SECTION_IDS = [
   "runtime_health",
   "directions",
   "decisive_evidence",
+  "research_provenance",
   "quantitative_signals",
   "competitive_substitute_matrix",
   "incumbent_absorption_and_response_risk",
@@ -300,6 +301,29 @@ function renderValidationPlan(source: Record<string, unknown>, zh: boolean): str
     .join("\n");
 }
 
+function renderResearchProvenance(source: Record<string, unknown>, zh: boolean): string {
+  const provenance = requiredRecord(source.research_provenance, "research_provenance");
+  const inherited = records(provenance.inherited_evidence);
+  const current = strings(provenance.current_run_evidence_refs);
+  const prior = records(provenance.prior_synthesis_items);
+  const revalidation = records(provenance.revalidation_required_items);
+  const lines = [
+    `- ${zh ? "继承证据" : "Inherited evidence"}: ${inherited.length}`,
+    `- ${zh ? "本次研究证据" : "Current-Run evidence"}: ${current.length}`,
+    `- ${zh ? "历史综合背景" : "Prior synthesis context"}: ${prior.length}`,
+    `- ${zh ? "需重新验证" : "Revalidation required"}: ${revalidation.length}`,
+  ];
+  if (revalidation.length > 0) {
+    lines.push(
+      ...revalidation.map(
+        (item) =>
+          `  - ${String(item.source_artifact_path)} (${String(item.freshness_disposition)}; ${String(item.applicability_disposition)})`,
+      ),
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 export function renderTerminalDecisionBrief(source: Record<string, unknown>): string {
   const zh = isChinese(source.research_language);
   const conclusion = requiredRecord(source.research_conclusion, "research_conclusion");
@@ -321,6 +345,8 @@ export function renderTerminalDecisionBrief(source: Record<string, unknown>): st
     renderDirections(source, zh, true),
     `\n## ${zh ? "决定性来源与证据强弱" : "Decisive Sources And Evidence Strength"}\n`,
     renderSources(source, zh),
+    `\n## ${zh ? "研究来源沿袭" : "Research Provenance"}\n`,
+    renderResearchProvenance(source, zh),
     `\n## ${zh ? "头部公司吸收与响应风险" : "Incumbent Absorption And Response Risk"}\n`,
     renderIncumbentResponseRiskTable(source, zh),
     `\n## ${zh ? "有顺序的验证建议" : "Ordered Validation Recommendations"}\n`,
@@ -359,6 +385,8 @@ export function renderTerminalFullReport(source: Record<string, unknown>): strin
     renderGateWarnings(source, zh),
     `\n## ${zh ? "来源与证据强弱" : "Sources And Evidence Strength"}\n`,
     renderSources(source, zh),
+    `\n## ${zh ? "研究来源沿袭" : "Research Provenance"}\n`,
+    renderResearchProvenance(source, zh),
     `\n## ${zh ? "有顺序的验证建议" : "Ordered Validation Recommendations"}\n`,
     renderValidationPlan(source, zh),
     `\n## ${zh ? "证据新鲜度" : "Evidence Freshness"}\n`,
@@ -430,6 +458,7 @@ export function deriveTerminalReportDocuments(
     runtime_health: userRuntimeHealthProjection(source),
     directions: source.directions,
     sources: source.sources,
+    research_provenance: source.research_provenance,
     ordered_validation_plan: source.ordered_validation_plan,
     freshness: source.freshness,
     limitations: source.limitations,
@@ -450,6 +479,7 @@ export function deriveTerminalReportDocuments(
     report_ref: reportEnvelope.artifact_path,
     report_content_hash: reportHash,
     terminal_outcome: source.terminal_outcome,
+    research_provenance: source.research_provenance,
     section_ids: TERMINAL_REPORT_SECTION_IDS,
     limitations: source.limitations,
     audit_appendix_refs: source.audit_refs,

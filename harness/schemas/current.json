@@ -133,6 +133,11 @@
       "document_schema_version": "startup_opportunity.research_plan.v1"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/core/research-handoff.schema.json",
+      "file": "current/core/research-handoff.schema.json",
+      "document_schema_version": "startup_opportunity.research_handoff.current"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/core/run-manifest.schema.json",
       "file": "current/core/run-manifest.schema.json",
       "document_schema_version": "startup_opportunity.run_manifest.v1"

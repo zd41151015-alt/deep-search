@@ -6,8 +6,10 @@ import { createArtifactValidator } from "../validators/artifact-validator.js";
 import {
   type BeliefSummary,
   type CheckpointRunInput,
+  type CreateResearchHandoffInput,
   type CreateRunInput,
   type ReadPriorInputInput,
+  type ReadResearchHandoffInput,
   type ReformDecisionSubjectInput,
   type ResearchScope,
   type RunMode,
@@ -72,6 +74,23 @@ function roots(parsed: ParsedArguments, repositoryRoot: string): string {
 
 function writeResult(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function inputRecord(value: unknown, message: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new StoreError("command.invalid_arguments", message);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requiredString(record: Record<string, unknown>, field: string): string {
+  const value = record[field];
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new StoreError("command.invalid_arguments", `${field} must be a non-empty string`, {
+      field,
+    });
+  }
+  return value;
 }
 
 function researchScope(parsed: ParsedArguments): ResearchScope {
@@ -301,6 +320,93 @@ export async function runReadPriorInput(
     };
     const validator = await createArtifactValidator(repositoryRoot);
     return new RunStore(roots(parsed, repositoryRoot), validator).readPriorInput(input);
+  });
+}
+
+export async function runCreateResearchHandoff(
+  args: readonly string[],
+  repositoryRoot = process.cwd(),
+): Promise<number> {
+  return runCommand(async () => {
+    const parsed = parseArguments(args);
+    rejectUnknown(parsed, ["--file", "--runs-root"]);
+    const request = inputRecord(
+      JSON.parse(await readFile(required(parsed, "--file"), "utf8")) as unknown,
+      "research handoff input must be a JSON object",
+    );
+    if (!Array.isArray(request.items) || request.items.length === 0) {
+      throw new StoreError(
+        "command.invalid_arguments",
+        "research handoff input requires a non-empty items array",
+      );
+    }
+    const items = request.items.map((value, index) => {
+      const item = inputRecord(value, `research handoff item ${index} must be an object`);
+      const targetUnitId = item.target_unit_id;
+      const targetResearchGoal = item.target_research_goal;
+      return {
+        itemId: requiredString(item, "item_id"),
+        sourceArtifactPath: requiredString(item, "source_artifact_path"),
+        role: requiredString(item, "role") as CreateResearchHandoffInput["items"][number]["role"],
+        expectedSourceByteHash: requiredString(item, "expected_source_byte_hash"),
+        expectedSourceContentHash: requiredString(item, "expected_source_content_hash"),
+        freshnessDisposition: requiredString(
+          item,
+          "freshness_disposition",
+        ) as CreateResearchHandoffInput["items"][number]["freshnessDisposition"],
+        applicabilityDisposition: requiredString(
+          item,
+          "applicability_disposition",
+        ) as CreateResearchHandoffInput["items"][number]["applicabilityDisposition"],
+        revalidationStatus: requiredString(
+          item,
+          "revalidation_status",
+        ) as CreateResearchHandoffInput["items"][number]["revalidationStatus"],
+        ...(targetUnitId === undefined
+          ? {}
+          : { targetUnitId: requiredString(item, "target_unit_id") }),
+        ...(targetResearchGoal === undefined
+          ? {}
+          : { targetResearchGoal: requiredString(item, "target_research_goal") }),
+      };
+    });
+    const capturedAt = request.captured_at;
+    const input: CreateResearchHandoffInput = {
+      runId: requiredString(request, "run_id"),
+      handoffId: requiredString(request, "handoff_id"),
+      sourceRunId: requiredString(request, "source_run_id"),
+      userAuthorizationAttestation: requiredString(request, "user_authorization_attestation"),
+      targetPurpose: requiredString(request, "target_purpose"),
+      items,
+      ...(capturedAt === undefined ? {} : { capturedAt: requiredString(request, "captured_at") }),
+    };
+    const validator = await createArtifactValidator(repositoryRoot);
+    return new RunStore(roots(parsed, repositoryRoot), validator).createResearchHandoff(input);
+  });
+}
+
+export async function runReadResearchHandoff(
+  args: readonly string[],
+  repositoryRoot = process.cwd(),
+): Promise<number> {
+  return runCommand(async () => {
+    const parsed = parseArguments(args, ["--item-id"]);
+    rejectUnknown(parsed, [
+      "--run-id",
+      "--handoff-ref",
+      "--item-id",
+      "--consumed-at",
+      "--runs-root",
+    ]);
+    const consumedAt = parsed.values.get("--consumed-at");
+    const input: ReadResearchHandoffInput = {
+      runId: required(parsed, "--run-id"),
+      handoffRef: required(parsed, "--handoff-ref"),
+      itemIds: parsed.repeated.get("--item-id") ?? [],
+      ...(consumedAt === undefined ? {} : { consumedAt }),
+    };
+    const validator = await createArtifactValidator(repositoryRoot);
+    return new RunStore(roots(parsed, repositoryRoot), validator).readResearchHandoff(input);
   });
 }
 

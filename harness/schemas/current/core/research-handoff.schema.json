@@ -1,0 +1,324 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/core/research-handoff.schema.json",
+  "title": "Startup Opportunity Current Research Handoff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "handoff_id",
+    "run_id",
+    "source_run_id",
+    "target_formation_stage",
+    "target_scope_ref",
+    "target_scope_hash",
+    "target_plan_ref",
+    "target_plan_hash",
+    "user_authorization_attestation",
+    "target_purpose",
+    "captured_at",
+    "items"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.research_handoff.current"
+    },
+    "handoff_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "source_run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "target_formation_stage": {
+      "enum": ["plan_bound", "pre_plan_assessment_formation"]
+    },
+    "target_scope_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "target_scope_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "target_plan_ref": {
+      "anyOf": [
+        {
+          "$ref": "./definitions.schema.json#/$defs/planRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "target_plan_hash": {
+      "$ref": "#/$defs/nullableHash"
+    },
+    "user_authorization_attestation": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "target_purpose": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "captured_at": {
+      "$ref": "./definitions.schema.json#/$defs/timestamp"
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/handoffItem"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "target_formation_stage": {
+            "const": "plan_bound"
+          }
+        },
+        "required": ["target_formation_stage"]
+      },
+      "then": {
+        "properties": {
+          "target_plan_ref": {
+            "$ref": "./definitions.schema.json#/$defs/planRef"
+          },
+          "target_plan_hash": {
+            "$ref": "./definitions.schema.json#/$defs/sha256"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "target_plan_ref": {
+            "type": "null"
+          },
+          "target_plan_hash": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "handoffBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "content_hash"],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^artifacts/research-handoffs/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\.json#[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "content_hash": {
+          "$ref": "./definitions.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "handoffBindings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/handoffBinding"
+      }
+    },
+    "nullableHash": {
+      "anyOf": [
+        {
+          "$ref": "./definitions.schema.json#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableString": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "handoffItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_id",
+        "source_kind",
+        "source_artifact_path",
+        "source_schema_version",
+        "source_byte_hash",
+        "source_record_hash",
+        "source_content_hash",
+        "source_raw_content_hash",
+        "source_captured_at",
+        "source_payload_encoding",
+        "source_payload_base64",
+        "role",
+        "decision_boundary",
+        "freshness_disposition",
+        "applicability_disposition",
+        "revalidation_status",
+        "target_unit_id",
+        "target_research_goal",
+        "target_evidence_ref",
+        "target_evidence_record_hash"
+      ],
+      "properties": {
+        "item_id": {
+          "$ref": "./definitions.schema.json#/$defs/identifier"
+        },
+        "source_kind": {
+          "enum": ["formal_artifact", "evidence_substrate"]
+        },
+        "source_artifact_path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^#]+(?:#[A-Za-z0-9][A-Za-z0-9._:-]{0,127})?$"
+        },
+        "source_schema_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_byte_hash": {
+          "$ref": "./definitions.schema.json#/$defs/sha256"
+        },
+        "source_record_hash": {
+          "$ref": "./definitions.schema.json#/$defs/sha256"
+        },
+        "source_content_hash": {
+          "$ref": "./definitions.schema.json#/$defs/sha256"
+        },
+        "source_raw_content_hash": {
+          "$ref": "#/$defs/nullableHash"
+        },
+        "source_captured_at": {
+          "$ref": "./definitions.schema.json#/$defs/timestamp"
+        },
+        "source_payload_encoding": {
+          "const": "base64"
+        },
+        "source_payload_base64": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        },
+        "role": {
+          "enum": [
+            "user_authorized_input",
+            "reusable_evidence",
+            "prior_synthesis",
+            "revalidation_required"
+          ]
+        },
+        "decision_boundary": {
+          "enum": ["hypothesis_input_only", "evidence_reuse_with_current_weighting"]
+        },
+        "freshness_disposition": {
+          "enum": ["current", "historical", "unknown"]
+        },
+        "applicability_disposition": {
+          "enum": ["applicable", "partially_applicable", "unknown"]
+        },
+        "revalidation_status": {
+          "enum": ["not_required", "required"]
+        },
+        "target_unit_id": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "target_research_goal": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "target_evidence_ref": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "target_evidence_record_hash": {
+          "$ref": "#/$defs/nullableHash"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "reusable_evidence"
+              }
+            },
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "source_kind": {
+                "const": "evidence_substrate"
+              },
+              "decision_boundary": {
+                "const": "evidence_reuse_with_current_weighting"
+              },
+              "source_raw_content_hash": {
+                "$ref": "./definitions.schema.json#/$defs/sha256"
+              },
+              "target_unit_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "target_research_goal": {
+                "type": "string",
+                "minLength": 1
+              },
+              "target_evidence_ref": {
+                "type": "string",
+                "pattern": "^evidence/manifest\\.jsonl#ev_[a-f0-9]{64}$"
+              },
+              "target_evidence_record_hash": {
+                "$ref": "./definitions.schema.json#/$defs/sha256"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "decision_boundary": {
+                "const": "hypothesis_input_only"
+              },
+              "target_unit_id": {
+                "type": "null"
+              },
+              "target_research_goal": {
+                "type": "null"
+              },
+              "target_evidence_ref": {
+                "type": "null"
+              },
+              "target_evidence_record_hash": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "enum": ["prior_synthesis", "revalidation_required"]
+              }
+            },
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "revalidation_status": {
+                "const": "required"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

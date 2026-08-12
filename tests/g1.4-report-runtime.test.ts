@@ -17,6 +17,7 @@ import {
   ReportRuntime,
   RunStore,
   StoreError,
+  sha256Bytes,
 } from "../harness/src/index.js";
 import {
   type TerminalReportingDocument,
@@ -35,6 +36,13 @@ import {
   refreshG14Bundle,
   replaceG14EvidenceRecords,
 } from "./fixtures/g1.4/assessment-report-fixture.js";
+import {
+  createDiscoveryMapsFixture,
+  fixtureEnvelope,
+  G21_CORE_REFS,
+  G21_MAP_REFS,
+  G21_OPPORTUNITY_REF,
+} from "./fixtures/g2.1/discovery-maps-fixture.js";
 import {
   commercialReportProjection,
   unavailableQuantitativeCompetitiveCoverage,
@@ -1231,6 +1239,140 @@ test("terminal finalizer produces a localized decision-first brief with readable
   });
 });
 
+test("terminal report derives consistent current and inherited research provenance", async (context) => {
+  const state = await prepareRun(context);
+  const sourceRunId = "g1-4-handoff-source-synthetic";
+  const sourceBundle = await createDiscoveryMapsFixture("general", sourceRunId);
+  await createConfirmedRun(state.store, {
+    runId: sourceRunId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-25T16:00:00Z",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic prior handoff user"],
+      decisionGoal: "provide explicitly authorized prior research context",
+      researchLanguage: "en-US",
+    },
+  });
+  await state.store.publishArtifactBundle({
+    runId: sourceRunId,
+    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
+  });
+  await state.store.publishArtifactBundle({
+    runId: sourceRunId,
+    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
+  });
+  const sourceEvidenceStore = new EvidenceStore(state.runsRoot);
+  const sourceEvidence = await sourceEvidenceStore.record({
+    runId: sourceRunId,
+    unitId: "unit_prior_handoff_material",
+    source: {
+      kind: "public_url",
+      canonical_url: "https://synthetic.invalid/regulator/vendor-api-proxy",
+    },
+    researchGoal: "Synthetic provider-agnostic handoff disclosure fixture.",
+    rawContent: "SYNTHETIC news, forum, regulator, vendor, API and estimate bytes; not Evidence.",
+    recordedAt: "2026-07-25T17:00:00Z",
+  });
+  const sourceEvidenceRef = `evidence/manifest.jsonl#${sourceEvidence.record.evidence_id}`;
+  const sourceEvidenceCapture = await sourceEvidenceStore.readExactCapture(
+    sourceRunId,
+    sourceEvidenceRef,
+  );
+  const sourceMapBytes = await readFile(
+    path.join(state.runsRoot, sourceRunId, G21_OPPORTUNITY_REF),
+  );
+  const handoff = await state.store.createResearchHandoff({
+    runId: G14_RUN_ID,
+    handoffId: "terminal_provenance_synthetic",
+    sourceRunId,
+    userAuthorizationAttestation:
+      "The fixture caller attests explicit user authorization for these exact source items.",
+    targetPurpose:
+      "Disclose prior synthesis separately and reassess copied Evidence in the target Run.",
+    capturedAt: "2026-07-25T19:00:20Z",
+    items: [
+      {
+        itemId: "prior_opportunity_context",
+        sourceArtifactPath: G21_OPPORTUNITY_REF,
+        role: "revalidation_required",
+        expectedSourceByteHash: sha256Bytes(sourceMapBytes),
+        expectedSourceContentHash: fixtureEnvelope(sourceBundle, G21_OPPORTUNITY_REF).content_hash,
+        freshnessDisposition: "historical",
+        applicabilityDisposition: "partially_applicable",
+        revalidationStatus: "required",
+      },
+      {
+        itemId: "inherited_source_material",
+        sourceArtifactPath: sourceEvidenceRef,
+        role: "reusable_evidence",
+        expectedSourceByteHash: sha256Bytes(sourceEvidenceCapture.recordBytes),
+        expectedSourceContentHash: canonicalContentHash(sourceEvidenceCapture.record),
+        freshnessDisposition: "current",
+        applicabilityDisposition: "applicable",
+        revalidationStatus: "not_required",
+        targetUnitId: "unit_target_handoff_reassessment",
+        targetResearchGoal: "Reassess exact inherited bytes against the target Concept and Scope.",
+      },
+    ],
+  });
+  await markRunTerminal(state);
+
+  const drifted = terminalReportEnvelope(state);
+  drifted.document.research_provenance = {
+    handoff_refs: [],
+    inherited_evidence: [],
+    current_run_evidence_refs: [],
+    prior_synthesis_items: [],
+    revalidation_required_items: [],
+  };
+  (drifted as { content_hash: string }).content_hash = canonicalContentHash(drifted.document);
+  await assert.rejects(
+    state.store.publishArtifact({ runId: G14_RUN_ID, envelope: drifted }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "run.transition_terminal_report_invalid" &&
+      storeReferenceCodes(error).includes("terminal_reporting.research_provenance_mismatch"),
+  );
+  await assert.rejects(
+    state.runtime.build({ reportEnvelope: drifted }),
+    (error: unknown) => error instanceof StoreError && error.code === "report.source_invalid",
+  );
+
+  const result = await state.runtime.build({ reportEnvelope: terminalReportEnvelope(state) });
+  assert.equal(result.status, "published");
+  const reportJson = JSON.parse(
+    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  const provenance = reportJson.research_provenance as Record<string, unknown>;
+  assert.deepEqual(provenance.handoff_refs, [handoff.handoffRef]);
+  assert.equal((provenance.inherited_evidence as unknown[]).length, 1);
+  assert.equal((provenance.prior_synthesis_items as unknown[]).length, 0);
+  assert.equal((provenance.revalidation_required_items as Record<string, unknown>[]).length, 1);
+  assert.ok((provenance.current_run_evidence_refs as string[]).length > 0);
+  const formalReport = JSON.parse(
+    await readFile(
+      path.join(state.runRoot, "artifacts/reporting/terminal-report-source.r1.json"),
+      "utf8",
+    ),
+  ) as Record<string, unknown>;
+  assert.ok((formalReport.input_refs as string[]).includes(handoff.handoffRef));
+  assert.deepEqual(reportJson.current_decision_subject_ids, ["concept_assess_001"]);
+  const reportView = JSON.parse(
+    await readFile(path.join(state.runRoot, "artifacts/reporting/report-markdown.r1.json"), "utf8"),
+  ) as { document: { section_ids: string[]; research_provenance: unknown } };
+  assert.ok(reportView.document.section_ids.includes("research_provenance"));
+  assert.deepEqual(reportView.document.research_provenance, provenance);
+  for (const filename of ["decision-brief.md", "report.md"]) {
+    const markdown = await readFile(path.join(state.runRoot, filename), "utf8");
+    assert.match(markdown, /研究来源沿袭/);
+    assert.match(markdown, /继承证据: 1/);
+    assert.match(markdown, /需重新验证: 1/);
+    assert.match(markdown, /opportunity-space-map\.r1\.json/);
+  }
+});
+
 test("terminal report rejects false completion, derived drift, and caller-declared freshness", async (context) => {
   const state = await prepareRun(context);
   await markRunTerminal(state);
@@ -1296,6 +1438,14 @@ test("terminal report rejects false completion, derived drift, and caller-declar
     );
   }
 
+  base.document.research_provenance = {
+    handoff_refs: [],
+    inherited_evidence: [],
+    current_run_evidence_refs: [],
+    prior_synthesis_items: [],
+    revalidation_required_items: [],
+  };
+  (base as { content_hash: string }).content_hash = canonicalContentHash(base.document);
   const derived = deriveReportEnvelopes(base);
   const driftedBrief = structuredClone(derived[0]);
   assert.ok(driftedBrief);

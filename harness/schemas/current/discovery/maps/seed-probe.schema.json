@@ -217,6 +217,9 @@
     "input_artifact_hashes": {
       "$ref": "./definitions.schema.json#/$defs/inputHashes"
     },
+    "research_handoff_input_hashes": {
+      "$ref": "../../core/research-handoff.schema.json#/$defs/handoffBindings"
+    },
     "content_provenance": {
       "$ref": "./definitions.schema.json#/$defs/contentProvenance"
     },

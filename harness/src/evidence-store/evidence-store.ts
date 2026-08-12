@@ -43,8 +43,21 @@ export interface UserProvidedEvidenceSource {
 
 export type CanonicalEvidenceSource = PublicEvidenceSource | UserProvidedEvidenceSource;
 
+export interface EvidenceHandoffBinding {
+  readonly handoff_ref: string;
+  readonly handoff_item_id: string;
+  readonly source_run_id: string;
+  readonly source_evidence_path: string;
+  readonly source_record_hash: string;
+  readonly source_raw_content_hash: string;
+  readonly freshness_disposition: "current" | "historical" | "unknown";
+  readonly applicability_disposition: "applicable" | "partially_applicable" | "unknown";
+  readonly revalidation_status: "not_required" | "required";
+}
+
 export interface RecordEvidenceInput extends RecordEvidenceInputBase {
   readonly source: CanonicalEvidenceSource;
+  readonly handoffBinding?: EvidenceHandoffBinding;
 }
 
 export interface EvidenceStoreRecord extends Record<string, unknown> {
@@ -59,6 +72,7 @@ export interface EvidenceStoreRecord extends Record<string, unknown> {
   readonly raw_content_ref: string;
   readonly operation_key: string;
   readonly recorded_at: string;
+  readonly handoff_binding?: EvidenceHandoffBinding;
 }
 
 interface EvidenceOperationReceipt {
@@ -78,6 +92,63 @@ export interface EvidenceRecoveryResult {
   readonly replayedEvidenceIds: readonly string[];
   readonly recoveredRawContentRefs: readonly string[];
   readonly removedTemporaryPaths: readonly string[];
+}
+
+export interface EvidenceRecordCapture {
+  readonly record: EvidenceStoreRecord;
+  readonly recordBytes: Uint8Array;
+  readonly rawBytes: Uint8Array;
+}
+
+export interface PreparedEvidenceRecord {
+  readonly record: EvidenceStoreRecord;
+  readonly rawBytes: Uint8Array;
+}
+
+export function prepareEvidenceRecord(input: RecordEvidenceInput): PreparedEvidenceRecord {
+  validateRunId(input.runId);
+  assertNonEmpty(input.unitId, "unitId");
+  assertNonEmpty(input.researchGoal, "researchGoal");
+  const rawBytes =
+    typeof input.rawContent === "string"
+      ? Buffer.from(input.rawContent, "utf8")
+      : Buffer.from(input.rawContent);
+  const contentHash = sha256Bytes(rawBytes);
+  const source = canonicalizeSource(input.source);
+  const handoffBinding = validateHandoffBinding(input.handoffBinding);
+  const stableOperationKey = expectedEvidenceOperationKey(
+    source,
+    contentHash,
+    input.researchGoal,
+    handoffBinding,
+  );
+  if (input.operationKey !== undefined && input.operationKey !== stableOperationKey) {
+    throw new StoreError(
+      "operation.key_mismatch",
+      "Evidence operation key must match the canonical source/content/goal tuple",
+      { expected: stableOperationKey, actual: input.operationKey },
+    );
+  }
+  const operationHex = sha256Hex(stableOperationKey);
+  const contentHex = sha256Hex(contentHash);
+  const record = validateEvidenceRecord(
+    {
+      schema_version: "startup_opportunity.evidence_store_record.v2",
+      evidence_id: `ev_${operationHex}`,
+      run_id: input.runId,
+      unit_id: input.unitId,
+      content_hash: contentHash,
+      research_goal: input.researchGoal,
+      raw_content_ref: `evidence/raw/sha256-${contentHex}.bin`,
+      operation_key: stableOperationKey,
+      recorded_at: input.recordedAt ?? new Date().toISOString(),
+      source,
+      source_hash: sha256Bytes(canonicalJson(source)),
+      ...(handoffBinding === undefined ? {} : { handoff_binding: handoffBinding }),
+    },
+    input.runId,
+  );
+  return { record, rawBytes };
 }
 
 export function canonicalizeSourceUrl(input: string): string {
@@ -147,12 +218,52 @@ function expectedEvidenceOperationKey(
   source: CanonicalEvidenceSource,
   contentHash: string,
   researchGoal: string,
+  handoffBinding?: EvidenceHandoffBinding,
 ): string {
   return operationKey("record_evidence", {
     source,
     content_hash: contentHash,
     research_goal: researchGoal,
+    ...(handoffBinding === undefined ? {} : { handoff_binding: handoffBinding }),
   });
+}
+
+function validateHandoffBinding(value: unknown): EvidenceHandoffBinding | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !isRecord(value) ||
+    !hasExactlyKeys(value, [
+      "handoff_ref",
+      "handoff_item_id",
+      "source_run_id",
+      "source_evidence_path",
+      "source_record_hash",
+      "source_raw_content_hash",
+      "freshness_disposition",
+      "applicability_disposition",
+      "revalidation_status",
+    ]) ||
+    typeof value.handoff_ref !== "string" ||
+    !/^artifacts\/research-handoffs\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\.json$/.test(
+      value.handoff_ref,
+    ) ||
+    typeof value.handoff_item_id !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.handoff_item_id) ||
+    typeof value.source_run_id !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.source_run_id) ||
+    typeof value.source_evidence_path !== "string" ||
+    !/^evidence\/manifest\.jsonl#ev_[a-f0-9]{64}$/.test(value.source_evidence_path) ||
+    !isSha256(value.source_record_hash) ||
+    !isSha256(value.source_raw_content_hash) ||
+    !["current", "historical", "unknown"].includes(String(value.freshness_disposition)) ||
+    !["applicable", "partially_applicable", "unknown"].includes(
+      String(value.applicability_disposition),
+    ) ||
+    !["not_required", "required"].includes(String(value.revalidation_status))
+  ) {
+    invalidEvidenceRecord("Evidence handoff binding is invalid");
+  }
+  return value as unknown as EvidenceHandoffBinding;
 }
 
 function invalidEvidenceRecord(
@@ -177,6 +288,7 @@ function validateEvidenceRecord(value: unknown, runId: string): EvidenceStoreRec
       "raw_content_ref",
       "operation_key",
       "recorded_at",
+      ...(value.handoff_binding === undefined ? [] : ["handoff_binding"]),
     ]) ||
     value.schema_version !== "startup_opportunity.evidence_store_record.v2" ||
     value.run_id !== runId ||
@@ -201,8 +313,10 @@ function validateEvidenceRecord(value: unknown, runId: string): EvidenceStoreRec
     );
   }
   let source: CanonicalEvidenceSource;
+  let handoffBinding: EvidenceHandoffBinding | undefined;
   try {
     source = canonicalizeSource(value.source as unknown as CanonicalEvidenceSource);
+    handoffBinding = validateHandoffBinding(value.handoff_binding);
   } catch {
     return invalidEvidenceRecord("Evidence substrate canonical source is invalid");
   }
@@ -212,7 +326,12 @@ function validateEvidenceRecord(value: unknown, runId: string): EvidenceStoreRec
     canonicalJson(source) !== canonicalJson(value.source) ||
     value.source_hash !== sha256Bytes(canonicalJson(source)) ||
     value.operation_key !==
-      expectedEvidenceOperationKey(source, value.content_hash, value.research_goal) ||
+      expectedEvidenceOperationKey(
+        source,
+        value.content_hash,
+        value.research_goal,
+        handoffBinding,
+      ) ||
     value.evidence_id !== `ev_${operationHex}` ||
     value.raw_content_ref !== `evidence/raw/sha256-${contentHex}.bin`
   ) {
@@ -255,6 +374,7 @@ function validateEvidenceReceipt(
     record.source,
     record.content_hash,
     record.research_goal,
+    record.handoff_binding,
   );
   const expectedFilename = `evidence-${sha256Hex(value.operation_key)}.json`;
   if (
@@ -333,6 +453,12 @@ export class EvidenceStore {
   constructor(private readonly runsRoot: string) {}
 
   async record(input: RecordEvidenceInput): Promise<RecordEvidenceResult> {
+    if (input.handoffBinding !== undefined) {
+      throw new StoreError(
+        "research_handoff.dedicated_entry_required",
+        "imported Evidence must be created by the target-owned research handoff operation",
+      );
+    }
     validateRunId(input.runId);
     assertNonEmpty(input.unitId, "unitId");
     assertNonEmpty(input.researchGoal, "researchGoal");
@@ -345,6 +471,26 @@ export class EvidenceStore {
   }
 
   async recordLocked(runRoot: string, input: RecordEvidenceInput): Promise<RecordEvidenceResult> {
+    if (input.handoffBinding !== undefined) {
+      throw new StoreError(
+        "research_handoff.dedicated_entry_required",
+        "imported Evidence must be created by the target-owned research handoff operation",
+      );
+    }
+    return this.recordPreparedLocked(runRoot, input);
+  }
+
+  async recordResearchHandoffImportLocked(
+    runRoot: string,
+    input: RecordEvidenceInput & { readonly handoffBinding: EvidenceHandoffBinding },
+  ): Promise<RecordEvidenceResult> {
+    return this.recordPreparedLocked(runRoot, input);
+  }
+
+  private async recordPreparedLocked(
+    runRoot: string,
+    input: RecordEvidenceInput,
+  ): Promise<RecordEvidenceResult> {
     validateRunId(input.runId);
     assertNonEmpty(input.unitId, "unitId");
     assertNonEmpty(input.researchGoal, "researchGoal");
@@ -352,43 +498,12 @@ export class EvidenceStore {
     await assertScopeAllowsStorageMutationLocked(this.runsRoot, runRoot, input.runId, {
       kind: "evidence",
     });
-    const rawBytes =
-      typeof input.rawContent === "string"
-        ? Buffer.from(input.rawContent, "utf8")
-        : Buffer.from(input.rawContent);
-    const contentHash = sha256Bytes(rawBytes);
-    const source = canonicalizeSource(input.source);
-    const stableOperationKey = expectedEvidenceOperationKey(
-      source,
-      contentHash,
-      input.researchGoal,
-    );
-    if (input.operationKey !== undefined && input.operationKey !== stableOperationKey) {
-      throw new StoreError(
-        "operation.key_mismatch",
-        "Evidence operation key must match the canonical source/content/goal tuple",
-        { expected: stableOperationKey, actual: input.operationKey },
-      );
-    }
+    const prepared = prepareEvidenceRecord(input);
+    const rawBytes = Buffer.from(prepared.rawBytes);
+    const { record: preparedRecord } = prepared;
+    const stableOperationKey = preparedRecord.operation_key;
     const operationHex = sha256Hex(stableOperationKey);
-    const contentHex = sha256Hex(contentHash);
-    const common = {
-      evidence_id: `ev_${operationHex}`,
-      run_id: input.runId,
-      unit_id: input.unitId,
-      content_hash: contentHash,
-      research_goal: input.researchGoal,
-      raw_content_ref: `evidence/raw/sha256-${contentHex}.bin`,
-      operation_key: stableOperationKey,
-      recorded_at: input.recordedAt ?? new Date().toISOString(),
-    };
-    let record: EvidenceStoreRecord = {
-      schema_version: "startup_opportunity.evidence_store_record.v2",
-      ...common,
-      source,
-      source_hash: sha256Bytes(canonicalJson(source)),
-    };
-    record = validateEvidenceRecord(record, input.runId);
+    let record = preparedRecord;
     const receipt: EvidenceOperationReceipt = {
       schema_version: "startup_opportunity.evidence_store_operation.current",
       operation_key: stableOperationKey,
@@ -483,6 +598,36 @@ export class EvidenceStore {
     validateRunId(runId);
     const runRoot = await openRunDirectory(this.runsRoot, runId);
     return withRunLock(runRoot, () => this.readExactRecordLocked(runRoot, runId, ref));
+  }
+
+  async readExactCapture(runId: string, ref: string): Promise<EvidenceRecordCapture> {
+    validateRunId(runId);
+    const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
+    const record = await this.readExactRecordLocked(runRoot, runId, ref);
+    const manifest = await readFile(await resolveRunPath(runRoot, "evidence/manifest.jsonl"));
+    const recordLine = manifest
+      .toString("utf8")
+      .split("\n")
+      .find((line) => {
+        if (line.length === 0) return false;
+        try {
+          const candidate = JSON.parse(line) as unknown;
+          return isRecord(candidate) && candidate.evidence_id === record.evidence_id;
+        } catch {
+          return false;
+        }
+      });
+    if (recordLine === undefined) {
+      throw new StoreError("reference.missing", "exact Evidence record bytes are missing", { ref });
+    }
+    const rawBytes = await readFile(await resolveRunPath(runRoot, record.raw_content_ref));
+    if (sha256Bytes(rawBytes) !== record.content_hash) {
+      throw new StoreError("artifact.hash_mismatch", "stored evidence raw bytes do not match", {
+        ref,
+        path: record.raw_content_ref,
+      });
+    }
+    return { record, recordBytes: Buffer.from(recordLine, "utf8"), rawBytes };
   }
 
   async listRecords(runId: string): Promise<readonly EvidenceStoreRecord[]> {

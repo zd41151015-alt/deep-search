@@ -37,6 +37,7 @@
         "plan_change_requested_by_user",
         "prior_input_admitted",
         "prior_input_consumed",
+        "research_handoff_consumed",
         "subject_reformed",
         "limitation_accepted",
         "run_paused",
@@ -84,6 +85,25 @@
       "$ref": "./definitions.schema.json#/$defs/sha256"
     },
     "prior_taint_exempt_artifact_refs": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "research_handoff_ref": {
+      "type": "string",
+      "pattern": "^artifacts/research-handoffs/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\.json$"
+    },
+    "research_handoff_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "research_handoff_item_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^artifacts/research-handoffs/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\.json#[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+      }
+    },
+    "research_handoff_taint_exempt_artifact_refs": {
       "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
     },
     "terminal_snapshot_ref": {
@@ -223,6 +243,29 @@
           "reformed_subject_content_hash",
           "reformed_subject_publication_ordinal",
           "reformation_input_hashes"
+        ],
+        "properties": {
+          "actor": {
+            "const": "main_agent"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision_type": {
+            "const": "research_handoff_consumed"
+          }
+        },
+        "required": ["decision_type"]
+      },
+      "then": {
+        "required": [
+          "research_handoff_ref",
+          "research_handoff_hash",
+          "research_handoff_item_refs",
+          "research_handoff_taint_exempt_artifact_refs"
         ],
         "properties": {
           "actor": {

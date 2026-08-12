@@ -22,6 +22,7 @@ import {
 import {
   canonicalContentHash,
   canonicalJson,
+  isSha256,
   operationKey,
   sha256Bytes,
   sha256Hex,
@@ -41,7 +42,12 @@ import {
 } from "../artifact-store/publication-policy.js";
 import { withRunCreationLock, withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
-import { type EvidenceRecoveryResult, EvidenceStore } from "../evidence-store/evidence-store.js";
+import {
+  type EvidenceRecoveryResult,
+  EvidenceStore,
+  type EvidenceStoreRecord,
+  prepareEvidenceRecord,
+} from "../evidence-store/evidence-store.js";
 import {
   type DecisionSubjectKind,
   subjectRevisionDescriptor,
@@ -58,6 +64,10 @@ import {
   type DocumentBundleEntry,
   type DocumentBundleReferenceContext,
 } from "../validators/artifact-validator.js";
+import {
+  researchHandoffCapturedPayloadValid,
+  researchHandoffSourceRoleAllowed,
+} from "../validators/research-handoff-validator.js";
 import { validateTerminalReportingContract } from "../validators/terminal-reporting-validator.js";
 import { type JsonlRepairResult, JsonlStore } from "./jsonl-store.js";
 
@@ -201,6 +211,87 @@ export interface ReadPriorInputResult {
   readonly useBoundary: "hypothesis_input_only";
   readonly sourceText: string;
   readonly status: "appended" | "idempotent_replay";
+}
+
+export type ResearchHandoffRole =
+  | "user_authorized_input"
+  | "reusable_evidence"
+  | "prior_synthesis"
+  | "revalidation_required";
+
+export interface CreateResearchHandoffItemInput {
+  readonly itemId: string;
+  readonly sourceArtifactPath: string;
+  readonly role: ResearchHandoffRole;
+  readonly expectedSourceByteHash: string;
+  readonly expectedSourceContentHash: string;
+  readonly freshnessDisposition: "current" | "historical" | "unknown";
+  readonly applicabilityDisposition: "applicable" | "partially_applicable" | "unknown";
+  readonly revalidationStatus: "not_required" | "required";
+  readonly targetUnitId?: string;
+  readonly targetResearchGoal?: string;
+}
+
+export interface CreateResearchHandoffInput {
+  readonly runId: string;
+  readonly handoffId: string;
+  readonly sourceRunId: string;
+  readonly userAuthorizationAttestation: string;
+  readonly targetPurpose: string;
+  readonly capturedAt?: string;
+  readonly items: readonly CreateResearchHandoffItemInput[];
+  readonly faultAt?: ResearchHandoffFaultBoundary;
+}
+
+export type ResearchHandoffFaultBoundary =
+  | "after_intent"
+  | "after_evidence_imports"
+  | "after_handoff_publish";
+
+export interface CreateResearchHandoffResult {
+  readonly schemaVersion: "startup_opportunity.create_research_handoff_result.v1";
+  readonly runId: string;
+  readonly handoffRef: string;
+  readonly handoffContentHash: string;
+  readonly importedEvidenceRefs: readonly string[];
+  readonly status: "published" | "idempotent_replay";
+}
+
+export interface ReadResearchHandoffInput {
+  readonly runId: string;
+  readonly handoffRef: string;
+  readonly itemIds: readonly string[];
+  readonly consumedAt?: string;
+}
+
+export interface ReadResearchHandoffResult {
+  readonly schemaVersion: "startup_opportunity.read_research_handoff_result.v1";
+  readonly runId: string;
+  readonly handoffRef: string;
+  readonly handoffContentHash: string;
+  readonly consumptionDecisionRef: string;
+  readonly consumptionDecisionHash: string;
+  readonly status: "appended" | "idempotent_replay";
+  readonly items: readonly {
+    readonly itemId: string;
+    readonly role: ResearchHandoffRole;
+    readonly decisionBoundary: "hypothesis_input_only" | "evidence_reuse_with_current_weighting";
+    readonly sourcePayload: string;
+    readonly targetEvidenceRef: string | null;
+  }[];
+}
+
+interface ResearchHandoffOperationIntent {
+  readonly schema_version: "startup_opportunity.research_handoff_operation.current";
+  readonly operation_key: string;
+  readonly run_id: string;
+  readonly handoff_ref: string;
+  readonly request_identity: Record<string, unknown>;
+  readonly envelope: FormalArtifactEnvelope;
+  readonly evidence_imports: readonly {
+    readonly record: EvidenceStoreRecord;
+    readonly raw_content_base64: string;
+  }[];
 }
 
 export interface ReformDecisionSubjectInput {
@@ -387,6 +478,7 @@ const RUN_DIRECTORIES = [
   "artifacts/reporting",
   "artifacts/synthesis",
   "artifacts/reviews",
+  "artifacts/research-handoffs",
   "artifacts/comparison",
   "checkpoints",
   "claims",
@@ -431,6 +523,171 @@ interface ContinuationLineageEntry extends Record<string, unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function records(value: unknown): readonly Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function researchHandoffOperationFilename(operationKeyValue: string): string {
+  return `research-handoff-${sha256Hex(operationKeyValue)}.json`;
+}
+
+function validateResearchHandoffOperationIntent(
+  value: unknown,
+  filename: string,
+  runId: string,
+): ResearchHandoffOperationIntent {
+  if (
+    !isRecord(value) ||
+    value.schema_version !== "startup_opportunity.research_handoff_operation.current" ||
+    typeof value.operation_key !== "string" ||
+    value.run_id !== runId ||
+    typeof value.handoff_ref !== "string" ||
+    !isRecord(value.request_identity) ||
+    !isRecord(value.envelope) ||
+    !Array.isArray(value.evidence_imports) ||
+    filename !== researchHandoffOperationFilename(value.operation_key)
+  ) {
+    throw new StoreError(
+      "recovery.invalid_research_handoff_operation",
+      "Research handoff operation intent is invalid",
+      { path: `.store/operations/${filename}` },
+    );
+  }
+  const intent = value as unknown as ResearchHandoffOperationIntent;
+  const request = intent.request_identity;
+  const handoffDocument = intent.envelope.document;
+  const requestItems = records(request.items);
+  const capturedItems = records(handoffDocument.items);
+  const capturedById = new Map(capturedItems.map((item) => [String(item.item_id), item]));
+  const expectedInputRefs = [
+    handoffDocument.target_scope_ref,
+    ...(handoffDocument.target_plan_ref === null ? [] : [handoffDocument.target_plan_ref]),
+  ].sort();
+  const requestItemsValid =
+    requestItems.length > 0 &&
+    requestItems.length === capturedItems.length &&
+    requestItems.every((item) => {
+      const captured = capturedById.get(String(item.itemId));
+      if (captured === undefined) return false;
+      const evidence = captured.source_kind === "evidence_substrate";
+      return (
+        captured.source_artifact_path === item.sourceArtifactPath &&
+        captured.role === item.role &&
+        captured.source_byte_hash === item.expectedSourceByteHash &&
+        (evidence
+          ? captured.source_record_hash === item.expectedSourceContentHash
+          : captured.source_content_hash === item.expectedSourceContentHash) &&
+        captured.freshness_disposition === item.freshnessDisposition &&
+        captured.applicability_disposition === item.applicabilityDisposition &&
+        captured.revalidation_status === item.revalidationStatus &&
+        (evidence
+          ? captured.target_unit_id === item.targetUnitId &&
+            captured.target_research_goal === item.targetResearchGoal
+          : captured.target_unit_id === null && captured.target_research_goal === null)
+      );
+    });
+  const capturedItemsValid = capturedItems.every(
+    (item) =>
+      researchHandoffCapturedPayloadValid(item, handoffDocument.source_run_id) &&
+      researchHandoffSourceRoleAllowed(String(item.source_schema_version), String(item.role)) &&
+      item.source_captured_at === handoffDocument.captured_at &&
+      item.source_payload_encoding === "base64" &&
+      item.decision_boundary ===
+        (item.source_kind === "evidence_substrate"
+          ? "evidence_reuse_with_current_weighting"
+          : "hypothesis_input_only"),
+  );
+  const evidenceImportsValid = intent.evidence_imports.every((entry) => {
+    if (
+      !isRecord(entry) ||
+      !isRecord(entry.record) ||
+      typeof entry.raw_content_base64 !== "string"
+    ) {
+      return false;
+    }
+    try {
+      const prepared = prepareEvidenceRecord({
+        runId,
+        unitId: entry.record.unit_id,
+        source: entry.record.source,
+        researchGoal: entry.record.research_goal,
+        rawContent: Buffer.from(entry.raw_content_base64, "base64"),
+        recordedAt: entry.record.recorded_at,
+        operationKey: entry.record.operation_key,
+        ...(entry.record.handoff_binding === undefined
+          ? {}
+          : { handoffBinding: entry.record.handoff_binding }),
+      });
+      return canonicalJson(prepared.record) === canonicalJson(entry.record);
+    } catch {
+      return false;
+    }
+  });
+  const evidenceItems = capturedItems.filter((item) => item.source_kind === "evidence_substrate");
+  const evidenceImportItemIds = intent.evidence_imports.flatMap((entry) => {
+    const binding = isRecord(entry.record.handoff_binding) ? entry.record.handoff_binding : null;
+    return typeof binding?.handoff_item_id === "string" ? [binding.handoff_item_id] : [];
+  });
+  const evidenceClosureValid =
+    intent.evidence_imports.length === evidenceItems.length &&
+    new Set(evidenceImportItemIds).size === evidenceItems.length &&
+    evidenceItems.every((item) => evidenceImportItemIds.includes(String(item.item_id))) &&
+    intent.evidence_imports.every((entry) => {
+      const binding = isRecord(entry.record.handoff_binding)
+        ? entry.record.handoff_binding
+        : undefined;
+      const captured = capturedItems.find(
+        (item) => binding !== undefined && item.item_id === binding.handoff_item_id,
+      );
+      return (
+        binding !== undefined &&
+        captured?.source_kind === "evidence_substrate" &&
+        binding.handoff_ref === intent.handoff_ref &&
+        binding.source_run_id === handoffDocument.source_run_id &&
+        binding.source_evidence_path === captured.source_artifact_path &&
+        binding.source_record_hash === captured.source_record_hash &&
+        binding.source_raw_content_hash === captured.source_raw_content_hash &&
+        `evidence/manifest.jsonl#${entry.record.evidence_id}` === captured.target_evidence_ref &&
+        canonicalContentHash(entry.record) === captured.target_evidence_record_hash
+      );
+    });
+  if (
+    intent.operation_key !== operationKey("create_research_handoff", intent.request_identity) ||
+    intent.envelope.schema_version !== ARTIFACT_ENVELOPE_SCHEMA_VERSION ||
+    intent.envelope.artifact_path !== intent.handoff_ref ||
+    intent.handoff_ref !== `artifacts/research-handoffs/${String(request.handoff_id)}.json` ||
+    intent.envelope.run_id !== runId ||
+    intent.envelope.artifact_type !== "startup_opportunity.research_handoff.current" ||
+    intent.envelope.producer_role !== "harness" ||
+    intent.envelope.created_at !== request.captured_at ||
+    canonicalJson([...intent.envelope.input_refs].sort()) !== canonicalJson(expectedInputRefs) ||
+    intent.envelope.content_hash !== canonicalContentHash(intent.envelope.document) ||
+    handoffDocument.schema_version !== "startup_opportunity.research_handoff.current" ||
+    handoffDocument.run_id !== runId ||
+    handoffDocument.handoff_id !== request.handoff_id ||
+    handoffDocument.source_run_id !== request.source_run_id ||
+    handoffDocument.target_formation_stage !== request.target_formation_stage ||
+    handoffDocument.user_authorization_attestation !== request.user_authorization_attestation ||
+    handoffDocument.target_purpose !== request.target_purpose ||
+    handoffDocument.captured_at !== request.captured_at ||
+    handoffDocument.target_scope_ref !== request.target_scope_ref ||
+    handoffDocument.target_scope_hash !== request.target_scope_hash ||
+    handoffDocument.target_plan_ref !== request.target_plan_ref ||
+    handoffDocument.target_plan_hash !== request.target_plan_hash ||
+    !requestItemsValid ||
+    !capturedItemsValid ||
+    !evidenceImportsValid ||
+    !evidenceClosureValid
+  ) {
+    throw new StoreError(
+      "recovery.invalid_research_handoff_operation",
+      "Research handoff operation identity, envelope, or Evidence bytes are inconsistent",
+      { path: `.store/operations/${filename}` },
+    );
+  }
+  return intent;
 }
 
 function assertDisjoint(manifest: RunManifest, fields: readonly string[]): void {
@@ -1743,6 +2000,12 @@ export class RunStore {
         ],
         this.validator.publicationPolicy.document
           .commercial_research_contract as unknown as import("../validators/commercial-research-validator.js").CommercialResearchPolicy,
+        new Map(
+          (await this.evidence.listRecordsLocked(runRoot, runId)).map((record) => [
+            `evidence/manifest.jsonl#${record.evidence_id}`,
+            record as Record<string, unknown>,
+          ]),
+        ),
       );
       if (terminalIssues.length > 0) {
         return {
@@ -1975,9 +2238,18 @@ export class RunStore {
       if (
         decision.decision_type === "prior_input_admitted" ||
         decision.decision_type === "prior_input_consumed" ||
+        decision.decision_type === "research_handoff_consumed" ||
         decision.decision_type === "subject_reformed"
       ) {
         exactRecords.set(`decisions.jsonl#${String(decision.decision_id)}`, decision);
+      }
+    }
+    if (terminalReportRequested || includeAllFormalArtifacts) {
+      for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
+        exactRecords.set(
+          `evidence/manifest.jsonl#${record.evidence_id}`,
+          record as Record<string, unknown>,
+        );
       }
     }
 
@@ -2007,6 +2279,12 @@ export class RunStore {
       throw new StoreError(
         "checkpoint.dedicated_entry_required",
         "checkpoints must use the monotonic checkpoint operation",
+      );
+    }
+    if (input.envelope.artifact_type === "startup_opportunity.research_handoff.current") {
+      throw new StoreError(
+        "research_handoff.dedicated_entry_required",
+        "research handoffs must use createResearchHandoff() so the Store captures exact authorized source bytes",
       );
     }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
@@ -2094,6 +2372,16 @@ export class RunStore {
     input: PublishArtifactBundleInput,
   ): Promise<PublishArtifactBundleResult> {
     await this.assertCurrentLeaf(input.runId);
+    if (
+      input.envelopes.some(
+        (envelope) => envelope.artifact_type === "startup_opportunity.research_handoff.current",
+      )
+    ) {
+      throw new StoreError(
+        "research_handoff.dedicated_entry_required",
+        "research handoffs must use createResearchHandoff() so the Store captures exact authorized source bytes",
+      );
+    }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       let manifest = await this.readManifest(runRoot);
@@ -3038,20 +3326,24 @@ export class RunStore {
       decision.decision_type === "scope_changed_by_user" ||
       decision.decision_type === "prior_input_admitted" ||
       decision.decision_type === "prior_input_consumed" ||
+      decision.decision_type === "research_handoff_consumed" ||
       decision.decision_type === "subject_reformed"
     ) {
       throw new StoreError(
         decision.decision_type === "subject_reformed"
           ? "run.subject_reformation_dedicated_path_required"
           : decision.decision_type === "prior_input_admitted" ||
-              decision.decision_type === "prior_input_consumed"
+              decision.decision_type === "prior_input_consumed" ||
+              decision.decision_type === "research_handoff_consumed"
             ? "run.prior_input_dedicated_path_required"
             : "run.scope_confirmation_dedicated_path_required",
         decision.decision_type === "prior_input_admitted"
           ? "prior input admission must use admitPriorInput() so the Store hashes the exact explicitly named source bytes"
-          : decision.decision_type === "subject_reformed"
-            ? "subject reformation must use reformDecisionSubject() so the Store verifies terminal lineage and post-terminal causal inputs"
-            : "Scope proposals and confirmations must use the dedicated proposeScope() and confirmScope() paths",
+          : decision.decision_type === "research_handoff_consumed"
+            ? "research handoff consumption must use readResearchHandoff() so the Store freezes its exact provenance boundary before returning bytes"
+            : decision.decision_type === "subject_reformed"
+              ? "subject reformation must use reformDecisionSubject() so the Store verifies terminal lineage and post-terminal causal inputs"
+              : "Scope proposals and confirmations must use the dedicated proposeScope() and confirmScope() paths",
         { decisionType: decision.decision_type },
       );
     }
@@ -3360,6 +3652,630 @@ export class RunStore {
         useBoundary: "hypothesis_input_only",
         sourceText: sourceBytes.toString("utf8"),
         status,
+      };
+    });
+  }
+
+  async createResearchHandoff(
+    input: CreateResearchHandoffInput,
+  ): Promise<CreateResearchHandoffResult> {
+    validateRunId(input.runId);
+    validateRunId(input.sourceRunId);
+    if (input.runId === input.sourceRunId) {
+      throw new StoreError(
+        "research_handoff.source_run_invalid",
+        "Research handoff source Run must differ from the target Run",
+      );
+    }
+    if (
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(input.handoffId) ||
+      input.userAuthorizationAttestation.trim().length === 0 ||
+      input.targetPurpose.trim().length === 0 ||
+      (input.capturedAt !== undefined &&
+        (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+          input.capturedAt,
+        ) ||
+          !Number.isFinite(Date.parse(input.capturedAt)))) ||
+      (input.faultAt !== undefined &&
+        !["after_intent", "after_evidence_imports", "after_handoff_publish"].includes(
+          input.faultAt,
+        )) ||
+      input.items.length === 0
+    ) {
+      throw new StoreError(
+        "research_handoff.request_invalid",
+        "Research handoff requires stable ids, explicit user authorization, a target purpose, and at least one item",
+      );
+    }
+    const itemIds = input.items.map((item) => item.itemId);
+    const sourcePaths = input.items.map((item) => item.sourceArtifactPath);
+    if (
+      new Set(itemIds).size !== itemIds.length ||
+      new Set(sourcePaths).size !== sourcePaths.length ||
+      itemIds.some((id) => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id))
+    ) {
+      throw new StoreError(
+        "research_handoff.item_identity_invalid",
+        "Research handoff item ids and exact source paths must be valid and unique",
+      );
+    }
+    for (const item of input.items) {
+      if (
+        ![
+          "user_authorized_input",
+          "reusable_evidence",
+          "prior_synthesis",
+          "revalidation_required",
+        ].includes(item.role) ||
+        !isSha256(item.expectedSourceByteHash) ||
+        !isSha256(item.expectedSourceContentHash) ||
+        !["current", "historical", "unknown"].includes(item.freshnessDisposition) ||
+        !["applicable", "partially_applicable", "unknown"].includes(
+          item.applicabilityDisposition,
+        ) ||
+        !["not_required", "required"].includes(item.revalidationStatus) ||
+        (["prior_synthesis", "revalidation_required"].includes(item.role) &&
+          item.revalidationStatus !== "required") ||
+        (item.role === "reusable_evidence" &&
+          (item.targetUnitId === undefined ||
+            !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(item.targetUnitId) ||
+            item.targetResearchGoal === undefined ||
+            item.targetResearchGoal.trim().length === 0)) ||
+        (item.role !== "reusable_evidence" &&
+          (item.targetUnitId !== undefined || item.targetResearchGoal !== undefined))
+      ) {
+        throw new StoreError(
+          "research_handoff.item_contract_invalid",
+          "Research handoff item role, hashes, dispositions, revalidation, or Evidence target metadata is invalid",
+          { itemId: item.itemId },
+        );
+      }
+    }
+    await this.assertCurrentLeaf(input.runId);
+    const targetRoot = await openRunDirectory(this.runsRoot, input.runId);
+    return withRunLock(targetRoot, async () => {
+      let manifest = await this.readManifest(targetRoot);
+      const scopeState = await this.assertScopeBindingLocked(targetRoot, manifest);
+      if (scopeState.confirmation === null) {
+        throw new StoreError(
+          "research_handoff.target_scope_plan_required",
+          "Research handoff requires a confirmed target Scope",
+        );
+      }
+      const handoffRef = `artifacts/research-handoffs/${input.handoffId}.json`;
+      const operationsDirectory = await resolveRunPath(targetRoot, ".store/operations", {
+        createParents: true,
+      });
+      const existingIntents: ResearchHandoffOperationIntent[] = [];
+      for (const filename of (await readdir(operationsDirectory)).sort()) {
+        if (!filename.startsWith("research-handoff-") || !filename.endsWith(".json")) continue;
+        const candidate = validateResearchHandoffOperationIntent(
+          JSON.parse(
+            await readFile(
+              await resolveRunPath(targetRoot, `.store/operations/${filename}`),
+              "utf8",
+            ),
+          ) as unknown,
+          filename,
+          input.runId,
+        );
+        if (candidate.handoff_ref === handoffRef) existingIntents.push(candidate);
+      }
+      if (existingIntents.length > 1) {
+        throw new StoreError(
+          "research_handoff.operation_conflict",
+          "Research handoff ref is bound to multiple operation intents",
+          { handoffRef },
+        );
+      }
+      const existingIntent = existingIntents[0];
+      if (existingIntent !== undefined) {
+        const expectedRequest = {
+          ...existingIntent.request_identity,
+          run_id: input.runId,
+          handoff_id: input.handoffId,
+          source_run_id: input.sourceRunId,
+          user_authorization_attestation: input.userAuthorizationAttestation,
+          target_purpose: input.targetPurpose,
+          items: input.items,
+          ...(input.capturedAt === undefined ? {} : { captured_at: input.capturedAt }),
+        };
+        if (canonicalJson(existingIntent.request_identity) !== canonicalJson(expectedRequest)) {
+          throw new StoreError(
+            "research_handoff.operation_conflict",
+            "Research handoff ref is already bound to a different immutable request",
+            { handoffRef },
+          );
+        }
+        const replayed = await this.replayResearchHandoffIntentLocked(
+          targetRoot,
+          input.runId,
+          existingIntent,
+        );
+        manifest = await this.applyPublishedEnvelope(
+          targetRoot,
+          manifest,
+          existingIntent.envelope,
+          false,
+          true,
+        );
+        await this.writeManifest(targetRoot, manifest);
+        return {
+          schemaVersion: "startup_opportunity.create_research_handoff_result.v1",
+          runId: input.runId,
+          handoffRef,
+          handoffContentHash: existingIntent.envelope.content_hash,
+          importedEvidenceRefs: existingIntent.evidence_imports
+            .map((entry) => `evidence/manifest.jsonl#${entry.record.evidence_id}`)
+            .sort(),
+          status: replayed.artifactStatus,
+        };
+      }
+      if (TERMINAL_RUN_STATUSES.has(manifest.status) || manifest.status === "reporting") {
+        throw new StoreError(
+          "research_handoff.target_terminal",
+          "A terminal or reporting Run cannot admit a new cross-Run research handoff",
+        );
+      }
+      if (manifest.status === "needs_clarification") {
+        throw new StoreError(
+          "run.scope_revision_unresolved",
+          "A new research handoff is blocked until the confirmed Scope is reconciled through a Plan Revision",
+          { scopeRevision: manifest.scope_revision },
+        );
+      }
+      const prePlanAssessmentFormation =
+        manifest.current_plan_ref === null && manifest.mode === "concept_evidence_assessment";
+      if (manifest.current_plan_ref === null && !prePlanAssessmentFormation) {
+        throw new StoreError(
+          "research_handoff.target_scope_plan_required",
+          "A new research handoff requires the target Run current Research Plan unless it forms the initial Assessment intake Concept",
+        );
+      }
+      const targetFormal = new Map(
+        (await this.artifacts.listFormalDocuments(targetRoot)).map((entry) => [entry.path, entry]),
+      );
+      if (prePlanAssessmentFormation && targetFormal.has("concept-hypothesis.json")) {
+        throw new StoreError(
+          "research_handoff.target_scope_plan_required",
+          "A pre-Plan Assessment handoff can only be created before the initial intake Concept",
+        );
+      }
+      const scope = targetFormal.get("scope-frame.json");
+      const plan =
+        manifest.current_plan_ref === null
+          ? undefined
+          : targetFormal.get(manifest.current_plan_ref);
+      if (
+        scope === undefined ||
+        ![
+          "startup_opportunity.scope_frame.discovery.current",
+          "startup_opportunity.scope_frame.assessment.current",
+        ].includes(String(scope.document.artifact_type)) ||
+        (prePlanAssessmentFormation
+          ? scope.document.artifact_type !== "startup_opportunity.scope_frame.assessment.current"
+          : plan?.document.artifact_type !== "startup_opportunity.research_plan.v1")
+      ) {
+        throw new StoreError(
+          "research_handoff.target_scope_plan_required",
+          "Research handoff target Scope and, when required, Plan must be formal current-Run artifacts",
+        );
+      }
+      const scopeEnvelope = scope.document as FormalArtifactEnvelope;
+      const planEnvelope = plan?.document as FormalArtifactEnvelope | undefined;
+      await this.artifacts.validateStoredEnvelope(targetRoot, input.runId, scopeEnvelope);
+      if (planEnvelope !== undefined) {
+        await this.artifacts.validateStoredEnvelope(targetRoot, input.runId, planEnvelope);
+      }
+      const capturedAt = input.capturedAt ?? new Date().toISOString();
+      const requestIdentity = {
+        run_id: input.runId,
+        handoff_id: input.handoffId,
+        source_run_id: input.sourceRunId,
+        user_authorization_attestation: input.userAuthorizationAttestation,
+        target_purpose: input.targetPurpose,
+        captured_at: capturedAt,
+        target_formation_stage: prePlanAssessmentFormation
+          ? "pre_plan_assessment_formation"
+          : "plan_bound",
+        target_scope_ref: scopeEnvelope.artifact_path,
+        target_scope_hash: scopeEnvelope.content_hash,
+        target_plan_ref: planEnvelope?.artifact_path ?? null,
+        target_plan_hash: planEnvelope?.content_hash ?? null,
+        items: input.items,
+      };
+      const handoffOperationKey = operationKey("create_research_handoff", requestIdentity);
+      const intentPath = `.store/operations/${researchHandoffOperationFilename(handoffOperationKey)}`;
+      const sourceRoot = await openRunDirectoryReadOnly(this.runsRoot, input.sourceRunId);
+      await this.readManifest(sourceRoot);
+      const sourceFormal = new Map(
+        (await this.artifacts.listFormalDocuments(sourceRoot)).map((entry) => [entry.path, entry]),
+      );
+      const capturedItems: Record<string, unknown>[] = [];
+      const evidenceImports: ResearchHandoffOperationIntent["evidence_imports"][number][] = [];
+      for (const item of input.items) {
+        validateArtifactRef(item.sourceArtifactPath);
+        const evidenceSource = item.sourceArtifactPath.startsWith("evidence/manifest.jsonl#");
+        if (evidenceSource) {
+          const capture = await this.evidence.readExactCapture(
+            input.sourceRunId,
+            item.sourceArtifactPath,
+          );
+          const sourceByteHash = sha256Bytes(capture.recordBytes);
+          const sourceRecordHash = canonicalContentHash(capture.record);
+          if (
+            item.role !== "reusable_evidence" ||
+            !researchHandoffSourceRoleAllowed(capture.record.schema_version, item.role) ||
+            sourceByteHash !== item.expectedSourceByteHash ||
+            sourceRecordHash !== item.expectedSourceContentHash ||
+            item.targetUnitId === undefined ||
+            item.targetResearchGoal === undefined ||
+            item.targetUnitId.trim().length === 0 ||
+            item.targetResearchGoal.trim().length === 0
+          ) {
+            throw new StoreError(
+              "research_handoff.source_binding_mismatch",
+              "Reusable Evidence import must bind exact source record bytes/hash and target unit/goal",
+              { itemId: item.itemId },
+            );
+          }
+          const evidenceInput = {
+            runId: input.runId,
+            unitId: item.targetUnitId,
+            source: capture.record.source,
+            researchGoal: item.targetResearchGoal,
+            rawContent: capture.rawBytes,
+            recordedAt: capturedAt,
+            handoffBinding: {
+              handoff_ref: handoffRef,
+              handoff_item_id: item.itemId,
+              source_run_id: input.sourceRunId,
+              source_evidence_path: item.sourceArtifactPath,
+              source_record_hash: sourceRecordHash,
+              source_raw_content_hash: capture.record.content_hash,
+              freshness_disposition: item.freshnessDisposition,
+              applicability_disposition: item.applicabilityDisposition,
+              revalidation_status: item.revalidationStatus,
+            },
+          } as const;
+          const imported = prepareEvidenceRecord(evidenceInput);
+          const targetEvidenceRef = `evidence/manifest.jsonl#${imported.record.evidence_id}`;
+          evidenceImports.push({
+            record: imported.record,
+            raw_content_base64: Buffer.from(imported.rawBytes).toString("base64"),
+          });
+          capturedItems.push({
+            item_id: item.itemId,
+            source_kind: "evidence_substrate",
+            source_artifact_path: item.sourceArtifactPath,
+            source_schema_version: capture.record.schema_version,
+            source_byte_hash: sourceByteHash,
+            source_record_hash: sourceRecordHash,
+            source_content_hash: capture.record.content_hash,
+            source_raw_content_hash: capture.record.content_hash,
+            source_captured_at: capturedAt,
+            source_payload_encoding: "base64",
+            source_payload_base64: Buffer.from(capture.recordBytes).toString("base64"),
+            role: item.role,
+            decision_boundary: "evidence_reuse_with_current_weighting",
+            freshness_disposition: item.freshnessDisposition,
+            applicability_disposition: item.applicabilityDisposition,
+            revalidation_status: item.revalidationStatus,
+            target_unit_id: item.targetUnitId,
+            target_research_goal: item.targetResearchGoal,
+            target_evidence_ref: targetEvidenceRef,
+            target_evidence_record_hash: canonicalContentHash(imported.record),
+          });
+          continue;
+        }
+        if (item.role === "reusable_evidence") {
+          throw new StoreError(
+            "research_handoff.role_mismatch",
+            "Reusable Evidence role requires an exact source Evidence substrate record",
+            { itemId: item.itemId },
+          );
+        }
+        const parsed = validateArtifactRef(item.sourceArtifactPath);
+        const sourceEntry = sourceFormal.get(parsed.path);
+        if (sourceEntry === undefined) {
+          throw new StoreError("research_handoff.source_missing", "source artifact is missing", {
+            itemId: item.itemId,
+            sourcePath: item.sourceArtifactPath,
+          });
+        }
+        const sourceEnvelope = sourceEntry.document as FormalArtifactEnvelope;
+        await this.artifacts.validateStoredEnvelope(sourceRoot, input.sourceRunId, sourceEnvelope);
+        const sourceBytes = await readFile(await resolveRunPath(sourceRoot, parsed.path));
+        const sourceByteHash = sha256Bytes(sourceBytes);
+        if (
+          parsed.fragment !== null ||
+          !researchHandoffSourceRoleAllowed(sourceEnvelope.artifact_type, item.role) ||
+          sourceByteHash !== item.expectedSourceByteHash ||
+          sourceEnvelope.content_hash !== item.expectedSourceContentHash
+        ) {
+          throw new StoreError(
+            "research_handoff.source_binding_mismatch",
+            "Formal handoff source must bind exact whole-artifact bytes and content hash",
+            { itemId: item.itemId },
+          );
+        }
+        capturedItems.push({
+          item_id: item.itemId,
+          source_kind: "formal_artifact",
+          source_artifact_path: item.sourceArtifactPath,
+          source_schema_version: sourceEnvelope.artifact_type,
+          source_byte_hash: sourceByteHash,
+          source_record_hash: canonicalContentHash(sourceEnvelope),
+          source_content_hash: sourceEnvelope.content_hash,
+          source_raw_content_hash: null,
+          source_captured_at: capturedAt,
+          source_payload_encoding: "base64",
+          source_payload_base64: sourceBytes.toString("base64"),
+          role: item.role,
+          decision_boundary: "hypothesis_input_only",
+          freshness_disposition: item.freshnessDisposition,
+          applicability_disposition: item.applicabilityDisposition,
+          revalidation_status: item.revalidationStatus,
+          target_unit_id: null,
+          target_research_goal: null,
+          target_evidence_ref: null,
+          target_evidence_record_hash: null,
+        });
+      }
+      const document = {
+        schema_version: "startup_opportunity.research_handoff.current",
+        handoff_id: input.handoffId,
+        run_id: input.runId,
+        source_run_id: input.sourceRunId,
+        target_formation_stage: requestIdentity.target_formation_stage,
+        target_scope_ref: scopeEnvelope.artifact_path,
+        target_scope_hash: scopeEnvelope.content_hash,
+        target_plan_ref: requestIdentity.target_plan_ref,
+        target_plan_hash: requestIdentity.target_plan_hash,
+        user_authorization_attestation: input.userAuthorizationAttestation,
+        target_purpose: input.targetPurpose,
+        captured_at: capturedAt,
+        items: capturedItems.sort((left, right) =>
+          String(left.item_id).localeCompare(String(right.item_id)),
+        ),
+      };
+      const envelope: FormalArtifactEnvelope = {
+        schema_version: ARTIFACT_ENVELOPE_SCHEMA_VERSION,
+        artifact_type: "startup_opportunity.research_handoff.current",
+        artifact_path: handoffRef,
+        run_id: input.runId,
+        created_at: capturedAt,
+        producer_role: "harness",
+        input_refs: [
+          scopeEnvelope.artifact_path,
+          ...(planEnvelope ? [planEnvelope.artifact_path] : []),
+        ].sort(),
+        content_hash: canonicalContentHash(document),
+        document,
+      };
+      const intent: ResearchHandoffOperationIntent = {
+        schema_version: "startup_opportunity.research_handoff_operation.current",
+        operation_key: handoffOperationKey,
+        run_id: input.runId,
+        handoff_ref: handoffRef,
+        request_identity: requestIdentity,
+        envelope,
+        evidence_imports: evidenceImports,
+      };
+      validateResearchHandoffOperationIntent(intent, path.basename(intentPath), input.runId);
+      const intentTemp = `.store/temp/research-handoff-${sha256Hex(handoffOperationKey)}.tmp`;
+      await writeSyncedTemp(targetRoot, intentTemp, `${canonicalJson(intent)}\n`);
+      await publishTemp(targetRoot, intentTemp, intentPath);
+      if (input.faultAt === "after_intent") {
+        throw new StoreError("fault.injected", "injected failure after research handoff intent");
+      }
+      for (const evidenceImport of evidenceImports) {
+        const handoffBinding = evidenceImport.record.handoff_binding;
+        if (handoffBinding === undefined) {
+          throw new StoreError(
+            "recovery.invalid_research_handoff_operation",
+            "Research handoff Evidence import is missing its immutable binding",
+          );
+        }
+        await this.evidence.recordResearchHandoffImportLocked(targetRoot, {
+          runId: input.runId,
+          unitId: evidenceImport.record.unit_id,
+          source: evidenceImport.record.source,
+          researchGoal: evidenceImport.record.research_goal,
+          rawContent: Buffer.from(evidenceImport.raw_content_base64, "base64"),
+          recordedAt: evidenceImport.record.recorded_at,
+          operationKey: evidenceImport.record.operation_key,
+          handoffBinding,
+        });
+      }
+      if (input.faultAt === "after_evidence_imports") {
+        throw new StoreError(
+          "fault.injected",
+          "injected failure after research handoff Evidence imports",
+        );
+      }
+      await this.assertTransitionReadyLocked(targetRoot, manifest, [envelope]);
+      const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
+        targetRoot,
+        input.runId,
+        this.validator,
+        this.artifacts,
+        this.logs,
+      );
+      const published = await this.artifacts.publishResearchHandoffLocked(
+        targetRoot,
+        { runId: input.runId, envelope },
+        {
+          historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
+        },
+      );
+      if (input.faultAt === "after_handoff_publish") {
+        throw new StoreError(
+          "fault.injected",
+          "injected failure after research handoff publication",
+        );
+      }
+      manifest = await this.applyPublishedEnvelope(
+        targetRoot,
+        manifest,
+        envelope,
+        false,
+        published.status === "idempotent_replay",
+      );
+      await this.writeManifest(targetRoot, manifest);
+      return {
+        schemaVersion: "startup_opportunity.create_research_handoff_result.v1",
+        runId: input.runId,
+        handoffRef,
+        handoffContentHash: envelope.content_hash,
+        importedEvidenceRefs: evidenceImports
+          .map((entry) => `evidence/manifest.jsonl#${entry.record.evidence_id}`)
+          .sort(),
+        status: published.status,
+      };
+    });
+  }
+
+  async readResearchHandoff(input: ReadResearchHandoffInput): Promise<ReadResearchHandoffResult> {
+    validateRunId(input.runId);
+    validateRelativePath(input.handoffRef);
+    await this.assertCurrentLeaf(input.runId);
+    const runRoot = await openRunDirectory(this.runsRoot, input.runId);
+    return withRunLock(runRoot, async () => {
+      const manifest = await this.readManifest(runRoot);
+      const value = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, input.handoffRef), "utf8"),
+      ) as unknown;
+      if (!isRecord(value) || !isCurrentEnvelopeSchema(value.schema_version)) {
+        throw new StoreError("research_handoff.invalid", "Research handoff envelope is invalid");
+      }
+      const envelope = value as FormalArtifactEnvelope;
+      await this.artifacts.validateStoredEnvelope(runRoot, input.runId, envelope);
+      if (
+        envelope.artifact_type !== "startup_opportunity.research_handoff.current" ||
+        envelope.artifact_path !== input.handoffRef ||
+        envelope.document.run_id !== input.runId
+      ) {
+        throw new StoreError("research_handoff.invalid", "Research handoff identity is invalid");
+      }
+      const uniqueItemIds = [...new Set(input.itemIds)].sort();
+      if (uniqueItemIds.length === 0 || uniqueItemIds.length !== input.itemIds.length) {
+        throw new StoreError(
+          "research_handoff.item_selection_invalid",
+          "Controlled handoff read requires a non-empty unique item selection",
+        );
+      }
+      const items = records(envelope.document.items);
+      const selected = uniqueItemIds.map((itemId) => {
+        const item = items.find((candidate) => candidate.item_id === itemId);
+        if (item === undefined) {
+          throw new StoreError("research_handoff.item_missing", "Handoff item is missing", {
+            itemId,
+          });
+        }
+        return item;
+      });
+      const itemRefs = selected.map((item) => `${input.handoffRef}#${String(item.item_id)}`);
+      const decisionId = `research_handoff_consumed_${sha256Hex(
+        operationKey("research_handoff_consumption_identity", {
+          run_id: input.runId,
+          handoff_ref: input.handoffRef,
+          handoff_hash: envelope.content_hash,
+          item_refs: itemRefs,
+        }),
+      ).slice(0, 24)}`;
+      const existing = (
+        await this.logs.listValidatedRecords(runRoot, input.runId, "decisions.jsonl")
+      ).find((record) => record.decision_id === decisionId);
+      if (
+        existing === undefined &&
+        envelope.document.target_formation_stage === "pre_plan_assessment_formation" &&
+        manifest.artifact_refs.includes("concept-hypothesis.json")
+      ) {
+        throw new StoreError(
+          "research_handoff.intake_formation_closed",
+          "A pre-Plan Assessment handoff must be read before the initial intake Concept is published",
+          { handoffRef: input.handoffRef },
+        );
+      }
+      const isFormationArtifactRef = (ref: string): boolean =>
+        [
+          "artifacts/discovery/seed-probe.r1.json",
+          "artifacts/discovery/opportunity-space-map.r1.json",
+          "artifacts/discovery/solution-space-map.r1.json",
+        ].includes(ref) ||
+        /^artifacts\/discovery\/candidates\/[A-Za-z0-9._-]+\.r[1-9][0-9]*\.json$/.test(ref) ||
+        /^artifacts\/discovery\/opportunities\/[A-Za-z0-9._-]+\.r[1-9][0-9]*\.json$/.test(ref) ||
+        /^artifacts\/assessment\/concepts\/[A-Za-z0-9._-]+\.r[1-9][0-9]*\.json$/.test(ref) ||
+        ref === "concept-hypothesis.json";
+      const exemptRefs =
+        existing === undefined
+          ? manifest.artifact_refs.filter(isFormationArtifactRef).sort()
+          : Array.isArray(existing.research_handoff_taint_exempt_artifact_refs)
+            ? existing.research_handoff_taint_exempt_artifact_refs.filter(
+                (ref): ref is string => typeof ref === "string" && isFormationArtifactRef(ref),
+              )
+            : [];
+      const immutableIdentity = {
+        research_handoff_ref: input.handoffRef,
+        research_handoff_hash: envelope.content_hash,
+        research_handoff_item_refs: itemRefs,
+        research_handoff_taint_exempt_artifact_refs: exemptRefs,
+      };
+      if (
+        existing !== undefined &&
+        (existing.schema_version !== "startup_opportunity.decision.v1" ||
+          existing.run_id !== input.runId ||
+          existing.decision_type !== "research_handoff_consumed" ||
+          existing.actor !== "main_agent" ||
+          canonicalJson(existing.artifact_refs) !== canonicalJson(itemRefs) ||
+          canonicalJson(
+            Object.fromEntries(Object.keys(immutableIdentity).map((key) => [key, existing[key]])),
+          ) !== canonicalJson(immutableIdentity) ||
+          (input.consumedAt !== undefined && existing.timestamp !== input.consumedAt))
+      ) {
+        throw new StoreError(
+          "research_handoff.consumption_conflict",
+          "research handoff consumption is already bound to different immutable provenance",
+          { decisionId },
+        );
+      }
+      const decision =
+        existing ??
+        ({
+          schema_version: "startup_opportunity.decision.v1",
+          decision_id: decisionId,
+          run_id: input.runId,
+          decision_type: "research_handoff_consumed",
+          timestamp: input.consumedAt ?? new Date().toISOString(),
+          actor: "main_agent",
+          reason:
+            "Controlled read of target-owned handoff bytes; later subject formation retains hypothesis-only provenance.",
+          artifact_refs: itemRefs,
+          ...immutableIdentity,
+        } satisfies Record<string, unknown>);
+      const status =
+        existing === undefined
+          ? await this.logs.appendValidated(runRoot, input.runId, "decisions.jsonl", decision)
+          : "idempotent_replay";
+      return {
+        schemaVersion: "startup_opportunity.read_research_handoff_result.v1",
+        runId: input.runId,
+        handoffRef: input.handoffRef,
+        handoffContentHash: envelope.content_hash,
+        consumptionDecisionRef: `decisions.jsonl#${decisionId}`,
+        consumptionDecisionHash: canonicalContentHash(decision),
+        status,
+        items: selected.map((item) => ({
+          itemId: String(item.item_id),
+          role: item.role as ResearchHandoffRole,
+          decisionBoundary: item.decision_boundary as
+            | "hypothesis_input_only"
+            | "evidence_reuse_with_current_weighting",
+          sourcePayload: Buffer.from(String(item.source_payload_base64), "base64").toString("utf8"),
+          targetEvidenceRef:
+            typeof item.target_evidence_ref === "string" ? item.target_evidence_ref : null,
+        })),
       };
     });
   }
@@ -4460,6 +5376,7 @@ export class RunStore {
   private async recoverLocked(runRoot: string, runId: string): Promise<LoadRunResult> {
     const evidenceRecovery = await this.evidence.recoverLocked(runRoot, runId);
     const artifactRecovery = await this.artifacts.recoverLocked(runRoot, runId);
+    const handoffRecovery = await this.recoverResearchHandoffOperationsLocked(runRoot, runId);
     const reportRecovery = await recoverReportOperationsLocked(
       runRoot,
       runId,
@@ -4637,6 +5554,15 @@ export class RunStore {
         exactJsonlRecords.set(`evidence/manifest.jsonl#${record.evidence_id}`, record);
       }
     }
+    for (const decision of await this.logs.listValidatedRecords(
+      runRoot,
+      runId,
+      "decisions.jsonl",
+    )) {
+      if (decision.decision_type === "research_handoff_consumed") {
+        exactJsonlRecords.set(`decisions.jsonl#${String(decision.decision_id)}`, decision);
+      }
+    }
     const bundle = this.validator.validateDocumentBundle(
       {
         schema_version: DOCUMENT_BUNDLE_SCHEMA_VERSION,
@@ -4685,6 +5611,7 @@ export class RunStore {
         manifestChanged ||
         eventStatus === "appended" ||
         artifactRecovery.recoveredArtifactPaths.length > 0 ||
+        handoffRecovery.length > 0 ||
         logRepairs.some(
           (repair) => repair.truncatedBytes > 0 || repair.replayedRecordIds.length > 0,
         ) ||
@@ -4703,6 +5630,70 @@ export class RunStore {
       reportRecovery,
       orphanActiveUnits: currentManifest.active_units,
     };
+  }
+
+  private async recoverResearchHandoffOperationsLocked(
+    runRoot: string,
+    runId: string,
+  ): Promise<readonly string[]> {
+    const operationsDirectory = await resolveRunPath(runRoot, ".store/operations", {
+      createParents: true,
+    });
+    const recovered: string[] = [];
+    for (const filename of (await readdir(operationsDirectory)).sort()) {
+      if (!filename.startsWith("research-handoff-") || !filename.endsWith(".json")) continue;
+      const intent = validateResearchHandoffOperationIntent(
+        JSON.parse(
+          await readFile(await resolveRunPath(runRoot, `.store/operations/${filename}`), "utf8"),
+        ) as unknown,
+        filename,
+        runId,
+      );
+      const result = await this.replayResearchHandoffIntentLocked(runRoot, runId, intent);
+      recovered.push(...result.recoveredRefs);
+    }
+    return recovered.sort();
+  }
+
+  private async replayResearchHandoffIntentLocked(
+    runRoot: string,
+    runId: string,
+    intent: ResearchHandoffOperationIntent,
+  ): Promise<{
+    readonly artifactStatus: "published" | "idempotent_replay";
+    readonly recoveredRefs: readonly string[];
+  }> {
+    const recovered: string[] = [];
+    for (const evidenceImport of intent.evidence_imports) {
+      const handoffBinding = evidenceImport.record.handoff_binding;
+      if (handoffBinding === undefined) {
+        throw new StoreError(
+          "recovery.invalid_research_handoff_operation",
+          "Research handoff Evidence import is missing its immutable binding",
+        );
+      }
+      const result = await this.evidence.recordResearchHandoffImportLocked(runRoot, {
+        runId,
+        unitId: evidenceImport.record.unit_id,
+        source: evidenceImport.record.source,
+        researchGoal: evidenceImport.record.research_goal,
+        rawContent: Buffer.from(evidenceImport.raw_content_base64, "base64"),
+        recordedAt: evidenceImport.record.recorded_at,
+        operationKey: evidenceImport.record.operation_key,
+        handoffBinding,
+      });
+      if (result.status === "recorded") recovered.push(`evidence:${result.record.evidence_id}`);
+    }
+    const existing = (await this.artifacts.listFormalDocuments(runRoot)).find(
+      (entry) => entry.path === intent.handoff_ref,
+    );
+    const publication = await this.artifacts.publishResearchHandoffLocked(runRoot, {
+      runId,
+      envelope: intent.envelope,
+    });
+    if (existing === undefined || publication.status === "published")
+      recovered.push(intent.handoff_ref);
+    return { artifactStatus: publication.status, recoveredRefs: recovered.sort() };
   }
 
   private async validateCheckpointEntry(

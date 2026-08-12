@@ -61,6 +61,110 @@
         "type": "string",
         "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"
       }
+    },
+    "handoffDisclosureItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "handoff_ref",
+        "handoff_item_id",
+        "source_run_id",
+        "source_artifact_path",
+        "source_content_hash",
+        "role",
+        "freshness_disposition",
+        "applicability_disposition",
+        "revalidation_status",
+        "target_evidence_ref"
+      ],
+      "properties": {
+        "handoff_ref": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "handoff_item_id": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "source_run_id": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/runId"
+        },
+        "source_artifact_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_content_hash": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+        },
+        "role": {
+          "enum": [
+            "user_authorized_input",
+            "reusable_evidence",
+            "prior_synthesis",
+            "revalidation_required"
+          ]
+        },
+        "freshness_disposition": {
+          "enum": ["current", "historical", "unknown"]
+        },
+        "applicability_disposition": {
+          "enum": ["applicable", "partially_applicable", "unknown"]
+        },
+        "revalidation_status": {
+          "enum": ["not_required", "required"]
+        },
+        "target_evidence_ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^evidence/manifest\\.jsonl#ev_[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "researchProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "handoff_refs",
+        "inherited_evidence",
+        "current_run_evidence_refs",
+        "prior_synthesis_items",
+        "revalidation_required_items"
+      ],
+      "properties": {
+        "handoff_refs": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "inherited_evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/handoffDisclosureItem"
+          }
+        },
+        "current_run_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^evidence/manifest\\.jsonl#ev_[a-f0-9]{64}$"
+          }
+        },
+        "prior_synthesis_items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/handoffDisclosureItem"
+          }
+        },
+        "revalidation_required_items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/handoffDisclosureItem"
+          }
+        }
+      }
     }
   },
   "properties": {
@@ -564,6 +668,9 @@
           }
         }
       }
+    },
+    "research_provenance": {
+      "$ref": "#/$defs/researchProvenance"
     },
     "excluded_evidence": {
       "type": "array",

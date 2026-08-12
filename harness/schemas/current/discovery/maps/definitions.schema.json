@@ -81,7 +81,11 @@
       ],
       "properties": {
         "synthesis_origin": {
-          "enum": ["current_run_synthesis", "prior_informed_synthesis"]
+          "enum": [
+            "current_run_synthesis",
+            "prior_informed_synthesis",
+            "research_handoff_informed_synthesis"
+          ]
         },
         "current_run_scope_and_plan_used": {
           "const": true
@@ -118,8 +122,7 @@
           "else": {
             "properties": {
               "prior_input_decision_refs": {
-                "type": "array",
-                "minItems": 1
+                "type": "array"
               }
             }
           }

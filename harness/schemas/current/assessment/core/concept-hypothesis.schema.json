@@ -61,6 +61,9 @@
         }
       }
     },
+    "research_handoff_input_hashes": {
+      "$ref": "../../core/research-handoff.schema.json#/$defs/handoffBindings"
+    },
     "scope_frame_ref": {
       "$ref": "./definitions.schema.json#/$defs/artifactRef"
     },

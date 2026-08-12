@@ -13,6 +13,8 @@ Usage:
   npm run harness -- status-run --run-id ID
   npm run harness -- admit-prior-input --run-id ID --prior-input-id ID --source-run-id ID --source-artifact-path PATH --target-artifact-path PATH --consumer CONSUMER --reason REASON
   npm run harness -- read-prior-input --run-id ID --admission-ref REF
+  npm run harness -- create-research-handoff --file FILE [--runs-root DIR]
+  npm run harness -- read-research-handoff --run-id ID --handoff-ref REF --item-id ID [--item-id ID]
   npm run harness -- reform-decision-subject --run-id ID --terminal-snapshot-ref REF --terminal-subject-id ID --reformed-subject-ref REF --reformation-input-ref REF --reason REASON
   npm run harness -- record-evidence --run-id ID --unit-id ID (--source-url URL | --source-uri URN) --research-goal GOAL --content-file FILE
   npm run harness -- publish-artifact --file FILE [--runs-root DIR]
@@ -40,6 +42,8 @@ Commands:
   status-run         Read and validate current Run manifest state without recovery or mutation.
   admit-prior-input  Hash one explicitly named prior-Run artifact and append its hypothesis-only admission receipt.
   read-prior-input   Read exact admitted bytes through a provenance-tainting controlled boundary.
+  create-research-handoff Capture user-authorized current-contract prior research into one target-Run handoff.
+  read-research-handoff Read selected exact payloads only from a same-Run formal handoff.
   reform-decision-subject Append an exact causal Decision for a post-terminal immutable subject revision.
   record-evidence    Persist raw evidence with canonical hashes and deterministic deduplication.
   publish-artifact   Validate and publish one formal envelope or an explicit envelope bundle.

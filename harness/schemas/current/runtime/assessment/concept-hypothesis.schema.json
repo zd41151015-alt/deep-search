@@ -162,6 +162,9 @@
     "scope_frame_ref": {
       "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
     },
+    "research_handoff_input_hashes": {
+      "$ref": "../../core/research-handoff.schema.json#/$defs/handoffBindings"
+    },
     "product_thesis": {
       "$ref": "#/$defs/nullableString"
     },

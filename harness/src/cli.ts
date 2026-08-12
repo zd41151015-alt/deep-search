@@ -16,11 +16,13 @@ import {
   runAdmitPriorInput,
   runCheckpointRun,
   runConfirmScope,
+  runCreateResearchHandoff,
   runCreateRun,
   runLoadRun,
   runProposeScope,
   runPublishArtifact,
   runReadPriorInput,
+  runReadResearchHandoff,
   runRecordEvidence,
   runReformDecisionSubject,
   runStatusRun,
@@ -64,6 +66,12 @@ switch (command) {
     break;
   case "read-prior-input":
     process.exitCode = await runReadPriorInput(args);
+    break;
+  case "create-research-handoff":
+    process.exitCode = await runCreateResearchHandoff(args);
+    break;
+  case "read-research-handoff":
+    process.exitCode = await runReadResearchHandoff(args);
     break;
   case "reform-decision-subject":
     process.exitCode = await runReformDecisionSubject(args);

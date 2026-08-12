@@ -1,5 +1,5 @@
 import type { FormalArtifactEnvelope } from "../artifact-store/artifact-store.js";
-import { canonicalContentHash } from "../artifact-store/canonical.js";
+import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import { commercialProjectionRefs } from "../reporting/commercial-report-tables.js";
 import {
   deriveTerminalReportDocuments,
@@ -7,6 +7,7 @@ import {
   terminalReportDocumentsEqual,
 } from "../reporting/terminal-reporting.js";
 import { type CommercialResearchPolicy, deriveValidAsOf } from "./commercial-research-validator.js";
+import { deriveResearchProvenance } from "./research-handoff-validator.js";
 import type { ValidationIssue } from "./schema-bundle.js";
 
 export interface TerminalReportingDocument {
@@ -74,9 +75,31 @@ function validateSource(
   manifest: TerminalReportingDocument | undefined,
   documents: readonly TerminalReportingDocument[],
   commercialPolicy?: CommercialResearchPolicy,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>> = new Map(),
 ): readonly ValidationIssue[] {
   const source = entry.document;
   const errors: ValidationIssue[] = [];
+  if (!isRecord(source.research_provenance)) {
+    errors.push(
+      issue(
+        "terminal_reporting.research_provenance_missing",
+        `${entry.path}#/research_provenance`,
+        "formal terminal reports require Harness-derived current and inherited research provenance",
+      ),
+    );
+  } else {
+    const expected = deriveResearchProvenance(String(source.run_id), documents, exactRecords);
+    if (canonicalJson(source.research_provenance) !== canonicalJson(expected)) {
+      errors.push(
+        issue(
+          "terminal_reporting.research_provenance_mismatch",
+          `${entry.path}#/research_provenance`,
+          "terminal research provenance must exactly project same-Run handoffs and Evidence records",
+          { expected },
+        ),
+      );
+    }
+  }
   if (source.owned_output_path !== entry.path) {
     errors.push(
       issue(
@@ -776,6 +799,7 @@ function validateSource(
 export function validateTerminalReportingContract(
   documents: readonly TerminalReportingDocument[],
   commercialPolicy?: CommercialResearchPolicy,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>> = new Map(),
 ): readonly ValidationIssue[] {
   const relevant = documents.filter((entry) =>
     [
@@ -821,7 +845,7 @@ export function validateTerminalReportingContract(
   const manifest = documents.find(
     (entry) => entry.schemaVersion === "startup_opportunity.run_manifest.v1",
   );
-  errors.push(...validateSource(source, manifest, documents, commercialPolicy));
+  errors.push(...validateSource(source, manifest, documents, commercialPolicy, exactRecords));
 
   let expected: readonly ReturnType<typeof deriveTerminalReportDocuments>[number][];
   try {

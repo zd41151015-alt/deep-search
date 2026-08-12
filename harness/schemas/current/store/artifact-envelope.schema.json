@@ -111,6 +111,7 @@
         "startup_opportunity.report_consistency_evaluation.terminal.current",
         "startup_opportunity.research_execution_plan.discovery.current",
         "startup_opportunity.research_execution_plan.assessment.current",
+        "startup_opportunity.research_handoff.current",
         "startup_opportunity.research_plan.v1",
         "startup_opportunity.research_task.assessment.current",
         "startup_opportunity.research_task.discovery_candidate.current",
@@ -2307,6 +2308,30 @@
           },
           "document": {
             "$ref": "../runtime/discovery/source-manifest.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "const": "startup_opportunity.research_handoff.current"
+          }
+        },
+        "required": ["artifact_type"]
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "harness"
+          },
+          "artifact_path": {
+            "type": "string",
+            "pattern": "^artifacts/research-handoffs/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\.json$"
+          },
+          "document": {
+            "$ref": "../core/research-handoff.schema.json"
           }
         }
       }

@@ -559,6 +559,12 @@ export class ArtifactStore {
   async publish(input: PublishArtifactInput): Promise<PublishArtifactResult> {
     await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
     this.validateEnvelopeVersionBoundary(input.envelope.schema_version);
+    if (input.envelope.artifact_type === "startup_opportunity.research_handoff.current") {
+      throw new StoreError(
+        "research_handoff.dedicated_entry_required",
+        "research handoffs must use the target-owned exact capture operation",
+      );
+    }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
@@ -568,6 +574,16 @@ export class ArtifactStore {
 
   async publishBundle(input: PublishArtifactBundleInput): Promise<PublishArtifactBundleResult> {
     await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
+    if (
+      input.envelopes.some(
+        (envelope) => envelope.artifact_type === "startup_opportunity.research_handoff.current",
+      )
+    ) {
+      throw new StoreError(
+        "research_handoff.dedicated_entry_required",
+        "research handoffs must use the target-owned exact capture operation",
+      );
+    }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
@@ -603,6 +619,12 @@ export class ArtifactStore {
         throw new StoreError(
           "checkpoint.dedicated_entry_required",
           "checkpoints must use the monotonic checkpoint operation",
+        );
+      }
+      if (envelope.artifact_type === "startup_opportunity.research_handoff.current") {
+        throw new StoreError(
+          "research_handoff.dedicated_entry_required",
+          "research handoffs must use the target-owned exact capture operation",
         );
       }
       this.validateEnvelopeBoundary(input.runId, envelope);
@@ -655,6 +677,35 @@ export class ArtifactStore {
   }
 
   async publishLocked(
+    runRoot: string,
+    input: PublishArtifactInput,
+    referencesPrevalidated = false,
+    referenceContext: DocumentBundleReferenceContext = {},
+  ): Promise<PublishArtifactResult> {
+    if (input.envelope.artifact_type === "startup_opportunity.research_handoff.current") {
+      throw new StoreError(
+        "research_handoff.dedicated_entry_required",
+        "research handoffs must use the target-owned exact capture operation",
+      );
+    }
+    return this.publishPreparedLocked(runRoot, input, referencesPrevalidated, referenceContext);
+  }
+
+  async publishResearchHandoffLocked(
+    runRoot: string,
+    input: PublishArtifactInput,
+    referenceContext: DocumentBundleReferenceContext = {},
+  ): Promise<PublishArtifactResult> {
+    if (input.envelope.artifact_type !== "startup_opportunity.research_handoff.current") {
+      throw new StoreError(
+        "research_handoff.type_mismatch",
+        "the dedicated research handoff publisher accepts only research handoff Artifacts",
+      );
+    }
+    return this.publishPreparedLocked(runRoot, input, false, referenceContext);
+  }
+
+  private async publishPreparedLocked(
     runRoot: string,
     input: PublishArtifactInput,
     referencesPrevalidated = false,
@@ -1088,7 +1139,11 @@ export class ArtifactStore {
           missing = true;
         }
         if (missing) {
-          await this.publishLocked(runRoot, { runId, envelope }, true);
+          if (envelope.artifact_type === "startup_opportunity.research_handoff.current") {
+            await this.publishResearchHandoffLocked(runRoot, { runId, envelope });
+          } else {
+            await this.publishLocked(runRoot, { runId, envelope }, true);
+          }
           recovered.push(envelope.artifact_path);
         }
       }
@@ -1293,6 +1348,7 @@ export class ArtifactStore {
       if (
         decision.decision_type === "prior_input_admitted" ||
         decision.decision_type === "prior_input_consumed" ||
+        decision.decision_type === "research_handoff_consumed" ||
         decision.decision_type === "subject_reformed"
       ) {
         exactJsonlRecords.set(`decisions.jsonl#${String(decision.decision_id)}`, decision);
