@@ -241,6 +241,7 @@ function shellVariableNameAt(contents: string, dollarOffset: number): string | n
 }
 
 interface ShellLexFrame {
+  readonly backtickFoldingDepth?: number;
   readonly backtickTerminator?: "escaped" | "plain";
   readonly kind: "arithmetic" | "backtick" | "command" | "heredoc";
   parenDepth: number | null;
@@ -252,16 +253,43 @@ interface BacktickDollarFold {
   readonly expands: boolean;
 }
 
+interface AnsiCQuoteFold {
+  readonly closesQuote: boolean;
+  readonly quoteOffset: number;
+}
+
+function foldBacktickBackslashesBeforeAnsiCQuote(
+  line: string,
+  slashOffset: number,
+  foldingDepth: number,
+): AnsiCQuoteFold | null {
+  let quoteOffset = slashOffset;
+  while (line[quoteOffset] === "\\") quoteOffset += 1;
+  if (line[quoteOffset] !== "'") return null;
+  let innerSlashCount = quoteOffset - slashOffset;
+  for (let depth = 0; depth < foldingDepth; depth += 1) {
+    innerSlashCount = Math.ceil(innerSlashCount / 2);
+  }
+  return {
+    closesQuote: innerSlashCount % 2 === 0,
+    quoteOffset,
+  };
+}
+
 function foldBacktickBackslashesBeforeDollar(
   line: string,
   slashOffset: number,
+  foldingDepth: number,
 ): BacktickDollarFold | null {
   let dollarOffset = slashOffset;
   while (line[dollarOffset] === "\\") dollarOffset += 1;
   if (line[dollarOffset] !== "$") return null;
   // Backticks fold the outer slash run before the inner shell decides whether $ is escaped.
   const rawSlashCount = dollarOffset - slashOffset;
-  const innerSlashCount = Math.floor(rawSlashCount / 2);
+  let innerSlashCount = rawSlashCount;
+  for (let depth = 0; depth < foldingDepth; depth += 1) {
+    innerSlashCount = Math.floor(innerSlashCount / 2);
+  }
   return {
     dollarOffset,
     expands: innerSlashCount % 2 === 0,
@@ -295,6 +323,7 @@ function scanShellLine(
       }
       if (character === "`") {
         frames.push({
+          backtickFoldingDepth: 1,
           backtickTerminator: "plain",
           kind: "backtick",
           parenDepth: null,
@@ -325,6 +354,7 @@ function scanShellLine(
       }
       if (character === "`") {
         frames.push({
+          backtickFoldingDepth: 1,
           backtickTerminator: "plain",
           kind: "backtick",
           parenDepth: null,
@@ -353,6 +383,16 @@ function scanShellLine(
     }
     if (frame.quote === "ansi_c") {
       if (character === "\\") {
+        const foldedQuote = foldBacktickBackslashesBeforeAnsiCQuote(
+          line,
+          index,
+          frame.kind === "backtick" ? (frame.backtickFoldingDepth ?? 1) : 0,
+        );
+        if (foldedQuote !== null) {
+          index = foldedQuote.quoteOffset;
+          if (foldedQuote.closesQuote) frame.quote = null;
+          continue;
+        }
         index += 1;
         continue;
       }
@@ -360,7 +400,11 @@ function scanShellLine(
       continue;
     }
     if (frame.kind === "backtick" && character === "\\") {
-      const foldedDollar = foldBacktickBackslashesBeforeDollar(line, index);
+      const foldedDollar = foldBacktickBackslashesBeforeDollar(
+        line,
+        index,
+        frame.backtickFoldingDepth ?? 1,
+      );
       if (foldedDollar !== null) {
         index = foldedDollar.dollarOffset;
         if (foldedDollar.expands) {
@@ -374,6 +418,7 @@ function scanShellLine(
       if (frame.backtickTerminator === "escaped") frames.pop();
       else {
         frames.push({
+          backtickFoldingDepth: (frame.backtickFoldingDepth ?? 1) + 1,
           backtickTerminator: "escaped",
           kind: "backtick",
           parenDepth: null,
@@ -408,6 +453,7 @@ function scanShellLine(
       }
       if (character === "`") {
         frames.push({
+          backtickFoldingDepth: 1,
           backtickTerminator: "plain",
           kind: "backtick",
           parenDepth: null,
@@ -449,6 +495,7 @@ function scanShellLine(
     }
     if (character === "`") {
       frames.push({
+        backtickFoldingDepth: 1,
         backtickTerminator: "plain",
         kind: "backtick",
         parenDepth: null,

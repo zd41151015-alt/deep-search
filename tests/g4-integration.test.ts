@@ -199,6 +199,44 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
   await writeFile(path.join(priorRoot, mapPath), mapBytes);
   await writeFile(path.join(priorRoot, candidatePath), candidateBytes);
 
+  const priorVariable = "$PRIOR_ARTIFACT_PATH";
+  const singleBacktickCommand = (slashCount: number): string =>
+    "printf '<OUT:%s>' \"`printf '<IN:%s>' \\\"" +
+    "\\".repeat(slashCount) +
+    priorVariable +
+    '\\"`"';
+  const nestedBacktickCommand = (slashCount: number): string =>
+    "printf '<OUT:%s>' \"`printf '<MID:%s>' \\`printf '<IN:%s>' \\\"" +
+    "\\".repeat(slashCount) +
+    priorVariable +
+    '\\"\\``"';
+  const nestedBacktickHeredoc = (slashCount: number): string =>
+    ["cat <<EOF", nestedBacktickCommand(slashCount), "EOF"].join("\n");
+  const nestedBacktickAnsiAdjacent = (slashCount: number): string =>
+    "printf '<OUT:%s>' \"`printf '<MID:%s>' \\`printf '<IN:%s>' $'a\\\\''\\\"" +
+    "\\".repeat(slashCount) +
+    priorVariable +
+    '\\"\\``"';
+  const nestedBacktickAnsiHeredoc = (slashCount: number): string =>
+    ["cat <<EOF", nestedBacktickAnsiAdjacent(slashCount), "EOF"].join("\n");
+  const singleBacktickExpands = [true, true, false, false, true, true, false, false, true];
+  const nestedBacktickExpands = [true, true, true, true, false, false, false, false, true];
+  const backtickMatrixCommands = (expands: boolean): readonly string[] => [
+    ...singleBacktickExpands.flatMap((doesExpand, slashCount) =>
+      doesExpand === expands ? [singleBacktickCommand(slashCount)] : [],
+    ),
+    ...nestedBacktickExpands.flatMap((doesExpand, slashCount) =>
+      doesExpand === expands
+        ? [
+            nestedBacktickCommand(slashCount),
+            nestedBacktickHeredoc(slashCount),
+            nestedBacktickAnsiAdjacent(slashCount),
+            nestedBacktickAnsiHeredoc(slashCount),
+          ]
+        : [],
+    ),
+  ];
+
   const accidentInput = {
     cwd: fixture.root,
     tool_name: "Bash",
@@ -236,6 +274,7 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     /read-prior-input/,
   );
   for (const command of [
+    ...backtickMatrixCommands(true),
     'for p in runs/*/artifacts/discovery/opportunity-space-map.r1.json; do cat "$p"; done',
     "find runs -name opportunity-space-map.r1.json -exec cat {} \\;",
     'cat "$PRIOR_ARTIFACT_PATH"',
@@ -296,6 +335,7 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     assert.equal(
       (indirect?.hookSpecificOutput as Record<string, unknown>)?.permissionDecision,
       "deny",
+      command,
     );
     assert.match(
       String((indirect?.hookSpecificOutput as Record<string, unknown>)?.permissionDecisionReason),
@@ -303,6 +343,7 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     );
   }
   for (const command of [
+    ...backtickMatrixCommands(false),
     'find harness -name "*.ts"',
     'cat "$TMP_FILE"',
     'cat "$PREVIOUS_API_RESPONSE"',
