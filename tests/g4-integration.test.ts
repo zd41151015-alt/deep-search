@@ -237,6 +237,11 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     `cat "\${TMP_FILE:-$PRIOR_ARTIFACT_PATH}"`,
     `cat <<EOF\n$PRIOR_ARTIFACT_PATH\nEOF`,
     `cat <<EOF\n'$PRIOR_ARTIFACT_PATH'\nEOF`,
+    `cat <<$'EOF'\nliteral\nEOF\ncat "$PRIOR_ARTIFACT_PATH"`,
+    `cat <<$"EOF"\nliteral\nEOF\ncat "$PRIOR_ARTIFACT_PATH"`,
+    `printf "%s\\n" "$(printf %s "$PRIOR_ARTIFACT_PATH")"`,
+    `value=$((1 << 2))\ncat "$PRIOR_ARTIFACT_PATH"`,
+    `(( value = 1 << 2 ))\ncat "$PRIOR_ARTIFACT_PATH"`,
   ]) {
     const indirect = await evaluatePreToolUse(
       { cwd: fixture.root, tool_name: "Bash", tool_input: { command } },
@@ -275,8 +280,13 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     `cat <<"EOF"\n$PRIOR_ARTIFACT_PATH\nEOF`,
     `cat <<\\EOF\n$PRIOR_ARTIFACT_PATH\nEOF`,
     `cat <<E'OF'\n$PRIOR_ARTIFACT_PATH\nEOF`,
+    `cat <<$'EOF'\n$PRIOR_ARTIFACT_PATH\nEOF`,
+    `cat <<$"EOF"\n$PRIOR_ARTIFACT_PATH\nEOF`,
     `printf "%s\\n" "\${TMP_FILE:-\\$PRIOR_ARTIFACT_PATH}"`,
     `printf "%s\\n" literal # $PRIOR_ARTIFACT_PATH`,
+    `value=$((1 << 2))\nprintf "%s\\n" '$PRIOR_ARTIFACT_PATH'`,
+    `(( value = 1 << 2 ))\nprintf "%s\\n" '$PRIOR_ARTIFACT_PATH'`,
+    `printf "%s\\n" "$(printf %s '$PRIOR_ARTIFACT_PATH')"`,
   ]) {
     assert.equal(
       await evaluatePreToolUse(

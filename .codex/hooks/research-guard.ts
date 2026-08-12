@@ -111,6 +111,16 @@ function heredocAt(line: string, offset: number): ShellHeredoc | null {
       if (cursor < line.length) delimiter += line[cursor];
       continue;
     }
+    if (
+      character === "$" &&
+      quote === null &&
+      (line[cursor + 1] === "'" || line[cursor + 1] === '"')
+    ) {
+      quoted = true;
+      cursor += 1;
+      quote = line[cursor] === "'" ? "single" : "double";
+      continue;
+    }
     if (character === "'" && quote !== "double") {
       quoted = true;
       quote = quote === "single" ? null : "single";
@@ -141,10 +151,16 @@ function shellVariableNameAt(contents: string, dollarOffset: number): string | n
   return contents.slice(nameStart, nameEnd);
 }
 
+interface ShellLexFrame {
+  readonly kind: "arithmetic" | "command";
+  parenDepth: number | null;
+  quote: "single" | "double" | null;
+}
+
 function shellVariableNames(contents: string): readonly string[] {
   const names: string[] = [];
   const heredocs: ShellHeredoc[] = [];
-  let quote: "single" | "double" | null = null;
+  const frames: ShellLexFrame[] = [{ kind: "command", parenDepth: null, quote: null }];
   for (const line of contents.split(/\r?\n/)) {
     const heredoc = heredocs[0];
     if (heredoc !== undefined) {
@@ -165,30 +181,103 @@ function shellVariableNames(contents: string): readonly string[] {
     }
     for (let index = 0; index < line.length; index += 1) {
       const character = line[index];
-      if (quote === "single") {
-        if (character === "'") quote = null;
+      const frame = frames.at(-1);
+      if (frame === undefined) break;
+      if (frame.kind === "arithmetic") {
+        if (character === "\\") {
+          index += 1;
+          continue;
+        }
+        if (character === "$" && line.slice(index, index + 3) === "$((") {
+          frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
+          index += 2;
+          continue;
+        }
+        if (character === "$" && line.slice(index, index + 2) === "$(") {
+          frames.push({ kind: "command", parenDepth: 1, quote: null });
+          index += 1;
+          continue;
+        }
+        if (character === "$") {
+          const name = shellVariableNameAt(line, index);
+          if (name !== null) names.push(name);
+          continue;
+        }
+        if (character === "(") {
+          frame.parenDepth = (frame.parenDepth ?? 0) + 1;
+          continue;
+        }
+        if (character === ")") {
+          frame.parenDepth = (frame.parenDepth ?? 1) - 1;
+          if (frame.parenDepth === 0) frames.pop();
+        }
+        continue;
+      }
+      if (frame.quote === "single") {
+        if (character === "'") frame.quote = null;
         continue;
       }
       if (character === "\\") {
         index += 1;
         continue;
       }
+      if (frame.quote === "double") {
+        if (character === '"') {
+          frame.quote = null;
+          continue;
+        }
+        if (character === "$" && line.slice(index, index + 3) === "$((") {
+          frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
+          index += 2;
+          continue;
+        }
+        if (character === "$" && line.slice(index, index + 2) === "$(") {
+          frames.push({ kind: "command", parenDepth: 1, quote: null });
+          index += 1;
+          continue;
+        }
+        if (character === "$") {
+          const name = shellVariableNameAt(line, index);
+          if (name !== null) names.push(name);
+        }
+        continue;
+      }
       if (character === "'") {
-        if (quote === null) quote = "single";
+        frame.quote = "single";
         continue;
       }
       if (character === '"') {
-        quote = quote === "double" ? null : "double";
+        frame.quote = "double";
         continue;
       }
-      if (
-        quote === null &&
-        character === "#" &&
-        (index === 0 || /[\s;&|()]/.test(line[index - 1] ?? ""))
-      ) {
+      if (character === "#" && (index === 0 || /[\s;&|()]/.test(line[index - 1] ?? ""))) {
         break;
       }
-      if (quote === null && character === "<") {
+      if (character === "$" && line.slice(index, index + 3) === "$((") {
+        frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
+        index += 2;
+        continue;
+      }
+      if (character === "$" && line.slice(index, index + 2) === "$(") {
+        frames.push({ kind: "command", parenDepth: 1, quote: null });
+        index += 1;
+        continue;
+      }
+      if (character === "(" && line[index + 1] === "(") {
+        frames.push({ kind: "arithmetic", parenDepth: 2, quote: null });
+        index += 1;
+        continue;
+      }
+      if (character === "(" && frame.parenDepth !== null) {
+        frame.parenDepth += 1;
+        continue;
+      }
+      if (character === ")" && frame.parenDepth !== null) {
+        frame.parenDepth -= 1;
+        if (frame.parenDepth === 0) frames.pop();
+        continue;
+      }
+      if (character === "<") {
         const declaration = heredocAt(line, index);
         if (declaration !== null) {
           heredocs.push(declaration);
