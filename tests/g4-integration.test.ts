@@ -222,6 +222,19 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     'cat "$PRIOR_RUN_ROOT/artifacts/discovery/opportunity-space-map.r1.json"',
     'cat "$PREVIOUS_ARTIFACT_REF"',
     'find "$SOURCE_RUN_ROOT" -name "*.json"',
+    `cat "\${PRIOR_ARTIFACT_PATH:-fallback}"`,
+    `cat "\${PRIOR_RUN_ROOT:?required}/x.json"`,
+    'cp "$PRIOR_RUN_ROOT/artifacts/x.json" /tmp/x.json',
+    'install "$PRIOR_ARTIFACT_PATH" /tmp/x.json',
+    'tar -cf /tmp/prior.tar "$PRIOR_RUN_ROOT"',
+    'wc -c "$PRIOR_ARTIFACT_PATH"',
+    'shasum "$PRIOR_ARTIFACT_PATH"',
+    `printf "%s\\n" "\${PREVIOUS_ARTIFACT_REF}"`,
+    `printf "%s\\n" "\${PREVIOUS_RUN_ROOT-fallback}"`,
+    `printf "%s\\n" "\${SOURCE_RUN_ROOT?required}"`,
+    `printf "%s\\n" "\${OLD_RUN_PATH:+alternate}"`,
+    `printf "%s\\n" "\${RUNS_ROOT+alternate}"`,
+    `cat "\${TMP_FILE:-$PRIOR_ARTIFACT_PATH}"`,
   ]) {
     const indirect = await evaluatePreToolUse(
       { cwd: fixture.root, tool_name: "Bash", tool_input: { command } },
@@ -245,6 +258,14 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     'jq . "$PRIOR_QUERY_RESULT_PATH"',
     'find "$PREVIOUS_QUERY_STAGING_DIR" -name "*.json"',
     'cat "$PRIOR_RESPONSE_REF"',
+    `printf "%s\\n" "\${PRIOR_RESPONSE_REF}"`,
+    `cp "\${PREVIOUS_API_RESPONSE_FILE:-fallback}" /tmp/response.json`,
+    `install "\${PRIOR_QUERY_RESULT_PATH:?required}" /tmp/query.json`,
+    `tar -cf /tmp/query.tar "\${PREVIOUS_QUERY_STAGING_DIR-alternate}"`,
+    `wc -c "\${PRIOR_RESPONSE_REF?required}"`,
+    `shasum "\${PREVIOUS_API_RESPONSE_FILE:+/tmp/alternate}"`,
+    `printf "%s\\n" "\${PRIOR_QUERY_RESULT_PATH+/tmp/alternate}"`,
+    `cat "\${TMP_FILE:-PRIOR_ARTIFACT_PATH}"`,
   ]) {
     assert.equal(
       await evaluatePreToolUse(
@@ -255,6 +276,18 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
       command,
     );
   }
+  const shellAliasBlocked = await evaluatePreToolUse(
+    {
+      cwd: fixture.root,
+      tool_name: "Shell",
+      tool_input: { command: 'cp "$PRIOR_ARTIFACT_PATH" /tmp/x.json' },
+    },
+    activeRunId,
+  );
+  assert.equal(
+    (shellAliasBlocked?.hookSpecificOutput as Record<string, unknown>)?.permissionDecision,
+    "deny",
+  );
   const priorCwdRead = await evaluatePreToolUse(
     { cwd: priorRoot, tool_name: "Bash", tool_input: { command: "cat manifest.json" } },
     activeRunId,
