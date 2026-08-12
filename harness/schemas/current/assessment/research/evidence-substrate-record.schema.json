@@ -63,6 +63,7 @@
         "source_evidence_path",
         "source_record_hash",
         "source_raw_content_hash",
+        "source_recorded_at",
         "freshness_disposition",
         "applicability_disposition",
         "revalidation_status"
@@ -87,6 +88,9 @@
         },
         "source_raw_content_hash": {
           "$ref": "./definitions.schema.json#/$defs/sha256"
+        },
+        "source_recorded_at": {
+          "$ref": "./definitions.schema.json#/$defs/timestamp"
         },
         "freshness_disposition": {
           "enum": ["current", "historical", "unknown"]

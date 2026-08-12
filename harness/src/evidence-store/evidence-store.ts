@@ -50,6 +50,7 @@ export interface EvidenceHandoffBinding {
   readonly source_evidence_path: string;
   readonly source_record_hash: string;
   readonly source_raw_content_hash: string;
+  readonly source_recorded_at: string;
   readonly freshness_disposition: "current" | "historical" | "unknown";
   readonly applicability_disposition: "applicable" | "partially_applicable" | "unknown";
   readonly revalidation_status: "not_required" | "required";
@@ -239,6 +240,7 @@ function validateHandoffBinding(value: unknown): EvidenceHandoffBinding | undefi
       "source_evidence_path",
       "source_record_hash",
       "source_raw_content_hash",
+      "source_recorded_at",
       "freshness_disposition",
       "applicability_disposition",
       "revalidation_status",
@@ -255,6 +257,8 @@ function validateHandoffBinding(value: unknown): EvidenceHandoffBinding | undefi
     !/^evidence\/manifest\.jsonl#ev_[a-f0-9]{64}$/.test(value.source_evidence_path) ||
     !isSha256(value.source_record_hash) ||
     !isSha256(value.source_raw_content_hash) ||
+    typeof value.source_recorded_at !== "string" ||
+    !Number.isFinite(Date.parse(value.source_recorded_at)) ||
     !["current", "historical", "unknown"].includes(String(value.freshness_disposition)) ||
     !["applicable", "partially_applicable", "unknown"].includes(
       String(value.applicability_disposition),
@@ -483,21 +487,25 @@ export class EvidenceStore {
   async recordResearchHandoffImportLocked(
     runRoot: string,
     input: RecordEvidenceInput & { readonly handoffBinding: EvidenceHandoffBinding },
+    continueCommittedHandoff = false,
   ): Promise<RecordEvidenceResult> {
-    return this.recordPreparedLocked(runRoot, input);
+    return this.recordPreparedLocked(runRoot, input, continueCommittedHandoff);
   }
 
   private async recordPreparedLocked(
     runRoot: string,
     input: RecordEvidenceInput,
+    scopeMutationPrevalidated = false,
   ): Promise<RecordEvidenceResult> {
     validateRunId(input.runId);
     assertNonEmpty(input.unitId, "unitId");
     assertNonEmpty(input.researchGoal, "researchGoal");
     await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
-    await assertScopeAllowsStorageMutationLocked(this.runsRoot, runRoot, input.runId, {
-      kind: "evidence",
-    });
+    if (!scopeMutationPrevalidated) {
+      await assertScopeAllowsStorageMutationLocked(this.runsRoot, runRoot, input.runId, {
+        kind: "evidence",
+      });
+    }
     const prepared = prepareEvidenceRecord(input);
     const rawBytes = Buffer.from(prepared.rawBytes);
     const { record: preparedRecord } = prepared;

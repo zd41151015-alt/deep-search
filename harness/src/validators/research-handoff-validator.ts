@@ -9,11 +9,19 @@ export interface ResearchHandoffDocument {
 }
 
 export interface ResearchProvenanceProjection extends Record<string, unknown> {
-  readonly handoff_refs: readonly string[];
-  readonly inherited_evidence: readonly Record<string, unknown>[];
-  readonly current_run_evidence_refs: readonly string[];
-  readonly prior_synthesis_items: readonly Record<string, unknown>[];
-  readonly revalidation_required_items: readonly Record<string, unknown>[];
+  readonly available_handoff_count: number;
+  readonly captured_item_count: number;
+  readonly causal_handoff_refs: readonly string[];
+  readonly consumed_item_refs: readonly string[];
+  readonly used_handoff_items: readonly Record<string, unknown>[];
+  readonly imported_substrate_refs: readonly string[];
+  readonly formal_inherited_evidence_refs: readonly string[];
+  readonly adopted_inherited_evidence_refs: readonly string[];
+  readonly cited_inherited_evidence_refs: readonly string[];
+  readonly formal_current_evidence_refs: readonly string[];
+  readonly adopted_current_evidence_refs: readonly string[];
+  readonly cited_current_evidence_refs: readonly string[];
+  readonly revalidation_gaps: readonly Record<string, unknown>[];
 }
 
 const CONTROL_SCHEMA_VERSIONS = new Set([
@@ -140,6 +148,179 @@ function handoffBindings(document: ResearchHandoffDocument): readonly Record<str
   return records(document.document.research_handoff_input_hashes);
 }
 
+function typedFormationRefs(document: ResearchHandoffDocument): readonly string[] {
+  const value = document.document;
+  if (document.schemaVersion === "startup_opportunity.seed_probe.v1") {
+    return [
+      ...strings([value.parent_seed_probe_ref]),
+      ...records(value.input_artifact_hashes).flatMap((binding) =>
+        typeof binding.ref === "string" ? [binding.ref] : [],
+      ),
+    ];
+  }
+  if (document.schemaVersion === "startup_opportunity.opportunity_space_map.v1") {
+    return [
+      ...strings([value.parent_map_ref, value.seed_probe_ref]),
+      ...records(value.input_artifact_hashes).flatMap((binding) =>
+        typeof binding.ref === "string" ? [binding.ref] : [],
+      ),
+    ];
+  }
+  if (document.schemaVersion === "startup_opportunity.solution_space_map.v1") {
+    return [
+      ...strings([value.parent_map_ref, value.seed_probe_ref, value.opportunity_space_map_ref]),
+      ...records(value.input_artifact_hashes).flatMap((binding) =>
+        typeof binding.ref === "string" ? [binding.ref] : [],
+      ),
+    ];
+  }
+  if (document.schemaVersion === "startup_opportunity.discovery_candidate.v1") {
+    const formation = isRecord(value.formation) ? value.formation : {};
+    const mapLineage = isRecord(value.map_lineage) ? value.map_lineage : {};
+    return [
+      ...strings([value.parent_candidate_ref, mapLineage.source_map_ref]),
+      ...records(formation.synthesis_input_hashes).flatMap((binding) =>
+        typeof binding.ref === "string" ? [binding.ref] : [],
+      ),
+    ];
+  }
+  if (document.schemaVersion === "startup_opportunity.discovery_candidate_conversion.v2") {
+    return strings([value.parent_conversion_ref, value.source_candidate_ref]);
+  }
+  if (document.schemaVersion === "startup_opportunity.demand_thesis.v1") {
+    return strings([
+      value.parent_demand_ref,
+      value.source_conversion_ref,
+      value.source_candidate_ref,
+    ]);
+  }
+  if (document.schemaVersion === "startup_opportunity.baseline_option.v1") {
+    return strings([
+      value.parent_baseline_ref,
+      value.source_conversion_ref,
+      value.source_candidate_ref,
+      value.demand_thesis_ref,
+    ]);
+  }
+  if (document.schemaVersion === "startup_opportunity.solution_hypothesis.v1") {
+    return strings([
+      value.parent_solution_ref,
+      value.source_conversion_ref,
+      value.source_candidate_ref,
+      value.demand_thesis_ref,
+      value.baseline_option_ref,
+    ]);
+  }
+  if (document.schemaVersion === "startup_opportunity.solution_evaluation.v1") {
+    return [
+      ...strings([
+        value.parent_evaluation_ref,
+        value.demand_thesis_ref,
+        value.baseline_option_ref,
+        value.selected_solution_ref,
+      ]),
+      ...strings(value.solution_hypothesis_refs),
+      ...strings(value.alternative_solution_refs),
+      ...records(value.rejected_solutions).flatMap((rejected) =>
+        typeof rejected.solution_ref === "string" ? [rejected.solution_ref] : [],
+      ),
+    ];
+  }
+  if (document.schemaVersion === "startup_opportunity.opportunity_thesis.v1") {
+    return [
+      ...strings([
+        value.parent_opportunity_ref,
+        value.demand_thesis_ref,
+        value.selected_solution_ref,
+        value.baseline_option_ref,
+        value.solution_evaluation_ref,
+      ]),
+      ...strings(value.alternative_solution_refs),
+    ];
+  }
+  if (
+    [
+      "startup_opportunity.concept_hypothesis.assessment.current",
+      "startup_opportunity.concept_hypothesis.assessment_intake.current",
+    ].includes(document.schemaVersion)
+  ) {
+    return [
+      ...strings([value.parent_concept_ref]),
+      ...records(value.formation_input_hashes).flatMap((binding) =>
+        typeof binding.ref === "string" ? [binding.ref] : [],
+      ),
+    ];
+  }
+  return [];
+}
+
+function inheritedHandoffRefs(
+  document: ResearchHandoffDocument,
+  byPath: ReadonlyMap<string, ResearchHandoffDocument>,
+  visiting = new Set<string>(),
+): readonly string[] {
+  if (visiting.has(document.path)) return [];
+  visiting.add(document.path);
+  const refs = typedFormationRefs(document).flatMap((ref) => {
+    const parent = byPath.get(ref.split("#", 1)[0] ?? "");
+    if (parent === undefined) return [];
+    return [
+      ...handoffBindings(parent).flatMap((binding) =>
+        typeof binding.ref === "string" ? [binding.ref] : [],
+      ),
+      ...inheritedHandoffRefs(parent, byPath, visiting),
+    ];
+  });
+  visiting.delete(document.path);
+  return refs.filter((ref, index, values) => values.indexOf(ref) === index).sort();
+}
+
+function refsInValue(value: unknown, refs: Set<string>): void {
+  if (typeof value === "string") {
+    refs.add(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) refsInValue(item, refs);
+    return;
+  }
+  if (isRecord(value)) {
+    for (const item of Object.values(value)) refsInValue(item, refs);
+  }
+}
+
+function reportCausalPaths(documents: readonly ResearchHandoffDocument[]): ReadonlySet<string> {
+  const byPath = new Map(documents.map((entry) => [entry.path, entry]));
+  const roots = documents.filter((entry) =>
+    [
+      "startup_opportunity.terminal_report_source.v1",
+      "startup_opportunity.report.v1",
+      "startup_opportunity.concept_evidence_report.v1",
+    ].includes(entry.schemaVersion),
+  );
+  const reachable = new Set<string>();
+  const pending = roots.map((entry) => entry.path);
+  while (pending.length > 0) {
+    const path = pending.pop();
+    if (path === undefined || reachable.has(path)) continue;
+    const entry = byPath.get(path);
+    if (entry === undefined) continue;
+    reachable.add(path);
+    const refs = new Set<string>(strings(entry.envelope?.input_refs));
+    refsInValue(
+      Object.fromEntries(
+        Object.entries(entry.document).filter(([key]) => key !== "research_provenance"),
+      ),
+      refs,
+    );
+    for (const ref of refs) {
+      const targetPath = ref.split("#", 1)[0] ?? ref;
+      if (byPath.has(targetPath) && !reachable.has(targetPath)) pending.push(targetPath);
+    }
+  }
+  return reachable;
+}
+
 function exactItem(
   handoff: ResearchHandoffDocument,
   itemId: string,
@@ -173,6 +354,16 @@ export function deriveResearchProvenance(
         revalidation_status: item.revalidation_status,
         target_evidence_ref:
           typeof item.target_evidence_ref === "string" ? item.target_evidence_ref : null,
+        target_artifact_ref:
+          typeof item.target_artifact_ref === "string" ? item.target_artifact_ref : null,
+        source_recorded_at:
+          typeof item.target_evidence_ref === "string"
+            ? ((
+                exactRecords.get(item.target_evidence_ref)?.handoff_binding as
+                  | Record<string, unknown>
+                  | undefined
+              )?.source_recorded_at ?? null)
+            : null,
       })),
     )
     .sort(
@@ -180,22 +371,130 @@ export function deriveResearchProvenance(
         String(left.handoff_ref).localeCompare(String(right.handoff_ref)) ||
         String(left.handoff_item_id).localeCompare(String(right.handoff_item_id)),
     );
-  return {
-    handoff_refs: handoffs.map((handoff) => handoff.path),
-    inherited_evidence: items.filter((item) => item.role === "reusable_evidence"),
-    current_run_evidence_refs: [...exactRecords.entries()]
+  const consumedItemRefs = [...exactRecords.values()]
+    .filter(
+      (record) =>
+        record.schema_version === "startup_opportunity.decision.v1" &&
+        record.decision_type === "research_handoff_consumed" &&
+        record.run_id === runId,
+    )
+    .flatMap((record) => strings(record.research_handoff_item_refs))
+    .filter((ref, index, values) => values.indexOf(ref) === index)
+    .sort();
+  const causalPaths = reportCausalPaths(documents);
+  const directUsedItemRefs = documents
+    .filter(
+      (entry) =>
+        causalPaths.has(entry.path) && HANDOFF_CONSUMER_SCHEMA_VERSIONS.has(entry.schemaVersion),
+    )
+    .flatMap((entry) => handoffBindings(entry).map((binding) => String(binding.ref)))
+    .filter((ref, index, values) => values.indexOf(ref) === index)
+    .sort();
+  const evidenceDocuments = documents.filter(
+    (entry) =>
+      causalPaths.has(entry.path) &&
+      [
+        "startup_opportunity.evidence.assessment.current",
+        "startup_opportunity.evidence.discovery_candidate.current",
+        "startup_opportunity.evidence.discovery_evaluation.current",
+      ].includes(entry.schemaVersion),
+  );
+  const acceptedEvidenceRefs = new Set(
+    documents
       .filter(
-        ([, record]) =>
-          record.schema_version === "startup_opportunity.evidence_store_record.v2" &&
-          record.run_id === runId &&
-          record.handoff_binding === undefined,
+        (entry) =>
+          causalPaths.has(entry.path) &&
+          [
+            "startup_opportunity.source_manifest.assessment.current",
+            "startup_opportunity.source_manifest.discovery_candidate.current",
+            "startup_opportunity.source_manifest.discovery_evaluation.current",
+          ].includes(entry.schemaVersion),
       )
-      .map(([ref]) => ref)
+      .flatMap((entry) => strings(entry.document.accepted_evidence_refs)),
+  );
+  const formalEvidence = evidenceDocuments.map((entry) => {
+    const binding = isRecord(entry.document.mechanical_binding)
+      ? entry.document.mechanical_binding
+      : {};
+    const substrateRef = String(binding.substrate_record_ref ?? "");
+    const substrate = exactRecords.get(substrateRef);
+    return {
+      path: entry.path,
+      substrateRef,
+      inherited: isRecord(substrate?.handoff_binding),
+      handoffItemRef: isRecord(substrate?.handoff_binding)
+        ? `${String(substrate.handoff_binding.handoff_ref)}#${String(substrate.handoff_binding.handoff_item_id)}`
+        : null,
+      adopted: acceptedEvidenceRefs.has(entry.path),
+    };
+  });
+  const citedRefs = new Set<string>();
+  for (const entry of documents.filter((candidate) =>
+    [
+      "startup_opportunity.terminal_report_source.v1",
+      "startup_opportunity.report.v1",
+      "startup_opportunity.concept_evidence_report.v1",
+    ].includes(candidate.schemaVersion),
+  )) {
+    refsInValue(
+      Object.fromEntries(
+        Object.entries(entry.document).filter(([key]) => key !== "research_provenance"),
+      ),
+      citedRefs,
+    );
+  }
+  const adoptedInheritedItemRefs = formalEvidence.flatMap((entry) =>
+    entry.inherited && entry.adopted && entry.handoffItemRef !== null ? [entry.handoffItemRef] : [],
+  );
+  const causalItemRefs = [...new Set([...directUsedItemRefs, ...adoptedInheritedItemRefs])].sort();
+  const usedItems = items.filter((item) =>
+    causalItemRefs.includes(`${String(item.handoff_ref)}#${String(item.handoff_item_id)}`),
+  );
+  const causalHandoffRefs = [...new Set(usedItems.map((item) => String(item.handoff_ref)))].sort();
+  const importedSubstrateRefs = items
+    .flatMap((item) =>
+      item.role === "reusable_evidence" && typeof item.target_evidence_ref === "string"
+        ? [String(item.target_evidence_ref)]
+        : [],
+    )
+    .sort();
+  return {
+    available_handoff_count: handoffs.length,
+    captured_item_count: items.length,
+    causal_handoff_refs: causalHandoffRefs,
+    consumed_item_refs: consumedItemRefs,
+    used_handoff_items: usedItems,
+    imported_substrate_refs: importedSubstrateRefs,
+    formal_inherited_evidence_refs: formalEvidence
+      .filter((entry) => entry.inherited)
+      .map((entry) => entry.path)
       .sort(),
-    prior_synthesis_items: items.filter((item) =>
-      ["user_authorized_input", "prior_synthesis"].includes(String(item.role)),
+    adopted_inherited_evidence_refs: formalEvidence
+      .filter((entry) => entry.inherited && entry.adopted)
+      .map((entry) => entry.path)
+      .sort(),
+    cited_inherited_evidence_refs: formalEvidence
+      .filter((entry) => entry.inherited && entry.adopted && citedRefs.has(entry.path))
+      .map((entry) => entry.path)
+      .sort(),
+    formal_current_evidence_refs: formalEvidence
+      .filter((entry) => !entry.inherited)
+      .map((entry) => entry.path)
+      .sort(),
+    adopted_current_evidence_refs: formalEvidence
+      .filter((entry) => !entry.inherited && entry.adopted)
+      .map((entry) => entry.path)
+      .sort(),
+    cited_current_evidence_refs: formalEvidence
+      .filter((entry) => !entry.inherited && entry.adopted && citedRefs.has(entry.path))
+      .map((entry) => entry.path)
+      .sort(),
+    revalidation_gaps: usedItems.filter(
+      (item) =>
+        item.revalidation_status === "required" ||
+        item.freshness_disposition !== "current" ||
+        item.applicability_disposition !== "applicable",
     ),
-    revalidation_required_items: items.filter((item) => item.revalidation_status === "required"),
   };
 }
 
@@ -251,6 +550,18 @@ function validateHandoffArtifact(
       : undefined;
   const plan =
     typeof document.target_plan_ref === "string" ? byPath.get(document.target_plan_ref) : undefined;
+  const confirmation =
+    typeof document.target_scope_confirmation_ref === "string"
+      ? exactRecords.get(document.target_scope_confirmation_ref)
+      : undefined;
+  const confirmationBound =
+    confirmation?.schema_version === "startup_opportunity.decision.v1" &&
+    confirmation.run_id === document.run_id &&
+    ["scope_assumption_confirmed", "scope_changed_by_user"].includes(
+      String(confirmation.decision_type),
+    ) &&
+    confirmation.scope_revision === document.target_scope_revision &&
+    canonicalContentHash(confirmation) === document.target_scope_confirmation_hash;
   const planBound =
     document.target_formation_stage === "plan_bound" &&
     plan?.schemaVersion === "startup_opportunity.research_plan.v1" &&
@@ -291,6 +602,7 @@ function validateHandoffArtifact(
       "startup_opportunity.scope_frame.assessment.current",
     ].includes(scope.schemaVersion) ||
     document.target_scope_hash !== targetHash(scope) ||
+    !confirmationBound ||
     (!planBound && !prePlanAssessmentFormation)
   ) {
     errors.push(
@@ -350,6 +662,15 @@ function validateHandoffArtifact(
     }
     const [targetRef, targetRecord] = targetRecords[0] ?? [];
     const binding = isRecord(targetRecord?.handoff_binding) ? targetRecord.handoff_binding : {};
+    let sourceRecordedAt: unknown;
+    try {
+      const sourceRecord = JSON.parse(
+        Buffer.from(String(item.source_payload_base64), "base64").toString("utf8"),
+      ) as Record<string, unknown>;
+      sourceRecordedAt = sourceRecord.recorded_at;
+    } catch {
+      sourceRecordedAt = undefined;
+    }
     if (
       targetRecord?.run_id !== document.run_id ||
       targetRef !== item.target_evidence_ref ||
@@ -359,6 +680,7 @@ function validateHandoffArtifact(
       binding.source_evidence_path !== item.source_artifact_path ||
       binding.source_record_hash !== item.source_record_hash ||
       binding.source_raw_content_hash !== item.source_raw_content_hash ||
+      binding.source_recorded_at !== sourceRecordedAt ||
       binding.freshness_disposition !== item.freshness_disposition ||
       binding.applicability_disposition !== item.applicability_disposition ||
       binding.revalidation_status !== item.revalidation_status
@@ -396,12 +718,32 @@ function validateConsumerBindings(
     const handoff = byPath.get(handoffPath);
     const item =
       itemId === undefined || handoff === undefined ? undefined : exactItem(handoff, itemId);
+    const consumption = [...exactRecords.values()].find(
+      (decision) =>
+        decision.schema_version === "startup_opportunity.decision.v1" &&
+        decision.decision_type === "research_handoff_consumed" &&
+        decision.run_id === consumer.document.run_id &&
+        decision.research_handoff_ref === handoffPath &&
+        decision.research_handoff_hash === binding.content_hash &&
+        strings(decision.research_handoff_item_refs).includes(String(binding.ref)) &&
+        strings(decision.research_handoff_target_artifact_refs).includes(
+          String(item?.target_artifact_ref),
+        ),
+    );
+    const direct = item?.target_artifact_ref === consumer.path;
+    const inherited = inheritedHandoffRefs(consumer, byPath).includes(String(binding.ref));
+    const planApplicable =
+      handoff?.document.target_formation_stage !== "plan_bound" ||
+      consumer.document.research_plan_ref === handoff.document.target_plan_ref;
     if (
       handoff?.schemaVersion !== "startup_opportunity.research_handoff.current" ||
       handoff.document.run_id !== consumer.document.run_id ||
       binding.content_hash !== targetHash(handoff) ||
       item === undefined ||
       item.role === "reusable_evidence" ||
+      consumption === undefined ||
+      (!direct && !inherited) ||
+      !planApplicable ||
       (handoff.document.target_formation_stage === "pre_plan_assessment_formation" &&
         (consumer.schemaVersion !==
           "startup_opportunity.concept_hypothesis.assessment_intake.current" ||
@@ -412,19 +754,19 @@ function validateConsumerBindings(
         issue(
           "research_handoff.consumer_binding_mismatch",
           `${consumer.path}#/research_handoff_input_hashes/${index}`,
-          "Prior formation input must bind an exact same-Run handoff item and handoff Artifact hash; reusable Evidence uses target Evidence refs instead",
-          { ref: binding.ref },
+          "Prior formation input must bind an exact consumed handoff item scoped to this direct target or an explicitly bound same-Run parent under the applicable Plan",
+          { ref: binding.ref, direct, inherited, planApplicable },
         ),
       );
     }
   }
-  const taintRequiredRefs = [...exactRecords.values()]
+  const targetedRefs = [...exactRecords.values()]
     .filter(
       (decision) =>
         decision.schema_version === "startup_opportunity.decision.v1" &&
         decision.decision_type === "research_handoff_consumed" &&
         decision.run_id === consumer.document.run_id &&
-        !strings(decision.research_handoff_taint_exempt_artifact_refs).includes(consumer.path),
+        strings(decision.research_handoff_target_artifact_refs).includes(consumer.path),
     )
     .flatMap((decision) => strings(decision.research_handoff_item_refs))
     .filter((ref) => {
@@ -435,25 +777,165 @@ function validateConsumerBindings(
       return (
         item !== undefined &&
         item.role !== "reusable_evidence" &&
-        (handoff?.document.target_formation_stage !== "pre_plan_assessment_formation" ||
-          (consumer.schemaVersion ===
-            "startup_opportunity.concept_hypothesis.assessment_intake.current" &&
-            consumer.path === "concept-hypothesis.json"))
+        item.target_artifact_ref === consumer.path
       );
     })
     .filter((ref, index, values) => values.indexOf(ref) === index)
     .sort();
-  const missingTaintRefs = taintRequiredRefs.filter((ref) => !refs.includes(ref));
-  if (missingTaintRefs.length > 0) {
+  const inheritedRefs = inheritedHandoffRefs(consumer, byPath);
+  const missingTargetedRefs = [...new Set([...targetedRefs, ...inheritedRefs])].filter(
+    (ref) => !refs.includes(ref),
+  );
+  if (missingTargetedRefs.length > 0) {
     errors.push(
       issue(
-        "research_handoff.consumer_provenance_not_propagated",
+        "research_handoff.target_provenance_not_bound",
         `${consumer.path}#/research_handoff_input_hashes`,
-        "subject formation after a controlled handoff read must retain every non-Evidence handoff item as hypothesis-only provenance",
-        { missingTaintRefs },
+        "the exact Artifact targeted by a controlled handoff read must retain that item as hypothesis-only provenance",
+        { missingTargetedRefs },
       ),
     );
   }
+}
+
+function restrictedEvidenceUseIssues(
+  documents: readonly ResearchHandoffDocument[],
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+): readonly ValidationIssue[] {
+  const errors: ValidationIssue[] = [];
+  const restrictedEvidence = new Set<string>();
+  for (const evidence of documents.filter((entry) =>
+    [
+      "startup_opportunity.evidence.assessment.current",
+      "startup_opportunity.evidence.discovery_candidate.current",
+      "startup_opportunity.evidence.discovery_evaluation.current",
+    ].includes(entry.schemaVersion),
+  )) {
+    const mechanical = isRecord(evidence.document.mechanical_binding)
+      ? evidence.document.mechanical_binding
+      : {};
+    const substrate = exactRecords.get(String(mechanical.substrate_record_ref));
+    const binding = isRecord(substrate?.handoff_binding) ? substrate.handoff_binding : null;
+    if (binding === null) continue;
+    const handoffRef = String(binding.handoff_ref ?? "");
+    const handoff = documents.find(
+      (entry) =>
+        entry.path === handoffRef &&
+        entry.schemaVersion === "startup_opportunity.research_handoff.current",
+    );
+    const handoffItemRef = `${handoffRef}#${String(binding.handoff_item_id ?? "")}`;
+    const handoffHash = handoff === undefined ? null : targetHash(handoff);
+    const consumption = [...exactRecords.values()].find(
+      (decision) =>
+        decision.schema_version === "startup_opportunity.decision.v1" &&
+        decision.decision_type === "research_handoff_consumed" &&
+        decision.run_id === evidence.document.run_id &&
+        decision.research_handoff_ref === handoffRef &&
+        decision.research_handoff_hash === handoffHash &&
+        strings(decision.research_handoff_item_refs).includes(handoffItemRef),
+    );
+    const lineage = isRecord(evidence.document.lineage) ? evidence.document.lineage : {};
+    const planApplicable =
+      handoff?.document.target_formation_stage !== "plan_bound" ||
+      lineage.research_plan_ref === handoff.document.target_plan_ref;
+    const exactMechanicalBinding =
+      substrate !== undefined &&
+      substrate.run_id === evidence.document.run_id &&
+      substrate.evidence_id === evidence.document.evidence_id &&
+      substrate.unit_id === evidence.document.unit_id &&
+      substrate.source_hash === mechanical.source_hash &&
+      substrate.content_hash === mechanical.content_hash &&
+      substrate.raw_content_ref === mechanical.raw_content_ref &&
+      substrate.operation_key === mechanical.operation_key &&
+      substrate.recorded_at === mechanical.recorded_at;
+    if (
+      handoff === undefined ||
+      consumption === undefined ||
+      !planApplicable ||
+      !exactMechanicalBinding
+    ) {
+      errors.push(
+        issue(
+          "research_handoff.evidence_adoption_unauthorized",
+          evidence.path,
+          "Formal Evidence derived from imported substrate requires an exact controlled read and the handoff's target Plan lineage",
+          {
+            handoffItemRef,
+            controlledRead: consumption !== undefined,
+            planApplicable,
+            exactMechanicalBinding,
+          },
+        ),
+      );
+      continue;
+    }
+    const restricted =
+      binding.revalidation_status === "required" ||
+      binding.freshness_disposition !== "current" ||
+      binding.applicability_disposition !== "applicable";
+    if (!restricted) continue;
+    restrictedEvidence.add(evidence.path);
+    if (typeof evidence.document.evidence_id === "string") {
+      restrictedEvidence.add(evidence.document.evidence_id);
+    }
+    if (
+      evidence.document.evidence_role !== "context" ||
+      evidence.document.evidence_lifecycle_status === "active"
+    ) {
+      errors.push(
+        issue(
+          "research_handoff.evidence_disposition_overstated",
+          evidence.path,
+          "historical, unknown, partially applicable, or revalidation-required imported substrate may remain context but cannot become active supporting or opposing Evidence",
+          { substrateRef: mechanical.substrate_record_ref },
+        ),
+      );
+    }
+  }
+  const decisiveKeys = new Set([
+    "decisive_evidence_refs",
+    "decisive_opposing_refs",
+    "decisive_supporting_refs",
+  ]);
+  const visit = (value: unknown, path: string): void => {
+    if (Array.isArray(value)) {
+      for (const [index, item] of value.entries()) visit(item, `${path}/${index}`);
+      return;
+    }
+    if (!isRecord(value)) return;
+    for (const [key, child] of Object.entries(value)) {
+      if (decisiveKeys.has(key) && strings(child).some((ref) => restrictedEvidence.has(ref))) {
+        errors.push(
+          issue(
+            "research_handoff.evidence_revalidation_required",
+            `${path}/${key}`,
+            "restricted inherited substrate cannot enter decisive support or opposition until new current-Run Evidence revalidates it",
+          ),
+        );
+      }
+      visit(child, `${path}/${key}`);
+    }
+  };
+  for (const document of documents) {
+    visit(document.document, document.path);
+    if (
+      [
+        "startup_opportunity.claim.assessment.current",
+        "startup_opportunity.claim.discovery_candidate.current",
+        "startup_opportunity.claim.discovery_evaluation.current",
+      ].includes(document.schemaVersion) &&
+      strings(document.document.evidence_refs).some((ref) => restrictedEvidence.has(ref))
+    ) {
+      errors.push(
+        issue(
+          "research_handoff.evidence_revalidation_required",
+          `${document.path}#/evidence_refs`,
+          "restricted inherited substrate cannot support or oppose a formal Claim until new current-Run Evidence revalidates it",
+        ),
+      );
+    }
+  }
+  return errors;
 }
 
 export function validateResearchHandoffContract(
@@ -500,5 +982,6 @@ export function validateResearchHandoffContract(
   )) {
     validateConsumerBindings(consumer, byPath, exactRecords, errors);
   }
+  errors.push(...restrictedEvidenceUseIssues(documents, exactRecords));
   return errors;
 }

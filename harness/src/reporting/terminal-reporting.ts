@@ -303,15 +303,20 @@ function renderValidationPlan(source: Record<string, unknown>, zh: boolean): str
 
 function renderResearchProvenance(source: Record<string, unknown>, zh: boolean): string {
   const provenance = requiredRecord(source.research_provenance, "research_provenance");
-  const inherited = records(provenance.inherited_evidence);
-  const current = strings(provenance.current_run_evidence_refs);
-  const prior = records(provenance.prior_synthesis_items);
-  const revalidation = records(provenance.revalidation_required_items);
+  const used = records(provenance.used_handoff_items);
+  const imported = strings(provenance.imported_substrate_refs);
+  const inherited = strings(provenance.adopted_inherited_evidence_refs);
+  const inheritedCited = strings(provenance.cited_inherited_evidence_refs);
+  const current = strings(provenance.adopted_current_evidence_refs);
+  const currentCited = strings(provenance.cited_current_evidence_refs);
+  const revalidation = records(provenance.revalidation_gaps);
   const lines = [
-    `- ${zh ? "继承证据" : "Inherited evidence"}: ${inherited.length}`,
-    `- ${zh ? "本次研究证据" : "Current-Run evidence"}: ${current.length}`,
-    `- ${zh ? "历史综合背景" : "Prior synthesis context"}: ${prior.length}`,
-    `- ${zh ? "需重新验证" : "Revalidation required"}: ${revalidation.length}`,
+    `- ${zh ? "可用 handoff / 捕获条目" : "Available handoffs / captured items"}: ${String(provenance.available_handoff_count)} / ${String(provenance.captured_item_count)}`,
+    `- ${zh ? "已消费 / 实际用于形成" : "Consumed / used for formation"}: ${strings(provenance.consumed_item_refs).length} / ${used.length}`,
+    `- ${zh ? "导入的原始材料" : "Imported substrate inventory"}: ${imported.length}`,
+    `- ${zh ? "采用 / 报告引用的继承证据" : "Adopted / cited inherited Evidence"}: ${inherited.length} / ${inheritedCited.length}`,
+    `- ${zh ? "采用 / 报告引用的本次证据" : "Adopted / cited current-Run Evidence"}: ${current.length} / ${currentCited.length}`,
+    `- ${zh ? "适用性或重验缺口" : "Applicability or revalidation gaps"}: ${revalidation.length}`,
   ];
   if (revalidation.length > 0) {
     lines.push(

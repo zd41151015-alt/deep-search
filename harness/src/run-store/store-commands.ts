@@ -344,6 +344,7 @@ export async function runCreateResearchHandoff(
       const item = inputRecord(value, `research handoff item ${index} must be an object`);
       const targetUnitId = item.target_unit_id;
       const targetResearchGoal = item.target_research_goal;
+      const targetArtifactRef = item.target_artifact_ref;
       return {
         itemId: requiredString(item, "item_id"),
         sourceArtifactPath: requiredString(item, "source_artifact_path"),
@@ -368,6 +369,9 @@ export async function runCreateResearchHandoff(
         ...(targetResearchGoal === undefined
           ? {}
           : { targetResearchGoal: requiredString(item, "target_research_goal") }),
+        ...(targetArtifactRef === undefined
+          ? {}
+          : { targetArtifactRef: requiredString(item, "target_artifact_ref") }),
       };
     });
     const capturedAt = request.captured_at;

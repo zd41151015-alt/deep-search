@@ -12,6 +12,9 @@
     "target_formation_stage",
     "target_scope_ref",
     "target_scope_hash",
+    "target_scope_revision",
+    "target_scope_confirmation_ref",
+    "target_scope_confirmation_hash",
     "target_plan_ref",
     "target_plan_hash",
     "user_authorization_attestation",
@@ -39,6 +42,17 @@
       "$ref": "./definitions.schema.json#/$defs/artifactRef"
     },
     "target_scope_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "target_scope_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "target_scope_confirmation_ref": {
+      "type": "string",
+      "pattern": "^decisions\\.jsonl#scope_confirmation_[A-Za-z0-9._-]+$"
+    },
+    "target_scope_confirmation_hash": {
       "$ref": "./definitions.schema.json#/$defs/sha256"
     },
     "target_plan_ref": {
@@ -169,6 +183,7 @@
         "revalidation_status",
         "target_unit_id",
         "target_research_goal",
+        "target_artifact_ref",
         "target_evidence_ref",
         "target_evidence_record_hash"
       ],
@@ -236,6 +251,16 @@
         "target_research_goal": {
           "$ref": "#/$defs/nullableString"
         },
+        "target_artifact_ref": {
+          "anyOf": [
+            {
+              "$ref": "./definitions.schema.json#/$defs/artifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "target_evidence_ref": {
           "$ref": "#/$defs/nullableString"
         },
@@ -272,6 +297,9 @@
                 "type": "string",
                 "minLength": 1
               },
+              "target_artifact_ref": {
+                "type": "null"
+              },
               "target_evidence_ref": {
                 "type": "string",
                 "pattern": "^evidence/manifest\\.jsonl#ev_[a-f0-9]{64}$"
@@ -291,6 +319,9 @@
               },
               "target_research_goal": {
                 "type": "null"
+              },
+              "target_artifact_ref": {
+                "$ref": "./definitions.schema.json#/$defs/artifactRef"
               },
               "target_evidence_ref": {
                 "type": "null"

@@ -695,6 +695,7 @@ export class ArtifactStore {
     runRoot: string,
     input: PublishArtifactInput,
     referenceContext: DocumentBundleReferenceContext = {},
+    continueCommittedHandoff = false,
   ): Promise<PublishArtifactResult> {
     if (input.envelope.artifact_type !== "startup_opportunity.research_handoff.current") {
       throw new StoreError(
@@ -702,7 +703,13 @@ export class ArtifactStore {
         "the dedicated research handoff publisher accepts only research handoff Artifacts",
       );
     }
-    return this.publishPreparedLocked(runRoot, input, false, referenceContext);
+    return this.publishPreparedLocked(
+      runRoot,
+      input,
+      false,
+      referenceContext,
+      continueCommittedHandoff,
+    );
   }
 
   private async publishPreparedLocked(
@@ -710,13 +717,16 @@ export class ArtifactStore {
     input: PublishArtifactInput,
     referencesPrevalidated = false,
     referenceContext: DocumentBundleReferenceContext = {},
+    scopeMutationPrevalidated = false,
   ): Promise<PublishArtifactResult> {
     validateRunId(input.runId);
     await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
-    await assertScopeAllowsStorageMutationLocked(this.runsRoot, runRoot, input.runId, {
-      kind: "artifact",
-      artifactTypes: [input.envelope.artifact_type],
-    });
+    if (!scopeMutationPrevalidated) {
+      await assertScopeAllowsStorageMutationLocked(this.runsRoot, runRoot, input.runId, {
+        kind: "artifact",
+        artifactTypes: [input.envelope.artifact_type],
+      });
+    }
     this.validateEnvelopeBoundary(input.runId, input.envelope);
     const computedOperationKey = expectedArtifactOperationKey(input.envelope);
     if (input.operationKey !== undefined && input.operationKey !== computedOperationKey) {

@@ -75,7 +75,9 @@
         "freshness_disposition",
         "applicability_disposition",
         "revalidation_status",
-        "target_evidence_ref"
+        "target_evidence_ref",
+        "target_artifact_ref",
+        "source_recorded_at"
       ],
       "properties": {
         "handoff_ref": {
@@ -121,6 +123,26 @@
               "type": "null"
             }
           ]
+        },
+        "target_artifact_ref": {
+          "anyOf": [
+            {
+              "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_recorded_at": {
+          "anyOf": [
+            {
+              "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
@@ -128,37 +150,68 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "handoff_refs",
-        "inherited_evidence",
-        "current_run_evidence_refs",
-        "prior_synthesis_items",
-        "revalidation_required_items"
+        "available_handoff_count",
+        "captured_item_count",
+        "causal_handoff_refs",
+        "consumed_item_refs",
+        "used_handoff_items",
+        "imported_substrate_refs",
+        "formal_inherited_evidence_refs",
+        "adopted_inherited_evidence_refs",
+        "cited_inherited_evidence_refs",
+        "formal_current_evidence_refs",
+        "adopted_current_evidence_refs",
+        "cited_current_evidence_refs",
+        "revalidation_gaps"
       ],
       "properties": {
-        "handoff_refs": {
+        "available_handoff_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "captured_item_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "causal_handoff_refs": {
           "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
         },
-        "inherited_evidence": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/handoffDisclosureItem"
-          }
-        },
-        "current_run_evidence_refs": {
+        "consumed_item_refs": {
           "type": "array",
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "pattern": "^evidence/manifest\\.jsonl#ev_[a-f0-9]{64}$"
+            "pattern": "^artifacts/research-handoffs/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\.json#[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
           }
         },
-        "prior_synthesis_items": {
+        "used_handoff_items": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/handoffDisclosureItem"
           }
         },
-        "revalidation_required_items": {
+        "imported_substrate_refs": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "formal_inherited_evidence_refs": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "adopted_inherited_evidence_refs": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "cited_inherited_evidence_refs": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "formal_current_evidence_refs": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "adopted_current_evidence_refs": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "cited_current_evidence_refs": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "revalidation_gaps": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/handoffDisclosureItem"

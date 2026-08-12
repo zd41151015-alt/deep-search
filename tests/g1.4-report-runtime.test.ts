@@ -1302,6 +1302,7 @@ test("terminal report derives consistent current and inherited research provenan
         freshnessDisposition: "historical",
         applicabilityDisposition: "partially_applicable",
         revalidationStatus: "required",
+        targetArtifactRef: "concept-hypothesis.json",
       },
       {
         itemId: "inherited_source_material",
@@ -1317,7 +1318,32 @@ test("terminal report derives consistent current and inherited research provenan
       },
     ],
   });
+  const consumed = await state.store.readResearchHandoff({
+    runId: G14_RUN_ID,
+    handoffRef: handoff.handoffRef,
+    itemIds: ["inherited_source_material"],
+    consumedAt: "2026-07-25T19:00:25Z",
+  });
+  assert.equal(consumed.status, "appended");
   await markRunTerminal(state);
+
+  const replay = await state.store.readResearchHandoff({
+    runId: G14_RUN_ID,
+    handoffRef: handoff.handoffRef,
+    itemIds: ["inherited_source_material"],
+    consumedAt: "2026-07-25T19:00:25Z",
+  });
+  assert.equal(replay.status, "idempotent_replay");
+  assert.equal(replay.consumptionDecisionHash, consumed.consumptionDecisionHash);
+  await assert.rejects(
+    state.store.readResearchHandoff({
+      runId: G14_RUN_ID,
+      handoffRef: handoff.handoffRef,
+      itemIds: ["prior_opportunity_context"],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "research_handoff.consumption_closed",
+  );
 
   const drifted = terminalReportEnvelope(state);
   drifted.document.research_provenance = {
@@ -1346,18 +1372,28 @@ test("terminal report derives consistent current and inherited research provenan
     await readFile(path.join(state.runRoot, "report.json"), "utf8"),
   ) as Record<string, unknown>;
   const provenance = reportJson.research_provenance as Record<string, unknown>;
-  assert.deepEqual(provenance.handoff_refs, [handoff.handoffRef]);
-  assert.equal((provenance.inherited_evidence as unknown[]).length, 1);
-  assert.equal((provenance.prior_synthesis_items as unknown[]).length, 0);
-  assert.equal((provenance.revalidation_required_items as Record<string, unknown>[]).length, 1);
-  assert.ok((provenance.current_run_evidence_refs as string[]).length > 0);
+  assert.equal(provenance.available_handoff_count, 1);
+  assert.equal(provenance.captured_item_count, 2);
+  assert.deepEqual(provenance.causal_handoff_refs, []);
+  assert.deepEqual(provenance.consumed_item_refs, [
+    `${handoff.handoffRef}#inherited_source_material`,
+  ]);
+  assert.deepEqual(provenance.used_handoff_items, []);
+  assert.equal((provenance.imported_substrate_refs as string[]).length, 1);
+  assert.deepEqual(provenance.formal_inherited_evidence_refs, []);
+  assert.deepEqual(provenance.adopted_inherited_evidence_refs, []);
+  assert.deepEqual(provenance.cited_inherited_evidence_refs, []);
+  assert.ok((provenance.formal_current_evidence_refs as string[]).length > 0);
+  assert.ok((provenance.adopted_current_evidence_refs as string[]).length > 0);
+  assert.ok((provenance.cited_current_evidence_refs as string[]).length > 0);
+  assert.deepEqual(provenance.revalidation_gaps, []);
   const formalReport = JSON.parse(
     await readFile(
       path.join(state.runRoot, "artifacts/reporting/terminal-report-source.r1.json"),
       "utf8",
     ),
   ) as Record<string, unknown>;
-  assert.ok((formalReport.input_refs as string[]).includes(handoff.handoffRef));
+  assert.ok(!(formalReport.input_refs as string[]).includes(handoff.handoffRef));
   assert.deepEqual(reportJson.current_decision_subject_ids, ["concept_assess_001"]);
   const reportView = JSON.parse(
     await readFile(path.join(state.runRoot, "artifacts/reporting/report-markdown.r1.json"), "utf8"),
@@ -1367,9 +1403,11 @@ test("terminal report derives consistent current and inherited research provenan
   for (const filename of ["decision-brief.md", "report.md"]) {
     const markdown = await readFile(path.join(state.runRoot, filename), "utf8");
     assert.match(markdown, /研究来源沿袭/);
-    assert.match(markdown, /继承证据: 1/);
-    assert.match(markdown, /需重新验证: 1/);
-    assert.match(markdown, /opportunity-space-map\.r1\.json/);
+    assert.match(markdown, /可用 handoff \/ 捕获条目: 1 \/ 2/);
+    assert.match(markdown, /已消费 \/ 实际用于形成: 1 \/ 0/);
+    assert.match(markdown, /导入的原始材料: 1/);
+    assert.match(markdown, /采用 \/ 报告引用的继承证据: 0 \/ 0/);
+    assert.doesNotMatch(markdown, /opportunity-space-map\.r1\.json/);
   }
 });
 

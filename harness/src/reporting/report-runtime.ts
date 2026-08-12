@@ -1317,31 +1317,34 @@ export class ReportRuntime {
       ];
     });
     const sourceDocument = structuredClone(source.document);
-    const handoffs = context.bundle.documents.flatMap((entry) => {
+    const provenanceDocuments = context.bundle.documents.flatMap((entry) => {
       if (
         entry.document.schema_version !== "startup_opportunity.artifact_envelope.current" ||
-        entry.document.artifact_type !== "startup_opportunity.research_handoff.current" ||
         !isRecord(entry.document.document)
       ) {
         return [];
       }
-      return [{ path: entry.path, document: entry.document.document }];
+      return [
+        {
+          path: entry.path,
+          schemaVersion: String(entry.document.artifact_type),
+          document: entry.document.document,
+          envelope: entry.document,
+        },
+      ];
     });
     const evidenceRecords = await this.evidence.listRecords(source.run_id);
+    const exactRecords = new Map(context.referenceContext.exactJsonlRecords ?? []);
+    for (const record of evidenceRecords) {
+      exactRecords.set(
+        `evidence/manifest.jsonl#${record.evidence_id}`,
+        record as Record<string, unknown>,
+      );
+    }
     const researchProvenance = deriveResearchProvenance(
       source.run_id,
-      handoffs.map((handoff) => ({
-        path: handoff.path,
-        schemaVersion: "startup_opportunity.research_handoff.current",
-        document: handoff.document,
-        envelope: null,
-      })),
-      new Map(
-        evidenceRecords.map((record) => [
-          `evidence/manifest.jsonl#${record.evidence_id}`,
-          record as Record<string, unknown>,
-        ]),
-      ),
+      provenanceDocuments,
+      exactRecords,
     );
     if (
       source.artifact_type === "startup_opportunity.terminal_report_source.v1" &&
@@ -1485,7 +1488,7 @@ export class ReportRuntime {
       input_refs: [
         ...new Set([
           ...source.input_refs.filter((ref) => !ref.startsWith("artifacts/research-audits/")),
-          ...handoffs.map((handoff) => handoff.path),
+          ...strings(researchProvenance.causal_handoff_refs),
           ...projection.commercial_research_audit_refs,
           ...synthesisBindings.flatMap((binding) =>
             typeof binding.ref === "string" ? [binding.ref] : [],

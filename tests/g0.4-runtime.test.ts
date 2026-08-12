@@ -23,12 +23,15 @@ import {
   planningRunStateHash,
   RunStore,
   StoreError,
+  sha256Bytes,
   transformPlan,
 } from "../harness/src/index.js";
 import {
+  createDiscoveryMapsFixture,
   fixtureEnvelope,
   G21_CORE_REFS,
   G21_MAP_REFS,
+  G21_OPPORTUNITY_REF,
   G21_SOLUTION_REF,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import {
@@ -263,6 +266,7 @@ function context(
     readonly parentRef: string | null;
     readonly stage: "current_plan" | "candidate_revision";
     readonly createdAt: string;
+    readonly targetPlanRef?: string;
   },
 ): { readonly path: string; readonly document: Record<string, unknown> } {
   return {
@@ -293,7 +297,9 @@ function context(
         }),
       },
       target_plan_binding: {
-        plan_ref: options.stage === "candidate_revision" ? "plans/research-plan.r2.json" : PLAN_REF,
+        plan_ref:
+          options.targetPlanRef ??
+          (options.stage === "candidate_revision" ? "plans/research-plan.r2.json" : PLAN_REF),
         plan_schema_version: "startup_opportunity.research_plan.v1",
         plan_id: plan.plan_id,
         plan_revision: plan.revision,
@@ -2321,6 +2327,410 @@ test("candidate pre-kill skips only an exact exclusive pending unit and replays 
   );
 });
 
+test("plan-bound handoff exact replay survives Plan r2 while new consumption stays bound to r1", async (contextTest) => {
+  const runId = "runtime-handoff-plan-applicability";
+  const sourceRunId = "runtime-handoff-plan-source";
+  const setup = await setupPersistedRun(contextTest, runId, "pre-kill-exact");
+  const sourceBundle = await createDiscoveryMapsFixture("general", sourceRunId);
+  await createConfirmedRun(setup.store, {
+    runId: sourceRunId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-24T11:00:00Z",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic prior handoff user"],
+      decisionGoal: "supply exact authorized prior inputs for Plan applicability testing",
+      researchLanguage: "en-US",
+    },
+  });
+  await setup.store.publishArtifactBundle({
+    runId: sourceRunId,
+    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
+  });
+  await setup.store.publishArtifactBundle({
+    runId: sourceRunId,
+    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
+  });
+  const sourceItems = await Promise.all(
+    [
+      {
+        itemId: "prior_opportunity",
+        sourceArtifactPath: G21_OPPORTUNITY_REF,
+        targetArtifactRef: "artifacts/discovery/opportunities/opportunity_a.r1.json",
+      },
+      {
+        itemId: "prior_solution",
+        sourceArtifactPath: G21_SOLUTION_REF,
+        targetArtifactRef: "artifacts/discovery/opportunities/opportunity_b.r1.json",
+      },
+    ].map(async (item) => {
+      const bytes = await readFile(path.join(setup.runsRoot, sourceRunId, item.sourceArtifactPath));
+      const envelope = JSON.parse(bytes.toString("utf8")) as FormalArtifactEnvelope;
+      return {
+        ...item,
+        role: "prior_synthesis" as const,
+        expectedSourceByteHash: sha256Bytes(bytes),
+        expectedSourceContentHash: envelope.content_hash,
+        freshnessDisposition: "historical" as const,
+        applicabilityDisposition: "partially_applicable" as const,
+        revalidationStatus: "required" as const,
+      };
+    }),
+  );
+  const handoff = await setup.store.createResearchHandoff({
+    runId,
+    handoffId: "handoff_plan_r1",
+    sourceRunId,
+    userAuthorizationAttestation:
+      "The fixture caller attests explicit authorization for these exact prior items.",
+    targetPurpose: "Use prior synthesis only as an r1-bound hypothesis input.",
+    capturedAt: "2026-07-24T12:07:30Z",
+    items: sourceItems,
+  });
+  const consumed = await setup.store.readResearchHandoff({
+    runId,
+    handoffRef: handoff.handoffRef,
+    itemIds: ["prior_opportunity"],
+    consumedAt: "2026-07-24T12:07:40Z",
+  });
+
+  const { candidateBundle } = candidateFor(setup, PRE_KILL_APPLY_AT, PRE_KILL_CONTEXT_AT);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  assert.equal(
+    (await runtime.apply(preKillApplyInput(setup, candidateBundle))).currentPlanRef,
+    "plans/research-plan.r2.json",
+  );
+  const replay = await setup.store.readResearchHandoff({
+    runId,
+    handoffRef: handoff.handoffRef,
+    itemIds: ["prior_opportunity"],
+    consumedAt: "2026-07-24T12:07:40Z",
+  });
+  assert.equal(replay.status, "idempotent_replay");
+  assert.equal(replay.consumptionDecisionHash, consumed.consumptionDecisionHash);
+  await assert.rejects(
+    setup.store.readResearchHandoff({
+      runId,
+      handoffRef: handoff.handoffRef,
+      itemIds: ["prior_solution"],
+      consumedAt: "2026-07-24T12:09:10Z",
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "research_handoff.applicability_expired",
+  );
+
+  const reopenedStore = new RunStore(setup.runsRoot, await createArtifactValidator(repositoryRoot));
+  assert.equal(
+    (await reopenedStore.load(runId)).manifest.current_plan_ref,
+    "plans/research-plan.r2.json",
+  );
+  assert.equal(
+    (
+      await reopenedStore.readResearchHandoff({
+        runId,
+        handoffRef: handoff.handoffRef,
+        itemIds: ["prior_opportunity"],
+        consumedAt: "2026-07-24T12:07:40Z",
+      })
+    ).status,
+    "idempotent_replay",
+  );
+});
+
+test("Scope revision handoff replay survives Gap and Plan reconciliation", async (contextTest) => {
+  const runId = "runtime-handoff-scope-reconciliation";
+  const sourceRunId = "runtime-handoff-scope-source";
+  const setup = await setupPersistedRun(contextTest, runId, "retry");
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const decisionContext = {
+    schema_version: "startup_opportunity.decision_context.v1",
+    run_id: runId,
+    decision_to_make: "choose_opportunity",
+    decision_question: "SYNTHETIC Scope reconciliation fixture question.",
+    decision_options: ["SYNTHETIC continue only after explicit reconciliation."],
+    venture_goal: "strategic_exploration",
+    decision_horizon: "SYNTHETIC no validated decision horizon.",
+    founder_advantages: [],
+    non_negotiable_constraints: ["SYNTHETIC external validation remains out of scope."],
+    team_capability_refs: [],
+    risk_preferences: ["SYNTHETIC preserve exact Scope and Plan ownership."],
+    initial_belief: "SYNTHETIC no opportunity has been established.",
+    favored_hypothesis: null,
+    assumed_truths: [],
+    final_decision_owner: "user",
+    assumptions: ["SYNTHETIC fixture content is not Evidence."],
+    open_questions: ["SYNTHETIC demand remains unknown."],
+  } satisfies Record<string, unknown>;
+  const scopeFrame = {
+    schema_version: "startup_opportunity.scope_frame.discovery.current",
+    run_id: runId,
+    mode: "opportunity_discovery",
+    decision_context_ref: DECISION_CONTEXT_REF,
+    direction: "SYNTHETIC bounded opportunity discovery fixture.",
+    discovery_profile: "general",
+    research_axes: ["user_language", "jtbd_workflow"],
+    market: "Synthetic",
+    language: "en-US",
+    target_users: ["synthetic user"],
+    excluded_users: [],
+    platform: "SYNTHETIC delivery platform remains unknown.",
+    market_motion: "consumer",
+    acquisition_motion: ["direct"],
+    buyer_models: ["self_payer"],
+    payment_modes: ["subscription"],
+    native_app_required: false,
+    delivery_form_preferences: [],
+    business_model_preferences: [],
+    team_capability_constraints: [],
+    risk_preferences: ["SYNTHETIC avoid unsupported conclusions."],
+    ai_scope: "optional",
+    assumptions: ["SYNTHETIC Scope is not market Evidence."],
+    open_questions: ["SYNTHETIC all demand questions remain open."],
+  } satisfies Record<string, unknown>;
+  await setup.store.publishArtifactBundle({
+    runId,
+    envelopes: [
+      formalEnvelope(runId, DECISION_CONTEXT_REF, decisionContext),
+      formalEnvelope(runId, SCOPE_FRAME_REF, scopeFrame, [DECISION_CONTEXT_REF]),
+    ],
+  });
+  const sourceBundle = await createDiscoveryMapsFixture("general", sourceRunId);
+  await createConfirmedRun(setup.store, {
+    runId: sourceRunId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-24T11:00:00Z",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic scope reconciliation source"],
+      decisionGoal: "provide one exact historical handoff input",
+      researchLanguage: "en-US",
+    },
+  });
+  await setup.store.publishArtifactBundle({
+    runId: sourceRunId,
+    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
+  });
+  await setup.store.publishArtifactBundle({
+    runId: sourceRunId,
+    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
+  });
+  const sourcePath = G21_OPPORTUNITY_REF;
+  const sourceBytes = await readFile(path.join(setup.runsRoot, sourceRunId, sourcePath));
+  const sourceEnvelope = JSON.parse(sourceBytes.toString("utf8")) as FormalArtifactEnvelope;
+  const handoff = await setup.store.createResearchHandoff({
+    runId,
+    handoffId: "handoff_scope_r1",
+    sourceRunId,
+    userAuthorizationAttestation:
+      "The fixture caller attests explicit authorization for this exact prior input.",
+    targetPurpose: "Use the exact r1 input only as a hypothesis input.",
+    capturedAt: "2026-07-28T12:10:00Z",
+    items: [
+      {
+        itemId: "prior_opportunity",
+        sourceArtifactPath: sourcePath,
+        role: "prior_synthesis",
+        expectedSourceByteHash: sha256Bytes(sourceBytes),
+        expectedSourceContentHash: sourceEnvelope.content_hash,
+        freshnessDisposition: "historical",
+        applicabilityDisposition: "partially_applicable",
+        revalidationStatus: "required",
+        targetArtifactRef: "artifacts/discovery/opportunities/opportunity_scope.r1.json",
+      },
+    ],
+  });
+  const consumed = await setup.store.readResearchHandoff({
+    runId,
+    handoffRef: handoff.handoffRef,
+    itemIds: ["prior_opportunity"],
+    consumedAt: "2026-07-28T12:10:10Z",
+  });
+
+  const proposal = await setup.store.proposeScope({
+    runId,
+    expectedScopeRevision: 1,
+    proposedAt: "2026-07-28T12:10:20Z",
+    reason: "The user changed the exact target population before further research.",
+    scopeProposal: {
+      geography: "Synthetic revised geography",
+      customerModel: "b2c",
+      targetUsers: ["synthetic revised user"],
+      decisionGoal: "reconcile the confirmed revised Scope into a new Plan",
+      researchLanguage: "en-US",
+    },
+  });
+  const confirmation = await setup.store.confirmScope({
+    runId,
+    expectedScopeProposalRevision: proposal.scopeRevision,
+    expectedScopeProposalRef: proposal.scopeProposalRef,
+    expectedScopeProposalHash: proposal.scopeProposalHash,
+    confirmedAt: "2026-07-28T12:10:30Z",
+    userConfirmationAttestation:
+      "The fixture caller attests exact user confirmation of the revised Scope.",
+  });
+  let current = await setup.store.load(runId);
+  assert.equal(current.manifest.status, "needs_clarification");
+  assert.equal(current.manifest.status_before_clarification, "researching");
+  const reopenedBeforeReconciliation = new RunStore(
+    setup.runsRoot,
+    await createArtifactValidator(repositoryRoot),
+  );
+  current = await reopenedBeforeReconciliation.load(runId);
+  assert.equal(current.manifest.status, "needs_clarification");
+
+  const event = triggerEvent(runId, "scope_reconciliation_event");
+  event.timestamp = "2026-07-28T12:10:40Z";
+  event.reason = "The confirmed Scope revision invalidated the current Plan.";
+  await reopenedBeforeReconciliation.appendEvent(runId, event);
+  const eventRef = `events.jsonl#${String(event.event_id)}`;
+  const gapPath = "adaptations/gap-snapshots/gap-scope-reconciliation.r1.json";
+  const gap = gapSnapshot(runId, "scope_invalidated", PLAN_REF);
+  gap.snapshot_id = "gap_scope_reconciliation";
+  gap.snapshot_cycle_key = eventGapCycleKey(setup.plan, eventRef, String(event.event_id));
+  gap.based_on_plan_ref = PLAN_REF;
+  gap.revision = 1;
+  gap.parent_snapshot_ref = null;
+  gap.created_at = "2026-07-28T12:10:50Z";
+  gap.trigger_kind = "resume_reconciliation";
+  gap.trigger_event_ref = eventRef;
+  gap.wave_id = null;
+  const gapEntry = (gap.gaps as Record<string, unknown>[])[0];
+  assert.ok(gapEntry);
+  gapEntry.gap_id = "gap_scope_reconciliation";
+  gapEntry.subject_ref = PLAN_REF;
+  gapEntry.basis_refs = ["manifest.json", PLAN_REF, confirmation.scopeConfirmationRef];
+  gapEntry.recommended_unit_types = ["buyer_language"];
+  await reopenedBeforeReconciliation.publishArtifact({
+    runId,
+    envelope: formalEnvelope(runId, gapPath, gap, [
+      PLAN_REF,
+      eventRef,
+      confirmation.scopeConfirmationRef,
+    ]),
+  });
+
+  const decisionPath = "adaptations/decisions/adapt-scope-reconciliation.json";
+  const decision = supersedeDecision(runId);
+  decision.adaptation_id = "adapt_scope_reconciliation";
+  decision.based_on_plan_ref = PLAN_REF;
+  decision.target_unit_ref = `${PLAN_REF}#buyer_active`;
+  const replacementUnit = decision.target_unit as Record<string, unknown>;
+  replacementUnit.unit_id = "buyer_scope_reconciled";
+  replacementUnit.output_path =
+    "artifacts/discovery/enrichment/branches/buyer_scope_reconciled.attempt-2.json";
+  replacementUnit.supersedes_unit_ref = `${PLAN_REF}#buyer_active`;
+  decision.trigger_gap_refs = [`${gapPath}#gap_scope_reconciliation`];
+  decision.created_at = "2026-07-28T12:11:00Z";
+  await reopenedBeforeReconciliation.publishArtifact({
+    runId,
+    envelope: formalEnvelope(runId, decisionPath, decision, [PLAN_REF, gapPath]),
+  });
+
+  current = await reopenedBeforeReconciliation.load(runId);
+  const currentManifest = current.manifest as unknown as Record<string, unknown>;
+  const transformed = transformPlan(
+    PLAN_REF,
+    setup.plan,
+    currentManifest as never,
+    [
+      { path: DECISION_REF, document: setup.decision },
+      { path: decisionPath, document: decision },
+    ],
+    "2026-07-28T12:11:10Z",
+  );
+  assert.ok(transformed.plan);
+  const candidateContext = context(currentManifest, transformed.plan, {
+    path: "plans/planning-context.r2.json",
+    revision: 2,
+    parentRef: CONTEXT_REF,
+    stage: "candidate_revision",
+    createdAt: "2026-07-28T12:11:20Z",
+    targetPlanRef: transformed.planPath,
+  });
+  const assembled = await reopenedBeforeReconciliation.buildValidationContext(runId, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [
+      {
+        path: CONTEXT_REF,
+        document: JSON.parse(
+          await readFile(path.join(setup.runRoot, CONTEXT_REF), "utf8"),
+        ) as FormalArtifactEnvelope,
+      },
+      {
+        path: decisionPath,
+        document: formalEnvelope(runId, decisionPath, decision, [PLAN_REF, gapPath]),
+      },
+    ],
+    exact_records: [],
+  });
+  const adaptationBundle: DocumentBundle = {
+    ...assembled.bundle,
+    exact_records: [],
+  };
+  const candidateBundle: DocumentBundle = {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [
+      ...assembled.bundle.documents,
+      { path: transformed.planPath, document: transformed.plan },
+      candidateContext,
+    ],
+    exact_records: [],
+  };
+  const reconciled = await runtime
+    .apply({
+      runId,
+      adaptationBundle,
+      adaptationRefs: [DECISION_REF, decisionPath],
+      candidateBundle,
+      createdAt: "2026-07-28T12:11:10Z",
+      checkpointCreatedAt: "2026-07-28T12:11:30Z",
+      nextStep: "Resume research only under the reconciled Plan.",
+      beliefSummary: {
+        current_belief: "The revised Scope requires an explicit new Plan.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "What current-Run Evidence supports the revised Scope?",
+      },
+    })
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+      }
+      throw error;
+    });
+  assert.equal(reconciled.currentPlanRef, "plans/research-plan.r2.json");
+  const reopened = new RunStore(setup.runsRoot, await createArtifactValidator(repositoryRoot));
+  const final = await reopened.load(runId);
+  assert.equal(final.manifest.status, "researching");
+  assert.equal(final.manifest.status_before_clarification, null);
+  assert.equal(final.manifest.scope_revision, 2);
+  assert.equal(
+    (
+      await reopened.readResearchHandoff({
+        runId,
+        handoffRef: handoff.handoffRef,
+        itemIds: ["prior_opportunity"],
+        consumedAt: "2026-07-28T12:10:10Z",
+      })
+    ).status,
+    "idempotent_replay",
+  );
+  assert.equal(
+    (
+      await reopened.readResearchHandoff({
+        runId,
+        handoffRef: handoff.handoffRef,
+        itemIds: ["prior_opportunity"],
+        consumedAt: "2026-07-28T12:10:10Z",
+      })
+    ).consumptionDecisionHash,
+    consumed.consumptionDecisionHash,
+  );
+});
+
 test("candidate-bound historical Plan views always revalidate G2.1 maps and G2.2 candidates", async (t) => {
   for (const scenario of [
     {
@@ -3033,7 +3443,73 @@ test("terminal adaptation requires and materializes a validated main-agent decis
   );
   assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
 
-  const terminal = await prepareTerminalReporting(setup);
+  let terminal = await prepareTerminalReporting(setup);
+  const sourceRunId = "runtime-terminal-handoff-source";
+  const sourceBundle = await createDiscoveryMapsFixture("general", sourceRunId);
+  await createConfirmedRun(setup.store, {
+    runId: sourceRunId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-24T11:00:00Z",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic terminal handoff source user"],
+      decisionGoal: "supply exact prior items for terminal consumption closure testing",
+      researchLanguage: "en-US",
+    },
+  });
+  await setup.store.publishArtifactBundle({
+    runId: sourceRunId,
+    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
+  });
+  await setup.store.publishArtifactBundle({
+    runId: sourceRunId,
+    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
+  });
+  const terminalHandoffItems = await Promise.all(
+    [
+      {
+        itemId: "consumed_before_terminal",
+        sourceArtifactPath: G21_OPPORTUNITY_REF,
+        targetArtifactRef: "artifacts/discovery/opportunities/terminal_a.r1.json",
+      },
+      {
+        itemId: "unread_before_terminal",
+        sourceArtifactPath: G21_SOLUTION_REF,
+        targetArtifactRef: "artifacts/discovery/opportunities/terminal_b.r1.json",
+      },
+    ].map(async (item) => {
+      const bytes = await readFile(path.join(setup.runsRoot, sourceRunId, item.sourceArtifactPath));
+      const sourceEnvelope = JSON.parse(bytes.toString("utf8")) as FormalArtifactEnvelope;
+      return {
+        ...item,
+        role: "prior_synthesis" as const,
+        expectedSourceByteHash: sha256Bytes(bytes),
+        expectedSourceContentHash: sourceEnvelope.content_hash,
+        freshnessDisposition: "historical" as const,
+        applicabilityDisposition: "partially_applicable" as const,
+        revalidationStatus: "required" as const,
+      };
+    }),
+  );
+  const terminalHandoff = await setup.store.createResearchHandoff({
+    runId,
+    handoffId: "handoff_terminal_consumption",
+    sourceRunId,
+    userAuthorizationAttestation:
+      "The fixture caller attests explicit authorization for these exact prior items.",
+    targetPurpose:
+      "Verify terminal consumption closure without using prior synthesis in a subject.",
+    capturedAt: "2026-07-24T12:07:40Z",
+    items: terminalHandoffItems,
+  });
+  const consumedBeforeTerminal = await setup.store.readResearchHandoff({
+    runId,
+    handoffRef: terminalHandoff.handoffRef,
+    itemIds: ["consumed_before_terminal"],
+    consumedAt: "2026-07-24T12:07:50Z",
+  });
+  terminal = await prepareTerminalReporting(setup);
   const input = {
     ...baseInput,
     adaptationBundle: terminal.adaptationBundle,
@@ -3056,6 +3532,27 @@ test("terminal adaptation requires and materializes a validated main-agent decis
   const replay = await runtime.apply(input);
   assert.equal(replay.status, "idempotent_replay");
   assert.equal(replay.terminalReport?.status, "idempotent_replay");
+  const handoffReplay = await setup.store.readResearchHandoff({
+    runId,
+    handoffRef: terminalHandoff.handoffRef,
+    itemIds: ["consumed_before_terminal"],
+    consumedAt: "2026-07-24T12:07:50Z",
+  });
+  assert.equal(handoffReplay.status, "idempotent_replay");
+  assert.equal(
+    handoffReplay.consumptionDecisionHash,
+    consumedBeforeTerminal.consumptionDecisionHash,
+  );
+  await assert.rejects(
+    setup.store.readResearchHandoff({
+      runId,
+      handoffRef: terminalHandoff.handoffRef,
+      itemIds: ["unread_before_terminal"],
+      consumedAt: "2026-07-24T12:10:00Z",
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "research_handoff.consumption_closed",
+  );
 });
 
 test("decision subject authority survives Plan r2 transition, terminal reporting, checkpoint, and reopen", async (contextTest) => {

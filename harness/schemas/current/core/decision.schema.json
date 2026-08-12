@@ -103,7 +103,7 @@
         "pattern": "^artifacts/research-handoffs/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\.json#[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
       }
     },
-    "research_handoff_taint_exempt_artifact_refs": {
+    "research_handoff_target_artifact_refs": {
       "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
     },
     "terminal_snapshot_ref": {
@@ -265,7 +265,7 @@
           "research_handoff_ref",
           "research_handoff_hash",
           "research_handoff_item_refs",
-          "research_handoff_taint_exempt_artifact_refs"
+          "research_handoff_target_artifact_refs"
         ],
         "properties": {
           "actor": {

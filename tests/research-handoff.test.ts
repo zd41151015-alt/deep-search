@@ -18,7 +18,11 @@ import {
   StoreError,
   sha256Bytes,
 } from "../harness/src/index.js";
-import { researchHandoffSourceRoleAllowed } from "../harness/src/validators/research-handoff-validator.js";
+import {
+  deriveResearchProvenance,
+  researchHandoffSourceRoleAllowed,
+  validateResearchHandoffContract,
+} from "../harness/src/validators/research-handoff-validator.js";
 import { createG14ContractBundle } from "./fixtures/g1.4/assessment-report-fixture.js";
 import {
   createDiscoveryMapsFixture,
@@ -30,7 +34,14 @@ import {
   G21_SEED_REF,
   refreshDiscoveryMapsBundle,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
-import { G22_DEMAND_R2, G22_FAN_IN } from "./fixtures/g2.2/discovery-candidate-fixture.js";
+import {
+  G22_BASELINE_R1,
+  G22_DEMAND_R1,
+  G22_DEMAND_R2,
+  G22_FAN_IN,
+  G22_GENERATION_CLAIM,
+  G22_GENERATION_EVIDENCE,
+} from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
   createDiscoveryRuntimeFixture,
   runtimeEnvelope,
@@ -39,7 +50,6 @@ import {
   createDiscoverySynthesisFixture,
   G23_OPPORTUNITY_A,
   G23_OPPORTUNITY_B,
-  synthesisEnvelope,
 } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
 import { createConfirmedRun } from "./helpers/current-run.js";
 import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
@@ -141,6 +151,38 @@ function refreshCandidateFormationBindings(envelopes: readonly FormalArtifactEnv
   for (const envelope of envelopes) refresh(envelope);
 }
 
+function bindTypedCandidateDescendants(
+  envelopes: readonly FormalArtifactEnvelope[],
+  binding: Readonly<{ ref: string; content_hash: string }>,
+): void {
+  const bound = new Set(
+    envelopes
+      .filter((envelope) => {
+        const formation = envelope.document.formation as Record<string, unknown>;
+        return (
+          Array.isArray(formation.research_handoff_input_hashes) &&
+          formation.research_handoff_input_hashes.length > 0
+        );
+      })
+      .map((envelope) => envelope.artifact_path),
+  );
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const envelope of envelopes) {
+      if (bound.has(envelope.artifact_path)) continue;
+      const formation = envelope.document.formation as Record<string, unknown>;
+      const inputRefs = (formation.synthesis_input_hashes as Record<string, unknown>[]).map(
+        (entry) => String(entry.ref),
+      );
+      if (!inputRefs.some((ref) => bound.has(ref))) continue;
+      bindHandoff(envelope, binding);
+      bound.add(envelope.artifact_path);
+      changed = true;
+    }
+  }
+}
+
 async function recordDiscoverySubstrate(state: HandoffState, suffix: string) {
   const generation = (
     await state.evidence.record({
@@ -171,8 +213,15 @@ async function recordDiscoverySubstrate(state: HandoffState, suffix: string) {
   return { generation, evaluation };
 }
 
-async function createReadHandoff(state: HandoffState): Promise<HandoffBindingState> {
-  const created = await state.store.createResearchHandoff(state.input);
+async function createReadHandoff(
+  state: HandoffState,
+  targetArtifactRef = G21_OPPORTUNITY_REF,
+): Promise<HandoffBindingState> {
+  const input = structuredClone(state.input);
+  const prior = input.items.find((item) => item.itemId === "prior_opportunity_map");
+  assert.ok(prior);
+  (prior as { targetArtifactRef?: string }).targetArtifactRef = targetArtifactRef;
+  const created = await state.store.createResearchHandoff(input);
   await state.store.readResearchHandoff({
     runId: state.targetRunId,
     handoffRef: created.handoffRef,
@@ -193,6 +242,31 @@ async function createReadHandoff(state: HandoffState): Promise<HandoffBindingSta
   };
 }
 
+async function reviseScope(state: HandoffState, suffix: string): Promise<void> {
+  const proposal = await state.store.proposeScope({
+    runId: state.targetRunId,
+    expectedScopeRevision: 1,
+    proposedAt: "2026-08-12T17:24:00Z",
+    reason: `SYNTHETIC ${suffix} Scope revision for handoff recovery testing.`,
+    scopeProposal: {
+      geography: `Synthetic revised ${suffix}`,
+      customerModel: "b2c",
+      targetUsers: ["synthetic revised handoff user"],
+      decisionGoal: "reconcile a confirmed Scope revision without replaying prior research",
+      researchLanguage: "en-US",
+    },
+  });
+  await state.store.confirmScope({
+    runId: state.targetRunId,
+    expectedScopeProposalRevision: proposal.scopeRevision,
+    expectedScopeProposalRef: proposal.scopeProposalRef,
+    expectedScopeProposalHash: proposal.scopeProposalHash,
+    confirmedAt: "2026-08-12T17:25:00Z",
+    userConfirmationAttestation:
+      "The fixture caller attests that the user confirmed this exact revised Scope.",
+  });
+}
+
 async function assertPublicationRejected(
   store: RunStore,
   runId: string,
@@ -201,7 +275,10 @@ async function assertPublicationRejected(
 ): Promise<void> {
   await assert.rejects(
     envelopes.length === 1
-      ? store.publishArtifact({ runId, envelope: envelopes[0] as FormalArtifactEnvelope })
+      ? store.publishArtifact({
+          runId,
+          envelope: envelopes[0] as FormalArtifactEnvelope,
+        })
       : store.publishArtifactBundle({ runId, envelopes }),
     (error: unknown) =>
       error instanceof StoreError &&
@@ -401,6 +478,7 @@ async function prepareState(
         freshnessDisposition: "historical",
         applicabilityDisposition: "partially_applicable",
         revalidationStatus: "required",
+        targetArtifactRef: G21_OPPORTUNITY_REF,
       },
       {
         itemId: "reusable_source_material",
@@ -459,11 +537,6 @@ test("formal handoff copies exact reusable Evidence and controlled reads freeze 
     consumedAt: "2026-08-12T17:11:00Z",
   });
   assert.equal(evidenceOnlyRead.status, "appended");
-  await state.store.publishArtifactBundle({
-    runId: state.targetRunId,
-    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(state.targetBundle, ref)),
-  });
-
   const priorRead = await state.store.readResearchHandoff({
     runId: state.targetRunId,
     handoffRef: created.handoffRef,
@@ -487,7 +560,7 @@ test("formal handoff copies exact reusable Evidence and controlled reads freeze 
   assert.equal(replay.consumptionDecisionHash, priorRead.consumptionDecisionHash);
 });
 
-test("reading prior synthesis forces exact handoff provenance on later formation", async (context) => {
+test("reading prior synthesis binds only its target and explicit same-Run descendants", async (context) => {
   const state = await prepareState(context, "taint");
   const created = await state.store.createResearchHandoff(state.input);
   await state.store.readResearchHandoff({
@@ -496,27 +569,11 @@ test("reading prior synthesis forces exact handoff provenance on later formation
     itemIds: ["prior_opportunity_map"],
     consumedAt: "2026-08-12T17:12:00Z",
   });
-  await assert.rejects(
-    state.store.publishArtifactBundle({
-      runId: state.targetRunId,
-      envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(state.targetBundle, ref)),
-    }),
-    (error: unknown) =>
-      error instanceof StoreError &&
-      Array.isArray(error.details.referenceErrors) &&
-      error.details.referenceErrors.some(
-        (entry) =>
-          typeof entry === "object" &&
-          entry !== null &&
-          (entry as Record<string, unknown>).code ===
-            "research_handoff.consumer_provenance_not_propagated",
-      ),
-  );
   const binding = {
     ref: `${created.handoffRef}#prior_opportunity_map`,
     content_hash: created.handoffContentHash,
   };
-  for (const ref of G21_MAP_REFS) {
+  for (const ref of [G21_OPPORTUNITY_REF, "artifacts/discovery/solution-space-map.r1.json"]) {
     const document = fixtureDocument(state.targetBundle, ref);
     document.research_handoff_input_hashes = [binding];
     const provenance = document.content_provenance as Record<string, unknown>;
@@ -525,6 +582,10 @@ test("reading prior synthesis forces exact handoff provenance on later formation
     envelope.input_refs = [...new Set([...(envelope.input_refs as string[]), binding.ref])].sort();
   }
   refreshDiscoveryMapsBundle(state.targetBundle);
+  assert.equal(
+    fixtureDocument(state.targetBundle, G21_SEED_REF).research_handoff_input_hashes,
+    undefined,
+  );
   const published = await state.store
     .publishArtifactBundle({
       runId: state.targetRunId,
@@ -537,8 +598,365 @@ test("reading prior synthesis forces exact handoff provenance on later formation
   assert.equal(published.status, "published");
 });
 
+test("consumer binding requires an exact controlled read for that item and target", async (context) => {
+  const state = await prepareState(context, "controlled-read-authority");
+  const created = await state.store.createResearchHandoff(state.input);
+  const boundBundle = structuredClone(state.targetBundle);
+  const opportunity = fixtureEnvelope(boundBundle, G21_OPPORTUNITY_REF);
+  const priorBinding = {
+    ref: `${created.handoffRef}#prior_opportunity_map`,
+    content_hash: created.handoffContentHash,
+  };
+  bindHandoff(opportunity, priorBinding);
+  refreshDiscoveryMapsBundle(boundBundle);
+  const maps = G21_MAP_REFS.map((ref) => fixtureEnvelope(boundBundle, ref));
+  await assertPublicationRejected(
+    state.store,
+    state.targetRunId,
+    maps,
+    "research_handoff.consumer_binding_mismatch",
+  );
+
+  await state.store.readResearchHandoff({
+    runId: state.targetRunId,
+    handoffRef: created.handoffRef,
+    itemIds: ["reusable_source_material"],
+    consumedAt: "2026-08-12T17:22:00Z",
+  });
+  await assertPublicationRejected(
+    state.store,
+    state.targetRunId,
+    maps,
+    "research_handoff.consumer_binding_mismatch",
+  );
+});
+
+test("an unrelated envelope input cannot impersonate typed handoff ancestry", async (context) => {
+  const state = await prepareState(context, "typed-ancestry", {
+    publishTargetCore: false,
+  });
+  const substrate = await recordDiscoverySubstrate(state, "typed-ancestry");
+  const bundle = await createDiscoveryRuntimeFixture(
+    state.targetRunId,
+    substrate,
+    [],
+    "general",
+    true,
+  );
+  await state.store.publishArtifactBundle({
+    runId: state.targetRunId,
+    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.targetRunId,
+    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  });
+  const binding = await createReadHandoff(state, G22_BASELINE_R1);
+  const initial = initialCandidateEnvelopes(bundle).map(clonedEnvelope);
+  const target = initial.find((entry) => entry.artifact_path === G22_BASELINE_R1);
+  const sibling = initial.find((entry) => entry.artifact_path === G22_DEMAND_R1);
+  assert.ok(target);
+  assert.ok(sibling);
+  bindHandoff(target, binding.priorBinding);
+  bindHandoff(sibling, binding.priorBinding);
+  (sibling as unknown as { input_refs: string[] }).input_refs = [
+    ...new Set([...sibling.input_refs, target.artifact_path]),
+  ].sort();
+  refreshCandidateFormationBindings(initial);
+
+  await assertPublicationRejected(
+    state.store,
+    state.targetRunId,
+    initial,
+    "research_handoff.consumer_binding_mismatch",
+  );
+});
+
+test("formal Evidence adoption requires the exact controlled read, item, and target Plan", async (context) => {
+  for (const variant of ["unread", "other-item", "wrong-plan"] as const) {
+    await context.test(variant, async (subcontext) => {
+      const state = await prepareState(subcontext, `evidence-authority-${variant}`, {
+        publishTargetCore: false,
+      });
+      const current = (
+        await state.evidence.record({
+          runId: state.targetRunId,
+          unitId: "unit_counterfactual",
+          source: {
+            kind: "user_provided",
+            canonical_uri: `urn:startup-opportunity:user-provided:handoff:evidence-authority:${variant}`,
+          },
+          researchGoal: "SYNTHETIC comparison substrate; not Evidence.",
+          rawContent: "SYNTHETIC comparison bytes; not Evidence.",
+          recordedAt: "2026-08-12T17:21:00Z",
+        })
+      ).record;
+      const bootstrapBundle = await createDiscoveryRuntimeFixture(
+        state.targetRunId,
+        { generation: current, evaluation: current },
+        [],
+        "general",
+        true,
+      );
+      await state.store.publishArtifactBundle({
+        runId: state.targetRunId,
+        envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bootstrapBundle, ref)),
+      });
+      const input = structuredClone(state.input);
+      const prior = input.items.find((item) => item.itemId === "prior_opportunity_map");
+      assert.ok(prior);
+      (prior as { targetArtifactRef?: string }).targetArtifactRef = G23_OPPORTUNITY_A;
+      const created = await state.store.createResearchHandoff(input);
+      if (variant === "other-item") {
+        await state.store.readResearchHandoff({
+          runId: state.targetRunId,
+          handoffRef: created.handoffRef,
+          itemIds: ["prior_opportunity_map"],
+          consumedAt: "2026-08-12T17:22:00Z",
+        });
+      } else if (variant === "wrong-plan") {
+        await state.store.readResearchHandoff({
+          runId: state.targetRunId,
+          handoffRef: created.handoffRef,
+          itemIds: ["reusable_source_material"],
+          consumedAt: "2026-08-12T17:22:00Z",
+        });
+      }
+      const importedRef = created.importedEvidenceRefs[0];
+      assert.ok(importedRef);
+      const imported = await state.evidence.readExactRecord(state.targetRunId, importedRef);
+      const bundle = await createDiscoveryRuntimeFixture(
+        state.targetRunId,
+        { generation: imported, evaluation: current },
+        [],
+        "general",
+        true,
+      );
+      await state.store.publishArtifactBundle({
+        runId: state.targetRunId,
+        envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+      });
+      await state.store.publishArtifactBundle({
+        runId: state.targetRunId,
+        envelopes: initialCandidateEnvelopes(bundle),
+      });
+      await state.store.publishArtifactBundle({
+        runId: state.targetRunId,
+        envelopes: discoveryWaveEnvelopes(
+          bundle,
+          state.targetRunId,
+          "startup_opportunity.research_task.discovery_candidate.current",
+          1,
+          `evidence_authority_${variant}`,
+        ),
+      });
+      const inheritedEvidencePath = G22_GENERATION_EVIDENCE.replace(
+        /ev_[a-f0-9]{64}/,
+        imported.evidence_id,
+      );
+      const formalEvidence = clonedEnvelope(runtimeEnvelope(bundle, inheritedEvidencePath));
+      if (variant === "wrong-plan") {
+        const lineage = formalEvidence.document.lineage as Record<string, unknown>;
+        lineage.research_plan_ref = "plans/research-plan.r2.json";
+        (formalEvidence as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+          formalEvidence.document,
+        );
+      }
+      await assertPublicationRejected(
+        state.store,
+        state.targetRunId,
+        [formalEvidence],
+        "research_handoff.evidence_adoption_unauthorized",
+      );
+      const reopened = await state.store.load(state.targetRunId);
+      assert.equal(reopened.recovered, false);
+    });
+  }
+});
+
+test("restricted inherited substrate remains context and cannot support a formal Claim", async (context) => {
+  const state = await prepareState(context, "restricted-evidence-adoption", {
+    publishTargetCore: false,
+  });
+  const current = (
+    await state.evidence.record({
+      runId: state.targetRunId,
+      unitId: "unit_counterfactual",
+      source: {
+        kind: "user_provided",
+        canonical_uri: "urn:startup-opportunity:user-provided:handoff:restricted-evidence:current",
+      },
+      researchGoal: "SYNTHETIC current-Run comparison substrate; not Evidence.",
+      rawContent: "SYNTHETIC current-Run comparison bytes; not Evidence.",
+      recordedAt: "2026-08-12T17:21:00Z",
+    })
+  ).record;
+  const bootstrapBundle = await createDiscoveryRuntimeFixture(
+    state.targetRunId,
+    { generation: current, evaluation: current },
+    [],
+    "general",
+    true,
+  );
+  await state.store.publishArtifactBundle({
+    runId: state.targetRunId,
+    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bootstrapBundle, ref)),
+  });
+  const input = structuredClone(state.input);
+  const reusable = input.items.find((item) => item.itemId === "reusable_source_material");
+  assert.ok(reusable);
+  const created = await state.store.createResearchHandoff({
+    ...input,
+    items: [
+      {
+        ...reusable,
+        freshnessDisposition: "historical",
+        applicabilityDisposition: "partially_applicable",
+        revalidationStatus: "required",
+        targetUnitId: "unit_seed_independent_demand",
+      },
+    ],
+  });
+  await state.store.readResearchHandoff({
+    runId: state.targetRunId,
+    handoffRef: created.handoffRef,
+    itemIds: ["reusable_source_material"],
+    consumedAt: "2026-08-12T17:22:00Z",
+  });
+  const importedRef = created.importedEvidenceRefs[0];
+  assert.ok(importedRef);
+  const imported = await state.evidence.readExactRecord(state.targetRunId, importedRef);
+  const bundle = await createDiscoveryRuntimeFixture(
+    state.targetRunId,
+    { generation: imported, evaluation: current },
+    [],
+    "general",
+    true,
+  );
+  await state.store.publishArtifactBundle({
+    runId: state.targetRunId,
+    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.targetRunId,
+    envelopes: initialCandidateEnvelopes(bundle),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.targetRunId,
+    envelopes: discoveryWaveEnvelopes(
+      bundle,
+      state.targetRunId,
+      "startup_opportunity.research_task.discovery_candidate.current",
+      1,
+      "restricted_evidence_runtime",
+    ),
+  });
+
+  const inheritedEvidencePath = G22_GENERATION_EVIDENCE.replace(
+    /ev_[a-f0-9]{64}/,
+    imported.evidence_id,
+  );
+  const overstated = clonedEnvelope(runtimeEnvelope(bundle, inheritedEvidencePath));
+  await assertPublicationRejected(
+    state.store,
+    state.targetRunId,
+    [overstated],
+    "research_handoff.evidence_disposition_overstated",
+  );
+
+  const contextual = clonedEnvelope(overstated);
+  contextual.document.evidence_role = "context";
+  contextual.document.evidence_lifecycle_status = "unverified";
+  (contextual as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+    contextual.document,
+  );
+  assert.equal(
+    (
+      await state.store.publishArtifact({
+        runId: state.targetRunId,
+        envelope: contextual,
+      })
+    ).status,
+    "published",
+  );
+
+  const claim = clonedEnvelope(runtimeEnvelope(bundle, G22_GENERATION_CLAIM));
+  (claim.document.evidence_refs as string[]).splice(0, 1, inheritedEvidencePath);
+  (claim as unknown as { input_refs: string[] }).input_refs = [
+    ...new Set([...claim.input_refs, inheritedEvidencePath]),
+  ].sort();
+  (claim as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+    claim.document,
+  );
+  await assertPublicationRejected(
+    state.store,
+    state.targetRunId,
+    [claim],
+    "research_handoff.evidence_revalidation_required",
+  );
+
+  const assembled = await state.store.buildValidationContext(
+    state.targetRunId,
+    {
+      schema_version: "startup_opportunity.document_bundle.current",
+      documents: [
+        {
+          path: contextual.artifact_path,
+          document: contextual as unknown as Record<string, unknown>,
+        },
+      ],
+      exact_records: [],
+    },
+    { includeAllFormalArtifacts: true },
+  );
+  const handoffDocuments = assembled.bundle.documents.map((entry) => {
+    const value = entry.document as Record<string, unknown>;
+    const envelope =
+      value.schema_version === "startup_opportunity.artifact_envelope.current" ? value : null;
+    return {
+      path: entry.path,
+      schemaVersion: String(envelope?.artifact_type ?? value.schema_version),
+      document: (envelope?.document ?? value) as Record<string, unknown>,
+      envelope,
+    };
+  });
+  const exactRecords = new Map(assembled.referenceContext.exactJsonlRecords);
+  const decisiveById = {
+    path: "synthetic/decisive-by-id.json",
+    schemaVersion: "synthetic.decisive_reference.v1",
+    document: {
+      decisive_evidence_refs: [imported.evidence_id],
+    },
+    envelope: null,
+  };
+  const decisiveIssues = validateResearchHandoffContract(
+    [...handoffDocuments, decisiveById],
+    exactRecords,
+  );
+  assert.ok(
+    decisiveIssues.some(
+      (entry) =>
+        entry.code === "research_handoff.evidence_revalidation_required" &&
+        entry.instancePath.endsWith("/decisive_evidence_refs"),
+    ),
+    JSON.stringify(
+      {
+        evidence: handoffDocuments
+          .filter((entry) => entry.path === contextual.artifact_path)
+          .map((entry) => entry.document),
+        exactRecordRefs: [...exactRecords.keys()],
+        issues: decisiveIssues,
+      },
+      null,
+      2,
+    ),
+  );
+});
+
 test("Candidate formation closes over the exact prior handoff item and rejects Evidence substitution", async (context) => {
-  const state = await prepareState(context, "candidate-consumer", { publishTargetCore: false });
+  const state = await prepareState(context, "candidate-consumer", {
+    publishTargetCore: false,
+  });
   const substrate = await recordDiscoverySubstrate(state, "candidate-consumer");
   const bundle = await createDiscoveryRuntimeFixture(
     state.targetRunId,
@@ -555,21 +973,24 @@ test("Candidate formation closes over the exact prior handoff item and rejects E
     runId: state.targetRunId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
   });
-  const binding = await createReadHandoff(state);
+  const binding = await createReadHandoff(state, G22_DEMAND_R1);
   const initial = initialCandidateEnvelopes(bundle).map(clonedEnvelope);
-  for (const envelope of initial) bindHandoff(envelope, binding.priorBinding);
+  const targetedCandidate = initial.find((envelope) => envelope.artifact_path === G22_DEMAND_R1);
+  assert.ok(targetedCandidate);
+  bindHandoff(targetedCandidate, binding.priorBinding);
+  bindTypedCandidateDescendants(initial, binding.priorBinding);
   refreshCandidateFormationBindings(initial);
 
   const wrongHash = initial.map(clonedEnvelope);
-  const wrongHashFormation = wrongHash[0]?.document.formation as Record<string, unknown>;
+  const wrongHashCandidate = wrongHash.find((envelope) => envelope.artifact_path === G22_DEMAND_R1);
+  assert.ok(wrongHashCandidate);
+  const wrongHashFormation = wrongHashCandidate.document.formation as Record<string, unknown>;
   wrongHashFormation.research_handoff_input_hashes = [
     { ...binding.priorBinding, content_hash: `sha256:${"0".repeat(64)}` },
   ];
-  if (wrongHash[0] !== undefined) {
-    (wrongHash[0] as unknown as { content_hash: string }).content_hash = canonicalContentHash(
-      wrongHash[0].document,
-    );
-  }
+  (wrongHashCandidate as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+    wrongHashCandidate.document,
+  );
   await assertPublicationRejected(
     state.store,
     state.targetRunId,
@@ -578,10 +999,12 @@ test("Candidate formation closes over the exact prior handoff item and rejects E
   );
 
   const missingInputRef = initial.map(clonedEnvelope);
-  if (missingInputRef[0] !== undefined) {
-    (missingInputRef[0] as unknown as { input_refs: string[] }).input_refs =
-      missingInputRef[0].input_refs.filter((ref) => ref !== binding.priorBinding.ref);
-  }
+  const missingInputCandidate = missingInputRef.find(
+    (envelope) => envelope.artifact_path === G22_DEMAND_R1,
+  );
+  assert.ok(missingInputCandidate);
+  (missingInputCandidate as unknown as { input_refs: string[] }).input_refs =
+    missingInputCandidate.input_refs.filter((ref) => ref !== binding.priorBinding.ref);
   await assertPublicationRejected(
     state.store,
     state.targetRunId,
@@ -590,9 +1013,11 @@ test("Candidate formation closes over the exact prior handoff item and rejects E
   );
 
   const evidenceSubstitution = initial.map(clonedEnvelope);
-  if (evidenceSubstitution[0] !== undefined) {
-    bindHandoff(evidenceSubstitution[0], binding.reusableBinding);
-  }
+  const substitutedCandidate = evidenceSubstitution.find(
+    (envelope) => envelope.artifact_path === G22_DEMAND_R1,
+  );
+  assert.ok(substitutedCandidate);
+  bindHandoff(substitutedCandidate, binding.reusableBinding);
   await assertPublicationRejected(
     state.store,
     state.targetRunId,
@@ -610,10 +1035,26 @@ test("Candidate formation closes over the exact prior handoff item and rejects E
       throw error;
     });
   assert.equal(published.status, "published");
+  for (const descendantRef of [
+    G22_BASELINE_R1,
+    "artifacts/discovery/candidates/candidate_solution.r1.json",
+  ]) {
+    const descendant = initial.find((envelope) => envelope.artifact_path === descendantRef);
+    assert.ok(descendant);
+    const formation = descendant.document.formation as Record<string, unknown>;
+    assert.ok(
+      (formation.synthesis_input_hashes as Record<string, unknown>[]).some(
+        (entry) => entry.ref === G22_DEMAND_R1 || entry.ref === G22_BASELINE_R1,
+      ),
+    );
+    assert.deepEqual(formation.research_handoff_input_hashes, [binding.priorBinding]);
+  }
 });
 
 test("Opportunity Thesis publication preserves exact handoff formation closure", async (context) => {
-  const state = await prepareState(context, "opportunity-consumer", { publishTargetCore: false });
+  const state = await prepareState(context, "opportunity-consumer", {
+    publishTargetCore: false,
+  });
   const substrate = await recordDiscoverySubstrate(state, "opportunity-consumer");
   const bundle = await createDiscoverySynthesisFixture(state.targetRunId, substrate);
   await state.store.publishArtifactBundle({
@@ -625,13 +1066,13 @@ test("Opportunity Thesis publication preserves exact handoff formation closure",
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
   });
   await publishDiscoveryThroughFanIn(state, bundle);
-  const binding = await createReadHandoff(state);
+  const binding = await createReadHandoff(state, G23_OPPORTUNITY_A);
   const synthesis = synthesisEnvelopes(bundle).map(clonedEnvelope);
-  for (const envelope of synthesis) {
-    if (envelope.artifact_type === "startup_opportunity.opportunity_thesis.v1") {
-      bindHandoff(envelope, binding.priorBinding);
-    }
-  }
+  const targetedOpportunity = synthesis.find(
+    (envelope) => envelope.artifact_path === G23_OPPORTUNITY_A,
+  );
+  assert.ok(targetedOpportunity);
+  bindHandoff(targetedOpportunity, binding.priorBinding);
 
   const wrongHash = synthesis.map(clonedEnvelope);
   const wrongOpportunity = wrongHash.find(
@@ -688,10 +1129,82 @@ test("Opportunity Thesis publication preserves exact handoff formation closure",
       throw error;
     });
   assert.equal(published.status, "published");
-  assert.ok(
-    synthesisEnvelope(bundle, G23_OPPORTUNITY_B).document.research_handoff_input_hashes ===
-      undefined,
+  assert.equal(
+    synthesis.find((envelope) => envelope.artifact_path === G23_OPPORTUNITY_B)?.document
+      .research_handoff_input_hashes,
+    undefined,
   );
+});
+
+test("report provenance excludes formal Evidence outside the report causal closure", () => {
+  const runId = "handoff-report-causal-closure";
+  const handoffRef = "artifacts/research-handoffs/handoff_inventory_only.json";
+  const inheritedEvidenceRef = "evidence/formal/inherited-outside-report.json";
+  const currentEvidenceRef = "evidence/formal/current-in-report.json";
+  const inheritedSubstrateRef = `evidence/manifest.jsonl#ev_${"a".repeat(64)}`;
+  const currentSubstrateRef = `evidence/manifest.jsonl#ev_${"b".repeat(64)}`;
+  const evidence = (pathValue: string, evidenceId: string, substrateRef: string) => ({
+    path: pathValue,
+    schemaVersion: "startup_opportunity.evidence.assessment.current",
+    document: {
+      run_id: runId,
+      evidence_id: evidenceId,
+      mechanical_binding: { substrate_record_ref: substrateRef },
+    },
+    envelope: { input_refs: [substrateRef] },
+  });
+  const sourceManifest = (pathValue: string, acceptedEvidenceRef: string) => ({
+    path: pathValue,
+    schemaVersion: "startup_opportunity.source_manifest.assessment.current",
+    document: { accepted_evidence_refs: [acceptedEvidenceRef] },
+    envelope: { input_refs: [acceptedEvidenceRef] },
+  });
+  const currentSourceManifestRef = "sources/current-in-report.json";
+  const inheritedSourceManifestRef = "sources/inherited-outside-report.json";
+  const projection = deriveResearchProvenance(
+    runId,
+    [
+      {
+        path: handoffRef,
+        schemaVersion: "startup_opportunity.research_handoff.current",
+        document: { run_id: runId, items: [] },
+        envelope: { input_refs: [] },
+      },
+      evidence(inheritedEvidenceRef, `ev_${"a".repeat(64)}`, inheritedSubstrateRef),
+      evidence(currentEvidenceRef, `ev_${"b".repeat(64)}`, currentSubstrateRef),
+      sourceManifest(inheritedSourceManifestRef, inheritedEvidenceRef),
+      sourceManifest(currentSourceManifestRef, currentEvidenceRef),
+      {
+        path: "artifacts/reporting/terminal-report-source.r1.json",
+        schemaVersion: "startup_opportunity.terminal_report_source.v1",
+        document: {
+          audit_refs: [currentEvidenceRef, currentSourceManifestRef],
+        },
+        envelope: {
+          input_refs: [currentEvidenceRef, currentSourceManifestRef],
+        },
+      },
+    ],
+    new Map([
+      [
+        inheritedSubstrateRef,
+        {
+          handoff_binding: {
+            handoff_ref: handoffRef,
+            handoff_item_id: "inventory_only",
+          },
+        },
+      ],
+      [currentSubstrateRef, {}],
+    ]),
+  );
+  assert.equal(projection.available_handoff_count, 1);
+  assert.deepEqual(projection.formal_inherited_evidence_refs, []);
+  assert.deepEqual(projection.adopted_inherited_evidence_refs, []);
+  assert.deepEqual(projection.cited_inherited_evidence_refs, []);
+  assert.deepEqual(projection.formal_current_evidence_refs, [currentEvidenceRef]);
+  assert.deepEqual(projection.adopted_current_evidence_refs, [currentEvidenceRef]);
+  assert.deepEqual(projection.cited_current_evidence_refs, [currentEvidenceRef]);
 });
 
 test("Concept intake formation binds the exact handoff item without treating copied Evidence as prior synthesis", async (context) => {
@@ -708,7 +1221,7 @@ test("Concept intake formation binds the exact handoff item without treating cop
       return envelopeForRun(state.targetRunId, artifactPath, document, []);
     }),
   });
-  const binding = await createReadHandoff(state);
+  const binding = await createReadHandoff(state, "concept-hypothesis.json");
   const concept = structuredClone(bundleDocument(assessmentFixture, "concept-hypothesis.json"));
   concept.run_id = state.targetRunId;
   concept.schema_version = "startup_opportunity.concept_hypothesis.assessment_intake.current";
@@ -869,13 +1382,16 @@ test("pre-Plan Assessment admits only the initial intake formation and rejects i
   );
   assert.deepEqual(await snapshotTree(targetRoot), beforeInvalid);
   await assert.rejects(
-    state.store.createResearchHandoff({ ...state.input, capturedAt: "not-a-timestamp" }),
+    state.store.createResearchHandoff({
+      ...state.input,
+      capturedAt: "not-a-timestamp",
+    }),
     (error: unknown) =>
       error instanceof StoreError && error.code === "research_handoff.request_invalid",
   );
   assert.deepEqual(await snapshotTree(targetRoot), beforeInvalid);
 
-  const binding = await createReadHandoff(state);
+  const binding = await createReadHandoff(state, "concept-hypothesis.json");
   const concept = structuredClone(bundleDocument(assessmentFixture, "concept-hypothesis.json"));
   concept.run_id = state.targetRunId;
   concept.schema_version = "startup_opportunity.concept_hypothesis.assessment_intake.current";
@@ -1012,14 +1528,22 @@ test("generic Artifact publication cannot forge a Harness-owned research handoff
     await createArtifactValidator(repositoryRoot),
   );
   for (const publish of [
-    () => state.store.publishArtifact({ runId: state.targetRunId, envelope: forged }),
+    () =>
+      state.store.publishArtifact({
+        runId: state.targetRunId,
+        envelope: forged,
+      }),
     () =>
       state.store.publishArtifactBundle({
         runId: state.targetRunId,
         envelopes: [forged, ordinary],
       }),
     () => artifactStore.publish({ runId: state.targetRunId, envelope: forged }),
-    () => artifactStore.publishLocked(targetRoot, { runId: state.targetRunId, envelope: forged }),
+    () =>
+      artifactStore.publishLocked(targetRoot, {
+        runId: state.targetRunId,
+        envelope: forged,
+      }),
     () =>
       artifactStore.publishBundle({
         runId: state.targetRunId,
@@ -1082,10 +1606,16 @@ test("handoff crash recovery and replay are target-owned after source removal", 
     await context.test(boundary, async (subcontext) => {
       const state = await prepareState(subcontext, boundary.replaceAll("_", "-"));
       await assert.rejects(
-        state.store.createResearchHandoff({ ...state.input, faultAt: boundary }),
+        state.store.createResearchHandoff({
+          ...state.input,
+          faultAt: boundary,
+        }),
         (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
       );
-      await rm(path.join(state.runsRoot, state.sourceRunId), { recursive: true, force: true });
+      await rm(path.join(state.runsRoot, state.sourceRunId), {
+        recursive: true,
+        force: true,
+      });
       const reopenedStore = new RunStore(
         state.runsRoot,
         await createArtifactValidator(repositoryRoot),
@@ -1118,10 +1648,98 @@ test("handoff crash recovery and replay are target-owned after source removal", 
   }
 });
 
+test("Scope revision recovery preserves durable handoffs and abandons only stale intent-only capture", async (context) => {
+  for (const boundary of [
+    "complete",
+    "after_intent",
+    "after_evidence_imports",
+    "after_handoff_publish",
+  ] as const) {
+    await context.test(boundary, async (subcontext) => {
+      const state = await prepareState(
+        subcontext,
+        `scope-revision-${boundary.replaceAll("_", "-")}`,
+      );
+      if (boundary === "complete") {
+        await state.store.createResearchHandoff(state.input);
+      } else {
+        await assert.rejects(
+          state.store.createResearchHandoff({
+            ...state.input,
+            faultAt: boundary,
+          }),
+          (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+        );
+      }
+      const targetRoot = path.join(state.runsRoot, state.targetRunId);
+      const beforeRevision = await snapshotTree(targetRoot);
+      await reviseScope(state, boundary);
+      const reopenedStore = new RunStore(
+        state.runsRoot,
+        await createArtifactValidator(repositoryRoot),
+      );
+      const reopened = await reopenedStore.load(state.targetRunId);
+      assert.equal(reopened.manifest.status, "needs_clarification");
+      assert.equal(reopened.manifest.scope_revision, 2);
+      const handoffRef = `artifacts/research-handoffs/${state.input.handoffId}.json`;
+      assert.equal(
+        reopened.manifest.artifact_refs.includes(handoffRef),
+        boundary !== "after_intent",
+      );
+      if (boundary === "complete") {
+        const after = await snapshotTree(targetRoot);
+        for (const [relative, bytes] of Object.entries(beforeRevision)) {
+          if (
+            relative === "manifest.json" ||
+            relative === "decisions.jsonl" ||
+            relative.startsWith("checkpoints/") ||
+            relative.startsWith(".store/operations/jsonl-")
+          ) {
+            continue;
+          }
+          assert.equal(after[relative], bytes, relative);
+        }
+      }
+      await reopenedStore.checkpoint({
+        runId: state.targetRunId,
+        checkpointId: `checkpoint_scope_revision_${boundary}`,
+        createdAt: "2026-08-12T17:26:00Z",
+        nextStep:
+          "Reconcile the confirmed Scope through Gap, Adaptation Decision, and Plan Revision.",
+        beliefSummary: {
+          current_belief: "The prior handoff remains historical input under its original binding.",
+          evidence_that_changed_belief: [],
+          unchanged_assumptions: ["No handoff bytes become current-Plan research implicitly."],
+          remaining_disagreement: ["The revised Scope still requires Plan reconciliation."],
+          next_decision_relevant_question: "What Plan change follows from the revised Scope?",
+        },
+        inputRefs: boundary === "after_intent" ? [] : [handoffRef],
+      });
+      assert.equal((await reopenedStore.load(state.targetRunId)).manifest.scope_revision, 2);
+      if (boundary === "after_intent") {
+        await assert.rejects(
+          reopenedStore.createResearchHandoff(state.input),
+          (error: unknown) =>
+            error instanceof StoreError &&
+            error.code === "research_handoff.intent_applicability_expired",
+        );
+      } else {
+        assert.equal(
+          (await reopenedStore.createResearchHandoff(state.input)).status,
+          "idempotent_replay",
+        );
+      }
+    });
+  }
+});
+
 test("tampered target-owned handoff intent fails closed on reopen", async (context) => {
   const state = await prepareState(context, "tamper");
   await assert.rejects(
-    state.store.createResearchHandoff({ ...state.input, faultAt: "after_intent" }),
+    state.store.createResearchHandoff({
+      ...state.input,
+      faultAt: "after_intent",
+    }),
     (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
   );
   const operationDirectory = path.join(state.runsRoot, state.targetRunId, ".store/operations");
@@ -1150,7 +1768,10 @@ test("tampered target-owned handoff intent fails closed on reopen", async (conte
 test("tampered handoff envelope closure fails before imported Evidence mutation", async (context) => {
   const state = await prepareState(context, "tamper-envelope-closure");
   await assert.rejects(
-    state.store.createResearchHandoff({ ...state.input, faultAt: "after_intent" }),
+    state.store.createResearchHandoff({
+      ...state.input,
+      faultAt: "after_intent",
+    }),
     (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
   );
   const targetRoot = path.join(state.runsRoot, state.targetRunId);
@@ -1198,6 +1819,9 @@ test("CLI creates and reads an exact target-owned handoff with structured failur
         ...(item.targetResearchGoal === undefined
           ? {}
           : { target_research_goal: item.targetResearchGoal }),
+        ...(item.targetArtifactRef === undefined
+          ? {}
+          : { target_artifact_ref: item.targetArtifactRef }),
       })),
     })}\n`,
   );

@@ -761,6 +761,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.scope_frame.assessment.current",
         ]),
         ...optionalRef(document, "target_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(
+          document,
+          "target_scope_confirmation_ref",
+          "startup_opportunity.decision.v1",
+          "decision_id",
+        ),
         ...refsFromNestedArray(
           document,
           "items",
