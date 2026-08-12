@@ -1085,6 +1085,64 @@ function isShellAssignment(word: ShellCommandWord | undefined): boolean {
   return word !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(word.value);
 }
 
+type ReinterpreterTarget = "eval_only" | "shell_or_eval";
+
+interface WrapperTarget {
+  readonly index: number;
+  readonly target: ReinterpreterTarget;
+}
+
+function consumeExecOptions(words: readonly ShellCommandWord[], start: number): number | null {
+  let index = start + 1;
+  while (words[index] !== undefined) {
+    const option = words[index]?.value ?? "";
+    if (option === "--") return index + 1;
+    const namedArgv = /^-[cl]*a(.*)$/.exec(option);
+    if (namedArgv !== null) {
+      if (namedArgv[1] === "") {
+        if (words[index + 1] === undefined) return null;
+        index += 2;
+      } else index += 1;
+      continue;
+    }
+    if (/^-[cl]+$/.test(option)) {
+      index += 1;
+      continue;
+    }
+    if (option.startsWith("-") && option !== "-") return null;
+    break;
+  }
+  return index;
+}
+
+function wrapperTarget(words: readonly ShellCommandWord[], start: number): WrapperTarget | null {
+  const wrapper = words[start]?.value;
+  if (wrapper === "exec") {
+    const index = consumeExecOptions(words, start);
+    return index === null ? null : { index, target: "shell_or_eval" };
+  }
+  if (wrapper === "builtin") {
+    const option = words[start + 1]?.value;
+    if (option?.startsWith("-") === true && option !== "--") return null;
+    return { index: option === "--" ? start + 2 : start + 1, target: "eval_only" };
+  }
+  if (wrapper === "command") {
+    let index = start + 1;
+    while (words[index] !== undefined) {
+      const option = words[index]?.value ?? "";
+      if (option === "--") {
+        index += 1;
+        break;
+      }
+      if (!option.startsWith("-") || option === "-") break;
+      if (!/^-[pVv]+$/.test(option) || /[Vv]/.test(option)) return null;
+      index += 1;
+    }
+    return { index, target: "shell_or_eval" };
+  }
+  return { index: start, target: "shell_or_eval" };
+}
+
 function reinterpreterStart(words: readonly ShellCommandWord[]): number | null {
   let index = 0;
   const controlPrefixes = new Set([
@@ -1106,19 +1164,17 @@ function reinterpreterStart(words: readonly ShellCommandWord[]): number | null {
     index += 1;
     if (controlPrefix === "time" && words[index]?.value === "-p") index += 1;
   }
-  if (
-    words[index]?.value === "builtin" ||
-    words[index]?.value === "command" ||
-    words[index]?.value === "exec"
-  ) {
-    index += 1;
-    while (/^-[A-Za-z]+$/.test(words[index]?.value ?? "") || words[index]?.value === "--") {
-      index += 1;
-    }
-  }
+  const wrapped = wrapperTarget(words, index);
+  if (wrapped === null) return null;
+  index = wrapped.index;
+  if (wrapped.target === "eval_only") return words[index]?.value === "eval" ? index : null;
+  let passedEnv = false;
   if (words[index] !== undefined && commandName(words[index]) === null) {
     const basename = words[index]?.value.slice((words[index]?.value.lastIndexOf("/") ?? -1) + 1);
-    if (basename !== "env") return words[index]?.value === "eval" ? index : null;
+    if (basename !== "env") {
+      return wrapped.target === "shell_or_eval" && words[index]?.value === "eval" ? index : null;
+    }
+    passedEnv = true;
     index += 1;
     while (words[index] !== undefined) {
       const option = words[index]?.value ?? "";
@@ -1129,7 +1185,10 @@ function reinterpreterStart(words: readonly ShellCommandWord[]): number | null {
       else break;
     }
   }
-  return commandName(words[index]) !== null || words[index]?.value === "eval" ? index : null;
+  return commandName(words[index]) !== null ||
+    (!passedEnv && wrapped.target === "shell_or_eval" && words[index]?.value === "eval")
+    ? index
+    : null;
 }
 
 function hasPriorRunShellReinterpretation(contents: string, recursionDepth = 0): boolean {

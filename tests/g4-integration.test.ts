@@ -366,6 +366,17 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     [`eval 'cat "$PRIOR_ARTIFACT_PATH"`, `'`].join("\n"),
     `command bash -c 'cat "$PRIOR_ARTIFACT_PATH"'`,
     `FOO=bar env BAR=baz /bin/bash -c 'cat "$PRIOR_ARTIFACT_PATH"'`,
+    `exec -a research bash -c 'printf %s "$PRIOR_ARTIFACT_PATH"'`,
+    `exec -a research /bin/sh -c 'printf %s "$PRIOR_ARTIFACT_PATH"'`,
+    `exec -a research env bash -c 'printf %s "$PRIOR_ARTIFACT_PATH"'`,
+    `exec -c bash -c 'printf %s "$PRIOR_ARTIFACT_PATH"'`,
+    `exec -l bash -c 'printf %s "$PRIOR_ARTIFACT_PATH"'`,
+    `exec -- bash -c 'printf %s "$PRIOR_ARTIFACT_PATH"'`,
+    `exec -a research -c /bin/sh -c 'printf %s "$PRIOR_ARTIFACT_PATH"'`,
+    `exec -cl -a research -- /bin/sh -c 'printf %s "$PRIOR_ARTIFACT_PATH"'`,
+    `command -p bash -c 'printf %s "$PRIOR_ARTIFACT_PATH"'`,
+    `builtin -- eval 'printf %s "$PRIOR_ARTIFACT_PATH"'`,
+    `exec eval 'printf %s "$PRIOR_ARTIFACT_PATH"'`,
     [`value=$((1 << 2))`, `bash -c 'cat "$PRIOR_ARTIFACT_PATH"'`].join("\n"),
     [`(( value = 1 << 2 ))`, `bash -c 'cat "$PRIOR_ARTIFACT_PATH"'`].join("\n"),
     `bash >/tmp/reinterpreted-output -c 'cat "$PRIOR_ARTIFACT_PATH"'`,
@@ -393,6 +404,10 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     `printf '%s\\n' 'printf "%s\\n" "$PREVIOUS_API_RESPONSE_FILE"' | bash`,
     `zsh <<< 'printf "%s\\n" "$PRIOR_QUERY_RESULT_PATH"'`,
     [`cat <<'SCRIPT' | bash`, `printf child-ok`, "SCRIPT"].join("\n"),
+    `exec -a research printf '%s' '$PRIOR_ARTIFACT_PATH'`,
+    `exec -a research bash -c 'printf %s "$PREVIOUS_API_RESPONSE_FILE"'`,
+    `command -v bash -c 'printf %s "$PRIOR_ARTIFACT_PATH"'`,
+    `command -V bash -c 'printf %s "$PRIOR_ARTIFACT_PATH"'`,
   ];
 
   const accidentInput = {
