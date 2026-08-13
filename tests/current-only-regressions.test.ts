@@ -2431,6 +2431,36 @@ test("quantitative acquisition is provider-agnostic and APIs remain optional", a
       .valid,
     true,
   );
+
+  const limitedApi = quantitativeCommercialFixture();
+  const [limitedApiSource] = limitedApi.audit.evidence_register as Record<string, unknown>[];
+  assert.ok(limitedApiSource);
+  limitedApiSource.source_profile = {
+    type: "api_dataset",
+    metric_definition:
+      "A retained synthetic rank with incomplete quantitative capability metadata.",
+    period: "2026-08-04 snapshot",
+    geography: "United States",
+    methodology: "Synthetic provider-defined category ordering.",
+    raw_provenance: "SYNTHETIC; no network call",
+  };
+  assert.deepEqual(quantitativeCommercialCodes(limitedApi, policy), []);
+  assert.equal(
+    validator.validateDocument(
+      limitedApi.audit,
+      "artifacts/research-audits/commercial-synthetic.json",
+    ).valid,
+    true,
+  );
+  assert.equal(
+    (
+      (limitedApi.audit.quantitative_observations as Record<string, unknown>[])[0]?.decision_use as
+        | Record<string, unknown>
+        | undefined
+    )?.grade,
+    "directional_proxy",
+  );
+
   const acquisition = (fixture.audit.data_acquisitions as Record<string, unknown>[])[0];
   assert.ok(acquisition);
   acquisition.acquisition_method = "authorized_commercial_api";
@@ -4566,6 +4596,35 @@ test("blocking metric gaps compile one current subject and Plan acquisition clos
     ),
   );
 
+  const singleRoute = structuredClone(delivery);
+  const [singleRouteGap] = singleRoute.unresolved_gaps as Record<string, unknown>[];
+  assert.ok(singleRouteGap);
+  const singleRoutePlan = singleRouteGap.acquisition_plan as Record<string, unknown>;
+  singleRoutePlan.candidate_route_classes = ["public_web"];
+  singleRoutePlan.preferred_route = "public_web";
+  singleRoutePlan.alternate_routes = [];
+  const singleRouteResult = compileCommercialResearchDelivery(
+    singleRoute,
+    taskPath,
+    [task, ...incumbentResponseLineage(task)],
+    policy,
+  );
+  assert.equal(
+    singleRouteResult.issues.some(
+      (issue) => issue.code === "commercial_research.metric_acquisition_plan_invalid",
+    ),
+    false,
+  );
+  const [singleRouteCoverage] = singleRouteResult.document.quantitative_coverage as Record<
+    string,
+    unknown
+  >[];
+  assert.ok(singleRouteCoverage);
+  assert.deepEqual(
+    (singleRouteCoverage.acquisition_plan as Record<string, unknown>).alternate_routes,
+    [],
+  );
+
   const invalidPlan = structuredClone(result.document);
   const [invalidCoverage] = invalidPlan.quantitative_coverage as Record<string, unknown>[];
   assert.ok(invalidCoverage);
@@ -4582,6 +4641,29 @@ test("blocking metric gaps compile one current subject and Plan acquisition clos
   );
   assert.ok(
     validateCommercialResearchContract(invalidDocuments, policy).some(
+      (issue) => issue.code === "commercial_research.metric_acquisition_plan_invalid",
+    ),
+  );
+
+  const invalidAlternate = structuredClone(singleRouteResult.document);
+  const [invalidAlternateCoverage] = invalidAlternate.quantitative_coverage as Record<
+    string,
+    unknown
+  >[];
+  assert.ok(invalidAlternateCoverage);
+  const invalidAlternatePlan = invalidAlternateCoverage.acquisition_plan as Record<string, unknown>;
+  invalidAlternatePlan.alternate_routes = ["public_api"];
+  const invalidAlternateDocuments = commercialAuditDocuments(invalidAlternate).map((entry) =>
+    entry.path === "artifacts/research-audits/commercial-synthetic.json"
+      ? {
+          ...entry,
+          path: "artifacts/research-audits/unit_metric_gap.json",
+          document: invalidAlternate,
+        }
+      : entry,
+  );
+  assert.ok(
+    validateCommercialResearchContract(invalidAlternateDocuments, policy).some(
       (issue) => issue.code === "commercial_research.metric_acquisition_plan_invalid",
     ),
   );
@@ -5420,9 +5502,10 @@ test("cross-Lane interpretation conflicts are invariant to Audit path and input 
   assert.equal(rejectedOnlyAggregate.ranking_eligibility, "ranked");
   assert.equal(
     rejectedOnlyCeiling.maximum_decision_tier,
-    "prioritize",
+    "investigate_further",
     JSON.stringify(rejectedOnlyCeiling),
   );
+  assert.ok((rejectedOnlyCeiling.reason_codes as string[]).includes("missing_retention_evidence"));
   assert.equal(
     (rejectedOnlyCeiling.reason_codes as string[]).includes("conflicting_evidence_present"),
     false,
@@ -5468,7 +5551,8 @@ test("cross-Lane interpretation conflicts are invariant to Audit path and input 
     unknown
   >;
   const allRejectedCeiling = allRejectedAggregate.recommendation_ceiling as Record<string, unknown>;
-  assert.equal(allRejectedCeiling.maximum_decision_tier, "prioritize");
+  assert.equal(allRejectedCeiling.maximum_decision_tier, "investigate_further");
+  assert.ok((allRejectedCeiling.reason_codes as string[]).includes("missing_retention_evidence"));
   assert.equal(
     (allRejectedCeiling.reason_codes as string[]).includes("evidence_interpretation_disagreement"),
     false,

@@ -1,5 +1,11 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
-import { evaluateAssessmentFollowupInformationGain } from "../runtime/assessment-information-gain.js";
+import {
+  type AssessmentInformationGainAuthority,
+  type AssessmentInformationGainSnapshot,
+  type AssessmentRouteHistoryEntry,
+  EMPTY_ASSESSMENT_INFORMATION_GAIN_AUTHORITY,
+  evaluateAssessmentFollowupInformationGain,
+} from "../runtime/assessment-information-gain.js";
 import { deriveLaneScopeFormalClosure } from "../runtime/lane-delivery-closure.js";
 import { assessmentCoverageSemanticsError } from "./assessment-coverage-semantics.js";
 import type { AssessmentExecutionPolicy } from "./assessment-execution-policy.js";
@@ -79,6 +85,281 @@ function targetByRef(
 ): AssessmentExecutionDocument | null {
   if (typeof ref !== "string") return null;
   return documents.get(ref.split("#", 1)[0] ?? "") ?? null;
+}
+
+interface GateDimensionClosure {
+  readonly evidence: ReadonlyMap<string, AssessmentExecutionDocument>;
+  readonly sourceGroups: ReadonlyMap<string, readonly AssessmentExecutionDocument[]>;
+  readonly decision: string;
+  readonly decisionSufficiency: string;
+  readonly coverageDisposition: string;
+}
+
+function gateDimensionClosure(
+  gate: AssessmentExecutionDocument,
+  dimensionId: string,
+  documents: ReadonlyMap<string, AssessmentExecutionDocument>,
+): GateDimensionClosure | null {
+  const gateDimension = records(gate.document.dimension_decisions).find(
+    (candidate) => candidate.dimension_id === dimensionId,
+  );
+  if (gateDimension === undefined) return null;
+  const lane = targetByRef(documents, gateDimension.lane_result_ref);
+  const execution = targetByRef(documents, gate.document.execution_plan_ref);
+  const laneDimension = records(lane?.document.dimension_results).find(
+    (candidate) => candidate.dimension_id === dimensionId,
+  );
+  if (
+    lane?.schemaVersion !== "startup_opportunity.assessment_lane_result.v1" ||
+    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.assessment.current" ||
+    laneDimension === undefined
+  ) {
+    return null;
+  }
+  const artifacts = [...documents.values()].map((entry) => ({
+    artifact_ref: entry.path,
+    artifact_type: entry.schemaVersion,
+    content_hash:
+      typeof entry.envelope?.content_hash === "string"
+        ? entry.envelope.content_hash
+        : canonicalContentHash(entry.document),
+    document: entry.document,
+  }));
+  const formal = deriveLaneScopeFormalClosure([dimensionId], artifacts, [lane.path]);
+  const refs = formal.closure[0]?.evidence_bindings.map((binding) => binding.evidence_ref) ?? [];
+  const evidence = new Map<string, AssessmentExecutionDocument>();
+  for (const ref of refs) {
+    const item = targetByRef(documents, ref);
+    if (
+      item?.schemaVersion !== "startup_opportunity.assessment_evidence.v1" ||
+      item.document.run_id !== gate.document.run_id ||
+      item.document.concept_hypothesis_ref !== gate.document.concept_hypothesis_ref ||
+      item.document.execution_plan_ref !== gate.document.execution_plan_ref ||
+      item.document.research_plan_ref !== execution.document.research_plan_ref
+    ) {
+      continue;
+    }
+    evidence.set(item.path, item);
+  }
+  const sourceGroups = new Map<string, AssessmentExecutionDocument[]>();
+  for (const item of evidence.values()) {
+    const assessment = isRecord(item.document.source_assessment)
+      ? item.document.source_assessment
+      : {};
+    const group = String(assessment.canonical_source_group ?? item.document.source_group_id ?? "");
+    if (group === "") continue;
+    const grouped = sourceGroups.get(group) ?? [];
+    grouped.push(item);
+    sourceGroups.set(group, grouped);
+  }
+  return {
+    evidence,
+    sourceGroups,
+    decision: String(gateDimension.decision ?? ""),
+    decisionSufficiency: String(gateDimension.decision_sufficiency ?? ""),
+    coverageDisposition: String(laneDimension.coverage_disposition ?? ""),
+  };
+}
+
+function assessmentInformationGainSnapshot(
+  before: GateDimensionClosure | null,
+  after: GateDimensionClosure,
+): AssessmentInformationGainSnapshot {
+  const previousRefs = new Set(before?.evidence.keys() ?? []);
+  const newEvidence = [...after.evidence.values()].filter((item) => !previousRefs.has(item.path));
+  const previousGroups = new Set(before?.sourceGroups.keys() ?? []);
+  const newGroups = [...after.sourceGroups.entries()].filter(
+    ([group, items]) =>
+      !previousGroups.has(group) &&
+      items.some((item) => {
+        const assessment = isRecord(item.document.source_assessment)
+          ? item.document.source_assessment
+          : {};
+        return ["primary", "independent_secondary"].includes(String(assessment.independence));
+      }),
+  );
+  const updatedGroups = [...after.sourceGroups.entries()].filter(([group, items]) => {
+    const previous = before?.sourceGroups.get(group) ?? [];
+    const previousDates = new Set(previous.map((item) => String(item.document.valid_as_of ?? "")));
+    return (
+      previous.length > 0 &&
+      items.some((item) => !previousDates.has(String(item.document.valid_as_of ?? "")))
+    );
+  });
+  const independentNew = newEvidence.some((item) => {
+    const sourceAssessment = isRecord(item.document.source_assessment)
+      ? item.document.source_assessment
+      : {};
+    return ["primary", "independent_secondary"].includes(String(sourceAssessment.independence));
+  });
+  const decisionGradeEvidence = newEvidence.some((item) =>
+    ["direct_behavior", "transaction_or_commitment", "observed_workflow"].includes(
+      String(item.document.evidence_tier),
+    ),
+  );
+  const opposingNew = newEvidence.some((item) => item.document.evidence_role === "oppose");
+  const conflictAdded =
+    opposingNew &&
+    (after.decision === "mixed" || after.decision !== (before?.decision ?? after.decision));
+  const sufficiencyImproved =
+    before !== null &&
+    before.decisionSufficiency !== "sufficient" &&
+    after.decisionSufficiency === "sufficient";
+  const coverageExpanded =
+    before !== null &&
+    before.coverageDisposition !== "covered" &&
+    after.coverageDisposition === "covered";
+  const evidenceRefs = newEvidence.map((item) => item.path).sort();
+  const evidenceBindings = newEvidence
+    .map((item) => ({
+      evidence_ref: item.path,
+      content_hash:
+        typeof item.envelope?.content_hash === "string"
+          ? item.envelope.content_hash
+          : canonicalContentHash(item.document),
+    }))
+    .sort((left, right) => left.evidence_ref.localeCompare(right.evidence_ref));
+  const sourceGroups = [
+    ...new Set(
+      newEvidence.map((item) => {
+        const assessment = isRecord(item.document.source_assessment)
+          ? item.document.source_assessment
+          : {};
+        return String(assessment.canonical_source_group ?? item.document.source_group_id);
+      }),
+    ),
+  ].sort();
+  return {
+    source_group_novelty:
+      newGroups.length > 0
+        ? "new_independent_group"
+        : updatedGroups.length > 0
+          ? "updated_same_group"
+          : newEvidence.length > 0
+            ? "same_group"
+            : "duplicate",
+    metric_family_coverage_change: decisionGradeEvidence
+      ? "decision_grade_added"
+      : newEvidence.length > 0
+        ? "directional_added"
+        : "unchanged",
+    subject_coverage_change: coverageExpanded ? "expanded" : "unchanged",
+    decision_or_uncertainty_change: conflictAdded
+      ? "conflict_added"
+      : before !== null && before.decision !== after.decision
+        ? "decision_boundary_changed"
+        : sufficiencyImproved
+          ? "uncertainty_reduced"
+          : "unchanged",
+    new_evidence_character: conflictAdded
+      ? "conflicting"
+      : opposingNew
+        ? "opposing"
+        : updatedGroups.length > 0
+          ? "updated"
+          : independentNew
+            ? "independent"
+            : newEvidence.length > 0
+              ? "corroborating"
+              : "none",
+    evidence_refs: evidenceRefs,
+    evidence_bindings: evidenceBindings,
+    source_groups: sourceGroups,
+  };
+}
+
+function routeOutcome(
+  snapshot: AssessmentInformationGainSnapshot,
+  after: GateDimensionClosure,
+): AssessmentRouteHistoryEntry["outcome"] {
+  if (snapshot.decision_or_uncertainty_change === "conflict_added") return "conflict_added";
+  if (snapshot.metric_family_coverage_change === "decision_grade_added") {
+    return "decision_grade_added";
+  }
+  if (
+    snapshot.evidence_refs.length > 0 ||
+    snapshot.subject_coverage_change === "expanded" ||
+    snapshot.decision_or_uncertainty_change !== "unchanged"
+  ) {
+    return "directional_added";
+  }
+  return ["blocked"].includes(after.decisionSufficiency) ? "unavailable" : "no_material_gain";
+}
+
+export function deriveAssessmentInformationGainAuthority(
+  decision: AssessmentExecutionDocument,
+  documents: ReadonlyMap<string, AssessmentExecutionDocument>,
+): AssessmentInformationGainAuthority {
+  const currentExecution = targetByRef(documents, decision.document.based_on_execution_plan_ref);
+  if (currentExecution === null) return EMPTY_ASSESSMENT_INFORMATION_GAIN_AUTHORITY;
+  const lineage = new Set<string>();
+  let cursor: AssessmentExecutionDocument | null = currentExecution;
+  while (cursor !== null && !lineage.has(cursor.path)) {
+    lineage.add(cursor.path);
+    cursor = targetByRef(documents, cursor.document.parent_execution_plan_ref);
+  }
+  const dimensionId = String(decision.document.dimension_id ?? "");
+  const subjectRef = String(decision.document.concept_hypothesis_ref ?? "");
+  const history: {
+    entry: AssessmentRouteHistoryEntry;
+    snapshot: AssessmentInformationGainSnapshot;
+  }[] = [];
+  const priorDecisions = [...documents.values()]
+    .filter(
+      (entry) =>
+        entry.schemaVersion === "startup_opportunity.assessment_followup_decision.v1" &&
+        entry.document.action === "add_bounded_followup" &&
+        entry.document.run_id === decision.document.run_id &&
+        entry.document.concept_hypothesis_ref === subjectRef &&
+        entry.document.dimension_id === dimensionId &&
+        lineage.has(String(entry.document.candidate_execution_plan_ref ?? "")) &&
+        Number(entry.document.current_followup_round) <
+          Number(decision.document.current_followup_round),
+    )
+    .sort(
+      (left, right) =>
+        Number(left.document.current_followup_round) -
+        Number(right.document.current_followup_round),
+    );
+  for (const prior of priorDecisions) {
+    const successor = targetByRef(documents, prior.document.candidate_execution_plan_ref);
+    const stage = records(successor?.document.stages).find(
+      (candidate) =>
+        candidate.gate_before === prior.document.stage_gate_ref &&
+        records(candidate.lanes).some((lane) =>
+          strings(lane.reporting_dimensions).includes(dimensionId),
+        ),
+    );
+    const beforeGate = targetByRef(documents, prior.document.stage_gate_ref);
+    const afterGate = targetByRef(documents, stage?.gate_after);
+    if (
+      beforeGate?.schemaVersion !== "startup_opportunity.assessment_stage_gate.v1" ||
+      afterGate?.schemaVersion !== "startup_opportunity.assessment_stage_gate.v1"
+    ) {
+      continue;
+    }
+    const before = gateDimensionClosure(beforeGate, dimensionId, documents);
+    const after = gateDimensionClosure(afterGate, dimensionId, documents);
+    if (after === null) continue;
+    const snapshot = assessmentInformationGainSnapshot(before, after);
+    history.push({
+      snapshot,
+      entry: {
+        round: Number(prior.document.current_followup_round),
+        route: String(prior.document.acquisition_route ?? ""),
+        subject_ref: subjectRef,
+        gate_ref: afterGate.path,
+        evidence_refs: snapshot.evidence_refs,
+        evidence_bindings: snapshot.evidence_bindings,
+        source_groups: snapshot.source_groups,
+        outcome: routeOutcome(snapshot, after),
+      },
+    });
+  }
+  return {
+    current: history.at(-1)?.snapshot ?? EMPTY_ASSESSMENT_INFORMATION_GAIN_AUTHORITY.current,
+    route_history: history.map((item) => item.entry),
+  };
 }
 
 function planUnits(plan: AssessmentExecutionDocument | null): readonly Record<string, unknown>[] {
@@ -907,6 +1188,7 @@ function validateFollowup(
     }
     for (const informationGainIssue of evaluateAssessmentFollowupInformationGain(
       decision.document,
+      deriveAssessmentInformationGainAuthority(decision, documents),
       policy.followup.information_gain_gate,
     )) {
       errors.push(

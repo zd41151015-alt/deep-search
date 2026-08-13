@@ -222,6 +222,7 @@ export {
 } from "./validators/assessment-execution-policy.js";
 export {
   type AssessmentExecutionDocument,
+  deriveAssessmentInformationGainAuthority,
   validateAssessmentExecutionContract,
 } from "./validators/assessment-execution-validator.js";
 export {

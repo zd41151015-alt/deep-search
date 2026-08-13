@@ -620,7 +620,6 @@
         },
         "alternate_routes": {
           "type": "array",
-          "minItems": 1,
           "uniqueItems": true,
           "items": {
             "$ref": "./quantitative-competitive-research.schema.json#/$defs/acquisitionRouteClass"

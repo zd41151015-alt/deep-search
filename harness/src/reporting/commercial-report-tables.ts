@@ -51,6 +51,23 @@ const ZH_LABELS: Readonly<Record<string, string>> = {
   discovery_generation: "方向生成",
   distribution: "分发",
   distribution_reach: "分发覆盖",
+  decision_grade: "决策级",
+  directional_proxy: "方向性代理指标",
+  context_only: "仅作背景",
+  high: "高",
+  medium: "中",
+  low: "低",
+  ready: "已就绪",
+  not_ready: "未就绪",
+  decision_grade_demand_signal: "存在决策级需求信号",
+  directional_demand_signal: "存在方向性需求信号",
+  current_user_language: "存在当前用户语言材料",
+  competitive_scope_disposed: "竞争研究范围已处置",
+  market_priority_signal_limited: "市场研究优先级信号有限",
+  candidate_purchase_or_commitment: "候选方向付款或承诺",
+  acquisition_or_distribution: "获客或分发",
+  pricing: "定价",
+  retention_or_usage: "留存或使用",
   downloadable_dataset: "可下载数据集",
   downloads: "下载量",
   estimated: "估算",
@@ -145,6 +162,25 @@ function zhText(value: unknown): string {
 
 function display(value: unknown, zh: boolean): string {
   return zh ? zhText(value) : cell(value);
+}
+
+function priorityDisplay(value: unknown, zh: boolean): string {
+  if (!zh) return cell(value);
+  return (
+    ({ high: "高", medium: "中", low: "低" } as Readonly<Record<string, string>>)[String(value)] ??
+    zhText(value)
+  );
+}
+
+function readinessDisplay(value: unknown, zh: boolean): string {
+  if (!zh) return cell(value);
+  return (
+    (
+      { ready: "已就绪", partial: "部分就绪", not_ready: "未就绪" } as Readonly<
+        Record<string, string>
+      >
+    )[String(value)] ?? zhText(value)
+  );
 }
 
 function displayList(value: unknown, zh: boolean): string {
@@ -506,7 +542,10 @@ function aggregateRecommendationCeiling(input: {
   }
   if (
     !input.quantitativeCoverage.some(
-      (row) => row.metric_family === "retention_outcomes" && row.state === "observed",
+      (row) =>
+        row.metric_family === "retention_outcomes" &&
+        row.state === "observed" &&
+        strings(row.decision_grade_observation_ids).length > 0,
     )
   ) {
     if (tier === "prioritize") tier = "investigate_further";
@@ -1337,9 +1376,9 @@ export function renderMarketPriorityAndCommercialReadiness(
       : {};
     return [
       display(aggregate.subject_id, zh),
-      display(priority.level ?? "low", zh),
+      priorityDisplay(priority.level ?? "low", zh),
       displayList(priority.basis_codes, zh),
-      display(readiness.level ?? "not_ready", zh),
+      readinessDisplay(readiness.level ?? "not_ready", zh),
       displayList(readiness.satisfied_dimensions, zh),
       displayList(readiness.missing_dimensions, zh),
     ];

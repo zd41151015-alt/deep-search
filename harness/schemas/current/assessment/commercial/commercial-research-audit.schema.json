@@ -190,7 +190,8 @@
                 "unknown"
               ]
             },
-            "verified_at": { "$ref": "#/$defs/nullableTimestamp" }
+            "verified_at": { "$ref": "#/$defs/nullableTimestamp" },
+            "quantitative_capability": { "$ref": "#/$defs/quantitativeCapability" }
           }
         },
         {
@@ -207,8 +208,13 @@
           "properties": {
             "type": { "const": "api_dataset" },
             "metric_definition": { "$ref": "#/$defs/nonEmptyString" },
+            "metric_unit": { "$ref": "#/$defs/nonEmptyString" },
             "period": { "$ref": "#/$defs/nonEmptyString" },
             "geography": { "$ref": "#/$defs/nonEmptyString" },
+            "sample_or_population": { "$ref": "#/$defs/nonEmptyString" },
+            "measurement_type": {
+              "enum": ["direct_measurement", "disclosed", "estimated", "modeled", "proxy"]
+            },
             "methodology": { "$ref": "#/$defs/nonEmptyString" },
             "raw_provenance": { "$ref": "#/$defs/nonEmptyString" }
           }
@@ -224,7 +230,8 @@
               "minItems": 1,
               "uniqueItems": true,
               "items": { "enum": ["public_pricing", "product_capability", "company_statement"] }
-            }
+            },
+            "quantitative_capability": { "$ref": "#/$defs/quantitativeCapability" }
           }
         },
         {
@@ -237,6 +244,30 @@
           }
         }
       ]
+    },
+    "quantitativeCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metric_definition",
+        "metric_unit",
+        "period",
+        "geography",
+        "sample_or_population",
+        "measurement_type",
+        "methodology"
+      ],
+      "properties": {
+        "metric_definition": { "$ref": "#/$defs/nonEmptyString" },
+        "metric_unit": { "$ref": "#/$defs/nonEmptyString" },
+        "period": { "$ref": "#/$defs/nonEmptyString" },
+        "geography": { "$ref": "#/$defs/nonEmptyString" },
+        "sample_or_population": { "$ref": "#/$defs/nonEmptyString" },
+        "measurement_type": {
+          "enum": ["direct_measurement", "disclosed", "estimated", "modeled", "proxy"]
+        },
+        "methodology": { "$ref": "#/$defs/nonEmptyString" }
+      }
     },
     "semanticStatement": {
       "type": "object",

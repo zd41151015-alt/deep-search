@@ -390,7 +390,6 @@
         "preferred_route": { "$ref": "#/$defs/acquisitionRouteClass" },
         "alternate_routes": {
           "type": "array",
-          "minItems": 1,
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/acquisitionRouteClass" }
         },

@@ -49,13 +49,87 @@ const PROXY_SEMANTICS = new Set([
 const CLAIM_TYPES_BY_FAMILY: Readonly<Record<string, ReadonlySet<string>>> = {
   demand_scale: new Set(["current_market_change"]),
   usage_behavior: new Set(["current_competitor_usage"]),
-  commercial_behavior: new Set(["current_purchase_behavior", "current_pricing"]),
+  commercial_behavior: new Set([
+    "current_purchase_behavior",
+    "current_pricing",
+    "vendor_public_pricing",
+  ]),
   growth_change: new Set(["current_market_change"]),
   competitive_intensity: new Set(["current_competitor_offering"]),
   distribution: new Set(["current_distribution"]),
   retention_outcomes: new Set(["current_retention"]),
   unit_economics: new Set(["current_pricing"]),
 };
+
+function periodIdentity(period: Readonly<Record<string, unknown>>): string {
+  if (typeof period.label === "string") return period.label;
+  return [period.period_start, period.period_end, period.as_of]
+    .filter((value): value is string => typeof value === "string")
+    .join("/");
+}
+
+function quantitativeSourceSupportsObservation(
+  source: Readonly<Record<string, unknown>>,
+  observation: Readonly<Record<string, unknown>>,
+  evidenceByRef: ReadonlyMap<string, Record<string, unknown>>,
+): boolean {
+  const profile = isRecord(source.source_profile) ? source.source_profile : {};
+  const measurement = String(observation.measurement_type ?? "");
+  if (profile.type === "news") {
+    if (
+      profile.primary_data_traceability_status !== "traced" ||
+      typeof profile.primary_data_ref !== "string"
+    ) {
+      return false;
+    }
+    const primary = evidenceByRef.get(profile.primary_data_ref);
+    return (
+      primary !== undefined &&
+      primary.disposition === "adopted" &&
+      quantitativeSourceSupportsObservation(primary, observation, evidenceByRef)
+    );
+  }
+  if (profile.type === "api_dataset") {
+    const capability = profile;
+    const period = isRecord(observation.period) ? observation.period : {};
+    const value = isRecord(observation.value) ? observation.value : {};
+    return (
+      capability.metric_definition === observation.metric_definition &&
+      capability.metric_unit === value.unit &&
+      capability.period === periodIdentity(period) &&
+      capability.geography === observation.geography &&
+      capability.sample_or_population === observation.sample_or_population &&
+      capability.measurement_type === measurement &&
+      typeof capability.methodology === "string" &&
+      capability.methodology.length > 0 &&
+      typeof profile.raw_provenance === "string" &&
+      profile.raw_provenance.length > 0
+    );
+  }
+  if (profile.type === "company_material" || profile.type === "regulatory") {
+    const capability = isRecord(profile.quantitative_capability)
+      ? profile.quantitative_capability
+      : {};
+    const period = isRecord(observation.period) ? observation.period : {};
+    const value = isRecord(observation.value) ? observation.value : {};
+    return (
+      (profile.type === "regulatory" ||
+        (observation.metric_semantics === "price" &&
+          measurement === "disclosed" &&
+          ["current_pricing", "vendor_public_pricing"].includes(String(source.claim_type)) &&
+          strings(profile.supported_public_claims).includes("public_pricing"))) &&
+      capability.metric_definition === observation.metric_definition &&
+      capability.metric_unit === value.unit &&
+      capability.period === periodIdentity(period) &&
+      capability.geography === observation.geography &&
+      capability.sample_or_population === observation.sample_or_population &&
+      capability.measurement_type === measurement &&
+      typeof capability.methodology === "string" &&
+      capability.methodology.length > 0
+    );
+  }
+  return false;
+}
 
 export function deriveQuantitativeDecisionUse(
   observation: Readonly<Record<string, unknown>>,
@@ -80,7 +154,8 @@ export function deriveQuantitativeDecisionUse(
       source.disposition === "adopted" &&
       source.freshness_status === "current" &&
       strings(source.subject_ids).includes(String(observation.subject_id)) &&
-      traceableDirectSource(source, evidenceByRef),
+      traceableDirectSource(source, evidenceByRef) &&
+      quantitativeSourceSupportsObservation(source, observation, evidenceByRef),
   );
   const semanticallyMatchedEvidence = exactEvidence.some(
     (source) =>
@@ -88,7 +163,8 @@ export function deriveQuantitativeDecisionUse(
       source.freshness_status === "current" &&
       strings(source.subject_ids).includes(String(observation.subject_id)) &&
       CLAIM_TYPES_BY_FAMILY[family]?.has(String(source.claim_type)) === true &&
-      traceableDirectSource(source, evidenceByRef),
+      traceableDirectSource(source, evidenceByRef) &&
+      quantitativeSourceSupportsObservation(source, observation, evidenceByRef),
   );
   const directMeasurement = ["direct_measurement", "disclosed"].includes(measurement);
   const comparisonUsable = !comparisonGroupDeclared || directComparisonAllowed;
@@ -108,6 +184,9 @@ export function deriveQuantitativeDecisionUse(
     semanticallyMatchedEvidence
       ? "evidence_claim_matches_metric_family"
       : "evidence_claim_metric_mismatch",
+    currentTraceableEvidence
+      ? "source_quantitative_capability_matches"
+      : "source_quantitative_capability_missing_or_mismatched",
     comparisonUsable ? "comparison_scope_usable" : "comparison_scope_incompatible",
     structurallyComplete ? "metric_scope_defined" : "metric_scope_incomplete",
   ];

@@ -1,5 +1,9 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import {
+  type AssessmentExecutionDocument,
+  deriveAssessmentInformationGainAuthority,
+} from "../validators/assessment-execution-validator.js";
 import { evaluateAssessmentFollowupInformationGain } from "./assessment-information-gain.js";
 
 export interface AssessmentFollowupRevisionResult {
@@ -45,6 +49,7 @@ export function deriveAssessmentFollowupRevision(
   decisionPath: string,
   decision: Record<string, unknown>,
   createdAt: string,
+  assessmentDocuments: readonly AssessmentExecutionDocument[],
 ): AssessmentFollowupRevisionResult {
   if (
     decision.schema_version !== "startup_opportunity.assessment_followup_decision.v1" ||
@@ -60,7 +65,18 @@ export function deriveAssessmentFollowupRevision(
       "assessment follow-up revision requires one exact add decision and current Plans",
     );
   }
-  const informationGainIssues = evaluateAssessmentFollowupInformationGain(decision);
+  const informationGainIssues = evaluateAssessmentFollowupInformationGain(
+    decision,
+    deriveAssessmentInformationGainAuthority(
+      {
+        path: decisionPath,
+        schemaVersion: String(decision.schema_version),
+        document: decision,
+        envelope: null,
+      },
+      new Map(assessmentDocuments.map((entry) => [entry.path, entry])),
+    ),
+  );
   if (informationGainIssues.length > 0) {
     throw new StoreError(
       "assessment.followup_information_gain_ineligible",

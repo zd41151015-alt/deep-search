@@ -1785,7 +1785,6 @@ function validateQuantitativeCompetitiveAudit(
         acquisitionPlan.task_ref !== expectedPlanBinding.task_ref ||
         acquisitionPlan.gap_ref !== expectedPlanBinding.gap_ref ||
         !candidateRoutes.includes(String(acquisitionPlan.preferred_route)) ||
-        alternateRoutes.length === 0 ||
         alternateRoutes.some((route) => !candidateRoutes.includes(route)) ||
         alternateRoutes.includes(String(acquisitionPlan.preferred_route)) ||
         attemptedRoutes.some((route) => !candidateRoutes.includes(route)) ||

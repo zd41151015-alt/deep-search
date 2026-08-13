@@ -16,6 +16,76 @@ export interface InformationGainIssue {
   readonly likelyCause: string;
 }
 
+export interface AssessmentInformationGainSnapshot {
+  readonly source_group_novelty:
+    | "new_independent_group"
+    | "updated_same_group"
+    | "same_group"
+    | "duplicate";
+  readonly metric_family_coverage_change:
+    | "decision_grade_added"
+    | "directional_added"
+    | "unchanged"
+    | "not_applicable";
+  readonly subject_coverage_change: "expanded" | "unchanged" | "not_applicable";
+  readonly decision_or_uncertainty_change:
+    | "decision_boundary_changed"
+    | "uncertainty_reduced"
+    | "conflict_added"
+    | "unchanged";
+  readonly new_evidence_character:
+    | "updated"
+    | "independent"
+    | "opposing"
+    | "conflicting"
+    | "corroborating"
+    | "none";
+  readonly evidence_refs: readonly string[];
+  readonly evidence_bindings: readonly {
+    readonly evidence_ref: string;
+    readonly content_hash: string;
+  }[];
+  readonly source_groups: readonly string[];
+}
+
+export interface AssessmentRouteHistoryEntry {
+  readonly round: number;
+  readonly route: string;
+  readonly subject_ref: string;
+  readonly gate_ref: string;
+  readonly evidence_refs: readonly string[];
+  readonly evidence_bindings: readonly {
+    readonly evidence_ref: string;
+    readonly content_hash: string;
+  }[];
+  readonly source_groups: readonly string[];
+  readonly outcome:
+    | "decision_grade_added"
+    | "directional_added"
+    | "conflict_added"
+    | "no_material_gain"
+    | "unavailable";
+}
+
+export interface AssessmentInformationGainAuthority {
+  readonly current: AssessmentInformationGainSnapshot;
+  readonly route_history: readonly AssessmentRouteHistoryEntry[];
+}
+
+export const EMPTY_ASSESSMENT_INFORMATION_GAIN_AUTHORITY: AssessmentInformationGainAuthority = {
+  current: {
+    source_group_novelty: "duplicate",
+    metric_family_coverage_change: "not_applicable",
+    subject_coverage_change: "unchanged",
+    decision_or_uncertainty_change: "unchanged",
+    new_evidence_character: "none",
+    evidence_refs: [],
+    evidence_bindings: [],
+    source_groups: [],
+  },
+  route_history: [],
+};
+
 const CURRENT_INFORMATION_GAIN_POLICY: AssessmentInformationGainPolicy = {
   eligible_gap_resolution_classes: ["public_web_resolvable", "api_or_professional_data_resolvable"],
   eligible_availability: ["available_now", "available_with_authorized_access"],
@@ -51,6 +121,7 @@ function issue(
 
 export function evaluateAssessmentFollowupInformationGain(
   decision: Readonly<Record<string, unknown>>,
+  authority: AssessmentInformationGainAuthority,
   policy: AssessmentInformationGainPolicy = CURRENT_INFORMATION_GAIN_POLICY,
 ): readonly InformationGainIssue[] {
   if (decision.action !== "add_bounded_followup") return [];
@@ -72,13 +143,11 @@ export function evaluateAssessmentFollowupInformationGain(
   const routeBinding = policy.route_class_bindings.find(
     (binding) => binding.acquisition_route === route,
   );
-  const gain = isRecord(decision.information_gain_assessment)
-    ? decision.information_gain_assessment
-    : {};
+  const gain = authority.current;
   const targetSubjectRef = String(decision.concept_hypothesis_ref ?? "");
-  const routeHistory = (
-    Array.isArray(decision.route_history) ? decision.route_history.filter(isRecord) : []
-  ).filter((entry) => targetSubjectRef === "" || entry.subject_ref === targetSubjectRef);
+  const routeHistory = authority.route_history.filter(
+    (entry) => targetSubjectRef === "" || entry.subject_ref === targetSubjectRef,
+  );
   const evidenceSurfaceChanged =
     ["new_independent_group", "updated_same_group"].includes(String(gain.source_group_novelty)) ||
     ["updated", "independent", "opposing", "conflicting"].includes(

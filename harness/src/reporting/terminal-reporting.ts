@@ -125,6 +125,24 @@ const ZH_ENUMS: Readonly<Record<string, string>> = {
   mechanism: "作用机制",
   effect_boundary: "作用边界",
   counterevidence: "反对材料",
+  decision_grade: "决策级",
+  directional_proxy: "方向性代理指标",
+  context_only: "仅作背景",
+  high: "高",
+  medium: "中",
+  low: "低",
+  ready: "已就绪",
+  not_ready: "未就绪",
+  decision_grade_demand_signal: "存在决策级需求信号",
+  directional_demand_signal: "存在方向性需求信号",
+  current_user_language: "存在当前用户语言材料",
+  competitive_scope_disposed: "竞争研究范围已处置",
+  market_priority_signal_limited: "市场研究优先级信号有限",
+  candidate_purchase_or_commitment: "候选方向付款或承诺",
+  acquisition_or_distribution: "获客或分发",
+  pricing: "定价",
+  retention_or_usage: "留存或使用",
+  unit_economics: "单位经济",
 };
 
 function enumLabel(value: unknown, zh: boolean): string {
@@ -133,6 +151,25 @@ function enumLabel(value: unknown, zh: boolean): string {
     return ZH_ENUMS[text] ?? text;
   }
   return text.replaceAll("_", " ");
+}
+
+function marketPriorityLabel(value: unknown, zh: boolean): string {
+  if (!zh) return enumLabel(value, false);
+  return (
+    ({ high: "高", medium: "中", low: "低" } as Readonly<Record<string, string>>)[String(value)] ??
+    enumLabel(value, true)
+  );
+}
+
+function commercialReadinessLabel(value: unknown, zh: boolean): string {
+  if (!zh) return enumLabel(value, false);
+  return (
+    (
+      { ready: "已就绪", partial: "部分就绪", not_ready: "未就绪" } as Readonly<
+        Record<string, string>
+      >
+    )[String(value)] ?? enumLabel(value, true)
+  );
 }
 
 function bulletList(values: readonly string[], emptyText: string): string {
@@ -208,8 +245,8 @@ function renderDirections(source: Record<string, unknown>, zh: boolean, compact:
         `${zh ? "排序状态" : "Ranking status"}: ${enumLabel(direction.ranking_status, zh)}\n\n`,
         `${zh ? "成熟度" : "Maturity"}: ${enumLabel(direction.maturity, zh)}\n\n`,
         `${zh ? "当前动作" : "Current action"}: ${enumLabel(direction.action, zh)}\n\n`,
-        `${zh ? "市场研究优先级" : "Market research priority"}: ${enumLabel(marketPriority?.level ?? "unknown", zh)}\n\n`,
-        `${zh ? "商业验证就绪度" : "Commercial validation readiness"}: ${enumLabel(commercialReadiness?.level ?? "not_ready", zh)}\n\n`,
+        `${zh ? "市场研究优先级" : "Market research priority"}: ${marketPriorityLabel(marketPriority?.level ?? "unknown", zh)}\n\n`,
+        `${zh ? "商业验证就绪度" : "Commercial validation readiness"}: ${commercialReadinessLabel(commercialReadiness?.level ?? "not_ready", zh)}\n\n`,
         `${zh ? "目标用户" : "Target user"}: ${String(direction.target_user)}\n\n`,
         `${zh ? "窄场景" : "Narrow scenario"}: ${String(direction.narrow_scenario)}\n\n`,
         `${zh ? "当前替代" : "Current alternative"}: ${String(direction.current_alternative)}\n\n`,
@@ -424,6 +461,7 @@ const ZH_INTERNAL_TERM_RULES = [
   /\bevidence\b/iu,
   /\bharness\b/iu,
   /\bartifact\b/iu,
+  /\b(?:decision_grade|directional_proxy|context_only|not_ready|decision_grade_demand_signal|directional_demand_signal|current_user_language|competitive_scope_disposed|market_priority_signal_limited|candidate_purchase_or_commitment|acquisition_or_distribution|retention_or_usage|unit_economics)\b/iu,
   /\b(?:opportunity_discovery|concept_evidence_assessment|assessment_early_kill|assessment_commercial|assessment_delivery|discovery_generation|candidate_evaluation|runtime_blocked|not_executed|unranked_hypothesis)\b/iu,
 ] as const;
 

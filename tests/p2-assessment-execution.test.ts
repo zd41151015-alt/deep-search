@@ -11,6 +11,7 @@ import {
   createArtifactValidator,
   DeclarativeRuntimeCompiler,
   deriveAssessmentFollowupRevision,
+  deriveAssessmentInformationGainAuthority,
   EvidenceStore,
   type FormalArtifactEnvelope,
   LaneResultMaterializer,
@@ -553,13 +554,9 @@ function followupDecision(
       novelty_rationale: "The proposed source and signal were not covered in Wave 1.",
     },
     information_gain_assessment: {
-      source_group_novelty: "new_independent_group",
-      metric_family_coverage_change: "decision_grade_added",
-      subject_coverage_change: "expanded",
-      decision_or_uncertainty_change: "uncertainty_reduced",
-      new_evidence_character: "independent",
+      rationale:
+        "The researcher explains the intended gain; the Harness derives actual gain from exact Lane and Evidence closure.",
     },
-    route_history: [],
     action: "add_bounded_followup",
     current_followup_round: execution.followup_round,
     target_unit: unit(
@@ -1169,6 +1166,7 @@ test("follow-up is closed by dimension, round, repetition, exact hashes, and det
         demandDecision.path,
         externalOnly,
         "2026-08-02T16:30:00Z",
+        [...baseDocuments(runId, plan, execution), gate],
       ),
     (error: unknown) =>
       error instanceof StoreError &&
@@ -1224,6 +1222,7 @@ test("follow-up is closed by dimension, round, repetition, exact hashes, and det
     demandDecision.path,
     demandDecision.document,
     "2026-08-02T16:30:00Z",
+    [...baseDocuments(runId, plan, execution), gate],
   );
   const replay = deriveAssessmentFollowupRevision(
     planPath,
@@ -1233,6 +1232,7 @@ test("follow-up is closed by dimension, round, repetition, exact hashes, and det
     demandDecision.path,
     demandDecision.document,
     "2026-08-02T16:30:00Z",
+    [...baseDocuments(runId, plan, execution), gate],
   );
   assert.deepEqual(derived, replay);
   assert.equal(derived.researchPlanPath, "plans/research-plan.r2.json");
@@ -1245,6 +1245,31 @@ test("follow-up is closed by dimension, round, repetition, exact hashes, and det
   );
   assert.equal(validator.validateDocument(derived.researchPlan).valid, true);
   assert.equal(validator.validateDocument(derived.executionPlan).valid, true);
+
+  const emptyAuthority = deriveAssessmentInformationGainAuthority(
+    demandDecision,
+    new Map(
+      [...baseDocuments(runId, plan, execution), ...results, ...judgmentEntries(results), gate].map(
+        (document) => [document.path, document],
+      ),
+    ),
+  );
+  assert.deepEqual(emptyAuthority.current.evidence_refs, []);
+  assert.deepEqual(emptyAuthority.route_history, []);
+  const forgedRationale = structuredClone(demandDecision.document);
+  forgedRationale.information_gain_assessment = {
+    rationale:
+      "This prose claims updated independent counterevidence, but no formal Evidence closure exists.",
+  };
+  const forgedAuthority = deriveAssessmentInformationGainAuthority(
+    entry(demandDecision.path, forgedRationale),
+    new Map(
+      [...baseDocuments(runId, plan, execution), ...results, ...judgmentEntries(results), gate].map(
+        (document) => [document.path, document],
+      ),
+    ),
+  );
+  assert.deepEqual(forgedAuthority, emptyAuthority);
 });
 
 test("thesis provenance blocks unknowns, requires exact user confirmation, and reaches reports", async () => {

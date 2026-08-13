@@ -21,6 +21,10 @@ import {
   sha256Bytes,
 } from "../harness/src/index.js";
 import {
+  renderTerminalDecisionBrief,
+  renderTerminalFullReport,
+} from "../harness/src/reporting/terminal-reporting.js";
+import {
   type TerminalReportingDocument,
   validateTerminalReportingContract,
 } from "../harness/src/validators/terminal-reporting-validator.js";
@@ -1107,6 +1111,76 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     document,
   };
 }
+
+test("Chinese terminal report localizes quantitative priority and readiness enums", async (context) => {
+  const state = await prepareRun(context, { injectHistoricalCompilerWarning: true });
+  const source = terminalReportEnvelope(state).document;
+  source.commercial_subject_aggregates = [
+    {
+      subject_id: "concept_assess_001",
+      market_research_priority: {
+        level: "high",
+        basis_codes: ["directional_demand_signal", "competitive_scope_disposed"],
+      },
+      commercial_validation_readiness: {
+        level: "not_ready",
+        satisfied_dimensions: [],
+        missing_dimensions: [
+          "candidate_purchase_or_commitment",
+          "acquisition_or_distribution",
+          "retention_or_usage",
+          "unit_economics",
+        ],
+      },
+    },
+  ];
+  source.quantitative_signal_rows = [
+    {
+      observation: {
+        subject_id: "concept_assess_001",
+        metric_family: "demand_scale",
+        metric_name: "合成需求代理指标",
+        metric_semantics: "search_interest",
+        value: { shape: "index", value: 10, unit: "index", index_base: "合成基准", currency: null },
+        metric_definition: "仅用于中文渲染测试的合成指标。",
+        geography: "中国大陆",
+        period: { period_start: null, period_end: null, as_of: "2026-07-25", label: "合成快照" },
+        decision_use: { grade: "directional_proxy" },
+        measurement_type: "proxy",
+        comparability: {
+          status: "limited",
+          category: "合成类别",
+          direct_comparison_allowed: false,
+        },
+        error_uncertainty: "合成数据，不代表真实市场。",
+        evidence_refs: [],
+      },
+    },
+  ];
+  source.research_provenance = {
+    available_handoff_count: 0,
+    captured_item_count: 0,
+    consumed_item_refs: [],
+    used_handoff_items: [],
+    imported_substrate_refs: [],
+    adopted_inherited_evidence_refs: [],
+    cited_inherited_evidence_refs: [],
+    adopted_current_evidence_refs: [],
+    cited_current_evidence_refs: [],
+    revalidation_gaps: [],
+  };
+  const brief = renderTerminalDecisionBrief(source);
+  const full = renderTerminalFullReport(source);
+  for (const markdown of [brief, full]) {
+    assert.doesNotMatch(
+      markdown,
+      /\b(?:high|not_ready|directional_proxy|directional_demand_signal|competitive_scope_disposed|candidate_purchase_or_commitment|acquisition_or_distribution|retention_or_usage|unit_economics)\b/,
+    );
+    assert.match(markdown, /市场研究优先级: 高/);
+    assert.match(markdown, /商业验证就绪度: 未就绪/);
+  }
+  assert.match(full, /方向性代理指标/);
+});
 
 test("public ReportRuntime rejects terminal sources before any standalone report write", async (context) => {
   const state = await prepareRun(context, { injectHistoricalCompilerWarning: true });
