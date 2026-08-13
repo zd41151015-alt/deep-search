@@ -565,6 +565,12 @@ export class ArtifactStore {
         "research handoffs must use the target-owned exact capture operation",
       );
     }
+    if (input.envelope.artifact_type === "startup_opportunity.terminal_report_source.v1") {
+      throw new StoreError(
+        "report.terminal_dedicated_entry_required",
+        "terminal report sources must use the atomic terminal Plan closeout entry",
+      );
+    }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
@@ -582,6 +588,16 @@ export class ArtifactStore {
       throw new StoreError(
         "research_handoff.dedicated_entry_required",
         "research handoffs must use the target-owned exact capture operation",
+      );
+    }
+    if (
+      input.envelopes.some(
+        (envelope) => envelope.artifact_type === "startup_opportunity.terminal_report_source.v1",
+      )
+    ) {
+      throw new StoreError(
+        "report.terminal_dedicated_entry_required",
+        "terminal report sources must use the atomic terminal Plan closeout entry",
       );
     }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);

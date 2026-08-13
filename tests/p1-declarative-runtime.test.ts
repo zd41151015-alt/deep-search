@@ -665,6 +665,15 @@ function incompleteDiscoveryLaneResult(
       source_manifest_refs: [],
       audit_refs: [auditRef],
     },
+    scope_outcomes: ["buyer", "demand"].map((scopeKey) => ({
+      scope_key: scopeKey,
+      disposition: "no_evidence_found",
+      evidence_refs: [],
+      claim_refs: [],
+      finding_refs: [],
+      judgment_assessment_refs: [],
+      notes: "The synthetic fixture did not find current Evidence for this assigned scope.",
+    })),
     scored_candidates: [],
     pre_kill_decisions: [],
     retained_candidate_refs: [],
@@ -717,15 +726,23 @@ const SYNTHETIC_ASSIGNED_COMMERCIAL_SCOPE = [
   "recent_user_language",
 ] as const;
 
-function noEvidenceCoverage(evidenceRef?: string): Record<string, unknown>[] {
-  return [...SYNTHETIC_ASSIGNED_COMMERCIAL_SCOPE].sort().map((scopeKey, index) => ({
+function formalCommercialCoverage(evidenceRef?: string): Record<string, unknown>[] {
+  return [...SYNTHETIC_ASSIGNED_COMMERCIAL_SCOPE].sort().map((scopeKey) => ({
     scope_key: scopeKey,
-    status: evidenceRef !== undefined && index === 0 ? "covered" : "no_evidence_found",
-    evidence_refs: evidenceRef !== undefined && index === 0 ? [evidenceRef] : [],
+    status:
+      evidenceRef !== undefined && scopeKey === "independent_counterevidence"
+        ? "partial"
+        : scopeKey === "buyer" || scopeKey === "demand"
+          ? "no_evidence_found"
+          : "partial",
+    evidence_refs:
+      evidenceRef !== undefined && scopeKey === "independent_counterevidence" ? [evidenceRef] : [],
     notes:
-      evidenceRef !== undefined && index === 0
-        ? "Typed synthetic Evidence exercises exact adoption closure only."
-        : "Synthetic fixture bytes are not market Evidence and do not cover this scope.",
+      evidenceRef !== undefined && scopeKey === "independent_counterevidence"
+        ? "Typed synthetic counterevidence is exact, but the formal Audit retains it as inferred partial coverage."
+        : scopeKey === "buyer" || scopeKey === "demand"
+          ? "The Discovery Lane Result reports that no Evidence was found for this scope."
+          : "The commercial Audit preserves this assigned scope as incomplete or unavailable.",
   }));
 }
 
@@ -755,7 +772,7 @@ function commercialDeliveryWithSemanticEvidence(
         published_at: null,
         observed_at: "2026-07-31T16:02:00Z",
         data_period_end: null,
-        coverage_keys: ["counterevidence"],
+        coverage_keys: ["independent_counterevidence"],
         disposition: "adopted",
         exclusion_reason: null,
       },
@@ -1391,7 +1408,7 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
     operation: "validate_only",
     evidence_receipt_refs: [],
     delivery_contract: {
-      scope_coverage: noEvidenceCoverage(),
+      scope_coverage: formalCommercialCoverage(),
       search_closure: {
         status: "completed",
         acquisition_routes_attempted: ["user_provided"],
@@ -1498,39 +1515,45 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
   });
   assert.deepEqual(await snapshotTree(state.runRoot), beforeRejectedPreflight);
 
-  const noEvidence = structuredClone(staging);
-  noEvidence.staging_id = "staging_commercial_no_evidence_synthetic";
-  noEvidence.operation = "validate_only";
-  noEvidence.evidence_receipt_refs = [];
-  noEvidence.delivery_contract.scope_coverage[0] = {
-    scope_key: String(noEvidence.delivery_contract.scope_coverage[0]?.scope_key),
-    status: "no_evidence_found",
-    evidence_refs: [],
-    notes: "The declared route yielded no usable evidence for this assigned scope.",
-  };
-  noEvidence.delivery_contract.search_closure = {
+  const incompleteCoverage = structuredClone(staging);
+  incompleteCoverage.staging_id = "staging_commercial_incomplete_coverage_synthetic";
+  incompleteCoverage.operation = "validate_only";
+  incompleteCoverage.evidence_receipt_refs = [];
+  incompleteCoverage.delivery_contract.search_closure = {
     status: "completed",
     acquisition_routes_attempted: ["public_web"],
     unresolved_gaps: ["Current commercial Evidence remains unavailable."],
     stop_reason: "The bounded query set was exhausted without usable evidence.",
   };
-  const noEvidenceDryRun = await materializer.materialize(noEvidence).catch((error: unknown) => {
+  const incompleteDryRun = await materializer
+    .materialize(incompleteCoverage)
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+      }
+      throw error;
+    });
+  assert.equal(incompleteDryRun.status, "accepted");
+  assert.equal(incompleteDryRun.compilation.status, "validated");
+  assert.equal(
+    (incompleteDryRun.delivery_receipt.document.audit as Record<string, unknown>)
+      .no_evidence_scope_count,
+    2,
+  );
+  assert.equal(
+    (incompleteDryRun.delivery_receipt.document.audit as Record<string, unknown>)
+      .partial_scope_count,
+    incompleteCoverage.delivery_contract.scope_coverage.length - 2,
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeRejectedPreflight);
+
+  const beforeDeliveryManifest = (await state.runStore.status(state.runId)).manifest;
+  const validated = await materializer.materialize(staging).catch((error: unknown) => {
     if (error instanceof StoreError) {
       assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
     }
     throw error;
   });
-  assert.equal(noEvidenceDryRun.status, "accepted");
-  assert.equal(noEvidenceDryRun.compilation.status, "validated");
-  assert.equal(
-    (noEvidenceDryRun.delivery_receipt.document.audit as Record<string, unknown>)
-      .no_evidence_scope_count,
-    noEvidence.delivery_contract.scope_coverage.length,
-  );
-  assert.deepEqual(await snapshotTree(state.runRoot), beforeRejectedPreflight);
-
-  const beforeDeliveryManifest = (await state.runStore.status(state.runId)).manifest;
-  const validated = await materializer.materialize(staging);
   const publication = structuredClone(staging);
   publication.operation = "publish";
   (publication as typeof publication & { publication_plan: unknown }).publication_plan =
@@ -1724,7 +1747,7 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
     operation: "validate_only",
     evidence_receipt_refs: [substrateRef],
     delivery_contract: {
-      scope_coverage: noEvidenceCoverage(substrateRef),
+      scope_coverage: formalCommercialCoverage(substrateRef),
       search_closure: {
         status: "completed",
         acquisition_routes_attempted: ["repository_source"],
@@ -1788,7 +1811,12 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
     !(await state.runStore.status(state.runId)).manifest.artifact_refs.includes(evidenceRef),
   );
 
-  const validated = await materializer.materialize(staging);
+  const validated = await materializer.materialize(staging).catch((error: unknown) => {
+    if (error instanceof StoreError) {
+      assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+    }
+    throw error;
+  });
   const publish = structuredClone(staging);
   publish.operation = "publish";
   (publish as typeof publish & { publication_plan: unknown }).publication_plan =

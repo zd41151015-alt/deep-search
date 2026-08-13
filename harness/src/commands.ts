@@ -58,9 +58,9 @@ Commands:
   calculate-comparison Validate and summarize caller-supplied G2.4 comparison Artifacts.
   calculate-sensitivity Validate and summarize the caller-supplied G2.4 sensitivity Artifact.
   audit-traceability Validate a closed G1.4 assessment or G2.4 discovery traceability/report chain.
-  build-report       Publish a validated assessment/discovery report and materialize its views.
+  build-report       Publish a non-terminal assessment/discovery report and materialize its views.
 
-Validation, publication, recovery, comparison/sensitivity summaries, and report materialization success are mechanical only. Caller-supplied Artifacts use the generic validation/publication surface. The Harness does not dispatch agents, execute lanes, synthesize thesis or evaluation semantics, perform network research, infer research judgments, or claim Evidence/market validation success.
+Terminal report sources are accepted only by the atomic terminal apply-plan-revision closeout; build-report cannot publish them independently. Validation, publication, recovery, comparison/sensitivity summaries, and report materialization success are mechanical only. Caller-supplied Artifacts use the generic validation/publication surface. The Harness does not dispatch agents, execute lanes, synthesize thesis or evaluation semantics, perform network research, infer research judgments, or claim Evidence/market validation success.
 `;
 
 export function printHelp(

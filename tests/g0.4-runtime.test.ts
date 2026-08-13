@@ -412,6 +412,19 @@ function userPlanDecision(runId: string, decisionId: string): Record<string, unk
   };
 }
 
+function userCancellationDecision(runId: string, decisionId: string): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: decisionId,
+    run_id: runId,
+    decision_type: "run_cancelled",
+    timestamp: "2026-07-24T12:04:30Z",
+    actor: "user",
+    reason: "The user cancelled the current research Run.",
+    artifact_refs: [PLAN_REF],
+  };
+}
+
 function retryDecision(runId: string): Record<string, unknown> {
   return {
     schema_version: "startup_opportunity.adaptation_decision.discovery.current",
@@ -505,6 +518,38 @@ function runtimeFailureDecision(runId: string): Record<string, unknown> {
     expected_decision_impact: ["execution_validity"],
     stop_condition: "The blocking runtime failure remains unresolved.",
     requested_by: "main_agent",
+    created_at: "2026-07-24T12:05:00Z",
+  };
+}
+
+function completionDecision(runId: string): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.adaptation_decision.discovery.current",
+    adaptation_id: "adapt_complete_research_001",
+    run_id: runId,
+    based_on_plan_ref: PLAN_REF,
+    trigger_gap_refs: [],
+    action: "complete_research",
+    reason: "Every current Plan unit has a non-failed terminal disposition.",
+    expected_decision_impact: ["execution_validity"],
+    stop_condition: "The current Plan execution closure is complete.",
+    requested_by: "main_agent",
+    created_at: "2026-07-24T12:05:00Z",
+  };
+}
+
+function cancellationAdaptationDecision(runId: string): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.adaptation_decision.discovery.current",
+    adaptation_id: "adapt_cancel_research_001",
+    run_id: runId,
+    based_on_plan_ref: PLAN_REF,
+    trigger_gap_refs: [],
+    action: "cancel_research",
+    reason: "The exact user Decision cancels the current research Run.",
+    expected_decision_impact: ["execution_validity"],
+    stop_condition: "The user cancellation authority is exact and current.",
+    requested_by: "user",
     created_at: "2026-07-24T12:05:00Z",
   };
 }
@@ -610,6 +655,7 @@ function terminalReportSource(
   decisionSubjectSnapshotRef = DECISION_SUBJECT_SNAPSHOT_REF,
   currentPlanRef = PLAN_REF,
   generatedAt = "2026-07-24T12:09:30Z",
+  terminalOutcomeOverride?: "completed" | "cancelled",
 ): FormalArtifactEnvelope {
   const artifactPath = "artifacts/reporting/terminal-report-source.r1.json";
   const auditRefs = [DECISION_REF, GAP_REF, currentPlanRef].sort();
@@ -627,20 +673,29 @@ function terminalReportSource(
     decision_subject_snapshot_hash: decisionSubjectSnapshotHash,
     decision_subject_synthesis_hashes: [],
     current_decision_subject_ids: [],
-    terminal_outcome: runtimeFailure ? "failed" : "insufficient_evidence",
+    terminal_outcome:
+      terminalOutcomeOverride ?? (runtimeFailure ? "failed" : "insufficient_evidence"),
     decision_question: "合成测试：这次有边界的机会发现是否应继续？",
     execution: {
-      completeness: "partial",
-      completed_stages: ["初轮机会发现"],
-      incomplete_stages: [
-        {
-          stage: "机会综合",
-          cause: "evidence_ceiling",
-          detail: "合成材料不足以支持继续形成机会结论。",
-          conclusion_impact: "本次仅部分执行，不能据此排序任何方向。",
-          related_refs: [GAP_REF],
-        },
-      ],
+      completeness: terminalOutcomeOverride === "completed" ? "complete" : "partial",
+      completed_stages:
+        terminalOutcomeOverride === "completed" ? ["完整研究计划"] : ["初轮机会发现"],
+      incomplete_stages:
+        terminalOutcomeOverride === "completed"
+          ? []
+          : [
+              {
+                stage: "机会综合",
+                cause:
+                  terminalOutcomeOverride === "cancelled" ? "user_stopped" : "evidence_ceiling",
+                detail:
+                  terminalOutcomeOverride === "cancelled"
+                    ? "用户取消了当前研究 Run。"
+                    : "合成材料不足以支持继续形成机会结论。",
+                conclusion_impact: "本次仅部分执行，不能据此排序任何方向。",
+                related_refs: [GAP_REF],
+              },
+            ],
       required_followups: [
         {
           followup_id: "bounded_followup",
@@ -651,21 +706,38 @@ function terminalReportSource(
       ],
       pending_operation_refs: [],
     },
-    research_conclusion: runtimeFailure
-      ? {
-          outcome: "no_recommendation",
-          current_recommendation: "本次运行失败，不能形成研究建议。",
-          meaning: "运行问题阻止了完整执行，不能把失败解释为市场结论。",
-          evidence_strength: "insufficient",
-          allowed_claim: "本次运行在完成机会综合前失败。",
-        }
-      : {
-          outcome: "insufficient_evidence",
-          current_recommendation: "暂缓形成或排序创业机会。",
-          meaning: "当前只完成初轮发现，证据不足以支持机会结论。",
-          evidence_strength: "insufficient",
-          allowed_claim: "初轮发现已完成，但后续机会综合未执行。",
-        },
+    research_conclusion:
+      terminalOutcomeOverride === "completed"
+        ? {
+            outcome: "no_recommendation",
+            current_recommendation: "研究计划已完整执行，但没有形成可支持的机会方向。",
+            meaning: "执行完整不代表证据充分，也不自动产生推荐。",
+            evidence_strength: "insufficient",
+            allowed_claim: "当前研究计划已经完整执行。",
+          }
+        : terminalOutcomeOverride === "cancelled"
+          ? {
+              outcome: "no_recommendation",
+              current_recommendation: "用户已取消本次研究，不形成研究建议。",
+              meaning: "取消是用户生命周期决定，不是市场结论。",
+              evidence_strength: "insufficient",
+              allowed_claim: "本次研究由用户取消。",
+            }
+          : runtimeFailure
+            ? {
+                outcome: "no_recommendation",
+                current_recommendation: "本次运行失败，不能形成研究建议。",
+                meaning: "运行问题阻止了完整执行，不能把失败解释为市场结论。",
+                evidence_strength: "insufficient",
+                allowed_claim: "本次运行在完成机会综合前失败。",
+              }
+            : {
+                outcome: "insufficient_evidence",
+                current_recommendation: "暂缓形成或排序创业机会。",
+                meaning: "当前只完成初轮发现，证据不足以支持机会结论。",
+                evidence_strength: "insufficient",
+                allowed_claim: "初轮发现已完成，但后续机会综合未执行。",
+              },
     runtime_health: runtimeFailure
       ? {
           status: "blocked",
@@ -734,6 +806,8 @@ async function setupPersistedRun(
     | "terminate"
     | "terminate-unclosed"
     | "runtime-failure"
+    | "complete"
+    | "cancel"
     | "pre-kill-exact"
     | "pre-kill-missing"
     | "pre-kill-shared"
@@ -881,6 +955,10 @@ async function setupPersistedRun(
         : action === "post-g2-add"
           ? gapSnapshot(runId, "evidence_insufficient", PRE_KILL_CANDIDATE_REF)
           : gapSnapshot(runId);
+  if (action === "complete") {
+    gap.gaps = [];
+    gap.unresolved_decision_relevant_questions = [];
+  }
   if (action === "runtime-failure") {
     gap.stop_signals = ["runtime_blocked"];
   }
@@ -912,11 +990,15 @@ async function setupPersistedRun(
           ? terminationDecision(runId)
           : action === "runtime-failure"
             ? runtimeFailureDecision(runId)
-            : action === "retry"
-              ? retryDecision(runId)
-              : action === "supersede"
-                ? supersedeDecision(runId)
-                : retryDecision(runId);
+            : action === "complete"
+              ? completionDecision(runId)
+              : action === "cancel"
+                ? cancellationAdaptationDecision(runId)
+                : action === "retry"
+                  ? retryDecision(runId)
+                  : action === "supersede"
+                    ? supersedeDecision(runId)
+                    : retryDecision(runId);
   if (action === "post-g2-add") {
     decision.adaptation_id = "adapt_add_post_g2";
     decision.action = "add_unit";
@@ -941,9 +1023,12 @@ async function setupPersistedRun(
     };
     decision.success_condition = "The added unit publishes one typed discovery result.";
   }
-  const userDecision = requestedByUser
-    ? userPlanDecision(runId, `decision_${runId.replaceAll("-", "_")}`)
-    : null;
+  const userDecision =
+    action === "cancel"
+      ? userCancellationDecision(runId, `decision_${runId.replaceAll("-", "_")}`)
+      : requestedByUser
+        ? userPlanDecision(runId, `decision_${runId.replaceAll("-", "_")}`)
+        : null;
   if (userDecision !== null) {
     decision.requested_by = "user";
     decision.user_decision_ref = `decisions.jsonl#${String(userDecision.decision_id)}`;
@@ -988,6 +1073,16 @@ async function setupPersistedRun(
   beforeCheckpoint.completed_units = discoveryBacked ? [] : ["counter_completed"];
   beforeCheckpoint.active_units = discoveryBacked ? [] : ["buyer_active"];
   beforeCheckpoint.failed_units = discoveryBacked ? [] : ["acquisition_failed"];
+  if (action === "complete") {
+    beforeCheckpoint.completed_units = [
+      "acquisition_failed",
+      "buyer_active",
+      "counter_completed",
+      "value_pending",
+    ];
+    beforeCheckpoint.active_units = [];
+    beforeCheckpoint.failed_units = [];
+  }
   beforeCheckpoint.updated_at = "2026-07-24T12:06:00Z";
   await writeFile(path.join(runRoot, "manifest.json"), `${canonicalJson(beforeCheckpoint)}\n`);
   await store.checkpoint({
@@ -1002,7 +1097,7 @@ async function setupPersistedRun(
       remaining_disagreement: [],
       next_decision_relevant_question: "Does the retry produce a valid result?",
     },
-    unresolvedGapRefs: [`${GAP_REF}#gap_runtime_001`],
+    unresolvedGapRefs: action === "complete" ? [] : [`${GAP_REF}#gap_runtime_001`],
     inputRefs: [CONTEXT_REF, GAP_REF, DECISION_REF],
   });
   const loaded = await store.load(runId);
@@ -1050,6 +1145,7 @@ async function setupPersistedRun(
 async function prepareTerminalReporting(
   setup: Awaited<ReturnType<typeof setupPersistedRun>>,
   runtimeFailure = false,
+  terminalOutcomeOverride?: "completed" | "cancelled",
 ) {
   const runId = String(setup.currentManifest.run_id);
   const storedDecisionContextEnvelope =
@@ -1162,7 +1258,15 @@ async function prepareTerminalReporting(
   };
   return {
     adaptationBundle,
-    reportEnvelope: terminalReportSource(runId, snapshotEnvelope.content_hash, runtimeFailure),
+    reportEnvelope: terminalReportSource(
+      runId,
+      snapshotEnvelope.content_hash,
+      runtimeFailure,
+      DECISION_SUBJECT_SNAPSHOT_REF,
+      PLAN_REF,
+      "2026-07-24T12:09:30Z",
+      terminalOutcomeOverride,
+    ),
   };
 }
 
@@ -3569,6 +3673,75 @@ test("terminal adaptation requires and materializes a validated main-agent decis
   );
 });
 
+test("completed and cancelled outcomes use the atomic terminal Plan closeout", async (contextTest) => {
+  for (const lifecycle of ["complete", "cancel"] as const) {
+    const runId = `runtime-terminal-${lifecycle}`;
+    const setup = await setupPersistedRun(contextTest, runId, lifecycle);
+    const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+    const outcome = lifecycle === "complete" ? "completed" : "cancelled";
+    const terminal = await prepareTerminalReporting(setup, false, outcome);
+    const input = {
+      runId,
+      adaptationBundle: terminal.adaptationBundle,
+      adaptationRefs: [DECISION_REF],
+      terminalReportEnvelope: terminal.reportEnvelope,
+      createdAt: "2026-07-24T12:10:00Z",
+      checkpointCreatedAt: "2026-07-24T12:11:00Z",
+      nextStep: "Deliver the exact atomic terminal result.",
+      beliefSummary: {
+        current_belief: `The Run is ready for ${outcome} closeout.`,
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Is the terminal report closure durable?",
+      },
+    };
+    const result = await runtime.apply(input);
+    assert.equal(result.terminalReport?.status, "published");
+    const manifest = (await setup.store.status(runId)).manifest;
+    assert.equal(manifest.status, outcome);
+    assert.equal((await setup.store.status(runId)).terminalReportDisposition, "ready");
+    if (lifecycle === "cancel") {
+      assert.deepEqual(manifest.active_units, []);
+      assert.deepEqual(manifest.cancelled_units, ["buyer_active", "value_pending"]);
+      assert.deepEqual(manifest.failed_units, ["acquisition_failed"]);
+    }
+    const replay = await runtime.apply(input);
+    assert.equal(replay.status, "idempotent_replay");
+    assert.equal(replay.terminalReport?.status, "idempotent_replay");
+    const reopened = await new RunStore(
+      setup.runsRoot,
+      await createArtifactValidator(repositoryRoot),
+    ).load(runId);
+    assert.equal(reopened.manifest.status, outcome);
+  }
+});
+
+test("complete_research rejects incomplete current Plan unit closure before an intent", async (contextTest) => {
+  const runId = "runtime-terminal-complete-incomplete";
+  const setup = await setupPersistedRun(contextTest, runId, "complete");
+  const incomplete = structuredClone(setup.adaptationBundle);
+  const manifestEntry = incomplete.documents.find((entry) => entry.path === "manifest.json");
+  assert.ok(manifestEntry);
+  const manifest = manifestEntry.document;
+  manifest.completed_units = ["counter_completed"];
+  manifest.active_units = ["buyer_active"];
+  manifest.failed_units = ["acquisition_failed"];
+  const before = await planApplyBoundaryState(setup.runRoot);
+  const validation = (await createAdaptationPolicyValidator(repositoryRoot)).validateDocumentBundle(
+    incomplete,
+    undefined,
+    [DECISION_REF],
+  );
+  assert.ok(
+    validation.adaptationErrors.some(
+      (issue) => issue.code === "adaptation.completion_closure_incomplete",
+    ),
+    JSON.stringify(validation, null, 2),
+  );
+  assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+});
+
 test("decision subject authority survives Plan r2 transition, terminal reporting, checkpoint, and reopen", async (contextTest) => {
   const runId = "runtime-decision-subject-plan-transition";
   const setup = await setupPersistedRun(contextTest, runId, "post-g2-add");
@@ -4047,7 +4220,8 @@ test("terminal report preflight failure leaves no closeout intent or formal outp
         next_decision_relevant_question: "Can a corrected report close the Run?",
       },
     }),
-    (error: unknown) => error instanceof StoreError && error.code === "report.source_invalid",
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "apply.terminal_report_source_invalid",
   );
   assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
   assert.deepEqual(

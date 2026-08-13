@@ -1355,15 +1355,14 @@ test("Assessment Evidence binds a current dispatch task and exact Evidence Store
   );
 });
 
-test("terminal Assessment gates atomically project Run outcomes and recover exact replay", async (t) => {
+test("Assessment gates close later units without directly making the Run terminal", async (t) => {
   const cases = [
-    { outcome: "deprioritize", disposition: "opposes", status: "completed" },
+    { outcome: "deprioritize", disposition: "opposes" },
     {
       outcome: "insufficient_evidence",
       disposition: "insufficient_evidence",
-      status: "insufficient_evidence",
     },
-    { outcome: "runtime_blocked", disposition: "insufficient_evidence", status: "failed" },
+    { outcome: "runtime_blocked", disposition: "insufficient_evidence" },
   ] as const;
   for (const item of cases) {
     const state = await prepareStoreRun(t, `terminal-${item.outcome}`);
@@ -1433,7 +1432,7 @@ test("terminal Assessment gates atomically project Run outcomes and recover exac
       assert.equal((await state.compiler.compile(gateRequest)).status, "published");
     }
     const manifest = (await state.store.status(state.runId)).manifest;
-    assert.equal(manifest.status, item.status);
+    assert.equal(manifest.status, "researching");
     assert.deepEqual(manifest.skipped_units, ["unit_business_delivery", "unit_commercial"]);
     assert.equal((await state.compiler.compile(gateRequest)).status, "idempotent_replay");
     assert.deepEqual((await state.store.status(state.runId)).manifest, manifest);

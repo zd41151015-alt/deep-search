@@ -27,7 +27,9 @@
     "request_clarification",
     "stop_followup",
     "record_runtime_failure",
-    "terminate_insufficient_evidence"
+    "terminate_insufficient_evidence",
+    "complete_research",
+    "cancel_research"
   ],
   "late_artifact_rule": "persist_and_index_only_as_ignored_late",
   "partial_retry": "fail_closed"

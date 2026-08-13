@@ -173,6 +173,11 @@ export {
   type RuntimePublicationPlan,
 } from "./runtime/declarative-runtime.js";
 export {
+  deriveLaneScopeFormalClosure,
+  type LaneScopeDisposition,
+  type LaneScopeFormalClosure,
+} from "./runtime/lane-delivery-closure.js";
+export {
   type LaneDeliveryResult,
   LaneResultMaterializer,
 } from "./runtime/lane-materializer.js";

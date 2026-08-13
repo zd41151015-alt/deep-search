@@ -27,6 +27,8 @@ export interface PlanRevisionApplyPolicy extends Record<string, unknown> {
     "stop_followup",
     "record_runtime_failure",
     "terminate_insufficient_evidence",
+    "complete_research",
+    "cancel_research",
   ];
   readonly late_artifact_rule: "persist_and_index_only_as_ignored_late";
   readonly partial_retry: "fail_closed";

@@ -15,6 +15,11 @@ import {
   type RuntimeArtifactCompilationResult,
   type RuntimePublicationPlan,
 } from "./declarative-runtime.js";
+import {
+  deriveLaneScopeFormalClosure,
+  type LaneScopeDisposition,
+  type LaneScopeFormalClosure,
+} from "./lane-delivery-closure.js";
 
 interface RequiredArtifact {
   readonly artifact_type: string;
@@ -23,7 +28,7 @@ interface RequiredArtifact {
 
 interface CoverageEntry {
   readonly scope_key: string;
-  readonly status: "covered" | "no_evidence_found" | "not_applicable";
+  readonly status: LaneScopeDisposition;
   readonly evidence_refs: readonly string[];
   readonly notes: string;
 }
@@ -633,14 +638,18 @@ function preflight(
           "lane_delivery.covered_scope_without_evidence",
           `/delivery_contract/scope_coverage/${String(index)}`,
           "covered scope requires at least one exact Evidence receipt",
-          "A research conclusion was marked covered without formal Evidence.",
+          "A complete research coverage conclusion was declared without formal Evidence.",
           entry.scope_key,
           false,
           [entry.scope_key],
         ),
       );
     }
-    if (entry.status !== "covered" && entry.evidence_refs.length > 0) {
+    if (
+      entry.status !== "covered" &&
+      entry.status !== "partial" &&
+      entry.evidence_refs.length > 0
+    ) {
       issues.push(
         issue(
           staging.staging_id,
@@ -745,6 +754,57 @@ function preflight(
       `${right.code}\u0000${right.path}\u0000${right.reference ?? ""}`,
     ),
   );
+}
+
+function scopeClosureIssues(
+  staging: LaneStagingDocument,
+  derived: ReturnType<typeof deriveLaneScopeFormalClosure>,
+): readonly LaneDeliveryIssue[] {
+  return derived.issues.map((current) =>
+    issue(
+      staging.staging_id,
+      current.code,
+      `/delivery_contract/scope_coverage/${String(
+        staging.delivery_contract.scope_coverage.findIndex(
+          (entry) => entry.scope_key === current.scopeKey,
+        ),
+      )}`,
+      current.message,
+      "The Agent coverage declaration is not supported by the compiled formal Lane Result or Audit closure.",
+      current.scopeKey,
+      true,
+      [current.scopeKey, canonicalJson({ expected: current.expected, actual: current.actual })],
+    ),
+  );
+}
+
+function discoveryScopeOutcomeIssues(
+  staging: LaneStagingDocument,
+  authority: LaneDeliveryAuthority,
+  prepared: readonly PreparedAgentArtifact[],
+): readonly LaneDeliveryIssue[] {
+  const lane = prepared.find(
+    (artifact) =>
+      artifact.family === "lane_result" &&
+      artifact.artifact_type === "startup_opportunity.discovery_lane_result.v1",
+  );
+  if (lane === undefined) return [];
+  const outcomes = records(lane.document.scope_outcomes);
+  const outcomeKeys = outcomes.map((outcome) => String(outcome.scope_key));
+  const expectedScope = uniqueSorted(strings(authority.executionLane.reporting_dimensions));
+  if (canonicalJson(uniqueSorted(outcomeKeys)) === canonicalJson(expectedScope)) return [];
+  return [
+    issue(
+      staging.staging_id,
+      "lane_delivery.discovery_scope_outcomes_mismatch",
+      "/agent_documents",
+      "Discovery Lane Result scope outcomes must exactly cover the Task-assigned scope",
+      "The researcher omitted, duplicated, or added a scope outcome outside the derived Delivery Manifest.",
+      lane.artifact_path,
+      false,
+      [...expectedScope, ...outcomeKeys],
+    ),
+  ];
 }
 
 export class LaneResultMaterializer {
@@ -1068,9 +1128,68 @@ export class LaneResultMaterializer {
         sharedIssues = compilerPreflightIssues(staging, error);
       }
     }
+    const compiledClosureArtifacts =
+      preview?.compiled_envelopes.map((envelope) => ({
+        artifact_ref: envelope.artifact_path,
+        artifact_type: envelope.artifact_type,
+        content_hash: envelope.content_hash,
+        document: envelope.document,
+      })) ?? [];
+    const currentClosureArtifacts =
+      preview === null
+        ? []
+        : (
+            await this.runs.buildValidationContext(
+              staging.run_id,
+              {
+                schema_version: "startup_opportunity.document_bundle.current",
+                documents: [
+                  {
+                    path: "manifest.json",
+                    document: (await this.runs.status(staging.run_id)).manifest,
+                  },
+                ],
+                exact_records: [],
+              },
+              { includeAllFormalArtifacts: true },
+            )
+          ).bundle.documents.flatMap((entry) => {
+            const envelope = entry.document;
+            return envelope.schema_version === "startup_opportunity.artifact_envelope.current" &&
+              typeof envelope.artifact_type === "string" &&
+              typeof envelope.content_hash === "string" &&
+              isRecord(envelope.document)
+              ? [
+                  {
+                    artifact_ref: entry.path,
+                    artifact_type: envelope.artifact_type,
+                    content_hash: envelope.content_hash,
+                    document: envelope.document,
+                  },
+                ]
+              : [];
+          });
+    const closureArtifacts = [
+      ...new Map(
+        [...currentClosureArtifacts, ...compiledClosureArtifacts].map((artifact) => [
+          artifact.artifact_ref,
+          artifact,
+        ]),
+      ).values(),
+    ];
+    const scopeFormalClosure =
+      preview === null
+        ? { closure: [] as readonly LaneScopeFormalClosure[], issues: [] }
+        : deriveLaneScopeFormalClosure(
+            staging.delivery_contract.scope_coverage,
+            closureArtifacts,
+            authority.requiredArtifacts.map((artifact) => artifact.artifact_path),
+          );
     const issues = preflight(staging, authority, prepared, [
       ...constructionIssues,
       ...sharedIssues,
+      ...discoveryScopeOutcomeIssues(staging, authority, prepared),
+      ...scopeClosureIssues(staging, scopeFormalClosure),
     ]);
     if (issues.length > 0) {
       throw new StoreError(
@@ -1107,6 +1226,7 @@ export class LaneResultMaterializer {
       assigned_subject_refs: authority.assignedSubjectRefs,
       assigned_scope: authority.assignedScope,
       scope_coverage: staging.delivery_contract.scope_coverage,
+      scope_formal_closure: scopeFormalClosure.closure,
       search_closure: staging.delivery_contract.search_closure,
     };
     const receiptPath = `artifacts/runtime/lane-deliveries/${staging.staging_id}.json`;
@@ -1119,6 +1239,7 @@ export class LaneResultMaterializer {
         checks: [
           "required_artifacts_complete",
           "scope_coverage_complete",
+          "scope_formal_closure_verified",
           "evidence_refs_declared",
           "search_closure_complete",
         ],
@@ -1129,6 +1250,9 @@ export class LaneResultMaterializer {
         ).length,
         no_evidence_scope_count: staging.delivery_contract.scope_coverage.filter(
           (entry) => entry.status === "no_evidence_found",
+        ).length,
+        partial_scope_count: staging.delivery_contract.scope_coverage.filter(
+          (entry) => entry.status === "partial",
         ).length,
         not_applicable_scope_count: staging.delivery_contract.scope_coverage.filter(
           (entry) => entry.status === "not_applicable",

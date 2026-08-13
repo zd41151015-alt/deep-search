@@ -964,6 +964,40 @@ function validateLaneResult(
       ),
     );
   }
+  const lineage = evidenceLineage(lane.document);
+  const scopeOutcomes = records(lane.document.scope_outcomes);
+  const scopeKeys = scopeOutcomes.map((outcome) => String(outcome.scope_key));
+  if (new Set(scopeKeys).size !== scopeKeys.length) {
+    errors.push(
+      issue(
+        "discovery_candidate.scope_outcome_duplicate",
+        `${lane.path}#/scope_outcomes`,
+        "discovery Lane Result scope outcomes require unique scope keys",
+      ),
+    );
+  }
+  for (const [index, outcome] of scopeOutcomes.entries()) {
+    for (const field of [
+      "evidence_refs",
+      "claim_refs",
+      "finding_refs",
+      "judgment_assessment_refs",
+    ] as const) {
+      const outsideLineage = strings(outcome[field]).filter(
+        (ref) => !strings(lineage[field]).includes(ref),
+      );
+      if (outsideLineage.length > 0) {
+        errors.push(
+          issue(
+            "discovery_candidate.scope_outcome_lineage_mismatch",
+            `${lane.path}#/scope_outcomes/${String(index)}/${field}`,
+            "scope outcome semantic refs must be contained in the Lane Result aggregate lineage",
+            { outsideLineage },
+          ),
+        );
+      }
+    }
+  }
   const decisions = Array.isArray(lane.document.pre_kill_decisions)
     ? lane.document.pre_kill_decisions.filter(isRecord)
     : [];

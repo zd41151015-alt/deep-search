@@ -1,4 +1,6 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
+import type { LaneScopeDisposition } from "../runtime/lane-delivery-closure.js";
+import { deriveLaneScopeFormalClosure } from "../runtime/lane-delivery-closure.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
 export interface DeclarativeRuntimeDocument {
@@ -17,6 +19,7 @@ const RUNTIME_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.discovery_stage_readiness.v1",
   "startup_opportunity.source_manifest.discovery_runtime.current",
   "startup_opportunity.gap_snapshot.discovery.readiness.current",
+  "startup_opportunity.lane_delivery_receipt.current",
 ]);
 
 const STAGE_ORDER = [
@@ -1169,6 +1172,72 @@ function validateGapSnapshot(
   }
 }
 
+function validateLaneDeliveryReceipt(
+  entry: DeclarativeRuntimeDocument,
+  documents: readonly DeclarativeRuntimeDocument[],
+  errors: ValidationIssue[],
+): void {
+  const declarations = records(entry.document.scope_coverage).map((coverage) => ({
+    scope_key: String(coverage.scope_key),
+    status: coverage.status as LaneScopeDisposition,
+    evidence_refs: strings(coverage.evidence_refs),
+  }));
+  const delivered = records(entry.document.delivered_artifacts);
+  const rootRefs = delivered.map((artifact) => String(artifact.artifact_ref));
+  const artifacts = documents
+    .filter((document) => document.envelope !== null)
+    .map((document) => ({
+      artifact_ref: document.path,
+      artifact_type: document.schemaVersion,
+      content_hash:
+        typeof document.envelope?.content_hash === "string"
+          ? document.envelope.content_hash
+          : canonicalContentHash(document.document),
+      document: document.document,
+    }));
+  const artifactsByPath = new Map(artifacts.map((artifact) => [artifact.artifact_ref, artifact]));
+  for (const [index, deliveredArtifact] of delivered.entries()) {
+    const artifactRef = String(deliveredArtifact.artifact_ref);
+    const actual = artifactsByPath.get(artifactRef);
+    if (
+      actual === undefined ||
+      actual.artifact_type !== deliveredArtifact.artifact_type ||
+      actual.content_hash !== deliveredArtifact.content_hash
+    ) {
+      errors.push(
+        issue(
+          "runtime.lane_delivery_artifact_binding_mismatch",
+          `/delivered_artifacts/${String(index)}`,
+          "Lane delivery receipt must bind the exact current formal Artifact type and content hash",
+          { artifactRef, expected: deliveredArtifact, actual: actual ?? null },
+        ),
+      );
+    }
+  }
+  const derived = deriveLaneScopeFormalClosure(declarations, artifacts, rootRefs);
+  if (derived.issues.length > 0) {
+    errors.push(
+      ...derived.issues.map((closureIssue) =>
+        issue(`runtime.${closureIssue.code}`, "/scope_formal_closure", closureIssue.message, {
+          scopeKey: closureIssue.scopeKey,
+          expected: closureIssue.expected,
+          actual: closureIssue.actual,
+        }),
+      ),
+    );
+  }
+  if (canonicalJson(entry.document.scope_formal_closure) !== canonicalJson(derived.closure)) {
+    errors.push(
+      issue(
+        "runtime.lane_delivery_scope_closure_mismatch",
+        "/scope_formal_closure",
+        "Lane delivery receipt scope closure must equal the closure recomputed from exact formal Artifacts",
+        { expected: derived.closure, actual: entry.document.scope_formal_closure },
+      ),
+    );
+  }
+}
+
 export function isDeclarativeRuntimeSchemaVersion(schemaVersion: string): boolean {
   return RUNTIME_SCHEMA_VERSIONS.has(schemaVersion);
 }
@@ -1207,6 +1276,9 @@ export function validateDeclarativeRuntimeContract(
         break;
       case "startup_opportunity.gap_snapshot.discovery.readiness.current":
         validateGapSnapshot(entry, byPath, errors);
+        break;
+      case "startup_opportunity.lane_delivery_receipt.current":
+        validateLaneDeliveryReceipt(entry, documents, errors);
         break;
     }
   }

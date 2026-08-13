@@ -66,6 +66,43 @@ const DISCOVERY_PLAN_OPERATION_VERSION =
 const ASSESSMENT_PLAN_OPERATION_VERSION =
   "startup_opportunity.plan_revision_operation.assessment.current" as const;
 
+const TERMINAL_ACTIONS = new Set([
+  "terminate_insufficient_evidence",
+  "record_runtime_failure",
+  "complete_research",
+  "cancel_research",
+]);
+
+function terminalOutcomeMatchesAction(action: string, outcome: unknown): boolean {
+  switch (action) {
+    case "terminate_insufficient_evidence":
+      return outcome === "insufficient_evidence";
+    case "record_runtime_failure":
+      return outcome === "failed" || outcome === "blocked";
+    case "complete_research":
+      return outcome === "completed" || outcome === "deprioritized";
+    case "cancel_research":
+      return outcome === "cancelled";
+    default:
+      return false;
+  }
+}
+
+function terminalOutcomeMatchesManifest(status: string, outcome: unknown): boolean {
+  switch (status) {
+    case "completed":
+      return outcome === "completed" || outcome === "deprioritized";
+    case "insufficient_evidence":
+      return outcome === "insufficient_evidence";
+    case "failed":
+      return outcome === "failed" || outcome === "blocked";
+    case "cancelled":
+      return outcome === "cancelled";
+    default:
+      return false;
+  }
+}
+
 export type PlanApplyFaultBoundary =
   | "after_intent"
   | "after_control_artifacts"
@@ -490,6 +527,11 @@ function validateReceiptDocuments(
         receipt.terminal_report_operation.source_envelope,
         ...receipt.terminal_report_operation.derived_envelopes,
       ].some((entry) => !receipt.manifest.artifact_refs.includes(entry.artifact_path))) ||
+    (receipt.terminal_report_operation !== null &&
+      !terminalOutcomeMatchesManifest(
+        receipt.manifest.status,
+        receipt.terminal_report_operation.source_envelope.document.terminal_outcome,
+      )) ||
     (receipt.revision_created
       ? resultPlanEnvelope?.artifact_type !== "startup_opportunity.research_plan.v1" ||
         resultPlanEnvelope.content_hash !== receipt.result_plan_hash ||
@@ -514,6 +556,7 @@ async function validateReceiptSources(
   artifacts: ArtifactStore,
 ): Promise<void> {
   try {
+    const terminalActions: string[] = [];
     const basePlan = await storedEffectiveDocument(runRoot, receipt.base_plan_ref);
     if (canonicalContentHash(basePlan) !== receipt.base_plan_hash) {
       throw new Error("base hash mismatch");
@@ -553,16 +596,28 @@ async function validateReceiptSources(
       if (canonicalContentHash(decision) !== receipt.adaptation_hashes[index]) {
         throw new Error("adaptation hash mismatch");
       }
+      if (typeof decision.action === "string" && TERMINAL_ACTIONS.has(decision.action)) {
+        terminalActions.push(decision.action);
+      }
       if (decision.requested_by === "user") {
         if (typeof decision.user_decision_ref !== "string") {
           throw new Error("user decision ref missing");
         }
-        await logs.readExactRecord(
+        const userDecision = await logs.readExactRecord(
           runRoot,
           receipt.run_id,
           decision.user_decision_ref,
           "decisions.jsonl",
         );
+        if (
+          decision.action === "cancel_research" &&
+          (userDecision.schema_version !== "startup_opportunity.decision.v1" ||
+            userDecision.decision_type !== "run_cancelled" ||
+            userDecision.actor !== "user" ||
+            userDecision.run_id !== receipt.run_id)
+        ) {
+          throw new Error("cancellation authority mismatch");
+        }
       }
       if (Array.isArray(decision.trigger_gap_refs)) {
         for (const gapRef of decision.trigger_gap_refs) {
@@ -617,6 +672,17 @@ async function validateReceiptSources(
           }
         }
       }
+    }
+    if (
+      receipt.terminal_report_operation === null
+        ? terminalActions.length !== 0
+        : terminalActions.length !== 1 ||
+          !terminalOutcomeMatchesAction(
+            terminalActions[0] as string,
+            receipt.terminal_report_operation.source_envelope.document.terminal_outcome,
+          )
+    ) {
+      throw new Error("terminal Adaptation action mismatch");
     }
   } catch (_error) {
     throw new StoreError(
@@ -1537,11 +1603,10 @@ export class PlanRevisionRuntime {
     const selected = effectiveDocuments(input.adaptationBundle).filter((document) =>
       input.adaptationRefs.includes(document.path),
     );
-    const requiresTerminalReport = selected.some(
-      (document) =>
-        document.document.action === "terminate_insufficient_evidence" ||
-        document.document.action === "record_runtime_failure",
-    );
+    const terminalActions = selected
+      .map((document) => String(document.document.action))
+      .filter((action) => TERMINAL_ACTIONS.has(action));
+    const requiresTerminalReport = terminalActions.length > 0;
     if (!requiresTerminalReport && input.terminalReportEnvelope !== undefined) {
       throw new StoreError(
         "apply.unexpected_terminal_report_source",
@@ -1563,11 +1628,16 @@ export class PlanRevisionRuntime {
         source.artifact_type !== "startup_opportunity.terminal_report_source.v1" ||
         source.run_id !== input.runId ||
         source.producer_role !== "main_agent" ||
+        terminalActions.length !== 1 ||
+        !terminalOutcomeMatchesAction(
+          terminalActions[0] as string,
+          source.document.terminal_outcome,
+        ) ||
         !input.adaptationRefs.every((ref) => source.input_refs.includes(ref))
       ) {
         throw new StoreError(
           "apply.terminal_report_source_invalid",
-          "terminal report source must be a valid v17 main-agent envelope bound to the applied adaptations",
+          "terminal report source must be valid, bound to one terminal action, and use its exact outcome",
           { errors: validation.errors },
         );
       }
@@ -2011,10 +2081,8 @@ export class PlanRevisionRuntime {
       );
     }
     if (
-      selectedDecisions.some(
-        (decision) =>
-          decision.document.action === "terminate_insufficient_evidence" ||
-          decision.document.action === "record_runtime_failure",
+      selectedDecisions.some((decision) =>
+        TERMINAL_ACTIONS.has(String(decision.document.action)),
       ) &&
       input.terminalReportEnvelope === undefined
     ) {

@@ -8,7 +8,7 @@
     "research_plan": "startup_opportunity.research_plan.v1",
     "assessment_plan": "startup_opportunity.concept_evidence_assessment_plan.v1"
   },
-  "allowed_actions": ["add_unit", "stop_followup"],
+  "allowed_actions": ["add_unit", "stop_followup", "complete_research", "cancel_research"],
   "coverage_key_algorithm": "canonical_assessment_coverage_identity_sha256.v1",
   "plan_revision_operation_identity": "canonical_parent_plan_hash_and_sorted_adaptation_refs.v1",
   "add_unit_rules": [

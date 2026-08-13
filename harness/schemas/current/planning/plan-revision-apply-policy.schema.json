@@ -86,11 +86,17 @@
         },
         {
           "const": "terminate_insufficient_evidence"
+        },
+        {
+          "const": "complete_research"
+        },
+        {
+          "const": "cancel_research"
         }
       ],
       "items": false,
-      "minItems": 5,
-      "maxItems": 5
+      "minItems": 7,
+      "maxItems": 7
     },
     "late_artifact_rule": {
       "const": "persist_and_index_only_as_ignored_late"

@@ -1,7 +1,7 @@
 import { canonicalContentHash, canonicalJson, operationKey } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import type { RunManifest } from "../run-store/run-store.js";
-import { fragmentOf, isRecord } from "./contracts.js";
+import { fragmentOf, isRecord, statusOfUnit, unitEntries } from "./contracts.js";
 
 export interface AdaptationInputDocument {
   readonly path: string;
@@ -39,6 +39,8 @@ const NON_REVISION_ACTIONS = new Set([
   "stop_followup",
   "record_runtime_failure",
   "terminate_insufficient_evidence",
+  "complete_research",
+  "cancel_research",
 ]);
 
 const UNIT_STATE_FIELDS = [
@@ -219,6 +221,25 @@ export function transformPlan(
         status: "insufficient_evidence",
         limitations: uniqueSorted([...manifest.limitations, String(decision.reason)]),
       };
+    } else if (decision?.action === "complete_research") {
+      nextManifest = {
+        ...nextManifest,
+        status_before_clarification: null,
+        status: "completed",
+      };
+    } else if (decision?.action === "cancel_research") {
+      for (const entry of unitEntries(basePlan)) {
+        const unitId = String(entry.unit.unit_id);
+        if (["pending", "active"].includes(statusOfUnit(nextManifest, unitId))) {
+          nextManifest = moveUnitState(nextManifest, unitId, "cancelled_units");
+        }
+      }
+      nextManifest = {
+        ...nextManifest,
+        status_before_clarification: null,
+        status: "cancelled",
+        limitations: uniqueSorted([...manifest.limitations, String(decision.reason)]),
+      };
     }
     return {
       operationKey: stableOperationKey,
@@ -355,7 +376,9 @@ export function transformAssessmentPlan(
       (decision) =>
         decision.document.schema_version !==
           "startup_opportunity.adaptation_decision.assessment.current" ||
-        !["add_unit", "stop_followup"].includes(String(decision.document.action)),
+        !["add_unit", "stop_followup", "complete_research", "cancel_research"].includes(
+          String(decision.document.action),
+        ),
     )
   ) {
     throw new StoreError(

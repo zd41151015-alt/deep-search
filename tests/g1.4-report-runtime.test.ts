@@ -7,6 +7,7 @@ import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
+  ArtifactStore,
   canonicalContentHash,
   canonicalJson,
   createArtifactValidator,
@@ -1105,138 +1106,19 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
   };
 }
 
-test("terminal finalizer produces a localized decision-first brief with readable sources and hypotheses", async (context) => {
+test("public ReportRuntime rejects terminal sources before any standalone report write", async (context) => {
   const state = await prepareRun(context, { injectHistoricalCompilerWarning: true });
-  await markRunTerminal(state);
   const reportEnvelope = terminalReportEnvelope(state);
-  reportEnvelope.document.commercial_research_audit_refs = [];
-  reportEnvelope.document.quantitative_signal_rows = [];
-  reportEnvelope.document.competitive_substitute_rows = [];
-  reportEnvelope.document.research_coverage_gaps = [];
-  reportEnvelope.document.gate_warnings = [];
-  (reportEnvelope as unknown as { input_refs: string[] }).input_refs =
-    reportEnvelope.input_refs.filter((ref) => !ref.startsWith("artifacts/research-audits/"));
-  (reportEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
-    reportEnvelope.document,
+  const before = await snapshotTree(state.runRoot);
+  await assert.rejects(
+    state.runtime.build({ reportEnvelope }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.terminal_dedicated_entry_required",
   );
-  const result = await state.runtime.build({ reportEnvelope }).catch((error: unknown) => {
-    if (error instanceof StoreError) {
-      assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
-    }
-    throw error;
-  });
-  assert.equal(result.status, "published");
-  assert.deepEqual(result.materializedPaths, ["report.json", "decision-brief.md", "report.md"]);
-  const brief = await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8");
-  assert.match(brief, /^# 决策简报/m);
-  assert.match(brief, /## 现在应该做什么/);
-  assert.match(brief, /执行完整度: 部分执行/);
-  assert.match(brief, /状态: 运行受阻/);
-  assert.match(brief, /可测试产品假设/);
-  assert.match(
-    brief,
-    /\[Synthetic contract source\]\(https:\/\/unit_demand\.synthetic\.invalid\/support\)/,
-  );
-  assert.match(brief, /通过信号/);
-  assert.match(brief, /商业判断中的推测与未知/);
-  assert.match(brief, /推测：当前行为可能反映购买意向/);
-  assert.match(brief, /未知：尚不清楚目标用户如何描述该问题/);
-  assert.match(brief, /推理起点/);
-  assert.match(brief, /不确定性/);
-  assert.doesNotMatch(brief.split("## 审计附录", 1)[0] ?? "", /artifacts\//);
-  assert.doesNotMatch(brief, /insufficient_evidence|execution_supported: false/);
-  assert.doesNotMatch(brief, /plan_revision_failed|确定性发布故障|买方追加调研/);
-  assert.doesNotMatch(brief, /historical-only warning/);
-  assert.doesNotMatch(
-    brief,
-    /\b(?:same-Run|pre-thesis|baseline|counterfactual|Evidence|Harness|Artifact|opportunity_discovery|concept_evidence_assessment|runtime_blocked|not_executed)\b/u,
-  );
-  const reportJson = JSON.parse(
-    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
-  ) as Record<string, unknown>;
-  assert.equal(reportJson.schema_version, "startup_opportunity.terminal_report_source.v1");
-  assert.deepEqual(reportJson.current_decision_subject_ids, ["concept_assess_001"]);
-  const direction = (reportJson.directions as Record<string, unknown>[])[0];
-  assert.ok(direction);
-  assert.deepEqual(
-    Object.fromEntries(
-      [
-        "direction_id",
-        "subject_ref",
-        "label",
-        "target_user",
-        "narrow_scenario",
-        "problem",
-        "current_alternative",
-        "payer",
-        "product_form",
-        "core_value",
-      ].map((field) => [field, direction[field]]),
-    ),
-    {
-      direction_id: "concept_assess_001",
-      subject_ref: "concept-hypothesis.json",
-      label: "家庭协同遗漏的共享工作流",
-      target_user: "需要家庭协同的消费者",
-      narrow_scenario: "家庭成员需要确认共同任务是否完成时",
-      problem: "共同任务散落在即时通讯和个人备忘录中，成员难以确认完成状态",
-      current_alternative: "即时通讯 | 备忘录 | 维持现状",
-      payer: "家庭付款者",
-      product_form: "mini_program",
-      core_value: "降低重复沟通与遗漏",
-    },
-  );
-  assert.deepEqual(
-    reportJson.commercial_research_audit_refs,
-    state.commercialAudits.map((entry) => entry.auditRef).sort(),
-  );
-  assert.equal(
-    (reportJson.gate_warnings as Record<string, unknown>[]).some((warning) =>
-      String(warning.message).includes("historical-only warning"),
-    ),
-    false,
-  );
-  for (const branch of g14Branches()) {
-    assert.ok(
-      (reportJson.audit_refs as string[]).includes(`tasks/${branch.unitId}.attempt-1.json`),
-    );
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
+  for (const relativePath of ["report.json", "decision-brief.md", "report.md"]) {
+    await assert.rejects(readFile(path.join(state.runRoot, relativePath), "utf8"));
   }
-  const coverageGaps = reportJson.research_coverage_gaps as Record<string, unknown>[];
-  assert.ok(coverageGaps.length > 0);
-  assert.ok(
-    coverageGaps.some(
-      (gap) =>
-        gap.coverage_kind === "business" &&
-        gap.dimension === "recent_user_language" &&
-        (gap.subject_ids as string[]).length === 1,
-    ),
-  );
-  const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
-  assert.match(reportMarkdown, /No direct recent_user_language material was available/);
-  for (const rendered of [brief, reportMarkdown]) {
-    assert.match(rendered, /家庭协同遗漏的共享工作流/);
-    assert.match(rendered, /需要家庭协同的消费者/);
-    assert.match(rendered, /家庭成员需要确认共同任务是否完成时/);
-    assert.match(rendered, /即时通讯 \| 备忘录 \| 维持现状/);
-    assert.match(rendered, /家庭付款者/);
-    assert.match(rendered, /mini_program/);
-    assert.match(rendered, /降低重复沟通与遗漏/);
-    assert.doesNotMatch(rendered, /职业转换|雇主|工作样本|课程/);
-  }
-  assert.doesNotMatch(canonicalJson(reportJson), /职业转换|雇主|工作样本|课程/);
-  assert.ok(
-    (reportJson.gate_warnings as Record<string, unknown>[]).some(
-      (warning) =>
-        warning.code === "commercial_research.independent_cross_validation_missing" &&
-        warning.severity === "warning",
-    ),
-  );
-  await state.store.load(G14_RUN_ID).catch((error: unknown) => {
-    if (error instanceof StoreError) {
-      assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
-    }
-    throw error;
-  });
 });
 
 test("terminal report derives consistent current and inherited research provenance", async (context) => {
@@ -1357,58 +1239,26 @@ test("terminal report derives consistent current and inherited research provenan
   await assert.rejects(
     state.store.publishArtifact({ runId: G14_RUN_ID, envelope: drifted }),
     (error: unknown) =>
-      error instanceof StoreError &&
-      error.code === "run.transition_terminal_report_invalid" &&
-      storeReferenceCodes(error).includes("terminal_reporting.research_provenance_mismatch"),
+      error instanceof StoreError && error.code === "report.terminal_dedicated_entry_required",
+  );
+  await assert.rejects(
+    new ArtifactStore(state.runsRoot, state.validator).publish({
+      runId: G14_RUN_ID,
+      envelope: drifted,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.terminal_dedicated_entry_required",
   );
   await assert.rejects(
     state.runtime.build({ reportEnvelope: drifted }),
-    (error: unknown) => error instanceof StoreError && error.code === "report.source_invalid",
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.terminal_dedicated_entry_required",
   );
-
-  const result = await state.runtime.build({ reportEnvelope: terminalReportEnvelope(state) });
-  assert.equal(result.status, "published");
-  const reportJson = JSON.parse(
-    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
-  ) as Record<string, unknown>;
-  const provenance = reportJson.research_provenance as Record<string, unknown>;
-  assert.equal(provenance.available_handoff_count, 1);
-  assert.equal(provenance.captured_item_count, 2);
-  assert.deepEqual(provenance.causal_handoff_refs, []);
-  assert.deepEqual(provenance.consumed_item_refs, [
-    `${handoff.handoffRef}#inherited_source_material`,
-  ]);
-  assert.deepEqual(provenance.used_handoff_items, []);
-  assert.equal((provenance.imported_substrate_refs as string[]).length, 1);
-  assert.deepEqual(provenance.formal_inherited_evidence_refs, []);
-  assert.deepEqual(provenance.adopted_inherited_evidence_refs, []);
-  assert.deepEqual(provenance.cited_inherited_evidence_refs, []);
-  assert.ok((provenance.formal_current_evidence_refs as string[]).length > 0);
-  assert.ok((provenance.adopted_current_evidence_refs as string[]).length > 0);
-  assert.ok((provenance.cited_current_evidence_refs as string[]).length > 0);
-  assert.deepEqual(provenance.revalidation_gaps, []);
-  const formalReport = JSON.parse(
-    await readFile(
-      path.join(state.runRoot, "artifacts/reporting/terminal-report-source.r1.json"),
-      "utf8",
-    ),
-  ) as Record<string, unknown>;
-  assert.ok(!(formalReport.input_refs as string[]).includes(handoff.handoffRef));
-  assert.deepEqual(reportJson.current_decision_subject_ids, ["concept_assess_001"]);
-  const reportView = JSON.parse(
-    await readFile(path.join(state.runRoot, "artifacts/reporting/report-markdown.r1.json"), "utf8"),
-  ) as { document: { section_ids: string[]; research_provenance: unknown } };
-  assert.ok(reportView.document.section_ids.includes("research_provenance"));
-  assert.deepEqual(reportView.document.research_provenance, provenance);
-  for (const filename of ["decision-brief.md", "report.md"]) {
-    const markdown = await readFile(path.join(state.runRoot, filename), "utf8");
-    assert.match(markdown, /研究来源沿袭/);
-    assert.match(markdown, /可用 handoff \/ 捕获条目: 1 \/ 2/);
-    assert.match(markdown, /已消费 \/ 实际用于形成: 1 \/ 0/);
-    assert.match(markdown, /导入的原始材料: 1/);
-    assert.match(markdown, /采用 \/ 报告引用的继承证据: 0 \/ 0/);
-    assert.doesNotMatch(markdown, /opportunity-space-map\.r1\.json/);
-  }
+  await assert.rejects(
+    state.runtime.build({ reportEnvelope: terminalReportEnvelope(state) }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.terminal_dedicated_entry_required",
+  );
 });
 
 test("terminal report rejects false completion, derived drift, and caller-declared freshness", async (context) => {
@@ -1596,36 +1446,18 @@ test("terminal Search Closure reconciles every planned lane before or after Task
   );
 });
 
-test("terminal report fault recovery completes immutable sidecars and materialized views", async (context) => {
+test("public terminal build rejects fault options without creating a partial report", async (context) => {
   const state = await prepareRun(context);
-  await markRunTerminal(state);
+  const before = await snapshotTree(state.runRoot);
   await assert.rejects(
     state.runtime.build({
       reportEnvelope: terminalReportEnvelope(state),
       faultAt: "after_view_materialization",
     }),
-    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.terminal_dedicated_entry_required",
   );
-  const loaded = await state.store.load(G14_RUN_ID).catch((error: unknown) => {
-    if (error instanceof StoreError) {
-      assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
-    }
-    throw error;
-  });
-  assert.ok(
-    loaded.reportRecovery.recoveredFormalArtifactPaths.includes(
-      "artifacts/reporting/consistency-evaluation.r1.json",
-    ),
-  );
-  assert.match(await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8"), /# 决策简报/);
-  assert.match(
-    await readFile(path.join(state.runRoot, "report.md"), "utf8"),
-    /# 创业机会研究终态报告/,
-  );
-  const recoveredReport = JSON.parse(
-    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
-  ) as Record<string, unknown>;
-  assert.ok((recoveredReport.audit_refs as string[]).includes("tasks/unit_demand.attempt-1.json"));
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
 });
 
 test("decision subject snapshots advance atomically and historical exact replay cannot roll back authority", async (context) => {
@@ -2085,18 +1917,11 @@ test("Store re-forms a Concept only through an explicit post-terminal revision a
       { auditRef: missingAudit.auditRef, audit: auditDocument },
     ],
   };
-  await markRunTerminal(reportState);
-  const reportResult = await reportState.runtime.build({
-    reportEnvelope: terminalReportEnvelope(reportState),
-  });
-  assert.equal(reportResult.status, "published");
-  const reportJson = JSON.parse(
-    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
-  ) as Record<string, unknown>;
-  const projectedDirection = (reportJson.directions as Record<string, unknown>[])[0];
-  assert.equal(projectedDirection?.subject_ref, conceptR2Ref);
-  assert.equal(projectedDirection?.subject_content_hash, conceptR2.content_hash);
-  assert.match(await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8"), /家庭协同/);
+  await assert.rejects(
+    reportState.runtime.build({ reportEnvelope: terminalReportEnvelope(reportState) }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.terminal_dedicated_entry_required",
+  );
 });
 
 test("build-report publishes formal sidecars, materializes three outputs, and exactly replays", async (context) => {
@@ -2684,4 +2509,31 @@ test("build-report CLI consumes one explicit envelope and returns a structured r
   assert.equal(result.schemaVersion, "startup_opportunity.build_report_result.v1");
   assert.equal(result.status, "published");
   assert.deepEqual(result.materializedPaths, ["report.json", "decision-brief.md", "report.md"]);
+
+  const terminalPath = path.join(path.dirname(state.runsRoot), "terminal-report-envelope.json");
+  await writeFile(terminalPath, `${canonicalJson(terminalReportEnvelope(state))}\n`);
+  await assert.rejects(
+    execFileAsync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "harness/src/cli.ts",
+        "build-report",
+        "--file",
+        terminalPath,
+        "--runs-root",
+        state.runsRoot,
+        "--json",
+      ],
+      { cwd: repositoryRoot },
+    ),
+    (error: unknown) => {
+      assert.ok(isRecord(error));
+      const stderr = String(error.stderr ?? "");
+      const failure = JSON.parse(stderr) as { error: { code: string } };
+      assert.equal(failure.error.code, "report.terminal_dedicated_entry_required");
+      return true;
+    },
+  );
 });

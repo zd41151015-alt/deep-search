@@ -11,7 +11,12 @@ export { ASSESSMENT_ADAPTATION_POLICY_PATH };
 export interface AssessmentAdaptationPolicy extends Record<string, unknown> {
   readonly schema_version: "startup_opportunity.assessment_adaptation_policy.current";
   readonly policy_version: "1.0.0";
-  readonly allowed_actions: readonly ["add_unit", "stop_followup"];
+  readonly allowed_actions: readonly [
+    "add_unit",
+    "stop_followup",
+    "complete_research",
+    "cancel_research",
+  ];
   readonly add_unit_rules: readonly {
     readonly gap_type: string;
     readonly dimension_id: string;
@@ -53,7 +58,8 @@ export async function loadAssessmentAdaptationPolicy(
   const policy = value as unknown as AssessmentAdaptationPolicy;
   if (
     canonicalJson(policy.add_unit_rules) !== canonicalJson(EXPECTED_ADD_UNIT_RULES) ||
-    canonicalJson(policy.allowed_actions) !== canonicalJson(["add_unit", "stop_followup"])
+    canonicalJson(policy.allowed_actions) !==
+      canonicalJson(["add_unit", "stop_followup", "complete_research", "cancel_research"])
   ) {
     throw new StoreError(
       "policy.assessment_adaptation_invalid",

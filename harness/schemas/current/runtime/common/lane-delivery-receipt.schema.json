@@ -26,13 +26,81 @@
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
         },
         "status": {
-          "enum": ["covered", "no_evidence_found", "not_applicable"]
+          "enum": ["covered", "partial", "no_evidence_found", "not_applicable"]
         },
         "evidence_refs": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
         },
         "notes": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "scopeFormalClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_key", "disposition", "evidence_bindings", "semantic_bindings"],
+      "properties": {
+        "scope_key": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "disposition": {
+          "enum": ["covered", "partial", "no_evidence_found", "not_applicable"]
+        },
+        "evidence_bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["evidence_ref", "artifact_type", "content_hash", "substrate_record_ref"],
+            "properties": {
+              "evidence_ref": {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+              },
+              "artifact_type": {
+                "type": "string",
+                "pattern": "^startup_opportunity\\.evidence(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
+              },
+              "content_hash": {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+              },
+              "substrate_record_ref": {
+                "type": "string",
+                "pattern": "^evidence/manifest\\.jsonl#[A-Za-z0-9][A-Za-z0-9._:-]*$"
+              }
+            }
+          }
+        },
+        "semantic_bindings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "artifact_ref",
+              "artifact_type",
+              "content_hash",
+              "semantic_path",
+              "semantic_identity"
+            ],
+            "properties": {
+              "artifact_ref": {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+              },
+              "artifact_type": {
+                "type": "string",
+                "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
+              },
+              "content_hash": {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+              },
+              "semantic_path": { "type": "string", "pattern": "^/" },
+              "semantic_identity": {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+              }
+            }
+          }
         }
       }
     },
@@ -97,6 +165,7 @@
     "assigned_subject_refs",
     "assigned_scope",
     "scope_coverage",
+    "scope_formal_closure",
     "search_closure",
     "audit",
     "gate_diagnostics",
@@ -164,6 +233,11 @@
       "minItems": 1,
       "items": { "$ref": "#/$defs/coverageEntry" }
     },
+    "scope_formal_closure": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/scopeFormalClosure" }
+    },
     "search_closure": { "$ref": "#/$defs/searchClosure" },
     "audit": {
       "type": "object",
@@ -174,6 +248,7 @@
         "required_artifact_count",
         "delivered_artifact_count",
         "covered_scope_count",
+        "partial_scope_count",
         "no_evidence_scope_count",
         "not_applicable_scope_count",
         "evidence_ref_count"
@@ -185,16 +260,18 @@
           "prefixItems": [
             { "const": "required_artifacts_complete" },
             { "const": "scope_coverage_complete" },
+            { "const": "scope_formal_closure_verified" },
             { "const": "evidence_refs_declared" },
             { "const": "search_closure_complete" }
           ],
-          "minItems": 4,
-          "maxItems": 4,
+          "minItems": 5,
+          "maxItems": 5,
           "items": false
         },
         "required_artifact_count": { "type": "integer", "minimum": 1 },
         "delivered_artifact_count": { "type": "integer", "minimum": 1 },
         "covered_scope_count": { "type": "integer", "minimum": 0 },
+        "partial_scope_count": { "type": "integer", "minimum": 0 },
         "no_evidence_scope_count": { "type": "integer", "minimum": 0 },
         "not_applicable_scope_count": { "type": "integer", "minimum": 0 },
         "evidence_ref_count": { "type": "integer", "minimum": 0 }

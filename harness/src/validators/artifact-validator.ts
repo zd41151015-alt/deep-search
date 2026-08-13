@@ -643,6 +643,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "scope_frame_ref",
           "startup_opportunity.scope_frame.assessment.current",
         ),
+        ...optionalRef(
+          document,
+          "user_decision_ref",
+          "startup_opportunity.decision.v1",
+          "decision_id",
+        ),
       ];
     case "startup_opportunity.planning_context.general.current":
       return [

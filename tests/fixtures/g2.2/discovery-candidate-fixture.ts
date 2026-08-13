@@ -507,6 +507,17 @@ function laneResult(
       source_manifest_refs: [sourceManifestRef],
       audit_refs: [],
     },
+    scope_outcomes: [
+      {
+        scope_key: laneType,
+        disposition: "covered",
+        evidence_refs: [evidenceRef],
+        claim_refs: [claimRef],
+        finding_refs: [],
+        judgment_assessment_refs: [...judgmentRefs],
+        notes: synthetic("the exact Lane Evidence supports this authored scope outcome"),
+      },
+    ],
     scored_candidates: [
       {
         candidate_ref: G22_DEMAND_R1,

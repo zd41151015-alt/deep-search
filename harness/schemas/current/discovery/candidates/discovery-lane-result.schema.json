@@ -17,6 +17,7 @@
     "research_goals",
     "queries",
     "evidence_lineage",
+    "scope_outcomes",
     "scored_candidates",
     "pre_kill_decisions",
     "retained_candidate_refs",
@@ -73,6 +74,79 @@
     },
     "evidence_lineage": {
       "$ref": "./definitions.schema.json#/$defs/candidateEvidenceRefs"
+    },
+    "scope_outcomes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_key",
+          "disposition",
+          "evidence_refs",
+          "claim_refs",
+          "finding_refs",
+          "judgment_assessment_refs",
+          "notes"
+        ],
+        "properties": {
+          "scope_key": { "$ref": "./definitions.schema.json#/$defs/identifier" },
+          "disposition": {
+            "enum": ["covered", "partial", "no_evidence_found", "not_applicable"]
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": { "$ref": "./definitions.schema.json#/$defs/evidenceRef" },
+            "uniqueItems": true
+          },
+          "claim_refs": {
+            "type": "array",
+            "items": { "$ref": "./definitions.schema.json#/$defs/claimRef" },
+            "uniqueItems": true
+          },
+          "finding_refs": {
+            "type": "array",
+            "items": { "$ref": "./definitions.schema.json#/$defs/findingRef" },
+            "uniqueItems": true
+          },
+          "judgment_assessment_refs": {
+            "type": "array",
+            "items": { "$ref": "./definitions.schema.json#/$defs/judgmentRef" },
+            "uniqueItems": true
+          },
+          "notes": { "$ref": "./definitions.schema.json#/$defs/nonEmptyString" }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "disposition": { "const": "covered" } },
+              "required": ["disposition"]
+            },
+            "then": {
+              "properties": {
+                "evidence_refs": { "type": "array", "minItems": 1 }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "disposition": { "enum": ["no_evidence_found", "not_applicable"] }
+              },
+              "required": ["disposition"]
+            },
+            "then": {
+              "properties": {
+                "evidence_refs": { "type": "array", "maxItems": 0 },
+                "claim_refs": { "type": "array", "maxItems": 0 },
+                "finding_refs": { "type": "array", "maxItems": 0 },
+                "judgment_assessment_refs": { "type": "array", "maxItems": 0 }
+              }
+            }
+          }
+        ]
+      }
     },
     "scored_candidates": {
       "type": "array",

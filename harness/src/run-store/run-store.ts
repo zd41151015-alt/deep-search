@@ -2340,6 +2340,12 @@ export class RunStore {
         "research handoffs must use createResearchHandoff() so the Store captures exact authorized source bytes",
       );
     }
+    if (input.envelope.artifact_type === "startup_opportunity.terminal_report_source.v1") {
+      throw new StoreError(
+        "report.terminal_dedicated_entry_required",
+        "terminal report sources must use apply-plan-revision atomic closeout",
+      );
+    }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       const manifest = await this.readManifest(runRoot);
@@ -2433,6 +2439,16 @@ export class RunStore {
       throw new StoreError(
         "research_handoff.dedicated_entry_required",
         "research handoffs must use createResearchHandoff() so the Store captures exact authorized source bytes",
+      );
+    }
+    if (
+      input.envelopes.some(
+        (envelope) => envelope.artifact_type === "startup_opportunity.terminal_report_source.v1",
+      )
+    ) {
+      throw new StoreError(
+        "report.terminal_dedicated_entry_required",
+        "terminal report sources must use apply-plan-revision atomic closeout",
       );
     }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
@@ -4795,16 +4811,6 @@ export class RunStore {
         : []) {
         if (typeof unitId === "string") next = this.moveUnit(next, unitId, "skipped_units");
       }
-      const outcome = envelope.document.outcome;
-      next = {
-        ...next,
-        status:
-          outcome === "deprioritize"
-            ? "completed"
-            : outcome === "insufficient_evidence"
-              ? "insufficient_evidence"
-              : "failed",
-      };
     }
     if (
       !ignoredLate &&

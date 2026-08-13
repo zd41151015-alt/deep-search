@@ -1427,11 +1427,19 @@ export class ReportRuntime {
   }
 
   async build(input: BuildReportInput): Promise<BuildReportResult> {
+    if (input.reportEnvelope.artifact_type === "startup_opportunity.terminal_report_source.v1") {
+      throw new StoreError(
+        "report.terminal_dedicated_entry_required",
+        "terminal report sources must be committed by the atomic terminal Plan closeout entry",
+        {
+          artifact: input.reportEnvelope.artifact_path,
+          dedicatedEntry: "apply-plan-revision",
+        },
+      );
+    }
     const runRoot = await openRunDirectory(this.runsRoot, input.reportEnvelope.run_id);
     return withReportLock(runRoot, async () => {
-      if (input.reportEnvelope.artifact_type !== "startup_opportunity.terminal_report_source.v1") {
-        assertDerivedConsistencyPassed(deriveReportEnvelopes(input.reportEnvelope));
-      }
+      assertDerivedConsistencyPassed(deriveReportEnvelopes(input.reportEnvelope));
       await withRunLock(runRoot, () =>
         assertNoOtherFinalReportLocked(runRoot, input.reportEnvelope),
       );

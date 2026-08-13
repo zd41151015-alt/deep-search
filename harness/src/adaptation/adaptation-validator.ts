@@ -97,6 +97,56 @@ const ASSESSMENT_ADAPTATION_TYPES = new Set([
   "startup_opportunity.gap_snapshot.assessment.current",
 ]);
 
+function validateCompletionClosure(
+  decisionPath: string,
+  plan: Record<string, unknown>,
+  manifest: Record<string, unknown>,
+  errors: ValidationIssue[],
+): void {
+  const incomplete = unitEntries(plan).flatMap((entry) => {
+    const unitId = String(entry.unit.unit_id);
+    const state = statusOfUnit(manifest, unitId);
+    return ["pending", "active", "failed"].includes(state) ? [{ unitId, state }] : [];
+  });
+  if (incomplete.length > 0) {
+    errors.push(
+      issue(
+        "adaptation.completion_closure_incomplete",
+        decisionPath,
+        "complete_research requires every current Plan unit to have a non-failed terminal disposition",
+        { incomplete },
+      ),
+    );
+  }
+}
+
+function validateCancellationAuthority(
+  decisionPath: string,
+  decision: Record<string, unknown>,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+  errors: ValidationIssue[],
+): void {
+  const ref = decision.user_decision_ref;
+  const record = typeof ref === "string" ? exactRecords.get(ref) : undefined;
+  if (
+    typeof ref !== "string" ||
+    record?.schema_version !== "startup_opportunity.decision.v1" ||
+    record.decision_type !== "run_cancelled" ||
+    record.actor !== "user" ||
+    record.run_id !== decision.run_id ||
+    ref.split("#", 2)[1] !== record.decision_id
+  ) {
+    errors.push(
+      issue(
+        "adaptation.cancellation_authority_invalid",
+        `${decisionPath}#/user_decision_ref`,
+        "cancel_research requires the exact same-Run user run_cancelled Decision",
+        { userDecisionRef: typeof ref === "string" ? ref : null },
+      ),
+    );
+  }
+}
+
 function adaptationModeErrors(
   documents: ReturnType<typeof effectiveDocuments>,
   mode: unknown,
@@ -282,6 +332,7 @@ export class AdaptationPolicyValidator {
         ? decisionDocuments
         : decisionDocuments.filter((decision) => !terminalDecisionRefs.has(decision.path));
     const errors: ValidationIssue[] = [...modeErrors];
+    const exactRecords = new Map(referenceContext.exactJsonlRecords ?? []);
     const occupiedTargets = new Map<string, string>();
     const newUnitIds = new Map<string, string>();
     const newOutputPaths = new Map<string, string>();
@@ -388,12 +439,16 @@ export class AdaptationPolicyValidator {
           plan.document,
           manifest.document,
           byPath,
+          exactRecords,
           errors,
         );
       }
     }
 
     if (plan?.schemaVersion === "startup_opportunity.research_plan.v1") {
+      const cancellationSelected = decisions.some(
+        (decision) => decision.document.action === "cancel_research",
+      );
       for (const snapshot of documents.filter(
         (document) =>
           (document.schemaVersion === "startup_opportunity.gap_snapshot.discovery.plan.current" ||
@@ -409,7 +464,7 @@ export class AdaptationPolicyValidator {
             gap.severity === "blocking" ||
             (Array.isArray(gap.decision_impact) && gap.decision_impact.length > 0);
           const ref = `${snapshot.path}#${gap.gap_id}`;
-          if (decisionRelevant && !coveredGapRefs.has(ref)) {
+          if (!cancellationSelected && decisionRelevant && !coveredGapRefs.has(ref)) {
             errors.push(
               issue(
                 "adaptation.gap_uncovered",
@@ -462,6 +517,7 @@ export class AdaptationPolicyValidator {
         document.schemaVersion === "startup_opportunity.gap_snapshot.assessment.current",
     );
     const errors: ValidationIssue[] = [...modeErrors];
+    const exactRecords = new Map(referenceContext.exactJsonlRecords ?? []);
     if (decisions.length === 0) {
       errors.push(
         issue(
@@ -490,6 +546,17 @@ export class AdaptationPolicyValidator {
         );
       }
       identityContent.set(identity, content);
+
+      if (
+        decision.document.action === "complete_research" &&
+        plan?.schemaVersion === "startup_opportunity.research_plan.v1" &&
+        manifest?.schemaVersion === "startup_opportunity.run_manifest.v1"
+      ) {
+        validateCompletionClosure(decision.path, plan.document, manifest.document, errors);
+      }
+      if (decision.document.action === "cancel_research") {
+        validateCancellationAuthority(decision.path, decision.document, exactRecords, errors);
+      }
 
       const gapRef = Array.isArray(decision.document.trigger_gap_refs)
         ? decision.document.trigger_gap_refs[0]
@@ -632,6 +699,9 @@ export class AdaptationPolicyValidator {
       }
     }
 
+    const cancellationSelected = decisions.some(
+      (decision) => decision.document.action === "cancel_research",
+    );
     for (const snapshot of snapshots) {
       if (snapshot.document.based_on_plan_ref !== plan?.path) {
         continue;
@@ -641,7 +711,7 @@ export class AdaptationPolicyValidator {
           continue;
         }
         const ref = `${snapshot.path}#${gap.gap_id}`;
-        if (!coveredGaps.has(ref)) {
+        if (!cancellationSelected && !coveredGaps.has(ref)) {
           errors.push(
             issue(
               "adaptation.gap_uncovered",
@@ -671,6 +741,7 @@ export class AdaptationPolicyValidator {
     plan: Record<string, unknown>,
     manifest: Record<string, unknown>,
     documents: ReturnType<typeof documentMap>,
+    exactRecords: ReadonlyMap<string, Record<string, unknown>>,
     errors: ValidationIssue[],
   ): void {
     const action = String(decision.action ?? "");
@@ -1138,6 +1209,12 @@ export class AdaptationPolicyValidator {
         }
         break;
       }
+      case "complete_research":
+        validateCompletionClosure(decisionPath, plan, manifest, errors);
+        break;
+      case "cancel_research":
+        validateCancellationAuthority(decisionPath, decision, exactRecords, errors);
+        break;
     }
   }
 }
