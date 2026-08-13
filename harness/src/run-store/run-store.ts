@@ -2029,15 +2029,13 @@ export class RunStore {
                 record as Record<string, unknown>,
               ] as const,
           ),
-          ...(await this.logs.listValidatedRecords(runRoot, runId, "decisions.jsonl"))
-            .filter((record) => record.decision_type === "research_handoff_consumed")
-            .map(
-              (record) =>
-                [
-                  `decisions.jsonl#${String(record.decision_id)}`,
-                  record as Record<string, unknown>,
-                ] as const,
-            ),
+          ...(await this.logs.listValidatedRecords(runRoot, runId, "decisions.jsonl")).map(
+            (record) =>
+              [
+                `decisions.jsonl#${String(record.decision_id)}`,
+                record as Record<string, unknown>,
+              ] as const,
+          ),
         ]),
       );
       if (terminalIssues.length > 0) {

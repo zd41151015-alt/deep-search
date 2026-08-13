@@ -1494,9 +1494,9 @@ test("high response ability remains judgment context and preserves every Evidenc
   );
   const unknownTable = renderIncumbentResponseRiskTable(unknownProjection);
   assert.ok(unknownTable.includes("insufficient to form a complete responder-specific conclusion"));
-  assert.ok(unknownTable.includes("evidence/records/response-news.json"));
-  assert.ok(unknownTable.includes("evidence/records/response-review.json"));
-  assert.ok(unknownTable.includes("evidence/records/response-company.json"));
+  assert.match(unknownTable, /audit-appendix\.md/u);
+  assert.doesNotMatch(unknownTable, /evidence\/records\//u);
+  assert.equal((unknown.evidence_register as Record<string, unknown>[]).length, 3);
   assert.equal(unknownTable.includes("No responder-specific assessment was delivered"), false);
   const riskDelivery = structuredClone(baseDelivery);
   riskDelivery.incumbent_response_assessments = [
@@ -1700,28 +1700,71 @@ test("all formal report sources project response rows and explicit gaps", async 
   ).document;
   const auditRef = "artifacts/research-audits/response-lightweight.json";
   const projection = commercialReportProjection([{ auditRef, audit }]);
-  const reportDocuments = [
-    ["artifacts/reporting/discovery-report.json", "startup_opportunity.report.v1"],
-    [
-      "artifacts/reporting/concept-evidence-report.json",
-      "startup_opportunity.concept_evidence_report.v1",
-    ],
-    ["artifacts/reporting/terminal-source.json", "startup_opportunity.terminal_report_source.v1"],
-  ].map(([reportPath, schemaVersion]) => ({
-    path: reportPath as string,
-    schemaVersion: schemaVersion as string,
-    document: {
-      ...projection,
-      ...(schemaVersion === "startup_opportunity.terminal_report_source.v1"
-        ? {
-            current_decision_subject_ids: [
-              "candidate_report_response_a",
-              "candidate_report_response_b",
-            ],
-          }
-        : {}),
-    } as Record<string, unknown>,
-  }));
+  const conceptRef = "artifacts/assessment/concepts/report-response-a.r1.json";
+  const recommendationRef = "artifacts/discovery/recommendations/report-response.r1.json";
+  const portfolioRef = "artifacts/discovery/portfolios/report-response.r1.json";
+  const conceptProjection = commercialReportProjection([{ auditRef, audit }], [], new Map(), [
+    "candidate_report_response_a",
+  ]);
+  const reportDocuments: CommercialDocumentEntry[] = [
+    {
+      path: "artifacts/reporting/discovery-report.json",
+      schemaVersion: "startup_opportunity.report.v1",
+      document: {
+        ...projection,
+        decision_recommendation_ref: recommendationRef,
+        portfolio_view_ref: portfolioRef,
+        top_opportunity_refs: [candidateARef, candidateBRef],
+      },
+    },
+    {
+      path: "artifacts/reporting/concept-evidence-report.json",
+      schemaVersion: "startup_opportunity.concept_evidence_report.v1",
+      document: {
+        ...conceptProjection,
+        concept_hypothesis_ref: conceptRef,
+      },
+    },
+    {
+      path: "artifacts/reporting/terminal-source.json",
+      schemaVersion: "startup_opportunity.terminal_report_source.v1",
+      document: {
+        ...projection,
+        current_decision_subject_ids: [
+          "candidate_report_response_a",
+          "candidate_report_response_b",
+        ],
+      },
+    },
+  ];
+  const subjectAuthorities: CommercialDocumentEntry[] = [
+    {
+      path: conceptRef,
+      schemaVersion: "startup_opportunity.concept_hypothesis.assessment.current",
+      document: {
+        schema_version: "startup_opportunity.concept_hypothesis.assessment.current",
+        concept_hypothesis_id: "candidate_report_response_a",
+      },
+    },
+    {
+      path: recommendationRef,
+      schemaVersion: "startup_opportunity.decision_recommendation.v1",
+      document: {
+        schema_version: "startup_opportunity.decision_recommendation.v1",
+        recommended_first_bet: candidateARef,
+        alternative_bets: [candidateBRef],
+      },
+    },
+    {
+      path: portfolioRef,
+      schemaVersion: "startup_opportunity.portfolio_view.v1",
+      document: {
+        schema_version: "startup_opportunity.portfolio_view.v1",
+        recommended_first_bet: candidateARef,
+        alternative_bets: [candidateBRef],
+      },
+    },
+  ];
   const issues = validateCommercialResearchContract(
     [
       {
@@ -1745,6 +1788,7 @@ test("all formal report sources project response rows and explicit gaps", async 
         schemaVersion: "startup_opportunity.commercial_research_audit.current",
         document: audit,
       },
+      ...subjectAuthorities,
       ...reportDocuments,
     ],
     policy,
@@ -1758,7 +1802,10 @@ test("all formal report sources project response rows and explicit gaps", async 
   assert.equal((projection.incumbent_response_risk_rows as unknown[]).length, 2);
   for (const report of reportDocuments) {
     const rows = report.document.incumbent_response_risk_rows as Record<string, unknown>[];
-    assert.equal(rows.length, 2);
+    assert.equal(
+      rows.length,
+      report.schemaVersion === "startup_opportunity.concept_evidence_report.v1" ? 1 : 2,
+    );
     for (const row of rows) {
       const reportAssessment = row.assessment as Record<string, unknown>;
       const reportSemantic = reportAssessment.semantic as Record<string, unknown>;
@@ -1775,9 +1822,8 @@ test("all formal report sources project response rows and explicit gaps", async 
   assert.match(table, /not_applicable/);
   assert.match(table, /candidate_report_response_b/);
   assert.match(table, /unknown/);
-  assert.match(table, /evidence\/records\/response-news\.json/);
-  assert.match(table, /evidence\/records\/response-review\.json/);
-  assert.match(table, /evidence\/records\/response-company\.json/);
+  assert.match(table, /audit-appendix\.md/u);
+  assert.doesNotMatch(table, /evidence\/records\//u);
   assert.match(table, /Strategic Implication/);
   assert.ok(table.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT));
   assert.ok(table.includes("insufficient to form a complete responder-specific conclusion"));
@@ -1809,6 +1855,7 @@ test("all formal report sources project response rows and explicit gaps", async 
         schemaVersion: "startup_opportunity.commercial_research_audit.current",
         document: audit,
       },
+      ...subjectAuthorities,
       ...drifted,
     ],
     policy,
@@ -2802,6 +2849,9 @@ test("formal report projections are exact and render fixed unavailable and gap t
   const projection = commercialReportProjection([{ auditRef, audit }]);
   const report = {
     commercial_research_audit_refs: [auditRef],
+    decision_recommendation_ref: "artifacts/discovery/recommendations/commercial-synthetic.r1.json",
+    portfolio_view_ref: "artifacts/discovery/portfolios/commercial-synthetic.r1.json",
+    top_opportunity_refs: ["artifacts/discovery/opportunities/direction-synthetic.r1.json"],
     ...projection,
   };
   const documents = [
@@ -2810,6 +2860,32 @@ test("formal report projections are exact and render fixed unavailable and gap t
       path: auditRef,
       schemaVersion: "startup_opportunity.commercial_research_audit.current",
       document: audit,
+    },
+    {
+      path: "artifacts/discovery/opportunities/direction-synthetic.r1.json",
+      schemaVersion: "startup_opportunity.opportunity_thesis.v1",
+      document: {
+        schema_version: "startup_opportunity.opportunity_thesis.v1",
+        opportunity_id: "direction_synthetic",
+      },
+    },
+    {
+      path: "artifacts/discovery/recommendations/commercial-synthetic.r1.json",
+      schemaVersion: "startup_opportunity.decision_recommendation.v1",
+      document: {
+        schema_version: "startup_opportunity.decision_recommendation.v1",
+        recommended_first_bet: "artifacts/discovery/opportunities/direction-synthetic.r1.json",
+        alternative_bets: [],
+      },
+    },
+    {
+      path: "artifacts/discovery/portfolios/commercial-synthetic.r1.json",
+      schemaVersion: "startup_opportunity.portfolio_view.v1",
+      document: {
+        schema_version: "startup_opportunity.portfolio_view.v1",
+        recommended_first_bet: "artifacts/discovery/opportunities/direction-synthetic.r1.json",
+        alternative_bets: [],
+      },
     },
     {
       path: "artifacts/reporting/report-json.r1.json",
@@ -2840,6 +2916,69 @@ test("formal report projections are exact and render fixed unavailable and gap t
   assert.match(gapTable, /Ranking \/ Decision Impact/);
   assert.match(gapTable, /unavailable/);
   assert.match(gapTable, /synthetic-fixture-provider/);
+});
+
+test("malformed formal report subject authorities return structured validation issues", async () => {
+  const policy = await commercialPolicy();
+  const projection = commercialReportProjection([]);
+  const recommendationRef = "artifacts/discovery/recommendations/malformed.r1.json";
+  const issues = validateCommercialResearchContract(
+    [
+      {
+        path: "artifacts/reporting/missing-discovery-authority.r1.json",
+        schemaVersion: "startup_opportunity.report.v1",
+        document: projection,
+      },
+      {
+        path: "artifacts/reporting/missing-portfolio-authority.r1.json",
+        schemaVersion: "startup_opportunity.report.v1",
+        document: {
+          ...projection,
+          decision_recommendation_ref: recommendationRef,
+        },
+      },
+      {
+        path: recommendationRef,
+        schemaVersion: "startup_opportunity.decision_recommendation.v1",
+        document: {
+          schema_version: "startup_opportunity.decision_recommendation.v1",
+          recommended_first_bet: "artifacts/discovery/opportunities/missing.r1.json",
+          alternative_bets: [],
+        },
+      },
+      {
+        path: "artifacts/reporting/missing-concept-authority.r1.json",
+        schemaVersion: "startup_opportunity.concept_evidence_report.v1",
+        document: {
+          ...projection,
+          concept_hypothesis_ref: "artifacts/assessment/concepts/missing.r1.json",
+        },
+      },
+    ],
+    policy,
+  ).filter((issue) => issue.code === "commercial_research.report_subject_authority_invalid");
+  assert.deepEqual(
+    issues.map((issue) => ({
+      instancePath: issue.instancePath,
+      authorityCode: issue.details.authorityCode,
+    })),
+    [
+      {
+        instancePath:
+          "artifacts/reporting/missing-discovery-authority.r1.json#/decision_recommendation_ref",
+        authorityCode: "report.subject_authority_invalid",
+      },
+      {
+        instancePath: "artifacts/reporting/missing-portfolio-authority.r1.json#/portfolio_view_ref",
+        authorityCode: "report.subject_authority_invalid",
+      },
+      {
+        instancePath:
+          "artifacts/reporting/missing-concept-authority.r1.json#/concept_hypothesis_ref",
+        authorityCode: "report.subject_authority_invalid",
+      },
+    ],
+  );
 });
 
 test("the decision subject snapshot is authoritative for current, superseded, and dropped subjects", () => {
@@ -3890,8 +4029,18 @@ test("Chinese commercial tables keep exact refs in structured data but hide inte
     [],
   );
   assert.doesNotMatch(chinese, /evidence\/records|artifacts\/research-audits/iu);
+  assert.deepEqual(source.quantitative_signal_rows[0]?.observation.evidence_refs, [evidenceRef]);
+  assert.deepEqual(source.competitive_substitute_rows[0]?.competitive_object.source_refs, [
+    evidenceRef,
+  ]);
+  const structuredResponseRow = source.incumbent_response_risk_rows[0];
+  assert.ok(structuredResponseRow);
+  assert.deepEqual(
+    (structuredResponseRow.assessment.semantic as Record<string, unknown>).background_evidence_refs,
+    [evidenceRef],
+  );
   assert.match(chinese, /中国大陆 B2C 教育替代基线/);
-  assert.match(chinese, /详见结构化审计/);
+  assert.match(chinese, /audit-appendix\.md/u);
   const researchGap = renderResearchCoverageGaps(
     {
       research_coverage_gaps: [
@@ -3940,7 +4089,8 @@ test("Chinese commercial tables keep exact refs in structured data but hide inte
 
   const english = renderQuantitativeSignalTable(source);
   assert.match(english, /china_b2c_education_alternatives_baseline/);
-  assert.match(english, /evidence\/records/);
+  assert.match(english, /audit-appendix\.md/u);
+  assert.doesNotMatch(english, /evidence\/records|artifacts\/research-audits/iu);
   const englishResponse = renderIncumbentResponseRiskTable(source);
   assert.ok(englishResponse.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT));
   assert.equal(englishResponse.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH), false);
@@ -4011,13 +4161,29 @@ test("commercial ceilings bind selected subjects instead of unrelated weak candi
   };
   const audits = [{ path: "artifacts/research-audits/multi-subject.json", document: audit }];
   const projection = projectCommercialAuditTables(audits);
+  const selectedRef = "artifacts/discovery/opportunities/opportunity-selected.r1.json";
+  const rejectedOpportunityRef = "artifacts/discovery/opportunities/opportunity-rejected.r1.json";
+  const recommendationRef = "artifacts/discovery/recommendations/multi-subject.r1.json";
+  const portfolioRef = "artifacts/discovery/portfolios/multi-subject.r1.json";
+  const recommendation = {
+    schema_version: "startup_opportunity.decision_recommendation.v1",
+    recommended_first_bet: selectedRef,
+    alternative_bets: [rejectedOpportunityRef],
+  };
+  const portfolio = {
+    schema_version: "startup_opportunity.portfolio_view.v1",
+    recommended_first_bet: selectedRef,
+    alternative_bets: [rejectedOpportunityRef],
+  };
   const report = {
     ...projection,
+    decision_recommendation_ref: recommendationRef,
+    portfolio_view_ref: portfolioRef,
     curated_judgment_context: {
       decision_tier: "investigate_further",
       recommended_first_bet: "opportunity_selected",
     },
-    top_opportunity_refs: ["opportunity_selected"],
+    top_opportunity_refs: [selectedRef],
   };
   const documents = [
     ...audits.map((audit) => ({
@@ -4025,6 +4191,32 @@ test("commercial ceilings bind selected subjects instead of unrelated weak candi
       schemaVersion: "startup_opportunity.commercial_research_audit.current",
       document: audit.document,
     })),
+    {
+      path: selectedRef,
+      schemaVersion: "startup_opportunity.opportunity_thesis.v1",
+      document: {
+        schema_version: "startup_opportunity.opportunity_thesis.v1",
+        opportunity_id: "opportunity_selected",
+      },
+    },
+    {
+      path: rejectedOpportunityRef,
+      schemaVersion: "startup_opportunity.opportunity_thesis.v1",
+      document: {
+        schema_version: "startup_opportunity.opportunity_thesis.v1",
+        opportunity_id: "opportunity_rejected",
+      },
+    },
+    {
+      path: recommendationRef,
+      schemaVersion: "startup_opportunity.decision_recommendation.v1",
+      document: recommendation,
+    },
+    {
+      path: portfolioRef,
+      schemaVersion: "startup_opportunity.portfolio_view.v1",
+      document: portfolio,
+    },
     {
       path: "artifacts/reporting/report-json.r1.json",
       schemaVersion: "startup_opportunity.report.v1",
@@ -4063,7 +4255,11 @@ test("commercial ceilings bind selected subjects instead of unrelated weak candi
     decision_tier: "prioritize",
     recommended_first_bet: "opportunity_rejected",
   });
-  report.top_opportunity_refs = ["opportunity_rejected"];
+  report.top_opportunity_refs = [rejectedOpportunityRef];
+  recommendation.recommended_first_bet = rejectedOpportunityRef;
+  recommendation.alternative_bets = [selectedRef];
+  portfolio.recommended_first_bet = rejectedOpportunityRef;
+  portfolio.alternative_bets = [selectedRef];
   const exceededCodes = validateCommercialResearchContract(documents, policy).map(
     (issue) => issue.code,
   );
@@ -4256,6 +4452,7 @@ test("concept prioritize is checked against its bound commercial ceiling", async
   ];
   const auditRef = "artifacts/research-audits/concept.json";
   const projection = projectCommercialAuditTables([{ path: auditRef, document: audit }]);
+  const conceptRef = "concept-hypothesis.json";
   const codes = validateCommercialResearchContract(
     [
       {
@@ -4264,11 +4461,19 @@ test("concept prioritize is checked against its bound commercial ceiling", async
         document: audit,
       },
       {
+        path: conceptRef,
+        schemaVersion: "startup_opportunity.concept_hypothesis.assessment.current",
+        document: {
+          schema_version: "startup_opportunity.concept_hypothesis.assessment.current",
+          concept_hypothesis_id: conceptRef,
+        },
+      },
+      {
         path: "artifacts/reporting/concept-report.r1.json",
         schemaVersion: "startup_opportunity.concept_evidence_report.v1",
         document: {
           ...projection,
-          concept_hypothesis_ref: "concept-hypothesis.json",
+          concept_hypothesis_ref: conceptRef,
           curated_judgment_context: { assessment_result: "prioritize" },
         },
       },

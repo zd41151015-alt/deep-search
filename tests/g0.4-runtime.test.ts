@@ -656,6 +656,7 @@ function terminalReportSource(
   currentPlanRef = PLAN_REF,
   generatedAt = "2026-07-24T12:09:30Z",
   terminalOutcomeOverride?: "completed" | "cancelled",
+  researchLanguage = CONFIRMED_SCOPE.research_language,
 ): FormalArtifactEnvelope {
   const artifactPath = "artifacts/reporting/terminal-report-source.r1.json";
   const auditRefs = [DECISION_REF, GAP_REF, currentPlanRef].sort();
@@ -664,7 +665,7 @@ function terminalReportSource(
     report_id: "terminal_report_runtime_1",
     run_id: runId,
     mode: "opportunity_discovery",
-    research_language: "zh-CN",
+    research_language: researchLanguage,
     producer_role: "main_agent",
     owned_output_path: artifactPath,
     materialized_path: "report.json",
@@ -3645,7 +3646,7 @@ test("terminal adaptation requires and materializes a validated main-agent decis
   );
   const brief = await readFile(path.join(setup.runRoot, "decision-brief.md"), "utf8");
   assert.match(brief, /暂缓形成或排序创业机会/);
-  assert.doesNotMatch(brief, /insufficient_evidence/);
+  assert.match(brief, /Research conclusion: insufficient evidence/);
 
   const replay = await runtime.apply(input);
   assert.equal(replay.status, "idempotent_replay");
@@ -4017,7 +4018,7 @@ test("Discovery runtime failure terminates and reports from the original Run", a
   assert.equal(status.terminalReportDisposition, "ready", JSON.stringify(status, null, 2));
   const brief = await readFile(path.join(setup.runRoot, "decision-brief.md"), "utf8");
   assert.match(brief, /本次运行失败/);
-  assert.match(brief, /运行受阻/);
+  assert.match(brief, /Status: blocked/);
 });
 
 test("terminal report publication fault recovers from the immutable source on reopen", async (contextTest) => {
@@ -4208,6 +4209,36 @@ test("terminal report preflight failure leaves no closeout intent or formal outp
   const terminal = await prepareTerminalReporting(setup);
   const before = await planApplyBoundaryState(setup.runRoot);
   const reportingBefore = (await readdir(path.join(setup.runRoot, "artifacts/reporting"))).sort();
+  const languageMismatch = clone(terminal.reportEnvelope);
+  languageMismatch.document.research_language = "zh-CN";
+  (languageMismatch as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+    languageMismatch.document,
+  );
+  await assert.rejects(
+    (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+      runId,
+      adaptationBundle: terminal.adaptationBundle,
+      adaptationRefs: [DECISION_REF],
+      terminalReportEnvelope: languageMismatch,
+      createdAt: "2026-07-24T12:08:00Z",
+      checkpointCreatedAt: "2026-07-24T12:09:00Z",
+      nextStep: "Reject a report whose language differs from the exact confirmed Scope.",
+      beliefSummary: {
+        current_belief: "The confirmed Scope remains the report language authority.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Can a language-consistent report close the Run?",
+      },
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.research_language_authority_invalid",
+  );
+  assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+  assert.deepEqual(
+    (await readdir(path.join(setup.runRoot, "artifacts/reporting"))).sort(),
+    reportingBefore,
+  );
   const invalidReport = clone(terminal.reportEnvelope);
   invalidReport.document.terminal_outcome = "completed";
   (invalidReport as unknown as { content_hash: string }).content_hash = canonicalContentHash(

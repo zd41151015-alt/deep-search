@@ -1,4 +1,5 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
+import { StoreError } from "../artifact-store/store-error.js";
 import { INCUMBENT_RESPONSE_STRATEGIC_CONTEXT } from "../incumbent-response-contract.js";
 import { projectCommercialAuditTables } from "../reporting/commercial-report-tables.js";
 import { deriveNonTerminalReportSubjectIds } from "../reporting/report-projection-authority.js";
@@ -3040,10 +3041,50 @@ function validateCommercialReportProjections(
   for (const report of documents.filter((entry) =>
     REPORT_SCHEMA_VERSIONS.has(entry.schemaVersion),
   )) {
-    const projectedSubjectIds =
-      report.schemaVersion === "startup_opportunity.terminal_report_source.v1"
-        ? strings(report.document.current_decision_subject_ids)
-        : deriveNonTerminalReportSubjectIds(report.schemaVersion, report.document, documentsByPath);
+    let projectedSubjectIds: readonly string[];
+    try {
+      projectedSubjectIds =
+        report.schemaVersion === "startup_opportunity.terminal_report_source.v1"
+          ? strings(report.document.current_decision_subject_ids)
+          : deriveNonTerminalReportSubjectIds(
+              report.schemaVersion,
+              report.document,
+              documentsByPath,
+            );
+    } catch (error) {
+      let authorityField = "top_opportunity_refs";
+      if (report.schemaVersion === "startup_opportunity.concept_evidence_report.v1") {
+        authorityField = "concept_hypothesis_ref";
+      } else {
+        const recommendationRef = report.document.decision_recommendation_ref;
+        const recommendation =
+          typeof recommendationRef === "string"
+            ? documentsByPath.get(recommendationRef)
+            : undefined;
+        const portfolioRef = report.document.portfolio_view_ref;
+        const portfolio =
+          typeof portfolioRef === "string" ? documentsByPath.get(portfolioRef) : undefined;
+        if (recommendation?.schema_version !== "startup_opportunity.decision_recommendation.v1") {
+          authorityField = "decision_recommendation_ref";
+        } else if (portfolio?.schema_version !== "startup_opportunity.portfolio_view.v1") {
+          authorityField = "portfolio_view_ref";
+        }
+      }
+      errors.push(
+        issue(
+          "commercial_research.report_subject_authority_invalid",
+          `${report.path}#/${authorityField}`,
+          "formal report subject projection requires its exact Concept or Discovery Recommendation and Portfolio authority",
+          {
+            authorityCode:
+              error instanceof StoreError ? error.code : "report.subject_authority_invalid",
+            authorityMessage:
+              error instanceof Error ? error.message : "subject authority derivation failed",
+          },
+        ),
+      );
+      continue;
+    }
     const expectedProjection = projectCommercialAuditTables(
       audits,
       plannedTasks.map((task) => ({ path: task.path, document: task.document })),
