@@ -13,6 +13,7 @@ import {
   deriveAssessmentFollowupRevision,
   EvidenceStore,
   type FormalArtifactEnvelope,
+  LaneResultMaterializer,
   RunStore,
   StoreError,
   validateAssessmentExecutionContract,
@@ -1559,4 +1560,119 @@ test("current Assessment compiler publishes, rejects mixed surfaces, recovers fa
       error instanceof StoreError && error.code === "runtime.compilation_validation_failed",
   );
   assert.deepEqual((await state.store.status(state.runId)).manifest, manifest);
+});
+
+test("Assessment Lane delivery derives its Dispatch contract and atomically publishes one complete bundle", async (t) => {
+  const state = await prepareStoreRun(t, "lane-delivery");
+  const execution = executionPlan(state.runId, state.plan);
+  const earlyStage = recordAt(execution.stages as Record<string, unknown>[], 0, "early stage");
+  const selectedLane = recordAt(
+    earlyStage.lanes as Record<string, unknown>[],
+    0,
+    "assessment lane",
+  );
+  const dispatch = dispatchForStage(state.runId, execution, 0, null);
+  await state.compiler.compile(
+    compilationRequest(
+      state.runId,
+      [
+        runtimeArtifact(executionPath, execution, "main_agent"),
+        runtimeArtifact(dispatch.path, dispatch.document, "harness"),
+      ],
+      "compile_assessment_lane_authority_synthetic",
+    ),
+  );
+  const laneResult = resultForLane(
+    state.runId,
+    earlyStage,
+    selectedLane,
+    "insufficient_evidence",
+    "failed",
+  );
+  const laneSemantics = structuredClone(laneResult.document);
+  for (const field of [
+    "schema_version",
+    "lane_result_id",
+    "run_id",
+    "unit_id",
+    "concept_hypothesis_ref",
+    "execution_plan_ref",
+    "stage_id",
+  ])
+    delete laneSemantics[field];
+  const staging = {
+    schema_version: "startup_opportunity.lane_staging_document.current",
+    staging_id: "staging_assessment_lane_synthetic",
+    run_id: state.runId,
+    task_ref: `${dispatch.path}#task_${String(selectedLane.unit_id)}`,
+    created_at: createdAt,
+    producer_role: "lane_researcher",
+    operation: "validate_only",
+    evidence_receipt_refs: [],
+    delivery_contract: {
+      scope_coverage: (selectedLane.reporting_dimensions as string[]).map((dimensionId) => ({
+        scope_key: dimensionId,
+        status: "no_evidence_found",
+        evidence_refs: [],
+        notes: "The bounded synthetic Lane has no current Evidence.",
+      })),
+      search_closure: {
+        status: "completed",
+        acquisition_routes_attempted: ["repository_source"],
+        unresolved_gaps: ["No external research was performed."],
+        stop_reason: "The deterministic contract fixture reached its bounded stop.",
+      },
+    },
+    agent_documents: [{ artifact_family: "lane_result", document: laneSemantics }],
+  };
+  const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const before = (await state.store.status(state.runId)).manifest;
+  const validated = await materializer.materialize(staging);
+  assert.equal(validated.compilation.status, "validated");
+  assert.deepEqual((await state.store.status(state.runId)).manifest, before);
+  assert.deepEqual(
+    validated.delivery_receipt.document.assigned_scope,
+    [...(selectedLane.reporting_dimensions as string[])].sort(),
+  );
+  assert.deepEqual(validated.delivery_receipt.document.assigned_subject_refs, [conceptPath]);
+  const publish = structuredClone(staging);
+  publish.operation = "publish";
+  (publish as typeof publish & { publication_plan: unknown }).publication_plan =
+    validated.compilation.publication_plan;
+  const published = await materializer.materialize(publish);
+  assert.equal(published.compilation.status, "published");
+  assert.deepEqual(
+    published.compilation.compiled_envelopes,
+    validated.compilation.compiled_envelopes,
+  );
+  const replay = await materializer.materialize(publish);
+  assert.equal(replay.compilation.status, "idempotent_replay");
+  const reopened = await new RunStore(state.runsRoot, state.validator).load(state.runId);
+  assert.ok(reopened.manifest.artifact_refs.includes(laneResult.path));
+  assert.ok(reopened.manifest.artifact_refs.includes(published.delivery_receipt.artifact_path));
+  const publishedLane = published.compilation.compiled_envelopes.find(
+    (envelope) => envelope.artifact_path === laneResult.path,
+  );
+  assert.ok(publishedLane);
+  for (const [field, semanticValue] of Object.entries(laneSemantics)) {
+    assert.deepEqual(publishedLane.document[field], semanticValue, field);
+  }
+  assert.equal(publishedLane.document.lane_result_id, `result_${String(selectedLane.unit_id)}`);
+  assert.equal(publishedLane.document.execution_plan_ref, executionPath);
+
+  const unauthorizedAudit = structuredClone(staging);
+  unauthorizedAudit.staging_id = "staging_assessment_unassigned_audit_synthetic";
+  unauthorizedAudit.agent_documents.push({
+    artifact_family: "commercial_audit",
+    document: {
+      schema_version: "startup_opportunity.commercial_research_delivery.current",
+      run_id: state.runId,
+      unit_id: selectedLane.unit_id,
+    },
+  });
+  await assert.rejects(
+    materializer.materialize(unauthorizedAudit),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "runtime.lane_staging_invalid",
+  );
 });

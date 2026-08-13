@@ -23,7 +23,7 @@ import {
 import { withReportLock, withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { EvidenceStore } from "../evidence-store/evidence-store.js";
-import { RunStore } from "../run-store/run-store.js";
+import { type RunManifest, RunStore } from "../run-store/run-store.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
 import { REQUIRED_REPORT_CONSISTENCY_DIMENSIONS } from "../validators/discovery-evaluation-policy.js";
 import { projectGateWarnings } from "../validators/gate-diagnostics.js";
@@ -179,6 +179,40 @@ export interface BuildReportResult {
   readonly formalArtifactPaths: readonly string[];
   readonly materializedPaths: readonly string[];
   readonly consistencyEvaluationRef: string;
+}
+
+export interface PreparedTerminalReportOperation {
+  readonly schema_version: "startup_opportunity.terminal_report_operation.current";
+  readonly operation_key: string;
+  readonly run_id: string;
+  readonly request_envelope: FormalArtifactEnvelope;
+  readonly source_envelope: FormalArtifactEnvelope;
+  readonly derived_envelopes: readonly FormalArtifactEnvelope[];
+  readonly materialized_outputs: readonly {
+    readonly source_artifact_path: string;
+    readonly target_path: "report.json" | "decision-brief.md" | "report.md";
+    readonly content_hash: string;
+    readonly bytes: string;
+  }[];
+}
+
+export function terminalReportArtifactPaths(sourcePath: string): readonly string[] {
+  const revision = sourcePath.match(
+    /^artifacts\/reporting\/terminal-report-source\.(r[1-9][0-9]*)\.json$/,
+  )?.[1];
+  if (revision === undefined) {
+    throw new StoreError(
+      "report.path_invalid",
+      "terminal report source path has no immutable revision",
+      { sourcePath },
+    );
+  }
+  return [
+    sourcePath,
+    `artifacts/reporting/decision-brief.${revision}.json`,
+    `artifacts/reporting/report-markdown.${revision}.json`,
+    `artifacts/reporting/consistency-evaluation.${revision}.json`,
+  ];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -881,6 +915,241 @@ async function assertNoOtherFinalReportLocked(
   }
 }
 
+function preparedTerminalReportOperation(
+  request: FormalArtifactEnvelope,
+  source: FormalArtifactEnvelope,
+  derived: readonly FormalArtifactEnvelope[],
+): PreparedTerminalReportOperation {
+  const materializedOutputs = [source, ...derived].flatMap((envelope) => {
+    const materialized = materializedBytes(envelope);
+    return materialized === null
+      ? []
+      : [
+          {
+            source_artifact_path: envelope.artifact_path,
+            target_path: materialized.targetPath,
+            content_hash: sha256Bytes(materialized.bytes),
+            bytes: materialized.bytes,
+          },
+        ];
+  });
+  const identity = {
+    schema_version: "startup_opportunity.terminal_report_operation.current" as const,
+    run_id: source.run_id,
+    request_envelope: request,
+    source_envelope: source,
+    derived_envelopes: derived,
+    materialized_outputs: materializedOutputs,
+  };
+  return { ...identity, operation_key: operationKey("terminal_report_operation", identity) };
+}
+
+export function validatePreparedTerminalReportOperation(
+  value: unknown,
+  runId: string,
+  validator: ArtifactValidator,
+): PreparedTerminalReportOperation {
+  if (
+    !isRecord(value) ||
+    !hasExactlyKeys(value, [
+      "schema_version",
+      "operation_key",
+      "run_id",
+      "request_envelope",
+      "source_envelope",
+      "derived_envelopes",
+      "materialized_outputs",
+    ]) ||
+    value.schema_version !== "startup_opportunity.terminal_report_operation.current" ||
+    value.run_id !== runId ||
+    !isSha256(value.operation_key) ||
+    !isRecord(value.request_envelope) ||
+    !isRecord(value.source_envelope) ||
+    !Array.isArray(value.derived_envelopes) ||
+    !Array.isArray(value.materialized_outputs)
+  ) {
+    throw new StoreError(
+      "report.terminal_operation_invalid",
+      "terminal report operation is invalid",
+    );
+  }
+  const operation = value as unknown as PreparedTerminalReportOperation;
+  const request = operation.request_envelope;
+  const source = operation.source_envelope;
+  const derived = operation.derived_envelopes;
+  const materializedTargets = operation.materialized_outputs.map((output) => output.target_path);
+  const materializedSources = operation.materialized_outputs.map(
+    (output) => output.source_artifact_path,
+  );
+  const expectedMaterializedSources = [source, ...derived].flatMap((envelope) =>
+    materializedBytes(envelope) === null ? [] : [envelope.artifact_path],
+  );
+  if (
+    request.run_id !== runId ||
+    request.artifact_type !== "startup_opportunity.terminal_report_source.v1" ||
+    source.run_id !== runId ||
+    source.artifact_type !== "startup_opportunity.terminal_report_source.v1" ||
+    derived.length !== 3 ||
+    derived.some((envelope) => envelope.run_id !== runId) ||
+    operation.materialized_outputs.length !== 3 ||
+    new Set(materializedTargets).size !== 3 ||
+    !["report.json", "decision-brief.md", "report.md"].every((target) =>
+      materializedTargets.includes(target as "report.json" | "decision-brief.md" | "report.md"),
+    ) ||
+    canonicalJson(materializedSources) !== canonicalJson(expectedMaterializedSources) ||
+    canonicalJson(deriveReportEnvelopes(source)) !== canonicalJson(derived) ||
+    canonicalJson(preparedTerminalReportOperation(request, source, derived)) !==
+      canonicalJson(operation) ||
+    !validator.validateDocument(request, request.artifact_path).valid ||
+    !validator.validateDocument(source, source.artifact_path).valid ||
+    derived.some((envelope) => !validator.validateDocument(envelope, envelope.artifact_path).valid)
+  ) {
+    throw new StoreError(
+      "report.terminal_operation_invalid",
+      "terminal report operation identity or deterministic projection drifted",
+    );
+  }
+  assertDerivedConsistencyPassed(derived);
+  return operation;
+}
+
+async function assertPreparedOutputsCompatibleLocked(
+  runRoot: string,
+  operation: PreparedTerminalReportOperation,
+): Promise<void> {
+  for (const output of operation.materialized_outputs) {
+    if (sha256Bytes(output.bytes) !== output.content_hash) {
+      throw new StoreError("report.terminal_operation_invalid", "prepared report bytes changed");
+    }
+    try {
+      const existing = await readFile(await resolveRunPath(runRoot, output.target_path), "utf8");
+      if (existing !== output.bytes) {
+        throw new StoreError(
+          "report.materialized_conflict",
+          "materialized report bytes differ from the terminal operation",
+          { targetPath: output.target_path },
+        );
+      }
+    } catch (error) {
+      if (!isNodeError(error, "ENOENT")) throw error;
+    }
+  }
+}
+
+export async function completePreparedTerminalReportLocked(
+  runRoot: string,
+  operation: PreparedTerminalReportOperation,
+  artifacts: ArtifactStore,
+  validator: ArtifactValidator,
+  faultAt?: ReportFaultBoundary,
+): Promise<BuildReportResult> {
+  validatePreparedTerminalReportOperation(operation, operation.run_id, validator);
+  await assertReportBuildCompatibleLocked(
+    runRoot,
+    operation.source_envelope,
+    operation.derived_envelopes,
+  );
+  await assertPreparedOutputsCompatibleLocked(runRoot, operation);
+  const publication = await artifacts.publishPrevalidatedTerminalReportBundleLocked(
+    runRoot,
+    {
+      runId: operation.run_id,
+      envelopes: [operation.source_envelope, ...operation.derived_envelopes],
+    },
+    (envelope) => {
+      const boundary =
+        envelope.artifact_type === "startup_opportunity.terminal_report_source.v1"
+          ? "after_report_sidecar"
+          : envelope.artifact_type === "startup_opportunity.decision_brief.terminal.current"
+            ? "after_brief_sidecar"
+            : envelope.artifact_type === "startup_opportunity.terminal_report_view.v1"
+              ? "after_view_sidecar"
+              : "after_consistency_sidecar";
+      if (faultAt === boundary) {
+        throw new StoreError("fault.injected", `fault injected at ${boundary}`);
+      }
+    },
+  );
+  const bySourcePath = new Map(
+    [operation.source_envelope, ...operation.derived_envelopes].map((envelope) => [
+      envelope.artifact_path,
+      envelope,
+    ]),
+  );
+  for (const output of operation.materialized_outputs) {
+    const envelope = bySourcePath.get(output.source_artifact_path);
+    if (envelope === undefined) {
+      throw new StoreError(
+        "report.terminal_operation_invalid",
+        "materialized output source is missing",
+      );
+    }
+    await materializeLocked(runRoot, envelope);
+    const fault =
+      output.target_path === "report.json"
+        ? "after_report_materialization"
+        : output.target_path === "decision-brief.md"
+          ? "after_brief_materialization"
+          : "after_view_materialization";
+    if (faultAt === fault)
+      throw new StoreError("fault.injected", `fault injected after ${output.target_path}`);
+  }
+  return {
+    schemaVersion: "startup_opportunity.build_report_result.v1",
+    runId: operation.run_id,
+    status: publication.status,
+    formalArtifactPaths: [
+      operation.source_envelope.artifact_path,
+      ...operation.derived_envelopes.map((entry) => entry.artifact_path),
+    ],
+    materializedPaths: operation.materialized_outputs.map((entry) => entry.target_path),
+    consistencyEvaluationRef: operation.derived_envelopes[2]?.artifact_path ?? "",
+  };
+}
+
+export async function preparedTerminalReportIsDurableLocked(
+  runRoot: string,
+  operation: PreparedTerminalReportOperation,
+  artifacts: ArtifactStore,
+): Promise<boolean> {
+  for (const expected of [operation.source_envelope, ...operation.derived_envelopes]) {
+    let stored: unknown;
+    try {
+      stored = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, expected.artifact_path), "utf8"),
+      ) as unknown;
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) return false;
+      throw error;
+    }
+    if (canonicalJson(stored) !== canonicalJson(expected)) {
+      throw new StoreError(
+        "report.terminal_operation_conflict",
+        "stored terminal report Artifact differs from its immutable operation",
+        { artifactPath: expected.artifact_path },
+      );
+    }
+    await artifacts.validateStoredEnvelope(runRoot, operation.run_id, expected);
+  }
+  for (const output of operation.materialized_outputs) {
+    let bytes: string;
+    try {
+      bytes = await readFile(await resolveRunPath(runRoot, output.target_path), "utf8");
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) return false;
+      throw error;
+    }
+    if (bytes !== output.bytes || sha256Bytes(bytes) !== output.content_hash) {
+      throw new StoreError(
+        "report.terminal_operation_conflict",
+        "materialized terminal report differs from its immutable operation",
+        { targetPath: output.target_path },
+      );
+    }
+  }
+  return true;
+}
+
 function hasExactlyKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
   const actual = Object.keys(value).sort();
   const sortedExpected = [...expected].sort();
@@ -1238,8 +1507,80 @@ export class ReportRuntime {
     });
   }
 
+  async prepareTerminalLocked(
+    runRoot: string,
+    input: {
+      readonly reportEnvelope: FormalArtifactEnvelope;
+      readonly prospectiveManifest: RunManifest;
+      readonly supportingEnvelopes: readonly FormalArtifactEnvelope[];
+    },
+  ): Promise<PreparedTerminalReportOperation> {
+    if (input.reportEnvelope.artifact_type !== "startup_opportunity.terminal_report_source.v1") {
+      throw new StoreError(
+        "report.source_invalid",
+        "terminal closeout requires a terminal report source",
+      );
+    }
+    await assertNoOtherFinalReportLocked(runRoot, input.reportEnvelope);
+    const source = await this.compileCommercialReportFields(
+      input.reportEnvelope,
+      runRoot,
+      input.prospectiveManifest,
+      input.supportingEnvelopes,
+    );
+    const derived = deriveReportEnvelopes(source);
+    assertDerivedConsistencyPassed(derived);
+    const prospectivePaths = new Set(
+      [source, ...derived].map((envelope) => envelope.artifact_path),
+    );
+    const context = await this.store.buildValidationContextLocked(
+      runRoot,
+      source.run_id,
+      {
+        schema_version: "startup_opportunity.document_bundle.current",
+        documents: [source, ...derived]
+          .map((envelope) => ({
+            path: envelope.artifact_path,
+            document: envelope,
+          }))
+          .concat(
+            input.supportingEnvelopes.map((envelope) => ({
+              path: envelope.artifact_path,
+              document: envelope,
+            })),
+          ),
+        exact_records: [],
+      },
+      true,
+      prospectivePaths,
+      input.prospectiveManifest,
+    );
+    const validation = this.validator.validateDocumentBundle(
+      context.bundle,
+      context.referenceContext,
+    );
+    if (!validation.valid) {
+      throw new StoreError(
+        "report.source_invalid",
+        "terminal report closeout fails prospective semantic validation",
+        {
+          errors: [
+            ...validation.bundleErrors,
+            ...validation.documents.flatMap((entry) => entry.errors),
+            ...validation.referenceErrors,
+          ],
+        },
+      );
+    }
+    await assertReportBuildCompatibleLocked(runRoot, source, derived);
+    return preparedTerminalReportOperation(input.reportEnvelope, source, derived);
+  }
+
   private async compileCommercialReportFields(
     source: FormalArtifactEnvelope,
+    runRoot?: string,
+    prospectiveManifest?: RunManifest,
+    supportingEnvelopes: readonly FormalArtifactEnvelope[] = [],
   ): Promise<FormalArtifactEnvelope> {
     if (
       ![
@@ -1250,29 +1591,57 @@ export class ReportRuntime {
     ) {
       return source;
     }
-    const context = await this.store
-      .buildValidationContext(
-        source.run_id,
-        {
-          schema_version: "startup_opportunity.document_bundle.current",
-          documents: [{ path: source.artifact_path, document: source }],
-          exact_records: [],
-        },
-        {
-          includeAllFormalArtifacts: true,
-          prospectiveArtifactPaths: [source.artifact_path],
-        },
-      )
-      .catch((error: unknown) => {
-        if (error instanceof StoreError && error.code === "validation_context.authority_conflict") {
-          throw new StoreError(
-            "report.final_revision_conflict",
-            "a different immutable report revision already exists",
-            error.details,
+    const buildContext = (candidate: FormalArtifactEnvelope) =>
+      runRoot === undefined
+        ? this.store.buildValidationContext(
+            source.run_id,
+            {
+              schema_version: "startup_opportunity.document_bundle.current",
+              documents: [
+                { path: source.artifact_path, document: candidate },
+                ...supportingEnvelopes.map((envelope) => ({
+                  path: envelope.artifact_path,
+                  document: envelope,
+                })),
+              ],
+              exact_records: [],
+            },
+            {
+              includeAllFormalArtifacts: true,
+              prospectiveArtifactPaths: [source.artifact_path],
+            },
+          )
+        : this.store.buildValidationContextLocked(
+            runRoot,
+            source.run_id,
+            {
+              schema_version: "startup_opportunity.document_bundle.current",
+              documents: [
+                { path: source.artifact_path, document: candidate },
+                ...supportingEnvelopes.map((envelope) => ({
+                  path: envelope.artifact_path,
+                  document: envelope,
+                })),
+              ],
+              exact_records: [],
+            },
+            true,
+            new Set([
+              source.artifact_path,
+              ...supportingEnvelopes.map((envelope) => envelope.artifact_path),
+            ]),
+            prospectiveManifest,
           );
-        }
-        throw error;
-      });
+    const context = await buildContext(source).catch((error: unknown) => {
+      if (error instanceof StoreError && error.code === "validation_context.authority_conflict") {
+        throw new StoreError(
+          "report.final_revision_conflict",
+          "a different immutable report revision already exists",
+          error.details,
+        );
+      }
+      throw error;
+    });
     const formalDocuments = context.bundle.documents.flatMap((entry) => {
       if (
         entry.document.schema_version !== "startup_opportunity.artifact_envelope.current" ||
@@ -1333,7 +1702,10 @@ export class ReportRuntime {
         },
       ];
     });
-    const evidenceRecords = await this.evidence.listRecords(source.run_id);
+    const evidenceRecords =
+      runRoot === undefined
+        ? await this.evidence.listRecords(source.run_id)
+        : await this.evidence.listRecordsLocked(runRoot, source.run_id);
     const exactRecords = new Map(context.referenceContext.exactJsonlRecords ?? []);
     for (const record of evidenceRecords) {
       exactRecords.set(
@@ -1499,18 +1871,7 @@ export class ReportRuntime {
       content_hash: canonicalContentHash(provisionalDocument),
       document: provisionalDocument,
     };
-    const provisionalContext = await this.store.buildValidationContext(
-      source.run_id,
-      {
-        schema_version: "startup_opportunity.document_bundle.current",
-        documents: [{ path: source.artifact_path, document: provisional }],
-        exact_records: [],
-      },
-      {
-        includeAllFormalArtifacts: true,
-        prospectiveArtifactPaths: [source.artifact_path],
-      },
-    );
+    const provisionalContext = await buildContext(provisional);
     const provisionalValidation = this.validator.validateDocumentBundle(
       provisionalContext.bundle,
       provisionalContext.referenceContext,
@@ -1554,18 +1915,7 @@ export class ReportRuntime {
       content_hash: canonicalContentHash(document),
       document,
     };
-    const finalContext = await this.store.buildValidationContext(
-      source.run_id,
-      {
-        schema_version: "startup_opportunity.document_bundle.current",
-        documents: [{ path: source.artifact_path, document: compiled }],
-        exact_records: [],
-      },
-      {
-        includeAllFormalArtifacts: true,
-        prospectiveArtifactPaths: [source.artifact_path],
-      },
-    );
+    const finalContext = await buildContext(compiled);
     const finalValidation = this.validator.validateDocumentBundle(
       finalContext.bundle,
       finalContext.referenceContext,

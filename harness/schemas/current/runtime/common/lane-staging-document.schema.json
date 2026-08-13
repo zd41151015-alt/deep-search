@@ -38,6 +38,9 @@
     "operation": {
       "enum": ["validate_only", "publish"]
     },
+    "publication_plan": {
+      "$ref": "./runtime-publication-plan.schema.json"
+    },
     "evidence_receipt_refs": {
       "type": "array",
       "uniqueItems": true,
@@ -47,7 +50,7 @@
       }
     },
     "delivery_contract": {
-      "$ref": "./lane-delivery-receipt.schema.json#/$defs/deliveryDeclaration"
+      "$ref": "./lane-delivery-receipt.schema.json#/$defs/researchDeclaration"
     },
     "agent_documents": {
       "type": "array",
@@ -55,14 +58,23 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["artifact_type", "artifact_path", "document"],
+        "required": ["artifact_family", "document"],
         "properties": {
-          "artifact_type": {
-            "type": "string",
-            "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
+          "artifact_family": {
+            "enum": [
+              "lane_result",
+              "commercial_audit",
+              "evidence",
+              "finding",
+              "claim",
+              "judgment",
+              "insight",
+              "source_manifest"
+            ]
           },
-          "artifact_path": {
-            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"
+          "evidence_receipt_ref": {
+            "type": "string",
+            "pattern": "^evidence/manifest\\.jsonl#ev_[a-f0-9]{64}$"
           },
           "document": {
             "type": "object"
@@ -72,22 +84,40 @@
           {
             "if": {
               "properties": {
-                "artifact_type": {
-                  "const": "startup_opportunity.commercial_research_audit.current"
+                "artifact_family": {
+                  "const": "commercial_audit"
                 }
               },
-              "required": ["artifact_type"]
+              "required": ["artifact_family"]
             },
             "then": {
               "properties": {
                 "document": {
-                  "$ref": "../../assessment/commercial/commercial-research-delivery.schema.json"
+                  "$ref": "../../assessment/commercial/commercial-research-delivery.schema.json#/$defs/authoredSemantics"
                 }
               }
             }
+          },
+          {
+            "if": {
+              "properties": { "artifact_family": { "const": "evidence" } },
+              "required": ["artifact_family"]
+            },
+            "then": { "required": ["evidence_receipt_ref"] },
+            "else": { "not": { "required": ["evidence_receipt_ref"] } }
           }
         ]
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "operation": { "const": "publish" } },
+        "required": ["operation"]
+      },
+      "then": { "required": ["publication_plan"] },
+      "else": { "not": { "required": ["publication_plan"] } }
+    }
+  ]
 }

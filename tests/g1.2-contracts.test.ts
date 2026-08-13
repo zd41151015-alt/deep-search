@@ -12,6 +12,7 @@ import {
   type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
   inspectSchemaBundle,
+  LaneResultMaterializer,
   RunStore,
   StoreError,
 } from "../harness/src/index.js";
@@ -132,6 +133,56 @@ async function prepareSingleBranch(context: TestContext, runId = G12_RUN_ID) {
   return { ...state, base, initial, branch, task, envelopes };
 }
 
+function semanticLaneDocument(envelope: FormalArtifactEnvelope): Record<string, unknown> {
+  const document = structuredClone(envelope.document);
+  for (const field of ["schema_version", "run_id", "unit_id", "lineage", "mechanical_binding"])
+    delete document[field];
+  if (
+    envelope.artifact_type === "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+  ) {
+    for (const field of [
+      "branch_id",
+      "concept_hypothesis_ref",
+      "assessment_plan_ref",
+      "dimension_id",
+    ])
+      delete document[field];
+  }
+  if (envelope.artifact_type === "startup_opportunity.evidence.assessment.current")
+    delete document.evidence_id;
+  return document;
+}
+
+function remapArtifactRefs(value: unknown, pathByLegacyRef: ReadonlyMap<string, string>): unknown {
+  if (typeof value === "string") return pathByLegacyRef.get(value) ?? value;
+  if (Array.isArray(value)) return value.map((item) => remapArtifactRefs(item, pathByLegacyRef));
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, remapArtifactRefs(item, pathByLegacyRef)]),
+  );
+}
+
+function emptyCommercialDelivery(): Record<string, unknown> {
+  return {
+    audited_at: "2026-07-24T20:22:00Z",
+    research_objectives: ["Disclose the bounded synthetic research closure."],
+    primary_routes: ["Repository-existing synthetic fixture inputs."],
+    search_results: [],
+    evidence_sources: [],
+    findings: [],
+    claims: [],
+    judgments: [],
+    quantitative_observations: [],
+    competitive_observations: [],
+    incumbent_response_assessments: [],
+    unresolved_gaps: [],
+    limitations: ["SYNTHETIC contract fixture; no market research was performed."],
+    stop_reason: "The bounded fixture contract was complete.",
+    telemetry_basis: "unavailable",
+    query_log_complete: false,
+  };
+}
+
 async function publishVerticalFixture(context: TestContext) {
   const state = await setup(context);
   const base = await baseFixture();
@@ -209,6 +260,173 @@ test("current bundle publishes Evidence Store and research branch schemas", asyn
   assert.equal(result.valid, true, JSON.stringify(result.errors));
   assert.ok(result.schemaCount > 0);
   assert.ok(result.documentSchemaCount > 0);
+});
+
+test("direct Assessment Task uses the typed one-shot Lane delivery path", async (context) => {
+  const state = await prepareSingleBranch(context);
+  const taskRef = state.task.artifact_path;
+  const receipts = state.envelopes
+    .filter(
+      (envelope) => envelope.artifact_type === "startup_opportunity.evidence.assessment.current",
+    )
+    .map((envelope) => ({
+      envelope,
+      ref: String(
+        (
+          (envelope.document as Record<string, unknown>).mechanical_binding as Record<
+            string,
+            unknown
+          >
+        ).substrate_record_ref,
+      ),
+    }));
+  assert.equal(receipts.length, 2);
+  const familyByType = new Map<string, string>([
+    ["startup_opportunity.evidence.assessment.current", "evidence"],
+    ["startup_opportunity.claim.assessment.current", "claim"],
+    ["startup_opportunity.finding.assessment.current", "finding"],
+    ["startup_opportunity.insight.assessment.current", "insight"],
+    ["startup_opportunity.source_manifest.assessment.current", "source_manifest"],
+    ["startup_opportunity.concept_evidence_assessment_branch_result.v1", "lane_result"],
+  ]);
+  const pathByLegacyRef = new Map(
+    state.envelopes.map((envelope) => {
+      const idField =
+        envelope.artifact_type === "startup_opportunity.claim.assessment.current"
+          ? "claim_id"
+          : envelope.artifact_type === "startup_opportunity.finding.assessment.current"
+            ? "finding_id"
+            : envelope.artifact_type === "startup_opportunity.insight.assessment.current"
+              ? "insight_id"
+              : envelope.artifact_type === "startup_opportunity.source_manifest.assessment.current"
+                ? "manifest_id"
+                : null;
+      const directory =
+        envelope.artifact_type === "startup_opportunity.claim.assessment.current"
+          ? "claims"
+          : envelope.artifact_type === "startup_opportunity.finding.assessment.current"
+            ? "findings"
+            : envelope.artifact_type === "startup_opportunity.insight.assessment.current"
+              ? "insights"
+              : "evidence/source-manifests";
+      return [
+        envelope.artifact_path,
+        idField === null
+          ? envelope.artifact_path
+          : `${directory}/${String((envelope.document as Record<string, unknown>)[idField])}.json`,
+      ];
+    }),
+  );
+  const agentDocuments = state.envelopes.map((envelope) => {
+    const artifactFamily = familyByType.get(envelope.artifact_type);
+    assert.ok(artifactFamily);
+    const receipt = receipts.find(
+      (candidate) => candidate.envelope.artifact_path === envelope.artifact_path,
+    );
+    return {
+      artifact_family: artifactFamily,
+      ...(receipt === undefined ? {} : { evidence_receipt_ref: receipt.ref }),
+      document: remapArtifactRefs(semanticLaneDocument(envelope), pathByLegacyRef) as Record<
+        string,
+        unknown
+      >,
+    };
+  });
+  agentDocuments.push({ artifact_family: "commercial_audit", document: emptyCommercialDelivery() });
+  const coverageKeys = [
+    ...((state.task.document.commercial_research_requirements as Record<string, unknown>)
+      .required_commercial_dimensions as string[]),
+    ...(
+      (
+        (state.task.document.commercial_research_requirements as Record<string, unknown>)
+          .quantitative_competitive_scope as Record<string, unknown>
+      ).required_metric_families as string[]
+    ).map((value) => `quantitative:${value}`),
+    ...(
+      (
+        (state.task.document.commercial_research_requirements as Record<string, unknown>)
+          .quantitative_competitive_scope as Record<string, unknown>
+      ).required_competitor_types as string[]
+    ).map((value) => `competitive:${value}`),
+    state.branch.dimensionId,
+  ].sort();
+  const staging = {
+    schema_version: "startup_opportunity.lane_staging_document.current",
+    staging_id: "staging_direct_assessment_lane_synthetic",
+    run_id: state.task.run_id,
+    task_ref: taskRef,
+    created_at: "2026-07-24T20:22:00Z",
+    producer_role: "lane_researcher",
+    operation: "validate_only",
+    evidence_receipt_refs: receipts.map((receipt) => receipt.ref),
+    delivery_contract: {
+      scope_coverage: coverageKeys.map((scopeKey, index) => ({
+        scope_key: scopeKey,
+        status: index === 0 ? "covered" : "no_evidence_found",
+        evidence_refs: index === 0 ? receipts.map((receipt) => receipt.ref) : [],
+        notes:
+          index === 0
+            ? "The typed synthetic Evidence exercises exact Lane adoption only."
+            : "No market Evidence covers this synthetic scope.",
+      })),
+      search_closure: {
+        status: "completed",
+        acquisition_routes_attempted: ["repository_source"],
+        unresolved_gaps: ["No market research was performed."],
+        stop_reason: "The deterministic current-contract fixture was complete.",
+      },
+    },
+    agent_documents: agentDocuments,
+  };
+  const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const before = await snapshotTree(state.runRoot);
+  const validated = await materializer.materialize(staging).catch((error: unknown) => {
+    if (error instanceof StoreError) {
+      assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+    }
+    throw error;
+  });
+  assert.equal(validated.compilation.status, "validated");
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
+  assert.deepEqual(validated.delivery_receipt.document.assigned_subject_refs, [
+    "concept-hypothesis.json",
+  ]);
+  assert.ok(
+    (validated.delivery_receipt.document.required_artifacts as Record<string, unknown>[]).some(
+      (artifact) => artifact.artifact_path === state.branch.outputPath,
+    ),
+  );
+
+  const publish = structuredClone(staging);
+  publish.operation = "publish";
+  (publish as typeof publish & { publication_plan: unknown }).publication_plan =
+    validated.compilation.publication_plan;
+  const published = await materializer.materialize(publish);
+  assert.equal(published.compilation.status, "published");
+  assert.deepEqual(
+    published.compilation.compiled_envelopes,
+    validated.compilation.compiled_envelopes,
+  );
+  const branch = published.compilation.compiled_envelopes.find(
+    (envelope) => envelope.artifact_path === state.branch.outputPath,
+  );
+  assert.ok(branch);
+  assert.equal(branch.document.branch_id, `branch_${state.branch.unitId}`);
+  assert.ok(
+    branch.input_refs.includes(
+      pathByLegacyRef.get(`evidence/source-manifests/${state.branch.unitId}.json`) ?? "",
+    ),
+  );
+  assert.ok(
+    branch.input_refs.includes(pathByLegacyRef.get(`insights/${state.branch.unitId}.json`) ?? ""),
+  );
+  const replay = await materializer.materialize(publish);
+  assert.equal(replay.compilation.status, "idempotent_replay");
+  const reopened = await new RunStore(state.runsRoot, state.validator).load(
+    String(state.task.run_id),
+  );
+  assert.ok(reopened.manifest.artifact_refs.includes(state.branch.outputPath));
+  assert.ok(reopened.manifest.artifact_refs.includes(published.delivery_receipt.artifact_path));
 });
 
 test("four synthetic branches publish Evidence -> Claim -> Finding -> Insight and reopen", async (context) => {

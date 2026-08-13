@@ -3873,14 +3873,11 @@ test("terminal report publication fault recovers from the immutable source on re
     (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
   );
   const interrupted = await setup.store.status(runId);
-  assert.equal(interrupted.manifest.status, "insufficient_evidence");
-  assert.equal(interrupted.terminalReportDisposition, "missing");
+  assert.equal(interrupted.manifest.status, "researching");
+  assert.equal(interrupted.terminalReportDisposition, "not_required");
   const reopened = await setup.store.load(runId);
-  assert.ok(
-    reopened.reportRecovery.recoveredFormalArtifactPaths.includes(
-      "artifacts/reporting/decision-brief.r1.json",
-    ),
-  );
+  assert.equal(reopened.manifest.status, "insufficient_evidence");
+  assert.equal(reopened.planOperationRecovery.completedOperationKeys.length, 1);
   assert.equal(
     (await readFile(path.join(setup.runRoot, "decision-brief.md"), "utf8")).length > 0,
     true,
@@ -3888,7 +3885,7 @@ test("terminal report publication fault recovers from the immutable source on re
   assert.equal((await setup.store.status(runId)).terminalReportDisposition, "ready");
 });
 
-test("post-manifest terminal fault is visible until exact replay finalizes delivery", async (contextTest) => {
+test("post-manifest terminal fault already has every report output and exact replay finalizes delivery", async (contextTest) => {
   const runId = "runtime-terminal-plan-fault";
   const setup = await setupPersistedRun(contextTest, runId, "terminate");
   const terminal = await prepareTerminalReporting(setup);
@@ -3915,12 +3912,248 @@ test("post-manifest terminal fault is visible until exact replay finalizes deliv
   );
   const interrupted = await setup.store.status(runId);
   assert.equal(interrupted.derivedExecutionDisposition, "terminal");
-  assert.equal(interrupted.terminalReportDisposition, "missing");
+  assert.equal(interrupted.terminalReportDisposition, "ready");
+  for (const relativePath of ["report.json", "decision-brief.md", "report.md"]) {
+    assert.equal((await readFile(path.join(setup.runRoot, relativePath), "utf8")).length > 0, true);
+  }
 
   const replay = await runtime.apply(input);
   assert.equal(replay.status, "idempotent_replay");
-  assert.equal(replay.terminalReport?.status, "published");
+  assert.equal(replay.terminalReport?.status, "idempotent_replay");
   assert.equal((await setup.store.status(runId)).terminalReportDisposition, "ready");
+});
+
+test("every terminal report durable boundary reopens to terminal state with complete reports", async (contextTest) => {
+  const boundaries = [
+    "after_report_sidecar",
+    "after_report_materialization",
+    "after_brief_sidecar",
+    "after_brief_materialization",
+    "after_view_sidecar",
+    "after_view_materialization",
+    "after_consistency_sidecar",
+  ] as const;
+  for (const [index, terminalReportFaultAt] of boundaries.entries()) {
+    const runId = `runtime-terminal-report-boundary-${index + 1}`;
+    const setup = await setupPersistedRun(contextTest, runId, "terminate");
+    const terminal = await prepareTerminalReporting(setup);
+    await assert.rejects(
+      (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+        runId,
+        adaptationBundle: terminal.adaptationBundle,
+        adaptationRefs: [DECISION_REF],
+        terminalReportEnvelope: terminal.reportEnvelope,
+        terminalReportFaultAt,
+        createdAt: "2026-07-24T12:08:00Z",
+        checkpointCreatedAt: "2026-07-24T12:09:00Z",
+        nextStep: "Recover the exact terminal closeout intent.",
+        beliefSummary: {
+          current_belief: "The report operation must finish before terminal state is visible.",
+          evidence_that_changed_belief: [],
+          unchanged_assumptions: [],
+          remaining_disagreement: [],
+          next_decision_relevant_question: "Did reopen finish every report output?",
+        },
+      }),
+      (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      terminalReportFaultAt,
+    );
+    assert.equal((await setup.store.status(runId)).manifest.status, "researching");
+    const reopened = await setup.store.load(runId);
+    assert.equal(reopened.manifest.status, "insufficient_evidence");
+    assert.equal((await setup.store.status(runId)).terminalReportDisposition, "ready");
+    for (const relativePath of ["report.json", "decision-brief.md", "report.md"]) {
+      assert.equal(
+        (await readFile(path.join(setup.runRoot, relativePath), "utf8")).length > 0,
+        true,
+      );
+    }
+  }
+});
+
+test("every terminal Plan durable boundary avoids terminal-without-report and recovers exactly", async (contextTest) => {
+  const boundaries = [
+    "after_intent",
+    "after_control_artifacts",
+    "after_manifest_update",
+    "after_checkpoint_publish",
+  ] as const;
+  for (const [index, faultAt] of boundaries.entries()) {
+    const runId = `runtime-terminal-plan-boundary-${index + 1}`;
+    const setup = await setupPersistedRun(contextTest, runId, "terminate");
+    const terminal = await prepareTerminalReporting(setup);
+    await assert.rejects(
+      (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+        runId,
+        adaptationBundle: terminal.adaptationBundle,
+        adaptationRefs: [DECISION_REF],
+        terminalReportEnvelope: terminal.reportEnvelope,
+        createdAt: "2026-07-24T12:08:00Z",
+        checkpointCreatedAt: "2026-07-24T12:09:00Z",
+        nextStep: "Recover the exact terminal Plan intent.",
+        beliefSummary: {
+          current_belief: "Terminal state is visible only with every report output.",
+          evidence_that_changed_belief: [],
+          unchanged_assumptions: [],
+          remaining_disagreement: [],
+          next_decision_relevant_question: "Did the terminal Plan operation finish exactly?",
+        },
+        faultAt,
+      }),
+      (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      faultAt,
+    );
+    const interrupted = await setup.store.status(runId);
+    if (faultAt === "after_intent" || faultAt === "after_control_artifacts") {
+      assert.equal(interrupted.manifest.status, "researching");
+      assert.equal(interrupted.terminalReportDisposition, "not_required");
+    } else {
+      assert.equal(interrupted.manifest.status, "insufficient_evidence");
+      assert.equal(interrupted.terminalReportDisposition, "ready");
+    }
+    const reopened = await setup.store.load(runId);
+    assert.equal(reopened.manifest.status, "insufficient_evidence");
+    assert.equal((await setup.store.status(runId)).terminalReportDisposition, "ready");
+    assert.equal((await setup.store.load(runId)).recovered, false);
+  }
+});
+
+test("terminal report preflight failure leaves no closeout intent or formal output", async (contextTest) => {
+  const runId = "runtime-terminal-preflight-zero-write";
+  const setup = await setupPersistedRun(contextTest, runId, "terminate");
+  const terminal = await prepareTerminalReporting(setup);
+  const before = await planApplyBoundaryState(setup.runRoot);
+  const reportingBefore = (await readdir(path.join(setup.runRoot, "artifacts/reporting"))).sort();
+  const invalidReport = clone(terminal.reportEnvelope);
+  invalidReport.document.terminal_outcome = "completed";
+  (invalidReport as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+    invalidReport.document,
+  );
+
+  await assert.rejects(
+    (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+      runId,
+      adaptationBundle: terminal.adaptationBundle,
+      adaptationRefs: [DECISION_REF],
+      terminalReportEnvelope: invalidReport,
+      createdAt: "2026-07-24T12:08:00Z",
+      checkpointCreatedAt: "2026-07-24T12:09:00Z",
+      nextStep: "Reject a report that disagrees with the prospective terminal Manifest.",
+      beliefSummary: {
+        current_belief: "Invalid report rendering cannot terminate the Run.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Can a corrected report close the Run?",
+      },
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "report.source_invalid",
+  );
+  assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
+  assert.deepEqual(
+    (await readdir(path.join(setup.runRoot, "artifacts/reporting"))).sort(),
+    reportingBefore,
+  );
+  assert.equal((await setup.store.status(runId)).manifest.status, "researching");
+  for (const relativePath of ["report.json", "decision-brief.md", "report.md"]) {
+    await assert.rejects(readFile(path.join(setup.runRoot, relativePath), "utf8"));
+  }
+});
+
+test("terminal closeout receipt and materialized output drift fail closed on reopen", async (contextTest) => {
+  {
+    const runId = "runtime-terminal-receipt-tamper";
+    const setup = await setupPersistedRun(contextTest, runId, "terminate");
+    const terminal = await prepareTerminalReporting(setup);
+    await assert.rejects(
+      (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+        runId,
+        adaptationBundle: terminal.adaptationBundle,
+        adaptationRefs: [DECISION_REF],
+        terminalReportEnvelope: terminal.reportEnvelope,
+        createdAt: "2026-07-24T12:08:00Z",
+        checkpointCreatedAt: "2026-07-24T12:09:00Z",
+        nextStep: "Leave an immutable terminal closeout intent.",
+        beliefSummary: {
+          current_belief: "Recovery is bound to exact prepared report bytes.",
+          evidence_that_changed_belief: [],
+          unchanged_assumptions: [],
+          remaining_disagreement: [],
+          next_decision_relevant_question: "Does receipt tamper fail closed?",
+        },
+        faultAt: "after_intent",
+      }),
+      (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+    );
+    const receiptPath = await planReceiptFile(setup.runRoot);
+    const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
+    const operation = receipt.terminal_report_operation as Record<string, unknown>;
+    const outputs = operation.materialized_outputs as Record<string, unknown>[];
+    assert.ok(outputs[0]);
+    outputs[0].bytes = `${String(outputs[0].bytes)}tampered`;
+    await writeFile(receiptPath, `${canonicalJson(receipt)}\n`);
+    await assert.rejects(
+      setup.store.load(runId),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "recovery.invalid_plan_operation",
+    );
+  }
+
+  {
+    const runId = "runtime-terminal-output-tamper";
+    const setup = await setupPersistedRun(contextTest, runId, "terminate");
+    const terminal = await prepareTerminalReporting(setup);
+    await (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+      runId,
+      adaptationBundle: terminal.adaptationBundle,
+      adaptationRefs: [DECISION_REF],
+      terminalReportEnvelope: terminal.reportEnvelope,
+      createdAt: "2026-07-24T12:08:00Z",
+      checkpointCreatedAt: "2026-07-24T12:09:00Z",
+      nextStep: "Publish an exact terminal closeout.",
+      beliefSummary: {
+        current_belief: "Materialized bytes are part of the terminal operation.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Does output tamper fail closed?",
+      },
+    });
+    await writeFile(path.join(setup.runRoot, "report.md"), "tampered\n");
+    await assert.rejects(
+      setup.store.load(runId),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "report.terminal_operation_conflict",
+    );
+  }
+});
+
+test("terminal Manifest with a deleted report output fails closed instead of reconstructing it", async (contextTest) => {
+  const runId = "runtime-terminal-output-deleted";
+  const setup = await setupPersistedRun(contextTest, runId, "terminate");
+  const terminal = await prepareTerminalReporting(setup);
+  await (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+    runId,
+    adaptationBundle: terminal.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    terminalReportEnvelope: terminal.reportEnvelope,
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    nextStep: "Publish an exact terminal closeout.",
+    beliefSummary: {
+      current_belief: "A committed terminal report cannot be reconstructed after deletion.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Does deletion fail closed?",
+    },
+  });
+  await rm(path.join(setup.runRoot, "report.md"));
+  await assert.rejects(
+    setup.store.load(runId),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "recovery.terminal_report_missing_after_commit",
+  );
 });
 
 test("a completed no-revision operation does not block the next same-Plan adaptation", async (contextTest) => {

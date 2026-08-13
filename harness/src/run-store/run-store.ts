@@ -2096,6 +2096,7 @@ export class RunStore {
     options: {
       readonly includeAllFormalArtifacts?: boolean;
       readonly prospectiveArtifactPaths?: readonly string[];
+      readonly prospectiveManifest?: RunManifest;
     } = {},
   ): Promise<BuildValidationContextResult> {
     validateRunId(runId);
@@ -2116,19 +2117,38 @@ export class RunStore {
         input,
         options.includeAllFormalArtifacts === true,
         new Set(options.prospectiveArtifactPaths ?? []),
+        options.prospectiveManifest,
       ),
     );
   }
 
-  private async buildValidationContextLocked(
+  async buildValidationContextLocked(
     runRoot: string,
     runId: string,
     input: DocumentBundle,
     includeAllFormalArtifacts = false,
     prospectiveArtifactPaths: ReadonlySet<string> = new Set(),
+    prospectiveManifest?: RunManifest,
   ): Promise<BuildValidationContextResult> {
-    const manifest = await this.readManifest(runRoot);
-    await this.assertScopeBindingLocked(runRoot, manifest);
+    const storedManifest = await this.readManifest(runRoot);
+    await this.assertScopeBindingLocked(runRoot, storedManifest);
+    const manifest = prospectiveManifest ?? storedManifest;
+    if (prospectiveManifest !== undefined) {
+      const validation = this.validator.validateDocument(prospectiveManifest, "manifest.json");
+      if (
+        !validation.valid ||
+        prospectiveManifest.run_id !== storedManifest.run_id ||
+        prospectiveManifest.scope_revision !== storedManifest.scope_revision ||
+        prospectiveManifest.scope_confirmation_ref !== storedManifest.scope_confirmation_ref ||
+        prospectiveManifest.scope_confirmation_hash !== storedManifest.scope_confirmation_hash
+      ) {
+        throw new StoreError(
+          "validation_context.prospective_manifest_invalid",
+          "prospective Manifest must preserve the exact current Run and Scope authority",
+          { errors: validation.errors },
+        );
+      }
+    }
     const stored = new Map(
       (await this.artifacts.listFormalDocuments(runRoot)).map((entry) => [entry.path, entry]),
     );
@@ -5501,12 +5521,6 @@ export class RunStore {
     const evidenceRecovery = await this.evidence.recoverLocked(runRoot, runId);
     const artifactRecovery = await this.artifacts.recoverLocked(runRoot, runId);
     const handoffRecovery = await this.recoverResearchHandoffOperationsLocked(runRoot, runId);
-    const reportRecovery = await recoverReportOperationsLocked(
-      runRoot,
-      runId,
-      this.validator,
-      this.artifacts,
-    );
     const logRepairs = [
       await this.logs.repair(runRoot, runId, "events.jsonl"),
       await this.logs.repair(runRoot, runId, "decisions.jsonl"),
@@ -5517,6 +5531,12 @@ export class RunStore {
       this.validator,
       this.artifacts,
       this.logs,
+    );
+    const reportRecovery = await recoverReportOperationsLocked(
+      runRoot,
+      runId,
+      this.validator,
+      this.artifacts,
     );
     await this.validateLogRefs(runRoot, "events.jsonl");
     await this.validateLogRefs(runRoot, "decisions.jsonl");

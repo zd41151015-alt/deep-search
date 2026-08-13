@@ -275,6 +275,48 @@
     "query_log_complete": { "type": "boolean" }
   },
   "$defs": {
+    "authoredSemantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "audited_at",
+        "research_objectives",
+        "primary_routes",
+        "search_results",
+        "evidence_sources",
+        "findings",
+        "claims",
+        "judgments",
+        "quantitative_observations",
+        "competitive_observations",
+        "incumbent_response_assessments",
+        "unresolved_gaps",
+        "limitations",
+        "stop_reason",
+        "telemetry_basis",
+        "query_log_complete"
+      ],
+      "properties": {
+        "audited_at": { "$ref": "#/properties/audited_at" },
+        "research_objectives": { "$ref": "#/properties/research_objectives" },
+        "primary_routes": { "$ref": "#/properties/primary_routes" },
+        "search_results": { "$ref": "#/properties/search_results" },
+        "evidence_sources": { "$ref": "#/properties/evidence_sources" },
+        "findings": { "$ref": "#/properties/findings" },
+        "claims": { "$ref": "#/properties/claims" },
+        "judgments": { "$ref": "#/properties/judgments" },
+        "quantitative_observations": { "$ref": "#/properties/quantitative_observations" },
+        "competitive_observations": { "$ref": "#/properties/competitive_observations" },
+        "incumbent_response_assessments": {
+          "$ref": "#/properties/incumbent_response_assessments"
+        },
+        "unresolved_gaps": { "$ref": "#/properties/unresolved_gaps" },
+        "limitations": { "$ref": "#/properties/limitations" },
+        "stop_reason": { "$ref": "#/properties/stop_reason" },
+        "telemetry_basis": { "$ref": "#/properties/telemetry_basis" },
+        "query_log_complete": { "$ref": "#/properties/query_log_complete" }
+      }
+    },
     "semanticStatements": {
       "type": "array",
       "items": {

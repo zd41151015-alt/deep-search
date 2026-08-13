@@ -236,14 +236,23 @@ const ASSESSMENT_EXECUTION_ARTIFACT_TYPES = new Set([
   "startup_opportunity.concept_hypothesis.assessment_intake.current",
   "startup_opportunity.research_execution_plan.assessment.current",
   "startup_opportunity.dispatch_batch.assessment.current",
+  "startup_opportunity.research_task.assessment.current",
   "startup_opportunity.assessment_evidence.v1",
   "startup_opportunity.assessment_lane_result.v1",
+  "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+  "startup_opportunity.evidence.assessment.current",
+  "startup_opportunity.finding.assessment.current",
+  "startup_opportunity.claim.assessment.current",
+  "startup_opportunity.insight.assessment.current",
+  "startup_opportunity.judgment_assessment.assessment.current",
+  "startup_opportunity.source_manifest.assessment.current",
   "startup_opportunity.assessment_stage_gate.v1",
   "startup_opportunity.assessment_followup_decision.v1",
 ]);
 
 const RUNTIME_NEUTRAL_ARTIFACT_TYPES = new Set([
   "startup_opportunity.lane_delivery_receipt.current",
+  "startup_opportunity.commercial_research_audit.current",
 ]);
 
 export class DeclarativeRuntimeCompiler {
@@ -403,7 +412,22 @@ export class DeclarativeRuntimeCompiler {
       if (!deliveryValidation.valid) return artifact;
       const compiled = compileCommercialResearchDelivery(
         artifact.document,
-        String(artifact.input_refs?.find((ref) => ref.startsWith("tasks/")) ?? ""),
+        String(
+          artifact.input_refs?.find((ref) => {
+            const targetPath = ref.split("#", 1)[0] ?? "";
+            const target = availableArtifacts.find(
+              (candidate) => candidate.artifact_path === targetPath,
+            );
+            const targetDocument = isRecord(target?.document.document)
+              ? target.document.document
+              : target?.document;
+            return String(targetDocument?.schema_version).startsWith(
+              "startup_opportunity.research_task.",
+            );
+          }) ??
+            artifact.input_refs?.find((ref) => ref.startsWith("tasks/")) ??
+            "",
+        ),
         [...availableArtifacts, ...rawSourceArtifacts],
         this.validator.publicationPolicy.document
           .commercial_research_contract as unknown as CommercialResearchPolicy,

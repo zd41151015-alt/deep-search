@@ -20,8 +20,13 @@ import { StoreError } from "../artifact-store/store-error.js";
 import { EvidenceStore } from "../evidence-store/evidence-store.js";
 import {
   type BuildReportResult,
+  completePreparedTerminalReportLocked,
+  type PreparedTerminalReportOperation,
+  preparedTerminalReportIsDurableLocked,
   type ReportFaultBoundary,
   ReportRuntime,
+  terminalReportArtifactPaths,
+  validatePreparedTerminalReportOperation,
 } from "../reporting/report-runtime.js";
 import { type JsonlStore, JsonlStore as RuntimeJsonlStore } from "../run-store/jsonl-store.js";
 import type { BeliefSummary, RunManifest } from "../run-store/run-store.js";
@@ -116,6 +121,7 @@ interface PlanOperationReceipt {
   readonly candidate_bindings?: readonly PlanCandidateBinding[];
   readonly control_envelopes: readonly FormalArtifactEnvelope[];
   readonly checkpoint_envelope: FormalArtifactEnvelope;
+  readonly terminal_report_operation: PreparedTerminalReportOperation | null;
   readonly manifest: RunManifest;
   readonly events: readonly Record<string, unknown>[];
 }
@@ -294,6 +300,7 @@ function validateReceipt(value: unknown, filename: string, runId: string): PlanO
     "result_plan_hash",
     "control_envelopes",
     "checkpoint_envelope",
+    "terminal_report_operation",
     "manifest",
     "events",
   ];
@@ -325,6 +332,7 @@ function validateReceipt(value: unknown, filename: string, runId: string): PlanO
     typeof value.result_plan_ref !== "string" ||
     !Array.isArray(value.control_envelopes) ||
     !isRecord(value.checkpoint_envelope) ||
+    (value.terminal_report_operation !== null && !isRecord(value.terminal_report_operation)) ||
     !isRecord(value.manifest) ||
     !Array.isArray(value.events) ||
     (receiptVersion === DISCOVERY_PLAN_OPERATION_VERSION &&
@@ -335,12 +343,21 @@ function validateReceipt(value: unknown, filename: string, runId: string): PlanO
     });
   }
   const receipt = value as unknown as PlanOperationReceipt;
-  const expectedOperationKey = operationKey("apply_plan_revision", {
+  const planOperationKey = operationKey("apply_plan_revision", {
     parent_plan_hash: receipt.base_plan_hash,
     adaptation_refs: uniqueSorted(
       receipt.adaptation_refs.filter((ref): ref is string => typeof ref === "string"),
     ),
   });
+  const expectedOperationKey =
+    receipt.terminal_report_operation === null
+      ? planOperationKey
+      : operationKey("apply_terminal_closeout", {
+          plan_operation_key: planOperationKey,
+          report_request_hash: canonicalContentHash(
+            receipt.terminal_report_operation.request_envelope,
+          ),
+        });
   if (
     filename !== path.basename(receiptPath(receipt.operation_key)) ||
     receipt.operation_key !== expectedOperationKey ||
@@ -424,6 +441,13 @@ function validateReceiptDocuments(
       artifacts.validateEnvelopeBoundary(receipt.run_id, controlEnvelope);
     }
     artifacts.validateEnvelopeBoundary(receipt.run_id, checkpoint);
+    if (receipt.terminal_report_operation !== null) {
+      validatePreparedTerminalReportOperation(
+        receipt.terminal_report_operation,
+        receipt.run_id,
+        validator,
+      );
+    }
   } catch {
     envelopesValid = false;
   }
@@ -457,6 +481,15 @@ function validateReceiptDocuments(
       canonicalJson(receipt.manifest.applied_adaptation_refs) ||
     canonicalJson(checkpointDocument.pending_adaptation_refs) !==
       canonicalJson(receipt.manifest.pending_adaptation_refs) ||
+    ["completed", "failed", "insufficient_evidence", "cancelled"].includes(
+      receipt.manifest.status,
+    ) !==
+      (receipt.terminal_report_operation !== null) ||
+    (receipt.terminal_report_operation !== null &&
+      [
+        receipt.terminal_report_operation.source_envelope,
+        ...receipt.terminal_report_operation.derived_envelopes,
+      ].some((entry) => !receipt.manifest.artifact_refs.includes(entry.artifact_path))) ||
     (receipt.revision_created
       ? resultPlanEnvelope?.artifact_type !== "startup_opportunity.research_plan.v1" ||
         resultPlanEnvelope.content_hash !== receipt.result_plan_hash ||
@@ -1141,6 +1174,16 @@ async function planOperationRecordsAreDurable(
   artifacts: ArtifactStore,
   logs: JsonlStore,
 ): Promise<boolean> {
+  if (
+    receipt.terminal_report_operation !== null &&
+    !(await preparedTerminalReportIsDurableLocked(
+      runRoot,
+      receipt.terminal_report_operation,
+      artifacts,
+    ))
+  ) {
+    return false;
+  }
   for (const expected of [...receipt.control_envelopes, receipt.checkpoint_envelope]) {
     let stored: unknown;
     try {
@@ -1283,8 +1326,13 @@ async function completeOperation(
   logs: JsonlStore,
   validator: ArtifactValidator,
   faultAt?: PlanApplyFaultBoundary,
-): Promise<boolean> {
+  terminalReportFaultAt?: ReportFaultBoundary,
+): Promise<{
+  readonly changed: boolean;
+  readonly terminalReport: BuildReportResult | null;
+}> {
   let changed = false;
+  let terminalReport: BuildReportResult | null = null;
   const current = await readManifest(runRoot, validator);
   if (
     current.current_plan_ref !== receipt.base_plan_ref &&
@@ -1299,6 +1347,22 @@ async function completeOperation(
   if (canonicalJson(current) === canonicalJson(receipt.manifest)) {
     await validateStoredControlEnvelopes(runRoot, receipt, artifacts);
     assertFault("after_control_artifacts", faultAt);
+    if (receipt.terminal_report_operation !== null) {
+      if (
+        !(await preparedTerminalReportIsDurableLocked(
+          runRoot,
+          receipt.terminal_report_operation,
+          artifacts,
+        ))
+      ) {
+        throw new StoreError(
+          "recovery.terminal_report_missing_after_commit",
+          "terminal Manifest is committed but its immutable report operation is incomplete",
+          { operationKey: receipt.operation_key },
+        );
+      }
+      terminalReport = thisTerminalReportResult(receipt.terminal_report_operation);
+    }
     await artifacts.validateStoredEnvelope(runRoot, receipt.run_id, receipt.checkpoint_envelope);
     if (
       (
@@ -1315,7 +1379,10 @@ async function completeOperation(
       changed = true;
     }
     assertFault("after_checkpoint_publish", faultAt);
-    return (await appendOperationEvents(runRoot, receipt.run_id, receipt, logs)) || changed;
+    return {
+      changed: (await appendOperationEvents(runRoot, receipt.run_id, receipt, logs)) || changed,
+      terminalReport,
+    };
   }
 
   if (current.current_plan_ref !== receipt.base_plan_ref) {
@@ -1354,6 +1421,16 @@ async function completeOperation(
     }
   }
   assertFault("after_control_artifacts", faultAt);
+  if (receipt.terminal_report_operation !== null) {
+    terminalReport = await completePreparedTerminalReportLocked(
+      runRoot,
+      receipt.terminal_report_operation,
+      artifacts,
+      validator,
+      terminalReportFaultAt,
+    );
+    if (terminalReport.status === "published") changed = true;
+  }
   await writeManifest(runRoot, receipt.manifest, validator);
   changed = true;
   assertFault("after_manifest_update", faultAt);
@@ -1373,7 +1450,24 @@ async function completeOperation(
     changed = true;
   }
   assertFault("after_checkpoint_publish", faultAt);
-  return (await appendOperationEvents(runRoot, receipt.run_id, receipt, logs)) || changed;
+  return {
+    changed: (await appendOperationEvents(runRoot, receipt.run_id, receipt, logs)) || changed,
+    terminalReport,
+  };
+}
+
+function thisTerminalReportResult(operation: PreparedTerminalReportOperation): BuildReportResult {
+  return {
+    schemaVersion: "startup_opportunity.build_report_result.v1",
+    runId: operation.run_id,
+    status: "idempotent_replay",
+    formalArtifactPaths: [
+      operation.source_envelope.artifact_path,
+      ...operation.derived_envelopes.map((entry) => entry.artifact_path),
+    ],
+    materializedPaths: operation.materialized_outputs.map((entry) => entry.target_path),
+    consistencyEvaluationRef: operation.derived_envelopes[2]?.artifact_path ?? "",
+  };
 }
 
 function createEvents(
@@ -1479,19 +1573,7 @@ export class PlanRevisionRuntime {
       }
     }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
-    const applied = await withRunLock(runRoot, () => this.applyLocked(runRoot, input));
-    if (input.terminalReportEnvelope === undefined) {
-      return applied;
-    }
-    return {
-      ...applied,
-      terminalReport: await this.reports.build({
-        reportEnvelope: input.terminalReportEnvelope,
-        ...(input.terminalReportFaultAt === undefined
-          ? {}
-          : { faultAt: input.terminalReportFaultAt }),
-      }),
-    };
+    return withRunLock(runRoot, () => this.applyLocked(runRoot, input));
   }
 
   private async applyLocked(
@@ -1604,10 +1686,17 @@ export class PlanRevisionRuntime {
         "adaptation bundle is missing its exact base assessment plan",
       );
     }
-    const expectedOperationKey = operationKey("apply_plan_revision", {
+    const planOperationKey = operationKey("apply_plan_revision", {
       parent_plan_hash: canonicalContentHash(suppliedPlan.document),
       adaptation_refs: selectedRefs,
     });
+    const expectedOperationKey =
+      input.terminalReportEnvelope === undefined
+        ? planOperationKey
+        : operationKey("apply_terminal_closeout", {
+            plan_operation_key: planOperationKey,
+            report_request_hash: canonicalContentHash(input.terminalReportEnvelope),
+          });
     if (input.operationKey !== undefined && input.operationKey !== expectedOperationKey) {
       throw new StoreError(
         "operation.key_mismatch",
@@ -1658,6 +1747,19 @@ export class PlanRevisionRuntime {
         throw new StoreError(
           "write.operation_conflict",
           "existing Plan operation receipt differs from the requested replay",
+          { operationKey: expectedOperationKey },
+        );
+      }
+      if (
+        (input.terminalReportEnvelope === undefined) !==
+          (existingReceipt.terminal_report_operation === null) ||
+        (input.terminalReportEnvelope !== undefined &&
+          canonicalJson(input.terminalReportEnvelope) !==
+            canonicalJson(existingReceipt.terminal_report_operation?.request_envelope))
+      ) {
+        throw new StoreError(
+          "write.operation_conflict",
+          "Plan operation replay changed its terminal report source bytes",
           { operationKey: expectedOperationKey },
         );
       }
@@ -1732,14 +1834,16 @@ export class PlanRevisionRuntime {
             this.logs,
           ))
         ) {
-          await completeOperation(
+          const completion = await completeOperation(
             runRoot,
             existingReceipt,
             this.artifacts,
             this.logs,
             this.validator,
             input.faultAt,
+            input.terminalReportFaultAt,
           );
+          return this.result(existingReceipt, "idempotent_replay", completion.terminalReport);
         }
         return this.result(existingReceipt, "idempotent_replay");
       }
@@ -1943,7 +2047,7 @@ export class PlanRevisionRuntime {
         new Map(referenceContext.exactJsonlRecords ?? []),
       ),
     );
-    if (transformed.operationKey !== expectedOperationKey) {
+    if (transformed.operationKey !== planOperationKey) {
       throw new StoreError(
         "operation.identity_drift",
         "Plan transformer operation identity drifted",
@@ -2094,13 +2198,21 @@ export class PlanRevisionRuntime {
     }
 
     const checkpointRef = `checkpoints/checkpoint-plan-apply-${sha256Hex(
-      transformed.operationKey,
+      expectedOperationKey,
     ).slice(0, 20)}.json`;
     const controlPaths = controlEnvelopes.map((item) => item.artifact_path);
+    const terminalReportPaths =
+      input.terminalReportEnvelope === undefined
+        ? []
+        : terminalReportArtifactPaths(input.terminalReportEnvelope.artifact_path);
     const finalManifest: RunManifest = {
       ...transformed.manifest,
       updated_at: input.checkpointCreatedAt,
-      artifact_refs: uniqueSorted([...transformed.manifest.artifact_refs, ...controlPaths]),
+      artifact_refs: uniqueSorted([
+        ...transformed.manifest.artifact_refs,
+        ...controlPaths,
+        ...terminalReportPaths,
+      ]),
       checkpoint_ref: checkpointRef,
     };
     const triggerGapRefs = uniqueSorted(
@@ -2114,7 +2226,7 @@ export class PlanRevisionRuntime {
     );
     const checkpointDocument: Record<string, unknown> = {
       schema_version: "startup_opportunity.checkpoint.v1",
-      checkpoint_id: `checkpoint_plan_apply_${sha256Hex(transformed.operationKey).slice(0, 20)}`,
+      checkpoint_id: `checkpoint_plan_apply_${sha256Hex(expectedOperationKey).slice(0, 20)}`,
       run_id: input.runId,
       created_at: input.checkpointCreatedAt,
       producer_role: "harness",
@@ -2141,11 +2253,19 @@ export class PlanRevisionRuntime {
       input.checkpointCreatedAt,
       controlEnvelopeVersion,
     );
+    const terminalReportOperation =
+      input.terminalReportEnvelope === undefined
+        ? null
+        : await this.reports.prepareTerminalLocked(runRoot, {
+            reportEnvelope: input.terminalReportEnvelope,
+            prospectiveManifest: finalManifest,
+            supportingEnvelopes: [...controlEnvelopes, checkpointEnvelope],
+          });
     const receipt: PlanOperationReceipt = {
       schema_version: assessmentAdaptation
         ? ASSESSMENT_PLAN_OPERATION_VERSION
         : DISCOVERY_PLAN_OPERATION_VERSION,
-      operation_key: transformed.operationKey,
+      operation_key: expectedOperationKey,
       run_id: input.runId,
       base_plan_ref: manifest.current_plan_ref,
       base_plan_hash: canonicalContentHash(basePlan),
@@ -2172,8 +2292,13 @@ export class PlanRevisionRuntime {
       ...(!assessmentAdaptation ? { candidate_bindings: candidateBindings } : {}),
       control_envelopes: controlEnvelopes,
       checkpoint_envelope: checkpointEnvelope,
+      terminal_report_operation: terminalReportOperation,
       manifest: finalManifest,
-      events: createEvents(input, transformed, checkpointRef),
+      events: createEvents(
+        input,
+        { ...transformed, operationKey: expectedOperationKey },
+        checkpointRef,
+      ),
     };
     validateReceiptDocuments(receipt, this.validator, this.artifacts);
     if (existingReceipt !== null) {
@@ -2181,35 +2306,38 @@ export class PlanRevisionRuntime {
         throw new StoreError(
           "write.operation_conflict",
           "existing Plan operation receipt differs from the requested replay",
-          { operationKey: transformed.operationKey },
+          { operationKey: expectedOperationKey },
         );
       }
-      await completeOperation(
+      const completion = await completeOperation(
         runRoot,
         existingReceipt,
         this.artifacts,
         this.logs,
         this.validator,
         input.faultAt,
+        input.terminalReportFaultAt,
       );
-      return this.result(existingReceipt, "idempotent_replay");
+      return this.result(existingReceipt, "idempotent_replay", completion.terminalReport);
     }
     await publishReceipt(runRoot, receipt);
     assertFault("after_intent", input.faultAt);
-    await completeOperation(
+    const completion = await completeOperation(
       runRoot,
       receipt,
       this.artifacts,
       this.logs,
       this.validator,
       input.faultAt,
+      input.terminalReportFaultAt,
     );
-    return this.result(receipt, "applied");
+    return this.result(receipt, "applied", completion.terminalReport);
   }
 
   private result(
     receipt: PlanOperationReceipt,
     status: PlanApplyResult["status"],
+    terminalReport?: BuildReportResult | null,
   ): PlanApplyResult {
     return {
       schemaVersion: PLAN_APPLY_RESULT_VERSION,
@@ -2222,7 +2350,11 @@ export class PlanRevisionRuntime {
       currentAssessmentPlanRef: receipt.result_assessment_plan_ref ?? null,
       checkpointRef: receipt.checkpoint_envelope.artifact_path,
       adaptationRefs: receipt.adaptation_refs,
-      terminalReport: null,
+      terminalReport:
+        terminalReport ??
+        (receipt.terminal_report_operation === null
+          ? null
+          : thisTerminalReportResult(receipt.terminal_report_operation)),
     };
   }
 }
@@ -2262,7 +2394,7 @@ export async function recoverPlanRevisionOperationsLocked(
       if (await planOperationCompletionIsDurable(runRoot, current, receipt, artifacts, logs)) {
         continue;
       }
-      if (await completeOperation(runRoot, receipt, artifacts, logs, validator)) {
+      if ((await completeOperation(runRoot, receipt, artifacts, logs, validator)).changed) {
         completed.push(receipt.operation_key);
       }
     } else if (current.current_plan_ref === receipt.base_plan_ref) {

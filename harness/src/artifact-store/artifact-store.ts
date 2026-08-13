@@ -676,6 +676,58 @@ export class ArtifactStore {
     };
   }
 
+  async publishPrevalidatedTerminalReportBundleLocked(
+    runRoot: string,
+    input: PublishArtifactBundleInput,
+    afterPublish?: (envelope: FormalArtifactEnvelope) => void,
+  ): Promise<PublishArtifactBundleResult> {
+    await assertScopeAllowsStorageMutationLocked(this.runsRoot, runRoot, input.runId, {
+      kind: "artifact",
+      artifactTypes: input.envelopes.map((envelope) => envelope.artifact_type),
+    });
+    const expectedTypes = new Set([
+      "startup_opportunity.terminal_report_source.v1",
+      "startup_opportunity.decision_brief.terminal.current",
+      "startup_opportunity.terminal_report_view.v1",
+      "startup_opportunity.report_consistency_evaluation.terminal.current",
+    ]);
+    if (
+      input.envelopes.length !== expectedTypes.size ||
+      input.envelopes.some((envelope) => !expectedTypes.delete(envelope.artifact_type)) ||
+      expectedTypes.size !== 0
+    ) {
+      throw new StoreError(
+        "artifact.prevalidated_bundle_invalid",
+        "prevalidated terminal publication requires the exact report source and derived sidecars",
+      );
+    }
+    const paths = input.envelopes.map((envelope) => envelope.artifact_path);
+    if (new Set(paths).size !== paths.length) {
+      throw new StoreError("artifact.bundle_duplicate_path", "publication bundle paths overlap", {
+        paths,
+      });
+    }
+    for (const envelope of input.envelopes) this.validateEnvelopeBoundary(input.runId, envelope);
+    const artifacts: PublishArtifactResult[] = [];
+    for (const envelope of [...input.envelopes].sort((left, right) => {
+      const rank = publicationRank(left) - publicationRank(right);
+      return rank === 0 ? left.artifact_path.localeCompare(right.artifact_path) : rank;
+    })) {
+      artifacts.push(
+        await this.publishPreparedLocked(runRoot, { runId: input.runId, envelope }, true),
+      );
+      afterPublish?.(envelope);
+    }
+    return {
+      schemaVersion: "startup_opportunity.artifact_bundle_publish_result.v1",
+      runId: input.runId,
+      status: artifacts.every((artifact) => artifact.status === "idempotent_replay")
+        ? "idempotent_replay"
+        : "published",
+      artifacts,
+    };
+  }
+
   async publishLocked(
     runRoot: string,
     input: PublishArtifactInput,
