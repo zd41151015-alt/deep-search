@@ -1,6 +1,6 @@
 # Startup Opportunity Research Harness
 
-This repository is the repo-backed control layer for evidence-based Startup Opportunity research in Codex. Codex owns reasoning, interaction, tools, and subagent sessions. The deterministic Harness owns Run state, immutable Artifact publication, Evidence storage, validation, plan adaptation, checkpoints, recovery, comparison, and report consistency.
+This repository is the repo-backed control layer for evidence-based Startup Opportunity research in Codex. Codex owns reasoning, interaction, tools, and subagent sessions. The deterministic Harness owns Run state, immutable Artifact publication, Evidence storage, validation, plan adaptation, checkpoints, recovery, comparison, and report consistency. Final reporting derives `report.json`, a bounded `decision-brief.md`, the core `report.md`, and the complete `audit-appendix.md` from one report authority.
 
 Formal research enters through the repo-local `$startup-opportunity` Skill. The same Skill and project configuration are used from Codex Desktop, CLI, and IDE integrations.
 

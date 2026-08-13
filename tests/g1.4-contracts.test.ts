@@ -312,7 +312,7 @@ test("Traceability rejects a broken Judgment-to-Evidence chain", async () => {
   assert.ok(issues.includes("reference.type_mismatch"));
 });
 
-test("three-output consistency rejects report drift and forbidden success language", async () => {
+test("four-output consistency rejects report drift and forbidden success language", async () => {
   const briefDrift = await createG14ContractBundle("prioritize");
   const briefEntry = briefDrift.documents.find(
     (candidate) =>

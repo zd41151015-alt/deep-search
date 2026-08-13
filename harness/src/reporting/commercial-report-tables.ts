@@ -1,5 +1,6 @@
 import { canonicalJson } from "../artifact-store/canonical.js";
 import {
+  INCUMBENT_RESPONSE_CONTEXT_ONLY,
   INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
   INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH,
 } from "../incumbent-response-contract.js";
@@ -23,6 +24,30 @@ function strings(value: unknown): readonly string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string")
     : [];
+}
+
+interface ReportCitation {
+  readonly evidence_ref: string;
+  readonly label: string;
+  readonly url: string;
+}
+
+function reportCitations(
+  source: Readonly<Record<string, unknown>>,
+): ReadonlyMap<string, ReportCitation> {
+  return new Map(
+    records(source.report_citations).flatMap((entry) =>
+      typeof entry.evidence_ref === "string" &&
+      typeof entry.label === "string" &&
+      typeof entry.url === "string"
+        ? [[entry.evidence_ref, entry as unknown as ReportCitation] as const]
+        : [],
+    ),
+  );
+}
+
+function markdownLink(label: string, url: string): string {
+  return `[${label.replaceAll("[", "\\[").replaceAll("]", "\\]")}](${url.replaceAll(")", "%29")})`;
 }
 
 const ZH_LABELS: Readonly<Record<string, string>> = {
@@ -169,6 +194,17 @@ function display(value: unknown, zh: boolean): string {
   return zh ? zhText(value) : cell(value);
 }
 
+function subjectDisplay(
+  source: Readonly<Record<string, unknown>>,
+  subjectId: unknown,
+  zh: boolean,
+): string {
+  const label = records(source.report_subject_labels).find(
+    (entry) => entry.subject_id === subjectId,
+  )?.label;
+  return display(typeof label === "string" ? label : subjectId, zh);
+}
+
 function priorityDisplay(value: unknown, zh: boolean): string {
   if (!zh) return cell(value);
   return (
@@ -193,10 +229,26 @@ function displayList(value: unknown, zh: boolean): string {
   return values.length === 0 ? "-" : values.map((entry) => display(entry, zh)).join("<br>");
 }
 
-function auditReferenceSummary(value: unknown, zh: boolean, recorded = false): string {
-  if (!zh) return listCell(value);
-  if (strings(value).length === 0) return "-";
-  return recorded ? "已记录（详见结构化审计）" : "详见结构化审计";
+function auditReferenceSummary(
+  value: unknown,
+  zh: boolean,
+  recorded = false,
+  citations: ReadonlyMap<string, ReportCitation> = new Map(),
+): string {
+  const refs = strings(value);
+  if (refs.length === 0) return "-";
+  const readable = refs.flatMap((ref) => {
+    const citation = citations.get(ref);
+    return citation === undefined ? [] : [markdownLink(citation.label, citation.url)];
+  });
+  const hiddenCount = refs.length - readable.length;
+  const auditLabel = zh
+    ? `${recorded ? "已记录；" : ""}${hiddenCount} 条仅审计引用`
+    : `${recorded ? "recorded; " : ""}${hiddenCount} audit-only reference${hiddenCount === 1 ? "" : "s"}`;
+  return [
+    ...readable,
+    ...(hiddenCount === 0 ? [] : [markdownLink(auditLabel, "audit-appendix.md")]),
+  ].join("<br>");
 }
 
 const REQUIRED_BUSINESS_DIMENSIONS = [
@@ -1109,14 +1161,28 @@ function graded(value: unknown, zh: boolean): string {
   return `${display(value.level, zh)}: ${display(value.rationale, zh)}`;
 }
 
+export function renderIncumbentResponseDisclosure(
+  source: Readonly<Record<string, unknown>>,
+  zh = false,
+): string {
+  const count = records(source.incumbent_response_risk_rows).length;
+  const countText = zh
+    ? `已形成 ${count} 条风险评估。`
+    : `${count} risk assessment${count === 1 ? "" : "s"} formed.`;
+  return `- ${countText} ${zh ? INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH : INCUMBENT_RESPONSE_STRATEGIC_CONTEXT}\n`;
+}
+
 export function renderIncumbentResponseRiskTable(
   source: Readonly<{
     readonly incumbent_response_risk_rows?: unknown;
     readonly current_decision_subject_ids?: unknown;
+    readonly report_subject_labels?: unknown;
+    readonly report_citations?: unknown;
   }>,
   zh = false,
 ): string {
   const rows = records(source.incumbent_response_risk_rows);
+  const citations = reportCitations(source as Readonly<Record<string, unknown>>);
   const headers = zh
     ? [
         "对象 / 深度",
@@ -1168,7 +1234,7 @@ export function renderIncumbentResponseRiskTable(
         `${display(dimension.kind, zh)} (${display(dimension.strength, zh)}): ${display(dimension.rationale, zh)}`,
     );
     return [
-      `${display(semantic.subject_id, zh)} / ${display(assessment.analysis_depth, zh)} / ${display(semantic.analysis_state, zh)}`,
+      `${subjectDisplay(source as Readonly<Record<string, unknown>>, semantic.subject_id, zh)} / ${display(assessment.analysis_depth, zh)} / ${display(semantic.analysis_state, zh)}`,
       `${display(semantic.responder_identity, zh)} / ${display(semantic.responder_category, zh)} / ${display(semantic.control_point, zh)}`,
       displayList(semantic.response_modes, zh),
       graded(semantic.capability_adjacency, zh),
@@ -1184,7 +1250,7 @@ export function renderIncumbentResponseRiskTable(
       `${graded(distribution, zh)}<br>${displayList(distribution.control_points, zh)}`,
       `${display(coverage.scope, zh)}: ${display(coverage.rationale, zh)}<br>${zh ? "已覆盖" : "covered"}: ${displayList(coverage.covered_elements, zh)}<br>${zh ? "未覆盖" : "uncovered"}: ${displayList(coverage.uncovered_elements, zh)}`,
       `${display(residual.overall_strength, zh)}: ${display(residual.rationale, zh)}${residualDimensions.length === 0 ? "" : `<br>${residualDimensions.join("<br>")}`}`,
-      `${zh ? "支持" : "supporting"}: ${auditReferenceSummary(semantic.supporting_evidence_refs, zh)}<br>${zh ? "反证" : "opposing"}: ${auditReferenceSummary(semantic.opposing_evidence_refs, zh)}<br>${zh ? "背景" : "background"}: ${auditReferenceSummary(semantic.background_evidence_refs, zh)}`,
+      `${zh ? "支持" : "supporting"}: ${auditReferenceSummary(semantic.supporting_evidence_refs, zh, false, citations)}<br>${zh ? "反证" : "opposing"}: ${auditReferenceSummary(semantic.opposing_evidence_refs, zh, false, citations)}<br>${zh ? "背景" : "background"}: ${auditReferenceSummary(semantic.background_evidence_refs, zh, false, citations)}`,
       `${display(semantic.confidence, zh)}: ${display(semantic.uncertainty, zh)}<br>${zh ? "推理边界" : "inference boundary"}: ${display(semantic.inference_boundary, zh)}<br>${zh ? "未知" : "unknowns"}: ${displayList(semantic.unknowns, zh)}<br>${zh ? "数据缺口" : "data gaps"}: ${displayList(semantic.data_gaps, zh)}`,
       zh ? INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH : INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
     ];
@@ -1200,7 +1266,7 @@ export function renderIncumbentResponseRiskTable(
     (candidate) => !assessedSubjectIds.has(candidate),
   )) {
     body.push([
-      `${display(subjectId, zh)} / ${zh ? "未提交" : "not submitted"} / ${zh ? "未知" : "unknown"}`,
+      `${subjectDisplay(source as Readonly<Record<string, unknown>>, subjectId, zh)} / ${zh ? "未提交" : "not submitted"} / ${zh ? "未知" : "unknown"}`,
       zh
         ? "未知：没有该当前方向的潜在响应者研究"
         : "Unknown: no responder research for this current direction",
@@ -1262,11 +1328,6 @@ function cell(value: unknown): string {
   return String(value).replaceAll("|", "\\|").replaceAll("\n", " ");
 }
 
-function listCell(value: unknown): string {
-  const values = strings(value);
-  return values.length === 0 ? "-" : values.map(cell).join("<br>");
-}
-
 function metricValue(value: unknown, zh = false): string {
   if (!isRecord(value)) return "-";
   const unit = display(value.unit, zh);
@@ -1300,6 +1361,7 @@ export function renderQuantitativeSignalTable(
   zh = false,
 ): string {
   const rows = records(source.quantitative_signal_rows);
+  const citations = reportCitations(source);
   const headers = zh
     ? [
         "对象",
@@ -1329,7 +1391,7 @@ export function renderQuantitativeSignalTable(
     const observation = isRecord(row.observation) ? row.observation : {};
     const comparability = isRecord(observation.comparability) ? observation.comparability : {};
     return [
-      display(observation.subject_id, zh),
+      subjectDisplay(source, observation.subject_id, zh),
       `${display(observation.metric_family, zh)} / ${display(observation.metric_name, zh)} (${display(observation.metric_semantics, zh)})`,
       metricValue(observation.value, zh),
       display(observation.metric_definition, zh),
@@ -1346,7 +1408,7 @@ export function renderQuantitativeSignalTable(
             : "no direct comparison"
       }`,
       display(observation.error_uncertainty, zh),
-      auditReferenceSummary(observation.evidence_refs, zh),
+      auditReferenceSummary(observation.evidence_refs, zh, false, citations),
     ];
   });
   if (body.length === 0) {
@@ -1393,7 +1455,7 @@ export function renderMarketPriorityAndCommercialReadiness(
       ? aggregate.commercial_validation_readiness
       : {};
     return [
-      display(aggregate.subject_id, zh),
+      subjectDisplay(source, aggregate.subject_id, zh),
       priorityDisplay(priority.level ?? "low", zh),
       displayList(priority.basis_codes, zh),
       readinessDisplay(readiness.level ?? "not_ready", zh),
@@ -1419,11 +1481,142 @@ export function renderMarketPriorityAndCommercialReadiness(
   ].join("\n");
 }
 
+function decisionGradeRows(
+  source: Readonly<Record<string, unknown>>,
+): readonly Record<string, unknown>[] {
+  return records(source.quantitative_signal_rows).filter((row) => {
+    const observation = isRecord(row.observation) ? row.observation : {};
+    const decisionUse = isRecord(observation.decision_use) ? observation.decision_use : {};
+    return decisionUse.grade === "decision_grade";
+  });
+}
+
+export function renderDecisionGradeQuantitativeSummary(
+  source: Readonly<Record<string, unknown>>,
+  zh = false,
+): string {
+  const citations = reportCitations(source);
+  const bySubject = new Map<string, Record<string, unknown>[]>();
+  for (const row of decisionGradeRows(source)) {
+    const observation = isRecord(row.observation) ? row.observation : {};
+    const subjectId = String(observation.subject_id);
+    const existing = bySubject.get(subjectId) ?? [];
+    existing.push(observation);
+    bySubject.set(subjectId, existing);
+  }
+  const subjectIds = [
+    ...new Set([
+      ...records(source.commercial_subject_aggregates).map((entry) => String(entry.subject_id)),
+      ...bySubject.keys(),
+    ]),
+  ].sort();
+  if (subjectIds.length === 0) {
+    return zh
+      ? "- 当前没有可汇总的最终研究对象。\n"
+      : "- No final research subject is available for a quantitative summary.\n";
+  }
+  return `${subjectIds
+    .map((subjectId) => {
+      const observations = (bySubject.get(subjectId) ?? []).sort((left, right) =>
+        `${String(left.metric_family)}:${String(left.metric_name)}`.localeCompare(
+          `${String(right.metric_family)}:${String(right.metric_name)}`,
+        ),
+      );
+      if (observations.length === 0) {
+        return `- **${subjectDisplay(source, subjectId, zh)}**: ${zh ? "未取得决策级量化数据；方向性代理指标和背景数字仍保留在审计附录。" : "No decision-grade quantitative data was obtained; directional proxies and context numbers remain in the audit appendix."}`;
+      }
+      const displayed = observations.slice(0, 5);
+      const metrics = displayed.map((observation) => {
+        const sources = auditReferenceSummary(observation.evidence_refs, zh, false, citations);
+        return `${display(observation.metric_family, zh)} / ${display(observation.metric_name, zh)}: ${metricValue(observation.value, zh)} (${sources})`;
+      });
+      const omitted = observations.length - displayed.length;
+      return `- **${subjectDisplay(source, subjectId, zh)}**: ${metrics.join("; ")}${
+        omitted === 0
+          ? ""
+          : zh
+            ? `；其余 ${omitted} 条决策级量化信号见审计附录`
+            : `; ${omitted} additional decision-grade signal${omitted === 1 ? "" : "s"} in the audit appendix`
+      }`;
+    })
+    .join("\n")}\n`;
+}
+
+function competitorTypesBySubject(
+  source: Readonly<Record<string, unknown>>,
+): ReadonlyMap<string, readonly string[]> {
+  const values = new Map<string, Set<string>>();
+  for (const row of records(source.competitive_substitute_rows)) {
+    const object = isRecord(row.competitive_object) ? row.competitive_object : {};
+    const subjectId = String(object.subject_id);
+    const types = values.get(subjectId) ?? new Set<string>();
+    if (typeof object.competitor_type === "string") types.add(object.competitor_type);
+    values.set(subjectId, types);
+  }
+  return new Map([...values].map(([subjectId, types]) => [subjectId, [...types].sort()]));
+}
+
+export function renderCompetitiveSubjectSummary(
+  source: Readonly<Record<string, unknown>>,
+  zh = false,
+): string {
+  const citations = reportCitations(source);
+  const typesBySubject = competitorTypesBySubject(source);
+  const aggregates = [...records(source.commercial_subject_aggregates)].sort((left, right) =>
+    String(left.subject_id).localeCompare(String(right.subject_id)),
+  );
+  if (aggregates.length === 0) {
+    return zh ? "- 当前没有最终研究对象。\n" : "- No final research subject is available.\n";
+  }
+  return `${aggregates
+    .map((aggregate) => {
+      const subjectId = String(aggregate.subject_id);
+      const rows = records(source.competitive_substitute_rows).filter((row) => {
+        const object = isRecord(row.competitive_object) ? row.competitive_object : {};
+        return object.subject_id === subjectId;
+      });
+      const coverage = records(aggregate.competitive_coverage);
+      const disposed = coverage.filter((entry) => entry.state === "not_applicable");
+      const gaps = coverage.filter((entry) => !isFormalScopeDisposed(entry.state));
+      const objects = rows.slice(0, 5).map((row) => {
+        const object = isRecord(row.competitive_object) ? row.competitive_object : {};
+        const refs = auditReferenceSummary(object.source_refs, zh, false, citations);
+        return `${display(object.competitor_type, zh)}: ${display(object.name, zh)}；${zh ? "定位" : "positioning"}: ${display(object.positioning, zh)}；${zh ? "定价" : "pricing"}: ${auditReferenceSummary(object.pricing_observation_refs, zh, true, citations)}；${zh ? "使用/市场信号" : "usage/market signals"}: ${auditReferenceSummary(object.traction_observation_refs, zh, true, citations)}；${zh ? "优势" : "strengths"}: ${displayList(object.strengths, zh)}；${zh ? "弱点" : "weaknesses"}: ${displayList(object.weaknesses, zh)}；${zh ? "差异化缺口" : "differentiation gaps"}: ${displayList(object.differentiation_gaps, zh)} (${refs})`;
+      });
+      const lines = [
+        `- **${subjectDisplay(source, subjectId, zh)}**: ${objects.length === 0 ? (zh ? "未形成竞品对象" : "no competitive object formed") : objects.join("; ")}`,
+        ...(typesBySubject.get(subjectId)?.length
+          ? [
+              `  ${zh ? "已观察类型" : "Observed types"}: ${(typesBySubject.get(subjectId) ?? []).map((entry) => display(entry, zh)).join(", ")}`,
+            ]
+          : []),
+        ...(disposed.length > 0
+          ? [
+              `  ${zh ? "明确不适用" : "Explicitly not applicable"}: ${disposed.map((entry) => display(entry.competitor_type, zh)).join(", ")}`,
+            ]
+          : []),
+        ...(gaps.length > 0
+          ? [
+              `  ${zh ? "仍有缺口" : "Remaining gaps"}: ${gaps.map((entry) => `${display(entry.competitor_type, zh)} (${display(entry.state, zh)})`).join(", ")}`,
+            ]
+          : []),
+        ...(rows.length > 5
+          ? [
+              `  ${zh ? `其余 ${rows.length - 5} 个竞品/替代对象保留在审计附录` : `${rows.length - 5} additional competitive/substitute object${rows.length - 5 === 1 ? "" : "s"} remain in the audit appendix`}`,
+            ]
+          : []),
+      ];
+      return lines.join("\n");
+    })
+    .join("\n")}\n`;
+}
+
 export function renderCompetitiveSubstituteMatrix(
   source: Readonly<Record<string, unknown>>,
   zh = false,
 ): string {
   const rows = records(source.competitive_substitute_rows);
+  const citations = reportCitations(source);
   const headers = zh
     ? [
         "类型",
@@ -1459,12 +1652,12 @@ export function renderCompetitiveSubstituteMatrix(
       display(competitiveObject.target_segment, zh),
       display(competitiveObject.scenario, zh),
       display(competitiveObject.positioning, zh),
-      auditReferenceSummary(competitiveObject.pricing_observation_refs, zh, true),
-      auditReferenceSummary(competitiveObject.traction_observation_refs, zh, true),
+      auditReferenceSummary(competitiveObject.pricing_observation_refs, zh, true, citations),
+      auditReferenceSummary(competitiveObject.traction_observation_refs, zh, true, citations),
       displayList(competitiveObject.strengths, zh),
       displayList(competitiveObject.weaknesses, zh),
       displayList(competitiveObject.differentiation_gaps, zh),
-      auditReferenceSummary(competitiveObject.source_refs, zh),
+      auditReferenceSummary(competitiveObject.source_refs, zh, false, citations),
     ];
   });
   if (body.length === 0) {
@@ -1515,11 +1708,17 @@ export function renderResearchCoverageGaps(
         ...strings(row.assigned_competitor_types),
       ];
       return [
-        displayList(row.subject_ids, zh),
+        zh
+          ? strings(row.subject_ids)
+              .map((subjectId) => subjectDisplay(source, subjectId, true))
+              .join("<br>")
+          : displayList(row.subject_ids, false),
         zh ? "执行/研究" : "execution / research",
         assignedDimensions.length > 0
           ? assignedDimensions.map((dimension) => display(dimension, zh)).join("<br>")
-          : display(row.task_ref, zh),
+          : zh
+            ? "对应研究任务"
+            : display(row.task_ref, false),
         display(row.state, zh),
         "-",
         display(row.reason, zh),
@@ -1533,7 +1732,11 @@ export function renderResearchCoverageGaps(
           `${display(attempt.acquisition_method, zh)} / ${display(attempt.provider, zh)} / ${display(attempt.outcome, zh)}: ${display(attempt.reason, zh)}`,
       );
       return [
-        displayList(row.subject_ids, zh),
+        zh
+          ? strings(row.subject_ids)
+              .map((subjectId) => subjectDisplay(source, subjectId, true))
+              .join("<br>")
+          : displayList(row.subject_ids, false),
         display(row.coverage_kind, zh),
         display(row.dimension, zh),
         display(row.state, zh),
@@ -1549,7 +1752,7 @@ export function renderResearchCoverageGaps(
         `${display(attempt.acquisition_method, zh)} / ${display(attempt.provider, zh)} / ${display(attempt.outcome, zh)}: ${display(attempt.reason, zh)}`,
     );
     return [
-      display(coverage.subject_id, zh),
+      subjectDisplay(source, coverage.subject_id, zh),
       display(row.coverage_kind, zh),
       display(
         row.coverage_kind === "quantitative"
@@ -1631,15 +1834,168 @@ export function renderResearchCoverageGaps(
   ].join("\n");
 }
 
+interface CriticalGapGroup {
+  readonly subjectId: string;
+  readonly state: string;
+  readonly decisionImpact: string;
+  readonly dimensions: readonly string[];
+  readonly reasons: readonly string[];
+}
+
+function gapProjection(row: Record<string, unknown>): {
+  readonly subjectIds: readonly string[];
+  readonly state: string;
+  readonly dimension: string;
+  readonly decisionImpact: string;
+  readonly reason: string;
+} {
+  if (row.coverage_kind === "execution") {
+    const dimensions = [
+      ...strings(row.assigned_commercial_dimensions),
+      ...strings(row.assigned_metric_families),
+      ...strings(row.assigned_competitor_types),
+    ];
+    return {
+      subjectIds: strings(row.subject_ids),
+      state: String(row.state),
+      dimension: dimensions.join(", ") || String(row.task_ref),
+      decisionImpact: String(row.decision_impact),
+      reason: String(row.reason),
+    };
+  }
+  if (["business", "research"].includes(String(row.coverage_kind))) {
+    return {
+      subjectIds: strings(row.subject_ids),
+      state: String(row.state),
+      dimension: String(row.dimension),
+      decisionImpact: String(row.decision_impact),
+      reason: String(row.reason),
+    };
+  }
+  const coverage = isRecord(row.coverage) ? row.coverage : {};
+  return {
+    subjectIds: typeof coverage.subject_id === "string" ? [coverage.subject_id] : [],
+    state: String(coverage.state),
+    dimension: String(
+      row.coverage_kind === "quantitative"
+        ? coverage.metric_family
+        : row.coverage_kind === "competitive"
+          ? coverage.competitor_type
+          : "absorption_and_response_risk",
+    ),
+    decisionImpact: String(coverage.decision_impact),
+    reason: String(coverage.reason),
+  };
+}
+
+export function criticalResearchGapGroups(
+  source: Readonly<Record<string, unknown>>,
+): readonly CriticalGapGroup[] {
+  const groups = new Map<string, { dimensions: Set<string>; reasons: Set<string> }>();
+  for (const row of records(source.research_coverage_gaps)) {
+    if (row.coverage_kind === "incumbent_response") continue;
+    const projected = gapProjection(row);
+    if (
+      projected.state === "not_applicable" ||
+      projected.decisionImpact === INCUMBENT_RESPONSE_CONTEXT_ONLY
+    ) {
+      continue;
+    }
+    for (const subjectId of projected.subjectIds) {
+      const identity = `${subjectId}\u0000${projected.state}\u0000${projected.decisionImpact}`;
+      const group = groups.get(identity) ?? { dimensions: new Set(), reasons: new Set() };
+      group.dimensions.add(projected.dimension);
+      group.reasons.add(projected.reason);
+      groups.set(identity, group);
+    }
+  }
+  const bySubject = new Map<string, CriticalGapGroup[]>();
+  for (const [identity, group] of groups) {
+    const [subjectId = "", state = "", decisionImpact = ""] = identity.split("\u0000");
+    const values = bySubject.get(subjectId) ?? [];
+    values.push({
+      subjectId,
+      state,
+      decisionImpact,
+      dimensions: [...group.dimensions].sort(),
+      reasons: [...group.reasons].sort(),
+    });
+    bySubject.set(subjectId, values);
+  }
+  return [...bySubject]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .flatMap(([, values]) =>
+      values
+        .sort((left, right) =>
+          `${left.state}:${left.decisionImpact}:${left.dimensions.join(",")}`.localeCompare(
+            `${right.state}:${right.decisionImpact}:${right.dimensions.join(",")}`,
+          ),
+        )
+        .slice(0, 5),
+    );
+}
+
+export function deriveReportStatistics(
+  source: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, number>> {
+  const quantitativeRows = records(source.quantitative_signal_rows);
+  const decisionGradeCount = quantitativeRows.filter((row) => {
+    const observation = isRecord(row.observation) ? row.observation : {};
+    const decisionUse = isRecord(observation.decision_use) ? observation.decision_use : {};
+    return decisionUse.grade === "decision_grade";
+  }).length;
+  return {
+    readable_source_count: records(source.report_citations).length,
+    quantitative_signal_count: quantitativeRows.length,
+    decision_grade_quantitative_signal_count: decisionGradeCount,
+    directional_or_context_quantitative_signal_count: quantitativeRows.length - decisionGradeCount,
+    competitive_object_count: records(source.competitive_substitute_rows).length,
+    full_gap_row_count: records(source.research_coverage_gaps).length,
+    critical_gap_group_count: criticalResearchGapGroups(source).length,
+    excluded_evidence_count: records(source.excluded_evidence).length,
+  };
+}
+
+export function renderCriticalResearchGaps(
+  source: Readonly<Record<string, unknown>>,
+  zh = false,
+): string {
+  const groups = criticalResearchGapGroups(source);
+  const subjectIds = [
+    ...new Set([
+      ...records(source.report_subject_labels).map((entry) => String(entry.subject_id)),
+      ...records(source.commercial_subject_aggregates).map((entry) => String(entry.subject_id)),
+      ...groups.map((group) => group.subjectId),
+    ]),
+  ].sort();
+  if (subjectIds.length === 0) {
+    return zh ? "- 当前没有最终研究对象。\n" : "- No final research subject is available.\n";
+  }
+  return `${subjectIds
+    .flatMap((subjectId) => {
+      const subjectGroups = groups.filter((group) => group.subjectId === subjectId);
+      return subjectGroups.length === 0
+        ? [
+            `- **${subjectDisplay(source, subjectId, zh)}**: ${zh ? "当前没有会改变排序或结论的未关闭研究缺口。" : "No unresolved research gap currently changes ranking or conclusion boundaries."}`,
+          ]
+        : subjectGroups.map(
+            (group) =>
+              `- **${subjectDisplay(source, group.subjectId, zh)}** / ${display(group.state, zh)} / ${group.dimensions.map((entry) => display(entry, zh)).join(", ")}: ${display(group.decisionImpact, zh)}${group.reasons.length === 0 ? "" : ` (${group.reasons.map((entry) => display(entry, zh)).join("; ")})`}`,
+          );
+    })
+    .join("\n")}\n`;
+}
+
 export function renderGateWarnings(source: Readonly<Record<string, unknown>>, zh = false): string {
   const warnings = records(source.gate_warnings);
   if (warnings.length === 0) {
     return zh ? "- 没有非阻塞门禁诊断。\n" : "- No non-blocking Gate diagnostics.\n";
   }
   return `${warnings
-    .map(
-      (warning) =>
-        `- [${display(warning.severity, zh)} / ${display(warning.category, zh)}] ${display(warning.code, zh)}: ${display(warning.message, zh)} ${zh ? "决策影响" : "Decision impact"}: ${display(warning.decision_impact, zh)}`,
+    .map((warning) =>
+      zh
+        ? `- [${display(warning.severity, true)} / ${display(warning.category, true)}] ${display(warning.message, true)} 决策影响: ${display(warning.decision_impact, true)}`
+        : `- [${display(warning.severity, false)} / ${display(warning.category, false)}] ${display(warning.code, false)}: ${display(warning.message, false)} Decision impact: ${display(warning.decision_impact, false)}`,
     )
     .join("\n")}\n`;
 }

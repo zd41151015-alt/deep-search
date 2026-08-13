@@ -725,6 +725,21 @@
     "research_provenance": {
       "$ref": "#/$defs/researchProvenance"
     },
+    "report_citations": {
+      "type": "array",
+      "items": {
+        "$ref": "../assessment/commercial/commercial-report-projection.schema.json#/$defs/reportCitation"
+      }
+    },
+    "report_subject_labels": {
+      "type": "array",
+      "items": {
+        "$ref": "../assessment/commercial/commercial-report-projection.schema.json#/$defs/reportSubjectLabel"
+      }
+    },
+    "report_statistics": {
+      "$ref": "../assessment/commercial/commercial-report-projection.schema.json#/$defs/reportStatistics"
+    },
     "excluded_evidence": {
       "type": "array",
       "items": {

@@ -2068,6 +2068,7 @@ export class RunStore {
         ["report.json", `${canonicalJson(source)}\n`],
         ["decision-brief.md", brief.markdown],
         ["report.md", view.markdown],
+        ["audit-appendix.md", view.audit_appendix_markdown],
       ]);
       for (const [relativePath, bytes] of expected) {
         if ((await readFile(await resolveRunPath(runRoot, relativePath), "utf8")) !== bytes) {

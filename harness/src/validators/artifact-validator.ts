@@ -4079,7 +4079,11 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
           : null;
   if (surface !== null) {
     const scanValue =
-      surface === "structured_report" ? document.document : document.document.markdown;
+      surface === "structured_report"
+        ? document.document
+        : surface === "report_view"
+          ? `${String(document.document.markdown)}\n${String(document.document.audit_appendix_markdown)}`
+          : document.document.markdown;
     const forbiddenMatches = scanReportSurface(surface, scanValue);
     if (forbiddenMatches.length > 0) {
       errors.push({
@@ -4412,7 +4416,9 @@ export class ArtifactValidator {
       document: entry.document,
       envelope: entry.envelope,
     }));
-    referenceErrors.push(...validateG14Contract(g14Documents, this.assessmentReportingPolicy));
+    referenceErrors.push(
+      ...validateG14Contract(g14Documents, this.assessmentReportingPolicy, exactJsonlRecords),
+    );
     const historicalBindings = referenceContext.historicalDiscoveryPlanBindings ?? [];
     const discoveryView = historicalDiscoveryView(effectiveDocuments, historicalBindings, "g2_1");
     referenceErrors.push(...discoveryView.errors);

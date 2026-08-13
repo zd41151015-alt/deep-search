@@ -112,12 +112,15 @@
           "const": "report.md"
         },
         {
+          "const": "audit-appendix.md"
+        },
+        {
           "const": "consistency_evaluation"
         }
       ],
       "items": false,
-      "minItems": 5,
-      "maxItems": 5
+      "minItems": 6,
+      "maxItems": 6
     },
     "forbidden_report_expressions": {
       "type": "array",

@@ -1,4 +1,6 @@
 import { canonicalContentHash, canonicalJson, sha256Bytes } from "../artifact-store/canonical.js";
+import { deriveReportStatistics } from "../reporting/commercial-report-tables.js";
+import { deriveReportCitations } from "../reporting/report-citation-authority.js";
 import {
   type AssessmentReportingPolicy,
   REQUIRED_CHALLENGE_DIMENSIONS,
@@ -937,6 +939,7 @@ function validateReportSet(
   documents: readonly G14Document[],
   byPath: ReadonlyMap<string, G14Document>,
   policy: AssessmentReportingPolicy,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
 ): readonly ValidationIssue[] {
   const reports = bySchema(documents, "startup_opportunity.concept_evidence_report.v1");
   if (reports.length === 0) {
@@ -944,6 +947,34 @@ function validateReportSet(
   }
   const errors: ValidationIssue[] = [];
   for (const report of reports) {
+    const expectedCitations = deriveReportCitations(documents, exactRecords, report.document);
+    if (
+      report.document.report_citations !== undefined &&
+      canonicalJson(report.document.report_citations) !== canonicalJson(expectedCitations)
+    ) {
+      errors.push(
+        issue(
+          "report.citation_authority_mismatch",
+          `${report.path}#/report_citations`,
+          "readable citations must be mechanically derived from exact typed Evidence substrate sources",
+          { expected: expectedCitations },
+        ),
+      );
+    }
+    const expectedStatistics = deriveReportStatistics(report.document);
+    if (
+      report.document.report_statistics !== undefined &&
+      canonicalJson(report.document.report_statistics) !== canonicalJson(expectedStatistics)
+    ) {
+      errors.push(
+        issue(
+          "report.statistics_mismatch",
+          `${report.path}#/report_statistics`,
+          "report counts must be mechanically derived from the final structured report model",
+          { expected: expectedStatistics },
+        ),
+      );
+    }
     const context = isRecord(report.document.curated_judgment_context)
       ? report.document.curated_judgment_context
       : {};
@@ -1197,7 +1228,10 @@ function validateReportSet(
           flattenSummaryRefs(context.decisive_opposition),
         ) ||
         !sameStrings(view.document.limitations, context.limitations) ||
-        view.document.markdown_content_hash !== sha256Bytes(String(view.document.markdown))
+        view.document.markdown_content_hash !== sha256Bytes(String(view.document.markdown)) ||
+        view.document.audit_appendix_path !== "audit-appendix.md" ||
+        view.document.audit_appendix_content_hash !==
+          sha256Bytes(String(view.document.audit_appendix_markdown))
       ) {
         errors.push(
           issue(
@@ -1224,7 +1258,7 @@ function validateReportSet(
           issue(
             "report.consistency_evaluation_invalid",
             consistency.path,
-            "three-output consistency evaluation is incomplete or not passed",
+            "four-output consistency evaluation is incomplete or not passed",
           ),
         );
       }
@@ -1240,6 +1274,7 @@ export function isG14SchemaVersion(schemaVersion: string): boolean {
 export function validateG14Contract(
   documents: readonly G14Document[],
   policy: AssessmentReportingPolicy,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>> = new Map(),
 ): readonly ValidationIssue[] {
   if (!documents.some((entry) => isG14SchemaVersion(entry.schemaVersion))) {
     return [];
@@ -1293,6 +1328,6 @@ export function validateG14Contract(
   )) {
     errors.push(...validateTraceability(traceability, byPath));
   }
-  errors.push(...validateReportSet(documents, byPath, policy));
+  errors.push(...validateReportSet(documents, byPath, policy, exactRecords));
   return sortIssues(errors);
 }

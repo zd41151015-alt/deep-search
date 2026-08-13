@@ -1192,7 +1192,12 @@ test("public ReportRuntime rejects terminal sources before any standalone report
       error instanceof StoreError && error.code === "report.terminal_dedicated_entry_required",
   );
   assert.deepEqual(await snapshotTree(state.runRoot), before);
-  for (const relativePath of ["report.json", "decision-brief.md", "report.md"]) {
+  for (const relativePath of [
+    "report.json",
+    "decision-brief.md",
+    "report.md",
+    "audit-appendix.md",
+  ]) {
     await assert.rejects(readFile(path.join(state.runRoot, relativePath), "utf8"));
   }
 });
@@ -2000,11 +2005,16 @@ test("Store re-forms a Concept only through an explicit post-terminal revision a
   );
 });
 
-test("build-report publishes formal sidecars, materializes three outputs, and exactly replays", async (context) => {
+test("build-report publishes formal sidecars, materializes four outputs, and exactly replays", async (context) => {
   const state = await prepareRun(context);
   const first = await state.runtime.build({ reportEnvelope: state.reportEnvelope });
   assert.equal(first.status, "published");
-  assert.deepEqual(first.materializedPaths, ["report.json", "decision-brief.md", "report.md"]);
+  assert.deepEqual(first.materializedPaths, [
+    "report.json",
+    "decision-brief.md",
+    "report.md",
+    "audit-appendix.md",
+  ]);
   const reportJson = JSON.parse(
     await readFile(path.join(state.runRoot, "report.json"), "utf8"),
   ) as Record<string, unknown>;
@@ -2017,6 +2027,10 @@ test("build-report publishes formal sidecars, materializes three outputs, and ex
   assert.match(
     await readFile(path.join(state.runRoot, "report.md"), "utf8"),
     /# Concept Evidence Assessment Report/,
+  );
+  assert.match(
+    await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8"),
+    /# Concept Evidence Assessment Audit Appendix/,
   );
   const before = await snapshotTree(state.runRoot);
   const replay = await state.runtime.build({ reportEnvelope: state.reportEnvelope });
@@ -2180,8 +2194,10 @@ test("ReportRuntime publishes an explicit warning when a planned commercial Audi
     ),
   );
   const markdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
-  assert.match(markdown, /execution \/ research/);
   assert.doesNotMatch(markdown, /all planned dimensions.*observed/is);
+  const appendix = await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8");
+  assert.match(appendix, /execution \/ research/);
+  assert.doesNotMatch(appendix, /all planned dimensions.*observed/is);
   const warnings = report.gate_warnings as Record<string, unknown>[];
   for (const code of ["commercial_research.report_audit_closure_incomplete"]) {
     const warning = warnings.find((entry) => entry.code === code);
@@ -2400,6 +2416,7 @@ test("reopen completes every crash-interrupted report publication boundary", asy
     "after_brief_materialization",
     "after_view_sidecar",
     "after_view_materialization",
+    "after_appendix_materialization",
     "after_consistency_sidecar",
   ];
   for (const faultAt of boundaries) {
@@ -2410,7 +2427,12 @@ test("reopen completes every crash-interrupted report publication boundary", asy
         (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
       );
       await state.store.load(G14_RUN_ID);
-      for (const outputPath of ["report.json", "decision-brief.md", "report.md"]) {
+      for (const outputPath of [
+        "report.json",
+        "decision-brief.md",
+        "report.md",
+        "audit-appendix.md",
+      ]) {
         assert.ok((await readFile(path.join(state.runRoot, outputPath))).length > 0);
       }
       assert.equal(
@@ -2584,7 +2606,12 @@ test("build-report CLI consumes one explicit envelope and returns a structured r
   const result = JSON.parse(executed.stdout) as Record<string, unknown>;
   assert.equal(result.schemaVersion, "startup_opportunity.build_report_result.v1");
   assert.equal(result.status, "published");
-  assert.deepEqual(result.materializedPaths, ["report.json", "decision-brief.md", "report.md"]);
+  assert.deepEqual(result.materializedPaths, [
+    "report.json",
+    "decision-brief.md",
+    "report.md",
+    "audit-appendix.md",
+  ]);
 
   const terminalPath = path.join(path.dirname(state.runsRoot), "terminal-report-envelope.json");
   await writeFile(terminalPath, `${canonicalJson(terminalReportEnvelope(state))}\n`);

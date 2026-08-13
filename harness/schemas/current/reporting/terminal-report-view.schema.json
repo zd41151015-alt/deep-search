@@ -13,6 +13,7 @@
     "producer_role",
     "owned_output_path",
     "materialized_path",
+    "audit_appendix_path",
     "report_ref",
     "report_content_hash",
     "terminal_outcome",
@@ -21,7 +22,9 @@
     "limitations",
     "audit_appendix_refs",
     "markdown",
-    "markdown_content_hash"
+    "markdown_content_hash",
+    "audit_appendix_markdown",
+    "audit_appendix_content_hash"
   ],
   "properties": {
     "schema_version": {
@@ -50,6 +53,7 @@
     "materialized_path": {
       "const": "report.md"
     },
+    "audit_appendix_path": { "const": "audit-appendix.md" },
     "report_ref": {
       "type": "string",
       "pattern": "^artifacts/reporting/terminal-report-source\\.r[1-9][0-9]*\\.json$"
@@ -108,6 +112,10 @@
       "minLength": 1
     },
     "markdown_content_hash": {
+      "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "audit_appendix_markdown": { "type": "string", "minLength": 1 },
+    "audit_appendix_content_hash": {
       "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/sha256"
     }
   }

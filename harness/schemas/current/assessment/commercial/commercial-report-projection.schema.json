@@ -3,6 +3,60 @@
   "$id": "https://startup-opportunity.local/schemas/current/assessment/commercial/commercial-report-projection.schema.json",
   "title": "Startup Opportunity Commercial Report Projection Definitions",
   "$defs": {
+    "reportCitation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_ref", "label", "url"],
+      "properties": {
+        "evidence_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "label": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "url": { "type": "string", "format": "uri" }
+      }
+    },
+    "reportSubjectLabel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject_id", "label"],
+      "properties": {
+        "subject_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "label": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "reportStatistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "readable_source_count",
+        "quantitative_signal_count",
+        "decision_grade_quantitative_signal_count",
+        "directional_or_context_quantitative_signal_count",
+        "competitive_object_count",
+        "full_gap_row_count",
+        "critical_gap_group_count",
+        "excluded_evidence_count"
+      ],
+      "properties": {
+        "readable_source_count": { "type": "integer", "minimum": 0 },
+        "quantitative_signal_count": { "type": "integer", "minimum": 0 },
+        "decision_grade_quantitative_signal_count": { "type": "integer", "minimum": 0 },
+        "directional_or_context_quantitative_signal_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "competitive_object_count": { "type": "integer", "minimum": 0 },
+        "full_gap_row_count": { "type": "integer", "minimum": 0 },
+        "critical_gap_group_count": { "type": "integer", "minimum": 0 },
+        "excluded_evidence_count": { "type": "integer", "minimum": 0 }
+      }
+    },
     "subjectAssessment": {
       "type": "object",
       "additionalProperties": false,

@@ -188,6 +188,21 @@
         "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
       }
     },
+    "report_citations": {
+      "type": "array",
+      "items": {
+        "$ref": "../../assessment/commercial/commercial-report-projection.schema.json#/$defs/reportCitation"
+      }
+    },
+    "report_subject_labels": {
+      "type": "array",
+      "items": {
+        "$ref": "../../assessment/commercial/commercial-report-projection.schema.json#/$defs/reportSubjectLabel"
+      }
+    },
+    "report_statistics": {
+      "$ref": "../../assessment/commercial/commercial-report-projection.schema.json#/$defs/reportStatistics"
+    },
     "quantitative_signal_rows": {
       "type": "array",
       "items": {

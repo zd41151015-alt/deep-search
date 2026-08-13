@@ -30,14 +30,20 @@ import { projectGateWarnings } from "../validators/gate-diagnostics.js";
 import { deriveResearchProvenance } from "../validators/research-handoff-validator.js";
 import {
   commercialProjectionRefs,
+  deriveReportStatistics,
   projectCommercialAuditTables,
+  renderCompetitiveSubjectSummary,
   renderCompetitiveSubstituteMatrix,
+  renderCriticalResearchGaps,
+  renderDecisionGradeQuantitativeSummary,
   renderGateWarnings,
+  renderIncumbentResponseDisclosure,
   renderIncumbentResponseRiskTable,
   renderMarketPriorityAndCommercialReadiness,
   renderQuantitativeSignalTable,
   renderResearchCoverageGaps,
 } from "./commercial-report-tables.js";
+import { canonicalizeReadableSources, deriveReportCitations } from "./report-citation-authority.js";
 import {
   REPORT_SCAN_CONTRACT_VERSION,
   REPORT_SCAN_SURFACES,
@@ -142,6 +148,7 @@ export type ReportFaultBoundary =
   | "after_brief_materialization"
   | "after_view_sidecar"
   | "after_view_materialization"
+  | "after_appendix_materialization"
   | "after_consistency_sidecar";
 
 type MaterializationFaultBoundary = "after_intent" | "after_temp_write" | "after_publish";
@@ -152,12 +159,12 @@ interface ReportMaterializationReceipt {
   readonly run_id: string;
   readonly source_artifact_path: string;
   readonly source_content_hash: string;
-  readonly target_path: "report.json" | "decision-brief.md" | "report.md";
+  readonly target_path: "report.json" | "decision-brief.md" | "report.md" | "audit-appendix.md";
   readonly materialized_content_hash: string;
 }
 
 export interface ReportMaterializationResult {
-  readonly targetPath: "report.json" | "decision-brief.md" | "report.md";
+  readonly targetPath: "report.json" | "decision-brief.md" | "report.md" | "audit-appendix.md";
   readonly status: "materialized" | "idempotent_replay";
   readonly contentHash: string;
 }
@@ -191,7 +198,7 @@ export interface PreparedTerminalReportOperation {
   readonly derived_envelopes: readonly FormalArtifactEnvelope[];
   readonly materialized_outputs: readonly {
     readonly source_artifact_path: string;
-    readonly target_path: "report.json" | "decision-brief.md" | "report.md";
+    readonly target_path: "report.json" | "decision-brief.md" | "report.md" | "audit-appendix.md";
     readonly content_hash: string;
     readonly bytes: string;
   }[];
@@ -283,6 +290,34 @@ function summaryList(value: unknown): string {
     .join("\n")}\n`;
 }
 
+function renderReportStatistics(report: Record<string, unknown>, zh = false): string {
+  const statistics = isRecord(report.report_statistics) ? report.report_statistics : {};
+  return zh
+    ? `- 可读来源 ${String(statistics.readable_source_count ?? 0)}；量化信号 ${String(statistics.quantitative_signal_count ?? 0)}（决策级 ${String(statistics.decision_grade_quantitative_signal_count ?? 0)}，方向/背景 ${String(statistics.directional_or_context_quantitative_signal_count ?? 0)}）；竞品/替代对象 ${String(statistics.competitive_object_count ?? 0)}；完整缺口行 ${String(statistics.full_gap_row_count ?? 0)}；核心缺口组 ${String(statistics.critical_gap_group_count ?? 0)}。\n`
+    : `- Readable sources ${String(statistics.readable_source_count ?? 0)}; quantitative signals ${String(statistics.quantitative_signal_count ?? 0)} (decision-grade ${String(statistics.decision_grade_quantitative_signal_count ?? 0)}, directional/context ${String(statistics.directional_or_context_quantitative_signal_count ?? 0)}); competitive/substitute objects ${String(statistics.competitive_object_count ?? 0)}; full gap rows ${String(statistics.full_gap_row_count ?? 0)}; critical gap groups ${String(statistics.critical_gap_group_count ?? 0)}.\n`;
+}
+
+function renderGenericAuditAppendix(
+  report: Record<string, unknown>,
+  title: string,
+  zh = false,
+): string {
+  return [
+    `# ${title}\n\n`,
+    `> ${zh ? "本附录由 Harness 从与决策摘要和核心报告相同的最终 report model 机械派生；完整结构化真值保留在 report.json。" : "This appendix is mechanically derived by the Harness from the same final report model as the brief and core report; report.json retains the complete structured truth."}\n\n`,
+    `## ${zh ? "机械统计" : "Mechanical Statistics"}\n`,
+    renderReportStatistics(report, zh),
+    `\n## ${zh ? "全部量化信号" : "All Quantitative Signals"}\n`,
+    renderQuantitativeSignalTable(report, zh),
+    `\n## ${zh ? "完整竞品与广义替代矩阵" : "Full Competitive And Substitute Matrix"}\n`,
+    renderCompetitiveSubstituteMatrix(report, zh),
+    `\n## ${zh ? "完整研究覆盖缺口" : "Full Research Coverage Gaps"}\n`,
+    renderResearchCoverageGaps(report, zh),
+    `\n## ${zh ? "非阻塞诊断" : "Non-blocking Diagnostics"}\n`,
+    renderGateWarnings(report, zh),
+  ].join("");
+}
+
 function renderDecisionBrief(report: Record<string, unknown>): string {
   const context = requiredRecord(report.curated_judgment_context, "curated_judgment_context");
   const belief = requiredRecord(context.belief_update_summary, "belief_update_summary");
@@ -295,12 +330,12 @@ function renderDecisionBrief(report: Record<string, unknown>): string {
     `${String(context.current_recommendation)}\n\n`,
     `Assessment result: ${String(context.assessment_result)}\n\n`,
     `Meaning: ${String(context.recommendation_meaning)}\n\n`,
-    "## Decisive Support\n",
+    "## Key Research Counts\n",
+    renderReportStatistics(report),
+    "\n## Decisive Support\n",
     summaryList(context.decisive_support),
     "\n## Decisive Opposition\n",
     summaryList(context.decisive_opposition),
-    "\n## Incumbent Absorption And Response Risk\n",
-    renderIncumbentResponseRiskTable(report),
     "\n## Alternatives Not Selected\n",
     markdownList(strings(context.alternatives_not_selected)),
     "\n## Critical Unknowns\n",
@@ -320,6 +355,8 @@ function renderDecisionBrief(report: Record<string, unknown>): string {
     `${String(context.scope_summary)}\n\nValid as of: ${String(context.valid_as_of)}\n\n`,
     "## Limitations\n",
     markdownList(strings(context.limitations)),
+    "\n## Incumbent Absorption And Response Risk\n",
+    renderIncumbentResponseDisclosure(report),
     "\n## External Action Boundary\n",
     `Execution owner: ${String(boundary.execution_owner)}\n\n`,
     `Execution supported: ${String(boundary.execution_supported)}\n\n`,
@@ -339,28 +376,32 @@ function renderFullReport(report: Record<string, unknown>): string {
     `\nMeaning: ${String(context.recommendation_meaning)}\n`,
     `\nValid as of: ${String(context.valid_as_of)}\n`,
     `\nGenerated at: ${String(metadata.generated_at)}\n`,
+    "\n## Key Research Counts\n",
+    renderReportStatistics(report),
   ];
   for (const sectionId of REPORT_SECTION_ORDER) {
     if (sectionId === "competition_and_differentiation") {
       parts.push("\n## Market Research Priority And Commercial Validation Readiness\n");
       parts.push(renderMarketPriorityAndCommercialReadiness(report));
-      parts.push("\n## Quantitative Signals\n");
-      parts.push(renderQuantitativeSignalTable(report));
-      parts.push("\n## Competitive And Substitute Matrix\n");
-      parts.push(renderCompetitiveSubstituteMatrix(report));
+      parts.push("\n## Decision-grade Quantitative Summary\n");
+      parts.push(renderDecisionGradeQuantitativeSummary(report));
+      parts.push("\n## Competitive And Substitute Summary\n");
+      parts.push(renderCompetitiveSubjectSummary(report));
       parts.push("\n## Incumbent Absorption And Response Risk\n");
       parts.push(renderIncumbentResponseRiskTable(report));
     }
     if (sectionId === "limitations_and_sources") {
-      parts.push("\n## Research Coverage Gaps And Decision Impact\n");
-      parts.push(renderResearchCoverageGaps(report));
-      parts.push("\n## Gate Warnings And Decision Impact\n");
-      parts.push(renderGateWarnings(report));
+      parts.push("\n## Critical Research Gaps\n");
+      parts.push(renderCriticalResearchGaps(report));
     }
     parts.push(`\n## ${REPORT_SECTION_TITLES[sectionId]}\n`);
     parts.push(markdownList(strings(sections[sectionId])));
   }
   return parts.join("");
+}
+
+function renderAssessmentAuditAppendix(report: Record<string, unknown>): string {
+  return renderGenericAuditAppendix(report, "Concept Evidence Assessment Audit Appendix");
 }
 
 function reportHashEntry(report: Record<string, unknown>, ref: string): string {
@@ -428,6 +469,41 @@ function collectDocumentRefs(value: unknown): readonly string[] {
   });
 }
 
+function reportSubjectLabel(document: Record<string, unknown>, fallback: string): string {
+  if (typeof document.title === "string") return document.title;
+  if (typeof document.product_thesis === "string") return document.product_thesis;
+  const subject = isRecord(document.subject) ? document.subject : {};
+  if (typeof subject.summary === "string") return subject.summary;
+  if (typeof document.description === "string") return document.description;
+  return fallback;
+}
+
+function derivedReportSubjectLabels(
+  subjectIds: readonly string[],
+  documentsByPath: ReadonlyMap<string, Record<string, unknown>>,
+  synthesizedDirections: readonly Record<string, unknown>[],
+): readonly Record<string, unknown>[] {
+  return [...new Set(subjectIds)].sort().map((subjectId, index) => {
+    const direction = synthesizedDirections.find((entry) => entry.direction_id === subjectId);
+    if (typeof direction?.label === "string") {
+      return { subject_id: subjectId, label: direction.label };
+    }
+    const document = [...documentsByPath.values()].find(
+      (entry) =>
+        entry.candidate_id === subjectId ||
+        entry.opportunity_id === subjectId ||
+        entry.concept_hypothesis_id === subjectId,
+    );
+    return {
+      subject_id: subjectId,
+      label:
+        document === undefined
+          ? `Current research subject ${index + 1}`
+          : reportSubjectLabel(document, `Current research subject ${index + 1}`),
+    };
+  });
+}
+
 function renderDiscoveryDecisionBrief(report: Record<string, unknown>): string {
   const context = requiredRecord(report.curated_judgment_context, "curated_judgment_context");
   return [
@@ -440,18 +516,20 @@ function renderDiscoveryDecisionBrief(report: Record<string, unknown>): string {
     `Meaning: ${String(context.recommendation_meaning)}\n\n`,
     "## Partial Order\n",
     `${String(context.partial_order_summary)}\n\n`,
-    "## Decisive Support\n",
+    "## Key Research Counts\n",
+    renderReportStatistics(report),
+    "\n## Decisive Support\n",
     summaryList(context.decisive_support),
     "\n## Decisive Opposition\n",
     summaryList(context.decisive_opposition),
-    "\n## Incumbent Absorption And Response Risk\n",
-    renderIncumbentResponseRiskTable(report),
     "\n## Critical Unknowns\n",
     markdownList(strings(context.critical_unknowns)),
     "\n## What Would Change the Decision\n",
     markdownList(strings(context.what_would_change_the_decision)),
     "\n## Limitations\n",
     markdownList(strings(context.limitations)),
+    "\n## Incumbent Absorption And Response Risk\n",
+    renderIncumbentResponseDisclosure(report),
   ].join("");
 }
 
@@ -465,23 +543,23 @@ function renderDiscoveryFullReport(report: Record<string, unknown>): string {
     `\nRecommendation: ${String(context.current_recommendation)}\n`,
     `\nValid as of: ${String(context.valid_as_of)}\n`,
     `\nGenerated at: ${String(metadata.generated_at)}\n`,
+    "\n## Key Research Counts\n",
+    renderReportStatistics(report),
   ];
   for (const sectionId of DISCOVERY_REPORT_SECTION_ORDER) {
     if (sectionId === "top_opportunities") {
       parts.push("\n## Market Research Priority And Commercial Validation Readiness\n");
       parts.push(renderMarketPriorityAndCommercialReadiness(report));
-      parts.push("\n## Quantitative Signals\n");
-      parts.push(renderQuantitativeSignalTable(report));
-      parts.push("\n## Competitive And Substitute Matrix\n");
-      parts.push(renderCompetitiveSubstituteMatrix(report));
+      parts.push("\n## Decision-grade Quantitative Summary\n");
+      parts.push(renderDecisionGradeQuantitativeSummary(report));
+      parts.push("\n## Competitive And Substitute Summary\n");
+      parts.push(renderCompetitiveSubjectSummary(report));
       parts.push("\n## Incumbent Absorption And Response Risk\n");
       parts.push(renderIncumbentResponseRiskTable(report));
     }
     if (sectionId === "traceability_and_sources") {
-      parts.push("\n## Research Coverage Gaps And Decision Impact\n");
-      parts.push(renderResearchCoverageGaps(report));
-      parts.push("\n## Gate Warnings And Decision Impact\n");
-      parts.push(renderGateWarnings(report));
+      parts.push("\n## Critical Research Gaps\n");
+      parts.push(renderCriticalResearchGaps(report));
     }
     const title = sectionId
       .split("_")
@@ -491,6 +569,10 @@ function renderDiscoveryFullReport(report: Record<string, unknown>): string {
     parts.push(markdownList(strings(sections[sectionId])));
   }
   return parts.join("");
+}
+
+function renderDiscoveryAuditAppendix(report: Record<string, unknown>): string {
+  return renderGenericAuditAppendix(report, "Startup Opportunity Discovery Audit Appendix");
 }
 
 function deriveDiscoveryReportEnvelopes(
@@ -548,6 +630,7 @@ function deriveDiscoveryReportEnvelopes(
     [],
   );
   const reportMarkdown = renderDiscoveryFullReport(report);
+  const auditAppendixMarkdown = renderDiscoveryAuditAppendix(report);
   const viewDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.discovery_report_view.v1",
     view_id: `report_markdown_${revision.replace("r", "")}`,
@@ -555,6 +638,7 @@ function deriveDiscoveryReportEnvelopes(
     producer_role: "harness",
     owned_output_path: reportViewPath,
     materialized_path: "report.md",
+    audit_appendix_path: "audit-appendix.md",
     report_ref: reportEnvelope.artifact_path,
     report_content_hash: reportHash,
     decision_recommendation_ref: recommendationRef,
@@ -571,6 +655,8 @@ function deriveDiscoveryReportEnvelopes(
     section_ids: DISCOVERY_REPORT_SECTION_IDS,
     markdown: reportMarkdown,
     markdown_content_hash: sha256Bytes(reportMarkdown),
+    audit_appendix_markdown: auditAppendixMarkdown,
+    audit_appendix_content_hash: sha256Bytes(auditAppendixMarkdown),
   };
   const viewEnvelope = formalEnvelope(
     reportEnvelope,
@@ -582,7 +668,7 @@ function deriveDiscoveryReportEnvelopes(
   const forbiddenExpressionMatches = scanDiscoveryReportSurfaces({
     structuredReport: report,
     decisionBrief: briefMarkdown,
-    reportView: reportMarkdown,
+    reportView: `${reportMarkdown}\n${auditAppendixMarkdown}`,
   });
   const evaluatorResult = forbiddenExpressionMatches.length === 0 ? "passed" : "failed";
   const consistencyDocument: Record<string, unknown> = {
@@ -738,6 +824,7 @@ export function deriveReportEnvelopes(
   );
 
   const reportMarkdown = renderFullReport(report);
+  const auditAppendixMarkdown = renderAssessmentAuditAppendix(report);
   const viewDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.concept_evidence_report_view.v1",
     view_id: `report_markdown_${revision.replace("r", "")}`,
@@ -745,6 +832,7 @@ export function deriveReportEnvelopes(
     producer_role: "harness",
     owned_output_path: reportViewPath,
     materialized_path: "report.md",
+    audit_appendix_path: "audit-appendix.md",
     report_ref: reportEnvelope.artifact_path,
     report_content_hash: reportHash,
     assessment_ref: assessmentRef,
@@ -758,6 +846,8 @@ export function deriveReportEnvelopes(
     section_ids: ASSESSMENT_REPORT_SECTION_IDS,
     markdown: reportMarkdown,
     markdown_content_hash: sha256Bytes(reportMarkdown),
+    audit_appendix_markdown: auditAppendixMarkdown,
+    audit_appendix_content_hash: sha256Bytes(auditAppendixMarkdown),
   };
   const viewEnvelope = formalEnvelope(
     reportEnvelope,
@@ -800,38 +890,46 @@ export function deriveReportEnvelopes(
   return [briefEnvelope, viewEnvelope, consistencyEnvelope];
 }
 
-function materializedBytes(envelope: FormalArtifactEnvelope): {
+function materializedOutputs(envelope: FormalArtifactEnvelope): readonly {
   readonly targetPath: ReportMaterializationReceipt["target_path"];
   readonly bytes: string;
-} | null {
+}[] {
   if (
     envelope.artifact_type === "startup_opportunity.concept_evidence_report.v1" ||
     envelope.artifact_type === "startup_opportunity.report.v1" ||
     envelope.artifact_type === "startup_opportunity.terminal_report_source.v1"
   ) {
-    return { targetPath: "report.json", bytes: `${canonicalJson(envelope.document)}\n` };
+    return [{ targetPath: "report.json", bytes: `${canonicalJson(envelope.document)}\n` }];
   }
   if (
     envelope.artifact_type === "startup_opportunity.decision_brief.assessment.current" ||
     envelope.artifact_type === "startup_opportunity.decision_brief.discovery.current" ||
     envelope.artifact_type === "startup_opportunity.decision_brief.terminal.current"
   ) {
-    return {
-      targetPath: "decision-brief.md",
-      bytes: requiredString(envelope.document.markdown, "markdown"),
-    };
+    return [
+      {
+        targetPath: "decision-brief.md",
+        bytes: requiredString(envelope.document.markdown, "markdown"),
+      },
+    ];
   }
   if (
     envelope.artifact_type === "startup_opportunity.concept_evidence_report_view.v1" ||
     envelope.artifact_type === "startup_opportunity.discovery_report_view.v1" ||
     envelope.artifact_type === "startup_opportunity.terminal_report_view.v1"
   ) {
-    return {
-      targetPath: "report.md",
-      bytes: requiredString(envelope.document.markdown, "markdown"),
-    };
+    return [
+      {
+        targetPath: "report.md",
+        bytes: requiredString(envelope.document.markdown, "markdown"),
+      },
+      {
+        targetPath: "audit-appendix.md",
+        bytes: requiredString(envelope.document.audit_appendix_markdown, "audit_appendix_markdown"),
+      },
+    ];
   }
-  return null;
+  return [];
 }
 
 async function assertMaterializedTargetsCompatibleLocked(
@@ -839,32 +937,32 @@ async function assertMaterializedTargetsCompatibleLocked(
   envelopes: readonly FormalArtifactEnvelope[],
 ): Promise<void> {
   for (const envelope of envelopes) {
-    const materialized = materializedBytes(envelope);
-    if (materialized === null) {
-      continue;
-    }
-    if (envelope.document.materialized_path !== materialized.targetPath) {
-      throw new StoreError(
-        "report.materialized_path_mismatch",
-        "report sidecar targets another view path",
-        { artifactPath: envelope.artifact_path },
-      );
-    }
-    try {
-      const existing = await readFile(
-        await resolveRunPath(runRoot, materialized.targetPath),
-        "utf8",
-      );
-      if (existing !== materialized.bytes) {
+    for (const materialized of materializedOutputs(envelope)) {
+      if (
+        (materialized.targetPath === "audit-appendix.md"
+          ? envelope.document.audit_appendix_path
+          : envelope.document.materialized_path) !== materialized.targetPath
+      ) {
         throw new StoreError(
-          "report.materialized_conflict",
-          "materialized report bytes differ from sidecar",
-          { targetPath: materialized.targetPath },
+          "report.materialized_path_mismatch",
+          "report sidecar targets another view path",
+          { artifactPath: envelope.artifact_path, targetPath: materialized.targetPath },
         );
       }
-    } catch (error) {
-      if (!isNodeError(error, "ENOENT")) {
-        throw error;
+      try {
+        const existing = await readFile(
+          await resolveRunPath(runRoot, materialized.targetPath),
+          "utf8",
+        );
+        if (existing !== materialized.bytes) {
+          throw new StoreError(
+            "report.materialized_conflict",
+            "materialized report bytes differ from sidecar",
+            { targetPath: materialized.targetPath },
+          );
+        }
+      } catch (error) {
+        if (!isNodeError(error, "ENOENT")) throw error;
       }
     }
   }
@@ -926,17 +1024,7 @@ function preparedTerminalReportOperation(
   derived: readonly FormalArtifactEnvelope[],
 ): PreparedTerminalReportOperation {
   const materializedOutputs = [source, ...derived].flatMap((envelope) => {
-    const materialized = materializedBytes(envelope);
-    return materialized === null
-      ? []
-      : [
-          {
-            source_artifact_path: envelope.artifact_path,
-            target_path: materialized.targetPath,
-            content_hash: sha256Bytes(materialized.bytes),
-            bytes: materialized.bytes,
-          },
-        ];
+    return materializedOutputsForEnvelope(envelope);
   });
   const identity = {
     schema_version: "startup_opportunity.terminal_report_operation.current" as const,
@@ -947,6 +1035,15 @@ function preparedTerminalReportOperation(
     materialized_outputs: materializedOutputs,
   };
   return { ...identity, operation_key: operationKey("terminal_report_operation", identity) };
+}
+
+function materializedOutputsForEnvelope(envelope: FormalArtifactEnvelope) {
+  return materializedOutputs(envelope).map((materialized) => ({
+    source_artifact_path: envelope.artifact_path,
+    target_path: materialized.targetPath,
+    content_hash: sha256Bytes(materialized.bytes),
+    bytes: materialized.bytes,
+  }));
 }
 
 export function validatePreparedTerminalReportOperation(
@@ -987,7 +1084,7 @@ export function validatePreparedTerminalReportOperation(
     (output) => output.source_artifact_path,
   );
   const expectedMaterializedSources = [source, ...derived].flatMap((envelope) =>
-    materializedBytes(envelope) === null ? [] : [envelope.artifact_path],
+    materializedOutputs(envelope).map(() => envelope.artifact_path),
   );
   if (
     request.run_id !== runId ||
@@ -996,10 +1093,10 @@ export function validatePreparedTerminalReportOperation(
     source.artifact_type !== "startup_opportunity.terminal_report_source.v1" ||
     derived.length !== 3 ||
     derived.some((envelope) => envelope.run_id !== runId) ||
-    operation.materialized_outputs.length !== 3 ||
-    new Set(materializedTargets).size !== 3 ||
-    !["report.json", "decision-brief.md", "report.md"].every((target) =>
-      materializedTargets.includes(target as "report.json" | "decision-brief.md" | "report.md"),
+    operation.materialized_outputs.length !== 4 ||
+    new Set(materializedTargets).size !== 4 ||
+    !["report.json", "decision-brief.md", "report.md", "audit-appendix.md"].every((target) =>
+      materializedTargets.includes(target as ReportMaterializationReceipt["target_path"]),
     ) ||
     canonicalJson(materializedSources) !== canonicalJson(expectedMaterializedSources) ||
     canonicalJson(deriveReportEnvelopes(source)) !== canonicalJson(derived) ||
@@ -1089,13 +1186,15 @@ export async function completePreparedTerminalReportLocked(
         "materialized output source is missing",
       );
     }
-    await materializeLocked(runRoot, envelope);
+    await materializeLocked(runRoot, envelope, undefined, output.target_path);
     const fault =
       output.target_path === "report.json"
         ? "after_report_materialization"
         : output.target_path === "decision-brief.md"
           ? "after_brief_materialization"
-          : "after_view_materialization";
+          : output.target_path === "report.md"
+            ? "after_view_materialization"
+            : "after_appendix_materialization";
     if (faultAt === fault)
       throw new StoreError("fault.injected", `fault injected after ${output.target_path}`);
   }
@@ -1183,7 +1282,8 @@ function validateReceipt(value: unknown, runId: string): ReportMaterializationRe
     !isSha256(value.source_content_hash) ||
     (value.target_path !== "report.json" &&
       value.target_path !== "decision-brief.md" &&
-      value.target_path !== "report.md") ||
+      value.target_path !== "report.md" &&
+      value.target_path !== "audit-appendix.md") ||
     !isSha256(value.materialized_content_hash)
   ) {
     throw new StoreError(
@@ -1222,95 +1322,108 @@ async function materializeLocked(
   runRoot: string,
   envelope: FormalArtifactEnvelope,
   faultAt?: MaterializationFaultBoundary,
-): Promise<ReportMaterializationResult | null> {
-  const materialized = materializedBytes(envelope);
-  if (materialized === null) {
-    return null;
-  }
-  if (envelope.document.materialized_path !== materialized.targetPath) {
-    throw new StoreError(
-      "report.materialized_path_mismatch",
-      "report sidecar targets another view path",
-      {
-        artifactPath: envelope.artifact_path,
-      },
-    );
-  }
-  const receipt = materializationIdentity(envelope, materialized.targetPath, materialized.bytes);
-  const operationHex = sha256Hex(receipt.operation_key);
-  const receiptPath = `.store/operations/report-${operationHex}.json`;
-  const receiptFile = await resolveRunPath(runRoot, receiptPath, { createParents: true });
-  let receiptExists = false;
-  try {
-    const existing = validateReceipt(
-      JSON.parse(await readFile(receiptFile, "utf8")) as unknown,
-      envelope.run_id,
-    );
-    receiptExists = true;
-    if (canonicalJson(existing) !== canonicalJson(receipt)) {
-      throw new StoreError("report.operation_conflict", "report materialization receipt drifted", {
-        receiptPath,
-      });
-    }
-  } catch (error) {
-    if (!isNodeError(error, "ENOENT")) {
-      throw error;
-    }
-  }
-  const targetFile = await resolveRunPath(runRoot, materialized.targetPath, {
-    createParents: true,
-  });
-  try {
-    const existing = await readFile(targetFile, "utf8");
-    if (existing !== materialized.bytes) {
+  onlyTarget?: ReportMaterializationReceipt["target_path"],
+): Promise<readonly ReportMaterializationResult[]> {
+  const outputs = materializedOutputs(envelope).filter(
+    (output) => onlyTarget === undefined || output.targetPath === onlyTarget,
+  );
+  const results: ReportMaterializationResult[] = [];
+  for (const materialized of outputs) {
+    if (
+      (materialized.targetPath === "audit-appendix.md"
+        ? envelope.document.audit_appendix_path
+        : envelope.document.materialized_path) !== materialized.targetPath
+    ) {
       throw new StoreError(
-        "report.materialized_conflict",
-        "materialized report bytes differ from sidecar",
+        "report.materialized_path_mismatch",
+        "report sidecar targets another view path",
         {
-          targetPath: materialized.targetPath,
+          artifactPath: envelope.artifact_path,
         },
       );
+    }
+    const receipt = materializationIdentity(envelope, materialized.targetPath, materialized.bytes);
+    const operationHex = sha256Hex(receipt.operation_key);
+    const receiptPath = `.store/operations/report-${operationHex}.json`;
+    const receiptFile = await resolveRunPath(runRoot, receiptPath, { createParents: true });
+    let receiptExists = false;
+    try {
+      const existing = validateReceipt(
+        JSON.parse(await readFile(receiptFile, "utf8")) as unknown,
+        envelope.run_id,
+      );
+      receiptExists = true;
+      if (canonicalJson(existing) !== canonicalJson(receipt)) {
+        throw new StoreError(
+          "report.operation_conflict",
+          "report materialization receipt drifted",
+          {
+            receiptPath,
+          },
+        );
+      }
+    } catch (error) {
+      if (!isNodeError(error, "ENOENT")) {
+        throw error;
+      }
+    }
+    const targetFile = await resolveRunPath(runRoot, materialized.targetPath, {
+      createParents: true,
+    });
+    try {
+      const existing = await readFile(targetFile, "utf8");
+      if (existing !== materialized.bytes) {
+        throw new StoreError(
+          "report.materialized_conflict",
+          "materialized report bytes differ from sidecar",
+          {
+            targetPath: materialized.targetPath,
+          },
+        );
+      }
+      if (!receiptExists) {
+        const receiptTemp = `.store/temp/report-${operationHex}.receipt.tmp`;
+        await writeSyncedTemp(runRoot, receiptTemp, `${canonicalJson(receipt)}\n`);
+        await publishTemp(runRoot, receiptTemp, receiptPath);
+      }
+      results.push({
+        targetPath: materialized.targetPath,
+        status: "idempotent_replay",
+        contentHash: receipt.materialized_content_hash,
+      });
+      continue;
+    } catch (error) {
+      if (!isNodeError(error, "ENOENT")) {
+        throw error;
+      }
     }
     if (!receiptExists) {
       const receiptTemp = `.store/temp/report-${operationHex}.receipt.tmp`;
       await writeSyncedTemp(runRoot, receiptTemp, `${canonicalJson(receipt)}\n`);
       await publishTemp(runRoot, receiptTemp, receiptPath);
     }
-    return {
-      targetPath: materialized.targetPath,
-      status: "idempotent_replay",
-      contentHash: receipt.materialized_content_hash,
-    };
-  } catch (error) {
-    if (!isNodeError(error, "ENOENT")) {
-      throw error;
+    if (faultAt === "after_intent") {
+      throw new StoreError("fault.injected", "fault injected after report materialization intent");
     }
+    const temporaryPath = `.store/temp/report-${operationHex}.publish.tmp`;
+    await writeSyncedTemp(runRoot, temporaryPath, materialized.bytes);
+    if (faultAt === "after_temp_write") {
+      throw new StoreError(
+        "fault.injected",
+        "fault injected after report materialization temp write",
+      );
+    }
+    await publishTemp(runRoot, temporaryPath, materialized.targetPath);
+    if (faultAt === "after_publish") {
+      throw new StoreError("fault.injected", "fault injected after report materialization publish");
+    }
+    results.push({
+      targetPath: materialized.targetPath,
+      status: "materialized",
+      contentHash: receipt.materialized_content_hash,
+    });
   }
-  if (!receiptExists) {
-    const receiptTemp = `.store/temp/report-${operationHex}.receipt.tmp`;
-    await writeSyncedTemp(runRoot, receiptTemp, `${canonicalJson(receipt)}\n`);
-    await publishTemp(runRoot, receiptTemp, receiptPath);
-  }
-  if (faultAt === "after_intent") {
-    throw new StoreError("fault.injected", "fault injected after report materialization intent");
-  }
-  const temporaryPath = `.store/temp/report-${operationHex}.publish.tmp`;
-  await writeSyncedTemp(runRoot, temporaryPath, materialized.bytes);
-  if (faultAt === "after_temp_write") {
-    throw new StoreError(
-      "fault.injected",
-      "fault injected after report materialization temp write",
-    );
-  }
-  await publishTemp(runRoot, temporaryPath, materialized.targetPath);
-  if (faultAt === "after_publish") {
-    throw new StoreError("fault.injected", "fault injected after report materialization publish");
-  }
-  return {
-    targetPath: materialized.targetPath,
-    status: "materialized",
-    contentHash: receipt.materialized_content_hash,
-  };
+  return results;
 }
 
 async function reportingEnvelopes(runRoot: string): Promise<readonly FormalArtifactEnvelope[]> {
@@ -1353,9 +1466,11 @@ export async function recoverReportOperationsLocked(
     await artifacts.validateStoredEnvelope(runRoot, runId, report);
     const derived = deriveReportEnvelopes(report);
     assertDerivedConsistencyPassed(derived);
-    const reportMaterialization = await materializeLocked(runRoot, report);
-    if (reportMaterialization?.status === "materialized") {
-      materializedRecovered.push(reportMaterialization.targetPath);
+    const reportMaterializations = await materializeLocked(runRoot, report);
+    for (const materialization of reportMaterializations) {
+      if (materialization.status === "materialized") {
+        materializedRecovered.push(materialization.targetPath);
+      }
     }
     const missingDerivedPaths = new Set<string>();
     for (const derivedEnvelope of derived) {
@@ -1392,9 +1507,11 @@ export async function recoverReportOperationsLocked(
       ) {
         formalRecovered.push(derivedEnvelope.artifact_path);
       }
-      const derivedMaterialization = await materializeLocked(runRoot, derivedEnvelope);
-      if (derivedMaterialization?.status === "materialized") {
-        materializedRecovered.push(derivedMaterialization.targetPath);
+      const derivedMaterializations = await materializeLocked(runRoot, derivedEnvelope);
+      for (const materialization of derivedMaterializations) {
+        if (materialization.status === "materialized") {
+          materializedRecovered.push(materialization.targetPath);
+        }
       }
     }
     envelopes = await reportingEnvelopes(runRoot);
@@ -1494,9 +1611,16 @@ export class ReportRuntime {
       if (input.faultAt === "after_view_sidecar") {
         throw new StoreError("fault.injected", "fault injected after full report sidecar");
       }
-      await this.materialize(derived[1] as FormalArtifactEnvelope);
+      await this.materializeTarget(derived[1] as FormalArtifactEnvelope, "report.md");
       if (input.faultAt === "after_view_materialization") {
         throw new StoreError("fault.injected", "fault injected after full report materialization");
+      }
+      await this.materializeTarget(derived[1] as FormalArtifactEnvelope, "audit-appendix.md");
+      if (input.faultAt === "after_appendix_materialization") {
+        throw new StoreError(
+          "fault.injected",
+          "fault injected after audit appendix materialization",
+        );
       }
       publicationResults.push(
         await this.store.publishArtifact({
@@ -1514,7 +1638,7 @@ export class ReportRuntime {
           ? "idempotent_replay"
           : "published",
         formalArtifactPaths: [source.artifact_path, ...derived.map((entry) => entry.artifact_path)],
-        materializedPaths: ["report.json", "decision-brief.md", "report.md"],
+        materializedPaths: ["report.json", "decision-brief.md", "report.md", "audit-appendix.md"],
         consistencyEvaluationRef: (derived[2] as FormalArtifactEnvelope).artifact_path,
       };
     });
@@ -1793,6 +1917,23 @@ export class ReportRuntime {
         })),
       )
       .sort((left, right) => Number(left.order) - Number(right.order));
+    const projectedSubjectIds =
+      source.artifact_type === "startup_opportunity.terminal_report_source.v1"
+        ? currentDecisionSubjectIds
+        : [
+            ...new Set(
+              audits.flatMap((audit) =>
+                records(audit.document.subject_assessments).map((entry) =>
+                  String(entry.subject_id),
+                ),
+              ),
+            ),
+          ].sort();
+    const reportSubjectLabels = derivedReportSubjectLabels(
+      projectedSubjectIds,
+      documentsByPath,
+      synthesizedDirections,
+    );
     if (
       source.artifact_type === "startup_opportunity.terminal_report_source.v1" &&
       ((records(sourceDocument.directions).length > 0 &&
@@ -1848,14 +1989,47 @@ export class ReportRuntime {
         ),
       };
     }
+    const reportSemanticAuthority = {
+      ...sourceDocument,
+      ...projection,
+      ...(terminalProjection
+        ? {
+            current_decision_subject_ids: currentDecisionSubjectIds,
+            research_provenance: researchProvenance,
+            directions: synthesizedDirections,
+            ordered_validation_plan: synthesizedValidationPlan,
+          }
+        : {}),
+    };
+    const reportCitations = deriveReportCitations(
+      formalDocuments,
+      exactRecords,
+      reportSemanticAuthority,
+    );
+    const canonicalSources = canonicalizeReadableSources(
+      records(sourceDocument.sources),
+      reportCitations,
+    );
+    if (terminalProjection && canonicalSources.missingEvidenceRefs.length > 0) {
+      throw new StoreError(
+        "report.source_invalid",
+        "each readable source must close to an exact typed Evidence reference in the final report model",
+        { evidenceRefs: canonicalSources.missingEvidenceRefs },
+      );
+    }
     const projectedAuditRefs = commercialProjectionRefs(
       (source.artifact_type === "startup_opportunity.terminal_report_source.v1"
         ? fullProjection
         : projection) as unknown as Record<string, unknown>,
     );
-    const provisionalDocument = {
+    const provisionalDocument: Record<string, unknown> = {
       ...sourceDocument,
       ...projection,
+      ...(source.artifact_type === "startup_opportunity.terminal_report_source.v1"
+        ? { sources: canonicalSources.sources }
+        : {}),
+      report_citations: reportCitations,
+      report_subject_labels: reportSubjectLabels,
       ...(source.artifact_type === "startup_opportunity.terminal_report_source.v1"
         ? {
             current_decision_subject_ids: currentDecisionSubjectIds,
@@ -1869,6 +2043,7 @@ export class ReportRuntime {
         : {}),
       gate_warnings: gateAudits.flatMap((audit) => records(audit.document.compiler_warnings)),
     };
+    provisionalDocument.report_statistics = deriveReportStatistics(provisionalDocument);
     const provisional = {
       ...source,
       input_refs: [
@@ -1876,6 +2051,7 @@ export class ReportRuntime {
           ...source.input_refs.filter((ref) => !ref.startsWith("artifacts/research-audits/")),
           ...strings(researchProvenance.causal_handoff_refs),
           ...projection.commercial_research_audit_refs,
+          ...reportCitations.map((citation) => citation.evidence_ref),
           ...synthesisBindings.flatMap((binding) =>
             typeof binding.ref === "string" ? [binding.ref] : [],
           ),
@@ -1952,11 +2128,22 @@ export class ReportRuntime {
   async materialize(
     envelope: FormalArtifactEnvelope,
     faultAt?: MaterializationFaultBoundary,
-  ): Promise<ReportMaterializationResult | null> {
+  ): Promise<readonly ReportMaterializationResult[]> {
     const runRoot = await openRunDirectory(this.runsRoot, envelope.run_id);
     return withRunLock(runRoot, async () => {
       await this.artifacts.validateStoredEnvelope(runRoot, envelope.run_id, envelope);
       return materializeLocked(runRoot, envelope, faultAt);
+    });
+  }
+
+  private async materializeTarget(
+    envelope: FormalArtifactEnvelope,
+    targetPath: ReportMaterializationReceipt["target_path"],
+  ): Promise<readonly ReportMaterializationResult[]> {
+    const runRoot = await openRunDirectory(this.runsRoot, envelope.run_id);
+    return withRunLock(runRoot, async () => {
+      await this.artifacts.validateStoredEnvelope(runRoot, envelope.run_id, envelope);
+      return materializeLocked(runRoot, envelope, undefined, targetPath);
     });
   }
 }

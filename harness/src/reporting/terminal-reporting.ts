@@ -1,8 +1,12 @@
 import type { FormalArtifactEnvelope } from "../artifact-store/artifact-store.js";
 import { canonicalContentHash, canonicalJson, sha256Bytes } from "../artifact-store/canonical.js";
 import {
+  renderCompetitiveSubjectSummary,
   renderCompetitiveSubstituteMatrix,
+  renderCriticalResearchGaps,
+  renderDecisionGradeQuantitativeSummary,
   renderGateWarnings,
+  renderIncumbentResponseDisclosure,
   renderIncumbentResponseRiskTable,
   renderQuantitativeSignalTable,
   renderResearchCoverageGaps,
@@ -178,6 +182,16 @@ function bulletList(values: readonly string[], emptyText: string): string {
     : `${values.map((value) => `- ${value}`).join("\n")}\n`;
 }
 
+function boundedBulletList(
+  values: readonly string[],
+  emptyText: string,
+  limit: number,
+  omittedLabel: (count: number) => string,
+): string {
+  if (values.length <= limit) return bulletList(values, emptyText);
+  return bulletList([...values.slice(0, limit), omittedLabel(values.length - limit)], emptyText);
+}
+
 function renderExecution(source: Record<string, unknown>, zh: boolean): string {
   const execution = requiredRecord(source.execution, "execution");
   const completedStages = zh
@@ -194,11 +208,19 @@ function renderExecution(source: Record<string, unknown>, zh: boolean): string {
   return [
     `${zh ? "执行完整度" : "Completeness"}: ${enumLabel(execution.completeness, zh)}\n\n`,
     `${zh ? "已完成阶段" : "Completed stages"}:\n`,
-    bulletList(completedStages, zh ? "无" : "None"),
+    boundedBulletList(completedStages, zh ? "无" : "None", 5, (count) =>
+      zh ? `其余 ${count} 个完成环节见核心报告。` : `${count} more completed stages.`,
+    ),
     `\n${zh ? "未完成阶段" : "Incomplete stages"}:\n`,
-    bulletList(incomplete, zh ? "无" : "None"),
+    boundedBulletList(incomplete, zh ? "无" : "None", 5, (count) =>
+      zh
+        ? `其余 ${count} 个未完成环节见审计附录。`
+        : `${count} more incomplete stages in the audit appendix.`,
+    ),
     `\n${zh ? "必需追加调研" : "Required follow-ups"}:\n`,
-    bulletList(followups, zh ? "无" : "None"),
+    boundedBulletList(followups, zh ? "无" : "None", 5, (count) =>
+      zh ? `其余 ${count} 项见核心报告。` : `${count} more follow-ups in the core report.`,
+    ),
   ].join("");
 }
 
@@ -214,7 +236,7 @@ function renderRuntimeHealth(source: Record<string, unknown>, zh: boolean): stri
 }
 
 function renderDirections(source: Record<string, unknown>, zh: boolean, compact: boolean): string {
-  const directions = [...records(source.directions)].sort((left, right) => {
+  const allDirections = [...records(source.directions)].sort((left, right) => {
     if (left.priority === null && right.priority === null)
       return String(left.direction_id).localeCompare(String(right.direction_id));
     if (left.priority === null) return 1;
@@ -228,10 +250,11 @@ function renderDirections(source: Record<string, unknown>, zh: boolean, compact:
       aggregate,
     ]),
   );
-  if (directions.length === 0) {
+  if (allDirections.length === 0) {
     return zh ? "- 当前没有可交付的方向。\n" : "- No direction is currently deliverable.\n";
   }
-  return directions
+  const directions = compact ? allDirections.slice(0, 3) : allDirections;
+  const rendered = directions
     .map((direction) => {
       const commercial = commercialBySubject.get(String(direction.direction_id));
       const marketPriority = isRecord(commercial?.market_research_priority)
@@ -240,23 +263,33 @@ function renderDirections(source: Record<string, unknown>, zh: boolean, compact:
       const commercialReadiness = isRecord(commercial?.commercial_validation_readiness)
         ? commercial.commercial_validation_readiness
         : null;
-      const lines = [
-        `### ${direction.priority === null ? (zh ? "待验证" : "Unranked") : String(direction.priority)}. ${String(direction.label)}\n`,
-        `${zh ? "排序状态" : "Ranking status"}: ${enumLabel(direction.ranking_status, zh)}\n\n`,
-        `${zh ? "成熟度" : "Maturity"}: ${enumLabel(direction.maturity, zh)}\n\n`,
-        `${zh ? "当前动作" : "Current action"}: ${enumLabel(direction.action, zh)}\n\n`,
-        `${zh ? "市场研究优先级" : "Market research priority"}: ${marketPriorityLabel(marketPriority?.level ?? "unknown", zh)}\n\n`,
-        `${zh ? "商业验证就绪度" : "Commercial validation readiness"}: ${commercialReadinessLabel(commercialReadiness?.level ?? "not_ready", zh)}\n\n`,
-        `${zh ? "目标用户" : "Target user"}: ${String(direction.target_user)}\n\n`,
-        `${zh ? "窄场景" : "Narrow scenario"}: ${String(direction.narrow_scenario)}\n\n`,
-        `${zh ? "当前替代" : "Current alternative"}: ${String(direction.current_alternative)}\n\n`,
-        `${zh ? "付款方" : "Payer"}: ${String(direction.payer)}\n\n`,
-        `${zh ? "产品/服务形态" : "Product or service form"}: ${String(direction.product_form)}\n\n`,
-        `${zh ? "核心价值" : "Core value"}: ${String(direction.core_value)}\n\n`,
-        `${zh ? "为什么现在值得关注" : "Why now"}: ${String(direction.why_now)}\n\n`,
-        `${zh ? "最先验证的假设" : "First testable assumption"}: ${String(direction.first_testable_assumption)}\n\n`,
-        `${zh ? "排序理由" : "Comparison reason"}: ${String(direction.comparison_reason)}\n`,
-      ];
+      const lines = compact
+        ? [
+            `### ${direction.priority === null ? (zh ? "待验证" : "Unranked") : String(direction.priority)}. ${String(direction.label)}\n`,
+            `${zh ? "成熟度 / 当前动作" : "Maturity / action"}: ${enumLabel(direction.maturity, zh)} / ${enumLabel(direction.action, zh)}\n\n`,
+            `${zh ? "市场研究优先级" : "Market research priority"}: ${marketPriorityLabel(marketPriority?.level ?? "unknown", zh)}\n\n`,
+            `${zh ? "商业验证就绪度" : "Commercial validation readiness"}: ${commercialReadinessLabel(commercialReadiness?.level ?? "not_ready", zh)}\n\n`,
+            `${zh ? "核心价值" : "Core value"}: ${String(direction.core_value)}\n\n`,
+            `${zh ? "最先验证的假设" : "First testable assumption"}: ${String(direction.first_testable_assumption)}\n\n`,
+            `${zh ? "排序理由" : "Comparison reason"}: ${String(direction.comparison_reason)}\n`,
+          ]
+        : [
+            `### ${direction.priority === null ? (zh ? "待验证" : "Unranked") : String(direction.priority)}. ${String(direction.label)}\n`,
+            `${zh ? "排序状态" : "Ranking status"}: ${enumLabel(direction.ranking_status, zh)}\n\n`,
+            `${zh ? "成熟度" : "Maturity"}: ${enumLabel(direction.maturity, zh)}\n\n`,
+            `${zh ? "当前动作" : "Current action"}: ${enumLabel(direction.action, zh)}\n\n`,
+            `${zh ? "市场研究优先级" : "Market research priority"}: ${marketPriorityLabel(marketPriority?.level ?? "unknown", zh)}\n\n`,
+            `${zh ? "商业验证就绪度" : "Commercial validation readiness"}: ${commercialReadinessLabel(commercialReadiness?.level ?? "not_ready", zh)}\n\n`,
+            `${zh ? "目标用户" : "Target user"}: ${String(direction.target_user)}\n\n`,
+            `${zh ? "窄场景" : "Narrow scenario"}: ${String(direction.narrow_scenario)}\n\n`,
+            `${zh ? "当前替代" : "Current alternative"}: ${String(direction.current_alternative)}\n\n`,
+            `${zh ? "付款方" : "Payer"}: ${String(direction.payer)}\n\n`,
+            `${zh ? "产品/服务形态" : "Product or service form"}: ${String(direction.product_form)}\n\n`,
+            `${zh ? "核心价值" : "Core value"}: ${String(direction.core_value)}\n\n`,
+            `${zh ? "为什么现在值得关注" : "Why now"}: ${String(direction.why_now)}\n\n`,
+            `${zh ? "最先验证的假设" : "First testable assumption"}: ${String(direction.first_testable_assumption)}\n\n`,
+            `${zh ? "排序理由" : "Comparison reason"}: ${String(direction.comparison_reason)}\n`,
+          ];
       if (!compact) {
         lines.push(`\n${zh ? "问题" : "Problem"}: ${String(direction.problem)}\n`);
         lines.push(`\n${zh ? "关键风险" : "Key risks"}:\n`);
@@ -287,10 +320,18 @@ function renderDirections(source: Record<string, unknown>, zh: boolean, compact:
       return lines.join("");
     })
     .join("\n");
+  const omitted = allDirections.length - directions.length;
+  return `${rendered}${
+    omitted === 0
+      ? ""
+      : `\n- ${zh ? `其余 ${omitted} 个方向保留在核心报告。` : `${omitted} additional direction${omitted === 1 ? "" : "s"} remain in the core report.`}\n`
+  }`;
 }
 
-function renderSources(source: Record<string, unknown>, zh: boolean): string {
-  const items = records(source.sources).map((entry) => {
+function renderSources(source: Record<string, unknown>, zh: boolean, limit?: number): string {
+  const allSources = records(source.sources);
+  const sources = limit === undefined ? allSources : allSources.slice(0, limit);
+  const items = sources.map((entry) => {
     const validity =
       entry.valid_as_of === null ? (zh ? "日期未知" : "date unknown") : String(entry.valid_as_of);
     const base = `[${String(entry.title)}](${String(entry.url)}) (${validity}; ${enumLabel(entry.stance, zh)}; ${enumLabel(entry.strength, zh)}; ${enumLabel(entry.evidence_character, zh)})`;
@@ -302,7 +343,53 @@ function renderSources(source: Record<string, unknown>, zh: boolean): string {
       ? `${base}: 推测：${String(entry.claim)}；推理起点：${String(inference.starting_point)}；推理过程：${String(inference.reasoning)}；不确定性：${String(inference.uncertainty)}；待验证：${String(inference.validation_needed)}`
       : `${base}: Inference: ${String(entry.claim)}; starting point: ${String(inference.starting_point)}; reasoning: ${String(inference.reasoning)}; uncertainty: ${String(inference.uncertainty)}; validation needed: ${String(inference.validation_needed)}`;
   });
-  return bulletList(items, zh ? "没有可引用来源" : "No readable source recorded");
+  const omitted = allSources.length - sources.length;
+  return `${bulletList(items, zh ? "没有可引用来源" : "No readable source recorded")}${
+    omitted === 0
+      ? ""
+      : `- ${zh ? `其余 ${omitted} 条可读来源保留在核心报告和审计附录。` : `${omitted} additional readable source${omitted === 1 ? "" : "s"} remain in the core report and audit appendix.`}\n`
+  }`;
+}
+
+function renderStatistics(source: Record<string, unknown>, zh: boolean): string {
+  const statistics = isRecord(source.report_statistics) ? source.report_statistics : {};
+  return zh
+    ? `- 可读来源 ${String(statistics.readable_source_count ?? 0)}；量化信号 ${String(statistics.quantitative_signal_count ?? 0)}（决策级 ${String(statistics.decision_grade_quantitative_signal_count ?? 0)}，方向/背景 ${String(statistics.directional_or_context_quantitative_signal_count ?? 0)}）；竞品/替代对象 ${String(statistics.competitive_object_count ?? 0)}；完整缺口行 ${String(statistics.full_gap_row_count ?? 0)}；核心缺口组 ${String(statistics.critical_gap_group_count ?? 0)}。\n`
+    : `- Readable sources ${String(statistics.readable_source_count ?? 0)}; quantitative signals ${String(statistics.quantitative_signal_count ?? 0)} (decision-grade ${String(statistics.decision_grade_quantitative_signal_count ?? 0)}, directional/context ${String(statistics.directional_or_context_quantitative_signal_count ?? 0)}); competitive/substitute objects ${String(statistics.competitive_object_count ?? 0)}; full gap rows ${String(statistics.full_gap_row_count ?? 0)}; critical gap groups ${String(statistics.critical_gap_group_count ?? 0)}.\n`;
+}
+
+function renderExcludedEvidence(source: Record<string, unknown>, zh: boolean): string {
+  const citationByRef = new Map(
+    records(source.report_citations).map((entry) => [String(entry.evidence_ref), entry]),
+  );
+  const groups = new Map<string, string[]>();
+  for (const [index, entry] of records(source.excluded_evidence).entries()) {
+    const reason = String(entry.reason);
+    const evidenceRef = String(entry.evidence_ref);
+    const citation = citationByRef.get(evidenceRef);
+    const sourceLabel =
+      citation !== undefined && typeof citation.url === "string"
+        ? `[${String(citation.label)}](${String(citation.url)})`
+        : zh
+          ? `未公开来源 ${index + 1}`
+          : evidenceRef;
+    const refs = groups.get(reason) ?? [];
+    refs.push(zh ? sourceLabel : `${sourceLabel} \`${evidenceRef}\``);
+    groups.set(reason, refs);
+  }
+  if (groups.size === 0) {
+    return zh ? "- 没有排除材料。\n" : "- No excluded material.\n";
+  }
+  return `${[...groups]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(
+      ([reason, refs]) =>
+        `- **${reason}**\n${refs
+          .sort()
+          .map((ref) => `  - ${ref}`)
+          .join("\n")}`,
+    )
+    .join("\n")}\n`;
 }
 
 function userExecutionProjection(source: Record<string, unknown>): Record<string, unknown> {
@@ -328,16 +415,21 @@ function userRuntimeHealthProjection(source: Record<string, unknown>): Record<st
   };
 }
 
-function renderValidationPlan(source: Record<string, unknown>, zh: boolean): string {
-  const steps = [...records(source.ordered_validation_plan)].sort(
+function renderValidationPlan(
+  source: Record<string, unknown>,
+  zh: boolean,
+  limit?: number,
+): string {
+  const allSteps = [...records(source.ordered_validation_plan)].sort(
     (left, right) => Number(left.order) - Number(right.order),
   );
-  if (steps.length === 0) {
+  if (allSteps.length === 0) {
     return zh
       ? "- 当前没有建议的验证动作。\n"
       : "- No validation action is currently recommended.\n";
   }
-  return steps
+  const steps = limit === undefined ? allSteps : allSteps.slice(0, limit);
+  const rendered = steps
     .map((step) =>
       [
         `### ${String(step.order)}. ${String(step.hypothesis)}\n`,
@@ -351,9 +443,19 @@ function renderValidationPlan(source: Record<string, unknown>, zh: boolean): str
       ].join(""),
     )
     .join("\n");
+  const omitted = allSteps.length - steps.length;
+  return `${rendered}${
+    omitted === 0
+      ? ""
+      : `\n- ${zh ? `其余 ${omitted} 项建议保留在核心报告。` : `${omitted} additional recommendation${omitted === 1 ? "" : "s"} remain in the core report.`}\n`
+  }`;
 }
 
-function renderResearchProvenance(source: Record<string, unknown>, zh: boolean): string {
+function renderResearchProvenance(
+  source: Record<string, unknown>,
+  zh: boolean,
+  detailed = false,
+): string {
   const provenance = requiredRecord(source.research_provenance, "research_provenance");
   const used = records(provenance.used_handoff_items);
   const imported = strings(provenance.imported_substrate_refs);
@@ -363,18 +465,19 @@ function renderResearchProvenance(source: Record<string, unknown>, zh: boolean):
   const currentCited = strings(provenance.cited_current_evidence_refs);
   const revalidation = records(provenance.revalidation_gaps);
   const lines = [
-    `- ${zh ? "可用 handoff / 捕获条目" : "Available handoffs / captured items"}: ${String(provenance.available_handoff_count)} / ${String(provenance.captured_item_count)}`,
+    `- ${zh ? "可用交接 / 捕获条目" : "Available handoffs / captured items"}: ${String(provenance.available_handoff_count)} / ${String(provenance.captured_item_count)}`,
     `- ${zh ? "已消费 / 实际用于形成" : "Consumed / used for formation"}: ${strings(provenance.consumed_item_refs).length} / ${used.length}`,
     `- ${zh ? "导入的原始材料" : "Imported substrate inventory"}: ${imported.length}`,
-    `- ${zh ? "采用 / 报告引用的继承证据" : "Adopted / cited inherited Evidence"}: ${inherited.length} / ${inheritedCited.length}`,
-    `- ${zh ? "采用 / 报告引用的本次证据" : "Adopted / cited current-Run Evidence"}: ${current.length} / ${currentCited.length}`,
+    `- ${zh ? "采用 / 报告引用的继承材料" : "Adopted / cited inherited Evidence"}: ${inherited.length} / ${inheritedCited.length}`,
+    `- ${zh ? "采用 / 报告引用的本次材料" : "Adopted / cited current-Run Evidence"}: ${current.length} / ${currentCited.length}`,
     `- ${zh ? "适用性或重验缺口" : "Applicability or revalidation gaps"}: ${revalidation.length}`,
   ];
-  if (revalidation.length > 0) {
+  if (detailed && revalidation.length > 0) {
     lines.push(
-      ...revalidation.map(
-        (item) =>
-          `  - ${String(item.source_artifact_path)} (${String(item.freshness_disposition)}; ${String(item.applicability_disposition)})`,
+      ...revalidation.map((item, index) =>
+        zh
+          ? `  - 重验条目 ${index + 1}（${enumLabel(item.freshness_disposition, true)}；${enumLabel(item.applicability_disposition, true)}）`
+          : `  - ${String(item.source_artifact_path)} (${String(item.freshness_disposition)}; ${String(item.applicability_disposition)})`,
       ),
     );
   }
@@ -392,22 +495,20 @@ export function renderTerminalDecisionBrief(source: Record<string, unknown>): st
     `${zh ? "研究结论" : "Research conclusion"}: ${enumLabel(conclusion.outcome, zh)}\n\n`,
     `${zh ? "证据强度" : "Evidence strength"}: ${enumLabel(conclusion.evidence_strength, zh)}\n\n`,
     `${zh ? "这意味着" : "Meaning"}: ${String(conclusion.meaning)}\n\n`,
+    `## ${zh ? "研究概览" : "Research At A Glance"}\n`,
+    renderStatistics(source, zh),
     `## ${zh ? "执行完整度" : "Execution Completeness"}\n`,
     renderExecution(source, zh),
     `\n## ${zh ? "运行健康" : "Runtime Health"}\n`,
     renderRuntimeHealth(source, zh),
-    `\n## ${zh ? "非阻塞门禁及决策影响" : "Gate Warnings And Decision Impact"}\n`,
-    renderGateWarnings(source, zh),
     `\n## ${zh ? "优先方向与可测试产品假设" : "Priority Directions And Testable Product Hypotheses"}\n`,
     renderDirections(source, zh, true),
     `\n## ${zh ? "决定性来源与证据强弱" : "Decisive Sources And Evidence Strength"}\n`,
-    renderSources(source, zh),
-    `\n## ${zh ? "研究来源沿袭" : "Research Provenance"}\n`,
-    renderResearchProvenance(source, zh),
+    renderSources(source, zh, 5),
     `\n## ${zh ? "头部公司吸收与响应风险" : "Incumbent Absorption And Response Risk"}\n`,
-    renderIncumbentResponseRiskTable(source, zh),
+    renderIncumbentResponseDisclosure(source, zh),
     `\n## ${zh ? "有顺序的验证建议" : "Ordered Validation Recommendations"}\n`,
-    renderValidationPlan(source, zh),
+    renderValidationPlan(source, zh, 5),
     `\n## ${zh ? "有效期与局限" : "Freshness And Limitations"}\n`,
     `${String(freshness.summary)}\n\n`,
     bulletList(strings(source.limitations), zh ? "无" : "None"),
@@ -424,22 +525,22 @@ export function renderTerminalFullReport(source: Record<string, unknown>): strin
     `## ${zh ? "研究结论" : "Research Conclusion"}\n`,
     `${String(conclusion.current_recommendation)}\n\n${String(conclusion.meaning)}\n\n`,
     `${zh ? "允许的结论措辞" : "Allowed claim"}: ${String(conclusion.allowed_claim)}\n\n`,
+    `## ${zh ? "研究概览" : "Research At A Glance"}\n`,
+    renderStatistics(source, zh),
     `## ${zh ? "执行完整度" : "Execution Completeness"}\n`,
     renderExecution(source, zh),
     `\n## ${zh ? "运行健康" : "Runtime Health"}\n`,
     renderRuntimeHealth(source, zh),
     `\n## ${zh ? "方向、成熟度与产品假设" : "Directions, Maturity, And Product Hypotheses"}\n`,
     renderDirections(source, zh, false),
-    `\n## ${zh ? "量化信号" : "Quantitative Signals"}\n`,
-    renderQuantitativeSignalTable(source, zh),
-    `\n## ${zh ? "竞品与广义替代矩阵" : "Competitive And Substitute Matrix"}\n`,
-    renderCompetitiveSubstituteMatrix(source, zh),
+    `\n## ${zh ? "决策级量化摘要" : "Decision-grade Quantitative Summary"}\n`,
+    renderDecisionGradeQuantitativeSummary(source, zh),
+    `\n## ${zh ? "最终方向竞品与替代摘要" : "Final-direction Competitive And Substitute Summary"}\n`,
+    renderCompetitiveSubjectSummary(source, zh),
     `\n## ${zh ? "头部公司吸收与响应风险" : "Incumbent Absorption And Response Risk"}\n`,
     renderIncumbentResponseRiskTable(source, zh),
-    `\n## ${zh ? "数据缺口及其对排序和结论的影响" : "Research Coverage Gaps And Decision Impact"}\n`,
-    renderResearchCoverageGaps(source, zh),
-    `\n## ${zh ? "非阻塞门禁及决策影响" : "Gate Warnings And Decision Impact"}\n`,
-    renderGateWarnings(source, zh),
+    `\n## ${zh ? "会改变排序或结论的关键缺口" : "Critical Gaps That Could Change Ranking Or Conclusions"}\n`,
+    renderCriticalResearchGaps(source, zh),
     `\n## ${zh ? "来源与证据强弱" : "Sources And Evidence Strength"}\n`,
     renderSources(source, zh),
     `\n## ${zh ? "研究来源沿袭" : "Research Provenance"}\n`,
@@ -450,6 +551,30 @@ export function renderTerminalFullReport(source: Record<string, unknown>): strin
     `${String(freshness.summary)}\n\n`,
     `## ${zh ? "局限" : "Limitations"}\n`,
     bulletList(strings(source.limitations), zh ? "无" : "None"),
+  ].join("");
+}
+
+export function renderTerminalAuditAppendix(source: Record<string, unknown>): string {
+  const zh = isChinese(source.research_language);
+  return [
+    `# ${zh ? "创业机会研究审计附录" : "Startup Opportunity Research Audit Appendix"}\n\n`,
+    `> ${zh ? "本附录与决策摘要和核心报告均从同一份最终结构化报告机械派生；完整审计真值保留在结构化报告中。" : "This appendix is mechanically derived by the Harness from the same final report model as the brief and core report; report.json retains the complete structured truth."}\n\n`,
+    `## ${zh ? "机械统计" : "Mechanical Statistics"}\n`,
+    renderStatistics(source, zh),
+    `\n## ${zh ? "全部量化信号（含代理与背景）" : "All Quantitative Signals (Including Proxies And Context)"}\n`,
+    renderQuantitativeSignalTable(source, zh),
+    `\n## ${zh ? "完整竞品与广义替代矩阵" : "Full Competitive And Substitute Matrix"}\n`,
+    renderCompetitiveSubstituteMatrix(source, zh),
+    `\n## ${zh ? "头部公司吸收与响应风险" : "Incumbent Absorption And Response Risk"}\n`,
+    renderIncumbentResponseRiskTable(source, zh),
+    `\n## ${zh ? "完整研究覆盖缺口" : "Full Research Coverage Gaps"}\n`,
+    renderResearchCoverageGaps(source, zh),
+    `\n## ${zh ? "非阻塞诊断" : "Non-blocking Diagnostics"}\n`,
+    renderGateWarnings(source, zh),
+    `\n## ${zh ? "研究来源沿袭" : "Research Provenance"}\n`,
+    renderResearchProvenance(source, zh, true),
+    `\n## ${zh ? "排除材料与逐项可追溯来源" : "Excluded Material And Per-item Traceability"}\n`,
+    renderExcludedEvidence(source, zh),
   ].join("");
 }
 
@@ -476,6 +601,11 @@ export function localizedTerminalUserViewIssues(
       if (typeof allowed === "string") visible = visible.replaceAll(allowed, "");
     }
   }
+  for (const item of records(source.report_citations)) {
+    for (const allowed of [item.label, item.url]) {
+      if (typeof allowed === "string") visible = visible.replaceAll(allowed, "");
+    }
+  }
   return ZH_INTERNAL_TERM_RULES.flatMap((rule, index) =>
     rule.test(visible) ? [`localized_internal_term_${index + 1}`] : [],
   );
@@ -498,6 +628,7 @@ export function deriveTerminalReportDocuments(
   const consistencyPath = `artifacts/reporting/consistency-evaluation.${revision}.json`;
   const briefMarkdown = renderTerminalDecisionBrief(source);
   const viewMarkdown = renderTerminalFullReport(source);
+  const auditAppendixMarkdown = renderTerminalAuditAppendix(source);
   const briefDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.decision_brief.terminal.current",
     brief_id: `decision_brief_${revision.slice(1)}`,
@@ -534,6 +665,7 @@ export function deriveTerminalReportDocuments(
     producer_role: "harness",
     owned_output_path: viewPath,
     materialized_path: "report.md",
+    audit_appendix_path: "audit-appendix.md",
     report_ref: reportEnvelope.artifact_path,
     report_content_hash: reportHash,
     terminal_outcome: source.terminal_outcome,
@@ -543,11 +675,13 @@ export function deriveTerminalReportDocuments(
     audit_appendix_refs: source.audit_refs,
     markdown: viewMarkdown,
     markdown_content_hash: sha256Bytes(viewMarkdown),
+    audit_appendix_markdown: auditAppendixMarkdown,
+    audit_appendix_content_hash: sha256Bytes(auditAppendixMarkdown),
   };
   const matches = scanDiscoveryReportSurfaces({
     structuredReport: source,
     decisionBrief: briefMarkdown,
-    reportView: viewMarkdown,
+    reportView: `${viewMarkdown}\n${auditAppendixMarkdown}`,
   });
   const consistencyDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.report_consistency_evaluation.terminal.current",

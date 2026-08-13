@@ -3,7 +3,7 @@
 每个可交付终态 Run 都有一个结构化审计来源和两个用户 Markdown view：
 
 ```text
-validated artifacts -> report.json -> decision-brief.md -> report.md -> consistency evaluation
+validated artifacts -> report.json -> decision-brief.md -> report.md -> audit-appendix.md -> consistency evaluation
 ```
 
 decision brief 是默认用户入口。它说明决策问题、当前建议及其含义、决定性的支持与反对 Evidence、未选替代方案、关键未知项、能够改变决策的 Evidence、belief update、有效日期、scope 和局限。不能为了简短而省略强 counter-evidence。

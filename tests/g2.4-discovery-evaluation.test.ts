@@ -1158,6 +1158,23 @@ test("G2.4 forbidden-expression rules cover every formal surface and separator v
       (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT",
     );
   }
+
+  const appendix = clone(
+    derived.find(
+      (candidate) => candidate.artifact_type === "startup_opportunity.discovery_report_view.v1",
+    ) as FormalArtifactEnvelope,
+  );
+  appendix.document.audit_appendix_markdown =
+    "validation_success achieved with global_score and success_probability.";
+  appendix.document.audit_appendix_content_hash = sha256Bytes(
+    String(appendix.document.audit_appendix_markdown),
+  );
+  (appendix as { content_hash: string }).content_hash = canonicalContentHash(appendix.document);
+  const appendixValidation = state.validator.validateDocument(appendix, appendix.artifact_path);
+  assert.equal(appendixValidation.valid, false);
+  assert.ok(
+    appendixValidation.errors.some((error) => error.code === "g2_4.forbidden_report_expression"),
+  );
 });
 
 test("G2.4 forbidden sidecar fails before receipt and remains absent through checkpoint recovery", async (context) => {
@@ -1240,6 +1257,7 @@ test("G2.4 reverse-order report mutations fail before every formal lifecycle wri
     "after_brief_materialization",
     "after_view_sidecar",
     "after_view_materialization",
+    "after_appendix_materialization",
     "after_consistency_sidecar",
   ] as const;
 
@@ -1334,6 +1352,7 @@ test("G2.4 reverse-order report mutations fail before every formal lifecycle wri
     "report.json",
     "decision-brief.md",
     "report.md",
+    "audit-appendix.md",
   ]) {
     assert.ok(!(artifactPath in (await treeSnapshot(state.runRoot))), artifactPath);
   }
@@ -1670,7 +1689,12 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
     "artifacts/reporting/report-markdown.r1.json",
     "artifacts/reporting/consistency-evaluation.r1.json",
   ]);
-  assert.deepEqual(first.materializedPaths, ["report.json", "decision-brief.md", "report.md"]);
+  assert.deepEqual(first.materializedPaths, [
+    "report.json",
+    "decision-brief.md",
+    "report.md",
+    "audit-appendix.md",
+  ]);
   const projectedReport = JSON.parse(
     await readFile(path.join(state.runRoot, "report.json"), "utf8"),
   ) as Record<string, unknown>;
@@ -1717,6 +1741,10 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   assert.match(reportMarkdown, /Portfolio/);
   assert.match(reportMarkdown, /Incumbent Absorption And Response Risk/);
   assert.ok(reportMarkdown.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT));
+  const auditAppendix = await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8");
+  assert.match(auditAppendix, /All Quantitative Signals/);
+  assert.match(auditAppendix, /Full Competitive And Substitute Matrix/);
+  assert.match(auditAppendix, /Full Research Coverage Gaps/);
   const receipts = await Promise.all(
     (await readdir(path.join(state.runRoot, ".store/operations")))
       .filter((filename) => filename.startsWith("artifact-"))
@@ -1967,5 +1995,6 @@ test("G2.4 audit-traceability and build-report CLI consume explicit current arti
     "report.json",
     "decision-brief.md",
     "report.md",
+    "audit-appendix.md",
   ]);
 });

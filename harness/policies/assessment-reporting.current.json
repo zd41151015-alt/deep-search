@@ -30,6 +30,7 @@
     "report.json",
     "decision-brief.md",
     "report.md",
+    "audit-appendix.md",
     "consistency_evaluation"
   ],
   "forbidden_report_expressions": [

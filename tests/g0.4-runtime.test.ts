@@ -4086,7 +4086,12 @@ test("post-manifest terminal fault already has every report output and exact rep
   const interrupted = await setup.store.status(runId);
   assert.equal(interrupted.derivedExecutionDisposition, "terminal");
   assert.equal(interrupted.terminalReportDisposition, "ready");
-  for (const relativePath of ["report.json", "decision-brief.md", "report.md"]) {
+  for (const relativePath of [
+    "report.json",
+    "decision-brief.md",
+    "report.md",
+    "audit-appendix.md",
+  ]) {
     assert.equal((await readFile(path.join(setup.runRoot, relativePath), "utf8")).length > 0, true);
   }
 
@@ -4104,6 +4109,7 @@ test("every terminal report durable boundary reopens to terminal state with comp
     "after_brief_materialization",
     "after_view_sidecar",
     "after_view_materialization",
+    "after_appendix_materialization",
     "after_consistency_sidecar",
   ] as const;
   for (const [index, terminalReportFaultAt] of boundaries.entries()) {
@@ -4135,7 +4141,12 @@ test("every terminal report durable boundary reopens to terminal state with comp
     const reopened = await setup.store.load(runId);
     assert.equal(reopened.manifest.status, "insufficient_evidence");
     assert.equal((await setup.store.status(runId)).terminalReportDisposition, "ready");
-    for (const relativePath of ["report.json", "decision-brief.md", "report.md"]) {
+    for (const relativePath of [
+      "report.json",
+      "decision-brief.md",
+      "report.md",
+      "audit-appendix.md",
+    ]) {
       assert.equal(
         (await readFile(path.join(setup.runRoot, relativePath), "utf8")).length > 0,
         true,
@@ -4229,7 +4240,12 @@ test("terminal report preflight failure leaves no closeout intent or formal outp
     reportingBefore,
   );
   assert.equal((await setup.store.status(runId)).manifest.status, "researching");
-  for (const relativePath of ["report.json", "decision-brief.md", "report.md"]) {
+  for (const relativePath of [
+    "report.json",
+    "decision-brief.md",
+    "report.md",
+    "audit-appendix.md",
+  ]) {
     await assert.rejects(readFile(path.join(setup.runRoot, relativePath), "utf8"));
   }
 });
@@ -4263,6 +4279,12 @@ test("terminal closeout receipt and materialized output drift fail closed on reo
     const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
     const operation = receipt.terminal_report_operation as Record<string, unknown>;
     const outputs = operation.materialized_outputs as Record<string, unknown>[];
+    assert.deepEqual(outputs.map((output) => output.target_path).sort(), [
+      "audit-appendix.md",
+      "decision-brief.md",
+      "report.json",
+      "report.md",
+    ]);
     assert.ok(outputs[0]);
     outputs[0].bytes = `${String(outputs[0].bytes)}tampered`;
     await writeFile(receiptPath, `${canonicalJson(receipt)}\n`);
@@ -4293,7 +4315,7 @@ test("terminal closeout receipt and materialized output drift fail closed on reo
         next_decision_relevant_question: "Does output tamper fail closed?",
       },
     });
-    await writeFile(path.join(setup.runRoot, "report.md"), "tampered\n");
+    await writeFile(path.join(setup.runRoot, "audit-appendix.md"), "tampered\n");
     await assert.rejects(
       setup.store.load(runId),
       (error: unknown) =>

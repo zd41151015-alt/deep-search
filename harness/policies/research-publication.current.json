@@ -47,12 +47,13 @@
   },
   "report_publication_contract": {
     "formal_sidecars": true,
-    "materialized_outputs": ["report.json", "decision-brief.md", "report.md"],
+    "materialized_outputs": ["report.json", "decision-brief.md", "report.md", "audit-appendix.md"],
     "generation_order": [
       "validated_artifacts",
       "report.json",
       "decision-brief.md",
       "report.md",
+      "audit-appendix.md",
       "consistency_evaluation"
     ],
     "recovery": "receipt_driven_fail_closed"

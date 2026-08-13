@@ -1,4 +1,6 @@
 import { canonicalContentHash, canonicalJson, sha256Bytes } from "../artifact-store/canonical.js";
+import { deriveReportStatistics } from "../reporting/commercial-report-tables.js";
+import { deriveReportCitations } from "../reporting/report-citation-authority.js";
 import {
   REPORT_SCAN_CONTRACT_VERSION,
   REPORT_SCAN_SURFACES,
@@ -851,6 +853,7 @@ function validateEvaluationAndReporting(
   entries: readonly DiscoveryEvaluationDocument[],
   byPath: ReadonlyMap<string, DiscoveryEvaluationDocument>,
   policy: DiscoveryEvaluationPolicy,
+  exactJsonlRecords: ReadonlyMap<string, Record<string, unknown>>,
   errors: ValidationIssue[],
 ): void {
   const fanIns = entries.filter(
@@ -860,6 +863,40 @@ function validateEvaluationAndReporting(
     (entry) => entry.schemaVersion === "startup_opportunity.opportunity_comparison.v1",
   );
   const report = entries.find((entry) => entry.schemaVersion === "startup_opportunity.report.v1");
+  if (report !== undefined) {
+    const expectedCitations = deriveReportCitations(
+      [...byPath.values()],
+      exactJsonlRecords,
+      report.document,
+    );
+    if (
+      report.document.report_citations !== undefined &&
+      !same(report.document.report_citations, expectedCitations)
+    ) {
+      errors.push(
+        issue(
+          "g2_4.report_citation_authority_mismatch",
+          `${report.path}#/report_citations`,
+          "readable citations must be mechanically derived from exact typed Evidence referenced by the final report model",
+          { expected: expectedCitations },
+        ),
+      );
+    }
+    const expectedStatistics = deriveReportStatistics(report.document);
+    if (
+      report.document.report_statistics !== undefined &&
+      !same(report.document.report_statistics, expectedStatistics)
+    ) {
+      errors.push(
+        issue(
+          "g2_4.report_statistics_mismatch",
+          `${report.path}#/report_statistics`,
+          "report counts must be mechanically derived from the final structured report model",
+          { expected: expectedStatistics },
+        ),
+      );
+    }
+  }
   const judgmentSubjectMatches = (refs: readonly string[], opportunityRef: unknown): boolean =>
     refs.every((ref) => {
       const judgment = target(byPath, ref);
@@ -1405,13 +1442,16 @@ function validateEvaluationAndReporting(
       view.document.valid_as_of !== context?.valid_as_of ||
       !same(view.document.limitations, context?.limitations) ||
       !same(view.document.external_action_boundary, context?.external_action_boundary) ||
-      view.document.markdown_content_hash !== sha256Bytes(String(view.document.markdown)));
+      view.document.markdown_content_hash !== sha256Bytes(String(view.document.markdown)) ||
+      view.document.audit_appendix_path !== "audit-appendix.md" ||
+      view.document.audit_appendix_content_hash !==
+        sha256Bytes(String(view.document.audit_appendix_markdown)));
   const forbiddenMatches =
     report !== undefined && brief !== undefined && view !== undefined
       ? scanDiscoveryReportSurfaces({
           structuredReport: report.document,
           decisionBrief: String(brief.document.markdown),
-          reportView: String(view.document.markdown),
+          reportView: `${String(view.document.markdown)}\n${String(view.document.audit_appendix_markdown)}`,
         })
       : [];
   const expectedDimensions = strings(policy.reporting_contract.consistency_dimensions);
@@ -1500,6 +1540,6 @@ export function validateDiscoveryEvaluationContract(
   }
   validateTaskAndMaterial(entries, byPath, exactJsonlRecords, errors);
   validateBranchesAndFanIn(entries, byPath, policy, errors);
-  validateEvaluationAndReporting(entries, byPath, policy, errors);
+  validateEvaluationAndReporting(entries, byPath, policy, exactJsonlRecords, errors);
   return sortIssues(errors);
 }

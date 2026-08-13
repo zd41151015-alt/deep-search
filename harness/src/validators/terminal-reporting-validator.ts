@@ -1,6 +1,13 @@
 import type { FormalArtifactEnvelope } from "../artifact-store/artifact-store.js";
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
-import { commercialProjectionRefs } from "../reporting/commercial-report-tables.js";
+import {
+  commercialProjectionRefs,
+  deriveReportStatistics,
+} from "../reporting/commercial-report-tables.js";
+import {
+  canonicalizeReadableSources,
+  deriveReportCitations,
+} from "../reporting/report-citation-authority.js";
 import {
   deriveTerminalReportDocuments,
   localizedTerminalUserViewIssues,
@@ -79,6 +86,49 @@ function validateSource(
 ): readonly ValidationIssue[] {
   const source = entry.document;
   const errors: ValidationIssue[] = [];
+  const expectedCitations = deriveReportCitations(documents, exactRecords, source);
+  if (
+    source.report_citations !== undefined &&
+    canonicalJson(source.report_citations) !== canonicalJson(expectedCitations)
+  ) {
+    errors.push(
+      issue(
+        "terminal_reporting.citation_authority_mismatch",
+        `${entry.path}#/report_citations`,
+        "readable report citations must be mechanically derived from exact typed Evidence substrate sources",
+        { expected: expectedCitations },
+      ),
+    );
+  }
+  const canonicalSources = canonicalizeReadableSources(records(source.sources), expectedCitations);
+  if (
+    source.report_citations !== undefined &&
+    (canonicalSources.missingEvidenceRefs.length > 0 ||
+      canonicalJson(source.sources) !== canonicalJson(canonicalSources.sources))
+  ) {
+    errors.push(
+      issue(
+        "terminal_reporting.source_authority_mismatch",
+        `${entry.path}#/sources`,
+        "readable source labels and URLs must close to exact typed Evidence substrate authority",
+        { missingEvidenceRefs: canonicalSources.missingEvidenceRefs },
+      ),
+    );
+  }
+  const expectedStatistics = deriveReportStatistics(source);
+  if (
+    source.report_statistics !== undefined &&
+    canonicalJson(source.report_statistics) !== canonicalJson(expectedStatistics)
+  ) {
+    errors.push(
+      issue(
+        "terminal_reporting.statistics_mismatch",
+        `${entry.path}#/report_statistics`,
+        "report counts must be mechanically derived from the final structured report model",
+        { expected: expectedStatistics },
+      ),
+    );
+  }
   if (!isRecord(source.research_provenance)) {
     errors.push(
       issue(
@@ -865,11 +915,14 @@ export function validateTerminalReportingContract(
     );
     return errors;
   }
-  const localizedIssues = expected.flatMap((derived) =>
-    typeof derived.document.markdown === "string"
+  const localizedIssues = expected.flatMap((derived) => [
+    ...(typeof derived.document.markdown === "string"
       ? localizedTerminalUserViewIssues(source.document, derived.document.markdown)
-      : [],
-  );
+      : []),
+    ...(typeof derived.document.audit_appendix_markdown === "string"
+      ? localizedTerminalUserViewIssues(source.document, derived.document.audit_appendix_markdown)
+      : []),
+  ]);
   if (localizedIssues.length > 0) {
     errors.push(
       issue(

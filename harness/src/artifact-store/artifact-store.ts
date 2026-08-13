@@ -408,7 +408,8 @@ async function listFiles(directory: string, prefix = ""): Promise<readonly strin
       relative === "evidence/raw" ||
       relative === "report.json" ||
       relative === "decision-brief.md" ||
-      relative === "report.md"
+      relative === "report.md" ||
+      relative === "audit-appendix.md"
     ) {
       continue;
     }
