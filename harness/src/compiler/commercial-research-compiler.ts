@@ -22,6 +22,7 @@ import { projectGateWarnings } from "../validators/gate-diagnostics.js";
 import {
   deriveQuantitativeDecisionUse,
   hasDecisionGradeQuantitativeSignal,
+  isFormalScopeDisposed,
   isQuantitativeCoverageFormallyComplete,
 } from "../validators/quantitative-research-semantics.js";
 import type { ValidationIssue } from "../validators/schema-bundle.js";
@@ -977,7 +978,7 @@ export function compileCommercialResearchDelivery(
     quantitativeCoverage.some(
       (item) => !isQuantitativeCoverageFormallyComplete(item, quantitativeObservations),
     ) ||
-    competitiveCoverage.some((item) => item.state !== "observed") ||
+    competitiveCoverage.some((item) => !isFormalScopeDisposed(item.state)) ||
     uncovered.length > 0 ||
     structuredGaps.some((gap) => gap.state !== "not_applicable") ||
     incumbentResponseCoverage.some((item) => item.state === "unknown");
@@ -1121,6 +1122,7 @@ export function compileCommercialResearchDelivery(
       quantitativeCoverage.every((item) =>
         isQuantitativeCoverageFormallyComplete(item, quantitativeObservations),
       ) &&
+      competitiveCoverage.every((item) => isFormalScopeDisposed(item.state)) &&
       !concentrated &&
       hasIndependent
         ? "ranked"

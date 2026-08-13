@@ -17,6 +17,10 @@ function strings(value: unknown): readonly string[] {
     : [];
 }
 
+export function isFormalScopeDisposed(state: unknown): boolean {
+  return state === "observed" || state === "not_applicable";
+}
+
 export function isDecisionGradeQuantitativeCoverage(
   coverage: Readonly<Record<string, unknown>>,
   observations: readonly Readonly<Record<string, unknown>>[],
@@ -303,9 +307,7 @@ export function deriveMarketPriorityAndCommercialReadiness(input: {
   );
   const competitionDisposed =
     input.competitiveCoverage.length > 0 &&
-    input.competitiveCoverage.every((row) =>
-      ["observed", "not_applicable"].includes(String(row.state)),
-    );
+    input.competitiveCoverage.every((row) => isFormalScopeDisposed(row.state));
   const marketPriority =
     (demandDecisionGrade || demandDirectional) && competitionDisposed
       ? "high"

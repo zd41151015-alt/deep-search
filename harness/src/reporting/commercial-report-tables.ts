@@ -7,6 +7,7 @@ import { deriveSourceConcentration } from "../validators/commercial-source-conce
 import {
   deriveMarketPriorityAndCommercialReadiness,
   hasDecisionGradeQuantitativeSignal,
+  isFormalScopeDisposed,
   isQuantitativeCoverageFormallyComplete,
 } from "../validators/quantitative-research-semantics.js";
 
@@ -801,7 +802,7 @@ export function projectCommercialAuditTables(
         subject_id: subjectId,
         competitor_type: competitorType,
       };
-      if (merged.state !== "observed") {
+      if (!isFormalScopeDisposed(merged.state)) {
         gapRows.push({
           audit_refs: subjectAudits.map((audit) => audit.path),
           task_refs: taskRefs,
@@ -912,7 +913,7 @@ export function projectCommercialAuditTables(
       quantitativeCoverage.every((row) =>
         isQuantitativeCoverageFormallyComplete(row, quantitativeObservations),
       ) &&
-      competitiveCoverage.every((row) => row.state === "observed") &&
+      competitiveCoverage.every((row) => isFormalScopeDisposed(row.state)) &&
       unresolvedGenericGaps.length === 0;
     if (subjectTasks.length === 0 && subjectAudits.length === 0) {
       gapRows.push({

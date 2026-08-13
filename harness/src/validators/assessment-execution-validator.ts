@@ -3,6 +3,7 @@ import {
   type AssessmentInformationGainAuthority,
   type AssessmentInformationGainSnapshot,
   type AssessmentRouteHistoryEntry,
+  assessmentSnapshotHasMaterialGain,
   EMPTY_ASSESSMENT_INFORMATION_GAIN_AUTHORITY,
   evaluateAssessmentFollowupInformationGain,
 } from "../runtime/assessment-information-gain.js";
@@ -374,18 +375,13 @@ function routeOutcome(
   snapshot: AssessmentInformationGainSnapshot,
   after: GateDimensionClosure,
 ): AssessmentRouteHistoryEntry["outcome"] {
+  if (after.decisionSufficiency === "blocked") return "unavailable";
+  if (!assessmentSnapshotHasMaterialGain(snapshot)) return "no_material_gain";
   if (snapshot.decision_or_uncertainty_change === "conflict_added") return "conflict_added";
   if (snapshot.metric_family_coverage_change === "decision_grade_added") {
     return "decision_grade_added";
   }
-  if (
-    snapshot.evidence_refs.length > 0 ||
-    snapshot.subject_coverage_change === "expanded" ||
-    snapshot.decision_or_uncertainty_change !== "unchanged"
-  ) {
-    return "directional_added";
-  }
-  return ["blocked"].includes(after.decisionSufficiency) ? "unavailable" : "no_material_gain";
+  return "directional_added";
 }
 
 export function deriveAssessmentInformationGainAuthority(

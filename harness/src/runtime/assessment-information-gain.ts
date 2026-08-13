@@ -119,6 +119,29 @@ function issue(
   return { code, path, message, likelyCause };
 }
 
+export function assessmentSnapshotHasMaterialGain(
+  gain: AssessmentInformationGainSnapshot,
+): boolean {
+  const evidenceSurfaceChanged =
+    ["new_independent_group", "updated_same_group"].includes(gain.source_group_novelty) ||
+    ["updated", "independent", "opposing", "conflicting"].includes(gain.new_evidence_character);
+  const decisionGradeAdded = gain.metric_family_coverage_change === "decision_grade_added";
+  const subjectCoverageExpanded = gain.subject_coverage_change === "expanded";
+  const decisionSurfaceChanged = [
+    "decision_boundary_changed",
+    "uncertainty_reduced",
+    "conflict_added",
+  ].includes(gain.decision_or_uncertainty_change);
+  return (
+    decisionGradeAdded ||
+    (gain.metric_family_coverage_change === "directional_added" && evidenceSurfaceChanged) ||
+    subjectCoverageExpanded ||
+    (decisionSurfaceChanged &&
+      (decisionGradeAdded || subjectCoverageExpanded || evidenceSurfaceChanged)) ||
+    evidenceSurfaceChanged
+  );
+}
+
 export function evaluateAssessmentFollowupInformationGain(
   decision: Readonly<Record<string, unknown>>,
   authority: AssessmentInformationGainAuthority,
@@ -148,25 +171,7 @@ export function evaluateAssessmentFollowupInformationGain(
   const routeHistory = authority.route_history.filter(
     (entry) => targetSubjectRef === "" || entry.subject_ref === targetSubjectRef,
   );
-  const evidenceSurfaceChanged =
-    ["new_independent_group", "updated_same_group"].includes(String(gain.source_group_novelty)) ||
-    ["updated", "independent", "opposing", "conflicting"].includes(
-      String(gain.new_evidence_character),
-    );
-  const decisionGradeAdded = gain.metric_family_coverage_change === "decision_grade_added";
-  const subjectCoverageExpanded = gain.subject_coverage_change === "expanded";
-  const decisionSurfaceChanged = [
-    "decision_boundary_changed",
-    "uncertainty_reduced",
-    "conflict_added",
-  ].includes(String(gain.decision_or_uncertainty_change));
-  const materialGain =
-    decisionGradeAdded ||
-    (gain.metric_family_coverage_change === "directional_added" && evidenceSurfaceChanged) ||
-    subjectCoverageExpanded ||
-    (decisionSurfaceChanged &&
-      (decisionGradeAdded || subjectCoverageExpanded || evidenceSurfaceChanged)) ||
-    evidenceSurfaceChanged;
+  const materialGain = assessmentSnapshotHasMaterialGain(gain);
   const trailingNoGainRounds = [...routeHistory]
     .reverse()
     .findIndex((entry) => !["no_material_gain", "unavailable"].includes(String(entry.outcome)));

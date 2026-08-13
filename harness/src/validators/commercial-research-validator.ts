@@ -11,6 +11,7 @@ import {
   deriveQuantitativeDecisionUse,
   hasDecisionGradeQuantitativeSignal,
   isDecisionGradeQuantitativeCoverage,
+  isFormalScopeDisposed,
   isQuantitativeCoverageFormallyComplete,
 } from "./quantitative-research-semantics.js";
 import type { ValidationIssue } from "./schema-bundle.js";
@@ -633,6 +634,7 @@ export function deriveSubjectAssessments(
         subjectQuantitativeCoverage.every((item) =>
           isQuantitativeCoverageFormallyComplete(item, subjectQuantitativeObservations),
         ) &&
+        subjectCompetitiveCoverage.every((item) => isFormalScopeDisposed(item.state)) &&
         !deriveSourceConcentration(adopted, evidenceDocuments).concentrated &&
         adopted.some((item) => item.independence === "independent")
           ? "ranked"
@@ -830,7 +832,7 @@ export function deriveClaimConfidence(
     ) ||
     (relevantMetricFamilies.has("competitive_intensity") &&
       competitiveCoverage.some(
-        (coverage) => subjectMatches(coverage) && coverage.state !== "observed",
+        (coverage) => subjectMatches(coverage) && !isFormalScopeDisposed(coverage.state),
       ));
   if (hasRelevantGap) {
     ceiling = Math.min(ceiling, 1);
@@ -2734,7 +2736,8 @@ function validateAudit(
     REQUIRED_RANKING_KEYS.every((key) => directlyCovered.has(key)) &&
     records(audit.quantitative_coverage).every((item) =>
       isQuantitativeCoverageFormallyComplete(item, records(audit.quantitative_observations)),
-    );
+    ) &&
+    records(audit.competitive_coverage).every((item) => isFormalScopeDisposed(item.state));
   const concentrated = concentration.concentrated;
   const hasIndependent = adopted.some((item) => item.independence === "independent");
   const expectedRanking =

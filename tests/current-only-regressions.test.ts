@@ -4723,6 +4723,114 @@ test("blocking metric gaps compile one current subject and Plan acquisition clos
   );
 });
 
+test("compiler treats competitive not-applicable as disposed without inventing support", async () => {
+  const policy = await commercialPolicy();
+  const taskPath = "tasks/discovery/unit_competitive_not_applicable.attempt-1.json";
+  const task = commercialCompilerTask(
+    taskPath,
+    "candidate_competitive_not_applicable",
+    [],
+    ["direct_product"],
+  );
+  const sources = [
+    ["language", "recent_user_language", "recent_user_language", "observed_behavior"],
+    ["purchase", "current_purchase_behavior", "purchase_signal", "observed_behavior"],
+    ["alternative", "current_competitor_usage", "alternatives_pricing_usage", "observed_behavior"],
+    ["distribution", "current_distribution", "distribution_channel", "independent_report"],
+    ["counter", "counterevidence", "independent_counterevidence", "counterevidence"],
+  ].map(([suffix, claimType, coverageKey, evidenceCharacter]) => ({
+    evidence_ref: `evidence/records/competitive-na-${suffix}.json`,
+    source_kind: "independent",
+    source_profile: { type: "other", description: `Synthetic ${suffix} Evidence.` },
+    evidence_character: evidenceCharacter,
+    independence: "independent",
+    claim_type: claimType,
+    content_summary: `Synthetic direct ${coverageKey} observation.`,
+    retrieved_at: "2026-08-04T12:01:00Z",
+    published_at: null,
+    observed_at: "2026-08-04T12:00:00Z",
+    data_period_end: null,
+    coverage_keys: [coverageKey],
+    disposition: "adopted",
+    exclusion_reason: null,
+  }));
+  const result = compileCommercialResearchDelivery(
+    commercialDelivery({
+      unit_id: "unit_competitive_not_applicable",
+      evidence_sources: sources,
+      unresolved_gaps: [
+        {
+          coverage_kind: "competitive",
+          subject_id: "candidate_competitive_not_applicable",
+          dimension: "direct_product",
+          state: "not_applicable",
+          reason: "No direct-product category applies within the bounded subject definition.",
+          alternative_metric: null,
+          decision_impact:
+            "The assigned scope is disposed, but no competitor adoption support is created.",
+          query_attempts: [],
+        },
+      ],
+    }),
+    taskPath,
+    [task, ...incumbentResponseLineage(task)],
+    policy,
+  );
+  assert.deepEqual(result.issues, []);
+  assert.deepEqual(result.document.competitive_objects, []);
+  assert.equal(
+    (result.document.competitive_coverage as Record<string, unknown>[])[0]?.state,
+    "not_applicable",
+  );
+  assert.equal((result.document.search_closure as Record<string, unknown>).outcome, "completed");
+  assert.equal(result.document.ranking_eligibility, "ranked");
+  const ceiling = result.document.recommendation_ceiling as Record<string, unknown>;
+  assert.equal(ceiling.maximum_decision_tier, "investigate_further");
+  assert.ok(
+    (ceiling.reason_codes as string[]).includes("missing_independent_competitor_adoption_data"),
+  );
+  const documents = [
+    {
+      path: taskPath,
+      schemaVersion: task.artifact_type,
+      document: task.document,
+    },
+    ...incumbentResponseLineage(task).map((artifact) => ({
+      path: artifact.artifact_path,
+      schemaVersion: artifact.artifact_type,
+      document: artifact.document,
+    })),
+    {
+      path: "artifacts/research-audits/commercial-synthetic.json",
+      schemaVersion: "startup_opportunity.commercial_research_audit.current",
+      document: result.document,
+    },
+  ];
+  assert.equal(
+    validateCommercialResearchContract(documents, policy).some(
+      (issue) => issue.code === "commercial_research.ranking_eligibility_mismatch",
+    ),
+    false,
+  );
+  const partial = structuredClone(result.document);
+  const partialCoverage = partial.competitive_coverage as Record<string, unknown>[];
+  assert.ok(partialCoverage[0]);
+  partialCoverage[0].state = "partial";
+  const partialAssessment = (partial.subject_assessments as Record<string, unknown>[])[0];
+  assert.ok(partialAssessment);
+  partialAssessment.competitive_coverage = partialCoverage;
+  assert.ok(
+    validateCommercialResearchContract(
+      documents.map((document) =>
+        document.schemaVersion === "startup_opportunity.commercial_research_audit.current"
+          ? { ...document, document: partial }
+          : document,
+      ),
+      policy,
+    ).some((issue) => issue.code === "commercial_research.ranking_eligibility_mismatch"),
+  );
+});
+
 test("rejected counterevidence is allowed while rejected positive support is downgraded", async () => {
   const policy = await commercialPolicy();
   const counter = commercialAudit();
@@ -5363,6 +5471,195 @@ test("subject aggregation merges complementary lanes while preserving conflictin
       (concentrated.recommendation_ceiling as Record<string, unknown>).reason_codes as string[]
     ).includes("source_concentration"),
   );
+});
+
+test("competitive not-applicable closes execution scope without creating competitor support", () => {
+  const subjectId = "opportunity_competitive_not_applicable";
+  const dimensions = [
+    "recent_user_language",
+    "purchase_signal",
+    "alternatives_pricing_usage",
+    "distribution_channel",
+    "independent_counterevidence",
+  ];
+  const evidenceRefs = ["one", "two"].map(
+    (suffix) => `evidence/records/competitive-na-${suffix}.json`,
+  );
+  const coverage = Object.fromEntries(
+    dimensions.map((dimension, index) => [
+      dimension,
+      {
+        state: "observed",
+        content_covered: true,
+        evidence_refs: [evidenceRefs[index % evidenceRefs.length]],
+        data_points: [],
+        inference: null,
+      },
+    ]),
+  );
+  const quantitativeCoverage = ["demand_scale", "retention_outcomes"].map(
+    (metricFamily, index) => ({
+      subject_id: subjectId,
+      metric_family: metricFamily,
+      state: "observed",
+      observation_ids: [`observation_competitive_na_${index}`],
+      decision_grade_observation_ids: [`observation_competitive_na_${index}`],
+      query_attempts: [],
+      reason: null,
+      alternative_metric: null,
+      decision_impact: "Synthetic decision-grade coverage.",
+    }),
+  );
+  const quantitativeObservations = quantitativeCoverage.map((row) => ({
+    observation_id: (row.observation_ids as string[])[0],
+    subject_id: subjectId,
+    metric_family: row.metric_family,
+    decision_use: { grade: "decision_grade" },
+  }));
+  const evidence = evidenceRefs.map((evidenceRef, index) => ({
+    evidence_ref: evidenceRef,
+    subject_ids: [subjectId],
+    subject_binding_basis: "single_subject_auto",
+    source_profile: { type: "other", description: `Synthetic source ${index + 1}.` },
+    evidence_character: "independent_report",
+    independence: "independent",
+    claim_type: "current_purchase_behavior",
+    disposition: "adopted",
+  }));
+  const competitiveCoverage = (state: string): Record<string, unknown>[] => [
+    {
+      subject_id: subjectId,
+      competitor_type: "direct_product",
+      state,
+      competitive_object_ids: [],
+      query_attempts: [],
+      reason:
+        state === "not_applicable"
+          ? "No direct-product category applies within the bounded subject definition."
+          : "The direct-product scope remains unresolved.",
+      alternative_metric: null,
+      decision_impact: "No competitor support is implied by this scope disposition.",
+    },
+  ];
+  const audit = (
+    suffix: string,
+    state: string,
+    competitiveObjects: readonly Record<string, unknown>[] = [],
+  ) => ({
+    path: `artifacts/research-audits/competitive-${suffix}.json`,
+    document: {
+      task_ref: `tasks/discovery/competitive-${suffix}.json`,
+      covered_direction_ids: [subjectId],
+      subject_assessments: [
+        {
+          subject_id: subjectId,
+          evidence_refs: evidenceRefs,
+          coverage,
+          uncovered_business_dimensions: [],
+          quantitative_coverage: quantitativeCoverage,
+          competitive_coverage: competitiveCoverage(state),
+          wave1_signals: { demand: true, buyer: true, purchase: true },
+          ranking_eligibility: "ranked",
+          recommendation_ceiling: {
+            maximum_decision_tier: "investigate_further",
+            reason_codes: ["missing_independent_competitor_adoption_data"],
+          },
+          conflict_evidence_refs: [],
+          limitations: [],
+        },
+      ],
+      quantitative_coverage: quantitativeCoverage,
+      quantitative_observations: quantitativeObservations,
+      competitive_coverage: competitiveCoverage(state),
+      competitive_objects: competitiveObjects,
+      evidence_register: evidence,
+      limitations: [],
+    },
+  });
+  const notApplicable = audit("not-applicable", "not_applicable");
+  const single = projectCommercialAuditTables([notApplicable]);
+  const singleAggregate = single.commercial_subject_aggregates[0] as Record<string, unknown>;
+  assert.equal(
+    (singleAggregate.competitive_coverage as Record<string, unknown>[])[0]?.state,
+    "not_applicable",
+  );
+  assert.equal(singleAggregate.research_status, "complete");
+  assert.equal(singleAggregate.ranking_eligibility, "ranked");
+  assert.deepEqual(single.competitive_substitute_rows, []);
+  assert.equal(
+    single.research_coverage_gaps.some((row) => row.coverage_kind === "competitive"),
+    false,
+  );
+  assert.doesNotMatch(renderResearchCoverageGaps({ ...single }), /direct_product/);
+  const singleCeiling = singleAggregate.recommendation_ceiling as Record<string, unknown>;
+  assert.equal(singleCeiling.maximum_decision_tier, "investigate_further");
+  assert.ok(
+    (singleCeiling.reason_codes as string[]).includes(
+      "missing_independent_competitor_adoption_data",
+    ),
+  );
+
+  const observedObject = {
+    competitive_object_id: "competitor_observed",
+    subject_id: subjectId,
+    competitor_type: "direct_product",
+    source_refs: [evidenceRefs[0]],
+  };
+  const observed = audit("observed", "observed", [observedObject]);
+  const observedCoverage = observed.document.competitive_coverage as Record<string, unknown>[];
+  observedCoverage[0] = {
+    ...observedCoverage[0],
+    competitive_object_ids: ["competitor_observed"],
+    reason: null,
+  };
+  const observedAssessment = (
+    observed.document.subject_assessments as Record<string, unknown>[]
+  )[0];
+  assert.ok(observedAssessment);
+  observedAssessment.competitive_coverage = observedCoverage;
+  const mixed = projectCommercialAuditTables([notApplicable, observed]);
+  const mixedAggregate = mixed.commercial_subject_aggregates[0] as Record<string, unknown>;
+  assert.equal(
+    (mixedAggregate.competitive_coverage as Record<string, unknown>[])[0]?.state,
+    "observed",
+  );
+  assert.equal(mixed.competitive_substitute_rows.length, 1);
+  assert.equal(
+    mixed.research_coverage_gaps.some((row) => row.coverage_kind === "competitive"),
+    false,
+  );
+
+  const allNotApplicable = projectCommercialAuditTables([
+    notApplicable,
+    audit("not-applicable-two", "not_applicable"),
+  ]);
+  const allNotApplicableAggregate = allNotApplicable.commercial_subject_aggregates[0] as Record<
+    string,
+    unknown
+  >;
+  assert.equal(
+    (allNotApplicableAggregate.competitive_coverage as Record<string, unknown>[])[0]?.state,
+    "not_applicable",
+  );
+  assert.deepEqual(allNotApplicable.competitive_substitute_rows, []);
+  assert.equal(
+    allNotApplicable.research_coverage_gaps.some((row) => row.coverage_kind === "competitive"),
+    false,
+  );
+
+  for (const state of ["partial", "unavailable"] as const) {
+    const projection = projectCommercialAuditTables([audit(state, state)]);
+    const aggregate = projection.commercial_subject_aggregates[0] as Record<string, unknown>;
+    assert.equal(aggregate.research_status, "planned_with_gaps");
+    assert.equal(aggregate.ranking_eligibility, "unranked_hypothesis");
+    assert.ok(
+      projection.research_coverage_gaps.some(
+        (row) =>
+          row.coverage_kind === "competitive" &&
+          (row.coverage as Record<string, unknown>).state === state,
+      ),
+    );
+  }
 });
 
 test("cross-Lane interpretation conflicts are invariant to Audit path and input order", async () => {

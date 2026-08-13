@@ -570,14 +570,30 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
   const groupedAuthority = (
     beforeEvidence: ReturnType<typeof assessmentEvidence>,
     afterEvidence: ReturnType<typeof assessmentEvidence>,
+    afterState: {
+      readonly decision?: string;
+      readonly decisionSufficiency?: string;
+      readonly coverageDisposition?: string;
+    } = {},
   ) => {
     const before = lane(beforeLane, execution1, [beforeEvidence.path]);
     const after = lane(afterLane, execution2, [afterEvidence.path]);
+    const afterDimension = (after.document.dimension_results as Record<string, unknown>[])[0];
+    assert.ok(afterDimension);
+    afterDimension.coverage_disposition = afterState.coverageDisposition ?? "partial";
+    const afterGateDocument = structuredClone(
+      documents.find((document) => document.path === afterGate),
+    );
+    assert.ok(afterGateDocument);
+    const afterGateDimension = (
+      afterGateDocument.document.dimension_decisions as Record<string, unknown>[]
+    )[0];
+    assert.ok(afterGateDimension);
+    afterGateDimension.decision = afterState.decision ?? "insufficient_evidence";
+    afterGateDimension.decision_sufficiency = afterState.decisionSufficiency ?? "insufficient";
     const groupedDocuments = documents
       .filter((document) => ![beforeLane, afterLane, exactRef].includes(document.path))
-      .map((document) =>
-        document.path === beforeLane ? before : document.path === afterLane ? after : document,
-      );
+      .map((document) => (document.path === afterGate ? afterGateDocument : document));
     groupedDocuments.push(before, after, beforeEvidence, afterEvidence);
     return deriveAssessmentInformationGainAuthority(
       current,
@@ -609,6 +625,13 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
     ),
   );
   assert.equal(renamedSameSource.current.source_group_novelty, "same_group");
+  assert.equal(renamedSameSource.route_history[0]?.outcome, "no_material_gain");
+  assert.ok(
+    evaluateAssessmentFollowupInformationGain(
+      followup({ concept_hypothesis_ref: subjectRef }),
+      renamedSameSource,
+    ).some((issue) => issue.code === "assessment_information_gain.route_switch_required"),
+  );
 
   for (const dependencyKind of ["shared", "syndicated"] as const) {
     const sharedGroup = `${dependencyKind}_synthetic_group`;
@@ -665,6 +688,283 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
     ),
   );
   assert.equal(unknownAuthority.current.source_group_novelty, "same_group");
+
+  assert.equal(updatedAuthority.route_history[0]?.outcome, "directional_added");
+  const opposingAuthority = groupedAuthority(
+    assessmentEvidence(
+      "evidence/records/opposing-before.json",
+      execution1,
+      plan1,
+      subjectRef,
+      "opposing_group_before",
+      "2026-08-02",
+      "support",
+      "opposing-source",
+    ),
+    assessmentEvidence(
+      "evidence/records/opposing-after.json",
+      execution2,
+      plan1,
+      subjectRef,
+      "opposing_group_after",
+      "2026-08-02",
+      "oppose",
+      "opposing-source",
+    ),
+  );
+  assert.equal(opposingAuthority.current.new_evidence_character, "opposing");
+  assert.equal(opposingAuthority.route_history[0]?.outcome, "directional_added");
+
+  const conflictingAuthority = groupedAuthority(
+    assessmentEvidence(
+      "evidence/records/conflict-before.json",
+      execution1,
+      plan1,
+      subjectRef,
+      "conflict_group_before",
+      "2026-08-02",
+      "support",
+      "conflict-source",
+    ),
+    assessmentEvidence(
+      "evidence/records/conflict-after.json",
+      execution2,
+      plan1,
+      subjectRef,
+      "conflict_group_after",
+      "2026-08-02",
+      "oppose",
+      "conflict-source",
+    ),
+    { decision: "mixed" },
+  );
+  assert.equal(conflictingAuthority.current.new_evidence_character, "conflicting");
+  assert.equal(conflictingAuthority.route_history[0]?.outcome, "conflict_added");
+
+  const decisionGradeAfter = assessmentEvidence(
+    "evidence/records/decision-grade-after.json",
+    execution2,
+    plan1,
+    subjectRef,
+    "decision_grade_after",
+    "2026-08-02",
+    "support",
+    "decision-grade-source",
+  );
+  decisionGradeAfter.document.evidence_tier = "direct_behavior";
+  const decisionGradeAuthority = groupedAuthority(
+    assessmentEvidence(
+      "evidence/records/decision-grade-before.json",
+      execution1,
+      plan1,
+      subjectRef,
+      "decision_grade_before",
+      "2026-08-02",
+      "support",
+      "baseline-source",
+    ),
+    decisionGradeAfter,
+  );
+  assert.equal(
+    decisionGradeAuthority.current.metric_family_coverage_change,
+    "decision_grade_added",
+  );
+  assert.equal(decisionGradeAuthority.route_history[0]?.outcome, "decision_grade_added");
+});
+
+test("formal repeated same-source proxy lineage preserves no-gain history across reopen", () => {
+  const runId = "run_repeated_no_gain_synthetic";
+  const subjectRef = "artifacts/candidates/repeated-proxy.json";
+  const dimension = "demand_and_behavior";
+  const planRef = "plans/research-plan.r1.json";
+  const executionRefs = [1, 2, 3].map((revision) => `plans/research-execution.r${revision}.json`);
+  const laneRefs = [1, 2, 3].map(
+    (revision) => `artifacts/assessment/lanes/repeated-r${revision}.json`,
+  );
+  const gateRefs = [1, 2, 3].map(
+    (revision) => `artifacts/assessment/gates/repeated-r${revision}.json`,
+  );
+  const evidenceRefs = [1, 2, 3].map(
+    (revision) => `evidence/records/repeated-proxy-r${revision}.json`,
+  );
+  const exactRecords = new Map<string, Record<string, unknown>>();
+  const entry = (path: string, schemaVersion: string, document: Record<string, unknown>) => ({
+    path,
+    schemaVersion,
+    document,
+    envelope: null,
+  });
+  const evidence = (index: number) => {
+    const path = evidenceRefs[index] as string;
+    const operationKey = canonicalContentHash({ path });
+    const contentHash = canonicalContentHash({ content: path });
+    const source = {
+      kind: "public_url",
+      canonical_url: "https://same-source.synthetic.invalid/repeated-proxy",
+    };
+    const sourceHash = canonicalContentHash(source);
+    const evidenceId = `ev_${operationKey.slice("sha256:".length)}`;
+    const substrateRef = `evidence/manifest.jsonl#${evidenceId}`;
+    const recordedAt = "2026-08-02T00:00:00Z";
+    exactRecords.set(substrateRef, {
+      schema_version: "startup_opportunity.evidence_store_record.v2",
+      evidence_id: evidenceId,
+      run_id: runId,
+      unit_id: `unit_repeated_${index + 1}`,
+      source,
+      source_hash: sourceHash,
+      content_hash: contentHash,
+      research_goal: "Synthetic repeated-proxy information-gain fixture.",
+      raw_content_ref: `evidence/raw/sha256-${contentHash.slice("sha256:".length)}.bin`,
+      operation_key: operationKey,
+      recorded_at: recordedAt,
+    });
+    return entry(path, "startup_opportunity.assessment_evidence.v1", {
+      evidence_id: evidenceId,
+      run_id: runId,
+      unit_id: `unit_repeated_${index + 1}`,
+      concept_hypothesis_ref: subjectRef,
+      execution_plan_ref: executionRefs[index],
+      research_plan_ref: planRef,
+      research_goal: "Synthetic repeated-proxy information-gain fixture.",
+      source_group_id: `agent_renamed_group_${index + 1}`,
+      source_assessment: {
+        independence: "independent_secondary",
+        canonical_source_group: `agent_renamed_group_${index + 1}`,
+        shared_dataset_group: null,
+        syndication_group: null,
+      },
+      evidence_tier: "public_behavior_proxy",
+      evidence_role: "support",
+      valid_as_of: "2026-08-02",
+      mechanical_binding: {
+        substrate_record_ref: substrateRef,
+        source_hash: sourceHash,
+        content_hash: contentHash,
+        raw_content_ref: `evidence/raw/sha256-${contentHash.slice("sha256:".length)}.bin`,
+        operation_key: operationKey,
+        recorded_at: recordedAt,
+      },
+    });
+  };
+  const lanes = laneRefs.map((path, index) =>
+    entry(path, "startup_opportunity.assessment_lane_result.v1", {
+      run_id: runId,
+      unit_id: `unit_repeated_${index + 1}`,
+      concept_hypothesis_ref: subjectRef,
+      execution_plan_ref: executionRefs[index],
+      stage_id: `stage_repeated_${index + 1}`,
+      dimension_results: [
+        {
+          dimension_id: dimension,
+          evidence_refs: [evidenceRefs[index]],
+          supporting_claim_refs: [],
+          opposing_claim_refs: [],
+          judgment_assessment_refs: [],
+          coverage_disposition: "partial",
+          dimension_decision: "insufficient_evidence",
+          decision_sufficiency: "insufficient",
+        },
+      ],
+    }),
+  );
+  const gates = gateRefs.map((path, index) =>
+    entry(path, "startup_opportunity.assessment_stage_gate.v1", {
+      run_id: runId,
+      execution_plan_ref: executionRefs[index],
+      concept_hypothesis_ref: subjectRef,
+      evaluated_lane_refs: [laneRefs[index]],
+      dimension_decisions: [
+        {
+          dimension_id: dimension,
+          lane_result_ref: laneRefs[index],
+          decision: "insufficient_evidence",
+          decision_sufficiency: "insufficient",
+        },
+      ],
+    }),
+  );
+  const executions = executionRefs.map((path, index) =>
+    entry(path, "startup_opportunity.research_execution_plan.assessment.current", {
+      run_id: runId,
+      revision: index + 1,
+      research_plan_ref: planRef,
+      concept_hypothesis_ref: subjectRef,
+      parent_execution_plan_ref: index === 0 ? null : executionRefs[index - 1],
+      stages: [
+        {
+          stage_id: `stage_repeated_${index + 1}`,
+          ...(index === 0 ? {} : { gate_before: gateRefs[index - 1] }),
+          gate_after: gateRefs[index],
+          lanes: [{ reporting_dimensions: [dimension] }],
+        },
+      ],
+    }),
+  );
+  const priorDecisions = [0, 1].map((round) =>
+    entry(
+      `adaptations/decisions/repeated-followup-${round + 1}.json`,
+      "startup_opportunity.assessment_followup_decision.v1",
+      {
+        run_id: runId,
+        action: "add_bounded_followup",
+        concept_hypothesis_ref: subjectRef,
+        dimension_id: dimension,
+        current_followup_round: round,
+        acquisition_route: "public_web",
+        stage_gate_ref: gateRefs[round],
+        candidate_execution_plan_ref: executionRefs[round + 1],
+      },
+    ),
+  );
+  const current = entry(
+    "adaptations/decisions/repeated-followup-3.json",
+    "startup_opportunity.assessment_followup_decision.v1",
+    {
+      run_id: runId,
+      action: "add_bounded_followup",
+      concept_hypothesis_ref: subjectRef,
+      dimension_id: dimension,
+      current_followup_round: 2,
+      based_on_execution_plan_ref: executionRefs[2],
+    },
+  );
+  const documents = [
+    ...executions,
+    ...lanes,
+    ...gates,
+    ...evidenceRefs.map((_, index) => evidence(index)),
+    ...priorDecisions,
+    current,
+  ];
+  const derive = (
+    documentEntries: typeof documents,
+    records: ReadonlyMap<string, Record<string, unknown>>,
+  ) =>
+    deriveAssessmentInformationGainAuthority(
+      documentEntries.find((document) => document.path === current.path) as (typeof documents)[0],
+      new Map(documentEntries.map((document) => [document.path, document])),
+      records,
+    );
+  const authority = derive(documents, exactRecords);
+  assert.deepEqual(
+    authority.route_history.map((item) => item.outcome),
+    ["no_material_gain", "no_material_gain"],
+  );
+  const issues = evaluateAssessmentFollowupInformationGain(
+    followup({ concept_hypothesis_ref: subjectRef }),
+    authority,
+  );
+  assert.ok(
+    issues.some((issue) => issue.code === "assessment_information_gain.route_switch_required"),
+  );
+  assert.ok(issues.some((issue) => issue.code === "assessment_information_gain.stop_required"));
+
+  const reopenedDocuments = JSON.parse(JSON.stringify(documents)) as typeof documents;
+  const reopenedRecords = new Map(
+    JSON.parse(JSON.stringify([...exactRecords])) as [string, Record<string, unknown>][],
+  );
+  assert.deepEqual(derive(reopenedDocuments, reopenedRecords), authority);
 });
 
 test("repeated no-gain routes switch or stop while counterevidence remains eligible", () => {
