@@ -393,6 +393,9 @@
           "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }]
         },
         "decision_impact": { "$ref": "#/$defs/nonEmptyString" },
+        "decision_relevance": {
+          "enum": ["blocking", "non_blocking", "context_only"]
+        },
         "query_attempts": {
           "type": "array",
           "items": { "$ref": "./quantitative-competitive-research.schema.json#/$defs/queryAttempt" }

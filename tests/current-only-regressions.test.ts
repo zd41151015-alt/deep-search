@@ -35,6 +35,7 @@ import {
   deriveSubjectAssessments,
   isTraceableDirectSource,
 } from "../harness/src/validators/commercial-research-validator.js";
+import { deriveQuantitativeDecisionUse } from "../harness/src/validators/quantitative-research-semantics.js";
 import { isBlockingIssue } from "../harness/src/validators/schema-bundle.js";
 import {
   commercialReportProjection,
@@ -661,6 +662,28 @@ function refreshSubjectAssessments(
   audit: Record<string, unknown>,
   evidenceDocuments: ReadonlyMap<string, Record<string, unknown>> = new Map(),
 ): void {
+  const evidence = audit.evidence_register as Record<string, unknown>[];
+  const evidenceByRef = new Map(evidence.map((item) => [String(item.evidence_ref), item]));
+  for (const observation of audit.quantitative_observations as Record<string, unknown>[]) {
+    observation.decision_use = deriveQuantitativeDecisionUse(
+      observation,
+      evidenceByRef,
+      isTraceableDirectSource,
+    );
+  }
+  for (const coverage of audit.quantitative_coverage as Record<string, unknown>[]) {
+    const ids = new Set(coverage.observation_ids as string[]);
+    coverage.decision_grade_observation_ids = (
+      audit.quantitative_observations as Record<string, unknown>[]
+    )
+      .filter(
+        (observation) =>
+          ids.has(String(observation.observation_id)) &&
+          (observation.decision_use as Record<string, unknown>).grade === "decision_grade",
+      )
+      .map((observation) => String(observation.observation_id));
+    coverage.acquisition_plan ??= null;
+  }
   audit.subject_assessments = deriveSubjectAssessments(
     audit.covered_direction_ids as string[],
     audit.quantitative_coverage as Record<string, unknown>[],
@@ -4443,6 +4466,124 @@ test("claim confidence uses only related gaps while overall ceiling remains cons
   assert.equal(
     (compiled.recommendation_ceiling as Record<string, unknown>).maximum_decision_tier,
     "investigate_further",
+  );
+});
+
+test("blocking metric gaps compile one current subject and Plan acquisition closure", async () => {
+  const policy = await commercialPolicy();
+  const taskPath = "tasks/discovery/unit_metric_gap.attempt-1.json";
+  const task = commercialCompilerTask(taskPath, "candidate_current", ["retention_outcomes"]);
+  Object.assign(task.document, { research_plan_ref: "plans/research-plan.r2.json" });
+  task.document.commercial_research_requirements.commercial_audit_output_path =
+    "artifacts/research-audits/unit_metric_gap.json";
+  const delivery = commercialDelivery({
+    unit_id: "unit_metric_gap",
+    unresolved_gaps: [
+      {
+        coverage_kind: "quantitative",
+        subject_id: "candidate_current",
+        dimension: "retention_outcomes",
+        state: "unavailable",
+        decision_relevance: "blocking",
+        reason: "Candidate-specific retention remains unavailable.",
+        alternative_metric: "A bounded usage-frequency proxy may remain directional only.",
+        decision_impact: "Commercial readiness remains low until retention is observed.",
+        query_attempts: [
+          {
+            attempt_id: "attempt_retention_web",
+            acquisition_method: "webpage",
+            provider: "synthetic-independent-source-group",
+            endpoint_or_query_redacted: "synthetic retention query",
+            attempted_at: "2026-08-04T12:05:00Z",
+            outcome: "no_data",
+            reason: "No candidate-specific retention was disclosed.",
+            alternative_metric: "usage frequency",
+            decision_impact: "Retention remains blocking.",
+          },
+        ],
+        acquisition_plan: {
+          target_metric: "candidate retention rate",
+          target_definition: "Share of the target cohort retained after 30 days.",
+          candidate_route_classes: ["public_api", "public_dataset", "public_web"],
+          preferred_route: "public_api",
+          alternate_routes: ["public_dataset", "public_web"],
+          switch_condition: "Switch after one route yields no candidate-specific retention.",
+          stop_condition: "Stop after all bounded routes fail or conflict remains unresolved.",
+          result_disposition: "unavailable",
+          remaining_gap: "Candidate-specific retention remains unavailable.",
+        },
+      },
+    ],
+  });
+  const result = compileCommercialResearchDelivery(
+    delivery,
+    taskPath,
+    [task, ...incumbentResponseLineage(task)],
+    policy,
+  );
+  const artifactValidator = await createArtifactValidator(repositoryRoot);
+  assert.equal(artifactValidator.validateDocument(delivery).valid, true);
+  assert.equal(
+    artifactValidator.validateDocument(
+      result.document,
+      "artifacts/research-audits/unit_metric_gap.json",
+    ).valid,
+    true,
+  );
+  const coverage = (result.document.quantitative_coverage as Record<string, unknown>[])[0];
+  assert.ok(coverage);
+  assert.deepEqual(coverage.acquisition_plan, {
+    ...((delivery.unresolved_gaps as Record<string, unknown>[])[0]?.acquisition_plan as Record<
+      string,
+      unknown
+    >),
+    attempted_route_classes: ["public_web"],
+    attempted_source_groups: ["synthetic-independent-source-group"],
+    subject_id: "candidate_current",
+    metric_family: "retention_outcomes",
+    plan_ref: "plans/research-plan.r2.json",
+    task_ref: taskPath,
+    gap_ref:
+      "artifacts/research-audits/unit_metric_gap.json#gap:candidate_current:retention_outcomes",
+  });
+  const otherSubject = structuredClone(delivery);
+  const [otherSubjectGap] = otherSubject.unresolved_gaps as Record<string, unknown>[];
+  assert.ok(otherSubjectGap);
+  otherSubjectGap.subject_id = "candidate_other";
+  const drift = compileCommercialResearchDelivery(
+    otherSubject,
+    taskPath,
+    [task, ...incumbentResponseLineage(task)],
+    policy,
+  );
+  assert.equal(
+    (drift.document.quantitative_coverage as Record<string, unknown>[])[0]?.acquisition_plan,
+    null,
+  );
+  assert.ok(
+    drift.issues.some(
+      (issue) => issue.code === "commercial_research.delivery_subject_out_of_scope",
+    ),
+  );
+
+  const invalidPlan = structuredClone(result.document);
+  const [invalidCoverage] = invalidPlan.quantitative_coverage as Record<string, unknown>[];
+  assert.ok(invalidCoverage);
+  const invalidAcquisitionPlan = invalidCoverage.acquisition_plan as Record<string, unknown>;
+  invalidAcquisitionPlan.candidate_route_classes = ["public_api", "public_dataset"];
+  const invalidDocuments = commercialAuditDocuments(invalidPlan).map((entry) =>
+    entry.path === "artifacts/research-audits/commercial-synthetic.json"
+      ? {
+          ...entry,
+          path: "artifacts/research-audits/unit_metric_gap.json",
+          document: invalidPlan,
+        }
+      : entry,
+  );
+  assert.ok(
+    validateCommercialResearchContract(invalidDocuments, policy).some(
+      (issue) => issue.code === "commercial_research.metric_acquisition_plan_invalid",
+    ),
   );
 });
 

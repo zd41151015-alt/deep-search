@@ -72,6 +72,43 @@ export function evaluateAssessmentFollowupInformationGain(
   const routeBinding = policy.route_class_bindings.find(
     (binding) => binding.acquisition_route === route,
   );
+  const gain = isRecord(decision.information_gain_assessment)
+    ? decision.information_gain_assessment
+    : {};
+  const targetSubjectRef = String(decision.concept_hypothesis_ref ?? "");
+  const routeHistory = (
+    Array.isArray(decision.route_history) ? decision.route_history.filter(isRecord) : []
+  ).filter((entry) => targetSubjectRef === "" || entry.subject_ref === targetSubjectRef);
+  const evidenceSurfaceChanged =
+    ["new_independent_group", "updated_same_group"].includes(String(gain.source_group_novelty)) ||
+    ["updated", "independent", "opposing", "conflicting"].includes(
+      String(gain.new_evidence_character),
+    );
+  const decisionGradeAdded = gain.metric_family_coverage_change === "decision_grade_added";
+  const subjectCoverageExpanded = gain.subject_coverage_change === "expanded";
+  const decisionSurfaceChanged = [
+    "decision_boundary_changed",
+    "uncertainty_reduced",
+    "conflict_added",
+  ].includes(String(gain.decision_or_uncertainty_change));
+  const materialGain =
+    decisionGradeAdded ||
+    (gain.metric_family_coverage_change === "directional_added" && evidenceSurfaceChanged) ||
+    subjectCoverageExpanded ||
+    (decisionSurfaceChanged &&
+      (decisionGradeAdded || subjectCoverageExpanded || evidenceSurfaceChanged)) ||
+    evidenceSurfaceChanged;
+  const trailingNoGainRounds = [...routeHistory]
+    .reverse()
+    .findIndex((entry) => !["no_material_gain", "unavailable"].includes(String(entry.outcome)));
+  const consecutiveNoGainCount =
+    trailingNoGainRounds === -1 ? routeHistory.length : trailingNoGainRounds;
+  const lastRouteOutcome = routeHistory.at(-1);
+  const repeatedCurrentRoute =
+    consecutiveNoGainCount > 0 &&
+    lastRouteOutcome?.route === route &&
+    gain.source_group_novelty !== "new_independent_group" &&
+    gain.source_group_novelty !== "updated_same_group";
 
   if (routeBinding?.gap_resolution_class !== gapClass) {
     issues.push(
@@ -142,6 +179,26 @@ export function evaluateAssessmentFollowupInformationGain(
         "/wave_1_evidence_overlap/overlapping_evidence_refs",
         "the overlap level is inconsistent with the declared Wave 1 evidence references",
         "The novelty assessment omitted its overlap basis or labeled cited overlap as none.",
+      ),
+    );
+  }
+  if (!materialGain && repeatedCurrentRoute) {
+    issues.push(
+      issue(
+        "assessment_information_gain.route_switch_required",
+        "/acquisition_route",
+        "a repeated route with no metric, subject, decision, uncertainty, update, independent-source, or counterevidence gain must switch route or stop",
+        "The proposed follow-up repeats the same source group or proxy after a no-gain outcome.",
+      ),
+    );
+  }
+  if (consecutiveNoGainCount >= 2 && decision.action === "add_bounded_followup" && !materialGain) {
+    issues.push(
+      issue(
+        "assessment_information_gain.stop_required",
+        "/action",
+        "bounded follow-up must stop after consecutive no-material-gain outcomes unless updated, independent, opposing, or conflicting Evidence changes the research surface",
+        "The follow-up cap was reached without a documented change in coverage or decision uncertainty.",
       ),
     );
   }

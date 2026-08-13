@@ -34,6 +34,7 @@ import {
   renderCompetitiveSubstituteMatrix,
   renderGateWarnings,
   renderIncumbentResponseRiskTable,
+  renderMarketPriorityAndCommercialReadiness,
   renderQuantitativeSignalTable,
   renderResearchCoverageGaps,
 } from "./commercial-report-tables.js";
@@ -341,6 +342,8 @@ function renderFullReport(report: Record<string, unknown>): string {
   ];
   for (const sectionId of REPORT_SECTION_ORDER) {
     if (sectionId === "competition_and_differentiation") {
+      parts.push("\n## Market Research Priority And Commercial Validation Readiness\n");
+      parts.push(renderMarketPriorityAndCommercialReadiness(report));
       parts.push("\n## Quantitative Signals\n");
       parts.push(renderQuantitativeSignalTable(report));
       parts.push("\n## Competitive And Substitute Matrix\n");
@@ -465,6 +468,8 @@ function renderDiscoveryFullReport(report: Record<string, unknown>): string {
   ];
   for (const sectionId of DISCOVERY_REPORT_SECTION_ORDER) {
     if (sectionId === "top_opportunities") {
+      parts.push("\n## Market Research Priority And Commercial Validation Readiness\n");
+      parts.push(renderMarketPriorityAndCommercialReadiness(report));
       parts.push("\n## Quantitative Signals\n");
       parts.push(renderQuantitativeSignalTable(report));
       parts.push("\n## Competitive And Substitute Matrix\n");

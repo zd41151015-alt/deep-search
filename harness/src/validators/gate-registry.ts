@@ -110,6 +110,30 @@ const REGISTRY: Readonly<Record<string, GateRegistration>> = {
     stages: ["bundle_validation", "recovery"],
     mechanicallyDerivable: true,
   },
+  "commercial_research.quantitative_decision_use_mismatch": {
+    category: "integrity",
+    defaultSeverity: ERROR,
+    stages: ["bundle_validation", "aggregation", "recovery"],
+    mechanicallyDerivable: true,
+  },
+  "commercial_research.quantitative_decision_grade_closure_mismatch": {
+    category: "integrity",
+    defaultSeverity: ERROR,
+    stages: ["bundle_validation", "aggregation", "recovery"],
+    mechanicallyDerivable: true,
+  },
+  "commercial_research.metric_acquisition_binding_mismatch": {
+    category: "integrity",
+    defaultSeverity: ERROR,
+    stages: ["bundle_validation", "aggregation", "recovery"],
+    mechanicallyDerivable: true,
+  },
+  "commercial_research.metric_acquisition_plan_invalid": {
+    category: "integrity",
+    defaultSeverity: ERROR,
+    stages: ["artifact_compilation", "bundle_validation", "aggregation", "recovery"],
+    mechanicallyDerivable: false,
+  },
   "commercial_research.secondary_source_traceability_limited": {
     category: "decision_validity",
     defaultSeverity: WARNING,

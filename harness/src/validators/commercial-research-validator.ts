@@ -6,6 +6,10 @@ import {
   deriveSourceConcentration,
 } from "./commercial-source-concentration.js";
 import { projectGateWarnings } from "./gate-diagnostics.js";
+import {
+  deriveMarketPriorityAndCommercialReadiness,
+  deriveQuantitativeDecisionUse,
+} from "./quantitative-research-semantics.js";
 import type { ValidationIssue } from "./schema-bundle.js";
 
 export { canonicalSourceGroup, deriveSourceConcentration };
@@ -142,6 +146,22 @@ const PROXY_LIKE_SEMANTICS = new Set([
   "downloads",
   "active_users",
 ]);
+
+function acquisitionRouteClass(value: unknown): string {
+  return (
+    (
+      {
+        public_api: "public_api",
+        official_dataset: "public_dataset",
+        downloadable_dataset: "public_dataset",
+        repository_dataset: "public_dataset",
+        user_provided_dataset: "authorized_data",
+        authorized_commercial_api: "authorized_data",
+        webpage: "public_web",
+      } as Readonly<Record<string, string>>
+    )[String(value)] ?? "other"
+  );
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -403,7 +423,10 @@ export function deriveRecommendationCeiling(
   );
   if (
     retentionEntries.length === 0 ||
-    retentionEntries.every((item) => item.state !== "observed")
+    retentionEntries.every(
+      (item) =>
+        item.state !== "observed" || strings(item.decision_grade_observation_ids).length === 0,
+    )
   ) {
     if (maximumDecisionTier === "prioritize") maximumDecisionTier = "investigate_further";
     reasons.push("missing_retention_evidence");
@@ -556,6 +579,9 @@ export function deriveSubjectAssessments(
     const subjectQuantitativeCoverage = quantitativeCoverage.filter(
       (item) => item.subject_id === subjectId,
     );
+    const subjectQuantitativeObservations = quantitativeObservations.filter(
+      (item) => item.subject_id === subjectId,
+    );
     const subjectCompetitiveCoverage = competitiveCoverage.filter(
       (item) => item.subject_id === subjectId,
     );
@@ -580,6 +606,12 @@ export function deriveSubjectAssessments(
       maximum_decision_tier: "watch",
       reason_codes: ["subject_assessment_unresolved"],
     };
+    const researchPriorityAndReadiness = deriveMarketPriorityAndCommercialReadiness({
+      coverage: subjectCoverage.coverage,
+      quantitativeCoverage: subjectQuantitativeCoverage,
+      quantitativeObservations: subjectQuantitativeObservations,
+      competitiveCoverage: subjectCompetitiveCoverage,
+    });
     return {
       subject_id: subjectId,
       evidence_refs: subjectEvidence.map((item) => String(item.evidence_ref)).sort(),
@@ -602,6 +634,7 @@ export function deriveSubjectAssessments(
         maximum_decision_tier: ceiling.maximum_decision_tier,
         reason_codes: ceiling.reason_codes,
       },
+      ...researchPriorityAndReadiness,
       conflict_evidence_refs: subjectEvidence
         .filter(
           (item) =>
@@ -785,7 +818,8 @@ export function deriveClaimConfidence(
       (coverage) =>
         subjectMatches(coverage) &&
         relevantMetricFamilies.has(String(coverage.metric_family)) &&
-        coverage.state !== "observed",
+        (coverage.state !== "observed" ||
+          strings(coverage.decision_grade_observation_ids).length === 0),
     ) ||
     (relevantMetricFamilies.has("competitive_intensity") &&
       competitiveCoverage.some(
@@ -1567,6 +1601,21 @@ function validateQuantitativeCompetitiveAudit(
       grouped.push(observation);
       comparisonGroups.set(comparability.comparison_group, grouped);
     }
+    const expectedDecisionUse = deriveQuantitativeDecisionUse(
+      observation,
+      evidenceByRef,
+      isTraceableDirectSource,
+    );
+    if (canonicalJson(observation.decision_use ?? null) !== canonicalJson(expectedDecisionUse)) {
+      errors.push(
+        issue(
+          "commercial_research.quantitative_decision_use_mismatch",
+          `${observationPath}/decision_use`,
+          "quantitative decision use must be derived from metric semantics, scope, method, freshness, comparability, and exact Evidence rather than provider identity",
+          { expected: expectedDecisionUse },
+        ),
+      );
+    }
   }
   for (const [comparisonGroup, grouped] of comparisonGroups) {
     const signatures = new Set(
@@ -1624,6 +1673,7 @@ function validateQuantitativeCompetitiveAudit(
     }
     actualQuantitativeCoverage.add(identity);
     const ids = strings(coverage.observation_ids);
+    const decisionGradeIds = strings(coverage.decision_grade_observation_ids);
     ids.forEach((id) => {
       referencedObservationIds.add(id);
     });
@@ -1649,8 +1699,17 @@ function validateQuantitativeCompetitiveAudit(
         })
       );
     });
+    const expectedDecisionGradeIds = ids.filter((id) => {
+      const observation = observationsById.get(id);
+      return (
+        observation !== undefined &&
+        isRecord(observation.decision_use) &&
+        observation.decision_use.grade === "decision_grade"
+      );
+    });
     const attempts = records(coverage.query_attempts);
     const state = String(coverage.state);
+    const acquisitionPlan = isRecord(coverage.acquisition_plan) ? coverage.acquisition_plan : null;
     const validState =
       ((state === "observed" || state === "partial") &&
         ids.length > 0 &&
@@ -1674,6 +1733,83 @@ function validateQuantitativeCompetitiveAudit(
           coveragePath,
           "a coverage row may be observed only when at least one retained observation has adopted, traceable direct Evidence",
           { directlyTraceableIds, observationIds: ids },
+        ),
+      );
+    }
+    if (canonicalJson(decisionGradeIds) !== canonicalJson(expectedDecisionGradeIds)) {
+      errors.push(
+        issue(
+          "commercial_research.quantitative_decision_grade_closure_mismatch",
+          `${coveragePath}/decision_grade_observation_ids`,
+          "metric coverage must expose the exact Harness-derived decision-grade observation closure",
+          { expected: expectedDecisionGradeIds },
+        ),
+      );
+    }
+    const closure = isRecord(audit.search_closure) ? audit.search_closure : {};
+    const blockingGap = records(closure.remaining_gaps).find(
+      (gap) =>
+        gap.coverage_kind === "quantitative" &&
+        gap.decision_relevance === "blocking" &&
+        gap.dimension === coverage.metric_family &&
+        strings(gap.subject_ids).includes(String(coverage.subject_id)),
+    );
+    if (blockingGap !== undefined) {
+      const expectedPlanBinding = {
+        subject_id: coverage.subject_id,
+        metric_family: coverage.metric_family,
+        plan_ref: task?.document.research_plan_ref,
+        task_ref: audit.task_ref,
+        gap_ref: `${entry.path}#gap:${String(coverage.subject_id)}:${String(coverage.metric_family)}`,
+      };
+      const candidateRoutes = strings(acquisitionPlan?.candidate_route_classes);
+      const alternateRoutes = strings(acquisitionPlan?.alternate_routes);
+      const attemptedRoutes = strings(acquisitionPlan?.attempted_route_classes);
+      const expectedAttemptedRoutes = [
+        ...new Set(attempts.map((attempt) => acquisitionRouteClass(attempt.acquisition_method))),
+      ].sort();
+      const expectedSourceGroups = [
+        ...new Set(attempts.map((attempt) => String(attempt.provider ?? "")).filter(Boolean)),
+      ].sort();
+      const allowedResultDispositions =
+        blockingGap.state === "partial"
+          ? ["partial", "conflicting"]
+          : attempts.length === 0
+            ? ["not_attempted", "unavailable"]
+            : ["unavailable"];
+      if (
+        acquisitionPlan === null ||
+        acquisitionPlan.subject_id !== expectedPlanBinding.subject_id ||
+        acquisitionPlan.metric_family !== expectedPlanBinding.metric_family ||
+        acquisitionPlan.plan_ref !== expectedPlanBinding.plan_ref ||
+        acquisitionPlan.task_ref !== expectedPlanBinding.task_ref ||
+        acquisitionPlan.gap_ref !== expectedPlanBinding.gap_ref ||
+        !candidateRoutes.includes(String(acquisitionPlan.preferred_route)) ||
+        alternateRoutes.length === 0 ||
+        alternateRoutes.some((route) => !candidateRoutes.includes(route)) ||
+        alternateRoutes.includes(String(acquisitionPlan.preferred_route)) ||
+        attemptedRoutes.some((route) => !candidateRoutes.includes(route)) ||
+        canonicalJson(attemptedRoutes) !== canonicalJson(expectedAttemptedRoutes) ||
+        canonicalJson(strings(acquisitionPlan.attempted_source_groups)) !==
+          canonicalJson(expectedSourceGroups) ||
+        acquisitionPlan.remaining_gap !== coverage.reason ||
+        !allowedResultDispositions.includes(String(acquisitionPlan.result_disposition))
+      ) {
+        errors.push(
+          issue(
+            "commercial_research.metric_acquisition_plan_invalid",
+            `${coveragePath}/acquisition_plan`,
+            "a blocking metric Gap requires one provider-agnostic route plan whose attempts and remaining gap are mechanically closed",
+            { expectedAttemptedRoutes, expectedSourceGroups, allowedResultDispositions },
+          ),
+        );
+      }
+    } else if (acquisitionPlan !== null) {
+      errors.push(
+        issue(
+          "commercial_research.metric_acquisition_plan_invalid",
+          `${coveragePath}/acquisition_plan`,
+          "closed or not-applicable metric coverage cannot retain a blocking acquisition plan",
         ),
       );
     }

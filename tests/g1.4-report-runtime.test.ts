@@ -46,6 +46,7 @@ import {
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import {
   commercialReportProjection,
+  completeCurrentQuantitativeFields,
   unavailableQuantitativeCompetitiveCoverage,
   unavailableSubjectAssessments,
 } from "./fixtures/quantitative-competitive-fixture.js";
@@ -323,6 +324,7 @@ function commercialAuditEnvelope(
         : [],
     limitations,
   };
+  completeCurrentQuantitativeFields(document);
   return v5Envelope(
     artifactPath,
     document,

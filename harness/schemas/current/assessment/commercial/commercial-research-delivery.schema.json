@@ -558,13 +558,86 @@
         "decision_impact": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
         },
+        "decision_relevance": {
+          "enum": ["blocking", "non_blocking", "context_only"]
+        },
         "query_attempts": {
           "type": "array",
           "items": { "$ref": "./quantitative-competitive-research.schema.json#/$defs/queryAttempt" }
+        },
+        "acquisition_plan": {
+          "$ref": "#/$defs/metricAcquisitionPlanInput"
         }
       },
-      "not": {
-        "required": ["subject_id", "subject_ids"]
+      "allOf": [
+        {
+          "not": { "required": ["subject_id", "subject_ids"] }
+        },
+        {
+          "if": {
+            "properties": {
+              "coverage_kind": { "const": "quantitative" },
+              "state": { "enum": ["partial", "unavailable"] },
+              "decision_relevance": { "const": "blocking" }
+            },
+            "required": ["coverage_kind", "state", "decision_relevance"]
+          },
+          "then": { "required": ["acquisition_plan"] }
+        }
+      ]
+    },
+    "metricAcquisitionPlanInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_metric",
+        "target_definition",
+        "candidate_route_classes",
+        "preferred_route",
+        "alternate_routes",
+        "switch_condition",
+        "stop_condition",
+        "result_disposition",
+        "remaining_gap"
+      ],
+      "properties": {
+        "target_metric": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "target_definition": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "candidate_route_classes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "./quantitative-competitive-research.schema.json#/$defs/acquisitionRouteClass"
+          }
+        },
+        "preferred_route": {
+          "$ref": "./quantitative-competitive-research.schema.json#/$defs/acquisitionRouteClass"
+        },
+        "alternate_routes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "./quantitative-competitive-research.schema.json#/$defs/acquisitionRouteClass"
+          }
+        },
+        "switch_condition": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "stop_condition": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "result_disposition": {
+          "enum": ["not_attempted", "partial", "unavailable", "conflicting", "satisfied"]
+        },
+        "remaining_gap": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
       }
     }
   }

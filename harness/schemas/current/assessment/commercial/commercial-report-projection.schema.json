@@ -16,6 +16,8 @@
         "wave1_signals",
         "ranking_eligibility",
         "recommendation_ceiling",
+        "market_research_priority",
+        "commercial_validation_readiness",
         "conflict_evidence_refs",
         "limitations"
       ],
@@ -53,6 +55,10 @@
         "recommendation_ceiling": {
           "$ref": "./commercial-research-audit.schema.json#/$defs/recommendationCeiling"
         },
+        "market_research_priority": { "$ref": "#/$defs/marketResearchPriority" },
+        "commercial_validation_readiness": {
+          "$ref": "#/$defs/commercialValidationReadiness"
+        },
         "conflict_evidence_refs": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
         },
@@ -76,6 +82,8 @@
         "wave1_signals",
         "ranking_eligibility",
         "recommendation_ceiling",
+        "market_research_priority",
+        "commercial_validation_readiness",
         "conflict_evidence_refs",
         "limitations",
         "research_status",
@@ -126,6 +134,10 @@
         "recommendation_ceiling": {
           "$ref": "./commercial-research-audit.schema.json#/$defs/recommendationCeiling"
         },
+        "market_research_priority": { "$ref": "#/$defs/marketResearchPriority" },
+        "commercial_validation_readiness": {
+          "$ref": "#/$defs/commercialValidationReadiness"
+        },
         "conflict_evidence_refs": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
         },
@@ -137,6 +149,31 @@
         },
         "execution_warning_task_refs": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        }
+      }
+    },
+    "marketResearchPriority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "basis_codes"],
+      "properties": {
+        "level": { "enum": ["high", "medium", "low"] },
+        "basis_codes": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        }
+      }
+    },
+    "commercialValidationReadiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "satisfied_dimensions", "missing_dimensions"],
+      "properties": {
+        "level": { "enum": ["ready", "partial", "not_ready"] },
+        "satisfied_dimensions": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "missing_dimensions": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
         }
       }
     },

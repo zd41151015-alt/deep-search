@@ -552,6 +552,14 @@ function followupDecision(
       overlapping_evidence_refs: [],
       novelty_rationale: "The proposed source and signal were not covered in Wave 1.",
     },
+    information_gain_assessment: {
+      source_group_novelty: "new_independent_group",
+      metric_family_coverage_change: "decision_grade_added",
+      subject_coverage_change: "expanded",
+      decision_or_uncertainty_change: "uncertainty_reduced",
+      new_evidence_character: "independent",
+    },
+    route_history: [],
     action: "add_bounded_followup",
     current_followup_round: execution.followup_round,
     target_unit: unit(

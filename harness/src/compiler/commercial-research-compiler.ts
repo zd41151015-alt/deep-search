@@ -19,6 +19,7 @@ import {
   REQUIRED_RANKING_KEYS,
 } from "../validators/commercial-research-validator.js";
 import { projectGateWarnings } from "../validators/gate-diagnostics.js";
+import { deriveQuantitativeDecisionUse } from "../validators/quantitative-research-semantics.js";
 import type { ValidationIssue } from "../validators/schema-bundle.js";
 
 interface SourceArtifact {
@@ -74,6 +75,22 @@ function gapKey(kind: string, subject: string, dimension: string): string {
 
 function acquisitionMethod(value: unknown): string {
   return typeof value === "string" ? value : "other";
+}
+
+function acquisitionRouteClass(value: unknown): string {
+  return (
+    (
+      {
+        public_api: "public_api",
+        official_dataset: "public_dataset",
+        downloadable_dataset: "public_dataset",
+        repository_dataset: "public_dataset",
+        user_provided_dataset: "authorized_data",
+        authorized_commercial_api: "authorized_data",
+        webpage: "public_web",
+      } as Readonly<Record<string, string>>
+    )[String(value)] ?? "other"
+  );
 }
 
 const INCUMBENT_RESPONSE_AUTOMATIC_EFFECTS = {
@@ -644,6 +661,42 @@ export function compileCommercialResearchDelivery(
       );
     }
   }
+  for (const observation of quantitativeObservations) {
+    observation.decision_use = deriveQuantitativeDecisionUse(
+      observation,
+      evidenceByRef,
+      isTraceableDirectSource,
+    );
+  }
+  const metricAcquisitionPlans = new Map<string, Record<string, unknown>>();
+  for (const gap of records(delivery.unresolved_gaps)) {
+    if (
+      gap.coverage_kind !== "quantitative" ||
+      gap.decision_relevance !== "blocking" ||
+      !isRecord(gap.acquisition_plan)
+    ) {
+      continue;
+    }
+    const declaredSubjects = [
+      ...new Set([
+        ...strings(gap.subject_ids),
+        ...(typeof gap.subject_id === "string" ? [gap.subject_id] : []),
+      ]),
+    ];
+    const explicitSubjects = declaredSubjects.filter((subjectId) => subjectIds.includes(subjectId));
+    const boundSubjects =
+      explicitSubjects.length > 0
+        ? explicitSubjects
+        : declaredSubjects.length === 0 && subjectIds.length === 1
+          ? subjectIds
+          : [];
+    for (const subjectId of boundSubjects) {
+      metricAcquisitionPlans.set(
+        gapKey("quantitative", subjectId, String(gap.dimension)),
+        gap.acquisition_plan,
+      );
+    }
+  }
   const structuredGaps = records(delivery.unresolved_gaps)
     .map((gap) => {
       const explicitSubjects = [
@@ -676,7 +729,12 @@ export function compileCommercialResearchDelivery(
           ),
         );
       }
-      const { subject_id: _subjectId, subject_ids: _subjectIds, ...researchSemantics } = gap;
+      const {
+        subject_id: _subjectId,
+        subject_ids: _subjectIds,
+        acquisition_plan: _acquisitionPlan,
+        ...researchSemantics
+      } = gap;
       return {
         ...researchSemantics,
         subject_ids: boundSubjects,
@@ -778,6 +836,19 @@ export function compileCommercialResearchDelivery(
           }),
       );
       const gap = gaps.get(gapKey("quantitative", subjectId, family));
+      const queryAttempts = records(gap?.query_attempts);
+      const authoredAcquisitionPlan =
+        metricAcquisitionPlans.get(gapKey("quantitative", subjectId, family)) ?? null;
+      const blockingGap =
+        (gap?.state === "partial" || gap?.state === "unavailable") &&
+        gap?.decision_relevance === "blocking";
+      const decisionGradeObservationIds = observations
+        .filter(
+          (observation) =>
+            isRecord(observation.decision_use) &&
+            observation.decision_use.grade === "decision_grade",
+        )
+        .map((observation) => String(observation.observation_id));
       if (observations.length === 0 && gap === undefined) {
         issues.push(
           issue(
@@ -808,7 +879,31 @@ export function compileCommercialResearchDelivery(
               : "observed"
             : (gap?.state ?? "unavailable"),
         observation_ids: observations.map((item) => item.observation_id),
-        query_attempts: records(gap?.query_attempts),
+        decision_grade_observation_ids: decisionGradeObservationIds,
+        query_attempts: queryAttempts,
+        acquisition_plan:
+          blockingGap && authoredAcquisitionPlan !== null
+            ? {
+                ...authoredAcquisitionPlan,
+                attempted_route_classes: [
+                  ...new Set(
+                    queryAttempts.map((attempt) =>
+                      acquisitionRouteClass(attempt.acquisition_method),
+                    ),
+                  ),
+                ].sort(),
+                attempted_source_groups: [
+                  ...new Set(
+                    queryAttempts.map((attempt) => String(attempt.provider ?? "")).filter(Boolean),
+                  ),
+                ].sort(),
+                subject_id: subjectId,
+                metric_family: family,
+                plan_ref: task.research_plan_ref,
+                task_ref: taskPath,
+                gap_ref: `${auditPath}#gap:${subjectId}:${family}`,
+              }
+            : null,
         reason:
           gap?.reason ??
           (observations.length > 0

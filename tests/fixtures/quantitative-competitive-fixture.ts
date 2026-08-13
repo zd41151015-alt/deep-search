@@ -72,9 +72,65 @@ export function unavailableSubjectAssessments(
         "missing_retention_evidence",
       ],
     },
+    market_research_priority: {
+      level: "low",
+      basis_codes: ["market_priority_signal_limited"],
+    },
+    commercial_validation_readiness: {
+      level: "not_ready",
+      satisfied_dimensions: [],
+      missing_dimensions: [
+        "acquisition_or_distribution",
+        "candidate_purchase_or_commitment",
+        "pricing",
+        "retention_or_usage",
+        "unit_economics",
+      ],
+    },
     conflict_evidence_refs: [],
     limitations: [...limitations].sort(),
   }));
+}
+
+export function completeCurrentQuantitativeFields(
+  document: Record<string, unknown>,
+): Record<string, unknown> {
+  for (const observation of records(document.quantitative_observations)) {
+    observation.decision_use ??= {
+      grade: "context_only",
+      direct_metric_semantics: false,
+      direct_comparison_allowed: false,
+      basis_codes: [
+        "comparison_scope_incompatible",
+        "current_exact_traceable_evidence_missing",
+        "measurement_estimated_or_proxy",
+        "metric_scope_defined",
+        "metric_semantics_proxy_or_mismatch",
+      ],
+    };
+  }
+  for (const coverage of records(document.quantitative_coverage)) {
+    coverage.decision_grade_observation_ids ??= [];
+    coverage.acquisition_plan ??= null;
+  }
+  for (const assessment of records(document.subject_assessments)) {
+    assessment.market_research_priority ??= {
+      level: "low",
+      basis_codes: ["market_priority_signal_limited"],
+    };
+    assessment.commercial_validation_readiness ??= {
+      level: "not_ready",
+      satisfied_dimensions: [],
+      missing_dimensions: [
+        "acquisition_or_distribution",
+        "candidate_purchase_or_commitment",
+        "pricing",
+        "retention_or_usage",
+        "unit_economics",
+      ],
+    };
+  }
+  return document;
 }
 
 export function unavailableQuantitativeCompetitiveCoverage(
@@ -90,6 +146,8 @@ export function unavailableQuantitativeCompetitiveCoverage(
         metric_family: metricFamily,
         state: "unavailable",
         observation_ids: [],
+        decision_grade_observation_ids: [],
+        acquisition_plan: null,
         query_attempts: [
           {
             attempt_id: `attempt_quant_${subjectId}_${metricFamily}`,

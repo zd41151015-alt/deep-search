@@ -246,6 +246,7 @@
         "comparability",
         "interpretation_boundaries",
         "acquisition_id",
+        "decision_use",
         "evidence_refs",
         "limitations"
       ],
@@ -282,6 +283,24 @@
           }
         },
         "acquisition_id": { "$ref": "#/$defs/identifier" },
+        "decision_use": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "grade",
+            "direct_metric_semantics",
+            "direct_comparison_allowed",
+            "basis_codes"
+          ],
+          "properties": {
+            "grade": {
+              "enum": ["decision_grade", "directional_proxy", "context_only"]
+            },
+            "direct_metric_semantics": { "type": "boolean" },
+            "direct_comparison_allowed": { "type": "boolean" },
+            "basis_codes": { "$ref": "#/$defs/uniqueStringArray" }
+          }
+        },
         "evidence_refs": {
           "allOf": [{ "$ref": "#/$defs/artifactRefArray" }, { "type": "array", "minItems": 1 }]
         },
@@ -325,6 +344,78 @@
         "decision_impact": { "$ref": "#/$defs/nonEmptyString" }
       }
     },
+    "acquisitionRouteClass": {
+      "enum": [
+        "public_api",
+        "public_dataset",
+        "official_or_company_disclosure",
+        "public_web",
+        "regulatory_source",
+        "channel_data",
+        "authorized_data",
+        "proxy",
+        "other"
+      ]
+    },
+    "metricAcquisitionPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_metric",
+        "target_definition",
+        "candidate_route_classes",
+        "preferred_route",
+        "alternate_routes",
+        "switch_condition",
+        "stop_condition",
+        "attempted_route_classes",
+        "attempted_source_groups",
+        "result_disposition",
+        "remaining_gap",
+        "subject_id",
+        "metric_family",
+        "plan_ref",
+        "task_ref",
+        "gap_ref"
+      ],
+      "properties": {
+        "target_metric": { "$ref": "#/$defs/nonEmptyString" },
+        "target_definition": { "$ref": "#/$defs/nonEmptyString" },
+        "candidate_route_classes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/acquisitionRouteClass" }
+        },
+        "preferred_route": { "$ref": "#/$defs/acquisitionRouteClass" },
+        "alternate_routes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/acquisitionRouteClass" }
+        },
+        "switch_condition": { "$ref": "#/$defs/nonEmptyString" },
+        "stop_condition": { "$ref": "#/$defs/nonEmptyString" },
+        "attempted_route_classes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/acquisitionRouteClass" }
+        },
+        "attempted_source_groups": { "$ref": "#/$defs/uniqueStringArray" },
+        "result_disposition": {
+          "enum": ["not_attempted", "partial", "unavailable", "conflicting", "satisfied"]
+        },
+        "remaining_gap": { "$ref": "#/$defs/nonEmptyString" },
+        "subject_id": { "$ref": "#/$defs/identifier" },
+        "metric_family": { "$ref": "#/$defs/metricFamily" },
+        "plan_ref": {
+          "type": "string",
+          "pattern": "^plans/research-plan\\.r[1-9][0-9]*\\.json$"
+        },
+        "task_ref": { "$ref": "#/$defs/artifactRef" },
+        "gap_ref": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
     "quantitativeCoverage": {
       "type": "object",
       "additionalProperties": false,
@@ -333,7 +424,9 @@
         "metric_family",
         "state",
         "observation_ids",
+        "decision_grade_observation_ids",
         "query_attempts",
+        "acquisition_plan",
         "reason",
         "alternative_metric",
         "decision_impact"
@@ -343,7 +436,11 @@
         "metric_family": { "$ref": "#/$defs/metricFamily" },
         "state": { "$ref": "#/$defs/coverageState" },
         "observation_ids": { "$ref": "#/$defs/uniqueStringArray" },
+        "decision_grade_observation_ids": { "$ref": "#/$defs/uniqueStringArray" },
         "query_attempts": { "type": "array", "items": { "$ref": "#/$defs/queryAttempt" } },
+        "acquisition_plan": {
+          "anyOf": [{ "$ref": "#/$defs/metricAcquisitionPlan" }, { "type": "null" }]
+        },
         "reason": { "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }] },
         "alternative_metric": {
           "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }]

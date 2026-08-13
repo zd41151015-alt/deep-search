@@ -26,6 +26,8 @@
     "availability",
     "expected_decision_change",
     "wave_1_evidence_overlap",
+    "information_gain_assessment",
+    "route_history",
     "action",
     "current_followup_round",
     "target_unit",
@@ -128,6 +130,71 @@
         },
         "novelty_rationale": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "information_gain_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_group_novelty",
+        "metric_family_coverage_change",
+        "subject_coverage_change",
+        "decision_or_uncertainty_change",
+        "new_evidence_character"
+      ],
+      "properties": {
+        "source_group_novelty": {
+          "enum": ["new_independent_group", "updated_same_group", "same_group", "duplicate"]
+        },
+        "metric_family_coverage_change": {
+          "enum": ["decision_grade_added", "directional_added", "unchanged", "not_applicable"]
+        },
+        "subject_coverage_change": {
+          "enum": ["expanded", "unchanged", "not_applicable"]
+        },
+        "decision_or_uncertainty_change": {
+          "enum": [
+            "decision_boundary_changed",
+            "uncertainty_reduced",
+            "conflict_added",
+            "unchanged"
+          ]
+        },
+        "new_evidence_character": {
+          "enum": ["updated", "independent", "opposing", "conflicting", "corroborating", "none"]
+        }
+      }
+    },
+    "route_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["round", "route", "source_group", "metric_family", "subject_ref", "outcome"],
+        "properties": {
+          "round": { "type": "integer", "minimum": 0, "maximum": 2 },
+          "route": {
+            "enum": ["public_web", "public_api", "professional_data", "external_validation", "none"]
+          },
+          "source_group": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "metric_family": {
+            "$ref": "../../assessment/commercial/quantitative-competitive-research.schema.json#/$defs/metricFamily"
+          },
+          "subject_ref": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+          },
+          "outcome": {
+            "enum": [
+              "decision_grade_added",
+              "directional_added",
+              "conflict_added",
+              "no_material_gain",
+              "unavailable"
+            ]
+          }
         }
       }
     },

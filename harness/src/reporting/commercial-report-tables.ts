@@ -4,6 +4,7 @@ import {
   INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH,
 } from "../incumbent-response-contract.js";
 import { deriveSourceConcentration } from "../validators/commercial-source-concentration.js";
+import { deriveMarketPriorityAndCommercialReadiness } from "../validators/quantitative-research-semantics.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -378,6 +379,14 @@ function mergeCoverageRows(
     [identityField]: selected[identityField],
     state,
     [referenceField]: [...new Set(rows.flatMap((row) => strings(row[referenceField])))].sort(),
+    ...(identityField === "metric_family"
+      ? {
+          decision_grade_observation_ids: [
+            ...new Set(rows.flatMap((row) => strings(row.decision_grade_observation_ids))),
+          ].sort(),
+          acquisition_plan: rows.map((row) => row.acquisition_plan).find(isRecord) ?? null,
+        }
+      : {}),
     query_attempts: rows.flatMap((row) => records(row.query_attempts)),
     reason:
       state === "observed"
@@ -825,6 +834,17 @@ export function projectCommercialAuditTables(
       unresolvedGaps: unresolvedGenericGaps,
       evidenceDocuments: documentsByPath,
     });
+    const quantitativeObservations = subjectAudits.flatMap((audit) =>
+      records(audit.document.quantitative_observations).filter(
+        (observation) => observation.subject_id === subjectId,
+      ),
+    );
+    const priorityAndReadiness = deriveMarketPriorityAndCommercialReadiness({
+      coverage,
+      quantitativeCoverage,
+      quantitativeObservations,
+      competitiveCoverage,
+    });
     const conflicts = [...evidenceGroups.entries()]
       .filter(([, interpretations]) => {
         const state = evidenceInterpretationState(interpretations);
@@ -887,6 +907,7 @@ export function projectCommercialAuditTables(
           ? "ranked"
           : "unranked_hypothesis",
       recommendation_ceiling: ceiling,
+      ...priorityAndReadiness,
       conflict_evidence_refs: conflicts,
       limitations: [
         ...new Set(
@@ -1230,7 +1251,7 @@ export function renderQuantitativeSignalTable(
         "口径",
         "地域",
         "周期",
-        "测量类型",
+        "决策用途 / 测量类型",
         "可比性",
         "误差/不确定性",
         "来源",
@@ -1242,7 +1263,7 @@ export function renderQuantitativeSignalTable(
         "Definition",
         "Geography",
         "Period",
-        "Measurement",
+        "Decision Use / Measurement",
         "Comparability",
         "Error / Uncertainty",
         "Sources",
@@ -1257,7 +1278,7 @@ export function renderQuantitativeSignalTable(
       display(observation.metric_definition, zh),
       display(observation.geography, zh),
       period(observation.period, zh),
-      display(observation.measurement_type, zh),
+      `${display(isRecord(observation.decision_use) ? observation.decision_use.grade : "context_only", zh)} / ${display(observation.measurement_type, zh)}`,
       `${display(comparability.status, zh)}; ${display(comparability.category, zh)}; ${
         comparability.direct_comparison_allowed === true
           ? zh
@@ -1282,6 +1303,54 @@ export function renderQuantitativeSignalTable(
       zh ? "不可用" : "unavailable",
       zh ? "不可比较" : "not comparable",
       zh ? "无可用数值" : "no numeric value available",
+      "-",
+    ]);
+  }
+  return [
+    `| ${headers.join(" | ")} |`,
+    `| ${headers.map(() => "---").join(" | ")} |`,
+    ...body.map((row) => `| ${row.map(cell).join(" | ")} |`),
+    "",
+  ].join("\n");
+}
+
+export function renderMarketPriorityAndCommercialReadiness(
+  source: Readonly<Record<string, unknown>>,
+  zh = false,
+): string {
+  const headers = zh
+    ? ["对象", "市场研究优先级", "优先级依据", "商业验证就绪度", "已满足", "仍缺失"]
+    : [
+        "Subject",
+        "Market Research Priority",
+        "Priority Basis",
+        "Commercial Validation Readiness",
+        "Satisfied",
+        "Missing",
+      ];
+  const body = records(source.commercial_subject_aggregates).map((aggregate) => {
+    const priority = isRecord(aggregate.market_research_priority)
+      ? aggregate.market_research_priority
+      : {};
+    const readiness = isRecord(aggregate.commercial_validation_readiness)
+      ? aggregate.commercial_validation_readiness
+      : {};
+    return [
+      display(aggregate.subject_id, zh),
+      display(priority.level ?? "low", zh),
+      displayList(priority.basis_codes, zh),
+      display(readiness.level ?? "not_ready", zh),
+      displayList(readiness.satisfied_dimensions, zh),
+      displayList(readiness.missing_dimensions, zh),
+    ];
+  });
+  if (body.length === 0) {
+    body.push([
+      zh ? "无当前对象" : "No current subject",
+      zh ? "低" : "low",
+      "-",
+      zh ? "未就绪" : "not ready",
+      "-",
       "-",
     ]);
   }

@@ -185,16 +185,31 @@ function renderDirections(source: Record<string, unknown>, zh: boolean, compact:
     return Number(left.priority) - Number(right.priority);
   });
   const uncertainties = records(source.commercial_uncertainties);
+  const commercialBySubject = new Map(
+    records(source.commercial_subject_aggregates).map((aggregate) => [
+      String(aggregate.subject_id),
+      aggregate,
+    ]),
+  );
   if (directions.length === 0) {
     return zh ? "- 当前没有可交付的方向。\n" : "- No direction is currently deliverable.\n";
   }
   return directions
     .map((direction) => {
+      const commercial = commercialBySubject.get(String(direction.direction_id));
+      const marketPriority = isRecord(commercial?.market_research_priority)
+        ? commercial.market_research_priority
+        : null;
+      const commercialReadiness = isRecord(commercial?.commercial_validation_readiness)
+        ? commercial.commercial_validation_readiness
+        : null;
       const lines = [
         `### ${direction.priority === null ? (zh ? "待验证" : "Unranked") : String(direction.priority)}. ${String(direction.label)}\n`,
         `${zh ? "排序状态" : "Ranking status"}: ${enumLabel(direction.ranking_status, zh)}\n\n`,
         `${zh ? "成熟度" : "Maturity"}: ${enumLabel(direction.maturity, zh)}\n\n`,
         `${zh ? "当前动作" : "Current action"}: ${enumLabel(direction.action, zh)}\n\n`,
+        `${zh ? "市场研究优先级" : "Market research priority"}: ${enumLabel(marketPriority?.level ?? "unknown", zh)}\n\n`,
+        `${zh ? "商业验证就绪度" : "Commercial validation readiness"}: ${enumLabel(commercialReadiness?.level ?? "not_ready", zh)}\n\n`,
         `${zh ? "目标用户" : "Target user"}: ${String(direction.target_user)}\n\n`,
         `${zh ? "窄场景" : "Narrow scenario"}: ${String(direction.narrow_scenario)}\n\n`,
         `${zh ? "当前替代" : "Current alternative"}: ${String(direction.current_alternative)}\n\n`,
