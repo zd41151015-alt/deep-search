@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { canonicalContentHash } from "../harness/src/artifact-store/canonical.js";
 import {
   renderMarketPriorityAndCommercialReadiness,
   renderQuantitativeSignalTable,
@@ -291,6 +292,7 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
   const exactRef = "evidence/records/exact-current.json";
   const oldPlanRef = "evidence/records/old-plan.json";
   const otherSubjectRef = "evidence/records/other-subject.json";
+  const exactRecords = new Map<string, Record<string, unknown>>();
   const entry = (path: string, schemaVersion: string, document: Record<string, unknown>) => ({
     path,
     schemaVersion,
@@ -355,22 +357,70 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
     sourceGroup: string,
     validAsOf: string,
     role: "support" | "oppose" = "support",
-  ) =>
-    entry(path, "startup_opportunity.assessment_evidence.v1", {
+    sourceIdentity = sourceGroup,
+    independence:
+      | "primary"
+      | "independent_secondary"
+      | "dependent_secondary"
+      | "shared_underlying_dataset"
+      | "unknown" = "independent_secondary",
+    sharedDatasetGroup: string | null = null,
+    syndicationGroup: string | null = null,
+  ) => {
+    const operationKey = canonicalContentHash({ path });
+    const contentHash = canonicalContentHash({ content: path });
+    const source = {
+      kind: "public_url",
+      canonical_url: `https://${sourceIdentity}.synthetic.invalid/source`,
+    };
+    const sourceHash = canonicalContentHash(source);
+    const evidenceId = `ev_${operationKey.slice("sha256:".length)}`;
+    const unitId =
+      path.includes("before") || path.includes("existing") ? "unit_before" : "unit_after";
+    const researchGoal = "Synthetic information-gain authority fixture.";
+    const substrateRef = `evidence/manifest.jsonl#${evidenceId}`;
+    const recordedAt = "2026-08-02T00:00:00Z";
+    exactRecords.set(substrateRef, {
+      schema_version: "startup_opportunity.evidence_store_record.v2",
+      evidence_id: evidenceId,
       run_id: "run_gain_synthetic",
+      unit_id: unitId,
+      source,
+      source_hash: sourceHash,
+      content_hash: contentHash,
+      research_goal: researchGoal,
+      raw_content_ref: `evidence/raw/sha256-${contentHash.slice("sha256:".length)}.bin`,
+      operation_key: operationKey,
+      recorded_at: recordedAt,
+    });
+    return entry(path, "startup_opportunity.assessment_evidence.v1", {
+      evidence_id: evidenceId,
+      run_id: "run_gain_synthetic",
+      unit_id: unitId,
       concept_hypothesis_ref: conceptRef,
       execution_plan_ref: executionPlanRef,
       research_plan_ref: researchPlanRef,
+      research_goal: researchGoal,
       source_group_id: sourceGroup,
       source_assessment: {
-        independence: "independent_secondary",
+        independence,
         canonical_source_group: sourceGroup,
+        shared_dataset_group: sharedDatasetGroup,
+        syndication_group: syndicationGroup,
       },
       evidence_tier: "public_behavior_proxy",
       evidence_role: role,
       valid_as_of: validAsOf,
-      mechanical_binding: { substrate_record_ref: `evidence/manifest.jsonl#${path}` },
+      mechanical_binding: {
+        substrate_record_ref: substrateRef,
+        source_hash: sourceHash,
+        content_hash: contentHash,
+        raw_content_ref: `evidence/raw/sha256-${contentHash.slice("sha256:".length)}.bin`,
+        operation_key: operationKey,
+        recorded_at: recordedAt,
+      },
     });
+  };
   const prior = entry(
     "adaptations/decisions/followup-one.json",
     "startup_opportunity.assessment_followup_decision.v1",
@@ -447,6 +497,7 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
   const authority = deriveAssessmentInformationGainAuthority(
     current,
     new Map(documents.map((document) => [document.path, document])),
+    exactRecords,
   );
   assert.deepEqual(authority.current.evidence_refs, [exactRef]);
   assert.equal(authority.current.evidence_bindings[0]?.evidence_ref, exactRef);
@@ -454,7 +505,8 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
     String(authority.current.evidence_bindings[0]?.content_hash),
     /^sha256:[a-f0-9]{64}$/,
   );
-  assert.deepEqual(authority.current.source_groups, ["new_independent_group"]);
+  assert.equal(authority.current.source_groups.length, 1);
+  assert.match(String(authority.current.source_groups[0]), /^source_hash_group:sha256:/);
   assert.equal(authority.current.source_group_novelty, "new_independent_group");
   assert.equal(authority.current.new_evidence_character, "independent");
   assert.equal(authority.route_history[0]?.outcome, "directional_added");
@@ -462,6 +514,7 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
     deriveAssessmentInformationGainAuthority(
       current,
       new Map(documents.map((document) => [document.path, document])),
+      exactRecords,
     ),
     authority,
   );
@@ -472,6 +525,7 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
     deriveAssessmentInformationGainAuthority(
       reopenedCurrent,
       new Map(reopenedDocuments.map((document) => [document.path, document])),
+      new Map(JSON.parse(JSON.stringify([...exactRecords])) as [string, Record<string, unknown>][]),
     ),
     authority,
   );
@@ -484,6 +538,7 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
     "existing_group",
     "2026-08-03",
     "oppose",
+    "existing-source",
   );
   const beforeExisting = assessmentEvidence(
     "evidence/records/existing.json",
@@ -492,6 +547,8 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
     subjectRef,
     "existing_group",
     "2026-08-01",
+    "support",
+    "existing-source",
   );
   const updatedBeforeLane = lane(beforeLane, execution1, [beforeExisting.path]);
   const updatedDocuments = documents.map((document) =>
@@ -505,9 +562,109 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
   const updatedAuthority = deriveAssessmentInformationGainAuthority(
     current,
     new Map(updatedDocuments.map((document) => [document.path, document])),
+    exactRecords,
   );
   assert.equal(updatedAuthority.current.source_group_novelty, "updated_same_group");
   assert.equal(updatedAuthority.current.new_evidence_character, "opposing");
+
+  const groupedAuthority = (
+    beforeEvidence: ReturnType<typeof assessmentEvidence>,
+    afterEvidence: ReturnType<typeof assessmentEvidence>,
+  ) => {
+    const before = lane(beforeLane, execution1, [beforeEvidence.path]);
+    const after = lane(afterLane, execution2, [afterEvidence.path]);
+    const groupedDocuments = documents
+      .filter((document) => ![beforeLane, afterLane, exactRef].includes(document.path))
+      .map((document) =>
+        document.path === beforeLane ? before : document.path === afterLane ? after : document,
+      );
+    groupedDocuments.push(before, after, beforeEvidence, afterEvidence);
+    return deriveAssessmentInformationGainAuthority(
+      current,
+      new Map(groupedDocuments.map((document) => [document.path, document])),
+      exactRecords,
+    );
+  };
+
+  const renamedSameSource = groupedAuthority(
+    assessmentEvidence(
+      "evidence/records/renamed-before.json",
+      execution1,
+      plan1,
+      subjectRef,
+      "authored_group_before",
+      "2026-08-02",
+      "support",
+      "same-canonical-source",
+    ),
+    assessmentEvidence(
+      "evidence/records/renamed-after.json",
+      execution2,
+      plan1,
+      subjectRef,
+      "authored_group_after",
+      "2026-08-02",
+      "support",
+      "same-canonical-source",
+    ),
+  );
+  assert.equal(renamedSameSource.current.source_group_novelty, "same_group");
+
+  for (const dependencyKind of ["shared", "syndicated"] as const) {
+    const sharedGroup = `${dependencyKind}_synthetic_group`;
+    const before = assessmentEvidence(
+      `evidence/records/${dependencyKind}-before.json`,
+      execution1,
+      plan1,
+      subjectRef,
+      `${dependencyKind}_publisher_before`,
+      "2026-08-02",
+      "support",
+      `${dependencyKind}-source-before`,
+      "independent_secondary",
+      dependencyKind === "shared" ? sharedGroup : null,
+      dependencyKind === "syndicated" ? sharedGroup : null,
+    );
+    const after = assessmentEvidence(
+      `evidence/records/${dependencyKind}-after.json`,
+      execution2,
+      plan1,
+      subjectRef,
+      `${dependencyKind}_publisher_after`,
+      "2026-08-02",
+      "support",
+      `${dependencyKind}-source-after`,
+      "independent_secondary",
+      dependencyKind === "shared" ? sharedGroup : null,
+      dependencyKind === "syndicated" ? sharedGroup : null,
+    );
+    assert.equal(groupedAuthority(before, after).current.source_group_novelty, "same_group");
+  }
+
+  const unknownAuthority = groupedAuthority(
+    assessmentEvidence(
+      "evidence/records/unknown-before.json",
+      execution1,
+      plan1,
+      subjectRef,
+      "known_before",
+      "2026-08-02",
+      "support",
+      "known-source",
+    ),
+    assessmentEvidence(
+      "evidence/records/unknown-after.json",
+      execution2,
+      plan1,
+      subjectRef,
+      "unknown_after",
+      "2026-08-02",
+      "support",
+      "unknown-source",
+      "unknown",
+    ),
+  );
+  assert.equal(unknownAuthority.current.source_group_novelty, "same_group");
 });
 
 test("repeated no-gain routes switch or stop while counterevidence remains eligible", () => {
@@ -659,9 +816,19 @@ test("market priority remains independent from commercial validation readiness",
       alternatives_pricing_usage: { state: "unknown" },
       distribution_channel: { state: "unknown" },
     },
-    quantitativeCoverage: [],
+    quantitativeCoverage: [
+      {
+        subject_id: "candidate_current",
+        metric_family: "demand_scale",
+        state: "observed",
+        observation_ids: ["directional_demand"],
+        decision_grade_observation_ids: [],
+      },
+    ],
     quantitativeObservations: [
       {
+        observation_id: "directional_demand",
+        subject_id: "candidate_current",
         metric_family: "demand_scale",
         decision_use: { grade: "directional_proxy" },
       },

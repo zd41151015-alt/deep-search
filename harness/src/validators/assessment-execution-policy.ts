@@ -21,7 +21,7 @@ export interface AssessmentExecutionPolicy extends Record<string, unknown> {
   readonly initial_lane_count: { readonly minimum: 4; readonly maximum: 5 };
   readonly followup: {
     readonly max_rounds: 2;
-    readonly max_additions_per_dimension: 1;
+    readonly max_additions_per_dimension: 2;
     readonly gap_type: "decision_relevant_evidence_gap";
     readonly requires_plan_revision: true;
     readonly information_gain_gate: {

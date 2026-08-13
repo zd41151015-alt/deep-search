@@ -17,6 +17,57 @@ function strings(value: unknown): readonly string[] {
     : [];
 }
 
+export function isDecisionGradeQuantitativeCoverage(
+  coverage: Readonly<Record<string, unknown>>,
+  observations: readonly Readonly<Record<string, unknown>>[],
+): boolean {
+  const coveredIds = new Set(strings(coverage.observation_ids));
+  const expectedIds = [
+    ...new Set(
+      observations
+        .filter(
+          (observation) =>
+            coveredIds.has(String(observation.observation_id)) &&
+            observation.subject_id === coverage.subject_id &&
+            observation.metric_family === coverage.metric_family &&
+            isRecord(observation.decision_use) &&
+            observation.decision_use.grade === "decision_grade",
+        )
+        .map((observation) => String(observation.observation_id)),
+    ),
+  ].sort();
+  const declaredIds = [...new Set(strings(coverage.decision_grade_observation_ids))].sort();
+  return (
+    coverage.state === "observed" &&
+    expectedIds.length > 0 &&
+    expectedIds.length === declaredIds.length &&
+    expectedIds.every((id, index) => id === declaredIds[index])
+  );
+}
+
+export function isQuantitativeCoverageFormallyComplete(
+  coverage: Readonly<Record<string, unknown>>,
+  observations: readonly Readonly<Record<string, unknown>>[],
+): boolean {
+  return (
+    coverage.state === "not_applicable" ||
+    isDecisionGradeQuantitativeCoverage(coverage, observations)
+  );
+}
+
+export function hasDecisionGradeQuantitativeSignal(
+  coverage: readonly Readonly<Record<string, unknown>>[],
+  metricFamilies: readonly string[],
+  observations: readonly Readonly<Record<string, unknown>>[],
+): boolean {
+  const families = new Set(metricFamilies);
+  return coverage.some(
+    (row) =>
+      families.has(String(row.metric_family)) &&
+      isDecisionGradeQuantitativeCoverage(row, observations),
+  );
+}
+
 const DIRECT_SEMANTICS_BY_FAMILY: Readonly<Record<string, ReadonlySet<string>>> = {
   demand_scale: new Set(["market_size"]),
   usage_behavior: new Set(["active_users", "usage_frequency"]),
@@ -223,19 +274,24 @@ export function deriveMarketPriorityAndCommercialReadiness(input: {
   const observed = (key: string): boolean =>
     isRecord(input.coverage[key]) && input.coverage[key]?.state === "observed";
   const decisionGradeFamilies = new Set(
-    input.quantitativeObservations
-      .filter(
-        (observation) =>
-          isRecord(observation.decision_use) && observation.decision_use.grade === "decision_grade",
+    input.quantitativeCoverage
+      .filter((coverage) =>
+        isDecisionGradeQuantitativeCoverage(coverage, input.quantitativeObservations),
       )
-      .map((observation) => String(observation.metric_family)),
+      .map((coverage) => String(coverage.metric_family)),
   );
   const directionalFamilies = new Set(
     input.quantitativeObservations
       .filter(
         (observation) =>
           isRecord(observation.decision_use) &&
-          observation.decision_use.grade === "directional_proxy",
+          observation.decision_use.grade === "directional_proxy" &&
+          input.quantitativeCoverage.some(
+            (coverage) =>
+              coverage.subject_id === observation.subject_id &&
+              coverage.metric_family === observation.metric_family &&
+              strings(coverage.observation_ids).includes(String(observation.observation_id)),
+          ),
       )
       .map((observation) => String(observation.metric_family)),
   );
@@ -259,8 +315,15 @@ export function deriveMarketPriorityAndCommercialReadiness(input: {
   const candidatePricing = input.quantitativeObservations.some(
     (observation) =>
       observation.metric_semantics === "price" &&
-      isRecord(observation.decision_use) &&
-      observation.decision_use.grade === "decision_grade",
+      input.quantitativeCoverage.some(
+        (coverage) =>
+          coverage.subject_id === observation.subject_id &&
+          coverage.metric_family === observation.metric_family &&
+          isDecisionGradeQuantitativeCoverage(coverage, input.quantitativeObservations) &&
+          strings(coverage.decision_grade_observation_ids).includes(
+            String(observation.observation_id),
+          ),
+      ),
   );
   const readinessChecks = {
     candidate_purchase_or_commitment: observed("purchase_signal"),

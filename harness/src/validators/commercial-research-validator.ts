@@ -9,6 +9,9 @@ import { projectGateWarnings } from "./gate-diagnostics.js";
 import {
   deriveMarketPriorityAndCommercialReadiness,
   deriveQuantitativeDecisionUse,
+  hasDecisionGradeQuantitativeSignal,
+  isDecisionGradeQuantitativeCoverage,
+  isQuantitativeCoverageFormallyComplete,
 } from "./quantitative-research-semantics.js";
 import type { ValidationIssue } from "./schema-bundle.js";
 
@@ -392,6 +395,7 @@ export function isTraceableDirectSource(
 export function deriveRecommendationCeiling(
   coverage: Readonly<Record<string, unknown>>,
   quantitativeCoverage: readonly Record<string, unknown>[],
+  quantitativeObservations: readonly Record<string, unknown>[],
   competitiveObjects: readonly Record<string, unknown>[],
   evidence: readonly Record<string, unknown>[],
   semanticStatements: readonly Record<string, unknown>[] = [],
@@ -424,8 +428,7 @@ export function deriveRecommendationCeiling(
   if (
     retentionEntries.length === 0 ||
     retentionEntries.every(
-      (item) =>
-        item.state !== "observed" || strings(item.decision_grade_observation_ids).length === 0,
+      (item) => !isDecisionGradeQuantitativeCoverage(item, quantitativeObservations),
     )
   ) {
     if (maximumDecisionTier === "prioritize") maximumDecisionTier = "investigate_further";
@@ -535,6 +538,7 @@ export function deriveSubjectRecommendationCeilings(
     const ceiling = deriveRecommendationCeiling(
       subjectCoverage,
       quantitativeCoverage.filter((coverage) => coverage.subject_id === subjectId),
+      quantitativeObservations.filter((observation) => observation.subject_id === subjectId),
       competitiveObjects.filter((competitiveObject) => competitiveObject.subject_id === subjectId),
       subjectEvidence,
       statements,
@@ -588,10 +592,10 @@ export function deriveSubjectAssessments(
     const adopted = subjectEvidence.filter((item) => item.disposition === "adopted");
     const demand =
       subjectCoverage.directlyCovered.has("recent_user_language") ||
-      subjectQuantitativeCoverage.some(
-        (item) =>
-          item.state === "observed" &&
-          ["demand_scale", "growth_change"].includes(String(item.metric_family)),
+      hasDecisionGradeQuantitativeSignal(
+        subjectQuantitativeCoverage,
+        ["demand_scale", "growth_change"],
+        subjectQuantitativeObservations,
       );
     const buyer = subjectEvidence.some(
       (item) =>
@@ -626,6 +630,9 @@ export function deriveSubjectAssessments(
       },
       ranking_eligibility:
         uncovered.length === 0 &&
+        subjectQuantitativeCoverage.every((item) =>
+          isQuantitativeCoverageFormallyComplete(item, subjectQuantitativeObservations),
+        ) &&
         !deriveSourceConcentration(adopted, evidenceDocuments).concentrated &&
         adopted.some((item) => item.independence === "independent")
           ? "ranked"
@@ -798,6 +805,7 @@ export function deriveClaimConfidence(
   refs: readonly string[],
   evidenceByRef: ReadonlyMap<string, Record<string, unknown>>,
   quantitativeCoverage: readonly Record<string, unknown>[],
+  quantitativeObservations: readonly Record<string, unknown>[],
   competitiveCoverage: readonly Record<string, unknown>[],
   allEvidence: readonly Record<string, unknown>[],
   subjectId?: string,
@@ -818,8 +826,7 @@ export function deriveClaimConfidence(
       (coverage) =>
         subjectMatches(coverage) &&
         relevantMetricFamilies.has(String(coverage.metric_family)) &&
-        (coverage.state !== "observed" ||
-          strings(coverage.decision_grade_observation_ids).length === 0),
+        !isDecisionGradeQuantitativeCoverage(coverage, quantitativeObservations),
     ) ||
     (relevantMetricFamilies.has("competitive_intensity") &&
       competitiveCoverage.some(
@@ -2596,6 +2603,7 @@ function validateAudit(
       strings(claim.evidence_refs),
       evidenceByRef,
       records(audit.quantitative_coverage),
+      records(audit.quantitative_observations),
       records(audit.competitive_coverage),
       evidence,
       typeof claim.subject_id === "string" ? claim.subject_id : undefined,
@@ -2722,7 +2730,11 @@ function validateAudit(
     }
   }
 
-  const completeCoverage = REQUIRED_RANKING_KEYS.every((key) => directlyCovered.has(key));
+  const completeCoverage =
+    REQUIRED_RANKING_KEYS.every((key) => directlyCovered.has(key)) &&
+    records(audit.quantitative_coverage).every((item) =>
+      isQuantitativeCoverageFormallyComplete(item, records(audit.quantitative_observations)),
+    );
   const concentrated = concentration.concentrated;
   const hasIndependent = adopted.some((item) => item.independence === "independent");
   const expectedRanking =
@@ -2751,9 +2763,38 @@ function validateAudit(
       ),
     );
   }
+  const expectedSignals = {
+    demand:
+      directlyCovered.has("recent_user_language") ||
+      hasDecisionGradeQuantitativeSignal(
+        records(audit.quantitative_coverage),
+        ["demand_scale", "growth_change"],
+        records(audit.quantitative_observations),
+      ),
+    buyer: evidence.some(
+      (item) =>
+        item.disposition === "adopted" &&
+        strings(item.coverage_keys).includes("buyer") &&
+        item.freshness_status === "current" &&
+        item.source_kind !== "academic" &&
+        !["inference", "mechanism", "effect_boundary"].includes(String(item.evidence_character)) &&
+        isTraceableDirectSource(item, evidenceByRef),
+    ),
+    purchase: directlyCovered.has("purchase_signal"),
+  };
   const signals = isRecord(audit.wave1_signals) ? audit.wave1_signals : {};
+  if (canonicalJson(signals) !== canonicalJson(expectedSignals)) {
+    errors.push(
+      issue(
+        "commercial_research.wave1_signal_mismatch",
+        `${entry.path}#/wave1_signals`,
+        "Wave 1 signals must be derived from direct business coverage and decision-grade quantitative closure",
+        { expected: expectedSignals },
+      ),
+    );
+  }
   const hasEarlySignal =
-    signals.demand === true || signals.buyer === true || signals.purchase === true;
+    expectedSignals.demand || expectedSignals.buyer || expectedSignals.purchase;
   const expectedDecision = hasEarlySignal
     ? "continue_research"
     : "early_stop_insufficient_evidence";

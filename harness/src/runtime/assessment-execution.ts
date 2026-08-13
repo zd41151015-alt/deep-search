@@ -50,6 +50,7 @@ export function deriveAssessmentFollowupRevision(
   decision: Record<string, unknown>,
   createdAt: string,
   assessmentDocuments: readonly AssessmentExecutionDocument[],
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
 ): AssessmentFollowupRevisionResult {
   if (
     decision.schema_version !== "startup_opportunity.assessment_followup_decision.v1" ||
@@ -75,6 +76,7 @@ export function deriveAssessmentFollowupRevision(
         envelope: null,
       },
       new Map(assessmentDocuments.map((entry) => [entry.path, entry])),
+      exactRecords,
     ),
   );
   if (informationGainIssues.length > 0) {

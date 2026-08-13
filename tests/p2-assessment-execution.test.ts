@@ -1118,22 +1118,6 @@ test("follow-up is closed by dimension, round, repetition, exact hashes, and det
     ).includes("assessment_execution.followup_not_allowed"),
   );
 
-  const repeated = followupDecision(
-    runId,
-    plan,
-    execution,
-    gate,
-    "demand_and_behavior",
-    "bounded_domain_research",
-    "repeated",
-  );
-  assert.ok(
-    contractCodes(
-      [...baseDocuments(runId, plan, execution), gate, demandDecision, repeated],
-      validator.assessmentExecutionPolicy,
-    ).includes("assessment_execution.followup_not_allowed"),
-  );
-
   const externalOnly = structuredClone(demandDecision.document);
   externalOnly.gap_resolution_class = "external_validation_only";
   externalOnly.acquisition_route = "external_validation";
@@ -1167,6 +1151,7 @@ test("follow-up is closed by dimension, round, repetition, exact hashes, and det
         externalOnly,
         "2026-08-02T16:30:00Z",
         [...baseDocuments(runId, plan, execution), gate],
+        new Map(),
       ),
     (error: unknown) =>
       error instanceof StoreError &&
@@ -1223,6 +1208,7 @@ test("follow-up is closed by dimension, round, repetition, exact hashes, and det
     demandDecision.document,
     "2026-08-02T16:30:00Z",
     [...baseDocuments(runId, plan, execution), gate],
+    new Map(),
   );
   const replay = deriveAssessmentFollowupRevision(
     planPath,
@@ -1233,6 +1219,7 @@ test("follow-up is closed by dimension, round, repetition, exact hashes, and det
     demandDecision.document,
     "2026-08-02T16:30:00Z",
     [...baseDocuments(runId, plan, execution), gate],
+    new Map(),
   );
   assert.deepEqual(derived, replay);
   assert.equal(derived.researchPlanPath, "plans/research-plan.r2.json");
@@ -1246,6 +1233,169 @@ test("follow-up is closed by dimension, round, repetition, exact hashes, and det
   assert.equal(validator.validateDocument(derived.researchPlan).valid, true);
   assert.equal(validator.validateDocument(derived.executionPlan).valid, true);
 
+  const revisionOneDocuments = [
+    ...baseDocuments(runId, plan, execution),
+    ...results,
+    ...judgmentEntries(results),
+    gate,
+    demandDecision,
+  ];
+  const derivedPlanEntry = entry(derived.researchPlanPath, derived.researchPlan);
+  const derivedExecutionEntry = entry(derived.executionPlanPath, derived.executionPlan);
+  const followupStage = recordAt(
+    derived.executionPlan.stages as Record<string, unknown>[],
+    3,
+    "first follow-up stage",
+  );
+  const followupLane = recordAt(
+    followupStage.lanes as Record<string, unknown>[],
+    0,
+    "first follow-up lane",
+  );
+  const followupResult = resultForLane(runId, followupStage, followupLane, "insufficient_evidence");
+  followupResult.document.execution_plan_ref = derived.executionPlanPath;
+  const followupGate = gateForStage(
+    runId,
+    derived.executionPlan,
+    3,
+    [followupResult],
+    "insufficient_evidence",
+  );
+  followupGate.document.execution_plan_ref = derived.executionPlanPath;
+  followupGate.document.gate_kind = "followup";
+  const second = followupDecision(
+    runId,
+    derived.researchPlan,
+    derived.executionPlan,
+    followupGate,
+    "demand_and_behavior",
+    "bounded_domain_research",
+    "two",
+  );
+  second.document.based_on_research_plan_ref = derived.researchPlanPath;
+  second.document.based_on_execution_plan_ref = derived.executionPlanPath;
+  second.document.candidate_research_plan_ref = "plans/research-plan.r3.json";
+  second.document.candidate_execution_plan_ref = "plans/research-execution.r3.json";
+  const throughFirstFollowup = [
+    ...revisionOneDocuments,
+    derivedPlanEntry,
+    derivedExecutionEntry,
+    followupResult,
+    ...judgmentEntries([followupResult]),
+    followupGate,
+  ];
+  const repeatedRouteCodes = contractCodes(
+    [...throughFirstFollowup, second],
+    validator.assessmentExecutionPolicy,
+  );
+  assert.ok(repeatedRouteCodes.includes("assessment_information_gain.route_switch_required"));
+  assert.ok(!repeatedRouteCodes.includes("assessment_execution.followup_not_allowed"));
+
+  const sibling = {
+    ...structuredClone(demandDecision),
+    path: "adaptations/decisions/followup-sibling.json",
+  };
+  sibling.document.decision_id = "followup_sibling";
+  sibling.document.dimension_id = "delivery_feasibility";
+  sibling.document.candidate_execution_plan_ref = derived.executionPlanPath;
+  const historyWithoutSibling = deriveAssessmentInformationGainAuthority(
+    second,
+    new Map([...throughFirstFollowup, sibling].map((document) => [document.path, document])),
+    new Map(),
+  );
+  assert.equal(historyWithoutSibling.route_history.length, 1);
+
+  const switched = structuredClone(second);
+  switched.document.gap_resolution_class = "api_or_professional_data_resolvable";
+  switched.document.acquisition_route = "public_api";
+  switched.document.availability = "available_with_authorized_access";
+  const switchedCodes = contractCodes(
+    [...throughFirstFollowup, switched],
+    validator.assessmentExecutionPolicy,
+  );
+  assert.ok(!switchedCodes.includes("assessment_information_gain.route_switch_required"));
+  assert.ok(!switchedCodes.includes("assessment_execution.followup_not_allowed"));
+  const derivedSecond = deriveAssessmentFollowupRevision(
+    derived.researchPlanPath,
+    derived.researchPlan,
+    derived.executionPlanPath,
+    derived.executionPlan,
+    switched.path,
+    switched.document,
+    "2026-08-02T17:00:00Z",
+    throughFirstFollowup,
+    new Map(),
+  );
+  assert.equal(derivedSecond.executionPlan.followup_round, 2);
+
+  const secondPlanEntry = entry(derivedSecond.researchPlanPath, derivedSecond.researchPlan);
+  const secondExecutionEntry = entry(derivedSecond.executionPlanPath, derivedSecond.executionPlan);
+  const secondStage = recordAt(
+    derivedSecond.executionPlan.stages as Record<string, unknown>[],
+    4,
+    "second follow-up stage",
+  );
+  const secondLane = recordAt(
+    secondStage.lanes as Record<string, unknown>[],
+    0,
+    "second follow-up lane",
+  );
+  const secondResult = resultForLane(runId, secondStage, secondLane, "insufficient_evidence");
+  secondResult.document.execution_plan_ref = derivedSecond.executionPlanPath;
+  const secondGate = gateForStage(
+    runId,
+    derivedSecond.executionPlan,
+    4,
+    [secondResult],
+    "insufficient_evidence",
+  );
+  secondGate.document.execution_plan_ref = derivedSecond.executionPlanPath;
+  secondGate.document.gate_kind = "followup";
+  const throughSecondFollowup = [
+    ...throughFirstFollowup,
+    switched,
+    secondPlanEntry,
+    secondExecutionEntry,
+    secondResult,
+    ...judgmentEntries([secondResult]),
+    secondGate,
+  ];
+  const third = followupDecision(
+    runId,
+    derivedSecond.researchPlan,
+    derivedSecond.executionPlan,
+    secondGate,
+    "demand_and_behavior",
+    "bounded_domain_research",
+    "three",
+  );
+  third.document.based_on_research_plan_ref = derivedSecond.researchPlanPath;
+  third.document.based_on_execution_plan_ref = derivedSecond.executionPlanPath;
+  third.document.candidate_research_plan_ref = "plans/research-plan.r4.json";
+  third.document.candidate_execution_plan_ref = "plans/research-execution.r4.json";
+  const thirdCodes = contractCodes(
+    [...throughSecondFollowup, third],
+    validator.assessmentExecutionPolicy,
+  );
+  assert.ok(thirdCodes.includes("assessment_information_gain.stop_required"));
+  assert.ok(thirdCodes.includes("assessment_execution.followup_not_allowed"));
+
+  const stop = {
+    ...structuredClone(third),
+    path: "adaptations/decisions/followup-stop.json",
+  };
+  stop.document.decision_id = "followup_stop";
+  stop.document.action = "stop_followup";
+  stop.document.target_unit = null;
+  stop.document.candidate_research_plan_ref = null;
+  stop.document.candidate_execution_plan_ref = null;
+  const stopCodes = contractCodes(
+    [...throughSecondFollowup, stop],
+    validator.assessmentExecutionPolicy,
+  );
+  assert.ok(!stopCodes.includes("assessment_execution.followup_stop_invalid"));
+  assert.ok(!stopCodes.includes("assessment_execution.followup_binding_invalid"));
+
   const emptyAuthority = deriveAssessmentInformationGainAuthority(
     demandDecision,
     new Map(
@@ -1253,6 +1403,7 @@ test("follow-up is closed by dimension, round, repetition, exact hashes, and det
         (document) => [document.path, document],
       ),
     ),
+    new Map(),
   );
   assert.deepEqual(emptyAuthority.current.evidence_refs, []);
   assert.deepEqual(emptyAuthority.route_history, []);
@@ -1268,6 +1419,7 @@ test("follow-up is closed by dimension, round, repetition, exact hashes, and det
         (document) => [document.path, document],
       ),
     ),
+    new Map(),
   );
   assert.deepEqual(forgedAuthority, emptyAuthority);
 });

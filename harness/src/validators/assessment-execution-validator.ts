@@ -89,16 +89,135 @@ function targetByRef(
 
 interface GateDimensionClosure {
   readonly evidence: ReadonlyMap<string, AssessmentExecutionDocument>;
-  readonly sourceGroups: ReadonlyMap<string, readonly AssessmentExecutionDocument[]>;
+  readonly sourceGroups: readonly EvidenceSourceGroup[];
   readonly decision: string;
   readonly decisionSufficiency: string;
   readonly coverageDisposition: string;
+}
+
+interface EvidenceSourceGroup {
+  readonly groupId: string;
+  readonly identityKeys: ReadonlySet<string>;
+  readonly items: readonly AssessmentExecutionDocument[];
+  readonly independentlyAttributed: boolean;
+}
+
+interface EvidenceSourceIdentity {
+  readonly item: AssessmentExecutionDocument;
+  readonly sourceHash: string;
+  readonly identityKeys: ReadonlySet<string>;
+  readonly independentlyAttributed: boolean;
+}
+
+function evidenceSourceIdentity(
+  item: AssessmentExecutionDocument,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+): EvidenceSourceIdentity | null {
+  const binding = isRecord(item.document.mechanical_binding)
+    ? item.document.mechanical_binding
+    : {};
+  const substrateRef = binding.substrate_record_ref;
+  const substrate = typeof substrateRef === "string" ? exactRecords.get(substrateRef) : undefined;
+  if (
+    substrate?.schema_version !== "startup_opportunity.evidence_store_record.v2" ||
+    substrate.run_id !== item.document.run_id ||
+    substrate.unit_id !== item.document.unit_id ||
+    substrate.evidence_id !== item.document.evidence_id ||
+    substrate.research_goal !== item.document.research_goal ||
+    typeof substrate.source_hash !== "string" ||
+    binding.source_hash !== substrate.source_hash ||
+    binding.content_hash !== substrate.content_hash ||
+    binding.raw_content_ref !== substrate.raw_content_ref ||
+    binding.operation_key !== substrate.operation_key ||
+    binding.recorded_at !== substrate.recorded_at
+  ) {
+    return null;
+  }
+  const assessment = isRecord(item.document.source_assessment)
+    ? item.document.source_assessment
+    : {};
+  const identityKeys = new Set([`source:${substrate.source_hash}`]);
+  for (const [prefix, value] of [
+    ["canonical", assessment.canonical_source_group],
+    ["dataset", assessment.shared_dataset_group],
+    ["syndication", assessment.syndication_group],
+  ] as const) {
+    if (typeof value === "string" && value !== "") identityKeys.add(`${prefix}:${value}`);
+  }
+  return {
+    item,
+    sourceHash: substrate.source_hash,
+    identityKeys,
+    independentlyAttributed: ["primary", "independent_secondary"].includes(
+      String(assessment.independence),
+    ),
+  };
+}
+
+function sourceGroups(
+  identities: readonly EvidenceSourceIdentity[],
+): readonly EvidenceSourceGroup[] {
+  const parents = identities.map((_, index) => index);
+  const root = (index: number): number => {
+    let cursor = index;
+    while (parents[cursor] !== cursor) cursor = parents[cursor] ?? cursor;
+    return cursor;
+  };
+  const join = (left: number, right: number): void => {
+    const leftRoot = root(left);
+    const rightRoot = root(right);
+    if (leftRoot !== rightRoot) parents[rightRoot] = leftRoot;
+  };
+  const keyOwner = new Map<string, number>();
+  for (const [index, identity] of identities.entries()) {
+    for (const key of identity.identityKeys) {
+      const owner = keyOwner.get(key);
+      if (owner === undefined) keyOwner.set(key, index);
+      else join(index, owner);
+    }
+  }
+  const components = new Map<number, EvidenceSourceIdentity[]>();
+  for (const [index, identity] of identities.entries()) {
+    const component = components.get(root(index)) ?? [];
+    component.push(identity);
+    components.set(root(index), component);
+  }
+  return [...components.values()]
+    .map((component) => {
+      const hashes = new Set(component.map((identity) => identity.sourceHash));
+      const keys = new Set(component.flatMap((identity) => [...identity.identityKeys]));
+      return {
+        groupId: `source_hash_group:${[...hashes].sort().join("+")}`,
+        identityKeys: keys,
+        items: component.map((identity) => identity.item),
+        independentlyAttributed: component.every((identity) => identity.independentlyAttributed),
+      };
+    })
+    .sort((left, right) => left.groupId.localeCompare(right.groupId));
+}
+
+function groupsOverlap(left: EvidenceSourceGroup, right: EvidenceSourceGroup): boolean {
+  return [...left.identityKeys].some((key) => right.identityKeys.has(key));
+}
+
+function executionLineage(
+  execution: AssessmentExecutionDocument,
+  documents: ReadonlyMap<string, AssessmentExecutionDocument>,
+): ReadonlySet<string> {
+  const lineage = new Set<string>();
+  let cursor: AssessmentExecutionDocument | null = execution;
+  while (cursor !== null && !lineage.has(cursor.path)) {
+    lineage.add(cursor.path);
+    cursor = targetByRef(documents, cursor.document.parent_execution_plan_ref);
+  }
+  return lineage;
 }
 
 function gateDimensionClosure(
   gate: AssessmentExecutionDocument,
   dimensionId: string,
   documents: ReadonlyMap<string, AssessmentExecutionDocument>,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
 ): GateDimensionClosure | null {
   const gateDimension = records(gate.document.dimension_decisions).find(
     (candidate) => candidate.dimension_id === dimensionId,
@@ -141,20 +260,13 @@ function gateDimensionClosure(
     }
     evidence.set(item.path, item);
   }
-  const sourceGroups = new Map<string, AssessmentExecutionDocument[]>();
-  for (const item of evidence.values()) {
-    const assessment = isRecord(item.document.source_assessment)
-      ? item.document.source_assessment
-      : {};
-    const group = String(assessment.canonical_source_group ?? item.document.source_group_id ?? "");
-    if (group === "") continue;
-    const grouped = sourceGroups.get(group) ?? [];
-    grouped.push(item);
-    sourceGroups.set(group, grouped);
-  }
+  const identities = [...evidence.values()]
+    .map((item) => evidenceSourceIdentity(item, exactRecords))
+    .filter((identity): identity is EvidenceSourceIdentity => identity !== null);
+  const exactEvidence = new Map(identities.map((identity) => [identity.item.path, identity.item]));
   return {
-    evidence,
-    sourceGroups,
+    evidence: exactEvidence,
+    sourceGroups: sourceGroups(identities),
     decision: String(gateDimension.decision ?? ""),
     decisionSufficiency: String(gateDimension.decision_sufficiency ?? ""),
     coverageDisposition: String(laneDimension.coverage_disposition ?? ""),
@@ -167,30 +279,23 @@ function assessmentInformationGainSnapshot(
 ): AssessmentInformationGainSnapshot {
   const previousRefs = new Set(before?.evidence.keys() ?? []);
   const newEvidence = [...after.evidence.values()].filter((item) => !previousRefs.has(item.path));
-  const previousGroups = new Set(before?.sourceGroups.keys() ?? []);
-  const newGroups = [...after.sourceGroups.entries()].filter(
-    ([group, items]) =>
-      !previousGroups.has(group) &&
-      items.some((item) => {
-        const assessment = isRecord(item.document.source_assessment)
-          ? item.document.source_assessment
-          : {};
-        return ["primary", "independent_secondary"].includes(String(assessment.independence));
-      }),
+  const previousGroups = before?.sourceGroups ?? [];
+  const newGroups = after.sourceGroups.filter(
+    (group) =>
+      group.independentlyAttributed &&
+      !previousGroups.some((previous) => groupsOverlap(group, previous)),
   );
-  const updatedGroups = [...after.sourceGroups.entries()].filter(([group, items]) => {
-    const previous = before?.sourceGroups.get(group) ?? [];
-    const previousDates = new Set(previous.map((item) => String(item.document.valid_as_of ?? "")));
+  const updatedGroups = after.sourceGroups.filter((group) => {
+    const previous = previousGroups.filter((candidate) => groupsOverlap(group, candidate));
+    const previousDates = new Set(
+      previous.flatMap((candidate) =>
+        candidate.items.map((item) => String(item.document.valid_as_of ?? "")),
+      ),
+    );
     return (
       previous.length > 0 &&
-      items.some((item) => !previousDates.has(String(item.document.valid_as_of ?? "")))
+      group.items.some((item) => !previousDates.has(String(item.document.valid_as_of ?? "")))
     );
-  });
-  const independentNew = newEvidence.some((item) => {
-    const sourceAssessment = isRecord(item.document.source_assessment)
-      ? item.document.source_assessment
-      : {};
-    return ["primary", "independent_secondary"].includes(String(sourceAssessment.independence));
   });
   const decisionGradeEvidence = newEvidence.some((item) =>
     ["direct_behavior", "transaction_or_commitment", "observed_workflow"].includes(
@@ -221,12 +326,9 @@ function assessmentInformationGainSnapshot(
     .sort((left, right) => left.evidence_ref.localeCompare(right.evidence_ref));
   const sourceGroups = [
     ...new Set(
-      newEvidence.map((item) => {
-        const assessment = isRecord(item.document.source_assessment)
-          ? item.document.source_assessment
-          : {};
-        return String(assessment.canonical_source_group ?? item.document.source_group_id);
-      }),
+      after.sourceGroups
+        .filter((group) => group.items.some((item) => evidenceRefs.includes(item.path)))
+        .map((group) => group.groupId),
     ),
   ].sort();
   return {
@@ -257,7 +359,7 @@ function assessmentInformationGainSnapshot(
         ? "opposing"
         : updatedGroups.length > 0
           ? "updated"
-          : independentNew
+          : newGroups.length > 0
             ? "independent"
             : newEvidence.length > 0
               ? "corroborating"
@@ -289,15 +391,11 @@ function routeOutcome(
 export function deriveAssessmentInformationGainAuthority(
   decision: AssessmentExecutionDocument,
   documents: ReadonlyMap<string, AssessmentExecutionDocument>,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
 ): AssessmentInformationGainAuthority {
   const currentExecution = targetByRef(documents, decision.document.based_on_execution_plan_ref);
   if (currentExecution === null) return EMPTY_ASSESSMENT_INFORMATION_GAIN_AUTHORITY;
-  const lineage = new Set<string>();
-  let cursor: AssessmentExecutionDocument | null = currentExecution;
-  while (cursor !== null && !lineage.has(cursor.path)) {
-    lineage.add(cursor.path);
-    cursor = targetByRef(documents, cursor.document.parent_execution_plan_ref);
-  }
+  const lineage = executionLineage(currentExecution, documents);
   const dimensionId = String(decision.document.dimension_id ?? "");
   const subjectRef = String(decision.document.concept_hypothesis_ref ?? "");
   const history: {
@@ -338,8 +436,8 @@ export function deriveAssessmentInformationGainAuthority(
     ) {
       continue;
     }
-    const before = gateDimensionClosure(beforeGate, dimensionId, documents);
-    const after = gateDimensionClosure(afterGate, dimensionId, documents);
+    const before = gateDimensionClosure(beforeGate, dimensionId, documents, exactRecords);
+    const after = gateDimensionClosure(afterGate, dimensionId, documents, exactRecords);
     if (after === null) continue;
     const snapshot = assessmentInformationGainSnapshot(before, after);
     history.push({
@@ -1116,6 +1214,7 @@ function validateFollowup(
   decision: AssessmentExecutionDocument,
   documents: ReadonlyMap<string, AssessmentExecutionDocument>,
   policy: AssessmentExecutionPolicy,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
   errors: ValidationIssue[],
 ): void {
   const execution = targetByRef(documents, decision.document.based_on_execution_plan_ref);
@@ -1150,13 +1249,18 @@ function validateFollowup(
   const allowedUnit = policy.followup.dimension_unit_types.find(
     (rule) => rule.dimension_id === dimension,
   )?.unit_type;
+  const lineage = executionLineage(execution, documents);
   const previousAdds = [...documents.values()].filter(
     (entry) =>
       entry.schemaVersion === "startup_opportunity.assessment_followup_decision.v1" &&
       entry.path !== decision.path &&
       entry.document.action === "add_bounded_followup" &&
+      entry.document.run_id === decision.document.run_id &&
       entry.document.dimension_id === dimension &&
-      entry.document.concept_hypothesis_ref === decision.document.concept_hypothesis_ref,
+      entry.document.concept_hypothesis_ref === decision.document.concept_hypothesis_ref &&
+      lineage.has(String(entry.document.candidate_execution_plan_ref ?? "")) &&
+      Number(entry.document.current_followup_round) <
+        Number(decision.document.current_followup_round),
   );
   if (decision.document.action === "add_bounded_followup") {
     const target = isRecord(decision.document.target_unit) ? decision.document.target_unit : null;
@@ -1188,7 +1292,7 @@ function validateFollowup(
     }
     for (const informationGainIssue of evaluateAssessmentFollowupInformationGain(
       decision.document,
-      deriveAssessmentInformationGainAuthority(decision, documents),
+      deriveAssessmentInformationGainAuthority(decision, documents, exactRecords),
       policy.followup.information_gain_gate,
     )) {
       errors.push(
@@ -1324,7 +1428,7 @@ export function validateAssessmentExecutionContract(
   for (const decision of relevant.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.assessment_followup_decision.v1",
   )) {
-    validateFollowup(decision, documentsByPath, policy, errors);
+    validateFollowup(decision, documentsByPath, policy, exactRecords, errors);
   }
   validateReportDisclosures(documents, documentsByPath, errors);
   return sortIssues(errors);

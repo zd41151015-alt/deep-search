@@ -2424,6 +2424,60 @@ test("quantitative acquisition is provider-agnostic and APIs remain optional", a
   const policy = await commercialPolicy();
   const fixture = quantitativeCommercialFixture();
   assert.deepEqual(quantitativeCommercialCodes(fixture, policy), []);
+  const [proxyObservation] = fixture.audit.quantitative_observations as Record<string, unknown>[];
+  const demandCoverage = (fixture.audit.quantitative_coverage as Record<string, unknown>[]).find(
+    (coverage) => coverage.metric_family === "demand_scale",
+  );
+  const [subjectAssessment] = fixture.audit.subject_assessments as Record<string, unknown>[];
+  assert.ok(proxyObservation);
+  assert.ok(demandCoverage);
+  assert.ok(subjectAssessment);
+  assert.equal(
+    (proxyObservation.decision_use as Record<string, unknown>).grade,
+    "directional_proxy",
+  );
+  assert.equal(demandCoverage.state, "observed");
+  assert.deepEqual(demandCoverage.decision_grade_observation_ids, []);
+  assert.deepEqual(fixture.audit.wave1_signals, {
+    demand: false,
+    buyer: false,
+    purchase: false,
+  });
+  assert.equal(fixture.audit.stage_decision, "early_stop_insufficient_evidence");
+  assert.equal(fixture.audit.ranking_eligibility, "unranked_hypothesis");
+  assert.equal(
+    (subjectAssessment.market_research_priority as Record<string, unknown>).level,
+    "medium",
+  );
+  assert.equal(
+    (subjectAssessment.commercial_validation_readiness as Record<string, unknown>).level,
+    "not_ready",
+  );
+
+  const projection = projectCommercialAuditTables([
+    {
+      path: "artifacts/research-audits/commercial-synthetic.json",
+      document: fixture.audit,
+    },
+  ]);
+  assert.equal((projection.quantitative_signal_rows as unknown[]).length, 1);
+  assert.ok(
+    (projection.research_coverage_gaps as Record<string, unknown>[]).some(
+      (gap) =>
+        gap.coverage_kind === "quantitative" &&
+        (gap.coverage as Record<string, unknown>).metric_family === "demand_scale",
+    ),
+  );
+  const [aggregate] = projection.commercial_subject_aggregates as Record<string, unknown>[];
+  assert.ok(aggregate);
+  assert.equal((aggregate.wave1_signals as Record<string, unknown>).demand, false);
+  assert.equal(aggregate.ranking_eligibility, "unranked_hypothesis");
+  assert.equal(aggregate.research_status, "planned_with_gaps");
+  assert.equal((aggregate.market_research_priority as Record<string, unknown>).level, "medium");
+  assert.equal(
+    (aggregate.commercial_validation_readiness as Record<string, unknown>).level,
+    "not_ready",
+  );
 
   const validator = await createArtifactValidator(repositoryRoot);
   assert.equal(
@@ -5004,7 +5058,21 @@ test("mixed traceable and untraced observations retain both rows without lowerin
   assert.ok(coverage);
   assert.equal(coverage.state, "observed");
   assert.equal((coverage.observation_ids as unknown[]).length, 2);
+  assert.deepEqual(coverage.decision_grade_observation_ids, []);
   assert.equal((result.document.quantitative_observations as unknown[]).length, 2);
+  assert.deepEqual(result.document.wave1_signals, {
+    demand: false,
+    buyer: false,
+    purchase: false,
+  });
+  assert.equal(result.document.stage_decision, "early_stop_insufficient_evidence");
+  assert.equal(result.document.ranking_eligibility, "unranked_hypothesis");
+  assert.ok(
+    (result.document.quantitative_observations as Record<string, unknown>[]).every(
+      (observation) =>
+        (observation.decision_use as Record<string, unknown>).grade === "directional_proxy",
+    ),
+  );
   assert.ok(
     result.issues.some(
       (issue) => issue.code === "commercial_research.secondary_source_traceability_limited",
@@ -5144,10 +5212,19 @@ test("subject aggregation merges complementary lanes while preserving conflictin
         metric_family: metricFamily,
         state: "observed",
         observation_ids: [`observation_${suffix}`],
+        decision_grade_observation_ids: [`observation_${suffix}`],
         query_attempts: [],
         reason: null,
         alternative_metric: null,
         decision_impact: "Synthetic complementary coverage only.",
+      },
+    ];
+    const quantitativeObservations = [
+      {
+        observation_id: `observation_${suffix}`,
+        subject_id: subjectId,
+        metric_family: metricFamily,
+        decision_use: { grade: "decision_grade" },
       },
     ];
     const competitiveCoverage =
@@ -5203,7 +5280,7 @@ test("subject aggregation merges complementary lanes while preserving conflictin
           },
         ],
         quantitative_coverage: quantitativeCoverage,
-        quantitative_observations: [],
+        quantitative_observations: quantitativeObservations,
         competitive_coverage: competitiveCoverage,
         competitive_objects:
           suffix === "market"
@@ -5254,6 +5331,7 @@ test("subject aggregation merges complementary lanes while preserving conflictin
     ),
   );
   assert.equal(aggregate.ranking_eligibility, "ranked");
+  assert.equal(aggregate.research_status, "complete");
   assert.deepEqual(aggregate.conflict_evidence_refs, [
     "evidence/records/complementary-market.json",
   ]);
@@ -5330,6 +5408,7 @@ test("cross-Lane interpretation conflicts are invariant to Audit path and input 
               metric_family: "retention_outcomes",
               state: "observed",
               observation_ids: ["observation_path_invariant"],
+              decision_grade_observation_ids: ["observation_path_invariant"],
               query_attempts: [],
               reason: null,
               alternative_metric: null,
@@ -5364,13 +5443,21 @@ test("cross-Lane interpretation conflicts are invariant to Audit path and input 
           metric_family: "retention_outcomes",
           state: "observed",
           observation_ids: ["observation_path_invariant"],
+          decision_grade_observation_ids: ["observation_path_invariant"],
           query_attempts: [],
           reason: null,
           alternative_metric: null,
           decision_impact: "Synthetic path-invariance coverage.",
         },
       ],
-      quantitative_observations: [],
+      quantitative_observations: [
+        {
+          observation_id: "observation_path_invariant",
+          subject_id: subjectId,
+          metric_family: "retention_outcomes",
+          decision_use: { grade: "decision_grade" },
+        },
+      ],
       competitive_coverage: [
         {
           subject_id: subjectId,
@@ -5502,10 +5589,13 @@ test("cross-Lane interpretation conflicts are invariant to Audit path and input 
   assert.equal(rejectedOnlyAggregate.ranking_eligibility, "ranked");
   assert.equal(
     rejectedOnlyCeiling.maximum_decision_tier,
-    "investigate_further",
+    "prioritize",
     JSON.stringify(rejectedOnlyCeiling),
   );
-  assert.ok((rejectedOnlyCeiling.reason_codes as string[]).includes("missing_retention_evidence"));
+  assert.equal(
+    (rejectedOnlyCeiling.reason_codes as string[]).includes("missing_retention_evidence"),
+    false,
+  );
   assert.equal(
     (rejectedOnlyCeiling.reason_codes as string[]).includes("conflicting_evidence_present"),
     false,
@@ -5551,8 +5641,11 @@ test("cross-Lane interpretation conflicts are invariant to Audit path and input 
     unknown
   >;
   const allRejectedCeiling = allRejectedAggregate.recommendation_ceiling as Record<string, unknown>;
-  assert.equal(allRejectedCeiling.maximum_decision_tier, "investigate_further");
-  assert.ok((allRejectedCeiling.reason_codes as string[]).includes("missing_retention_evidence"));
+  assert.equal(allRejectedCeiling.maximum_decision_tier, "prioritize");
+  assert.equal(
+    (allRejectedCeiling.reason_codes as string[]).includes("missing_retention_evidence"),
+    false,
+  );
   assert.equal(
     (allRejectedCeiling.reason_codes as string[]).includes("evidence_interpretation_disagreement"),
     false,
@@ -6001,13 +6094,14 @@ test("missing planned Audits create subject-local gaps without reopening duplica
     "unavailable",
   );
   assert.ok(
-    !projection.research_coverage_gaps.some(
+    projection.research_coverage_gaps.some(
       (row) =>
         row.coverage_kind === "quantitative" &&
         (row.coverage as Record<string, unknown>).subject_id === "subject_a" &&
         (row.coverage as Record<string, unknown>).metric_family === "demand_scale",
     ),
   );
+  assert.equal(aAggregate.research_status, "planned_with_gaps");
   assert.ok((aAggregate.execution_warning_task_refs as string[]).includes(duplicateMissing.path));
   assert.ok((aAggregate.execution_warning_task_refs as string[]).includes(uniqueMissing.path));
   assert.deepEqual(bAggregate.task_refs, [otherSubjectMissing.path]);

@@ -19,7 +19,11 @@ import {
   REQUIRED_RANKING_KEYS,
 } from "../validators/commercial-research-validator.js";
 import { projectGateWarnings } from "../validators/gate-diagnostics.js";
-import { deriveQuantitativeDecisionUse } from "../validators/quantitative-research-semantics.js";
+import {
+  deriveQuantitativeDecisionUse,
+  hasDecisionGradeQuantitativeSignal,
+  isQuantitativeCoverageFormallyComplete,
+} from "../validators/quantitative-research-semantics.js";
 import type { ValidationIssue } from "../validators/schema-bundle.js";
 
 interface SourceArtifact {
@@ -970,7 +974,9 @@ export function compileCommercialResearchDelivery(
   const concentrated = deriveSourceConcentration(adopted, evidenceDocuments).concentrated;
   const hasIndependent = adopted.some((item) => item.independence === "independent");
   const hasGaps =
-    quantitativeCoverage.some((item) => item.state !== "observed") ||
+    quantitativeCoverage.some(
+      (item) => !isQuantitativeCoverageFormallyComplete(item, quantitativeObservations),
+    ) ||
     competitiveCoverage.some((item) => item.state !== "observed") ||
     uncovered.length > 0 ||
     structuredGaps.some((gap) => gap.state !== "not_applicable") ||
@@ -988,6 +994,7 @@ export function compileCommercialResearchDelivery(
       refs,
       evidenceByRef,
       quantitativeCoverage,
+      quantitativeObservations,
       competitiveCoverage,
       evidence,
       subjectId,
@@ -1045,10 +1052,10 @@ export function compileCommercialResearchDelivery(
   const purchaseObserved = directlyCovered.has("purchase_signal");
   const demandObserved =
     directlyCovered.has("recent_user_language") ||
-    quantitativeCoverage.some(
-      (item) =>
-        item.state === "observed" &&
-        ["demand_scale", "growth_change"].includes(String(item.metric_family)),
+    hasDecisionGradeQuantitativeSignal(
+      quantitativeCoverage,
+      ["demand_scale", "growth_change"],
+      quantitativeObservations,
     );
   const buyerObserved = evidence.some(
     (item) =>
@@ -1110,7 +1117,14 @@ export function compileCommercialResearchDelivery(
     wave1_signals: { demand: demandObserved, buyer: buyerObserved, purchase: purchaseObserved },
     stage_decision: hasEarlySignal ? "continue_research" : "early_stop_insufficient_evidence",
     ranking_eligibility:
-      uncovered.length === 0 && !concentrated && hasIndependent ? "ranked" : "unranked_hypothesis",
+      uncovered.length === 0 &&
+      quantitativeCoverage.every((item) =>
+        isQuantitativeCoverageFormallyComplete(item, quantitativeObservations),
+      ) &&
+      !concentrated &&
+      hasIndependent
+        ? "ranked"
+        : "unranked_hypothesis",
     recommendation_ceiling: portfolioRecommendationCeiling,
     subject_recommendation_ceilings: subjectRecommendationCeilings,
     subject_assessments: subjectAssessments,

@@ -4,7 +4,11 @@ import {
   INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH,
 } from "../incumbent-response-contract.js";
 import { deriveSourceConcentration } from "../validators/commercial-source-concentration.js";
-import { deriveMarketPriorityAndCommercialReadiness } from "../validators/quantitative-research-semantics.js";
+import {
+  deriveMarketPriorityAndCommercialReadiness,
+  hasDecisionGradeQuantitativeSignal,
+  isQuantitativeCoverageFormallyComplete,
+} from "../validators/quantitative-research-semantics.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -518,6 +522,7 @@ function evidenceInterpretationLimitations(
 function aggregateRecommendationCeiling(input: {
   readonly coverage: Readonly<Record<string, unknown>>;
   readonly quantitativeCoverage: readonly Record<string, unknown>[];
+  readonly quantitativeObservations: readonly Record<string, unknown>[];
   readonly competitiveObjects: readonly Record<string, unknown>[];
   readonly evidence: readonly Record<string, unknown>[];
   readonly canonicalEvidence: readonly Record<string, unknown>[];
@@ -545,7 +550,7 @@ function aggregateRecommendationCeiling(input: {
       (row) =>
         row.metric_family === "retention_outcomes" &&
         row.state === "observed" &&
-        strings(row.decision_grade_observation_ids).length > 0,
+        isQuantitativeCoverageFormallyComplete(row, input.quantitativeObservations),
     )
   ) {
     if (tier === "prioritize") tier = "investigate_further";
@@ -770,7 +775,12 @@ export function projectCommercialAuditTables(
         subject_id: subjectId,
         metric_family: metricFamily,
       };
-      if (merged.state !== "observed") {
+      const subjectObservations = subjectAudits.flatMap((audit) =>
+        records(audit.document.quantitative_observations).filter(
+          (observation) => observation.subject_id === subjectId,
+        ),
+      );
+      if (!isQuantitativeCoverageFormallyComplete(merged, subjectObservations)) {
         gapRows.push({
           audit_refs: subjectAudits.map((audit) => audit.path),
           task_refs: taskRefs,
@@ -866,6 +876,11 @@ export function projectCommercialAuditTables(
     const ceiling = aggregateRecommendationCeiling({
       coverage,
       quantitativeCoverage,
+      quantitativeObservations: subjectAudits.flatMap((audit) =>
+        records(audit.document.quantitative_observations).filter(
+          (observation) => observation.subject_id === subjectId,
+        ),
+      ),
       competitiveObjects,
       evidence,
       canonicalEvidence,
@@ -894,7 +909,9 @@ export function projectCommercialAuditTables(
     const adopted = canonicalEvidence.filter((source) => source.disposition === "adopted");
     const completeDimensions =
       uncovered.length === 0 &&
-      quantitativeCoverage.every((row) => row.state === "observed") &&
+      quantitativeCoverage.every((row) =>
+        isQuantitativeCoverageFormallyComplete(row, quantitativeObservations),
+      ) &&
       competitiveCoverage.every((row) => row.state === "observed") &&
       unresolvedGenericGaps.length === 0;
     if (subjectTasks.length === 0 && subjectAudits.length === 0) {
@@ -926,10 +943,10 @@ export function projectCommercialAuditTables(
           (isRecord(coverage.recent_user_language)
             ? coverage.recent_user_language.state === "observed"
             : false) ||
-          quantitativeCoverage.some(
-            (row) =>
-              row.state === "observed" &&
-              ["demand_scale", "growth_change"].includes(String(row.metric_family)),
+          hasDecisionGradeQuantitativeSignal(
+            quantitativeCoverage,
+            ["demand_scale", "growth_change"],
+            quantitativeObservations,
           ),
         buyer: laneAssessments.some(
           (assessment) =>

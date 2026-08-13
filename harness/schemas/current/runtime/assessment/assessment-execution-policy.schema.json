@@ -109,7 +109,7 @@
           "const": 2
         },
         "max_additions_per_dimension": {
-          "const": 1
+          "const": 2
         },
         "gap_type": {
           "const": "decision_relevant_evidence_gap"

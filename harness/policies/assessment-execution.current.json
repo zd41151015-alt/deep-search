@@ -55,7 +55,7 @@
   },
   "followup": {
     "max_rounds": 2,
-    "max_additions_per_dimension": 1,
+    "max_additions_per_dimension": 2,
     "gap_type": "decision_relevant_evidence_gap",
     "requires_plan_revision": true,
     "information_gain_gate": {
