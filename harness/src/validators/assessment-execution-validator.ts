@@ -561,6 +561,27 @@ function validateLaneResult(
     );
   }
   for (const dimension of dimensions) {
+    const coverageDisposition = String(dimension.coverage_disposition);
+    const sufficiency = String(dimension.decision_sufficiency);
+    const evidenceRefs = strings(dimension.evidence_refs);
+    const validCoverageDisposition =
+      (sufficiency === "not_applicable" && coverageDisposition === "not_applicable") ||
+      (["blocked", "insufficient"].includes(sufficiency) &&
+        (coverageDisposition === "partial" ||
+          (sufficiency === "insufficient" &&
+            coverageDisposition === "no_evidence_found" &&
+            evidenceRefs.length === 0))) ||
+      (sufficiency === "sufficient" &&
+        coverageDisposition === (evidenceRefs.length > 0 ? "covered" : "partial"));
+    if (!validCoverageDisposition) {
+      errors.push(
+        issue(
+          "assessment_execution.dimension_coverage_disposition_invalid",
+          `${result.path}#${String(dimension.dimension_id)}`,
+          "dimension coverage disposition must preserve sufficient, insufficient, blocked, and not-applicable research semantics",
+        ),
+      );
+    }
     const judgments = strings(dimension.judgment_assessment_refs)
       .map((ref) => targetByRef(documents, ref))
       .filter((entry): entry is AssessmentExecutionDocument => entry !== null);

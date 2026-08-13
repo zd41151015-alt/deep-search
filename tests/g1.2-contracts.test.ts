@@ -333,23 +333,6 @@ test("direct Assessment Task uses the typed one-shot Lane delivery path", async 
     };
   });
   agentDocuments.push({ artifact_family: "commercial_audit", document: emptyCommercialDelivery() });
-  const coverageKeys = [
-    ...((state.task.document.commercial_research_requirements as Record<string, unknown>)
-      .required_commercial_dimensions as string[]),
-    ...(
-      (
-        (state.task.document.commercial_research_requirements as Record<string, unknown>)
-          .quantitative_competitive_scope as Record<string, unknown>
-      ).required_metric_families as string[]
-    ).map((value) => `quantitative:${value}`),
-    ...(
-      (
-        (state.task.document.commercial_research_requirements as Record<string, unknown>)
-          .quantitative_competitive_scope as Record<string, unknown>
-      ).required_competitor_types as string[]
-    ).map((value) => `competitive:${value}`),
-    state.branch.dimensionId,
-  ].sort();
   const staging = {
     schema_version: "startup_opportunity.lane_staging_document.current",
     staging_id: "staging_direct_assessment_lane_synthetic",
@@ -360,16 +343,6 @@ test("direct Assessment Task uses the typed one-shot Lane delivery path", async 
     operation: "validate_only",
     evidence_receipt_refs: receipts.map((receipt) => receipt.ref),
     delivery_contract: {
-      scope_coverage: coverageKeys.map((scopeKey) => ({
-        scope_key: scopeKey,
-        status: "partial",
-        evidence_refs:
-          scopeKey === state.branch.dimensionId ? receipts.map((receipt) => receipt.ref) : [],
-        notes:
-          scopeKey === state.branch.dimensionId
-            ? "The typed synthetic Evidence is formally bound by this insufficient dimension result."
-            : "The formal commercial outcome remains unavailable or incomplete.",
-      })),
       search_closure: {
         status: "completed",
         acquisition_routes_attempted: ["repository_source"],
@@ -381,37 +354,20 @@ test("direct Assessment Task uses the typed one-shot Lane delivery path", async 
   };
   const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
   const before = await snapshotTree(state.runRoot);
-  const contradictory = structuredClone(staging);
-  contradictory.staging_id = "staging_direct_assessment_lane_false_scope_synthetic";
-  const actualDimension = contradictory.delivery_contract.scope_coverage.find(
-    (entry) => entry.scope_key === state.branch.dimensionId,
-  );
-  const unrelatedCommercial = contradictory.delivery_contract.scope_coverage.find(
-    (entry) => entry.scope_key !== state.branch.dimensionId,
-  );
-  assert.ok(actualDimension);
-  assert.ok(unrelatedCommercial);
-  actualDimension.status = "no_evidence_found";
-  actualDimension.evidence_refs = [];
-  unrelatedCommercial.status = "covered";
-  unrelatedCommercial.evidence_refs = receipts.map((receipt) => receipt.ref);
-  await assert.rejects(materializer.materialize(contradictory), (error: unknown) => {
+  const duplicateAuthority = structuredClone(staging) as typeof staging & {
+    delivery_contract: typeof staging.delivery_contract & { scope_coverage: unknown };
+  };
+  duplicateAuthority.staging_id = "staging_direct_assessment_duplicate_scope_authority";
+  duplicateAuthority.delivery_contract.scope_coverage = [];
+  await assert.rejects(materializer.materialize(duplicateAuthority), (error: unknown) => {
     assert.ok(error instanceof StoreError);
-    assert.equal(error.code, "runtime.lane_preflight_failed");
+    assert.equal(error.code, "runtime.lane_staging_invalid");
     const issues = error.details.issues as Record<string, unknown>[];
     assert.ok(
       issues.some(
         (entry) =>
-          entry.code === "lane_delivery.scope_formal_disposition_mismatch" &&
-          entry.reference === unrelatedCommercial.scope_key &&
+          entry.code === "lane_delivery.schema.additionalProperties" &&
           entry.mechanically_derivable === true,
-      ),
-    );
-    assert.ok(
-      issues.some(
-        (entry) =>
-          entry.code === "lane_delivery.scope_formal_evidence_mismatch" &&
-          entry.reference === unrelatedCommercial.scope_key,
       ),
     );
     return true;
@@ -515,6 +471,33 @@ test("direct Assessment Task uses the typed one-shot Lane delivery path", async 
   assert.ok(
     tamperedValidation.referenceErrors.some(
       (entry) => entry.code === "runtime.lane_delivery_scope_closure_mismatch",
+    ),
+  );
+  const tamperedCoverageBundle = structuredClone(currentContext.bundle);
+  const tamperedCoverageReceiptEntry = tamperedCoverageBundle.documents.find(
+    (entry) => entry.path === published.delivery_receipt.artifact_path,
+  );
+  assert.ok(tamperedCoverageReceiptEntry);
+  const tamperedCoverageReceipt =
+    tamperedCoverageReceiptEntry.document as unknown as FormalArtifactEnvelope;
+  const tamperedCoverage = tamperedCoverageReceipt.document.scope_coverage as Record<
+    string,
+    unknown
+  >[];
+  assert.ok(tamperedCoverage[0]);
+  tamperedCoverage[0].status =
+    tamperedCoverage[0].status === "not_applicable" ? "partial" : "not_applicable";
+  (tamperedCoverageReceipt as { content_hash: string }).content_hash = canonicalContentHash(
+    tamperedCoverageReceipt.document,
+  );
+  const tamperedCoverageValidation = state.validator.validateDocumentBundle(
+    tamperedCoverageBundle,
+    currentContext.referenceContext,
+  );
+  assert.equal(tamperedCoverageValidation.valid, false);
+  assert.ok(
+    tamperedCoverageValidation.referenceErrors.some(
+      (entry) => entry.code === "runtime.lane_delivery_scope_coverage_mismatch",
     ),
   );
   const branch = published.compilation.compiled_envelopes.find(

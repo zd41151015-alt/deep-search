@@ -7,13 +7,14 @@ export interface LaneClosureArtifact {
   readonly document: Record<string, unknown>;
 }
 
-export interface LaneScopeCoverageDeclaration {
+export type LaneScopeDisposition = "covered" | "partial" | "no_evidence_found" | "not_applicable";
+
+export interface LaneScopeCoverage {
   readonly scope_key: string;
   readonly status: LaneScopeDisposition;
   readonly evidence_refs: readonly string[];
+  readonly notes: string;
 }
-
-export type LaneScopeDisposition = "covered" | "partial" | "no_evidence_found" | "not_applicable";
 
 export interface LaneScopeFormalClosure {
   readonly scope_key: string;
@@ -36,8 +37,7 @@ export interface LaneScopeFormalClosure {
 export interface LaneScopeClosureIssue {
   readonly code:
     | "lane_delivery.scope_formal_support_missing"
-    | "lane_delivery.scope_formal_disposition_mismatch"
-    | "lane_delivery.scope_formal_evidence_mismatch";
+    | "lane_delivery.scope_formal_disposition_invalid";
   readonly scopeKey: string;
   readonly message: string;
   readonly expected: unknown;
@@ -173,14 +173,18 @@ function accumulator(): ClosureAccumulator {
   return { evidence: new Map(), semantics: new Map(), visited: new Set() };
 }
 
-function dispositionForEvidence(
-  evidenceCount: number,
-  notApplicable: boolean,
-  complete = true,
+function dispositionForStates(
+  states: readonly unknown[],
+  completeState: "observed" | "assessed",
 ): LaneScopeDisposition {
-  if (notApplicable) return "not_applicable";
-  if (!complete) return "partial";
-  return evidenceCount === 0 ? "no_evidence_found" : "covered";
+  if (states.every((state) => state === "not_applicable")) return "not_applicable";
+  if (
+    states.some((state) => state === completeState) &&
+    states.every((state) => state === completeState || state === "not_applicable")
+  ) {
+    return "covered";
+  }
+  return "partial";
 }
 
 function assessmentClosure(
@@ -189,18 +193,13 @@ function assessmentClosure(
 ): { accumulator: ClosureAccumulator; disposition: LaneScopeDisposition } | null {
   const closure = accumulator();
   let matched = false;
-  let notApplicable = true;
-  let complete = true;
+  const dispositions: LaneScopeDisposition[] = [];
   for (const artifact of resolver.artifacts) {
     if (artifact.artifact_type === "startup_opportunity.assessment_lane_result.v1") {
       for (const [index, dimension] of records(artifact.document.dimension_results).entries()) {
         if (dimension.dimension_id !== scopeKey) continue;
         matched = true;
-        notApplicable =
-          notApplicable &&
-          (dimension.dimension_decision === "not_applicable" ||
-            dimension.decision_sufficiency === "not_applicable");
-        complete = complete && dimension.decision_sufficiency === "sufficient";
+        dispositions.push(dimension.coverage_disposition as LaneScopeDisposition);
         addSemantic(
           closure,
           artifact,
@@ -224,11 +223,7 @@ function assessmentClosure(
       artifact.document.dimension_id === scopeKey
     ) {
       matched = true;
-      notApplicable =
-        notApplicable &&
-        (artifact.document.dimension_decision === "not_applicable" ||
-          artifact.document.decision_sufficiency === "not_applicable");
-      complete = complete && artifact.document.decision_sufficiency === "sufficient";
+      dispositions.push(artifact.document.coverage_disposition as LaneScopeDisposition);
       addSemantic(closure, artifact, "/", `dimension:${scopeKey}`);
       for (const field of [
         "evidence_refs",
@@ -242,18 +237,8 @@ function assessmentClosure(
       }
     }
   }
-  return matched
-    ? {
-        accumulator: closure,
-        disposition: notApplicable
-          ? "not_applicable"
-          : closure.evidence.size === 0
-            ? "no_evidence_found"
-            : complete
-              ? "covered"
-              : "partial",
-      }
-    : null;
+  if (!matched || dispositions.length !== 1 || dispositions[0] === undefined) return null;
+  return { accumulator: closure, disposition: dispositions[0] };
 }
 
 function commercialClosure(
@@ -299,10 +284,9 @@ function commercialClosure(
     }
     return {
       accumulator: closure,
-      disposition: dispositionForEvidence(
-        closure.evidence.size,
-        matching.every((entry) => entry.state === "not_applicable"),
-        matching.every((entry) => entry.state === "observed"),
+      disposition: dispositionForStates(
+        matching.map((entry) => entry.state),
+        "observed",
       ),
     };
   }
@@ -337,10 +321,9 @@ function commercialClosure(
     }
     return {
       accumulator: closure,
-      disposition: dispositionForEvidence(
-        closure.evidence.size,
-        matching.every((entry) => entry.state === "not_applicable"),
-        matching.every((entry) => entry.state === "observed"),
+      disposition: dispositionForStates(
+        matching.map((entry) => entry.state),
+        "observed",
       ),
     };
   }
@@ -380,10 +363,9 @@ function commercialClosure(
     }
     return {
       accumulator: closure,
-      disposition: dispositionForEvidence(
-        closure.evidence.size,
-        coverage.every((entry) => entry.state === "not_applicable"),
-        coverage.every((entry) => entry.state === "assessed"),
+      disposition: dispositionForStates(
+        coverage.map((entry) => entry.state),
+        "assessed",
       ),
     };
   }
@@ -408,11 +390,11 @@ function commercialClosure(
   );
   return {
     accumulator: closure,
-    disposition: dispositionForEvidence(
-      closure.evidence.size,
-      notApplicable,
-      entry.content_covered === true && entry.state === "observed",
-    ),
+    disposition: notApplicable
+      ? "not_applicable"
+      : entry.content_covered === true && entry.state === "observed"
+        ? "covered"
+        : "partial",
   };
 }
 
@@ -447,7 +429,7 @@ function discoveryClosure(
 }
 
 export function deriveLaneScopeFormalClosure(
-  declarations: readonly LaneScopeCoverageDeclaration[],
+  assignedScope: readonly string[],
   artifacts: readonly LaneClosureArtifact[],
   rootArtifactRefs: readonly string[] = artifacts.map((artifact) => artifact.artifact_ref),
 ): {
@@ -461,19 +443,17 @@ export function deriveLaneScopeFormalClosure(
   );
   const closure: LaneScopeFormalClosure[] = [];
   const issues: LaneScopeClosureIssue[] = [];
-  for (const declaration of [...declarations].sort((left, right) =>
-    left.scope_key.localeCompare(right.scope_key),
-  )) {
+  for (const scopeKey of uniqueSorted(assignedScope)) {
     const derived =
-      assessmentClosure(declaration.scope_key, rootResolver) ??
-      commercialClosure(declaration.scope_key, rootResolver) ??
-      discoveryClosure(declaration.scope_key, rootResolver);
+      assessmentClosure(scopeKey, rootResolver) ??
+      commercialClosure(scopeKey, rootResolver) ??
+      discoveryClosure(scopeKey, rootResolver);
     if (derived === null) {
       issues.push({
         code: "lane_delivery.scope_formal_support_missing",
-        scopeKey: declaration.scope_key,
+        scopeKey,
         message: "assigned scope has no corresponding formal Lane Result or Audit semantic field",
-        expected: declaration.status,
+        expected: "formal authored scope outcome",
         actual: null,
       });
       continue;
@@ -485,38 +465,43 @@ export function deriveLaneScopeFormalClosure(
       canonicalJson(left).localeCompare(canonicalJson(right)),
     );
     const formalClosure: LaneScopeFormalClosure = {
-      scope_key: declaration.scope_key,
+      scope_key: scopeKey,
       disposition: derived.disposition,
       evidence_bindings: evidenceBindings,
       semantic_bindings: semanticBindings,
     };
     closure.push(formalClosure);
-    if (declaration.status !== derived.disposition) {
+    if (derived.disposition === "covered" && evidenceBindings.length === 0) {
       issues.push({
-        code: "lane_delivery.scope_formal_disposition_mismatch",
-        scopeKey: declaration.scope_key,
-        message: "authored scope disposition conflicts with the compiled formal semantic outcome",
-        expected: derived.disposition,
-        actual: declaration.status,
+        code: "lane_delivery.scope_formal_disposition_invalid",
+        scopeKey,
+        message: "formal covered scope has no reachable typed Evidence",
+        expected: "at least one exact typed Evidence binding",
+        actual: [],
       });
     }
-    const actualReceipts = uniqueSorted(
-      evidenceBindings.map((binding) => binding.substrate_record_ref),
-    );
-    const declaredReceipts = uniqueSorted(declaration.evidence_refs);
-    if (
-      (declaration.status === "covered" || declaration.status === "partial") &&
-      canonicalJson(actualReceipts) !== canonicalJson(declaredReceipts)
-    ) {
+    if (derived.disposition === "no_evidence_found" && evidenceBindings.length > 0) {
       issues.push({
-        code: "lane_delivery.scope_formal_evidence_mismatch",
-        scopeKey: declaration.scope_key,
-        message:
-          "authored scope Evidence receipts differ from the typed Evidence reachable from the formal semantic outcome",
-        expected: actualReceipts,
-        actual: declaredReceipts,
+        code: "lane_delivery.scope_formal_disposition_invalid",
+        scopeKey,
+        message: "formal no-Evidence outcome has reachable typed Evidence",
+        expected: [],
+        actual: evidenceBindings.map((binding) => binding.evidence_ref),
       });
     }
   }
   return { closure, issues };
+}
+
+export function laneScopeCoverageFromClosure(
+  closure: readonly LaneScopeFormalClosure[],
+): readonly LaneScopeCoverage[] {
+  return closure.map((entry) => ({
+    scope_key: entry.scope_key,
+    status: entry.disposition,
+    evidence_refs: uniqueSorted(
+      entry.evidence_bindings.map((binding) => binding.substrate_record_ref),
+    ),
+    notes: "Harness-derived from the exact formal Lane Result or Audit semantic closure.",
+  }));
 }

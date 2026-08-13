@@ -655,6 +655,27 @@ function checkBranch(
       ),
     );
   }
+  const coverageDisposition = String(branch.document.coverage_disposition);
+  const sufficiency = String(branch.document.decision_sufficiency);
+  const evidenceRefs = strings(branch.document.evidence_refs);
+  const validCoverageDisposition =
+    (sufficiency === "not_applicable" && coverageDisposition === "not_applicable") ||
+    (["blocked", "insufficient"].includes(sufficiency) &&
+      (coverageDisposition === "partial" ||
+        (sufficiency === "insufficient" &&
+          coverageDisposition === "no_evidence_found" &&
+          evidenceRefs.length === 0))) ||
+    (sufficiency === "sufficient" &&
+      coverageDisposition === (evidenceRefs.length > 0 ? "covered" : "partial"));
+  if (!validCoverageDisposition) {
+    errors.push(
+      issue(
+        "research_contract.branch_coverage_disposition_invalid",
+        `${branch.path}#/coverage_disposition`,
+        "Branch coverage disposition must preserve sufficient, insufficient, blocked, and not-applicable research semantics",
+      ),
+    );
+  }
   const linked = documents.filter((entry) => {
     const lineage = entry.document.lineage;
     return isRecord(lineage) && lineage.task_ref === task.path;

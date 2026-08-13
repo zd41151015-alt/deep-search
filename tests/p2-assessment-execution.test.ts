@@ -366,6 +366,7 @@ function resultForLane(
       opposing_claim_refs: [],
       judgment_assessment_refs:
         status === "failed" ? [] : [`judgments/${unitId}-${String(index)}.json`],
+      coverage_disposition: "partial",
       dimension_decision: disposition,
       decision_sufficiency: disposition === "insufficient_evidence" ? "insufficient" : "sufficient",
       insufficiency_reasons: disposition === "insufficient_evidence" ? ["no_signal"] : [],
@@ -846,6 +847,40 @@ test("multi-dimension results preserve lane coverage and early-kill gates stop l
   ];
   const codes = contractCodes(documents, validator.assessmentExecutionPolicy);
   assert.deepEqual(codes, []);
+
+  const explicitNoEvidence = structuredClone(problem);
+  const explicitNoEvidenceDimension = recordAt(
+    explicitNoEvidence.document.dimension_results as Record<string, unknown>[],
+    0,
+    "explicit no-Evidence dimension",
+  );
+  explicitNoEvidenceDimension.coverage_disposition = "no_evidence_found";
+  explicitNoEvidenceDimension.dimension_decision = "insufficient_evidence";
+  explicitNoEvidenceDimension.decision_sufficiency = "insufficient";
+  explicitNoEvidenceDimension.evidence_refs = [];
+  explicitNoEvidenceDimension.supporting_claim_refs = [];
+  explicitNoEvidenceDimension.opposing_claim_refs = [];
+  explicitNoEvidenceDimension.insufficiency_reasons = ["no_signal"];
+  assert.ok(
+    !contractCodes(
+      [...baseDocuments(runId, plan, execution), explicitNoEvidence],
+      validator.assessmentExecutionPolicy,
+    ).includes("assessment_execution.dimension_coverage_disposition_invalid"),
+  );
+
+  const blockedNoEvidence = structuredClone(explicitNoEvidence);
+  const blockedDimension = recordAt(
+    blockedNoEvidence.document.dimension_results as Record<string, unknown>[],
+    0,
+    "blocked no-Evidence dimension",
+  );
+  blockedDimension.decision_sufficiency = "blocked";
+  assert.ok(
+    contractCodes(
+      [...baseDocuments(runId, plan, execution), blockedNoEvidence],
+      validator.assessmentExecutionPolicy,
+    ).includes("assessment_execution.dimension_coverage_disposition_invalid"),
+  );
   assert.equal((problem.document.dimension_results as unknown[]).length, 3);
   assert.deepEqual(gate.document.not_started_unit_ids, [
     "unit_commercial",
@@ -1609,12 +1644,6 @@ test("Assessment Lane delivery derives its Dispatch contract and atomically publ
     operation: "validate_only",
     evidence_receipt_refs: [],
     delivery_contract: {
-      scope_coverage: (selectedLane.reporting_dimensions as string[]).map((dimensionId) => ({
-        scope_key: dimensionId,
-        status: "no_evidence_found",
-        evidence_refs: [],
-        notes: "The bounded synthetic Lane has no current Evidence.",
-      })),
       search_closure: {
         status: "completed",
         acquisition_routes_attempted: ["repository_source"],

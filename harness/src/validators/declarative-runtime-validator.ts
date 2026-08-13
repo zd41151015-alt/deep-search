@@ -1,6 +1,8 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
-import type { LaneScopeDisposition } from "../runtime/lane-delivery-closure.js";
-import { deriveLaneScopeFormalClosure } from "../runtime/lane-delivery-closure.js";
+import {
+  deriveLaneScopeFormalClosure,
+  laneScopeCoverageFromClosure,
+} from "../runtime/lane-delivery-closure.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
 export interface DeclarativeRuntimeDocument {
@@ -1177,11 +1179,7 @@ function validateLaneDeliveryReceipt(
   documents: readonly DeclarativeRuntimeDocument[],
   errors: ValidationIssue[],
 ): void {
-  const declarations = records(entry.document.scope_coverage).map((coverage) => ({
-    scope_key: String(coverage.scope_key),
-    status: coverage.status as LaneScopeDisposition,
-    evidence_refs: strings(coverage.evidence_refs),
-  }));
+  const assignedScope = strings(entry.document.assigned_scope);
   const delivered = records(entry.document.delivered_artifacts);
   const rootRefs = delivered.map((artifact) => String(artifact.artifact_ref));
   const artifacts = documents
@@ -1214,7 +1212,7 @@ function validateLaneDeliveryReceipt(
       );
     }
   }
-  const derived = deriveLaneScopeFormalClosure(declarations, artifacts, rootRefs);
+  const derived = deriveLaneScopeFormalClosure(assignedScope, artifacts, rootRefs);
   if (derived.issues.length > 0) {
     errors.push(
       ...derived.issues.map((closureIssue) =>
@@ -1233,6 +1231,17 @@ function validateLaneDeliveryReceipt(
         "/scope_formal_closure",
         "Lane delivery receipt scope closure must equal the closure recomputed from exact formal Artifacts",
         { expected: derived.closure, actual: entry.document.scope_formal_closure },
+      ),
+    );
+  }
+  const coverage = laneScopeCoverageFromClosure(derived.closure);
+  if (canonicalJson(entry.document.scope_coverage) !== canonicalJson(coverage)) {
+    errors.push(
+      issue(
+        "runtime.lane_delivery_scope_coverage_mismatch",
+        "/scope_coverage",
+        "Lane delivery receipt scope coverage must equal the coverage derived from exact formal Artifacts",
+        { expected: coverage, actual: entry.document.scope_coverage },
       ),
     );
   }

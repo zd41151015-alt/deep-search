@@ -19,6 +19,7 @@
     "opposing_claim_refs",
     "judgment_assessment_refs",
     "finding_refs",
+    "coverage_disposition",
     "dimension_decision",
     "decision_sufficiency",
     "insufficiency_reasons",
@@ -71,6 +72,9 @@
     "finding_refs": {
       "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
     },
+    "coverage_disposition": {
+      "enum": ["covered", "partial", "no_evidence_found", "not_applicable"]
+    },
     "dimension_decision": {
       "$ref": "./definitions.schema.json#/$defs/dimensionDecision"
     },
@@ -97,6 +101,46 @@
     }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": { "coverage_disposition": { "const": "covered" } },
+        "required": ["coverage_disposition"]
+      },
+      "then": {
+        "properties": {
+          "decision_sufficiency": { "const": "sufficient" },
+          "evidence_refs": { "type": "array", "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "coverage_disposition": { "const": "no_evidence_found" } },
+        "required": ["coverage_disposition"]
+      },
+      "then": {
+        "properties": {
+          "decision_sufficiency": { "const": "insufficient" },
+          "dimension_decision": { "const": "insufficient_evidence" },
+          "evidence_refs": { "type": "array", "maxItems": 0 },
+          "supporting_claim_refs": { "type": "array", "maxItems": 0 },
+          "opposing_claim_refs": { "type": "array", "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "coverage_disposition": { "const": "not_applicable" } },
+        "required": ["coverage_disposition"]
+      },
+      "then": {
+        "properties": {
+          "decision_sufficiency": { "const": "not_applicable" },
+          "dimension_decision": { "const": "not_applicable" },
+          "evidence_refs": { "type": "array", "maxItems": 0 }
+        }
+      }
+    },
     {
       "if": {
         "properties": {

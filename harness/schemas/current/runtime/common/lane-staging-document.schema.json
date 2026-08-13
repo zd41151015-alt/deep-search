@@ -50,7 +50,14 @@
       }
     },
     "delivery_contract": {
-      "$ref": "./lane-delivery-receipt.schema.json#/$defs/researchDeclaration"
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["search_closure"],
+      "properties": {
+        "search_closure": {
+          "$ref": "./lane-delivery-receipt.schema.json#/$defs/searchClosure"
+        }
+      }
     },
     "agent_documents": {
       "type": "array",

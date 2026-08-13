@@ -86,15 +86,7 @@ test("commercial scope closure binds exact typed Evidence and field identities",
     "competitive:direct_product",
     "incumbent_response",
   ];
-  const result = deriveLaneScopeFormalClosure(
-    scopeKeys.map((scopeKey) => ({
-      scope_key: scopeKey,
-      status: "covered" as const,
-      evidence_refs: ["evidence/manifest.jsonl#ev_scope"],
-    })),
-    [audit, evidence],
-    [audit.artifact_ref],
-  );
+  const result = deriveLaneScopeFormalClosure(scopeKeys, [audit, evidence], [audit.artifact_ref]);
   assert.deepEqual(result.issues, []);
   assert.deepEqual(
     result.closure.map((entry) => [entry.scope_key, entry.disposition]),
@@ -144,13 +136,7 @@ test("commercial scope closure preserves Evidence traceability without overstati
     document: incompleteAuditDocument,
   };
   const result = deriveLaneScopeFormalClosure(
-    ["purchase_signal", "quantitative:demand_scale", "competitive:direct_product"].map(
-      (scopeKey) => ({
-        scope_key: scopeKey,
-        status: "partial" as const,
-        evidence_refs: ["evidence/manifest.jsonl#ev_scope"],
-      }),
-    ),
+    ["purchase_signal", "quantitative:demand_scale", "competitive:direct_product"],
     [incompleteAudit, evidence],
     [incompleteAudit.artifact_ref],
   );
@@ -172,13 +158,7 @@ test("commercial inferred content remains partial rather than becoming observed 
     document: inferredDocument,
   };
   const result = deriveLaneScopeFormalClosure(
-    [
-      {
-        scope_key: "purchase_signal",
-        status: "partial",
-        evidence_refs: ["evidence/manifest.jsonl#ev_scope"],
-      },
-    ],
+    ["purchase_signal"],
     [inferredAudit, evidence],
     [inferredAudit.artifact_ref],
   );
@@ -202,19 +182,119 @@ test("commercial unavailable coverage remains partial even when no Evidence was 
     document: unavailableDocument,
   };
   const result = deriveLaneScopeFormalClosure(
-    [
-      {
-        scope_key: "quantitative:demand_scale",
-        status: "partial",
-        evidence_refs: [],
-      },
-    ],
+    ["quantitative:demand_scale"],
     [unavailableAudit],
     [unavailableAudit.artifact_ref],
   );
   assert.deepEqual(result.issues, []);
   assert.equal(result.closure[0]?.disposition, "partial");
   assert.deepEqual(result.closure[0]?.evidence_bindings, []);
+});
+
+test("commercial multi-subject reducers treat observed or assessed plus not-applicable as complete", () => {
+  const mixedDocument = structuredClone(auditDocument);
+  mixedDocument.quantitative_coverage.push({
+    subject_id: "subject_2",
+    metric_family: "demand_scale",
+    state: "not_applicable",
+    observation_ids: [],
+  });
+  mixedDocument.competitive_coverage.push({
+    subject_id: "subject_2",
+    competitor_type: "direct_product",
+    state: "not_applicable",
+    competitive_object_ids: [],
+  });
+  mixedDocument.incumbent_response_coverage.push({
+    subject_id: "subject_2",
+    state: "not_applicable",
+    assessment_ids: [],
+  });
+  const mixedAudit = {
+    ...audit,
+    content_hash: canonicalContentHash(mixedDocument),
+    document: mixedDocument,
+  };
+  const result = deriveLaneScopeFormalClosure(
+    ["quantitative:demand_scale", "competitive:direct_product", "incumbent_response"],
+    [mixedAudit, evidence],
+    [mixedAudit.artifact_ref],
+  );
+  assert.deepEqual(result.issues, []);
+  assert.deepEqual(
+    result.closure.map((entry) => [entry.scope_key, entry.disposition]),
+    [
+      ["competitive:direct_product", "covered"],
+      ["incumbent_response", "covered"],
+      ["quantitative:demand_scale", "covered"],
+    ],
+  );
+  for (const entry of result.closure) {
+    assert.equal(entry.semantic_bindings.length, 3);
+    assert.ok(
+      entry.semantic_bindings.some(
+        (binding) =>
+          binding.semantic_identity.includes("subject_2") &&
+          binding.semantic_identity.endsWith(":not_applicable"),
+      ),
+    );
+  }
+
+  const partialDocument = structuredClone(mixedDocument);
+  const quantitative = partialDocument.quantitative_coverage[1];
+  const competitive = partialDocument.competitive_coverage[1];
+  const incumbent = partialDocument.incumbent_response_coverage[1];
+  assert.ok(quantitative);
+  assert.ok(competitive);
+  assert.ok(incumbent);
+  quantitative.state = "unavailable";
+  competitive.state = "partial";
+  incumbent.state = "unknown";
+  const partialAudit = {
+    ...audit,
+    content_hash: canonicalContentHash(partialDocument),
+    document: partialDocument,
+  };
+  const partial = deriveLaneScopeFormalClosure(
+    ["quantitative:demand_scale", "competitive:direct_product", "incumbent_response"],
+    [partialAudit, evidence],
+    [partialAudit.artifact_ref],
+  );
+  assert.deepEqual(partial.issues, []);
+  assert.ok(partial.closure.every((entry) => entry.disposition === "partial"));
+
+  const notApplicableDocument = structuredClone(mixedDocument);
+  for (const entry of notApplicableDocument.quantitative_coverage) {
+    entry.state = "not_applicable";
+    entry.observation_ids = [];
+  }
+  for (const entry of notApplicableDocument.competitive_coverage) {
+    entry.state = "not_applicable";
+    entry.competitive_object_ids = [];
+  }
+  for (const entry of notApplicableDocument.incumbent_response_coverage) {
+    entry.state = "not_applicable";
+    entry.assessment_ids = [];
+  }
+  const notApplicableAudit = {
+    ...audit,
+    content_hash: canonicalContentHash(notApplicableDocument),
+    document: notApplicableDocument,
+  };
+  const notApplicable = deriveLaneScopeFormalClosure(
+    ["quantitative:demand_scale", "competitive:direct_product", "incumbent_response"],
+    [notApplicableAudit, evidence],
+    [notApplicableAudit.artifact_ref],
+  );
+  assert.deepEqual(notApplicable.issues, []);
+  assert.ok(notApplicable.closure.every((entry) => entry.disposition === "not_applicable"));
+  assert.ok(
+    notApplicable.closure.every((entry) =>
+      entry.semantic_bindings.every((binding) =>
+        binding.semantic_identity.endsWith(":not_applicable"),
+      ),
+    ),
+  );
 });
 
 test("Discovery scope closure binds authored per-scope semantics without spreading aggregate lineage", () => {
@@ -260,18 +340,7 @@ test("Discovery scope closure binds authored per-scope semantics without spreadi
     document: laneDocument,
   };
   const result = deriveLaneScopeFormalClosure(
-    [
-      {
-        scope_key: "demand",
-        status: "covered",
-        evidence_refs: ["evidence/manifest.jsonl#ev_scope"],
-      },
-      {
-        scope_key: "buyer",
-        status: "partial",
-        evidence_refs: ["evidence/manifest.jsonl#ev_other"],
-      },
-    ],
+    ["demand", "buyer"],
     [lane, evidence, secondEvidence],
     [lane.artifact_ref],
   );
@@ -316,17 +385,13 @@ test("Discovery partial scope may disclose unavailable research without claiming
     content_hash: canonicalContentHash(laneDocument),
     document: laneDocument,
   };
-  const result = deriveLaneScopeFormalClosure(
-    [{ scope_key: "buyer", status: "partial", evidence_refs: [] }],
-    [lane],
-    [lane.artifact_ref],
-  );
+  const result = deriveLaneScopeFormalClosure(["buyer"], [lane], [lane.artifact_ref]);
   assert.deepEqual(result.issues, []);
   assert.equal(result.closure[0]?.disposition, "partial");
   assert.deepEqual(result.closure[0]?.evidence_bindings, []);
 });
 
-test("Assessment dimension closure rejects a no-Evidence claim contradicted by formal Evidence", () => {
+test("Assessment dimension closure derives covered from one formal semantic authority", () => {
   const laneDocument = {
     schema_version: "startup_opportunity.assessment_lane_result.v1",
     dimension_results: [
@@ -336,6 +401,7 @@ test("Assessment dimension closure rejects a no-Evidence claim contradicted by f
         supporting_claim_refs: [],
         opposing_claim_refs: [],
         judgment_assessment_refs: [],
+        coverage_disposition: "covered",
         dimension_decision: "supports",
         decision_sufficiency: "sufficient",
       },
@@ -348,19 +414,11 @@ test("Assessment dimension closure rejects a no-Evidence claim contradicted by f
     document: laneDocument,
   };
   const result = deriveLaneScopeFormalClosure(
-    [
-      {
-        scope_key: "demand_and_behavior",
-        status: "no_evidence_found",
-        evidence_refs: [],
-      },
-    ],
+    ["demand_and_behavior"],
     [lane, evidence],
     [lane.artifact_ref],
   );
-  assert.ok(
-    result.issues.some((issue) => issue.code === "lane_delivery.scope_formal_disposition_mismatch"),
-  );
+  assert.deepEqual(result.issues, []);
   assert.equal(result.closure[0]?.disposition, "covered");
   assert.deepEqual(result.closure[0]?.evidence_bindings, [
     {
@@ -373,5 +431,106 @@ test("Assessment dimension closure rejects a no-Evidence claim contradicted by f
   assert.equal(
     result.closure[0]?.semantic_bindings[0]?.semantic_identity,
     "dimension:demand_and_behavior",
+  );
+});
+
+test("Assessment blocked and insufficient remain partial unless formal semantics say no Evidence was found", () => {
+  const dimension = (coverageDisposition: string, decisionSufficiency: string) => ({
+    dimension_id: "demand_and_behavior",
+    evidence_refs: [],
+    supporting_claim_refs: [],
+    opposing_claim_refs: [],
+    judgment_assessment_refs: [],
+    coverage_disposition: coverageDisposition,
+    dimension_decision: "insufficient_evidence",
+    decision_sufficiency: decisionSufficiency,
+  });
+  for (const [coverageDisposition, decisionSufficiency, expected] of [
+    ["partial", "blocked", "partial"],
+    ["partial", "insufficient", "partial"],
+    ["no_evidence_found", "insufficient", "no_evidence_found"],
+  ] as const) {
+    const document = {
+      schema_version: "startup_opportunity.assessment_lane_result.v1",
+      dimension_results: [dimension(coverageDisposition, decisionSufficiency)],
+    };
+    const lane = {
+      artifact_ref: `artifacts/runtime/assessment-results/${coverageDisposition}-${decisionSufficiency}.json`,
+      artifact_type: "startup_opportunity.assessment_lane_result.v1",
+      content_hash: canonicalContentHash(document),
+      document,
+    };
+    const result = deriveLaneScopeFormalClosure(
+      ["demand_and_behavior"],
+      [lane],
+      [lane.artifact_ref],
+    );
+    assert.deepEqual(result.issues, []);
+    assert.equal(result.closure[0]?.disposition, expected);
+    assert.deepEqual(result.closure[0]?.evidence_bindings, []);
+  }
+});
+
+test("Assessment no-Evidence semantics cannot hide typed Evidence reachable through a Judgment", () => {
+  const claimDocument = {
+    schema_version: "startup_opportunity.claim.assessment.current",
+    claim_id: "claim_no_evidence_conflict",
+    evidence_refs: [evidence.artifact_ref],
+  };
+  const claim = {
+    artifact_ref: "claims/no-evidence-conflict.json",
+    artifact_type: "startup_opportunity.claim.assessment.current",
+    content_hash: canonicalContentHash(claimDocument),
+    document: claimDocument,
+  };
+  const judgmentDocument = {
+    schema_version: "startup_opportunity.judgment_assessment.assessment.current",
+    judgment_id: "judgment_no_evidence_conflict",
+    supporting_claim_refs: [claim.artifact_ref],
+    opposing_claim_refs: [],
+  };
+  const judgment = {
+    artifact_ref: "judgments/no-evidence-conflict.json",
+    artifact_type: "startup_opportunity.judgment_assessment.assessment.current",
+    content_hash: canonicalContentHash(judgmentDocument),
+    document: judgmentDocument,
+  };
+  const laneDocument = {
+    schema_version: "startup_opportunity.assessment_lane_result.v1",
+    dimension_results: [
+      {
+        dimension_id: "demand_and_behavior",
+        evidence_refs: [],
+        supporting_claim_refs: [],
+        opposing_claim_refs: [],
+        judgment_assessment_refs: [judgment.artifact_ref],
+        coverage_disposition: "no_evidence_found",
+        dimension_decision: "insufficient_evidence",
+        decision_sufficiency: "insufficient",
+      },
+    ],
+  };
+  const lane = {
+    artifact_ref: "artifacts/runtime/assessment-results/no-evidence-conflict.json",
+    artifact_type: "startup_opportunity.assessment_lane_result.v1",
+    content_hash: canonicalContentHash(laneDocument),
+    document: laneDocument,
+  };
+  const result = deriveLaneScopeFormalClosure(
+    ["demand_and_behavior"],
+    [lane, judgment, claim, evidence],
+    [lane.artifact_ref],
+  );
+  assert.equal(result.closure[0]?.disposition, "no_evidence_found");
+  assert.deepEqual(result.closure[0]?.evidence_bindings, [
+    {
+      evidence_ref: evidence.artifact_ref,
+      artifact_type: evidence.artifact_type,
+      content_hash: evidence.content_hash,
+      substrate_record_ref: "evidence/manifest.jsonl#ev_scope",
+    },
+  ]);
+  assert.ok(
+    result.issues.some((issue) => issue.code === "lane_delivery.scope_formal_disposition_invalid"),
   );
 });

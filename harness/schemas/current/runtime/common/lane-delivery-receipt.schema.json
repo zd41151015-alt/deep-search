@@ -134,19 +134,6 @@
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
         }
       }
-    },
-    "researchDeclaration": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["scope_coverage", "search_closure"],
-      "properties": {
-        "scope_coverage": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/coverageEntry" }
-        },
-        "search_closure": { "$ref": "#/$defs/searchClosure" }
-      }
     }
   },
   "type": "object",

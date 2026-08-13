@@ -17,20 +17,13 @@ import {
 } from "./declarative-runtime.js";
 import {
   deriveLaneScopeFormalClosure,
-  type LaneScopeDisposition,
   type LaneScopeFormalClosure,
+  laneScopeCoverageFromClosure,
 } from "./lane-delivery-closure.js";
 
 interface RequiredArtifact {
   readonly artifact_type: string;
   readonly artifact_path: string;
-}
-
-interface CoverageEntry {
-  readonly scope_key: string;
-  readonly status: LaneScopeDisposition;
-  readonly evidence_refs: readonly string[];
-  readonly notes: string;
 }
 
 type AgentArtifactFamily =
@@ -54,7 +47,6 @@ interface LaneStagingDocument extends Record<string, unknown> {
   readonly publication_plan?: RuntimePublicationPlan;
   readonly evidence_receipt_refs: readonly string[];
   readonly delivery_contract: {
-    readonly scope_coverage: readonly CoverageEntry[];
     readonly search_closure: {
       readonly status: "completed" | "not_required";
       readonly acquisition_routes_attempted: readonly string[];
@@ -506,6 +498,7 @@ function preflight(
   authority: LaneDeliveryAuthority,
   prepared: readonly PreparedAgentArtifact[],
   constructionIssues: readonly LaneDeliveryIssue[],
+  scopeFormalClosure: readonly LaneScopeFormalClosure[],
 ): readonly LaneDeliveryIssue[] {
   const issues = [...constructionIssues];
   const delivered = prepared.map((item) => ({
@@ -566,63 +559,18 @@ function preflight(
     }
   }
 
-  const coverage = staging.delivery_contract.scope_coverage;
-  const coverageKeys = coverage.map((entry) => entry.scope_key);
-  for (const duplicate of duplicateStrings(coverageKeys)) {
-    issues.push(
-      issue(
-        staging.staging_id,
-        "lane_delivery.scope_coverage_duplicate",
-        "/delivery_contract/scope_coverage",
-        "an assigned scope key has more than one coverage disposition",
-        "The Lane reported multiple semantic outcomes for one assigned dimension.",
-        duplicate,
-        false,
-        [duplicate],
-      ),
-    );
-  }
-  for (const scope of authority.assignedScope.filter((value) => !coverageKeys.includes(value))) {
-    issues.push(
-      issue(
-        staging.staging_id,
-        "lane_delivery.scope_coverage_missing",
-        "/delivery_contract/scope_coverage",
-        "an authority-assigned scope item has no explicit terminal coverage state",
-        "The Lane omitted an assigned question or dimension.",
-        scope,
-        false,
-        [scope, authority.taskRef],
-      ),
-    );
-  }
-  for (const scope of coverageKeys.filter((value) => !authority.assignedScope.includes(value))) {
-    issues.push(
-      issue(
-        staging.staging_id,
-        "lane_delivery.scope_coverage_unassigned",
-        "/delivery_contract/scope_coverage",
-        "the delivery reports coverage outside the assigned Lane scope",
-        "The Lane expanded scope without a Plan revision.",
-        scope,
-        false,
-        [scope, authority.taskRef],
-      ),
-    );
-  }
-
   const declaredEvidence = new Set(staging.evidence_receipt_refs);
-  const usedEvidence = new Set<string>();
-  for (const [index, entry] of coverage.entries()) {
-    for (const reference of entry.evidence_refs) {
-      usedEvidence.add(reference);
+  for (const entry of scopeFormalClosure) {
+    for (const reference of entry.evidence_bindings.map(
+      (binding) => binding.substrate_record_ref,
+    )) {
       if (!declaredEvidence.has(reference)) {
         issues.push(
           issue(
             staging.staging_id,
             "lane_delivery.evidence_ref_undeclared",
-            `/delivery_contract/scope_coverage/${String(index)}/evidence_refs`,
-            "scope coverage cites Evidence outside this delivery closure",
+            "/agent_documents",
+            "formal scope semantics cite Evidence outside this delivery closure",
             "The exact Evidence receipt was omitted from the Lane bundle.",
             reference,
             false,
@@ -630,54 +578,6 @@ function preflight(
           ),
         );
       }
-    }
-    if (entry.status === "covered" && entry.evidence_refs.length === 0) {
-      issues.push(
-        issue(
-          staging.staging_id,
-          "lane_delivery.covered_scope_without_evidence",
-          `/delivery_contract/scope_coverage/${String(index)}`,
-          "covered scope requires at least one exact Evidence receipt",
-          "A complete research coverage conclusion was declared without formal Evidence.",
-          entry.scope_key,
-          false,
-          [entry.scope_key],
-        ),
-      );
-    }
-    if (
-      entry.status !== "covered" &&
-      entry.status !== "partial" &&
-      entry.evidence_refs.length > 0
-    ) {
-      issues.push(
-        issue(
-          staging.staging_id,
-          "lane_delivery.noncovered_scope_has_evidence",
-          `/delivery_contract/scope_coverage/${String(index)}`,
-          "a non-covered disposition cannot cite supporting Evidence",
-          "The semantic coverage disposition conflicts with its Evidence binding.",
-          entry.scope_key,
-          false,
-          [entry.scope_key],
-        ),
-      );
-    }
-  }
-  for (const reference of declaredEvidence) {
-    if (!usedEvidence.has(reference)) {
-      issues.push(
-        issue(
-          staging.staging_id,
-          "lane_delivery.evidence_ref_unassigned",
-          "/evidence_receipt_refs",
-          "an Evidence receipt is not assigned to any coverage item",
-          "Evidence was recorded but not semantically adopted by this Lane.",
-          reference,
-          false,
-          [reference],
-        ),
-      );
     }
   }
   const boundEvidence = prepared
@@ -737,7 +637,7 @@ function preflight(
     closure.status === "not_required" &&
     (closure.acquisition_routes_attempted.length !== 1 ||
       closure.acquisition_routes_attempted[0] !== "none" ||
-      coverage.some((entry) => entry.status !== "not_applicable"))
+      scopeFormalClosure.some((entry) => entry.disposition !== "not_applicable"))
   ) {
     issues.push(
       issue(
@@ -764,13 +664,9 @@ function scopeClosureIssues(
     issue(
       staging.staging_id,
       current.code,
-      `/delivery_contract/scope_coverage/${String(
-        staging.delivery_contract.scope_coverage.findIndex(
-          (entry) => entry.scope_key === current.scopeKey,
-        ),
-      )}`,
+      "/agent_documents",
       current.message,
-      "The Agent coverage declaration is not supported by the compiled formal Lane Result or Audit closure.",
+      "The compiled formal Lane Result or Audit does not prove the Task-assigned scope outcome.",
       current.scopeKey,
       true,
       [current.scopeKey, canonicalJson({ expected: current.expected, actual: current.actual })],
@@ -1181,16 +1077,22 @@ export class LaneResultMaterializer {
       preview === null
         ? { closure: [] as readonly LaneScopeFormalClosure[], issues: [] }
         : deriveLaneScopeFormalClosure(
-            staging.delivery_contract.scope_coverage,
+            authority.assignedScope,
             closureArtifacts,
             authority.requiredArtifacts.map((artifact) => artifact.artifact_path),
           );
-    const issues = preflight(staging, authority, prepared, [
-      ...constructionIssues,
-      ...sharedIssues,
-      ...discoveryScopeOutcomeIssues(staging, authority, prepared),
-      ...scopeClosureIssues(staging, scopeFormalClosure),
-    ]);
+    const issues = preflight(
+      staging,
+      authority,
+      prepared,
+      [
+        ...constructionIssues,
+        ...sharedIssues,
+        ...discoveryScopeOutcomeIssues(staging, authority, prepared),
+        ...scopeClosureIssues(staging, scopeFormalClosure),
+      ],
+      scopeFormalClosure.closure,
+    );
     if (issues.length > 0) {
       throw new StoreError(
         "runtime.lane_preflight_failed",
@@ -1214,6 +1116,7 @@ export class LaneResultMaterializer {
       artifact_type: envelope.artifact_type,
       content_hash: envelope.content_hash,
     }));
+    const scopeCoverage = laneScopeCoverageFromClosure(scopeFormalClosure.closure);
     const receiptIdentity = {
       run_id: staging.run_id,
       staging_id: staging.staging_id,
@@ -1225,7 +1128,7 @@ export class LaneResultMaterializer {
       delivered_artifacts: deliveredArtifacts,
       assigned_subject_refs: authority.assignedSubjectRefs,
       assigned_scope: authority.assignedScope,
-      scope_coverage: staging.delivery_contract.scope_coverage,
+      scope_coverage: scopeCoverage,
       scope_formal_closure: scopeFormalClosure.closure,
       search_closure: staging.delivery_contract.search_closure,
     };
@@ -1245,16 +1148,12 @@ export class LaneResultMaterializer {
         ],
         required_artifact_count: authority.requiredArtifacts.length,
         delivered_artifact_count: deliveredArtifacts.length,
-        covered_scope_count: staging.delivery_contract.scope_coverage.filter(
-          (entry) => entry.status === "covered",
-        ).length,
-        no_evidence_scope_count: staging.delivery_contract.scope_coverage.filter(
+        covered_scope_count: scopeCoverage.filter((entry) => entry.status === "covered").length,
+        no_evidence_scope_count: scopeCoverage.filter(
           (entry) => entry.status === "no_evidence_found",
         ).length,
-        partial_scope_count: staging.delivery_contract.scope_coverage.filter(
-          (entry) => entry.status === "partial",
-        ).length,
-        not_applicable_scope_count: staging.delivery_contract.scope_coverage.filter(
+        partial_scope_count: scopeCoverage.filter((entry) => entry.status === "partial").length,
+        not_applicable_scope_count: scopeCoverage.filter(
           (entry) => entry.status === "not_applicable",
         ).length,
         evidence_ref_count: staging.evidence_receipt_refs.length,

@@ -701,51 +701,6 @@ function incompleteDiscoveryLaneResult(
   };
 }
 
-const SYNTHETIC_ASSIGNED_COMMERCIAL_SCOPE = [
-  "alternatives_pricing_usage",
-  "buyer",
-  "competitive:adjacent_product",
-  "competitive:direct_product",
-  "competitive:manual_workaround",
-  "competitive:non_consumption",
-  "competitive:platform",
-  "competitive:service",
-  "competitive:status_quo",
-  "demand",
-  "distribution_channel",
-  "independent_counterevidence",
-  "purchase_signal",
-  "quantitative:commercial_behavior",
-  "quantitative:competitive_intensity",
-  "quantitative:demand_scale",
-  "quantitative:distribution",
-  "quantitative:growth_change",
-  "quantitative:retention_outcomes",
-  "quantitative:unit_economics",
-  "quantitative:usage_behavior",
-  "recent_user_language",
-] as const;
-
-function formalCommercialCoverage(evidenceRef?: string): Record<string, unknown>[] {
-  return [...SYNTHETIC_ASSIGNED_COMMERCIAL_SCOPE].sort().map((scopeKey) => ({
-    scope_key: scopeKey,
-    status:
-      evidenceRef !== undefined && scopeKey === "independent_counterevidence"
-        ? "partial"
-        : scopeKey === "buyer" || scopeKey === "demand"
-          ? "no_evidence_found"
-          : "partial",
-    evidence_refs:
-      evidenceRef !== undefined && scopeKey === "independent_counterevidence" ? [evidenceRef] : [],
-    notes:
-      evidenceRef !== undefined && scopeKey === "independent_counterevidence"
-        ? "Typed synthetic counterevidence is exact, but the formal Audit retains it as inferred partial coverage."
-        : scopeKey === "buyer" || scopeKey === "demand"
-          ? "The Discovery Lane Result reports that no Evidence was found for this scope."
-          : "The commercial Audit preserves this assigned scope as incomplete or unavailable.",
-  }));
-}
-
 function commercialDeliveryWithSemanticEvidence(
   runId: string,
   unitId: string,
@@ -1408,7 +1363,6 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
     operation: "validate_only",
     evidence_receipt_refs: [],
     delivery_contract: {
-      scope_coverage: formalCommercialCoverage(),
       search_closure: {
         status: "completed",
         acquisition_routes_attempted: ["user_provided"],
@@ -1434,15 +1388,6 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
     artifact_family: "finding",
     document: { finding_id: "finding_incomplete_delivery" },
   });
-  invalid.delivery_contract.scope_coverage.push({
-    scope_key: "unanswered_scope",
-    status: "not_applicable",
-    evidence_refs: [],
-    notes: "This scope was not assigned.",
-  });
-  const invalidCoverage = invalid.delivery_contract.scope_coverage[0];
-  assert.ok(invalidCoverage);
-  invalidCoverage.status = "covered";
   invalid.delivery_contract.search_closure.acquisition_routes_attempted = ["none"];
   const beforeRejectedPreflight = await snapshotTree(state.runRoot);
   await assert.rejects(materializer.materialize(invalid), (error: unknown) => {
@@ -1464,10 +1409,6 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
     );
     assert.ok(issues.some((issue) => issue.code === "lane_delivery.required_artifact_missing"));
     assert.ok(issues.some((issue) => issue.code === "runtime.compilation_document_invalid"));
-    assert.ok(issues.some((issue) => issue.code === "lane_delivery.scope_coverage_unassigned"));
-    assert.ok(
-      issues.some((issue) => issue.code === "lane_delivery.covered_scope_without_evidence"),
-    );
     assert.ok(issues.some((issue) => issue.code === "lane_delivery.search_closure_route_missing"));
     assert.ok(Array.isArray(error.details.root_causes));
     return true;
@@ -1543,7 +1484,7 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
   assert.equal(
     (incompleteDryRun.delivery_receipt.document.audit as Record<string, unknown>)
       .partial_scope_count,
-    incompleteCoverage.delivery_contract.scope_coverage.length - 2,
+    (incompleteDryRun.delivery_receipt.document.assigned_scope as unknown[]).length - 2,
   );
   assert.deepEqual(await snapshotTree(state.runRoot), beforeRejectedPreflight);
 
@@ -1747,7 +1688,6 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
     operation: "validate_only",
     evidence_receipt_refs: [substrateRef],
     delivery_contract: {
-      scope_coverage: formalCommercialCoverage(substrateRef),
       search_closure: {
         status: "completed",
         acquisition_routes_attempted: ["repository_source"],
