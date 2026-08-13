@@ -569,7 +569,6 @@
         "required": [
           "source_id",
           "title",
-          "url",
           "retrieved_at",
           "published_at",
           "observed_at",
@@ -599,6 +598,13 @@
           "url": {
             "type": "string",
             "format": "uri"
+          },
+          "canonical_uri": {
+            "type": "string",
+            "pattern": "^urn:startup-opportunity:user-provided:[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          },
+          "source_access": {
+            "enum": ["public", "user_provided_non_public"]
           },
           "retrieved_at": {
             "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
@@ -719,7 +725,23 @@
           "evidence_ref": {
             "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
           }
-        }
+        },
+        "oneOf": [
+          {
+            "required": ["url", "source_access"],
+            "properties": {
+              "url": { "type": "string", "format": "uri", "pattern": "^https?://" },
+              "source_access": { "const": "public" }
+            }
+          },
+          {
+            "required": ["canonical_uri", "source_access"],
+            "properties": {
+              "source_access": { "const": "user_provided_non_public" }
+            },
+            "not": { "required": ["url"] }
+          }
+        ]
       }
     },
     "research_provenance": {
@@ -730,6 +752,21 @@
       "items": {
         "$ref": "../assessment/commercial/commercial-report-projection.schema.json#/$defs/reportCitation"
       }
+    },
+    "report_evidence_dispositions": {
+      "type": "array",
+      "items": {
+        "$ref": "../assessment/commercial/commercial-report-projection.schema.json#/$defs/reportEvidenceDisposition"
+      }
+    },
+    "report_source_dispositions": {
+      "type": "array",
+      "items": {
+        "$ref": "../assessment/commercial/commercial-report-projection.schema.json#/$defs/reportSourceDisposition"
+      }
+    },
+    "full_commercial_projection": {
+      "$ref": "../assessment/commercial/commercial-report-projection.schema.json#/$defs/fullCommercialProjection"
     },
     "report_subject_labels": {
       "type": "array",

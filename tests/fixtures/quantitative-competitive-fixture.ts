@@ -453,6 +453,7 @@ export function commercialReportProjection(
     readonly task: Readonly<Record<string, unknown>>;
   }[] = [],
   documentsByPath: ReadonlyMap<string, Record<string, unknown>> = new Map(),
+  subjectIds?: readonly string[],
 ): Record<string, unknown> {
   return {
     ...projectCommercialAuditTables(
@@ -465,6 +466,7 @@ export function commercialReportProjection(
         document: task as Record<string, unknown>,
       })),
       documentsByPath,
+      subjectIds,
     ),
     gate_warnings: audits.flatMap(({ audit }) => records(audit.compiler_warnings)),
   };

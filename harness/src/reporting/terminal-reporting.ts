@@ -16,6 +16,7 @@ import {
   REPORT_SCAN_SURFACES,
   scanDiscoveryReportSurfaces,
 } from "./report-consistency.js";
+import { renderEvidenceDispositions } from "./report-evidence-dispositions.js";
 
 const TERMINAL_REPORT_SECTION_IDS = [
   "execution",
@@ -334,7 +335,13 @@ function renderSources(source: Record<string, unknown>, zh: boolean, limit?: num
   const items = sources.map((entry) => {
     const validity =
       entry.valid_as_of === null ? (zh ? "日期未知" : "date unknown") : String(entry.valid_as_of);
-    const base = `[${String(entry.title)}](${String(entry.url)}) (${validity}; ${enumLabel(entry.stance, zh)}; ${enumLabel(entry.strength, zh)}; ${enumLabel(entry.evidence_character, zh)})`;
+    const sourceLabel =
+      entry.source_access === "user_provided_non_public"
+        ? zh
+          ? `${String(entry.title)}（用户提供/非公开）`
+          : `${String(entry.title)} (user-provided/non-public)`
+        : `[${String(entry.title)}](${String(entry.url)})`;
+    const base = `${sourceLabel} (${validity}; ${enumLabel(entry.stance, zh)}; ${enumLabel(entry.strength, zh)}; ${enumLabel(entry.evidence_character, zh)})`;
     if (entry.claim_state !== "inferred" || !isRecord(entry.inference)) {
       return `${base}: ${String(entry.claim)}`;
     }
@@ -356,40 +363,6 @@ function renderStatistics(source: Record<string, unknown>, zh: boolean): string 
   return zh
     ? `- 可读来源 ${String(statistics.readable_source_count ?? 0)}；量化信号 ${String(statistics.quantitative_signal_count ?? 0)}（决策级 ${String(statistics.decision_grade_quantitative_signal_count ?? 0)}，方向/背景 ${String(statistics.directional_or_context_quantitative_signal_count ?? 0)}）；竞品/替代对象 ${String(statistics.competitive_object_count ?? 0)}；完整缺口行 ${String(statistics.full_gap_row_count ?? 0)}；核心缺口组 ${String(statistics.critical_gap_group_count ?? 0)}。\n`
     : `- Readable sources ${String(statistics.readable_source_count ?? 0)}; quantitative signals ${String(statistics.quantitative_signal_count ?? 0)} (decision-grade ${String(statistics.decision_grade_quantitative_signal_count ?? 0)}, directional/context ${String(statistics.directional_or_context_quantitative_signal_count ?? 0)}); competitive/substitute objects ${String(statistics.competitive_object_count ?? 0)}; full gap rows ${String(statistics.full_gap_row_count ?? 0)}; critical gap groups ${String(statistics.critical_gap_group_count ?? 0)}.\n`;
-}
-
-function renderExcludedEvidence(source: Record<string, unknown>, zh: boolean): string {
-  const citationByRef = new Map(
-    records(source.report_citations).map((entry) => [String(entry.evidence_ref), entry]),
-  );
-  const groups = new Map<string, string[]>();
-  for (const [index, entry] of records(source.excluded_evidence).entries()) {
-    const reason = String(entry.reason);
-    const evidenceRef = String(entry.evidence_ref);
-    const citation = citationByRef.get(evidenceRef);
-    const sourceLabel =
-      citation !== undefined && typeof citation.url === "string"
-        ? `[${String(citation.label)}](${String(citation.url)})`
-        : zh
-          ? `未公开来源 ${index + 1}`
-          : evidenceRef;
-    const refs = groups.get(reason) ?? [];
-    refs.push(zh ? sourceLabel : `${sourceLabel} \`${evidenceRef}\``);
-    groups.set(reason, refs);
-  }
-  if (groups.size === 0) {
-    return zh ? "- 没有排除材料。\n" : "- No excluded material.\n";
-  }
-  return `${[...groups]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(
-      ([reason, refs]) =>
-        `- **${reason}**\n${refs
-          .sort()
-          .map((ref) => `  - ${ref}`)
-          .join("\n")}`,
-    )
-    .join("\n")}\n`;
 }
 
 function userExecutionProjection(source: Record<string, unknown>): Record<string, unknown> {
@@ -573,8 +546,8 @@ export function renderTerminalAuditAppendix(source: Record<string, unknown>): st
     renderGateWarnings(source, zh),
     `\n## ${zh ? "研究来源沿袭" : "Research Provenance"}\n`,
     renderResearchProvenance(source, zh, true),
-    `\n## ${zh ? "排除材料与逐项可追溯来源" : "Excluded Material And Per-item Traceability"}\n`,
-    renderExcludedEvidence(source, zh),
+    `\n## ${zh ? "材料采用、限制与排除" : "Material Adoption, Limitations, And Exclusions"}\n`,
+    renderEvidenceDispositions(source, zh),
   ].join("");
 }
 

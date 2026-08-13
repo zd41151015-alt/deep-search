@@ -635,13 +635,14 @@
     "coverageGapRow": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["audit_ref", "coverage_kind", "coverage"],
+      "required": ["audit_ref", "coverage_kind", "coverage", "decision_relevance"],
       "properties": {
         "audit_ref": {
           "type": "string",
           "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
         },
         "coverage_kind": { "const": "incumbent_response" },
+        "decision_relevance": { "const": "context_only" },
         "coverage": { "$ref": "#/$defs/coverage" }
       }
     },

@@ -29,7 +29,9 @@ function strings(value: unknown): readonly string[] {
 interface ReportCitation {
   readonly evidence_ref: string;
   readonly label: string;
-  readonly url: string;
+  readonly source_access: "public" | "user_provided_non_public";
+  readonly url?: string;
+  readonly canonical_uri?: string;
 }
 
 function reportCitations(
@@ -39,7 +41,7 @@ function reportCitations(
     records(source.report_citations).flatMap((entry) =>
       typeof entry.evidence_ref === "string" &&
       typeof entry.label === "string" &&
-      typeof entry.url === "string"
+      (entry.source_access === "public" || entry.source_access === "user_provided_non_public")
         ? [[entry.evidence_ref, entry as unknown as ReportCitation] as const]
         : [],
     ),
@@ -239,7 +241,15 @@ function auditReferenceSummary(
   if (refs.length === 0) return "-";
   const readable = refs.flatMap((ref) => {
     const citation = citations.get(ref);
-    return citation === undefined ? [] : [markdownLink(citation.label, citation.url)];
+    return citation === undefined
+      ? []
+      : citation.source_access === "public" && typeof citation.url === "string"
+        ? [markdownLink(citation.label, citation.url)]
+        : [
+            zh
+              ? `${citation.label}（用户提供/非公开）`
+              : `${citation.label} (user-provided/non-public)`,
+          ];
   });
   const hiddenCount = refs.length - readable.length;
   const auditLabel = zh
@@ -839,6 +849,7 @@ export function projectCommercialAuditTables(
           task_refs: taskRefs,
           coverage_kind: "quantitative",
           coverage: merged,
+          decision_relevance: merged.acquisition_plan === null ? "non_blocking" : "blocking",
         });
       }
       return merged;
@@ -860,6 +871,7 @@ export function projectCommercialAuditTables(
           task_refs: taskRefs,
           coverage_kind: "competitive",
           coverage: merged,
+          decision_relevance: "non_blocking",
         });
       }
       return merged;
@@ -911,6 +923,7 @@ export function projectCommercialAuditTables(
         reason: gap.reason,
         alternative_metric: gap.alternative_metric,
         decision_impact: gap.decision_impact,
+        decision_relevance: gap.decision_relevance ?? "non_blocking",
         query_attempts: records(gap.query_attempts),
       });
     }
@@ -979,6 +992,7 @@ export function projectCommercialAuditTables(
         alternative_metric: null,
         decision_impact:
           "The subject remains visible, but its commercial evidence coverage is unknown and cannot be borrowed from another subject.",
+        decision_relevance: "blocking",
         query_attempts: [],
       });
     }
@@ -1046,6 +1060,7 @@ export function projectCommercialAuditTables(
         audit_ref: audit.path,
         coverage_kind: "incumbent_response",
         coverage,
+        decision_relevance: "context_only",
       });
     }
   }
@@ -1063,6 +1078,7 @@ export function projectCommercialAuditTables(
       reason: "The planned commercial research task has no current valid Audit artifact.",
       decision_impact:
         "Execution remains incomplete; only assigned dimensions not closed by another current Audit constrain a subject conclusion.",
+      decision_relevance: "blocking",
       assigned_metric_families: dimensions.metricFamilies,
       assigned_competitor_types: dimensions.competitorTypes,
       assigned_commercial_dimensions: dimensions.commercialDimensions,
@@ -1090,6 +1106,7 @@ export function projectCommercialAuditTables(
         reason: gap.reason,
         alternative_metric: gap.alternative_metric,
         decision_impact: gap.decision_impact,
+        decision_relevance: gap.decision_relevance ?? "non_blocking",
         query_attempts: records(gap.query_attempts),
       });
     }
@@ -1838,6 +1855,7 @@ interface CriticalGapGroup {
   readonly subjectId: string;
   readonly state: string;
   readonly decisionImpact: string;
+  readonly decisionRelevance: "blocking" | "non_blocking";
   readonly dimensions: readonly string[];
   readonly reasons: readonly string[];
 }
@@ -1847,6 +1865,7 @@ function gapProjection(row: Record<string, unknown>): {
   readonly state: string;
   readonly dimension: string;
   readonly decisionImpact: string;
+  readonly decisionRelevance: string;
   readonly reason: string;
 } {
   if (row.coverage_kind === "execution") {
@@ -1860,6 +1879,7 @@ function gapProjection(row: Record<string, unknown>): {
       state: String(row.state),
       dimension: dimensions.join(", ") || String(row.task_ref),
       decisionImpact: String(row.decision_impact),
+      decisionRelevance: String(row.decision_relevance),
       reason: String(row.reason),
     };
   }
@@ -1869,6 +1889,7 @@ function gapProjection(row: Record<string, unknown>): {
       state: String(row.state),
       dimension: String(row.dimension),
       decisionImpact: String(row.decision_impact),
+      decisionRelevance: String(row.decision_relevance),
       reason: String(row.reason),
     };
   }
@@ -1884,6 +1905,7 @@ function gapProjection(row: Record<string, unknown>): {
           : "absorption_and_response_risk",
     ),
     decisionImpact: String(coverage.decision_impact),
+    decisionRelevance: String(row.decision_relevance),
     reason: String(coverage.reason),
   };
 }
@@ -1897,12 +1919,13 @@ export function criticalResearchGapGroups(
     const projected = gapProjection(row);
     if (
       projected.state === "not_applicable" ||
-      projected.decisionImpact === INCUMBENT_RESPONSE_CONTEXT_ONLY
+      projected.decisionImpact === INCUMBENT_RESPONSE_CONTEXT_ONLY ||
+      !["blocking", "non_blocking"].includes(projected.decisionRelevance)
     ) {
       continue;
     }
     for (const subjectId of projected.subjectIds) {
-      const identity = `${subjectId}\u0000${projected.state}\u0000${projected.decisionImpact}`;
+      const identity = `${subjectId}\u0000${projected.decisionRelevance}\u0000${projected.state}\u0000${projected.decisionImpact}`;
       const group = groups.get(identity) ?? { dimensions: new Set(), reasons: new Set() };
       group.dimensions.add(projected.dimension);
       group.reasons.add(projected.reason);
@@ -1911,12 +1934,14 @@ export function criticalResearchGapGroups(
   }
   const bySubject = new Map<string, CriticalGapGroup[]>();
   for (const [identity, group] of groups) {
-    const [subjectId = "", state = "", decisionImpact = ""] = identity.split("\u0000");
+    const [subjectId = "", decisionRelevance = "non_blocking", state = "", decisionImpact = ""] =
+      identity.split("\u0000");
     const values = bySubject.get(subjectId) ?? [];
     values.push({
       subjectId,
       state,
       decisionImpact,
+      decisionRelevance: decisionRelevance as "blocking" | "non_blocking",
       dimensions: [...group.dimensions].sort(),
       reasons: [...group.reasons].sort(),
     });
@@ -1926,11 +1951,15 @@ export function criticalResearchGapGroups(
     .sort(([left], [right]) => left.localeCompare(right))
     .flatMap(([, values]) =>
       values
-        .sort((left, right) =>
-          `${left.state}:${left.decisionImpact}:${left.dimensions.join(",")}`.localeCompare(
-            `${right.state}:${right.decisionImpact}:${right.dimensions.join(",")}`,
-          ),
-        )
+        .sort((left, right) => {
+          const relevance = { blocking: 0, non_blocking: 1 } as const;
+          return (
+            relevance[left.decisionRelevance] - relevance[right.decisionRelevance] ||
+            `${left.state}:${left.dimensions.join(",")}:${left.decisionImpact}`.localeCompare(
+              `${right.state}:${right.dimensions.join(",")}:${right.decisionImpact}`,
+            )
+          );
+        })
         .slice(0, 5),
     );
 }
@@ -1952,7 +1981,9 @@ export function deriveReportStatistics(
     competitive_object_count: records(source.competitive_substitute_rows).length,
     full_gap_row_count: records(source.research_coverage_gaps).length,
     critical_gap_group_count: criticalResearchGapGroups(source).length,
-    excluded_evidence_count: records(source.excluded_evidence).length,
+    excluded_evidence_count: records(source.report_evidence_dispositions).filter(
+      (entry) => entry.disposition === "excluded",
+    ).length,
   };
 }
 

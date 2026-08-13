@@ -1,6 +1,14 @@
+import type { FormalArtifactEnvelope } from "../artifact-store/artifact-store.js";
 import { canonicalContentHash, canonicalJson, sha256Bytes } from "../artifact-store/canonical.js";
 import { deriveReportStatistics } from "../reporting/commercial-report-tables.js";
 import { deriveReportCitations } from "../reporting/report-citation-authority.js";
+import { localizedInternalLeakageIssues } from "../reporting/report-localization.js";
+import {
+  deriveConfirmedResearchLanguage,
+  deriveNonTerminalReportSubjectIds,
+  deriveReportDispositions,
+  deriveReportSubjectLabels,
+} from "../reporting/report-projection-authority.js";
 import {
   type AssessmentReportingPolicy,
   REQUIRED_CHALLENGE_DIMENSIONS,
@@ -947,6 +955,77 @@ function validateReportSet(
   }
   const errors: ValidationIssue[] = [];
   for (const report of reports) {
+    const manifest = bySchema(documents, "startup_opportunity.run_manifest.v1")[0];
+    const envelopesByPath = new Map<string, FormalArtifactEnvelope>(
+      documents.map((entry) => [
+        entry.path,
+        (entry.envelope !== null &&
+        typeof entry.envelope.content_hash === "string" &&
+        isRecord(entry.envelope.document)
+          ? entry.envelope
+          : {
+              artifact_path: entry.path,
+              artifact_type: entry.schemaVersion,
+              content_hash: canonicalContentHash(entry.document),
+              document: entry.document,
+            }) as unknown as FormalArtifactEnvelope,
+      ]),
+    );
+    try {
+      if (manifest === undefined) {
+        throw new Error("current Manifest is missing");
+      }
+      const expectedLanguage = deriveConfirmedResearchLanguage(manifest.document, exactRecords);
+      const expectedSubjectIds = deriveNonTerminalReportSubjectIds(
+        report.schemaVersion,
+        report.document,
+        new Map(documents.map((entry) => [entry.path, entry.document])),
+      );
+      const expectedLabels = deriveReportSubjectLabels(
+        expectedSubjectIds,
+        new Map(documents.map((entry) => [entry.path, entry.document])),
+        [],
+        expectedLanguage,
+      );
+      const expectedDispositions = deriveReportDispositions(
+        report.schemaVersion,
+        report.document,
+        envelopesByPath,
+      );
+      for (const [field, actual, expected] of [
+        ["research_language", report.document.research_language, expectedLanguage],
+        ["report_subject_labels", report.document.report_subject_labels, expectedLabels],
+        [
+          "report_evidence_dispositions",
+          report.document.report_evidence_dispositions,
+          expectedDispositions.reportEvidenceDispositions,
+        ],
+        [
+          "report_source_dispositions",
+          report.document.report_source_dispositions,
+          expectedDispositions.reportSourceDispositions,
+        ],
+      ] as const) {
+        if (actual !== undefined && canonicalJson(actual) !== canonicalJson(expected)) {
+          errors.push(
+            issue(
+              "report.mechanical_projection_mismatch",
+              `${report.path}#/${field}`,
+              "report language, final subjects, and material dispositions must be mechanically derived from exact current-Run authorities",
+              { field, expected },
+            ),
+          );
+        }
+      }
+    } catch (error) {
+      errors.push(
+        issue(
+          "report.mechanical_projection_invalid",
+          report.path,
+          error instanceof Error ? error.message : "report authority derivation failed",
+        ),
+      );
+    }
     const expectedCitations = deriveReportCitations(documents, exactRecords, report.document);
     if (
       report.document.report_citations !== undefined &&
@@ -1203,7 +1282,12 @@ function validateReportSet(
           flattenSummaryRefs(context.decisive_opposition),
         ) ||
         !sameStrings(brief.document.limitations, context.limitations) ||
-        brief.document.markdown_content_hash !== sha256Bytes(String(brief.document.markdown))
+        brief.document.markdown_content_hash !== sha256Bytes(String(brief.document.markdown)) ||
+        brief.document.research_language !== report.document.research_language ||
+        localizedInternalLeakageIssues(
+          report.document.research_language,
+          String(brief.document.markdown),
+        ).length > 0
       ) {
         errors.push(
           issue(
@@ -1231,7 +1315,12 @@ function validateReportSet(
         view.document.markdown_content_hash !== sha256Bytes(String(view.document.markdown)) ||
         view.document.audit_appendix_path !== "audit-appendix.md" ||
         view.document.audit_appendix_content_hash !==
-          sha256Bytes(String(view.document.audit_appendix_markdown))
+          sha256Bytes(String(view.document.audit_appendix_markdown)) ||
+        view.document.research_language !== report.document.research_language ||
+        localizedInternalLeakageIssues(
+          report.document.research_language,
+          `${String(view.document.markdown)}\n${String(view.document.audit_appendix_markdown)}`,
+        ).length > 0
       ) {
         errors.push(
           issue(

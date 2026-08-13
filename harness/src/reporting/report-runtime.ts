@@ -49,6 +49,20 @@ import {
   REPORT_SCAN_SURFACES,
   scanDiscoveryReportSurfaces,
 } from "./report-consistency.js";
+import { renderEvidenceDispositions } from "./report-evidence-dispositions.js";
+import {
+  boundedValues,
+  isChineseResearchLanguage,
+  localizedEnum,
+  localizedInternalLeakageIssues,
+  userVisibleText,
+} from "./report-localization.js";
+import {
+  deriveConfirmedResearchLanguage,
+  deriveNonTerminalReportSubjectIds,
+  deriveReportDispositions,
+  deriveReportSubjectLabels,
+} from "./report-projection-authority.js";
 import { deriveTerminalReportDocuments } from "./terminal-reporting.js";
 
 const REPORT_SECTION_ORDER = [
@@ -97,6 +111,20 @@ const REPORT_SECTION_TITLES: Readonly<Record<(typeof REPORT_SECTION_ORDER)[numbe
   limitations_and_sources: "Limitations and Sources",
 };
 
+const REPORT_SECTION_TITLES_ZH: Readonly<Record<(typeof REPORT_SECTION_ORDER)[number], string>> = {
+  assessment_result_and_evidence_strength: "评估结果与材料强度",
+  concept_hypothesis: "产品假设",
+  decisive_support_and_opposition: "关键支持与反对材料",
+  demand_alternatives_solution_failure: "需求、替代方案与现有方案失效",
+  competition_and_differentiation: "竞争与差异化",
+  buyer_acquisition_business_engine: "买方、获客与商业模式",
+  feasibility_compliance_ai_bundle: "可行性、合规与 AI 边界",
+  critical_unknowns_and_kill_criteria: "关键未知与停止条件",
+  decision_recommendation: "决策建议",
+  optional_validation_suggestions: "可选验证建议",
+  limitations_and_sources: "限制与来源",
+};
+
 const REPORT_CHECKS = [
   "result",
   "refs",
@@ -140,6 +168,21 @@ const DISCOVERY_REPORT_SECTION_IDS = [
   "research_coverage_gaps",
   "traceability_and_sources",
 ] as const;
+
+const DISCOVERY_SECTION_TITLES_ZH: Readonly<
+  Record<(typeof DISCOVERY_REPORT_SECTION_ORDER)[number], string>
+> = {
+  conclusion_summary: "结论摘要",
+  scope_and_profile: "范围与研究画像",
+  decision_recommendation: "决策建议",
+  portfolio: "方向组合",
+  comparison_and_partial_order: "比较与局部排序",
+  method_and_limitations: "方法与限制",
+  top_opportunities: "优先机会",
+  watchlist_and_reject: "观察与淘汰方向",
+  sensitivity: "敏感性",
+  traceability_and_sources: "可追溯性与来源",
+};
 
 export type ReportFaultBoundary =
   | "after_report_sidecar"
@@ -277,17 +320,57 @@ function markdownList(values: readonly string[], emptyText = "None recorded."): 
     : `${values.map((value) => `- ${value}`).join("\n")}\n`;
 }
 
-function summaryList(value: unknown): string {
+function localizedMarkdownList(value: unknown, zh: boolean): string {
+  return markdownList(
+    strings(value).map((entry) => userVisibleText(entry, zh)),
+    zh ? "无" : "None recorded.",
+  );
+}
+
+function boundedMarkdownList(value: unknown, zh: boolean, limit = 5): string {
+  const values = boundedValues(
+    strings(value).map((entry) => userVisibleText(entry, zh)),
+    limit,
+  );
+  return markdownList(
+    [
+      ...values.visible,
+      ...(values.omitted === 0
+        ? []
+        : [
+            zh
+              ? `其余 ${values.omitted} 项保留在核心报告和审计附录。`
+              : `${values.omitted} additional item${values.omitted === 1 ? "" : "s"} remain in the core report and audit appendix.`,
+          ]),
+    ],
+    zh ? "无" : "None recorded.",
+  );
+}
+
+function summaryList(value: unknown, zh: boolean, limit?: number): string {
   const summaries = records(value);
   if (summaries.length === 0) {
-    return "- None recorded.\n";
+    return zh ? "- 无\n" : "- None recorded.\n";
   }
-  return `${summaries
-    .map((entry) => {
-      const refs = strings(entry.refs).join(", ");
-      return `- ${String(entry.summary)} [${refs}]`;
-    })
-    .join("\n")}\n`;
+  const selected = limit === undefined ? summaries : summaries.slice(0, limit);
+  const omitted = summaries.length - selected.length;
+  return (
+    `${selected.map((entry) => `- ${userVisibleText(entry.summary, zh)}`).join("\n")}\n` +
+    (omitted === 0
+      ? ""
+      : `- ${zh ? `其余 ${omitted} 项及其精确引用保留在核心报告和审计附录。` : `${omitted} additional item${omitted === 1 ? "" : "s"} and exact references remain in the core report and audit appendix.`}\n`)
+  );
+}
+
+function localizedLeakageGuard(report: Record<string, unknown>, markdown: string): void {
+  const issues = localizedInternalLeakageIssues(report.research_language, markdown);
+  if (issues.length > 0) {
+    throw new StoreError(
+      "report.localized_surface_internal_term",
+      "localized report surfaces must hide internal codes and Artifact references",
+      { issues },
+    );
+  }
 }
 
 function renderReportStatistics(report: Record<string, unknown>, zh = false): string {
@@ -302,106 +385,128 @@ function renderGenericAuditAppendix(
   title: string,
   zh = false,
 ): string {
+  const fullProjection = isRecord(report.full_commercial_projection)
+    ? report.full_commercial_projection
+    : {};
+  const auditModel = { ...report, ...fullProjection };
   return [
     `# ${title}\n\n`,
     `> ${zh ? "本附录由 Harness 从与决策摘要和核心报告相同的最终 report model 机械派生；完整结构化真值保留在 report.json。" : "This appendix is mechanically derived by the Harness from the same final report model as the brief and core report; report.json retains the complete structured truth."}\n\n`,
     `## ${zh ? "机械统计" : "Mechanical Statistics"}\n`,
-    renderReportStatistics(report, zh),
+    renderReportStatistics(
+      { ...auditModel, report_statistics: deriveReportStatistics(auditModel) },
+      zh,
+    ),
     `\n## ${zh ? "全部量化信号" : "All Quantitative Signals"}\n`,
-    renderQuantitativeSignalTable(report, zh),
+    renderQuantitativeSignalTable(auditModel, zh),
     `\n## ${zh ? "完整竞品与广义替代矩阵" : "Full Competitive And Substitute Matrix"}\n`,
-    renderCompetitiveSubstituteMatrix(report, zh),
+    renderCompetitiveSubstituteMatrix(auditModel, zh),
     `\n## ${zh ? "完整研究覆盖缺口" : "Full Research Coverage Gaps"}\n`,
-    renderResearchCoverageGaps(report, zh),
+    renderResearchCoverageGaps(auditModel, zh),
+    `\n## ${zh ? "材料采用、限制与排除" : "Material Adoption, Limitations, And Exclusions"}\n`,
+    renderEvidenceDispositions(report, zh),
     `\n## ${zh ? "非阻塞诊断" : "Non-blocking Diagnostics"}\n`,
     renderGateWarnings(report, zh),
   ].join("");
 }
 
 function renderDecisionBrief(report: Record<string, unknown>): string {
+  const zh = isChineseResearchLanguage(report.research_language);
   const context = requiredRecord(report.curated_judgment_context, "curated_judgment_context");
   const belief = requiredRecord(context.belief_update_summary, "belief_update_summary");
   const boundary = requiredRecord(context.external_action_boundary, "external_action_boundary");
   return [
-    "# Decision Brief\n",
-    "## Decision Question\n",
-    `${String(context.decision_question)}\n\n`,
-    "## Current Recommendation\n",
-    `${String(context.current_recommendation)}\n\n`,
-    `Assessment result: ${String(context.assessment_result)}\n\n`,
-    `Meaning: ${String(context.recommendation_meaning)}\n\n`,
-    "## Key Research Counts\n",
-    renderReportStatistics(report),
-    "\n## Decisive Support\n",
-    summaryList(context.decisive_support),
-    "\n## Decisive Opposition\n",
-    summaryList(context.decisive_opposition),
-    "\n## Alternatives Not Selected\n",
-    markdownList(strings(context.alternatives_not_selected)),
-    "\n## Critical Unknowns\n",
-    markdownList(strings(context.critical_unknowns)),
-    "\n## What Would Change the Decision\n",
-    markdownList(strings(context.what_would_change_the_decision)),
-    "\n## Belief Update\n",
-    `Initial belief: ${String(belief.initial_belief)}\n\n`,
-    "Evidence that changed belief:\n",
-    markdownList(strings(belief.evidence_that_changed_belief)),
-    "\nUnchanged assumptions:\n",
-    markdownList(strings(belief.unchanged_assumptions)),
-    "\nRemaining disagreement:\n",
-    markdownList(strings(belief.remaining_disagreement)),
-    `\nFinal decision owner: ${String(belief.final_decision_owner)}\n\n`,
-    "## Scope and Freshness\n",
-    `${String(context.scope_summary)}\n\nValid as of: ${String(context.valid_as_of)}\n\n`,
-    "## Limitations\n",
-    markdownList(strings(context.limitations)),
-    "\n## Incumbent Absorption And Response Risk\n",
-    renderIncumbentResponseDisclosure(report),
-    "\n## External Action Boundary\n",
-    `Execution owner: ${String(boundary.execution_owner)}\n\n`,
-    `Execution supported: ${String(boundary.execution_supported)}\n\n`,
-    `Result tracking supported: ${String(boundary.result_tracking_supported)}\n\n`,
-    `External validation claimed: ${String(boundary.external_validation_claimed)}\n`,
+    `# ${zh ? "决策摘要" : "Decision Brief"}\n`,
+    `## ${zh ? "决策问题" : "Decision Question"}\n`,
+    `${userVisibleText(context.decision_question, zh)}\n\n`,
+    `## ${zh ? "当前建议" : "Current Recommendation"}\n`,
+    `${userVisibleText(context.current_recommendation, zh)}\n\n`,
+    `${zh ? "评估结果" : "Assessment result"}: ${localizedEnum(context.assessment_result, zh)}\n\n`,
+    `${zh ? "含义" : "Meaning"}: ${userVisibleText(context.recommendation_meaning, zh)}\n\n`,
+    `## ${zh ? "研究概览" : "Key Research Counts"}\n`,
+    renderReportStatistics(report, zh),
+    `\n## ${zh ? "关键支持材料" : "Decisive Support"}\n`,
+    summaryList(context.decisive_support, zh, 4),
+    `\n## ${zh ? "关键反对材料" : "Decisive Opposition"}\n`,
+    summaryList(context.decisive_opposition, zh, 5),
+    `\n## ${zh ? "未选择的替代方向" : "Alternatives Not Selected"}\n`,
+    boundedMarkdownList(context.alternatives_not_selected, zh),
+    `\n## ${zh ? "关键未知" : "Critical Unknowns"}\n`,
+    boundedMarkdownList(context.critical_unknowns, zh),
+    `\n## ${zh ? "哪些情况会改变决策" : "What Would Change the Decision"}\n`,
+    boundedMarkdownList(context.what_would_change_the_decision, zh),
+    `\n## ${zh ? "判断变化" : "Belief Update"}\n`,
+    `${zh ? "初始判断" : "Initial belief"}: ${userVisibleText(belief.initial_belief, zh)}\n\n`,
+    `${zh ? "改变判断的材料" : "Evidence that changed belief"}:\n`,
+    boundedMarkdownList(belief.evidence_that_changed_belief, zh),
+    `\n${zh ? "未改变的假设" : "Unchanged assumptions"}:\n`,
+    boundedMarkdownList(belief.unchanged_assumptions, zh),
+    `\n${zh ? "仍存分歧" : "Remaining disagreement"}:\n`,
+    boundedMarkdownList(belief.remaining_disagreement, zh),
+    `\n${zh ? "最终决策者" : "Final decision owner"}: ${localizedEnum(belief.final_decision_owner, zh)}\n\n`,
+    `## ${zh ? "范围与时效" : "Scope and Freshness"}\n`,
+    `${userVisibleText(context.scope_summary, zh)}\n\n${zh ? "有效日期" : "Valid as of"}: ${String(context.valid_as_of)}\n\n`,
+    `## ${zh ? "限制" : "Limitations"}\n`,
+    boundedMarkdownList(context.limitations, zh),
+    `\n## ${zh ? "头部公司吸收与响应风险" : "Incumbent Absorption And Response Risk"}\n`,
+    renderIncumbentResponseDisclosure(report, zh),
+    `\n## ${zh ? "外部行动边界" : "External Action Boundary"}\n`,
+    `${zh ? "执行责任人" : "Execution owner"}: ${localizedEnum(boundary.execution_owner, zh)}\n\n`,
+    `${zh ? "是否支持执行" : "Execution supported"}: ${localizedEnum(boundary.execution_supported, zh)}\n\n`,
+    `${zh ? "是否支持结果追踪" : "Result tracking supported"}: ${localizedEnum(boundary.result_tracking_supported, zh)}\n\n`,
+    `${zh ? "是否声称完成外部验证" : "External validation claimed"}: ${localizedEnum(boundary.external_validation_claimed, zh)}\n`,
   ].join("");
 }
 
 function renderFullReport(report: Record<string, unknown>): string {
+  const zh = isChineseResearchLanguage(report.research_language);
   const context = requiredRecord(report.curated_judgment_context, "curated_judgment_context");
   const sections = requiredRecord(report.report_sections, "report_sections");
   const metadata = requiredRecord(report.report_metadata, "report_metadata");
   const parts = [
-    "# Concept Evidence Assessment Report\n",
-    `\nAssessment result: ${String(context.assessment_result)}\n`,
-    `\nRecommendation: ${String(context.current_recommendation)}\n`,
-    `\nMeaning: ${String(context.recommendation_meaning)}\n`,
-    `\nValid as of: ${String(context.valid_as_of)}\n`,
-    `\nGenerated at: ${String(metadata.generated_at)}\n`,
-    "\n## Key Research Counts\n",
-    renderReportStatistics(report),
+    `# ${zh ? "产品假设证据评估报告" : "Concept Evidence Assessment Report"}\n`,
+    `\n${zh ? "评估结果" : "Assessment result"}: ${localizedEnum(context.assessment_result, zh)}\n`,
+    `\n${zh ? "建议" : "Recommendation"}: ${userVisibleText(context.current_recommendation, zh)}\n`,
+    `\n${zh ? "含义" : "Meaning"}: ${userVisibleText(context.recommendation_meaning, zh)}\n`,
+    `\n${zh ? "有效日期" : "Valid as of"}: ${String(context.valid_as_of)}\n`,
+    `\n${zh ? "生成时间" : "Generated at"}: ${String(metadata.generated_at)}\n`,
+    `\n## ${zh ? "研究概览" : "Key Research Counts"}\n`,
+    renderReportStatistics(report, zh),
   ];
   for (const sectionId of REPORT_SECTION_ORDER) {
     if (sectionId === "competition_and_differentiation") {
-      parts.push("\n## Market Research Priority And Commercial Validation Readiness\n");
-      parts.push(renderMarketPriorityAndCommercialReadiness(report));
-      parts.push("\n## Decision-grade Quantitative Summary\n");
-      parts.push(renderDecisionGradeQuantitativeSummary(report));
-      parts.push("\n## Competitive And Substitute Summary\n");
-      parts.push(renderCompetitiveSubjectSummary(report));
-      parts.push("\n## Incumbent Absorption And Response Risk\n");
-      parts.push(renderIncumbentResponseRiskTable(report));
+      parts.push(
+        `\n## ${zh ? "市场研究优先级与商业验证就绪度" : "Market Research Priority And Commercial Validation Readiness"}\n`,
+      );
+      parts.push(renderMarketPriorityAndCommercialReadiness(report, zh));
+      parts.push(`\n## ${zh ? "决策级量化摘要" : "Decision-grade Quantitative Summary"}\n`);
+      parts.push(renderDecisionGradeQuantitativeSummary(report, zh));
+      parts.push(`\n## ${zh ? "竞品与广义替代摘要" : "Competitive And Substitute Summary"}\n`);
+      parts.push(renderCompetitiveSubjectSummary(report, zh));
+      parts.push(
+        `\n## ${zh ? "头部公司吸收与响应风险" : "Incumbent Absorption And Response Risk"}\n`,
+      );
+      parts.push(renderIncumbentResponseRiskTable(report, zh));
     }
     if (sectionId === "limitations_and_sources") {
-      parts.push("\n## Critical Research Gaps\n");
-      parts.push(renderCriticalResearchGaps(report));
+      parts.push(`\n## ${zh ? "关键研究缺口" : "Critical Research Gaps"}\n`);
+      parts.push(renderCriticalResearchGaps(report, zh));
     }
-    parts.push(`\n## ${REPORT_SECTION_TITLES[sectionId]}\n`);
-    parts.push(markdownList(strings(sections[sectionId])));
+    parts.push(
+      `\n## ${zh ? REPORT_SECTION_TITLES_ZH[sectionId] : REPORT_SECTION_TITLES[sectionId]}\n`,
+    );
+    parts.push(localizedMarkdownList(sections[sectionId], zh));
   }
   return parts.join("");
 }
 
 function renderAssessmentAuditAppendix(report: Record<string, unknown>): string {
-  return renderGenericAuditAppendix(report, "Concept Evidence Assessment Audit Appendix");
+  const zh = isChineseResearchLanguage(report.research_language);
+  return renderGenericAuditAppendix(
+    report,
+    zh ? "产品假设证据评估审计附录" : "Concept Evidence Assessment Audit Appendix",
+    zh,
+  );
 }
 
 function reportHashEntry(report: Record<string, unknown>, ref: string): string {
@@ -469,110 +574,88 @@ function collectDocumentRefs(value: unknown): readonly string[] {
   });
 }
 
-function reportSubjectLabel(document: Record<string, unknown>, fallback: string): string {
-  if (typeof document.title === "string") return document.title;
-  if (typeof document.product_thesis === "string") return document.product_thesis;
-  const subject = isRecord(document.subject) ? document.subject : {};
-  if (typeof subject.summary === "string") return subject.summary;
-  if (typeof document.description === "string") return document.description;
-  return fallback;
-}
-
-function derivedReportSubjectLabels(
-  subjectIds: readonly string[],
-  documentsByPath: ReadonlyMap<string, Record<string, unknown>>,
-  synthesizedDirections: readonly Record<string, unknown>[],
-): readonly Record<string, unknown>[] {
-  return [...new Set(subjectIds)].sort().map((subjectId, index) => {
-    const direction = synthesizedDirections.find((entry) => entry.direction_id === subjectId);
-    if (typeof direction?.label === "string") {
-      return { subject_id: subjectId, label: direction.label };
-    }
-    const document = [...documentsByPath.values()].find(
-      (entry) =>
-        entry.candidate_id === subjectId ||
-        entry.opportunity_id === subjectId ||
-        entry.concept_hypothesis_id === subjectId,
-    );
-    return {
-      subject_id: subjectId,
-      label:
-        document === undefined
-          ? `Current research subject ${index + 1}`
-          : reportSubjectLabel(document, `Current research subject ${index + 1}`),
-    };
-  });
-}
-
 function renderDiscoveryDecisionBrief(report: Record<string, unknown>): string {
+  const zh = isChineseResearchLanguage(report.research_language);
   const context = requiredRecord(report.curated_judgment_context, "curated_judgment_context");
   return [
-    "# Decision Brief\n\n",
-    "## Decision Question\n",
-    `${String(context.decision_question)}\n\n`,
-    "## Current Recommendation\n",
-    `${String(context.current_recommendation)}\n\n`,
-    `Decision tier: ${String(context.decision_tier)}\n\n`,
-    `Meaning: ${String(context.recommendation_meaning)}\n\n`,
-    "## Partial Order\n",
-    `${String(context.partial_order_summary)}\n\n`,
-    "## Key Research Counts\n",
-    renderReportStatistics(report),
-    "\n## Decisive Support\n",
-    summaryList(context.decisive_support),
-    "\n## Decisive Opposition\n",
-    summaryList(context.decisive_opposition),
-    "\n## Critical Unknowns\n",
-    markdownList(strings(context.critical_unknowns)),
-    "\n## What Would Change the Decision\n",
-    markdownList(strings(context.what_would_change_the_decision)),
-    "\n## Limitations\n",
-    markdownList(strings(context.limitations)),
-    "\n## Incumbent Absorption And Response Risk\n",
-    renderIncumbentResponseDisclosure(report),
+    `# ${zh ? "决策摘要" : "Decision Brief"}\n\n`,
+    `## ${zh ? "决策问题" : "Decision Question"}\n`,
+    `${userVisibleText(context.decision_question, zh)}\n\n`,
+    `## ${zh ? "当前建议" : "Current Recommendation"}\n`,
+    `${userVisibleText(context.current_recommendation, zh)}\n\n`,
+    `${zh ? "决策层级" : "Decision tier"}: ${localizedEnum(context.decision_tier, zh)}\n\n`,
+    `${zh ? "含义" : "Meaning"}: ${userVisibleText(context.recommendation_meaning, zh)}\n\n`,
+    `## ${zh ? "局部排序" : "Partial Order"}\n`,
+    `${userVisibleText(context.partial_order_summary, zh)}\n\n`,
+    `## ${zh ? "研究概览" : "Key Research Counts"}\n`,
+    renderReportStatistics(report, zh),
+    `\n## ${zh ? "关键支持材料" : "Decisive Support"}\n`,
+    summaryList(context.decisive_support, zh, 4),
+    `\n## ${zh ? "关键反对材料" : "Decisive Opposition"}\n`,
+    summaryList(context.decisive_opposition, zh, 5),
+    `\n## ${zh ? "关键未知" : "Critical Unknowns"}\n`,
+    boundedMarkdownList(context.critical_unknowns, zh),
+    `\n## ${zh ? "哪些情况会改变决策" : "What Would Change the Decision"}\n`,
+    boundedMarkdownList(context.what_would_change_the_decision, zh),
+    `\n## ${zh ? "限制" : "Limitations"}\n`,
+    boundedMarkdownList(context.limitations, zh),
+    `\n## ${zh ? "头部公司吸收与响应风险" : "Incumbent Absorption And Response Risk"}\n`,
+    renderIncumbentResponseDisclosure(report, zh),
   ].join("");
 }
 
 function renderDiscoveryFullReport(report: Record<string, unknown>): string {
+  const zh = isChineseResearchLanguage(report.research_language);
   const context = requiredRecord(report.curated_judgment_context, "curated_judgment_context");
   const sections = requiredRecord(report.report_sections, "report_sections");
   const metadata = requiredRecord(report.report_metadata, "report_metadata");
   const parts = [
-    "# Startup Opportunity Discovery Report\n",
-    `\nDecision tier: ${String(context.decision_tier)}\n`,
-    `\nRecommendation: ${String(context.current_recommendation)}\n`,
-    `\nValid as of: ${String(context.valid_as_of)}\n`,
-    `\nGenerated at: ${String(metadata.generated_at)}\n`,
-    "\n## Key Research Counts\n",
-    renderReportStatistics(report),
+    `# ${zh ? "创业机会发现报告" : "Startup Opportunity Discovery Report"}\n`,
+    `\n${zh ? "决策层级" : "Decision tier"}: ${localizedEnum(context.decision_tier, zh)}\n`,
+    `\n${zh ? "建议" : "Recommendation"}: ${userVisibleText(context.current_recommendation, zh)}\n`,
+    `\n${zh ? "有效日期" : "Valid as of"}: ${String(context.valid_as_of)}\n`,
+    `\n${zh ? "生成时间" : "Generated at"}: ${String(metadata.generated_at)}\n`,
+    `\n## ${zh ? "研究概览" : "Key Research Counts"}\n`,
+    renderReportStatistics(report, zh),
   ];
   for (const sectionId of DISCOVERY_REPORT_SECTION_ORDER) {
     if (sectionId === "top_opportunities") {
-      parts.push("\n## Market Research Priority And Commercial Validation Readiness\n");
-      parts.push(renderMarketPriorityAndCommercialReadiness(report));
-      parts.push("\n## Decision-grade Quantitative Summary\n");
-      parts.push(renderDecisionGradeQuantitativeSummary(report));
-      parts.push("\n## Competitive And Substitute Summary\n");
-      parts.push(renderCompetitiveSubjectSummary(report));
-      parts.push("\n## Incumbent Absorption And Response Risk\n");
-      parts.push(renderIncumbentResponseRiskTable(report));
+      parts.push(
+        `\n## ${zh ? "市场研究优先级与商业验证就绪度" : "Market Research Priority And Commercial Validation Readiness"}\n`,
+      );
+      parts.push(renderMarketPriorityAndCommercialReadiness(report, zh));
+      parts.push(`\n## ${zh ? "决策级量化摘要" : "Decision-grade Quantitative Summary"}\n`);
+      parts.push(renderDecisionGradeQuantitativeSummary(report, zh));
+      parts.push(`\n## ${zh ? "竞品与广义替代摘要" : "Competitive And Substitute Summary"}\n`);
+      parts.push(renderCompetitiveSubjectSummary(report, zh));
+      parts.push(
+        `\n## ${zh ? "头部公司吸收与响应风险" : "Incumbent Absorption And Response Risk"}\n`,
+      );
+      parts.push(renderIncumbentResponseRiskTable(report, zh));
     }
     if (sectionId === "traceability_and_sources") {
-      parts.push("\n## Critical Research Gaps\n");
-      parts.push(renderCriticalResearchGaps(report));
+      parts.push(`\n## ${zh ? "关键研究缺口" : "Critical Research Gaps"}\n`);
+      parts.push(renderCriticalResearchGaps(report, zh));
     }
-    const title = sectionId
-      .split("_")
-      .map((word) => `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`)
-      .join(" ");
+    const title = zh
+      ? DISCOVERY_SECTION_TITLES_ZH[sectionId]
+      : sectionId
+          .split("_")
+          .map((word) => `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`)
+          .join(" ");
     parts.push(`\n## ${title}\n`);
-    parts.push(markdownList(strings(sections[sectionId])));
+    parts.push(localizedMarkdownList(sections[sectionId], zh));
   }
   return parts.join("");
 }
 
 function renderDiscoveryAuditAppendix(report: Record<string, unknown>): string {
-  return renderGenericAuditAppendix(report, "Startup Opportunity Discovery Audit Appendix");
+  const zh = isChineseResearchLanguage(report.research_language);
+  return renderGenericAuditAppendix(
+    report,
+    zh ? "创业机会发现审计附录" : "Startup Opportunity Discovery Audit Appendix",
+    zh,
+  );
 }
 
 function deriveDiscoveryReportEnvelopes(
@@ -593,10 +676,12 @@ function deriveDiscoveryReportEnvelopes(
   const reportViewPath = `artifacts/reporting/report-markdown.${revision}.json`;
   const consistencyPath = `artifacts/reporting/consistency-evaluation.${revision}.json`;
   const briefMarkdown = renderDiscoveryDecisionBrief(report);
+  localizedLeakageGuard(report, briefMarkdown);
   const briefDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.decision_brief.discovery.current",
     brief_id: `decision_brief_${revision.replace("r", "")}`,
     run_id: reportEnvelope.run_id,
+    research_language: report.research_language,
     producer_role: "harness",
     owned_output_path: decisionBriefPath,
     materialized_path: "decision-brief.md",
@@ -631,10 +716,12 @@ function deriveDiscoveryReportEnvelopes(
   );
   const reportMarkdown = renderDiscoveryFullReport(report);
   const auditAppendixMarkdown = renderDiscoveryAuditAppendix(report);
+  localizedLeakageGuard(report, `${reportMarkdown}\n${auditAppendixMarkdown}`);
   const viewDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.discovery_report_view.v1",
     view_id: `report_markdown_${revision.replace("r", "")}`,
     run_id: reportEnvelope.run_id,
+    research_language: report.research_language,
     producer_role: "harness",
     owned_output_path: reportViewPath,
     materialized_path: "report.md",
@@ -788,10 +875,12 @@ export function deriveReportEnvelopes(
   const reportViewPath = `artifacts/reporting/report-markdown.${revision}.json`;
   const consistencyPath = `artifacts/reporting/consistency-evaluation.${revision}.json`;
   const briefMarkdown = renderDecisionBrief(report);
+  localizedLeakageGuard(report, briefMarkdown);
   const briefDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.decision_brief.assessment.current",
     brief_id: `decision_brief_${revision.replace("r", "")}`,
     run_id: reportEnvelope.run_id,
+    research_language: report.research_language,
     producer_role: "harness",
     owned_output_path: decisionBriefPath,
     materialized_path: "decision-brief.md",
@@ -825,10 +914,12 @@ export function deriveReportEnvelopes(
 
   const reportMarkdown = renderFullReport(report);
   const auditAppendixMarkdown = renderAssessmentAuditAppendix(report);
+  localizedLeakageGuard(report, `${reportMarkdown}\n${auditAppendixMarkdown}`);
   const viewDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.concept_evidence_report_view.v1",
     view_id: `report_markdown_${revision.replace("r", "")}`,
     run_id: reportEnvelope.run_id,
+    research_language: report.research_language,
     producer_role: "harness",
     owned_output_path: reportViewPath,
     materialized_path: "report.md",
@@ -1561,7 +1652,6 @@ export class ReportRuntime {
     }
     const runRoot = await openRunDirectory(this.runsRoot, input.reportEnvelope.run_id);
     return withReportLock(runRoot, async () => {
-      assertDerivedConsistencyPassed(deriveReportEnvelopes(input.reportEnvelope));
       await withRunLock(runRoot, () =>
         assertNoOtherFinalReportLocked(runRoot, input.reportEnvelope),
       );
@@ -1850,6 +1940,24 @@ export class ReportRuntime {
         record as Record<string, unknown>,
       );
     }
+    const manifestEntry = context.bundle.documents.find((entry) => entry.path === "manifest.json");
+    const manifest = manifestEntry?.document;
+    if (manifest === undefined) {
+      throw new StoreError(
+        "report.research_language_authority_invalid",
+        "report compilation requires the current Manifest",
+      );
+    }
+    const researchLanguage = deriveConfirmedResearchLanguage(manifest, exactRecords);
+    if (
+      sourceDocument.research_language !== undefined &&
+      sourceDocument.research_language !== researchLanguage
+    ) {
+      throw new StoreError(
+        "report.research_language_authority_invalid",
+        "caller-supplied report language drifts from the exact confirmed Scope",
+      );
+    }
     const researchProvenance = deriveResearchProvenance(
       source.run_id,
       provenanceDocuments,
@@ -1920,19 +2028,12 @@ export class ReportRuntime {
     const projectedSubjectIds =
       source.artifact_type === "startup_opportunity.terminal_report_source.v1"
         ? currentDecisionSubjectIds
-        : [
-            ...new Set(
-              audits.flatMap((audit) =>
-                records(audit.document.subject_assessments).map((entry) =>
-                  String(entry.subject_id),
-                ),
-              ),
-            ),
-          ].sort();
-    const reportSubjectLabels = derivedReportSubjectLabels(
+        : deriveNonTerminalReportSubjectIds(source.artifact_type, sourceDocument, documentsByPath);
+    const reportSubjectLabels = deriveReportSubjectLabels(
       projectedSubjectIds,
       documentsByPath,
       synthesizedDirections,
+      researchLanguage,
     );
     if (
       source.artifact_type === "startup_opportunity.terminal_report_source.v1" &&
@@ -1949,10 +2050,12 @@ export class ReportRuntime {
       );
     }
     const fullProjection = projectCommercialAuditTables(audits, tasks, documentsByPath);
-    const projection =
-      source.artifact_type === "startup_opportunity.terminal_report_source.v1"
-        ? projectCommercialAuditTables(audits, tasks, documentsByPath, currentDecisionSubjectIds)
-        : fullProjection;
+    const projection = projectCommercialAuditTables(
+      audits,
+      tasks,
+      documentsByPath,
+      projectedSubjectIds,
+    );
     const currentAuditRefs = new Set(
       records(projection.commercial_subject_aggregates).flatMap((aggregate) =>
         strings(aggregate.audit_refs),
@@ -1991,6 +2094,7 @@ export class ReportRuntime {
     }
     const reportSemanticAuthority = {
       ...sourceDocument,
+      research_language: researchLanguage,
       ...projection,
       ...(terminalProjection
         ? {
@@ -2001,15 +2105,56 @@ export class ReportRuntime {
           }
         : {}),
     };
-    const reportCitations = deriveReportCitations(
-      formalDocuments,
-      exactRecords,
+    const dispositions = deriveReportDispositions(
+      source.artifact_type,
       reportSemanticAuthority,
+      envelopesByPath,
     );
+    const reportCitations = deriveReportCitations(formalDocuments, exactRecords, {
+      ...reportSemanticAuthority,
+      report_evidence_dispositions: dispositions.reportEvidenceDispositions,
+      report_source_dispositions: dispositions.reportSourceDispositions,
+    });
+    for (const [field, expected] of [
+      ["report_subject_labels", reportSubjectLabels],
+      ["report_evidence_dispositions", dispositions.reportEvidenceDispositions],
+      ["report_source_dispositions", dispositions.reportSourceDispositions],
+      ["report_citations", reportCitations],
+    ] as const) {
+      const supplied = sourceDocument[field];
+      if (supplied !== undefined && canonicalJson(supplied) !== canonicalJson(expected)) {
+        throw new StoreError(
+          "report.mechanical_projection_drift",
+          "caller-supplied report mechanics drift from exact current-Run authorities",
+          { field },
+        );
+      }
+    }
     const canonicalSources = canonicalizeReadableSources(
       records(sourceDocument.sources),
       reportCitations,
     );
+    if (terminalProjection) {
+      const suppliedSources = new Map(
+        records(sourceDocument.sources).map((entry) => [String(entry.evidence_ref), entry]),
+      );
+      const authorityDrift = canonicalSources.sources.flatMap((entry) => {
+        const supplied = suppliedSources.get(String(entry.evidence_ref));
+        if (supplied === undefined) return [String(entry.evidence_ref)];
+        const exact =
+          entry.source_access === "public"
+            ? supplied.url === entry.url && supplied.canonical_uri === undefined
+            : supplied.url === undefined && supplied.canonical_uri === entry.canonical_uri;
+        return exact ? [] : [String(entry.evidence_ref)];
+      });
+      if (authorityDrift.length > 0) {
+        throw new StoreError(
+          "report.source_authority_drift",
+          "caller-supplied report source locations drift from canonical Evidence authority",
+          { evidenceRefs: authorityDrift.sort() },
+        );
+      }
+    }
     if (terminalProjection && canonicalSources.missingEvidenceRefs.length > 0) {
       throw new StoreError(
         "report.source_invalid",
@@ -2024,7 +2169,11 @@ export class ReportRuntime {
     );
     const provisionalDocument: Record<string, unknown> = {
       ...sourceDocument,
+      research_language: researchLanguage,
       ...projection,
+      full_commercial_projection: fullProjection,
+      report_evidence_dispositions: dispositions.reportEvidenceDispositions,
+      report_source_dispositions: dispositions.reportSourceDispositions,
       ...(source.artifact_type === "startup_opportunity.terminal_report_source.v1"
         ? { sources: canonicalSources.sources }
         : {}),
@@ -2050,8 +2199,9 @@ export class ReportRuntime {
         ...new Set([
           ...source.input_refs.filter((ref) => !ref.startsWith("artifacts/research-audits/")),
           ...strings(researchProvenance.causal_handoff_refs),
-          ...projection.commercial_research_audit_refs,
+          ...fullProjection.commercial_research_audit_refs,
           ...reportCitations.map((citation) => citation.evidence_ref),
+          ...dispositions.reportEvidenceDispositions.map((entry) => String(entry.evidence_ref)),
           ...synthesisBindings.flatMap((binding) =>
             typeof binding.ref === "string" ? [binding.ref] : [],
           ),
@@ -2104,6 +2254,7 @@ export class ReportRuntime {
       content_hash: canonicalContentHash(document),
       document,
     };
+    assertDerivedConsistencyPassed(deriveReportEnvelopes(compiled));
     const finalContext = await buildContext(compiled);
     const finalValidation = this.validator.validateDocumentBundle(
       finalContext.bundle,

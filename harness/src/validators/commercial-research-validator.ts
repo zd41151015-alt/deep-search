@@ -1,6 +1,7 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import { INCUMBENT_RESPONSE_STRATEGIC_CONTEXT } from "../incumbent-response-contract.js";
 import { projectCommercialAuditTables } from "../reporting/commercial-report-tables.js";
+import { deriveNonTerminalReportSubjectIds } from "../reporting/report-projection-authority.js";
 import {
   canonicalSourceGroup,
   deriveSourceConcentration,
@@ -3039,27 +3040,30 @@ function validateCommercialReportProjections(
   for (const report of documents.filter((entry) =>
     REPORT_SCHEMA_VERSIONS.has(entry.schemaVersion),
   )) {
+    const projectedSubjectIds =
+      report.schemaVersion === "startup_opportunity.terminal_report_source.v1"
+        ? strings(report.document.current_decision_subject_ids)
+        : deriveNonTerminalReportSubjectIds(report.schemaVersion, report.document, documentsByPath);
     const expectedProjection = projectCommercialAuditTables(
       audits,
       plannedTasks.map((task) => ({ path: task.path, document: task.document })),
       documentsByPath,
-      report.schemaVersion === "startup_opportunity.terminal_report_source.v1"
-        ? strings(report.document.current_decision_subject_ids)
-        : undefined,
+      projectedSubjectIds,
+    );
+    const expectedFullProjection = projectCommercialAuditTables(
+      audits,
+      plannedTasks.map((task) => ({ path: task.path, document: task.document })),
+      documentsByPath,
     );
     const reportAuditRefs = strings(report.document.commercial_research_audit_refs);
-    const expectedStatus = isRecord(expectedProjection.commercial_research_status)
-      ? expectedProjection.commercial_research_status
+    const expectedStatus = isRecord(expectedFullProjection.commercial_research_status)
+      ? expectedFullProjection.commercial_research_status
       : {};
     const relevantTaskRefs = new Set(strings(expectedStatus.planned_task_refs));
     const missingPlannedAudits = [
       ...new Set(
         plannedTasks
-          .filter(
-            (task) =>
-              report.schemaVersion !== "startup_opportunity.terminal_report_source.v1" ||
-              relevantTaskRefs.has(task.path),
-          )
+          .filter((task) => relevantTaskRefs.has(task.path))
           .flatMap((task) => {
             const requirements = isRecord(task.document.commercial_research_requirements)
               ? task.document.commercial_research_requirements
@@ -3078,8 +3082,21 @@ function validateCommercialReportProjections(
         issue(
           "commercial_research.report_audit_closure_incomplete",
           `${report.path}#/commercial_research_audit_refs`,
-          "formal reporting must include every current Audit and disclose each planned task that has no current Audit",
+          "formal core reporting must include each final-subject Audit while the full projection discloses every planned task and current Audit",
           { missingPlannedAudits: missingPlannedAudits.sort() },
+        ),
+      );
+    }
+    if (
+      report.document.full_commercial_projection !== undefined &&
+      canonicalJson(report.document.full_commercial_projection) !==
+        canonicalJson(expectedFullProjection)
+    ) {
+      errors.push(
+        issue(
+          "commercial_research.report_full_projection_mismatch",
+          `${report.path}#/full_commercial_projection`,
+          "the audit appendix projection must preserve the exact complete all-subject Audit and planned-task model",
         ),
       );
     }

@@ -193,6 +193,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function records(value: unknown): readonly Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
 function schemaVersionOf(document: unknown): string | null {
   return isRecord(document) && typeof document.schema_version === "string"
     ? document.schema_version
@@ -490,6 +494,78 @@ function g14CommonRefs(document: Record<string, unknown>): readonly ReferenceReq
       "startup_opportunity.decision_brief.assessment.current",
       "startup_opportunity.concept_evidence_report_view.v1",
     ]),
+  ];
+}
+
+const REPORT_EVIDENCE_SCHEMA_VERSIONS = [
+  "startup_opportunity.evidence.assessment.current",
+  "startup_opportunity.evidence.discovery_candidate.current",
+  "startup_opportunity.evidence.discovery_evaluation.current",
+  "startup_opportunity.assessment_evidence.v1",
+  "startup_opportunity.candidate_neutral_evidence.v1",
+] as const;
+
+function reportProjectionRefs(document: Record<string, unknown>): readonly ReferenceRequirement[] {
+  const dispositionRefs = [
+    ...records(document.report_evidence_dispositions).flatMap((entry, index) => [
+      ...(typeof entry.evidence_ref === "string"
+        ? [
+            {
+              instancePath: `/report_evidence_dispositions/${index}/evidence_ref`,
+              ref: entry.evidence_ref,
+              expectedSchemaVersions: REPORT_EVIDENCE_SCHEMA_VERSIONS,
+            },
+          ]
+        : []),
+      ...records(entry.authority_bindings).flatMap((binding, bindingIndex) =>
+        typeof binding.ref === "string"
+          ? [
+              {
+                instancePath: `/report_evidence_dispositions/${index}/authority_bindings/${bindingIndex}/ref`,
+                ref: binding.ref,
+                expectedSchemaVersions: [
+                  "startup_opportunity.evidence_audit.v1",
+                  "startup_opportunity.traceability.assessment.current",
+                  "startup_opportunity.source_manifest.assessment.current",
+                  "startup_opportunity.traceability.discovery.current",
+                  "startup_opportunity.source_manifest.discovery_evaluation.current",
+                ],
+              },
+            ]
+          : [],
+      ),
+    ]),
+    ...records(document.report_source_dispositions).flatMap((entry, index) =>
+      records(entry.authority_bindings).flatMap((binding, bindingIndex) =>
+        typeof binding.ref === "string"
+          ? [
+              {
+                instancePath: `/report_source_dispositions/${index}/authority_bindings/${bindingIndex}/ref`,
+                ref: binding.ref,
+                expectedSchemaVersions: [
+                  "startup_opportunity.source_manifest.assessment.current",
+                  "startup_opportunity.source_manifest.discovery_evaluation.current",
+                ],
+              },
+            ]
+          : [],
+      ),
+    ),
+  ];
+  return [
+    ...dispositionRefs,
+    ...refsFromNestedArray(
+      document,
+      "report_citations",
+      "evidence_ref",
+      REPORT_EVIDENCE_SCHEMA_VERSIONS,
+    ),
+    ...refsFromObjectArray(
+      document,
+      "full_commercial_projection",
+      "commercial_research_audit_refs",
+      "startup_opportunity.commercial_research_audit.current",
+    ),
   ];
 }
 
@@ -1353,6 +1429,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       ];
     case "startup_opportunity.concept_evidence_report.v1":
       return [
+        ...reportProjectionRefs(document),
         ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
         ...optionalRef(
           document,
@@ -2906,6 +2983,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       ];
     case "startup_opportunity.report.v1":
       return [
+        ...reportProjectionRefs(document),
         ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
         ...optionalRef(
           document,
@@ -3092,6 +3170,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       ];
     case "startup_opportunity.terminal_report_source.v1":
       return [
+        ...reportProjectionRefs(document),
         ...optionalRef(
           document,
           "decision_subject_snapshot_ref",

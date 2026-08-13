@@ -569,6 +569,7 @@ async function prepareRun(
   options: {
     readonly omitCommercialAuditUnitId?: string;
     readonly injectHistoricalCompilerWarning?: boolean;
+    readonly researchLanguage?: string;
   } = {},
 ): Promise<PreparedRun> {
   const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g1-4-"));
@@ -585,7 +586,7 @@ async function prepareRun(
       customerModel: "b2c",
       targetUsers: ["synthetic user"],
       decisionGoal: "test current contract",
-      researchLanguage: "en-US",
+      researchLanguage: options.researchLanguage ?? "en-US",
     },
     createdAt: "2026-07-25T18:00:00Z",
   });
@@ -805,6 +806,7 @@ async function prepareRun(
   }
   const reportEnvelope = bundle.documents.find((entry) => entry.path === G14_REPORT_REF)?.document;
   assert.ok(reportEnvelope);
+  delete (reportEnvelope as FormalArtifactEnvelope).document.research_language;
   const evidenceRefs = (await store.status(G14_RUN_ID)).manifest.artifact_refs.filter((ref) =>
     ref.startsWith("evidence/records/"),
   );
@@ -2006,7 +2008,7 @@ test("Store re-forms a Concept only through an explicit post-terminal revision a
 });
 
 test("build-report publishes formal sidecars, materializes four outputs, and exactly replays", async (context) => {
-  const state = await prepareRun(context);
+  const state = await prepareRun(context, { researchLanguage: "zh-CN" });
   const first = await state.runtime.build({ reportEnvelope: state.reportEnvelope });
   assert.equal(first.status, "published");
   assert.deepEqual(first.materializedPaths, [
@@ -2020,18 +2022,31 @@ test("build-report publishes formal sidecars, materializes four outputs, and exa
   ) as Record<string, unknown>;
   assert.equal(reportJson.schema_version, "startup_opportunity.concept_evidence_report.v1");
   assert.equal(reportJson.materialized_path, "report.json");
-  assert.match(
-    await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8"),
-    /# Decision Brief/,
+  const decisionBrief = await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8");
+  const coreReport = await readFile(path.join(state.runRoot, "report.md"), "utf8");
+  const appendix = await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8");
+  assert.match(decisionBrief, /# 决策摘要/);
+  assert.match(coreReport, /# 产品假设证据评估报告/);
+  assert.match(appendix, /# 产品假设证据评估审计附录/);
+  for (const surface of [decisionBrief, coreReport, appendix]) {
+    assert.doesNotMatch(surface, /assessment_result|decision_grade|artifacts\//u);
+  }
+  const storedAudit = JSON.parse(
+    await readFile(path.join(state.runRoot, G14_AUDIT_REF), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const reviewedEvidenceRefs = (storedAudit.document.evidence_reviews as Record<string, unknown>[])
+    .map((entry) => String(entry.evidence_ref))
+    .sort();
+  const dispositions = reportJson.report_evidence_dispositions as Record<string, unknown>[];
+  assert.deepEqual(
+    dispositions.map((entry) => String(entry.evidence_ref)).sort(),
+    reviewedEvidenceRefs,
   );
-  assert.match(
-    await readFile(path.join(state.runRoot, "report.md"), "utf8"),
-    /# Concept Evidence Assessment Report/,
+  assert.ok(
+    dispositions.every((entry) => String(entry.evidence_content_hash).startsWith("sha256:")),
   );
-  assert.match(
-    await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8"),
-    /# Concept Evidence Assessment Audit Appendix/,
-  );
+  assert.match(appendix, /材料采用、限制与排除/);
+  assert.match(appendix, /用户提供\/非公开/);
   const before = await snapshotTree(state.runRoot);
   const replay = await state.runtime.build({ reportEnvelope: state.reportEnvelope });
   assert.equal(replay.status, "idempotent_replay");
@@ -2055,6 +2070,56 @@ test("build-report publishes formal sidecars, materializes four outputs, and exa
   assert.equal(reopened.lastValidCheckpointRef, "checkpoints/checkpoint-g1-4-report.json");
   assert.equal(reopened.reportRecovery.recoveredFormalArtifactPaths.length, 0);
   assert.equal(reopened.reportRecovery.recoveredMaterializedPaths.length, 0);
+});
+
+test("build-report rejects caller-authored Evidence disposition mechanics before writes", async (context) => {
+  const state = await prepareRun(context);
+  const before = await snapshotTree(state.runRoot);
+  for (const tampered of [
+    (() => {
+      const envelope = structuredClone(state.reportEnvelope);
+      envelope.document.report_evidence_dispositions = [
+        {
+          evidence_ref: state.evidenceRef,
+          evidence_content_hash: `sha256:${"0".repeat(64)}`,
+          disposition: "included",
+          reasons: ["Caller-authored disposition must not replace the Evidence Audit authority."],
+          authority_bindings: [],
+        },
+      ];
+      return envelope;
+    })(),
+    (() => {
+      const envelope = structuredClone(state.reportEnvelope);
+      envelope.document.report_citations = [
+        {
+          evidence_ref: state.evidenceRef,
+          label: "Forged caller source",
+          source_access: "public",
+          url: "https://forged.synthetic.invalid/source",
+        },
+      ];
+      return envelope;
+    })(),
+  ]) {
+    (tampered as { content_hash: string }).content_hash = canonicalContentHash(tampered.document);
+    await assert.rejects(
+      state.runtime.build({ reportEnvelope: tampered }),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "report.mechanical_projection_drift",
+    );
+    assert.deepEqual(await snapshotTree(state.runRoot), before);
+  }
+
+  const published = await state.runtime.build({ reportEnvelope: state.reportEnvelope });
+  assert.equal(published.status, "published");
+  const exact = await snapshotTree(state.runRoot);
+  assert.equal(
+    (await state.runtime.build({ reportEnvelope: state.reportEnvelope })).status,
+    "idempotent_replay",
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), exact);
+  assert.equal((await state.store.load(G14_RUN_ID)).recovered, false);
 });
 
 test("ReportRuntime compiles omitted concept commercial projections from the full Run closure", async (context) => {
@@ -2186,7 +2251,7 @@ test("ReportRuntime publishes an explicit warning when a planned commercial Audi
   assert.ok(!(report.commercial_research_audit_refs as string[]).includes(missingAuditRef));
   assert.equal(
     (report.commercial_research_status as Record<string, unknown>).state,
-    "planned_with_gaps",
+    "planned_but_missing",
   );
   assert.ok(
     (report.research_coverage_gaps as Record<string, unknown>[]).some(

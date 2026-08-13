@@ -127,6 +127,20 @@ export async function createDiscoveryRuntimeFixture(
     },
   ];
 
+  const manifestDocument = fixtureEffective(bundle, "manifest.json");
+  const proposal = mutable.exact_records.find(
+    (record) => record.ref === manifestDocument.scope_proposal_ref,
+  )?.document;
+  const confirmation = mutable.exact_records.find(
+    (record) => record.ref === manifestDocument.scope_confirmation_ref,
+  )?.document;
+  if (proposal !== undefined) {
+    manifestDocument.scope_proposal_hash = canonicalContentHash(proposal);
+  }
+  if (confirmation !== undefined) {
+    manifestDocument.scope_confirmation_hash = canonicalContentHash(confirmation);
+  }
+
   refreshDiscoveryMapsBundle(bundle);
   refreshDiscoveryRuntimeLineage(bundle);
   applyMechanicalBinding(bundle, generationPath, substrate.generation);

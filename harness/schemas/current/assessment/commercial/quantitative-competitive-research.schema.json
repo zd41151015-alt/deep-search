@@ -588,7 +588,13 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["audit_refs", "task_refs", "coverage_kind", "coverage"],
+          "required": [
+            "audit_refs",
+            "task_refs",
+            "coverage_kind",
+            "coverage",
+            "decision_relevance"
+          ],
           "properties": {
             "audit_refs": {
               "type": "array",
@@ -602,13 +608,20 @@
               "$ref": "#/$defs/artifactRefArray"
             },
             "coverage_kind": { "const": "quantitative" },
-            "coverage": { "$ref": "#/$defs/quantitativeCoverage" }
+            "coverage": { "$ref": "#/$defs/quantitativeCoverage" },
+            "decision_relevance": { "enum": ["blocking", "non_blocking", "context_only"] }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["audit_refs", "task_refs", "coverage_kind", "coverage"],
+          "required": [
+            "audit_refs",
+            "task_refs",
+            "coverage_kind",
+            "coverage",
+            "decision_relevance"
+          ],
           "properties": {
             "audit_refs": {
               "type": "array",
@@ -622,7 +635,8 @@
               "$ref": "#/$defs/artifactRefArray"
             },
             "coverage_kind": { "const": "competitive" },
-            "coverage": { "$ref": "#/$defs/competitiveCoverage" }
+            "coverage": { "$ref": "#/$defs/competitiveCoverage" },
+            "decision_relevance": { "enum": ["blocking", "non_blocking", "context_only"] }
           }
         },
         {
@@ -637,7 +651,8 @@
             "decision_impact",
             "assigned_commercial_dimensions",
             "assigned_metric_families",
-            "assigned_competitor_types"
+            "assigned_competitor_types",
+            "decision_relevance"
           ],
           "properties": {
             "task_ref": { "$ref": "#/$defs/artifactRef" },
@@ -650,6 +665,7 @@
             "state": { "const": "unavailable" },
             "reason": { "$ref": "#/$defs/nonEmptyString" },
             "decision_impact": { "$ref": "#/$defs/nonEmptyString" },
+            "decision_relevance": { "const": "blocking" },
             "assigned_commercial_dimensions": {
               "type": "array",
               "uniqueItems": true,
@@ -688,7 +704,8 @@
             "reason",
             "alternative_metric",
             "decision_impact",
-            "query_attempts"
+            "query_attempts",
+            "decision_relevance"
           ],
           "properties": {
             "audit_refs": {
@@ -713,6 +730,7 @@
               "anyOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "type": "null" }]
             },
             "decision_impact": { "$ref": "#/$defs/nonEmptyString" },
+            "decision_relevance": { "enum": ["blocking", "non_blocking", "context_only"] },
             "query_attempts": {
               "type": "array",
               "items": { "$ref": "#/$defs/queryAttempt" }

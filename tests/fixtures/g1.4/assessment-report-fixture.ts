@@ -970,6 +970,7 @@ export async function createG14ContractBundle(
     schema_version: "startup_opportunity.concept_evidence_report.v1",
     report_id: "concept_evidence_report_g1_4_synthetic",
     run_id: G14_RUN_ID,
+    research_language: "zh-CN",
     producer_role: "main_agent",
     owned_output_path: G14_REPORT_REF,
     materialized_path: "report.json",

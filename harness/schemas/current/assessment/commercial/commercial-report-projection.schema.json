@@ -4,18 +4,112 @@
   "title": "Startup Opportunity Commercial Report Projection Definitions",
   "$defs": {
     "reportCitation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["evidence_ref", "label", "source_access", "url"],
+          "properties": {
+            "evidence_ref": {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+            },
+            "label": {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+            },
+            "source_access": { "const": "public" },
+            "url": { "type": "string", "format": "uri", "pattern": "^https?://" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["evidence_ref", "label", "source_access", "canonical_uri"],
+          "properties": {
+            "evidence_ref": {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+            },
+            "label": {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+            },
+            "source_access": { "const": "user_provided_non_public" },
+            "canonical_uri": {
+              "type": "string",
+              "pattern": "^urn:startup-opportunity:user-provided:[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            }
+          }
+        }
+      ]
+    },
+    "authorityBinding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["evidence_ref", "label", "url"],
+      "required": ["ref", "content_hash"],
+      "properties": {
+        "ref": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef" },
+        "content_hash": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "reportEvidenceDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_ref",
+        "evidence_content_hash",
+        "disposition",
+        "reasons",
+        "authority_bindings"
+      ],
       "properties": {
         "evidence_ref": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
         },
-        "label": {
+        "evidence_content_hash": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+        },
+        "disposition": { "enum": ["included", "limited", "excluded"] },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          }
+        },
+        "authority_bindings": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/authorityBinding" }
+        }
+      }
+    },
+    "reportSourceDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disposition", "reasons", "authority_bindings"],
+      "properties": {
+        "source": { "$ref": "../research/definitions.schema.json#/$defs/canonicalSource" },
+        "source_label": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
         },
-        "url": { "type": "string", "format": "uri" }
-      }
+        "disposition": { "enum": ["excluded", "unavailable"] },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          }
+        },
+        "authority_bindings": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/authorityBinding" }
+        }
+      },
+      "oneOf": [{ "required": ["source"] }, { "required": ["source_label"] }]
     },
     "reportSubjectLabel": {
       "type": "object",
@@ -55,6 +149,64 @@
         "full_gap_row_count": { "type": "integer", "minimum": 0 },
         "critical_gap_group_count": { "type": "integer", "minimum": 0 },
         "excluded_evidence_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "fullCommercialProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commercial_research_audit_refs",
+        "quantitative_signal_rows",
+        "competitive_substitute_rows",
+        "incumbent_response_risk_rows",
+        "research_coverage_gaps",
+        "commercial_subject_aggregates",
+        "commercial_background_material",
+        "commercial_research_status"
+      ],
+      "properties": {
+        "commercial_research_audit_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+          }
+        },
+        "quantitative_signal_rows": {
+          "type": "array",
+          "items": {
+            "$ref": "./quantitative-competitive-research.schema.json#/$defs/quantitativeSignalRow"
+          }
+        },
+        "competitive_substitute_rows": {
+          "type": "array",
+          "items": {
+            "$ref": "./quantitative-competitive-research.schema.json#/$defs/competitiveMatrixRow"
+          }
+        },
+        "incumbent_response_risk_rows": {
+          "type": "array",
+          "items": { "$ref": "./incumbent-response-risk.schema.json#/$defs/reportRow" }
+        },
+        "research_coverage_gaps": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "$ref": "./quantitative-competitive-research.schema.json#/$defs/coverageGapRow" },
+              { "$ref": "./incumbent-response-risk.schema.json#/$defs/coverageGapRow" }
+            ]
+          }
+        },
+        "commercial_subject_aggregates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/commercialSubjectAggregate" }
+        },
+        "commercial_background_material": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/commercialBackgroundMaterial" }
+        },
+        "commercial_research_status": { "$ref": "#/$defs/commercialResearchStatus" }
       }
     },
     "subjectAssessment": {

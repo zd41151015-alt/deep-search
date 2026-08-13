@@ -52,6 +52,10 @@
     "run_id": {
       "$ref": "./definitions.schema.json#/$defs/runId"
     },
+    "research_language": {
+      "type": "string",
+      "pattern": "^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"
+    },
     "producer_role": {
       "const": "main_agent"
     },
@@ -160,6 +164,21 @@
     },
     "report_statistics": {
       "$ref": "../commercial/commercial-report-projection.schema.json#/$defs/reportStatistics"
+    },
+    "report_evidence_dispositions": {
+      "type": "array",
+      "items": {
+        "$ref": "../commercial/commercial-report-projection.schema.json#/$defs/reportEvidenceDisposition"
+      }
+    },
+    "report_source_dispositions": {
+      "type": "array",
+      "items": {
+        "$ref": "../commercial/commercial-report-projection.schema.json#/$defs/reportSourceDisposition"
+      }
+    },
+    "full_commercial_projection": {
+      "$ref": "../commercial/commercial-report-projection.schema.json#/$defs/fullCommercialProjection"
     },
     "quantitative_signal_rows": {
       "type": "array",

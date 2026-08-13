@@ -1,3 +1,4 @@
+import type { FormalArtifactEnvelope } from "../artifact-store/artifact-store.js";
 import { canonicalContentHash, canonicalJson, sha256Bytes } from "../artifact-store/canonical.js";
 import { deriveReportStatistics } from "../reporting/commercial-report-tables.js";
 import { deriveReportCitations } from "../reporting/report-citation-authority.js";
@@ -6,6 +7,13 @@ import {
   REPORT_SCAN_SURFACES,
   scanDiscoveryReportSurfaces,
 } from "../reporting/report-consistency.js";
+import { localizedInternalLeakageIssues } from "../reporting/report-localization.js";
+import {
+  deriveConfirmedResearchLanguage,
+  deriveNonTerminalReportSubjectIds,
+  deriveReportDispositions,
+  deriveReportSubjectLabels,
+} from "../reporting/report-projection-authority.js";
 import {
   DECISION_TIER_ORDER,
   type DiscoveryEvaluationPolicy,
@@ -769,7 +777,10 @@ function commercialSubjectAggregate(
 ): Record<string, unknown> | undefined {
   if (report === undefined) return undefined;
   const opportunityAliases = subjectAliases(opportunityRef, byPath);
-  return records(report.document.commercial_subject_aggregates).find((aggregate) => {
+  const fullProjection = isRecord(report.document.full_commercial_projection)
+    ? report.document.full_commercial_projection
+    : report.document;
+  return records(fullProjection.commercial_subject_aggregates).find((aggregate) => {
     if (typeof aggregate.subject_id !== "string") return false;
     return [...subjectAliases(aggregate.subject_id, byPath)].some((alias) =>
       opportunityAliases.has(alias),
@@ -864,6 +875,81 @@ function validateEvaluationAndReporting(
   );
   const report = entries.find((entry) => entry.schemaVersion === "startup_opportunity.report.v1");
   if (report !== undefined) {
+    const manifest = byPath.get("manifest.json");
+    const envelopesByPath = new Map<string, FormalArtifactEnvelope>(
+      [...byPath.values()].map((entry) => [
+        entry.path,
+        (entry.envelope !== null &&
+        typeof entry.envelope.content_hash === "string" &&
+        isRecord(entry.envelope.document)
+          ? entry.envelope
+          : {
+              artifact_path: entry.path,
+              artifact_type: entry.schemaVersion,
+              content_hash: canonicalContentHash(entry.document),
+              document: entry.document,
+            }) as unknown as FormalArtifactEnvelope,
+      ]),
+    );
+    try {
+      if (manifest === undefined) throw new Error("current Manifest is missing");
+      const expectedLanguage = deriveConfirmedResearchLanguage(
+        manifest.document,
+        exactJsonlRecords,
+      );
+      const documentsByPath = new Map(
+        [...byPath.values()].map((entry) => [entry.path, entry.document]),
+      );
+      const expectedSubjectIds = deriveNonTerminalReportSubjectIds(
+        report.schemaVersion,
+        report.document,
+        documentsByPath,
+      );
+      const expectedLabels = deriveReportSubjectLabels(
+        expectedSubjectIds,
+        documentsByPath,
+        [],
+        expectedLanguage,
+      );
+      const expectedDispositions = deriveReportDispositions(
+        report.schemaVersion,
+        report.document,
+        envelopesByPath,
+      );
+      for (const [field, actual, expected] of [
+        ["research_language", report.document.research_language, expectedLanguage],
+        ["report_subject_labels", report.document.report_subject_labels, expectedLabels],
+        [
+          "report_evidence_dispositions",
+          report.document.report_evidence_dispositions,
+          expectedDispositions.reportEvidenceDispositions,
+        ],
+        [
+          "report_source_dispositions",
+          report.document.report_source_dispositions,
+          expectedDispositions.reportSourceDispositions,
+        ],
+      ] as const) {
+        if (actual !== undefined && !same(actual, expected)) {
+          errors.push(
+            issue(
+              "g2_4.report_mechanical_projection_mismatch",
+              `${report.path}#/${field}`,
+              "report language, final subjects, and material dispositions must be mechanically derived from exact current-Run authorities",
+              { field, expected },
+            ),
+          );
+        }
+      }
+    } catch (error) {
+      errors.push(
+        issue(
+          "g2_4.report_mechanical_projection_invalid",
+          report.path,
+          error instanceof Error ? error.message : "report authority derivation failed",
+        ),
+      );
+    }
     const expectedCitations = deriveReportCitations(
       [...byPath.values()],
       exactJsonlRecords,
@@ -1426,7 +1512,12 @@ function validateEvaluationAndReporting(
       brief.document.scope_summary !== context?.scope_summary ||
       !same(brief.document.limitations, context?.limitations) ||
       !same(brief.document.external_action_boundary, context?.external_action_boundary) ||
-      brief.document.markdown_content_hash !== sha256Bytes(String(brief.document.markdown)));
+      brief.document.markdown_content_hash !== sha256Bytes(String(brief.document.markdown)) ||
+      brief.document.research_language !== report?.document.research_language ||
+      localizedInternalLeakageIssues(
+        report?.document.research_language,
+        String(brief.document.markdown),
+      ).length > 0);
   const viewMismatch =
     view !== undefined &&
     (view.document.report_ref !== report?.path ||
@@ -1445,7 +1536,12 @@ function validateEvaluationAndReporting(
       view.document.markdown_content_hash !== sha256Bytes(String(view.document.markdown)) ||
       view.document.audit_appendix_path !== "audit-appendix.md" ||
       view.document.audit_appendix_content_hash !==
-        sha256Bytes(String(view.document.audit_appendix_markdown)));
+        sha256Bytes(String(view.document.audit_appendix_markdown)) ||
+      view.document.research_language !== report?.document.research_language ||
+      localizedInternalLeakageIssues(
+        report?.document.research_language,
+        `${String(view.document.markdown)}\n${String(view.document.audit_appendix_markdown)}`,
+      ).length > 0);
   const forbiddenMatches =
     report !== undefined && brief !== undefined && view !== undefined
       ? scanDiscoveryReportSurfaces({

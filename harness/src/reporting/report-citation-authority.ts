@@ -1,8 +1,16 @@
-export interface ReportCitation {
-  readonly evidence_ref: string;
-  readonly label: string;
-  readonly url: string;
-}
+export type ReportCitation =
+  | {
+      readonly evidence_ref: string;
+      readonly label: string;
+      readonly source_access: "public";
+      readonly url: string;
+    }
+  | {
+      readonly evidence_ref: string;
+      readonly label: string;
+      readonly source_access: "user_provided_non_public";
+      readonly canonical_uri: string;
+    };
 
 const FORMAL_EVIDENCE_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.evidence.assessment.current",
@@ -17,6 +25,7 @@ const MECHANICAL_REPORT_FIELDS = new Set([
   "report_statistics",
   "report_subject_labels",
   "report_metadata",
+  "full_commercial_projection",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -60,34 +69,42 @@ export function deriveReportCitations(
   const referenced = new Set(
     reportEvidenceRefs(finalReportModel, new Set(evidenceDocuments.map((entry) => entry.path))),
   );
-  return evidenceDocuments
-    .flatMap((entry) => {
-      if (!referenced.has(entry.path)) return [];
-      const binding = isRecord(entry.document.mechanical_binding)
-        ? entry.document.mechanical_binding
-        : {};
-      const record =
-        typeof binding.substrate_record_ref === "string"
-          ? exactRecords.get(binding.substrate_record_ref)
-          : undefined;
-      const source = isRecord(record?.source) ? record.source : {};
-      const canonicalSource =
-        source.kind === "public_url" && typeof source.canonical_url === "string"
-          ? source.canonical_url
-          : null;
-      if (canonicalSource === null) return [];
-      return [
-        {
-          evidence_ref: entry.path,
-          label:
-            typeof entry.document.source_name === "string"
-              ? entry.document.source_name
-              : canonicalSource,
-          url: canonicalSource,
-        },
-      ];
-    })
-    .sort((left, right) => left.evidence_ref.localeCompare(right.evidence_ref));
+  const citations: ReportCitation[] = [];
+  for (const entry of evidenceDocuments) {
+    if (!referenced.has(entry.path)) continue;
+    const binding = isRecord(entry.document.mechanical_binding)
+      ? entry.document.mechanical_binding
+      : {};
+    const record =
+      typeof binding.substrate_record_ref === "string"
+        ? exactRecords.get(binding.substrate_record_ref)
+        : undefined;
+    const source = isRecord(record?.source) ? record.source : {};
+    const label =
+      typeof entry.document.source_name === "string"
+        ? entry.document.source_name
+        : source.kind === "public_url"
+          ? String(source.canonical_url)
+          : "User-provided source";
+    if (source.kind === "public_url" && typeof source.canonical_url === "string") {
+      citations.push({
+        evidence_ref: entry.path,
+        label,
+        source_access: "public",
+        url: source.canonical_url,
+      });
+      continue;
+    }
+    if (source.kind === "user_provided" && typeof source.canonical_uri === "string") {
+      citations.push({
+        evidence_ref: entry.path,
+        label,
+        source_access: "user_provided_non_public",
+        canonical_uri: source.canonical_uri,
+      });
+    }
+  }
+  return citations.sort((left, right) => left.evidence_ref.localeCompare(right.evidence_ref));
 }
 
 export function canonicalizeReadableSources(
@@ -106,11 +123,23 @@ export function canonicalizeReadableSources(
       missingEvidenceRefs.push(evidenceRef);
       return { ...source };
     }
-    return {
-      ...source,
-      title: citation.label,
-      url: citation.url,
-    };
+    const canonical = { ...source };
+    delete canonical.url;
+    delete canonical.canonical_uri;
+    delete canonical.source_access;
+    return citation.source_access === "public"
+      ? {
+          ...canonical,
+          title: citation.label,
+          source_access: citation.source_access,
+          url: citation.url,
+        }
+      : {
+          ...canonical,
+          title: citation.label,
+          source_access: citation.source_access,
+          canonical_uri: citation.canonical_uri,
+        };
   });
   return {
     sources: canonicalSources,

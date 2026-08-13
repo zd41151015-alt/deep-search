@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
-import { INCUMBENT_RESPONSE_STRATEGIC_CONTEXT } from "../harness/src/incumbent-response-contract.js";
+import {
+  INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
+  INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH,
+} from "../harness/src/incumbent-response-contract.js";
 import {
   canonicalContentHash,
   canonicalJson,
@@ -49,6 +52,7 @@ import {
   G24_COMPARISON_A,
   G24_COMPARISON_B,
   G24_ENGINE_A,
+  G24_EVIDENCE_CHALLENGE,
   G24_EVIDENCE_SUPPORT,
   G24_FAN_IN,
   G24_PORTFOLIO,
@@ -134,6 +138,19 @@ function refresh(bundle: DocumentBundle, artifactPath: string): void {
   }
 }
 
+function refreshEnvelopeClosure(bundle: DocumentBundle, artifactPath: string): void {
+  refresh(bundle, artifactPath);
+  const outer = entry(bundle, artifactPath);
+  if (!String(outer.schema_version).startsWith("startup_opportunity.artifact_envelope.")) {
+    return;
+  }
+  outer.input_refs = [
+    ...new Set([...collectTypedRefs(outer.document), ...collectTypedRefs(outer.ai_bundle_binding)]),
+  ]
+    .filter((ref) => ref !== artifactPath)
+    .sort();
+}
+
 function refreshAllInputHashes(bundle: DocumentBundle): void {
   for (let pass = 0; pass < bundle.documents.length; pass += 1) {
     let changed = false;
@@ -174,6 +191,7 @@ async function setup(
   context: TestContext,
   suffix: string,
   profile: DiscoveryProfile = "general",
+  researchLanguage = "en-US",
 ): Promise<State> {
   const root = await mkdtemp(path.join(tmpdir(), `startup-opportunity-g2-4-${suffix}-`));
   context.after(() => rm(root, { recursive: true, force: true }));
@@ -189,7 +207,7 @@ async function setup(
       customerModel: "b2c",
       targetUsers: ["synthetic user"],
       decisionGoal: "test current contract",
-      researchLanguage: "en-US",
+      researchLanguage,
     },
     createdAt: "2026-07-27T17:00:00Z",
   });
@@ -433,12 +451,12 @@ function setFirstBet(bundle: DocumentBundle, firstBet: string): void {
   const portfolio = effective(bundle, G24_PORTFOLIO);
   portfolio.recommended_first_bet = firstBet;
   portfolio.alternative_bets = [alternative];
-  refresh(bundle, G24_PORTFOLIO);
+  refreshEnvelopeClosure(bundle, G24_PORTFOLIO);
   const recommendation = effective(bundle, G24_RECOMMENDATION);
   recommendation.recommended_first_bet = firstBet;
   recommendation.alternative_bets = [alternative];
   recommendation.decision_tier = "prioritize";
-  refresh(bundle, G24_RECOMMENDATION);
+  refreshEnvelopeClosure(bundle, G24_RECOMMENDATION);
   const report = effective(bundle, G24_REPORT);
   report.top_opportunity_refs = [firstBet];
   const context = report.curated_judgment_context as Record<string, unknown>;
@@ -451,16 +469,7 @@ function setFirstBet(bundle: DocumentBundle, firstBet: string): void {
       hash.content_hash = canonicalContentHash(effective(bundle, String(hash.ref)));
     }
   }
-  refresh(bundle, G24_REPORT);
-  const reportEnvelope = entry(bundle, G24_REPORT);
-  reportEnvelope.input_refs = [
-    ...new Set([
-      ...collectTypedRefs(report),
-      ...collectTypedRefs(reportEnvelope.ai_bundle_binding),
-    ]),
-  ]
-    .filter((ref) => ref !== G24_REPORT)
-    .sort();
+  refreshEnvelopeClosure(bundle, G24_REPORT);
 }
 
 type DecisionTier =
@@ -1662,7 +1671,30 @@ test("G2.4 forbidden report claims fail closed before publication and remain abs
 });
 
 test("G2.4 publishes evaluation artifacts, materializes the discovery report, and replays exactly", async (context) => {
-  const state = await setup(context, "publication");
+  const state = await setup(context, "publication", "general", "zh-CN");
+  const firstBet = G23_OPPORTUNITY_A;
+  const watchlist = G23_OPPORTUNITY_B;
+  const portfolio = effective(state.bundle, G24_PORTFOLIO);
+  portfolio.recommended_first_bet = firstBet;
+  portfolio.alternative_bets = [];
+  portfolio.watchlist_refs = [watchlist];
+  portfolio.rejected_refs = [];
+  const recommendation = effective(state.bundle, G24_RECOMMENDATION);
+  recommendation.recommended_first_bet = firstBet;
+  recommendation.alternative_bets = [];
+  recommendation.rejected_or_watchlist_refs = [watchlist];
+  const reportSource = effective(state.bundle, G24_REPORT);
+  delete reportSource.research_language;
+  reportSource.top_opportunity_refs = [firstBet];
+  reportSource.watchlist_refs = [watchlist];
+  reportSource.rejected_opportunity_refs = [];
+  const judgmentContext = reportSource.curated_judgment_context as Record<string, unknown>;
+  judgmentContext.recommended_first_bet = firstBet;
+  judgmentContext.alternative_bets = [];
+  refreshAllInputHashes(state.bundle);
+  refreshEnvelopeClosure(state.bundle, G24_PORTFOLIO);
+  refreshEnvelopeClosure(state.bundle, G24_RECOMMENDATION);
+  refreshEnvelopeClosure(state.bundle, G24_REPORT);
   await publishThroughEvaluation(state);
   const runtime = new ReportRuntime(state.runsRoot, state.validator);
   const report = evaluationEnvelope(state.bundle, G24_REPORT);
@@ -1698,6 +1730,59 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   const projectedReport = JSON.parse(
     await readFile(path.join(state.runRoot, "report.json"), "utf8"),
   ) as Record<string, unknown>;
+  const firstBetId = String(effective(state.bundle, firstBet).opportunity_id);
+  const watchlistId = String(effective(state.bundle, watchlist).opportunity_id);
+  assert.equal(projectedReport.research_language, "zh-CN");
+  assert.deepEqual(
+    (projectedReport.report_subject_labels as Record<string, unknown>[]).map(
+      (entry) => entry.subject_id,
+    ),
+    [firstBetId],
+  );
+  assert.deepEqual(
+    (projectedReport.commercial_subject_aggregates as Record<string, unknown>[]).map(
+      (entry) => entry.subject_id,
+    ),
+    [firstBetId],
+  );
+  const fullSubjectIds = (
+    (projectedReport.full_commercial_projection as Record<string, unknown>)
+      .commercial_subject_aggregates as Record<string, unknown>[]
+  )
+    .map((entry) => String(entry.subject_id))
+    .sort();
+  assert.ok(fullSubjectIds.includes(firstBetId));
+  assert.ok(fullSubjectIds.includes(watchlistId));
+  assert.ok(fullSubjectIds.length > 2);
+  const evidenceDispositions = projectedReport.report_evidence_dispositions as Record<
+    string,
+    unknown
+  >[];
+  assert.deepEqual(
+    evidenceDispositions.map((entry) => entry.evidence_ref).sort(),
+    [G24_EVIDENCE_CHALLENGE, G24_EVIDENCE_SUPPORT].sort(),
+  );
+  assert.ok(
+    evidenceDispositions.every(
+      (entry) =>
+        String(entry.evidence_content_hash).startsWith("sha256:") &&
+        (entry.authority_bindings as Record<string, unknown>[]).every((binding) =>
+          String(binding.content_hash).startsWith("sha256:"),
+        ),
+    ),
+  );
+  const sourceDispositions = projectedReport.report_source_dispositions as Record<
+    string,
+    unknown
+  >[];
+  assert.equal(sourceDispositions.length, 2);
+  assert.ok(
+    sourceDispositions.every((entry) =>
+      (entry.authority_bindings as Record<string, unknown>[]).every((binding) =>
+        String(binding.content_hash).startsWith("sha256:"),
+      ),
+    ),
+  );
   assert.ok((projectedReport.commercial_research_audit_refs as unknown[]).length > 0);
   const projectedResponseRows = projectedReport.incumbent_response_risk_rows as Record<
     string,
@@ -1734,17 +1819,28 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   assert.ok(loaded.manifest.artifact_refs.includes(G24_REPORT));
   assert.ok(loaded.manifest.artifact_refs.includes(first.consistencyEvaluationRef));
   const decisionBrief = await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8");
-  assert.match(decisionBrief, /Partial Order/);
-  assert.match(decisionBrief, /Incumbent Absorption And Response Risk/);
-  assert.ok(decisionBrief.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT));
+  assert.match(decisionBrief, /局部排序/);
+  assert.match(decisionBrief, /头部公司吸收与响应风险/);
+  assert.ok(decisionBrief.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
-  assert.match(reportMarkdown, /Portfolio/);
-  assert.match(reportMarkdown, /Incumbent Absorption And Response Risk/);
-  assert.ok(reportMarkdown.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT));
+  assert.match(reportMarkdown, /方向组合/);
+  assert.match(reportMarkdown, /头部公司吸收与响应风险/);
+  assert.ok(reportMarkdown.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   const auditAppendix = await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8");
-  assert.match(auditAppendix, /All Quantitative Signals/);
-  assert.match(auditAppendix, /Full Competitive And Substitute Matrix/);
-  assert.match(auditAppendix, /Full Research Coverage Gaps/);
+  assert.match(auditAppendix, /全部量化信号/);
+  assert.match(auditAppendix, /完整竞品与广义替代矩阵/);
+  assert.match(auditAppendix, /完整研究覆盖缺口/);
+  assert.match(auditAppendix, /材料采用、限制与排除/);
+  assert.match(auditAppendix, /用户提供\/非公开/);
+  assert.equal(
+    auditAppendix.match(
+      /^ {2}- \d+\. SYNTHETIC G2\.4 contract fixture only; no real Evidence or validation\.$/gmu,
+    )?.length,
+    2,
+  );
+  for (const surface of [decisionBrief, reportMarkdown, auditAppendix]) {
+    assert.doesNotMatch(surface, /decision_tier|insufficient_evidence|artifacts\//u);
+  }
   const receipts = await Promise.all(
     (await readdir(path.join(state.runRoot, ".store/operations")))
       .filter((filename) => filename.startsWith("artifact-"))

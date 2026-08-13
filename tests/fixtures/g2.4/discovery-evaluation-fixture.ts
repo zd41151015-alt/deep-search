@@ -1345,10 +1345,19 @@ export async function createDiscoveryEvaluationFixture(
       "traceability_and_sources",
     ].map((section) => [section, [SYNTHETIC]]),
   );
+  const finalSubjectIds = OPPORTUNITIES.map((ref) => String(documents.get(ref)?.opportunity_id));
+  const fullCommercialProjection = commercialReportProjection(
+    commercialAudits,
+    commercialTasks,
+    documents,
+  );
+  const { gate_warnings: _fullGateWarnings, ...fullCommercialAuditModel } =
+    fullCommercialProjection;
   add(G24_REPORT, {
     schema_version: "startup_opportunity.report.v1",
     report_id: "discovery_report",
     run_id: runId,
+    research_language: "en-US",
     producer_role: "main_agent",
     owned_output_path: G24_REPORT,
     materialized_path: "report.json",
@@ -1382,7 +1391,8 @@ export async function createDiscoveryEvaluationFixture(
       G24_JUDGMENT_B_CHALLENGE,
     ],
     source_manifest_refs: [G24_MANIFEST_SUPPORT, G24_MANIFEST_CHALLENGE],
-    ...commercialReportProjection(commercialAudits, commercialTasks, documents),
+    ...commercialReportProjection(commercialAudits, commercialTasks, documents, finalSubjectIds),
+    full_commercial_projection: fullCommercialAuditModel,
     traceability_ref: G24_TRACEABILITY,
     curated_judgment_context: {
       decision_question: SYNTHETIC,

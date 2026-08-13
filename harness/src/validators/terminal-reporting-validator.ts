@@ -9,6 +9,10 @@ import {
   deriveReportCitations,
 } from "../reporting/report-citation-authority.js";
 import {
+  deriveConfirmedResearchLanguage,
+  deriveReportDispositions,
+} from "../reporting/report-projection-authority.js";
+import {
   deriveTerminalReportDocuments,
   localizedTerminalUserViewIssues,
   terminalReportDocumentsEqual,
@@ -87,6 +91,62 @@ function validateSource(
   const source = entry.document;
   const errors: ValidationIssue[] = [];
   const expectedCitations = deriveReportCitations(documents, exactRecords, source);
+  const envelopesByPath = new Map<string, FormalArtifactEnvelope>(
+    documents.map((document) => [
+      document.path,
+      (document.envelope !== null &&
+      typeof document.envelope.content_hash === "string" &&
+      isRecord(document.envelope.document)
+        ? document.envelope
+        : {
+            artifact_path: document.path,
+            artifact_type: document.schemaVersion,
+            content_hash: canonicalContentHash(document.document),
+            document: document.document,
+          }) as unknown as FormalArtifactEnvelope,
+    ]),
+  );
+  try {
+    if (manifest === undefined) throw new Error("current Manifest is missing");
+    const expectedLanguage = deriveConfirmedResearchLanguage(manifest.document, exactRecords);
+    const expectedDispositions = deriveReportDispositions(
+      entry.schemaVersion,
+      source,
+      envelopesByPath,
+    );
+    for (const [field, actual, expected] of [
+      ["research_language", source.research_language, expectedLanguage],
+      [
+        "report_evidence_dispositions",
+        source.report_evidence_dispositions,
+        expectedDispositions.reportEvidenceDispositions,
+      ],
+      [
+        "report_source_dispositions",
+        source.report_source_dispositions,
+        expectedDispositions.reportSourceDispositions,
+      ],
+    ] as const) {
+      if (actual !== undefined && canonicalJson(actual) !== canonicalJson(expected)) {
+        errors.push(
+          issue(
+            "terminal_reporting.mechanical_projection_mismatch",
+            `${entry.path}#/${field}`,
+            "terminal report language and Evidence dispositions must be mechanically derived from exact current-Run authorities",
+            { field, expected },
+          ),
+        );
+      }
+    }
+  } catch (error) {
+    errors.push(
+      issue(
+        "terminal_reporting.mechanical_projection_invalid",
+        entry.path,
+        error instanceof Error ? error.message : "terminal report authority derivation failed",
+      ),
+    );
+  }
   if (
     source.report_citations !== undefined &&
     canonicalJson(source.report_citations) !== canonicalJson(expectedCitations)
