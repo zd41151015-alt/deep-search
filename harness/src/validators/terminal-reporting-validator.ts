@@ -11,6 +11,8 @@ import {
 import {
   deriveConfirmedResearchLanguage,
   deriveReportDispositions,
+  deriveReportSubjectLabels,
+  deriveTerminalReportSubjectAuthorities,
 } from "../reporting/report-projection-authority.js";
 import {
   deriveTerminalReportDocuments,
@@ -109,6 +111,11 @@ function validateSource(
   try {
     if (manifest === undefined) throw new Error("current Manifest is missing");
     const expectedLanguage = deriveConfirmedResearchLanguage(manifest.document, exactRecords);
+    const expectedSubjectLabels = deriveReportSubjectLabels(
+      deriveTerminalReportSubjectAuthorities(source, envelopesByPath),
+      envelopesByPath,
+      expectedLanguage,
+    );
     const expectedDispositions = deriveReportDispositions(
       entry.schemaVersion,
       source,
@@ -116,6 +123,7 @@ function validateSource(
     );
     for (const [field, actual, expected] of [
       ["research_language", source.research_language, expectedLanguage],
+      ["report_subject_labels", source.report_subject_labels, expectedSubjectLabels],
       [
         "report_evidence_dispositions",
         source.report_evidence_dispositions,

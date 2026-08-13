@@ -93,6 +93,9 @@
         "source_label": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
         },
+        "notes": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
         "disposition": { "enum": ["excluded", "unavailable"] },
         "reasons": {
           "type": "array",
@@ -109,15 +112,21 @@
           "items": { "$ref": "#/$defs/authorityBinding" }
         }
       },
-      "oneOf": [{ "required": ["source"] }, { "required": ["source_label"] }]
+      "anyOf": [{ "required": ["source"] }, { "required": ["source_label"] }]
     },
     "reportSubjectLabel": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["subject_id", "label"],
+      "required": ["subject_id", "subject_ref", "subject_content_hash", "label"],
       "properties": {
         "subject_id": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "subject_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "subject_content_hash": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
         },
         "label": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"

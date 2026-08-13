@@ -5,7 +5,7 @@ import { deriveReportCitations } from "../reporting/report-citation-authority.js
 import { localizedInternalLeakageIssues } from "../reporting/report-localization.js";
 import {
   deriveConfirmedResearchLanguage,
-  deriveNonTerminalReportSubjectIds,
+  deriveNonTerminalReportSubjectAuthorities,
   deriveReportDispositions,
   deriveReportSubjectLabels,
 } from "../reporting/report-projection-authority.js";
@@ -976,15 +976,14 @@ function validateReportSet(
         throw new Error("current Manifest is missing");
       }
       const expectedLanguage = deriveConfirmedResearchLanguage(manifest.document, exactRecords);
-      const expectedSubjectIds = deriveNonTerminalReportSubjectIds(
+      const expectedSubjectAuthorities = deriveNonTerminalReportSubjectAuthorities(
         report.schemaVersion,
         report.document,
-        new Map(documents.map((entry) => [entry.path, entry.document])),
+        envelopesByPath,
       );
       const expectedLabels = deriveReportSubjectLabels(
-        expectedSubjectIds,
-        new Map(documents.map((entry) => [entry.path, entry.document])),
-        [],
+        expectedSubjectAuthorities,
+        envelopesByPath,
         expectedLanguage,
       );
       const expectedDispositions = deriveReportDispositions(

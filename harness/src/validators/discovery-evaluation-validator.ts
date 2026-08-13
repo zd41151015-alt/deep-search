@@ -10,7 +10,7 @@ import {
 import { localizedInternalLeakageIssues } from "../reporting/report-localization.js";
 import {
   deriveConfirmedResearchLanguage,
-  deriveNonTerminalReportSubjectIds,
+  deriveNonTerminalReportSubjectAuthorities,
   deriveReportDispositions,
   deriveReportSubjectLabels,
 } from "../reporting/report-projection-authority.js";
@@ -897,18 +897,14 @@ function validateEvaluationAndReporting(
         manifest.document,
         exactJsonlRecords,
       );
-      const documentsByPath = new Map(
-        [...byPath.values()].map((entry) => [entry.path, entry.document]),
-      );
-      const expectedSubjectIds = deriveNonTerminalReportSubjectIds(
+      const expectedSubjectAuthorities = deriveNonTerminalReportSubjectAuthorities(
         report.schemaVersion,
         report.document,
-        documentsByPath,
+        envelopesByPath,
       );
       const expectedLabels = deriveReportSubjectLabels(
-        expectedSubjectIds,
-        documentsByPath,
-        [],
+        expectedSubjectAuthorities,
+        envelopesByPath,
         expectedLanguage,
       );
       const expectedDispositions = deriveReportDispositions(

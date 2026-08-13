@@ -1730,6 +1730,29 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   const projectedReport = JSON.parse(
     await readFile(path.join(state.runRoot, "report.json"), "utf8"),
   ) as Record<string, unknown>;
+  const watchProjectionDocument = structuredClone(projectedReport);
+  delete watchProjectionDocument.materialized_path;
+  (watchProjectionDocument.curated_judgment_context as Record<string, unknown>).decision_tier =
+    "watch";
+  const watchProjection = deriveReportEnvelopes({
+    ...report,
+    document: watchProjectionDocument,
+    content_hash: canonicalContentHash(watchProjectionDocument),
+  });
+  const watchBrief = String(
+    watchProjection.find(
+      (entry) => entry.artifact_type === "startup_opportunity.decision_brief.discovery.current",
+    )?.document.markdown,
+  );
+  const watchCore = String(
+    watchProjection.find(
+      (entry) => entry.artifact_type === "startup_opportunity.discovery_report_view.v1",
+    )?.document.markdown,
+  );
+  for (const surface of [watchBrief, watchCore]) {
+    assert.match(surface, /决策层级: 持续观察/);
+    assert.doesNotMatch(surface, /\bwatch\b/u);
+  }
   const firstBetId = String(effective(state.bundle, firstBet).opportunity_id);
   const watchlistId = String(effective(state.bundle, watchlist).opportunity_id);
   assert.equal(projectedReport.research_language, "zh-CN");
@@ -1738,6 +1761,23 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
       (entry) => entry.subject_id,
     ),
     [firstBetId],
+  );
+  assert.deepEqual(
+    (projectedReport.report_subject_labels as Record<string, unknown>[]).map((entry) => ({
+      subject_ref: entry.subject_ref,
+      subject_content_hash: entry.subject_content_hash,
+    })),
+    [
+      {
+        subject_ref: firstBet,
+        subject_content_hash: canonicalContentHash(effective(state.bundle, firstBet)),
+      },
+    ],
+  );
+  assert.ok(
+    !(projectedReport.report_subject_labels as Record<string, unknown>[]).some(
+      (entry) => entry.subject_id === watchlistId || entry.subject_ref === watchlist,
+    ),
   );
   assert.deepEqual(
     (projectedReport.commercial_subject_aggregates as Record<string, unknown>[]).map(
@@ -1832,9 +1872,15 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   assert.match(auditAppendix, /完整研究覆盖缺口/);
   assert.match(auditAppendix, /材料采用、限制与排除/);
   assert.match(auditAppendix, /用户提供\/非公开/);
+  assert.match(auditAppendix, /Synthetic unavailable support source/);
+  assert.match(auditAppendix, /Synthetic unavailable challenge source/);
+  assert.equal(
+    auditAppendix.match(/The bounded research route could not access this source\./gu)?.length,
+    1,
+  );
   assert.equal(
     auditAppendix.match(
-      /^ {2}- \d+\. SYNTHETIC G2\.4 contract fixture only; no real Evidence or validation\.$/gmu,
+      /Synthetic unavailable (?:support|challenge) source（用户提供\/非公开） - SYNTHETIC G2\.4 contract fixture only; no real Evidence or validation\./gu,
     )?.length,
     2,
   );

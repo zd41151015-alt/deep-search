@@ -4,6 +4,7 @@ const ZH_ENUMS: Readonly<Record<string, string>> = {
   complete: "完整执行",
   completed: "已完成",
   continue_research: "继续研究",
+  watch: "持续观察",
   excluded: "未采用",
   deprioritize: "降低优先级",
   deprioritized: "已降低优先级",
@@ -93,7 +94,12 @@ export function isChineseResearchLanguage(value: unknown): boolean {
 
 export function localizedEnum(value: unknown, zh: boolean): string {
   const raw = String(value);
-  return zh ? (ZH_ENUMS[raw] ?? raw.replaceAll("_", " ")) : raw.replaceAll("_", " ");
+  if (!zh) return raw.replaceAll("_", " ");
+  const localized = ZH_ENUMS[raw];
+  if (localized === undefined) {
+    throw new Error(`report localized enum mapping is missing for ${raw}`);
+  }
+  return localized;
 }
 
 export function userVisibleText(value: unknown, zh: boolean): string {
@@ -132,6 +138,7 @@ export function localizedInternalLeakageIssues(
     artifactRefPattern(),
     /\b(?:decision_grade|directional_proxy|context_only|not_ready|unranked_hypothesis)\b/iu,
     /\b(?:opportunity_discovery|concept_evidence_assessment|assessment_early_kill|assessment_commercial|assessment_delivery|discovery_generation|candidate_evaluation)\b/iu,
+    /(?:决策层级|评估结果|状态|含义)\s*:\s*(?:watch|insufficient_evidence|investigate_further|continue_research|not_applicable|source_unavailable)\b/iu,
   ];
   return [
     ...rules.flatMap((rule, index) =>

@@ -809,8 +809,18 @@ export async function createDiscoveryEvaluationFixture(
       research_phase_role: isSupport ? "enrichment_evaluation" : "adversarial_challenger",
       source_group_ids: [`source_group_${unitId}`],
       accepted_evidence_refs: [evidenceRef],
-      rejected_sources: [],
-      unavailable_sources: [SYNTHETIC],
+      rejected_source_records: [],
+      unavailable_source_records: [
+        {
+          source: {
+            kind: "user_provided",
+            canonical_uri: `urn:startup-opportunity:user-provided:unavailable-${side}`,
+          },
+          source_label: `Synthetic unavailable ${side} source`,
+          unavailable_reason: "The bounded research route could not access this source.",
+          notes: SYNTHETIC,
+        },
+      ],
       canonical_source_groups: [
         { group_id: `source_group_${unitId}`, evidence_refs: [evidenceRef] },
       ],

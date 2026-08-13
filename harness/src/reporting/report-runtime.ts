@@ -59,9 +59,10 @@ import {
 } from "./report-localization.js";
 import {
   deriveConfirmedResearchLanguage,
-  deriveNonTerminalReportSubjectIds,
+  deriveNonTerminalReportSubjectAuthorities,
   deriveReportDispositions,
   deriveReportSubjectLabels,
+  deriveTerminalReportSubjectAuthorities,
 } from "./report-projection-authority.js";
 import { deriveTerminalReportDocuments } from "./terminal-reporting.js";
 
@@ -2025,14 +2026,28 @@ export class ReportRuntime {
         })),
       )
       .sort((left, right) => Number(left.order) - Number(right.order));
-    const projectedSubjectIds =
+    const subjectAuthorities =
       source.artifact_type === "startup_opportunity.terminal_report_source.v1"
-        ? currentDecisionSubjectIds
-        : deriveNonTerminalReportSubjectIds(source.artifact_type, sourceDocument, documentsByPath);
+        ? deriveTerminalReportSubjectAuthorities(sourceDocument, envelopesByPath)
+        : deriveNonTerminalReportSubjectAuthorities(
+            source.artifact_type,
+            sourceDocument,
+            envelopesByPath,
+          );
+    const projectedSubjectIds = subjectAuthorities.map((authority) => authority.subjectId);
+    if (
+      source.artifact_type === "startup_opportunity.terminal_report_source.v1" &&
+      canonicalJson(projectedSubjectIds) !== canonicalJson(currentDecisionSubjectIds)
+    ) {
+      throw new StoreError(
+        "report.subject_authority_invalid",
+        "terminal synthesis subjects must equal the current/final Decision Subject Snapshot",
+        { projectedSubjectIds, currentDecisionSubjectIds },
+      );
+    }
     const reportSubjectLabels = deriveReportSubjectLabels(
-      projectedSubjectIds,
-      documentsByPath,
-      synthesizedDirections,
+      subjectAuthorities,
+      envelopesByPath,
       researchLanguage,
     );
     if (
@@ -2201,6 +2216,7 @@ export class ReportRuntime {
           ...strings(researchProvenance.causal_handoff_refs),
           ...fullProjection.commercial_research_audit_refs,
           ...reportCitations.map((citation) => citation.evidence_ref),
+          ...subjectAuthorities.map((authority) => authority.subjectRef),
           ...dispositions.reportEvidenceDispositions.map((entry) => String(entry.evidence_ref)),
           ...synthesisBindings.flatMap((binding) =>
             typeof binding.ref === "string" ? [binding.ref] : [],

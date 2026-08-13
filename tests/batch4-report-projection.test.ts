@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { FormalArtifactEnvelope } from "../harness/src/index.js";
 import {
   criticalResearchGapGroups,
   deriveReportStatistics,
@@ -13,10 +14,16 @@ import {
   deriveReportCitations,
 } from "../harness/src/reporting/report-citation-authority.js";
 import {
+  localizedEnum,
   localizedInternalLeakageIssues,
   userVisibleText,
 } from "../harness/src/reporting/report-localization.js";
-import { deriveNonTerminalReportSubjectIds } from "../harness/src/reporting/report-projection-authority.js";
+import {
+  deriveNonTerminalReportSubjectAuthorities,
+  deriveNonTerminalReportSubjectIds,
+  deriveReportDispositions,
+  deriveReportSubjectLabels,
+} from "../harness/src/reporting/report-projection-authority.js";
 import { renderTerminalAuditAppendix } from "../harness/src/reporting/terminal-reporting.js";
 
 function researchGap(
@@ -137,6 +144,73 @@ test("Discovery final-subject authority excludes rejected and watchlist siblings
   );
 });
 
+test("final subject labels bind the exact immutable revision instead of the first matching ID", () => {
+  const refR1 = "artifacts/opportunity-c.r1.json";
+  const refR2 = "artifacts/opportunity-c.r2.json";
+  const envelopes = new Map<string, FormalArtifactEnvelope>([
+    [
+      "artifacts/recommendation.json",
+      {
+        artifact_path: "artifacts/recommendation.json",
+        artifact_type: "startup_opportunity.decision_recommendation.v1",
+        content_hash: `sha256:${"a".repeat(64)}`,
+        document: {
+          schema_version: "startup_opportunity.decision_recommendation.v1",
+          recommended_first_bet: refR2,
+          alternative_bets: [],
+        },
+      } as unknown as FormalArtifactEnvelope,
+    ],
+    [
+      "artifacts/portfolio.json",
+      {
+        artifact_path: "artifacts/portfolio.json",
+        artifact_type: "startup_opportunity.portfolio_view.v1",
+        content_hash: `sha256:${"b".repeat(64)}`,
+        document: {
+          schema_version: "startup_opportunity.portfolio_view.v1",
+          recommended_first_bet: refR2,
+          alternative_bets: [],
+        },
+      } as unknown as FormalArtifactEnvelope,
+    ],
+    ...[
+      [refR1, "OLD", "c"],
+      [refR2, "CURRENT", "d"],
+    ].map(([ref, title, hash]): [string, FormalArtifactEnvelope] => [
+      ref as string,
+      {
+        artifact_path: ref as string,
+        artifact_type: "startup_opportunity.opportunity_thesis.v1",
+        content_hash: `sha256:${String(hash).repeat(64)}`,
+        document: {
+          schema_version: "startup_opportunity.opportunity_thesis.v1",
+          opportunity_id: "c",
+          title,
+        },
+      } as unknown as FormalArtifactEnvelope,
+    ]),
+  ]);
+  const report = {
+    decision_recommendation_ref: "artifacts/recommendation.json",
+    portfolio_view_ref: "artifacts/portfolio.json",
+    top_opportunity_refs: [refR2],
+  };
+  const authorities = deriveNonTerminalReportSubjectAuthorities(
+    "startup_opportunity.report.v1",
+    report,
+    envelopes,
+  );
+  assert.deepEqual(deriveReportSubjectLabels(authorities, envelopes), [
+    {
+      subject_id: "c",
+      subject_ref: refR2,
+      subject_content_hash: `sha256:${"d".repeat(64)}`,
+      label: "CURRENT",
+    },
+  ]);
+});
+
 test("Chinese report localization maps fixed contract codes and rejects leaked mechanics", () => {
   const localized = userVisibleText(
     "current_evidence_cannot_support_a_directional_conclusion; assessment_result_and_evidence_strength; artifacts/reporting/internal.json",
@@ -158,6 +232,94 @@ test("Chinese report localization maps fixed contract codes and rejects leaked m
       "assessment_result_and_evidence_strength artifacts/reporting/internal.json",
     ),
     [],
+  );
+  assert.equal(localizedEnum("watch", true), "持续观察");
+  assert.ok(localizedInternalLeakageIssues("zh-CN", "决策层级: watch").length > 0);
+  assert.throws(() => localizedEnum("new_unmapped_contract_enum", true), /mapping is missing/u);
+});
+
+test("Discovery source dispositions retain exact canonical identity and a distinct specific reason", () => {
+  const manifestRef = "evidence/source-manifest.json";
+  const traceabilityRef = "artifacts/traceability.json";
+  const envelopes = new Map<string, FormalArtifactEnvelope>([
+    [
+      manifestRef,
+      {
+        artifact_path: manifestRef,
+        artifact_type: "startup_opportunity.source_manifest.discovery_evaluation.current",
+        content_hash: `sha256:${"1".repeat(64)}`,
+        document: {
+          schema_version: "startup_opportunity.source_manifest.discovery_evaluation.current",
+          accepted_evidence_refs: [],
+          rejected_source_records: [
+            {
+              source: { kind: "public_url", canonical_url: "https://canonical.invalid/rejected" },
+              source_label: "Rejected source",
+              rejection_reason: "Duplicate of the accepted primary record.",
+            },
+          ],
+          unavailable_source_records: [
+            {
+              source: {
+                kind: "user_provided",
+                canonical_uri: "urn:startup-opportunity:user-provided:missing-sheet",
+              },
+              source_label: "Missing customer sheet",
+              unavailable_reason: "The user did not provide the referenced sheet.",
+              notes: "No inference was made from the absent material.",
+            },
+          ],
+        },
+      } as unknown as FormalArtifactEnvelope,
+    ],
+    [
+      traceabilityRef,
+      {
+        artifact_path: traceabilityRef,
+        artifact_type: "startup_opportunity.traceability.discovery.current",
+        content_hash: `sha256:${"2".repeat(64)}`,
+        document: {
+          schema_version: "startup_opportunity.traceability.discovery.current",
+          statements: [],
+        },
+      } as unknown as FormalArtifactEnvelope,
+    ],
+  ]);
+  const projection = deriveReportDispositions(
+    "startup_opportunity.report.v1",
+    { source_manifest_refs: [manifestRef], traceability_ref: traceabilityRef },
+    envelopes,
+  );
+  assert.deepEqual(
+    projection.reportSourceDispositions.map((entry) => ({
+      source: entry.source,
+      label: entry.source_label,
+      disposition: entry.disposition,
+      reasons: entry.reasons,
+      notes: entry.notes,
+      authority: entry.authority_bindings,
+    })),
+    [
+      {
+        source: { kind: "public_url", canonical_url: "https://canonical.invalid/rejected" },
+        label: "Rejected source",
+        disposition: "excluded",
+        reasons: ["Duplicate of the accepted primary record."],
+        notes: undefined,
+        authority: [{ ref: manifestRef, content_hash: `sha256:${"1".repeat(64)}` }],
+      },
+      {
+        source: {
+          kind: "user_provided",
+          canonical_uri: "urn:startup-opportunity:user-provided:missing-sheet",
+        },
+        label: "Missing customer sheet",
+        disposition: "unavailable",
+        reasons: ["The user did not provide the referenced sheet."],
+        notes: "No inference was made from the absent material.",
+        authority: [{ ref: manifestRef, content_hash: `sha256:${"1".repeat(64)}` }],
+      },
+    ],
   );
 });
 

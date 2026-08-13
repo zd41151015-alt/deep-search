@@ -13,8 +13,8 @@
     "research_phase_role",
     "source_group_ids",
     "accepted_evidence_refs",
-    "rejected_sources",
-    "unavailable_sources",
+    "rejected_source_records",
+    "unavailable_source_records",
     "canonical_source_groups",
     "overlap_disclosures",
     "valid_as_of",
@@ -55,11 +55,49 @@
         "$ref": "./definitions.schema.json#/$defs/enrichmentEvidenceRef"
       }
     },
-    "rejected_sources": {
-      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    "rejected_source_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "source_label", "rejection_reason"],
+        "properties": {
+          "source": {
+            "$ref": "../../assessment/research/definitions.schema.json#/$defs/canonicalSource"
+          },
+          "source_label": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "rejection_reason": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "notes": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          }
+        }
+      }
     },
-    "unavailable_sources": {
-      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    "unavailable_source_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "source_label", "unavailable_reason"],
+        "properties": {
+          "source": {
+            "$ref": "../../assessment/research/definitions.schema.json#/$defs/canonicalSource"
+          },
+          "source_label": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "unavailable_reason": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "notes": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          }
+        }
+      }
     },
     "canonical_source_groups": {
       "type": "array",

@@ -118,6 +118,11 @@ const ZH_ENUMS: Readonly<Record<string, string>> = {
   opposes: "反对",
   mixed: "混合",
   context: "背景",
+  current: "当前",
+  historical: "历史",
+  unknown: "未知",
+  applicable: "适用",
+  partially_applicable: "部分适用",
   executed: "已执行",
   legally_closed: "已合法关闭",
   not_executed: "未执行",
@@ -153,7 +158,11 @@ const ZH_ENUMS: Readonly<Record<string, string>> = {
 function enumLabel(value: unknown, zh: boolean): string {
   const text = String(value);
   if (zh) {
-    return ZH_ENUMS[text] ?? text;
+    const localized = ZH_ENUMS[text];
+    if (localized === undefined) {
+      throw new Error(`terminal report localized enum mapping is missing for ${text}`);
+    }
+    return localized;
   }
   return text.replaceAll("_", " ");
 }
@@ -561,6 +570,7 @@ const ZH_INTERNAL_TERM_RULES = [
   /\bartifact\b/iu,
   /\b(?:decision_grade|directional_proxy|context_only|not_ready|decision_grade_demand_signal|directional_demand_signal|current_user_language|competitive_scope_disposed|market_priority_signal_limited|candidate_purchase_or_commitment|acquisition_or_distribution|retention_or_usage|unit_economics)\b/iu,
   /\b(?:opportunity_discovery|concept_evidence_assessment|assessment_early_kill|assessment_commercial|assessment_delivery|discovery_generation|candidate_evaluation|runtime_blocked|not_executed|unranked_hypothesis)\b/iu,
+  /(?:研究结论|证据强度|执行完整度|运行健康|状态|成熟度|当前动作|排序状态)\s*:\s*(?:investigate_further|insufficient_evidence|no_recommendation|not_started|partially_applicable)\b/iu,
 ] as const;
 
 export function localizedTerminalUserViewIssues(

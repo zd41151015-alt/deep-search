@@ -2022,6 +2022,17 @@ test("build-report publishes formal sidecars, materializes four outputs, and exa
   ) as Record<string, unknown>;
   assert.equal(reportJson.schema_version, "startup_opportunity.concept_evidence_report.v1");
   assert.equal(reportJson.materialized_path, "report.json");
+  const exactConcept = JSON.parse(
+    await readFile(path.join(state.runRoot, "concept-hypothesis.json"), "utf8"),
+  ) as FormalArtifactEnvelope;
+  assert.deepEqual(reportJson.report_subject_labels, [
+    {
+      subject_id: String(exactConcept.document.concept_hypothesis_id),
+      subject_ref: "concept-hypothesis.json",
+      subject_content_hash: exactConcept.content_hash,
+      label: String(exactConcept.document.product_thesis),
+    },
+  ]);
   const decisionBrief = await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8");
   const coreReport = await readFile(path.join(state.runRoot, "report.md"), "utf8");
   const appendix = await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8");
@@ -2085,6 +2096,18 @@ test("build-report rejects caller-authored Evidence disposition mechanics before
           disposition: "included",
           reasons: ["Caller-authored disposition must not replace the Evidence Audit authority."],
           authority_bindings: [],
+        },
+      ];
+      return envelope;
+    })(),
+    (() => {
+      const envelope = structuredClone(state.reportEnvelope);
+      envelope.document.report_subject_labels = [
+        {
+          subject_id: String(state.decisionSubjectSynthesisEnvelope.document.subject_id),
+          subject_ref: "artifacts/assessment/concepts/historical.r1.json",
+          subject_content_hash: `sha256:${"1".repeat(64)}`,
+          label: "Historical label must not replace the exact final revision.",
         },
       ];
       return envelope;

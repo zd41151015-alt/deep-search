@@ -81,11 +81,7 @@ export function deriveConfirmedResearchLanguage(
   return scope.research_language;
 }
 
-function subjectIdFromRef(
-  ref: string,
-  documentsByPath: ReadonlyMap<string, Record<string, unknown>>,
-): string {
-  const document = documentsByPath.get(ref) ?? {};
+function subjectIdFromDocument(ref: string, document: Readonly<Record<string, unknown>>): string {
   for (const field of [
     "subject_id",
     "opportunity_id",
@@ -103,6 +99,56 @@ function subjectIdFromRef(
   );
 }
 
+export interface ReportSubjectAuthority {
+  readonly subjectId: string;
+  readonly subjectRef: string;
+  readonly subjectContentHash: string;
+}
+
+function subjectAuthority(
+  ref: string,
+  envelopesByPath: ReadonlyMap<string, FormalArtifactEnvelope>,
+): ReportSubjectAuthority {
+  const envelope = envelopesByPath.get(ref);
+  if (envelope === undefined) {
+    throw new StoreError(
+      "report.subject_authority_invalid",
+      "a final report subject ref must resolve to an exact current-Run Artifact",
+      { ref },
+    );
+  }
+  return {
+    subjectId: subjectIdFromDocument(ref, envelope.document),
+    subjectRef: ref,
+    subjectContentHash: envelope.content_hash,
+  };
+}
+
+function uniqueSubjectAuthorities(
+  authorities: readonly ReportSubjectAuthority[],
+): readonly ReportSubjectAuthority[] {
+  const byId = new Map<string, ReportSubjectAuthority>();
+  for (const authority of authorities) {
+    const existing = byId.get(authority.subjectId);
+    if (
+      existing !== undefined &&
+      (existing.subjectRef !== authority.subjectRef ||
+        existing.subjectContentHash !== authority.subjectContentHash)
+    ) {
+      throw new StoreError(
+        "report.subject_authority_conflict",
+        "one final subject identity cannot resolve to multiple immutable subject revisions",
+        {
+          subjectId: authority.subjectId,
+          refs: [existing.subjectRef, authority.subjectRef].sort(),
+        },
+      );
+    }
+    byId.set(authority.subjectId, authority);
+  }
+  return [...byId.values()].sort((left, right) => left.subjectId.localeCompare(right.subjectId));
+}
+
 function reportSubjectLabel(document: Record<string, unknown>, fallback: string): string {
   if (typeof document.title === "string") return document.title;
   if (typeof document.product_thesis === "string") return document.product_thesis;
@@ -113,42 +159,58 @@ function reportSubjectLabel(document: Record<string, unknown>, fallback: string)
 }
 
 export function deriveReportSubjectLabels(
-  subjectIds: readonly string[],
-  documentsByPath: ReadonlyMap<string, Record<string, unknown>>,
-  synthesizedDirections: readonly Record<string, unknown>[] = [],
+  authorities: readonly ReportSubjectAuthority[],
+  envelopesByPath: ReadonlyMap<string, FormalArtifactEnvelope>,
   researchLanguage = "en-US",
 ): readonly Record<string, unknown>[] {
   const fallback = (index: number): string =>
     researchLanguage.toLowerCase().startsWith("zh")
       ? `当前研究对象 ${index + 1}`
       : `Current research subject ${index + 1}`;
-  return [...new Set(subjectIds)].sort().map((subjectId, index) => {
-    const direction = synthesizedDirections.find((entry) => entry.direction_id === subjectId);
-    if (typeof direction?.label === "string") {
-      return { subject_id: subjectId, label: direction.label };
+  return uniqueSubjectAuthorities(authorities).map((authority, index) => {
+    const envelope = envelopesByPath.get(authority.subjectRef);
+    if (
+      envelope === undefined ||
+      envelope.content_hash !== authority.subjectContentHash ||
+      subjectIdFromDocument(authority.subjectRef, envelope.document) !== authority.subjectId
+    ) {
+      throw new StoreError(
+        "report.subject_authority_invalid",
+        "a final report subject label must resolve from its exact immutable subject revision",
+        { authority },
+      );
     }
-    const document = [...documentsByPath.values()].find(
-      (entry) =>
-        entry.candidate_id === subjectId ||
-        entry.opportunity_id === subjectId ||
-        entry.concept_hypothesis_id === subjectId,
-    );
     return {
-      subject_id: subjectId,
-      label:
-        document === undefined ? fallback(index) : reportSubjectLabel(document, fallback(index)),
+      subject_id: authority.subjectId,
+      subject_ref: authority.subjectRef,
+      subject_content_hash: authority.subjectContentHash,
+      label: reportSubjectLabel(envelope.document, fallback(index)),
     };
   });
 }
 
-export function deriveNonTerminalReportSubjectIds(
+export function deriveNonTerminalReportSubjectAuthorities(
+  artifactType: string,
+  source: Readonly<Record<string, unknown>>,
+  envelopesByPath: ReadonlyMap<string, FormalArtifactEnvelope>,
+): readonly ReportSubjectAuthority[] {
+  const documentsByPath = new Map(
+    [...envelopesByPath].map(([path, envelope]) => [path, envelope.document]),
+  );
+  return uniqueSubjectAuthorities(
+    nonTerminalSubjectRefs(artifactType, source, documentsByPath).map((ref) =>
+      subjectAuthority(ref, envelopesByPath),
+    ),
+  );
+}
+
+function nonTerminalSubjectRefs(
   artifactType: string,
   source: Readonly<Record<string, unknown>>,
   documentsByPath: ReadonlyMap<string, Record<string, unknown>>,
 ): readonly string[] {
   if (artifactType === "startup_opportunity.concept_evidence_report.v1") {
-    if (typeof source.concept_hypothesis_ref !== "string") return [];
-    return [subjectIdFromRef(source.concept_hypothesis_ref, documentsByPath)];
+    return typeof source.concept_hypothesis_ref === "string" ? [source.concept_hypothesis_ref] : [];
   }
   const recommendation =
     typeof source.decision_recommendation_ref === "string"
@@ -182,7 +244,62 @@ export function deriveNonTerminalReportSubjectIds(
       : []),
     ...strings(portfolio.alternative_bets),
   ];
-  return [...new Set(refs.map((ref) => subjectIdFromRef(ref, documentsByPath)))].sort();
+  return refs;
+}
+
+export function deriveNonTerminalReportSubjectIds(
+  artifactType: string,
+  source: Readonly<Record<string, unknown>>,
+  documentsByPath: ReadonlyMap<string, Record<string, unknown>>,
+): readonly string[] {
+  return [
+    ...new Set(
+      nonTerminalSubjectRefs(artifactType, source, documentsByPath).map((ref) => {
+        const document = documentsByPath.get(ref);
+        if (document === undefined) {
+          throw new StoreError("report.subject_authority_invalid", "final subject ref is missing", {
+            ref,
+          });
+        }
+        return subjectIdFromDocument(ref, document);
+      }),
+    ),
+  ].sort();
+}
+
+export function deriveTerminalReportSubjectAuthorities(
+  source: Readonly<Record<string, unknown>>,
+  envelopesByPath: ReadonlyMap<string, FormalArtifactEnvelope>,
+): readonly ReportSubjectAuthority[] {
+  const authorities = records(source.decision_subject_synthesis_hashes).map((binding) => {
+    const synthesisRef = String(binding.ref);
+    const synthesis = envelopesByPath.get(synthesisRef);
+    if (
+      synthesis?.artifact_type !== "startup_opportunity.decision_subject_synthesis.current" ||
+      synthesis.content_hash !== binding.content_hash ||
+      typeof synthesis.document.subject_ref !== "string" ||
+      typeof synthesis.document.subject_content_hash !== "string"
+    ) {
+      throw new StoreError(
+        "report.subject_authority_invalid",
+        "terminal report subject authority requires an exact Decision Subject Synthesis",
+        { binding },
+      );
+    }
+    const authority = subjectAuthority(synthesis.document.subject_ref, envelopesByPath);
+    if (
+      authority.subjectId !== synthesis.document.subject_id ||
+      authority.subjectContentHash !== synthesis.document.subject_content_hash
+    ) {
+      throw new StoreError(
+        "report.subject_authority_invalid",
+        "terminal subject synthesis must bind the exact final subject revision",
+        { synthesisRef, authority },
+      );
+    }
+    return authority;
+  });
+  return uniqueSubjectAuthorities(authorities);
 }
 
 function exactReasons(
@@ -341,15 +458,20 @@ export function deriveReportDispositions(
       refs.push(manifestRef);
       acceptedAuthority.set(evidenceRef, refs);
     }
-    for (const [field, disposition] of [
-      ["rejected_sources", "excluded"],
-      ["unavailable_sources", "unavailable"],
+    for (const [field, disposition, reasonField] of [
+      ["rejected_source_records", "excluded", "rejection_reason"],
+      ["unavailable_source_records", "unavailable", "unavailable_reason"],
     ] as const) {
-      for (const label of strings(manifest[field])) {
+      for (const entry of records(manifest[field])) {
         sourceDispositions.push({
-          source_label: label,
+          source: entry.source,
+          source_label: entry.source_label,
           disposition,
-          reasons: [label],
+          reasons: exactReasons([String(entry[reasonField] ?? "")], "", true, {
+            manifestRef,
+            field,
+          }),
+          ...(typeof entry.notes === "string" ? { notes: entry.notes } : {}),
           authority_bindings: [authorityBinding(manifestRef, envelopesByPath)],
         });
       }

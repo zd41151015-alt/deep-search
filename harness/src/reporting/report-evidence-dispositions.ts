@@ -14,17 +14,15 @@ function strings(value: unknown): readonly string[] {
 
 function sourceLabel(entry: Record<string, unknown>, zh: boolean): string {
   const source = isRecord(entry.source) ? entry.source : {};
+  const label =
+    typeof entry.source_label === "string" ? entry.source_label : zh ? "来源记录" : "Source record";
   if (source.kind === "public_url" && typeof source.canonical_url === "string") {
-    return `[${source.canonical_url}](${source.canonical_url})`;
+    return `[${label}](${source.canonical_url})`;
   }
   if (source.kind === "user_provided" && typeof source.canonical_uri === "string") {
-    return zh ? "用户提供/非公开来源" : "User-provided/non-public source";
+    return zh ? `${label}（用户提供/非公开）` : `${label} (user-provided/non-public)`;
   }
-  return typeof entry.source_label === "string"
-    ? entry.source_label
-    : zh
-      ? "来源记录"
-      : "Source record";
+  return label;
 }
 
 function evidenceLabel(
@@ -70,7 +68,9 @@ export function renderEvidenceDispositions(
     );
   }
   for (const entry of records(source.report_source_dispositions)) {
-    add(String(entry.disposition), strings(entry.reasons), sourceLabel(entry, zh));
+    const notes =
+      typeof entry.notes === "string" ? ` - ${localizedAuditReason(entry.notes, zh)}` : "";
+    add(String(entry.disposition), strings(entry.reasons), `${sourceLabel(entry, zh)}${notes}`);
   }
   if (groups.size === 0) {
     return zh ? "- 没有需单独披露的材料处置。\n" : "- No separate material disposition recorded.\n";
