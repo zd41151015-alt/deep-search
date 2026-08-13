@@ -434,6 +434,57 @@ test("Assessment dimension closure derives covered from one formal semantic auth
   );
 });
 
+test("Assessment coverage and decision sufficiency remain orthogonal with reachable typed Evidence", () => {
+  const dispatchEvidenceDocument = {
+    schema_version: "startup_opportunity.assessment_evidence.v1",
+    evidence_id: "ev_dispatch_scope",
+    mechanical_binding: {
+      substrate_record_ref: "evidence/manifest.jsonl#ev_dispatch_scope",
+    },
+  };
+  const dispatchEvidence = {
+    artifact_ref: "evidence/records/ev_dispatch_scope.json",
+    artifact_type: "startup_opportunity.assessment_evidence.v1",
+    content_hash: canonicalContentHash(dispatchEvidenceDocument),
+    document: dispatchEvidenceDocument,
+  };
+  for (const [coverageDisposition, decisionSufficiency] of [
+    ["covered", "insufficient"],
+    ["partial", "sufficient"],
+  ] as const) {
+    const document = {
+      schema_version: "startup_opportunity.assessment_lane_result.v1",
+      dimension_results: [
+        {
+          dimension_id: "demand_and_behavior",
+          evidence_refs: [dispatchEvidence.artifact_ref],
+          supporting_claim_refs: [],
+          opposing_claim_refs: [],
+          judgment_assessment_refs: [],
+          coverage_disposition: coverageDisposition,
+          dimension_decision:
+            decisionSufficiency === "sufficient" ? "opposes" : "insufficient_evidence",
+          decision_sufficiency: decisionSufficiency,
+        },
+      ],
+    };
+    const lane = {
+      artifact_ref: `artifacts/runtime/assessment-results/${coverageDisposition}-${decisionSufficiency}.json`,
+      artifact_type: "startup_opportunity.assessment_lane_result.v1",
+      content_hash: canonicalContentHash(document),
+      document,
+    };
+    const result = deriveLaneScopeFormalClosure(
+      ["demand_and_behavior"],
+      [lane, dispatchEvidence],
+      [lane.artifact_ref],
+    );
+    assert.deepEqual(result.issues, []);
+    assert.equal(result.closure[0]?.disposition, coverageDisposition);
+    assert.equal(result.closure[0]?.evidence_bindings.length, 1);
+  }
+});
+
 test("Assessment blocked and insufficient remain partial unless formal semantics say no Evidence was found", () => {
   const dimension = (coverageDisposition: string, decisionSufficiency: string) => ({
     dimension_id: "demand_and_behavior",

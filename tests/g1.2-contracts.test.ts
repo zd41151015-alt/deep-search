@@ -397,7 +397,7 @@ test("direct Assessment Task uses the typed one-shot Lane delivery path", async 
     (entry) => entry.scope_key === state.branch.dimensionId,
   );
   assert.ok(dimensionClosure);
-  assert.equal(dimensionClosure.disposition, "partial");
+  assert.equal(dimensionClosure.disposition, "covered");
   assert.deepEqual(
     (dimensionClosure.evidence_bindings as Record<string, unknown>[]).map((entry) => ({
       evidence_ref: entry.evidence_ref,
@@ -520,6 +520,19 @@ test("direct Assessment Task uses the typed one-shot Lane delivery path", async 
   );
   assert.ok(reopened.manifest.artifact_refs.includes(state.branch.outputPath));
   assert.ok(reopened.manifest.artifact_refs.includes(published.delivery_receipt.artifact_path));
+  const reopenedReceipt = JSON.parse(
+    await readFile(path.join(state.runRoot, published.delivery_receipt.artifact_path), "utf8"),
+  ) as FormalArtifactEnvelope;
+  assert.deepEqual(
+    reopenedReceipt.document.scope_coverage,
+    published.delivery_receipt.document.scope_coverage,
+  );
+  assert.equal(
+    (reopenedReceipt.document.scope_coverage as Record<string, unknown>[]).find(
+      (entry) => entry.scope_key === state.branch.dimensionId,
+    )?.status,
+    "covered",
+  );
 });
 
 test("four synthetic branches publish Evidence -> Claim -> Finding -> Insight and reopen", async (context) => {
@@ -833,6 +846,74 @@ test("research chain closes formal input refs and Source Manifest Evidence cover
       (entry) => entry.code === "research_contract.branch_chain_incomplete",
     ),
   );
+
+  const falseNoEvidence = structuredClone(validBundle);
+  const falseNoEvidenceBranch = falseNoEvidence.documents.find(
+    (entry) => entry.path === "artifacts/lanes/demand.json",
+  );
+  assert.ok(falseNoEvidenceBranch);
+  falseNoEvidenceBranch.document.document.coverage_disposition = "no_evidence_found";
+  falseNoEvidenceBranch.document.document.evidence_refs = [];
+  (falseNoEvidenceBranch.document as unknown as Record<string, unknown>).content_hash =
+    canonicalContentHash(falseNoEvidenceBranch.document.document);
+  const falseNoEvidenceResult = state.validator.validateDocumentBundle(falseNoEvidence);
+  assert.equal(falseNoEvidenceResult.valid, false);
+  assert.ok(
+    falseNoEvidenceResult.referenceErrors.some(
+      (entry) => entry.code === "research_contract.branch_coverage_evidence_invalid",
+    ),
+  );
+
+  for (const [coverageDisposition, expectedInvalid] of [
+    ["covered", true],
+    ["no_evidence_found", true],
+    ["partial", false],
+  ] as const) {
+    const blockedBundle = structuredClone(validBundle);
+    const blockedBranch = blockedBundle.documents.find(
+      (entry) => entry.path === "artifacts/lanes/demand.json",
+    );
+    assert.ok(blockedBranch);
+    blockedBranch.document.document.coverage_disposition = coverageDisposition;
+    blockedBranch.document.document.dimension_decision = "insufficient_evidence";
+    blockedBranch.document.document.decision_sufficiency = "blocked";
+    blockedBranch.document.document.insufficiency_reasons = ["source_unavailable"];
+    (blockedBranch.document as unknown as Record<string, unknown>).content_hash =
+      canonicalContentHash(blockedBranch.document.document);
+    const blockedResult = state.validator.validateDocumentBundle(blockedBundle);
+    assert.equal(
+      blockedResult.referenceErrors.some(
+        (entry) => entry.code === "research_contract.branch_coverage_disposition_invalid",
+      ),
+      expectedInvalid,
+    );
+  }
+
+  const partialSufficient = structuredClone(validBundle);
+  const partialSufficientBranch = partialSufficient.documents.find(
+    (entry) => entry.path === "artifacts/lanes/demand.json",
+  );
+  const partialSufficientJudgment = partialSufficient.documents.find(
+    (entry) => entry.path === "judgments/judgment-demand.json",
+  );
+  assert.ok(partialSufficientBranch);
+  assert.ok(partialSufficientJudgment);
+  partialSufficientBranch.document.document.branch_status = "partial";
+  partialSufficientBranch.document.document.coverage_disposition = "partial";
+  partialSufficientBranch.document.document.dimension_decision = "opposes";
+  partialSufficientBranch.document.document.decision_sufficiency = "sufficient";
+  partialSufficientBranch.document.document.insufficiency_reasons = [];
+  partialSufficientJudgment.document.document.judgment_signal = "opposed";
+  partialSufficientJudgment.document.document.supporting_claim_refs = [];
+  partialSufficientJudgment.document.document.opposing_claim_refs = ["claim_unit_demand_oppose"];
+  partialSufficientJudgment.document.document.decision_sufficiency = "sufficient";
+  partialSufficientJudgment.document.document.insufficiency_reasons = [];
+  (partialSufficientBranch.document as unknown as Record<string, unknown>).content_hash =
+    canonicalContentHash(partialSufficientBranch.document.document);
+  (partialSufficientJudgment.document as unknown as Record<string, unknown>).content_hash =
+    canonicalContentHash(partialSufficientJudgment.document.document);
+  const partialSufficientResult = state.validator.validateDocumentBundle(partialSufficient);
+  assert.equal(partialSufficientResult.valid, true, JSON.stringify(partialSufficientResult));
 
   const crossRun = structuredClone(validBundle);
   const crossRunClaim = crossRun.documents.find(

@@ -1,5 +1,7 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import { evaluateAssessmentFollowupInformationGain } from "../runtime/assessment-information-gain.js";
+import { deriveLaneScopeFormalClosure } from "../runtime/lane-delivery-closure.js";
+import { assessmentCoverageSemanticsError } from "./assessment-coverage-semantics.js";
 import type { AssessmentExecutionPolicy } from "./assessment-execution-policy.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
@@ -561,24 +563,42 @@ function validateLaneResult(
     );
   }
   for (const dimension of dimensions) {
-    const coverageDisposition = String(dimension.coverage_disposition);
-    const sufficiency = String(dimension.decision_sufficiency);
-    const evidenceRefs = strings(dimension.evidence_refs);
-    const validCoverageDisposition =
-      (sufficiency === "not_applicable" && coverageDisposition === "not_applicable") ||
-      (["blocked", "insufficient"].includes(sufficiency) &&
-        (coverageDisposition === "partial" ||
-          (sufficiency === "insufficient" &&
-            coverageDisposition === "no_evidence_found" &&
-            evidenceRefs.length === 0))) ||
-      (sufficiency === "sufficient" &&
-        coverageDisposition === (evidenceRefs.length > 0 ? "covered" : "partial"));
-    if (!validCoverageDisposition) {
+    const coverageError = assessmentCoverageSemanticsError({
+      coverageDisposition: String(dimension.coverage_disposition),
+      dimensionDecision: String(dimension.dimension_decision),
+      decisionSufficiency: String(dimension.decision_sufficiency),
+    });
+    if (coverageError !== null) {
       errors.push(
         issue(
           "assessment_execution.dimension_coverage_disposition_invalid",
           `${result.path}#${String(dimension.dimension_id)}`,
-          "dimension coverage disposition must preserve sufficient, insufficient, blocked, and not-applicable research semantics",
+          coverageError,
+        ),
+      );
+    }
+    const formalCoverage = deriveLaneScopeFormalClosure(
+      [String(dimension.dimension_id)],
+      [...documents.values()].map((entry) => ({
+        artifact_ref: entry.path,
+        artifact_type: entry.schemaVersion,
+        content_hash:
+          typeof entry.envelope?.content_hash === "string"
+            ? entry.envelope.content_hash
+            : canonicalContentHash(entry.document),
+        document: entry.document,
+      })),
+      [result.path],
+    );
+    for (const closureIssue of formalCoverage.issues.filter(
+      (entry) => entry.code === "lane_delivery.scope_formal_disposition_invalid",
+    )) {
+      errors.push(
+        issue(
+          "assessment_execution.dimension_coverage_evidence_invalid",
+          `${result.path}#${String(dimension.dimension_id)}`,
+          closureIssue.message,
+          { actual: closureIssue.actual, expected: closureIssue.expected },
         ),
       );
     }

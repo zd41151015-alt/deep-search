@@ -575,7 +575,7 @@ export function branchResearchEnvelopes(
     opposing_claim_refs: [opposeClaimId],
     judgment_assessment_refs: [branch.judgmentRef],
     finding_refs: [findingPath],
-    coverage_disposition: "partial",
+    coverage_disposition: "covered",
     dimension_decision: "insufficient_evidence",
     decision_sufficiency: "insufficient",
     insufficiency_reasons: ["no_signal"],

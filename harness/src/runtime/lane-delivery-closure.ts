@@ -128,6 +128,13 @@ function evidenceSubstrate(artifact: LaneClosureArtifact): string | null {
   return typeof binding.substrate_record_ref === "string" ? binding.substrate_record_ref : null;
 }
 
+function isTypedEvidenceArtifact(artifactType: string): boolean {
+  return (
+    artifactType.startsWith("startup_opportunity.evidence.") ||
+    artifactType === "startup_opportunity.assessment_evidence.v1"
+  );
+}
+
 function collectReference(
   resolver: ClosureResolver,
   accumulator: ClosureAccumulator,
@@ -137,7 +144,7 @@ function collectReference(
   if (artifact === null || accumulator.visited.has(artifact.artifact_ref)) return;
   accumulator.visited.add(artifact.artifact_ref);
   const substrate = evidenceSubstrate(artifact);
-  if (substrate !== null && artifact.artifact_type.startsWith("startup_opportunity.evidence.")) {
+  if (substrate !== null && isTypedEvidenceArtifact(artifact.artifact_type)) {
     accumulator.evidence.set(artifact.artifact_ref, {
       evidence_ref: artifact.artifact_ref,
       artifact_type: artifact.artifact_type,

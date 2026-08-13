@@ -83,6 +83,71 @@
     "decisionSufficiency": {
       "enum": ["sufficient", "insufficient", "blocked", "not_applicable"]
     },
+    "coverageDisposition": {
+      "enum": ["covered", "partial", "no_evidence_found", "not_applicable"]
+    },
+    "assessmentCoverageDecisionSemantics": {
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": { "coverage_disposition": { "const": "not_applicable" } },
+            "required": ["coverage_disposition"]
+          },
+          "then": {
+            "properties": {
+              "dimension_decision": { "const": "not_applicable" },
+              "decision_sufficiency": { "const": "not_applicable" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "dimension_decision": { "const": "not_applicable" } },
+            "required": ["dimension_decision"]
+          },
+          "then": {
+            "properties": {
+              "coverage_disposition": { "const": "not_applicable" },
+              "decision_sufficiency": { "const": "not_applicable" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "decision_sufficiency": { "const": "not_applicable" } },
+            "required": ["decision_sufficiency"]
+          },
+          "then": {
+            "properties": {
+              "coverage_disposition": { "const": "not_applicable" },
+              "dimension_decision": { "const": "not_applicable" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "decision_sufficiency": { "const": "blocked" } },
+            "required": ["decision_sufficiency"]
+          },
+          "then": {
+            "properties": { "coverage_disposition": { "const": "partial" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "coverage_disposition": { "const": "no_evidence_found" } },
+            "required": ["coverage_disposition"]
+          },
+          "then": {
+            "properties": {
+              "dimension_decision": { "const": "insufficient_evidence" },
+              "decision_sufficiency": { "const": "insufficient" }
+            }
+          }
+        }
+      ]
+    },
     "insufficiencyReason": {
       "enum": [
         "no_signal",

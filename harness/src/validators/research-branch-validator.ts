@@ -1,4 +1,6 @@
-import { canonicalJson } from "../artifact-store/canonical.js";
+import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
+import { deriveLaneScopeFormalClosure } from "../runtime/lane-delivery-closure.js";
+import { assessmentCoverageSemanticsError } from "./assessment-coverage-semantics.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
 export interface ResearchBranchDocument {
@@ -655,24 +657,42 @@ function checkBranch(
       ),
     );
   }
-  const coverageDisposition = String(branch.document.coverage_disposition);
-  const sufficiency = String(branch.document.decision_sufficiency);
-  const evidenceRefs = strings(branch.document.evidence_refs);
-  const validCoverageDisposition =
-    (sufficiency === "not_applicable" && coverageDisposition === "not_applicable") ||
-    (["blocked", "insufficient"].includes(sufficiency) &&
-      (coverageDisposition === "partial" ||
-        (sufficiency === "insufficient" &&
-          coverageDisposition === "no_evidence_found" &&
-          evidenceRefs.length === 0))) ||
-    (sufficiency === "sufficient" &&
-      coverageDisposition === (evidenceRefs.length > 0 ? "covered" : "partial"));
-  if (!validCoverageDisposition) {
+  const coverageError = assessmentCoverageSemanticsError({
+    coverageDisposition: String(branch.document.coverage_disposition),
+    dimensionDecision: String(branch.document.dimension_decision),
+    decisionSufficiency: String(branch.document.decision_sufficiency),
+  });
+  if (coverageError !== null) {
     errors.push(
       issue(
         "research_contract.branch_coverage_disposition_invalid",
         `${branch.path}#/coverage_disposition`,
-        "Branch coverage disposition must preserve sufficient, insufficient, blocked, and not-applicable research semantics",
+        coverageError,
+      ),
+    );
+  }
+  const formalCoverage = deriveLaneScopeFormalClosure(
+    [String(branch.document.dimension_id)],
+    documents.map((entry) => ({
+      artifact_ref: entry.path,
+      artifact_type: entry.schemaVersion,
+      content_hash:
+        typeof entry.envelope?.content_hash === "string"
+          ? entry.envelope.content_hash
+          : canonicalContentHash(entry.document),
+      document: entry.document,
+    })),
+    [branch.path],
+  );
+  for (const closureIssue of formalCoverage.issues.filter(
+    (entry) => entry.code === "lane_delivery.scope_formal_disposition_invalid",
+  )) {
+    errors.push(
+      issue(
+        "research_contract.branch_coverage_evidence_invalid",
+        `${branch.path}#/coverage_disposition`,
+        closureIssue.message,
+        { actual: closureIssue.actual, expected: closureIssue.expected },
       ),
     );
   }

@@ -861,6 +861,7 @@ test("multi-dimension results preserve lane coverage and early-kill gates stop l
   explicitNoEvidenceDimension.supporting_claim_refs = [];
   explicitNoEvidenceDimension.opposing_claim_refs = [];
   explicitNoEvidenceDimension.insufficiency_reasons = ["no_signal"];
+  assert.equal(validator.validateDocument(explicitNoEvidence.document).valid, true);
   assert.ok(
     !contractCodes(
       [...baseDocuments(runId, plan, execution), explicitNoEvidence],
@@ -875,11 +876,133 @@ test("multi-dimension results preserve lane coverage and early-kill gates stop l
     "blocked no-Evidence dimension",
   );
   blockedDimension.decision_sufficiency = "blocked";
+  assert.equal(validator.validateDocument(blockedNoEvidence.document).valid, false);
   assert.ok(
     contractCodes(
       [...baseDocuments(runId, plan, execution), blockedNoEvidence],
       validator.assessmentExecutionPolicy,
     ).includes("assessment_execution.dimension_coverage_disposition_invalid"),
+  );
+
+  const blockedCovered = structuredClone(blockedNoEvidence);
+  const blockedCoveredDimension = recordAt(
+    blockedCovered.document.dimension_results as Record<string, unknown>[],
+    0,
+    "blocked covered dimension",
+  );
+  blockedCoveredDimension.coverage_disposition = "covered";
+  assert.equal(validator.validateDocument(blockedCovered.document).valid, false);
+  assert.ok(
+    contractCodes(
+      [...baseDocuments(runId, plan, execution), blockedCovered],
+      validator.assessmentExecutionPolicy,
+    ).includes("assessment_execution.dimension_coverage_disposition_invalid"),
+  );
+
+  const blockedPartial = structuredClone(blockedCovered);
+  const blockedPartialDimension = recordAt(
+    blockedPartial.document.dimension_results as Record<string, unknown>[],
+    0,
+    "blocked partial dimension",
+  );
+  blockedPartialDimension.coverage_disposition = "partial";
+  assert.equal(validator.validateDocument(blockedPartial.document).valid, true);
+  assert.ok(
+    !contractCodes(
+      [...baseDocuments(runId, plan, execution), blockedPartial],
+      validator.assessmentExecutionPolicy,
+    ).includes("assessment_execution.dimension_coverage_disposition_invalid"),
+  );
+
+  const dispatch = dispatchForStage(runId, execution, 0, null);
+  const problemPlanUnit = (plan.waves as Record<string, unknown>[])
+    .flatMap((wave) => wave.units as Record<string, unknown>[])
+    .find((unit) => unit.unit_id === problemLane.unit_id);
+  assert.ok(problemPlanUnit);
+  const evidenceHash = "1".repeat(64);
+  const contentHash = "2".repeat(64);
+  const substrate = {
+    schema_version: "startup_opportunity.evidence_store_record.v2",
+    evidence_id: `ev_${evidenceHash}`,
+    run_id: runId,
+    unit_id: problemLane.unit_id,
+    source: {
+      kind: "public_url",
+      canonical_url: "https://orthogonal-coverage.synthetic.invalid/evidence",
+    },
+    source_hash: `sha256:${evidenceHash}`,
+    content_hash: `sha256:${contentHash}`,
+    research_goal: problemPlanUnit.research_goal,
+    raw_content_ref: `evidence/raw/sha256-${contentHash}.bin`,
+    operation_key: `sha256:${"3".repeat(64)}`,
+    recorded_at: createdAt,
+  };
+  const formalEvidence = assessmentEvidence(runId, plan, dispatch, substrate);
+  const exactRecords = new Map<string, Record<string, unknown>>([
+    [`evidence/manifest.jsonl#${substrate.evidence_id}`, substrate as Record<string, unknown>],
+  ]);
+  for (const [coverageDisposition, decisionSufficiency] of [
+    ["covered", "insufficient"],
+    ["partial", "sufficient"],
+  ] as const) {
+    const orthogonal = structuredClone(problem);
+    const orthogonalDimension = recordAt(
+      orthogonal.document.dimension_results as Record<string, unknown>[],
+      0,
+      `${coverageDisposition} ${decisionSufficiency} dimension`,
+    );
+    orthogonalDimension.coverage_disposition = coverageDisposition;
+    orthogonalDimension.decision_sufficiency = decisionSufficiency;
+    orthogonalDimension.dimension_decision =
+      decisionSufficiency === "sufficient" ? "opposes" : "insufficient_evidence";
+    orthogonalDimension.evidence_refs = [formalEvidence.path];
+    orthogonalDimension.insufficiency_reasons =
+      decisionSufficiency === "insufficient" ? ["conflicting_signal"] : [];
+    assert.equal(validator.validateDocument(orthogonal.document).valid, true);
+    const orthogonalCodes = contractCodes(
+      [
+        ...baseDocuments(runId, plan, execution),
+        dispatch,
+        formalEvidence,
+        orthogonal,
+        ...judgmentEntries([orthogonal]),
+      ],
+      validator.assessmentExecutionPolicy,
+      exactRecords,
+    );
+    assert.ok(
+      !orthogonalCodes.includes("assessment_execution.dimension_coverage_disposition_invalid"),
+    );
+    assert.ok(
+      !orthogonalCodes.includes("assessment_execution.dimension_coverage_evidence_invalid"),
+    );
+    assert.ok(!orthogonalCodes.includes("assessment_execution.evidence_binding_invalid"));
+    assert.ok(!orthogonalCodes.includes("assessment_execution.evidence_substrate_invalid"));
+  }
+  const falseNoEvidence = structuredClone(problem);
+  const falseNoEvidenceDimension = recordAt(
+    falseNoEvidence.document.dimension_results as Record<string, unknown>[],
+    0,
+    "false no-Evidence dimension",
+  );
+  falseNoEvidenceDimension.coverage_disposition = "no_evidence_found";
+  falseNoEvidenceDimension.dimension_decision = "insufficient_evidence";
+  falseNoEvidenceDimension.decision_sufficiency = "insufficient";
+  falseNoEvidenceDimension.evidence_refs = [formalEvidence.path];
+  falseNoEvidenceDimension.insufficiency_reasons = ["conflicting_signal"];
+  assert.equal(validator.validateDocument(falseNoEvidence.document).valid, true);
+  assert.ok(
+    contractCodes(
+      [
+        ...baseDocuments(runId, plan, execution),
+        dispatch,
+        formalEvidence,
+        falseNoEvidence,
+        ...judgmentEntries([falseNoEvidence]),
+      ],
+      validator.assessmentExecutionPolicy,
+      exactRecords,
+    ).includes("assessment_execution.dimension_coverage_evidence_invalid"),
   );
   assert.equal((problem.document.dimension_results as unknown[]).length, 3);
   assert.deepEqual(gate.document.not_started_unit_ids, [
