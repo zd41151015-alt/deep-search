@@ -86,6 +86,21 @@ const ZH_LABELS: Readonly<Record<string, string>> = {
   decision_grade: "决策级",
   directional_proxy: "方向性代理指标",
   context_only: "仅作背景",
+  assessed: "已评估",
+  unknown: "未知",
+  lightweight_scan: "轻量扫描",
+  targeted_deep_dive: "定向深入研究",
+  not_assigned: "未分配",
+  copy: "功能复制",
+  bundle: "捆绑提供",
+  native_integration: "原生集成",
+  immediate: "立即",
+  near_term: "近期",
+  medium_term: "中期",
+  long_term: "长期",
+  single_feature: "单项功能",
+  partial_workflow: "部分工作流",
+  full_value_proposition: "完整价值主张",
   high: "高",
   medium: "中",
   low: "低",
@@ -283,6 +298,41 @@ export interface CommercialAuditProjection {
   readonly commercial_subject_aggregates: readonly Record<string, unknown>[];
   readonly commercial_background_material: readonly Record<string, unknown>[];
   readonly commercial_research_status: Readonly<Record<string, unknown>>;
+}
+
+export interface CommercialAuditProjector {
+  readonly project: (decisionSubjectIds?: readonly string[]) => CommercialAuditProjection;
+  readonly diagnostics: () => {
+    readonly projectionComputations: number;
+    readonly cacheHits: number;
+  };
+}
+
+export function createCommercialAuditProjector(
+  audits: readonly { readonly path: string; readonly document: Record<string, unknown> }[],
+  tasks: readonly CommercialTaskProjectionInput[] = [],
+  documentsByPath: ReadonlyMap<string, Record<string, unknown>> = new Map(),
+): CommercialAuditProjector {
+  const projections = new Map<string, CommercialAuditProjection>();
+  let projectionComputations = 0;
+  let cacheHits = 0;
+  return {
+    project(decisionSubjectIds) {
+      const normalized =
+        decisionSubjectIds === undefined ? undefined : [...new Set(decisionSubjectIds)].sort();
+      const key = normalized === undefined ? "*" : canonicalJson(normalized);
+      const cached = projections.get(key);
+      if (cached !== undefined) {
+        cacheHits += 1;
+        return cached;
+      }
+      const projection = projectCommercialAuditTables(audits, tasks, documentsByPath, normalized);
+      projections.set(key, projection);
+      projectionComputations += 1;
+      return projection;
+    },
+    diagnostics: () => ({ projectionComputations, cacheHits }),
+  };
 }
 
 export function commercialProjectionRefs(source: Record<string, unknown>): readonly string[] {
@@ -1187,6 +1237,151 @@ export function renderIncumbentResponseDisclosure(
     ? `已形成 ${count} 条风险评估。`
     : `${count} risk assessment${count === 1 ? "" : "s"} formed.`;
   return `- ${countText} ${zh ? INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH : INCUMBENT_RESPONSE_STRATEGIC_CONTEXT}\n`;
+}
+
+function responderNarrativeRows(
+  source: Readonly<Record<string, unknown>>,
+): ReadonlyMap<string, readonly Record<string, unknown>[]> {
+  const bySubject = new Map<string, Record<string, unknown>[]>();
+  for (const row of records(source.incumbent_response_risk_rows)) {
+    const assessment = isRecord(row.assessment) ? row.assessment : {};
+    const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+    if (typeof semantic.subject_id !== "string") continue;
+    bySubject.set(semantic.subject_id, [...(bySubject.get(semantic.subject_id) ?? []), row]);
+  }
+  return bySubject;
+}
+
+export function renderIncumbentResponseNarratives(
+  source: Readonly<{
+    readonly incumbent_response_risk_rows?: unknown;
+    readonly current_decision_subject_ids?: unknown;
+    readonly report_subject_labels?: unknown;
+    readonly report_citations?: unknown;
+  }>,
+  zh = false,
+): string {
+  const report = source as Readonly<Record<string, unknown>>;
+  const citations = reportCitations(report);
+  const rowsBySubject = responderNarrativeRows(report);
+  const explicitSubjects = strings(source.current_decision_subject_ids);
+  const labelledSubjects = records(source.report_subject_labels).flatMap((entry) =>
+    typeof entry.subject_id === "string" ? [entry.subject_id] : [],
+  );
+  const subjectIds = [
+    ...new Set(
+      explicitSubjects.length > 0
+        ? explicitSubjects
+        : labelledSubjects.length > 0
+          ? labelledSubjects
+          : [...rowsBySubject.keys()],
+    ),
+  ].sort();
+  const parts = [
+    zh
+      ? `> ${INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH} 能力邻近度不等于响应意愿；可复制单项功能不等于覆盖完整产品主张。\n`
+      : `> ${INCUMBENT_RESPONSE_STRATEGIC_CONTEXT} Capability adjacency is not willingness to respond, and copying one feature is not coverage of the full product thesis.\n`,
+  ];
+  if (subjectIds.length === 0) {
+    parts.push(
+      zh
+        ? "\n- 未分配或未提交最终研究对象的头部公司响应研究；该项保持未知。\n"
+        : "\n- No incumbent-response research was assigned or submitted for a final subject; this context remains unknown.\n",
+    );
+    return parts.join("");
+  }
+  for (const subjectId of subjectIds) {
+    parts.push(`\n### ${subjectDisplay(report, subjectId, zh)}\n`);
+    const rows = rowsBySubject.get(subjectId) ?? [];
+    if (rows.length === 0) {
+      parts.push(
+        zh
+          ? "- 未提交该最终研究对象的响应研究；不得从历史、被取代或同级对象借用结论。\n"
+          : "- No responder research was submitted for this final subject; conclusions cannot be borrowed from historical, superseded, or sibling subjects.\n",
+      );
+      continue;
+    }
+    for (const row of rows) {
+      const assessment = isRecord(row.assessment) ? row.assessment : {};
+      const semantic = isRecord(assessment.semantic) ? assessment.semantic : {};
+      const state = String(semantic.analysis_state);
+      if (state === "not_applicable") {
+        parts.push(
+          `- ${zh ? "不适用" : "Not applicable"}: ${display(semantic.inference_boundary, zh)}\n`,
+        );
+        parts.push(
+          zh
+            ? "  - 能力、响应成本、意愿与自我蚕食、响应方式、时间、分发杠杆、产品主张覆盖及剩余差异化在该边界内均保持不适用。\n"
+            : "  - Capability, response costs, willingness and cannibalization, response modes, horizon, distribution leverage, thesis coverage, and residual differentiation all remain not applicable within this boundary.\n",
+        );
+        parts.push(
+          `  - ${zh ? "背景来源" : "Background sources"}: ${auditReferenceSummary(semantic.background_evidence_refs, zh, false, citations)}\n`,
+        );
+        continue;
+      }
+      if (state === "unknown") {
+        parts.push(
+          `- ${zh ? "状态" : "State"}: ${zh ? "未知" : "unknown"}. ${display(semantic.uncertainty, zh)}\n`,
+        );
+        parts.push(
+          zh
+            ? "  - 能力、响应成本、意愿与自我蚕食、响应方式、时间、分发杠杆、产品主张覆盖及剩余差异化均保持未知，不能由现有材料补推。\n"
+            : "  - Capability, response costs, willingness and cannibalization, response modes, horizon, distribution leverage, thesis coverage, and residual differentiation all remain unknown and cannot be filled in from the available material.\n",
+        );
+        parts.push(
+          `  - ${zh ? "现有材料角色" : "Available material roles"}: ${zh ? "支持" : "supporting"} ${auditReferenceSummary(semantic.supporting_evidence_refs, zh, false, citations)}; ${zh ? "反证" : "opposing"} ${auditReferenceSummary(semantic.opposing_evidence_refs, zh, false, citations)}; ${zh ? "背景" : "background"} ${auditReferenceSummary(semantic.background_evidence_refs, zh, false, citations)}.\n`,
+        );
+        parts.push(
+          `  - ${zh ? "未知与缺口" : "Unknowns and gaps"}: ${displayList(semantic.unknowns, zh)}; ${displayList(semantic.data_gaps, zh)}.\n`,
+        );
+        continue;
+      }
+      const costs = isRecord(semantic.response_cost) ? semantic.response_cost : {};
+      const incentive = isRecord(semantic.incentive) ? semantic.incentive : {};
+      const horizon = isRecord(semantic.plausible_response_horizon)
+        ? semantic.plausible_response_horizon
+        : {};
+      const distribution = isRecord(semantic.distribution_leverage)
+        ? semantic.distribution_leverage
+        : {};
+      const coverage = isRecord(semantic.thesis_coverage) ? semantic.thesis_coverage : {};
+      const residual = isRecord(semantic.residual_differentiation)
+        ? semantic.residual_differentiation
+        : {};
+      const residualDimensions = records(residual.dimensions).map(
+        (dimension) =>
+          `${display(dimension.kind, zh)} (${display(dimension.strength, zh)}): ${display(dimension.rationale, zh)}`,
+      );
+      parts.push(
+        `- ${zh ? "潜在响应者" : "Potential responder"}: ${display(semantic.responder_identity, zh)} (${display(semantic.responder_category, zh)}), ${zh ? "控制点" : "control point"}: ${display(semantic.control_point, zh)}.\n`,
+      );
+      parts.push(
+        `  - ${zh ? "能力（不代表意愿）" : "Ability (not willingness)"}: ${graded(semantic.capability_adjacency, zh)}; ${zh ? "响应方式" : "modes"}: ${displayList(semantic.response_modes, zh)}.\n`,
+      );
+      parts.push(
+        `  - ${zh ? "响应成本" : "Response costs"}: ${zh ? "实施" : "implementation"} ${graded(costs.implementation, zh)}; ${zh ? "运营" : "operations"} ${graded(costs.operational, zh)}; ${zh ? "合规" : "compliance"} ${graded(costs.compliance, zh)}; ${zh ? "数据" : "data"} ${graded(costs.data, zh)}; ${zh ? "分发" : "distribution"} ${graded(costs.distribution, zh)}.\n`,
+      );
+      parts.push(
+        `  - ${zh ? "响应意愿" : "Willingness"}: ${display(incentive.level, zh)}: ${display(incentive.rationale, zh)} ${zh ? "驱动" : "Drivers"}: ${displayList(incentive.drivers, zh)}. ${zh ? "抑制" : "Disincentives"}: ${displayList(incentive.disincentives, zh)}. ${zh ? "自我蚕食" : "Cannibalization"}: ${display(incentive.cannibalization, zh)}.\n`,
+      );
+      parts.push(
+        `  - ${zh ? "时间与分发" : "Horizon and distribution"}: ${display(horizon.band, zh)}: ${display(horizon.rationale, zh)}; ${graded(distribution, zh)}; ${displayList(distribution.control_points, zh)}.\n`,
+      );
+      parts.push(
+        `  - ${zh ? "产品主张覆盖（功能复制不等于完整覆盖）" : "Thesis coverage (feature copying is not full coverage)"}: ${display(coverage.scope, zh)}: ${display(coverage.rationale, zh)} ${zh ? "已覆盖" : "Covered"}: ${displayList(coverage.covered_elements, zh)}. ${zh ? "未覆盖" : "Uncovered"}: ${displayList(coverage.uncovered_elements, zh)}.\n`,
+      );
+      parts.push(
+        `  - ${zh ? "剩余差异化" : "Residual differentiation"}: ${display(residual.overall_strength, zh)}: ${display(residual.rationale, zh)}${residualDimensions.length === 0 ? "" : `; ${residualDimensions.join("; ")}`}.\n`,
+      );
+      parts.push(
+        `  - ${zh ? "材料角色" : "Evidence roles"}: ${zh ? "支持" : "supporting"} ${auditReferenceSummary(semantic.supporting_evidence_refs, zh, false, citations)}; ${zh ? "反证" : "opposing"} ${auditReferenceSummary(semantic.opposing_evidence_refs, zh, false, citations)}; ${zh ? "背景" : "background"} ${auditReferenceSummary(semantic.background_evidence_refs, zh, false, citations)}.\n`,
+      );
+      parts.push(
+        `  - ${zh ? "推理边界与缺口" : "Inference boundary and gaps"}: ${display(semantic.inference_boundary, zh)} ${zh ? "不确定性" : "Uncertainty"}: ${display(semantic.uncertainty, zh)}. ${zh ? "未知" : "Unknowns"}: ${displayList(semantic.unknowns, zh)}. ${zh ? "数据缺口" : "Data gaps"}: ${displayList(semantic.data_gaps, zh)}.\n`,
+      );
+    }
+  }
+  return parts.join("");
 }
 
 export function renderIncumbentResponseRiskTable(

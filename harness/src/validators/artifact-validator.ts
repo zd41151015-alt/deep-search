@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { ErrorObject } from "ajv";
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import {
@@ -101,6 +102,8 @@ export const ARTIFACT_VALIDATION_RESULT_VERSION =
   "startup_opportunity.artifact_validation_result.v1" as const;
 export const DOCUMENT_BUNDLE_VALIDATION_RESULT_VERSION =
   "startup_opportunity.document_bundle_validation_result.v1" as const;
+
+const artifactValidatorCache = new Map<string, Promise<ArtifactValidator>>();
 
 export interface ArtifactValidationResult {
   readonly schemaVersion: typeof ARTIFACT_VALIDATION_RESULT_VERSION;
@@ -5046,15 +5049,27 @@ export class ArtifactValidator {
 }
 
 export async function createArtifactValidator(root = process.cwd()): Promise<ArtifactValidator> {
-  const bundle = await loadSchemaBundle(root);
-  return new ArtifactValidator(
-    bundle,
-    await loadResearchPublicationPolicy(root, bundle),
-    await loadAssessmentReportingPolicy(root, bundle),
-    await loadAssessmentExecutionPolicy(root, bundle),
-    await loadDiscoveryMapsPolicy(root, bundle),
-    await loadDiscoveryCandidatePolicy(root, bundle),
-    await loadDiscoverySynthesisPolicy(root, bundle),
-    await loadDiscoveryEvaluationPolicy(root, bundle),
-  );
+  const cacheKey = path.resolve(root);
+  const cached = artifactValidatorCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  const loading = (async () => {
+    const bundle = await loadSchemaBundle(cacheKey);
+    return new ArtifactValidator(
+      bundle,
+      await loadResearchPublicationPolicy(cacheKey, bundle),
+      await loadAssessmentReportingPolicy(cacheKey, bundle),
+      await loadAssessmentExecutionPolicy(cacheKey, bundle),
+      await loadDiscoveryMapsPolicy(cacheKey, bundle),
+      await loadDiscoveryCandidatePolicy(cacheKey, bundle),
+      await loadDiscoverySynthesisPolicy(cacheKey, bundle),
+      await loadDiscoveryEvaluationPolicy(cacheKey, bundle),
+    );
+  })();
+  artifactValidatorCache.set(cacheKey, loading);
+  try {
+    return await loading;
+  } catch (error) {
+    if (artifactValidatorCache.get(cacheKey) === loading) artifactValidatorCache.delete(cacheKey);
+    throw error;
+  }
 }

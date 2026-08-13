@@ -24,20 +24,22 @@ import { withReportLock, withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { EvidenceStore } from "../evidence-store/evidence-store.js";
 import { type RunManifest, RunStore } from "../run-store/run-store.js";
+import { type OperationObserver, operationTrace } from "../runtime/operation-observability.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
 import { REQUIRED_REPORT_CONSISTENCY_DIMENSIONS } from "../validators/discovery-evaluation-policy.js";
 import { projectGateWarnings } from "../validators/gate-diagnostics.js";
 import { deriveResearchProvenance } from "../validators/research-handoff-validator.js";
 import {
   commercialProjectionRefs,
+  createCommercialAuditProjector,
   deriveReportStatistics,
-  projectCommercialAuditTables,
   renderCompetitiveSubjectSummary,
   renderCompetitiveSubstituteMatrix,
   renderCriticalResearchGaps,
   renderDecisionGradeQuantitativeSummary,
   renderGateWarnings,
   renderIncumbentResponseDisclosure,
+  renderIncumbentResponseNarratives,
   renderIncumbentResponseRiskTable,
   renderMarketPriorityAndCommercialReadiness,
   renderQuantitativeSignalTable,
@@ -222,6 +224,7 @@ export interface ReportRecoveryResult {
 export interface BuildReportInput {
   readonly reportEnvelope: FormalArtifactEnvelope;
   readonly faultAt?: ReportFaultBoundary;
+  readonly observe?: OperationObserver | undefined;
 }
 
 export interface BuildReportResult {
@@ -402,6 +405,8 @@ function renderGenericAuditAppendix(
     renderQuantitativeSignalTable(auditModel, zh),
     `\n## ${zh ? "完整竞品与广义替代矩阵" : "Full Competitive And Substitute Matrix"}\n`,
     renderCompetitiveSubstituteMatrix(auditModel, zh),
+    `\n## ${zh ? "完整头部公司吸收与响应评估" : "Full Incumbent Absorption And Response Assessment"}\n`,
+    renderIncumbentResponseRiskTable(auditModel, zh),
     `\n## ${zh ? "完整研究覆盖缺口" : "Full Research Coverage Gaps"}\n`,
     renderResearchCoverageGaps(auditModel, zh),
     `\n## ${zh ? "材料采用、限制与排除" : "Material Adoption, Limitations, And Exclusions"}\n`,
@@ -487,7 +492,7 @@ function renderFullReport(report: Record<string, unknown>): string {
       parts.push(
         `\n## ${zh ? "头部公司吸收与响应风险" : "Incumbent Absorption And Response Risk"}\n`,
       );
-      parts.push(renderIncumbentResponseRiskTable(report, zh));
+      parts.push(renderIncumbentResponseNarratives(report, zh));
     }
     if (sectionId === "limitations_and_sources") {
       parts.push(`\n## ${zh ? "关键研究缺口" : "Critical Research Gaps"}\n`);
@@ -632,7 +637,7 @@ function renderDiscoveryFullReport(report: Record<string, unknown>): string {
       parts.push(
         `\n## ${zh ? "头部公司吸收与响应风险" : "Incumbent Absorption And Response Risk"}\n`,
       );
-      parts.push(renderIncumbentResponseRiskTable(report, zh));
+      parts.push(renderIncumbentResponseNarratives(report, zh));
     }
     if (sectionId === "traceability_and_sources") {
       parts.push(`\n## ${zh ? "关键研究缺口" : "Critical Research Gaps"}\n`);
@@ -1641,98 +1646,131 @@ export class ReportRuntime {
   }
 
   async build(input: BuildReportInput): Promise<BuildReportResult> {
-    if (input.reportEnvelope.artifact_type === "startup_opportunity.terminal_report_source.v1") {
-      throw new StoreError(
-        "report.terminal_dedicated_entry_required",
-        "terminal report sources must be committed by the atomic terminal Plan closeout entry",
-        {
-          artifact: input.reportEnvelope.artifact_path,
-          dedicatedEntry: "apply-plan-revision",
-        },
-      );
-    }
-    const runRoot = await openRunDirectory(this.runsRoot, input.reportEnvelope.run_id);
-    return withReportLock(runRoot, async () => {
-      await withRunLock(runRoot, () =>
-        assertNoOtherFinalReportLocked(runRoot, input.reportEnvelope),
-      );
-      const source = await this.compileCommercialReportFields(input.reportEnvelope);
-      const derived = deriveReportEnvelopes(source);
-      assertDerivedConsistencyPassed(derived);
-      const validation = this.validator.validateDocument(source, source.artifact_path);
-      if (!validation.valid) {
-        throw new StoreError("report.source_invalid", "report source envelope is invalid", {
-          errors: validation.errors,
+    const trace = operationTrace(input.reportEnvelope.artifact_path, "report_build", input.observe);
+    trace.start("operation");
+    try {
+      if (input.reportEnvelope.artifact_type === "startup_opportunity.terminal_report_source.v1") {
+        throw new StoreError(
+          "report.terminal_dedicated_entry_required",
+          "terminal report sources must be committed by the atomic terminal Plan closeout entry",
+          {
+            artifact: input.reportEnvelope.artifact_path,
+            dedicatedEntry: "apply-plan-revision",
+          },
+        );
+      }
+      const runRoot = await openRunDirectory(this.runsRoot, input.reportEnvelope.run_id);
+      return await withReportLock(runRoot, async () => {
+        trace.start("authority_and_projection");
+        await withRunLock(runRoot, () =>
+          assertNoOtherFinalReportLocked(runRoot, input.reportEnvelope),
+        );
+        const source = await this.compileCommercialReportFields(input.reportEnvelope);
+        const derived = deriveReportEnvelopes(source);
+        assertDerivedConsistencyPassed(derived);
+        const validation = this.validator.validateDocument(source, source.artifact_path);
+        if (!validation.valid) {
+          throw new StoreError("report.source_invalid", "report source envelope is invalid", {
+            errors: validation.errors,
+          });
+        }
+        await withRunLock(runRoot, () =>
+          assertReportBuildCompatibleLocked(runRoot, source, derived),
+        );
+        trace.complete("authority_and_projection", {
+          derived_artifacts: derived.length,
+          source_artifacts: source.input_refs.length,
         });
-      }
-      await withRunLock(runRoot, () => assertReportBuildCompatibleLocked(runRoot, source, derived));
-      const publicationResults: PublishArtifactResult[] = [];
-      publicationResults.push(
-        await this.store.publishArtifact({ runId: source.run_id, envelope: source }),
-      );
-      if (input.faultAt === "after_report_sidecar") {
-        throw new StoreError("fault.injected", "fault injected after report sidecar");
-      }
-      await this.materialize(source);
-      if (input.faultAt === "after_report_materialization") {
-        throw new StoreError("fault.injected", "fault injected after report materialization");
-      }
-      publicationResults.push(
-        await this.store.publishArtifact({
-          runId: source.run_id,
-          envelope: derived[0] as FormalArtifactEnvelope,
-        }),
-      );
-      if (input.faultAt === "after_brief_sidecar") {
-        throw new StoreError("fault.injected", "fault injected after decision brief sidecar");
-      }
-      await this.materialize(derived[0] as FormalArtifactEnvelope);
-      if (input.faultAt === "after_brief_materialization") {
-        throw new StoreError(
-          "fault.injected",
-          "fault injected after decision brief materialization",
+        trace.start("publication_and_materialization", {
+          formal_artifacts: derived.length + 1,
+          materialized_outputs: 4,
+        });
+        const publicationResults: PublishArtifactResult[] = [];
+        publicationResults.push(
+          await this.store.publishArtifact({ runId: source.run_id, envelope: source }),
         );
-      }
-      publicationResults.push(
-        await this.store.publishArtifact({
-          runId: source.run_id,
-          envelope: derived[1] as FormalArtifactEnvelope,
-        }),
-      );
-      if (input.faultAt === "after_view_sidecar") {
-        throw new StoreError("fault.injected", "fault injected after full report sidecar");
-      }
-      await this.materializeTarget(derived[1] as FormalArtifactEnvelope, "report.md");
-      if (input.faultAt === "after_view_materialization") {
-        throw new StoreError("fault.injected", "fault injected after full report materialization");
-      }
-      await this.materializeTarget(derived[1] as FormalArtifactEnvelope, "audit-appendix.md");
-      if (input.faultAt === "after_appendix_materialization") {
-        throw new StoreError(
-          "fault.injected",
-          "fault injected after audit appendix materialization",
+        if (input.faultAt === "after_report_sidecar") {
+          throw new StoreError("fault.injected", "fault injected after report sidecar");
+        }
+        await this.materialize(source);
+        if (input.faultAt === "after_report_materialization") {
+          throw new StoreError("fault.injected", "fault injected after report materialization");
+        }
+        publicationResults.push(
+          await this.store.publishArtifact({
+            runId: source.run_id,
+            envelope: derived[0] as FormalArtifactEnvelope,
+          }),
         );
-      }
-      publicationResults.push(
-        await this.store.publishArtifact({
+        if (input.faultAt === "after_brief_sidecar") {
+          throw new StoreError("fault.injected", "fault injected after decision brief sidecar");
+        }
+        await this.materialize(derived[0] as FormalArtifactEnvelope);
+        if (input.faultAt === "after_brief_materialization") {
+          throw new StoreError(
+            "fault.injected",
+            "fault injected after decision brief materialization",
+          );
+        }
+        publicationResults.push(
+          await this.store.publishArtifact({
+            runId: source.run_id,
+            envelope: derived[1] as FormalArtifactEnvelope,
+          }),
+        );
+        if (input.faultAt === "after_view_sidecar") {
+          throw new StoreError("fault.injected", "fault injected after full report sidecar");
+        }
+        await this.materializeTarget(derived[1] as FormalArtifactEnvelope, "report.md");
+        if (input.faultAt === "after_view_materialization") {
+          throw new StoreError(
+            "fault.injected",
+            "fault injected after full report materialization",
+          );
+        }
+        await this.materializeTarget(derived[1] as FormalArtifactEnvelope, "audit-appendix.md");
+        if (input.faultAt === "after_appendix_materialization") {
+          throw new StoreError(
+            "fault.injected",
+            "fault injected after audit appendix materialization",
+          );
+        }
+        publicationResults.push(
+          await this.store.publishArtifact({
+            runId: source.run_id,
+            envelope: derived[2] as FormalArtifactEnvelope,
+          }),
+        );
+        if (input.faultAt === "after_consistency_sidecar") {
+          throw new StoreError("fault.injected", "fault injected after consistency sidecar");
+        }
+        trace.complete("publication_and_materialization", {
+          formal_artifacts: publicationResults.length,
+          materialized_outputs: 4,
+        });
+        const result = {
+          schemaVersion: "startup_opportunity.build_report_result.v1" as const,
           runId: source.run_id,
-          envelope: derived[2] as FormalArtifactEnvelope,
-        }),
-      );
-      if (input.faultAt === "after_consistency_sidecar") {
-        throw new StoreError("fault.injected", "fault injected after consistency sidecar");
-      }
-      return {
-        schemaVersion: "startup_opportunity.build_report_result.v1",
-        runId: source.run_id,
-        status: publicationResults.every((entry) => entry.status === "idempotent_replay")
-          ? "idempotent_replay"
-          : "published",
-        formalArtifactPaths: [source.artifact_path, ...derived.map((entry) => entry.artifact_path)],
-        materializedPaths: ["report.json", "decision-brief.md", "report.md", "audit-appendix.md"],
-        consistencyEvaluationRef: (derived[2] as FormalArtifactEnvelope).artifact_path,
-      };
-    });
+          status: publicationResults.every((entry) => entry.status === "idempotent_replay")
+            ? ("idempotent_replay" as const)
+            : ("published" as const),
+          formalArtifactPaths: [
+            source.artifact_path,
+            ...derived.map((entry) => entry.artifact_path),
+          ],
+          materializedPaths: ["report.json", "decision-brief.md", "report.md", "audit-appendix.md"],
+          consistencyEvaluationRef: (derived[2] as FormalArtifactEnvelope).artifact_path,
+        };
+        trace.complete("operation", {
+          formal_artifacts: result.formalArtifactPaths.length,
+          materialized_outputs: result.materializedPaths.length,
+        });
+        return result;
+      });
+    } catch (error) {
+      trace.fail("operation", error instanceof StoreError ? error.code : "report.unexpected");
+      throw error;
+    }
   }
 
   async prepareTerminalLocked(
@@ -2064,13 +2102,9 @@ export class ReportRuntime {
         "caller-supplied Direction or validation-plan text drifts from the exact current-subject synthesis",
       );
     }
-    const fullProjection = projectCommercialAuditTables(audits, tasks, documentsByPath);
-    const projection = projectCommercialAuditTables(
-      audits,
-      tasks,
-      documentsByPath,
-      projectedSubjectIds,
-    );
+    const commercialProjector = createCommercialAuditProjector(audits, tasks, documentsByPath);
+    const fullProjection = commercialProjector.project();
+    const projection = commercialProjector.project(projectedSubjectIds);
     const currentAuditRefs = new Set(
       records(projection.commercial_subject_aggregates).flatMap((aggregate) =>
         strings(aggregate.audit_refs),

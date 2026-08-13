@@ -57,6 +57,7 @@ import {
   type ReportRecoveryResult,
   recoverReportOperationsLocked,
 } from "../reporting/report-runtime.js";
+import { type OperationObserver, operationTrace } from "../runtime/operation-observability.js";
 import {
   type ArtifactValidator,
   artifactRefsForDocument,
@@ -1531,23 +1532,52 @@ export class RunStore {
     });
   }
 
-  async load(runId: string): Promise<LoadRunResult> {
-    const resolution = await this.resolveExecution(runId);
-    if (resolution.disposition === "indeterminate") {
-      throw new StoreError(
-        "run.continuation_indeterminate",
-        "Run continuation lineage cannot be resolved safely",
-        { runId, issues: resolution.issues },
-      );
-    }
-    if (resolution.currentLeafRunId !== runId) {
-      throw new StoreError("run.not_current_leaf", "Run has an authoritative continuation leaf", {
-        runId,
-        currentLeafRunId: resolution.currentLeafRunId,
+  async load(
+    runId: string,
+    options: { readonly observe?: OperationObserver | undefined } = {},
+  ): Promise<LoadRunResult> {
+    const trace = operationTrace(runId, "run_recovery", options.observe);
+    trace.start("operation");
+    try {
+      trace.start("execution_resolution");
+      const resolution = await this.resolveExecution(runId);
+      if (resolution.disposition === "indeterminate") {
+        throw new StoreError(
+          "run.continuation_indeterminate",
+          "Run continuation lineage cannot be resolved safely",
+          { runId, issues: resolution.issues },
+        );
+      }
+      if (resolution.currentLeafRunId !== runId) {
+        throw new StoreError("run.not_current_leaf", "Run has an authoritative continuation leaf", {
+          runId,
+          currentLeafRunId: resolution.currentLeafRunId,
+        });
+      }
+      trace.complete("execution_resolution", {
+        continuation_depth: resolution.continuationChain.length,
       });
+      trace.start("recovery_validation");
+      const runRoot = await openRunDirectory(this.runsRoot, runId);
+      const result = await withRunLock(runRoot, () => this.recoverLocked(runRoot, runId));
+      const recoveredArtifacts =
+        result.recoveredArtifactPaths.length +
+        result.reportRecovery.recoveredFormalArtifactPaths.length +
+        result.reportRecovery.recoveredMaterializedPaths.length;
+      trace.complete("recovery_validation", {
+        recovered_artifacts: recoveredArtifacts,
+        repaired_logs: result.logRepairs.length,
+        orphan_active_units: result.orphanActiveUnits.length,
+      });
+      trace.complete("operation", {
+        recovered_artifacts: recoveredArtifacts,
+        repaired_logs: result.logRepairs.length,
+      });
+      return result;
+    } catch (error) {
+      trace.fail("operation", error instanceof StoreError ? error.code : "recovery.unexpected");
+      throw error;
     }
-    const runRoot = await openRunDirectory(this.runsRoot, runId);
-    return withRunLock(runRoot, () => this.recoverLocked(runRoot, runId));
   }
 
   private async continuationChildren(parentRunId: string): Promise<{

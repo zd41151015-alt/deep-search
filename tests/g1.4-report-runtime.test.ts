@@ -14,6 +14,7 @@ import {
   deriveReportEnvelopes,
   EvidenceStore,
   type FormalArtifactEnvelope,
+  type OperationObservation,
   type ReportFaultBoundary,
   ReportRuntime,
   RunStore,
@@ -2009,8 +2010,27 @@ test("Store re-forms a Concept only through an explicit post-terminal revision a
 
 test("build-report publishes formal sidecars, materializes four outputs, and exactly replays", async (context) => {
   const state = await prepareRun(context, { researchLanguage: "zh-CN" });
-  const first = await state.runtime.build({ reportEnvelope: state.reportEnvelope });
+  const observations: OperationObservation[] = [];
+  const first = await state.runtime.build({
+    reportEnvelope: state.reportEnvelope,
+    observe: (event) => observations.push(event),
+  });
   assert.equal(first.status, "published");
+  assert.deepEqual(
+    observations.map((entry) => `${entry.phase}:${entry.state}`),
+    [
+      "operation:started",
+      "authority_and_projection:started",
+      "authority_and_projection:completed",
+      "publication_and_materialization:started",
+      "publication_and_materialization:completed",
+      "operation:completed",
+    ],
+  );
+  assert.deepEqual(observations.at(-1)?.counts, {
+    formal_artifacts: 4,
+    materialized_outputs: 4,
+  });
   assert.deepEqual(first.materializedPaths, [
     "report.json",
     "decision-brief.md",
@@ -2039,6 +2059,8 @@ test("build-report publishes formal sidecars, materializes four outputs, and exa
   assert.match(decisionBrief, /# 决策摘要/);
   assert.match(coreReport, /# 产品假设证据评估报告/);
   assert.match(appendix, /# 产品假设证据评估审计附录/);
+  assert.match(appendix, /完整头部公司吸收与响应评估/);
+  assert.match(appendix, /对象 \/ 深度/);
   for (const surface of [decisionBrief, coreReport, appendix]) {
     assert.doesNotMatch(surface, /assessment_result|decision_grade|artifacts\//u);
   }

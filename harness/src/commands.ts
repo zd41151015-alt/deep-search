@@ -9,7 +9,7 @@ Usage:
   npm run harness -- create-run --run-id ID --mode MODE --geography GEO --customer-model MODEL --target-user USER --decision-goal GOAL --research-language LANG [--created-at TIME]
   npm run harness -- propose-scope --run-id ID --expected-scope-revision N --geography GEO --customer-model MODEL --target-user USER --decision-goal GOAL --research-language LANG --reason REASON
   npm run harness -- confirm-scope --run-id ID --expected-scope-proposal-revision N --expected-scope-proposal-ref REF --expected-scope-proposal-hash HASH --user-confirmation-attestation TEXT
-  npm run harness -- load-run --run-id ID
+  npm run harness -- load-run --run-id ID [--observe]
   npm run harness -- status-run --run-id ID
   npm run harness -- admit-prior-input --run-id ID --prior-input-id ID --source-run-id ID --source-artifact-path PATH --target-artifact-path PATH --consumer CONSUMER --reason REASON
   npm run harness -- read-prior-input --run-id ID --admission-ref REF
@@ -18,8 +18,8 @@ Usage:
   npm run harness -- reform-decision-subject --run-id ID --terminal-snapshot-ref REF --terminal-subject-id ID --reformed-subject-ref REF --reformation-input-ref REF --reason REASON
   npm run harness -- record-evidence --run-id ID --unit-id ID (--source-url URL | --source-uri URN) --research-goal GOAL --content-file FILE
   npm run harness -- publish-artifact --file FILE [--runs-root DIR]
-  npm run harness -- compile-artifacts --file FILE [--runs-root DIR]
-  npm run harness -- materialize-lane-result --file FILE [--runs-root DIR]
+  npm run harness -- compile-artifacts --file FILE [--runs-root DIR] [--observe]
+  npm run harness -- materialize-lane-result --file FILE [--runs-root DIR] [--observe]
   npm run harness -- scaffold-artifact --file FILE
   npm run harness -- checkpoint-run --file FILE
   npm run harness -- validate-plan --bundle FILE [--run-id ID] [--runs-root DIR] [--json]
@@ -29,7 +29,7 @@ Usage:
   npm run harness -- calculate-comparison --bundle FILE [--json]
   npm run harness -- calculate-sensitivity --bundle FILE [--json]
   npm run harness -- audit-traceability --bundle FILE [--json]
-  npm run harness -- build-report --file FILE [--runs-root DIR] [--json]
+  npm run harness -- build-report --file FILE [--runs-root DIR] [--json] [--observe]
 
 Commands:
   help               Show the implemented deterministic Harness command surface.
@@ -60,7 +60,7 @@ Commands:
   audit-traceability Validate a closed G1.4 assessment or G2.4 discovery traceability/report chain.
   build-report       Publish a non-terminal assessment/discovery report and materialize its views.
 
-Terminal report sources are accepted only by the atomic terminal apply-plan-revision closeout; build-report cannot publish them independently. Validation, publication, recovery, comparison/sensitivity summaries, and report materialization success are mechanical only. Caller-supplied Artifacts use the generic validation/publication surface. The Harness does not dispatch agents, execute lanes, synthesize thesis or evaluation semantics, perform network research, infer research judgments, or claim Evidence/market validation success.
+The optional --observe flag on long deterministic operations writes phase/count/timing JSONL to stderr without changing stdout results or formal Run state. Terminal report sources are accepted only by the atomic terminal apply-plan-revision closeout; build-report cannot publish them independently. Validation, publication, recovery, comparison/sensitivity summaries, and report materialization success are mechanical only. Caller-supplied Artifacts use the generic validation/publication surface. The Harness does not dispatch agents, execute lanes, synthesize thesis or evaluation semantics, perform network research, infer research judgments, or claim Evidence/market validation success.
 `;
 
 export function printHelp(

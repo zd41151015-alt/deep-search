@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { StoreError, storeErrorResult } from "../artifact-store/store-error.js";
 import { EvidenceStore } from "../evidence-store/evidence-store.js";
+import { stderrOperationObserver } from "../runtime/operation-observability.js";
 import { createArtifactValidator } from "../validators/artifact-validator.js";
 import {
   type BeliefSummary,
@@ -19,16 +20,26 @@ import {
 interface ParsedArguments {
   readonly values: ReadonlyMap<string, string>;
   readonly repeated: ReadonlyMap<string, readonly string[]>;
+  readonly observe: boolean;
 }
 
 function parseArguments(
   args: readonly string[],
   repeatedNames: readonly string[] = [],
+  allowObserve = false,
 ): ParsedArguments {
   const values = new Map<string, string>();
   const repeated = new Map<string, string[]>();
+  let observe = false;
   for (let index = 0; index < args.length; index += 1) {
     const name = args[index];
+    if (name === "--observe") {
+      if (!allowObserve) {
+        throw new StoreError("command.invalid_arguments", "--observe is not supported here");
+      }
+      observe = true;
+      continue;
+    }
     const value = args[index + 1];
     if (!name?.startsWith("--") || value === undefined || value.startsWith("--")) {
       throw new StoreError("command.invalid_arguments", "arguments must be --name value pairs", {
@@ -44,7 +55,7 @@ function parseArguments(
     }
     index += 1;
   }
-  return { values, repeated };
+  return { values, repeated, observe };
 }
 
 function required(parsed: ParsedArguments, name: string): string {
@@ -250,11 +261,14 @@ export async function runLoadRun(
   repositoryRoot = process.cwd(),
 ): Promise<number> {
   return runCommand(async () => {
-    const parsed = parseArguments(args);
+    const parsed = parseArguments(args, [], true);
     rejectUnknown(parsed, ["--run-id", "--runs-root"]);
     const validator = await createArtifactValidator(repositoryRoot);
     return new RunStore(roots(parsed, repositoryRoot), validator).load(
       required(parsed, "--run-id"),
+      {
+        observe: stderrOperationObserver(parsed.observe),
+      },
     );
   });
 }

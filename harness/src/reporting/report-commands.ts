@@ -2,21 +2,31 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { FormalArtifactEnvelope } from "../artifact-store/artifact-store.js";
 import { StoreError, storeErrorResult } from "../artifact-store/store-error.js";
+import { stderrOperationObserver } from "../runtime/operation-observability.js";
 import { createArtifactValidator } from "../validators/artifact-validator.js";
 import { ReportRuntime } from "./report-runtime.js";
 
 interface ParsedArguments {
   readonly values: ReadonlyMap<string, string>;
   readonly json: boolean;
+  readonly observe: boolean;
 }
 
-function parseArguments(args: readonly string[]): ParsedArguments {
+function parseArguments(args: readonly string[], allowObserve = false): ParsedArguments {
   const values = new Map<string, string>();
   let json = false;
+  let observe = false;
   for (let index = 0; index < args.length; index += 1) {
     const name = args[index];
     if (name === "--json") {
       json = true;
+      continue;
+    }
+    if (name === "--observe") {
+      if (!allowObserve) {
+        throw new StoreError("command.invalid_arguments", "--observe is not supported here");
+      }
+      observe = true;
       continue;
     }
     const value = args[index + 1];
@@ -37,7 +47,7 @@ function parseArguments(args: readonly string[]): ParsedArguments {
     values.set(name, value);
     index += 1;
   }
-  return { values, json };
+  return { values, json, observe };
 }
 
 function required(parsed: ParsedArguments, name: string): string {
@@ -187,7 +197,7 @@ export async function runBuildReport(
   repositoryRoot = process.cwd(),
 ): Promise<number> {
   return runCommand(async () => {
-    const parsed = parseArguments(args);
+    const parsed = parseArguments(args, true);
     rejectUnknown(parsed, ["--file", "--runs-root"]);
     const inputPath = path.resolve(repositoryRoot, required(parsed, "--file"));
     const runsRoot = path.resolve(repositoryRoot, parsed.values.get("--runs-root") ?? "runs");
@@ -198,6 +208,7 @@ export async function runBuildReport(
     const validator = await createArtifactValidator(repositoryRoot);
     return new ReportRuntime(runsRoot, validator).build({
       reportEnvelope: value as FormalArtifactEnvelope,
+      observe: stderrOperationObserver(parsed.observe),
     });
   });
 }

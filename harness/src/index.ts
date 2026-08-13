@@ -182,6 +182,12 @@ export {
   LaneResultMaterializer,
 } from "./runtime/lane-materializer.js";
 export {
+  type ObservableOperation,
+  type OperationObservation,
+  type OperationObserver,
+  operationTrace,
+} from "./runtime/operation-observability.js";
+export {
   runCompileArtifacts,
   runMaterializeLaneResult,
   runScaffoldArtifact,

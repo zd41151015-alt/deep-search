@@ -5,11 +5,26 @@ import { createArtifactValidator } from "../validators/artifact-validator.js";
 import { buildArtifactScaffold } from "./artifact-scaffolds.js";
 import { DeclarativeRuntimeCompiler } from "./declarative-runtime.js";
 import { LaneResultMaterializer } from "./lane-materializer.js";
+import { stderrOperationObserver } from "./operation-observability.js";
 
-function argumentsByName(args: readonly string[]): ReadonlyMap<string, string> {
+function argumentsByName(
+  args: readonly string[],
+  allowObserve = false,
+): {
+  readonly values: ReadonlyMap<string, string>;
+  readonly observe: boolean;
+} {
   const values = new Map<string, string>();
-  for (let index = 0; index < args.length; index += 2) {
+  let observe = false;
+  for (let index = 0; index < args.length; index += 1) {
     const name = args[index];
+    if (name === "--observe") {
+      if (!allowObserve) {
+        throw new StoreError("command.invalid_arguments", "--observe is not supported here");
+      }
+      observe = true;
+      continue;
+    }
     const value = args[index + 1];
     if (
       name === undefined ||
@@ -24,6 +39,7 @@ function argumentsByName(args: readonly string[]): ReadonlyMap<string, string> {
       );
     }
     values.set(name, value);
+    index += 1;
   }
   const unsupported = [...values.keys()].filter(
     (name) => name !== "--file" && name !== "--runs-root",
@@ -33,7 +49,7 @@ function argumentsByName(args: readonly string[]): ReadonlyMap<string, string> {
       arguments: unsupported.sort(),
     });
   }
-  return values;
+  return { values, observe };
 }
 
 export async function runCompileArtifacts(
@@ -41,19 +57,19 @@ export async function runCompileArtifacts(
   repositoryRoot = process.cwd(),
 ): Promise<number> {
   try {
-    const parsed = argumentsByName(args);
-    const file = parsed.get("--file");
+    const parsed = argumentsByName(args, true);
+    const file = parsed.values.get("--file");
     if (file === undefined) {
       throw new StoreError("command.invalid_arguments", "missing required argument --file");
     }
     const request = JSON.parse(await readFile(file, "utf8")) as unknown;
     const validator = await createArtifactValidator(repositoryRoot);
-    const runsRoot = parsed.get("--runs-root") ?? path.join(repositoryRoot, "runs");
+    const runsRoot = parsed.values.get("--runs-root") ?? path.join(repositoryRoot, "runs");
     const result = await new DeclarativeRuntimeCompiler(
       runsRoot,
       validator,
       repositoryRoot,
-    ).compile(request);
+    ).compile(request, { observe: stderrOperationObserver(parsed.observe) });
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   } catch (error) {
@@ -73,19 +89,19 @@ export async function runMaterializeLaneResult(
   repositoryRoot = process.cwd(),
 ): Promise<number> {
   try {
-    const parsed = argumentsByName(args);
-    const file = parsed.get("--file");
+    const parsed = argumentsByName(args, true);
+    const file = parsed.values.get("--file");
     if (file === undefined) {
       throw new StoreError("command.invalid_arguments", "missing required argument --file");
     }
     const staging = JSON.parse(await readFile(file, "utf8")) as unknown;
     const validator = await createArtifactValidator(repositoryRoot);
-    const runsRoot = parsed.get("--runs-root") ?? path.join(repositoryRoot, "runs");
+    const runsRoot = parsed.values.get("--runs-root") ?? path.join(repositoryRoot, "runs");
     const result = await new LaneResultMaterializer(
       runsRoot,
       validator,
       repositoryRoot,
-    ).materialize(staging);
+    ).materialize(staging, { observe: stderrOperationObserver(parsed.observe) });
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   } catch (error) {
@@ -106,7 +122,7 @@ export async function runScaffoldArtifact(
 ): Promise<number> {
   try {
     const parsed = argumentsByName(args);
-    const file = parsed.get("--file");
+    const file = parsed.values.get("--file");
     if (file === undefined) {
       throw new StoreError("command.invalid_arguments", "missing required argument --file");
     }

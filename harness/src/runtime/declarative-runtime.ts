@@ -24,6 +24,11 @@ import {
   resolveReferences,
 } from "../validators/reference-classifier.js";
 import type { ValidationIssue } from "../validators/schema-bundle.js";
+import {
+  type OperationObserver,
+  type OperationTrace,
+  operationTrace,
+} from "./operation-observability.js";
 
 export interface RuntimeArtifactCompilationRequest extends Record<string, unknown> {
   readonly schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1";
@@ -106,6 +111,7 @@ export interface RuntimeArtifactCompilationResult {
 
 export interface CompileRuntimeArtifactsOptions {
   readonly faultAt?: ArtifactFaultBoundary;
+  readonly observe?: OperationObserver | undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -281,8 +287,14 @@ export class DeclarativeRuntimeCompiler {
       typeof requestValue.request_id === "string"
         ? (requestValue as RuntimeArtifactCompilationRequest)
         : null;
+    const operationId =
+      isRecord(requestValue) && typeof requestValue.request_id === "string"
+        ? requestValue.request_id
+        : "unknown_runtime_request";
+    const trace = operationTrace(operationId, "runtime_compile", options.observe);
+    trace.start("operation");
     try {
-      const result = await this.compileAttempt(requestValue, options);
+      const result = await this.compileAttempt(requestValue, options, trace);
       const completesFailedAttempt =
         observableRequest !== null &&
         result.status === "idempotent_replay" &&
@@ -303,8 +315,15 @@ export class DeclarativeRuntimeCompiler {
           artifactRefs: result.publication.map((entry) => entry.artifact_path),
         });
       }
+      trace.complete("operation", {
+        compiled_artifacts: result.compiled_envelopes.length,
+        closure_documents: result.validation_closure.document_count,
+        exact_records: result.validation_closure.exact_record_count,
+        resolved_references: result.publication_plan.resolved_references.length,
+      });
       return result;
     } catch (error) {
+      trace.fail("operation", error instanceof StoreError ? error.code : "runtime.unexpected");
       if (observableRequest !== null) {
         try {
           await this.runs.recordRuntimeOperationObservation({
@@ -329,8 +348,10 @@ export class DeclarativeRuntimeCompiler {
   private async compileAttempt(
     requestValue: unknown,
     options: CompileRuntimeArtifactsOptions,
+    trace: OperationTrace,
   ): Promise<RuntimeArtifactCompilationResult> {
     const totalStarted = performance.now();
+    trace.start("request_validation");
     const requestValidation = this.validator.validateDocument(requestValue);
     if (!requestValidation.valid || !isRecord(requestValue)) {
       throw new StoreError(
@@ -340,6 +361,8 @@ export class DeclarativeRuntimeCompiler {
       );
     }
     const request = requestValue as RuntimeArtifactCompilationRequest;
+    trace.complete("request_validation", { request_errors: requestValidation.errors.length });
+    trace.start("current_run_resolution");
     const resolution = await this.runs.resolveExecution(request.run_id);
     if (
       resolution.disposition === "indeterminate" ||
@@ -355,8 +378,12 @@ export class DeclarativeRuntimeCompiler {
         },
       );
     }
+    trace.complete("current_run_resolution", {
+      continuation_depth: resolution.continuationChain.length,
+    });
 
     const compilationStarted = performance.now();
+    trace.start("artifact_compilation", { authored_artifacts: request.artifacts.length });
     const rawSourceArtifacts =
       request.publication_plan?.compiled_envelopes.map((envelope) => ({
         artifact_type: envelope.artifact_type,
@@ -554,8 +581,13 @@ export class DeclarativeRuntimeCompiler {
     }
     await this.runs.assertTransitionReady(request.run_id, envelopes);
     const compilation = elapsed(compilationStarted);
+    trace.complete("artifact_compilation", {
+      compiled_artifacts: envelopes.length,
+      construction_issues: constructionIssues.length,
+    });
 
     const closureStarted = performance.now();
+    trace.start("closure_validation");
     const initialBundle: DocumentBundle = {
       schema_version: "startup_opportunity.document_bundle.current",
       documents: envelopes.map((envelope) => ({
@@ -744,8 +776,14 @@ export class DeclarativeRuntimeCompiler {
       );
     }
     const closureValidation = elapsed(closureStarted);
+    trace.complete("closure_validation", {
+      closure_documents: context.bundle.documents.length,
+      exact_records: context.referenceContext.exactJsonlRecords?.size ?? 0,
+      resolved_references: resolvedReferences.length,
+    });
 
     const publicationStarted = performance.now();
+    trace.start("publication", { publication_artifacts: envelopes.length });
     let publicationStatus: "validated" | "published" | "idempotent_replay" = "validated";
     let statuses = new Map<string, "validated" | "published" | "idempotent_replay">(
       envelopes.map((envelope) => [envelope.artifact_path, "validated"]),
@@ -778,6 +816,7 @@ export class DeclarativeRuntimeCompiler {
       }
     }
     const publication = elapsed(publicationStarted);
+    trace.complete("publication", { publication_artifacts: envelopes.length });
     const result: RuntimeArtifactCompilationResult = {
       schema_version: artifactFamilies.has("assessment")
         ? "startup_opportunity.runtime_artifact_compilation_result.assessment.current"

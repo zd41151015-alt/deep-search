@@ -1,7 +1,7 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { INCUMBENT_RESPONSE_STRATEGIC_CONTEXT } from "../incumbent-response-contract.js";
-import { projectCommercialAuditTables } from "../reporting/commercial-report-tables.js";
+import { createCommercialAuditProjector } from "../reporting/commercial-report-tables.js";
 import { deriveNonTerminalReportSubjectIds } from "../reporting/report-projection-authority.js";
 import {
   canonicalSourceGroup,
@@ -2899,6 +2899,11 @@ function validateCommercialReportProjections(
   const auditsByPath = new Map(audits.map((audit) => [audit.path, audit]));
   const plannedTasks = documents.filter((entry) => TASK_STAGE_BY_VERSION.has(entry.schemaVersion));
   const documentsByPath = new Map(documents.map((document) => [document.path, document.document]));
+  const commercialProjector = createCommercialAuditProjector(
+    audits,
+    plannedTasks.map((task) => ({ path: task.path, document: task.document })),
+    documentsByPath,
+  );
   const interpretationsBySubjectAndRef = new Map<
     string,
     { readonly path: string; readonly source: Record<string, unknown> }[]
@@ -3085,17 +3090,8 @@ function validateCommercialReportProjections(
       );
       continue;
     }
-    const expectedProjection = projectCommercialAuditTables(
-      audits,
-      plannedTasks.map((task) => ({ path: task.path, document: task.document })),
-      documentsByPath,
-      projectedSubjectIds,
-    );
-    const expectedFullProjection = projectCommercialAuditTables(
-      audits,
-      plannedTasks.map((task) => ({ path: task.path, document: task.document })),
-      documentsByPath,
-    );
+    const expectedProjection = commercialProjector.project(projectedSubjectIds);
+    const expectedFullProjection = commercialProjector.project();
     const reportAuditRefs = strings(report.document.commercial_research_audit_refs);
     const expectedStatus = isRecord(expectedFullProjection.commercial_research_status)
       ? expectedFullProjection.commercial_research_status

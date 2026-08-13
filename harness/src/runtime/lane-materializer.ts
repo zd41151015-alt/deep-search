@@ -20,6 +20,7 @@ import {
   type LaneScopeFormalClosure,
   laneScopeCoverageFromClosure,
 } from "./lane-delivery-closure.js";
+import { type OperationObserver, operationTrace } from "./operation-observability.js";
 
 interface RequiredArtifact {
   readonly artifact_type: string;
@@ -888,7 +889,44 @@ export class LaneResultMaterializer {
     };
   }
 
-  async materialize(value: unknown): Promise<LaneDeliveryResult> {
+  async materialize(
+    value: unknown,
+    options: { readonly observe?: OperationObserver | undefined } = {},
+  ): Promise<LaneDeliveryResult> {
+    const operationId =
+      isRecord(value) && typeof value.staging_id === "string"
+        ? value.staging_id
+        : "unknown_staging";
+    const trace = operationTrace(operationId, "lane_materialization", options.observe);
+    trace.start("lane_delivery", {
+      agent_documents:
+        isRecord(value) && Array.isArray(value.agent_documents) ? value.agent_documents.length : 0,
+      evidence_receipts:
+        isRecord(value) && Array.isArray(value.evidence_receipt_refs)
+          ? value.evidence_receipt_refs.length
+          : 0,
+    });
+    try {
+      const result = await this.materializeAttempt(value, options.observe);
+      trace.complete("lane_delivery", {
+        delivered_artifacts: result.preflight.delivered_artifact_count,
+        assigned_scopes: result.preflight.scope_count,
+        evidence_receipts: result.preflight.evidence_ref_count,
+      });
+      return result;
+    } catch (error) {
+      trace.fail(
+        "lane_delivery",
+        error instanceof StoreError ? error.code : "runtime.lane_materialization_unexpected",
+      );
+      throw error;
+    }
+  }
+
+  private async materializeAttempt(
+    value: unknown,
+    observe?: OperationObserver,
+  ): Promise<LaneDeliveryResult> {
     const validation = this.validator.validateDocument(value);
     if (!validation.valid || !isRecord(value)) {
       const stagingId =
@@ -1012,14 +1050,17 @@ export class LaneResultMaterializer {
     let sharedIssues: readonly LaneDeliveryIssue[] = [];
     if (authoredArtifacts.length > 0) {
       try {
-        preview = await this.compiler.compile({
-          schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
-          request_id: `${staging.staging_id}_gate_preview`,
-          run_id: staging.run_id,
-          operation: "validate_only",
-          created_at: staging.created_at,
-          artifacts: authoredArtifacts,
-        });
+        preview = await this.compiler.compile(
+          {
+            schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+            request_id: `${staging.staging_id}_gate_preview`,
+            run_id: staging.run_id,
+            operation: "validate_only",
+            created_at: staging.created_at,
+            artifacts: authoredArtifacts,
+          },
+          { observe },
+        );
       } catch (error) {
         sharedIssues = compilerPreflightIssues(staging, error);
       }
@@ -1178,14 +1219,17 @@ export class LaneResultMaterializer {
         document: receiptDocument,
       },
     ];
-    const validated = await this.compiler.compile({
-      schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
-      request_id: staging.staging_id,
-      run_id: staging.run_id,
-      operation: "validate_only",
-      created_at: staging.created_at,
-      artifacts,
-    });
+    const validated = await this.compiler.compile(
+      {
+        schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+        request_id: staging.staging_id,
+        run_id: staging.run_id,
+        operation: "validate_only",
+        created_at: staging.created_at,
+        artifacts,
+      },
+      { observe },
+    );
     let compilation = validated;
     if (staging.operation === "publish") {
       if (
@@ -1205,15 +1249,18 @@ export class LaneResultMaterializer {
           },
         );
       }
-      compilation = await this.compiler.compile({
-        schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
-        request_id: staging.staging_id,
-        run_id: staging.run_id,
-        operation: "publish",
-        created_at: staging.created_at,
-        artifacts: [],
-        publication_plan: staging.publication_plan,
-      });
+      compilation = await this.compiler.compile(
+        {
+          schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+          request_id: staging.staging_id,
+          run_id: staging.run_id,
+          operation: "publish",
+          created_at: staging.created_at,
+          artifacts: [],
+          publication_plan: staging.publication_plan,
+        },
+        { observe },
+      );
     }
     const deliveryReceipt = compilation.compiled_envelopes.find(
       (envelope) => envelope.artifact_path === receiptPath,
