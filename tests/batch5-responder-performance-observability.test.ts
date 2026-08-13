@@ -12,9 +12,11 @@ import {
 import {
   createArtifactValidator,
   DeclarativeRuntimeCompiler,
+  type FormalArtifactEnvelope,
   LaneResultMaterializer,
   type OperationObservation,
   operationTrace,
+  ReportRuntime,
   RunStore,
   StoreError,
 } from "../harness/src/index.js";
@@ -180,6 +182,7 @@ test("responder narrative preserves unknown and not-applicable states and locali
         supporting_evidence_refs: ["evidence/records/responder-support.json"],
         opposing_evidence_refs: ["evidence/records/responder-opposition.json"],
         background_evidence_refs: ["evidence/records/responder-background.json"],
+        inference_boundary: "公开材料不能证明响应意愿或内部路线图。",
         uncertainty: "响应者身份、意愿和时点尚未解决。",
         unknowns: ["实际响应者与响应时点。"],
         data_gaps: ["缺少内部路线图。"],
@@ -200,6 +203,8 @@ test("responder narrative preserves unknown and not-applicable states and locali
   assert.match(narrative, /中期/u);
   assert.match(narrative, /单项功能/u);
   assert.match(narrative, /状态: 未知/u);
+  assert.match(narrative, /推理边界: 公开材料不能证明响应意愿或内部路线图。/u);
+  assert.match(narrative, /响应者身份、意愿和时点尚未解决。/u);
   assert.match(narrative, /均保持未知/u);
   assert.match(narrative, /不适用/u);
   assert.match(narrative, /均保持不适用/u);
@@ -207,6 +212,33 @@ test("responder narrative preserves unknown and not-applicable states and locali
     narrative,
     /\b(?:native_integration|medium_term|single_feature|targeted_deep_dive)\b/u,
   );
+  assert.doesNotMatch(narrative, /evidence\/records\//u);
+});
+
+test("unknown responder narrative keeps inference boundary distinct from uncertainty", () => {
+  const inferenceBoundary =
+    "Public material cannot establish willingness or an internal product roadmap.";
+  const uncertainty = "The response actor and launch timing remain unresolved.";
+  const narrative = renderIncumbentResponseNarratives({
+    current_decision_subject_ids: ["subject_unknown"],
+    report_subject_labels: [{ subject_id: "subject_unknown", label: "Unknown Direction" }],
+    report_citations: reportCitations(),
+    incumbent_response_risk_rows: [
+      responseRow({
+        subject_id: "subject_unknown",
+        analysis_state: "unknown",
+        supporting_evidence_refs: ["evidence/records/responder-support.json"],
+        opposing_evidence_refs: ["evidence/records/responder-opposition.json"],
+        background_evidence_refs: ["evidence/records/responder-background.json"],
+        inference_boundary: inferenceBoundary,
+        uncertainty,
+        unknowns: ["Actual responder and launch timing."],
+        data_gaps: ["No internal roadmap."],
+      }),
+    ],
+  });
+  assert.match(narrative, new RegExp(`Inference boundary: ${inferenceBoundary}`, "u"));
+  assert.match(narrative, new RegExp(`State: unknown\\. ${uncertainty}`, "u"));
   assert.doesNotMatch(narrative, /evidence\/records\//u);
 });
 
@@ -402,11 +434,20 @@ async function observabilityRun(t: TestContext): Promise<{
   readonly runId: string;
   readonly store: RunStore;
   readonly compiler: DeclarativeRuntimeCompiler;
-}> {
+}>;
+async function observabilityRun(
+  t: TestContext,
+  runId: string,
+): Promise<{
+  readonly runsRoot: string;
+  readonly runId: string;
+  readonly store: RunStore;
+  readonly compiler: DeclarativeRuntimeCompiler;
+}>;
+async function observabilityRun(t: TestContext, runId = "batch5-observability-run") {
   const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-batch5-observe-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const runsRoot = path.join(root, "runs");
-  const runId = "batch5-observability-run";
   const validator = await createArtifactValidator(repositoryRoot);
   const store = new RunStore(runsRoot, validator);
   await createConfirmedRun(
@@ -441,7 +482,7 @@ function withoutTiming<T extends { readonly timing_ms: unknown }>(value: T): Omi
 
 test("structured operation traces are ordered, bounded to mechanics, and observer-safe", () => {
   const observations: OperationObservation[] = [];
-  const trace = operationTrace("operation_batch5", "runtime_compile", (event) => {
+  const trace = operationTrace("runtime_compile", (event) => {
     observations.push(event);
   });
   trace.start("validation", { z_count: 2, invalid_count: -1, a_count: 1 });
@@ -456,10 +497,12 @@ test("structured operation traces are ordered, bounded to mechanics, and observe
     ],
   );
   assert.deepEqual(observations[0]?.counts, { a_count: 1, z_count: 2 });
+  assert.match(observations[0]?.operationId ?? "", /^[0-9a-f-]{36}$/u);
+  assert.equal(new Set(observations.map((entry) => entry.operationId)).size, 1);
   assert.equal(observations[1]?.phaseDurationMs === null, false);
   assert.equal(observations[2]?.errorCode, "runtime.synthetic_failure");
   assert.doesNotThrow(() =>
-    operationTrace("throwing_observer", "run_recovery", () => {
+    operationTrace("run_recovery", () => {
       throw new Error("observer failure");
     }).start("operation", { item_count: 1 }),
   );
@@ -476,8 +519,7 @@ test("lane materialization failure emits only bounded mechanics and preserves th
   await assert.rejects(
     materializer.materialize(
       {
-        staging_id: "batch5_invalid_staging",
-        secret_raw_bytes: "DO_NOT_EMIT_LANE_BYTES",
+        staging_id: "DO_NOT_EMIT_LANE_STAGING_ID",
       },
       { observe: (event) => observations.push(event) },
     ),
@@ -489,12 +531,13 @@ test("lane materialization failure emits only bounded mechanics and preserves th
     ["lane_delivery:started", "lane_delivery:failed"],
   );
   assert.equal(observations.at(-1)?.errorCode, "runtime.lane_staging_invalid");
-  assert.doesNotMatch(JSON.stringify(observations), /DO_NOT_EMIT_LANE_BYTES/u);
+  assert.doesNotMatch(JSON.stringify(observations), /DO_NOT_EMIT_LANE_STAGING_ID/u);
 });
 
 test("compiler and reopen results retain parity with disabled or failing observers", async (t) => {
-  const state = await observabilityRun(t);
+  const state = await observabilityRun(t, "DO_NOT_EMIT_LOAD_RUN_ID");
   const request = compilationRequest(state.runId);
+  request.request_id = "DO_NOT_EMIT_COMPILER_REQUEST_ID";
   const baseline = await state.compiler.compile(request);
   const observations: OperationObservation[] = [];
   const observed = await state.compiler.compile(request, {
@@ -524,6 +567,7 @@ test("compiler and reopen results retain parity with disabled or failing observe
     exact_records: observed.validation_closure.exact_record_count,
     resolved_references: observed.publication_plan.resolved_references.length,
   });
+  assert.doesNotMatch(JSON.stringify(observations), /DO_NOT_EMIT_COMPILER_REQUEST_ID/u);
   const throwing = await state.compiler.compile(request, {
     observe: () => {
       throw new Error("SYNTHETIC observer failure");
@@ -534,7 +578,7 @@ test("compiler and reopen results retain parity with disabled or failing observe
   const failedObservations: OperationObservation[] = [];
   await assert.rejects(
     state.compiler.compile(
-      { secret_raw_bytes: "DO_NOT_EMIT_THIS_VALUE" },
+      { request_id: "DO_NOT_EMIT_INVALID_COMPILER_REQUEST_ID" },
       { observe: (event) => failedObservations.push(event) },
     ),
     (error: unknown) =>
@@ -542,7 +586,10 @@ test("compiler and reopen results retain parity with disabled or failing observe
   );
   assert.equal(failedObservations.at(-1)?.state, "failed");
   assert.equal(failedObservations.at(-1)?.errorCode, "runtime.compilation_request_invalid");
-  assert.doesNotMatch(JSON.stringify(failedObservations), /DO_NOT_EMIT_THIS_VALUE/u);
+  assert.doesNotMatch(
+    JSON.stringify(failedObservations),
+    /DO_NOT_EMIT_INVALID_COMPILER_REQUEST_ID/u,
+  );
 
   const loaded = await state.store.load(state.runId);
   const recoveryObservations: OperationObservation[] = [];
@@ -561,10 +608,40 @@ test("compiler and reopen results retain parity with disabled or failing observe
       "operation:completed",
     ],
   );
+  assert.doesNotMatch(JSON.stringify(recoveryObservations), new RegExp(state.runId, "u"));
+});
+
+test("report and invalid Run identifiers never become observation correlation ids", async (t) => {
+  const state = await observabilityRun(t);
+  const reportObservations: OperationObservation[] = [];
+  await assert.rejects(
+    new ReportRuntime(state.runsRoot, await createArtifactValidator(repositoryRoot)).build({
+      reportEnvelope: {
+        artifact_type: "startup_opportunity.terminal_report_source.v1",
+        artifact_path: "artifacts/reports/DO_NOT_EMIT_REPORT_ARTIFACT_PATH.json",
+        run_id: state.runId,
+      } as FormalArtifactEnvelope,
+      observe: (event) => reportObservations.push(event),
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.terminal_dedicated_entry_required",
+  );
+  assert.equal(reportObservations.at(-1)?.state, "failed");
+  assert.doesNotMatch(JSON.stringify(reportObservations), /DO_NOT_EMIT_REPORT_ARTIFACT_PATH/u);
+
+  const loadObservations: OperationObservation[] = [];
+  await assert.rejects(
+    state.store.load("DO_NOT_EMIT_INVALID_RUN_ID!", {
+      observe: (event) => loadObservations.push(event),
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "path.invalid_run_id",
+  );
+  assert.equal(loadObservations.at(-1)?.state, "failed");
+  assert.doesNotMatch(JSON.stringify(loadObservations), /DO_NOT_EMIT_INVALID_RUN_ID/u);
 });
 
 test("load-run --observe keeps the result on stdout and emits machine-readable stderr JSONL", async (t) => {
-  const state = await observabilityRun(t);
+  const state = await observabilityRun(t, "DO_NOT_EMIT_CLI_LOAD_RUN_ID");
   const command = spawnSync(
     process.execPath,
     [
@@ -591,13 +668,16 @@ test("load-run --observe keeps the result on stdout and emits machine-readable s
   assert.ok(observations.length >= 6);
   assert.equal(observations[0]?.operation, "run_recovery");
   assert.equal(observations.at(-1)?.state, "completed");
+  assert.doesNotMatch(command.stderr, /DO_NOT_EMIT_CLI_LOAD_RUN_ID/u);
   assert.doesNotMatch(command.stderr, /userConfirmationAttestation|decisionGoal|targetUsers/u);
 });
 
 test("compile-artifacts --observe preserves stdout result and emits phase/count JSONL", async (t) => {
   const state = await observabilityRun(t);
   const requestPath = path.join(path.dirname(state.runsRoot), "compile-request.json");
-  await writeFile(requestPath, `${JSON.stringify(compilationRequest(state.runId))}\n`);
+  const request = compilationRequest(state.runId);
+  request.request_id = "DO_NOT_EMIT_CLI_COMPILER_REQUEST_ID";
+  await writeFile(requestPath, `${JSON.stringify(request)}\n`);
   const command = spawnSync(
     process.execPath,
     [
@@ -624,5 +704,6 @@ test("compile-artifacts --observe preserves stdout result and emits phase/count 
   assert.equal(observations[0]?.operation, "runtime_compile");
   assert.equal(observations.at(-1)?.phase, "operation");
   assert.equal(observations.at(-1)?.state, "completed");
+  assert.doesNotMatch(command.stderr, /DO_NOT_EMIT_CLI_COMPILER_REQUEST_ID/u);
   assert.doesNotMatch(command.stderr, /SYNTHETIC observability fixture/u);
 });

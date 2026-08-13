@@ -1324,6 +1324,9 @@ export function renderIncumbentResponseNarratives(
           `- ${zh ? "状态" : "State"}: ${zh ? "未知" : "unknown"}. ${display(semantic.uncertainty, zh)}\n`,
         );
         parts.push(
+          `  - ${zh ? "推理边界" : "Inference boundary"}: ${display(semantic.inference_boundary, zh)}\n`,
+        );
+        parts.push(
           zh
             ? "  - 能力、响应成本、意愿与自我蚕食、响应方式、时间、分发杠杆、产品主张覆盖及剩余差异化均保持未知，不能由现有材料补推。\n"
             : "  - Capability, response costs, willingness and cannibalization, response modes, horizon, distribution leverage, thesis coverage, and residual differentiation all remain unknown and cannot be filled in from the available material.\n",

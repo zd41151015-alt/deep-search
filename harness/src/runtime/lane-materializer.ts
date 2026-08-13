@@ -893,11 +893,7 @@ export class LaneResultMaterializer {
     value: unknown,
     options: { readonly observe?: OperationObserver | undefined } = {},
   ): Promise<LaneDeliveryResult> {
-    const operationId =
-      isRecord(value) && typeof value.staging_id === "string"
-        ? value.staging_id
-        : "unknown_staging";
-    const trace = operationTrace(operationId, "lane_materialization", options.observe);
+    const trace = operationTrace("lane_materialization", options.observe);
     trace.start("lane_delivery", {
       agent_documents:
         isRecord(value) && Array.isArray(value.agent_documents) ? value.agent_documents.length : 0,

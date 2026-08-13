@@ -1646,7 +1646,7 @@ export class ReportRuntime {
   }
 
   async build(input: BuildReportInput): Promise<BuildReportResult> {
-    const trace = operationTrace(input.reportEnvelope.artifact_path, "report_build", input.observe);
+    const trace = operationTrace("report_build", input.observe);
     trace.start("operation");
     try {
       if (input.reportEnvelope.artifact_type === "startup_opportunity.terminal_report_source.v1") {

@@ -287,11 +287,7 @@ export class DeclarativeRuntimeCompiler {
       typeof requestValue.request_id === "string"
         ? (requestValue as RuntimeArtifactCompilationRequest)
         : null;
-    const operationId =
-      isRecord(requestValue) && typeof requestValue.request_id === "string"
-        ? requestValue.request_id
-        : "unknown_runtime_request";
-    const trace = operationTrace(operationId, "runtime_compile", options.observe);
+    const trace = operationTrace("runtime_compile", options.observe);
     trace.start("operation");
     try {
       const result = await this.compileAttempt(requestValue, options, trace);

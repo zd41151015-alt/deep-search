@@ -13,6 +13,7 @@ import {
   type FormalArtifactEnvelope,
   inspectSchemaBundle,
   LaneResultMaterializer,
+  type OperationObservation,
   RunStore,
   StoreError,
 } from "../harness/src/index.js";
@@ -335,7 +336,7 @@ test("direct Assessment Task uses the typed one-shot Lane delivery path", async 
   agentDocuments.push({ artifact_family: "commercial_audit", document: emptyCommercialDelivery() });
   const staging = {
     schema_version: "startup_opportunity.lane_staging_document.current",
-    staging_id: "staging_direct_assessment_lane_synthetic",
+    staging_id: "DO_NOT_EMIT_VALID_LANE_STAGING_ID",
     run_id: state.task.run_id,
     task_ref: taskRef,
     created_at: "2026-07-24T20:22:00Z",
@@ -373,12 +374,16 @@ test("direct Assessment Task uses the typed one-shot Lane delivery path", async 
     return true;
   });
   assert.deepEqual(await snapshotTree(state.runRoot), before);
-  const validated = await materializer.materialize(staging).catch((error: unknown) => {
-    if (error instanceof StoreError) {
-      assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
-    }
-    throw error;
-  });
+  const observations: OperationObservation[] = [];
+  const validated = await materializer
+    .materialize(staging, { observe: (event) => observations.push(event) })
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+      }
+      throw error;
+    });
+  assert.doesNotMatch(JSON.stringify(observations), /DO_NOT_EMIT_VALID_LANE_STAGING_ID/u);
   assert.equal(validated.compilation.status, "validated");
   assert.deepEqual(await snapshotTree(state.runRoot), before);
   assert.deepEqual(validated.delivery_receipt.document.assigned_subject_refs, [

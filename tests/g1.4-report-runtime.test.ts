@@ -2031,6 +2031,7 @@ test("build-report publishes formal sidecars, materializes four outputs, and exa
     formal_artifacts: 4,
     materialized_outputs: 4,
   });
+  assert.doesNotMatch(JSON.stringify(observations), new RegExp(state.reportEnvelope.artifact_path));
   assert.deepEqual(first.materializedPaths, [
     "report.json",
     "decision-brief.md",

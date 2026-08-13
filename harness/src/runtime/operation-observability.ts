@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
 export type ObservableOperation =
@@ -34,10 +35,10 @@ export interface OperationTrace {
 }
 
 export function operationTrace(
-  operationId: string,
   operation: ObservableOperation,
   observer?: OperationObserver,
 ): OperationTrace {
+  const operationId = randomUUID();
   const started = performance.now();
   const phaseStarts = new Map<string, number>();
   let sequence = 0;

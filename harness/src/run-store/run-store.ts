@@ -1536,7 +1536,7 @@ export class RunStore {
     runId: string,
     options: { readonly observe?: OperationObserver | undefined } = {},
   ): Promise<LoadRunResult> {
-    const trace = operationTrace(runId, "run_recovery", options.observe);
+    const trace = operationTrace("run_recovery", options.observe);
     trace.start("operation");
     try {
       trace.start("execution_resolution");
