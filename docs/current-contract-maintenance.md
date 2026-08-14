@@ -28,9 +28,11 @@ Apply this checklist to every implementation iteration and every independent rev
 
 ### Engineering Authority And Delegation
 
-- Does the implementation or review follow root `AGENTS.md`, the owning production module, the current contract, and applicable engineering documentation rather than invoking `$startup-opportunity` as a coding workflow?
-- If the Skill is inspected because its Runtime entry or public instructions are in scope, is it treated only as a consumer/documentation surface rather than as architecture, schema, implementation, or test authority?
-- Does every prompt delegated to another coding task explicitly state that `$startup-opportunity` is a research-execution Skill, not coding-agent guidance?
+- Does the implementation or review follow root `AGENTS.md`, the owning production module, the current contract, and applicable engineering documentation rather than invoking or following `$startup-opportunity` as a coding workflow?
+- Has the task distinguished using the Skill as engineering guidance from reading it as a Runtime consumer/orchestration surface? A blanket prohibition on reading is not required.
+- If the change may affect the end-to-end Runtime entry, public instructions, command sequence, Agent or Lane responsibilities, reachable workflow, or user-visible outputs, were the relevant Skill sections inspected for consistency?
+- When the Skill is inspected, is engineering truth still resolved from the owning current contract, policy, production module, and tests, with the Skill updated atomically only when its public Runtime surface is in scope?
+- Does every prompt delegated to another coding task explicitly state both that `$startup-opportunity` is not coding-agent guidance and that relevant inspection is required when end-to-end Runtime behavior may be affected?
 - Does every delegated implementation and review task explicitly include research non-degradation as an acceptance condition, including preservation of legitimate inputs, semantic states, workflows, conclusions, and user-visible reporting?
 
 ### Research Inputs And Breadth
