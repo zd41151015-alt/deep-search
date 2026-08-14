@@ -196,6 +196,8 @@ The objective is to identify all applicable surfaces, not to require all surface
 
 ### Phase 1: Topology And Impact Visibility
 
+Implemented engineering surfaces are `harness/contracts/current-ownership.json`, the registry checks inside `inspectCurrentContract()`, and the read-only `npm run contract:impact` command documented in `docs/current-contract-maintenance.md`. The registry remains engineering metadata; this implementation does not modify Runtime schemas, Policies, research compilation or validation semantics, publication, reporting, recovery, or the Runtime Skill. Phase 2 generation and Phase 3 fixture builders are not part of this surface.
+
 Deliver:
 
 - engineering ownership registry;

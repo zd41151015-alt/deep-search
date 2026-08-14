@@ -1,13 +1,21 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { CURRENT_POLICY_PATHS } from "../current-policy-paths.js";
+import {
+  type ContractOwnershipFamily,
+  type ContractOwnershipRegistry,
+  CURRENT_OWNERSHIP_REGISTRY_PATH,
+  loadContractOwnershipRegistry,
+  OwnershipRegistryFormatError,
+  selectorMatchesSchemaFile,
+} from "./ownership-registry.js";
 import { loadSchemaBundle } from "./schema-bundle.js";
 
 const CURRENT_ENVELOPE_VERSION = "startup_opportunity.artifact_envelope.current";
 
 export { CURRENT_POLICY_PATHS };
 
-const DIRECT_RUNTIME_SCHEMA_VERSIONS = [
+export const DIRECT_RUNTIME_SCHEMA_VERSIONS = [
   "startup_opportunity.artifact_envelope.current",
   "startup_opportunity.artifact_publication_commit.current",
   "startup_opportunity.artifact_store_operation.current",
@@ -96,6 +104,9 @@ export interface CurrentContractInspectionResult {
   readonly artifactTypeCount: number;
   readonly activePolicyCount: number;
   readonly schemaReferenceClosureCount: number;
+  readonly registryFamilyCount: number;
+  readonly registeredArtifactTypeCount: number;
+  readonly registeredDirectRuntimeRootCount: number;
   readonly issues: readonly CurrentContractIssue[];
 }
 
@@ -111,16 +122,578 @@ function issue(
   return { code, message, details };
 }
 
-function collectReferences(value: unknown): readonly string[] {
+export function collectSchemaReferences(value: unknown): readonly string[] {
   if (Array.isArray(value)) {
-    return value.flatMap(collectReferences);
+    return value.flatMap(collectSchemaReferences);
   }
   if (!isRecord(value)) {
     return [];
   }
   return Object.entries(value).flatMap(([key, child]) =>
-    key === "$ref" && typeof child === "string" ? [child] : collectReferences(child),
+    key === "$ref" && typeof child === "string" ? [child] : collectSchemaReferences(child),
   );
+}
+
+interface ManifestSchemaEntry {
+  readonly id: string;
+  readonly file: string;
+  readonly document_schema_version: string | null;
+}
+
+interface RegistryInspectionContext {
+  readonly root: string;
+  readonly registry: ContractOwnershipRegistry;
+  readonly manifestSchemas: readonly ManifestSchemaEntry[];
+  readonly schemaDocuments: ReadonlyMap<string, Record<string, unknown>>;
+  readonly artifactRules: ReadonlyMap<string, string>;
+}
+
+interface RegistryInspectionResult {
+  readonly issues: readonly CurrentContractIssue[];
+  readonly registeredArtifactTypeCount: number;
+  readonly registeredDirectRuntimeRootCount: number;
+}
+
+function ownersForSchemaFile(
+  families: readonly ContractOwnershipFamily[],
+  schemaFile: string,
+  selectorKey: "schemaSelectors" | "artifactTypeSelectors",
+): readonly string[] {
+  return families
+    .filter((family) =>
+      family[selectorKey].some((selector) => selectorMatchesSchemaFile(selector, schemaFile)),
+    )
+    .map((family) => family.id)
+    .sort();
+}
+
+function isRepositoryRelativePath(value: string): boolean {
+  return (
+    value !== "" &&
+    !path.posix.isAbsolute(value) &&
+    path.posix.normalize(value) === value &&
+    value !== ".." &&
+    !value.startsWith("../")
+  );
+}
+
+async function pathIsFile(root: string, relativePath: string): Promise<boolean> {
+  if (!isRepositoryRelativePath(relativePath)) {
+    return false;
+  }
+  return (await stat(path.join(root, relativePath)).catch(() => null))?.isFile() === true;
+}
+
+async function inspectOwnershipRegistry({
+  root,
+  registry,
+  manifestSchemas,
+  schemaDocuments,
+  artifactRules,
+}: RegistryInspectionContext): Promise<RegistryInspectionResult> {
+  const issues: CurrentContractIssue[] = [];
+  const familyIds = registry.families.map((family) => family.id);
+  const familyIdSet = new Set(familyIds);
+  if (familyIdSet.size !== familyIds.length) {
+    issues.push(
+      issue("current_contract.registry_duplicate_family", "ownership registry family IDs overlap", {
+        familyIds: familyIds.filter((id, index) => familyIds.indexOf(id) !== index).sort(),
+      }),
+    );
+  }
+  const manifestById = new Map(manifestSchemas.map((entry) => [entry.id, entry]));
+  const manifestByVersion = new Map(
+    manifestSchemas.flatMap((entry) =>
+      entry.document_schema_version === null
+        ? []
+        : [[entry.document_schema_version, entry] as const],
+    ),
+  );
+  const manifestFiles = manifestSchemas.map((entry) => entry.file);
+  const artifactSchemaFiles = [...artifactRules.values()].flatMap((targetId) => {
+    const target = manifestById.get(targetId.split("#", 1)[0] ?? "");
+    return target === undefined ? [] : [target.file];
+  });
+
+  for (const family of registry.families) {
+    for (const [selectorKey, selectors] of [
+      ["schemaSelectors", family.schemaSelectors],
+      ["artifactTypeSelectors", family.artifactTypeSelectors],
+    ] as const) {
+      for (const selector of selectors) {
+        const selectableFiles =
+          selectorKey === "artifactTypeSelectors" ? artifactSchemaFiles : manifestFiles;
+        if (!selectableFiles.some((file) => selectorMatchesSchemaFile(selector, file))) {
+          issues.push(
+            issue(
+              "current_contract.registry_selector_stale",
+              selectorKey === "artifactTypeSelectors"
+                ? "registry Artifact selector matches no formal Artifact document schema"
+                : "registry selector matches no schema",
+              {
+                familyId: family.id,
+                selectorKey,
+                prefix: selector.prefix,
+              },
+            ),
+          );
+        }
+      }
+    }
+    if (family.ownerModules.length === 0) {
+      issues.push(
+        issue(
+          "current_contract.registry_owner_missing",
+          "contract family has no production owner",
+          {
+            familyId: family.id,
+          },
+        ),
+      );
+    }
+  }
+
+  for (const entry of manifestSchemas) {
+    const owners = ownersForSchemaFile(registry.families, entry.file, "schemaSelectors");
+    if (owners.length === 0) {
+      issues.push(
+        issue(
+          "current_contract.registry_schema_unowned",
+          "manifest schema has no structural owner",
+          {
+            schemaFile: entry.file,
+          },
+        ),
+      );
+    } else if (owners.length > 1) {
+      issues.push(
+        issue("current_contract.registry_schema_overlap", "manifest schema has multiple owners", {
+          schemaFile: entry.file,
+          owners,
+        }),
+      );
+    }
+  }
+
+  let registeredArtifactTypeCount = 0;
+  for (const [artifactType, targetId] of artifactRules) {
+    const target = manifestById.get(targetId.split("#", 1)[0] ?? "");
+    if (target === undefined) {
+      continue;
+    }
+    const owners = ownersForSchemaFile(registry.families, target.file, "artifactTypeSelectors");
+    if (owners.length === 0) {
+      issues.push(
+        issue(
+          "current_contract.registry_artifact_type_unowned",
+          "formal Artifact type has no owning family",
+          { artifactType, documentSchemaFile: target.file },
+        ),
+      );
+    } else if (owners.length > 1) {
+      issues.push(
+        issue(
+          "current_contract.registry_artifact_type_overlap",
+          "formal Artifact type has multiple owning families",
+          { artifactType, documentSchemaFile: target.file, owners },
+        ),
+      );
+    } else {
+      registeredArtifactTypeCount += 1;
+      const structuralOwners = ownersForSchemaFile(
+        registry.families,
+        target.file,
+        "schemaSelectors",
+      );
+      if (structuralOwners.length === 1 && structuralOwners[0] !== owners[0]) {
+        issues.push(
+          issue(
+            "current_contract.registry_artifact_schema_disagreement",
+            "Artifact owner differs from its document schema structural owner",
+            {
+              artifactType,
+              documentSchemaFile: target.file,
+              artifactOwner: owners[0],
+              structuralOwners,
+            },
+          ),
+        );
+      }
+    }
+  }
+
+  const expectedRuntimeRoots = new Set<string>(DIRECT_RUNTIME_SCHEMA_VERSIONS);
+  const registeredRuntimeRoots = new Map<string, string[]>();
+  for (const family of registry.families) {
+    for (const schemaVersion of family.directRuntimeRoots) {
+      const owners = registeredRuntimeRoots.get(schemaVersion) ?? [];
+      owners.push(family.id);
+      registeredRuntimeRoots.set(schemaVersion, owners);
+      if (!expectedRuntimeRoots.has(schemaVersion)) {
+        issues.push(
+          issue(
+            "current_contract.registry_runtime_root_stale",
+            "registry direct Runtime root is not an active current root",
+            { schemaVersion, familyId: family.id },
+          ),
+        );
+      }
+    }
+  }
+  let registeredDirectRuntimeRootCount = 0;
+  for (const schemaVersion of DIRECT_RUNTIME_SCHEMA_VERSIONS) {
+    const owners = (registeredRuntimeRoots.get(schemaVersion) ?? []).sort();
+    if (owners.length === 0) {
+      issues.push(
+        issue(
+          "current_contract.registry_runtime_root_unowned",
+          "direct Runtime root has no owning family",
+          { schemaVersion },
+        ),
+      );
+    } else if (owners.length > 1) {
+      issues.push(
+        issue(
+          "current_contract.registry_runtime_root_overlap",
+          "direct Runtime root has multiple owning families",
+          { schemaVersion, owners },
+        ),
+      );
+    } else {
+      registeredDirectRuntimeRootCount += 1;
+      const entry = manifestByVersion.get(schemaVersion);
+      if (entry !== undefined) {
+        const structuralOwners = ownersForSchemaFile(
+          registry.families,
+          entry.file,
+          "schemaSelectors",
+        );
+        if (structuralOwners.length === 1 && structuralOwners[0] !== owners[0]) {
+          issues.push(
+            issue(
+              "current_contract.registry_runtime_schema_disagreement",
+              "direct Runtime root owner differs from its schema structural owner",
+              { schemaVersion, schemaFile: entry.file, runtimeOwner: owners[0], structuralOwners },
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  const registeredPolicies = new Map<string, string[]>();
+  for (const family of registry.families) {
+    for (const policyPath of family.policyPaths) {
+      const owners = registeredPolicies.get(policyPath) ?? [];
+      owners.push(family.id);
+      registeredPolicies.set(policyPath, owners);
+    }
+  }
+  for (const policyPath of CURRENT_POLICY_PATHS) {
+    const owners = (registeredPolicies.get(policyPath) ?? []).sort();
+    if (owners.length !== 1) {
+      issues.push(
+        issue(
+          owners.length === 0
+            ? "current_contract.registry_policy_unowned"
+            : "current_contract.registry_policy_overlap",
+          owners.length === 0
+            ? "active current policy has no owning family"
+            : "active current policy has multiple owning families",
+          { policyPath, owners },
+        ),
+      );
+    }
+  }
+  for (const [policyPath, owners] of registeredPolicies) {
+    if (!(CURRENT_POLICY_PATHS as readonly string[]).includes(policyPath)) {
+      issues.push(
+        issue("current_contract.registry_policy_stale", "registered policy is not active", {
+          policyPath,
+          owners: owners.sort(),
+        }),
+      );
+    }
+  }
+
+  const sharedByFile = new Map<string, typeof registry.sharedSchemas>();
+  for (const shared of registry.sharedSchemas) {
+    const entries = sharedByFile.get(shared.schemaFile) ?? [];
+    sharedByFile.set(shared.schemaFile, [...entries, shared]);
+  }
+  for (const entry of manifestSchemas.filter((candidate) =>
+    candidate.file.endsWith("/definitions.schema.json"),
+  )) {
+    const sharedEntries = sharedByFile.get(entry.file) ?? [];
+    if (sharedEntries.length !== 1) {
+      issues.push(
+        issue(
+          sharedEntries.length === 0
+            ? "current_contract.registry_shared_schema_unowned"
+            : "current_contract.registry_shared_schema_overlap",
+          sharedEntries.length === 0
+            ? "shared definitions schema has no structural owner entry"
+            : "shared definitions schema has multiple structural owner entries",
+          { schemaFile: entry.file },
+        ),
+      );
+    }
+  }
+  for (const [schemaFile, sharedEntries] of sharedByFile) {
+    if (!manifestFiles.includes(schemaFile)) {
+      issues.push(
+        issue("current_contract.registry_shared_schema_stale", "shared schema is not installed", {
+          schemaFile,
+        }),
+      );
+      continue;
+    }
+    for (const shared of sharedEntries) {
+      const owners = ownersForSchemaFile(registry.families, schemaFile, "schemaSelectors");
+      if (owners.length === 1 && owners[0] !== shared.structuralOwner) {
+        issues.push(
+          issue(
+            "current_contract.registry_shared_owner_disagreement",
+            "shared schema structural owner differs from its family selector owner",
+            { schemaFile, declaredOwner: shared.structuralOwner, selectorOwners: owners },
+          ),
+        );
+      }
+      for (const familyId of [shared.structuralOwner, ...shared.impactFamilies]) {
+        if (!familyIdSet.has(familyId)) {
+          issues.push(
+            issue(
+              "current_contract.registry_shared_family_stale",
+              "shared schema names a stale family",
+              {
+                schemaFile,
+                familyId,
+              },
+            ),
+          );
+        }
+      }
+      if (!shared.impactFamilies.includes(shared.structuralOwner)) {
+        issues.push(
+          issue(
+            "current_contract.registry_shared_owner_not_impacted",
+            "shared schema impact set must include its structural owner",
+            { schemaFile, structuralOwner: shared.structuralOwner },
+          ),
+        );
+      }
+    }
+  }
+
+  const directReferenceFamilies = new Map<string, Set<string>>();
+  for (const source of manifestSchemas) {
+    const document = schemaDocuments.get(source.id);
+    if (document === undefined) {
+      continue;
+    }
+    const sourceOwners = ownersForSchemaFile(registry.families, source.file, "schemaSelectors");
+    for (const reference of collectSchemaReferences(document)) {
+      const targetId = new URL(reference, source.id).href.split("#", 1)[0] ?? "";
+      const target = manifestById.get(targetId);
+      if (target === undefined || !sharedByFile.has(target.file)) {
+        continue;
+      }
+      const families = directReferenceFamilies.get(target.file) ?? new Set<string>();
+      for (const sourceOwner of sourceOwners) {
+        families.add(sourceOwner);
+      }
+      directReferenceFamilies.set(target.file, families);
+    }
+  }
+  for (const shared of registry.sharedSchemas) {
+    const missingImpactFamilies = [...(directReferenceFamilies.get(shared.schemaFile) ?? [])]
+      .filter((familyId) => !shared.impactFamilies.includes(familyId))
+      .sort();
+    if (missingImpactFamilies.length > 0) {
+      issues.push(
+        issue(
+          "current_contract.registry_shared_impact_incomplete",
+          "shared schema omits a directly referencing family",
+          { schemaFile: shared.schemaFile, missingImpactFamilies },
+        ),
+      );
+    }
+  }
+
+  const pathCategories = [
+    "ownerModules",
+    "producerModules",
+    "consumerModules",
+    "validatorModules",
+    "reportProjectionModules",
+    "focusedTests",
+  ] as const;
+  const modulePathCategories = [
+    "ownerModules",
+    "producerModules",
+    "consumerModules",
+    "validatorModules",
+    "reportProjectionModules",
+  ] as const;
+  const registeredModuleFamilies = new Map<string, Set<string>>();
+  for (const family of registry.families) {
+    for (const category of pathCategories) {
+      for (const registeredPath of family[category]) {
+        if (!(await pathIsFile(root, registeredPath))) {
+          issues.push(
+            issue("current_contract.registry_path_stale", "registered repository path is missing", {
+              familyId: family.id,
+              category,
+              path: registeredPath,
+            }),
+          );
+        }
+        if ((modulePathCategories as readonly string[]).includes(category)) {
+          const families = registeredModuleFamilies.get(registeredPath) ?? new Set<string>();
+          families.add(family.id);
+          registeredModuleFamilies.set(registeredPath, families);
+        }
+      }
+    }
+  }
+
+  const crossFamilyModulePaths = registry.crossFamilyModules.map((entry) => entry.modulePath);
+  const duplicateCrossFamilyModulePaths = crossFamilyModulePaths
+    .filter((modulePath, index) => crossFamilyModulePaths.indexOf(modulePath) !== index)
+    .sort();
+  if (duplicateCrossFamilyModulePaths.length > 0) {
+    issues.push(
+      issue(
+        "current_contract.registry_cross_family_module_overlap",
+        "cross-family module audit paths overlap",
+        { modulePaths: [...new Set(duplicateCrossFamilyModulePaths)] },
+      ),
+    );
+  }
+  const crossFamilyModules = new Map(
+    registry.crossFamilyModules.map((entry) => [entry.modulePath, entry] as const),
+  );
+  for (const entry of registry.crossFamilyModules) {
+    if (!(await pathIsFile(root, entry.modulePath))) {
+      issues.push(
+        issue("current_contract.registry_path_stale", "registered repository path is missing", {
+          category: "crossFamilyModules",
+          path: entry.modulePath,
+        }),
+      );
+    }
+    const unknownFamilies = entry.impactFamilies
+      .filter((familyId) => !familyIdSet.has(familyId))
+      .sort();
+    const registeredFamilies = [...(registeredModuleFamilies.get(entry.modulePath) ?? [])].sort();
+    const missingFamilies = registeredFamilies
+      .filter((familyId) => !entry.impactFamilies.includes(familyId))
+      .sort();
+    const extraFamilies = entry.impactFamilies
+      .filter((familyId) => !registeredFamilies.includes(familyId))
+      .sort();
+    if (unknownFamilies.length > 0 || missingFamilies.length > 0 || extraFamilies.length > 0) {
+      issues.push(
+        issue(
+          "current_contract.registry_cross_family_module_mismatch",
+          "cross-family module audit must exactly match family role registration",
+          {
+            modulePath: entry.modulePath,
+            registeredFamilies,
+            impactFamilies: [...entry.impactFamilies].sort(),
+            unknownFamilies,
+            missingFamilies,
+            extraFamilies,
+          },
+        ),
+      );
+    }
+  }
+  for (const [modulePath, families] of registeredModuleFamilies) {
+    if (families.size > 1 && !crossFamilyModules.has(modulePath)) {
+      issues.push(
+        issue(
+          "current_contract.registry_cross_family_module_unregistered",
+          "module registered in multiple families requires an explicit cross-family audit",
+          { modulePath, registeredFamilies: [...families].sort() },
+        ),
+      );
+    }
+  }
+
+  const packageJsonContents = await readFile(path.join(root, "package.json"), "utf8").catch(
+    () => null,
+  );
+  let packageJson: unknown;
+  if (packageJsonContents !== null) {
+    try {
+      packageJson = JSON.parse(packageJsonContents) as unknown;
+    } catch (error) {
+      issues.push(
+        issue("current_contract.registry_package_invalid", "package.json could not be parsed", {
+          reason: error instanceof Error ? error.message : "invalid JSON",
+        }),
+      );
+    }
+  }
+  const packageScripts =
+    isRecord(packageJson) && isRecord(packageJson.scripts) ? packageJson.scripts : {};
+  if (packageJsonContents === null) {
+    issues.push(
+      issue(
+        "current_contract.registry_package_missing",
+        "package.json is required to verify scripts",
+      ),
+    );
+  }
+  for (const family of registry.families) {
+    for (const script of family.testScripts) {
+      if (typeof packageScripts[script] !== "string") {
+        issues.push(
+          issue(
+            "current_contract.registry_test_command_stale",
+            "registered npm script is missing",
+            {
+              familyId: family.id,
+              script,
+            },
+          ),
+        );
+      }
+    }
+    for (const focusedTest of family.focusedTests) {
+      const coveringScripts = family.testScripts.filter((script) => {
+        const command = packageScripts[script];
+        return typeof command === "string" && command.split(/\s+/u).includes(focusedTest);
+      });
+      if (coveringScripts.length === 0) {
+        issues.push(
+          issue(
+            "current_contract.registry_focused_test_uncovered",
+            "focused test is not an exact token in any registered npm script",
+            { familyId: family.id, focusedTest, testScripts: [...family.testScripts].sort() },
+          ),
+        );
+      }
+    }
+    for (const script of family.testScripts) {
+      const command = packageScripts[script];
+      if (
+        typeof command === "string" &&
+        !family.focusedTests.some((focusedTest) => command.split(/\s+/u).includes(focusedTest))
+      ) {
+        issues.push(
+          issue(
+            "current_contract.registry_test_command_unfocused",
+            "registered npm script executes none of the family focused tests",
+            { familyId: family.id, script },
+          ),
+        );
+      }
+    }
+  }
+
+  return { issues, registeredArtifactTypeCount, registeredDirectRuntimeRootCount };
 }
 
 function envelopeArtifactRules(envelope: Record<string, unknown>): ReadonlyMap<string, string> {
@@ -216,6 +789,29 @@ export async function inspectCurrentContract(
 ): Promise<CurrentContractInspectionResult> {
   const issues: CurrentContractIssue[] = [];
   const bundle = await loadSchemaBundle(root);
+  let registry: ContractOwnershipRegistry | undefined;
+  try {
+    registry = await loadContractOwnershipRegistry(root);
+  } catch (error) {
+    const registryIssues =
+      error instanceof OwnershipRegistryFormatError
+        ? error.issues
+        : [
+            {
+              path: "",
+              message: error instanceof Error ? error.message : "registry could not be loaded",
+            },
+          ];
+    for (const registryIssue of registryIssues) {
+      issues.push(
+        issue("current_contract.registry_invalid", "engineering ownership registry is invalid", {
+          registryPath: CURRENT_OWNERSHIP_REGISTRY_PATH,
+          instancePath: registryIssue.path,
+          reason: registryIssue.message,
+        }),
+      );
+    }
+  }
   const byVersion = new Map(
     bundle.manifest.schemas.flatMap((entry) =>
       entry.document_schema_version === null ? [] : [[entry.document_schema_version, entry.id]],
@@ -338,7 +934,7 @@ export async function inspectCurrentContract(
     if (schema === undefined) {
       continue;
     }
-    for (const reference of collectReferences(schema)) {
+    for (const reference of collectSchemaReferences(schema)) {
       const targetId = new URL(reference, currentId).href.split("#", 1)[0] ?? "";
       if (!schemaReferenceClosure.has(targetId)) {
         pending.push(targetId);
@@ -357,6 +953,29 @@ export async function inspectCurrentContract(
         { schemas: unreachable },
       ),
     );
+  }
+
+  let registeredArtifactTypeCount = 0;
+  let registeredDirectRuntimeRootCount = 0;
+  if (registry !== undefined) {
+    const resolvedArtifactRules = new Map(
+      [...rules].map(([artifactType, reference]) => [
+        artifactType,
+        envelopeId === undefined
+          ? reference
+          : (new URL(reference, envelopeId).href.split("#", 1)[0] ?? ""),
+      ]),
+    );
+    const registryInspection = await inspectOwnershipRegistry({
+      root,
+      registry,
+      manifestSchemas: bundle.manifest.schemas,
+      schemaDocuments: new Map([...bundle.schemas].map(([id, schema]) => [id, schema.document])),
+      artifactRules: resolvedArtifactRules,
+    });
+    issues.push(...registryInspection.issues);
+    registeredArtifactTypeCount = registryInspection.registeredArtifactTypeCount;
+    registeredDirectRuntimeRootCount = registryInspection.registeredDirectRuntimeRootCount;
   }
 
   issues.push(
@@ -378,6 +997,9 @@ export async function inspectCurrentContract(
     artifactTypeCount: artifactTypes.length,
     activePolicyCount: CURRENT_POLICY_PATHS.length,
     schemaReferenceClosureCount: schemaReferenceClosure.size,
+    registryFamilyCount: registry?.families.length ?? 0,
+    registeredArtifactTypeCount,
+    registeredDirectRuntimeRootCount,
     issues: sortedIssues,
   };
 }
