@@ -22,7 +22,17 @@ interface MutableRegistryFamily {
   artifactTypeSelectors: { prefix: string }[];
   directRuntimeRoots: string[];
   ownerModules: string[];
+  producerModules: string[];
+  consumerModules: string[];
+  validatorModules: string[];
+  focusedTests: string[];
   testScripts: string[];
+  fieldOwnership: { categories: string[] };
+  researchImpact: {
+    preservedInputsAndRoles: string[];
+    distinctSemanticStates: string[];
+    possibleDecisionEffects: string[];
+  };
 }
 
 interface MutableOwnershipRegistry {
@@ -48,6 +58,18 @@ async function mutateOwnershipRegistry(
   const registry = JSON.parse(await readFile(registryFile, "utf8")) as MutableOwnershipRegistry;
   mutate(registry);
   await writeFile(registryFile, `${JSON.stringify(registry, null, 2)}\n`);
+}
+
+async function mutatePackageScripts(
+  root: string,
+  mutate: (scripts: Record<string, string>) => void,
+): Promise<void> {
+  const packageFile = path.join(root, "package.json");
+  const packageJson = JSON.parse(await readFile(packageFile, "utf8")) as {
+    scripts: Record<string, string>;
+  };
+  mutate(packageJson.scripts);
+  await writeFile(packageFile, `${JSON.stringify(packageJson, null, 2)}\n`);
 }
 
 interface EnvelopeRule {
@@ -163,6 +185,68 @@ test("ownership registry rejects a stale focused test command", async (context) 
   );
 });
 
+test("ownership registry rejects an existing script that does not execute its focused file", async (context) => {
+  const copyRoot = await copyCurrentContractSurface(context);
+  await mutatePackageScripts(copyRoot, (scripts) => {
+    scripts["test:commercial-semantics"] = "node --import tsx --test tests/g1.1-contracts.test.ts";
+  });
+
+  const result = await inspectCurrentContract(copyRoot);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some(
+      (candidate) =>
+        candidate.code === "current_contract.registry_focused_test_uncovered" &&
+        candidate.details.familyId === "assessment_research" &&
+        candidate.details.focusedTest === "tests/batch3-quantitative-information-gain.test.ts",
+    ),
+    JSON.stringify(result, null, 2),
+  );
+});
+
+test("ownership registry rejects empty required family topology and research impact", async (context) => {
+  const copyRoot = await copyCurrentContractSurface(context);
+  await mutateOwnershipRegistry(copyRoot, (registry) => {
+    const family = registry.families.find((candidate) => candidate.id === "assessment_research");
+    assert.ok(family);
+    family.producerModules = [];
+    family.consumerModules = [];
+    family.validatorModules = [];
+    family.focusedTests = [];
+    family.testScripts = [];
+    family.fieldOwnership.categories = [];
+    family.researchImpact.preservedInputsAndRoles = [];
+    family.researchImpact.distinctSemanticStates = [];
+    family.researchImpact.possibleDecisionEffects = [];
+  });
+
+  const result = await inspectCurrentContract(copyRoot);
+  assert.equal(result.valid, false);
+  const invalidPaths = new Set(
+    result.issues
+      .filter((candidate) => candidate.code === "current_contract.registry_invalid")
+      .map((candidate) => candidate.details.instancePath),
+  );
+  for (const suffix of [
+    "/producerModules",
+    "/consumerModules",
+    "/validatorModules",
+    "/focusedTests",
+    "/testScripts",
+    "/fieldOwnership/categories",
+    "/researchImpact/preservedInputsAndRoles",
+    "/researchImpact/distinctSemanticStates",
+    "/researchImpact/possibleDecisionEffects",
+  ]) {
+    assert.ok(
+      [...invalidPaths].some((instancePath) =>
+        typeof instancePath === "string" ? instancePath.endsWith(suffix) : false,
+      ),
+      `${suffix}: ${JSON.stringify(result, null, 2)}`,
+    );
+  }
+});
+
 test("ownership registry rejects an unregistered direct Runtime root", async (context) => {
   const copyRoot = await copyCurrentContractSurface(context);
   const missingRoot = "startup_opportunity.evidence_store_record.v2";
@@ -244,6 +328,108 @@ test("contract impact and structural JSON pointers are deterministic", async () 
   assert.ok((first.changedSchemas[0]?.reverseReferences.length ?? 0) > 0);
   assert.ok(first.affectedFamilies.some((family) => family.id === "run_control_planning"));
   assert.equal(first.unknownImpact.length, 0);
+});
+
+function syntheticModuleChange(modulePath: string): ContractFileChange {
+  return {
+    status: "modified",
+    path: modulePath,
+    changedJsonPointers: [],
+    structuralComparison: "not_json",
+  };
+}
+
+async function inspectSyntheticModuleImpact(modulePath: string) {
+  return inspectContractImpact({
+    root: repositoryRoot,
+    baseRef: "synthetic-base",
+    baseRevision: "synthetic-base-revision",
+    currentRevision: "synthetic-current-revision",
+    changes: [syntheticModuleChange(modulePath)],
+  });
+}
+
+test("quantitative semantics and its compiler select executable commercial suites", async () => {
+  for (const modulePath of [
+    "harness/src/validators/quantitative-research-semantics.ts",
+    "harness/src/compiler/commercial-research-compiler.ts",
+  ]) {
+    const result = await inspectSyntheticModuleImpact(modulePath);
+    assert.deepEqual(
+      result.affectedFamilies.map((family) => family.id),
+      ["assessment_research"],
+      modulePath,
+    );
+    assert.ok(result.recommendedFocusedTests.includes("npm run test:commercial-semantics"));
+    assert.ok(result.recommendedFocusedTests.includes("npm run test:report-projection"));
+    assert.ok(!result.recommendedFocusedTests.includes("npm test"));
+    assert.equal(result.unknownImpact.length, 0);
+  }
+});
+
+test("Artifact validation modules retain every formal contract family", async () => {
+  const expectedFamilies = [
+    "ai_research",
+    "assessment_research",
+    "declarative_runtime",
+    "discovery_research",
+    "run_control_planning",
+    "store_publication",
+    "terminal_reporting",
+  ];
+  for (const modulePath of [
+    "harness/src/validators/artifact-ref-resolver.ts",
+    "harness/src/validators/artifact-validator.ts",
+  ]) {
+    const result = await inspectSyntheticModuleImpact(modulePath);
+    assert.deepEqual(
+      result.affectedFamilies.map((family) => family.id),
+      expectedFamilies,
+      modulePath,
+    );
+    assert.ok(!result.recommendedFocusedTests.includes("npm test"));
+    assert.equal(
+      new Set(result.recommendedFocusedTests).size,
+      result.recommendedFocusedTests.length,
+      JSON.stringify(result.recommendedFocusedTests),
+    );
+    assert.equal(
+      result.recommendedFocusedTests.filter(
+        (command) => command === "npm run validate:current-contract",
+      ).length,
+      1,
+    );
+    assert.equal(result.unknownImpact.length, 0);
+  }
+});
+
+test("EvidenceStore exposes its direct substrate producer and cross-domain impact", async () => {
+  const result = await inspectSyntheticModuleImpact("harness/src/evidence-store/evidence-store.ts");
+  const expectedFamilies = [
+    "ai_research",
+    "assessment_research",
+    "declarative_runtime",
+    "discovery_research",
+    "run_control_planning",
+    "store_publication",
+    "terminal_reporting",
+  ];
+  assert.deepEqual(
+    result.affectedFamilies.map((family) => family.id),
+    expectedFamilies,
+  );
+  assert.deepEqual(result.changedModules[0]?.families, expectedFamilies);
+  for (const command of [
+    "npm run test:g1.2",
+    "npm run test:g2.2",
+    "npm run test:g3.1",
+    "npm run test:p1",
+  ]) {
+    assert.ok(result.recommendedFocusedTests.includes(command), command);
+  }
+  assert.ok(!result.recommendedFocusedTests.includes("npm test"));
+  assert.equal(new Set(result.recommendedFocusedTests).size, result.recommendedFocusedTests.length);
+  assert.equal(result.unknownImpact.length, 0);
 });
 
 test("current contract rejects missing and unlisted policy files", async (context) => {

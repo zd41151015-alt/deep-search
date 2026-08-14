@@ -101,9 +101,19 @@ function readStringArray(
   value: unknown,
   instancePath: string,
   issues: OwnershipRegistryFormatIssue[],
+  requireNonEmpty = false,
 ): readonly string[] {
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry === "")) {
-    issues.push({ path: instancePath, message: "must be an array of non-empty strings" });
+  if (
+    !Array.isArray(value) ||
+    (requireNonEmpty && value.length === 0) ||
+    value.some((entry) => typeof entry !== "string" || entry === "")
+  ) {
+    issues.push({
+      path: instancePath,
+      message: requireNonEmpty
+        ? "must be a non-empty array of non-empty strings"
+        : "must be an array of non-empty strings",
+    });
     return [];
   }
   if (new Set(value).size !== value.length) {
@@ -220,6 +230,7 @@ function readFamily(
     isRecord(fieldOwnership) ? fieldOwnership.categories : undefined,
     `${instancePath}/fieldOwnership/categories`,
     issues,
+    true,
   );
   for (const category of categories) {
     if (!(FIELD_OWNERSHIP_CATEGORIES as readonly string[]).includes(category)) {
@@ -265,35 +276,40 @@ function readFamily(
       `${instancePath}/directRuntimeRoots`,
       issues,
     ),
-    ownerModules: readStringArray(value.ownerModules, `${instancePath}/ownerModules`, issues),
+    ownerModules: readStringArray(value.ownerModules, `${instancePath}/ownerModules`, issues, true),
     producerModules: readStringArray(
       value.producerModules,
       `${instancePath}/producerModules`,
       issues,
+      true,
     ),
     consumerModules: readStringArray(
       value.consumerModules,
       `${instancePath}/consumerModules`,
       issues,
+      true,
     ),
     validatorModules: readStringArray(
       value.validatorModules,
       `${instancePath}/validatorModules`,
       issues,
+      true,
     ),
     policyPaths: readStringArray(value.policyPaths, `${instancePath}/policyPaths`, issues),
     reportProjectionModules: readStringArray(
       value.reportProjectionModules,
       `${instancePath}/reportProjectionModules`,
       issues,
+      true,
     ),
     userVisibleOutputs: readStringArray(
       value.userVisibleOutputs,
       `${instancePath}/userVisibleOutputs`,
       issues,
+      true,
     ),
-    focusedTests: readStringArray(value.focusedTests, `${instancePath}/focusedTests`, issues),
-    testScripts: readStringArray(value.testScripts, `${instancePath}/testScripts`, issues),
+    focusedTests: readStringArray(value.focusedTests, `${instancePath}/focusedTests`, issues, true),
+    testScripts: readStringArray(value.testScripts, `${instancePath}/testScripts`, issues, true),
     recoveryBoundaries: readRecoveryBoundaries(
       value.recoveryBoundaries,
       `${instancePath}/recoveryBoundaries`,
@@ -310,16 +326,19 @@ function readFamily(
         impactRecord.preservedInputsAndRoles,
         `${instancePath}/researchImpact/preservedInputsAndRoles`,
         issues,
+        true,
       ),
       distinctSemanticStates: readStringArray(
         impactRecord.distinctSemanticStates,
         `${instancePath}/researchImpact/distinctSemanticStates`,
         issues,
+        true,
       ),
       possibleDecisionEffects: readStringArray(
         impactRecord.possibleDecisionEffects,
         `${instancePath}/researchImpact/possibleDecisionEffects`,
         issues,
+        true,
       ),
     },
   };

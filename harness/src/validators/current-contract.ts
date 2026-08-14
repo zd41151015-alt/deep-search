@@ -584,6 +584,36 @@ async function inspectOwnershipRegistry({
         );
       }
     }
+    for (const focusedTest of family.focusedTests) {
+      const coveringScripts = family.testScripts.filter((script) => {
+        const command = packageScripts[script];
+        return typeof command === "string" && command.split(/\s+/u).includes(focusedTest);
+      });
+      if (coveringScripts.length === 0) {
+        issues.push(
+          issue(
+            "current_contract.registry_focused_test_uncovered",
+            "focused test is not an exact token in any registered npm script",
+            { familyId: family.id, focusedTest, testScripts: [...family.testScripts].sort() },
+          ),
+        );
+      }
+    }
+    for (const script of family.testScripts) {
+      const command = packageScripts[script];
+      if (
+        typeof command === "string" &&
+        !family.focusedTests.some((focusedTest) => command.split(/\s+/u).includes(focusedTest))
+      ) {
+        issues.push(
+          issue(
+            "current_contract.registry_test_command_unfocused",
+            "registered npm script executes none of the family focused tests",
+            { familyId: family.id, script },
+          ),
+        );
+      }
+    }
   }
 
   return { issues, registeredArtifactTypeCount, registeredDirectRuntimeRootCount };

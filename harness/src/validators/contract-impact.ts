@@ -650,8 +650,10 @@ export async function inspectContractImpact(
     unknownImpact.length > 0
       ? FULL_ACCEPTANCE_COMMANDS
       : [
-          "npm run validate:current-contract",
-          ...new Set(affectedFamilies.flatMap((family) => family.testCommands)),
+          ...new Set([
+            "npm run validate:current-contract",
+            ...affectedFamilies.flatMap((family) => family.testCommands),
+          ]),
         ].sort();
 
   return {

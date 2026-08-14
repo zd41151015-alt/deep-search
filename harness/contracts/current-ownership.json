@@ -16,6 +16,7 @@
       "ownerModules": ["harness/src/artifact-store/artifact-store.ts"],
       "producerModules": [
         "harness/src/artifact-store/artifact-store.ts",
+        "harness/src/evidence-store/evidence-store.ts",
         "harness/src/run-store/run-store.ts"
       ],
       "consumerModules": [
@@ -42,7 +43,6 @@
         "test:faults",
         "test:g4",
         "test:recovery",
-        "validate:current-contract",
         "validate:store"
       ],
       "recoveryBoundaries": {
@@ -81,6 +81,7 @@
       ],
       "producerModules": [
         "harness/src/adaptation/adaptation-commands.ts",
+        "harness/src/evidence-store/evidence-store.ts",
         "harness/src/run-store/store-commands.ts"
       ],
       "consumerModules": [
@@ -91,6 +92,8 @@
       "validatorModules": [
         "harness/src/adaptation/adaptation-validator.ts",
         "harness/src/adaptation/plan-validator.ts",
+        "harness/src/validators/artifact-ref-resolver.ts",
+        "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/planning-contract-validator.ts",
         "harness/src/validators/research-handoff-validator.ts"
       ],
@@ -109,12 +112,11 @@
         "tests/store-recovery.test.ts"
       ],
       "testScripts": [
-        "test",
         "test:contract-architecture",
         "test:g0.4",
-        "test:recovery",
-        "validate:current-contract",
-        "validate:fixtures"
+        "test:planning",
+        "test:research-handoff",
+        "test:recovery"
       ],
       "recoveryBoundaries": {
         "storeIdentity": true,
@@ -148,18 +150,32 @@
       ],
       "producerModules": [
         "harness/src/compiler/commercial-research-compiler.ts",
+        "harness/src/evidence-store/evidence-store.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "consumerModules": [
+        "harness/src/artifact-store/artifact-store.ts",
         "harness/src/reporting/commercial-report-tables.ts",
         "harness/src/reporting/report-runtime.ts",
-        "harness/src/runtime/assessment-information-gain.ts"
+        "harness/src/run-store/run-store.ts",
+        "harness/src/runtime/assessment-information-gain.ts",
+        "harness/src/runtime/lane-materializer.ts",
+        "harness/src/validators/artifact-validator.ts",
+        "harness/src/validators/assessment-execution-validator.ts",
+        "harness/src/validators/commercial-research-validator.ts",
+        "harness/src/validators/declarative-runtime-validator.ts",
+        "harness/src/validators/discovery-evaluation-validator.ts",
+        "harness/src/validators/research-branch-validator.ts",
+        "harness/src/validators/research-handoff-validator.ts"
       ],
       "validatorModules": [
+        "harness/src/validators/artifact-ref-resolver.ts",
+        "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/assessment-adaptation-validator.ts",
         "harness/src/validators/assessment-execution-validator.ts",
         "harness/src/validators/assessment-reporting-policy.ts",
         "harness/src/validators/commercial-research-validator.ts",
+        "harness/src/validators/quantitative-research-semantics.ts",
         "harness/src/validators/research-branch-validator.ts"
       ],
       "policyPaths": [
@@ -177,6 +193,7 @@
         "tests/batch3-quantitative-information-gain.test.ts",
         "tests/batch4-report-projection.test.ts",
         "tests/current-contract-architecture.test.ts",
+        "tests/current-only-regressions.test.ts",
         "tests/g1.1-contracts.test.ts",
         "tests/g1.2-contracts.test.ts",
         "tests/g1.3-dynamic-buyer-gap.test.ts",
@@ -185,13 +202,14 @@
         "tests/p2-assessment-execution.test.ts"
       ],
       "testScripts": [
-        "test",
+        "test:commercial-semantics",
         "test:contract-architecture",
         "test:g1.1",
         "test:g1.2",
         "test:g1.3",
         "test:g1.4",
-        "validate:fixtures"
+        "test:p2",
+        "test:report-projection"
       ],
       "recoveryBoundaries": {
         "storeIdentity": true,
@@ -241,6 +259,7 @@
       ],
       "producerModules": [
         "harness/src/comparison/comparison-commands.ts",
+        "harness/src/evidence-store/evidence-store.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "consumerModules": [
@@ -248,6 +267,8 @@
         "harness/src/validators/discovery-evaluation-validator.ts"
       ],
       "validatorModules": [
+        "harness/src/validators/artifact-ref-resolver.ts",
+        "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/discovery-candidate-validator.ts",
         "harness/src/validators/discovery-evaluation-validator.ts",
         "harness/src/validators/discovery-maps-validator.ts",
@@ -279,8 +300,7 @@
         "test:g2.2",
         "test:g2.3",
         "test:g2.4",
-        "test:g4",
-        "validate:fixtures"
+        "test:g4"
       ],
       "recoveryBoundaries": {
         "storeIdentity": true,
@@ -329,14 +349,18 @@
       "artifactTypeSelectors": [{ "prefix": "current/ai/" }],
       "directRuntimeRoots": [],
       "ownerModules": ["harness/src/validators/ai-bundle-validator.ts"],
-      "producerModules": ["harness/src/runtime/declarative-runtime.ts"],
+      "producerModules": [
+        "harness/src/evidence-store/evidence-store.ts",
+        "harness/src/runtime/declarative-runtime.ts"
+      ],
       "consumerModules": [
         "harness/src/reporting/report-runtime.ts",
         "harness/src/validators/ai-bundle-validator.ts"
       ],
       "validatorModules": [
-        "harness/src/validators/ai-bundle-validator.ts",
-        "harness/src/validators/quantitative-research-semantics.ts"
+        "harness/src/validators/artifact-ref-resolver.ts",
+        "harness/src/validators/artifact-validator.ts",
+        "harness/src/validators/ai-bundle-validator.ts"
       ],
       "policyPaths": [],
       "reportProjectionModules": ["harness/src/reporting/report-runtime.ts"],
@@ -347,13 +371,7 @@
         "tests/g3.2-ai-economics.test.ts",
         "tests/g3.3-ai-mandatory-bundle.test.ts"
       ],
-      "testScripts": [
-        "test:contract-architecture",
-        "test:g3.1",
-        "test:g3.2",
-        "test:g3.3",
-        "validate:fixtures"
-      ],
+      "testScripts": ["test:contract-architecture", "test:g3.1", "test:g3.2", "test:g3.3"],
       "recoveryBoundaries": {
         "storeIdentity": true,
         "atomicPublication": true,
@@ -391,6 +409,7 @@
         "harness/src/runtime/lane-materializer.ts"
       ],
       "producerModules": [
+        "harness/src/evidence-store/evidence-store.ts",
         "harness/src/runtime/artifact-scaffolds.ts",
         "harness/src/runtime/declarative-runtime.ts",
         "harness/src/runtime/lane-materializer.ts"
@@ -401,6 +420,8 @@
         "harness/src/run-store/run-store.ts"
       ],
       "validatorModules": [
+        "harness/src/validators/artifact-ref-resolver.ts",
+        "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/assessment-execution-validator.ts",
         "harness/src/validators/declarative-runtime-validator.ts"
       ],
@@ -413,7 +434,7 @@
         "tests/p1-declarative-runtime.test.ts",
         "tests/p2-assessment-execution.test.ts"
       ],
-      "testScripts": ["test", "test:contract-architecture", "validate:current-contract"],
+      "testScripts": ["test:contract-architecture", "test:lane-delivery", "test:p1", "test:p2"],
       "recoveryBoundaries": {
         "storeIdentity": true,
         "atomicPublication": true,
@@ -449,6 +470,7 @@
         "harness/src/reporting/terminal-reporting.ts"
       ],
       "producerModules": [
+        "harness/src/evidence-store/evidence-store.ts",
         "harness/src/reporting/report-commands.ts",
         "harness/src/reporting/report-runtime.ts"
       ],
@@ -457,6 +479,8 @@
         "harness/src/reporting/report-projection-authority.ts"
       ],
       "validatorModules": [
+        "harness/src/validators/artifact-ref-resolver.ts",
+        "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/decision-subject-validator.ts",
         "harness/src/validators/terminal-reporting-validator.ts"
       ],
@@ -476,11 +500,10 @@
         "tests/g4-operational.test.ts"
       ],
       "testScripts": [
-        "test",
         "test:contract-architecture",
         "test:g1.4",
         "test:g4",
-        "validate:fixtures"
+        "test:report-projection"
       ],
       "recoveryBoundaries": {
         "storeIdentity": true,
