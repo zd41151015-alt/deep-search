@@ -118,6 +118,49 @@ test("ordinary hook inputs continue without manufacturing telemetry or formal Ar
   assert.equal(await evaluateStop({}, undefined), undefined);
 });
 
+test("research guard scopes shell reinterpretation fallback to owned payloads", async () => {
+  const activeRunId = "guard-current-run";
+  const allowedCommands = [
+    ["bash --version", `printf "%s\\n" '$PRIOR_ARTIFACT_PATH'`].join("\n"),
+    [`printf "%s\\n" '$PRIOR_ARTIFACT_PATH'`, "bash --version"].join("\n"),
+    `bash --version; printf "%s\\n" '$PRIOR_ARTIFACT_PATH'`,
+    `printf "%s\\n" '$PRIOR_ARTIFACT_PATH'; bash --version`,
+    ["cat <<'DOC'", "$PRIOR_ARTIFACT_PATH", "DOC", "bash --version"].join("\n"),
+    `command -v bash -c 'cat "$PRIOR_ARTIFACT_PATH"'`,
+  ];
+  for (const command of allowedCommands) {
+    assert.equal(
+      await evaluatePreToolUse(
+        { cwd: repositoryRoot, tool_name: "Bash", tool_input: { command } },
+        activeRunId,
+      ),
+      undefined,
+      command,
+    );
+  }
+
+  const deniedCommands = [
+    `bash -c 'cat "$PRIOR_ARTIFACT_PATH"'`,
+    `eval 'cat "$PRIOR_ARTIFACT_PATH"'`,
+    ["zsh <<'SCRIPT'", `cat "$PRIOR_ARTIFACT_PATH"`, "SCRIPT"].join("\n"),
+    `bash <<< 'cat "$PRIOR_ARTIFACT_PATH"'`,
+    `printf '%s\\n' 'cat "$PRIOR_ARTIFACT_PATH"' | bash`,
+    `command exec -a research bash -c 'cat "$PRIOR_ARTIFACT_PATH"'`,
+    `printf '%s' "$(bash -c 'cat "$PRIOR_ARTIFACT_PATH"')"`,
+  ];
+  for (const command of deniedCommands) {
+    const result = await evaluatePreToolUse(
+      { cwd: repositoryRoot, tool_name: "Bash", tool_input: { command } },
+      activeRunId,
+    );
+    assert.equal(
+      (result?.hookSpecificOutput as Record<string, unknown>)?.permissionDecision,
+      "deny",
+      command,
+    );
+  }
+});
+
 test("research guard routes target-owned handoff payload reads through the controlled command", async () => {
   const activeRunId = "active-handoff-guard-synthetic";
   const denyCases = [
@@ -430,6 +473,11 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     `builtin exec env bash -c 'cat "$PRIOR_ARTIFACT_PATH"'`,
   ];
   const reinterpreterAllowedCommands = [
+    ["bash --version", `printf "%s\\n" '$PRIOR_ARTIFACT_PATH'`].join("\n"),
+    [`printf "%s\\n" '$PRIOR_ARTIFACT_PATH'`, "bash --version"].join("\n"),
+    `bash --version; printf "%s\\n" '$PRIOR_ARTIFACT_PATH'`,
+    `printf "%s\\n" '$PRIOR_ARTIFACT_PATH'; bash --version`,
+    ["cat <<'DOC'", "$PRIOR_ARTIFACT_PATH", "DOC", "bash --version"].join("\n"),
     `printf '%s' '$PRIOR_ARTIFACT_PATH'`,
     `printf '%s' '/tmp/bash $PRIOR_ARTIFACT_PATH'`,
     `rg '\\$PRIOR_ARTIFACT_PATH' .codex`,

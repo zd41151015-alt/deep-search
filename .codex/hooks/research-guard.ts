@@ -783,14 +783,23 @@ function hasRawPriorRunVariable(contents: string): boolean {
   return names.some(isPriorRunVariableName);
 }
 
+interface ReinterpreterHeredocScan {
+  readonly heredoc: ShellHeredoc;
+  readonly offset: number;
+}
+
 interface ReinterpreterLineScan {
-  readonly heredocs: readonly ShellHeredoc[];
+  readonly heredocs: readonly ReinterpreterHeredocScan[];
+  readonly lineEnd: number;
   readonly segmentStarts: readonly number[];
+  readonly sequenceStarts: readonly number[];
 }
 
 function reinterpreterLineScan(line: string): ReinterpreterLineScan {
-  const heredocs: ShellHeredoc[] = [];
+  const heredocs: ReinterpreterHeredocScan[] = [];
   const segmentStarts = [0];
+  const sequenceStarts = [0];
+  let lineEnd = line.length;
   let arithmeticDepth = 0;
   let quote: "ansi_c" | "double" | "single" | null = null;
   for (let index = 0; index < line.length; index += 1) {
@@ -837,7 +846,10 @@ function reinterpreterLineScan(line: string): ReinterpreterLineScan {
       quote = "double";
       continue;
     }
-    if (character === "#" && (index === 0 || /[\s;&|()]/.test(line[index - 1] ?? ""))) break;
+    if (character === "#" && (index === 0 || /[\s;&|()]/.test(line[index - 1] ?? ""))) {
+      lineEnd = index;
+      break;
+    }
     if (line.startsWith("$((", index)) {
       arithmeticDepth = 2;
       index += 2;
@@ -851,7 +863,7 @@ function reinterpreterLineScan(line: string): ReinterpreterLineScan {
     if (character === "<") {
       const heredoc = heredocAt(line, index);
       if (heredoc !== null) {
-        heredocs.push(heredoc);
+        heredocs.push({ heredoc, offset: index });
         index = heredoc.declarationEnd - 1;
         continue;
       }
@@ -860,9 +872,16 @@ function reinterpreterLineScan(line: string): ReinterpreterLineScan {
       segmentStarts.push(index + 2);
       index += 1;
     } else if (character === "`") segmentStarts.push(index + 1);
-    else if (/[;&|()]/.test(character ?? "")) segmentStarts.push(index + 1);
+    else if (line.startsWith("&&", index) || line.startsWith("||", index)) {
+      segmentStarts.push(index + 2);
+      sequenceStarts.push(index + 2);
+      index += 1;
+    } else if (character === ";" || character === "&") {
+      segmentStarts.push(index + 1);
+      sequenceStarts.push(index + 1);
+    } else if (/[|()]/.test(character ?? "")) segmentStarts.push(index + 1);
   }
-  return { heredocs, segmentStarts };
+  return { heredocs, lineEnd, segmentStarts, sequenceStarts };
 }
 
 function hasInterpreterAtSegmentStart(segment: string): boolean {
@@ -880,19 +899,64 @@ function hasInterpreterAtSegmentStart(segment: string): boolean {
   return /(?:^|[\s/])(?:bash|sh|zsh)(?=$|[\s<>])|(?:^|\s)eval(?=$|\s)/.test(candidate);
 }
 
-function hasShellReinterpreterSignal(contents: string): boolean {
-  const pendingHeredocs: ShellHeredoc[] = [];
+interface PendingReinterpreterHeredoc {
+  readonly bodyLines: string[];
+  readonly heredoc: ShellHeredoc;
+  readonly interpreterOwned: boolean;
+}
+
+function interpreterOwnedGroups(
+  line: string,
+  scan: ReinterpreterLineScan,
+): readonly { readonly end: number; readonly ownsInterpreter: boolean; readonly start: number }[] {
+  const starts = [...new Set(scan.sequenceStarts)]
+    .filter((offset) => offset < scan.lineEnd)
+    .sort((left, right) => left - right);
+  return starts.map((start, index) => {
+    const end = starts[index + 1] ?? scan.lineEnd;
+    return {
+      end,
+      ownsInterpreter: scan.segmentStarts.some(
+        (offset) =>
+          offset >= start && offset < end && hasInterpreterAtSegmentStart(line.slice(offset, end)),
+      ),
+      start,
+    };
+  });
+}
+
+function hasShellReinterpreterPriorRunReference(contents: string): boolean {
+  const pendingHeredocs: PendingReinterpreterHeredoc[] = [];
   for (const line of contents.split(/\r?\n/)) {
     const pending = pendingHeredocs[0];
     if (pending !== undefined) {
-      const candidate = pending.stripLeadingTabs ? line.replace(/^\t+/, "") : line;
-      if (candidate === pending.delimiter) pendingHeredocs.shift();
+      const candidate = pending.heredoc.stripLeadingTabs ? line.replace(/^\t+/, "") : line;
+      if (candidate === pending.heredoc.delimiter) {
+        pendingHeredocs.shift();
+      } else {
+        pending.bodyLines.push(line);
+        if (pending.interpreterOwned && hasRawPriorRunVariable(pending.bodyLines.join("\n"))) {
+          return true;
+        }
+      }
       continue;
     }
     const scan = reinterpreterLineScan(line);
-    pendingHeredocs.push(...scan.heredocs);
-    if (scan.segmentStarts.some((offset) => hasInterpreterAtSegmentStart(line.slice(offset)))) {
-      return true;
+    const groups = interpreterOwnedGroups(line, scan);
+    for (const group of groups) {
+      if (group.ownsInterpreter && hasRawPriorRunVariable(line.slice(group.start, group.end))) {
+        return true;
+      }
+    }
+    for (const declaration of scan.heredocs) {
+      const group = groups.find(
+        (candidate) => declaration.offset >= candidate.start && declaration.offset < candidate.end,
+      );
+      pendingHeredocs.push({
+        bodyLines: [],
+        heredoc: declaration.heredoc,
+        interpreterOwned: group?.ownsInterpreter === true,
+      });
     }
   }
   return false;
@@ -901,7 +965,7 @@ function hasShellReinterpreterSignal(contents: string): boolean {
 function hasPriorRunDynamicReference(contents: string): boolean {
   return (
     shellVariableNames(contents).some(isPriorRunVariableName) ||
-    (hasShellReinterpreterSignal(contents) && hasRawPriorRunVariable(contents))
+    hasShellReinterpreterPriorRunReference(contents)
   );
 }
 
