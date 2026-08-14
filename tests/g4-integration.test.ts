@@ -126,6 +126,7 @@ test("research guard scopes shell reinterpretation fallback to owned payloads", 
     `bash --version; printf "%s\\n" '$PRIOR_ARTIFACT_PATH'`,
     `printf "%s\\n" '$PRIOR_ARTIFACT_PATH'; bash --version`,
     ["cat <<'DOC'", "$PRIOR_ARTIFACT_PATH", "DOC", "bash --version"].join("\n"),
+    `printf "%s %s\\n" "$(bash --version)" '$PRIOR_ARTIFACT_PATH'`,
     `command -v bash -c 'cat "$PRIOR_ARTIFACT_PATH"'`,
   ];
   for (const command of allowedCommands) {
@@ -147,6 +148,18 @@ test("research guard scopes shell reinterpretation fallback to owned payloads", 
     `printf '%s\\n' 'cat "$PRIOR_ARTIFACT_PATH"' | bash`,
     `command exec -a research bash -c 'cat "$PRIOR_ARTIFACT_PATH"'`,
     `printf '%s' "$(bash -c 'cat "$PRIOR_ARTIFACT_PATH"')"`,
+    [`PAYLOAD='printf "%s" "$PRIOR_ARTIFACT_PATH"'`, `bash -c "$PAYLOAD"`].join("\n"),
+    `PAYLOAD='printf "%s" "$PRIOR_ARTIFACT_PATH"'; bash -c "$PAYLOAD"`,
+    `PAYLOAD='printf "%s" "$PRIOR_ARTIFACT_PATH"' && bash -c "$PAYLOAD"`,
+    [`PAYLOAD='printf "%s" "$PRIOR_ARTIFACT_PATH"'`, `false || bash -c "$PAYLOAD"`].join("\n"),
+    `PAYLOAD='printf "%s" "$PRIOR_ARTIFACT_PATH"'; true & bash -c "$PAYLOAD"`,
+    [
+      "read -r PAYLOAD <<'DOC'",
+      `printf "%s" "$PRIOR_ARTIFACT_PATH"`,
+      "DOC",
+      `bash -c "$PAYLOAD"`,
+    ].join("\n"),
+    `printf '%s' 'cat "$PRIOR_ARTIFACT_PATH"' > /tmp/payload.sh; bash /tmp/payload.sh`,
   ];
   for (const command of deniedCommands) {
     const result = await evaluatePreToolUse(
@@ -478,6 +491,7 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     `bash --version; printf "%s\\n" '$PRIOR_ARTIFACT_PATH'`,
     `printf "%s\\n" '$PRIOR_ARTIFACT_PATH'; bash --version`,
     ["cat <<'DOC'", "$PRIOR_ARTIFACT_PATH", "DOC", "bash --version"].join("\n"),
+    `printf "%s %s\\n" "$(bash --version)" '$PRIOR_ARTIFACT_PATH'`,
     `printf '%s' '$PRIOR_ARTIFACT_PATH'`,
     `printf '%s' '/tmp/bash $PRIOR_ARTIFACT_PATH'`,
     `rg '\\$PRIOR_ARTIFACT_PATH' .codex`,
