@@ -32,6 +32,7 @@
     "validate:current-contract": "tsx scripts/validate-current-contract.ts",
     "contract:impact": "tsx scripts/contract-impact.ts",
     "test:contract-architecture": "node --import tsx --test tests/current-contract-architecture.test.ts",
+    "test:batch5": "node --import tsx --test tests/batch5-responder-performance-observability.test.ts",
     "test:commercial-semantics": "node --import tsx --test tests/batch3-quantitative-information-gain.test.ts tests/current-only-regressions.test.ts",
     "test:report-projection": "node --import tsx --test tests/batch4-report-projection.test.ts",
     "test:lane-delivery": "node --import tsx --test tests/lane-delivery-closure.test.ts",

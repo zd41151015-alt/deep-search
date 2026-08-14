@@ -37,6 +37,10 @@ interface MutableRegistryFamily {
 
 interface MutableOwnershipRegistry {
   families: MutableRegistryFamily[];
+  cross_family_modules: {
+    modulePath: string;
+    impactFamilies: string[];
+  }[];
 }
 
 async function copyCurrentContractSurface(context: TestContext): Promise<string> {
@@ -140,6 +144,50 @@ test("ownership registry rejects duplicate formal Artifact type owners", async (
   assert.ok(
     result.issues.some(
       (candidate) => candidate.code === "current_contract.registry_artifact_type_overlap",
+    ),
+    JSON.stringify(result, null, 2),
+  );
+});
+
+test("ownership registry rejects incomplete cross-family module topology", async (context) => {
+  const copyRoot = await copyCurrentContractSurface(context);
+  await mutateOwnershipRegistry(copyRoot, (registry) => {
+    const family = registry.families.find((candidate) => candidate.id === "discovery_research");
+    assert.ok(family);
+    family.consumerModules = family.consumerModules.filter(
+      (modulePath) => modulePath !== "harness/src/artifact-store/artifact-store.ts",
+    );
+  });
+
+  const result = await inspectCurrentContract(copyRoot);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some(
+      (candidate) =>
+        candidate.code === "current_contract.registry_cross_family_module_mismatch" &&
+        candidate.details.modulePath === "harness/src/artifact-store/artifact-store.ts" &&
+        Array.isArray(candidate.details.extraFamilies) &&
+        candidate.details.extraFamilies.includes("discovery_research"),
+    ),
+    JSON.stringify(result, null, 2),
+  );
+});
+
+test("ownership registry rejects an unaudited multi-family module", async (context) => {
+  const copyRoot = await copyCurrentContractSurface(context);
+  await mutateOwnershipRegistry(copyRoot, (registry) => {
+    registry.cross_family_modules = registry.cross_family_modules.filter(
+      (entry) => entry.modulePath !== "harness/src/reporting/commercial-report-tables.ts",
+    );
+  });
+
+  const result = await inspectCurrentContract(copyRoot);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some(
+      (candidate) =>
+        candidate.code === "current_contract.registry_cross_family_module_unregistered" &&
+        candidate.details.modulePath === "harness/src/reporting/commercial-report-tables.ts",
     ),
     JSON.stringify(result, null, 2),
   );
@@ -349,6 +397,16 @@ async function inspectSyntheticModuleImpact(modulePath: string) {
   });
 }
 
+const ALL_CONTRACT_FAMILIES = [
+  "ai_research",
+  "assessment_research",
+  "declarative_runtime",
+  "discovery_research",
+  "run_control_planning",
+  "store_publication",
+  "terminal_reporting",
+] as const;
+
 test("quantitative semantics and its compiler select executable commercial suites", async () => {
   for (const modulePath of [
     "harness/src/validators/quantitative-research-semantics.ts",
@@ -368,15 +426,6 @@ test("quantitative semantics and its compiler select executable commercial suite
 });
 
 test("Artifact validation modules retain every formal contract family", async () => {
-  const expectedFamilies = [
-    "ai_research",
-    "assessment_research",
-    "declarative_runtime",
-    "discovery_research",
-    "run_control_planning",
-    "store_publication",
-    "terminal_reporting",
-  ];
   for (const modulePath of [
     "harness/src/validators/artifact-ref-resolver.ts",
     "harness/src/validators/artifact-validator.ts",
@@ -384,7 +433,7 @@ test("Artifact validation modules retain every formal contract family", async ()
     const result = await inspectSyntheticModuleImpact(modulePath);
     assert.deepEqual(
       result.affectedFamilies.map((family) => family.id),
-      expectedFamilies,
+      ALL_CONTRACT_FAMILIES,
       modulePath,
     );
     assert.ok(!result.recommendedFocusedTests.includes("npm test"));
@@ -405,20 +454,11 @@ test("Artifact validation modules retain every formal contract family", async ()
 
 test("EvidenceStore exposes its direct substrate producer and cross-domain impact", async () => {
   const result = await inspectSyntheticModuleImpact("harness/src/evidence-store/evidence-store.ts");
-  const expectedFamilies = [
-    "ai_research",
-    "assessment_research",
-    "declarative_runtime",
-    "discovery_research",
-    "run_control_planning",
-    "store_publication",
-    "terminal_reporting",
-  ];
   assert.deepEqual(
     result.affectedFamilies.map((family) => family.id),
-    expectedFamilies,
+    ALL_CONTRACT_FAMILIES,
   );
-  assert.deepEqual(result.changedModules[0]?.families, expectedFamilies);
+  assert.deepEqual(result.changedModules[0]?.families, ALL_CONTRACT_FAMILIES);
   for (const command of [
     "npm run test:g1.2",
     "npm run test:g2.2",
@@ -430,6 +470,86 @@ test("EvidenceStore exposes its direct substrate producer and cross-domain impac
   assert.ok(!result.recommendedFocusedTests.includes("npm test"));
   assert.equal(new Set(result.recommendedFocusedTests).size, result.recommendedFocusedTests.length);
   assert.equal(result.unknownImpact.length, 0);
+});
+
+test("shared Store infrastructure and ReportRuntime retain every consumer family", async () => {
+  for (const modulePath of [
+    "harness/src/artifact-store/artifact-store.ts",
+    "harness/src/artifact-store/publication-policy.ts",
+    "harness/src/reporting/report-runtime.ts",
+    "harness/src/run-store/run-store.ts",
+  ]) {
+    const result = await inspectSyntheticModuleImpact(modulePath);
+    assert.deepEqual(
+      result.affectedFamilies.map((family) => family.id),
+      ALL_CONTRACT_FAMILIES,
+      modulePath,
+    );
+    for (const command of [
+      "npm run test:batch5",
+      "npm run test:g1.2",
+      "npm run test:g2.2",
+      "npm run test:g3.1",
+      "npm run test:p1",
+    ]) {
+      assert.ok(result.recommendedFocusedTests.includes(command), `${modulePath}: ${command}`);
+    }
+    assert.ok(!result.recommendedFocusedTests.includes("npm test"));
+    assert.equal(result.unknownImpact.length, 0);
+  }
+});
+
+test("shared reporting modules retain their direct semantic consumer families", async () => {
+  const cases = [
+    {
+      modulePath: "harness/src/reporting/commercial-report-tables.ts",
+      expectedFamilies: ["assessment_research", "discovery_research", "terminal_reporting"],
+      expectedCommands: ["npm run test:g1.4", "npm run test:g2.4", "npm run test:g4"],
+    },
+    {
+      modulePath: "harness/src/reporting/report-consistency.ts",
+      expectedFamilies: ["discovery_research", "terminal_reporting"],
+      expectedCommands: ["npm run test:g2.4", "npm run test:g4"],
+    },
+    {
+      modulePath: "harness/src/reporting/report-projection-authority.ts",
+      expectedFamilies: ["assessment_research", "discovery_research", "terminal_reporting"],
+      expectedCommands: ["npm run test:g1.4", "npm run test:g2.4", "npm run test:g4"],
+    },
+  ] as const;
+
+  for (const { modulePath, expectedFamilies, expectedCommands } of cases) {
+    const result = await inspectSyntheticModuleImpact(modulePath);
+    assert.deepEqual(
+      result.affectedFamilies.map((family) => family.id),
+      expectedFamilies,
+      modulePath,
+    );
+    for (const command of ["npm run test:batch5", ...expectedCommands]) {
+      assert.ok(result.recommendedFocusedTests.includes(command), `${modulePath}: ${command}`);
+    }
+    assert.ok(!result.recommendedFocusedTests.includes("npm test"));
+    assert.equal(
+      new Set(result.recommendedFocusedTests).size,
+      result.recommendedFocusedTests.length,
+    );
+    assert.equal(result.unknownImpact.length, 0);
+  }
+});
+
+test("Batch 5 observability regression is recommended for each owning production surface", async () => {
+  for (const modulePath of [
+    "harness/src/validators/artifact-validator.ts",
+    "harness/src/reporting/commercial-report-tables.ts",
+    "harness/src/reporting/report-runtime.ts",
+  ]) {
+    const result = await inspectSyntheticModuleImpact(modulePath);
+    assert.ok(
+      result.recommendedFocusedTests.includes("npm run test:batch5"),
+      JSON.stringify({ modulePath, commands: result.recommendedFocusedTests }),
+    );
+    assert.equal(result.unknownImpact.length, 0);
+  }
 });
 
 test("current contract rejects missing and unlisted policy files", async (context) => {

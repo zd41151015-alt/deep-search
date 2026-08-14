@@ -66,10 +66,16 @@ export interface SharedContractSchema {
   readonly impactFamilies: readonly string[];
 }
 
+export interface CrossFamilyModule {
+  readonly modulePath: string;
+  readonly impactFamilies: readonly string[];
+}
+
 export interface ContractOwnershipRegistry {
   readonly schemaVersion: "startup_opportunity.engineering_contract_ownership.current";
   readonly authority: "engineering_topology_metadata_only";
   readonly families: readonly ContractOwnershipFamily[];
+  readonly crossFamilyModules: readonly CrossFamilyModule[];
   readonly sharedSchemas: readonly SharedContractSchema[];
 }
 
@@ -373,6 +379,40 @@ function readSharedSchema(
   };
 }
 
+function readCrossFamilyModule(
+  value: unknown,
+  index: number,
+  issues: OwnershipRegistryFormatIssue[],
+): CrossFamilyModule | undefined {
+  const instancePath = `/cross_family_modules/${index}`;
+  if (!isRecord(value) || !hasExactlyKeys(value, ["impactFamilies", "modulePath"])) {
+    issues.push({ path: instancePath, message: "has missing or unknown fields" });
+    return undefined;
+  }
+  if (typeof value.modulePath !== "string" || !/^harness\/src\/.+\.ts$/u.test(value.modulePath)) {
+    issues.push({
+      path: `${instancePath}/modulePath`,
+      message: "must name one production TypeScript module",
+    });
+  }
+  const impactFamilies = readStringArray(
+    value.impactFamilies,
+    `${instancePath}/impactFamilies`,
+    issues,
+    true,
+  );
+  if (impactFamilies.length === 1) {
+    issues.push({
+      path: `${instancePath}/impactFamilies`,
+      message: "must name at least two impact families",
+    });
+  }
+  return {
+    modulePath: typeof value.modulePath === "string" ? value.modulePath : "invalid",
+    impactFamilies,
+  };
+}
+
 export async function loadContractOwnershipRegistry(
   root = process.cwd(),
 ): Promise<ContractOwnershipRegistry> {
@@ -391,7 +431,13 @@ export async function loadContractOwnershipRegistry(
   const issues: OwnershipRegistryFormatIssue[] = [];
   if (
     !isRecord(value) ||
-    !hasExactlyKeys(value, ["authority", "families", "schema_version", "shared_schemas"])
+    !hasExactlyKeys(value, [
+      "authority",
+      "cross_family_modules",
+      "families",
+      "schema_version",
+      "shared_schemas",
+    ])
   ) {
     throw new OwnershipRegistryFormatError([
       { path: "", message: "registry root has missing or unknown fields" },
@@ -412,6 +458,9 @@ export async function loadContractOwnershipRegistry(
   if (!Array.isArray(value.shared_schemas)) {
     issues.push({ path: "/shared_schemas", message: "must be an array" });
   }
+  if (!Array.isArray(value.cross_family_modules) || value.cross_family_modules.length === 0) {
+    issues.push({ path: "/cross_family_modules", message: "must be a non-empty array" });
+  }
   const families = Array.isArray(value.families)
     ? value.families.flatMap((family, index) => {
         const parsed = readFamily(family, index, issues);
@@ -421,6 +470,12 @@ export async function loadContractOwnershipRegistry(
   const sharedSchemas = Array.isArray(value.shared_schemas)
     ? value.shared_schemas.flatMap((schema, index) => {
         const parsed = readSharedSchema(schema, index, issues);
+        return parsed === undefined ? [] : [parsed];
+      })
+    : [];
+  const crossFamilyModules = Array.isArray(value.cross_family_modules)
+    ? value.cross_family_modules.flatMap((module, index) => {
+        const parsed = readCrossFamilyModule(module, index, issues);
         return parsed === undefined ? [] : [parsed];
       })
     : [];
@@ -435,6 +490,7 @@ export async function loadContractOwnershipRegistry(
     schemaVersion: "startup_opportunity.engineering_contract_ownership.current",
     authority: "engineering_topology_metadata_only",
     families,
+    crossFamilyModules,
     sharedSchemas,
   };
 }

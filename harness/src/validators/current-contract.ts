@@ -528,6 +528,14 @@ async function inspectOwnershipRegistry({
     "reportProjectionModules",
     "focusedTests",
   ] as const;
+  const modulePathCategories = [
+    "ownerModules",
+    "producerModules",
+    "consumerModules",
+    "validatorModules",
+    "reportProjectionModules",
+  ] as const;
+  const registeredModuleFamilies = new Map<string, Set<string>>();
   for (const family of registry.families) {
     for (const category of pathCategories) {
       for (const registeredPath of family[category]) {
@@ -540,7 +548,76 @@ async function inspectOwnershipRegistry({
             }),
           );
         }
+        if ((modulePathCategories as readonly string[]).includes(category)) {
+          const families = registeredModuleFamilies.get(registeredPath) ?? new Set<string>();
+          families.add(family.id);
+          registeredModuleFamilies.set(registeredPath, families);
+        }
       }
+    }
+  }
+
+  const crossFamilyModulePaths = registry.crossFamilyModules.map((entry) => entry.modulePath);
+  const duplicateCrossFamilyModulePaths = crossFamilyModulePaths
+    .filter((modulePath, index) => crossFamilyModulePaths.indexOf(modulePath) !== index)
+    .sort();
+  if (duplicateCrossFamilyModulePaths.length > 0) {
+    issues.push(
+      issue(
+        "current_contract.registry_cross_family_module_overlap",
+        "cross-family module audit paths overlap",
+        { modulePaths: [...new Set(duplicateCrossFamilyModulePaths)] },
+      ),
+    );
+  }
+  const crossFamilyModules = new Map(
+    registry.crossFamilyModules.map((entry) => [entry.modulePath, entry] as const),
+  );
+  for (const entry of registry.crossFamilyModules) {
+    if (!(await pathIsFile(root, entry.modulePath))) {
+      issues.push(
+        issue("current_contract.registry_path_stale", "registered repository path is missing", {
+          category: "crossFamilyModules",
+          path: entry.modulePath,
+        }),
+      );
+    }
+    const unknownFamilies = entry.impactFamilies
+      .filter((familyId) => !familyIdSet.has(familyId))
+      .sort();
+    const registeredFamilies = [...(registeredModuleFamilies.get(entry.modulePath) ?? [])].sort();
+    const missingFamilies = registeredFamilies
+      .filter((familyId) => !entry.impactFamilies.includes(familyId))
+      .sort();
+    const extraFamilies = entry.impactFamilies
+      .filter((familyId) => !registeredFamilies.includes(familyId))
+      .sort();
+    if (unknownFamilies.length > 0 || missingFamilies.length > 0 || extraFamilies.length > 0) {
+      issues.push(
+        issue(
+          "current_contract.registry_cross_family_module_mismatch",
+          "cross-family module audit must exactly match family role registration",
+          {
+            modulePath: entry.modulePath,
+            registeredFamilies,
+            impactFamilies: [...entry.impactFamilies].sort(),
+            unknownFamilies,
+            missingFamilies,
+            extraFamilies,
+          },
+        ),
+      );
+    }
+  }
+  for (const [modulePath, families] of registeredModuleFamilies) {
+    if (families.size > 1 && !crossFamilyModules.has(modulePath)) {
+      issues.push(
+        issue(
+          "current_contract.registry_cross_family_module_unregistered",
+          "module registered in multiple families requires an explicit cross-family audit",
+          { modulePath, registeredFamilies: [...families].sort() },
+        ),
+      );
     }
   }
 

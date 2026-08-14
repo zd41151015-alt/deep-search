@@ -26,6 +26,8 @@ Removed compatibility-only material includes historical `bundle.vN` manifests, n
 
 `harness/contracts/current-ownership.json` is engineering topology metadata, not a Runtime manifest or business authority. Families use deterministic current-schema directory selectors and declare production owners, producers, consumers, semantic validators, active Policies, report projections, focused tests, research-impact dimensions, and recovery boundaries. The registry must not define fields, enums, Evidence eligibility, weights, Gate behavior, confidence, readiness, ranking, recommendation ceilings, publication rules, or fallback Runtime behavior. Conflicts with a current schema, Policy, or owning module fail validation rather than selecting the registry as an alternative authority.
 
+Shared production modules must be registered in every family whose semantics they directly consume or project. The registry's `cross_family_modules` audit must exactly match family role registration, and every module registered in multiple families must have one such declaration. ArtifactStore, RunStore, publication-policy, EvidenceStore, the generic Artifact validator/ref resolver, and ReportRuntime are conservatively cross-family because partial registration could suppress required recovery, domain, or report tests. Shared commercial/reporting helpers are registered according to their direct semantic consumers across Assessment, Discovery, and Terminal surfaces. The dedicated Batch 5 suite covers validator caching, commercial projection caching and responder context, and ReportRuntime observer/result parity; each applicable family binds that file to the exact `test:batch5` script.
+
 Use the read-only impact inspector during contract maintenance:
 
 ```bash

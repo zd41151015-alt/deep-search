@@ -32,6 +32,7 @@
       "reportProjectionModules": ["harness/src/reporting/report-runtime.ts"],
       "userVisibleOutputs": ["audit-appendix.md", "decision-brief.md", "report.json", "report.md"],
       "focusedTests": [
+        "tests/batch5-responder-performance-observability.test.ts",
         "tests/current-contract-architecture.test.ts",
         "tests/g4-integration.test.ts",
         "tests/store-faults.test.ts",
@@ -39,6 +40,7 @@
         "tests/store.test.ts"
       ],
       "testScripts": [
+        "test:batch5",
         "test:contract-architecture",
         "test:faults",
         "test:g4",
@@ -85,6 +87,8 @@
         "harness/src/run-store/store-commands.ts"
       ],
       "consumerModules": [
+        "harness/src/artifact-store/artifact-store.ts",
+        "harness/src/artifact-store/publication-policy.ts",
         "harness/src/adaptation/gap-analyzer.ts",
         "harness/src/adaptation/plan-transformer.ts",
         "harness/src/run-store/run-store.ts"
@@ -105,6 +109,7 @@
       "reportProjectionModules": ["harness/src/reporting/report-runtime.ts"],
       "userVisibleOutputs": ["decision-brief.md", "report.json", "report.md"],
       "focusedTests": [
+        "tests/batch5-responder-performance-observability.test.ts",
         "tests/current-contract-architecture.test.ts",
         "tests/g0.4-runtime.test.ts",
         "tests/planning-contracts.test.ts",
@@ -112,6 +117,7 @@
         "tests/store-recovery.test.ts"
       ],
       "testScripts": [
+        "test:batch5",
         "test:contract-architecture",
         "test:g0.4",
         "test:planning",
@@ -155,6 +161,7 @@
       ],
       "consumerModules": [
         "harness/src/artifact-store/artifact-store.ts",
+        "harness/src/artifact-store/publication-policy.ts",
         "harness/src/reporting/commercial-report-tables.ts",
         "harness/src/reporting/report-runtime.ts",
         "harness/src/run-store/run-store.ts",
@@ -186,12 +193,14 @@
       "reportProjectionModules": [
         "harness/src/reporting/commercial-report-tables.ts",
         "harness/src/reporting/report-localization.ts",
+        "harness/src/reporting/report-projection-authority.ts",
         "harness/src/reporting/report-runtime.ts"
       ],
       "userVisibleOutputs": ["audit-appendix.md", "decision-brief.md", "report.json", "report.md"],
       "focusedTests": [
         "tests/batch3-quantitative-information-gain.test.ts",
         "tests/batch4-report-projection.test.ts",
+        "tests/batch5-responder-performance-observability.test.ts",
         "tests/current-contract-architecture.test.ts",
         "tests/current-only-regressions.test.ts",
         "tests/g1.1-contracts.test.ts",
@@ -202,6 +211,7 @@
         "tests/p2-assessment-execution.test.ts"
       ],
       "testScripts": [
+        "test:batch5",
         "test:commercial-semantics",
         "test:contract-architecture",
         "test:g1.1",
@@ -263,10 +273,14 @@
         "harness/src/runtime/lane-materializer.ts"
       ],
       "consumerModules": [
+        "harness/src/artifact-store/artifact-store.ts",
+        "harness/src/artifact-store/publication-policy.ts",
         "harness/src/reporting/report-runtime.ts",
+        "harness/src/run-store/run-store.ts",
         "harness/src/validators/discovery-evaluation-validator.ts"
       ],
       "validatorModules": [
+        "harness/src/reporting/report-consistency.ts",
         "harness/src/validators/artifact-ref-resolver.ts",
         "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/discovery-candidate-validator.ts",
@@ -282,11 +296,14 @@
         "harness/policies/discovery-synthesis.current.json"
       ],
       "reportProjectionModules": [
+        "harness/src/reporting/commercial-report-tables.ts",
         "harness/src/reporting/report-localization.ts",
+        "harness/src/reporting/report-projection-authority.ts",
         "harness/src/reporting/report-runtime.ts"
       ],
       "userVisibleOutputs": ["audit-appendix.md", "decision-brief.md", "report.json", "report.md"],
       "focusedTests": [
+        "tests/batch5-responder-performance-observability.test.ts",
         "tests/current-contract-architecture.test.ts",
         "tests/g2.1-discovery-maps.test.ts",
         "tests/g2.2-discovery-runtime.test.ts",
@@ -295,6 +312,7 @@
         "tests/g4-integration.test.ts"
       ],
       "testScripts": [
+        "test:batch5",
         "test:contract-architecture",
         "test:g2.1",
         "test:g2.2",
@@ -354,7 +372,10 @@
         "harness/src/runtime/declarative-runtime.ts"
       ],
       "consumerModules": [
+        "harness/src/artifact-store/artifact-store.ts",
+        "harness/src/artifact-store/publication-policy.ts",
         "harness/src/reporting/report-runtime.ts",
+        "harness/src/run-store/run-store.ts",
         "harness/src/validators/ai-bundle-validator.ts"
       ],
       "validatorModules": [
@@ -366,12 +387,19 @@
       "reportProjectionModules": ["harness/src/reporting/report-runtime.ts"],
       "userVisibleOutputs": ["decision-brief.md", "report.json", "report.md"],
       "focusedTests": [
+        "tests/batch5-responder-performance-observability.test.ts",
         "tests/current-contract-architecture.test.ts",
         "tests/g3.1-ai-contracts.test.ts",
         "tests/g3.2-ai-economics.test.ts",
         "tests/g3.3-ai-mandatory-bundle.test.ts"
       ],
-      "testScripts": ["test:contract-architecture", "test:g3.1", "test:g3.2", "test:g3.3"],
+      "testScripts": [
+        "test:batch5",
+        "test:contract-architecture",
+        "test:g3.1",
+        "test:g3.2",
+        "test:g3.3"
+      ],
       "recoveryBoundaries": {
         "storeIdentity": true,
         "atomicPublication": true,
@@ -415,6 +443,8 @@
         "harness/src/runtime/lane-materializer.ts"
       ],
       "consumerModules": [
+        "harness/src/artifact-store/artifact-store.ts",
+        "harness/src/artifact-store/publication-policy.ts",
         "harness/src/runtime/assessment-execution.ts",
         "harness/src/runtime/lane-delivery-closure.ts",
         "harness/src/run-store/run-store.ts"
@@ -429,12 +459,19 @@
       "reportProjectionModules": ["harness/src/reporting/report-runtime.ts"],
       "userVisibleOutputs": ["audit-appendix.md", "decision-brief.md", "report.json", "report.md"],
       "focusedTests": [
+        "tests/batch5-responder-performance-observability.test.ts",
         "tests/current-contract-architecture.test.ts",
         "tests/lane-delivery-closure.test.ts",
         "tests/p1-declarative-runtime.test.ts",
         "tests/p2-assessment-execution.test.ts"
       ],
-      "testScripts": ["test:contract-architecture", "test:lane-delivery", "test:p1", "test:p2"],
+      "testScripts": [
+        "test:batch5",
+        "test:contract-architecture",
+        "test:lane-delivery",
+        "test:p1",
+        "test:p2"
+      ],
       "recoveryBoundaries": {
         "storeIdentity": true,
         "atomicPublication": true,
@@ -475,8 +512,12 @@
         "harness/src/reporting/report-runtime.ts"
       ],
       "consumerModules": [
+        "harness/src/artifact-store/artifact-store.ts",
+        "harness/src/artifact-store/publication-policy.ts",
+        "harness/src/reporting/commercial-report-tables.ts",
         "harness/src/reporting/report-consistency.ts",
-        "harness/src/reporting/report-projection-authority.ts"
+        "harness/src/reporting/report-projection-authority.ts",
+        "harness/src/run-store/run-store.ts"
       ],
       "validatorModules": [
         "harness/src/validators/artifact-ref-resolver.ts",
@@ -486,6 +527,7 @@
       ],
       "policyPaths": [],
       "reportProjectionModules": [
+        "harness/src/reporting/commercial-report-tables.ts",
         "harness/src/reporting/report-localization.ts",
         "harness/src/reporting/report-projection-authority.ts",
         "harness/src/reporting/report-runtime.ts",
@@ -494,12 +536,14 @@
       "userVisibleOutputs": ["audit-appendix.md", "decision-brief.md", "report.json", "report.md"],
       "focusedTests": [
         "tests/batch4-report-projection.test.ts",
+        "tests/batch5-responder-performance-observability.test.ts",
         "tests/current-contract-architecture.test.ts",
         "tests/g1.4-report-runtime.test.ts",
         "tests/g4-integration.test.ts",
         "tests/g4-operational.test.ts"
       ],
       "testScripts": [
+        "test:batch5",
         "test:contract-architecture",
         "test:g1.4",
         "test:g4",
@@ -534,6 +578,136 @@
           "user_visible_report"
         ]
       }
+    }
+  ],
+  "cross_family_modules": [
+    {
+      "modulePath": "harness/src/artifact-store/artifact-store.ts",
+      "impactFamilies": [
+        "ai_research",
+        "assessment_research",
+        "declarative_runtime",
+        "discovery_research",
+        "run_control_planning",
+        "store_publication",
+        "terminal_reporting"
+      ]
+    },
+    {
+      "modulePath": "harness/src/artifact-store/publication-policy.ts",
+      "impactFamilies": [
+        "ai_research",
+        "assessment_research",
+        "declarative_runtime",
+        "discovery_research",
+        "run_control_planning",
+        "store_publication",
+        "terminal_reporting"
+      ]
+    },
+    {
+      "modulePath": "harness/src/evidence-store/evidence-store.ts",
+      "impactFamilies": [
+        "ai_research",
+        "assessment_research",
+        "declarative_runtime",
+        "discovery_research",
+        "run_control_planning",
+        "store_publication",
+        "terminal_reporting"
+      ]
+    },
+    {
+      "modulePath": "harness/src/reporting/commercial-report-tables.ts",
+      "impactFamilies": ["assessment_research", "discovery_research", "terminal_reporting"]
+    },
+    {
+      "modulePath": "harness/src/reporting/report-consistency.ts",
+      "impactFamilies": ["discovery_research", "terminal_reporting"]
+    },
+    {
+      "modulePath": "harness/src/reporting/report-localization.ts",
+      "impactFamilies": ["assessment_research", "discovery_research", "terminal_reporting"]
+    },
+    {
+      "modulePath": "harness/src/reporting/report-projection-authority.ts",
+      "impactFamilies": ["assessment_research", "discovery_research", "terminal_reporting"]
+    },
+    {
+      "modulePath": "harness/src/reporting/report-runtime.ts",
+      "impactFamilies": [
+        "ai_research",
+        "assessment_research",
+        "declarative_runtime",
+        "discovery_research",
+        "run_control_planning",
+        "store_publication",
+        "terminal_reporting"
+      ]
+    },
+    {
+      "modulePath": "harness/src/run-store/run-store.ts",
+      "impactFamilies": [
+        "ai_research",
+        "assessment_research",
+        "declarative_runtime",
+        "discovery_research",
+        "run_control_planning",
+        "store_publication",
+        "terminal_reporting"
+      ]
+    },
+    {
+      "modulePath": "harness/src/runtime/assessment-execution.ts",
+      "impactFamilies": ["assessment_research", "declarative_runtime"]
+    },
+    {
+      "modulePath": "harness/src/runtime/declarative-runtime.ts",
+      "impactFamilies": ["ai_research", "declarative_runtime"]
+    },
+    {
+      "modulePath": "harness/src/runtime/lane-materializer.ts",
+      "impactFamilies": ["assessment_research", "declarative_runtime", "discovery_research"]
+    },
+    {
+      "modulePath": "harness/src/validators/artifact-ref-resolver.ts",
+      "impactFamilies": [
+        "ai_research",
+        "assessment_research",
+        "declarative_runtime",
+        "discovery_research",
+        "run_control_planning",
+        "store_publication",
+        "terminal_reporting"
+      ]
+    },
+    {
+      "modulePath": "harness/src/validators/artifact-validator.ts",
+      "impactFamilies": [
+        "ai_research",
+        "assessment_research",
+        "declarative_runtime",
+        "discovery_research",
+        "run_control_planning",
+        "store_publication",
+        "terminal_reporting"
+      ]
+    },
+    {
+      "modulePath": "harness/src/validators/assessment-execution-validator.ts",
+      "impactFamilies": ["assessment_research", "declarative_runtime"]
+    },
+    {
+      "modulePath": "harness/src/validators/declarative-runtime-validator.ts",
+      "impactFamilies": ["assessment_research", "declarative_runtime"]
+    },
+    {
+      "modulePath": "harness/src/validators/discovery-evaluation-validator.ts",
+      "impactFamilies": ["assessment_research", "discovery_research"]
+    },
+    {
+      "modulePath": "harness/src/validators/research-handoff-validator.ts",
+      "impactFamilies": ["assessment_research", "run_control_planning"]
     }
   ],
   "shared_schemas": [
