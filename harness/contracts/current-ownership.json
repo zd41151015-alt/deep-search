@@ -1,0 +1,581 @@
+{
+  "schema_version": "startup_opportunity.engineering_contract_ownership.current",
+  "authority": "engineering_topology_metadata_only",
+  "families": [
+    {
+      "id": "store_publication",
+      "domain": "Store identity, Envelope dispatch, immutable publication, and replay",
+      "schemaSelectors": [{ "prefix": "current/store/" }],
+      "artifactTypeSelectors": [],
+      "directRuntimeRoots": [
+        "startup_opportunity.artifact_envelope.current",
+        "startup_opportunity.artifact_publication_commit.current",
+        "startup_opportunity.artifact_store_operation.current",
+        "startup_opportunity.document_bundle.current"
+      ],
+      "ownerModules": ["harness/src/artifact-store/artifact-store.ts"],
+      "producerModules": [
+        "harness/src/artifact-store/artifact-store.ts",
+        "harness/src/run-store/run-store.ts"
+      ],
+      "consumerModules": [
+        "harness/src/artifact-store/publication-policy.ts",
+        "harness/src/run-store/run-store.ts"
+      ],
+      "validatorModules": [
+        "harness/src/validators/artifact-ref-resolver.ts",
+        "harness/src/validators/artifact-validator.ts",
+        "harness/src/validators/current-contract.ts"
+      ],
+      "policyPaths": ["harness/policies/research-publication.current.json"],
+      "reportProjectionModules": ["harness/src/reporting/report-runtime.ts"],
+      "userVisibleOutputs": ["audit-appendix.md", "decision-brief.md", "report.json", "report.md"],
+      "focusedTests": [
+        "tests/current-contract-architecture.test.ts",
+        "tests/g4-integration.test.ts",
+        "tests/store-faults.test.ts",
+        "tests/store-recovery.test.ts",
+        "tests/store.test.ts"
+      ],
+      "testScripts": [
+        "test:contract-architecture",
+        "test:faults",
+        "test:g4",
+        "test:recovery",
+        "validate:current-contract",
+        "validate:store"
+      ],
+      "recoveryBoundaries": {
+        "storeIdentity": true,
+        "atomicPublication": true,
+        "exactReplay": true,
+        "checkpointReopen": true,
+        "crashRecovery": true
+      },
+      "fieldOwnership": {
+        "scope": "family_level_phase_1",
+        "categories": ["store_identity", "harness_derived"]
+      },
+      "researchImpact": {
+        "preservedInputsAndRoles": ["all_validated_artifacts_and_evidence_dispositions"],
+        "distinctSemanticStates": [
+          "partial",
+          "unavailable",
+          "unknown",
+          "inferred",
+          "not_applicable",
+          "no_evidence_found"
+        ],
+        "possibleDecisionEffects": ["none_metadata_only", "publication_and_recovery_integrity"]
+      }
+    },
+    {
+      "id": "run_control_planning",
+      "domain": "Run control, planning, gap analysis, adaptation, and checkpoints",
+      "schemaSelectors": [{ "prefix": "current/core/" }, { "prefix": "current/planning/" }],
+      "artifactTypeSelectors": [{ "prefix": "current/core/" }, { "prefix": "current/planning/" }],
+      "directRuntimeRoots": [],
+      "ownerModules": [
+        "harness/src/adaptation/plan-runtime.ts",
+        "harness/src/run-store/run-store.ts"
+      ],
+      "producerModules": [
+        "harness/src/adaptation/adaptation-commands.ts",
+        "harness/src/run-store/store-commands.ts"
+      ],
+      "consumerModules": [
+        "harness/src/adaptation/gap-analyzer.ts",
+        "harness/src/adaptation/plan-transformer.ts",
+        "harness/src/run-store/run-store.ts"
+      ],
+      "validatorModules": [
+        "harness/src/adaptation/adaptation-validator.ts",
+        "harness/src/adaptation/plan-validator.ts",
+        "harness/src/validators/planning-contract-validator.ts",
+        "harness/src/validators/research-handoff-validator.ts"
+      ],
+      "policyPaths": [
+        "harness/policies/adaptation.current.json",
+        "harness/policies/ai-trigger-source-binding.current.json",
+        "harness/policies/plan-revision-apply.current.json"
+      ],
+      "reportProjectionModules": ["harness/src/reporting/report-runtime.ts"],
+      "userVisibleOutputs": ["decision-brief.md", "report.json", "report.md"],
+      "focusedTests": [
+        "tests/current-contract-architecture.test.ts",
+        "tests/g0.4-runtime.test.ts",
+        "tests/planning-contracts.test.ts",
+        "tests/research-handoff.test.ts",
+        "tests/store-recovery.test.ts"
+      ],
+      "testScripts": [
+        "test",
+        "test:contract-architecture",
+        "test:g0.4",
+        "test:recovery",
+        "validate:current-contract",
+        "validate:fixtures"
+      ],
+      "recoveryBoundaries": {
+        "storeIdentity": true,
+        "atomicPublication": true,
+        "exactReplay": true,
+        "checkpointReopen": true,
+        "crashRecovery": true
+      },
+      "fieldOwnership": {
+        "scope": "family_level_phase_1",
+        "categories": ["agent_authored", "harness_derived", "policy_derived", "store_identity"]
+      },
+      "researchImpact": {
+        "preservedInputsAndRoles": [
+          "scope_and_candidate_corrections",
+          "gap_and_adaptation_rationale"
+        ],
+        "distinctSemanticStates": ["partial", "unavailable", "unknown", "not_applicable"],
+        "possibleDecisionEffects": ["gate", "readiness", "terminal_outcome"]
+      }
+    },
+    {
+      "id": "assessment_research",
+      "domain": "Concept assessment research, commercial analysis, synthesis, and reporting",
+      "schemaSelectors": [{ "prefix": "current/assessment/" }],
+      "artifactTypeSelectors": [{ "prefix": "current/assessment/" }],
+      "directRuntimeRoots": ["startup_opportunity.evidence_store_record.v2"],
+      "ownerModules": [
+        "harness/src/runtime/assessment-execution.ts",
+        "harness/src/validators/assess-domain-validator.ts"
+      ],
+      "producerModules": [
+        "harness/src/compiler/commercial-research-compiler.ts",
+        "harness/src/runtime/lane-materializer.ts"
+      ],
+      "consumerModules": [
+        "harness/src/reporting/commercial-report-tables.ts",
+        "harness/src/reporting/report-runtime.ts",
+        "harness/src/runtime/assessment-information-gain.ts"
+      ],
+      "validatorModules": [
+        "harness/src/validators/assessment-adaptation-validator.ts",
+        "harness/src/validators/assessment-execution-validator.ts",
+        "harness/src/validators/assessment-reporting-policy.ts",
+        "harness/src/validators/commercial-research-validator.ts",
+        "harness/src/validators/research-branch-validator.ts"
+      ],
+      "policyPaths": [
+        "harness/policies/assessment-adaptation.current.json",
+        "harness/policies/assessment-execution.current.json",
+        "harness/policies/assessment-reporting.current.json"
+      ],
+      "reportProjectionModules": [
+        "harness/src/reporting/commercial-report-tables.ts",
+        "harness/src/reporting/report-localization.ts",
+        "harness/src/reporting/report-runtime.ts"
+      ],
+      "userVisibleOutputs": ["audit-appendix.md", "decision-brief.md", "report.json", "report.md"],
+      "focusedTests": [
+        "tests/batch3-quantitative-information-gain.test.ts",
+        "tests/batch4-report-projection.test.ts",
+        "tests/current-contract-architecture.test.ts",
+        "tests/g1.1-contracts.test.ts",
+        "tests/g1.2-contracts.test.ts",
+        "tests/g1.3-dynamic-buyer-gap.test.ts",
+        "tests/g1.4-contracts.test.ts",
+        "tests/g1.4-report-runtime.test.ts",
+        "tests/p2-assessment-execution.test.ts"
+      ],
+      "testScripts": [
+        "test",
+        "test:contract-architecture",
+        "test:g1.1",
+        "test:g1.2",
+        "test:g1.3",
+        "test:g1.4",
+        "validate:fixtures"
+      ],
+      "recoveryBoundaries": {
+        "storeIdentity": true,
+        "atomicPublication": true,
+        "exactReplay": true,
+        "checkpointReopen": true,
+        "crashRecovery": true
+      },
+      "fieldOwnership": {
+        "scope": "family_level_phase_1",
+        "categories": [
+          "agent_authored",
+          "harness_derived",
+          "policy_derived",
+          "store_identity",
+          "report_projected"
+        ]
+      },
+      "researchImpact": {
+        "preservedInputsAndRoles": [
+          "lawful_source_kinds",
+          "supporting_opposing_background_and_contradictory_evidence",
+          "proxies_estimates_apis_and_datasets"
+        ],
+        "distinctSemanticStates": [
+          "partial",
+          "unavailable",
+          "unknown",
+          "inferred",
+          "not_applicable",
+          "no_evidence_found"
+        ],
+        "possibleDecisionEffects": ["gate", "confidence", "readiness", "recommendation_ceiling"]
+      }
+    },
+    {
+      "id": "discovery_research",
+      "domain": "Discovery maps, candidates, synthesis, evaluation, comparison, and reporting",
+      "schemaSelectors": [{ "prefix": "current/discovery/" }],
+      "artifactTypeSelectors": [{ "prefix": "current/discovery/" }],
+      "directRuntimeRoots": [],
+      "ownerModules": [
+        "harness/src/validators/discovery-candidate-validator.ts",
+        "harness/src/validators/discovery-evaluation-validator.ts",
+        "harness/src/validators/discovery-maps-validator.ts",
+        "harness/src/validators/discovery-synthesis-validator.ts"
+      ],
+      "producerModules": [
+        "harness/src/comparison/comparison-commands.ts",
+        "harness/src/runtime/lane-materializer.ts"
+      ],
+      "consumerModules": [
+        "harness/src/reporting/report-runtime.ts",
+        "harness/src/validators/discovery-evaluation-validator.ts"
+      ],
+      "validatorModules": [
+        "harness/src/validators/discovery-candidate-validator.ts",
+        "harness/src/validators/discovery-evaluation-validator.ts",
+        "harness/src/validators/discovery-maps-validator.ts",
+        "harness/src/validators/discovery-synthesis-validator.ts"
+      ],
+      "policyPaths": [
+        "harness/policies/discovery-adaptation-binding.current.json",
+        "harness/policies/discovery-candidates.current.json",
+        "harness/policies/discovery-evaluation.current.json",
+        "harness/policies/discovery-maps.current.json",
+        "harness/policies/discovery-synthesis.current.json"
+      ],
+      "reportProjectionModules": [
+        "harness/src/reporting/report-localization.ts",
+        "harness/src/reporting/report-runtime.ts"
+      ],
+      "userVisibleOutputs": ["audit-appendix.md", "decision-brief.md", "report.json", "report.md"],
+      "focusedTests": [
+        "tests/current-contract-architecture.test.ts",
+        "tests/g2.1-discovery-maps.test.ts",
+        "tests/g2.2-discovery-runtime.test.ts",
+        "tests/g2.3-discovery-synthesis.test.ts",
+        "tests/g2.4-discovery-evaluation.test.ts",
+        "tests/g4-integration.test.ts"
+      ],
+      "testScripts": [
+        "test:contract-architecture",
+        "test:g2.1",
+        "test:g2.2",
+        "test:g2.3",
+        "test:g2.4",
+        "test:g4",
+        "validate:fixtures"
+      ],
+      "recoveryBoundaries": {
+        "storeIdentity": true,
+        "atomicPublication": true,
+        "exactReplay": true,
+        "checkpointReopen": true,
+        "crashRecovery": true
+      },
+      "fieldOwnership": {
+        "scope": "family_level_phase_1",
+        "categories": [
+          "agent_authored",
+          "harness_derived",
+          "policy_derived",
+          "store_identity",
+          "report_projected"
+        ]
+      },
+      "researchImpact": {
+        "preservedInputsAndRoles": [
+          "lawful_source_kinds",
+          "supporting_opposing_background_and_contradictory_evidence",
+          "proxies_estimates_apis_and_datasets"
+        ],
+        "distinctSemanticStates": [
+          "partial",
+          "unavailable",
+          "unknown",
+          "inferred",
+          "not_applicable",
+          "no_evidence_found"
+        ],
+        "possibleDecisionEffects": [
+          "gate",
+          "ranking",
+          "confidence",
+          "readiness",
+          "recommendation_ceiling"
+        ]
+      }
+    },
+    {
+      "id": "ai_research",
+      "domain": "AI capability, reliability, data dependency, economics, and mandatory coverage",
+      "schemaSelectors": [{ "prefix": "current/ai/" }],
+      "artifactTypeSelectors": [{ "prefix": "current/ai/" }],
+      "directRuntimeRoots": [],
+      "ownerModules": ["harness/src/validators/ai-bundle-validator.ts"],
+      "producerModules": ["harness/src/runtime/declarative-runtime.ts"],
+      "consumerModules": [
+        "harness/src/reporting/report-runtime.ts",
+        "harness/src/validators/ai-bundle-validator.ts"
+      ],
+      "validatorModules": [
+        "harness/src/validators/ai-bundle-validator.ts",
+        "harness/src/validators/quantitative-research-semantics.ts"
+      ],
+      "policyPaths": [],
+      "reportProjectionModules": ["harness/src/reporting/report-runtime.ts"],
+      "userVisibleOutputs": ["decision-brief.md", "report.json", "report.md"],
+      "focusedTests": [
+        "tests/current-contract-architecture.test.ts",
+        "tests/g3.1-ai-contracts.test.ts",
+        "tests/g3.2-ai-economics.test.ts",
+        "tests/g3.3-ai-mandatory-bundle.test.ts"
+      ],
+      "testScripts": [
+        "test:contract-architecture",
+        "test:g3.1",
+        "test:g3.2",
+        "test:g3.3",
+        "validate:fixtures"
+      ],
+      "recoveryBoundaries": {
+        "storeIdentity": true,
+        "atomicPublication": true,
+        "exactReplay": true,
+        "checkpointReopen": false,
+        "crashRecovery": false
+      },
+      "fieldOwnership": {
+        "scope": "family_level_phase_1",
+        "categories": ["agent_authored", "harness_derived", "store_identity", "report_projected"]
+      },
+      "researchImpact": {
+        "preservedInputsAndRoles": ["benchmarks_reliability_data_economics_and_counterevidence"],
+        "distinctSemanticStates": ["partial", "unavailable", "unknown", "not_applicable"],
+        "possibleDecisionEffects": ["confidence", "ranking", "recommendation_ceiling"]
+      }
+    },
+    {
+      "id": "declarative_runtime",
+      "domain": "Declarative compilation, dispatch, lane delivery, and lifecycle",
+      "schemaSelectors": [{ "prefix": "current/runtime/" }],
+      "artifactTypeSelectors": [{ "prefix": "current/runtime/" }],
+      "directRuntimeRoots": [
+        "startup_opportunity.continuation_lineage_entry.v1",
+        "startup_opportunity.lane_staging_document.current",
+        "startup_opportunity.lane_delivery_result.current",
+        "startup_opportunity.runtime_artifact_compilation_request.v1",
+        "startup_opportunity.runtime_artifact_compilation_result.discovery.current",
+        "startup_opportunity.runtime_artifact_compilation_result.assessment.current",
+        "startup_opportunity.scaffold_request.current",
+        "startup_opportunity.scaffold_result.current"
+      ],
+      "ownerModules": [
+        "harness/src/runtime/declarative-runtime.ts",
+        "harness/src/runtime/lane-materializer.ts"
+      ],
+      "producerModules": [
+        "harness/src/runtime/artifact-scaffolds.ts",
+        "harness/src/runtime/declarative-runtime.ts",
+        "harness/src/runtime/lane-materializer.ts"
+      ],
+      "consumerModules": [
+        "harness/src/runtime/assessment-execution.ts",
+        "harness/src/runtime/lane-delivery-closure.ts",
+        "harness/src/run-store/run-store.ts"
+      ],
+      "validatorModules": [
+        "harness/src/validators/assessment-execution-validator.ts",
+        "harness/src/validators/declarative-runtime-validator.ts"
+      ],
+      "policyPaths": [],
+      "reportProjectionModules": ["harness/src/reporting/report-runtime.ts"],
+      "userVisibleOutputs": ["audit-appendix.md", "decision-brief.md", "report.json", "report.md"],
+      "focusedTests": [
+        "tests/current-contract-architecture.test.ts",
+        "tests/lane-delivery-closure.test.ts",
+        "tests/p1-declarative-runtime.test.ts",
+        "tests/p2-assessment-execution.test.ts"
+      ],
+      "testScripts": ["test", "test:contract-architecture", "validate:current-contract"],
+      "recoveryBoundaries": {
+        "storeIdentity": true,
+        "atomicPublication": true,
+        "exactReplay": true,
+        "checkpointReopen": true,
+        "crashRecovery": true
+      },
+      "fieldOwnership": {
+        "scope": "family_level_phase_1",
+        "categories": ["agent_authored", "harness_derived", "store_identity"]
+      },
+      "researchImpact": {
+        "preservedInputsAndRoles": ["all_lane_research_results_and_search_closures"],
+        "distinctSemanticStates": [
+          "partial",
+          "unavailable",
+          "unknown",
+          "inferred",
+          "not_applicable",
+          "no_evidence_found"
+        ],
+        "possibleDecisionEffects": ["lane_success", "readiness", "terminal_outcome"]
+      }
+    },
+    {
+      "id": "terminal_reporting",
+      "domain": "Decision subject synthesis, terminal reports, localization, and consistency",
+      "schemaSelectors": [{ "prefix": "current/reporting/" }],
+      "artifactTypeSelectors": [{ "prefix": "current/reporting/" }],
+      "directRuntimeRoots": [],
+      "ownerModules": [
+        "harness/src/reporting/report-runtime.ts",
+        "harness/src/reporting/terminal-reporting.ts"
+      ],
+      "producerModules": [
+        "harness/src/reporting/report-commands.ts",
+        "harness/src/reporting/report-runtime.ts"
+      ],
+      "consumerModules": [
+        "harness/src/reporting/report-consistency.ts",
+        "harness/src/reporting/report-projection-authority.ts"
+      ],
+      "validatorModules": [
+        "harness/src/validators/decision-subject-validator.ts",
+        "harness/src/validators/terminal-reporting-validator.ts"
+      ],
+      "policyPaths": [],
+      "reportProjectionModules": [
+        "harness/src/reporting/report-localization.ts",
+        "harness/src/reporting/report-projection-authority.ts",
+        "harness/src/reporting/report-runtime.ts",
+        "harness/src/reporting/terminal-reporting.ts"
+      ],
+      "userVisibleOutputs": ["audit-appendix.md", "decision-brief.md", "report.json", "report.md"],
+      "focusedTests": [
+        "tests/batch4-report-projection.test.ts",
+        "tests/current-contract-architecture.test.ts",
+        "tests/g1.4-report-runtime.test.ts",
+        "tests/g4-integration.test.ts",
+        "tests/g4-operational.test.ts"
+      ],
+      "testScripts": [
+        "test",
+        "test:contract-architecture",
+        "test:g1.4",
+        "test:g4",
+        "validate:fixtures"
+      ],
+      "recoveryBoundaries": {
+        "storeIdentity": true,
+        "atomicPublication": true,
+        "exactReplay": true,
+        "checkpointReopen": true,
+        "crashRecovery": true
+      },
+      "fieldOwnership": {
+        "scope": "family_level_phase_1",
+        "categories": ["harness_derived", "store_identity", "report_projected"]
+      },
+      "researchImpact": {
+        "preservedInputsAndRoles": ["all_adopted_and_excluded_evidence_with_dispositions"],
+        "distinctSemanticStates": [
+          "partial",
+          "unavailable",
+          "unknown",
+          "inferred",
+          "not_applicable",
+          "no_evidence_found"
+        ],
+        "possibleDecisionEffects": [
+          "confidence",
+          "ranking",
+          "readiness",
+          "recommendation_ceiling",
+          "user_visible_report"
+        ]
+      }
+    }
+  ],
+  "shared_schemas": [
+    {
+      "schemaFile": "current/ai/capability/ai-contract-definitions.schema.json",
+      "structuralOwner": "ai_research",
+      "impactFamilies": ["ai_research"]
+    },
+    {
+      "schemaFile": "current/ai/evaluation/ai-bundle-definitions.schema.json",
+      "structuralOwner": "ai_research",
+      "impactFamilies": ["ai_research", "store_publication"]
+    },
+    {
+      "schemaFile": "current/assessment/core/definitions.schema.json",
+      "structuralOwner": "assessment_research",
+      "impactFamilies": ["assessment_research", "declarative_runtime", "discovery_research"]
+    },
+    {
+      "schemaFile": "current/assessment/reporting/definitions.schema.json",
+      "structuralOwner": "assessment_research",
+      "impactFamilies": ["assessment_research", "discovery_research"]
+    },
+    {
+      "schemaFile": "current/assessment/research/definitions.schema.json",
+      "structuralOwner": "assessment_research",
+      "impactFamilies": ["assessment_research", "discovery_research"]
+    },
+    {
+      "schemaFile": "current/core/definitions.schema.json",
+      "structuralOwner": "run_control_planning",
+      "impactFamilies": [
+        "assessment_research",
+        "declarative_runtime",
+        "discovery_research",
+        "run_control_planning",
+        "terminal_reporting"
+      ]
+    },
+    {
+      "schemaFile": "current/discovery/candidates/definitions.schema.json",
+      "structuralOwner": "discovery_research",
+      "impactFamilies": ["discovery_research"]
+    },
+    {
+      "schemaFile": "current/discovery/evaluation/definitions.schema.json",
+      "structuralOwner": "discovery_research",
+      "impactFamilies": [
+        "ai_research",
+        "assessment_research",
+        "declarative_runtime",
+        "discovery_research",
+        "store_publication",
+        "terminal_reporting"
+      ]
+    },
+    {
+      "schemaFile": "current/discovery/maps/definitions.schema.json",
+      "structuralOwner": "discovery_research",
+      "impactFamilies": ["discovery_research"]
+    },
+    {
+      "schemaFile": "current/discovery/synthesis/definitions.schema.json",
+      "structuralOwner": "discovery_research",
+      "impactFamilies": ["ai_research", "discovery_research"]
+    }
+  ]
+}

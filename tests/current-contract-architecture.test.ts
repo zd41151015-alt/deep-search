@@ -2,14 +2,53 @@ import assert from "node:assert/strict";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
+import {
+  type ContractFileChange,
+  changedJsonPointers,
+  inspectContractImpact,
+} from "../harness/src/validators/contract-impact.js";
 import {
   inspectCurrentContract,
   inspectCurrentContractSource,
 } from "../harness/src/validators/current-contract.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const ownershipRegistryPath = "harness/contracts/current-ownership.json";
+
+interface MutableRegistryFamily {
+  id: string;
+  artifactTypeSelectors: { prefix: string }[];
+  directRuntimeRoots: string[];
+  ownerModules: string[];
+  testScripts: string[];
+}
+
+interface MutableOwnershipRegistry {
+  families: MutableRegistryFamily[];
+}
+
+async function copyCurrentContractSurface(context: TestContext): Promise<string> {
+  const copyRoot = await mkdtemp(path.join(tmpdir(), "startup-opportunity-ownership-registry-"));
+  context.after(() => rm(copyRoot, { recursive: true, force: true }));
+  await Promise.all([
+    cp(path.join(repositoryRoot, "harness"), path.join(copyRoot, "harness"), { recursive: true }),
+    cp(path.join(repositoryRoot, "tests"), path.join(copyRoot, "tests"), { recursive: true }),
+    cp(path.join(repositoryRoot, "package.json"), path.join(copyRoot, "package.json")),
+  ]);
+  return copyRoot;
+}
+
+async function mutateOwnershipRegistry(
+  root: string,
+  mutate: (registry: MutableOwnershipRegistry) => void,
+): Promise<void> {
+  const registryFile = path.join(root, ownershipRegistryPath);
+  const registry = JSON.parse(await readFile(registryFile, "utf8")) as MutableOwnershipRegistry;
+  mutate(registry);
+  await writeFile(registryFile, `${JSON.stringify(registry, null, 2)}\n`);
+}
 
 interface EnvelopeRule {
   readonly if: {
@@ -43,6 +82,168 @@ test("production exposes one current schema graph without version-selection stru
   assert.ok(result.schemaRootCount > 0);
   assert.ok(result.artifactTypeCount > 0);
   assert.ok(result.activePolicyCount > 0);
+  assert.ok(result.registryFamilyCount > 0);
+  assert.equal(result.registeredArtifactTypeCount, result.artifactTypeCount);
+  assert.equal(result.registeredDirectRuntimeRootCount, 13);
+});
+
+test("ownership registry rejects a missing formal Artifact type owner", async (context) => {
+  const copyRoot = await copyCurrentContractSurface(context);
+  await mutateOwnershipRegistry(copyRoot, (registry) => {
+    const family = registry.families.find((candidate) => candidate.id === "assessment_research");
+    assert.ok(family);
+    family.artifactTypeSelectors = [{ prefix: "current/unregistered/" }];
+  });
+
+  const result = await inspectCurrentContract(copyRoot);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some(
+      (candidate) => candidate.code === "current_contract.registry_artifact_type_unowned",
+    ),
+    JSON.stringify(result, null, 2),
+  );
+});
+
+test("ownership registry rejects duplicate formal Artifact type owners", async (context) => {
+  const copyRoot = await copyCurrentContractSurface(context);
+  await mutateOwnershipRegistry(copyRoot, (registry) => {
+    const family = registry.families.find((candidate) => candidate.id === "ai_research");
+    assert.ok(family);
+    family.artifactTypeSelectors.push({ prefix: "current/assessment/" });
+  });
+
+  const result = await inspectCurrentContract(copyRoot);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some(
+      (candidate) => candidate.code === "current_contract.registry_artifact_type_overlap",
+    ),
+    JSON.stringify(result, null, 2),
+  );
+});
+
+test("ownership registry rejects a stale production module", async (context) => {
+  const copyRoot = await copyCurrentContractSurface(context);
+  await mutateOwnershipRegistry(copyRoot, (registry) => {
+    const family = registry.families.find((candidate) => candidate.id === "store_publication");
+    assert.ok(family);
+    family.ownerModules.push("harness/src/artifact-store/removed-owner.ts");
+  });
+
+  const result = await inspectCurrentContract(copyRoot);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some(
+      (candidate) =>
+        candidate.code === "current_contract.registry_path_stale" &&
+        candidate.details.path === "harness/src/artifact-store/removed-owner.ts",
+    ),
+    JSON.stringify(result, null, 2),
+  );
+});
+
+test("ownership registry rejects a stale focused test command", async (context) => {
+  const copyRoot = await copyCurrentContractSurface(context);
+  await mutateOwnershipRegistry(copyRoot, (registry) => {
+    const family = registry.families.find((candidate) => candidate.id === "discovery_research");
+    assert.ok(family);
+    family.testScripts.push("test:removed-contract-suite");
+  });
+
+  const result = await inspectCurrentContract(copyRoot);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some(
+      (candidate) =>
+        candidate.code === "current_contract.registry_test_command_stale" &&
+        candidate.details.script === "test:removed-contract-suite",
+    ),
+    JSON.stringify(result, null, 2),
+  );
+});
+
+test("ownership registry rejects an unregistered direct Runtime root", async (context) => {
+  const copyRoot = await copyCurrentContractSurface(context);
+  const missingRoot = "startup_opportunity.evidence_store_record.v2";
+  await mutateOwnershipRegistry(copyRoot, (registry) => {
+    const family = registry.families.find((candidate) => candidate.id === "assessment_research");
+    assert.ok(family);
+    family.directRuntimeRoots = family.directRuntimeRoots.filter((root) => root !== missingRoot);
+  });
+
+  const result = await inspectCurrentContract(copyRoot);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some(
+      (candidate) =>
+        candidate.code === "current_contract.registry_runtime_root_unowned" &&
+        candidate.details.schemaVersion === missingRoot,
+    ),
+    JSON.stringify(result, null, 2),
+  );
+});
+
+const unknownContractChange: ContractFileChange = {
+  status: "modified",
+  path: "harness/src/unregistered-contract-surface.ts",
+  changedJsonPointers: [],
+  structuralComparison: "not_json",
+};
+
+test("unknown contract impact is explicit and conservatively broad", async () => {
+  const result = await inspectContractImpact({
+    root: repositoryRoot,
+    baseRef: "synthetic-base",
+    baseRevision: "synthetic-base-revision",
+    currentRevision: "synthetic-current-revision",
+    changes: [unknownContractChange],
+  });
+
+  assert.equal(result.topologyValid, true, JSON.stringify(result.topologyIssues, null, 2));
+  assert.equal(result.unknownImpact.length, 1);
+  assert.equal(result.unknownImpact[0]?.path, unknownContractChange.path);
+  assert.equal(result.affectedFamilies.length, 7);
+  assert.deepEqual(result.recommendedFocusedTests, [
+    "npm run lint",
+    "npm run typecheck",
+    "npm test",
+    "npm run validate:schemas",
+    "npm run validate:current-contract",
+    "npm run validate:fixtures",
+    "npm run verify:skeleton",
+    "git diff --check",
+  ]);
+});
+
+test("contract impact and structural JSON pointers are deterministic", async () => {
+  const structuralChange: ContractFileChange = {
+    status: "modified",
+    path: "harness/schemas/current/core/definitions.schema.json",
+    changedJsonPointers: ["/$defs/evidence_role/enum/2"],
+    structuralComparison: "compared",
+  };
+  const options = {
+    root: repositoryRoot,
+    baseRef: "synthetic-base",
+    baseRevision: "synthetic-base-revision",
+    currentRevision: "synthetic-current-revision",
+    changes: [structuralChange],
+  } as const;
+  const first = await inspectContractImpact(options);
+  const second = await inspectContractImpact(options);
+
+  assert.deepEqual(second, first);
+  assert.deepEqual(
+    changedJsonPointers(
+      { properties: { state: { enum: ["partial", "unknown"] } } },
+      { properties: { state: { enum: ["partial", "unavailable", "unknown"] } } },
+    ),
+    ["/properties/state/enum/1", "/properties/state/enum/2"],
+  );
+  assert.ok((first.changedSchemas[0]?.reverseReferences.length ?? 0) > 0);
+  assert.ok(first.affectedFamilies.some((family) => family.id === "run_control_planning"));
+  assert.equal(first.unknownImpact.length, 0);
 });
 
 test("current contract rejects missing and unlisted policy files", async (context) => {

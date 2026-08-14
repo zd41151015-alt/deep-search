@@ -30,6 +30,8 @@
     "validate:fixtures": "node --import tsx --test tests/schema-validation.test.ts tests/planning-contracts.test.ts tests/g1.1-contracts.test.ts tests/g1.2-contracts.test.ts tests/g1.3-dynamic-buyer-gap.test.ts tests/g1.4-contracts.test.ts tests/g2.1-discovery-maps.test.ts tests/g2.2-discovery-runtime.test.ts tests/g2.3-discovery-synthesis.test.ts tests/g2.4-discovery-evaluation.test.ts tests/g3.1-ai-contracts.test.ts tests/g3.2-ai-economics.test.ts tests/g3.3-ai-mandatory-bundle.test.ts tests/g4-operational.test.ts",
     "validate:schemas": "tsx harness/src/cli.ts validate-artifact --schema-bundle --json",
     "validate:current-contract": "tsx scripts/validate-current-contract.ts",
+    "contract:impact": "tsx scripts/contract-impact.ts",
+    "test:contract-architecture": "node --import tsx --test tests/current-contract-architecture.test.ts",
     "validate:store": "node --import tsx --test tests/store.test.ts tests/store-cli.test.ts",
     "test:faults": "node --import tsx --test tests/store-faults.test.ts",
     "test:g0.4": "node --import tsx --test tests/g0.4-runtime.test.ts",
