@@ -4,7 +4,7 @@
 
 This document defines the approved engineering design and staged acceptance plan for reducing current-contract change amplification. It does not change Runtime research contracts by itself.
 
-Implementation must follow root `AGENTS.md`, the owning production modules, `harness/schemas/current.json`, active current policies, and `docs/current-contract-maintenance.md`. `$startup-opportunity` is a business Runtime entry and must not be used as coding, architecture, review, delegation, or test guidance.
+Implementation must follow root `AGENTS.md`, the owning production modules, `harness/schemas/current.json`, active current policies, and `docs/current-contract-maintenance.md`. `$startup-opportunity` is a business Runtime entry and must not be invoked or followed as coding, architecture, review, delegation, or test guidance. This is not a prohibition on reading it: when a change may affect end-to-end Runtime behavior, inspect the relevant Skill sections as a consumer/orchestration and documentation surface, while resolving implementation truth from the owning contracts, policies, production modules, and tests.
 
 ## Problem
 
@@ -271,7 +271,7 @@ For each phase and repair, the implementation handoff and independent review mus
 6. Did any Gate, ranking, confidence, readiness, recommendation ceiling, Lane outcome, or report emphasis change?
 7. Are exact refs/hashes, current-Run ownership, atomic publication, replay, checkpoint/reopen, and recovery unchanged unless explicitly in scope?
 8. Do positive and negative regressions assert observable research and user effects?
-9. Was `$startup-opportunity` excluded from coding-agent guidance?
+9. Was `$startup-opportunity` excluded from coding-agent guidance while still being inspected as a Runtime consumer/orchestration surface when end-to-end behavior was in scope?
 10. Did focused verification and the required final acceptance matrix pass on the exact reviewed tree?
 
 ## Completion Criteria
