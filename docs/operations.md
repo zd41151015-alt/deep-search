@@ -8,7 +8,7 @@
 4. Run `npm run harness -- doctor --json` and require `ok=true`.
 5. Open the repository as a trusted Codex project before relying on `.codex/config.toml`, custom agents, hooks, or the local MCP server.
 
-The project configuration forwards no credentials. The local Evidence server uses `node --import tsx`, stdio, repository-local `runs/`, and a two-tool allow-list.
+The project configuration forwards no credentials. The local Evidence server uses `node --import tsx`, stdio, and repository-local `runs/`. The main-agent allow-list contains prompt-approved `create_run`, `propose_scope`, `confirm_scope`, and `record_evidence` operations plus read-only `get_evidence_manifest`; project agents receive narrower role-specific allow-lists.
 
 ## Codex Surfaces
 

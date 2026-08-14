@@ -16,7 +16,7 @@ npm run harness -- doctor --json
 The repository enables npm engine checks. Installation fails when the active Node/npm pair is outside the frozen versions.
 The same pair is also declared through npm `devEngines`, so `npm run` commands fail before execution when a shell has drifted to another Node or npm release.
 
-Codex loads `.codex/config.toml`, the three project agents, optional hooks, and the local Evidence MCP server only for a trusted project. The MCP server uses stdio, receives no credentials, exposes only `record_evidence` and `get_evidence_manifest`, and cannot fetch a URL or form a research judgment.
+Codex loads `.codex/config.toml`, the three project agents, optional hooks, and the local Evidence MCP server only for a trusted project. The MCP server uses stdio and receives no credentials. The main-agent configuration exposes prompt-approved `create_run`, `propose_scope`, `confirm_scope`, and `record_evidence` operations plus read-only `get_evidence_manifest`; project agents receive narrower role-specific allow-lists. The server cannot fetch a URL or form a research judgment.
 
 See [Operations](docs/operations.md) for clean-checkout setup, trust, hooks-disabled operation, recovery, and surface-specific launch notes.
 
