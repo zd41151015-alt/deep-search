@@ -7,13 +7,13 @@
       "policy_ref": "harness/policies/adaptation.current.json",
       "schema_version": "startup_opportunity.adaptation_policy.current",
       "policy_version": "1.0.0",
-      "content_hash": "sha256:334c44b3aa59c017e963b0affe4e93988177ec89c485f671479e6c3a51d1782e"
+      "content_hash": "sha256:b91cb152dd62a6cc2dee5c4688184f29b7ff3aef7543e242430b818bb324d102"
     },
     {
       "policy_ref": "harness/policies/ai-trigger-source-binding.current.json",
       "schema_version": "startup_opportunity.ai_trigger_source_binding_policy.current",
       "policy_version": "1.0.0",
-      "content_hash": "sha256:c04b72c0d6d4af809b6c9a690807f2663e0a691d5453478b28fe23298e3fda02"
+      "content_hash": "sha256:54437e58aef9f7d5294f5037bbc80d5f426e9274d8cd862fe0123eac0ea333a9"
     }
   ],
   "operation_identity": "canonical_parent_plan_hash_and_sorted_adaptation_refs.v1",

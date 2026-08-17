@@ -352,7 +352,7 @@ test("current plan reference and revision are verified through checkpoint and re
   assert.equal(reopened.manifest.plan_revision, 1);
 });
 
-test("generic publication rejects a Plan revision before broken parent lineage", async (context) => {
+test("generic publication rejects new planning authority before broken parent lineage", async (context) => {
   const { store } = await setup(context, "plan-bad-lineage");
   const first = await publishRecoveryPlan(store, "plan-bad-lineage");
 
@@ -372,7 +372,7 @@ test("generic publication rejects a Plan revision before broken parent lineage",
   await assert.rejects(
     store.publishArtifact({ runId: "plan-bad-lineage", envelope: second }),
     (error: unknown) =>
-      error instanceof StoreError && error.code === "artifact.plan_revision_entry_required",
+      error instanceof StoreError && error.code === "artifact.planning_authority_entry_required",
   );
 });
 

@@ -19,7 +19,7 @@ import {
   StoreError,
   validateAssessmentExecutionContract,
 } from "../harness/src/index.js";
-import { createConfirmedRun } from "./helpers/current-run.js";
+import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const fixturePath = path.join(
@@ -733,10 +733,12 @@ async function prepareStoreRun(context: TestContext, suffix: string) {
     ),
   );
   const plan = assessmentPlan(runId);
-  await store.publishArtifact({
+  await publishInitialPlanBundle(
+    store,
     runId,
-    envelope: v4Envelope(runId, planPath, plan, [conceptPath]),
-  });
+    [v4Envelope(runId, planPath, plan, [conceptPath])],
+    "assessment",
+  );
   return { ...core, hypothesis, plan };
 }
 

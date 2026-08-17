@@ -303,6 +303,7 @@ test("closed mode policy accepts exact declared tuples and preserves installed o
     "startup_opportunity.discovery_lane_result.v1",
     "startup_opportunity.enrichment_branch_result.v1",
     "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+    "startup_opportunity.assessment_lane_result.v1",
     "startup_opportunity.adversarial_review.v1",
   ]);
   assert.deepEqual(new Set(policy.artifact_schema_catalog), installedOwnedSchemas);

@@ -35,6 +35,7 @@
     "startup_opportunity.discovery_lane_result.v1",
     "startup_opportunity.enrichment_branch_result.v1",
     "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+    "startup_opportunity.assessment_lane_result.v1",
     "startup_opportunity.adversarial_review.v1"
   ],
   "unit_rules": [
@@ -373,6 +374,69 @@
       "unit_type": "bounded_domain_research",
       "agent_role": "lane-researcher",
       "required_artifact_schema": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "bounded_domain_research",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.assessment_lane_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "solution_failure",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.assessment_lane_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "competitor_gap",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.assessment_lane_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "buyer_language",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.assessment_lane_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "acquisition",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.assessment_lane_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "business_engine",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.assessment_lane_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "delivery_feasibility",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.assessment_lane_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "compliance_risk",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.assessment_lane_result.v1"
+    },
+    {
+      "mode": "concept_evidence_assessment",
+      "phase": "assessment",
+      "unit_type": "counter_evidence",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.assessment_lane_result.v1"
     },
     {
       "mode": "concept_evidence_assessment",

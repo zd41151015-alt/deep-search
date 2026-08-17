@@ -2852,18 +2852,18 @@ export class RunStore {
     const stored = new Map(
       (await this.artifacts.listFormalDocuments(runRoot)).map((entry) => [entry.path, entry]),
     );
-    const exactReplay = envelopes.every((envelope) => {
+    const planningEnvelopes = envelopes.filter((envelope) =>
+      PLANNING_PUBLICATION_TYPES.has(envelope.artifact_type),
+    );
+    const exactPlanningAuthorityReplay = planningEnvelopes.every((envelope) => {
       const existing = stored.get(envelope.artifact_path)?.document;
       return existing !== undefined && canonicalJson(existing) === canonicalJson(envelope);
     });
-    if (exactReplay) return;
-    const publishesPlan = envelopes.some(
-      (envelope) => envelope.artifact_type === "startup_opportunity.research_plan.v1",
-    );
-    if (manifest.current_plan_ref !== null && publishesPlan && !exactReplay) {
+    if (exactPlanningAuthorityReplay) return;
+    if (manifest.current_plan_ref !== null) {
       throw new StoreError(
-        "artifact.plan_revision_entry_required",
-        "Plan revisions and their planning authority must publish through PlanRevisionRuntime",
+        "artifact.planning_authority_entry_required",
+        "New Plan or leaf planning authority must publish through PlanRevisionRuntime",
         { currentPlanRef: manifest.current_plan_ref },
       );
     }

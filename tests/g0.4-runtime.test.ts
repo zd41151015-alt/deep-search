@@ -47,8 +47,7 @@ import {
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const PLAN_REF = "plans/research-plan.r1.json";
 const CONTEXT_REF = "plans/planning-context.r1.json";
-const PERSISTED_CONTEXT_REF = "plans/planning-context.r2.json";
-const CANDIDATE_CONTEXT_REF = "plans/planning-context.r3.json";
+const CANDIDATE_CONTEXT_REF = "plans/planning-context.r2.json";
 const GAP_REF = "adaptations/gap-snapshots/gap-runtime.r1.json";
 const DECISION_REF = "adaptations/decisions/adapt-retry-runtime.json";
 const DECISION_CONTEXT_REF = "decision-context.json";
@@ -962,13 +961,12 @@ async function setupPersistedRun(
     persistedManifest.followup_round = 2;
   }
   await writeFile(path.join(runRoot, "manifest.json"), `${canonicalJson(persistedManifest)}\n`);
-  const planningContext = context(persistedManifest, plan, {
-    path: PERSISTED_CONTEXT_REF,
-    revision: 2,
-    parentRef: CONTEXT_REF,
-    stage: "current_plan",
-    createdAt: "2026-07-24T12:03:00Z",
-  });
+  const planningContext = {
+    path: CONTEXT_REF,
+    document: JSON.parse(
+      await readFile(path.join(runRoot, CONTEXT_REF), "utf8"),
+    ) as FormalArtifactEnvelope as unknown as Record<string, unknown>,
+  };
   const gap = preKill
     ? gapSnapshot(runId, "candidate_pre_killed", PRE_KILL_CANDIDATE_REF)
     : action === "stop-followup"
@@ -1056,13 +1054,6 @@ async function setupPersistedRun(
     decision.requested_by = "user";
     decision.user_decision_ref = `decisions.jsonl#${String(userDecision.decision_id)}`;
   }
-  await store.publishArtifact({
-    runId,
-    envelope: formalEnvelope(runId, PERSISTED_CONTEXT_REF, planningContext.document, [
-      "manifest.json",
-      PLAN_REF,
-    ]),
-  });
   if (triggerEventRecord !== null) {
     await store.appendEvent(runId, triggerEventRecord);
   }
@@ -1084,7 +1075,7 @@ async function setupPersistedRun(
     envelope: formalEnvelope(runId, DECISION_REF, decision, [
       PLAN_REF,
       GAP_REF,
-      ...(action === "terminate-unclosed" ? [PERSISTED_CONTEXT_REF] : []),
+      ...(action === "terminate-unclosed" ? [CONTEXT_REF] : []),
       ...(userDecision === null ? [] : [String(decision.user_decision_ref)]),
     ]),
   });
@@ -1121,7 +1112,7 @@ async function setupPersistedRun(
       next_decision_relevant_question: "Does the retry produce a valid result?",
     },
     unresolvedGapRefs: action === "complete" ? [] : [`${GAP_REF}#gap_runtime_001`],
-    inputRefs: [PERSISTED_CONTEXT_REF, GAP_REF, DECISION_REF],
+    inputRefs: [CONTEXT_REF, GAP_REF, DECISION_REF],
   });
   const loaded = await store.load(runId);
   const currentManifest = loaded.manifest as unknown as Record<string, unknown>;
@@ -1132,14 +1123,7 @@ async function setupPersistedRun(
     path: loaded.lastValidCheckpointRef,
     document: checkpointEnvelope.document,
   };
-  const initialContextEntry = {
-    path: CONTEXT_REF,
-    document: JSON.parse(
-      await readFile(path.join(runRoot, CONTEXT_REF), "utf8"),
-    ) as FormalArtifactEnvelope,
-  };
   const adaptationBundle = bundle(currentManifest, plan, planningContext, gap, decision, [
-    initialContextEntry,
     checkpointEntry,
     ...(discoveryBundle === null
       ? []
@@ -1168,7 +1152,6 @@ async function setupPersistedRun(
     currentManifest,
     adaptationBundle,
     checkpointEntry,
-    initialContextEntry,
     discoveryBundle,
   };
 }
@@ -1498,8 +1481,8 @@ function candidateFor(
   assert.ok(transformed.plan);
   const candidateContext = context(setup.currentManifest, transformed.plan, {
     path: CANDIDATE_CONTEXT_REF,
-    revision: 3,
-    parentRef: PERSISTED_CONTEXT_REF,
+    revision: 2,
+    parentRef: CONTEXT_REF,
     stage: "candidate_revision",
     createdAt: candidateContextCreatedAt,
   });
@@ -1509,7 +1492,6 @@ function candidateFor(
       { path: "manifest.json", document: setup.currentManifest },
       { path: PLAN_REF, document: setup.plan },
       { path: transformed.planPath, document: transformed.plan },
-      setup.initialContextEntry,
       setup.planningContext,
       candidateContext,
       { path: GAP_REF, document: setup.gap },
@@ -1638,15 +1620,14 @@ async function multiDecisionApplyInput(
   assert.ok(transformed.plan);
   const candidateContext = context(currentManifest, transformed.plan, {
     path: CANDIDATE_CONTEXT_REF,
-    revision: 3,
-    parentRef: PERSISTED_CONTEXT_REF,
+    revision: 2,
+    parentRef: CONTEXT_REF,
     stage: "candidate_revision",
     createdAt: "2026-07-24T12:10:30Z",
   });
   const commonDocuments = [
     { path: "manifest.json", document: currentManifest },
     { path: PLAN_REF, document: setup.plan },
-    setup.initialContextEntry,
     setup.planningContext,
     { path: GAP_REF, document: setup.gap },
     { path: second.gapPath, document: second.gap },
@@ -1896,6 +1877,157 @@ test("public RunStore and publish-artifact reject an illegal initial Plan before
     ),
     ["user_language_mining", "counter_evidence", "bounded_domain_research"],
   );
+});
+
+test("public publication cannot replace leaf planning authority after the initial Plan", async (contextTest) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-planning-authority-"));
+  contextTest.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runId = "public-planning-authority-boundary";
+  const store = new RunStore(runsRoot, await createArtifactValidator(repositoryRoot));
+  const fixture = await createDiscoveryMapsFixture("general", runId);
+  const intake = fixtureEnvelope(fixture, "intake.json").document;
+  const confirmedScope = intake.scope_confirmation as Record<string, unknown>;
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-28T08:00:00Z",
+    scopeProposal: {
+      geography: String(confirmedScope.geography),
+      customerModel: String(confirmedScope.customer_model) as "b2c",
+      targetUsers: confirmedScope.target_users as string[],
+      decisionGoal: String(confirmedScope.decision_goal),
+      researchLanguage: String(confirmedScope.research_language),
+    },
+  });
+  await store.publishArtifactBundle({
+    runId,
+    envelopes: G21_CORE_REFS.filter((ref) => ref !== PLAN_REF).map((ref) =>
+      fixtureEnvelope(fixture, ref),
+    ),
+  });
+  const initialPlanning = await initialPlanBundleEnvelopes(store, runId, [
+    fixtureEnvelope(fixture, PLAN_REF),
+  ]);
+  assert.equal(
+    (await store.publishArtifactBundle({ runId, envelopes: initialPlanning })).status,
+    "published",
+  );
+  const initialContext = initialPlanning.find(
+    (envelope) =>
+      envelope.artifact_type === "startup_opportunity.planning_context.ai_source_bound.current",
+  );
+  assert.ok(initialContext);
+  const currentManifest = (await store.load(runId)).manifest;
+  assert.equal(currentManifest.current_phase, "discovery");
+  assert.equal(currentManifest.current_plan_ref, PLAN_REF);
+
+  const driftedContextDocument = structuredClone(initialContext.document);
+  driftedContextDocument.revision = 2;
+  driftedContextDocument.parent_context_ref = CONTEXT_REF;
+  driftedContextDocument.phase = "enrichment";
+  driftedContextDocument.validation_stage = "current_plan";
+  driftedContextDocument.created_at = "2026-07-28T08:02:00Z";
+  driftedContextDocument.manifest_binding = {
+    manifest_ref: "manifest.json",
+    manifest_schema_version: "startup_opportunity.run_manifest.v1",
+    run_id: runId,
+    mode: currentManifest.mode,
+    current_plan_ref: currentManifest.current_plan_ref,
+    current_plan_revision: currentManifest.plan_revision,
+    run_state_hash: planningRunStateHash({
+      manifest_ref: "manifest.json",
+      manifest_schema_version: "startup_opportunity.run_manifest.v1",
+      run_id: runId,
+      mode: currentManifest.mode,
+      current_plan_ref: currentManifest.current_plan_ref as string,
+      current_plan_revision: currentManifest.plan_revision,
+    }),
+  };
+  const driftedContext: FormalArtifactEnvelope = {
+    ...initialContext,
+    artifact_path: "plans/planning-context.r2.json",
+    created_at: "2026-07-28T08:02:00Z",
+    input_refs: ["manifest.json", PLAN_REF, CONTEXT_REF],
+    content_hash: canonicalContentHash(driftedContextDocument),
+    document: driftedContextDocument,
+  };
+
+  const triggerDocument = {
+    schema_version: "startup_opportunity.ai_trigger_source_attestation.v1",
+    attestation_id: "ai_trigger_source_public_injection",
+    run_id: runId,
+    mode: currentManifest.mode,
+    planning_context_binding: {
+      context_id: initialContext.document.context_id,
+      context_revision: initialContext.document.revision,
+    },
+    subject_ref: "scope-frame.json",
+    trigger: {
+      trigger_version: "startup_opportunity.ai_mandatory_coverage_trigger.v1",
+      signal: "uses_ai",
+      declared_value: "true",
+    },
+    producer_role: "main_agent",
+    created_at: "2026-07-28T08:02:00Z",
+  };
+  const triggerEnvelope: FormalArtifactEnvelope = {
+    schema_version: "startup_opportunity.artifact_envelope.current",
+    artifact_type: "startup_opportunity.ai_trigger_source_attestation.v1",
+    artifact_path: "plans/ai-trigger-source.r1.json",
+    run_id: runId,
+    created_at: String(triggerDocument.created_at),
+    producer_role: "main_agent",
+    input_refs: [CONTEXT_REF, "scope-frame.json"],
+    content_hash: canonicalContentHash(triggerDocument),
+    document: triggerDocument,
+  };
+  const runRoot = path.join(runsRoot, runId);
+  const before = await snapshotRunTree(runRoot);
+  const rejectsAuthority = (error: unknown) =>
+    error instanceof StoreError && error.code === "artifact.planning_authority_entry_required";
+
+  await assert.rejects(
+    store.publishArtifact({ runId, envelope: driftedContext }),
+    rejectsAuthority,
+  );
+  assert.deepEqual(await snapshotRunTree(runRoot), before);
+  await assert.rejects(
+    store.publishArtifactBundle({ runId, envelopes: [driftedContext] }),
+    rejectsAuthority,
+  );
+  assert.deepEqual(await snapshotRunTree(runRoot), before);
+
+  const cliInput = path.join(root, "drifted-planning-context.json");
+  await writeFile(cliInput, `${canonicalJson(driftedContext)}\n`);
+  const cli = runScript("harness/src/cli.ts", [
+    "publish-artifact",
+    "--runs-root",
+    runsRoot,
+    "--file",
+    cliInput,
+  ]);
+  assert.equal(cli.status, 1, cli.stderr || cli.stdout);
+  assert.match(cli.stderr, /artifact\.planning_authority_entry_required/u);
+  assert.deepEqual(await snapshotRunTree(runRoot), before);
+
+  await assert.rejects(
+    store.publishArtifact({ runId, envelope: triggerEnvelope }),
+    rejectsAuthority,
+  );
+  assert.deepEqual(await snapshotRunTree(runRoot), before);
+  await assert.rejects(
+    store.publishArtifactBundle({ runId, envelopes: [initialContext, triggerEnvelope] }),
+    rejectsAuthority,
+  );
+  assert.deepEqual(await snapshotRunTree(runRoot), before);
+
+  const reopened = new RunStore(runsRoot, await createArtifactValidator(repositoryRoot));
+  assert.equal(
+    (await reopened.publishArtifact({ runId, envelope: initialContext })).status,
+    "idempotent_replay",
+  );
+  assert.deepEqual(await snapshotRunTree(runRoot), before);
 });
 
 test("Gap analyzer emits only deterministic machine-observable gaps and stop signals", async () => {
@@ -3276,8 +3408,8 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
   assert.equal(transformed.manifest.followup_round, currentManifest.followup_round);
   const candidateContext = context(currentManifest, transformed.plan, {
     path: CANDIDATE_CONTEXT_REF,
-    revision: 3,
-    parentRef: PERSISTED_CONTEXT_REF,
+    revision: 2,
+    parentRef: CONTEXT_REF,
     stage: "candidate_revision",
     createdAt: "2026-07-28T12:11:20Z",
     targetPlanRef: transformed.planPath,
@@ -3810,14 +3942,8 @@ test("a later same-Run adaptation preserves receipt-bound historical discovery v
     },
     {
       path: currentContextPath,
-      stage: "current_plan",
-      parent: CONTEXT_REF,
-      target: PLAN_REF,
-    },
-    {
-      path: CANDIDATE_CONTEXT_REF,
       stage: "candidate_revision",
-      parent: currentContextPath,
+      parent: CONTEXT_REF,
       target: first.currentPlanRef,
     },
   ]);
@@ -3931,7 +4057,7 @@ test("current adaptation planning preserves the complete G2.1/G2.2 envelope clos
   };
   const currentManifest = effective("manifest.json");
   const currentPlan = effective(PLAN_REF);
-  const currentContext = effective(PERSISTED_CONTEXT_REF);
+  const currentContext = effective(CONTEXT_REF);
   const currentDecision = effective(DECISION_REF);
   assert.deepEqual(
     {
@@ -3949,7 +4075,7 @@ test("current adaptation planning preserves the complete G2.1/G2.2 envelope clos
       planRef: PLAN_REF,
       planRevision: 1,
       contextPlanRef: PLAN_REF,
-      contextStage: "current_plan",
+      contextStage: "initial_plan",
       decisionPlanRef: PLAN_REF,
     },
   );
@@ -5069,7 +5195,6 @@ test("a completed no-revision operation does not block the next same-Plan adapta
     documents: [
       { path: "manifest.json", document: currentManifest },
       { path: PLAN_REF, document: setup.plan },
-      setup.initialContextEntry,
       setup.planningContext,
       { path: GAP_REF, document: setup.gap },
       { path: DECISION_REF, document: setup.decision },
