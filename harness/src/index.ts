@@ -265,6 +265,7 @@ export {
 } from "./validators/discovery-maps-policy.js";
 export {
   type DiscoveryMapDocument,
+  discoveryMapEnvelopeInputRefs,
   isDiscoveryMapSchemaVersion,
   validateDiscoveryMapsContract,
 } from "./validators/discovery-maps-validator.js";

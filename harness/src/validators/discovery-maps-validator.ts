@@ -351,23 +351,56 @@ function validateEnvelopeIdentity(
   return envelope;
 }
 
-function validateEnvelope(
-  entry: DiscoveryMapDocument,
-  expectedInputRefs: readonly string[],
-  errors: ValidationIssue[],
-): void {
+export function discoveryMapEnvelopeInputRefs(
+  document: Record<string, unknown>,
+): readonly string[] | null {
+  const schemaVersion = document.schema_version;
+  const parentRef =
+    schemaVersion === "startup_opportunity.seed_probe.v1"
+      ? document.parent_seed_probe_ref
+      : document.parent_map_ref;
+  const baseRefs =
+    schemaVersion === "startup_opportunity.seed_probe.v1"
+      ? [document.scope_frame_ref, document.research_plan_ref]
+      : schemaVersion === "startup_opportunity.opportunity_space_map.v1"
+        ? [document.scope_frame_ref, document.seed_probe_ref, document.research_plan_ref]
+        : schemaVersion === "startup_opportunity.solution_space_map.v1"
+          ? [
+              document.scope_frame_ref,
+              document.seed_probe_ref,
+              document.opportunity_space_map_ref,
+              document.research_plan_ref,
+            ]
+          : null;
+  if (baseRefs === null) {
+    return null;
+  }
+  const handoffRefs = (
+    Array.isArray(document.research_handoff_input_hashes)
+      ? document.research_handoff_input_hashes.filter(isRecord)
+      : []
+  ).flatMap((binding) => (typeof binding.ref === "string" ? [binding.ref] : []));
+  const provenance = isRecord(document.content_provenance) ? document.content_provenance : {};
+  const priorDecisionRefs = stringArray(provenance.prior_input_decision_refs);
+  return [
+    ...new Set([
+      ...(typeof parentRef === "string" ? [parentRef] : []),
+      ...baseRefs.filter((ref): ref is string => typeof ref === "string"),
+      ...handoffRefs,
+      ...priorDecisionRefs,
+    ]),
+  ].sort();
+}
+
+function validateEnvelope(entry: DiscoveryMapDocument, errors: ValidationIssue[]): void {
   const envelope = validateEnvelopeIdentity(entry, errors);
   if (envelope === null) {
     return;
   }
-  const handoffRefs = (
-    Array.isArray(entry.document.research_handoff_input_hashes)
-      ? entry.document.research_handoff_input_hashes.filter(isRecord)
-      : []
-  ).flatMap((binding) => (typeof binding.ref === "string" ? [binding.ref] : []));
+  const expectedInputRefs = discoveryMapEnvelopeInputRefs(entry.document) ?? [];
   validateExactRefs(
     envelope.input_refs,
-    [...expectedInputRefs, ...handoffRefs],
+    expectedInputRefs,
     `${entry.path}#/input_refs`,
     errors,
     "discovery_maps.envelope_input_mismatch",
@@ -898,9 +931,9 @@ export function validateDiscoveryMapsContract(
   for (const entry of [intake, decision, scope, plan]) {
     validateEnvelopeIdentity(entry, errors);
   }
-  validateEnvelope(seed, expectedSeedRefs, errors);
-  validateEnvelope(opportunity, expectedOpportunityRefs, errors);
-  validateEnvelope(solution, expectedSolutionRefs, errors);
+  validateEnvelope(seed, errors);
+  validateEnvelope(opportunity, errors);
+  validateEnvelope(solution, errors);
   validateInputHashes(seed, expectedSeedRefs, byPath, errors);
   validateInputHashes(opportunity, expectedOpportunityRefs, byPath, errors);
   validateInputHashes(solution, expectedSolutionRefs, byPath, errors);

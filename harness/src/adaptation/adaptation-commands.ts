@@ -87,6 +87,32 @@ function stringArray(value: unknown, field: string): readonly string[] {
   return value as readonly string[];
 }
 
+async function validationContext(
+  parsed: ParsedArguments,
+  repositoryRoot: string,
+  inputBundle: DocumentBundle,
+  exactRecordRefs: readonly string[] = [],
+): Promise<{
+  readonly bundle: DocumentBundle;
+  readonly referenceContext: DocumentBundleReferenceContext;
+}> {
+  const runId = parsed.values.get("--run-id");
+  if (runId === undefined) {
+    if (parsed.values.has("--runs-root")) {
+      throw new StoreError(
+        "command.invalid_arguments",
+        "--runs-root requires --run-id for validation-context assembly",
+      );
+    }
+    return { bundle: inputBundle, referenceContext: {} };
+  }
+  const artifactValidator = await createArtifactValidator(repositoryRoot);
+  return new RunStore(
+    parsed.values.get("--runs-root") ?? path.join(repositoryRoot, "runs"),
+    artifactValidator,
+  ).buildValidationContext(runId, inputBundle, { exactRecordRefs });
+}
+
 async function runCommand(action: () => Promise<{ readonly valid?: boolean } | unknown>) {
   try {
     const result = await action();
@@ -111,27 +137,14 @@ export async function runValidatePlan(
   return runCommand(async () => {
     const parsed = parseArguments(args);
     rejectUnknown(parsed, ["--bundle", "--run-id", "--runs-root"]);
-    let bundle = documentBundle(await readObject(required(parsed, "--bundle")));
-    let referenceContext: DocumentBundleReferenceContext = {};
-    const runId = parsed.values.get("--run-id");
-    if (runId === undefined && parsed.values.has("--runs-root")) {
-      throw new StoreError(
-        "command.invalid_arguments",
-        "--runs-root requires --run-id for validation-context assembly",
-      );
-    }
-    if (runId !== undefined) {
-      const artifactValidator = await createArtifactValidator(repositoryRoot);
-      const assembled = await new RunStore(
-        parsed.values.get("--runs-root") ?? path.join(repositoryRoot, "runs"),
-        artifactValidator,
-      ).buildValidationContext(runId, bundle);
-      bundle = assembled.bundle;
-      referenceContext = assembled.referenceContext;
-    }
+    const assembled = await validationContext(
+      parsed,
+      repositoryRoot,
+      documentBundle(await readObject(required(parsed, "--bundle"))),
+    );
     return (await createPlanSemanticValidator(repositoryRoot)).validateDocumentBundle(
-      bundle,
-      referenceContext,
+      assembled.bundle,
+      assembled.referenceContext,
     );
   });
 }
@@ -142,9 +155,16 @@ export async function runValidateAdaptation(
 ): Promise<number> {
   return runCommand(async () => {
     const parsed = parseArguments(args);
-    rejectUnknown(parsed, ["--bundle"]);
-    const bundle = documentBundle(await readObject(required(parsed, "--bundle")));
-    return (await createAdaptationPolicyValidator(repositoryRoot)).validateDocumentBundle(bundle);
+    rejectUnknown(parsed, ["--bundle", "--run-id", "--runs-root"]);
+    const assembled = await validationContext(
+      parsed,
+      repositoryRoot,
+      documentBundle(await readObject(required(parsed, "--bundle"))),
+    );
+    return (await createAdaptationPolicyValidator(repositoryRoot)).validateDocumentBundle(
+      assembled.bundle,
+      assembled.referenceContext,
+    );
   });
 }
 
@@ -154,7 +174,7 @@ export async function runAnalyzeGaps(
 ): Promise<number> {
   return runCommand(async () => {
     const parsed = parseArguments(args);
-    rejectUnknown(parsed, ["--file"]);
+    rejectUnknown(parsed, ["--file", "--run-id", "--runs-root"]);
     const value = await readObject(required(parsed, "--file"));
     if (
       value.schema_version !== "startup_opportunity.gap_analysis_input.v1" &&
@@ -163,15 +183,29 @@ export async function runAnalyzeGaps(
       throw new StoreError("command.invalid_arguments", "gap input schema_version is unsupported");
     }
     if (value.schema_version === "startup_opportunity.assessment_gap_analysis_input.v1") {
+      const triggerEventRef =
+        value.trigger_event_ref === null ? null : String(value.trigger_event_ref ?? "");
+      const assembled = await validationContext(
+        parsed,
+        repositoryRoot,
+        documentBundle(value.document_bundle),
+        triggerEventRef === null ? [] : [triggerEventRef],
+      );
       const assessmentInput: AnalyzeAssessmentGapInput = {
-        documentBundle: documentBundle(value.document_bundle),
+        documentBundle: assembled.bundle,
+        referenceContext: assembled.referenceContext,
         snapshotId: String(value.snapshot_id ?? ""),
         createdAt: String(value.created_at ?? ""),
         triggerKind: String(value.trigger_kind ?? "") as AnalyzeAssessmentGapInput["triggerKind"],
         waveId: String(value.wave_id ?? ""),
-        triggerEventRef:
-          value.trigger_event_ref === null ? null : String(value.trigger_event_ref ?? ""),
-        dimensionId: String(value.dimension_id ?? "") as AnalyzeAssessmentGapInput["dimensionId"],
+        triggerEventRef,
+        ...(value.dimension_id === undefined
+          ? {}
+          : {
+              dimensionId: String(value.dimension_id) as NonNullable<
+                AnalyzeAssessmentGapInput["dimensionId"]
+              >,
+            }),
         observedArtifactRefs: stringArray(value.observed_artifact_refs, "observed_artifact_refs"),
         materialNewEvidenceObserved: value.material_new_evidence_observed === true,
         limitations: stringArray(value.limitations ?? [], "limitations"),
@@ -202,15 +236,23 @@ export async function runAnalyzeGaps(
           } as MachineGapCheck;
         })
       : [];
+    const triggerEventRef =
+      value.trigger_event_ref === null ? null : String(value.trigger_event_ref ?? "");
+    const assembled = await validationContext(
+      parsed,
+      repositoryRoot,
+      documentBundle(value.document_bundle),
+      triggerEventRef === null ? [] : [triggerEventRef],
+    );
     const input: AnalyzeGapsInput = {
-      documentBundle: documentBundle(value.document_bundle),
+      documentBundle: assembled.bundle,
+      referenceContext: assembled.referenceContext,
       snapshotId: String(value.snapshot_id ?? ""),
       createdAt: String(value.created_at ?? ""),
       triggerKind: String(value.trigger_kind ?? "") as AnalyzeGapsInput["triggerKind"],
       phase: String(value.phase ?? ""),
       waveId: value.wave_id === null ? null : String(value.wave_id ?? ""),
-      triggerEventRef:
-        value.trigger_event_ref === null ? null : String(value.trigger_event_ref ?? ""),
+      triggerEventRef,
       observedArtifactRefs: stringArray(value.observed_artifact_refs, "observed_artifact_refs"),
       materialNewEvidenceObserved: value.material_new_evidence_observed === true,
       repeatedSourceRefs: stringArray(value.repeated_source_refs ?? [], "repeated_source_refs"),

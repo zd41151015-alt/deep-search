@@ -45,6 +45,7 @@
         "reprioritize_unit",
         "retry_unit",
         "supersede_unit",
+        "reconcile_scope",
         "continue_existing_plan",
         "request_clarification",
         "stop_followup",
@@ -249,6 +250,25 @@
               {
                 "required": ["stop_condition"]
               }
+            ]
+          }
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "reconcile_scope"
+            }
+          },
+          "not": {
+            "anyOf": [
+              { "required": ["target_unit"] },
+              { "required": ["target_unit_ref"] },
+              { "required": ["coverage_attestation_ref"] },
+              { "required": ["retry_basis"] },
+              { "required": ["priority_band"] },
+              { "required": ["clarification_question"] },
+              { "required": ["success_condition"] },
+              { "required": ["stop_condition"] }
             ]
           }
         },

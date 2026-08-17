@@ -23,8 +23,8 @@ Usage:
   npm run harness -- scaffold-artifact --file FILE
   npm run harness -- checkpoint-run --file FILE
   npm run harness -- validate-plan --bundle FILE [--run-id ID] [--runs-root DIR] [--json]
-  npm run harness -- analyze-gaps --file FILE [--json]
-  npm run harness -- validate-adaptation --bundle FILE [--json]
+  npm run harness -- analyze-gaps --file FILE [--run-id ID] [--runs-root DIR] [--json]
+  npm run harness -- validate-adaptation --bundle FILE [--run-id ID] [--runs-root DIR] [--json]
   npm run harness -- apply-plan-revision --file FILE [--runs-root DIR] [--json]
   npm run harness -- calculate-comparison --bundle FILE [--json]
   npm run harness -- calculate-sensitivity --bundle FILE [--json]
@@ -52,8 +52,8 @@ Commands:
   scaffold-artifact  Produce a schema-valid structural scaffold without research judgment.
   checkpoint-run     Publish an immutable checkpoint from a JSON input document.
   validate-plan      Validate Planning Context v2 and full Research Plan semantics; --run-id assembles persisted authority.
-  analyze-gaps       Build a deterministic machine or assessment Gap Snapshot draft.
-  validate-adaptation Validate G0 v2 or G1.3 v3 closed actions against current Run/Plan state.
+  analyze-gaps       Build a deterministic Gap draft; --run-id assembles persisted current/history authority.
+  validate-adaptation Validate closed actions; --run-id assembles persisted current/history authority.
   apply-plan-revision Apply validated actions through CAS and immutable Plan Revision receipts.
   calculate-comparison Validate and summarize caller-supplied G2.4 comparison Artifacts.
   calculate-sensitivity Validate and summarize the caller-supplied G2.4 sensitivity Artifact.

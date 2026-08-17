@@ -78,7 +78,13 @@
       "$ref": "../../core/definitions.schema.json#/$defs/sha256"
     },
     "action": {
-      "enum": ["add_unit", "stop_followup", "complete_research", "cancel_research"]
+      "enum": [
+        "add_unit",
+        "reconcile_scope",
+        "stop_followup",
+        "complete_research",
+        "cancel_research"
+      ]
     },
     "target_unit": {
       "$ref": "../../core/definitions.schema.json#/$defs/researchUnit"
@@ -116,6 +122,21 @@
       "required": ["target_unit", "candidate_assessment_plan_ref", "success_condition"],
       "not": {
         "required": ["stop_condition"]
+      }
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "reconcile_scope"
+        }
+      },
+      "not": {
+        "anyOf": [
+          { "required": ["target_unit"] },
+          { "required": ["candidate_assessment_plan_ref"] },
+          { "required": ["success_condition"] },
+          { "required": ["stop_condition"] }
+        ]
       }
     },
     {

@@ -52,6 +52,9 @@
           "const": "add_unit"
         },
         {
+          "const": "reconcile_scope"
+        },
+        {
           "const": "stop_followup"
         },
         {
@@ -61,8 +64,8 @@
           "const": "cancel_research"
         }
       ],
-      "minItems": 4,
-      "maxItems": 4,
+      "minItems": 5,
+      "maxItems": 5,
       "items": false
     },
     "coverage_key_algorithm": {

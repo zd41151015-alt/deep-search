@@ -2022,10 +2022,9 @@ export class ReportRuntime {
       .filter(
         (subject) => subject.lifecycle_status === "current" && subject.reporting_role === "final",
       )
-      .map((subject) => String(subject.subject_id))
-      .sort();
+      .map((subject) => String(subject.subject_id));
     const synthesisBindings = records(sourceDocument.decision_subject_synthesis_hashes);
-    const subjectSyntheses = synthesisBindings.map((binding) => {
+    const boundSubjectSyntheses = synthesisBindings.map((binding) => {
       const synthesis =
         typeof binding.ref === "string" ? envelopesByPath.get(binding.ref) : undefined;
       if (
@@ -2041,29 +2040,48 @@ export class ReportRuntime {
       }
       return synthesis;
     });
-    const synthesizedDirections = subjectSyntheses
-      .map((synthesis) => ({
-        direction_id: synthesis.document.subject_id,
-        subject_ref: synthesis.document.subject_ref,
-        subject_content_hash: synthesis.document.subject_content_hash,
-        synthesis_ref: synthesis.artifact_path,
-        synthesis_content_hash: synthesis.content_hash,
-        ...structuredClone(synthesis.document.direction as Record<string, unknown>),
-      }))
-      .sort((left, right) => String(left.direction_id).localeCompare(String(right.direction_id)));
+    const synthesesBySubject = new Map(
+      boundSubjectSyntheses.map((synthesis) => [String(synthesis.document.subject_id), synthesis]),
+    );
+    const subjectSyntheses = currentDecisionSubjectIds.map((subjectId) => {
+      const synthesis = synthesesBySubject.get(subjectId);
+      if (synthesis === undefined) {
+        throw new StoreError(
+          "report.source_invalid",
+          "every ordered final Decision Subject requires one exact synthesis",
+          { subjectId },
+        );
+      }
+      return synthesis;
+    });
+    if (subjectSyntheses.length !== boundSubjectSyntheses.length) {
+      throw new StoreError(
+        "report.source_invalid",
+        "terminal synthesis bindings contain a non-final or duplicate subject",
+      );
+    }
+    const synthesizedDirections = subjectSyntheses.map((synthesis) => ({
+      direction_id: synthesis.document.subject_id,
+      subject_ref: synthesis.document.subject_ref,
+      subject_content_hash: synthesis.document.subject_content_hash,
+      synthesis_ref: synthesis.artifact_path,
+      synthesis_content_hash: synthesis.content_hash,
+      ...structuredClone(synthesis.document.direction as Record<string, unknown>),
+    }));
     const synthesizedValidationPlan = subjectSyntheses
       .flatMap((synthesis) =>
-        records(synthesis.document.validation_steps).map((step) => ({
-          order: step.order,
-          direction_id: synthesis.document.subject_id,
-          subject_ref: synthesis.document.subject_ref,
-          subject_content_hash: synthesis.document.subject_content_hash,
-          synthesis_ref: synthesis.artifact_path,
-          synthesis_content_hash: synthesis.content_hash,
-          ...structuredClone(step),
-        })),
+        [...records(synthesis.document.validation_steps)]
+          .sort((left, right) => Number(left.order) - Number(right.order))
+          .map((step) => ({
+            direction_id: synthesis.document.subject_id,
+            subject_ref: synthesis.document.subject_ref,
+            subject_content_hash: synthesis.document.subject_content_hash,
+            synthesis_ref: synthesis.artifact_path,
+            synthesis_content_hash: synthesis.content_hash,
+            ...structuredClone(step),
+          })),
       )
-      .sort((left, right) => Number(left.order) - Number(right.order));
+      .map((step, index) => ({ ...step, order: index + 1 }));
     const subjectAuthorities =
       source.artifact_type === "startup_opportunity.terminal_report_source.v1"
         ? deriveTerminalReportSubjectAuthorities(sourceDocument, envelopesByPath)

@@ -71,6 +71,7 @@ import {
 } from "../validators/research-handoff-validator.js";
 import { validateTerminalReportingContract } from "../validators/terminal-reporting-validator.js";
 import { type JsonlRepairResult, JsonlStore } from "./jsonl-store.js";
+import { scopeReconciliationArtifactTypeAllowed } from "./scope-write-guard.js";
 
 export type RunMode = "opportunity_discovery" | "concept_evidence_assessment";
 
@@ -152,6 +153,7 @@ export interface ProposeScopeResult {
   readonly scopeRevision: number;
   readonly scopeProposalRef: string;
   readonly scopeProposalHash: string;
+  readonly scopeProposal: ResearchScope;
   readonly status: "proposed" | "idempotent_replay";
 }
 
@@ -161,6 +163,7 @@ export interface ConfirmScopeResult {
   readonly scopeRevision: number;
   readonly scopeConfirmationRef: string;
   readonly scopeConfirmationHash: string;
+  readonly confirmedScope: ResearchScope;
   readonly confirmationBasis: "caller_attested_user_confirmation";
   readonly harnessIdentityVerification: "not_available";
   readonly status: "confirmed" | "idempotent_replay";
@@ -331,6 +334,7 @@ export interface CreateRunResult {
   readonly workingDirectory: string;
   readonly scopeProposalRef: string;
   readonly scopeProposalHash: string;
+  readonly scopeProposal: ResearchScope;
 }
 
 export interface BeliefSummary {
@@ -814,14 +818,66 @@ function makeManifest(input: CreateRunInput, createdAt: string): RunManifest {
   };
 }
 
+const RESEARCH_LANGUAGE_PATTERN = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/u;
+const RESEARCH_LANGUAGE_ALIASES = new Map<string, string>([
+  ["中文", "zh-CN"],
+  ["简体中文", "zh-CN"],
+  ["簡體中文", "zh-CN"],
+  ["繁体中文", "zh-TW"],
+  ["繁體中文", "zh-TW"],
+]);
+
+export function canonicalResearchLanguage(value: string): string {
+  const input = value.trim();
+  const candidate = RESEARCH_LANGUAGE_ALIASES.get(input) ?? input;
+  let canonical: string;
+  try {
+    canonical = Intl.getCanonicalLocales(candidate)[0] ?? "";
+  } catch {
+    throw new StoreError(
+      "run.research_language_invalid",
+      "researchLanguage must be a supported language name or canonicalizable BCP-47 tag",
+      { researchLanguage: value },
+    );
+  }
+  if (!RESEARCH_LANGUAGE_PATTERN.test(canonical)) {
+    throw new StoreError(
+      "run.research_language_invalid",
+      "researchLanguage canonicalization produced an unsupported BCP-47 shape",
+      { researchLanguage: value, canonicalResearchLanguage: canonical },
+    );
+  }
+  return canonical;
+}
+
+function canonicalResearchScope(scope: ResearchScope): ResearchScope {
+  return {
+    ...scope,
+    researchLanguage: canonicalResearchLanguage(scope.researchLanguage),
+  };
+}
+
+function researchScopeFromDocument(scope: Record<string, unknown>): ResearchScope {
+  return {
+    geography: String(scope.geography),
+    customerModel: scope.customer_model as ResearchScope["customerModel"],
+    targetUsers: Array.isArray(scope.target_users)
+      ? scope.target_users.filter((value): value is string => typeof value === "string")
+      : [],
+    decisionGoal: String(scope.decision_goal),
+    researchLanguage: canonicalResearchLanguage(String(scope.research_language)),
+  };
+}
+
 function scopeDocument(scope: ResearchScope, revision: number): Record<string, unknown> {
+  const canonicalScope = canonicalResearchScope(scope);
   return {
     revision,
-    geography: scope.geography,
-    customer_model: scope.customerModel,
-    target_users: [...scope.targetUsers],
-    decision_goal: scope.decisionGoal,
-    research_language: scope.researchLanguage,
+    geography: canonicalScope.geography,
+    customer_model: canonicalScope.customerModel,
+    target_users: [...canonicalScope.targetUsers],
+    decision_goal: canonicalScope.decisionGoal,
+    research_language: canonicalScope.researchLanguage,
   };
 }
 
@@ -941,7 +997,9 @@ export class RunStore {
         !isRecord(proposal.scope) ||
         proposal.scope.revision !== revision ||
         proposal.scope_hash !== canonicalContentHash(proposal.scope) ||
-        proposal.actor !== "main_agent"
+        proposal.actor !== "main_agent" ||
+        canonicalResearchLanguage(String(proposal.scope.research_language)) !==
+          proposal.scope.research_language
       ) {
         throw new StoreError(
           "run.scope_proposal_invalid",
@@ -1043,7 +1101,8 @@ export class RunStore {
     const priorStatus = proposalAdvanced
       ? manifest.status === "awaiting_scope_confirmation" ||
         manifest.status === "needs_clarification"
-        ? manifest.status_before_clarification
+        ? (manifest.status_before_clarification ??
+          (manifest.current_plan_ref === null ? "created" : null))
         : manifest.status
       : manifest.status_before_clarification;
     const status =
@@ -1058,6 +1117,10 @@ export class RunStore {
       .filter((value): value is string => typeof value === "string")
       .sort();
     const latestTimestamp = timestamps.at(-1);
+    const supersededAdaptationRefs =
+      latest.confirmation !== null && confirmationAdvanced && revision > 1
+        ? [...manifest.pending_adaptation_refs, ...manifest.validated_adaptation_refs]
+        : [];
     return {
       ...manifest,
       status,
@@ -1068,6 +1131,13 @@ export class RunStore {
       scope_proposal_hash: latest.proposalHash,
       scope_confirmation_ref: latest.confirmationRef,
       scope_confirmation_hash: latest.confirmationHash,
+      pending_adaptation_refs:
+        supersededAdaptationRefs.length > 0 ? [] : manifest.pending_adaptation_refs,
+      validated_adaptation_refs:
+        supersededAdaptationRefs.length > 0 ? [] : manifest.validated_adaptation_refs,
+      rejected_adaptation_refs: [
+        ...new Set([...manifest.rejected_adaptation_refs, ...supersededAdaptationRefs]),
+      ].sort(),
       updated_at:
         latestTimestamp !== undefined &&
         Date.parse(latestTimestamp) > Date.parse(manifest.updated_at)
@@ -1149,6 +1219,7 @@ export class RunStore {
             scopeRevision: revision,
             scopeProposalRef: proposalRef,
             scopeProposalHash: proposalHash,
+            scopeProposal: researchScopeFromDocument(proposal.scope as Record<string, unknown>),
             status: "idempotent_replay",
           };
         }
@@ -1192,6 +1263,7 @@ export class RunStore {
         scopeRevision: revision,
         scopeProposalRef: proposalRef,
         scopeProposalHash: proposalHash,
+        scopeProposal: researchScopeFromDocument(proposal.scope as Record<string, unknown>),
         status: appendStatus === "appended" ? "proposed" : "idempotent_replay",
       };
     });
@@ -1253,6 +1325,9 @@ export class RunStore {
           scopeRevision: revision,
           scopeConfirmationRef: decisionRef,
           scopeConfirmationHash: decisionHash,
+          confirmedScope: researchScopeFromDocument(
+            state.proposal.scope as Record<string, unknown>,
+          ),
           confirmationBasis: "caller_attested_user_confirmation",
           harnessIdentityVerification: "not_available",
           status: "idempotent_replay",
@@ -1270,6 +1345,18 @@ export class RunStore {
         status_before_clarification: revision === 1 ? null : manifest.status_before_clarification,
         scope_confirmation_ref: decisionRef,
         scope_confirmation_hash: decisionHash,
+        pending_adaptation_refs: revision === 1 ? manifest.pending_adaptation_refs : [],
+        validated_adaptation_refs: revision === 1 ? manifest.validated_adaptation_refs : [],
+        rejected_adaptation_refs:
+          revision === 1
+            ? manifest.rejected_adaptation_refs
+            : [
+                ...new Set([
+                  ...manifest.rejected_adaptation_refs,
+                  ...manifest.pending_adaptation_refs,
+                  ...manifest.validated_adaptation_refs,
+                ]),
+              ].sort(),
         updated_at: String(decision.timestamp),
       };
       await this.writeManifest(runRoot, nextManifest);
@@ -1279,6 +1366,7 @@ export class RunStore {
         scopeRevision: revision,
         scopeConfirmationRef: decisionRef,
         scopeConfirmationHash: decisionHash,
+        confirmedScope: researchScopeFromDocument(state.proposal.scope as Record<string, unknown>),
         confirmationBasis: "caller_attested_user_confirmation",
         harnessIdentityVerification: "not_available",
         status: status === "appended" ? "confirmed" : "idempotent_replay",
@@ -1443,6 +1531,9 @@ export class RunStore {
           workingDirectory: this.workingDirectory(input.runId),
           scopeProposalRef: proposalRef,
           scopeProposalHash: canonicalContentHash(initialProposal),
+          scopeProposal: researchScopeFromDocument(
+            initialProposal.scope as Record<string, unknown>,
+          ),
         };
       } catch (error) {
         if (!isNodeError(error, "ENOENT")) {
@@ -1525,6 +1616,7 @@ export class RunStore {
           workingDirectory: this.workingDirectory(input.runId),
           scopeProposalRef: proposalRef,
           scopeProposalHash: proposalHash,
+          scopeProposal: researchScopeFromDocument(proposalRecord.scope as Record<string, unknown>),
         };
       } finally {
         await rm(stagingRoot, { recursive: true, force: true });
@@ -2126,6 +2218,7 @@ export class RunStore {
       readonly includeAllFormalArtifacts?: boolean;
       readonly prospectiveArtifactPaths?: readonly string[];
       readonly prospectiveManifest?: RunManifest;
+      readonly exactRecordRefs?: readonly string[];
     } = {},
   ): Promise<BuildValidationContextResult> {
     validateRunId(runId);
@@ -2147,6 +2240,7 @@ export class RunStore {
         options.includeAllFormalArtifacts === true,
         new Set(options.prospectiveArtifactPaths ?? []),
         options.prospectiveManifest,
+        new Set(options.exactRecordRefs ?? []),
       ),
     );
   }
@@ -2158,6 +2252,7 @@ export class RunStore {
     includeAllFormalArtifacts = false,
     prospectiveArtifactPaths: ReadonlySet<string> = new Set(),
     prospectiveManifest?: RunManifest,
+    requestedExactRecordRefs: ReadonlySet<string> = new Set(),
   ): Promise<BuildValidationContextResult> {
     const storedManifest = await this.readManifest(runRoot);
     await this.assertScopeBindingLocked(runRoot, storedManifest);
@@ -2261,6 +2356,33 @@ export class RunStore {
       }
     }
     const exactRecords = new Map<string, Record<string, unknown>>();
+    for (const ref of [...requestedExactRecordRefs].sort()) {
+      const parsed = validateArtifactRef(ref);
+      if (parsed.fragment === null) {
+        throw new StoreError(
+          "validation_context.exact_record_ref_invalid",
+          "requested exact record refs must identify one JSONL record",
+          { ref },
+        );
+      }
+      if (parsed.path === "events.jsonl" || parsed.path === "decisions.jsonl") {
+        exactRecords.set(ref, await this.logs.readExactRecord(runRoot, runId, ref, parsed.path));
+      } else if (parsed.path === "evidence/manifest.jsonl") {
+        exactRecords.set(
+          ref,
+          (await this.evidence.readExactRecordLocked(runRoot, runId, ref)) as Record<
+            string,
+            unknown
+          >,
+        );
+      } else {
+        throw new StoreError(
+          "validation_context.exact_record_ref_invalid",
+          "requested exact record refs must target the current Run JSONL stores",
+          { ref },
+        );
+      }
+    }
     const processed = new Set<string>();
     while (true) {
       const next = [...selected.values()]
@@ -2673,17 +2795,11 @@ export class RunStore {
         },
       );
     }
-    const scopeReconciliationTypes = new Set([
-      "startup_opportunity.gap_snapshot.discovery.plan.current",
-      "startup_opportunity.gap_snapshot.discovery.readiness.current",
-      "startup_opportunity.gap_snapshot.assessment.current",
-      "startup_opportunity.adaptation_decision.discovery.current",
-      "startup_opportunity.adaptation_decision.assessment.current",
-      "startup_opportunity.research_plan.v1",
-    ]);
     if (
       manifest.status === "needs_clarification" &&
-      envelopes.some((envelope) => !scopeReconciliationTypes.has(envelope.artifact_type))
+      envelopes.some(
+        (envelope) => !scopeReconciliationArtifactTypeAllowed(manifest, envelope.artifact_type),
+      )
     ) {
       throw new StoreError(
         "run.scope_revision_unresolved",
@@ -4739,9 +4855,16 @@ export class RunStore {
     envelope: FormalArtifactEnvelope,
     ignoredLate: boolean,
     exactReplay: boolean,
+    prePlanScopeReconciliationAllowed = true,
   ): Promise<RunManifest> {
+    const reconcilesPrePlanScope =
+      prePlanScopeReconciliationAllowed &&
+      manifest.status === "needs_clarification" &&
+      manifest.current_plan_ref === null &&
+      envelope.artifact_type === "startup_opportunity.research_plan.v1" &&
+      envelope.document.revision === 1;
     const clarificationState =
-      manifest.status === "needs_clarification"
+      manifest.status === "needs_clarification" && !reconcilesPrePlanScope
         ? {
             status: manifest.status,
             status_before_clarification: manifest.status_before_clarification,
@@ -4780,6 +4903,7 @@ export class RunStore {
         current_phase: next.mode === "opportunity_discovery" ? "discovery" : "assessment",
         current_plan_ref: envelope.artifact_path,
         plan_revision: 1,
+        status_before_clarification: null,
       };
     }
     if (
@@ -5703,6 +5827,10 @@ export class RunStore {
         const rank = recoveryTransitionRank(left) - recoveryTransitionRank(right);
         return rank === 0 ? left.artifact_path.localeCompare(right.artifact_path) : rank;
       });
+    const prePlanScopeReconciliationAllowed =
+      currentManifest.current_plan_ref === null ||
+      (currentManifest.scope_revision === recoveredManifest.scope_revision &&
+        currentManifest.status !== "needs_clarification");
     for (const envelope of postCheckpointEnvelopes) {
       recoveredManifest = await this.applyPublishedEnvelope(
         runRoot,
@@ -5710,6 +5838,7 @@ export class RunStore {
         envelope,
         ignoredLateArtifactPaths.includes(envelope.artifact_path),
         false,
+        prePlanScopeReconciliationAllowed,
       );
     }
     this.validateManifest(recoveredManifest);

@@ -126,6 +126,7 @@ function subjectAuthority(
 
 function uniqueSubjectAuthorities(
   authorities: readonly ReportSubjectAuthority[],
+  preserveOrder = false,
 ): readonly ReportSubjectAuthority[] {
   const byId = new Map<string, ReportSubjectAuthority>();
   for (const authority of authorities) {
@@ -146,7 +147,10 @@ function uniqueSubjectAuthorities(
     }
     byId.set(authority.subjectId, authority);
   }
-  return [...byId.values()].sort((left, right) => left.subjectId.localeCompare(right.subjectId));
+  const unique = [...byId.values()];
+  return preserveOrder
+    ? unique
+    : unique.sort((left, right) => left.subjectId.localeCompare(right.subjectId));
 }
 
 function reportSubjectLabel(document: Record<string, unknown>, fallback: string): string {
@@ -167,7 +171,7 @@ export function deriveReportSubjectLabels(
     researchLanguage.toLowerCase().startsWith("zh")
       ? `当前研究对象 ${index + 1}`
       : `Current research subject ${index + 1}`;
-  return uniqueSubjectAuthorities(authorities).map((authority, index) => {
+  return uniqueSubjectAuthorities(authorities, true).map((authority, index) => {
     const envelope = envelopesByPath.get(authority.subjectRef);
     if (
       envelope === undefined ||
@@ -299,7 +303,31 @@ export function deriveTerminalReportSubjectAuthorities(
     }
     return authority;
   });
-  return uniqueSubjectAuthorities(authorities);
+  const byId = new Map(authorities.map((authority) => [authority.subjectId, authority]));
+  const snapshotRef = source.decision_subject_snapshot_ref;
+  const snapshot = typeof snapshotRef === "string" ? envelopesByPath.get(snapshotRef) : undefined;
+  if (snapshot?.artifact_type !== "startup_opportunity.decision_subject_snapshot.current") {
+    throw new StoreError(
+      "report.subject_authority_invalid",
+      "terminal subject order requires the exact Decision Subject Snapshot",
+      { snapshotRef },
+    );
+  }
+  const ordered = records(snapshot.document.subjects)
+    .filter(
+      (subject) => subject.lifecycle_status === "current" && subject.reporting_role === "final",
+    )
+    .map((subject) => byId.get(String(subject.subject_id)));
+  if (ordered.some((authority) => authority === undefined) || ordered.length !== byId.size) {
+    throw new StoreError(
+      "report.subject_authority_invalid",
+      "terminal synthesis subjects must exactly match the ordered final snapshot subjects",
+    );
+  }
+  return uniqueSubjectAuthorities(
+    ordered.filter((authority): authority is ReportSubjectAuthority => authority !== undefined),
+    true,
+  );
 }
 
 function exactReasons(

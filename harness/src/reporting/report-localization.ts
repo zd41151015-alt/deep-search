@@ -83,6 +83,11 @@ const ZH_INTERNAL_CODES: readonly [RegExp, string][] = [
   [/\b(?:opportunity_discovery|concept_evidence_assessment)\b/giu, "当前研究模式"],
   [/\b(?:assessment_early_kill|assessment_commercial|assessment_delivery)\b/giu, "评估阶段"],
   [/\b(?:discovery_generation|candidate_evaluation)\b/giu, "发现阶段"],
+  [/\bEvidence\b/giu, "证据"],
+  [/\bHarness\b/gu, "研究系统"],
+  [/\bArtifacts?\b/gu, "研究材料"],
+  [/\bcurrent-Run\b/giu, "本次研究"],
+  [/\bRun\b/gu, "研究任务"],
 ];
 
 const artifactRefPattern = (): RegExp =>

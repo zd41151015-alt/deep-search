@@ -116,7 +116,7 @@
     },
     "observed_artifacts": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "uniqueItems": true,
       "items": {
         "type": "object",
@@ -218,7 +218,11 @@
             "$ref": "../../core/definitions.schema.json#/$defs/artifactRef"
           },
           "dimension_id": {
-            "enum": ["buyer_language_and_willingness_to_pay", "acquisition_and_distribution"]
+            "enum": [
+              "buyer_language_and_willingness_to_pay",
+              "acquisition_and_distribution",
+              "scope_alignment"
+            ]
           },
           "gap_type": {
             "enum": [
@@ -226,7 +230,8 @@
               "acquisition_evidence_insufficient",
               "coverage_sufficient",
               "no_material_new_evidence",
-              "no_executable_followup"
+              "no_executable_followup",
+              "scope_invalidated"
             ]
           },
           "detection_mode": {
@@ -331,6 +336,10 @@
       },
       "then": {
         "properties": {
+          "observed_artifacts": {
+            "type": "array",
+            "minItems": 1
+          },
           "trigger_event_ref": {
             "type": "null"
           }

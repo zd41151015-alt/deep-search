@@ -18,6 +18,7 @@ import {
   scanDiscoveryReportSurfaces,
 } from "./report-consistency.js";
 import { renderEvidenceDispositions } from "./report-evidence-dispositions.js";
+import { userVisibleText } from "./report-localization.js";
 
 const TERMINAL_REPORT_SECTION_IDS = [
   "execution",
@@ -318,10 +319,10 @@ function renderDirections(source: Record<string, unknown>, zh: boolean, compact:
             directionUncertainties.map((entry) =>
               entry.state === "inferred"
                 ? zh
-                  ? `推测：${String(entry.statement)}；推理起点：${String(entry.starting_point)}；推理过程：${String(entry.reasoning)}；不确定性：${String(entry.uncertainty)}；待验证：${String(entry.validation_needed)}`
+                  ? `推测：${userVisibleText(entry.statement, true)}；推理起点：${userVisibleText(entry.starting_point, true)}；推理过程：${userVisibleText(entry.reasoning, true)}；不确定性：${userVisibleText(entry.uncertainty, true)}；待验证：${userVisibleText(entry.validation_needed, true)}`
                   : `Inference: ${String(entry.statement)}; starting point: ${String(entry.starting_point)}; reasoning: ${String(entry.reasoning)}; uncertainty: ${String(entry.uncertainty)}; validation needed: ${String(entry.validation_needed)}`
                 : zh
-                  ? `未知：${String(entry.statement)}；不确定性：${String(entry.uncertainty)}；待验证：${String(entry.validation_needed)}`
+                  ? `未知：${userVisibleText(entry.statement, true)}；不确定性：${userVisibleText(entry.uncertainty, true)}；待验证：${userVisibleText(entry.validation_needed, true)}`
                   : `Unknown: ${String(entry.statement)}; uncertainty: ${String(entry.uncertainty)}; validation needed: ${String(entry.validation_needed)}`,
             ),
             zh ? "无" : "None",
@@ -357,7 +358,7 @@ function renderSources(source: Record<string, unknown>, zh: boolean, limit?: num
     }
     const inference = entry.inference;
     return zh
-      ? `${base}: 推测：${String(entry.claim)}；推理起点：${String(inference.starting_point)}；推理过程：${String(inference.reasoning)}；不确定性：${String(inference.uncertainty)}；待验证：${String(inference.validation_needed)}`
+      ? `${base}: 推测：${userVisibleText(entry.claim, true)}；推理起点：${userVisibleText(inference.starting_point, true)}；推理过程：${userVisibleText(inference.reasoning, true)}；不确定性：${userVisibleText(inference.uncertainty, true)}；待验证：${userVisibleText(inference.validation_needed, true)}`
       : `${base}: Inference: ${String(entry.claim)}; starting point: ${String(inference.starting_point)}; reasoning: ${String(inference.reasoning)}; uncertainty: ${String(inference.uncertainty)}; validation needed: ${String(inference.validation_needed)}`;
   });
   const omitted = allSources.length - sources.length;

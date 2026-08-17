@@ -15,6 +15,7 @@ import {
   type DiscoveryMapDocument,
   type DiscoveryProfile,
   type DocumentBundle,
+  discoveryMapEnvelopeInputRefs,
   type FormalArtifactEnvelope,
   type LoadedDiscoveryMapsPolicy,
   RunStore,
@@ -67,6 +68,7 @@ function envelopeRecord(bundle: DocumentBundle, artifactPath: string): Record<st
 
 function rehashEnvelope(bundle: DocumentBundle, artifactPath: string): void {
   const value = envelopeRecord(bundle, artifactPath);
+  value.input_refs = discoveryMapEnvelopeInputRefs(value.document as Record<string, unknown>);
   value.content_hash = canonicalContentHash(value.document);
 }
 
@@ -388,6 +390,8 @@ test("G2.1 prior-informed Map semantics require an explicit same-Run admission d
   solutionProvenance.synthesis_origin = "prior_informed_synthesis";
   solutionProvenance.prior_input_decision_refs = [decisionRef];
   rehashEnvelope(bundle, G21_SOLUTION_REF);
+  assert.ok(fixtureEnvelope(bundle, G21_OPPORTUNITY_REF).input_refs.includes(decisionRef));
+  assert.ok(fixtureEnvelope(bundle, G21_SOLUTION_REF).input_refs.includes(decisionRef));
   assert.ok(
     artifactRefsForDocument({
       path: G21_OPPORTUNITY_REF,
@@ -696,6 +700,67 @@ test("empty decision subject scaffold compiles and publishes through exact Store
   assert.equal(
     status.manifest.current_decision_subject_snapshot_ref,
     "artifacts/reporting/decision-subject-snapshot.r1.json",
+  );
+});
+
+test("declarative compiler validates and publishes all G2.1 Maps with one input-ref authority", async (context) => {
+  const state = await prepareRun(context, "general", "compiler-map-authority");
+  const artifacts = G21_MAP_REFS.map((ref) => {
+    const document = fixtureDocument(state.bundle, ref);
+    return {
+      artifact_type: String(document.schema_version),
+      artifact_path: ref,
+      producer_role: "main_agent" as const,
+      document,
+    };
+  });
+  const request = {
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: "compile_g2_1_maps_authority",
+    run_id: state.runId,
+    operation: "validate_only",
+    created_at: "2026-07-26T17:02:00Z",
+    artifacts,
+  } as const;
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  const validated = await compiler.compile(request);
+  assert.equal(validated.status, "validated");
+  const inputRefs = new Map(
+    validated.compiled_envelopes.map((envelope) => [envelope.artifact_path, envelope.input_refs]),
+  );
+  assert.deepEqual(inputRefs.get(G21_SEED_REF), [G21_PLAN_REF, G21_SCOPE_REF]);
+  assert.deepEqual(inputRefs.get(G21_OPPORTUNITY_REF), [G21_SEED_REF, G21_PLAN_REF, G21_SCOPE_REF]);
+  assert.deepEqual(inputRefs.get(G21_SOLUTION_REF), [
+    G21_OPPORTUNITY_REF,
+    G21_SEED_REF,
+    G21_PLAN_REF,
+    G21_SCOPE_REF,
+  ]);
+  assert.ok(
+    validated.compiled_envelopes.every((envelope) =>
+      envelope.input_refs.every((ref) => !ref.includes("#unit_")),
+    ),
+  );
+  const published = await compiler.compile({
+    ...request,
+    operation: "publish",
+    artifacts: [],
+    publication_plan: validated.publication_plan,
+  });
+  assert.equal(published.status, "published");
+  assert.equal(published.publication_plan.plan_id, validated.publication_plan.plan_id);
+  assert.deepEqual(
+    (await state.store.status(state.runId)).manifest.artifact_refs.filter((ref) =>
+      G21_MAP_REFS.includes(ref as (typeof G21_MAP_REFS)[number]),
+    ),
+    [...G21_MAP_REFS].sort(),
+  );
+  const parentRef = "artifacts/discovery/opportunity-space-map.parent.r1.json";
+  assert.ok(
+    discoveryMapEnvelopeInputRefs({
+      ...fixtureDocument(state.bundle, G21_OPPORTUNITY_REF),
+      parent_map_ref: parentRef,
+    })?.includes(parentRef),
   );
 });
 

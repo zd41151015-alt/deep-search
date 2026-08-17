@@ -307,16 +307,19 @@ function projectedDirection(synthesis: DecisionSubjectDocument): Record<string, 
 
 function projectedValidationSteps(
   synthesis: DecisionSubjectDocument,
+  startOrder: number,
 ): readonly Record<string, unknown>[] {
-  return records(synthesis.document.validation_steps).map((step) => ({
-    order: step.order,
-    direction_id: synthesis.document.subject_id,
-    subject_ref: synthesis.document.subject_ref,
-    subject_content_hash: synthesis.document.subject_content_hash,
-    synthesis_ref: synthesis.path,
-    synthesis_content_hash: targetHash(synthesis),
-    ...structuredClone(step),
-  }));
+  return [...records(synthesis.document.validation_steps)]
+    .sort((left, right) => Number(left.order) - Number(right.order))
+    .map((step, index) => ({
+      direction_id: synthesis.document.subject_id,
+      subject_ref: synthesis.document.subject_ref,
+      subject_content_hash: synthesis.document.subject_content_hash,
+      synthesis_ref: synthesis.path,
+      synthesis_content_hash: targetHash(synthesis),
+      ...structuredClone(step),
+      order: startOrder + index,
+    }));
 }
 
 function validateSynthesis(
@@ -325,6 +328,21 @@ function validateSynthesis(
   errors: ValidationIssue[],
 ): void {
   const document = synthesis.document;
+  const localOrders = records(document.validation_steps)
+    .map((step) => Number(step.order))
+    .sort((left, right) => left - right);
+  if (
+    new Set(localOrders).size !== localOrders.length ||
+    localOrders.some((order, index) => order !== index + 1)
+  ) {
+    errors.push(
+      issue(
+        "decision_subject.synthesis_validation_order_invalid",
+        `${synthesis.path}#/validation_steps`,
+        "each subject synthesis must retain a unique local validation order from one",
+      ),
+    );
+  }
   const subject =
     typeof document.subject_ref === "string" ? byPath.get(document.subject_ref) : undefined;
   if (
@@ -681,16 +699,15 @@ export function validateDecisionSubjectContract(
       .filter(
         (subject) => subject.lifecycle_status === "current" && subject.reporting_role === "final",
       )
-      .map((subject) => String(subject.subject_id))
-      .sort();
+      .map((subject) => String(subject.subject_id));
     const reportIds = Array.isArray(source.document.current_decision_subject_ids)
-      ? source.document.current_decision_subject_ids
-          .filter((value): value is string => typeof value === "string")
-          .toSorted()
+      ? source.document.current_decision_subject_ids.filter(
+          (value): value is string => typeof value === "string",
+        )
       : [];
-    const directionIds = records(source.document.directions)
-      .map((direction) => String(direction.direction_id))
-      .sort();
+    const directionIds = records(source.document.directions).map((direction) =>
+      String(direction.direction_id),
+    );
     const currentPlan =
       typeof manifest?.document.current_plan_ref === "string"
         ? byPath.get(manifest.document.current_plan_ref)
@@ -716,9 +733,16 @@ export function validateDecisionSubjectContract(
       }
       return [synthesis];
     });
-    const expectedSynthesisIds = boundSyntheses
-      .map((synthesis) => String(synthesis.document.subject_id))
-      .sort();
+    const synthesisBySubject = new Map(
+      boundSyntheses.map((synthesis) => [String(synthesis.document.subject_id), synthesis]),
+    );
+    const orderedSyntheses = currentIds.flatMap((subjectId) => {
+      const synthesis = synthesisBySubject.get(subjectId);
+      return synthesis === undefined ? [] : [synthesis];
+    });
+    const expectedSynthesisIds = orderedSyntheses.map((synthesis) =>
+      String(synthesis.document.subject_id),
+    );
     for (const subject of currentSubjects) {
       const synthesis = boundSyntheses.find(
         (candidate) => candidate.document.subject_id === subject.subject_id,
@@ -738,9 +762,7 @@ export function validateDecisionSubjectContract(
         );
       }
     }
-    const expectedDirections = boundSyntheses
-      .map(projectedDirection)
-      .sort((left, right) => String(left.direction_id).localeCompare(String(right.direction_id)));
+    const expectedDirections = orderedSyntheses.map(projectedDirection);
     if (canonicalJson(records(source.document.directions)) !== canonicalJson(expectedDirections)) {
       errors.push(
         issue(
@@ -750,9 +772,12 @@ export function validateDecisionSubjectContract(
         ),
       );
     }
-    const expectedValidationPlan = boundSyntheses
-      .flatMap(projectedValidationSteps)
-      .sort((left, right) => Number(left.order) - Number(right.order));
+    let globalOrder = 1;
+    const expectedValidationPlan = orderedSyntheses.flatMap((synthesis) => {
+      const steps = projectedValidationSteps(synthesis, globalOrder);
+      globalOrder += steps.length;
+      return steps;
+    });
     if (
       canonicalJson(records(source.document.ordered_validation_plan)) !==
       canonicalJson(expectedValidationPlan)

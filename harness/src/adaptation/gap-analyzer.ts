@@ -1,6 +1,9 @@
 import { canonicalContentHash, operationKey, sha256Hex } from "../artifact-store/canonical.js";
 import { formalArtifactFragmentExists } from "../validators/artifact-ref-resolver.js";
-import type { DocumentBundle } from "../validators/artifact-validator.js";
+import type {
+  DocumentBundle,
+  DocumentBundleReferenceContext,
+} from "../validators/artifact-validator.js";
 import {
   type ArtifactValidator,
   createArtifactValidator,
@@ -14,6 +17,7 @@ import {
   targetByRef,
   unitEntries,
 } from "./contracts.js";
+import { currentPlanningProjection } from "./current-planning-projection.js";
 import {
   createPlanSemanticValidator,
   type PlanSemanticValidator,
@@ -49,6 +53,7 @@ export interface MachineGapCheck {
 
 export interface AnalyzeGapsInput {
   readonly documentBundle: DocumentBundle;
+  readonly referenceContext?: DocumentBundleReferenceContext;
   readonly snapshotId: string;
   readonly createdAt: string;
   readonly triggerKind:
@@ -103,6 +108,16 @@ function fragmentExists(target: EffectiveDocument, fragment: string): boolean {
   return formalArtifactFragmentExists(target, fragment);
 }
 
+function exactRecordMap(input: AnalyzeGapsInput): ReadonlyMap<string, Record<string, unknown>> {
+  const records = new Map(
+    (input.documentBundle.exact_records ?? []).map((entry) => [entry.ref, entry.document]),
+  );
+  for (const [ref, record] of input.referenceContext?.exactJsonlRecords ?? []) {
+    records.set(ref, record);
+  }
+  return records;
+}
+
 export class GapAnalyzer {
   constructor(
     private readonly plans: PlanSemanticValidator,
@@ -110,7 +125,8 @@ export class GapAnalyzer {
   ) {}
 
   analyze(input: AnalyzeGapsInput): GapAnalysisResult {
-    const planValidation = this.plans.validateDocumentBundle(input.documentBundle);
+    const planningValue = currentPlanningProjection(input.documentBundle);
+    const planValidation = this.plans.validateDocumentBundle(planningValue, input.referenceContext);
     const errors: ReturnType<typeof analysisError>[] = [];
     if (!planValidation.valid) {
       errors.push(
@@ -118,14 +134,16 @@ export class GapAnalyzer {
       );
     }
 
-    const documents = documentMap(input.documentBundle);
-    const context = leafPlanningContexts(input.documentBundle)[0];
+    const documents = documentMap(planningValue);
+    const context = leafPlanningContexts(planningValue)[0];
     const manifestBinding = context?.document.manifest_binding;
     const targetBinding = context?.document.target_plan_binding;
     const manifest = isRecord(manifestBinding)
       ? targetByRef(documents, manifestBinding.manifest_ref)
       : null;
     const plan = isRecord(targetBinding) ? targetByRef(documents, targetBinding.plan_ref) : null;
+    const exactRecords = exactRecordMap(input);
+    const scopeReconciliation = input.triggerKind === "resume_reconciliation";
     if (
       context === undefined ||
       manifest?.schemaVersion !== "startup_opportunity.run_manifest.v1" ||
@@ -194,10 +212,31 @@ export class GapAnalyzer {
         continue;
       }
       const target = documents.get(targetPath);
-      if (target === undefined) {
+      const exactRecord = exactRecords.get(ref);
+      if (target === undefined && exactRecord === undefined) {
         errors.push(analysisError("gap.reference_missing", "machine input ref is absent", { ref }));
         continue;
       }
+      if (exactRecord !== undefined) {
+        if (
+          manifest?.schemaVersion === "startup_opportunity.run_manifest.v1" &&
+          exactRecord.run_id !== manifest.document.run_id
+        ) {
+          errors.push(
+            analysisError(
+              "gap.reference_run_mismatch",
+              "machine input ref crosses the current Run boundary",
+              {
+                ref,
+                targetRunId: exactRecord.run_id,
+                currentRunId: manifest.document.run_id,
+              },
+            ),
+          );
+        }
+        continue;
+      }
+      if (target === undefined) continue;
       const fragment = fragmentOf(ref);
       if (fragment !== null && !fragmentExists(target, fragment)) {
         errors.push(
@@ -228,7 +267,10 @@ export class GapAnalyzer {
     }
 
     const triggerEvent =
-      input.triggerEventRef === null ? null : targetByRef(documents, input.triggerEventRef);
+      input.triggerEventRef === null
+        ? undefined
+        : (exactRecords.get(input.triggerEventRef) ??
+          targetByRef(documents, input.triggerEventRef)?.document);
     if (input.triggerEventRef !== null) {
       if (
         input.triggerEventRef.split("#", 1)[0]?.endsWith(".jsonl") &&
@@ -242,14 +284,17 @@ export class GapAnalyzer {
           ),
         );
       }
-      if (triggerEvent !== null && triggerEvent.schemaVersion !== "startup_opportunity.event.v1") {
+      if (
+        triggerEvent !== undefined &&
+        triggerEvent?.schema_version !== "startup_opportunity.event.v1"
+      ) {
         errors.push(
           analysisError(
             "gap.trigger_event_type_mismatch",
             "triggerEventRef must resolve to startup_opportunity.event.v1",
             {
               ref: input.triggerEventRef,
-              actualSchemaVersion: triggerEvent.schemaVersion,
+              actualSchemaVersion: triggerEvent.schema_version,
             },
           ),
         );
@@ -266,6 +311,40 @@ export class GapAnalyzer {
           ),
         );
       }
+    }
+
+    if (
+      scopeReconciliation &&
+      (input.observedArtifactRefs.length !== 0 ||
+        input.materialNewEvidenceObserved ||
+        (input.repeatedSourceRefs?.length ?? 0) !== 0 ||
+        (input.machineChecks?.length ?? 0) !== 0)
+    ) {
+      errors.push(
+        analysisError(
+          "gap.scope_reconciliation_input_invalid",
+          "Scope reconciliation is Evidence-free and derives its single Gap mechanically",
+        ),
+      );
+    }
+    const confirmationRef = manifest?.document.scope_confirmation_ref;
+    const confirmation =
+      typeof confirmationRef === "string" ? exactRecords.get(confirmationRef) : undefined;
+    if (
+      scopeReconciliation &&
+      (manifest?.document.status !== "needs_clarification" ||
+        confirmation?.schema_version !== "startup_opportunity.decision.v1" ||
+        confirmation.decision_type !== "scope_changed_by_user" ||
+        confirmation.run_id !== manifest.document.run_id ||
+        confirmation.scope_revision !== manifest.document.scope_revision ||
+        canonicalContentHash(confirmation) !== manifest.document.scope_confirmation_hash)
+    ) {
+      errors.push(
+        analysisError(
+          "gap.scope_reconciliation_confirmation_invalid",
+          "Scope reconciliation requires the exact current same-Run Scope confirmation",
+        ),
+      );
     }
 
     if (errors.length > 0 || manifest === null || plan === null) {
@@ -298,7 +377,7 @@ export class GapAnalyzer {
           : {
               kind: input.triggerKind,
               event_ref: input.triggerEventRef,
-              event_id: triggerEvent?.document.event_id ?? null,
+              event_id: triggerEvent?.event_id ?? null,
             },
       observed_artifacts: observedArtifacts,
     });
@@ -313,13 +392,39 @@ export class GapAnalyzer {
     const parentSnapshotRef = priorSameCycle ? manifest.document.latest_gap_snapshot_ref : null;
     const gaps: Record<string, unknown>[] = [];
 
+    if (scopeReconciliation && typeof confirmationRef === "string") {
+      gaps.push({
+        gap_id: gapId("scope_invalidated", {
+          plan_ref: plan.path,
+          plan_hash: canonicalContentHash(plan.document),
+          scope_confirmation_ref: confirmationRef,
+          scope_confirmation_hash: manifest.document.scope_confirmation_hash,
+        }),
+        subject_ref: plan.path,
+        gap_type: "scope_invalidated",
+        detection_mode: "deterministic",
+        triggered_by: {
+          check_id: "confirmed_scope_revision",
+          observed_artifact_refs: [],
+          detail: "The exact confirmed Scope revision invalidates the current Plan authority.",
+        },
+        decision_impact: ["execution_validity"],
+        severity: "blocking",
+        basis_refs: ["manifest.json", plan.path, confirmationRef].sort(),
+        evidence_refs: [],
+        recommended_unit_types: [],
+      });
+    }
+
     const units = unitEntries(plan.document);
     const unitsById = new Map(units.map((entry) => [String(entry.unit.unit_id), entry.unit]));
-    for (const unitId of uniqueSorted(
-      Array.isArray(manifest.document.failed_units)
-        ? manifest.document.failed_units.filter((id): id is string => typeof id === "string")
-        : [],
-    )) {
+    for (const unitId of scopeReconciliation
+      ? []
+      : uniqueSorted(
+          Array.isArray(manifest.document.failed_units)
+            ? manifest.document.failed_units.filter((id): id is string => typeof id === "string")
+            : [],
+        )) {
       const unit = unitsById.get(unitId);
       if (unit === undefined) {
         errors.push(
@@ -352,7 +457,7 @@ export class GapAnalyzer {
       });
     }
 
-    if (!input.materialNewEvidenceObserved) {
+    if (!scopeReconciliation && !input.materialNewEvidenceObserved) {
       gaps.push({
         gap_id: gapId("no_new_evidence", { cycle_key: cycleKey }),
         subject_ref: plan.path,
@@ -372,7 +477,7 @@ export class GapAnalyzer {
     }
 
     const repeatedSourceRefs = uniqueSorted(input.repeatedSourceRefs ?? []);
-    if (repeatedSourceRefs.length > 0) {
+    if (!scopeReconciliation && repeatedSourceRefs.length > 0) {
       gaps.push({
         gap_id: gapId("source_repetition", { refs: repeatedSourceRefs }),
         subject_ref: plan.path,
@@ -391,8 +496,8 @@ export class GapAnalyzer {
       });
     }
 
-    for (const check of [...(input.machineChecks ?? [])].sort((left, right) =>
-      left.checkId.localeCompare(right.checkId),
+    for (const check of [...(scopeReconciliation ? [] : (input.machineChecks ?? []))].sort(
+      (left, right) => left.checkId.localeCompare(right.checkId),
     )) {
       gaps.push({
         gap_id: gapId(check.gapType, { check_id: check.checkId, subject_ref: check.subjectRef }),
@@ -415,6 +520,7 @@ export class GapAnalyzer {
     const stopSignals: string[] = [];
     const followup = plan.document.followup_policy;
     if (
+      !scopeReconciliation &&
       isRecord(followup) &&
       typeof followup.max_followup_rounds === "number" &&
       typeof manifest.document.followup_round === "number" &&
@@ -422,13 +528,16 @@ export class GapAnalyzer {
     ) {
       stopSignals.push("max_followup_rounds_reached");
     }
-    if (!input.materialNewEvidenceObserved) {
+    if (!scopeReconciliation && !input.materialNewEvidenceObserved) {
       stopSignals.push("no_material_new_evidence");
     }
-    if (repeatedSourceRefs.length > 0) {
+    if (!scopeReconciliation && repeatedSourceRefs.length > 0) {
       stopSignals.push("source_repetition");
     }
-    if ((input.machineChecks ?? []).some((check) => check.gapType === "runtime_blocked")) {
+    if (
+      !scopeReconciliation &&
+      (input.machineChecks ?? []).some((check) => check.gapType === "runtime_blocked")
+    ) {
       stopSignals.push("runtime_blocked");
     }
 
@@ -447,14 +556,16 @@ export class GapAnalyzer {
       wave_id: input.waveId,
       observed_artifact_refs: observedRefs,
       gaps: gaps.sort((left, right) => String(left.gap_id).localeCompare(String(right.gap_id))),
-      material_new_evidence_observed: input.materialNewEvidenceObserved,
+      material_new_evidence_observed: scopeReconciliation
+        ? false
+        : input.materialNewEvidenceObserved,
       unresolved_decision_relevant_questions: Array.isArray(plan.document.research_questions)
         ? plan.document.research_questions
             .filter(isRecord)
             .map((question) => String(question.question_id))
             .sort()
         : [],
-      stop_signals: uniqueSorted(stopSignals),
+      stop_signals: scopeReconciliation ? [] : uniqueSorted(stopSignals),
     };
     const schemaValidation = this.artifacts.validateDocument(snapshot);
     if (!schemaValidation.valid) {

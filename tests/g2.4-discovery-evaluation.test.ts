@@ -1880,7 +1880,7 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   );
   assert.equal(
     auditAppendix.match(
-      /Synthetic unavailable (?:support|challenge) source（用户提供\/非公开） - SYNTHETIC G2\.4 contract fixture only; no real Evidence or validation\./gu,
+      /Synthetic unavailable (?:support|challenge) source（用户提供\/非公开） - SYNTHETIC G2\.4 contract fixture only; no real 证据 or validation\./gu,
     )?.length,
     2,
   );

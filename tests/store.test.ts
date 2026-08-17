@@ -136,6 +136,73 @@ test("create and reopen persist a complete initial Run boundary idempotently", a
   assert.equal(runsRoot, path.dirname(runRoot));
 });
 
+test("Scope language is canonicalized before persistence and invalid input writes nothing", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-language-authority-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const store = new RunStore(runsRoot, await createArtifactValidator(repositoryRoot));
+  const created = await store.create({
+    runId: "scope-language-canonical",
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-23T11:00:00Z",
+    scopeProposal: { ...SCOPE_CONFIRMATION, researchLanguage: "中文" },
+  });
+  assert.equal(created.scopeProposal.researchLanguage, "zh-CN");
+  const confirmed = await store.confirmScope({
+    runId: "scope-language-canonical",
+    expectedScopeProposalRevision: 1,
+    expectedScopeProposalRef: created.scopeProposalRef,
+    expectedScopeProposalHash: created.scopeProposalHash,
+    confirmedAt: "2026-07-23T11:01:00Z",
+    userConfirmationAttestation:
+      "The fixture caller attests that the user confirmed the displayed canonical Scope.",
+  });
+  assert.equal(confirmed.confirmedScope.researchLanguage, "zh-CN");
+  const proposed = await store.proposeScope({
+    runId: "scope-language-canonical",
+    expectedScopeRevision: 1,
+    proposedAt: "2026-07-23T11:02:00Z",
+    reason: "Exercise the same language authority on a revised Scope.",
+    scopeProposal: {
+      ...SCOPE_CONFIRMATION,
+      geography: "Synthetic revised geography",
+      researchLanguage: "简体中文",
+    },
+  });
+  assert.equal(proposed.scopeProposal.researchLanguage, "zh-CN");
+  const revised = await store.confirmScope({
+    runId: "scope-language-canonical",
+    expectedScopeProposalRevision: 2,
+    expectedScopeProposalRef: proposed.scopeProposalRef,
+    expectedScopeProposalHash: proposed.scopeProposalHash,
+    confirmedAt: "2026-07-23T11:03:00Z",
+    userConfirmationAttestation:
+      "The fixture caller attests that the user confirmed revised canonical Scope bytes.",
+  });
+  assert.equal(revised.confirmedScope.researchLanguage, "zh-CN");
+  assert.equal((await store.load("scope-language-canonical")).manifest.scope_revision, 2);
+  const decisions = (
+    await readFile(path.join(runsRoot, "scope-language-canonical", "decisions.jsonl"), "utf8")
+  )
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as { scope?: { research_language?: string } });
+  assert.ok(decisions.every((decision) => decision.scope?.research_language === "zh-CN"));
+
+  const before = await snapshotTree(root);
+  await assert.rejects(
+    store.create({
+      runId: "scope-language-invalid",
+      mode: "opportunity_discovery",
+      createdAt: "2026-07-23T11:04:00Z",
+      scopeProposal: { ...SCOPE_CONFIRMATION, researchLanguage: "not a language @" },
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.research_language_invalid",
+  );
+  assert.deepEqual(await snapshotTree(root), before);
+});
+
 test("Scope confirmation is an immutable Run Store binding across correction and reopen", async (context) => {
   const { runRoot, store, created } = await setup(context, "scope-binding-test", false);
   assert.equal(created.manifest.scope_revision, 1);

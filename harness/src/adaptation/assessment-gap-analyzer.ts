@@ -2,6 +2,7 @@ import { canonicalContentHash, canonicalJson, sha256Hex } from "../artifact-stor
 import type {
   ArtifactValidator,
   DocumentBundle,
+  DocumentBundleReferenceContext,
   DocumentBundleValidationResult,
 } from "../validators/artifact-validator.js";
 import { createArtifactValidator } from "../validators/artifact-validator.js";
@@ -17,6 +18,7 @@ import {
   statusOfUnit,
   targetByRef,
 } from "./contracts.js";
+import { currentPlanningProjection } from "./current-planning-projection.js";
 import {
   createAssessmentPlanSemanticValidator,
   type PlanSemanticValidator,
@@ -32,12 +34,13 @@ export type AssessmentCoverageDimension =
 
 export interface AnalyzeAssessmentGapInput {
   readonly documentBundle: DocumentBundle;
+  readonly referenceContext?: DocumentBundleReferenceContext;
   readonly snapshotId: string;
   readonly createdAt: string;
   readonly triggerKind: "wave_completed" | "resume_reconciliation";
   readonly waveId: string;
   readonly triggerEventRef: string | null;
-  readonly dimensionId: AssessmentCoverageDimension;
+  readonly dimensionId?: AssessmentCoverageDimension;
   readonly observedArtifactRefs: readonly string[];
   readonly materialNewEvidenceObserved: boolean;
   readonly limitations?: readonly string[];
@@ -83,6 +86,18 @@ function snapshotPath(snapshotId: string): string {
   return `adaptations/gap-snapshots/${snapshotId}.r1.json`;
 }
 
+function exactRecordMap(
+  input: AnalyzeAssessmentGapInput,
+): ReadonlyMap<string, Record<string, unknown>> {
+  const records = new Map(
+    (input.documentBundle.exact_records ?? []).map((entry) => [entry.ref, entry.document]),
+  );
+  for (const [ref, record] of input.referenceContext?.exactJsonlRecords ?? []) {
+    records.set(ref, record);
+  }
+  return records;
+}
+
 function taskForBranch(
   documents: ReturnType<typeof documentMap>,
   branchPath: string,
@@ -104,7 +119,8 @@ export class AssessmentGapAnalyzer {
   ) {}
 
   analyze(input: AnalyzeAssessmentGapInput): AssessmentGapAnalysisResult {
-    const planValidation = this.plans.validateDocumentBundle(input.documentBundle);
+    const planningValue = currentPlanningProjection(input.documentBundle);
+    const planValidation = this.plans.validateDocumentBundle(planningValue, input.referenceContext);
     const errors: ReturnType<typeof analysisError>[] = [];
     if (!planValidation.valid) {
       errors.push(
@@ -114,8 +130,8 @@ export class AssessmentGapAnalyzer {
         ),
       );
     }
-    const documents = documentMap(input.documentBundle);
-    const context = leafPlanningContexts(input.documentBundle)[0];
+    const documents = documentMap(planningValue);
+    const context = leafPlanningContexts(planningValue)[0];
     const manifestBinding = context?.document.manifest_binding;
     const planBinding = context?.document.target_plan_binding;
     const manifest = isRecord(manifestBinding)
@@ -156,14 +172,17 @@ export class AssessmentGapAnalyzer {
       currentAssessmentPlans.length === 1 ? (currentAssessmentPlans[0] ?? null) : null;
     const subject = targetByRef(documents, assessmentPlan?.document.concept_hypothesis_ref);
     const scope = targetByRef(documents, subject?.document.scope_frame_ref);
-    const dimension = records(assessmentPlan?.document.dimensions).find(
-      (entry) => entry.dimension_id === input.dimensionId,
-    );
+    const scopeReconciliation = input.triggerKind === "resume_reconciliation";
+    const dimension = scopeReconciliation
+      ? undefined
+      : records(assessmentPlan?.document.dimensions).find(
+          (entry) => entry.dimension_id === input.dimensionId,
+        );
     if (
       assessmentPlan === null ||
       subject?.schemaVersion !== "startup_opportunity.concept_hypothesis.assessment.current" ||
       scope?.schemaVersion !== "startup_opportunity.scope_frame.assessment.current" ||
-      dimension === undefined
+      (!scopeReconciliation && dimension === undefined)
     ) {
       errors.push(
         analysisError(
@@ -185,11 +204,13 @@ export class AssessmentGapAnalyzer {
         ),
       );
     }
-    const triggerEvent = targetByRef(documents, input.triggerEventRef);
+    const exactRecords = exactRecordMap(input);
+    const triggerEvent =
+      input.triggerEventRef === null ? null : exactRecords.get(input.triggerEventRef);
     if (
       input.triggerEventRef !== null &&
-      (triggerEvent?.schemaVersion !== "startup_opportunity.event.v1" ||
-        triggerEvent.document.run_id !== manifest?.document.run_id)
+      (triggerEvent?.schema_version !== "startup_opportunity.event.v1" ||
+        triggerEvent.run_id !== manifest?.document.run_id)
     ) {
       errors.push(
         analysisError(
@@ -210,11 +231,18 @@ export class AssessmentGapAnalyzer {
     }
 
     const observedRefs = uniqueSorted(input.observedArtifactRefs);
-    if (observedRefs.length === 0 || observedRefs.length !== input.observedArtifactRefs.length) {
+    if (
+      observedRefs.length !== input.observedArtifactRefs.length ||
+      (scopeReconciliation
+        ? observedRefs.length !== 0 || input.materialNewEvidenceObserved
+        : observedRefs.length === 0)
+    ) {
       errors.push(
         analysisError(
           "assessment_gap.observed_set_invalid",
-          "observed branch Artifact refs must be non-empty and unique",
+          scopeReconciliation
+            ? "Scope reconciliation requires an empty observed set and cannot claim material new Evidence"
+            : "observed branch Artifact refs must be non-empty and unique",
         ),
       );
     }
@@ -284,7 +312,7 @@ export class AssessmentGapAnalyzer {
       assessmentPlan === null ||
       subject === null ||
       scope === null ||
-      dimension === undefined
+      (!scopeReconciliation && dimension === undefined)
     ) {
       return {
         schemaVersion: ASSESSMENT_GAP_ANALYSIS_RESULT_VERSION,
@@ -297,6 +325,45 @@ export class AssessmentGapAnalyzer {
       };
     }
 
+    const confirmationRef = manifest.document.scope_confirmation_ref;
+    const confirmation =
+      typeof confirmationRef === "string" ? exactRecords.get(confirmationRef) : undefined;
+    if (
+      scopeReconciliation &&
+      (manifest.document.status !== "needs_clarification" ||
+        confirmation?.schema_version !== "startup_opportunity.decision.v1" ||
+        confirmation.decision_type !== "scope_changed_by_user" ||
+        confirmation.run_id !== manifest.document.run_id ||
+        confirmation.scope_revision !== manifest.document.scope_revision ||
+        canonicalContentHash(confirmation) !== manifest.document.scope_confirmation_hash)
+    ) {
+      return {
+        schemaVersion: ASSESSMENT_GAP_ANALYSIS_RESULT_VERSION,
+        valid: false,
+        planValidation,
+        artifactValidation: null,
+        snapshotPath: null,
+        snapshot: null,
+        errors: [
+          analysisError(
+            "assessment_gap.scope_confirmation_invalid",
+            "Scope reconciliation requires the exact current same-Run Scope confirmation",
+            {
+              manifestStatus: manifest.document.status,
+              scopeConfirmationRef: confirmationRef,
+              scopeRevision: manifest.document.scope_revision,
+              confirmationType: confirmation?.decision_type,
+              confirmationRunId: confirmation?.run_id,
+              confirmationRevision: confirmation?.scope_revision,
+              expectedHash: manifest.document.scope_confirmation_hash,
+              actualHash: confirmation === undefined ? null : canonicalContentHash(confirmation),
+            },
+          ),
+        ],
+      };
+    }
+
+    const dimensionId = scopeReconciliation ? "scope_alignment" : input.dimensionId;
     const identity = {
       schema_version: "startup_opportunity.assessment_coverage_identity.v1" as const,
       run_id: String(manifest.document.run_id),
@@ -309,7 +376,7 @@ export class AssessmentGapAnalyzer {
       assessment_plan_ref: assessmentPlan.path,
       assessment_plan_revision: Number(assessmentPlan.document.revision),
       assessment_plan_hash: canonicalContentHash(assessmentPlan.document),
-      dimension_id: input.dimensionId,
+      dimension_id: String(dimensionId),
       observed_artifacts: observed,
     };
     const coverageKey = assessmentCoverageKey(identity);
@@ -338,6 +405,7 @@ export class AssessmentGapAnalyzer {
     }
 
     const sufficient =
+      !scopeReconciliation &&
       branches.length > 0 &&
       branches.every((branch) => branch.decision_sufficiency === "sufficient");
     const followup = isRecord(assessmentPlan.document.followup_policy)
@@ -353,18 +421,22 @@ export class AssessmentGapAnalyzer {
       !sufficient &&
       input.materialNewEvidenceObserved &&
       (followupLimitReached || !executableChange);
-    const gapType = sufficient
-      ? "coverage_sufficient"
-      : !input.materialNewEvidenceObserved
-        ? "no_material_new_evidence"
-        : noExecutableFollowup
-          ? "no_executable_followup"
-          : input.dimensionId === "buyer_language_and_willingness_to_pay"
-            ? "buyer_evidence_insufficient"
-            : "acquisition_evidence_insufficient";
-    const followupStatus = gapType.endsWith("_insufficient") ? "executable" : "stop";
-    const recommendedUnitType =
-      followupStatus === "executable"
+    const gapType = scopeReconciliation
+      ? "scope_invalidated"
+      : sufficient
+        ? "coverage_sufficient"
+        : !input.materialNewEvidenceObserved
+          ? "no_material_new_evidence"
+          : noExecutableFollowup
+            ? "no_executable_followup"
+            : input.dimensionId === "buyer_language_and_willingness_to_pay"
+              ? "buyer_evidence_insufficient"
+              : "acquisition_evidence_insufficient";
+    const followupStatus =
+      scopeReconciliation || gapType.endsWith("_insufficient") ? "executable" : "stop";
+    const recommendedUnitType = scopeReconciliation
+      ? null
+      : followupStatus === "executable"
         ? input.dimensionId === "buyer_language_and_willingness_to_pay"
           ? "buyer_language"
           : "acquisition"
@@ -391,6 +463,7 @@ export class AssessmentGapAnalyzer {
       assessmentPlan.path,
       subject.path,
       scope.path,
+      ...(scopeReconciliation && typeof confirmationRef === "string" ? [confirmationRef] : []),
       ...observed.flatMap((item) => [item.artifact_ref, item.task_ref]),
     ]);
     const evidenceRefs = uniqueSorted(branches.flatMap((branch) => strings(branch.evidence_refs)));
@@ -400,7 +473,7 @@ export class AssessmentGapAnalyzer {
       wave_id: input.waveId,
       trigger_event_ref: input.triggerEventRef,
     });
-    const gapId = `gap_${input.dimensionId}_${sha256Hex(coverageKey).slice(0, 16)}`;
+    const gapId = `gap_${dimensionId}_${sha256Hex(coverageKey).slice(0, 16)}`;
     const snapshot: Record<string, unknown> = JSON.parse(
       canonicalJson({
         schema_version: "startup_opportunity.gap_snapshot.assessment.current",
@@ -430,17 +503,23 @@ export class AssessmentGapAnalyzer {
             gap_id: gapId,
             coverage_key: coverageKey,
             subject_ref: subject.path,
-            dimension_id: input.dimensionId,
+            dimension_id: dimensionId,
             gap_type: gapType,
             detection_mode: "deterministic",
-            coverage_status: sufficient
-              ? "sufficient"
-              : noExecutableFollowup
-                ? "no_executable_followup"
-                : "insufficient",
-            decision_impact: uniqueSorted(strings(dimension.decision_impact)),
+            coverage_status: scopeReconciliation
+              ? "insufficient"
+              : sufficient
+                ? "sufficient"
+                : noExecutableFollowup
+                  ? "no_executable_followup"
+                  : "insufficient",
+            decision_impact: scopeReconciliation
+              ? ["execution_validity"]
+              : uniqueSorted(strings(dimension?.decision_impact)),
             severity: followupStatus === "executable" ? "blocking" : "material",
-            research_goal: `Resolve current ${input.dimensionId} decision coverage for the frozen concept.`,
+            research_goal: scopeReconciliation
+              ? "Reconcile the exact current confirmed Scope into immutable Plan authority."
+              : `Resolve current ${input.dimensionId} decision coverage for the frozen concept.`,
             basis_refs: basisRefs,
             evidence_refs: evidenceRefs,
             recommended_unit_type: recommendedUnitType,
@@ -448,8 +527,10 @@ export class AssessmentGapAnalyzer {
             limitations,
           },
         ],
-        material_new_evidence_observed: input.materialNewEvidenceObserved,
-        stop_signals: uniqueSorted(stopSignals),
+        material_new_evidence_observed: scopeReconciliation
+          ? false
+          : input.materialNewEvidenceObserved,
+        stop_signals: scopeReconciliation ? [] : uniqueSorted(stopSignals),
         limitations,
       }),
     ) as Record<string, unknown>;
@@ -458,7 +539,10 @@ export class AssessmentGapAnalyzer {
       ...input.documentBundle,
       documents: [...input.documentBundle.documents, { path: outputPath, document: snapshot }],
     };
-    const artifactValidation = this.artifacts.validateDocumentBundle(candidateBundle);
+    const artifactValidation = this.artifacts.validateDocumentBundle(
+      candidateBundle,
+      input.referenceContext,
+    );
     if (!artifactValidation.valid) {
       return {
         schemaVersion: ASSESSMENT_GAP_ANALYSIS_RESULT_VERSION,

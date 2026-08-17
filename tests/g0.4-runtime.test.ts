@@ -2543,6 +2543,82 @@ test("plan-bound handoff exact replay survives Plan r2 while new consumption sta
   );
 });
 
+test("a confirmed pre-Plan Scope revision still reaches formation and the first immutable Plan", async (contextTest) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-pre-plan-scope-"));
+  contextTest.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runId = "runtime-pre-plan-scope-reconciliation";
+  const store = new RunStore(runsRoot, await createArtifactValidator(repositoryRoot));
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-28T09:00:00Z",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "form the first Plan only after explicit Scope confirmation",
+      researchLanguage: "en-US",
+    },
+  });
+  const proposal = await store.proposeScope({
+    runId,
+    expectedScopeRevision: 1,
+    proposedAt: "2026-07-28T09:01:00Z",
+    reason: "The user corrected the initial target before any Plan existed.",
+    scopeProposal: {
+      geography: "Synthetic revised geography",
+      customerModel: "b2c",
+      targetUsers: ["synthetic revised user"],
+      decisionGoal: "form the first Plan from the revised confirmed Scope",
+      researchLanguage: "en-US",
+    },
+  });
+  await store.confirmScope({
+    runId,
+    expectedScopeProposalRevision: 2,
+    expectedScopeProposalRef: proposal.scopeProposalRef,
+    expectedScopeProposalHash: proposal.scopeProposalHash,
+    confirmedAt: "2026-07-28T09:02:00Z",
+    userConfirmationAttestation:
+      "The fixture caller attests exact user confirmation before first-Plan formation.",
+  });
+  const paused = await store.load(runId);
+  assert.equal(paused.manifest.status, "needs_clarification");
+  assert.equal(paused.manifest.status_before_clarification, "created");
+  assert.equal(paused.manifest.current_plan_ref, null);
+
+  const formation = await createDiscoveryMapsFixture("general", runId);
+  await store.publishArtifactBundle({
+    runId,
+    envelopes: G21_CORE_REFS.filter((ref) => ref !== PLAN_REF).map((ref) =>
+      fixtureEnvelope(formation, ref),
+    ),
+  });
+  const planEnvelope = fixtureEnvelope(formation, PLAN_REF);
+  assert.equal(
+    (await store.publishArtifact({ runId, envelope: planEnvelope })).status,
+    "published",
+  );
+  assert.equal(
+    (await store.publishArtifact({ runId, envelope: planEnvelope })).status,
+    "idempotent_replay",
+  );
+  const reopened = await new RunStore(runsRoot, await createArtifactValidator(repositoryRoot))
+    .load(runId)
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+      }
+      throw error;
+    });
+  assert.equal(reopened.manifest.scope_revision, 2);
+  assert.equal(reopened.manifest.status, "planned");
+  assert.equal(reopened.manifest.status_before_clarification, null);
+  assert.equal(reopened.manifest.current_plan_ref, PLAN_REF);
+  assert.equal(reopened.manifest.plan_revision, 1);
+});
+
 test("Scope revision handoff replay survives Gap and Plan reconciliation", async (contextTest) => {
   const runId = "runtime-handoff-scope-reconciliation";
   const sourceRunId = "runtime-handoff-scope-source";
@@ -2705,22 +2781,73 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
   await reopenedBeforeReconciliation.appendEvent(runId, event);
   const eventRef = `events.jsonl#${String(event.event_id)}`;
   const gapPath = "adaptations/gap-snapshots/gap-scope-reconciliation.r1.json";
-  const gap = gapSnapshot(runId, "scope_invalidated", PLAN_REF);
-  gap.snapshot_id = "gap_scope_reconciliation";
-  gap.snapshot_cycle_key = eventGapCycleKey(setup.plan, eventRef, String(event.event_id));
-  gap.based_on_plan_ref = PLAN_REF;
-  gap.revision = 1;
-  gap.parent_snapshot_ref = null;
-  gap.created_at = "2026-07-28T12:10:50Z";
-  gap.trigger_kind = "resume_reconciliation";
-  gap.trigger_event_ref = eventRef;
-  gap.wave_id = null;
+  const currentContextEnvelope = JSON.parse(
+    await readFile(path.join(setup.runRoot, CONTEXT_REF), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const gapInputFile = path.join(setup.root, "scope-reconciliation-gap-input.json");
+  const gapInput = {
+    schema_version: "startup_opportunity.gap_analysis_input.v1",
+    document_bundle: {
+      schema_version: "startup_opportunity.document_bundle.current",
+      documents: [{ path: CONTEXT_REF, document: currentContextEnvelope }],
+      exact_records: [],
+    },
+    snapshot_id: "gap_scope_reconciliation",
+    created_at: "2026-07-28T12:10:50Z",
+    trigger_kind: "resume_reconciliation",
+    phase: "enrichment",
+    wave_id: null,
+    trigger_event_ref: eventRef,
+    observed_artifact_refs: [],
+    material_new_evidence_observed: false,
+    repeated_source_refs: [],
+    machine_checks: [],
+  };
+  await writeFile(gapInputFile, `${canonicalJson(gapInput)}\n`);
+  const gapCommand = runScript("harness/src/cli.ts", [
+    "analyze-gaps",
+    "--file",
+    gapInputFile,
+    "--run-id",
+    runId,
+    "--runs-root",
+    setup.runsRoot,
+  ]);
+  assert.equal(gapCommand.status, 0, gapCommand.stderr || gapCommand.stdout);
+  const gapAnalysis = JSON.parse(gapCommand.stdout) as {
+    valid: boolean;
+    snapshot: Record<string, unknown> | null;
+    errors: { code: string }[];
+  };
+  assert.equal(gapAnalysis.valid, true, JSON.stringify(gapAnalysis.errors, null, 2));
+  assert.ok(gapAnalysis.snapshot);
+  const gap = gapAnalysis.snapshot;
   const gapEntry = (gap.gaps as Record<string, unknown>[])[0];
   assert.ok(gapEntry);
-  gapEntry.gap_id = "gap_scope_reconciliation";
-  gapEntry.subject_ref = PLAN_REF;
-  gapEntry.basis_refs = ["manifest.json", PLAN_REF, confirmation.scopeConfirmationRef];
-  gapEntry.recommended_unit_types = ["buyer_language"];
+  assert.equal((gap.gaps as unknown[]).length, 1);
+  assert.equal(gapEntry.gap_type, "scope_invalidated");
+  assert.deepEqual(gap.stop_signals, []);
+  assert.equal(gap.material_new_evidence_observed, false);
+  await writeFile(
+    gapInputFile,
+    `${canonicalJson({ ...gapInput, material_new_evidence_observed: true })}\n`,
+  );
+  const falseEvidenceCommand = runScript("harness/src/cli.ts", [
+    "analyze-gaps",
+    "--file",
+    gapInputFile,
+    "--run-id",
+    runId,
+    "--runs-root",
+    setup.runsRoot,
+  ]);
+  assert.equal(falseEvidenceCommand.status, 1, falseEvidenceCommand.stderr);
+  const falseEvidence = JSON.parse(falseEvidenceCommand.stdout) as {
+    errors: { code: string }[];
+  };
+  assert.ok(
+    falseEvidence.errors.some((error) => error.code === "gap.scope_reconciliation_input_invalid"),
+  );
   await reopenedBeforeReconciliation.publishArtifact({
     runId,
     envelope: formalEnvelope(runId, gapPath, gap, [
@@ -2731,16 +2858,17 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
   });
 
   const decisionPath = "adaptations/decisions/adapt-scope-reconciliation.json";
-  const decision = supersedeDecision(runId);
+  const decision = retryDecision(runId);
   decision.adaptation_id = "adapt_scope_reconciliation";
+  decision.action = "reconcile_scope";
   decision.based_on_plan_ref = PLAN_REF;
-  decision.target_unit_ref = `${PLAN_REF}#buyer_active`;
-  const replacementUnit = decision.target_unit as Record<string, unknown>;
-  replacementUnit.unit_id = "buyer_scope_reconciled";
-  replacementUnit.output_path =
-    "artifacts/discovery/enrichment/branches/buyer_scope_reconciled.attempt-2.json";
-  replacementUnit.supersedes_unit_ref = `${PLAN_REF}#buyer_active`;
-  decision.trigger_gap_refs = [`${gapPath}#gap_scope_reconciliation`];
+  delete decision.target_unit_ref;
+  delete decision.target_unit;
+  delete decision.retry_basis;
+  delete decision.success_condition;
+  decision.trigger_gap_refs = [`${gapPath}#${String(gapEntry.gap_id)}`];
+  decision.reason = "Reconcile the exact confirmed Scope without inventing new research work.";
+  decision.expected_decision_impact = ["execution_validity"];
   decision.created_at = "2026-07-28T12:11:00Z";
   await reopenedBeforeReconciliation.publishArtifact({
     runId,
@@ -2753,13 +2881,13 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
     PLAN_REF,
     setup.plan,
     currentManifest as never,
-    [
-      { path: DECISION_REF, document: setup.decision },
-      { path: decisionPath, document: decision },
-    ],
+    [{ path: decisionPath, document: decision }],
     "2026-07-28T12:11:10Z",
   );
   assert.ok(transformed.plan);
+  assert.deepEqual(transformed.plan.waves, setup.plan.waves);
+  assert.deepEqual(transformed.plan.research_questions, setup.plan.research_questions);
+  assert.equal(transformed.manifest.followup_round, currentManifest.followup_round);
   const candidateContext = context(currentManifest, transformed.plan, {
     path: "plans/planning-context.r2.json",
     revision: 2,
@@ -2801,7 +2929,7 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
     .apply({
       runId,
       adaptationBundle,
-      adaptationRefs: [DECISION_REF, decisionPath],
+      adaptationRefs: [decisionPath],
       candidateBundle,
       createdAt: "2026-07-28T12:11:10Z",
       checkpointCreatedAt: "2026-07-28T12:11:30Z",
@@ -2826,6 +2954,26 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
   assert.equal(final.manifest.status, "researching");
   assert.equal(final.manifest.status_before_clarification, null);
   assert.equal(final.manifest.scope_revision, 2);
+  assert.equal(final.manifest.followup_round, currentManifest.followup_round);
+  assert.deepEqual(final.manifest.rejected_adaptation_refs, [DECISION_REF]);
+  assert.ok(final.manifest.applied_adaptation_refs.includes(decisionPath));
+  const replay = await runtime.apply({
+    runId,
+    adaptationBundle,
+    adaptationRefs: [decisionPath],
+    candidateBundle,
+    createdAt: "2026-07-28T12:11:10Z",
+    checkpointCreatedAt: "2026-07-28T12:11:30Z",
+    nextStep: "Resume research only under the reconciled Plan.",
+    beliefSummary: {
+      current_belief: "The revised Scope requires an explicit new Plan.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "What current-Run Evidence supports the revised Scope?",
+    },
+  });
+  assert.equal(replay.status, "idempotent_replay");
   assert.equal(
     (
       await reopened.readResearchHandoff({
@@ -3281,6 +3429,81 @@ test("a later same-Run adaptation preserves receipt-bound historical discovery v
       target: first.currentPlanRef,
     },
   ]);
+  const runAwareBundleFile = path.join(setup.root, "run-aware-r2-adaptation-bundle.json");
+  const runAwareGapInputFile = path.join(setup.root, "run-aware-r2-gap-input.json");
+  await writeFile(runAwareBundleFile, `${canonicalJson(assembled.bundle)}\n`);
+  await writeFile(
+    runAwareGapInputFile,
+    `${canonicalJson({
+      schema_version: "startup_opportunity.gap_analysis_input.v1",
+      document_bundle: assembled.bundle,
+      snapshot_id: "gap_run_aware_cli_draft_r2",
+      created_at: "2026-07-28T12:11:30Z",
+      trigger_kind: "wave_completed",
+      phase: "discovery",
+      wave_id: "wave_discovery_synthetic",
+      trigger_event_ref: null,
+      observed_artifact_refs: [],
+      material_new_evidence_observed: false,
+      repeated_source_refs: [],
+      machine_checks: [],
+    })}\n`,
+  );
+  for (const [command, skillScript, flag, filename] of [
+    ["validate-adaptation", "validate-adaptation.ts", "--bundle", runAwareBundleFile],
+    ["analyze-gaps", "analyze-gaps.ts", "--file", runAwareGapInputFile],
+  ] as const) {
+    for (const [script, args] of [
+      [
+        "harness/src/cli.ts",
+        [command, flag, filename, "--run-id", runId, "--runs-root", setup.runsRoot],
+      ],
+      [
+        `.agents/skills/startup-opportunity/scripts/${skillScript}`,
+        [flag, filename, "--run-id", runId, "--runs-root", setup.runsRoot],
+      ],
+    ] as const) {
+      const result = runScript(script, args);
+      assert.equal(result.status, 0, `${command} ${script}: ${result.stderr || result.stdout}`);
+      assert.equal((JSON.parse(result.stdout) as { valid: boolean }).valid, true);
+    }
+  }
+
+  const staleContextBundle = structuredClone(assembled.bundle);
+  const staleContextEnvelope = staleContextBundle.documents.find(
+    (entry) => entry.path === currentContextPath,
+  )?.document as FormalArtifactEnvelope | undefined;
+  assert.ok(staleContextEnvelope);
+  const staleContext = staleContextEnvelope.document;
+  const staleTarget = staleContext.target_plan_binding as Record<string, unknown>;
+  staleTarget.plan_ref = PLAN_REF;
+  (staleContextEnvelope as unknown as Record<string, unknown>).content_hash =
+    canonicalContentHash(staleContext);
+  const staleContextFile = path.join(setup.root, "run-aware-stale-r1-context.json");
+  await writeFile(staleContextFile, `${canonicalJson(staleContextBundle)}\n`);
+  const staleResult = runScript("harness/src/cli.ts", [
+    "validate-adaptation",
+    "--bundle",
+    staleContextFile,
+    "--run-id",
+    runId,
+    "--runs-root",
+    setup.runsRoot,
+  ]);
+  assert.equal(staleResult.status, 1);
+  assert.equal(
+    (JSON.parse(staleResult.stderr) as { error: { code: string } }).error.code,
+    "validation_context.authority_conflict",
+  );
+  const reopenedBeforeSecondApply = await new RunStore(
+    setup.runsRoot,
+    await createArtifactValidator(repositoryRoot),
+  ).load(runId);
+  assert.equal(reopenedBeforeSecondApply.manifest.current_plan_ref, first.currentPlanRef);
+  assert.deepEqual(
+    reopenedBeforeSecondApply.planOperationRecovery.historicalDiscoveryPlanBindings,
+    assembled.referenceContext.historicalDiscoveryPlanBindings,
+  );
   const second = await runtime.apply({
     runId,
     adaptationBundle: assembled.bundle,

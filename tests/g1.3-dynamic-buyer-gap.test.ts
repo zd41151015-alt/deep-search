@@ -8,6 +8,7 @@ import {
   canonicalContentHash,
   canonicalJson,
   createAdaptationPolicyValidator,
+  createArtifactValidator,
   createAssessmentGapAnalyzer,
   createAssessmentPlanSemanticValidator,
   createPlanRevisionRuntime,
@@ -254,6 +255,198 @@ test("G1.3 buyer Gap creates exact Research Plan r2 and assessment plan r2 atomi
   const reopened = await state.store.load(state.runId);
   assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
   assert.equal(reopened.manifest.plan_revision, 2);
+});
+
+test("assessment Scope reconciliation creates semantic-copy Plans and recovers after Manifest CAS", async (context) => {
+  const state = await prepareG13Run(context, repositoryRoot, "run_g1_3_scope_reconcile_001");
+  const beforeScope = await state.store.load(state.runId);
+  const proposal = await state.store.proposeScope({
+    runId: state.runId,
+    expectedScopeRevision: 1,
+    proposedAt: "2026-07-25T16:20:10Z",
+    reason: "The user revised the assessment geography after the current unit completed.",
+    scopeProposal: {
+      geography: "Synthetic revised geography",
+      customerModel: "b2c",
+      targetUsers: ["synthetic revised assessment user"],
+      decisionGoal: "reconcile the revised Scope without inventing assessment work",
+      researchLanguage: "en-US",
+    },
+  });
+  const confirmation = await state.store.confirmScope({
+    runId: state.runId,
+    expectedScopeProposalRevision: proposal.scopeRevision,
+    expectedScopeProposalRef: proposal.scopeProposalRef,
+    expectedScopeProposalHash: proposal.scopeProposalHash,
+    confirmedAt: "2026-07-25T16:20:20Z",
+    userConfirmationAttestation:
+      "The fixture caller attests exact confirmation of the revised assessment Scope.",
+  });
+  const trigger = {
+    schema_version: "startup_opportunity.event.v1",
+    event_id: "assessment_scope_reconciliation_trigger",
+    run_id: state.runId,
+    event_type: "artifact_validation_failed",
+    timestamp: "2026-07-25T16:20:30Z",
+    actor: "harness",
+    reason: "The current assessment Plan predates the confirmed Scope revision.",
+    artifact_refs: [confirmation.scopeConfirmationRef],
+  };
+  await state.store.appendEvent(state.runId, trigger);
+  const triggerRef = `events.jsonl#${trigger.event_id}`;
+  const baseBundle = await bundleFromRun(state);
+  const exactRecords = new Map(
+    (baseBundle.exact_records ?? []).map((entry) => [entry.ref, entry.document]),
+  );
+  exactRecords.set(triggerRef, trigger);
+  const analysis = (await createAssessmentGapAnalyzer(repositoryRoot)).analyze({
+    documentBundle: { ...baseBundle, exact_records: [] },
+    referenceContext: { exactJsonlRecords: exactRecords },
+    snapshotId: "assessment-scope-reconciliation",
+    createdAt: "2026-07-25T16:20:40Z",
+    triggerKind: "resume_reconciliation",
+    waveId: "assessment_wave_1",
+    triggerEventRef: triggerRef,
+    observedArtifactRefs: [],
+    materialNewEvidenceObserved: false,
+    limitations: ["Scope reconciliation adds no research Evidence."],
+  });
+  assert.equal(analysis.valid, true, JSON.stringify(analysis, null, 2));
+  assert.ok(analysis.snapshot && analysis.snapshotPath);
+  const snapshot = analysis.snapshot;
+  const gap = (snapshot.gaps as Record<string, unknown>[])[0];
+  assert.ok(gap);
+  assert.match(String(gap.gap_id), /^gap_scope_alignment_[0-9a-f]{16}$/u);
+  assert.equal(gap.dimension_id, "scope_alignment");
+  assert.equal(gap.gap_type, "scope_invalidated");
+  assert.deepEqual(snapshot.observed_artifacts, []);
+  assert.ok((gap.basis_refs as string[]).includes(confirmation.scopeConfirmationRef));
+  const gapEnvelope = formalEnvelope(
+    state.runId,
+    analysis.snapshotPath,
+    snapshot,
+    "startup_opportunity.artifact_envelope.current",
+    "harness",
+    [...(gap.basis_refs as string[]), triggerRef],
+    "2026-07-25T16:20:40Z",
+  );
+  await state.store.publishArtifact({ runId: state.runId, envelope: gapEnvelope });
+
+  const decision = {
+    path: "adaptations/decisions/assessment-scope-reconciliation.json",
+    document: {
+      schema_version: "startup_opportunity.adaptation_decision.assessment.current",
+      adaptation_id: "assessment_scope_reconciliation",
+      run_id: state.runId,
+      based_on_plan_ref: snapshot.based_on_plan_ref,
+      based_on_plan_revision: snapshot.based_on_plan_revision,
+      based_on_plan_hash: snapshot.based_on_plan_hash,
+      assessment_plan_ref: snapshot.assessment_plan_ref,
+      assessment_plan_revision: snapshot.assessment_plan_revision,
+      assessment_plan_hash: snapshot.assessment_plan_hash,
+      subject_ref: snapshot.subject_ref,
+      scope_frame_ref: snapshot.scope_frame_ref,
+      scope_frame_hash: snapshot.scope_frame_hash,
+      trigger_gap_refs: [`${analysis.snapshotPath}#${String(gap.gap_id)}`],
+      coverage_key: snapshot.coverage_key,
+      action: "reconcile_scope",
+      reason: "Rebind immutable Plan authority to the exact revised Scope.",
+      expected_decision_impact: ["execution_validity"],
+      requested_by: "main_agent",
+      created_at: "2026-07-25T16:20:50Z",
+    },
+  };
+  const decisionEnvelope = formalEnvelope(
+    state.runId,
+    decision.path,
+    decision.document,
+    "startup_opportunity.artifact_envelope.current",
+    "main_agent",
+    [analysis.snapshotPath, String(snapshot.based_on_plan_ref)],
+    "2026-07-25T16:20:50Z",
+  );
+  await state.store.publishArtifact({ runId: state.runId, envelope: decisionEnvelope });
+  const currentContext = JSON.parse(
+    await readFile(path.join(state.runRoot, "plans/planning-context.r1.json"), "utf8"),
+  ) as Record<string, unknown>;
+  const assembled = await state.store.buildValidationContext(state.runId, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [
+      { path: analysis.snapshotPath, document: gapEnvelope },
+      { path: decision.path, document: decisionEnvelope },
+      { path: "plans/planning-context.r1.json", document: currentContext },
+    ],
+    exact_records: [],
+  });
+  const adaptationValidation = (
+    await createAdaptationPolicyValidator(repositoryRoot)
+  ).validateDocumentBundle(assembled.bundle, assembled.referenceContext);
+  assert.equal(adaptationValidation.valid, true, JSON.stringify(adaptationValidation, null, 2));
+  const semanticDrift = clone(assembled.bundle);
+  const driftedSnapshot = effectiveDocument(semanticDrift, analysis.snapshotPath);
+  driftedSnapshot.material_new_evidence_observed = true;
+  const driftedGap = (driftedSnapshot.gaps as Record<string, unknown>[])[0];
+  assert.ok(driftedGap);
+  driftedGap.evidence_refs = [String(snapshot.subject_ref)];
+  refreshEnvelope(semanticDrift, analysis.snapshotPath);
+  const driftValidation = (await createArtifactValidator(repositoryRoot)).validateDocumentBundle(
+    semanticDrift,
+    assembled.referenceContext,
+  );
+  assert.ok(
+    [
+      ...driftValidation.bundleErrors,
+      ...driftValidation.documents.flatMap((entry) => entry.errors),
+      ...driftValidation.referenceErrors,
+    ].some(
+      (issue) => issue.code === "assessment_adaptation.scope_reconciliation_semantics_invalid",
+    ),
+  );
+  const candidate = candidateBundle(assembled.bundle, decision);
+  const candidateValidation = (
+    await createAssessmentPlanSemanticValidator(repositoryRoot)
+  ).validateDocumentBundle(candidate, assembled.referenceContext);
+  assert.equal(candidateValidation.valid, true, JSON.stringify(candidateValidation, null, 2));
+
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+  const input = {
+    runId: state.runId,
+    adaptationBundle: assembled.bundle,
+    adaptationRefs: [decision.path],
+    candidateBundle: candidate,
+    createdAt: "2026-07-25T16:23:00Z",
+    checkpointCreatedAt: "2026-07-25T16:24:00Z",
+    nextStep: "Resume only under the Scope-reconciled Plan authority.",
+    beliefSummary: {
+      current_belief: "Scope authority changed; research observations did not.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["No new Evidence was claimed by reconciliation."],
+      remaining_disagreement: ["The assessment conclusion remains unchanged."],
+      next_decision_relevant_question: "What future Evidence would change the assessment?",
+    },
+  } as const;
+  await assert.rejects(
+    runtime.apply({ ...input, faultAt: "after_manifest_update" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const reopened = await state.store.load(state.runId);
+  assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
+  assert.equal(reopened.manifest.status, beforeScope.manifest.status);
+  assert.equal(reopened.manifest.status_before_clarification, null);
+  assert.equal(reopened.manifest.followup_round, beforeScope.manifest.followup_round);
+  assert.equal((await runtime.apply(input)).status, "idempotent_replay");
+  const researchR1 = effectiveDocument(await bundleFromRun(state), "plans/research-plan.r1.json");
+  const researchR2 = effectiveDocument(await bundleFromRun(state), "plans/research-plan.r2.json");
+  assert.deepEqual(researchR2.waves, researchR1.waves);
+  const assessmentR1 = effectiveDocument(
+    await bundleFromRun(state),
+    "plans/concept-evidence-assessment-plan.r1.json",
+  );
+  const assessmentR2 = effectiveDocument(
+    await bundleFromRun(state),
+    "plans/concept-evidence-assessment-plan.r2.json",
+  );
+  assert.deepEqual(assessmentR2.dimensions, assessmentR1.dimensions);
 });
 
 test("G1.3 exact Decision replay preserves every existing lifecycle state byte-for-byte", async (context) => {

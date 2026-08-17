@@ -31,6 +31,7 @@ const REVISION_ACTIONS = new Set([
   "reprioritize_unit",
   "retry_unit",
   "supersede_unit",
+  "reconcile_scope",
 ]);
 
 const NON_REVISION_ACTIONS = new Set([
@@ -280,6 +281,9 @@ export function transformPlan(
       addUnits.push(newUnit);
       continue;
     }
+    if (action === "reconcile_scope") {
+      continue;
+    }
     if (targetId === null) {
       throw new StoreError("adaptation.target_missing", "unit action has no target unit ref", {
         adaptationRef: decision.path,
@@ -376,9 +380,10 @@ export function transformAssessmentPlan(
       (decision) =>
         decision.document.schema_version !==
           "startup_opportunity.adaptation_decision.assessment.current" ||
-        !["add_unit", "stop_followup", "complete_research", "cancel_research"].includes(
+        (!["add_unit", "stop_followup", "complete_research", "cancel_research"].includes(
           String(decision.document.action),
-        ),
+        ) &&
+          decision.document.action !== "reconcile_scope"),
     )
   ) {
     throw new StoreError(
@@ -386,8 +391,8 @@ export function transformAssessmentPlan(
       "assessment plan transformation requires only Assessment Adaptation Decisions",
     );
   }
-  const revisionCreated = sortedDecisions.some(
-    (decision) => decision.document.action === "add_unit",
+  const revisionCreated = sortedDecisions.some((decision) =>
+    ["add_unit", "reconcile_scope"].includes(String(decision.document.action)),
   );
   if (!revisionCreated) {
     return { revisionCreated: false, planPath: baseAssessmentPlanPath, plan: null };
@@ -395,7 +400,11 @@ export function transformAssessmentPlan(
   const revision = Number(baseAssessmentPlan.revision) + 1;
   const planPath = `plans/concept-evidence-assessment-plan.r${revision}.json`;
   if (
-    sortedDecisions.some((decision) => decision.document.candidate_assessment_plan_ref !== planPath)
+    sortedDecisions.some(
+      (decision) =>
+        decision.document.action === "add_unit" &&
+        decision.document.candidate_assessment_plan_ref !== planPath,
+    )
   ) {
     throw new StoreError(
       "adaptation.assessment_candidate_ref_mismatch",

@@ -5,6 +5,7 @@ import {
   canonicalContentHash,
   type DiscoveryProfile,
   type DocumentBundle,
+  discoveryMapEnvelopeInputRefs,
   type FormalArtifactEnvelope,
 } from "../../../harness/src/index.js";
 
@@ -210,6 +211,9 @@ export function refreshDiscoveryMapsBundle(bundle: DocumentBundle): DocumentBund
   stored(bundle, G21_SOLUTION_REF).content_hash = canonicalContentHash(
     effective(bundle, G21_SOLUTION_REF),
   );
+  for (const ref of G21_MAP_REFS) {
+    stored(bundle, ref).input_refs = discoveryMapEnvelopeInputRefs(effective(bundle, ref)) ?? [];
+  }
   return bundle;
 }
 

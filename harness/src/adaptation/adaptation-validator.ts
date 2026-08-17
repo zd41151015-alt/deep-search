@@ -1,10 +1,9 @@
-import { canonicalJson } from "../artifact-store/canonical.js";
+import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import {
   type ArtifactValidator,
   createArtifactValidator,
   type DocumentBundleReferenceContext,
 } from "../validators/artifact-validator.js";
-import { planningRunStateHash } from "../validators/planning-contract-identities.js";
 import { sortIssues, type ValidationIssue } from "../validators/schema-bundle.js";
 import {
   type AssessmentAdaptationPolicy,
@@ -21,6 +20,7 @@ import {
   unitById,
   unitEntries,
 } from "./contracts.js";
+import { currentPlanningProjection } from "./current-planning-projection.js";
 import {
   type DiscoveryAdaptationBindingPolicy,
   loadDiscoveryAdaptationBindingPolicy,
@@ -147,6 +147,99 @@ function validateCancellationAuthority(
   }
 }
 
+function validateScopeReconciliationAuthority(
+  decisionPath: string,
+  decision: Record<string, unknown>,
+  planPath: string,
+  manifest: Record<string, unknown>,
+  documents: ReturnType<typeof documentMap>,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+  errors: ValidationIssue[],
+): void {
+  if (decision.action !== "reconcile_scope") {
+    return;
+  }
+  if (canonicalJson(decision.expected_decision_impact) !== canonicalJson(["execution_validity"])) {
+    errors.push(
+      issue(
+        "adaptation.scope_reconciliation_impact_invalid",
+        `${decisionPath}#/expected_decision_impact`,
+        "reconcile_scope may change execution validity only",
+      ),
+    );
+  }
+  const alreadyApplied = Array.isArray(manifest.applied_adaptation_refs)
+    ? manifest.applied_adaptation_refs.includes(decisionPath)
+    : false;
+  if (manifest.status !== "needs_clarification" && !alreadyApplied) {
+    errors.push(
+      issue(
+        "adaptation.scope_reconciliation_state_invalid",
+        decisionPath,
+        "reconcile_scope requires the Run to be awaiting reconciliation",
+        { status: manifest.status },
+      ),
+    );
+  }
+  const confirmationRef = manifest.scope_confirmation_ref;
+  const confirmation =
+    typeof confirmationRef === "string" ? exactRecords.get(confirmationRef) : undefined;
+  if (
+    confirmation?.schema_version !== "startup_opportunity.decision.v1" ||
+    confirmation.decision_type !== "scope_changed_by_user" ||
+    confirmation.run_id !== manifest.run_id ||
+    confirmation.scope_revision !== manifest.scope_revision ||
+    canonicalContentHash(confirmation) !== manifest.scope_confirmation_hash
+  ) {
+    errors.push(
+      issue(
+        "adaptation.scope_reconciliation_confirmation_invalid",
+        decisionPath,
+        "reconcile_scope requires the exact current same-Run Scope confirmation",
+      ),
+    );
+  }
+  const refs = Array.isArray(decision.trigger_gap_refs)
+    ? decision.trigger_gap_refs.filter((ref): ref is string => typeof ref === "string")
+    : [];
+  const [snapshotPath = "", gapId] = refs.length === 1 ? (refs[0]?.split("#", 2) ?? []) : [];
+  const snapshot = documents.get(snapshotPath);
+  const gap = Array.isArray(snapshot?.document.gaps)
+    ? snapshot.document.gaps.find((candidate) => isRecord(candidate) && candidate.gap_id === gapId)
+    : undefined;
+  const expectedSnapshotType =
+    manifest.mode === "concept_evidence_assessment"
+      ? "startup_opportunity.gap_snapshot.assessment.current"
+      : null;
+  const discoverySnapshot =
+    snapshot?.schemaVersion === "startup_opportunity.gap_snapshot.discovery.plan.current" ||
+    snapshot?.schemaVersion === "startup_opportunity.gap_snapshot.discovery.readiness.current";
+  if (
+    refs.length !== 1 ||
+    snapshot === undefined ||
+    (expectedSnapshotType === null
+      ? !discoverySnapshot
+      : snapshot.schemaVersion !== expectedSnapshotType) ||
+    snapshot.document.run_id !== manifest.run_id ||
+    snapshot.document.based_on_plan_ref !== decision.based_on_plan_ref ||
+    snapshot.document.based_on_plan_ref !== planPath ||
+    snapshot.document.trigger_kind !== "resume_reconciliation" ||
+    !isRecord(gap) ||
+    gap.gap_type !== "scope_invalidated" ||
+    !Array.isArray(gap.basis_refs) ||
+    typeof confirmationRef !== "string" ||
+    !gap.basis_refs.includes(confirmationRef)
+  ) {
+    errors.push(
+      issue(
+        "adaptation.scope_reconciliation_gap_invalid",
+        `${decisionPath}#/trigger_gap_refs`,
+        "reconcile_scope requires one current resume_reconciliation scope_invalidated Gap bound to the exact confirmation",
+      ),
+    );
+  }
+}
+
 function adaptationModeErrors(
   documents: ReturnType<typeof effectiveDocuments>,
   mode: unknown,
@@ -175,92 +268,6 @@ function adaptationModeErrors(
         ]
       : [],
   );
-}
-
-function currentPlanningProjection(
-  value: unknown,
-  documents: ReturnType<typeof effectiveDocuments>,
-): unknown {
-  if (!isRecord(value) || !Array.isArray(value.documents)) {
-    return value;
-  }
-  const hasDiscoveryContractClosure =
-    documents.some(
-      (document) => document.schemaVersion === "startup_opportunity.scope_frame.discovery.current",
-    ) &&
-    documents.some((document) =>
-      [
-        "startup_opportunity.seed_probe.v1",
-        "startup_opportunity.opportunity_space_map.v1",
-        "startup_opportunity.solution_space_map.v1",
-      ].includes(document.schemaVersion),
-    );
-  if (!hasDiscoveryContractClosure) {
-    const effectiveByPath = new Map(documents.map((document) => [document.path, document]));
-    return {
-      ...value,
-      documents: value.documents
-        .filter(
-          (entry) =>
-            !isRecord(entry) ||
-            !isRecord(entry.document) ||
-            entry.document.artifact_type !== "startup_opportunity.discovery_candidate.v1",
-        )
-        .map((entry) => {
-          if (!isRecord(entry) || typeof entry.path !== "string") {
-            return entry;
-          }
-          const effective = effectiveByPath.get(entry.path);
-          return effective?.envelope === null || effective === undefined
-            ? entry
-            : { ...entry, document: effective.document };
-        }),
-    };
-  }
-  const byPath = new Map(documents.map((document) => [document.path, document]));
-  const manifest = byPath.get("manifest.json");
-  const context = leafPlanningContexts(value)[0];
-  const targetBinding = context?.document.target_plan_binding;
-  const manifestBinding = context?.document.manifest_binding;
-  if (
-    manifest?.schemaVersion !== "startup_opportunity.run_manifest.v1" ||
-    context?.schemaVersion !== "startup_opportunity.planning_context.ai_source_bound.current" ||
-    context.document.validation_stage !== "candidate_revision" ||
-    !isRecord(targetBinding) ||
-    !isRecord(manifestBinding) ||
-    targetBinding.plan_ref !== manifest.document.current_plan_ref ||
-    targetBinding.plan_revision !== manifest.document.plan_revision
-  ) {
-    return value;
-  }
-  const projectedManifestBinding = {
-    ...manifestBinding,
-    current_plan_ref: manifest.document.current_plan_ref,
-    current_plan_revision: manifest.document.plan_revision,
-    run_state_hash: planningRunStateHash({
-      manifest_ref: String(manifestBinding.manifest_ref),
-      manifest_schema_version: String(manifestBinding.manifest_schema_version),
-      run_id: String(manifestBinding.run_id),
-      mode: String(manifestBinding.mode),
-      current_plan_ref: manifest.document.current_plan_ref as string,
-      current_plan_revision: Number(manifest.document.plan_revision),
-    }),
-  };
-  return {
-    ...value,
-    documents: value.documents.map((entry) =>
-      isRecord(entry) && entry.path === context.path
-        ? {
-            ...entry,
-            document: {
-              ...context.document,
-              validation_stage: "current_plan",
-              manifest_binding: projectedManifestBinding,
-            },
-          }
-        : entry,
-    ),
-  };
 }
 
 export class AdaptationPolicyValidator {
@@ -293,7 +300,7 @@ export class AdaptationPolicyValidator {
         modeErrors,
       );
     }
-    const planningValue = currentPlanningProjection(value, documents);
+    const planningValue = currentPlanningProjection(value);
     const planValidation = this.plans.validateDocumentBundle(planningValue, referenceContext);
     const byPath = documentMap(value);
     const context = leafPlanningContexts(value)[0];
@@ -337,16 +344,18 @@ export class AdaptationPolicyValidator {
     const newUnitIds = new Map<string, string>();
     const newOutputPaths = new Map<string, string>();
     const coveredGapRefs = new Set<string>();
-    if (
-      manifest?.schemaVersion === "startup_opportunity.run_manifest.v1" &&
-      Array.isArray(manifest.document.applied_adaptation_refs)
-    ) {
-      const appliedRefs = new Set(
-        manifest.document.applied_adaptation_refs.filter(
-          (ref): ref is string => typeof ref === "string",
-        ),
+    if (manifest?.schemaVersion === "startup_opportunity.run_manifest.v1") {
+      const disposedRefs = new Set(
+        [
+          ...(Array.isArray(manifest.document.applied_adaptation_refs)
+            ? manifest.document.applied_adaptation_refs
+            : []),
+          ...(Array.isArray(manifest.document.rejected_adaptation_refs)
+            ? manifest.document.rejected_adaptation_refs
+            : []),
+        ].filter((ref): ref is string => typeof ref === "string"),
       );
-      for (const decision of allDecisionDocuments.filter((entry) => appliedRefs.has(entry.path))) {
+      for (const decision of allDecisionDocuments.filter((entry) => disposedRefs.has(entry.path))) {
         for (const gapRef of Array.isArray(decision.document.trigger_gap_refs)
           ? decision.document.trigger_gap_refs
           : []) {
@@ -546,6 +555,21 @@ export class AdaptationPolicyValidator {
         );
       }
       identityContent.set(identity, content);
+
+      if (
+        plan?.schemaVersion === "startup_opportunity.research_plan.v1" &&
+        manifest?.schemaVersion === "startup_opportunity.run_manifest.v1"
+      ) {
+        validateScopeReconciliationAuthority(
+          decision.path,
+          decision.document,
+          plan.path,
+          manifest.document,
+          byPath,
+          exactRecords,
+          errors,
+        );
+      }
 
       if (
         decision.document.action === "complete_research" &&
@@ -759,6 +783,16 @@ export class AdaptationPolicyValidator {
         : [],
     );
     const gaps = triggerRefs.map((ref) => gapByRef(documents, ref));
+
+    validateScopeReconciliationAuthority(
+      decisionPath,
+      decision,
+      planPath,
+      manifest,
+      documents,
+      exactRecords,
+      errors,
+    );
 
     for (const [index, resolved] of gaps.entries()) {
       if (resolved === null) {
@@ -1028,6 +1062,8 @@ export class AdaptationPolicyValidator {
             ),
           );
         }
+        break;
+      case "reconcile_scope":
         break;
       case "continue_existing_plan":
         requireState(["pending", "active"]);

@@ -1,5 +1,5 @@
 import { statusOfUnit } from "../adaptation/contracts.js";
-import { canonicalContentHash } from "../artifact-store/canonical.js";
+import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import {
   type AssessmentObservedArtifactIdentity,
   assessmentCoverageKey,
@@ -332,11 +332,15 @@ export function validateAssessmentAdaptationContract(
         );
       }
       seenCoverage.set(expectedCoverage, snapshot.path);
+      const scopeReconciliation = gap.gap_type === "scope_invalidated";
       const requiredBasis = [
         String(snapshot.document.based_on_plan_ref),
         String(snapshot.document.assessment_plan_ref),
         String(snapshot.document.subject_ref),
         String(snapshot.document.scope_frame_ref),
+        ...(scopeReconciliation && typeof manifest.document.scope_confirmation_ref === "string"
+          ? [manifest.document.scope_confirmation_ref]
+          : []),
         ...observed.flatMap((item) => [item.artifact_ref, item.task_ref]),
       ];
       if (!requiredBasis.every((ref) => stringArray(gap.basis_refs).includes(ref))) {
@@ -352,7 +356,10 @@ export function validateAssessmentAdaptationContract(
       if (
         (recommended !== null &&
           (gap.recommended_unit_type !== recommended || gap.followup_status !== "executable")) ||
-        (recommended === null &&
+        (scopeReconciliation &&
+          (gap.recommended_unit_type !== null || gap.followup_status !== "executable")) ||
+        (!scopeReconciliation &&
+          recommended === null &&
           (gap.recommended_unit_type !== null || gap.followup_status !== "stop"))
       ) {
         errors.push(
@@ -360,6 +367,26 @@ export function validateAssessmentAdaptationContract(
             "assessment_adaptation.gap_disposition_invalid",
             `${snapshot.path}#/gaps/0`,
             "gap type does not match its closed follow-up disposition",
+          ),
+        );
+      }
+      if (
+        scopeReconciliation &&
+        (snapshot.document.material_new_evidence_observed !== false ||
+          stringArray(snapshot.document.stop_signals).length !== 0 ||
+          stringArray(gap.evidence_refs).length !== 0 ||
+          canonicalJson(stringArray(gap.basis_refs).toSorted()) !==
+            canonicalJson(requiredBasis.toSorted()) ||
+          canonicalJson(stringArray(gap.decision_impact)) !==
+            canonicalJson(["execution_validity"]) ||
+          gap.detection_mode !== "deterministic" ||
+          gap.severity !== "blocking")
+      ) {
+        errors.push(
+          issue(
+            "assessment_adaptation.scope_reconciliation_semantics_invalid",
+            `${snapshot.path}#/gaps/0`,
+            "Scope reconciliation must remain a deterministic, Evidence-free planning-authority correction",
           ),
         );
       }
@@ -417,11 +444,18 @@ export function validateAssessmentAdaptationContract(
             : [];
       const actualStopSignals = stringArray(snapshot.document.stop_signals);
       if (
-        gap.gap_type !== expectedGapType ||
-        gap.coverage_status !== expectedCoverageStatus ||
-        gap.followup_status !== expectedFollowupStatus ||
-        gap.recommended_unit_type !== expectedRecommendedUnit ||
-        !expectedStopSignals.every((signal) => actualStopSignals.includes(signal))
+        (!scopeReconciliation && gap.gap_type !== expectedGapType) ||
+        (!scopeReconciliation && gap.coverage_status !== expectedCoverageStatus) ||
+        (!scopeReconciliation && gap.followup_status !== expectedFollowupStatus) ||
+        (!scopeReconciliation && gap.recommended_unit_type !== expectedRecommendedUnit) ||
+        (!scopeReconciliation &&
+          !expectedStopSignals.every((signal) => actualStopSignals.includes(signal))) ||
+        (scopeReconciliation &&
+          (snapshot.document.trigger_kind !== "resume_reconciliation" ||
+            gap.dimension_id !== "scope_alignment" ||
+            gap.coverage_status !== "insufficient" ||
+            gap.followup_status !== "executable" ||
+            observed.length !== 0))
       ) {
         errors.push(
           issue(
@@ -513,6 +547,18 @@ export function validateAssessmentAdaptationContract(
           ),
         );
       }
+    } else if (
+      decision.document.action === "reconcile_scope" &&
+      canonicalJson(stringArray(decision.document.expected_decision_impact)) !==
+        canonicalJson(["execution_validity"])
+    ) {
+      errors.push(
+        issue(
+          "assessment_adaptation.scope_reconciliation_impact_invalid",
+          `${decision.path}#/expected_decision_impact`,
+          "Scope reconciliation may change execution validity only",
+        ),
+      );
     } else if (
       decision.document.action === "stop_followup" &&
       gap.followup_status !== "stop" &&

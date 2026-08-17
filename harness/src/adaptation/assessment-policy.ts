@@ -13,6 +13,7 @@ export interface AssessmentAdaptationPolicy extends Record<string, unknown> {
   readonly policy_version: "1.0.0";
   readonly allowed_actions: readonly [
     "add_unit",
+    "reconcile_scope",
     "stop_followup",
     "complete_research",
     "cancel_research",
@@ -59,7 +60,13 @@ export async function loadAssessmentAdaptationPolicy(
   if (
     canonicalJson(policy.add_unit_rules) !== canonicalJson(EXPECTED_ADD_UNIT_RULES) ||
     canonicalJson(policy.allowed_actions) !==
-      canonicalJson(["add_unit", "stop_followup", "complete_research", "cancel_research"])
+      canonicalJson([
+        "add_unit",
+        "reconcile_scope",
+        "stop_followup",
+        "complete_research",
+        "cancel_research",
+      ])
   ) {
     throw new StoreError(
       "policy.assessment_adaptation_invalid",

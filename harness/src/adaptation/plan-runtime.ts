@@ -861,6 +861,13 @@ function scopeReconciliationAuthorized(
   ) {
     return false;
   }
+  if (
+    decisions.length !== 1 ||
+    decisions[0]?.document.action !== "reconcile_scope" ||
+    decisions[0].document.based_on_plan_ref !== manifest.current_plan_ref
+  ) {
+    return false;
+  }
   const confirmation = exactRecords.get(manifest.scope_confirmation_ref);
   if (
     confirmation?.schema_version !== "startup_opportunity.decision.v1" ||
@@ -872,7 +879,7 @@ function scopeReconciliationAuthorized(
     return false;
   }
   const byPath = new Map(documents.map((document) => [document.path, document]));
-  return decisions.some((decision) =>
+  return decisions.every((decision) =>
     (Array.isArray(decision.document.trigger_gap_refs)
       ? decision.document.trigger_gap_refs
       : []

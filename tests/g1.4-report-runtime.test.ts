@@ -22,6 +22,7 @@ import {
   sha256Bytes,
 } from "../harness/src/index.js";
 import {
+  localizedTerminalUserViewIssues,
   renderTerminalDecisionBrief,
   renderTerminalFullReport,
 } from "../harness/src/reporting/terminal-reporting.js";
@@ -1118,6 +1119,18 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
 test("Chinese terminal report localizes quantitative priority and readiness enums", async (context) => {
   const state = await prepareRun(context, { injectHistoricalCompilerWarning: true });
   const source = terminalReportEnvelope(state).document;
+  source.research_provenance = {
+    available_handoff_count: 0,
+    captured_item_count: 0,
+    consumed_item_refs: [],
+    used_handoff_items: [],
+    imported_substrate_refs: [],
+    adopted_inherited_evidence_refs: [],
+    cited_inherited_evidence_refs: [],
+    adopted_current_evidence_refs: [],
+    cited_current_evidence_refs: [],
+    revalidation_gaps: [],
+  };
   source.commercial_subject_aggregates = [
     {
       subject_id: "concept_assess_001",
@@ -1183,6 +1196,41 @@ test("Chinese terminal report localizes quantitative priority and readiness enum
     assert.match(markdown, /商业验证就绪度: 未就绪/);
   }
   assert.match(full, /方向性代理指标/);
+});
+
+test("Chinese terminal prose localizes compiler inference text without changing audit truth", async (context) => {
+  const state = await prepareRun(context);
+  const source = terminalReportEnvelope(state).document;
+  source.research_provenance = {
+    available_handoff_count: 0,
+    captured_item_count: 0,
+    consumed_item_refs: [],
+    used_handoff_items: [],
+    imported_substrate_refs: [],
+    adopted_inherited_evidence_refs: [],
+    cited_inherited_evidence_refs: [],
+    adopted_current_evidence_refs: [],
+    cited_current_evidence_refs: [],
+    revalidation_gaps: [],
+  };
+  const uncertainty = (source.commercial_uncertainties as Record<string, unknown>[])[0];
+  const readableSource = (source.sources as Record<string, unknown>[])[0];
+  assert.ok(uncertainty);
+  assert.ok(readableSource);
+  uncertainty.statement = "Evidence supports only an inferred purchase signal.";
+  uncertainty.reasoning = "Harness inference retains exact Evidence refs in the Artifact audit.";
+  readableSource.claim = "Evidence indicates a current-Run hypothesis, not validation.";
+  const inference = readableSource.inference as Record<string, unknown>;
+  inference.reasoning = "Harness-owned reasoning cites the exact Evidence Artifact.";
+  const structuredTruth = canonicalJson(source);
+
+  const brief = renderTerminalDecisionBrief(source);
+  const full = renderTerminalFullReport(source);
+  assert.equal(canonicalJson(source), structuredTruth);
+  assert.match(full, /证据 supports only an inferred purchase signal/);
+  assert.doesNotMatch(`${brief}\n${full}`, /\b(?:Evidence|Harness|Artifact|current-Run)\b/u);
+  assert.deepEqual(localizedTerminalUserViewIssues(source, brief), []);
+  assert.deepEqual(localizedTerminalUserViewIssues(source, full), []);
 });
 
 test("public ReportRuntime rejects terminal sources before any standalone report write", async (context) => {

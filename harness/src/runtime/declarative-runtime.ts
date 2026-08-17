@@ -1,4 +1,8 @@
 import { performance } from "node:perf_hooks";
+import {
+  createAssessmentPlanSemanticValidator,
+  createPlanSemanticValidator,
+} from "../adaptation/plan-validator.js";
 import type {
   ArtifactFaultBoundary,
   FormalArtifactEnvelope,
@@ -13,6 +17,7 @@ import {
   type DocumentBundle,
 } from "../validators/artifact-validator.js";
 import type { CommercialResearchPolicy } from "../validators/commercial-research-validator.js";
+import { discoveryMapEnvelopeInputRefs } from "../validators/discovery-maps-validator.js";
 import {
   type GateDiagnosticSummary,
   summarizeGateDiagnostics,
@@ -159,6 +164,24 @@ function declaredArtifactRefs(document: Record<string, unknown>): readonly strin
   };
   visit(document);
   return [...refs].sort();
+}
+
+function compilationArtifactRefs(artifact: {
+  readonly artifact_path: string;
+  readonly input_refs?: readonly string[];
+  readonly document: Record<string, unknown>;
+}): readonly string[] {
+  const mapProjection = discoveryMapEnvelopeInputRefs(artifact.document);
+  if (mapProjection !== null) {
+    return mapProjection;
+  }
+  return [
+    ...new Set([
+      ...artifactRefsForDocument({ path: artifact.artifact_path, document: artifact.document }),
+      ...(artifact.input_refs ?? []),
+      ...declaredArtifactRefs(artifact.document),
+    ]),
+  ];
 }
 
 function elapsed(started: number): number {
@@ -517,16 +540,9 @@ export class DeclarativeRuntimeCompiler {
         );
         continue;
       }
-      const discoveredRefs = [
-        ...new Set([
-          ...artifactRefsForDocument({
-            path: artifact.artifact_path,
-            document: artifact.document,
-          }),
-          ...(artifact.input_refs ?? []),
-          ...declaredArtifactRefs(artifact.document),
-        ]),
-      ].filter((ref) => ref.split("#", 1)[0] !== artifact.artifact_path);
+      const discoveredRefs = compilationArtifactRefs(artifact).filter(
+        (ref) => ref.split("#", 1)[0] !== artifact.artifact_path,
+      );
       const directRefs = discoveredRefs
         .filter((ref) =>
           [
@@ -650,16 +666,67 @@ export class DeclarativeRuntimeCompiler {
         },
       );
     }
+    const prospectivePlanClosure = envelopes.some((envelope) =>
+      [
+        "startup_opportunity.research_plan.v1",
+        "startup_opportunity.concept_evidence_assessment_plan.v1",
+        "startup_opportunity.planning_context.general.current",
+        "startup_opportunity.planning_context.ai_source_bound.current",
+        "startup_opportunity.ai_trigger_source_attestation.v1",
+      ].includes(envelope.artifact_type),
+    );
+    if (prospectivePlanClosure) {
+      const manifestEntry = context.bundle.documents.find(
+        (entry) => entry.path === "manifest.json",
+      );
+      const mode = isRecord(manifestEntry?.document) ? manifestEntry.document.mode : null;
+      const planValidator =
+        mode === "concept_evidence_assessment"
+          ? await createAssessmentPlanSemanticValidator(this.repositoryRoot)
+          : await createPlanSemanticValidator(this.repositoryRoot);
+      const planValidation = planValidator.validateDocumentBundle(
+        context.bundle,
+        context.referenceContext,
+      );
+      const semanticIssues = [
+        ...planValidation.planningContract.contractErrors,
+        ...planValidation.planErrors,
+      ];
+      gateIssues.push(...semanticIssues);
+      if (!planValidation.valid) {
+        const validationIssues = semanticIssues.map((error) =>
+          diagnostic(
+            error.code,
+            error.instancePath.split("#", 1)[0] || "planning_closure",
+            error.instancePath,
+            error.message,
+            "The prospective Plan, Planning Context, or policy tuple is not semantically publishable.",
+            error.details,
+          ),
+        );
+        throw new StoreError(
+          "runtime.compilation_plan_preflight_failed",
+          "compiled Plan artifacts fail semantic and policy validation before publication planning",
+          {
+            issues: validationIssues,
+            root_causes: aggregateRootCauses(validationIssues),
+            bundleErrors: planValidation.planningContract.documentBundle.bundleErrors,
+            documentErrors: [
+              ...planValidation.planningContract.documentBundle.documents.flatMap(
+                (document) => document.errors,
+              ),
+              ...semanticIssues,
+            ],
+            referenceErrors: planValidation.planningContract.documentBundle.referenceErrors,
+            contractErrors: planValidation.planningContract.contractErrors,
+            planErrors: planValidation.planErrors,
+          },
+        );
+      }
+    }
     const allDeclaredRefs =
       request.publication_plan?.resolved_references.map((reference) => reference.ref) ??
-      sourceArtifacts.flatMap((artifact) => [
-        ...(artifact.input_refs ?? []),
-        ...artifactRefsForDocument({
-          path: artifact.artifact_path,
-          document: artifact.document,
-        }),
-        ...declaredArtifactRefs(artifact.document),
-      ]);
+      sourceArtifacts.flatMap((artifact) => compilationArtifactRefs(artifact));
     const resolvedReferences = await resolveReferences({
       refs: allDeclaredRefs,
       repositoryRoot: this.repositoryRoot,
@@ -681,13 +748,15 @@ export class DeclarativeRuntimeCompiler {
       manifest_content_hash: canonicalContentHash(manifest.document),
       compiled_envelopes: envelopes,
       validation_closure: {
-        documents: context.bundle.documents.map((entry) => ({
-          path: entry.path,
-          content_hash: canonicalContentHash(entry.document),
-        })),
-        exact_records: [...(context.referenceContext.exactJsonlRecords?.entries() ?? [])].map(
-          ([ref, document]) => ({ ref, content_hash: canonicalContentHash(document) }),
-        ),
+        documents: context.bundle.documents
+          .map((entry) => ({
+            path: entry.path,
+            content_hash: canonicalContentHash(entry.document),
+          }))
+          .sort((left, right) => left.path.localeCompare(right.path)),
+        exact_records: [...(context.referenceContext.exactJsonlRecords?.entries() ?? [])]
+          .map(([ref, document]) => ({ ref, content_hash: canonicalContentHash(document) }))
+          .sort((left, right) => left.ref.localeCompare(right.ref)),
       },
       resolved_references: resolvedReferences.map((ref) => ({
         ref: ref.ref,
@@ -728,6 +797,11 @@ export class DeclarativeRuntimeCompiler {
           (entry) => entry.path === "manifest.json",
         );
         if (suppliedManifestClosure !== undefined) {
+          const suppliedManifestReferences = new Map(
+            request.publication_plan.resolved_references
+              .filter((reference) => reference.target_path === "manifest.json")
+              .map((reference) => [reference.ref, reference]),
+          );
           const replayIdentity = {
             ...planIdentity,
             manifest_content_hash: request.publication_plan.manifest_content_hash,
@@ -737,6 +811,11 @@ export class DeclarativeRuntimeCompiler {
                 entry.path === "manifest.json" ? suppliedManifestClosure : entry,
               ),
             },
+            resolved_references: planIdentity.resolved_references.map((reference) =>
+              reference.target_path === "manifest.json"
+                ? (suppliedManifestReferences.get(reference.ref) ?? reference)
+                : reference,
+            ),
           };
           const replayPlan: RuntimePublicationPlan = {
             ...replayIdentity,
@@ -768,6 +847,11 @@ export class DeclarativeRuntimeCompiler {
         {
           suppliedPlanId: request.publication_plan.plan_id,
           currentPlanId: publicationPlan.plan_id,
+          differingPlanFields: Object.keys(compiledPublicationPlan).filter(
+            (field) =>
+              canonicalJson(request.publication_plan?.[field]) !==
+              canonicalJson(compiledPublicationPlan[field]),
+          ),
         },
       );
     }

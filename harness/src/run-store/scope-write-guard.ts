@@ -22,6 +22,25 @@ const SCOPE_RECONCILIATION_ARTIFACT_TYPES = new Set([
   "startup_opportunity.checkpoint.v1",
 ]);
 
+const PRE_PLAN_SCOPE_FORMATION_ARTIFACT_TYPES = new Set([
+  "startup_opportunity.intake.v1",
+  "startup_opportunity.decision_context.v1",
+  "startup_opportunity.scope_frame.discovery.current",
+  "startup_opportunity.scope_frame.assessment.current",
+  "startup_opportunity.concept_hypothesis.assessment.current",
+]);
+
+export function scopeReconciliationArtifactTypeAllowed(
+  manifest: Readonly<Record<string, unknown>>,
+  artifactType: string,
+): boolean {
+  return (
+    SCOPE_RECONCILIATION_ARTIFACT_TYPES.has(artifactType) ||
+    (manifest.current_plan_ref === null &&
+      PRE_PLAN_SCOPE_FORMATION_ARTIFACT_TYPES.has(artifactType))
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -187,7 +206,7 @@ export async function assertScopeAllowsStorageMutationLocked(
     manifestValue.status === "needs_clarification" &&
     (mutation.kind === "evidence" ||
       mutation.artifactTypes.some(
-        (artifactType) => !SCOPE_RECONCILIATION_ARTIFACT_TYPES.has(artifactType),
+        (artifactType) => !scopeReconciliationArtifactTypeAllowed(manifestValue, artifactType),
       ))
   ) {
     throw new StoreError(

@@ -3218,6 +3218,207 @@ test("the decision subject snapshot is authoritative for current, superseded, an
   ];
   assert.deepEqual(validateDecisionSubjectContract(documents), []);
 
+  const multiSubject = structuredClone(documents);
+  const beta = candidate("candidate_beta_final");
+  const betaRef = "artifacts/discovery/candidates/beta.r1.json";
+  multiSubject.push({
+    path: betaRef,
+    schemaVersion: String(beta.schema_version),
+    document: beta,
+    envelope: null,
+  });
+  const alphaSynthesis = multiSubject.find((entry) => entry.path === synthesisRef);
+  assert.ok(alphaSynthesis?.envelope);
+  const secondLocalStep = {
+    ...structuredClone(validationSteps[0]),
+    order: 2,
+    hypothesis: "Household organizers show a distinct willingness-to-pay signal",
+    why_now: "Buyer evidence follows only after the recurring problem is supported",
+  };
+  alphaSynthesis.document.validation_steps = [structuredClone(validationSteps[0]), secondLocalStep];
+  const alphaSynthesisHash = canonicalContentHash(alphaSynthesis.document);
+  alphaSynthesis.envelope.content_hash = alphaSynthesisHash;
+  const betaSynthesisRef =
+    "artifacts/reporting/decision-subject-synthesis/candidate-beta-final.r1.json";
+  const betaSynthesisDocument: Record<string, unknown> = {
+    ...structuredClone(alphaSynthesis.document),
+    synthesis_id: "decision_subject_synthesis_candidate_beta_final_r1",
+    subject_id: "candidate_beta_final",
+    subject_ref: betaRef,
+    subject_content_hash: canonicalContentHash(beta),
+    synthesis_basis_hashes: [{ ref: betaRef, content_hash: canonicalContentHash(beta) }],
+    direction: {
+      ...structuredClone(direction),
+      priority: 2,
+      label: "Secondary household coordination direction",
+    },
+  };
+  const betaSynthesisHash = canonicalContentHash(betaSynthesisDocument);
+  multiSubject.push({
+    path: betaSynthesisRef,
+    schemaVersion: "startup_opportunity.decision_subject_synthesis.current",
+    document: betaSynthesisDocument,
+    envelope: {
+      artifact_type: "startup_opportunity.decision_subject_synthesis.current",
+      artifact_path: betaSynthesisRef,
+      run_id: runId,
+      producer_role: "main_agent",
+      content_hash: betaSynthesisHash,
+    },
+  });
+  const multiSnapshot = multiSubject.find((entry) => entry.path === snapshotRef);
+  const multiManifest = multiSubject.find((entry) => entry.path === "manifest.json");
+  const multiReport = multiSubject.find(
+    (entry) => entry.schemaVersion === "startup_opportunity.terminal_report_source.v1",
+  );
+  assert.ok(multiSnapshot?.envelope && multiManifest && multiReport);
+  const alphaSubject = (multiSnapshot.document.subjects as Record<string, unknown>[])[0];
+  assert.ok(alphaSubject);
+  multiSnapshot.document.subjects = [
+    {
+      subject_id: "candidate_beta_final",
+      subject_ref: betaRef,
+      subject_content_hash: canonicalContentHash(beta),
+      subject_kind: "discovery_candidate",
+      lifecycle_status: "current",
+      reporting_role: "final",
+      superseded_by_subject_id: null,
+      formation_reason: "SYNTHETIC second current final subject.",
+      lifecycle_reason: "SYNTHETIC snapshot order is authoritative.",
+    },
+    alphaSubject,
+    ...(multiSnapshot.document.subjects as Record<string, unknown>[]).slice(1),
+  ];
+  multiSnapshot.document.synthesis_input_hashes = [
+    { ref: betaRef, content_hash: canonicalContentHash(beta) },
+    { ref: currentRef, content_hash: canonicalContentHash(current) },
+  ];
+  const multiSnapshotHash = canonicalContentHash(multiSnapshot.document);
+  multiSnapshot.envelope.content_hash = multiSnapshotHash;
+  multiManifest.document.current_decision_subject_snapshot_hash = multiSnapshotHash;
+  const projectDirection = (
+    subjectId: string,
+    subjectRef: string,
+    subjectHash: string,
+    synthesisPath: string,
+    synthesisContentHash: string,
+    synthesisDirection: Record<string, unknown>,
+  ) => ({
+    direction_id: subjectId,
+    subject_ref: subjectRef,
+    subject_content_hash: subjectHash,
+    synthesis_ref: synthesisPath,
+    synthesis_content_hash: synthesisContentHash,
+    ...structuredClone(synthesisDirection),
+  });
+  const projectSteps = (
+    subjectId: string,
+    subjectRef: string,
+    subjectHash: string,
+    synthesisPath: string,
+    synthesisContentHash: string,
+    steps: readonly Record<string, unknown>[],
+    startOrder: number,
+  ) =>
+    steps.map((step, index) => ({
+      direction_id: subjectId,
+      subject_ref: subjectRef,
+      subject_content_hash: subjectHash,
+      synthesis_ref: synthesisPath,
+      synthesis_content_hash: synthesisContentHash,
+      ...structuredClone(step),
+      order: startOrder + index,
+    }));
+  multiReport.document.decision_subject_snapshot_hash = multiSnapshotHash;
+  multiReport.document.decision_subject_synthesis_hashes = [
+    { ref: synthesisRef, content_hash: alphaSynthesisHash },
+    { ref: betaSynthesisRef, content_hash: betaSynthesisHash },
+  ];
+  multiReport.document.current_decision_subject_ids = [
+    "candidate_beta_final",
+    "candidate_current_final",
+  ];
+  multiReport.document.directions = [
+    projectDirection(
+      "candidate_beta_final",
+      betaRef,
+      canonicalContentHash(beta),
+      betaSynthesisRef,
+      betaSynthesisHash,
+      betaSynthesisDocument.direction as Record<string, unknown>,
+    ),
+    projectDirection(
+      "candidate_current_final",
+      currentRef,
+      canonicalContentHash(current),
+      synthesisRef,
+      alphaSynthesisHash,
+      alphaSynthesis.document.direction as Record<string, unknown>,
+    ),
+  ];
+  multiReport.document.ordered_validation_plan = [
+    ...projectSteps(
+      "candidate_beta_final",
+      betaRef,
+      canonicalContentHash(beta),
+      betaSynthesisRef,
+      betaSynthesisHash,
+      betaSynthesisDocument.validation_steps as Record<string, unknown>[],
+      1,
+    ),
+    ...projectSteps(
+      "candidate_current_final",
+      currentRef,
+      canonicalContentHash(current),
+      synthesisRef,
+      alphaSynthesisHash,
+      alphaSynthesis.document.validation_steps as Record<string, unknown>[],
+      3,
+    ),
+  ];
+  assert.deepEqual(validateDecisionSubjectContract(multiSubject), []);
+  assert.deepEqual(
+    (multiReport.document.ordered_validation_plan as Record<string, unknown>[]).map((step) => [
+      step.direction_id,
+      step.order,
+    ]),
+    [
+      ["candidate_beta_final", 1],
+      ["candidate_beta_final", 2],
+      ["candidate_current_final", 3],
+      ["candidate_current_final", 4],
+    ],
+  );
+
+  const globalOrderDrift = structuredClone(multiSubject);
+  const driftedMultiReport = globalOrderDrift.find(
+    (entry) => entry.schemaVersion === "startup_opportunity.terminal_report_source.v1",
+  );
+  assert.ok(driftedMultiReport);
+  const driftedGlobalStep = (
+    driftedMultiReport.document.ordered_validation_plan as Record<string, unknown>[]
+  )[1];
+  assert.ok(driftedGlobalStep);
+  driftedGlobalStep.order = 4;
+  assert.ok(
+    validateDecisionSubjectContract(globalOrderDrift).some(
+      (issue) => issue.code === "decision_subject.validation_plan_subject_binding_mismatch",
+    ),
+  );
+  const localOrderDrift = structuredClone(multiSubject);
+  const driftedBetaSynthesis = localOrderDrift.find((entry) => entry.path === betaSynthesisRef);
+  assert.ok(driftedBetaSynthesis);
+  const driftedLocalStep = (
+    driftedBetaSynthesis.document.validation_steps as Record<string, unknown>[]
+  )[1];
+  assert.ok(driftedLocalStep);
+  driftedLocalStep.order = 1;
+  assert.ok(
+    validateDecisionSubjectContract(localOrderDrift).some(
+      (issue) => issue.code === "decision_subject.synthesis_validation_order_invalid",
+    ),
+  );
+
   const leaked = structuredClone(documents);
   const leakedReport = leaked.find(
     (entry) => entry.schemaVersion === "startup_opportunity.terminal_report_source.v1",

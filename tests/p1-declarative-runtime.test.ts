@@ -14,6 +14,7 @@ import {
   EvidenceStore,
   type FormalArtifactEnvelope,
   LaneResultMaterializer,
+  planningRunStateHash,
   RunStore,
   StoreError,
   validateDeclarativeRuntimeContract,
@@ -950,6 +951,159 @@ test("compiler preflight aggregates construction and reference root causes befor
     },
   );
   assert.deepEqual(await snapshotTree(runRoot), before);
+});
+
+test("compiler rejects an illegal initial Plan tuple before publication planning and publishes the same legal closure", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-p1-initial-plan-preflight-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runId = "p1-initial-plan-preflight-synthetic";
+  const validator = await createArtifactValidator(repositoryRoot);
+  const runStore = new RunStore(runsRoot, validator);
+  await createConfirmedRun(runStore, {
+    runId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test prospective Plan semantic publication",
+      researchLanguage: "en-US",
+    },
+    createdAt: "2026-07-31T15:59:00Z",
+  });
+  const fixture = await createDiscoveryMapsFixture("general", runId);
+  const legalPlan = structuredClone(fixtureDocument(fixture, G21_PLAN_REF));
+  const legalWave = (legalPlan.waves as Record<string, unknown>[])[0];
+  assert.ok(legalWave);
+  const legalUnits = legalWave.units as Record<string, unknown>[];
+  assert.ok(legalUnits[0] && legalUnits[1]);
+  legalUnits[0].output_path =
+    "artifacts/discovery/lanes/unit_seed_independent_demand.attempt-1.json";
+  legalUnits[1].output_path = "artifacts/discovery/lanes/unit_counterfactual.attempt-1.json";
+  legalUnits.push({
+    ...structuredClone(legalUnits[1]),
+    unit_id: "unit_bounded_buyer_commercial",
+    unit_type: "bounded_domain_research",
+    lane_kind: "buyer_commercial_research",
+    research_goal: "SYNTHETIC bounded buyer and commercial research; no research was performed.",
+    output_path: "artifacts/discovery/lanes/unit_bounded_buyer_commercial.attempt-1.json",
+  });
+  const planningContext = (plan: Record<string, unknown>) => ({
+    schema_version: "startup_opportunity.planning_context.ai_source_bound.current",
+    context_id: "planning_context_initial_plan_preflight_synthetic",
+    revision: 1,
+    parent_context_ref: null,
+    run_id: runId,
+    mode: "opportunity_discovery",
+    phase: "discovery",
+    validation_stage: "initial_plan",
+    manifest_binding: {
+      manifest_ref: "manifest.json",
+      manifest_schema_version: "startup_opportunity.run_manifest.v1",
+      run_id: runId,
+      mode: "opportunity_discovery",
+      current_plan_ref: null,
+      current_plan_revision: 0,
+      run_state_hash: planningRunStateHash({
+        manifest_ref: "manifest.json",
+        manifest_schema_version: "startup_opportunity.run_manifest.v1",
+        run_id: runId,
+        mode: "opportunity_discovery",
+        current_plan_ref: null,
+        current_plan_revision: 0,
+      }),
+    },
+    target_plan_binding: {
+      plan_ref: G21_PLAN_REF,
+      plan_schema_version: "startup_opportunity.research_plan.v1",
+      plan_id: legalPlan.plan_id,
+      plan_revision: 1,
+      plan_content_hash: canonicalContentHash(plan),
+    },
+    ai_mandatory_coverage: {
+      status: "not_required",
+      trigger_version: "startup_opportunity.ai_mandatory_coverage_trigger.v1",
+      basis: {
+        signal: "none",
+        declared_value: "not_applicable",
+        subject_ref: null,
+        source_ref: null,
+        source_schema_version: null,
+        source_content_hash: null,
+      },
+      required_dimensions: [],
+    },
+    producer_role: "main_agent",
+    created_at: createdAt,
+  });
+  const compilationArtifacts = (plan: Record<string, unknown>): readonly RuntimeArtifact[] => [
+    ...[G21_CORE_REFS[0], G21_CORE_REFS[1], G21_CORE_REFS[2]].map((artifactPath) =>
+      runtimeArtifact(artifactPath, fixtureDocument(fixture, artifactPath), "main_agent"),
+    ),
+    runtimeArtifact(G21_PLAN_REF, plan, "main_agent"),
+    runtimeArtifact("plans/planning-context.r1.json", planningContext(plan), "main_agent"),
+  ];
+  const compiler = new DeclarativeRuntimeCompiler(runsRoot, validator);
+  const invalidPlan = structuredClone(legalPlan);
+  const invalidUnits = planUnits(invalidPlan);
+  assert.ok(invalidUnits[2]);
+  invalidUnits[2].unit_type = "buyer_language";
+  delete invalidUnits[2].lane_kind;
+  const manifestBefore = (await runStore.status(runId)).manifest;
+  await assert.rejects(
+    compiler.compile(
+      compilationRequest(
+        runId,
+        "publish",
+        compilationArtifacts(invalidPlan),
+        "request_illegal_initial_plan_tuple_synthetic",
+      ),
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.equal(error.code, "runtime.compilation_plan_preflight_failed");
+      assert.ok(
+        (error.details.issues as Record<string, unknown>[]).some(
+          (issue) => issue.code === "contract.unit_tuple_not_allowed",
+        ),
+        canonicalJson(error.details),
+      );
+      return true;
+    },
+  );
+  const manifestAfterRejectedPublish = (await runStore.status(runId)).manifest;
+  assert.equal(manifestAfterRejectedPublish.current_plan_ref, null);
+  assert.equal(manifestAfterRejectedPublish.plan_revision, 0);
+  assert.deepEqual(manifestAfterRejectedPublish.artifact_refs, manifestBefore.artifact_refs);
+  await assert.rejects(readFile(path.join(runsRoot, runId, G21_PLAN_REF), "utf8"));
+
+  const validated = await compiler.compile(
+    compilationRequest(
+      runId,
+      "validate_only",
+      compilationArtifacts(legalPlan),
+      "request_legal_initial_plan_tuple_synthetic",
+    ),
+  );
+  assert.equal(validated.status, "validated");
+  assert.deepEqual(
+    planUnits(legalPlan).map((unit) => unit.unit_type),
+    ["user_language_mining", "counter_evidence", "bounded_domain_research"],
+  );
+  const published = await compiler.compile({
+    ...compilationRequest(runId, "publish", [], "request_legal_initial_plan_tuple_synthetic"),
+    publication_plan: validated.publication_plan,
+  });
+  assert.equal(published.status, "published");
+  assert.equal(published.publication_plan.plan_id, validated.publication_plan.plan_id);
+  assert.equal((await runStore.status(runId)).manifest.current_plan_ref, G21_PLAN_REF);
+  const replayed = await compiler.compile({
+    ...compilationRequest(runId, "publish", [], "request_legal_initial_plan_tuple_synthetic"),
+    publication_plan: validated.publication_plan,
+  });
+  assert.equal(replayed.status, "idempotent_replay");
+  assert.equal(replayed.publication_plan.plan_id, validated.publication_plan.plan_id);
 });
 
 test("terminal compilation preserves current G2.1/G2.2 envelopes and aggregate roots", async (t) => {
