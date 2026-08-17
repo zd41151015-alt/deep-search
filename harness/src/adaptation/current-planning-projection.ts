@@ -46,7 +46,7 @@ export function currentPlanningProjection(value: unknown): unknown {
   if (
     manifest?.schemaVersion !== "startup_opportunity.run_manifest.v1" ||
     context?.schemaVersion !== "startup_opportunity.planning_context.ai_source_bound.current" ||
-    context.document.validation_stage !== "candidate_revision" ||
+    !["initial_plan", "candidate_revision"].includes(String(context.document.validation_stage)) ||
     !isRecord(targetBinding) ||
     !isRecord(manifestBinding) ||
     targetBinding.plan_ref !== manifest.document.current_plan_ref ||

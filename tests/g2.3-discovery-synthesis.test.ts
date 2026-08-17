@@ -45,7 +45,7 @@ import {
   G23_SOLUTION_CONVERSION,
   synthesisEnvelope,
 } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
-import { createConfirmedRun } from "./helpers/current-run.js";
+import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
 import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -162,10 +162,11 @@ async function setup(context: TestContext, suffix: string): Promise<State> {
     })
   ).record;
   const bundle = await createDiscoverySynthesisFixture(runId, { generation, evaluation });
-  await store.publishArtifactBundle({
+  await publishInitialPlanBundle(
+    store,
     runId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
-  });
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  );
   await store.publishArtifactBundle({
     runId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),

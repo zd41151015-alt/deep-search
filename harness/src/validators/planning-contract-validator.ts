@@ -163,6 +163,15 @@ function tupleKey(rule: UnitRule): string {
   ].join("\0");
 }
 
+function unitShapeMatches(left: UnitRule, right: UnitRule): boolean {
+  return (
+    left.mode === right.mode &&
+    left.unit_type === right.unit_type &&
+    left.agent_role === right.agent_role &&
+    left.required_artifact_schema === right.required_artifact_schema
+  );
+}
+
 function statusOfUnit(manifest: Record<string, unknown>, unitId: string): string {
   const stateFields = [
     ["completed_units", "completed"],
@@ -324,7 +333,12 @@ export class PlanningContractEvaluator {
             agent_role: String(unit.agent_role),
             required_artifact_schema: String(unit.required_artifact_schema),
           };
-          if (!policyTupleKeys.has(tupleKey(rule))) {
+          const exactTupleAllowed = policyTupleKeys.has(tupleKey(rule));
+          const phaseIndependentMatches = this.policy.unit_rules.filter((candidate) =>
+            unitShapeMatches(candidate, rule),
+          );
+          const mixedPhaseTupleAllowed = !exactTupleAllowed && phaseIndependentMatches.length === 1;
+          if (!exactTupleAllowed && !mixedPhaseTupleAllowed) {
             errors.push(
               contractIssue(
                 "contract.unit_tuple_not_allowed",

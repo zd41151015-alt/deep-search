@@ -130,6 +130,7 @@ export interface DocumentBundle {
 export interface DocumentBundleReferenceContext {
   readonly exactJsonlRecords?: ReadonlyMap<string, Record<string, unknown>>;
   readonly historicalDiscoveryPlanBindings?: readonly HistoricalDiscoveryPlanBinding[];
+  readonly prospectiveManifest?: Readonly<Record<string, unknown>>;
   readonly artifactPublicationRecords?: ReadonlyMap<
     string,
     { readonly publicationOrdinal: number; readonly contentHash: string }
@@ -971,11 +972,10 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.concept_evidence_assessment_plan.v1",
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
-        ...optionalRef(
-          document,
-          "concept_hypothesis_ref",
+        ...optionalRef(document, "concept_hypothesis_ref", [
           "startup_opportunity.concept_hypothesis.assessment.current",
-        ),
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+        ]),
         ...refsFromArray(document, "triggered_by_adaptation_refs", [
           "startup_opportunity.adaptation_decision.discovery.current",
           "startup_opportunity.adaptation_decision.assessment.current",
@@ -4184,6 +4184,7 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
 
 export class ArtifactValidator {
   constructor(
+    readonly repositoryRoot: string,
     private readonly bundle: LoadedSchemaBundle,
     readonly publicationPolicy: PublicationPolicy,
     readonly assessmentReportingPolicy: AssessmentReportingPolicy,
@@ -5055,6 +5056,7 @@ export async function createArtifactValidator(root = process.cwd()): Promise<Art
   const loading = (async () => {
     const bundle = await loadSchemaBundle(cacheKey);
     return new ArtifactValidator(
+      cacheKey,
       bundle,
       await loadResearchPublicationPolicy(cacheKey, bundle),
       await loadAssessmentReportingPolicy(cacheKey, bundle),

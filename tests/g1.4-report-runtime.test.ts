@@ -56,10 +56,14 @@ import {
   unavailableQuantitativeCompetitiveCoverage,
   unavailableSubjectAssessments,
 } from "./fixtures/quantitative-competitive-fixture.js";
-import { createConfirmedRun } from "./helpers/current-run.js";
+import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const execFileAsync = promisify(execFile);
+const TERMINAL_LOCALIZATION_VOCABULARY =
+  "baseline counterfactual same-run pre-thesis Manifest Schema Validator Gap";
+const TERMINAL_LOCALIZATION_SOURCE_URL =
+  "https://unit_demand.synthetic.invalid/baseline-counterfactual-same-run-pre-thesis-Manifest-Schema-Validator-Gap";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -571,6 +575,7 @@ async function prepareRun(
   options: {
     readonly omitCommercialAuditUnitId?: string;
     readonly injectHistoricalCompilerWarning?: boolean;
+    readonly injectTerminalLocalizationVocabulary?: boolean;
     readonly researchLanguage?: string;
   } = {},
 ): Promise<PreparedRun> {
@@ -603,19 +608,19 @@ async function prepareRun(
     "plans/concept-evidence-assessment-plan.r1.json",
     ...g14Branches().map((branch) => branch.judgmentRef),
   ];
-  await store
-    .publishArtifactBundle({
-      runId: G14_RUN_ID,
-      envelopes: corePaths
-        .map((artifactPath) => v5Envelope(artifactPath, documentAt(bundle, artifactPath)))
-        .concat(executionPlanEnvelope(bundle)),
-    })
-    .catch((error: unknown) => {
-      if (error instanceof StoreError) {
-        assert.fail(JSON.stringify({ code: error.code, details: error.details }));
-      }
-      throw error;
-    });
+  await publishInitialPlanBundle(
+    store,
+    G14_RUN_ID,
+    corePaths
+      .map((artifactPath) => v5Envelope(artifactPath, documentAt(bundle, artifactPath)))
+      .concat(executionPlanEnvelope(bundle)),
+    "assessment",
+  ).catch((error: unknown) => {
+    if (error instanceof StoreError) {
+      assert.fail(JSON.stringify({ code: error.code, details: error.details }));
+    }
+    throw error;
+  });
 
   const branches = g14Branches();
   const demand = branches.find((branch) => branch.unitId === "unit_demand");
@@ -671,7 +676,10 @@ async function prepareRun(
       researchGoal,
       source: {
         kind: "public_url",
-        canonical_url: `https://${branch.unitId}.synthetic.invalid/support`,
+        canonical_url:
+          options.injectTerminalLocalizationVocabulary === true && branch.unitId === "unit_demand"
+            ? TERMINAL_LOCALIZATION_SOURCE_URL
+            : `https://${branch.unitId}.synthetic.invalid/support`,
       },
       rawContent: `SYNTHETIC G1.4 ${branch.unitId} SUPPORT BYTES; NOT MARKET EVIDENCE.`,
       recordedAt: `2026-07-25T18:${String(index * 2 + 1).padStart(2, "0")}:00Z`,
@@ -694,6 +702,15 @@ async function prepareRun(
       evidencePaths[0] as string,
       support.record.recorded_at,
     );
+    if (options.injectTerminalLocalizationVocabulary === true && branch.unitId === "unit_demand") {
+      const coverage = commercialAudit.document.coverage as Record<string, unknown>;
+      const purchaseSignal = coverage.purchase_signal as Record<string, unknown>;
+      const inference = purchaseSignal.inference as Record<string, unknown>;
+      inference.reasoning = TERMINAL_LOCALIZATION_VOCABULARY;
+      (commercialAudit as { content_hash: string }).content_hash = canonicalContentHash(
+        commercialAudit.document,
+      );
+    }
     if (options.injectHistoricalCompilerWarning === true && branch.unitId === "unit_target_user") {
       const compilerWarnings = commercialAudit.document.compiler_warnings as Record<
         string,
@@ -1233,6 +1250,133 @@ test("Chinese terminal prose localizes compiler inference text without changing 
   assert.deepEqual(localizedTerminalUserViewIssues(source, full), []);
 });
 
+test("ReportRuntime localizes terminal inference vocabulary while preserving structured truth", async (context) => {
+  const state = await prepareRun(context, {
+    injectTerminalLocalizationVocabulary: true,
+    researchLanguage: "zh-CN",
+  });
+  await markRunTerminal(state);
+  const request = terminalReportEnvelope(state);
+  const requestUncertainty = (
+    request.document.commercial_uncertainties as Record<string, unknown>[]
+  ).find((entry) => entry.coverage_key === "purchase_signal");
+  assert.ok(requestUncertainty);
+  requestUncertainty.reasoning = TERMINAL_LOCALIZATION_VOCABULARY;
+  const requestSource = (request.document.sources as Record<string, unknown>[])[0];
+  assert.ok(requestSource);
+  requestSource.url = TERMINAL_LOCALIZATION_SOURCE_URL;
+  requestSource.claim = TERMINAL_LOCALIZATION_VOCABULARY;
+  const requestInference = requestSource.inference as Record<string, unknown>;
+  requestInference.reasoning = TERMINAL_LOCALIZATION_VOCABULARY;
+  (request as { content_hash: string }).content_hash = canonicalContentHash(request.document);
+  const requestTruth = canonicalJson(request);
+  const prospectiveManifest = (await state.store.status(G14_RUN_ID)).manifest;
+  const operation = await state.runtime
+    .prepareTerminalLocked(state.runRoot, {
+      reportEnvelope: request,
+      prospectiveManifest,
+      supportingEnvelopes: [],
+    })
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }));
+      }
+      throw error;
+    });
+  assert.equal(canonicalJson(request), requestTruth);
+  assert.deepEqual(operation.materialized_outputs.map((output) => output.target_path).sort(), [
+    "audit-appendix.md",
+    "decision-brief.md",
+    "report.json",
+    "report.md",
+  ]);
+
+  const demandAudit = state.commercialAudits.find((entry) =>
+    entry.auditRef.endsWith("unit_demand.json"),
+  );
+  assert.ok(demandAudit);
+  const demandCoverage = demandAudit.audit.coverage as Record<string, unknown>;
+  const demandInference = (demandCoverage.purchase_signal as Record<string, unknown>)
+    .inference as Record<string, unknown>;
+  const compiledUncertainty = (
+    operation.source_envelope.document.commercial_uncertainties as Record<string, unknown>[]
+  ).find((entry) => entry.coverage_key === "purchase_signal");
+  assert.ok(compiledUncertainty);
+  assert.equal(compiledUncertainty.reasoning, demandInference.reasoning);
+  const compiledSource = (
+    operation.source_envelope.document.sources as Record<string, unknown>[]
+  )[0];
+  assert.ok(compiledSource);
+  assert.equal(
+    (compiledSource.inference as Record<string, unknown>).reasoning,
+    requestInference.reasoning,
+  );
+  const storedDemandAudit = JSON.parse(
+    await readFile(path.join(state.runRoot, demandAudit.auditRef), "utf8"),
+  ) as FormalArtifactEnvelope;
+  assert.equal(canonicalJson(storedDemandAudit.document), canonicalJson(demandAudit.audit));
+
+  const outputs = new Map(
+    operation.materialized_outputs.map((output) => [output.target_path, output.bytes]),
+  );
+  const reportJson = JSON.parse(String(outputs.get("report.json"))) as Record<string, unknown>;
+  const jsonUncertainty = (reportJson.commercial_uncertainties as Record<string, unknown>[]).find(
+    (entry) => entry.coverage_key === "purchase_signal",
+  );
+  assert.ok(jsonUncertainty);
+  assert.equal(jsonUncertainty.reasoning, TERMINAL_LOCALIZATION_VOCABULARY);
+  const markdown = (["decision-brief.md", "report.md", "audit-appendix.md"] as const)
+    .map((target) => String(outputs.get(target)))
+    .join("\n");
+  const userProse = markdown.replaceAll(TERMINAL_LOCALIZATION_SOURCE_URL, "");
+  assert.doesNotMatch(
+    userProse,
+    /\b(?:baseline|counterfactual|same[- ]run|pre[- ]thesis|Manifest|Schema|Validator|Gap)\b/iu,
+  );
+  for (const localized of [
+    "基线",
+    "反向检验",
+    "本次研究内",
+    "机会判断形成前",
+    "研究状态索引",
+    "结构合同",
+    "校验机制",
+    "研究缺口",
+  ]) {
+    assert.match(userProse, new RegExp(localized));
+  }
+  for (const target of ["decision-brief.md", "report.md", "audit-appendix.md"] as const) {
+    assert.deepEqual(
+      localizedTerminalUserViewIssues(
+        operation.source_envelope.document,
+        String(outputs.get(target)),
+      ),
+      [],
+    );
+  }
+
+  const internalDiagnostic = structuredClone(request);
+  const internalSource = (internalDiagnostic.document.sources as Record<string, unknown>[])[0];
+  assert.ok(internalSource);
+  const internalInference = internalSource.inference as Record<string, unknown>;
+  internalInference.reasoning =
+    "Inspect plans/private-terminal-state.json after contract.unit_tuple_not_allowed.";
+  (internalDiagnostic as { content_hash: string }).content_hash = canonicalContentHash(
+    internalDiagnostic.document,
+  );
+  await assert.rejects(
+    state.runtime.prepareTerminalLocked(state.runRoot, {
+      reportEnvelope: internalDiagnostic,
+      prospectiveManifest,
+      supportingEnvelopes: [],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "report.source_invalid" &&
+      JSON.stringify(error.details).includes("terminal_reporting.localized_internal_term"),
+  );
+});
+
 test("public ReportRuntime rejects terminal sources before any standalone report write", async (context) => {
   const state = await prepareRun(context, { injectHistoricalCompilerWarning: true });
   const reportEnvelope = terminalReportEnvelope(state);
@@ -1269,10 +1413,11 @@ test("terminal report derives consistent current and inherited research provenan
       researchLanguage: "en-US",
     },
   });
-  await state.store.publishArtifactBundle({
-    runId: sourceRunId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
-  });
+  await publishInitialPlanBundle(
+    state.store,
+    sourceRunId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
+  );
   await state.store.publishArtifactBundle({
     runId: sourceRunId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),

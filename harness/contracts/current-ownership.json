@@ -16,7 +16,9 @@
       "ownerModules": ["harness/src/artifact-store/artifact-store.ts"],
       "producerModules": [
         "harness/src/artifact-store/artifact-store.ts",
+        "harness/src/commands.ts",
         "harness/src/evidence-store/evidence-store.ts",
+        "harness/src/index.ts",
         "harness/src/run-store/run-store.ts"
       ],
       "consumerModules": [
@@ -24,6 +26,7 @@
         "harness/src/run-store/run-store.ts"
       ],
       "validatorModules": [
+        "harness/src/run-store/scope-write-guard.ts",
         "harness/src/validators/artifact-ref-resolver.ts",
         "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/current-contract.ts"
@@ -78,12 +81,15 @@
       "artifactTypeSelectors": [{ "prefix": "current/core/" }, { "prefix": "current/planning/" }],
       "directRuntimeRoots": [],
       "ownerModules": [
+        "harness/src/adaptation/assessment-gap-analyzer.ts",
         "harness/src/adaptation/plan-runtime.ts",
         "harness/src/run-store/run-store.ts"
       ],
       "producerModules": [
         "harness/src/adaptation/adaptation-commands.ts",
+        "harness/src/commands.ts",
         "harness/src/evidence-store/evidence-store.ts",
+        "harness/src/index.ts",
         "harness/src/run-store/store-commands.ts"
       ],
       "consumerModules": [
@@ -94,8 +100,11 @@
         "harness/src/run-store/run-store.ts"
       ],
       "validatorModules": [
+        "harness/src/adaptation/assessment-policy.ts",
+        "harness/src/adaptation/current-planning-projection.ts",
         "harness/src/adaptation/adaptation-validator.ts",
         "harness/src/adaptation/plan-validator.ts",
+        "harness/src/run-store/scope-write-guard.ts",
         "harness/src/validators/artifact-ref-resolver.ts",
         "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/planning-contract-validator.ts",
@@ -156,10 +165,13 @@
       ],
       "producerModules": [
         "harness/src/compiler/commercial-research-compiler.ts",
+        "harness/src/commands.ts",
         "harness/src/evidence-store/evidence-store.ts",
+        "harness/src/index.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "consumerModules": [
+        "harness/src/adaptation/assessment-gap-analyzer.ts",
         "harness/src/artifact-store/artifact-store.ts",
         "harness/src/artifact-store/publication-policy.ts",
         "harness/src/reporting/commercial-report-tables.ts",
@@ -176,6 +188,9 @@
         "harness/src/validators/research-handoff-validator.ts"
       ],
       "validatorModules": [
+        "harness/src/adaptation/assessment-policy.ts",
+        "harness/src/adaptation/current-planning-projection.ts",
+        "harness/src/run-store/scope-write-guard.ts",
         "harness/src/validators/artifact-ref-resolver.ts",
         "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/assessment-adaptation-validator.ts",
@@ -268,8 +283,10 @@
         "harness/src/validators/discovery-synthesis-validator.ts"
       ],
       "producerModules": [
+        "harness/src/commands.ts",
         "harness/src/comparison/comparison-commands.ts",
         "harness/src/evidence-store/evidence-store.ts",
+        "harness/src/index.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "consumerModules": [
@@ -280,7 +297,9 @@
         "harness/src/validators/discovery-evaluation-validator.ts"
       ],
       "validatorModules": [
+        "harness/src/adaptation/current-planning-projection.ts",
         "harness/src/reporting/report-consistency.ts",
+        "harness/src/run-store/scope-write-guard.ts",
         "harness/src/validators/artifact-ref-resolver.ts",
         "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/discovery-candidate-validator.ts",
@@ -368,7 +387,9 @@
       "directRuntimeRoots": [],
       "ownerModules": ["harness/src/validators/ai-bundle-validator.ts"],
       "producerModules": [
+        "harness/src/commands.ts",
         "harness/src/evidence-store/evidence-store.ts",
+        "harness/src/index.ts",
         "harness/src/runtime/declarative-runtime.ts"
       ],
       "consumerModules": [
@@ -379,6 +400,7 @@
         "harness/src/validators/ai-bundle-validator.ts"
       ],
       "validatorModules": [
+        "harness/src/run-store/scope-write-guard.ts",
         "harness/src/validators/artifact-ref-resolver.ts",
         "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/ai-bundle-validator.ts"
@@ -437,7 +459,9 @@
         "harness/src/runtime/lane-materializer.ts"
       ],
       "producerModules": [
+        "harness/src/commands.ts",
         "harness/src/evidence-store/evidence-store.ts",
+        "harness/src/index.ts",
         "harness/src/runtime/artifact-scaffolds.ts",
         "harness/src/runtime/declarative-runtime.ts",
         "harness/src/runtime/lane-materializer.ts"
@@ -450,6 +474,7 @@
         "harness/src/run-store/run-store.ts"
       ],
       "validatorModules": [
+        "harness/src/run-store/scope-write-guard.ts",
         "harness/src/validators/artifact-ref-resolver.ts",
         "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/assessment-execution-validator.ts",
@@ -507,7 +532,9 @@
         "harness/src/reporting/terminal-reporting.ts"
       ],
       "producerModules": [
+        "harness/src/commands.ts",
         "harness/src/evidence-store/evidence-store.ts",
+        "harness/src/index.ts",
         "harness/src/reporting/report-commands.ts",
         "harness/src/reporting/report-runtime.ts"
       ],
@@ -520,6 +547,7 @@
         "harness/src/run-store/run-store.ts"
       ],
       "validatorModules": [
+        "harness/src/run-store/scope-write-guard.ts",
         "harness/src/validators/artifact-ref-resolver.ts",
         "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/decision-subject-validator.ts",
@@ -582,6 +610,18 @@
   ],
   "cross_family_modules": [
     {
+      "modulePath": "harness/src/adaptation/assessment-gap-analyzer.ts",
+      "impactFamilies": ["assessment_research", "run_control_planning"]
+    },
+    {
+      "modulePath": "harness/src/adaptation/assessment-policy.ts",
+      "impactFamilies": ["assessment_research", "run_control_planning"]
+    },
+    {
+      "modulePath": "harness/src/adaptation/current-planning-projection.ts",
+      "impactFamilies": ["assessment_research", "discovery_research", "run_control_planning"]
+    },
+    {
       "modulePath": "harness/src/artifact-store/artifact-store.ts",
       "impactFamilies": [
         "ai_research",
@@ -606,7 +646,31 @@
       ]
     },
     {
+      "modulePath": "harness/src/commands.ts",
+      "impactFamilies": [
+        "ai_research",
+        "assessment_research",
+        "declarative_runtime",
+        "discovery_research",
+        "run_control_planning",
+        "store_publication",
+        "terminal_reporting"
+      ]
+    },
+    {
       "modulePath": "harness/src/evidence-store/evidence-store.ts",
+      "impactFamilies": [
+        "ai_research",
+        "assessment_research",
+        "declarative_runtime",
+        "discovery_research",
+        "run_control_planning",
+        "store_publication",
+        "terminal_reporting"
+      ]
+    },
+    {
+      "modulePath": "harness/src/index.ts",
       "impactFamilies": [
         "ai_research",
         "assessment_research",
@@ -647,6 +711,18 @@
     },
     {
       "modulePath": "harness/src/run-store/run-store.ts",
+      "impactFamilies": [
+        "ai_research",
+        "assessment_research",
+        "declarative_runtime",
+        "discovery_research",
+        "run_control_planning",
+        "store_publication",
+        "terminal_reporting"
+      ]
+    },
+    {
+      "modulePath": "harness/src/run-store/scope-write-guard.ts",
       "impactFamilies": [
         "ai_research",
         "assessment_research",

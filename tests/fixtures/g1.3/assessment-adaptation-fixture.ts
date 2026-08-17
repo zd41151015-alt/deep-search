@@ -12,7 +12,7 @@ import {
   transformAssessmentPlan,
   transformPlan,
 } from "../../../harness/src/index.js";
-import { createConfirmedRun } from "../../helpers/current-run.js";
+import { createConfirmedRun, publishInitialPlanBundle } from "../../helpers/current-run.js";
 import {
   branchResearchEnvelopes,
   dispatchEnvelope,
@@ -262,7 +262,7 @@ export async function prepareG13Run(
         "2026-07-25T16:01:00Z",
       );
     });
-  await store.publishArtifactBundle({ runId, envelopes: initial });
+  await publishInitialPlanBundle(store, runId, initial, "assessment");
 
   const task = withRun(taskEnvelope(baseBundle, branch, 2), runId);
   const currentPlan = initial.find((entry) => entry.artifact_path === G13_PLAN_REF)?.document;
@@ -302,30 +302,6 @@ export async function prepareG13Run(
   );
   await store.publishArtifactBundle({ runId, envelopes: branchEnvelopes });
 
-  const manifest = (await store.load(runId)).manifest as unknown as Record<string, unknown>;
-  const basePlan = initial.find((entry) => entry.artifact_path === G13_PLAN_REF)?.document;
-  if (basePlan === undefined) {
-    throw new Error("synthetic G1.3 fixture is missing its base Research Plan");
-  }
-  const contextEntry = planningContext(manifest, basePlan, {
-    path: G13_CONTEXT_REF,
-    revision: 1,
-    parentRef: null,
-    stage: "current_plan",
-    createdAt: "2026-07-25T16:20:00Z",
-  });
-  await store.publishArtifact({
-    runId,
-    envelope: formalEnvelope(
-      runId,
-      contextEntry.path,
-      contextEntry.document,
-      "startup_opportunity.artifact_envelope.current",
-      "main_agent",
-      ["manifest.json", G13_PLAN_REF],
-      "2026-07-25T16:20:00Z",
-    ),
-  });
   return {
     repositoryRoot,
     runsRoot,

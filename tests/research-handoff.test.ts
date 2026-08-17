@@ -52,11 +52,18 @@ import {
   G23_OPPORTUNITY_A,
   G23_OPPORTUNITY_B,
 } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
-import { createConfirmedRun } from "./helpers/current-run.js";
+import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
 import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const CAPTURED_AT = "2026-08-12T17:10:00Z";
+const TARGET_SCOPE_R1 = {
+  geography: "Synthetic",
+  customerModel: "b2c" as const,
+  targetUsers: ["synthetic handoff fixture user"],
+  decisionGoal: "test explicit current-contract research handoff",
+  researchLanguage: "en-US",
+};
 
 interface HandoffState {
   readonly root: string;
@@ -379,6 +386,87 @@ function envelopeForRun(
   };
 }
 
+function assessmentFormationEnvelopes(
+  bundle: DocumentBundle,
+  runId: string,
+  revision: 1 | 2,
+  scope: typeof TARGET_SCOPE_R1,
+): readonly FormalArtifactEnvelope[] {
+  const suffix = revision === 1 ? "" : ".r2";
+  const decisionPath = `decision-context${suffix}.json`;
+  const intakePath = `intake${suffix}.json`;
+  const scopePath = `scope-frame${suffix}.json`;
+  const decision = structuredClone(bundleDocument(bundle, "decision-context.json"));
+  decision.run_id = runId;
+  const intake = structuredClone(bundleDocument(bundle, "intake.json"));
+  intake.run_id = runId;
+  intake.market = scope.geography;
+  intake.language = scope.researchLanguage;
+  intake.decision_context_ref = decisionPath;
+  intake.scope_confirmation = {
+    geography: scope.geography,
+    customer_model: scope.customerModel,
+    target_users: scope.targetUsers,
+    decision_goal: scope.decisionGoal,
+    research_language: scope.researchLanguage,
+    user_confirmed: true,
+  };
+  const constraints = intake.explicit_constraints as Record<string, unknown>;
+  constraints.target_market = scope.geography;
+  constraints.target_language = scope.researchLanguage;
+  constraints.target_users = scope.targetUsers;
+  const scopeFrame = structuredClone(bundleDocument(bundle, "scope-frame.json"));
+  scopeFrame.run_id = runId;
+  scopeFrame.decision_context_ref = decisionPath;
+  scopeFrame.market = scope.geography;
+  scopeFrame.language = scope.researchLanguage;
+  scopeFrame.target_user = scope.targetUsers;
+  return [
+    envelopeForRun(runId, decisionPath, decision, []),
+    envelopeForRun(runId, intakePath, intake, [decisionPath]),
+    envelopeForRun(runId, scopePath, scopeFrame, [decisionPath]),
+  ];
+}
+
+function assessmentConceptEnvelope(
+  bundle: DocumentBundle,
+  runId: string,
+  scopeRef: string,
+  intakeRef: string,
+  targetUsers: readonly string[],
+  binding: HandoffBindingState["priorBinding"],
+): FormalArtifactEnvelope {
+  const concept = structuredClone(bundleDocument(bundle, "concept-hypothesis.json"));
+  concept.run_id = runId;
+  concept.schema_version = "startup_opportunity.concept_hypothesis.assessment_intake.current";
+  concept.scope_frame_ref = scopeRef;
+  concept.target_user = targetUsers;
+  concept.field_provenance = [
+    "product_thesis",
+    "target_user",
+    "buyer",
+    "entry_scene",
+    "claimed_value",
+    "current_alternative",
+    "delivery_form",
+    "business_model",
+    "acquisition_hypothesis",
+  ].map((field) => ({
+    field_name: field,
+    source_kind: "user_provided",
+    confirmation_status: "user_confirmed",
+    basis_refs: [intakeRef],
+    reporting_disclosure: null,
+  }));
+  concept.research_readiness = "ready";
+  concept.research_handoff_input_hashes = [binding];
+  return envelopeForRun(runId, "concept-hypothesis.json", concept, [
+    scopeRef,
+    intakeRef,
+    binding.ref,
+  ]);
+}
+
 async function snapshotTree(root: string): Promise<Readonly<Record<string, string>>> {
   const result: Record<string, string> = {};
   const visit = async (directory: string, prefix = ""): Promise<void> => {
@@ -425,18 +513,15 @@ async function prepareState(
           : "opportunity_discovery",
       createdAt: "2026-08-12T17:00:00Z",
       scopeProposal: {
-        geography: "Synthetic",
-        customerModel: "b2c",
-        targetUsers: ["synthetic handoff fixture user"],
-        decisionGoal: "test explicit current-contract research handoff",
-        researchLanguage: "en-US",
+        ...TARGET_SCOPE_R1,
       },
     });
     if (runId === sourceRunId || options.publishTargetCore !== false) {
-      await store.publishArtifactBundle({
+      await publishInitialPlanBundle(
+        store,
         runId,
-        envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
-      });
+        G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+      );
     }
   }
   await store.publishArtifactBundle({
@@ -644,10 +729,11 @@ test("an unrelated envelope input cannot impersonate typed handoff ancestry", as
     "general",
     true,
   );
-  await state.store.publishArtifactBundle({
-    runId: state.targetRunId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
-  });
+  await publishInitialPlanBundle(
+    state.store,
+    state.targetRunId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  );
   await state.store.publishArtifactBundle({
     runId: state.targetRunId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
@@ -699,10 +785,11 @@ test("formal Evidence adoption requires the exact controlled read, item, and tar
         "general",
         true,
       );
-      await state.store.publishArtifactBundle({
-        runId: state.targetRunId,
-        envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bootstrapBundle, ref)),
-      });
+      await publishInitialPlanBundle(
+        state.store,
+        state.targetRunId,
+        G21_CORE_REFS.map((ref) => fixtureEnvelope(bootstrapBundle, ref)),
+      );
       const input = structuredClone(state.input);
       const prior = input.items.find((item) => item.itemId === "prior_opportunity_map");
       assert.ok(prior);
@@ -799,10 +886,11 @@ test("restricted inherited substrate remains context and cannot support a formal
     "general",
     true,
   );
-  await state.store.publishArtifactBundle({
-    runId: state.targetRunId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bootstrapBundle, ref)),
-  });
+  await publishInitialPlanBundle(
+    state.store,
+    state.targetRunId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(bootstrapBundle, ref)),
+  );
   const input = structuredClone(state.input);
   const reusable = input.items.find((item) => item.itemId === "reusable_source_material");
   assert.ok(reusable);
@@ -966,10 +1054,11 @@ test("Candidate formation closes over the exact prior handoff item and rejects E
     "general",
     true,
   );
-  await state.store.publishArtifactBundle({
-    runId: state.targetRunId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
-  });
+  await publishInitialPlanBundle(
+    state.store,
+    state.targetRunId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  );
   await state.store.publishArtifactBundle({
     runId: state.targetRunId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
@@ -1058,10 +1147,11 @@ test("Opportunity Thesis publication preserves exact handoff formation closure",
   });
   const substrate = await recordDiscoverySubstrate(state, "opportunity-consumer");
   const bundle = await createDiscoverySynthesisFixture(state.targetRunId, substrate);
-  await state.store.publishArtifactBundle({
-    runId: state.targetRunId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
-  });
+  await publishInitialPlanBundle(
+    state.store,
+    state.targetRunId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  );
   await state.store.publishArtifactBundle({
     runId: state.targetRunId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
@@ -1512,11 +1602,12 @@ test("Concept intake formation binds the exact handoff item without treating cop
   const assessmentFixture = await createG14ContractBundle("insufficient_evidence");
   await state.store.publishArtifactBundle({
     runId: state.targetRunId,
-    envelopes: ["intake.json", "decision-context.json", "scope-frame.json"].map((artifactPath) => {
-      const document = structuredClone(bundleDocument(assessmentFixture, artifactPath));
-      document.run_id = state.targetRunId;
-      return envelopeForRun(state.targetRunId, artifactPath, document, []);
-    }),
+    envelopes: assessmentFormationEnvelopes(
+      assessmentFixture,
+      state.targetRunId,
+      1,
+      TARGET_SCOPE_R1,
+    ),
   });
   const binding = await createReadHandoff(state, "concept-hypothesis.json");
   const concept = structuredClone(bundleDocument(assessmentFixture, "concept-hypothesis.json"));
@@ -1662,11 +1753,12 @@ test("pre-Plan Assessment admits only the initial intake formation and rejects i
   const assessmentFixture = await createG14ContractBundle("insufficient_evidence");
   await state.store.publishArtifactBundle({
     runId: state.targetRunId,
-    envelopes: ["intake.json", "decision-context.json", "scope-frame.json"].map((artifactPath) => {
-      const document = structuredClone(bundleDocument(assessmentFixture, artifactPath));
-      document.run_id = state.targetRunId;
-      return envelopeForRun(state.targetRunId, artifactPath, document, []);
-    }),
+    envelopes: assessmentFormationEnvelopes(
+      assessmentFixture,
+      state.targetRunId,
+      1,
+      TARGET_SCOPE_R1,
+    ),
   });
   const targetRoot = path.join(state.runsRoot, state.targetRunId);
   const beforeInvalid = await snapshotTree(targetRoot);
@@ -1689,35 +1781,16 @@ test("pre-Plan Assessment admits only the initial intake formation and rejects i
   assert.deepEqual(await snapshotTree(targetRoot), beforeInvalid);
 
   const binding = await createReadHandoff(state, "concept-hypothesis.json");
-  const concept = structuredClone(bundleDocument(assessmentFixture, "concept-hypothesis.json"));
-  concept.run_id = state.targetRunId;
-  concept.schema_version = "startup_opportunity.concept_hypothesis.assessment_intake.current";
-  concept.field_provenance = [
-    "product_thesis",
-    "target_user",
-    "buyer",
-    "entry_scene",
-    "claimed_value",
-    "current_alternative",
-    "delivery_form",
-    "business_model",
-    "acquisition_hypothesis",
-  ].map((field) => ({
-    field_name: field,
-    source_kind: "user_provided",
-    confirmation_status: "user_confirmed",
-    basis_refs: ["intake.json"],
-    reporting_disclosure: null,
-  }));
-  concept.research_readiness = "ready";
-  concept.research_handoff_input_hashes = [binding.priorBinding];
   await state.store.publishArtifact({
     runId: state.targetRunId,
-    envelope: envelopeForRun(state.targetRunId, "concept-hypothesis.json", concept, [
+    envelope: assessmentConceptEnvelope(
+      assessmentFixture,
+      state.targetRunId,
       "scope-frame.json",
       "intake.json",
-      binding.priorBinding.ref,
-    ]),
+      TARGET_SCOPE_R1.targetUsers,
+      binding.priorBinding,
+    ),
   });
   await assert.rejects(
     state.store.readResearchHandoff({
@@ -1736,6 +1809,167 @@ test("pre-Plan Assessment admits only the initial intake formation and rejects i
     state.store.createResearchHandoff(second),
     (error: unknown) =>
       error instanceof StoreError && error.code === "research_handoff.target_scope_plan_required",
+  );
+});
+
+test("Scope r2 Assessment handoff binds exact re-formation through Concept and first Plan", async (context) => {
+  const state = await prepareState(context, "assessment-scope-r2-handoff", {
+    publishTargetCore: false,
+    targetMode: "concept_evidence_assessment",
+  });
+  const assessmentFixture = await createG14ContractBundle("insufficient_evidence");
+  await state.store.publishArtifactBundle({
+    runId: state.targetRunId,
+    envelopes: assessmentFormationEnvelopes(
+      assessmentFixture,
+      state.targetRunId,
+      1,
+      TARGET_SCOPE_R1,
+    ),
+  });
+  await reviseScope(state, "assessment-r2-handoff");
+  const scopeR2 = {
+    geography: "Synthetic revised assessment-r2-handoff",
+    customerModel: "b2c" as const,
+    targetUsers: ["synthetic revised handoff user"],
+    decisionGoal: "reconcile a confirmed Scope revision without replaying prior research",
+    researchLanguage: "en-US",
+  };
+  const targetRoot = path.join(state.runsRoot, state.targetRunId);
+  const beforeWrongTarget = await snapshotTree(targetRoot);
+  await assert.rejects(
+    state.store.createResearchHandoff(state.input),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.scope_formation_binding_invalid",
+  );
+  assert.deepEqual(await snapshotTree(targetRoot), beforeWrongTarget);
+
+  await state.store.publishArtifactBundle({
+    runId: state.targetRunId,
+    envelopes: assessmentFormationEnvelopes(assessmentFixture, state.targetRunId, 2, scopeR2),
+  });
+  const wrongTarget = structuredClone(state.input);
+  await assert.rejects(
+    state.store.createResearchHandoff(wrongTarget),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "research_handoff.item_contract_invalid",
+  );
+  const input = structuredClone(state.input);
+  const prior = input.items.find((item) => item.itemId === "prior_opportunity_map");
+  assert.ok(prior);
+  (prior as { targetArtifactRef?: string }).targetArtifactRef = "concept-hypothesis.json";
+  await assert.rejects(
+    state.store.createResearchHandoff({ ...input, faultAt: "after_intent" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const reopenedStore = new RunStore(state.runsRoot, await createArtifactValidator(repositoryRoot));
+  const recovered = await reopenedStore.load(state.targetRunId);
+  const handoffRef = `artifacts/research-handoffs/${input.handoffId}.json`;
+  assert.ok(recovered.recovered);
+  assert.ok(recovered.manifest.artifact_refs.includes(handoffRef));
+  assert.equal((await reopenedStore.createResearchHandoff(input)).status, "idempotent_replay");
+  const firstRead = await reopenedStore.readResearchHandoff({
+    runId: state.targetRunId,
+    handoffRef,
+    itemIds: ["prior_opportunity_map"],
+    consumedAt: "2026-08-12T17:27:00Z",
+  });
+  assert.equal(firstRead.status, "appended");
+  assert.equal(
+    (
+      await reopenedStore.readResearchHandoff({
+        runId: state.targetRunId,
+        handoffRef,
+        itemIds: ["prior_opportunity_map"],
+        consumedAt: "2026-08-12T17:27:00Z",
+      })
+    ).status,
+    "idempotent_replay",
+  );
+  const binding = {
+    ref: `${handoffRef}#prior_opportunity_map`,
+    content_hash: firstRead.handoffContentHash,
+  };
+  await reopenedStore.publishArtifact({
+    runId: state.targetRunId,
+    envelope: assessmentConceptEnvelope(
+      assessmentFixture,
+      state.targetRunId,
+      "scope-frame.r2.json",
+      "intake.r2.json",
+      scopeR2.targetUsers,
+      binding,
+    ),
+  });
+  const assessmentPlan = structuredClone(
+    bundleDocument(assessmentFixture, "plans/concept-evidence-assessment-plan.r1.json"),
+  );
+  assessmentPlan.run_id = state.targetRunId;
+  const researchPlan = structuredClone(
+    bundleDocument(assessmentFixture, "plans/research-plan.r1.json"),
+  );
+  researchPlan.run_id = state.targetRunId;
+  await publishInitialPlanBundle(
+    reopenedStore,
+    state.targetRunId,
+    [
+      envelopeForRun(state.targetRunId, "plans/research-plan.r1.json", researchPlan, [
+        "concept-hypothesis.json",
+        "plans/concept-evidence-assessment-plan.r1.json",
+      ]),
+      envelopeForRun(
+        state.targetRunId,
+        "plans/concept-evidence-assessment-plan.r1.json",
+        assessmentPlan,
+        ["concept-hypothesis.json", "plans/research-plan.r1.json"],
+      ),
+    ],
+    "assessment",
+  );
+  const planned = await new RunStore(
+    state.runsRoot,
+    await createArtifactValidator(repositoryRoot),
+  ).load(state.targetRunId);
+  assert.equal(planned.manifest.status, "planned");
+  assert.equal(planned.manifest.scope_revision, 2);
+  assert.equal(planned.manifest.current_plan_ref, "plans/research-plan.r1.json");
+});
+
+test("a pre-Plan Assessment handoff becomes historical and inapplicable after Scope changes", async (context) => {
+  const state = await prepareState(context, "assessment-stale-r1-handoff", {
+    publishTargetCore: false,
+    targetMode: "concept_evidence_assessment",
+  });
+  const assessmentFixture = await createG14ContractBundle("insufficient_evidence");
+  await state.store.publishArtifactBundle({
+    runId: state.targetRunId,
+    envelopes: assessmentFormationEnvelopes(
+      assessmentFixture,
+      state.targetRunId,
+      1,
+      TARGET_SCOPE_R1,
+    ),
+  });
+  const input = structuredClone(state.input);
+  const prior = input.items.find((item) => item.itemId === "prior_opportunity_map");
+  assert.ok(prior);
+  (prior as { targetArtifactRef?: string }).targetArtifactRef = "concept-hypothesis.json";
+  const created = await state.store.createResearchHandoff(input);
+  const targetRoot = path.join(state.runsRoot, state.targetRunId);
+  const oldBytes = await readFile(path.join(targetRoot, created.handoffRef));
+  await reviseScope(state, "assessment-stale-r1-handoff");
+  const reopenedStore = new RunStore(state.runsRoot, await createArtifactValidator(repositoryRoot));
+  const reopened = await reopenedStore.load(state.targetRunId);
+  assert.equal(reopened.manifest.artifact_refs.includes(created.handoffRef), false);
+  assert.deepEqual(await readFile(path.join(targetRoot, created.handoffRef)), oldBytes);
+  await assert.rejects(
+    reopenedStore.readResearchHandoff({
+      runId: state.targetRunId,
+      handoffRef: created.handoffRef,
+      itemIds: ["prior_opportunity_map"],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "research_handoff.applicability_expired",
   );
 });
 

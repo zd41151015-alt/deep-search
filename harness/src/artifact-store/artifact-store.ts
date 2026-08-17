@@ -545,6 +545,14 @@ function publicationRank(envelope: FormalArtifactEnvelope): number {
   return ranks[envelope.artifact_type] ?? 199;
 }
 
+const PLANNING_PUBLICATION_TYPES = new Set([
+  "startup_opportunity.research_plan.v1",
+  "startup_opportunity.concept_evidence_assessment_plan.v1",
+  "startup_opportunity.planning_context.general.current",
+  "startup_opportunity.planning_context.ai_source_bound.current",
+  "startup_opportunity.ai_trigger_source_attestation.v1",
+]);
+
 export class ArtifactStore {
   private readonly logs: JsonlStore;
   private readonly evidence: EvidenceStore;
@@ -560,6 +568,12 @@ export class ArtifactStore {
   async publish(input: PublishArtifactInput): Promise<PublishArtifactResult> {
     await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
     this.validateEnvelopeVersionBoundary(input.envelope.schema_version);
+    if (PLANNING_PUBLICATION_TYPES.has(input.envelope.artifact_type)) {
+      throw new StoreError(
+        "artifact.planning_entry_required",
+        "Plan and planning authority must publish through RunStore or PlanRevisionRuntime",
+      );
+    }
     if (input.envelope.artifact_type === "startup_opportunity.research_handoff.current") {
       throw new StoreError(
         "research_handoff.dedicated_entry_required",
@@ -581,6 +595,14 @@ export class ArtifactStore {
 
   async publishBundle(input: PublishArtifactBundleInput): Promise<PublishArtifactBundleResult> {
     await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
+    if (
+      input.envelopes.some((envelope) => PLANNING_PUBLICATION_TYPES.has(envelope.artifact_type))
+    ) {
+      throw new StoreError(
+        "artifact.planning_entry_required",
+        "Plan and planning authority must publish through RunStore or PlanRevisionRuntime",
+      );
+    }
     if (
       input.envelopes.some(
         (envelope) => envelope.artifact_type === "startup_opportunity.research_handoff.current",
@@ -1375,9 +1397,11 @@ export class ArtifactStore {
     const storedDocuments = [...(await this.listFormalDocuments(runRoot))];
     let documents = storedDocuments;
     try {
-      const manifest = JSON.parse(
-        await readFile(await resolveRunPath(runRoot, "manifest.json"), "utf8"),
-      ) as Record<string, unknown>;
+      const manifest =
+        referenceContext.prospectiveManifest ??
+        (JSON.parse(
+          await readFile(await resolveRunPath(runRoot, "manifest.json"), "utf8"),
+        ) as Record<string, unknown>);
       const currentArtifactRefs = new Set(
         Array.isArray(manifest.artifact_refs)
           ? manifest.artifact_refs.filter((ref): ref is string => typeof ref === "string")
@@ -1438,6 +1462,13 @@ export class ArtifactStore {
       envelopes[0]?.run_id ?? "",
     )) {
       if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
+        const handoffBinding = isRecord(record.handoff_binding) ? record.handoff_binding : null;
+        if (
+          typeof handoffBinding?.handoff_ref === "string" &&
+          !documents.some((entry) => entry.path === handoffBinding.handoff_ref)
+        ) {
+          continue;
+        }
         exactJsonlRecords.set(`evidence/manifest.jsonl#${record.evidence_id}`, record);
       }
     }

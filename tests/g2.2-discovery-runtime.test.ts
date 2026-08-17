@@ -44,7 +44,7 @@ import {
   createDiscoveryRuntimeFixture,
   runtimeEnvelope,
 } from "./fixtures/g2.2/discovery-runtime-fixture.js";
-import { createConfirmedRun } from "./helpers/current-run.js";
+import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
 import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -161,10 +161,11 @@ async function setup(context: TestContext, suffix: string): Promise<RuntimeState
     "general",
     true,
   );
-  await store.publishArtifactBundle({
+  await publishInitialPlanBundle(
+    store,
     runId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
-  });
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  );
   await store.publishArtifactBundle({
     runId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),

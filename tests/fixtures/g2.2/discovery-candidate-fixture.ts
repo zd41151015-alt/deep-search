@@ -617,8 +617,14 @@ export function refreshDiscoveryCandidateFormation(bundle: DocumentBundle): Docu
 export async function createDiscoveryCandidateFixture(
   additionalPlanWaves: readonly Record<string, unknown>[] = [],
   profile: DiscoveryProfile = "general",
+  researchLanguage = "en-US",
 ): Promise<DocumentBundle> {
-  const bundle = await createDiscoveryMapsFixture(profile, G22_RUN_ID, additionalPlanWaves);
+  const bundle = await createDiscoveryMapsFixture(
+    profile,
+    G22_RUN_ID,
+    additionalPlanWaves,
+    researchLanguage,
+  );
   (bundle as { schema_version: string }).schema_version =
     "startup_opportunity.document_bundle.current";
   const researchPlan = fixtureEffective(bundle, G21_PLAN_REF);

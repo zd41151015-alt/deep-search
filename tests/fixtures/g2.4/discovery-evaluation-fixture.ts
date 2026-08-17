@@ -212,7 +212,7 @@ function enrichmentPlanUnit(
 ): Record<string, unknown> {
   return {
     unit_id: unitId,
-    unit_type: sourcePhase === "adversarial_challenger" ? "adversarial_review" : "market_space",
+    unit_type: sourcePhase === "adversarial_challenger" ? "counter_evidence" : "market_space",
     plan_disposition: "enabled",
     priority_band: "high",
     attempt: 1,
@@ -242,7 +242,7 @@ function task(
     mode: "opportunity_discovery",
     phase: "enrichment",
     wave_id: "wave_enrichment",
-    unit_type: sourcePhase === "adversarial_challenger" ? "adversarial_review" : "market_space",
+    unit_type: sourcePhase === "adversarial_challenger" ? "counter_evidence" : "market_space",
     research_goal: SYNTHETIC,
     commercial_research_requirements: {
       research_stage: "solution_specific_evaluation",
@@ -666,6 +666,7 @@ export async function createDiscoveryEvaluationFixture(
   runId: string,
   substrate: DiscoveryEvaluationSubstrate,
   profile: DiscoveryProfile = "general",
+  researchLanguage = "en-US",
 ): Promise<DocumentBundle> {
   const usesAi = profile === "ai_first" || profile === "hybrid";
   const bundle = await createDiscoverySynthesisFixture(
@@ -693,6 +694,7 @@ export async function createDiscoveryEvaluationFixture(
       },
     ],
     profile,
+    researchLanguage,
   );
   (bundle as { schema_version: string }).schema_version =
     "startup_opportunity.document_bundle.current";

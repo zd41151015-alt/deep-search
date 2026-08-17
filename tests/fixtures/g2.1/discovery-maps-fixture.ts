@@ -136,7 +136,7 @@ function unit(
     research_goal: synthetic(`${unitType} is future lane work and is not executed by G2.1`),
     input_refs: [...inputRefs],
     agent_role: "lane-researcher",
-    output_path: `artifacts/lanes/${unitId}.synthetic.json`,
+    output_path: `artifacts/discovery/lanes/${unitId}.attempt-1.json`,
     required_artifact_schema: "startup_opportunity.discovery_lane_result.v1",
     source_preferences: [synthetic("future source preference")],
     required_outputs: [synthetic("future lane result")],
@@ -235,6 +235,7 @@ export async function createDiscoveryMapsFixture(
   profile: DiscoveryProfile,
   runId = `g2-1-${profile.replaceAll("_", "-")}-synthetic`,
   additionalPlanWaves: readonly Record<string, unknown>[] = [],
+  researchLanguage = "en-US",
 ): Promise<DocumentBundle> {
   const policy = JSON.parse(
     await readFile(
@@ -288,21 +289,21 @@ export async function createDiscoveryMapsFixture(
     mode: "opportunity_discovery",
     raw_query: synthetic(`${profile} discovery request`),
     market: "synthetic-primary-market",
-    language: "en-US",
+    language: researchLanguage,
     principal: "synthetic_principal",
     scope_confirmation: {
       geography: "synthetic-primary-market",
       customer_model: "b2c",
       target_users: [synthetic("primary user")],
       decision_goal: synthetic("identify directions that merit further validation"),
-      research_language: "en-US",
+      research_language: researchLanguage,
       user_confirmed: true,
     },
     decision_context_ref: G21_DECISION_REF,
     attachments: [],
     explicit_constraints: {
       target_market: "synthetic-primary-market",
-      target_language: "en-US",
+      target_language: researchLanguage,
       venture_goal: "strategic_exploration",
       target_users: [synthetic("primary user")],
       delivery_form_preferences: ["mobile_web"],
@@ -320,7 +321,7 @@ export async function createDiscoveryMapsFixture(
     discovery_profile: profile,
     research_axes: ["user_language", "jtbd_workflow", "solution_failure", "buyer_market"],
     market: "synthetic-primary-market",
-    language: "en-US",
+    language: researchLanguage,
     target_users: [synthetic("primary user")],
     excluded_users: [synthetic("excluded user")],
     platform: synthetic("delivery platform is undecided"),
@@ -608,7 +609,7 @@ export async function createDiscoveryMapsFixture(
     customer_model: "b2c",
     target_users: [synthetic("primary user")],
     decision_goal: synthetic("identify directions that merit further validation"),
-    research_language: "en-US",
+    research_language: researchLanguage,
   };
   const scopeProposalDecision = {
     schema_version: "startup_opportunity.decision.v1",

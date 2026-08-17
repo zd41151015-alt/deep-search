@@ -25,7 +25,7 @@ import {
   fixtureEnvelope,
   G21_CORE_REFS,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
-import { createConfirmedRun } from "./helpers/current-run.js";
+import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
@@ -272,10 +272,11 @@ test("prior Run semantics require exact admission before Agent reads and cannot 
     createdAt: "2026-07-30T00:00:00Z",
   });
   const currentBundle = await createDiscoveryMapsFixture("general", activeRunId);
-  await fixture.store.publishArtifactBundle({
-    runId: activeRunId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(currentBundle, ref)),
-  });
+  await publishInitialPlanBundle(
+    fixture.store,
+    activeRunId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(currentBundle, ref)),
+  );
   const priorRunId = "g4-prior-semantics-synthetic";
   await fixture.store.create({
     runId: priorRunId,

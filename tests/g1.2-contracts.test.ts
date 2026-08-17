@@ -27,7 +27,7 @@ import {
   initialFixtureEnvelopes,
   taskEnvelope,
 } from "./fixtures/g1.2/research-branch-fixture.js";
-import { createConfirmedRun } from "./helpers/current-run.js";
+import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const baseFixturePath = path.join(
@@ -90,7 +90,7 @@ async function prepareSingleBranch(context: TestContext, runId = G12_RUN_ID) {
   const branch = G12_BRANCHES[0];
   assert.ok(branch);
   const initial = initialFixtureEnvelopes(base, [branch]);
-  await state.store.publishArtifactBundle({ runId, envelopes: initial });
+  await publishInitialPlanBundle(state.store, runId, initial, "assessment");
   const task = taskEnvelope(base, branch, 2);
   await state.store.publishArtifactBundle({
     runId,
@@ -188,10 +188,12 @@ async function publishVerticalFixture(context: TestContext) {
   const state = await setup(context);
   const base = await baseFixture();
   const initial = initialFixtureEnvelopes(base);
-  const initialResult = await state.store.publishArtifactBundle({
-    runId: G12_RUN_ID,
-    envelopes: initial,
-  });
+  const initialResult = await publishInitialPlanBundle(
+    state.store,
+    G12_RUN_ID,
+    initial,
+    "assessment",
+  );
   assert.equal(initialResult.status, "published");
 
   const tasks = G12_BRANCHES.map((branch, index) => taskEnvelope(base, branch, index + 2));
@@ -615,10 +617,12 @@ test("research task publication is pending-to-active only and exact replay prese
   const base = await baseFixture();
   const recoveryBranch = G12_BRANCHES[0];
   assert.ok(recoveryBranch);
-  await recoveryState.store.publishArtifactBundle({
-    runId: G12_RUN_ID,
-    envelopes: initialFixtureEnvelopes(base, [recoveryBranch]),
-  });
+  await publishInitialPlanBundle(
+    recoveryState.store,
+    G12_RUN_ID,
+    initialFixtureEnvelopes(base, [recoveryBranch]),
+    "assessment",
+  );
   const recoveryTask = taskEnvelope(base, recoveryBranch, 2);
   const recoveryWave = [
     executionPlanEnvelope(base, [recoveryBranch]),

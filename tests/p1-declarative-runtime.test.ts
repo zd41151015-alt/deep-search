@@ -39,7 +39,7 @@ import {
   createDiscoveryRuntimeFixture,
   runtimeEnvelope,
 } from "./fixtures/g2.2/discovery-runtime-fixture.js";
-import { createConfirmedRun } from "./helpers/current-run.js";
+import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const createdAt = "2026-07-31T16:00:00Z";
@@ -404,10 +404,11 @@ async function prepareRun(context: TestContext, suffix: string) {
     },
     createdAt: "2026-07-31T15:59:00Z",
   });
-  await runStore.publishArtifactBundle({
+  await publishInitialPlanBundle(
+    runStore,
     runId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
-  });
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  );
   return {
     root,
     runsRoot,
@@ -491,10 +492,11 @@ async function prepareDiscoveryTaskBridgeRun(context: TestContext, suffix: strin
     "general",
     true,
   );
-  await runStore.publishArtifactBundle({
+  await publishInitialPlanBundle(
+    runStore,
     runId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
-  });
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  );
   await runStore.publishArtifactBundle({
     runId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),

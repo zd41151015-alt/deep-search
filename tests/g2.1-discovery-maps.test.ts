@@ -36,7 +36,7 @@ import {
   G21_SOLUTION_REF,
   refreshDiscoveryMapsBundle,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
-import { createConfirmedRun } from "./helpers/current-run.js";
+import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const caseCatalogPath = path.join(repositoryRoot, "tests/fixtures/g2.1/discovery-map-cases.json");
@@ -349,10 +349,11 @@ async function prepareRun(context: TestContext, profile: DiscoveryProfile, suffi
       researchLanguage: "en-US",
     },
   });
-  await store.publishArtifactBundle({
+  await publishInitialPlanBundle(
+    store,
     runId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
-  });
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  );
   return { bundle, root, runId, runRoot, runsRoot, store, validator };
 }
 

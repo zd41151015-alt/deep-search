@@ -6,6 +6,10 @@ import {
   recoverPlanRevisionOperationsLocked,
 } from "../adaptation/plan-runtime.js";
 import {
+  createAssessmentPlanSemanticValidator,
+  createPlanSemanticValidator,
+} from "../adaptation/plan-validator.js";
+import {
   ArtifactStore,
   type FormalArtifactEnvelope,
   type PublishArtifactBundleInput,
@@ -535,6 +539,12 @@ function records(value: unknown): readonly Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter(isRecord) : [];
 }
 
+function strings(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 function researchHandoffOperationFilename(operationKeyValue: string): string {
   return `research-handoff-${sha256Hex(operationKeyValue)}.json`;
 }
@@ -910,6 +920,7 @@ function scopeConfirmationRecord(
   proposal: Record<string, unknown>,
   timestamp: string,
   userConfirmationAttestation: string,
+  supersededFormationRefs: readonly string[],
 ): Record<string, unknown> {
   const revision = Number(proposal.scope_revision);
   const proposalRef = `decisions.jsonl#${String(proposal.decision_id)}`;
@@ -930,6 +941,50 @@ function scopeConfirmationRecord(
     scope_proposal_hash: canonicalContentHash(proposal),
     confirmation_basis: "caller_attested_user_confirmation",
     harness_identity_verification: "not_available",
+    superseded_formation_refs: [...supersededFormationRefs].sort(),
+  };
+}
+
+const PRE_PLAN_FORMATION_TYPES = new Set([
+  "startup_opportunity.intake.v1",
+  "startup_opportunity.decision_context.v1",
+  "startup_opportunity.scope_frame.discovery.current",
+  "startup_opportunity.scope_frame.assessment.current",
+  "startup_opportunity.concept_hypothesis.assessment.current",
+  "startup_opportunity.concept_hypothesis.assessment_intake.current",
+]);
+
+const PLANNING_PUBLICATION_TYPES = new Set([
+  "startup_opportunity.research_plan.v1",
+  "startup_opportunity.concept_evidence_assessment_plan.v1",
+  "startup_opportunity.planning_context.general.current",
+  "startup_opportunity.planning_context.ai_source_bound.current",
+  "startup_opportunity.ai_trigger_source_attestation.v1",
+]);
+
+function prospectiveInitialPlanManifest(
+  manifest: RunManifest,
+  envelopes: readonly FormalArtifactEnvelope[],
+): RunManifest | null {
+  const initialPlan = envelopes.find(
+    (envelope) =>
+      envelope.artifact_type === "startup_opportunity.research_plan.v1" &&
+      envelope.document.revision === 1,
+  );
+  if (initialPlan === undefined || manifest.current_plan_ref !== null) return null;
+  return {
+    ...manifest,
+    status: "planned",
+    status_before_clarification: null,
+    current_phase: manifest.mode === "opportunity_discovery" ? "discovery" : "assessment",
+    current_plan_ref: initialPlan.artifact_path,
+    plan_revision: 1,
+    artifact_refs: [
+      ...new Set([
+        ...manifest.artifact_refs,
+        ...envelopes.map((envelope) => envelope.artifact_path),
+      ]),
+    ].sort(),
   };
 }
 
@@ -1299,11 +1354,18 @@ export class RunStore {
           },
         );
       }
+      const supersededFormationRefs =
+        state.confirmation === null
+          ? manifest.current_plan_ref === null
+            ? await this.prePlanFormationRefsLocked(runRoot)
+            : []
+          : [...strings(state.confirmation.superseded_formation_refs)].sort();
       const decision = scopeConfirmationRecord(
         input.runId,
         state.proposal,
         input.confirmedAt ?? new Date().toISOString(),
         input.userConfirmationAttestation,
+        supersededFormationRefs,
       );
       const decisionRef = `decisions.jsonl#${String(decision.decision_id)}`;
       const decisionHash = canonicalContentHash(decision);
@@ -1357,6 +1419,10 @@ export class RunStore {
                   ...manifest.validated_adaptation_refs,
                 ]),
               ].sort(),
+        artifact_refs:
+          revision > 1 && supersededFormationRefs.length > 0
+            ? manifest.artifact_refs.filter((ref) => !supersededFormationRefs.includes(ref))
+            : manifest.artifact_refs,
         updated_at: String(decision.timestamp),
       };
       await this.writeManifest(runRoot, nextManifest);
@@ -2517,6 +2583,8 @@ export class RunStore {
       }
       await this.assertScopeBindingLocked(runRoot, manifest);
       await this.assertTransitionReadyLocked(runRoot, manifest, [input.envelope]);
+      await this.assertProspectiveScopeFormationLocked(runRoot, manifest, [input.envelope]);
+      await this.assertProspectivePlanningPublicationLocked(runRoot, manifest, [input.envelope]);
       this.assertAdaptationArtifactMode(manifest, input.envelope);
       const taskPublicationMode = await this.researchTaskPublicationMode(
         runRoot,
@@ -2558,8 +2626,10 @@ export class RunStore {
         this.artifacts,
         this.logs,
       );
+      const prospectiveManifest = prospectiveInitialPlanManifest(manifest, [input.envelope]);
       const result = await this.artifacts.publishLocked(runRoot, input, false, {
         historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
+        ...(prospectiveManifest === null ? {} : { prospectiveManifest }),
       });
       if (taskPublicationMode === "replay") {
         return result;
@@ -2607,6 +2677,8 @@ export class RunStore {
       let manifest = await this.readManifest(runRoot);
       await this.assertScopeBindingLocked(runRoot, manifest);
       await this.assertTransitionReadyLocked(runRoot, manifest, input.envelopes);
+      await this.assertProspectiveScopeFormationLocked(runRoot, manifest, input.envelopes);
+      await this.assertProspectivePlanningPublicationLocked(runRoot, manifest, input.envelopes);
       this.assertAtomicDispatchWaveBundle(manifest, input.envelopes);
       const originalManifest = manifest;
       const classifications = new Map<
@@ -2706,8 +2778,10 @@ export class RunStore {
         this.artifacts,
         this.logs,
       );
+      const prospectiveManifest = prospectiveInitialPlanManifest(originalManifest, input.envelopes);
       const result = await this.artifacts.publishBundleLocked(runRoot, input, {
         historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
+        ...(prospectiveManifest === null ? {} : { prospectiveManifest }),
       });
       const publicationResults = new Map(
         result.artifacts.map((artifact) => [artifact.artifactPath, artifact.status]),
@@ -2762,6 +2836,433 @@ export class RunStore {
         "artifact.run_mode_mismatch",
         "Adaptation Artifact identity does not match the current Run mode",
         { mode: manifest.mode, artifactType: envelope.artifact_type },
+      );
+    }
+  }
+
+  private async assertProspectivePlanningPublicationLocked(
+    runRoot: string,
+    manifest: RunManifest,
+    envelopes: readonly FormalArtifactEnvelope[],
+  ): Promise<void> {
+    if (!envelopes.some((envelope) => PLANNING_PUBLICATION_TYPES.has(envelope.artifact_type))) {
+      return;
+    }
+    await this.assertReconciledPrePlanFormationLocked(runRoot, manifest, envelopes);
+    const stored = new Map(
+      (await this.artifacts.listFormalDocuments(runRoot)).map((entry) => [entry.path, entry]),
+    );
+    const exactReplay = envelopes.every((envelope) => {
+      const existing = stored.get(envelope.artifact_path)?.document;
+      return existing !== undefined && canonicalJson(existing) === canonicalJson(envelope);
+    });
+    if (exactReplay) return;
+    const publishesPlan = envelopes.some(
+      (envelope) => envelope.artifact_type === "startup_opportunity.research_plan.v1",
+    );
+    if (manifest.current_plan_ref !== null && publishesPlan && !exactReplay) {
+      throw new StoreError(
+        "artifact.plan_revision_entry_required",
+        "Plan revisions and their planning authority must publish through PlanRevisionRuntime",
+        { currentPlanRef: manifest.current_plan_ref },
+      );
+    }
+    const input: DocumentBundle = {
+      schema_version: DOCUMENT_BUNDLE_SCHEMA_VERSION,
+      documents: envelopes.map((envelope) => ({
+        path: envelope.artifact_path,
+        document: envelope,
+      })),
+      exact_records: [],
+    };
+    const context = await this.buildValidationContextLocked(
+      runRoot,
+      manifest.run_id,
+      input,
+      false,
+      new Set(envelopes.map((envelope) => envelope.artifact_path)),
+    );
+    const prospectiveManifest = prospectiveInitialPlanManifest(manifest, envelopes);
+    const validationBundle =
+      prospectiveManifest === null
+        ? context.bundle
+        : {
+            ...context.bundle,
+            documents: context.bundle.documents.map((entry) =>
+              entry.path === "manifest.json"
+                ? { path: entry.path, document: prospectiveManifest }
+                : entry,
+            ),
+          };
+    const closure = this.validator.validateDocumentBundle(
+      validationBundle,
+      context.referenceContext,
+    );
+    const closureIssues = [
+      ...closure.bundleErrors,
+      ...closure.documents.flatMap((document) => document.errors),
+      ...closure.referenceErrors,
+    ];
+    const planValidator =
+      manifest.mode === "concept_evidence_assessment"
+        ? await createAssessmentPlanSemanticValidator(this.validator.repositoryRoot)
+        : await createPlanSemanticValidator(this.validator.repositoryRoot);
+    const semantic = planValidator.validateDocumentBundle(
+      validationBundle,
+      context.referenceContext,
+    );
+    const semanticIssues = [...semantic.planningContract.contractErrors, ...semantic.planErrors];
+    if (!closure.valid || !semantic.valid) {
+      throw new StoreError(
+        "artifact.planning_preflight_failed",
+        "prospective Plan, Planning Context, and AI source policy closure is not publishable",
+        {
+          issues: [...closureIssues, ...semanticIssues],
+          contractErrors: semantic.planningContract.contractErrors,
+          planErrors: semantic.planErrors,
+        },
+      );
+    }
+  }
+
+  private async prePlanFormationRefsLocked(runRoot: string): Promise<readonly string[]> {
+    return (await this.artifacts.listFormalDocuments(runRoot))
+      .filter(
+        (entry) =>
+          isRecord(entry.document) &&
+          isCurrentEnvelopeSchema(entry.document.schema_version) &&
+          (PRE_PLAN_FORMATION_TYPES.has(String(entry.document.artifact_type)) ||
+            (entry.document.artifact_type === "startup_opportunity.research_handoff.current" &&
+              isRecord(entry.document.document) &&
+              entry.document.document.target_formation_stage === "pre_plan_assessment_formation")),
+      )
+      .map((entry) => entry.path)
+      .sort();
+  }
+
+  private async prospectiveFormationDocumentsLocked(
+    runRoot: string,
+    envelopes: readonly FormalArtifactEnvelope[],
+  ): Promise<ReadonlyMap<string, FormalArtifactEnvelope>> {
+    const documents = new Map<string, FormalArtifactEnvelope>();
+    for (const entry of await this.artifacts.listFormalDocuments(runRoot)) {
+      if (
+        isRecord(entry.document) &&
+        isCurrentEnvelopeSchema(entry.document.schema_version) &&
+        PRE_PLAN_FORMATION_TYPES.has(String(entry.document.artifact_type))
+      ) {
+        documents.set(entry.path, entry.document as FormalArtifactEnvelope);
+      }
+    }
+    for (const envelope of envelopes) {
+      if (PRE_PLAN_FORMATION_TYPES.has(envelope.artifact_type)) {
+        documents.set(envelope.artifact_path, envelope);
+      }
+    }
+    return documents;
+  }
+
+  private async currentScopeFormationAuthorityLocked(
+    runRoot: string,
+    manifest: RunManifest,
+  ): Promise<{
+    readonly scope: Record<string, unknown>;
+    readonly staleRefs: ReadonlySet<string>;
+  }> {
+    const state = await this.assertScopeBindingLocked(runRoot, manifest);
+    if (state.confirmation === null || !isRecord(state.confirmation.scope)) {
+      throw new StoreError(
+        "run.scope_confirmation_required",
+        "pre-Plan formation requires the exact current Scope confirmation",
+      );
+    }
+    return {
+      scope: state.confirmation.scope,
+      staleRefs: new Set(strings(state.confirmation.superseded_formation_refs)),
+    };
+  }
+
+  private scopeFormationMismatch(
+    artifactPath: string,
+    message: string,
+    details: Record<string, unknown> = {},
+  ): never {
+    throw new StoreError("run.scope_formation_binding_invalid", message, {
+      artifactPath,
+      ...details,
+    });
+  }
+
+  private assertFormationDocumentMatchesScope(
+    envelope: FormalArtifactEnvelope,
+    scope: Record<string, unknown>,
+  ): void {
+    const document = envelope.document;
+    const expectedScopeConfirmation = {
+      geography: scope.geography,
+      customer_model: scope.customer_model,
+      target_users: scope.target_users,
+      decision_goal: scope.decision_goal,
+      research_language: scope.research_language,
+      user_confirmed: true,
+    };
+    const intakeConstraints = isRecord(document.explicit_constraints)
+      ? document.explicit_constraints
+      : null;
+    if (
+      envelope.artifact_type === "startup_opportunity.intake.v1" &&
+      (canonicalJson(document.scope_confirmation) !== canonicalJson(expectedScopeConfirmation) ||
+        document.market !== scope.geography ||
+        document.language !== scope.research_language ||
+        intakeConstraints === null ||
+        intakeConstraints.target_market !== scope.geography ||
+        intakeConstraints.target_language !== scope.research_language ||
+        canonicalJson(intakeConstraints.target_users) !== canonicalJson(scope.target_users))
+    ) {
+      this.scopeFormationMismatch(
+        envelope.artifact_path,
+        "Intake must project the exact current confirmed Scope",
+      );
+    }
+    if (
+      envelope.artifact_type === "startup_opportunity.scope_frame.discovery.current" &&
+      (document.market !== scope.geography ||
+        document.language !== scope.research_language ||
+        canonicalJson(document.target_users) !== canonicalJson(scope.target_users))
+    ) {
+      this.scopeFormationMismatch(
+        envelope.artifact_path,
+        "Discovery ScopeFrame must project the exact current confirmed Scope",
+      );
+    }
+    if (
+      envelope.artifact_type === "startup_opportunity.scope_frame.assessment.current" &&
+      (document.market !== scope.geography ||
+        document.language !== scope.research_language ||
+        canonicalJson(document.target_user) !== canonicalJson(scope.target_users))
+    ) {
+      this.scopeFormationMismatch(
+        envelope.artifact_path,
+        "Assessment ScopeFrame must project the exact current confirmed Scope",
+      );
+    }
+  }
+
+  private async assertProspectiveScopeFormationLocked(
+    runRoot: string,
+    manifest: RunManifest,
+    envelopes: readonly FormalArtifactEnvelope[],
+  ): Promise<void> {
+    if (
+      manifest.status !== "needs_clarification" ||
+      manifest.current_plan_ref !== null ||
+      !envelopes.some((envelope) => PRE_PLAN_FORMATION_TYPES.has(envelope.artifact_type))
+    ) {
+      return;
+    }
+    const authority = await this.currentScopeFormationAuthorityLocked(runRoot, manifest);
+    const formation = await this.prospectiveFormationDocumentsLocked(runRoot, envelopes);
+    for (const envelope of envelopes) {
+      if (!PRE_PLAN_FORMATION_TYPES.has(envelope.artifact_type)) continue;
+      if (authority.staleRefs.has(envelope.artifact_path)) {
+        this.scopeFormationMismatch(
+          envelope.artifact_path,
+          "a Scope revision cannot reuse formation bytes superseded at confirmation",
+        );
+      }
+      this.assertFormationDocumentMatchesScope(envelope, authority.scope);
+      if (
+        [
+          "startup_opportunity.concept_hypothesis.assessment.current",
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+        ].includes(envelope.artifact_type)
+      ) {
+        const scopeRef = envelope.document.scope_frame_ref;
+        const scopeEnvelope = typeof scopeRef === "string" ? formation.get(scopeRef) : undefined;
+        if (
+          typeof scopeRef !== "string" ||
+          authority.staleRefs.has(scopeRef) ||
+          scopeEnvelope?.artifact_type !== "startup_opportunity.scope_frame.assessment.current"
+        ) {
+          this.scopeFormationMismatch(
+            envelope.artifact_path,
+            "Assessment Concept formation must bind the exact current non-superseded ScopeFrame",
+          );
+        }
+        this.assertFormationDocumentMatchesScope(scopeEnvelope, authority.scope);
+      }
+    }
+  }
+
+  private async exactAssessmentPrePlanScopeLocked(
+    runRoot: string,
+    manifest: RunManifest,
+  ): Promise<FormalArtifactEnvelope> {
+    const authority = await this.currentScopeFormationAuthorityLocked(runRoot, manifest);
+    const formation = await this.prospectiveFormationDocumentsLocked(runRoot, []);
+    const candidates = [...formation.entries()]
+      .filter(
+        ([ref, envelope]) =>
+          !authority.staleRefs.has(ref) &&
+          envelope.artifact_type === "startup_opportunity.scope_frame.assessment.current",
+      )
+      .filter(([, envelope]) => {
+        try {
+          this.assertFormationDocumentMatchesScope(envelope, authority.scope);
+          return true;
+        } catch (error) {
+          if (error instanceof StoreError && error.code === "run.scope_formation_binding_invalid") {
+            return false;
+          }
+          throw error;
+        }
+      })
+      .filter(([, scope]) => {
+        const decisionRef = scope.document.decision_context_ref;
+        const decision = typeof decisionRef === "string" ? formation.get(decisionRef) : undefined;
+        return (
+          typeof decisionRef === "string" &&
+          !authority.staleRefs.has(decisionRef) &&
+          decision?.artifact_type === "startup_opportunity.decision_context.v1" &&
+          [...formation.entries()].some(
+            ([intakeRef, intake]) =>
+              !authority.staleRefs.has(intakeRef) &&
+              intake.artifact_type === "startup_opportunity.intake.v1" &&
+              intake.document.decision_context_ref === decisionRef &&
+              (() => {
+                try {
+                  this.assertFormationDocumentMatchesScope(intake, authority.scope);
+                  return true;
+                } catch (error) {
+                  if (
+                    error instanceof StoreError &&
+                    error.code === "run.scope_formation_binding_invalid"
+                  ) {
+                    return false;
+                  }
+                  throw error;
+                }
+              })(),
+          )
+        );
+      });
+    if (candidates.length !== 1 || candidates[0] === undefined) {
+      const matchesScope = (envelope: FormalArtifactEnvelope): boolean => {
+        try {
+          this.assertFormationDocumentMatchesScope(envelope, authority.scope);
+          return true;
+        } catch (error) {
+          if (error instanceof StoreError && error.code === "run.scope_formation_binding_invalid") {
+            return false;
+          }
+          throw error;
+        }
+      };
+      throw new StoreError(
+        "run.scope_formation_binding_invalid",
+        "pre-Plan Assessment handoff requires one exact current Intake, DecisionContext, and ScopeFrame closure",
+        {
+          scopeRevision: manifest.scope_revision,
+          candidateCount: candidates.length,
+          confirmedScope: authority.scope,
+          staleRefs: [...authority.staleRefs].sort(),
+          formation: [...formation.entries()].map(([ref, envelope]) => ({
+            ref,
+            artifactType: envelope.artifact_type,
+            matchesScope: matchesScope(envelope),
+            decisionContextRef: envelope.document.decision_context_ref ?? null,
+            scopeProjection: {
+              market: envelope.document.market ?? null,
+              language: envelope.document.language ?? null,
+              targetUsers: envelope.document.target_users ?? envelope.document.target_user ?? null,
+              scopeConfirmation: envelope.document.scope_confirmation ?? null,
+              explicitConstraints: envelope.document.explicit_constraints ?? null,
+            },
+          })),
+        },
+      );
+    }
+    return candidates[0][1];
+  }
+
+  private async assertReconciledPrePlanFormationLocked(
+    runRoot: string,
+    manifest: RunManifest,
+    envelopes: readonly FormalArtifactEnvelope[],
+  ): Promise<void> {
+    if (
+      manifest.status !== "needs_clarification" ||
+      manifest.current_plan_ref !== null ||
+      !envelopes.some(
+        (envelope) =>
+          envelope.artifact_type === "startup_opportunity.research_plan.v1" &&
+          envelope.document.revision === 1,
+      )
+    ) {
+      return;
+    }
+    const authority = await this.currentScopeFormationAuthorityLocked(runRoot, manifest);
+    const formation = await this.prospectiveFormationDocumentsLocked(runRoot, envelopes);
+    const current = [...formation.entries()].filter(([ref, envelope]) => {
+      if (authority.staleRefs.has(ref)) return false;
+      try {
+        this.assertFormationDocumentMatchesScope(envelope, authority.scope);
+        return true;
+      } catch (error) {
+        if (error instanceof StoreError && error.code === "run.scope_formation_binding_invalid") {
+          return false;
+        }
+        throw error;
+      }
+    });
+    const byType = (artifactType: string) =>
+      current.filter(([, envelope]) => envelope.artifact_type === artifactType);
+    const plans = envelopes.filter(
+      (envelope) => envelope.artifact_type === "startup_opportunity.research_plan.v1",
+    );
+    const planRefs = new Set(
+      plans.flatMap((envelope) =>
+        records(envelope.document.waves).flatMap((wave) =>
+          records(wave.units).flatMap((unit) => strings(unit.input_refs)),
+        ),
+      ),
+    );
+    const intakes = byType("startup_opportunity.intake.v1");
+    const scopeType =
+      manifest.mode === "opportunity_discovery"
+        ? "startup_opportunity.scope_frame.discovery.current"
+        : "startup_opportunity.scope_frame.assessment.current";
+    const scopes = byType(scopeType);
+    const concepts = [
+      ...byType("startup_opportunity.concept_hypothesis.assessment.current"),
+      ...byType("startup_opportunity.concept_hypothesis.assessment_intake.current"),
+    ];
+    const closureExists = scopes.some(([scopeRef, scopeEnvelope]) => {
+      const decisionRef = scopeEnvelope.document.decision_context_ref;
+      if (typeof decisionRef !== "string") return false;
+      const decision = formation.get(decisionRef);
+      if (
+        decision === undefined ||
+        authority.staleRefs.has(decisionRef) ||
+        decision.artifact_type !== "startup_opportunity.decision_context.v1"
+      ) {
+        return false;
+      }
+      const intakeMatches = intakes.some(
+        ([, intake]) => intake.document.decision_context_ref === decisionRef,
+      );
+      if (!intakeMatches) return false;
+      if (manifest.mode === "opportunity_discovery") return planRefs.has(scopeRef);
+      return concepts.some(
+        ([conceptRef, concept]) =>
+          concept.document.scope_frame_ref === scopeRef && planRefs.has(conceptRef),
+      );
+    });
+    if (!closureExists) {
+      this.scopeFormationMismatch(
+        plans[0]?.artifact_path ?? "plans/research-plan.r1.json",
+        "the first Plan must causally close over exact current non-superseded Intake, DecisionContext, ScopeFrame, and mode-specific Concept formation",
+        { scopeRevision: manifest.scope_revision },
       );
     }
   }
@@ -4082,15 +4583,18 @@ export class RunStore {
           "A terminal or reporting Run cannot admit a new cross-Run research handoff",
         );
       }
-      if (manifest.status === "needs_clarification") {
+      const prePlanAssessmentFormation =
+        manifest.current_plan_ref === null && manifest.mode === "concept_evidence_assessment";
+      let prePlanAssessmentScope: FormalArtifactEnvelope | null = null;
+      if (prePlanAssessmentFormation) {
+        prePlanAssessmentScope = await this.exactAssessmentPrePlanScopeLocked(targetRoot, manifest);
+      } else if (manifest.status === "needs_clarification") {
         throw new StoreError(
           "run.scope_revision_unresolved",
           "A new research handoff is blocked until the confirmed Scope is reconciled through a Plan Revision",
           { scopeRevision: manifest.scope_revision },
         );
       }
-      const prePlanAssessmentFormation =
-        manifest.current_plan_ref === null && manifest.mode === "concept_evidence_assessment";
       if (manifest.current_plan_ref === null && !prePlanAssessmentFormation) {
         throw new StoreError(
           "research_handoff.target_scope_plan_required",
@@ -4100,13 +4604,36 @@ export class RunStore {
       const targetFormal = new Map(
         (await this.artifacts.listFormalDocuments(targetRoot)).map((entry) => [entry.path, entry]),
       );
-      if (prePlanAssessmentFormation && targetFormal.has("concept-hypothesis.json")) {
+      if (
+        prePlanAssessmentFormation &&
+        manifest.artifact_refs.includes("concept-hypothesis.json")
+      ) {
         throw new StoreError(
           "research_handoff.target_scope_plan_required",
           "A pre-Plan Assessment handoff can only be created before the initial intake Concept",
         );
       }
-      const scope = targetFormal.get("scope-frame.json");
+      if (
+        prePlanAssessmentFormation &&
+        (input.items.every((item) => item.role === "reusable_evidence") ||
+          input.items.some(
+            (item) =>
+              item.role !== "reusable_evidence" &&
+              item.targetArtifactRef !== "concept-hypothesis.json",
+          ))
+      ) {
+        throw new StoreError(
+          "research_handoff.item_contract_invalid",
+          "A pre-Plan Assessment handoff requires a non-Evidence input bound to the initial intake Concept",
+        );
+      }
+      const scope =
+        prePlanAssessmentScope === null
+          ? targetFormal.get("scope-frame.json")
+          : {
+              path: prePlanAssessmentScope.artifact_path,
+              document: prePlanAssessmentScope,
+            };
       const plan =
         manifest.current_plan_ref === null
           ? undefined
@@ -4474,12 +5001,26 @@ export class RunStore {
             { handoffRef: input.handoffRef },
           );
         }
+        const targetScopeStateMatches =
+          manifest.scope_revision === envelope.document.target_scope_revision &&
+          manifest.scope_confirmation_ref === envelope.document.target_scope_confirmation_ref &&
+          manifest.scope_confirmation_hash === envelope.document.target_scope_confirmation_hash;
+        const currentPrePlanAssessmentScope =
+          envelope.document.target_formation_stage === "pre_plan_assessment_formation" &&
+          manifest.current_plan_ref === null &&
+          targetScopeStateMatches
+            ? await this.exactAssessmentPrePlanScopeLocked(runRoot, manifest)
+            : null;
         if (
           manifest.scope_revision !== envelope.document.target_scope_revision ||
           manifest.scope_confirmation_ref !== envelope.document.target_scope_confirmation_ref ||
           manifest.scope_confirmation_hash !== envelope.document.target_scope_confirmation_hash ||
-          manifest.status === "needs_clarification" ||
           manifest.status === "awaiting_scope_confirmation" ||
+          (envelope.document.target_formation_stage === "pre_plan_assessment_formation" &&
+            (currentPrePlanAssessmentScope === null ||
+              currentPrePlanAssessmentScope.artifact_path !== envelope.document.target_scope_ref ||
+              currentPrePlanAssessmentScope.content_hash !==
+                envelope.document.target_scope_hash)) ||
           (envelope.document.target_formation_stage === "plan_bound" &&
             manifest.current_plan_ref !== envelope.document.target_plan_ref)
         ) {
@@ -5799,6 +6340,20 @@ export class RunStore {
         ...new Set([...snapshot.ignored_late_artifact_refs, ...ignoredLateArtifactPaths]),
       ].sort(),
     });
+    const recoveredScopeState = await this.assertScopeBindingLocked(runRoot, recoveredManifest);
+    const supersededFormationRefs = new Set(
+      recoveredManifest.scope_revision > 1
+        ? strings(recoveredScopeState.confirmation?.superseded_formation_refs)
+        : [],
+    );
+    if (supersededFormationRefs.size > 0) {
+      recoveredManifest = {
+        ...recoveredManifest,
+        artifact_refs: recoveredManifest.artifact_refs.filter(
+          (ref) => !supersededFormationRefs.has(ref),
+        ),
+      };
+    }
     const checkpointKnownPaths = new Set([
       ...snapshot.artifact_refs,
       ...snapshot.ignored_late_artifact_refs,
@@ -5812,6 +6367,7 @@ export class RunStore {
         (entry) =>
           !entry.path.startsWith("checkpoints/") &&
           !checkpointKnownPaths.has(entry.path) &&
+          !supersededFormationRefs.has(entry.path) &&
           isRecord(entry.document) &&
           isCurrentEnvelopeSchema(entry.document.schema_version),
       )
@@ -5846,8 +6402,12 @@ export class RunStore {
     await this.assertManifestRefsExist(runRoot, recoveredManifest);
     const recoveryDocuments: DocumentBundleEntry[] = [
       { path: "manifest.json", document: recoveredManifest },
-      ...formalDocuments.filter((entry) => !invalidCheckpoints.includes(entry.path)),
+      ...formalDocuments.filter(
+        (entry) =>
+          !invalidCheckpoints.includes(entry.path) && !supersededFormationRefs.has(entry.path),
+      ),
     ];
+    const recoveryDocumentPaths = new Set(recoveryDocuments.map((entry) => entry.path));
     const typedJsonlRefs = recoveryDocuments.flatMap((entry) => artifactRefsForDocument(entry));
     const exactJsonlRecords = new Map<string, Record<string, unknown>>();
     for (const ref of [...new Set(typedJsonlRefs)].sort()) {
@@ -5859,6 +6419,13 @@ export class RunStore {
     }
     for (const record of await this.evidence.listRecordsLocked(runRoot, runId)) {
       if (record.schema_version === "startup_opportunity.evidence_store_record.v2") {
+        const handoffBinding = isRecord(record.handoff_binding) ? record.handoff_binding : null;
+        if (
+          typeof handoffBinding?.handoff_ref === "string" &&
+          !recoveryDocumentPaths.has(handoffBinding.handoff_ref)
+        ) {
+          continue;
+        }
         exactJsonlRecords.set(`evidence/manifest.jsonl#${record.evidence_id}`, record);
       }
     }
@@ -6015,18 +6582,19 @@ export class RunStore {
     if (existingHandoff !== undefined && durableEvidenceCount === intent.evidence_imports.length) {
       return { artifactStatus: "idempotent_replay", recoveredRefs: [] };
     }
-    if (
-      !transactionStarted &&
-      !(await this.researchHandoffIntentStillApplicable(runRoot, intent))
-    ) {
-      if (!recovery) {
-        throw new StoreError(
-          "research_handoff.intent_applicability_expired",
-          "An uncommitted handoff intent cannot start after its exact target Scope or Plan changed",
-          { handoffRef: intent.handoff_ref },
-        );
+    let scopeMutationPrevalidated = transactionStarted;
+    if (!transactionStarted) {
+      scopeMutationPrevalidated = await this.researchHandoffIntentStillApplicable(runRoot, intent);
+      if (!scopeMutationPrevalidated) {
+        if (!recovery) {
+          throw new StoreError(
+            "research_handoff.intent_applicability_expired",
+            "An uncommitted handoff intent cannot start after its exact target Scope or Plan changed",
+            { handoffRef: intent.handoff_ref },
+          );
+        }
+        return { artifactStatus: null, recoveredRefs: [] };
       }
-      return { artifactStatus: null, recoveredRefs: [] };
     }
     for (const evidenceImport of intent.evidence_imports) {
       const handoffBinding = evidenceImport.record.handoff_binding;
@@ -6048,7 +6616,7 @@ export class RunStore {
           operationKey: evidenceImport.record.operation_key,
           handoffBinding,
         },
-        transactionStarted,
+        scopeMutationPrevalidated,
       );
       if (result.status === "recorded") recovered.push(`evidence:${result.record.evidence_id}`);
     }
@@ -6059,7 +6627,7 @@ export class RunStore {
         envelope: intent.envelope,
       },
       {},
-      transactionStarted || durableEvidenceCount > 0,
+      scopeMutationPrevalidated || durableEvidenceCount > 0,
     );
     if (existingHandoff === undefined || publication.status === "published")
       recovered.push(intent.handoff_ref);
@@ -6077,18 +6645,33 @@ export class RunStore {
       manifest.scope_confirmation_ref !== document.target_scope_confirmation_ref ||
       manifest.scope_confirmation_hash !== document.target_scope_confirmation_hash ||
       manifest.status === "awaiting_scope_confirmation" ||
-      manifest.status === "needs_clarification" ||
       TERMINAL_RUN_STATUSES.has(manifest.status) ||
       manifest.status === "reporting"
     ) {
       return false;
     }
     if (document.target_formation_stage === "pre_plan_assessment_formation") {
-      return (
-        manifest.current_plan_ref === null &&
-        !manifest.artifact_refs.includes("concept-hypothesis.json")
-      );
+      if (
+        manifest.current_plan_ref !== null ||
+        manifest.mode !== "concept_evidence_assessment" ||
+        manifest.artifact_refs.includes("concept-hypothesis.json")
+      ) {
+        return false;
+      }
+      try {
+        const scope = await this.exactAssessmentPrePlanScopeLocked(runRoot, manifest);
+        return (
+          scope.artifact_path === document.target_scope_ref &&
+          scope.content_hash === document.target_scope_hash
+        );
+      } catch (error) {
+        if (error instanceof StoreError && error.code === "run.scope_formation_binding_invalid") {
+          return false;
+        }
+        throw error;
+      }
     }
+    if (manifest.status === "needs_clarification") return false;
     if (
       manifest.current_plan_ref !== document.target_plan_ref ||
       manifest.current_plan_ref === null

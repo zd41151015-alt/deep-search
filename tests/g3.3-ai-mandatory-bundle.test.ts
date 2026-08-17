@@ -50,7 +50,7 @@ import {
 } from "./fixtures/g3/ai-bundle-fixture.js";
 import { commercialReportProjection } from "./fixtures/quantitative-competitive-fixture.js";
 import { projectCommercialAuditsForRuntime } from "./helpers/commercial-runtime.js";
-import { createConfirmedRun } from "./helpers/current-run.js";
+import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
 import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -766,10 +766,11 @@ const EVALUATION_AGGREGATE_ARTIFACT_TYPES = [
 async function publishG33Prerequisites(
   state: Awaited<ReturnType<typeof lifecycleFixture>>,
 ): Promise<readonly FormalArtifactEnvelope[]> {
-  await state.store.publishArtifactBundle({
-    runId: state.runId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
-  });
+  await publishInitialPlanBundle(
+    state.store,
+    state.runId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
+  );
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),

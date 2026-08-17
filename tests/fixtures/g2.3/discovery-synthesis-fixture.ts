@@ -229,6 +229,7 @@ export async function createDiscoverySynthesisFixture(
   substrate: DiscoveryRuntimeSubstrate,
   additionalPlanWaves: readonly Record<string, unknown>[] = [],
   profile: DiscoveryProfile = "general",
+  researchLanguage = "en-US",
 ): Promise<DocumentBundle> {
   const bundle = await createDiscoveryRuntimeFixture(
     runId,
@@ -236,6 +237,7 @@ export async function createDiscoverySynthesisFixture(
     additionalPlanWaves,
     profile,
     true,
+    researchLanguage,
   );
   (bundle as { schema_version: string }).schema_version =
     "startup_opportunity.document_bundle.current";

@@ -265,13 +265,13 @@
     "expected": [{ "surface": "contract", "code": "contract.ai_trigger_source_trigger_mismatch" }]
   },
   {
-    "case_id": "mode-phase-unit-tuple-illegal",
+    "case_id": "mode-unit-tuple-assessment-only",
     "category": "mode_policy",
     "mutations": [
       {
         "op": "set",
-        "path": ["documents", 2, "document", "phase"],
-        "value": "discovery"
+        "path": ["documents", 1, "document", "waves", 0, "units", 1, "required_artifact_schema"],
+        "value": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
       }
     ],
     "expected": [{ "surface": "contract", "code": "contract.unit_tuple_not_allowed" }]

@@ -28,6 +28,7 @@ const PRE_PLAN_SCOPE_FORMATION_ARTIFACT_TYPES = new Set([
   "startup_opportunity.scope_frame.discovery.current",
   "startup_opportunity.scope_frame.assessment.current",
   "startup_opportunity.concept_hypothesis.assessment.current",
+  "startup_opportunity.concept_hypothesis.assessment_intake.current",
 ]);
 
 export function scopeReconciliationArtifactTypeAllowed(
@@ -110,6 +111,14 @@ function assertExactCurrentConfirmation(
   const proposal = decisionAtRef(records, manifest.scope_proposal_ref);
   const confirmation = decisionAtRef(records, manifest.scope_confirmation_ref);
   const revision = manifest.scope_revision;
+  const supersededFormationRefs = confirmation.superseded_formation_refs;
+  const validSupersededFormationRefs =
+    revision === 1 ||
+    (Array.isArray(supersededFormationRefs) &&
+      supersededFormationRefs.every((ref): ref is string => typeof ref === "string") &&
+      new Set(supersededFormationRefs).size === supersededFormationRefs.length &&
+      canonicalJson(supersededFormationRefs) ===
+        canonicalJson([...supersededFormationRefs].sort()));
   if (
     manifest.run_id !== runId ||
     typeof revision !== "number" ||
@@ -133,6 +142,7 @@ function assertExactCurrentConfirmation(
     confirmation.scope_proposal_hash !== manifest.scope_proposal_hash ||
     confirmation.confirmation_basis !== "caller_attested_user_confirmation" ||
     confirmation.harness_identity_verification !== "not_available" ||
+    !validSupersededFormationRefs ||
     manifest.scope_confirmation_hash !== canonicalContentHash(confirmation)
   ) {
     invalidScopeBinding("Store mutation requires the exact current Scope confirmation binding", {

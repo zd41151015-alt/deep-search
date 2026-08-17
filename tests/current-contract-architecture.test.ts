@@ -193,6 +193,26 @@ test("ownership registry rejects an unaudited multi-family module", async (conte
   );
 });
 
+test("ownership registry rejects a missing planning projection cross-family audit", async (context) => {
+  const copyRoot = await copyCurrentContractSurface(context);
+  await mutateOwnershipRegistry(copyRoot, (registry) => {
+    registry.cross_family_modules = registry.cross_family_modules.filter(
+      (entry) => entry.modulePath !== "harness/src/adaptation/current-planning-projection.ts",
+    );
+  });
+
+  const result = await inspectCurrentContract(copyRoot);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some(
+      (candidate) =>
+        candidate.code === "current_contract.registry_cross_family_module_unregistered" &&
+        candidate.details.modulePath === "harness/src/adaptation/current-planning-projection.ts",
+    ),
+    JSON.stringify(result, null, 2),
+  );
+});
+
 test("ownership registry rejects a stale production module", async (context) => {
   const copyRoot = await copyCurrentContractSurface(context);
   await mutateOwnershipRegistry(copyRoot, (registry) => {
@@ -494,6 +514,51 @@ test("shared Store infrastructure and ReportRuntime retain every consumer family
     ]) {
       assert.ok(result.recommendedFocusedTests.includes(command), `${modulePath}: ${command}`);
     }
+    assert.ok(!result.recommendedFocusedTests.includes("npm test"));
+    assert.equal(result.unknownImpact.length, 0);
+  }
+});
+
+test("Scope reconciliation modules select their exact contract families", async () => {
+  const cases = [
+    {
+      modulePath: "harness/src/adaptation/assessment-gap-analyzer.ts",
+      expectedFamilies: ["assessment_research", "run_control_planning"],
+    },
+    {
+      modulePath: "harness/src/adaptation/assessment-policy.ts",
+      expectedFamilies: ["assessment_research", "run_control_planning"],
+    },
+    {
+      modulePath: "harness/src/adaptation/current-planning-projection.ts",
+      expectedFamilies: ["assessment_research", "discovery_research", "run_control_planning"],
+    },
+    {
+      modulePath: "harness/src/run-store/scope-write-guard.ts",
+      expectedFamilies: ALL_CONTRACT_FAMILIES,
+    },
+  ] as const;
+
+  for (const { modulePath, expectedFamilies } of cases) {
+    const result = await inspectSyntheticModuleImpact(modulePath);
+    assert.deepEqual(
+      result.affectedFamilies.map((family) => family.id),
+      expectedFamilies,
+      modulePath,
+    );
+    assert.ok(!result.recommendedFocusedTests.includes("npm test"));
+    assert.equal(result.unknownImpact.length, 0);
+  }
+});
+
+test("public command and export surfaces retain every contract family", async () => {
+  for (const modulePath of ["harness/src/commands.ts", "harness/src/index.ts"]) {
+    const result = await inspectSyntheticModuleImpact(modulePath);
+    assert.deepEqual(
+      result.affectedFamilies.map((family) => family.id),
+      ALL_CONTRACT_FAMILIES,
+      modulePath,
+    );
     assert.ok(!result.recommendedFocusedTests.includes("npm test"));
     assert.equal(result.unknownImpact.length, 0);
   }

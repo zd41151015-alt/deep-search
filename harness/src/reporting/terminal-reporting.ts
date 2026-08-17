@@ -567,6 +567,7 @@ const ZH_INTERNAL_TERM_RULES = [
   /\bpre[- ]thesis\b/iu,
   /\bbaseline\b/iu,
   /\bcounterfactual\b/iu,
+  /\b(?:Manifest|Schema|Validator|Gap)\b/u,
   /\bevidence\b/iu,
   /\bharness\b/iu,
   /\bartifact\b/iu,
@@ -574,6 +575,30 @@ const ZH_INTERNAL_TERM_RULES = [
   /\b(?:opportunity_discovery|concept_evidence_assessment|assessment_early_kill|assessment_commercial|assessment_delivery|discovery_generation|candidate_evaluation|runtime_blocked|not_executed|unranked_hypothesis)\b/iu,
   /(?:研究结论|证据强度|执行完整度|运行健康|状态|成熟度|当前动作|排序状态)\s*:\s*(?:investigate_further|insufficient_evidence|no_recommendation|not_started|partially_applicable)\b/iu,
 ] as const;
+
+const ZH_STRUCTURED_DIAGNOSTIC_RULES = [
+  /\b(?:artifacts|claims|evidence|findings|harness|insights|judgments|plans|runs|tasks)\/[A-Za-z0-9_./:#-]+/u,
+  /\b(?:artifact|commercial_research|contract|report|run|terminal_reporting)\.[a-z0-9_.-]+\b/u,
+] as const;
+
+function terminalLocalizedProse(source: Record<string, unknown>): readonly string[] {
+  return [
+    ...records(source.commercial_uncertainties).flatMap((entry) =>
+      ["statement", "starting_point", "reasoning", "uncertainty", "validation_needed"].flatMap(
+        (field) => (typeof entry[field] === "string" ? [String(entry[field])] : []),
+      ),
+    ),
+    ...records(source.sources).flatMap((entry) => {
+      const inference = isRecord(entry.inference) ? entry.inference : {};
+      return [
+        ...(typeof entry.claim === "string" ? [entry.claim] : []),
+        ...["starting_point", "reasoning", "uncertainty", "validation_needed"].flatMap((field) =>
+          typeof inference[field] === "string" ? [String(inference[field])] : [],
+        ),
+      ];
+    }),
+  ];
+}
 
 export function localizedTerminalUserViewIssues(
   source: Record<string, unknown>,
@@ -591,9 +616,15 @@ export function localizedTerminalUserViewIssues(
       if (typeof allowed === "string") visible = visible.replaceAll(allowed, "");
     }
   }
-  return ZH_INTERNAL_TERM_RULES.flatMap((rule, index) =>
-    rule.test(visible) ? [`localized_internal_term_${index + 1}`] : [],
-  );
+  const prose = terminalLocalizedProse(source).join("\n");
+  return [
+    ...ZH_STRUCTURED_DIAGNOSTIC_RULES.flatMap((rule, index) =>
+      rule.test(prose) ? [`localized_structured_diagnostic_${index + 1}`] : [],
+    ),
+    ...ZH_INTERNAL_TERM_RULES.flatMap((rule, index) =>
+      rule.test(visible) ? [`localized_internal_term_${index + 1}`] : [],
+    ),
+  ];
 }
 
 export interface DerivedTerminalReportDocument {

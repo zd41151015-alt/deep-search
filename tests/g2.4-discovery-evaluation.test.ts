@@ -64,7 +64,7 @@ import {
 } from "./fixtures/g2.4/discovery-evaluation-fixture.js";
 import { commercialReportProjection } from "./fixtures/quantitative-competitive-fixture.js";
 import { projectCommercialAuditsForRuntime } from "./helpers/commercial-runtime.js";
-import { createConfirmedRun } from "./helpers/current-run.js";
+import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
 import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -203,10 +203,11 @@ async function setup(
     runId,
     mode: "opportunity_discovery",
     scopeProposal: {
-      geography: "Synthetic",
+      geography: "synthetic-primary-market",
       customerModel: "b2c",
-      targetUsers: ["synthetic user"],
-      decisionGoal: "test current contract",
+      targetUsers: ["SYNTHETIC primary user; not Evidence or external validation."],
+      decisionGoal:
+        "SYNTHETIC identify directions that merit further validation; not Evidence or external validation.",
       researchLanguage,
     },
     createdAt: "2026-07-27T17:00:00Z",
@@ -235,6 +236,7 @@ async function setup(
       challenge: await record("unit_enrichment_challenge", "challenge"),
     },
     profile,
+    researchLanguage,
   );
   return {
     root,
@@ -289,21 +291,41 @@ const EVALUATION_AGGREGATE_ARTIFACT_TYPES = [
 ] as const;
 
 async function publishThroughSynthesis(state: State): Promise<void> {
-  await state.store.publishArtifactBundle({
-    runId: state.runId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
+  await publishInitialPlanBundle(
+    state.store,
+    state.runId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
+  ).catch((error: unknown) => {
+    if (error instanceof StoreError) {
+      assert.fail(JSON.stringify({ code: error.code, details: error.details }));
+    }
+    throw error;
   });
-  await state.store.publishArtifactBundle({
-    runId: state.runId,
-    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
-  });
+  await state.store
+    .publishArtifactBundle({
+      runId: state.runId,
+      envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
+    })
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }));
+      }
+      throw error;
+    });
   const runtime = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
-  await state.store.publishArtifactBundle({
-    runId: state.runId,
-    envelopes: byTypes(runtime, "startup_opportunity.discovery_candidate.v1").filter(
-      (candidate) => candidate.document.revision === 1,
-    ),
-  });
+  await state.store
+    .publishArtifactBundle({
+      runId: state.runId,
+      envelopes: byTypes(runtime, "startup_opportunity.discovery_candidate.v1").filter(
+        (candidate) => candidate.document.revision === 1,
+      ),
+    })
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }));
+      }
+      throw error;
+    });
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: discoveryWaveEnvelopes(

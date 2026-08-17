@@ -12,7 +12,13 @@ import {
   RunStore,
   StoreError,
 } from "../harness/src/index.js";
-import { createConfirmedRun } from "./helpers/current-run.js";
+import {
+  createDiscoveryMapsFixture,
+  fixtureEnvelope,
+  G21_CORE_REFS,
+  G21_PLAN_REF,
+} from "./fixtures/g2.1/discovery-maps-fixture.js";
+import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const fixtureRoot = path.join(repositoryRoot, "tests/fixtures/store");
@@ -27,15 +33,26 @@ async function setup(context: TestContext, runId: string) {
     runId,
     mode: "opportunity_discovery",
     scopeProposal: {
-      geography: "Synthetic",
+      geography: "synthetic-primary-market",
       customerModel: "b2c",
-      targetUsers: ["synthetic user"],
-      decisionGoal: "test current contract",
+      targetUsers: ["SYNTHETIC primary user; not Evidence or external validation."],
+      decisionGoal:
+        "SYNTHETIC identify directions that merit further validation; not Evidence or external validation.",
       researchLanguage: "en-US",
     },
     createdAt: "2026-07-23T12:00:00Z",
   });
   return { runsRoot, runRoot: path.join(runsRoot, runId), store };
+}
+
+async function publishRecoveryPlan(
+  store: RunStore,
+  runId: string,
+): Promise<FormalArtifactEnvelope> {
+  const bundle = await createDiscoveryMapsFixture("general", runId);
+  const envelopes = G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref));
+  await publishInitialPlanBundle(store, runId, envelopes);
+  return fixtureEnvelope(bundle, G21_PLAN_REF);
 }
 
 async function checkpointInput(runId: string, checkpointId: string, createdAt: string) {
@@ -318,32 +335,7 @@ test("a hash-invalid newest checkpoint is ignored in favor of the last valid che
 
 test("current plan reference and revision are verified through checkpoint and reopen", async (context) => {
   const { runRoot, store } = await setup(context, "plan-lineage");
-  const plan = JSON.parse(
-    await readFile(
-      path.join(repositoryRoot, "tests/fixtures/schemas/positive/research-plan.json"),
-      "utf8",
-    ),
-  ) as Record<string, unknown>;
-  plan.run_id = "plan-lineage";
-  plan.plan_id = "plan_plan-lineage";
-  plan.created_at = "2026-07-23T12:03:00Z";
-  for (const wave of plan.waves as { units: { input_refs: string[] }[] }[]) {
-    for (const unit of wave.units) {
-      unit.input_refs = [];
-    }
-  }
-  const envelope: FormalArtifactEnvelope = {
-    schema_version: "startup_opportunity.artifact_envelope.current",
-    artifact_type: "startup_opportunity.research_plan.v1",
-    artifact_path: "plans/research-plan.r1.json",
-    run_id: "plan-lineage",
-    created_at: "2026-07-23T12:03:00Z",
-    producer_role: "main_agent",
-    input_refs: [],
-    content_hash: canonicalContentHash(plan),
-    document: plan,
-  };
-  await store.publishArtifact({ runId: "plan-lineage", envelope });
+  await publishRecoveryPlan(store, "plan-lineage");
 
   const manifestPath = path.join(runRoot, "manifest.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
@@ -353,43 +345,19 @@ test("current plan reference and revision are verified through checkpoint and re
   manifest.plan_revision = 1;
   await writeFile(manifestPath, `${canonicalJson(manifest)}\n`);
   await store.checkpoint(
-    await checkpointInput("plan-lineage", "checkpoint_planned", "2026-07-23T12:13:00Z"),
+    await checkpointInput("plan-lineage", "checkpoint_planned", "2026-07-26T17:13:00Z"),
   );
   const reopened = await store.load("plan-lineage");
   assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r1.json");
   assert.equal(reopened.manifest.plan_revision, 1);
 });
 
-test("publication rejects a plan revision with broken parent lineage", async (context) => {
+test("generic publication rejects a Plan revision before broken parent lineage", async (context) => {
   const { store } = await setup(context, "plan-bad-lineage");
-  const base = JSON.parse(
-    await readFile(
-      path.join(repositoryRoot, "tests/fixtures/schemas/positive/research-plan.json"),
-      "utf8",
-    ),
-  ) as Record<string, unknown>;
-  base.run_id = "plan-bad-lineage";
-  base.plan_id = "plan_good";
-  for (const wave of base.waves as { units: { input_refs: string[] }[] }[]) {
-    for (const unit of wave.units) {
-      unit.input_refs = [];
-    }
-  }
-  const first: FormalArtifactEnvelope = {
-    schema_version: "startup_opportunity.artifact_envelope.current",
-    artifact_type: "startup_opportunity.research_plan.v1",
-    artifact_path: "plans/research-plan.r1.json",
-    run_id: "plan-bad-lineage",
-    created_at: String(base.created_at),
-    producer_role: "main_agent",
-    input_refs: [],
-    content_hash: canonicalContentHash(base),
-    document: base,
-  };
-  await store.publishArtifact({ runId: "plan-bad-lineage", envelope: first });
+  const first = await publishRecoveryPlan(store, "plan-bad-lineage");
 
   const secondDocument = {
-    ...base,
+    ...first.document,
     plan_id: "plan_different",
     revision: 2,
     parent_plan_ref: "plans/research-plan.r1.json",
@@ -404,8 +372,7 @@ test("publication rejects a plan revision with broken parent lineage", async (co
   await assert.rejects(
     store.publishArtifact({ runId: "plan-bad-lineage", envelope: second }),
     (error: unknown) =>
-      error instanceof StoreError &&
-      (error.code === "reference.missing" || error.code === "artifact.reference_invalid"),
+      error instanceof StoreError && error.code === "artifact.plan_revision_entry_required",
   );
 });
 

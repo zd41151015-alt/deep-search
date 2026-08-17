@@ -72,6 +72,7 @@ export async function createDiscoveryRuntimeFixture(
   additionalPlanWaves: readonly Record<string, unknown>[] = [],
   profile: DiscoveryProfile = "general",
   canonicalPlanOutputPaths = false,
+  researchLanguage = "en-US",
 ): Promise<DocumentBundle> {
   const generationPath = runtimeEvidencePath(substrate.generation);
   const evaluationPath = runtimeEvidencePath(substrate.evaluation);
@@ -91,7 +92,7 @@ export async function createDiscoveryRuntimeFixture(
     ],
   ]);
   const bundle = replaceExactStrings(
-    await createDiscoveryCandidateFixture(additionalPlanWaves, profile),
+    await createDiscoveryCandidateFixture(additionalPlanWaves, profile, researchLanguage),
     replacements,
   ) as DocumentBundle;
   if (canonicalPlanOutputPaths) {

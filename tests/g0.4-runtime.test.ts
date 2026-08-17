@@ -38,11 +38,17 @@ import {
   createDiscoveryRuntimeFixture,
   runtimeEnvelope,
 } from "./fixtures/g2.2/discovery-runtime-fixture.js";
-import { createConfirmedRun } from "./helpers/current-run.js";
+import {
+  createConfirmedRun,
+  initialPlanBundleEnvelopes,
+  publishInitialPlanBundle,
+} from "./helpers/current-run.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const PLAN_REF = "plans/research-plan.r1.json";
 const CONTEXT_REF = "plans/planning-context.r1.json";
+const PERSISTED_CONTEXT_REF = "plans/planning-context.r2.json";
+const CANDIDATE_CONTEXT_REF = "plans/planning-context.r3.json";
 const GAP_REF = "adaptations/gap-snapshots/gap-runtime.r1.json";
 const DECISION_REF = "adaptations/decisions/adapt-retry-runtime.json";
 const DECISION_CONTEXT_REF = "decision-context.json";
@@ -102,6 +108,23 @@ function runScript(script: string, args: readonly string[]) {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+async function snapshotRunTree(root: string): Promise<readonly [string, string][]> {
+  const files: [string, string][] = [];
+  const visit = async (directory: string, prefix = ""): Promise<void> => {
+    for (const entry of (await readdir(directory, { withFileTypes: true })).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
+      const relative = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) await visit(absolute, relative);
+      else if (entry.isFile())
+        files.push([relative, (await readFile(absolute)).toString("base64")]);
+    }
+  };
+  await visit(root);
+  return files;
 }
 
 function unit(
@@ -898,32 +921,29 @@ async function setupPersistedRun(
       string,
       unknown
     >;
-    bootstrapManifest.current_plan_ref = PLAN_REF;
-    bootstrapManifest.plan_revision = 1;
     bootstrapManifest.current_phase = "discovery";
     await writeFile(
       path.join(runsRoot, runId, "manifest.json"),
       `${canonicalJson(bootstrapManifest)}\n`,
     );
-    await store.publishArtifactBundle({
-      runId,
-      envelopes: [
-        ...G21_CORE_REFS.map((ref) => fixtureEnvelope(discoveryBundle as DocumentBundle, ref)),
-        ...G21_MAP_REFS.map((ref) => fixtureEnvelope(discoveryBundle as DocumentBundle, ref)),
-        ...[
-          PRE_KILL_CANDIDATE_REF,
-          "artifacts/discovery/candidates/candidate_baseline.r1.json",
-          RETAINED_SHARED_CANDIDATE_REF,
-        ].map((ref) => runtimeEnvelope(discoveryBundle as DocumentBundle, ref)),
-      ],
-    });
+    await publishInitialPlanBundle(store, runId, [
+      ...G21_CORE_REFS.map((ref) => fixtureEnvelope(discoveryBundle as DocumentBundle, ref)),
+      ...G21_MAP_REFS.map((ref) => fixtureEnvelope(discoveryBundle as DocumentBundle, ref)),
+      ...[
+        PRE_KILL_CANDIDATE_REF,
+        "artifacts/discovery/candidates/candidate_baseline.r1.json",
+        RETAINED_SHARED_CANDIDATE_REF,
+      ].map((ref) => runtimeEnvelope(discoveryBundle as DocumentBundle, ref)),
+    ]);
     plan = runtimeEnvelope(discoveryBundle, PLAN_REF).document;
   } else {
     plan = basePlan(runId);
-    await store.publishArtifact({
+    await publishInitialPlanBundle(
+      store,
       runId,
-      envelope: formalEnvelope(runId, PLAN_REF, plan),
-    });
+      [formalEnvelope(runId, PLAN_REF, plan)],
+      "enrichment",
+    );
   }
   const runRoot = path.join(runsRoot, runId);
   const persistedManifest = manifest(runId, plan);
@@ -933,7 +953,9 @@ async function setupPersistedRun(
   persistedManifest.scope_confirmation_ref = storeManifest.scope_confirmation_ref;
   persistedManifest.scope_confirmation_hash = storeManifest.scope_confirmation_hash;
   persistedManifest.current_phase = discoveryBacked ? "discovery" : "enrichment";
-  persistedManifest.artifact_refs = discoveryBacked ? storeManifest.artifact_refs : [PLAN_REF];
+  persistedManifest.artifact_refs = discoveryBacked
+    ? storeManifest.artifact_refs
+    : [PLAN_REF, CONTEXT_REF];
   persistedManifest.latest_gap_snapshot_ref = null;
   persistedManifest.pending_adaptation_refs = [];
   if (action === "terminate" || action === "terminate-unclosed") {
@@ -941,9 +963,9 @@ async function setupPersistedRun(
   }
   await writeFile(path.join(runRoot, "manifest.json"), `${canonicalJson(persistedManifest)}\n`);
   const planningContext = context(persistedManifest, plan, {
-    path: CONTEXT_REF,
-    revision: 1,
-    parentRef: null,
+    path: PERSISTED_CONTEXT_REF,
+    revision: 2,
+    parentRef: CONTEXT_REF,
     stage: "current_plan",
     createdAt: "2026-07-24T12:03:00Z",
   });
@@ -1036,7 +1058,7 @@ async function setupPersistedRun(
   }
   await store.publishArtifact({
     runId,
-    envelope: formalEnvelope(runId, CONTEXT_REF, planningContext.document, [
+    envelope: formalEnvelope(runId, PERSISTED_CONTEXT_REF, planningContext.document, [
       "manifest.json",
       PLAN_REF,
     ]),
@@ -1062,7 +1084,7 @@ async function setupPersistedRun(
     envelope: formalEnvelope(runId, DECISION_REF, decision, [
       PLAN_REF,
       GAP_REF,
-      ...(action === "terminate-unclosed" ? [CONTEXT_REF] : []),
+      ...(action === "terminate-unclosed" ? [PERSISTED_CONTEXT_REF] : []),
       ...(userDecision === null ? [] : [String(decision.user_decision_ref)]),
     ]),
   });
@@ -1099,7 +1121,7 @@ async function setupPersistedRun(
       next_decision_relevant_question: "Does the retry produce a valid result?",
     },
     unresolvedGapRefs: action === "complete" ? [] : [`${GAP_REF}#gap_runtime_001`],
-    inputRefs: [CONTEXT_REF, GAP_REF, DECISION_REF],
+    inputRefs: [PERSISTED_CONTEXT_REF, GAP_REF, DECISION_REF],
   });
   const loaded = await store.load(runId);
   const currentManifest = loaded.manifest as unknown as Record<string, unknown>;
@@ -1110,7 +1132,14 @@ async function setupPersistedRun(
     path: loaded.lastValidCheckpointRef,
     document: checkpointEnvelope.document,
   };
+  const initialContextEntry = {
+    path: CONTEXT_REF,
+    document: JSON.parse(
+      await readFile(path.join(runRoot, CONTEXT_REF), "utf8"),
+    ) as FormalArtifactEnvelope,
+  };
   const adaptationBundle = bundle(currentManifest, plan, planningContext, gap, decision, [
+    initialContextEntry,
     checkpointEntry,
     ...(discoveryBundle === null
       ? []
@@ -1139,6 +1168,7 @@ async function setupPersistedRun(
     currentManifest,
     adaptationBundle,
     checkpointEntry,
+    initialContextEntry,
     discoveryBundle,
   };
 }
@@ -1467,9 +1497,9 @@ function candidateFor(
   );
   assert.ok(transformed.plan);
   const candidateContext = context(setup.currentManifest, transformed.plan, {
-    path: "plans/planning-context.r2.json",
-    revision: 2,
-    parentRef: CONTEXT_REF,
+    path: CANDIDATE_CONTEXT_REF,
+    revision: 3,
+    parentRef: PERSISTED_CONTEXT_REF,
     stage: "candidate_revision",
     createdAt: candidateContextCreatedAt,
   });
@@ -1479,6 +1509,7 @@ function candidateFor(
       { path: "manifest.json", document: setup.currentManifest },
       { path: PLAN_REF, document: setup.plan },
       { path: transformed.planPath, document: transformed.plan },
+      setup.initialContextEntry,
       setup.planningContext,
       candidateContext,
       { path: GAP_REF, document: setup.gap },
@@ -1606,15 +1637,16 @@ async function multiDecisionApplyInput(
   );
   assert.ok(transformed.plan);
   const candidateContext = context(currentManifest, transformed.plan, {
-    path: "plans/planning-context.r2.json",
-    revision: 2,
-    parentRef: CONTEXT_REF,
+    path: CANDIDATE_CONTEXT_REF,
+    revision: 3,
+    parentRef: PERSISTED_CONTEXT_REF,
     stage: "candidate_revision",
     createdAt: "2026-07-24T12:10:30Z",
   });
   const commonDocuments = [
     { path: "manifest.json", document: currentManifest },
     { path: PLAN_REF, document: setup.plan },
+    setup.initialContextEntry,
     setup.planningContext,
     { path: GAP_REF, document: setup.gap },
     { path: second.gapPath, document: second.gap },
@@ -1751,6 +1783,118 @@ test("Plan semantic validation enforces DAG, output uniqueness, policy tuple, an
       .planningContract.contractErrors.some(
         (error) => error.code === "contract.unit_tuple_not_allowed",
       ),
+  );
+});
+
+test("public RunStore and publish-artifact reject an illegal initial Plan before any write", async (contextTest) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-plan-publication-"));
+  contextTest.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runId = "public-plan-semantic-preflight";
+  const store = new RunStore(runsRoot, await createArtifactValidator(repositoryRoot));
+  const fixture = await createDiscoveryMapsFixture("general", runId);
+  const intake = fixtureEnvelope(fixture, "intake.json").document;
+  const confirmedScope = intake.scope_confirmation as Record<string, unknown>;
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-28T08:00:00Z",
+    scopeProposal: {
+      geography: String(confirmedScope.geography),
+      customerModel: String(confirmedScope.customer_model) as "b2c",
+      targetUsers: confirmedScope.target_users as string[],
+      decisionGoal: String(confirmedScope.decision_goal),
+      researchLanguage: String(confirmedScope.research_language),
+    },
+  });
+  await store.publishArtifactBundle({
+    runId,
+    envelopes: G21_CORE_REFS.filter((ref) => ref !== PLAN_REF).map((ref) =>
+      fixtureEnvelope(fixture, ref),
+    ),
+  });
+
+  const legalPlan = structuredClone(fixtureEnvelope(fixture, PLAN_REF));
+  const units = (legalPlan.document.waves as { units: Record<string, unknown>[] }[])[0]?.units;
+  assert.ok(units?.[0] && units[1]);
+  units.push({
+    ...structuredClone(units[1]),
+    unit_id: "unit_bounded_domain_research",
+    unit_type: "bounded_domain_research",
+    lane_kind: "buyer_commercial_research",
+    output_path: "artifacts/discovery/lanes/unit_bounded_domain_research.attempt-1.json",
+  });
+  (legalPlan as { content_hash: string }).content_hash = canonicalContentHash(legalPlan.document);
+  const illegalPlan = structuredClone(legalPlan);
+  const illegalUnit = (illegalPlan.document.waves as { units: Record<string, unknown>[] }[])[0]
+    ?.units[0];
+  assert.ok(illegalUnit);
+  illegalUnit.unit_type = "buyer_language";
+  (illegalPlan as { content_hash: string }).content_hash = canonicalContentHash(
+    illegalPlan.document,
+  );
+  const illegalBundleEnvelopes = await initialPlanBundleEnvelopes(store, runId, [illegalPlan]);
+  const runRoot = path.join(runsRoot, runId);
+  const before = await snapshotRunTree(runRoot);
+  const rejectsPlanning = (error: unknown) =>
+    error instanceof StoreError && error.code === "artifact.planning_preflight_failed";
+  const rejectsTuple = (error: unknown) =>
+    error instanceof StoreError &&
+    error.code === "artifact.planning_preflight_failed" &&
+    JSON.stringify(error.details).includes("contract.unit_tuple_not_allowed");
+
+  await assert.rejects(store.publishArtifact({ runId, envelope: illegalPlan }), rejectsPlanning);
+  assert.deepEqual(await snapshotRunTree(runRoot), before);
+  await assert.rejects(
+    store.publishArtifactBundle({ runId, envelopes: illegalBundleEnvelopes }),
+    rejectsTuple,
+  );
+  assert.deepEqual(await snapshotRunTree(runRoot), before);
+
+  const cliBundleFile = path.join(root, "illegal-plan-bundle.json");
+  await writeFile(
+    cliBundleFile,
+    `${canonicalJson({
+      schema_version: "startup_opportunity.document_bundle.current",
+      documents: illegalBundleEnvelopes.map((envelope) => ({
+        path: envelope.artifact_path,
+        document: envelope,
+      })),
+    })}\n`,
+  );
+  const cli = runScript("harness/src/cli.ts", [
+    "publish-artifact",
+    "--runs-root",
+    runsRoot,
+    "--file",
+    cliBundleFile,
+  ]);
+  assert.equal(cli.status, 1, cli.stderr || cli.stdout);
+  assert.match(cli.stderr, /contract\.unit_tuple_not_allowed/u);
+  assert.deepEqual(await snapshotRunTree(runRoot), before);
+
+  const legalBundleEnvelopes = await initialPlanBundleEnvelopes(store, runId, [legalPlan]);
+  const published = await store
+    .publishArtifactBundle({ runId, envelopes: legalBundleEnvelopes })
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) assert.fail(JSON.stringify(error.details, null, 2));
+      throw error;
+    });
+  assert.equal(published.status, "published");
+  assert.equal(
+    (await store.publishArtifactBundle({ runId, envelopes: legalBundleEnvelopes })).status,
+    "idempotent_replay",
+  );
+  const reopened = await new RunStore(runsRoot, await createArtifactValidator(repositoryRoot)).load(
+    runId,
+  );
+  assert.equal(reopened.manifest.current_plan_ref, PLAN_REF);
+  assert.equal(reopened.manifest.status, "planned");
+  assert.deepEqual(
+    (legalPlan.document.waves as { units: Record<string, unknown>[] }[])[0]?.units.map(
+      (unit) => unit.unit_type,
+    ),
+    ["user_language_mining", "counter_evidence", "bounded_domain_research"],
   );
 });
 
@@ -2449,10 +2593,11 @@ test("plan-bound handoff exact replay survives Plan r2 while new consumption sta
       researchLanguage: "en-US",
     },
   });
-  await setup.store.publishArtifactBundle({
-    runId: sourceRunId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
-  });
+  await publishInitialPlanBundle(
+    setup.store,
+    sourceRunId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
+  );
   await setup.store.publishArtifactBundle({
     runId: sourceRunId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
@@ -2589,17 +2734,45 @@ test("a confirmed pre-Plan Scope revision still reaches formation and the first 
   assert.equal(paused.manifest.current_plan_ref, null);
 
   const formation = await createDiscoveryMapsFixture("general", runId);
+  const formationEnvelopes = G21_CORE_REFS.filter((ref) => ref !== PLAN_REF).map((ref) =>
+    structuredClone(fixtureEnvelope(formation, ref)),
+  );
+  const intakeEnvelope = formationEnvelopes.find(
+    (envelope) => envelope.artifact_path === "intake.json",
+  );
+  const scopeEnvelope = formationEnvelopes.find(
+    (envelope) => envelope.artifact_path === "scope-frame.json",
+  );
+  assert.ok(intakeEnvelope && scopeEnvelope);
+  intakeEnvelope.document.market = "Synthetic revised geography";
+  intakeEnvelope.document.language = "en-US";
+  intakeEnvelope.document.scope_confirmation = {
+    geography: "Synthetic revised geography",
+    customer_model: "b2c",
+    target_users: ["synthetic revised user"],
+    decision_goal: "form the first Plan from the revised confirmed Scope",
+    research_language: "en-US",
+    user_confirmed: true,
+  };
+  const constraints = intakeEnvelope.document.explicit_constraints as Record<string, unknown>;
+  constraints.target_market = "Synthetic revised geography";
+  constraints.target_language = "en-US";
+  constraints.target_users = ["synthetic revised user"];
+  (intakeEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
+    intakeEnvelope.document,
+  );
+  scopeEnvelope.document.market = "Synthetic revised geography";
+  scopeEnvelope.document.language = "en-US";
+  scopeEnvelope.document.target_users = ["synthetic revised user"];
+  (scopeEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
+    scopeEnvelope.document,
+  );
   await store.publishArtifactBundle({
     runId,
-    envelopes: G21_CORE_REFS.filter((ref) => ref !== PLAN_REF).map((ref) =>
-      fixtureEnvelope(formation, ref),
-    ),
+    envelopes: formationEnvelopes,
   });
   const planEnvelope = fixtureEnvelope(formation, PLAN_REF);
-  assert.equal(
-    (await store.publishArtifact({ runId, envelope: planEnvelope })).status,
-    "published",
-  );
+  assert.equal((await publishInitialPlanBundle(store, runId, [planEnvelope])).status, "published");
   assert.equal(
     (await store.publishArtifact({ runId, envelope: planEnvelope })).status,
     "idempotent_replay",
@@ -2617,6 +2790,218 @@ test("a confirmed pre-Plan Scope revision still reaches formation and the first 
   assert.equal(reopened.manifest.status_before_clarification, null);
   assert.equal(reopened.manifest.current_plan_ref, PLAN_REF);
   assert.equal(reopened.manifest.plan_revision, 1);
+});
+
+test("first Plan after a pre-Plan Scope correction requires an exact immutable r2 formation closure", async (contextTest) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-scope-r2-formation-"));
+  contextTest.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runId = "runtime-scope-r2-exact-formation";
+  const store = new RunStore(runsRoot, await createArtifactValidator(repositoryRoot));
+  const fixture = await createDiscoveryMapsFixture("general", runId);
+  const r1Formation = G21_CORE_REFS.filter((ref) => ref !== PLAN_REF).map((ref) =>
+    structuredClone(fixtureEnvelope(fixture, ref)),
+  );
+  const r1Scope = fixtureEnvelope(fixture, "intake.json").document.scope_confirmation as Record<
+    string,
+    unknown
+  >;
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-28T09:00:00Z",
+    scopeProposal: {
+      geography: String(r1Scope.geography),
+      customerModel: String(r1Scope.customer_model) as "b2c",
+      targetUsers: r1Scope.target_users as string[],
+      decisionGoal: String(r1Scope.decision_goal),
+      researchLanguage: String(r1Scope.research_language),
+    },
+  });
+  await store.publishArtifactBundle({ runId, envelopes: r1Formation });
+  const proposal = await store.proposeScope({
+    runId,
+    expectedScopeRevision: 1,
+    proposedAt: "2026-07-28T09:01:00Z",
+    reason: "The user corrected the exact pre-Plan research population.",
+    scopeProposal: {
+      geography: "Synthetic r2 geography",
+      customerModel: "b2c",
+      targetUsers: ["synthetic r2 user"],
+      decisionGoal: "form the first Plan from exact r2 formation",
+      researchLanguage: "en-US",
+    },
+  });
+  await store.confirmScope({
+    runId,
+    expectedScopeProposalRevision: 2,
+    expectedScopeProposalRef: proposal.scopeProposalRef,
+    expectedScopeProposalHash: proposal.scopeProposalHash,
+    confirmedAt: "2026-07-28T09:02:00Z",
+    userConfirmationAttestation: "The fixture caller attests exact confirmation of Scope r2.",
+  });
+  const runRoot = path.join(runsRoot, runId);
+  const confirmationId = String((await store.status(runId)).manifest.scope_confirmation_ref).split(
+    "#",
+  )[1];
+  const decisions = (await readFile(path.join(runRoot, "decisions.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  const confirmation = decisions.find((decision) => decision.decision_id === confirmationId);
+  assert.deepEqual(confirmation?.superseded_formation_refs, [
+    "decision-context.json",
+    "intake.json",
+    "scope-frame.json",
+  ]);
+  assert.equal((await store.status(runId)).manifest.artifact_refs.includes("intake.json"), false);
+  assert.equal(
+    (await store.status(runId)).manifest.artifact_refs.includes("decision-context.json"),
+    false,
+  );
+  assert.equal(
+    (await store.status(runId)).manifest.artifact_refs.includes("scope-frame.json"),
+    false,
+  );
+
+  const beforeRejected = await snapshotRunTree(runRoot);
+  await assert.rejects(
+    publishInitialPlanBundle(store, runId, [fixtureEnvelope(fixture, PLAN_REF)]),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.scope_formation_binding_invalid",
+  );
+  assert.deepEqual(await snapshotRunTree(runRoot), beforeRejected);
+
+  const replacements = new Map([
+    ["decision-context.json", "decision-context.r2.json"],
+    ["intake.json", "intake.r2.json"],
+    ["scope-frame.json", "scope-frame.r2.json"],
+  ]);
+  const replaceRefs = (value: unknown): unknown => {
+    if (typeof value === "string") return replacements.get(value) ?? value;
+    if (Array.isArray(value)) return value.map(replaceRefs);
+    if (value === null || typeof value !== "object") return value;
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, replaceRefs(entry)]),
+    );
+  };
+  const remap = (source: FormalArtifactEnvelope): FormalArtifactEnvelope => {
+    const envelope = replaceRefs(structuredClone(source)) as FormalArtifactEnvelope;
+    return { ...envelope, content_hash: canonicalContentHash(envelope.document) };
+  };
+  const r2Formation = r1Formation.map(remap);
+  const r2Intake = r2Formation.find(
+    (envelope) => envelope.artifact_type === "startup_opportunity.intake.v1",
+  );
+  const r2Scope = r2Formation.find(
+    (envelope) => envelope.artifact_type === "startup_opportunity.scope_frame.discovery.current",
+  );
+  assert.ok(r2Intake && r2Scope);
+  r2Intake.document.market = "Synthetic r2 geography";
+  r2Intake.document.language = "en-US";
+  r2Intake.document.scope_confirmation = {
+    geography: "Synthetic r2 geography",
+    customer_model: "b2c",
+    target_users: ["synthetic r2 user"],
+    decision_goal: "form the first Plan from exact r2 formation",
+    research_language: "en-US",
+    user_confirmed: true,
+  };
+  const r2Constraints = r2Intake.document.explicit_constraints as Record<string, unknown>;
+  r2Constraints.target_market = "Synthetic r2 geography";
+  r2Constraints.target_users = ["synthetic r2 user"];
+  r2Constraints.target_language = "en-US";
+  (r2Intake as { content_hash: string }).content_hash = canonicalContentHash(r2Intake.document);
+  r2Scope.document.market = "Synthetic r2 geography";
+  r2Scope.document.language = "en-US";
+  r2Scope.document.target_users = ["synthetic r2 user"];
+  (r2Scope as { content_hash: string }).content_hash = canonicalContentHash(r2Scope.document);
+
+  for (const mismatch of [
+    (() => {
+      const envelopes = structuredClone(r2Formation);
+      const intake = envelopes.find(
+        (envelope) => envelope.artifact_type === "startup_opportunity.intake.v1",
+      );
+      assert.ok(intake);
+      intake.document.market = "Wrong geography";
+      (intake as { content_hash: string }).content_hash = canonicalContentHash(intake.document);
+      return envelopes;
+    })(),
+    (() => {
+      const envelopes = structuredClone(r2Formation);
+      const scope = envelopes.find(
+        (envelope) =>
+          envelope.artifact_type === "startup_opportunity.scope_frame.discovery.current",
+      );
+      assert.ok(scope);
+      scope.document.target_users = ["wrong user"];
+      (scope as { content_hash: string }).content_hash = canonicalContentHash(scope.document);
+      return envelopes;
+    })(),
+  ]) {
+    await assert.rejects(
+      store.publishArtifactBundle({ runId, envelopes: mismatch }),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "run.scope_formation_binding_invalid",
+    );
+    assert.deepEqual(await snapshotRunTree(runRoot), beforeRejected);
+  }
+  const r2Decision = r2Formation.find(
+    (envelope) => envelope.artifact_type === "startup_opportunity.decision_context.v1",
+  );
+  assert.ok(r2Decision);
+  await assert.rejects(
+    store.publishArtifact({ runId, envelope: r2Decision, faultAt: "after_temp_write" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const recoveredFormation = await store.load(runId);
+  assert.deepEqual(recoveredFormation.recoveredArtifactPaths, ["decision-context.r2.json"]);
+  assert.ok(recoveredFormation.manifest.artifact_refs.includes("decision-context.r2.json"));
+  await store.publishArtifactBundle({
+    runId,
+    envelopes: r2Formation.filter((envelope) => envelope !== r2Decision),
+  });
+
+  const correctPlan = remap(fixtureEnvelope(fixture, PLAN_REF));
+  const forgedPlan = structuredClone(fixtureEnvelope(fixture, PLAN_REF));
+  (forgedPlan as { input_refs: readonly string[] }).input_refs = ["scope-frame.r2.json"];
+  const beforeForged = await snapshotRunTree(runRoot);
+  await assert.rejects(
+    publishInitialPlanBundle(store, runId, [forgedPlan]),
+    (error: unknown) => error instanceof StoreError,
+  );
+  assert.deepEqual(await snapshotRunTree(runRoot), beforeForged);
+
+  const planning = await initialPlanBundleEnvelopes(store, runId, [correctPlan]);
+  assert.equal(
+    (await store.publishArtifactBundle({ runId, envelopes: planning })).status,
+    "published",
+  );
+  assert.equal(
+    (await store.publishArtifactBundle({ runId, envelopes: planning })).status,
+    "idempotent_replay",
+  );
+  await store.checkpoint({
+    runId,
+    checkpointId: "checkpoint_scope_r2_first_plan",
+    createdAt: "2026-07-28T09:04:00Z",
+    nextStep: "Begin only the exact Scope r2 Plan.",
+    beliefSummary: {
+      current_belief: "The first Plan is bound to immutable Scope r2 formation.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "What does the first bounded research wave find?",
+    },
+    inputRefs: ["scope-frame.r2.json", PLAN_REF, "plans/planning-context.r1.json"],
+  });
+  const reopened = await new RunStore(runsRoot, await createArtifactValidator(repositoryRoot)).load(
+    runId,
+  );
+  assert.equal(reopened.manifest.scope_revision, 2);
+  assert.equal(reopened.manifest.current_plan_ref, PLAN_REF);
+  assert.equal(reopened.manifest.checkpoint_ref, "checkpoints/checkpoint-scope-r2-first-plan.json");
 });
 
 test("Scope revision handoff replay survives Gap and Plan reconciliation", async (contextTest) => {
@@ -2689,10 +3074,11 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
       researchLanguage: "en-US",
     },
   });
-  await setup.store.publishArtifactBundle({
-    runId: sourceRunId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
-  });
+  await publishInitialPlanBundle(
+    setup.store,
+    sourceRunId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
+  );
   await setup.store.publishArtifactBundle({
     runId: sourceRunId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
@@ -2889,9 +3275,9 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
   assert.deepEqual(transformed.plan.research_questions, setup.plan.research_questions);
   assert.equal(transformed.manifest.followup_round, currentManifest.followup_round);
   const candidateContext = context(currentManifest, transformed.plan, {
-    path: "plans/planning-context.r2.json",
-    revision: 2,
-    parentRef: CONTEXT_REF,
+    path: CANDIDATE_CONTEXT_REF,
+    revision: 3,
+    parentRef: PERSISTED_CONTEXT_REF,
     stage: "candidate_revision",
     createdAt: "2026-07-28T12:11:20Z",
     targetPlanRef: transformed.planPath,
@@ -3418,14 +3804,20 @@ test("a later same-Run adaptation preserves receipt-bound historical discovery v
   assert.deepEqual(assembledContexts, [
     {
       path: CONTEXT_REF,
-      stage: "current_plan",
+      stage: "initial_plan",
       parent: null,
       target: PLAN_REF,
     },
     {
       path: currentContextPath,
-      stage: "candidate_revision",
+      stage: "current_plan",
       parent: CONTEXT_REF,
+      target: PLAN_REF,
+    },
+    {
+      path: CANDIDATE_CONTEXT_REF,
+      stage: "candidate_revision",
+      parent: currentContextPath,
       target: first.currentPlanRef,
     },
   ]);
@@ -3471,7 +3863,7 @@ test("a later same-Run adaptation preserves receipt-bound historical discovery v
 
   const staleContextBundle = structuredClone(assembled.bundle);
   const staleContextEnvelope = staleContextBundle.documents.find(
-    (entry) => entry.path === currentContextPath,
+    (entry) => entry.path === CANDIDATE_CONTEXT_REF,
   )?.document as FormalArtifactEnvelope | undefined;
   assert.ok(staleContextEnvelope);
   const staleContext = staleContextEnvelope.document;
@@ -3479,7 +3871,7 @@ test("a later same-Run adaptation preserves receipt-bound historical discovery v
   staleTarget.plan_ref = PLAN_REF;
   (staleContextEnvelope as unknown as Record<string, unknown>).content_hash =
     canonicalContentHash(staleContext);
-  const staleContextFile = path.join(setup.root, "run-aware-stale-r1-context.json");
+  const staleContextFile = path.join(setup.root, "run-aware-stale-current-context.json");
   await writeFile(staleContextFile, `${canonicalJson(staleContextBundle)}\n`);
   const staleResult = runScript("harness/src/cli.ts", [
     "validate-adaptation",
@@ -3539,7 +3931,7 @@ test("current adaptation planning preserves the complete G2.1/G2.2 envelope clos
   };
   const currentManifest = effective("manifest.json");
   const currentPlan = effective(PLAN_REF);
-  const currentContext = effective(CONTEXT_REF);
+  const currentContext = effective(PERSISTED_CONTEXT_REF);
   const currentDecision = effective(DECISION_REF);
   assert.deepEqual(
     {
@@ -3599,7 +3991,7 @@ test("current Plan projection excludes an applied stale Decision and validates o
   assert.ok(transformed.plan);
   const currentPlanRef = transformed.planPath;
   const currentContext = candidateBundle.documents.find(
-    (entry) => entry.path === "plans/planning-context.r2.json",
+    (entry) => entry.path === CANDIDATE_CONTEXT_REF,
   );
   assert.ok(currentContext);
 
@@ -3800,10 +4192,11 @@ test("terminal adaptation requires and materializes a validated main-agent decis
       researchLanguage: "en-US",
     },
   });
-  await setup.store.publishArtifactBundle({
-    runId: sourceRunId,
-    envelopes: G21_CORE_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
-  });
+  await publishInitialPlanBundle(
+    setup.store,
+    sourceRunId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
+  );
   await setup.store.publishArtifactBundle({
     runId: sourceRunId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(sourceBundle, ref)),
@@ -4676,6 +5069,7 @@ test("a completed no-revision operation does not block the next same-Plan adapta
     documents: [
       { path: "manifest.json", document: currentManifest },
       { path: PLAN_REF, document: setup.plan },
+      setup.initialContextEntry,
       setup.planningContext,
       { path: GAP_REF, document: setup.gap },
       { path: DECISION_REF, document: setup.decision },
@@ -5797,7 +6191,7 @@ test("candidate content must equal the deterministic Plan transformation", async
     (entry) => entry.path === "plans/research-plan.r2.json",
   )?.document;
   const candidateContext = changed.documents.find(
-    (entry) => entry.path === "plans/planning-context.r2.json",
+    (entry) => entry.path === CANDIDATE_CONTEXT_REF,
   )?.document;
   assert.ok(candidatePlan && candidateContext);
   const questions = candidatePlan.research_questions as Record<string, unknown>[];
@@ -5966,50 +6360,57 @@ test("reopen rejects Plan operation receipt document drift", async (contextTest)
 });
 
 test("late Artifact is persisted only as ignored and remains ignored after reopen", async (contextTest) => {
-  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g04-late-"));
-  contextTest.after(() => rm(root, { recursive: true, force: true }));
-  const runsRoot = path.join(root, "runs");
   const runId = "runtime-late-artifact";
-  const store = new RunStore(runsRoot, await createArtifactValidator(repositoryRoot));
-  await createConfirmedRun(store, {
-    runId,
-    mode: "opportunity_discovery",
-    createdAt: "2026-07-24T12:00:00Z",
-    scopeProposal: {
-      geography: "Synthetic",
-      customerModel: "b2c",
-      targetUsers: ["synthetic user"],
-      decisionGoal: "test current contract",
-      researchLanguage: "en-US",
-    },
+  const setup = await setupPersistedRun(contextTest, runId, "pre-kill-exact");
+  const { store, runRoot } = setup;
+  assert.ok(setup.discoveryBundle);
+  const preparationEnvelopes = setup.discoveryBundle.documents.flatMap((entry) => {
+    const envelope = entry.document as Partial<FormalArtifactEnvelope>;
+    if (
+      typeof envelope.artifact_type !== "string" ||
+      [
+        "startup_opportunity.research_plan.v1",
+        "startup_opportunity.discovery_lane_result.v1",
+        "startup_opportunity.discovery_candidate.v1",
+        "startup_opportunity.discovery_fan_in.v2",
+      ].includes(envelope.artifact_type)
+    ) {
+      return [];
+    }
+    return [envelope as FormalArtifactEnvelope];
   });
-  const plan = basePlan(runId);
-  const cancelledUnit = (plan.waves as { units: Record<string, unknown>[] }[])[0]?.units[1];
-  assert.ok(cancelledUnit);
-  const latePath = "artifacts/lanes/acquisition-late-event.json";
-  cancelledUnit.output_path = latePath;
-  cancelledUnit.required_artifact_schema = "startup_opportunity.event.v1";
-  await store.publishArtifact({ runId, envelope: formalEnvelope(runId, PLAN_REF, plan) });
-
-  const runRoot = path.join(runsRoot, runId);
+  await store.publishArtifactBundle({ runId, envelopes: preparationEnvelopes });
+  const planUnit = (setup.plan.waves as { units: Record<string, unknown>[] }[])
+    .flatMap((wave) => wave.units)
+    .find((unit) => unit.unit_id === "unit_seed_independent_demand");
+  assert.ok(planUnit);
+  const unitId = String(planUnit.unit_id);
+  const latePath = String(planUnit.output_path);
   const current = JSON.parse(await readFile(path.join(runRoot, "manifest.json"), "utf8")) as Record<
     string,
     unknown
   >;
-  Object.assign(current, {
-    current_phase: "enrichment",
-    current_plan_ref: PLAN_REF,
-    plan_revision: 1,
-    failed_units: [],
-    cancelled_units: ["acquisition_failed"],
-    artifact_refs: [PLAN_REF],
-    updated_at: "2026-07-24T12:06:00Z",
-  });
+  for (const field of [
+    "completed_units",
+    "active_units",
+    "failed_units",
+    "invalidated_units",
+    "skipped_units",
+    "cancelled_units",
+    "superseded_units",
+  ]) {
+    const values = current[field] as string[];
+    current[field] =
+      field === "cancelled_units"
+        ? [...new Set([...values, unitId])].sort()
+        : values.filter((value) => value !== unitId);
+  }
+  current.updated_at = "2026-07-24T12:07:30Z";
   await writeFile(path.join(runRoot, "manifest.json"), `${canonicalJson(current)}\n`);
   await store.checkpoint({
     runId,
     checkpointId: "checkpoint_late_boundary",
-    createdAt: "2026-07-24T12:07:00Z",
+    createdAt: "2026-07-24T12:08:00Z",
     nextStep: "Ignore any result arriving for the cancelled unit.",
     beliefSummary: {
       current_belief: "The cancelled unit cannot affect the current plan.",
@@ -6020,24 +6421,28 @@ test("late Artifact is persisted only as ignored and remains ignored after reope
     },
   });
 
-  const lateDocument = {
-    schema_version: "startup_opportunity.event.v1",
-    event_id: "late_unit_result_fixture",
-    run_id: runId,
-    event_type: "research_unit_completed",
-    timestamp: "2026-07-24T12:08:00Z",
-    actor: "lane_researcher",
-    reason: "A result arrived after its owning unit was cancelled.",
-    artifact_refs: [],
-  };
+  const lateEnvelope = structuredClone(runtimeEnvelope(setup.discoveryBundle, latePath));
+  lateEnvelope.document.status = "ignored_late";
+  lateEnvelope.document.scored_candidates = [];
+  lateEnvelope.document.pre_kill_decisions = [];
+  lateEnvelope.document.retained_candidate_refs = [];
+  lateEnvelope.document.watchlist_candidate_refs = [];
+  lateEnvelope.document.rejected_candidate_refs = [];
+  const diversity = lateEnvelope.document.candidate_diversity_summary as Record<string, unknown>;
+  diversity.diversity_retention_refs = [];
+  diversity.counterfactual_candidate_refs = [];
+  (lateEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
+    lateEnvelope.document,
+  );
+  (lateEnvelope as { created_at: string }).created_at = "2026-07-24T12:07:45Z";
   await store.publishArtifact({
     runId,
-    envelope: formalEnvelope(runId, latePath, lateDocument),
+    envelope: lateEnvelope,
   });
   const afterLatePublish = JSON.parse(
     await readFile(path.join(runRoot, "manifest.json"), "utf8"),
   ) as Record<string, unknown>;
-  assert.equal(afterLatePublish.updated_at, "2026-07-24T12:07:00Z");
+  assert.equal(afterLatePublish.updated_at, "2026-07-24T12:08:00Z");
   let loaded = await store.load(runId);
   assert.equal(loaded.manifest.artifact_refs.includes(latePath), false);
   assert.equal(loaded.manifest.ignored_late_artifact_refs.includes(latePath), true);
