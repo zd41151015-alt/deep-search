@@ -545,6 +545,76 @@ function runtimeFailureDecision(runId: string): Record<string, unknown> {
   };
 }
 
+function incompleteExecutionPlanEnvelope(
+  runId: string,
+  plan: Record<string, unknown>,
+): FormalArtifactEnvelope {
+  const plannedUnit = (plan.waves as Record<string, unknown>[])
+    .flatMap((wave) => wave.units as Record<string, unknown>[])
+    .find((candidate) => candidate.unit_id === "counter_completed");
+  assert.ok(plannedUnit);
+  const envelope = formalEnvelope(
+    runId,
+    "plans/research-execution.r1.json",
+    {
+      schema_version: "startup_opportunity.research_execution_plan.discovery.current",
+      execution_plan_id: `execution_incomplete_${runId.replaceAll("-", "_")}`,
+      run_id: runId,
+      mode: "opportunity_discovery",
+      revision: 1,
+      parent_execution_plan_ref: null,
+      research_plan_ref: PLAN_REF,
+      research_plan_hash: canonicalContentHash(plan),
+      created_at: "2026-07-24T12:07:15Z",
+      research_depth: "quick",
+      total_time_budget_minutes: 10,
+      resource_allocation: {
+        customer_commercial_percent: 65,
+        market_structure_percent: 17,
+        academic_percent: 18,
+      },
+      stages: [
+        {
+          stage_id: "stage_incomplete_runtime",
+          stage_kind: "discovery_generation",
+          depends_on: [],
+          gate_before: null,
+          gate_after: "terminal_allowed",
+          lanes: [
+            {
+              unit_id: plannedUnit.unit_id,
+              lane_role: "opportunity",
+              candidate_scope: { kind: "none", candidate_refs: [] },
+              incumbent_response_assignment: {
+                analysis_depth: "not_assigned",
+                assignment_role: "none",
+                subject_refs: [],
+                rationale: "The synthetic lane has no assigned incumbent response analysis.",
+              },
+              reporting_dimensions: ["demand"],
+              submission_path: "artifacts/discovery/generation/counter_completed.r1.json",
+              submission_schema: "startup_opportunity.discovery_generation_result.v1",
+              time_budget_minutes: 10,
+              max_sources: 5,
+              straggler_policy: {
+                on_timeout: "publish_partial",
+                grace_minutes: 0,
+                blocks_stage: false,
+              },
+              dispatch_group: "incomplete_runtime",
+            },
+          ],
+        },
+      ],
+      limitations: [
+        "SYNTHETIC execution plan used to verify truthful pre-Closure runtime failure reporting.",
+      ],
+    },
+    [PLAN_REF],
+  );
+  return { ...envelope, producer_role: "main_agent" };
+}
+
 function completionDecision(runId: string): Record<string, unknown> {
   return {
     schema_version: "startup_opportunity.adaptation_decision.discovery.current",
@@ -711,7 +781,11 @@ function terminalReportSource(
               {
                 stage: "机会综合",
                 cause:
-                  terminalOutcomeOverride === "cancelled" ? "user_stopped" : "evidence_ceiling",
+                  terminalOutcomeOverride === "cancelled"
+                    ? "user_stopped"
+                    : runtimeFailure
+                      ? "runtime_blocked"
+                      : "evidence_ceiling",
                 detail:
                   terminalOutcomeOverride === "cancelled"
                     ? "用户取消了当前研究 Run。"
@@ -4774,6 +4848,99 @@ test("Discovery runtime failure terminates and reports from the original Run", a
   const brief = await readFile(path.join(setup.runRoot, "decision-brief.md"), "utf8");
   assert.match(brief, /本次运行失败/);
   assert.match(brief, /Status: blocked/);
+});
+
+test("runtime failure alone may close with a disclosed missing Search Closure", async (contextTest) => {
+  await contextTest.test("strict runtime-failure closure is ready", async (subcontext) => {
+    const runId = "runtime-failure-before-search-closure";
+    const setup = await setupPersistedRun(subcontext, runId, "runtime-failure");
+    await setup.store
+      .publishArtifact({
+        runId,
+        envelope: incompleteExecutionPlanEnvelope(runId, setup.plan),
+      })
+      .catch((error: unknown) => {
+        if (error instanceof StoreError) {
+          assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+        }
+        throw error;
+      });
+    const terminal = await prepareTerminalReporting(setup, true);
+    const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+    await runtime.apply({
+      runId,
+      adaptationBundle: terminal.adaptationBundle,
+      adaptationRefs: [DECISION_REF],
+      terminalReportEnvelope: terminal.reportEnvelope,
+      createdAt: "2026-07-24T12:08:00Z",
+      checkpointCreatedAt: "2026-07-24T12:09:00Z",
+      nextStep: "Disclose the runtime failure and repair it only in a new Run.",
+      beliefSummary: {
+        current_belief: "The runtime failed before the planned lane could publish Search Closure.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Can the repaired runtime execute a new Run?",
+      },
+    });
+    const status = await setup.store.status(runId);
+    assert.equal(status.terminalReportDisposition, "ready", JSON.stringify(status, null, 2));
+    assert.deepEqual(status.terminalReportIssues, []);
+    const report = JSON.parse(
+      await readFile(path.join(setup.runRoot, "report.json"), "utf8"),
+    ) as Record<string, unknown>;
+    assert.ok(
+      (report.gate_warnings as Record<string, unknown>[]).some(
+        (warning) => warning.code === "terminal_reporting.search_closure_incomplete",
+      ),
+    );
+
+    const manifestPath = path.join(setup.runRoot, "manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+    manifest.applied_adaptation_refs = [];
+    await writeFile(manifestPath, `${canonicalJson(manifest)}\n`);
+    const corrupted = await setup.store.status(runId);
+    assert.equal(corrupted.terminalReportDisposition, "invalid");
+    assert.ok(
+      corrupted.terminalReportIssues.includes("terminal_reporting.search_closure_incomplete"),
+    );
+  });
+
+  await contextTest.test(
+    "evidence closeout cannot use the runtime exception",
+    async (subcontext) => {
+      const runId = "insufficient-evidence-before-search-closure";
+      const setup = await setupPersistedRun(subcontext, runId, "terminate");
+      await setup.store.publishArtifact({
+        runId,
+        envelope: incompleteExecutionPlanEnvelope(runId, setup.plan),
+      });
+      const terminal = await prepareTerminalReporting(setup);
+      const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+      await runtime.apply({
+        runId,
+        adaptationBundle: terminal.adaptationBundle,
+        adaptationRefs: [DECISION_REF],
+        terminalReportEnvelope: terminal.reportEnvelope,
+        createdAt: "2026-07-24T12:08:00Z",
+        checkpointCreatedAt: "2026-07-24T12:09:00Z",
+        nextStep: "Retain the unresolved Search Closure requirement.",
+        beliefSummary: {
+          current_belief:
+            "Evidence is insufficient and the planned Search Closure is also missing.",
+          evidence_that_changed_belief: [],
+          unchanged_assumptions: [],
+          remaining_disagreement: [],
+          next_decision_relevant_question: "What bounded research remains necessary?",
+        },
+      });
+      const status = await setup.store.status(runId);
+      assert.equal(status.terminalReportDisposition, "invalid");
+      assert.ok(
+        status.terminalReportIssues.includes("terminal_reporting.search_closure_incomplete"),
+      );
+    },
+  );
 });
 
 test("terminal report publication fault recovers from the immutable source on reopen", async (contextTest) => {

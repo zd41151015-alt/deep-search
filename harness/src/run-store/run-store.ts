@@ -2226,7 +2226,19 @@ export class RunStore {
           ),
         ]),
       );
-      if (terminalIssues.length > 0) {
+      const searchClosureWarningAllowed =
+        terminalIssues.length > 0 &&
+        terminalIssues.every(
+          (issue) => issue.code === "terminal_reporting.search_closure_incomplete",
+        ) &&
+        (await this.runtimeFailureMayOmitSearchClosures(
+          runId,
+          runRoot,
+          manifest,
+          formal,
+          terminalDocuments,
+        ));
+      if (terminalIssues.length > 0 && !searchClosureWarningAllowed) {
         return {
           disposition: "invalid",
           issues: terminalIssues.map((issue) => issue.code),
@@ -2275,6 +2287,110 @@ export class RunStore {
             ],
           };
     }
+  }
+
+  private async runtimeFailureMayOmitSearchClosures(
+    runId: string,
+    runRoot: string,
+    manifest: RunManifest,
+    formal: readonly DocumentBundleEntry[],
+    terminalDocuments: readonly {
+      readonly path: string;
+      readonly schemaVersion: string;
+      readonly document: Record<string, unknown>;
+      readonly envelope: FormalArtifactEnvelope;
+    }[],
+  ): Promise<boolean> {
+    if (
+      manifest.status !== "failed" ||
+      manifest.current_plan_ref === null ||
+      manifest.latest_gap_snapshot_ref === null
+    ) {
+      return false;
+    }
+    const source = terminalDocuments.find(
+      (entry) => entry.schemaVersion === "startup_opportunity.terminal_report_source.v1",
+    );
+    const runtimeHealth = isRecord(source?.document.runtime_health)
+      ? source.document.runtime_health
+      : {};
+    const execution = isRecord(source?.document.execution) ? source.document.execution : {};
+    const incompleteStages = records(execution.incomplete_stages);
+    const sourceAuditRefs = new Set(strings(source?.document.audit_refs));
+    const sourceInputRefs = new Set(source?.envelope.input_refs ?? []);
+    if (
+      source === undefined ||
+      !["blocked", "failed"].includes(String(source.document.terminal_outcome)) ||
+      runtimeHealth.status !== "blocked" ||
+      records(runtimeHealth.issues).length === 0 ||
+      !["partial", "not_started"].includes(String(execution.completeness)) ||
+      !incompleteStages.some(
+        (stage) =>
+          stage.cause === "runtime_blocked" &&
+          strings(stage.related_refs).includes(manifest.latest_gap_snapshot_ref as string),
+      ) ||
+      !sourceAuditRefs.has(manifest.latest_gap_snapshot_ref) ||
+      !sourceInputRefs.has(manifest.latest_gap_snapshot_ref)
+    ) {
+      return false;
+    }
+
+    const currentArtifactRefs = new Set(manifest.artifact_refs);
+    const currentEnvelopes = new Map<string, FormalArtifactEnvelope>();
+    for (const entry of formal) {
+      if (!currentArtifactRefs.has(entry.path) || !isRecord(entry.document)) continue;
+      const envelope = entry.document as FormalArtifactEnvelope;
+      if (
+        envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
+        envelope.artifact_path === entry.path &&
+        isRecord(envelope.document)
+      ) {
+        currentEnvelopes.set(entry.path, envelope);
+      }
+    }
+    const gapEnvelope = currentEnvelopes.get(manifest.latest_gap_snapshot_ref);
+    if (
+      gapEnvelope === undefined ||
+      gapEnvelope.artifact_type !== "startup_opportunity.gap_snapshot.discovery.plan.current" ||
+      gapEnvelope.document.based_on_plan_ref !== manifest.current_plan_ref ||
+      !strings(gapEnvelope.document.stop_signals).includes("runtime_blocked")
+    ) {
+      return false;
+    }
+    const runtimeBlockingGapIds = new Set(
+      records(gapEnvelope.document.gaps)
+        .filter((gap) => gap.gap_type === "runtime_blocked" && gap.severity === "blocking")
+        .map((gap) => String(gap.gap_id)),
+    );
+    if (runtimeBlockingGapIds.size === 0) return false;
+
+    for (const decisionRef of manifest.applied_adaptation_refs) {
+      const decisionEnvelope = currentEnvelopes.get(decisionRef);
+      if (
+        decisionEnvelope === undefined ||
+        ![
+          "startup_opportunity.adaptation_decision.discovery.current",
+          "startup_opportunity.adaptation_decision.assessment.current",
+        ].includes(decisionEnvelope.artifact_type) ||
+        decisionEnvelope.document.action !== "record_runtime_failure" ||
+        decisionEnvelope.document.based_on_plan_ref !== manifest.current_plan_ref ||
+        !sourceAuditRefs.has(decisionRef) ||
+        !sourceInputRefs.has(decisionRef)
+      ) {
+        continue;
+      }
+      const closesCurrentRuntimeGap = strings(decisionEnvelope.document.trigger_gap_refs).some(
+        (ref) => {
+          const prefix = `${manifest.latest_gap_snapshot_ref}#`;
+          return ref.startsWith(prefix) && runtimeBlockingGapIds.has(ref.slice(prefix.length));
+        },
+      );
+      if (!closesCurrentRuntimeGap) continue;
+      await this.artifacts.validateStoredEnvelope(runRoot, runId, gapEnvelope);
+      await this.artifacts.validateStoredEnvelope(runRoot, runId, decisionEnvelope);
+      return true;
+    }
+    return false;
   }
 
   async buildValidationContext(
