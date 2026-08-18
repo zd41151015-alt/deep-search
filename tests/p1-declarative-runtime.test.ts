@@ -17,6 +17,7 @@ import {
   planningRunStateHash,
   RunStore,
   StoreError,
+  sha256Bytes,
   validateDeclarativeRuntimeContract,
 } from "../harness/src/index.js";
 import {
@@ -1802,7 +1803,7 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
   );
   assert.ok(task);
   const unitId = String(task.document.unit_id);
-  const evidenceEnvelope = state.bundle.documents
+  const semanticEvidenceEnvelope = state.bundle.documents
     .map((entry) => entry.document as unknown as FormalArtifactEnvelope)
     .find(
       (envelope) =>
@@ -1810,14 +1811,73 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
         envelope.artifact_type === "startup_opportunity.evidence.discovery_candidate.current" &&
         envelope.document.unit_id === unitId,
     );
-  assert.ok(evidenceEnvelope);
+  assert.ok(semanticEvidenceEnvelope);
 
-  const evidenceRef = evidenceEnvelope.artifact_path;
-  const substrateRef = String(
-    (evidenceEnvelope.document.mechanical_binding as Record<string, unknown>).substrate_record_ref,
-  );
+  const sourceRunId = `${state.runId}-handoff-source`;
+  await createConfirmedRun(state.runStore, {
+    runId: sourceRunId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic source user"],
+      decisionGoal: "provide exact reusable Evidence for a current-contract handoff test",
+      researchLanguage: "en-US",
+    },
+    createdAt: "2026-07-31T16:00:30Z",
+  });
+  const evidence = new EvidenceStore(state.runsRoot);
+  const sourceRecord = await evidence.record({
+    runId: sourceRunId,
+    unitId: "unit_source_material",
+    source: {
+      kind: "public_url",
+      canonical_url: "https://synthetic.invalid/lane-materializer-handoff",
+    },
+    researchGoal: "Preserve exact synthetic bytes for imported Evidence lineage testing.",
+    rawContent: "SYNTHETIC imported Evidence bytes; not a market claim.",
+    recordedAt: "2026-07-31T16:00:31Z",
+  });
+  const sourceEvidenceRef = `evidence/manifest.jsonl#${sourceRecord.record.evidence_id}`;
+  const sourceCapture = await evidence.readExactCapture(sourceRunId, sourceEvidenceRef);
+  const handoff = await state.runStore.createResearchHandoff({
+    runId: state.runId,
+    handoffId: "lane_materializer_imported_evidence",
+    sourceRunId,
+    userAuthorizationAttestation:
+      "The fixture caller attests that the user authorized this exact reusable Evidence item.",
+    targetPurpose:
+      "Reweight exact imported bytes in the target Lane without inheriting prior conclusions.",
+    capturedAt: "2026-07-31T16:00:32Z",
+    items: [
+      {
+        itemId: "reusable_lane_evidence",
+        sourceArtifactPath: sourceEvidenceRef,
+        role: "reusable_evidence",
+        expectedSourceByteHash: sha256Bytes(sourceCapture.recordBytes),
+        expectedSourceContentHash: canonicalContentHash(sourceCapture.record),
+        freshnessDisposition: "current",
+        applicabilityDisposition: "applicable",
+        revalidationStatus: "not_required",
+        targetUnitId: unitId,
+        targetResearchGoal:
+          "Reassess exact synthetic Evidence under the target Scope and current Plan.",
+      },
+    ],
+  });
+  const substrateRef = handoff.importedEvidenceRefs[0];
+  assert.ok(substrateRef);
+  await state.runStore.readResearchHandoff({
+    runId: state.runId,
+    handoffRef: handoff.handoffRef,
+    itemIds: ["reusable_lane_evidence"],
+    consumedAt: "2026-07-31T16:00:33Z",
+  });
+  const importedRecord = await evidence.readExactRecord(state.runId, substrateRef);
+
+  const evidenceRef = `evidence/records/${importedRecord.evidence_id}.json`;
   const auditPath = `artifacts/research-audits/${unitId}.json`;
-  const semanticEvidence = structuredClone(evidenceEnvelope.document);
+  const semanticEvidence = structuredClone(semanticEvidenceEnvelope.document);
   for (const field of ["schema_version", "run_id", "evidence_id", "unit_id", "mechanical_binding"])
     delete semanticEvidence[field];
   const semanticLaneResult = incompleteDiscoveryLaneResult(state.runId, task, auditPath);
@@ -1913,6 +1973,33 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
     }
     throw error;
   });
+  const previewEvidenceEnvelope = validated.compilation.compiled_envelopes.find(
+    (envelope) => envelope.artifact_path === evidenceRef,
+  );
+  assert.ok(previewEvidenceEnvelope);
+  assert.ok(previewEvidenceEnvelope.input_refs.includes(handoff.handoffRef));
+
+  const omittedHandoffRef = {
+    ...runtimeArtifact(evidenceRef, previewEvidenceEnvelope.document, "lane_researcher"),
+    input_refs: previewEvidenceEnvelope.input_refs.filter((ref) => ref !== handoff.handoffRef),
+  };
+  await assert.rejects(
+    new DeclarativeRuntimeCompiler(state.runsRoot, state.validator, repositoryRoot).compile(
+      compilationRequest(
+        state.runId,
+        "validate_only",
+        [omittedHandoffRef],
+        "request_imported_evidence_without_handoff_lineage",
+      ),
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.equal(error.code, "runtime.compilation_validation_failed");
+      const issues = error.details.issues as Record<string, unknown>[];
+      assert.ok(issues.some((issue) => issue.code === "research_handoff.evidence_orphaned"));
+      return true;
+    },
+  );
   const publish = structuredClone(staging);
   publish.operation = "publish";
   (publish as typeof publish & { publication_plan: unknown }).publication_plan =
@@ -1927,7 +2014,16 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
     (envelope) => envelope.artifact_path === evidenceRef,
   );
   assert.ok(typedEvidenceEnvelope);
-  assert.deepEqual(typedEvidenceEnvelope.document, evidenceEnvelope.document);
+  assert.ok(typedEvidenceEnvelope.input_refs.includes(handoff.handoffRef));
+  assert.equal(typedEvidenceEnvelope.document.evidence_lifecycle_status, "unverified");
+  assert.equal(
+    (typedEvidenceEnvelope.document.mechanical_binding as Record<string, unknown>)
+      .substrate_record_ref,
+    substrateRef,
+  );
+  for (const [field, value] of Object.entries(semanticEvidence)) {
+    assert.deepEqual(typedEvidenceEnvelope.document[field], value);
+  }
   const expectedInputRefs = [
     evidenceRef,
     "plans/research-execution.r1.json",

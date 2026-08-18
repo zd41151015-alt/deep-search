@@ -1017,6 +1017,9 @@ export class LaneResultMaterializer {
         authority.planRef,
         authority.executionRef,
         authority.dispatchTaskRef,
+        ...(artifact.artifact_family === "evidence" && evidenceRecord?.handoff_binding !== undefined
+          ? [evidenceRecord.handoff_binding.handoff_ref]
+          : []),
         ...artifactRefsForDocument({ path: contract.artifact_path, document }),
       ]);
       prepared.push({
