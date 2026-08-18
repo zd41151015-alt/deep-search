@@ -46,7 +46,13 @@ import {
   createAdaptationPolicyValidator,
 } from "./adaptation-validator.js";
 import { loadPlanRevisionApplyPolicy } from "./apply-policy.js";
-import { documentMap, type EffectiveDocument, effectiveDocuments, isRecord } from "./contracts.js";
+import {
+  documentMap,
+  type EffectiveDocument,
+  effectiveDocuments,
+  isRecord,
+  leafPlanningContexts,
+} from "./contracts.js";
 import {
   type AdaptationInputDocument,
   type AssessmentPlanTransformationResult,
@@ -72,6 +78,36 @@ const TERMINAL_ACTIONS = new Set([
   "complete_research",
   "cancel_research",
 ]);
+
+function projectPlanningPhase(
+  bundle: DocumentBundle,
+  contextPath: string,
+  phase: string,
+): DocumentBundle {
+  return {
+    ...bundle,
+    documents: bundle.documents.map((entry) => {
+      if (entry.path !== contextPath) return entry;
+      if (
+        entry.document.schema_version === "startup_opportunity.artifact_envelope.current" &&
+        entry.document.artifact_type ===
+          "startup_opportunity.planning_context.ai_source_bound.current" &&
+        isRecord(entry.document.document)
+      ) {
+        const projectedContext = { ...entry.document.document, phase };
+        return {
+          path: entry.path,
+          document: {
+            ...entry.document,
+            content_hash: canonicalContentHash(projectedContext),
+            document: projectedContext,
+          },
+        };
+      }
+      return { path: entry.path, document: { ...entry.document, phase } };
+    }),
+  };
+}
 
 function terminalOutcomeMatchesAction(action: string, outcome: unknown): boolean {
   switch (action) {
@@ -2066,8 +2102,117 @@ export class PlanRevisionRuntime {
           })),
       ],
     };
+    const transformed = transformPlan(
+      manifest.current_plan_ref,
+      basePlan,
+      manifest,
+      selectedDecisions,
+      input.createdAt,
+      scopeReconciliationAuthorized(
+        manifest,
+        selectedDecisions,
+        effectiveDocuments(patchedBundle),
+        new Map(referenceContext.exactJsonlRecords ?? []),
+      ),
+    );
+    if (transformed.operationKey !== planOperationKey) {
+      throw new StoreError(
+        "operation.identity_drift",
+        "Plan transformer operation identity drifted",
+      );
+    }
+    const transformedAssessment: AssessmentPlanTransformationResult | null = assessmentAdaptation
+      ? transformAssessmentPlan(
+          baseAssessmentPlanRef as string,
+          baseAssessmentPlan as Record<string, unknown>,
+          transformed.planPath,
+          selectedDecisions,
+          input.createdAt,
+        )
+      : null;
+    if (
+      transformedAssessment !== null &&
+      transformedAssessment.revisionCreated !== transformed.revisionCreated
+    ) {
+      throw new StoreError(
+        "operation.assessment_revision_drift",
+        "Research Plan and assessment plan revision decisions diverged",
+      );
+    }
+
+    let candidateDocuments: ReadonlyMap<string, EffectiveDocument> | null = null;
+    let candidateContext: EffectiveDocument | null = null;
+    if (transformed.revisionCreated) {
+      if (input.candidateBundle === undefined || transformed.plan === null) {
+        throw new StoreError(
+          "apply.candidate_bundle_missing",
+          "revision actions require an explicit candidate Planning Context bundle",
+        );
+      }
+      const candidateValidationBundle: DocumentBundle = {
+        ...input.candidateBundle,
+        exact_records: [],
+      };
+      const candidateValidation = (
+        assessmentAdaptation ? this.assessmentPlans : this.plans
+      ).validateDocumentBundle(candidateValidationBundle, planReferenceContext);
+      if (!candidateValidation.valid) {
+        throw new StoreError(
+          "apply.candidate_plan_invalid",
+          "candidate plan failed full validation",
+          {
+            result: candidateValidation,
+          },
+        );
+      }
+      candidateDocuments = documentMap(input.candidateBundle);
+      const candidatePlan = candidateDocuments.get(transformed.planPath);
+      const candidateAssessmentPlan =
+        transformedAssessment?.revisionCreated === true
+          ? candidateDocuments.get(transformedAssessment.planPath)
+          : null;
+      const candidateContexts = [...candidateDocuments.values()].filter(
+        (document) =>
+          document.schemaVersion ===
+            "startup_opportunity.planning_context.ai_source_bound.current" &&
+          isRecord(document.document.target_plan_binding) &&
+          document.document.target_plan_binding.plan_ref === transformed.planPath,
+      );
+      const context = candidateContexts[0];
+      if (
+        candidatePlan?.schemaVersion !== "startup_opportunity.research_plan.v1" ||
+        canonicalJson(candidatePlan.document) !== canonicalJson(transformed.plan) ||
+        (transformedAssessment?.revisionCreated === true &&
+          (candidateAssessmentPlan?.schemaVersion !==
+            "startup_opportunity.concept_evidence_assessment_plan.v1" ||
+            canonicalJson(candidateAssessmentPlan.document) !==
+              canonicalJson(transformedAssessment.plan))) ||
+        candidateContexts.length !== 1 ||
+        context?.document.validation_stage !== "candidate_revision"
+      ) {
+        throw new StoreError(
+          "apply.candidate_transform_mismatch",
+          "candidate bundle does not contain the deterministic Plan Revision result",
+        );
+      }
+      candidateContext = context;
+    } else if (input.candidateBundle !== undefined) {
+      throw new StoreError(
+        "apply.unexpected_candidate_bundle",
+        "non-revision actions do not accept a candidate plan bundle",
+      );
+    }
+
+    const currentContexts = leafPlanningContexts(patchedBundle);
+    const currentContext = currentContexts.length === 1 ? currentContexts[0] : undefined;
+    const candidatePhase = candidateContext?.document.phase;
+    // Candidate validation authenticates the transition; this phase-only view is never published.
+    const adaptationPolicyBundle =
+      currentContext !== undefined && typeof candidatePhase === "string"
+        ? projectPlanningPhase(patchedBundle, currentContext.path, candidatePhase)
+        : patchedBundle;
     const adaptationValidation = this.adaptations.validateDocumentBundle(
-      patchedBundle,
+      adaptationPolicyBundle,
       planReferenceContext,
       selectedRefs,
     );
@@ -2109,100 +2254,11 @@ export class PlanRevisionRuntime {
       }
     }
 
-    const transformed = transformPlan(
-      manifest.current_plan_ref,
-      basePlan,
-      manifest,
-      selectedDecisions,
-      input.createdAt,
-      scopeReconciliationAuthorized(
-        manifest,
-        selectedDecisions,
-        effectiveDocuments(patchedBundle),
-        new Map(referenceContext.exactJsonlRecords ?? []),
-      ),
-    );
-    if (transformed.operationKey !== planOperationKey) {
-      throw new StoreError(
-        "operation.identity_drift",
-        "Plan transformer operation identity drifted",
-      );
-    }
-    const transformedAssessment: AssessmentPlanTransformationResult | null = assessmentAdaptation
-      ? transformAssessmentPlan(
-          baseAssessmentPlanRef as string,
-          baseAssessmentPlan as Record<string, unknown>,
-          transformed.planPath,
-          selectedDecisions,
-          input.createdAt,
-        )
-      : null;
-    if (
-      transformedAssessment !== null &&
-      transformedAssessment.revisionCreated !== transformed.revisionCreated
-    ) {
-      throw new StoreError(
-        "operation.assessment_revision_drift",
-        "Research Plan and assessment plan revision decisions diverged",
-      );
-    }
-
     const controlEnvelopes: FormalArtifactEnvelope[] = [];
     const controlEnvelopeVersion: FormalArtifactEnvelope["schema_version"] =
       "startup_opportunity.artifact_envelope.current";
-    if (transformed.revisionCreated) {
-      if (input.candidateBundle === undefined || transformed.plan === null) {
-        throw new StoreError(
-          "apply.candidate_bundle_missing",
-          "revision actions require an explicit candidate Planning Context bundle",
-        );
-      }
-      const candidateValidationBundle: DocumentBundle = {
-        ...input.candidateBundle,
-        exact_records: [],
-      };
-      const candidateValidation = (
-        assessmentAdaptation ? this.assessmentPlans : this.plans
-      ).validateDocumentBundle(candidateValidationBundle, planReferenceContext);
-      if (!candidateValidation.valid) {
-        throw new StoreError(
-          "apply.candidate_plan_invalid",
-          "candidate plan failed full validation",
-          {
-            result: candidateValidation,
-          },
-        );
-      }
-      const candidateDocuments = documentMap(input.candidateBundle);
-      const candidatePlan = candidateDocuments.get(transformed.planPath);
-      const candidateAssessmentPlan =
-        transformedAssessment?.revisionCreated === true
-          ? candidateDocuments.get(transformedAssessment.planPath)
-          : null;
-      const candidateContexts = [...candidateDocuments.values()].filter(
-        (document) =>
-          document.schemaVersion ===
-            "startup_opportunity.planning_context.ai_source_bound.current" &&
-          isRecord(document.document.target_plan_binding) &&
-          document.document.target_plan_binding.plan_ref === transformed.planPath,
-      );
-      if (
-        candidatePlan?.schemaVersion !== "startup_opportunity.research_plan.v1" ||
-        canonicalJson(candidatePlan.document) !== canonicalJson(transformed.plan) ||
-        (transformedAssessment?.revisionCreated === true &&
-          (candidateAssessmentPlan?.schemaVersion !==
-            "startup_opportunity.concept_evidence_assessment_plan.v1" ||
-            canonicalJson(candidateAssessmentPlan.document) !==
-              canonicalJson(transformedAssessment.plan))) ||
-        candidateContexts.length !== 1 ||
-        candidateContexts[0]?.document.validation_stage !== "candidate_revision"
-      ) {
-        throw new StoreError(
-          "apply.candidate_transform_mismatch",
-          "candidate bundle does not contain the deterministic Plan Revision result",
-        );
-      }
-      const context = candidateContexts[0];
+    if (candidateContext !== null && candidateDocuments !== null && transformed.plan !== null) {
+      const context = candidateContext;
       const aiCoverage = context.document.ai_mandatory_coverage;
       const basis = isRecord(aiCoverage) ? aiCoverage.basis : null;
       if (!assessmentAdaptation && isRecord(basis) && typeof basis.source_ref === "string") {
@@ -2264,11 +2320,6 @@ export class PlanRevisionRuntime {
           String(context.document.created_at),
           controlEnvelopeVersion,
         ),
-      );
-    } else if (input.candidateBundle !== undefined) {
-      throw new StoreError(
-        "apply.unexpected_candidate_bundle",
-        "non-revision actions do not accept a candidate plan bundle",
       );
     }
 

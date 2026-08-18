@@ -289,6 +289,7 @@ function context(
     readonly stage: "current_plan" | "candidate_revision";
     readonly createdAt: string;
     readonly targetPlanRef?: string;
+    readonly phase?: string;
   },
 ): { readonly path: string; readonly document: Record<string, unknown> } {
   return {
@@ -300,7 +301,7 @@ function context(
       parent_context_ref: options.parentRef,
       run_id: runManifest.run_id,
       mode: runManifest.mode,
-      phase: runManifest.current_phase,
+      phase: options.phase ?? runManifest.current_phase,
       validation_stage: options.stage,
       manifest_binding: {
         manifest_ref: "manifest.json",
@@ -834,7 +835,8 @@ async function setupPersistedRun(
     | "pre-kill-exact"
     | "pre-kill-missing"
     | "pre-kill-shared"
-    | "post-g2-add" = "retry",
+    | "post-g2-add"
+    | "phase-transition-add" = "retry",
   requestedByUser = false,
   eventDriven = false,
 ) {
@@ -856,7 +858,7 @@ async function setupPersistedRun(
     createdAt: "2026-07-24T12:00:00Z",
   });
   const preKill = action.startsWith("pre-kill-");
-  const discoveryBacked = preKill || action === "post-g2-add";
+  const discoveryBacked = preKill || action === "post-g2-add" || action === "phase-transition-add";
   let discoveryBundle: DocumentBundle | null = null;
   let plan: Record<string, unknown>;
   if (discoveryBacked) {
@@ -876,7 +878,7 @@ async function setupPersistedRun(
         })
       ).record;
     const targetInputRefs =
-      action === "post-g2-add"
+      action === "post-g2-add" || action === "phase-transition-add"
         ? [PRE_KILL_CANDIDATE_REF]
         : action === "pre-kill-missing"
           ? [SUBJECT_REF]
@@ -1020,24 +1022,33 @@ async function setupPersistedRun(
                   : action === "supersede"
                     ? supersedeDecision(runId)
                     : retryDecision(runId);
-  if (action === "post-g2-add") {
-    decision.adaptation_id = "adapt_add_post_g2";
+  if (action === "post-g2-add" || action === "phase-transition-add") {
+    const phaseTransition = action === "phase-transition-add";
+    decision.adaptation_id = phaseTransition
+      ? "adapt_add_enrichment_after_discovery"
+      : "adapt_add_post_g2";
     decision.action = "add_unit";
     delete decision.target_unit_ref;
     delete decision.retry_basis;
     decision.target_unit = {
-      unit_id: "post_g2_followup",
-      unit_type: "counter_evidence",
+      unit_id: phaseTransition ? "enrichment_market_space" : "post_g2_followup",
+      unit_type: phaseTransition ? "market_space" : "counter_evidence",
       plan_disposition: "enabled",
       priority_band: "high",
       attempt: 1,
       supersedes_unit_ref: null,
-      research_goal: "SYNTHETIC post-G2 follow-up remains unvalidated.",
+      research_goal: phaseTransition
+        ? "SYNTHETIC enrichment evaluates retained market-space evidence."
+        : "SYNTHETIC post-G2 follow-up remains unvalidated.",
       input_refs: [PRE_KILL_CANDIDATE_REF],
       depends_on: [],
       agent_role: "lane-researcher",
-      output_path: "artifacts/discovery/lanes/post_g2_followup.attempt-1.json",
-      required_artifact_schema: "startup_opportunity.discovery_lane_result.v1",
+      output_path: phaseTransition
+        ? "artifacts/discovery/enrichment/branches/enrichment_market_space.attempt-1.json"
+        : "artifacts/discovery/lanes/post_g2_followup.attempt-1.json",
+      required_artifact_schema: phaseTransition
+        ? "startup_opportunity.enrichment_branch_result.v1"
+        : "startup_opportunity.discovery_lane_result.v1",
       source_preferences: [],
       required_outputs: ["SYNTHETIC typed discovery result."],
       stop_conditions: ["SYNTHETIC bounded follow-up only."],
@@ -1470,6 +1481,7 @@ function candidateFor(
   setup: Awaited<ReturnType<typeof setupPersistedRun>>,
   createdAt = "2026-07-24T12:08:00Z",
   candidateContextCreatedAt = "2026-07-24T12:08:30Z",
+  phase?: string,
 ) {
   const transformed = transformPlan(
     PLAN_REF,
@@ -1485,6 +1497,7 @@ function candidateFor(
     parentRef: CONTEXT_REF,
     stage: "candidate_revision",
     createdAt: candidateContextCreatedAt,
+    ...(phase === undefined ? {} : { phase }),
   });
   const candidateBundle: DocumentBundle = {
     schema_version: "startup_opportunity.document_bundle.current",
@@ -6241,6 +6254,90 @@ test("Plan Revision apply is CAS-safe, immutable, and idempotent on a real Run",
     runtime.apply(stale),
     (error: unknown) => error instanceof StoreError && error.code === "apply.stale_input_bundle",
   );
+});
+
+test("Plan Revision atomically transitions discovery planning into enrichment", async (contextTest) => {
+  const runId = "runtime-discovery-enrichment-transition";
+  const setup = await setupPersistedRun(contextTest, runId, "phase-transition-add");
+  const planR1Before = await readFile(path.join(setup.runRoot, PLAN_REF));
+  const contextR1Before = await readFile(path.join(setup.runRoot, CONTEXT_REF));
+  const { candidateBundle } = candidateFor(
+    setup,
+    PRE_KILL_APPLY_AT,
+    PRE_KILL_CONTEXT_AT,
+    "enrichment",
+  );
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const input: ApplyPlanRevisionInput = {
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    candidateBundle,
+    createdAt: PRE_KILL_APPLY_AT,
+    checkpointCreatedAt: PRE_KILL_CHECKPOINT_AT,
+    nextStep: "Run the approved enrichment unit.",
+    beliefSummary: {
+      current_belief: "Discovery formed a candidate that now requires bounded enrichment.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Does enrichment preserve the candidate thesis?",
+    },
+  };
+
+  const applied = await runtime.apply(input);
+  assert.equal(applied.status, "applied");
+  assert.equal(applied.currentPlanRef, "plans/research-plan.r2.json");
+  assert.deepEqual(await readFile(path.join(setup.runRoot, PLAN_REF)), planR1Before);
+  assert.deepEqual(await readFile(path.join(setup.runRoot, CONTEXT_REF)), contextR1Before);
+
+  const contextR2 = JSON.parse(
+    await readFile(path.join(setup.runRoot, CANDIDATE_CONTEXT_REF), "utf8"),
+  ) as FormalArtifactEnvelope;
+  assert.equal(contextR2.document.phase, "enrichment");
+  const reopened = await setup.store.load(runId);
+  assert.equal(reopened.manifest.current_phase, "discovery");
+  assert.equal(reopened.manifest.plan_revision, 2);
+  assert.deepEqual(reopened.manifest.pending_adaptation_refs, []);
+  assert.ok(reopened.manifest.applied_adaptation_refs.includes(DECISION_REF));
+  assert.equal((await runtime.apply(input)).status, "idempotent_replay");
+});
+
+test("Plan Revision rejects an enrichment target when the candidate phase remains discovery", async (contextTest) => {
+  const runId = "runtime-phase-transition-not-declared";
+  const setup = await setupPersistedRun(contextTest, runId, "phase-transition-add");
+  const before = await snapshotRunTree(setup.runRoot);
+  const { candidateBundle } = candidateFor(
+    setup,
+    PRE_KILL_APPLY_AT,
+    PRE_KILL_CONTEXT_AT,
+    "discovery",
+  );
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+
+  await assert.rejects(
+    runtime.apply({
+      runId,
+      adaptationBundle: setup.adaptationBundle,
+      adaptationRefs: [DECISION_REF],
+      candidateBundle,
+      createdAt: PRE_KILL_APPLY_AT,
+      checkpointCreatedAt: PRE_KILL_CHECKPOINT_AT,
+      nextStep: "Do not run a phase-incompatible enrichment unit.",
+      beliefSummary: {
+        current_belief: "The candidate phase does not authorize enrichment work.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Which declared phase authorizes the target tuple?",
+      },
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "apply.candidate_plan_invalid" &&
+      JSON.stringify(error.details).includes("contract.target_unit_tuple_not_allowed"),
+  );
+  assert.deepEqual(await snapshotRunTree(setup.runRoot), before);
 });
 
 test("pre-CAS crash keeps base current; replay completes the immutable revision", async (contextTest) => {
