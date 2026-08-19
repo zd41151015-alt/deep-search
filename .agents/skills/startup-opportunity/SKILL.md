@@ -34,7 +34,7 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 - 新 Run 必须先形成并发布 Intake、DecisionContext 与 ScopeFrame，再生成和验证 `plans/research-plan.r1.json`；不得从聊天摘要跳到 research wave。
 - 每个 wave 只使用 typed task envelope 启动 bounded custom agent。agent completion summary 只作通知，父任务必须从唯一 output path 重新读取并验证正式 Artifact。
 - 每个新 dispatch wave 必须把 execution overlay 和完整 Dispatch batch 放进同一个 `compile-artifacts` publish request；Discovery research lane 还必须同包包含该 batch 的全部 canonical task envelopes。发布成功前不得启动任何 lane，不得先发布 Dispatch 激活 unit 再补 task。whole-wave intent 会在 crash recovery 时先补齐全部成员，再投影 Manifest。
-- 同一 dispatch batch 中彼此独立的 lane 在 `dispatch_mode=parallel_immediate` 发布后立即并发启动；Harness 只验证机械投影，不调度 agent。
+- 同一 dispatch batch 中彼此独立的 lane 在 `dispatch_mode=parallel_immediate` 发布后，严格按下述 Model Dispatch Protocol 启动；Harness 只验证机械投影，不调度 agent。
 - 搜索规划以 60%-70% 用户/商业行为、15%-20% 经营披露/监管/市场结构、不超过 20% 学术机制/边界/反证为默认提示，不要求实际查询次数严格命中比例，也不以偏差作为 Gate。实际采用来源分布只能由 Evidence Register 机械推导，不能使用 agent 自报比例；比例偏差只进入审计观察。真实性、安全、exact ref/hash、数值/proxy 语义和强结论 Evidence ceiling 是强门禁；覆盖不足或来源偏弱只降低 confidence、ranking 或 recommendation ceiling。
 - 商业覆盖必须标为 `observed`、`inferred` 或 `unknown`。缺少直接材料时保留合理推测，但必须写出依据引用、推理起点、推理过程、不确定性和待验证项；`inferred` 可满足报告内容完整性，不得冒充已观察事实或满足排序 Gate。多候选 Lane 的 unresolved gap 要提供可推导的 subject 语义（单候选可省略，真正共享可显式列多个 subject）；Harness 会机械补齐 exact task/Audit binding 并投影 subject-local 正式 gap，不得把一个候选的 gap 复制到其他候选。
 - Incumbent Absorption & Response Risk 只在候选或 concept 已形成后开展：candidate generation 必须 `not_assigned`，formed candidate evaluation 使用 bounded `lightweight_scan`，shortlist/retained opportunity 或 assessment commercial stage 才使用计划明确分配的 `targeted_deep_dive`。Execution Plan 是 assignment 唯一权威；每个响应研究 stage 恰有一个 `owner`，额外复核只能显式标为 `independent_review`，其余 Lane 必须 `not_assigned/none`。包括 `not_assigned` 在内的每个 assignment 都必须按 Plan -> Dispatch -> Research Task -> 正式 Audit exact subject/role/depth 投影；缺少任一层或发生漂移都属于 integrity error，Task 没有 fallback 权威。Lane 一次性交付 responder 研究语义，Harness 只生成稳定 ID/hash/ref、coverage/缺口行和报告投影。
@@ -49,6 +49,17 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 - 正常研究 Run 不执行 `npm test`、lint、typecheck、fixture/schema 全量验证或 clean-checkout suite。它只运行一次 doctor，以及当前 Artifact、Plan、Gap/adaptation、report、traceability/consistency 和 `status-run` 所需的确定性检查；全量仓库验证只属于代码、contract、schema、policy、Skill/hook 或工具链变更任务。
 - G1 concept assessment 的 buyer/acquisition follow-up 只能消费 exact same-Run/current Plan/assessment plan/subject/scope/coverage_key/observed Artifact 与 unit-attempt state 绑定的 `gap_snapshot.v2`。Decision 只允许 `add_unit` 或 `stop_followup`；前者发布 Research Plan、assessment plan 和 Planning Context 的同批 immutable revision 后执行 Manifest CAS，后者不创建新 revision。
 - 可以建议外部验证，但必须明确由用户负责并标记为不支持执行/跟踪；本系统不执行外部验证。
+
+## Model Dispatch Protocol
+
+对每个已成功发布的 `parallel_immediate` Dispatch batch 执行以下不可省略的模型侧协议：
+
+1. 在任何启动调用前，从已发布 batch 一次性提取并固定 `planned_unit_ids`，同时初始化 `acknowledged_unit_ids=[]`、`failed_unit_ids=[]`。为全部 Unit 预先准备以 exact typed task ref 为权限来源的最短启动 Prompt；不得依靠后续模型轮次回忆剩余 Unit。
+2. 只直接调用当前协作层暴露的 `spawn_agent` 工具。绝不从 `functions.exec`、`exec_command`、shell、脚本或其 `tools.*` 命名空间嵌套调用 `spawn_agent`；直接工具不可用时立即报告 dispatch blocked，不得探测替代命名空间或用 shell 模拟。
+3. 在同一个 tool round 发出全部独立 Unit 的直接 `spawn_agent` 调用，不在调用之间插入新的模型推理、`true`、`sleep`、空 patch、工具目录查询、状态查询或其他无关操作。Prompt 只携带 exact task ref、唯一 Unit 身份和读取该 task 执行的指令，研究目标与边界继续以已发布 task envelope 为准。
+4. 只有收到成功的 spawn acknowledgement 才把 exact `unit_id` 加入 `acknowledged_unit_ids`；调用已发出、Task 已发布或 Manifest unit 为 active 都不等于 agent 已启动。失败或无明确回执的 Unit 加入 `failed_unit_ids`。
+5. 启动轮结束后立即计算 `missing_unit_ids = planned_unit_ids - acknowledged_unit_ids`。只有 `set(acknowledged_unit_ids) == set(planned_unit_ids)` 且 `failed_unit_ids` 与 `missing_unit_ids` 都为空，才能宣告完整 wave 已并行运行；否则必须准确报告已启动数量、失败和缺失 Unit，不得使用“全部已启动”或等价表述。
+6. 部分失败时先通过协作层 agent 列表按稳定 Unit/task identity 排除已成功或仍在启动的重复实例，再只补启动 `missing_unit_ids`；不得重放整个 batch。每次补偿后重复回执记录与集合闭包校验，闭包前不得进入“等待全部 Lane”或 fan-in。
 
 ## Progressive References
 

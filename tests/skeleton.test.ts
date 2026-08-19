@@ -59,6 +59,32 @@ test("Skill metadata and progressive references are structurally valid", async (
   }
 });
 
+test("Skill fixes model-side parallel dispatch to direct acknowledged set closure", async () => {
+  const skill = await read(".agents/skills/startup-opportunity/SKILL.md");
+  const laneCatalog = await read(".agents/skills/startup-opportunity/references/lane-catalog.md");
+
+  for (const requiredInstruction of [
+    "## Model Dispatch Protocol",
+    "planned_unit_ids",
+    "acknowledged_unit_ids",
+    "missing_unit_ids",
+    "直接调用当前协作层暴露的 `spawn_agent` 工具",
+    "绝不从 `functions.exec`、`exec_command`、shell、脚本或其 `tools.*` 命名空间嵌套调用 `spawn_agent`",
+    "在同一个 tool round 发出全部独立 Unit",
+    "只有收到成功的 spawn acknowledgement",
+    "不得重放整个 batch",
+  ]) {
+    assert.ok(
+      skill.includes(requiredInstruction),
+      `missing dispatch instruction: ${requiredInstruction}`,
+    );
+  }
+
+  assert.ok(laneCatalog.includes("执行已发布 typed task `<exact-task-ref>`"));
+  assert.ok(laneCatalog.includes("Task 发布、unit active 或调用已发出均不是启动回执"));
+  assert.ok(laneCatalog.includes("部分失败只核对并补启动缺失 Unit，禁止整批重放"));
+});
+
 test("all three custom agents use the official standalone TOML fields", async () => {
   const expectedNames = new Set(["lane-researcher", "evidence-auditor", "adversarial-reviewer"]);
 
