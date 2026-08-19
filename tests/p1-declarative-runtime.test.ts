@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -44,6 +45,13 @@ import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const createdAt = "2026-07-31T16:00:00Z";
+
+function runHarness(args: readonly string[]) {
+  return spawnSync(process.execPath, ["--import", "tsx", "harness/src/cli.ts", ...args], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  });
+}
 
 async function removePublicationCommitTail(
   runRoot: string,
@@ -333,6 +341,7 @@ function dispatchBatch(
       };
     }),
     agent_dispatch_performed: false,
+    launch_registration_required: true,
     limitations: ["SYNTHETIC dispatch contract; the Harness does not start agents."],
   };
 }
@@ -340,6 +349,7 @@ function dispatchBatch(
 function lifecycle(
   runId: string,
   unitId: string,
+  batch: Record<string, unknown>,
   revision: number,
   state: "dispatch_requested" | "agent_started",
 ): Record<string, unknown> {
@@ -354,6 +364,11 @@ function lifecycle(
     attempt: 1,
     execution_attempt_id: `execution_${unitId}_attempt_1`,
     dispatch_batch_ref: `tasks/dispatch/runtime.r1.json#task_${unitId}`,
+    dispatch_batch_hash: canonicalContentHash(batch),
+    task_ref: `tasks/dispatch/runtime.r1.json#task_${unitId}`,
+    task_id: `task_${unitId}`,
+    launch_registration_id: null,
+    launch_registration_hash: null,
     state,
     timestamps: {
       task_ready_at: "2026-07-31T16:01:00Z",
@@ -1319,7 +1334,7 @@ test("complete same-wave dispatch activates both units and lifecycle revisions c
 
   const firstUnitId = unitIds[0];
   assert.ok(firstUnitId);
-  const started = lifecycle(state.runId, firstUnitId, 1, "agent_started");
+  const started = lifecycle(state.runId, firstUnitId, batch, 1, "agent_started");
   await compiler.compile(
     compilationRequest(state.runId, "publish", [
       runtimeArtifact(
@@ -1329,7 +1344,7 @@ test("complete same-wave dispatch activates both units and lifecycle revisions c
       ),
     ]),
   );
-  const regressed = lifecycle(state.runId, firstUnitId, 2, "dispatch_requested");
+  const regressed = lifecycle(state.runId, firstUnitId, batch, 2, "dispatch_requested");
   await assert.rejects(
     compiler.compile(
       compilationRequest(state.runId, "validate_only", [
@@ -1342,6 +1357,239 @@ test("complete same-wave dispatch activates both units and lifecycle revisions c
     ),
     (error: unknown) => compilerCodes(error).includes("runtime.lifecycle_state_regression"),
   );
+});
+
+test("public CLI closes exact Dispatch launch sets incrementally and rejects identity drift atomically", async (t) => {
+  const state = await prepareDiscoveryTaskBridgeRun(t, "launch-registry-cli");
+  const execution = executionPlan(state.runId, state.plan, "evaluation");
+  const batch = dispatchBatch(state.runId, state.plan, execution);
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  const published = await compiler.compile(
+    compilationRequest(state.runId, "publish", [
+      runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+      runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
+      ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
+    ]),
+  );
+  assert.equal(published.dispatch_launch_checklists.length, 1);
+  const initialChecklist = published.dispatch_launch_checklists[0];
+  assert.ok(initialChecklist);
+  assert.equal(initialChecklist.status, "open");
+  assert.deepEqual(initialChecklist.started_unit_ids, []);
+
+  const dispatchRef = "tasks/dispatch/runtime.r1.json";
+  const dispatchHash = canonicalContentHash(batch);
+  const formalTasks = canonicalDiscoveryTasks(state.bundle, state.plan, batch);
+  const registrations = (batch.tasks as Record<string, unknown>[])
+    .map((task) => {
+      const formalTask = formalTasks.find(
+        (candidate) => candidate.document.unit_id === task.unit_id,
+      );
+      assert.ok(formalTask);
+      return {
+        unit_id: String(task.unit_id),
+        task_ref: `${dispatchRef}#${String(task.task_id)}`,
+        task_id: String(task.task_id),
+        attempt: Number(formalTask.document.attempt),
+        execution_attempt_id: `external_${String(task.unit_id)}_attempt_1`,
+      };
+    })
+    .reverse();
+  assert.equal(registrations.length, 2);
+  const requestPath = (suffix: string) => path.join(state.root, `launch-${suffix}.json`);
+  const writeRequest = async (
+    suffix: string,
+    selected: readonly (typeof registrations)[number][],
+    changes: Readonly<Record<string, unknown>> = {},
+  ): Promise<string> => {
+    const target = requestPath(suffix);
+    await writeFile(
+      target,
+      `${JSON.stringify({
+        schema_version: "startup_opportunity.dispatch_launch_registration_request.v1",
+        request_id: `launch_${suffix}`,
+        run_id: state.runId,
+        dispatch_ref: dispatchRef,
+        dispatch_hash: dispatchHash,
+        registered_at: "2026-07-31T16:01:02Z",
+        registrations: selected,
+        ...changes,
+      })}\n`,
+    );
+    return target;
+  };
+  const register = (file: string) =>
+    runHarness(["register-dispatch-launches", "--file", file, "--runs-root", state.runsRoot]);
+  const check = () =>
+    runHarness([
+      "check-dispatch-launches",
+      "--run-id",
+      state.runId,
+      "--dispatch-ref",
+      dispatchRef,
+      "--dispatch-hash",
+      dispatchHash,
+      "--runs-root",
+      state.runsRoot,
+    ]);
+
+  const firstRequest = await writeRequest("first", [
+    registrations[0] as (typeof registrations)[number],
+  ]);
+  const first = register(firstRequest);
+  assert.equal(first.status, 0, first.stderr);
+  const firstResult = JSON.parse(first.stdout) as Record<string, unknown>;
+  assert.equal(firstResult.status, "open");
+  assert.deepEqual(firstResult.started_unit_ids, [registrations[0]?.unit_id].sort());
+  assert.deepEqual(firstResult.not_started_unit_ids, [registrations[1]?.unit_id].sort());
+  const downstreamDocument = {
+    schema_version: "startup_opportunity.discovery_stage_readiness.v1",
+    run_id: state.runId,
+  };
+  const downstreamEnvelope = {
+    schema_version: "startup_opportunity.artifact_envelope.current" as const,
+    artifact_type: String(downstreamDocument.schema_version),
+    artifact_path: "artifacts/discovery/readiness/launch-open.r1.json",
+    run_id: state.runId,
+    created_at: "2026-07-31T16:01:03Z",
+    producer_role: "main_agent" as const,
+    input_refs: [],
+    content_hash: canonicalContentHash(downstreamDocument),
+    document: downstreamDocument,
+  };
+  await assert.rejects(
+    state.runStore.assertTransitionReady(state.runId, [downstreamEnvelope]),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.transition_dispatch_launch_open",
+  );
+  const beforeReplay = await snapshotTree(state.runRoot);
+  const replay = register(firstRequest);
+  assert.equal(replay.status, 0, replay.stderr);
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeReplay);
+
+  const invalidRegistration = {
+    ...(registrations[1] as (typeof registrations)[number]),
+    task_id: "task_not_in_dispatch",
+  };
+  const invalidBatch = await writeRequest("invalid-batch", [
+    registrations[1] as (typeof registrations)[number],
+    invalidRegistration,
+  ]);
+  const beforeInvalid = await snapshotTree(state.runRoot);
+  const rejectedBatch = register(invalidBatch);
+  assert.equal(rejectedBatch.status, 1);
+  assert.match(
+    rejectedBatch.stderr,
+    /runtime\.launch_registration_(?:duplicate|dispatch_mismatch)/u,
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeInvalid);
+
+  const reusedExecution = await writeRequest("reused-execution", [
+    {
+      ...(registrations[1] as (typeof registrations)[number]),
+      execution_attempt_id: String(registrations[0]?.execution_attempt_id),
+    },
+  ]);
+  const beforeReusedExecution = await snapshotTree(state.runRoot);
+  const rejectedExecution = register(reusedExecution);
+  assert.equal(rejectedExecution.status, 1);
+  assert.match(rejectedExecution.stderr, /runtime\.launch_registration_conflict/u);
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeReusedExecution);
+
+  for (const [suffix, registration, changes, code] of [
+    [
+      "outside-unit",
+      { ...(registrations[1] as object), unit_id: "unit_outside_dispatch" },
+      {},
+      "runtime.launch_registration_dispatch_mismatch",
+    ],
+    [
+      "wrong-task-ref",
+      { ...(registrations[1] as object), task_ref: registrations[0]?.task_ref },
+      {},
+      "runtime.launch_registration_dispatch_mismatch",
+    ],
+    [
+      "wrong-attempt",
+      { ...(registrations[1] as object), attempt: 2 },
+      {},
+      "runtime.launch_registration_dispatch_mismatch",
+    ],
+    [
+      "stale-dispatch",
+      registrations[1] as object,
+      { dispatch_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+      "runtime.launch_dispatch_stale",
+    ],
+    [
+      "early-registration-time",
+      registrations[1] as object,
+      { registered_at: "2026-07-31T16:00:59Z" },
+      "runtime.launch_registration_time_invalid",
+    ],
+    ["cross-run", registrations[1] as object, { run_id: "another-current-run" }, "run.not_found"],
+  ] as const) {
+    const file = await writeRequest(
+      suffix,
+      [registration as (typeof registrations)[number]],
+      changes,
+    );
+    const before = await snapshotTree(state.runRoot);
+    const rejected = register(file);
+    assert.equal(rejected.status, 1, `${suffix}: ${rejected.stderr}`);
+    assert.match(rejected.stderr, new RegExp(code.replaceAll(".", "\\."), "u"));
+    assert.deepEqual(await snapshotTree(state.runRoot), before, suffix);
+  }
+
+  const secondRequest = await writeRequest("second", [
+    registrations[1] as (typeof registrations)[number],
+  ]);
+  const second = register(secondRequest);
+  assert.equal(second.status, 0, second.stderr);
+  const secondResult = JSON.parse(second.stdout) as Record<string, unknown>;
+  assert.equal(secondResult.status, "closed");
+  assert.deepEqual(
+    secondResult.started_unit_ids,
+    registrations.map((entry) => entry.unit_id).sort(),
+  );
+  assert.deepEqual(secondResult.not_started_unit_ids, []);
+  assert.equal(
+    (secondResult as { checklist: Record<string, unknown>[] }).checklist[0]?.launch_state,
+    "started",
+  );
+  await state.runStore.assertTransitionReady(state.runId, [downstreamEnvelope]);
+
+  const conflictRequest = await writeRequest("conflict", [
+    {
+      ...(registrations[1] as (typeof registrations)[number]),
+      execution_attempt_id: "external_conflicting_attempt",
+    },
+  ]);
+  const beforeConflict = await snapshotTree(state.runRoot);
+  const conflict = register(conflictRequest);
+  assert.equal(conflict.status, 1);
+  assert.match(conflict.stderr, /runtime\.launch_registration_(?:conflict|path_conflict)/u);
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeConflict);
+
+  const checked = check();
+  assert.equal(checked.status, 0, checked.stderr);
+  assert.equal((JSON.parse(checked.stdout) as Record<string, unknown>).status, "closed");
+  await new RunStore(state.runsRoot, state.validator).load(state.runId);
+  const afterReopen = check();
+  assert.equal(afterReopen.status, 0, afterReopen.stderr);
+  assert.deepEqual(JSON.parse(afterReopen.stdout), JSON.parse(checked.stdout));
+  for (const registration of registrations) {
+    const lifecyclePath = path.join(
+      state.runRoot,
+      `artifacts/runtime/lane-lifecycle/${registration.unit_id}.attempt-${registration.attempt}.launch.r1.json`,
+    );
+    const persisted = JSON.parse(await readFile(lifecyclePath, "utf8")) as Record<string, unknown>;
+    assert.equal(persisted.artifact_type, "startup_opportunity.lane_lifecycle.v1");
+    assert.equal(
+      (persisted.document as Record<string, unknown> | undefined)?.schema_version,
+      "startup_opportunity.lane_lifecycle.v1",
+    );
+  }
 });
 
 test("status derives retries from distinct execution attempts across the complete lifecycle", async (t) => {
@@ -1362,9 +1610,8 @@ test("status derives retries from distinct execution attempts across the complet
     stateName: "failed" | "published",
     failureKind?: "validation_failed" | "publication_failed",
   ): Record<string, unknown> => {
-    const document = lifecycle(state.runId, unitId, 1, "agent_started");
+    const document = lifecycle(state.runId, unitId, batch, 1, "agent_started");
     document.lifecycle_id = `lifecycle_${unitId}_attempt_${ordinal}`;
-    document.attempt = ordinal;
     document.execution_attempt_id = `execution_${unitId}_attempt_${ordinal}`;
     document.state = stateName;
     const timestamps = document.timestamps as Record<string, unknown>;

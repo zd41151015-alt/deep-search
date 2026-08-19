@@ -234,6 +234,7 @@ export function discoveryWaveEnvelopes(
       };
     }),
     agent_dispatch_performed: false,
+    launch_registration_required: true,
     limitations: ["SYNTHETIC fixture Dispatch; no agent was started."],
   };
   return [

@@ -28,8 +28,10 @@ import {
   runStatusRun,
 } from "./run-store/store-commands.js";
 import {
+  runCheckDispatchLaunches,
   runCompileArtifacts,
   runMaterializeLaneResult,
+  runRegisterDispatchLaunches,
   runScaffoldArtifact,
 } from "./runtime/runtime-commands.js";
 import { runValidateArtifact } from "./validators/validate-artifact-command.js";
@@ -84,6 +86,12 @@ switch (command) {
     break;
   case "compile-artifacts":
     process.exitCode = await runCompileArtifacts(args);
+    break;
+  case "register-dispatch-launches":
+    process.exitCode = await runRegisterDispatchLaunches(args);
+    break;
+  case "check-dispatch-launches":
+    process.exitCode = await runCheckDispatchLaunches(args);
     break;
   case "materialize-lane-result":
     process.exitCode = await runMaterializeLaneResult(args);

@@ -403,6 +403,16 @@
       "document_schema_version": "startup_opportunity.terminal_report_view.v1"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/dispatch-launch-check-result.schema.json",
+      "file": "current/runtime/common/dispatch-launch-check-result.schema.json",
+      "document_schema_version": "startup_opportunity.dispatch_launch_check_result.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/dispatch-launch-registration-request.schema.json",
+      "file": "current/runtime/common/dispatch-launch-registration-request.schema.json",
+      "document_schema_version": "startup_opportunity.dispatch_launch_registration_request.v1"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/runtime/discovery/candidate-neutral-evidence.schema.json",
       "file": "current/runtime/discovery/candidate-neutral-evidence.schema.json",
       "document_schema_version": "startup_opportunity.candidate_neutral_evidence.v1"

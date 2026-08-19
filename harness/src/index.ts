@@ -168,10 +168,15 @@ export {
 export {
   type CompileRuntimeArtifactsOptions,
   DeclarativeRuntimeCompiler,
+  type DispatchLaunchCheckResult,
   type RuntimeArtifactCompilationRequest,
   type RuntimeArtifactCompilationResult,
   type RuntimePublicationPlan,
 } from "./runtime/declarative-runtime.js";
+export {
+  type DispatchLaunchRegistrationRequest,
+  DispatchLaunchRegistry,
+} from "./runtime/dispatch-launch-registry.js";
 export {
   deriveLaneScopeFormalClosure,
   type LaneScopeDisposition,
@@ -188,8 +193,10 @@ export {
   operationTrace,
 } from "./runtime/operation-observability.js";
 export {
+  runCheckDispatchLaunches,
   runCompileArtifacts,
   runMaterializeLaneResult,
+  runRegisterDispatchLaunches,
   runScaffoldArtifact,
 } from "./runtime/runtime-commands.js";
 export {

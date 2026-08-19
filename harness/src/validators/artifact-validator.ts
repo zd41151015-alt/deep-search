@@ -3675,7 +3675,19 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(
           document,
           "dispatch_batch_ref",
-          "startup_opportunity.dispatch_batch.discovery.current",
+          [
+            "startup_opportunity.dispatch_batch.discovery.current",
+            "startup_opportunity.dispatch_batch.assessment.current",
+          ],
+          "task_id",
+        ),
+        ...optionalRef(
+          document,
+          "task_ref",
+          [
+            "startup_opportunity.dispatch_batch.discovery.current",
+            "startup_opportunity.dispatch_batch.assessment.current",
+          ],
           "task_id",
         ),
       ];

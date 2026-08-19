@@ -3402,6 +3402,7 @@ export class RunStore {
     envelopes: readonly FormalArtifactEnvelope[],
   ): Promise<void> {
     await this.assertScopeBindingLocked(runRoot, manifest);
+    await this.assertLaneLifecycleLaunchIdentitiesLocked(runRoot, manifest, envelopes);
     if (manifest.status === "awaiting_scope_confirmation") {
       throw new StoreError(
         "run.scope_confirmation_required",
@@ -3446,6 +3447,12 @@ export class RunStore {
       "startup_opportunity.concept_evidence_assessment_fan_in.v1",
       "startup_opportunity.enrichment_fan_in.v1",
     ]);
+    const launchClosureTypes = new Set([
+      ...downstreamTypes,
+      "startup_opportunity.discovery_stage_readiness.v1",
+      "startup_opportunity.assessment_stage_gate.v1",
+    ]);
+    await this.assertDispatchLaunchClosureLocked(runRoot, manifest, envelopes, launchClosureTypes);
     if (!envelopes.some((envelope) => downstreamTypes.has(envelope.artifact_type))) return;
 
     const publishingIdentities = new Set(
@@ -3775,6 +3782,128 @@ export class RunStore {
           },
         );
       }
+    }
+  }
+
+  private async assertLaneLifecycleLaunchIdentitiesLocked(
+    runRoot: string,
+    manifest: RunManifest,
+    envelopes: readonly FormalArtifactEnvelope[],
+  ): Promise<void> {
+    const incoming = envelopes.filter(
+      (envelope) => envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1",
+    );
+    if (incoming.length === 0) return;
+    const stored = (await this.artifacts.listFormalDocuments(runRoot))
+      .filter(
+        (entry) =>
+          manifest.artifact_refs.includes(entry.path) &&
+          entry.document.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
+          entry.document.artifact_type === "startup_opportunity.lane_lifecycle.v1",
+      )
+      .map((entry) => entry.document as FormalArtifactEnvelope);
+    const identities = new Map<
+      string,
+      { readonly unitId: unknown; readonly taskRef: unknown; readonly attempt: unknown }
+    >();
+    const requestHashes = new Map<string, string>();
+    for (const lifecycle of [...stored, ...incoming]) {
+      const document = lifecycle.document;
+      const executionAttemptId = String(document.execution_attempt_id ?? "");
+      const identity = {
+        unitId: document.unit_id,
+        taskRef: document.task_ref,
+        attempt: document.attempt,
+      };
+      const priorIdentity = identities.get(executionAttemptId);
+      if (priorIdentity !== undefined && canonicalJson(priorIdentity) !== canonicalJson(identity)) {
+        throw new StoreError(
+          "artifact.lifecycle_execution_attempt_conflict",
+          "one execution attempt id cannot identify different Dispatch tasks",
+          { executionAttemptId, priorIdentity, identity },
+        );
+      }
+      identities.set(executionAttemptId, identity);
+      if (typeof document.launch_registration_id !== "string") continue;
+      const registrationId = document.launch_registration_id;
+      const registrationHash = String(document.launch_registration_hash ?? "");
+      const priorHash = requestHashes.get(registrationId);
+      if (priorHash !== undefined && priorHash !== registrationHash) {
+        throw new StoreError(
+          "artifact.lifecycle_launch_request_conflict",
+          "one launch registration id cannot identify different request content",
+          { registrationId, priorHash, registrationHash },
+        );
+      }
+      requestHashes.set(registrationId, registrationHash);
+    }
+  }
+
+  private async assertDispatchLaunchClosureLocked(
+    runRoot: string,
+    manifest: RunManifest,
+    envelopes: readonly FormalArtifactEnvelope[],
+    downstreamTypes: ReadonlySet<string>,
+  ): Promise<void> {
+    if (!envelopes.some((envelope) => downstreamTypes.has(envelope.artifact_type))) return;
+    const stored = (await this.artifacts.listFormalDocuments(runRoot))
+      .filter(
+        (entry) =>
+          manifest.artifact_refs.includes(entry.path) &&
+          entry.document.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION,
+      )
+      .map((entry) => entry.document as FormalArtifactEnvelope);
+    const all = [...stored, ...envelopes];
+    const lifecycles = all.filter(
+      (envelope) => envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1",
+    );
+    const disposed = new Set([
+      ...manifest.completed_units,
+      ...manifest.failed_units,
+      ...manifest.invalidated_units,
+      ...manifest.skipped_units,
+      ...manifest.cancelled_units,
+      ...manifest.superseded_units,
+    ]);
+    const unresolved: { readonly dispatchRef: string; readonly unitId: string }[] = [];
+    for (const dispatch of all.filter(
+      (envelope) =>
+        envelope.document.launch_registration_required === true &&
+        [
+          "startup_opportunity.dispatch_batch.discovery.current",
+          "startup_opportunity.dispatch_batch.assessment.current",
+        ].includes(envelope.artifact_type),
+    )) {
+      for (const task of Array.isArray(dispatch.document.tasks)
+        ? dispatch.document.tasks.filter(isRecord)
+        : []) {
+        const unitId = String(task.unit_id ?? "");
+        const dispatchTaskRef = `${dispatch.artifact_path}#${String(task.task_id)}`;
+        const started = lifecycles.some(
+          (lifecycle) =>
+            lifecycle.document.dispatch_batch_ref === dispatchTaskRef &&
+            lifecycle.document.dispatch_batch_hash === dispatch.content_hash &&
+            lifecycle.document.unit_id === unitId &&
+            typeof lifecycle.document.launch_registration_id === "string" &&
+            lifecycle.document.state !== "dispatch_requested",
+        );
+        if (!started && !disposed.has(unitId)) {
+          unresolved.push({ dispatchRef: dispatch.artifact_path, unitId });
+        }
+      }
+    }
+    if (unresolved.length > 0) {
+      throw new StoreError(
+        "run.transition_dispatch_launch_open",
+        "downstream closure cannot silently bypass Dispatch lanes without a launch registration or formal disposition",
+        {
+          unresolved: unresolved.sort(
+            (left, right) =>
+              left.dispatchRef.localeCompare(right.dispatchRef) ||
+              left.unitId.localeCompare(right.unitId),
+          ),
+        },
+      );
     }
   }
 

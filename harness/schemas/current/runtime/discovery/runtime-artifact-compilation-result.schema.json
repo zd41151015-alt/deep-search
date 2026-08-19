@@ -13,6 +13,7 @@
     "compiled_envelopes",
     "publication_plan",
     "publication_preflight",
+    "dispatch_launch_checklists",
     "working_directory",
     "validation_closure",
     "timing_ms",
@@ -46,6 +47,12 @@
     },
     "publication_preflight": {
       "$ref": "../common/runtime-publication-preflight.schema.json"
+    },
+    "dispatch_launch_checklists": {
+      "type": "array",
+      "items": {
+        "$ref": "../common/dispatch-launch-check-result.schema.json"
+      }
     },
     "working_directory": {
       "type": "string",

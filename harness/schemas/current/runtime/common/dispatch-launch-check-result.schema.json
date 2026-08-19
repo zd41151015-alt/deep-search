@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/common/dispatch-launch-check-result.schema.json",
+  "title": "Startup Opportunity Dispatch Launch Checklist Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "dispatch_ref",
+    "dispatch_hash",
+    "checklist",
+    "started_unit_ids",
+    "not_started_unit_ids",
+    "unexpected_registrations",
+    "status"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.dispatch_launch_check_result.v1" },
+    "run_id": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId" },
+    "dispatch_ref": {
+      "type": "string",
+      "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json$"
+    },
+    "dispatch_hash": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256" },
+    "checklist": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "unit_id",
+          "task_ref",
+          "task_id",
+          "attempt",
+          "allowed_output_path",
+          "required_artifact_schema",
+          "execution_attempt_ids",
+          "launch_state"
+        ],
+        "properties": {
+          "unit_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "task_ref": {
+            "type": "string",
+            "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "task_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "attempt": { "type": "integer", "minimum": 1 },
+          "allowed_output_path": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"
+          },
+          "required_artifact_schema": {
+            "type": "string",
+            "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
+          },
+          "execution_attempt_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+            }
+          },
+          "launch_state": { "enum": ["started", "not_started", "conflict"] }
+        }
+      }
+    },
+    "started_unit_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier" }
+    },
+    "not_started_unit_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier" }
+    },
+    "unexpected_registrations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef" }
+    },
+    "status": { "enum": ["closed", "open", "conflict"] }
+  }
+}

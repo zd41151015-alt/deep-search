@@ -571,7 +571,13 @@ function validateLifecycle(
 ): void {
   const lifecycle = entry.document;
   const batch = target(byPath, lifecycle.dispatch_batch_ref);
-  if (batch?.schemaVersion !== "startup_opportunity.dispatch_batch.discovery.current") {
+  if (
+    batch === null ||
+    ![
+      "startup_opportunity.dispatch_batch.discovery.current",
+      "startup_opportunity.dispatch_batch.assessment.current",
+    ].includes(batch.schemaVersion)
+  ) {
     return;
   }
   const taskId = String(lifecycle.dispatch_batch_ref).split("#", 2)[1];
@@ -579,7 +585,10 @@ function validateLifecycle(
   if (
     task === undefined ||
     lifecycle.run_id !== batch.document.run_id ||
-    lifecycle.unit_id !== task.unit_id
+    lifecycle.unit_id !== task.unit_id ||
+    lifecycle.task_id !== task.task_id ||
+    lifecycle.task_ref !== lifecycle.dispatch_batch_ref ||
+    lifecycle.dispatch_batch_hash !== canonicalContentHash(batch.document)
   ) {
     errors.push(
       issue(
@@ -590,9 +599,11 @@ function validateLifecycle(
     );
   }
   const timestamps = isRecord(lifecycle.timestamps) ? lifecycle.timestamps : {};
+  const taskReadyAt = batch.document.task_ready_at ?? batch.document.requested_at;
+  const dispatchRequestedAt = batch.document.dispatch_requested_at ?? batch.document.requested_at;
   if (
-    timestamps.task_ready_at !== batch.document.task_ready_at ||
-    timestamps.dispatch_requested_at !== batch.document.dispatch_requested_at
+    timestamps.task_ready_at !== taskReadyAt ||
+    timestamps.dispatch_requested_at !== dispatchRequestedAt
   ) {
     errors.push(
       issue(
@@ -677,7 +688,10 @@ function validateLifecycle(
     parent.document.unit_id !== lifecycle.unit_id ||
     parent.document.attempt !== lifecycle.attempt ||
     parent.document.execution_attempt_id !== lifecycle.execution_attempt_id ||
-    parent.document.dispatch_batch_ref !== lifecycle.dispatch_batch_ref
+    parent.document.dispatch_batch_ref !== lifecycle.dispatch_batch_ref ||
+    parent.document.dispatch_batch_hash !== lifecycle.dispatch_batch_hash ||
+    parent.document.task_ref !== lifecycle.task_ref ||
+    parent.document.task_id !== lifecycle.task_id
   ) {
     errors.push(
       issue(
@@ -1289,6 +1303,67 @@ export function validateDeclarativeRuntimeContract(
       case "startup_opportunity.lane_delivery_receipt.current":
         validateLaneDeliveryReceipt(entry, documents, errors);
         break;
+    }
+  }
+  const launched = documents.filter(
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.lane_lifecycle.v1" &&
+      typeof entry.document.launch_registration_id === "string",
+  );
+  const byDispatchedAttempt = new Map<string, DeclarativeRuntimeDocument[]>();
+  const byExecutionAttempt = new Map<string, DeclarativeRuntimeDocument[]>();
+  for (const entry of launched) {
+    const dispatchedAttempt = canonicalJson({
+      dispatchBatchRef: entry.document.dispatch_batch_ref,
+      dispatchBatchHash: entry.document.dispatch_batch_hash,
+      unitId: entry.document.unit_id,
+      taskRef: entry.document.task_ref,
+      taskId: entry.document.task_id,
+      attempt: entry.document.attempt,
+    });
+    byDispatchedAttempt.set(dispatchedAttempt, [
+      ...(byDispatchedAttempt.get(dispatchedAttempt) ?? []),
+      entry,
+    ]);
+    const executionAttemptId = String(entry.document.execution_attempt_id ?? "");
+    byExecutionAttempt.set(executionAttemptId, [
+      ...(byExecutionAttempt.get(executionAttemptId) ?? []),
+      entry,
+    ]);
+  }
+  for (const entries of byDispatchedAttempt.values()) {
+    const attempts = new Set(entries.map((entry) => entry.document.execution_attempt_id));
+    const lifecycleIds = new Set(entries.map((entry) => entry.document.lifecycle_id));
+    if (attempts.size > 1 || lifecycleIds.size > 1) {
+      errors.push(
+        issue(
+          "runtime.lifecycle_launch_conflict",
+          entries[0]?.path ?? "lane_lifecycle",
+          "one exact Dispatch task attempt cannot have multiple launch registrations",
+          { paths: entries.map((entry) => entry.path).sort() },
+        ),
+      );
+    }
+  }
+  for (const [executionAttemptId, entries] of byExecutionAttempt) {
+    const identities = new Set(
+      entries.map((entry) =>
+        canonicalJson({
+          unitId: entry.document.unit_id,
+          taskRef: entry.document.task_ref,
+          attempt: entry.document.attempt,
+        }),
+      ),
+    );
+    if (identities.size > 1) {
+      errors.push(
+        issue(
+          "runtime.lifecycle_execution_attempt_conflict",
+          entries[0]?.path ?? "lane_lifecycle",
+          "one execution attempt id cannot identify different Dispatch tasks",
+          { executionAttemptId, paths: entries.map((entry) => entry.path).sort() },
+        ),
+      );
     }
   }
   return sortIssues(errors);

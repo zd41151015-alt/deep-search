@@ -103,6 +103,10 @@ function rulesFor(rules: readonly EnvelopeRule[], artifactType: string): readonl
 
 test("production exposes one current schema graph without version-selection structures", async () => {
   const result = await inspectCurrentContract(repositoryRoot);
+  const registry = JSON.parse(
+    await readFile(path.join(repositoryRoot, ownershipRegistryPath), "utf8"),
+  ) as MutableOwnershipRegistry;
+  const directRuntimeRoots = registry.families.flatMap((family) => family.directRuntimeRoots);
   assert.equal(result.valid, true, JSON.stringify(result, null, 2));
   assert.equal(result.schemaReferenceClosureCount, result.manifestSchemaCount);
   assert.ok(result.schemaRootCount > 0);
@@ -110,7 +114,11 @@ test("production exposes one current schema graph without version-selection stru
   assert.ok(result.activePolicyCount > 0);
   assert.ok(result.registryFamilyCount > 0);
   assert.equal(result.registeredArtifactTypeCount, result.artifactTypeCount);
-  assert.equal(result.registeredDirectRuntimeRootCount, 13);
+  assert.equal(result.registeredDirectRuntimeRootCount, 15);
+  assert.ok(directRuntimeRoots.includes("startup_opportunity.dispatch_launch_check_result.v1"));
+  assert.ok(
+    directRuntimeRoots.includes("startup_opportunity.dispatch_launch_registration_request.v1"),
+  );
 });
 
 test("ownership registry rejects a missing formal Artifact type owner", async (context) => {

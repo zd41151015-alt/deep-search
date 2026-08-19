@@ -19,6 +19,8 @@ Usage:
   npm run harness -- record-evidence --run-id ID --unit-id ID (--source-url URL | --source-uri URN) --research-goal GOAL --content-file FILE
   npm run harness -- publish-artifact --file FILE [--runs-root DIR]
   npm run harness -- compile-artifacts --file FILE [--runs-root DIR] [--observe]
+  npm run harness -- register-dispatch-launches --file FILE [--runs-root DIR]
+  npm run harness -- check-dispatch-launches --run-id ID --dispatch-ref REF --dispatch-hash HASH [--runs-root DIR]
   npm run harness -- materialize-lane-result --file FILE [--runs-root DIR] [--observe]
   npm run harness -- scaffold-artifact --file FILE
   npm run harness -- checkpoint-run --file FILE
@@ -48,6 +50,8 @@ Commands:
   record-evidence    Persist raw evidence with canonical hashes and deterministic deduplication.
   publish-artifact   Validate and publish one formal envelope or an explicit envelope bundle.
   compile-artifacts  Compile semantic JSON into an immutable publication plan, Run closure, and optional publication.
+  register-dispatch-launches Atomically record caller-declared starts for exact Dispatch tasks as Lane Lifecycle revisions.
+  check-dispatch-launches Read the exact Dispatch launch checklist and started/not-started set difference.
   materialize-lane-result Materialize a caller-supplied lane staging document through the same compiler.
   scaffold-artifact  Produce a schema-valid structural scaffold without research judgment.
   checkpoint-run     Publish an immutable checkpoint from a JSON input document.

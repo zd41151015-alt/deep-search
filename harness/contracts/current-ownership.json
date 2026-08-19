@@ -446,6 +446,8 @@
       "artifactTypeSelectors": [{ "prefix": "current/runtime/" }],
       "directRuntimeRoots": [
         "startup_opportunity.continuation_lineage_entry.v1",
+        "startup_opportunity.dispatch_launch_check_result.v1",
+        "startup_opportunity.dispatch_launch_registration_request.v1",
         "startup_opportunity.lane_staging_document.current",
         "startup_opportunity.lane_delivery_result.current",
         "startup_opportunity.runtime_artifact_compilation_request.v1",
@@ -456,6 +458,7 @@
       ],
       "ownerModules": [
         "harness/src/runtime/declarative-runtime.ts",
+        "harness/src/runtime/dispatch-launch-registry.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "producerModules": [
@@ -464,6 +467,7 @@
         "harness/src/index.ts",
         "harness/src/runtime/artifact-scaffolds.ts",
         "harness/src/runtime/declarative-runtime.ts",
+        "harness/src/runtime/dispatch-launch-registry.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "consumerModules": [
