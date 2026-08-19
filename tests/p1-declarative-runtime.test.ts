@@ -223,7 +223,7 @@ function terminalReadiness(runId: string, plan: Record<string, unknown>): Record
     missing_candidate_kinds: [],
     question_coverage: (plan.research_questions as Record<string, unknown>[]).map((question) => ({
       question_ref: `${G21_PLAN_REF}#${String(question.question_id)}`,
-      status: "method_boundary",
+      status: "unresolved",
       judgment_refs: [],
       evidence_refs: [],
       basis_refs: candidateRoles.map((role) => role.candidate_ref),
@@ -2520,6 +2520,34 @@ test("readiness and Gap semantics require bounded solution generation and basis 
   ]).map((issue) => issue.code);
   assert.ok(answeredCodes.includes("runtime.readiness_question_judgment_missing"));
 
+  const runtimeQuestionWithoutRuntimeBlocker = structuredClone(readiness);
+  const runtimeQuestionCoverage = runtimeQuestionWithoutRuntimeBlocker.question_coverage as Record<
+    string,
+    unknown
+  >[];
+  assert.ok(runtimeQuestionCoverage[0]);
+  runtimeQuestionCoverage[0].status = "runtime_blocked";
+  const runtimeQuestionCodes = validateDeclarativeRuntimeContract([
+    planEntry,
+    executionEntry,
+    { ...readinessEntry, document: runtimeQuestionWithoutRuntimeBlocker },
+  ]).map((issue) => issue.code);
+  assert.ok(runtimeQuestionCodes.includes("runtime.readiness_question_blocker_mismatch"));
+
+  const methodQuestionWithoutMethodBlocker = structuredClone(readiness);
+  const methodQuestionCoverage = methodQuestionWithoutMethodBlocker.question_coverage as Record<
+    string,
+    unknown
+  >[];
+  assert.ok(methodQuestionCoverage[0]);
+  methodQuestionCoverage[0].status = "method_boundary";
+  const methodQuestionCodes = validateDeclarativeRuntimeContract([
+    planEntry,
+    executionEntry,
+    { ...readinessEntry, document: methodQuestionWithoutMethodBlocker },
+  ]).map((issue) => issue.code);
+  assert.ok(methodQuestionCodes.includes("runtime.readiness_question_blocker_mismatch"));
+
   const terminalWithFollowup = structuredClone(readiness);
   terminalWithFollowup.next_stage_readiness = "terminal";
   (terminalWithFollowup as Record<string, unknown>).stop_basis = "method_boundary";
@@ -2637,6 +2665,61 @@ test("readiness and Gap semantics require bounded solution generation and basis 
   ]).map((issue) => issue.code);
   assert.ok(unclosedCodes.includes("runtime.gap_blocker_missing"));
   assert.ok(unclosedCodes.includes("runtime.gap_observation_closure_incomplete"));
+
+  const blockedRuntimeReadiness = structuredClone(readiness);
+  for (const coverage of blockedRuntimeReadiness.question_coverage as Record<string, unknown>[]) {
+    coverage.status = "runtime_blocked";
+  }
+  (blockedRuntimeReadiness.blockers as Record<string, unknown>[]).push({
+    blocker_id: "blocker_runtime_blocked_synthetic",
+    blocker_kind: "runtime_blocked",
+    candidate_kind: null,
+    basis_refs: [],
+    allowed_actions: ["record_runtime_failure"],
+    detail: "SYNTHETIC runtime failure remains distinct from research insufficiency.",
+  });
+  blockedRuntimeReadiness.allowed_next_actions = [
+    "add_unit",
+    "run_solution_generation",
+    "record_runtime_failure",
+  ];
+  const blockedRuntimeGap = structuredClone(gap);
+  blockedRuntimeGap.gaps.push({
+    gap_id: "gap_runtime_blocked_synthetic",
+    subject_ref: G21_SCOPE_REF,
+    gap_type: "runtime_blocked",
+    detection_mode: "deterministic",
+    decision_impact: ["execution_validity", "next_action"],
+    severity: "blocking",
+    basis_refs: [readinessPath],
+    evidence_refs: [],
+    recommended_unit_types: [],
+    allowed_actions: ["record_runtime_failure"],
+    detail: "SYNTHETIC runtime failure remains explicit in the readiness Gap.",
+  });
+  (blockedRuntimeGap as Record<string, unknown>).stop_signals = ["runtime_blocked"];
+  const blockedRuntimeDocuments = [
+    planEntry,
+    executionEntry,
+    { ...readinessEntry, document: blockedRuntimeReadiness },
+    { ...gapEntry, document: blockedRuntimeGap },
+  ];
+  const blockedRuntimeCodes = validateDeclarativeRuntimeContract(blockedRuntimeDocuments).map(
+    (issue) => issue.code,
+  );
+  assert.ok(!blockedRuntimeCodes.includes("runtime.readiness_question_blocker_mismatch"));
+  assert.ok(!blockedRuntimeCodes.includes("runtime.gap_blocker_missing"));
+  assert.ok(!blockedRuntimeCodes.includes("runtime.gap_runtime_blocker_unprojected"));
+
+  const runtimeGapWithoutStopSignal = structuredClone(blockedRuntimeGap) as Record<string, unknown>;
+  runtimeGapWithoutStopSignal.stop_signals = [];
+  const runtimeGapWithoutStopCodes = validateDeclarativeRuntimeContract([
+    planEntry,
+    executionEntry,
+    { ...readinessEntry, document: blockedRuntimeReadiness },
+    { ...gapEntry, document: runtimeGapWithoutStopSignal },
+  ]).map((issue) => issue.code);
+  assert.ok(runtimeGapWithoutStopCodes.includes("runtime.gap_runtime_blocker_unprojected"));
 });
 
 test("all direct Store writes fail closed after continuation while the child remains writable", async (t) => {

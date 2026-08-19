@@ -1093,6 +1093,28 @@ function validateReadiness(
     );
   }
   const blockers = records(readiness.blockers);
+  const requiredQuestionBlockers = [
+    ["method_boundary", "method_boundary"],
+    ["runtime_blocked", "runtime_blocked"],
+  ] as const;
+  for (const [coverageStatus, blockerKind] of requiredQuestionBlockers) {
+    const questionRefs = questionCoverage
+      .filter((coverage) => coverage.status === coverageStatus)
+      .map((coverage) => String(coverage.question_ref));
+    if (
+      questionRefs.length > 0 &&
+      !blockers.some((blocker) => blocker.blocker_kind === blockerKind)
+    ) {
+      errors.push(
+        issue(
+          "runtime.readiness_question_blocker_mismatch",
+          entry.path,
+          "method-boundary and runtime-blocked question dispositions require a matching readiness blocker",
+          { coverageStatus, requiredBlockerKind: blockerKind, questionRefs },
+        ),
+      );
+    }
+  }
   for (const kind of missingKinds) {
     const blocker = blockers.find(
       (candidate) =>
