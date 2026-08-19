@@ -41,6 +41,16 @@ const G14_CONFIRMED_SCOPE = {
   target_users: ["家庭协同使用者"],
   decision_goal: "判断当前是否值得继续验证该概念",
   research_language: "zh-CN",
+  team_context: {
+    hard_constraints: [],
+    known_strengths_and_gaps: [],
+    other_team_conditions: {
+      status: "unknown",
+      source_kind: "unknown",
+      confirmation_status: "unknown",
+      reporting_disclosure: "未提供其他团队条件，保持 unknown。",
+    },
+  },
 };
 
 function g14ScopeDecisions(): readonly Record<string, unknown>[] {
@@ -392,7 +402,18 @@ export async function createG14ContractBundle(
     if (entry.path === "artifacts/synthesis/concept-evidence-assessment.json") {
       continue;
     }
-    documents.set(entry.path, { ...clone(entry.document), run_id: G14_RUN_ID });
+    const document: Record<string, unknown> = { ...clone(entry.document), run_id: G14_RUN_ID };
+    if (entry.path === "intake.json") {
+      document.scope_confirmation = {
+        ...(document.scope_confirmation as Record<string, unknown>),
+        team_context: G14_CONFIRMED_SCOPE.team_context,
+      };
+    }
+    if (entry.path === "scope-frame.json") {
+      delete document.team_constraints;
+      document.team_context = G14_CONFIRMED_SCOPE.team_context;
+    }
+    documents.set(entry.path, document);
   }
   documents.set("manifest.json", makeManifest());
 

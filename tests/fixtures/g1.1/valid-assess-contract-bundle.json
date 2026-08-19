@@ -18,6 +18,16 @@
           "target_users": ["家庭协同使用者"],
           "decision_goal": "判断当前是否值得继续验证该概念",
           "research_language": "zh-CN",
+          "team_context": {
+            "hard_constraints": [],
+            "known_strengths_and_gaps": [],
+            "other_team_conditions": {
+              "status": "unknown",
+              "source_kind": "unknown",
+              "confirmation_status": "unknown",
+              "reporting_disclosure": "未提供其他团队条件，保持 unknown。"
+            }
+          },
           "user_confirmed": true
         },
         "decision_context_ref": "decision-context.json",
@@ -78,7 +88,16 @@
         "delivery_form": "mini_program",
         "business_model": "subscription",
         "acquisition_hypothesis": "从家庭协同场景的社区入口触达",
-        "team_constraints": [],
+        "team_context": {
+          "hard_constraints": [],
+          "known_strengths_and_gaps": [],
+          "other_team_conditions": {
+            "status": "unknown",
+            "source_kind": "unknown",
+            "confirmation_status": "unknown",
+            "reporting_disclosure": "未提供其他团队条件，保持 unknown。"
+          }
+        },
         "assumptions": [],
         "unknowns": ["当前没有正式 Evidence"],
         "kill_criteria": ["当前替代方案已提供足够增量价值"],

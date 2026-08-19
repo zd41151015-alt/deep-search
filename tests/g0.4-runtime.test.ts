@@ -66,6 +66,17 @@ const CONFIRMED_SCOPE = {
   target_users: ["synthetic user"],
   decision_goal: "test current contract",
   research_language: "en-US",
+  team_context: {
+    hard_constraints: [],
+    known_strengths_and_gaps: [],
+    other_team_conditions: {
+      status: "unknown",
+      source_kind: "unknown",
+      confirmation_status: "unknown",
+      reporting_disclosure:
+        "Team conditions not explicitly captured as hard constraints or known strengths and gaps remain unknown.",
+    },
+  },
 };
 
 function scopeDecisions(runId: string): readonly Record<string, unknown>[] {
@@ -1296,7 +1307,7 @@ async function prepareTerminalReporting(
       native_app_required: false,
       delivery_form_preferences: [],
       business_model_preferences: [],
-      team_capability_constraints: [],
+      team_context: CONFIRMED_SCOPE.team_context,
       risk_preferences: ["SYNTHETIC avoid unsupported conclusions."],
       ai_scope: "optional",
       assumptions: ["SYNTHETIC Scope is not market Evidence."],
@@ -2971,6 +2982,7 @@ test("a confirmed pre-Plan Scope revision still reaches formation and the first 
     target_users: ["synthetic revised user"],
     decision_goal: "form the first Plan from the revised confirmed Scope",
     research_language: "en-US",
+    team_context: CONFIRMED_SCOPE.team_context,
     user_confirmed: true,
   };
   const constraints = intakeEnvelope.document.explicit_constraints as Record<string, unknown>;
@@ -2983,6 +2995,7 @@ test("a confirmed pre-Plan Scope revision still reaches formation and the first 
   scopeEnvelope.document.market = "Synthetic revised geography";
   scopeEnvelope.document.language = "en-US";
   scopeEnvelope.document.target_users = ["synthetic revised user"];
+  scopeEnvelope.document.team_context = CONFIRMED_SCOPE.team_context;
   (scopeEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
     scopeEnvelope.document,
   );
@@ -3124,6 +3137,7 @@ test("first Plan after a pre-Plan Scope correction requires an exact immutable r
     target_users: ["synthetic r2 user"],
     decision_goal: "form the first Plan from exact r2 formation",
     research_language: "en-US",
+    team_context: CONFIRMED_SCOPE.team_context,
     user_confirmed: true,
   };
   const r2Constraints = r2Intake.document.explicit_constraints as Record<string, unknown>;
@@ -3134,6 +3148,7 @@ test("first Plan after a pre-Plan Scope correction requires an exact immutable r
   r2Scope.document.market = "Synthetic r2 geography";
   r2Scope.document.language = "en-US";
   r2Scope.document.target_users = ["synthetic r2 user"];
+  r2Scope.document.team_context = CONFIRMED_SCOPE.team_context;
   (r2Scope as { content_hash: string }).content_hash = canonicalContentHash(r2Scope.document);
 
   for (const mismatch of [
@@ -3267,7 +3282,7 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
     native_app_required: false,
     delivery_form_preferences: [],
     business_model_preferences: [],
-    team_capability_constraints: [],
+    team_context: CONFIRMED_SCOPE.team_context,
     risk_preferences: ["SYNTHETIC avoid unsupported conclusions."],
     ai_scope: "optional",
     assumptions: ["SYNTHETIC Scope is not market Evidence."],

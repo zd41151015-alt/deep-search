@@ -193,7 +193,8 @@
         "customer_model",
         "target_users",
         "decision_goal",
-        "research_language"
+        "research_language",
+        "team_context"
       ],
       "properties": {
         "revision": {
@@ -220,6 +221,9 @@
         "research_language": {
           "type": "string",
           "pattern": "^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"
+        },
+        "team_context": {
+          "$ref": "./team-context.schema.json#/$defs/teamContext"
         }
       }
     }

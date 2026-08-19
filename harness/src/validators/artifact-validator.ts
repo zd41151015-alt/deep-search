@@ -453,6 +453,73 @@ function refsFromObjectArray(
   );
 }
 
+const TEAM_BURDEN_REFERENCE_SCHEMAS = [
+  "startup_opportunity.evidence.discovery_evaluation.current",
+  "startup_opportunity.claim.discovery_evaluation.current",
+  "startup_opportunity.finding.discovery_evaluation.current",
+  "startup_opportunity.insight.discovery_evaluation.current",
+  "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+  "startup_opportunity.value_layer_analysis.v1",
+  "startup_opportunity.user_state_context_model.v1",
+  "startup_opportunity.buyer_purchase_language.v1",
+  "startup_opportunity.business_engine_thesis.discovery_evaluation.current",
+] as const;
+
+function comparisonTeamRefs(document: Record<string, unknown>): readonly ReferenceRequirement[] {
+  return records(document.comparison_panels).flatMap((panel, panelIndex) => {
+    if (panel.panel_id !== "team_fit_and_learning") return [];
+    const burden = isRecord(panel.team_startup_burden) ? panel.team_startup_burden : {};
+    const match = isRecord(panel.team_match_analysis) ? panel.team_match_analysis : {};
+    const materialRefs = records(burden.dimensions).flatMap((dimension, dimensionIndex) =>
+      ["supporting_refs", "opposing_refs"].flatMap((field) =>
+        Array.isArray(dimension[field])
+          ? dimension[field].flatMap((ref, refIndex) =>
+              typeof ref === "string"
+                ? [
+                    {
+                      instancePath: `/comparison_panels/${panelIndex}/team_startup_burden/dimensions/${dimensionIndex}/${field}/${refIndex}`,
+                      ref,
+                      expectedSchemaVersions: TEAM_BURDEN_REFERENCE_SCHEMAS,
+                    },
+                  ]
+                : [],
+            )
+          : [],
+      ),
+    );
+    return [
+      ...materialRefs,
+      ...(typeof burden.opportunity_ref === "string"
+        ? [
+            {
+              instancePath: `/comparison_panels/${panelIndex}/team_startup_burden/opportunity_ref`,
+              ref: burden.opportunity_ref,
+              expectedSchemaVersions: ["startup_opportunity.opportunity_thesis.v1"],
+            },
+          ]
+        : []),
+      ...(typeof match.opportunity_ref === "string"
+        ? [
+            {
+              instancePath: `/comparison_panels/${panelIndex}/team_match_analysis/opportunity_ref`,
+              ref: match.opportunity_ref,
+              expectedSchemaVersions: ["startup_opportunity.opportunity_thesis.v1"],
+            },
+          ]
+        : []),
+      ...(typeof match.scope_frame_ref === "string"
+        ? [
+            {
+              instancePath: `/comparison_panels/${panelIndex}/team_match_analysis/scope_frame_ref`,
+              ref: match.scope_frame_ref,
+              expectedSchemaVersions: ["startup_opportunity.scope_frame.discovery.current"],
+            },
+          ]
+        : []),
+    ];
+  });
+}
+
 function g14CommonRefs(document: Record<string, unknown>): readonly ReferenceRequirement[] {
   return [
     ...nestedRef(
@@ -2883,6 +2950,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "judgment_assessment_refs",
           "startup_opportunity.judgment_assessment.discovery_evaluation.current",
         ),
+        ...comparisonTeamRefs(document),
       ];
     case "startup_opportunity.sensitivity.v1":
       return [
@@ -2903,6 +2971,18 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...refsFromArray(
           document,
           "comparison_refs",
+          "startup_opportunity.opportunity_comparison.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "opportunity_ranking",
+          "opportunity_ref",
+          "startup_opportunity.opportunity_thesis.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "opportunity_ranking",
+          "comparison_ref",
           "startup_opportunity.opportunity_comparison.v1",
         ),
       ];

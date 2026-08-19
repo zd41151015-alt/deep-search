@@ -599,10 +599,40 @@ function effectiveFixtureDocument(bundle: DocumentBundle, artifactPath: string) 
     : outer;
 }
 
+function collectFixtureRefs(value: unknown): readonly string[] {
+  if (Array.isArray(value)) return value.flatMap(collectFixtureRefs);
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([key, child]) => {
+    if ((key.endsWith("_refs") || key === "input_refs") && Array.isArray(child)) {
+      return child.filter(
+        (ref): ref is string => typeof ref === "string" && (ref.includes("/") || ref.includes("#")),
+      );
+    }
+    if (
+      (key.endsWith("_ref") || key === "ref") &&
+      typeof child === "string" &&
+      (child.includes("/") || child.includes("#"))
+    ) {
+      return [child];
+    }
+    return collectFixtureRefs(child);
+  });
+}
+
 function refreshFixtureEnvelope(bundle: DocumentBundle, artifactPath: string): void {
   const outer = g3Envelope(bundle, artifactPath) as unknown as Record<string, unknown>;
   if (String(outer.schema_version).startsWith("startup_opportunity.artifact_envelope.")) {
     outer.content_hash = canonicalContentHash(outer.document as Record<string, unknown>);
+    if (artifactPath === G24_REPORT) {
+      outer.input_refs = [
+        ...new Set([
+          ...collectFixtureRefs(outer.document),
+          ...collectFixtureRefs(outer.ai_bundle_binding),
+        ]),
+      ]
+        .filter((ref) => ref !== artifactPath)
+        .sort();
+    }
   }
 }
 

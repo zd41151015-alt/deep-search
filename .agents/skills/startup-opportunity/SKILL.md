@@ -20,6 +20,7 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 - 如果请求混合宽泛 discovery 与具体 thesis，且选择会改变输出 contract，则在创建 Run 前要求澄清。
 - 创建任何正式 Run 前，必须取得用户明确给出的地域、B2C/B2B/B2B2C/mixed、目标用户群、决策目标和主要研究语言；不得从用户所用语言推断市场。`create-run` 会拒绝缺少这些参数的请求，并在写入前把支持的人类语言名称规范为用户可见的 BCP-47 值（例如 `中文` 为 `zh-CN`）。
 - `create-run` 只把 Scope proposal 作为 revision 1 原子追加到 `decisions.jsonl`，Manifest 状态保持 `awaiting_scope_confirmation`。必须把返回的 exact revision/ref/hash 所绑定 canonical Scope 展示给用户，收到明确确认后再调用 `scripts/confirm-scope.ts`；Harness 只记录 caller-attested confirmation，无法认证聊天身份。当前 Run 内的用户修正先用 `scripts/propose-scope.ts` 追加 proposal，再独立确认；首个 Plan 前的修正确认可继续形成 Intake、DecisionContext、ScopeFrame 和首个对账 Plan。已有 Plan 时，以同一 `--run-id` 调用 `analyze-gaps` 的 `resume_reconciliation`：observed refs、repeated refs 与 machine checks 为空且 `material_new_evidence_observed=false`，由 Harness 从 exact Scope confirmation 机械派生唯一 Scope Gap，再按 Gap -> `reconcile_scope` Adaptation Decision -> immutable Plan Revision 对账。纯对账 revision 不新增研究 unit 或消耗 follow-up round。
+- Scope 只记录三类团队信息：用户明确的硬约束、已知优势或明显短板，以及显式保持 `unknown` 的其他团队条件。用户提供、用户确认的临时假设和未确认假设必须保留 provenance/confirmation truth；未知团队信息不得阻止发现研究，Harness 不主动追问或补全团队档案。
 - Run 不得静默改变 mode，并且只包含一个主要市场和一种主要研究语言。
 
 ## Non-Negotiable Rules
@@ -30,6 +31,8 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 - 绝不伪造 Evidence、来源 provenance、用户原话、市场数据、验证结果或引用。
 - 为每个 subagent 提供 typed task envelope 和唯一 output path。main agent 始终是唯一 orchestrator。
 - 语义判断留给 agent；deterministic 验证、存储、版本控制和报告机制留给 Harness。
+- 每个 Opportunity 的 `team_fit_and_learning` panel 还由主 Agent提交五维“团队启动负担分析”（启动资本/开发复杂度、持续人工交付、获客与渠道依赖、合规/数据/专业责任、首次有效验证或收入时间），逐维保留 assessment、支持/反对 refs、limitations 和 `partial`/`unknown`/`insufficient_evidence` 等诚实状态。Harness 只验证 same-Run、subject/ref/hash 和报告闭合，不分析 Evidence、不评分、不排除高负担机会。
+- 主 Agent 必须把 Scope 中已知团队条件与每个机会的启动负担显式提交为 `match`、`conditional`、`mismatch` 或 `unknown`，并写出未知前提、会改变结论的条件和限制。排序必须引用这些匹配分析，同时继续保留需求、买方、替代、证据强度和反对材料；团队匹配不是 Harness 自动排序或默认硬拒绝。
 - 绝不覆盖 current plan。Runtime 调整必须依次经过 Gap Snapshot、一个或多个已验证 Adaptation Decision 和不可变 Plan Revision。
 - 新 Run 必须先形成并发布 Intake、DecisionContext 与 ScopeFrame，再生成和验证 `plans/research-plan.r1.json`；不得从聊天摘要跳到 research wave。
 - 每个 wave 只使用 typed task envelope 启动 bounded custom agent。agent completion summary 只作通知，父任务必须从唯一 output path 重新读取并验证正式 Artifact。

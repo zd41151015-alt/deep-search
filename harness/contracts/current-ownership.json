@@ -375,7 +375,8 @@
           "ranking",
           "confidence",
           "readiness",
-          "recommendation_ceiling"
+          "recommendation_ceiling",
+          "user_visible_report"
         ]
       }
     },

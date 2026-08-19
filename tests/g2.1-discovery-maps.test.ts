@@ -663,6 +663,16 @@ test("empty decision subject scaffold compiles and publishes through exact Store
         target_users: ["synthetic user"],
         decision_goal: "test current snapshot scaffold publication",
         research_language: "en-US",
+        team_context: {
+          hard_constraints: [],
+          known_strengths_and_gaps: [],
+          other_team_conditions: {
+            status: "unknown",
+            source_kind: "unknown",
+            confirmation_status: "unknown",
+            reporting_disclosure: "No other team conditions were provided; keep unknown.",
+          },
+        },
         user_confirmed: true,
       },
     },

@@ -28,6 +28,7 @@ import {
   fixtureEnvelope,
   G21_CORE_REFS,
   G21_MAP_REFS,
+  G21_SCOPE_REF,
   G21_SOLUTION_REF,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import {
@@ -628,6 +629,122 @@ test("G2.4 validates closed enrichment, hard gates, comparison, portfolio, and r
           candidate.document.schema_version === "startup_opportunity.artifact_envelope.current",
       ),
     true,
+  );
+});
+
+test("G2.4 preserves opportunity burden, explicit team matching, ranking, and report layers", async (context) => {
+  const state = await setup(context, "team-positive", "general", "en-US");
+  const comparisonA = effective(state.bundle, G24_COMPARISON_A);
+  const comparisonB = effective(state.bundle, G24_COMPARISON_B);
+  const teamPanelA = (comparisonA.comparison_panels as Record<string, unknown>[]).find(
+    (panel) => panel.panel_id === "team_fit_and_learning",
+  );
+  const teamPanelB = (comparisonB.comparison_panels as Record<string, unknown>[]).find(
+    (panel) => panel.panel_id === "team_fit_and_learning",
+  );
+  assert.ok(teamPanelA && teamPanelB);
+  const burdenA = teamPanelA.team_startup_burden as Record<string, unknown>;
+  const burdenB = teamPanelB.team_startup_burden as Record<string, unknown>;
+  assert.notDeepEqual(burdenA.dimensions, burdenB.dimensions);
+  assert.equal(
+    (teamPanelA.team_match_analysis as Record<string, unknown>).conclusion,
+    "conditional",
+  );
+  assert.equal((teamPanelB.team_match_analysis as Record<string, unknown>).conclusion, "unknown");
+  assert.equal(
+    comparisonA.hard_gate_outcome as string,
+    "insufficient_evidence",
+    "team matching does not become a hard rejection or replace evidence gates",
+  );
+  const portfolio = effective(state.bundle, G24_PORTFOLIO);
+  assert.deepEqual(
+    (portfolio.opportunity_ranking as Record<string, unknown>[]).map((entry) => entry.rank),
+    [1, 2],
+  );
+  const report = effective(state.bundle, G24_REPORT);
+  const summary = report.team_decision_summary as Record<string, unknown>;
+  assert.equal(
+    (summary.team_context as Record<string, unknown>).other_team_conditions !== undefined,
+    true,
+  );
+  assert.equal((summary.opportunity_analyses as unknown[]).length, 2);
+  assert.deepEqual(summary.opportunity_ranking, portfolio.opportunity_ranking);
+});
+
+test("G2.4 rejects computed or unbound team matching without blocking unknown research", async (context) => {
+  const state = await setup(context, "team-negative");
+
+  const computedMatch = clone(state.bundle);
+  const computedComparison = effective(computedMatch, G24_COMPARISON_A);
+  const computedPanel = (computedComparison.comparison_panels as Record<string, unknown>[]).find(
+    (panel) => panel.panel_id === "team_fit_and_learning",
+  );
+  assert.ok(computedPanel);
+  const computedAnalysis = computedPanel.team_match_analysis as Record<string, unknown>;
+  computedAnalysis.conclusion = "match";
+  computedAnalysis.assessment = "Harness-derived match; no Agent judgment was supplied.";
+  computedAnalysis.unknown_assumptions = [];
+  refresh(computedMatch, G24_COMPARISON_A);
+  const computedResult = state.validator.validateDocumentBundle(computedMatch);
+  assert.equal(computedResult.valid, false);
+  assert.ok(
+    computedResult.referenceErrors.some(
+      (error) => error.code === "g2_4.unconditional_team_match_invalid",
+    ),
+    JSON.stringify(computedResult.referenceErrors, null, 2),
+  );
+
+  const unbound = clone(state.bundle);
+  const unboundComparison = effective(unbound, G24_COMPARISON_B);
+  const unboundPanel = (unboundComparison.comparison_panels as Record<string, unknown>[]).find(
+    (panel) => panel.panel_id === "team_fit_and_learning",
+  );
+  assert.ok(unboundPanel);
+  const unboundAnalysis = unboundPanel.team_match_analysis as Record<string, unknown>;
+  unboundAnalysis.scope_frame_ref = "scope-frame-missing.json";
+  const inputHashes = unboundComparison.input_artifact_hashes as Record<string, unknown>[];
+  unboundComparison.input_artifact_hashes = inputHashes.filter(
+    (binding) => binding.ref !== G21_SCOPE_REF,
+  );
+  refresh(unbound, G24_COMPARISON_B);
+  const unboundResult = state.validator.validateDocumentBundle(unbound);
+  assert.equal(unboundResult.valid, false);
+  assert.ok(
+    unboundResult.referenceErrors.some(
+      (error) => error.code === "g2_4.team_analysis_binding_mismatch",
+    ),
+    JSON.stringify(unboundResult.referenceErrors, null, 2),
+  );
+
+  const reportDrift = clone(state.bundle);
+  const teamSummary = effective(reportDrift, G24_REPORT).team_decision_summary as Record<
+    string,
+    unknown
+  >;
+  teamSummary.opportunity_ranking = [];
+  refresh(reportDrift, G24_REPORT);
+  const reportResult = state.validator.validateDocumentBundle(reportDrift);
+  assert.equal(reportResult.valid, false);
+  assert.ok(
+    reportResult.referenceErrors.some(
+      (error) => error.code === "g2_4.team_report_projection_mismatch",
+    ),
+    JSON.stringify(reportResult.referenceErrors, null, 2),
+  );
+
+  assert.equal(state.validator.validateDocumentBundle(state.bundle).valid, true);
+  const preservedBurden = (
+    effective(state.bundle, G24_COMPARISON_B).comparison_panels as Record<string, unknown>[]
+  ).find((panel) => panel.panel_id === "team_fit_and_learning")?.team_startup_burden as Record<
+    string,
+    unknown
+  >;
+  assert.equal(
+    (preservedBurden.dimensions as Record<string, unknown>[]).some(
+      (dimension) => dimension.status === "insufficient_evidence",
+    ),
+    true,
+    "high or uncertain burden remains visible instead of being filtered",
   );
 });
 
@@ -1882,10 +1999,16 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   assert.ok(loaded.manifest.artifact_refs.includes(first.consistencyEvaluationRef));
   const decisionBrief = await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8");
   assert.match(decisionBrief, /局部排序/);
+  assert.match(decisionBrief, /当前团队条件/);
+  assert.match(decisionBrief, /机会自身启动负担与当前团队匹配/);
+  assert.match(decisionBrief, /当前团队匹配结论/);
+  assert.match(decisionBrief, /主 Agent 明确提交的机会排序/);
   assert.match(decisionBrief, /头部公司吸收与响应风险/);
   assert.ok(decisionBrief.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
   assert.match(reportMarkdown, /方向组合/);
+  assert.match(reportMarkdown, /当前团队条件/);
+  assert.match(reportMarkdown, /机会自身启动负担与当前团队匹配/);
   assert.match(reportMarkdown, /头部公司吸收与响应风险/);
   assert.ok(reportMarkdown.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   const auditAppendix = await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8");

@@ -215,6 +215,193 @@
         }
       }
     },
+    "teamStartupBurdenDimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dimension_id",
+        "status",
+        "assessment",
+        "supporting_refs",
+        "opposing_refs",
+        "limitations"
+      ],
+      "properties": {
+        "dimension_id": {
+          "enum": [
+            "startup_capital_and_build_complexity",
+            "ongoing_human_delivery",
+            "acquisition_and_channel_dependency",
+            "compliance_data_and_professional_liability",
+            "time_to_first_meaningful_validation_or_revenue"
+          ]
+        },
+        "status": {
+          "enum": [
+            "supported",
+            "partial",
+            "unavailable",
+            "unknown",
+            "inferred",
+            "not_applicable",
+            "no_evidence_found",
+            "insufficient_evidence"
+          ]
+        },
+        "assessment": { "$ref": "#/$defs/nonEmptyString" },
+        "supporting_refs": { "$ref": "#/$defs/artifactRefArray" },
+        "opposing_refs": { "$ref": "#/$defs/artifactRefArray" },
+        "limitations": { "$ref": "#/$defs/uniqueStringArray" }
+      }
+    },
+    "teamStartupBurden": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["opportunity_ref", "dimensions", "overall_limitations"],
+      "properties": {
+        "opportunity_ref": { "$ref": "#/$defs/opportunityRef" },
+        "dimensions": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/teamStartupBurdenDimension" }
+        },
+        "overall_limitations": { "$ref": "#/$defs/uniqueStringArray" }
+      }
+    },
+    "teamMatchAnalysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "opportunity_ref",
+        "scope_frame_ref",
+        "conclusion",
+        "assessment",
+        "basis_condition_ids",
+        "burden_dimension_ids",
+        "unknown_assumptions",
+        "conditions_that_would_change_conclusion",
+        "limitations"
+      ],
+      "properties": {
+        "opportunity_ref": { "$ref": "#/$defs/opportunityRef" },
+        "scope_frame_ref": { "$ref": "#/$defs/artifactRef" },
+        "conclusion": { "enum": ["match", "conditional", "mismatch", "unknown"] },
+        "assessment": { "$ref": "#/$defs/nonEmptyString" },
+        "basis_condition_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "burden_dimension_ids": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "startup_capital_and_build_complexity",
+              "ongoing_human_delivery",
+              "acquisition_and_channel_dependency",
+              "compliance_data_and_professional_liability",
+              "time_to_first_meaningful_validation_or_revenue"
+            ]
+          }
+        },
+        "unknown_assumptions": { "$ref": "#/$defs/uniqueStringArray" },
+        "conditions_that_would_change_conclusion": { "$ref": "#/$defs/uniqueStringArray" },
+        "limitations": { "$ref": "#/$defs/uniqueStringArray" }
+      }
+    },
+    "opportunityRankingEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rank",
+        "opportunity_ref",
+        "comparison_ref",
+        "team_fit_contribution",
+        "rationale",
+        "other_decision_factors",
+        "hard_constraint_effect",
+        "limitations"
+      ],
+      "properties": {
+        "rank": { "type": "integer", "minimum": 1 },
+        "opportunity_ref": { "$ref": "#/$defs/opportunityRef" },
+        "comparison_ref": { "$ref": "#/$defs/comparisonRef" },
+        "team_fit_contribution": {
+          "enum": ["supporting", "constraining", "neutral", "unknown"]
+        },
+        "rationale": { "$ref": "#/$defs/nonEmptyString" },
+        "other_decision_factors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "hard_constraint_effect": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "condition_ids", "rationale"],
+          "properties": {
+            "status": { "enum": ["not_applied", "applied"] },
+            "condition_ids": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/identifier" }
+            },
+            "rationale": { "$ref": "#/$defs/nonEmptyString" }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "status": { "const": "applied" } },
+                "required": ["status"]
+              },
+              "then": { "properties": { "condition_ids": { "type": "array", "minItems": 1 } } },
+              "else": { "properties": { "condition_ids": { "type": "array", "maxItems": 0 } } }
+            }
+          ]
+        },
+        "limitations": { "$ref": "#/$defs/uniqueStringArray" }
+      }
+    },
+    "teamDecisionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["team_context", "opportunity_analyses", "opportunity_ranking"],
+      "properties": {
+        "team_context": {
+          "$ref": "../../core/team-context.schema.json#/$defs/teamContext"
+        },
+        "opportunity_analyses": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "opportunity_ref",
+              "comparison_ref",
+              "team_startup_burden",
+              "team_match_analysis"
+            ],
+            "properties": {
+              "opportunity_ref": { "$ref": "#/$defs/opportunityRef" },
+              "comparison_ref": { "$ref": "#/$defs/comparisonRef" },
+              "team_startup_burden": { "$ref": "#/$defs/teamStartupBurden" },
+              "team_match_analysis": { "$ref": "#/$defs/teamMatchAnalysis" }
+            }
+          }
+        },
+        "opportunity_ranking": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/opportunityRankingEntry" }
+        }
+      }
+    },
     "summaryRefs": {
       "type": "array",
       "items": {

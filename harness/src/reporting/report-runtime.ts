@@ -366,6 +366,101 @@ function summaryList(value: unknown, zh: boolean, limit?: number): string {
   );
 }
 
+function renderDiscoveryTeamDecisionSummary(report: Record<string, unknown>, zh: boolean): string {
+  const summary = requiredRecord(report.team_decision_summary, "team_decision_summary");
+  const team = requiredRecord(summary.team_context, "team_context");
+  const otherConditions = requiredRecord(team.other_team_conditions, "other_team_conditions");
+  const teamTerm = (value: unknown): string => {
+    const labels: Readonly<Record<string, string>> = zh
+      ? {
+          conditional: "有条件",
+          match: "匹配",
+          mismatch: "不匹配",
+          unknown: "未知",
+          supporting: "支持排序",
+          constraining: "形成约束",
+          neutral: "中性",
+          insufficient_evidence: "证据不足",
+          partial: "部分",
+          unavailable: "不可用",
+          inferred: "推断",
+          not_applicable: "不适用",
+          no_evidence_found: "未找到证据",
+        }
+      : {};
+    return labels[String(value)] ?? String(value);
+  };
+  const conditionLines = (value: unknown, empty: string): string => {
+    const conditions = records(value).map((condition) => userVisibleText(condition.statement, zh));
+    return markdownList(conditions, empty);
+  };
+  const analyses = records(summary.opportunity_analyses);
+  const burdenLabels: Readonly<Record<string, string>> = zh
+    ? {
+        startup_capital_and_build_complexity: "启动资本与开发复杂度",
+        ongoing_human_delivery: "持续人工交付",
+        acquisition_and_channel_dependency: "获客与渠道依赖",
+        compliance_data_and_professional_liability: "合规、数据与专业责任",
+        time_to_first_meaningful_validation_or_revenue: "首次有效验证或收入时间",
+      }
+    : {
+        startup_capital_and_build_complexity: "Startup capital and build complexity",
+        ongoing_human_delivery: "Ongoing human delivery",
+        acquisition_and_channel_dependency: "Acquisition and channel dependency",
+        compliance_data_and_professional_liability: "Compliance, data, and professional liability",
+        time_to_first_meaningful_validation_or_revenue:
+          "Time to first meaningful validation or revenue",
+      };
+  const analysisBlocks = analyses.map((analysis, index) => {
+    const burden = requiredRecord(analysis.team_startup_burden, "team_startup_burden");
+    const match = requiredRecord(analysis.team_match_analysis, "team_match_analysis");
+    const dimensions = records(burden.dimensions)
+      .map(
+        (dimension) =>
+          `- ${burdenLabels[String(dimension.dimension_id)] ?? String(dimension.dimension_id)}: ${teamTerm(dimension.status)}; ${userVisibleText(dimension.assessment, zh)}`,
+      )
+      .join("\n");
+    return [
+      `### ${zh ? "机会" : "Opportunity"} ${index + 1}: ${zh ? "机会自身启动负担" : "Opportunity startup burden"}`,
+      dimensions || (zh ? "- 无" : "- None recorded."),
+      `${zh ? "负担限制" : "Burden limitations"}:`,
+      boundedMarkdownList(burden.overall_limitations, zh),
+      `**${zh ? "当前团队匹配结论" : "Current team match conclusion"}:** ${teamTerm(match.conclusion)}. ${userVisibleText(match.assessment, zh)}`,
+      `${zh ? "未知前提" : "Unknown assumptions"}:`,
+      boundedMarkdownList(match.unknown_assumptions, zh),
+      `${zh ? "会改变结论的条件" : "Conditions that would change the conclusion"}:`,
+      boundedMarkdownList(match.conditions_that_would_change_conclusion, zh),
+      `${zh ? "匹配限制" : "Match limitations"}:`,
+      boundedMarkdownList(match.limitations, zh),
+    ].join("\n");
+  });
+  const ranking = [...records(summary.opportunity_ranking)]
+    .sort((left, right) => Number(left.rank) - Number(right.rank))
+    .map(
+      (entry) =>
+        `- ${zh ? "第" : "Rank "}${String(entry.rank)}${zh ? "位" : ""}: ${teamTerm(entry.team_fit_contribution)}; ${userVisibleText(entry.rationale, zh)}`,
+    )
+    .join("\n");
+  return [
+    `## ${zh ? "当前团队条件" : "Current Team Conditions"}`,
+    `${zh ? "硬约束" : "Hard constraints"}:`,
+    conditionLines(
+      team.hard_constraints,
+      zh ? "- 未提供；保持 unknown。" : "- None provided; remains unknown.",
+    ),
+    `${zh ? "已知优势或短板" : "Known strengths or gaps"}:`,
+    conditionLines(
+      team.known_strengths_and_gaps,
+      zh ? "- 未提供；保持 unknown。" : "- None provided; remains unknown.",
+    ),
+    `${zh ? "其他团队条件" : "Other team conditions"}: ${teamTerm(otherConditions.status)}. ${userVisibleText(otherConditions.reporting_disclosure, zh)}\n`,
+    `\n## ${zh ? "机会自身启动负担与当前团队匹配" : "Opportunity Startup Burden And Current Team Match"}`,
+    analysisBlocks.length > 0 ? analysisBlocks.join("\n\n") : zh ? "- 无" : "- None recorded.",
+    `\n## ${zh ? "主 Agent 明确提交的机会排序" : "Explicit Main-Agent Opportunity Ranking"}`,
+    ranking || (zh ? "- 无" : "- None recorded."),
+  ].join("\n");
+}
+
 function localizedLeakageGuard(report: Record<string, unknown>, markdown: string): void {
   const issues = localizedInternalLeakageIssues(report.research_language, markdown);
   if (issues.length > 0) {
@@ -593,6 +688,7 @@ function renderDiscoveryDecisionBrief(report: Record<string, unknown>): string {
     `${zh ? "含义" : "Meaning"}: ${userVisibleText(context.recommendation_meaning, zh)}\n\n`,
     `## ${zh ? "局部排序" : "Partial Order"}\n`,
     `${userVisibleText(context.partial_order_summary, zh)}\n\n`,
+    `${renderDiscoveryTeamDecisionSummary(report, zh)}\n`,
     `## ${zh ? "研究概览" : "Key Research Counts"}\n`,
     renderReportStatistics(report, zh),
     `\n## ${zh ? "关键支持材料" : "Decisive Support"}\n`,
@@ -621,6 +717,7 @@ function renderDiscoveryFullReport(report: Record<string, unknown>): string {
     `\n${zh ? "建议" : "Recommendation"}: ${userVisibleText(context.current_recommendation, zh)}\n`,
     `\n${zh ? "有效日期" : "Valid as of"}: ${String(context.valid_as_of)}\n`,
     `\n${zh ? "生成时间" : "Generated at"}: ${String(metadata.generated_at)}\n`,
+    `\n${renderDiscoveryTeamDecisionSummary(report, zh)}\n`,
     `\n## ${zh ? "研究概览" : "Key Research Counts"}\n`,
     renderReportStatistics(report, zh),
   ];

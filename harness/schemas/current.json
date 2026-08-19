@@ -118,6 +118,11 @@
       "document_schema_version": null
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/core/team-context.schema.json",
+      "file": "current/core/team-context.schema.json",
+      "document_schema_version": null
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/core/event.schema.json",
       "file": "current/core/event.schema.json",
       "document_schema_version": "startup_opportunity.event.v1"

@@ -14,6 +14,7 @@
     "alternative_bets",
     "watchlist_refs",
     "rejected_refs",
+    "opportunity_ranking",
     "shared_distribution_or_capabilities",
     "resource_conflicts",
     "risk_correlation",
@@ -71,6 +72,13 @@
       "uniqueItems": true,
       "items": {
         "$ref": "./definitions.schema.json#/$defs/opportunityRef"
+      }
+    },
+    "opportunity_ranking": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/opportunityRankingEntry"
       }
     },
     "shared_distribution_or_capabilities": {

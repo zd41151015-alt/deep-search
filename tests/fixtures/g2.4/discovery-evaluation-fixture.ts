@@ -578,6 +578,65 @@ function hashRefs(
   return refs.map((ref) => ({ ref, content_hash: canonicalContentHash(documents.get(ref) ?? {}) }));
 }
 
+const TEAM_BURDEN_DIMENSIONS = [
+  "startup_capital_and_build_complexity",
+  "ongoing_human_delivery",
+  "acquisition_and_channel_dependency",
+  "compliance_data_and_professional_liability",
+  "time_to_first_meaningful_validation_or_revenue",
+] as const;
+
+function teamStartupBurden(
+  opportunityRef: string,
+  suffix: "a" | "b",
+  domainRefs: readonly string[],
+): Record<string, unknown> {
+  const profile =
+    suffix === "a"
+      ? "lower initial build burden but unresolved channel evidence"
+      : "higher capital, service, and compliance burden with incomplete evidence";
+  return {
+    opportunity_ref: opportunityRef,
+    dimensions: TEAM_BURDEN_DIMENSIONS.map((dimension, index) => ({
+      dimension_id: dimension,
+      status: index === 4 ? "unknown" : "insufficient_evidence",
+      assessment: `${SYNTHETIC} ${profile}; dimension ${index + 1} remains a main-agent assessment.`,
+      supporting_refs: [domainRefs[index % domainRefs.length] as string],
+      opposing_refs: [domainRefs[(index + 1) % domainRefs.length] as string],
+      limitations: [
+        SYNTHETIC,
+        "Synthetic fixture evidence does not establish operating requirements.",
+      ],
+    })),
+    overall_limitations: [
+      SYNTHETIC,
+      "Burden is an opportunity-level research judgment, not a team score.",
+    ],
+  };
+}
+
+function teamMatchAnalysis(opportunityRef: string, suffix: "a" | "b"): Record<string, unknown> {
+  return {
+    opportunity_ref: opportunityRef,
+    scope_frame_ref: G21_SCOPE_REF,
+    conclusion: suffix === "a" ? "conditional" : "unknown",
+    assessment:
+      suffix === "a"
+        ? `${SYNTHETIC} conditional on clarifying the team's channel access and build capacity.`
+        : `${SYNTHETIC} unknown because current team conditions and burden evidence are incomplete.`,
+    basis_condition_ids: [],
+    burden_dimension_ids: [...TEAM_BURDEN_DIMENSIONS],
+    unknown_assumptions: [
+      "Team capacity, channel access, and professional responsibility coverage are not confirmed.",
+    ],
+    conditions_that_would_change_conclusion: [
+      "Confirmed team capacity and channel access could change the conclusion.",
+      "Current burden evidence or opposing material could change the conclusion.",
+    ],
+    limitations: [SYNTHETIC, "The Harness does not compute this conclusion or ranking."],
+  };
+}
+
 function comparison(
   runId: string,
   opportunityRef: string,
@@ -592,6 +651,8 @@ function comparison(
     suffix === "a" ? G24_BUYER_A : G24_BUYER_B,
     suffix === "a" ? G24_ENGINE_A : G24_ENGINE_B,
   ];
+  const burden = teamStartupBurden(opportunityRef, suffix, domainRefs);
+  const match = teamMatchAnalysis(opportunityRef, suffix);
   return {
     schema_version: "startup_opportunity.opportunity_comparison.v1",
     comparison_id: `comparison_${suffix}`,
@@ -612,7 +673,7 @@ function comparison(
     comparison_policy_version: "1.0.0",
     rubric_version: "1.0.0",
     input_artifact_hashes: hashRefs(
-      [G23_SNAPSHOT, G23_MERGE, G24_FAN_IN, ...domainRefs],
+      [G21_SCOPE_REF, G23_SNAPSHOT, G23_MERGE, G24_FAN_IN, opportunityRef, ...domainRefs],
       documents,
     ),
     hard_gates_evaluated_at: "2026-07-27T21:20:00Z",
@@ -654,6 +715,9 @@ function comparison(
       decision_sufficiency: "insufficient",
       source_overlap: "unknown",
       limitations: [SYNTHETIC],
+      ...(panel === "team_fit_and_learning"
+        ? { team_startup_burden: burden, team_match_analysis: match }
+        : {}),
     })),
     ordering_mode: "partial_order",
     judgment_assessment_refs: [...judgmentRefs],
@@ -1069,6 +1133,40 @@ export async function createDiscoveryEvaluationFixture(
     alternative_bets: [...OPPORTUNITIES],
     watchlist_refs: [],
     rejected_refs: [],
+    opportunity_ranking: [
+      {
+        rank: 1,
+        opportunity_ref: G23_OPPORTUNITY_A,
+        comparison_ref: G24_COMPARISON_A,
+        team_fit_contribution: "supporting",
+        rationale: `${SYNTHETIC} ranked first by explicit main-agent judgment; conditional team match is only one factor.`,
+        other_decision_factors: [
+          "Demand, buyer, evidence strength, and counter-evidence remain decisive factors.",
+        ],
+        hard_constraint_effect: {
+          status: "not_applied",
+          condition_ids: [],
+          rationale: "No confirmed hard team constraint was provided.",
+        },
+        limitations: [SYNTHETIC],
+      },
+      {
+        rank: 2,
+        opportunity_ref: G23_OPPORTUNITY_B,
+        comparison_ref: G24_COMPARISON_B,
+        team_fit_contribution: "unknown",
+        rationale: `${SYNTHETIC} ranked second by explicit main-agent judgment while preserving unknown team conditions.`,
+        other_decision_factors: [
+          "Demand, buyer, evidence strength, and counter-evidence remain decisive factors.",
+        ],
+        hard_constraint_effect: {
+          status: "not_applied",
+          condition_ids: [],
+          rationale: "No confirmed hard team constraint was provided.",
+        },
+        limitations: [SYNTHETIC],
+      },
+    ],
     shared_distribution_or_capabilities: [SYNTHETIC],
     resource_conflicts: [SYNTHETIC],
     risk_correlation: [SYNTHETIC],
@@ -1341,6 +1439,8 @@ export async function createDiscoveryEvaluationFixture(
     G24_PORTFOLIO,
     G24_SENSITIVITY,
     G24_TRACEABILITY,
+    G24_COMPARISON_A,
+    G24_COMPARISON_B,
     ...commercialAuditRefs,
   ];
   const reportSections = Object.fromEntries(
@@ -1406,6 +1506,27 @@ export async function createDiscoveryEvaluationFixture(
     ...commercialReportProjection(commercialAudits, commercialTasks, documents, finalSubjectIds),
     full_commercial_projection: fullCommercialAuditModel,
     traceability_ref: G24_TRACEABILITY,
+    team_decision_summary: {
+      team_context: documents.get(G21_SCOPE_REF)?.team_context,
+      opportunity_analyses: [G24_COMPARISON_A, G24_COMPARISON_B].flatMap((comparisonRef) => {
+        const comparison = documents.get(comparisonRef);
+        const panels = Array.isArray(comparison?.comparison_panels)
+          ? (comparison.comparison_panels as Record<string, unknown>[])
+          : [];
+        const panel = panels.find((candidate) => candidate.panel_id === "team_fit_and_learning");
+        return comparison === undefined || panel === undefined
+          ? []
+          : [
+              {
+                opportunity_ref: comparison.opportunity_ref,
+                comparison_ref: comparisonRef,
+                team_startup_burden: panel.team_startup_burden,
+                team_match_analysis: panel.team_match_analysis,
+              },
+            ];
+      }),
+      opportunity_ranking: documents.get(G24_PORTFOLIO)?.opportunity_ranking,
+    },
     curated_judgment_context: {
       decision_question: SYNTHETIC,
       current_recommendation: SYNTHETIC,

@@ -38,6 +38,7 @@
     "commercial_background_material",
     "commercial_research_status",
     "gate_warnings",
+    "team_decision_summary",
     "traceability_ref",
     "curated_judgment_context",
     "report_sections",
@@ -273,6 +274,9 @@
       "items": {
         "$ref": "../../assessment/commercial/quantitative-competitive-research.schema.json#/$defs/gateWarning"
       }
+    },
+    "team_decision_summary": {
+      "$ref": "./definitions.schema.json#/$defs/teamDecisionSummary"
     },
     "traceability_ref": {
       "$ref": "./definitions.schema.json#/$defs/artifactRef"

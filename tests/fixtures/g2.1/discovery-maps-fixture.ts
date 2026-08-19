@@ -297,6 +297,16 @@ export async function createDiscoveryMapsFixture(
       target_users: [synthetic("primary user")],
       decision_goal: synthetic("identify directions that merit further validation"),
       research_language: researchLanguage,
+      team_context: {
+        hard_constraints: [],
+        known_strengths_and_gaps: [],
+        other_team_conditions: {
+          status: "unknown",
+          source_kind: "unknown",
+          confirmation_status: "unknown",
+          reporting_disclosure: synthetic("no other team conditions were provided"),
+        },
+      },
       user_confirmed: true,
     },
     decision_context_ref: G21_DECISION_REF,
@@ -332,7 +342,16 @@ export async function createDiscoveryMapsFixture(
     native_app_required: false,
     delivery_form_preferences: ["mobile_web"],
     business_model_preferences: [synthetic("business model is unvalidated")],
-    team_capability_constraints: [synthetic("small implementation team")],
+    team_context: {
+      hard_constraints: [],
+      known_strengths_and_gaps: [],
+      other_team_conditions: {
+        status: "unknown",
+        source_kind: "unknown",
+        confirmation_status: "unknown",
+        reporting_disclosure: synthetic("no other team conditions were provided"),
+      },
+    },
     risk_preferences: [synthetic("avoid irreversible external tests")],
     ai_scope: profile === "ai_first" || profile === "hybrid" ? "priority_seed" : "optional",
     assumptions: [synthetic("scope is user supplied and not Evidence")],
@@ -610,6 +629,16 @@ export async function createDiscoveryMapsFixture(
     target_users: [synthetic("primary user")],
     decision_goal: synthetic("identify directions that merit further validation"),
     research_language: researchLanguage,
+    team_context: {
+      hard_constraints: [],
+      known_strengths_and_gaps: [],
+      other_team_conditions: {
+        status: "unknown",
+        source_kind: "unknown",
+        confirmation_status: "unknown",
+        reporting_disclosure: synthetic("no other team conditions were provided"),
+      },
+    },
   };
   const scopeProposalDecision = {
     schema_version: "startup_opportunity.decision.v1",

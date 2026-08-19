@@ -24,7 +24,7 @@
     "native_app_required",
     "delivery_form_preferences",
     "business_model_preferences",
-    "team_capability_constraints",
+    "team_context",
     "risk_preferences",
     "ai_scope",
     "assumptions",
@@ -137,8 +137,8 @@
     "business_model_preferences": {
       "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
     },
-    "team_capability_constraints": {
-      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    "team_context": {
+      "$ref": "../../core/team-context.schema.json#/$defs/teamContext"
     },
     "risk_preferences": {
       "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"

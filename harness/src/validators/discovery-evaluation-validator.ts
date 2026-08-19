@@ -845,11 +845,12 @@ function gateTier(gates: readonly Record<string, unknown>[]): string {
 }
 
 function panelTier(panels: readonly Record<string, unknown>[]): string {
-  if (panels.some((panel) => panel.decision_sufficiency === "insufficient")) {
+  const decisionPanels = panels.filter((panel) => panel.panel_id !== "team_fit_and_learning");
+  if (decisionPanels.some((panel) => panel.decision_sufficiency === "insufficient")) {
     return "insufficient_evidence";
   }
   if (
-    panels.some(
+    decisionPanels.some(
       (panel) =>
         panel.decision_sufficiency !== "sufficient" ||
         ["weak", "unknown", "not_applicable"].includes(String(panel.band)),
@@ -858,6 +859,118 @@ function panelTier(panels: readonly Record<string, unknown>[]): string {
     return "investigate_further";
   }
   return "prioritize";
+}
+
+const TEAM_BURDEN_DIMENSIONS = [
+  "startup_capital_and_build_complexity",
+  "ongoing_human_delivery",
+  "acquisition_and_channel_dependency",
+  "compliance_data_and_professional_liability",
+  "time_to_first_meaningful_validation_or_revenue",
+] as const;
+
+function teamPanel(comparison: DiscoveryEvaluationDocument): Record<string, unknown> | undefined {
+  return records(comparison.document.comparison_panels).find(
+    (panel) => panel.panel_id === "team_fit_and_learning",
+  );
+}
+
+function teamMaterialRefs(panel: Record<string, unknown>): readonly string[] {
+  const burden = isRecord(panel.team_startup_burden) ? panel.team_startup_burden : {};
+  return records(burden.dimensions).flatMap((dimension) => [
+    ...strings(dimension.supporting_refs),
+    ...strings(dimension.opposing_refs),
+  ]);
+}
+
+function validateTeamComparison(
+  comparison: DiscoveryEvaluationDocument,
+  scope: DiscoveryEvaluationDocument | undefined,
+  byPath: ReadonlyMap<string, DiscoveryEvaluationDocument>,
+  errors: ValidationIssue[],
+): void {
+  const panel = teamPanel(comparison);
+  if (panel === undefined) return;
+  const burden = isRecord(panel.team_startup_burden) ? panel.team_startup_burden : {};
+  const match = isRecord(panel.team_match_analysis) ? panel.team_match_analysis : {};
+  const dimensions = records(burden.dimensions);
+  const dimensionIds = dimensions.map((dimension) => String(dimension.dimension_id));
+  const burdenRefs = teamMaterialRefs(panel);
+  const inputHashRefs = new Set(
+    records(comparison.document.input_artifact_hashes).map((binding) => String(binding.ref ?? "")),
+  );
+  const requiredHashRefs = [
+    String(comparison.document.scope_frame_ref),
+    String(comparison.document.opportunity_ref),
+    ...burdenRefs,
+  ];
+  const scopeContext = isRecord(scope?.document.team_context)
+    ? scope.document.team_context
+    : undefined;
+  const conditions = [
+    ...records(scopeContext?.hard_constraints),
+    ...records(scopeContext?.known_strengths_and_gaps),
+  ];
+  const conditionIds = new Set(conditions.map((condition) => String(condition.condition_id)));
+  const basisIds = strings(match.basis_condition_ids);
+  const invalidRefs = burdenRefs.filter((ref) => {
+    const linked = target(byPath, ref);
+    if (linked === undefined || linked.document.run_id !== comparison.document.run_id) return true;
+    const subjectRefs = [
+      linked.document.subject_ref,
+      linked.document.opportunity_ref,
+      ...strings(linked.document.opportunity_refs),
+    ].filter((value): value is string => typeof value === "string");
+    return !subjectRefs.includes(String(comparison.document.opportunity_ref));
+  });
+  if (
+    burden.opportunity_ref !== comparison.document.opportunity_ref ||
+    match.opportunity_ref !== comparison.document.opportunity_ref ||
+    match.scope_frame_ref !== comparison.document.scope_frame_ref ||
+    !setEqual(dimensionIds, TEAM_BURDEN_DIMENSIONS) ||
+    !setEqual(strings(match.burden_dimension_ids), TEAM_BURDEN_DIMENSIONS) ||
+    invalidRefs.length > 0 ||
+    requiredHashRefs.some((ref) => !inputHashRefs.has(ref)) ||
+    basisIds.some((id) => !conditionIds.has(id))
+  ) {
+    errors.push(
+      issue(
+        "g2_4.team_analysis_binding_mismatch",
+        `${comparison.path}#/comparison_panels/team_fit_and_learning`,
+        "team burden and match analysis must bind the same opportunity, ScopeFrame, subject-local material, and exact input hashes",
+        { invalidRefs, missingHashRefs: requiredHashRefs.filter((ref) => !inputHashRefs.has(ref)) },
+      ),
+    );
+  }
+  if (scope === undefined || scope.document.run_id !== comparison.document.run_id) {
+    errors.push(
+      issue(
+        "g2_4.team_scope_binding_missing",
+        `${comparison.path}#/comparison_panels/team_fit_and_learning/team_match_analysis/scope_frame_ref`,
+        "team match analysis requires the exact same-Run ScopeFrame",
+      ),
+    );
+  }
+  if (
+    match.conclusion === "match" &&
+    (basisIds.length === 0 ||
+      basisIds.some((id) => {
+        const condition = conditions.find((candidate) => candidate.condition_id === id);
+        return (
+          condition?.source_kind !== "user_provided" ||
+          condition.confirmation_status !== "user_confirmed"
+        );
+      }) ||
+      strings(match.unknown_assumptions).length > 0)
+  ) {
+    errors.push(
+      issue(
+        "g2_4.unconditional_team_match_invalid",
+        `${comparison.path}#/comparison_panels/team_fit_and_learning/team_match_analysis/conclusion`,
+        "an unconditional team match requires confirmed team conditions and no stated unknown assumptions",
+      ),
+    );
+  }
 }
 
 function validateEvaluationAndReporting(
@@ -1113,6 +1226,12 @@ function validateEvaluationAndReporting(
         ),
       );
     }
+    validateTeamComparison(
+      comparison,
+      target(byPath, comparison.document.scope_frame_ref),
+      byPath,
+      errors,
+    );
     const allJudgments = [
       ...strings(comparison.document.judgment_assessment_refs),
       ...gates.flatMap((gate) => strings(gate.judgment_assessment_refs)),
@@ -1221,6 +1340,53 @@ function validateEvaluationAndReporting(
   );
   if (portfolio !== undefined) {
     const opportunities = comparisons.map((entry) => String(entry.document.opportunity_ref));
+    const ranking = records(portfolio.document.opportunity_ranking);
+    const comparisonByPath = new Map(comparisons.map((entry) => [entry.path, entry]));
+    const rankingInvalid =
+      ranking.length !== opportunities.length ||
+      !setEqual(
+        ranking.map((entry) => String(entry.opportunity_ref)),
+        opportunities,
+      ) ||
+      canonicalJson(ranking.map((entry) => Number(entry.rank)).sort((a, b) => a - b)) !==
+        canonicalJson(opportunities.map((_, index) => index + 1)) ||
+      ranking.some((entry) => {
+        const comparison = comparisonByPath.get(String(entry.comparison_ref));
+        const team = comparison === undefined ? undefined : teamPanel(comparison);
+        const match = isRecord(team?.team_match_analysis) ? team.team_match_analysis : undefined;
+        const scope =
+          comparison === undefined
+            ? undefined
+            : target(byPath, comparison.document.scope_frame_ref);
+        const scopeContext = isRecord(scope?.document.team_context)
+          ? scope.document.team_context
+          : undefined;
+        const hardIds = new Set(
+          records(scopeContext?.hard_constraints).map((condition) =>
+            String(condition.condition_id),
+          ),
+        );
+        const appliedIds = isRecord(entry.hard_constraint_effect)
+          ? strings(entry.hard_constraint_effect.condition_ids)
+          : [];
+        return (
+          comparison === undefined ||
+          comparison.document.opportunity_ref !== entry.opportunity_ref ||
+          match?.opportunity_ref !== entry.opportunity_ref ||
+          (isRecord(entry.hard_constraint_effect) &&
+            entry.hard_constraint_effect.status === "applied" &&
+            (appliedIds.length === 0 || appliedIds.some((id) => !hardIds.has(id))))
+        );
+      });
+    if (rankingInvalid) {
+      errors.push(
+        issue(
+          "g2_4.opportunity_ranking_binding_mismatch",
+          `${portfolio.path}#/opportunity_ranking`,
+          "explicit opportunity ranking must cover each comparison exactly once with same-opportunity team analysis and valid hard-constraint references",
+        ),
+      );
+    }
     const partition = [
       ...(typeof portfolio.document.recommended_first_bet === "string"
         ? [portfolio.document.recommended_first_bet]
@@ -1279,7 +1445,9 @@ function validateEvaluationAndReporting(
         (entry) => entry.opportunity_ref === firstBet,
       )?.conclusion_ceiling;
       const gates = records(selectedComparison?.document.hard_gate_results);
-      const panels = records(selectedComparison?.document.comparison_panels);
+      const panels = records(selectedComparison?.document.comparison_panels).filter(
+        (panel) => panel.panel_id !== "team_fit_and_learning",
+      );
       const selectedSolution = selectedSolutionUsesAi(firstBet, byPath);
       const aiBundleReady = aiBundleCompleteOrNotRequired(
         selectedComparison,
@@ -1464,6 +1632,39 @@ function validateEvaluationAndReporting(
         "discovery report must exactly preserve validated recommendation, portfolio, and freshness state",
       ),
     );
+  }
+
+  if (report !== undefined && portfolio !== undefined) {
+    const scope = target(byPath, report.document.scope_frame_ref);
+    const reportComparisonRefs = strings(report.document.comparison_refs);
+    const expectedAnalyses = reportComparisonRefs.flatMap((ref) => {
+      const comparison = byPath.get(ref);
+      const panel = comparison === undefined ? undefined : teamPanel(comparison);
+      return comparison === undefined || panel === undefined
+        ? []
+        : [
+            {
+              opportunity_ref: comparison.document.opportunity_ref,
+              comparison_ref: comparison.path,
+              team_startup_burden: panel.team_startup_burden,
+              team_match_analysis: panel.team_match_analysis,
+            },
+          ];
+    });
+    const expectedTeamSummary = {
+      team_context: scope?.document.team_context,
+      opportunity_analyses: expectedAnalyses,
+      opportunity_ranking: portfolio.document.opportunity_ranking,
+    };
+    if (!same(report.document.team_decision_summary, expectedTeamSummary)) {
+      errors.push(
+        issue(
+          "g2_4.team_report_projection_mismatch",
+          `${report.path}#/team_decision_summary`,
+          "the report must mechanically preserve Scope team context, comparison burden/match analyses, and explicit ranking",
+        ),
+      );
+    }
   }
 
   const brief = entries.find(
