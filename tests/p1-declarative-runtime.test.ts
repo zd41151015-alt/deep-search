@@ -9,12 +9,16 @@ import {
   ArtifactStore,
   canonicalContentHash,
   canonicalJson,
+  canonicalLaneLifecycleId,
+  canonicalLaneLifecyclePath,
   createArtifactValidator,
   DeclarativeRuntimeCompiler,
   type DocumentBundle,
+  dispatchLaunchRegistrationPath,
   EvidenceStore,
   type FormalArtifactEnvelope,
   LaneResultMaterializer,
+  operationKey,
   planningRunStateHash,
   RunStore,
   StoreError,
@@ -353,12 +357,9 @@ function lifecycle(
   revision: number,
   state: "dispatch_requested" | "agent_started",
 ): Record<string, unknown> {
-  return {
+  const document: Record<string, unknown> = {
     schema_version: "startup_opportunity.lane_lifecycle.v1",
-    lifecycle_id: `lifecycle_${unitId}`,
     revision,
-    parent_lifecycle_ref:
-      revision === 1 ? null : `artifacts/runtime/lane-lifecycle/${unitId}.r${revision - 1}.json`,
     run_id: runId,
     unit_id: unitId,
     attempt: 1,
@@ -367,6 +368,7 @@ function lifecycle(
     dispatch_batch_hash: canonicalContentHash(batch),
     task_ref: `tasks/dispatch/runtime.r1.json#task_${unitId}`,
     task_id: `task_${unitId}`,
+    launch_registration_ref: null,
     launch_registration_id: null,
     launch_registration_hash: null,
     state,
@@ -382,6 +384,10 @@ function lifecycle(
     failure: null,
     limitations: ["SYNTHETIC lifecycle observation."],
   };
+  document.lifecycle_id = canonicalLaneLifecycleId(document);
+  document.parent_lifecycle_ref =
+    revision === 1 ? null : canonicalLaneLifecyclePath(document, revision - 1);
+  return document;
 }
 
 function compilerCodes(error: unknown): readonly string[] {
@@ -1337,22 +1343,14 @@ test("complete same-wave dispatch activates both units and lifecycle revisions c
   const started = lifecycle(state.runId, firstUnitId, batch, 1, "agent_started");
   await compiler.compile(
     compilationRequest(state.runId, "publish", [
-      runtimeArtifact(
-        `artifacts/runtime/lane-lifecycle/${firstUnitId}.r1.json`,
-        started,
-        "main_agent",
-      ),
+      runtimeArtifact(canonicalLaneLifecyclePath(started), started, "main_agent"),
     ]),
   );
   const regressed = lifecycle(state.runId, firstUnitId, batch, 2, "dispatch_requested");
   await assert.rejects(
     compiler.compile(
       compilationRequest(state.runId, "validate_only", [
-        runtimeArtifact(
-          `artifacts/runtime/lane-lifecycle/${firstUnitId}.r2.json`,
-          regressed,
-          "main_agent",
-        ),
+        runtimeArtifact(canonicalLaneLifecyclePath(regressed), regressed, "main_agent"),
       ]),
     ),
     (error: unknown) => compilerCodes(error).includes("runtime.lifecycle_state_regression"),
@@ -1442,6 +1440,104 @@ test("public CLI closes exact Dispatch launch sets incrementally and rejects ide
   assert.equal(firstResult.status, "open");
   assert.deepEqual(firstResult.started_unit_ids, [registrations[0]?.unit_id].sort());
   assert.deepEqual(firstResult.not_started_unit_ids, [registrations[1]?.unit_id].sort());
+  const firstRegistration = registrations[0] as (typeof registrations)[number];
+  const firstIdentity = {
+    run_id: state.runId,
+    dispatch_batch_ref: `${dispatchRef}#${firstRegistration.task_id}`,
+    dispatch_batch_hash: dispatchHash,
+    task_ref: firstRegistration.task_ref,
+    task_id: firstRegistration.task_id,
+    unit_id: firstRegistration.unit_id,
+    attempt: firstRegistration.attempt,
+    execution_attempt_id: firstRegistration.execution_attempt_id,
+  };
+  const firstLifecycleRef = canonicalLaneLifecyclePath(firstIdentity, 1);
+  const firstRegistrationRef = dispatchLaunchRegistrationPath("launch_first");
+  const operationReceipts = await Promise.all(
+    (await readdir(path.join(state.runRoot, ".store", "operations")))
+      .filter((entry) => entry.startsWith("bundle-") && entry.endsWith(".json"))
+      .map(async (entry) =>
+        JSON.parse(await readFile(path.join(state.runRoot, ".store", "operations", entry), "utf8")),
+      ),
+  );
+  const firstBundleReceipt = operationReceipts.find(
+    (receipt) =>
+      Array.isArray(receipt.envelopes) &&
+      receipt.envelopes.some(
+        (envelope: Record<string, unknown>) => envelope.artifact_path === firstRegistrationRef,
+      ),
+  ) as Record<string, unknown> | undefined;
+  assert.ok(firstBundleReceipt);
+  assert.deepEqual(
+    (firstBundleReceipt.envelopes as Record<string, unknown>[])
+      .map((envelope) => envelope.artifact_path)
+      .sort(),
+    [firstLifecycleRef, firstRegistrationRef].sort(),
+  );
+  const laneTimingBeforeRecovery = (await state.runStore.status(state.runId)).observability
+    .laneTimings;
+  const extraEnvelope = JSON.parse(
+    await readFile(path.join(state.runRoot, dispatchRef), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const malformedReceipt = structuredClone(firstBundleReceipt) as Record<string, unknown>;
+  const malformedEnvelopes = [
+    ...(malformedReceipt.envelopes as FormalArtifactEnvelope[]),
+    extraEnvelope,
+  ].sort((left, right) => left.artifact_path.localeCompare(right.artifact_path));
+  const malformedOperationKey = operationKey("publish_artifact_bundle", {
+    run_id: state.runId,
+    envelopes: malformedEnvelopes,
+  });
+  malformedReceipt.operation_key = malformedOperationKey;
+  malformedReceipt.envelopes = malformedEnvelopes;
+  const operationDirectory = path.join(state.runRoot, ".store", "operations");
+  const exactReceiptEntry = (await readdir(operationDirectory)).find(
+    (entry) =>
+      entry.startsWith("bundle-") &&
+      entry.endsWith(".json") &&
+      entry === `bundle-${String(firstBundleReceipt.operation_key).slice("sha256:".length)}.json`,
+  );
+  assert.ok(exactReceiptEntry);
+  await removePublicationCommitTail(state.runRoot, [firstRegistrationRef, firstLifecycleRef]);
+  await Promise.all(
+    [firstRegistrationRef, firstLifecycleRef].map((artifactPath) =>
+      rm(path.join(state.runRoot, artifactPath)),
+    ),
+  );
+  await rm(path.join(operationDirectory, exactReceiptEntry));
+  const malformedReceiptPath = path.join(
+    operationDirectory,
+    `bundle-${malformedOperationKey.slice("sha256:".length)}.json`,
+  );
+  await writeFile(malformedReceiptPath, `${canonicalJson(malformedReceipt)}\n`);
+  const beforeMalformedRecovery = await snapshotTree(state.runRoot);
+  await assert.rejects(
+    new RunStore(state.runsRoot, state.validator).load(state.runId),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "recovery.invalid_dispatch_launch_bundle",
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeMalformedRecovery);
+  await rm(malformedReceiptPath);
+  await writeFile(
+    path.join(operationDirectory, exactReceiptEntry),
+    `${canonicalJson(firstBundleReceipt)}\n`,
+  );
+  const recoveredLaunch = await new RunStore(state.runsRoot, state.validator).load(state.runId);
+  assert.deepEqual(
+    recoveredLaunch.recoveredArtifactPaths,
+    [firstLifecycleRef, firstRegistrationRef].sort(),
+  );
+  assert.deepEqual(
+    (await state.runStore.status(state.runId)).observability.laneTimings,
+    laneTimingBeforeRecovery,
+  );
+  const afterLaunchRecovery = check();
+  assert.equal(afterLaunchRecovery.status, 0, afterLaunchRecovery.stderr);
+  assert.equal((JSON.parse(afterLaunchRecovery.stdout) as Record<string, unknown>).status, "open");
+  assert.deepEqual(
+    (await new RunStore(state.runsRoot, state.validator).load(state.runId)).recoveredArtifactPaths,
+    [],
+  );
   const downstreamDocument = {
     schema_version: "startup_opportunity.discovery_stage_readiness.v1",
     run_id: state.runId,
@@ -1466,6 +1562,83 @@ test("public CLI closes exact Dispatch launch sets incrementally and rejects ide
   const replay = register(firstRequest);
   assert.equal(replay.status, 0, replay.stderr);
   assert.deepEqual(await snapshotTree(state.runRoot), beforeReplay);
+
+  const firstLifecycleEnvelope = JSON.parse(
+    await readFile(path.join(state.runRoot, firstLifecycleRef), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const firstLifecycleRevision2 = structuredClone(firstLifecycleEnvelope.document);
+  firstLifecycleRevision2.revision = 2;
+  firstLifecycleRevision2.parent_lifecycle_ref = firstLifecycleRef;
+  firstLifecycleRevision2.state = "researching";
+  const firstLifecycleRevision2Ref = canonicalLaneLifecyclePath(firstLifecycleRevision2, 2);
+  for (const [name, artifactPath, mutate, expectedCode] of [
+    [
+      "noncanonical-path",
+      "artifacts/runtime/lane-lifecycle/lifecycle_00000000000000000000000000000000.r2.json",
+      () => {},
+      "artifact.lifecycle_identity_invalid",
+    ],
+    [
+      "wrong-parent",
+      firstLifecycleRevision2Ref,
+      (document: Record<string, unknown>) => {
+        document.parent_lifecycle_ref =
+          "artifacts/runtime/lane-lifecycle/lifecycle_00000000000000000000000000000000.r1.json";
+      },
+      "artifact.lifecycle_parent_invalid",
+    ],
+    [
+      "cleared-launch-provenance",
+      firstLifecycleRevision2Ref,
+      (document: Record<string, unknown>) => {
+        document.launch_registration_ref = null;
+        document.launch_registration_id = null;
+        document.launch_registration_hash = null;
+      },
+      "artifact.lifecycle_parent_invalid",
+    ],
+    [
+      "changed-launch-provenance",
+      firstLifecycleRevision2Ref,
+      (document: Record<string, unknown>) => {
+        document.launch_registration_id = "launch_changed";
+      },
+      "artifact.lifecycle_parent_invalid",
+    ],
+  ] as const) {
+    const invalidRevision = structuredClone(firstLifecycleRevision2);
+    mutate(invalidRevision);
+    await assert.rejects(
+      compiler.compile(
+        compilationRequest(state.runId, "validate_only", [
+          runtimeArtifact(artifactPath, invalidRevision, "main_agent"),
+        ]),
+      ),
+      (error: unknown) => error instanceof StoreError && error.code === expectedCode,
+      name,
+    );
+  }
+  const duplicateRootCodes = validateDeclarativeRuntimeContract([
+    {
+      path: firstLifecycleRef,
+      schemaVersion: "startup_opportunity.lane_lifecycle.v1",
+      document: firstLifecycleEnvelope.document,
+      envelope: null,
+    },
+    {
+      path: "artifacts/runtime/lane-lifecycle/lifecycle_00000000000000000000000000000000.r1.json",
+      schemaVersion: "startup_opportunity.lane_lifecycle.v1",
+      document: structuredClone(firstLifecycleEnvelope.document),
+      envelope: null,
+    },
+  ]).map((issue) => issue.code);
+  assert.ok(duplicateRootCodes.includes("runtime.lifecycle_revision_conflict"));
+  assert.ok(duplicateRootCodes.includes("runtime.lifecycle_identity_invalid"));
+  await compiler.compile(
+    compilationRequest(state.runId, "publish", [
+      runtimeArtifact(firstLifecycleRevision2Ref, firstLifecycleRevision2, "main_agent"),
+    ]),
+  );
 
   const invalidRegistration = {
     ...(registrations[1] as (typeof registrations)[number]),
@@ -1495,6 +1668,47 @@ test("public CLI closes exact Dispatch launch sets incrementally and rejects ide
   assert.equal(rejectedExecution.status, 1);
   assert.match(rejectedExecution.stderr, /runtime\.launch_registration_conflict/u);
   assert.deepEqual(await snapshotTree(state.runRoot), beforeReusedExecution);
+
+  const secondRegistration = registrations[1] as (typeof registrations)[number];
+  const forgedLifecycle = {
+    ...structuredClone(firstLifecycleEnvelope.document),
+    lifecycle_id: "",
+    revision: 1,
+    parent_lifecycle_ref: null,
+    unit_id: secondRegistration.unit_id,
+    attempt: secondRegistration.attempt,
+    execution_attempt_id: secondRegistration.execution_attempt_id,
+    dispatch_batch_ref: `${dispatchRef}#${secondRegistration.task_id}`,
+    task_ref: secondRegistration.task_ref,
+    task_id: secondRegistration.task_id,
+    launch_registration_ref: "artifacts/runtime/dispatch-launch-registrations/launch_forged.json",
+    launch_registration_id: "launch_forged",
+    launch_registration_hash:
+      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  };
+  forgedLifecycle.lifecycle_id = canonicalLaneLifecycleId(forgedLifecycle);
+  const forgedLifecycleRef = canonicalLaneLifecyclePath(forgedLifecycle, 1);
+  await assert.rejects(
+    compiler.compile(
+      compilationRequest(state.runId, "publish", [
+        runtimeArtifact(forgedLifecycleRef, forgedLifecycle, "main_agent"),
+      ]),
+    ),
+    (error: unknown) =>
+      compilerCodes(error).some((code) =>
+        ["runtime.lifecycle_launch_registration_invalid", "runtime.reference_missing"].includes(
+          code,
+        ),
+      ),
+  );
+  const afterForged = check();
+  assert.equal(afterForged.status, 0, afterForged.stderr);
+  assert.equal((JSON.parse(afterForged.stdout) as Record<string, unknown>).status, "open");
+  await assert.rejects(
+    state.runStore.assertTransitionReady(state.runId, [downstreamEnvelope]),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.transition_dispatch_launch_open",
+  );
 
   for (const [suffix, registration, changes, code] of [
     [
@@ -1541,6 +1755,102 @@ test("public CLI closes exact Dispatch launch sets incrementally and rejects ide
     assert.deepEqual(await snapshotTree(state.runRoot), before, suffix);
   }
 
+  const manifestPath = path.join(state.runRoot, "manifest.json");
+  const activeManifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  const terminalProbeRequest = {
+    schema_version: "startup_opportunity.dispatch_launch_registration_request.v1",
+    request_id: "launch_terminal_probe",
+    run_id: state.runId,
+    dispatch_ref: dispatchRef,
+    dispatch_hash: dispatchHash,
+    registered_at: "2026-07-31T16:01:02Z",
+    registrations: [secondRegistration],
+  };
+  const terminalProbeHash = canonicalContentHash(terminalProbeRequest);
+  const terminalProbeRegistrationRef = dispatchLaunchRegistrationPath("launch_terminal_probe");
+  const terminalProbeLifecycle = {
+    ...structuredClone(firstLifecycleEnvelope.document),
+    lifecycle_id: "",
+    revision: 1,
+    parent_lifecycle_ref: null,
+    unit_id: secondRegistration.unit_id,
+    attempt: secondRegistration.attempt,
+    execution_attempt_id: secondRegistration.execution_attempt_id,
+    dispatch_batch_ref: `${dispatchRef}#${secondRegistration.task_id}`,
+    task_ref: secondRegistration.task_ref,
+    task_id: secondRegistration.task_id,
+    launch_registration_ref: terminalProbeRegistrationRef,
+    launch_registration_id: terminalProbeRequest.request_id,
+    launch_registration_hash: terminalProbeHash,
+  };
+  terminalProbeLifecycle.lifecycle_id = canonicalLaneLifecycleId(terminalProbeLifecycle);
+  const terminalProbeLifecycleRef = canonicalLaneLifecyclePath(terminalProbeLifecycle, 1);
+  const terminalProbeRegistration = {
+    schema_version: "startup_opportunity.dispatch_launch_registration.v1",
+    registration_id: terminalProbeRequest.request_id,
+    run_id: state.runId,
+    dispatch_ref: dispatchRef,
+    dispatch_hash: dispatchHash,
+    request_hash: terminalProbeHash,
+    registered_at: terminalProbeRequest.registered_at,
+    registrations: [
+      {
+        ...secondRegistration,
+        lifecycle_ref: terminalProbeLifecycleRef,
+        lifecycle_hash: canonicalContentHash(terminalProbeLifecycle),
+      },
+    ],
+    limitations: [
+      "Caller-declared launch registration; the Harness does not verify that an external Codex task exists.",
+    ],
+  };
+  const terminalProbeCompilation = await compiler.compile(
+    compilationRequest(state.runId, "validate_only", [
+      runtimeArtifact(terminalProbeRegistrationRef, terminalProbeRegistration, "harness"),
+      runtimeArtifact(terminalProbeLifecycleRef, terminalProbeLifecycle, "main_agent"),
+    ]),
+  );
+  for (const status of [
+    "reporting",
+    "completed",
+    "failed",
+    "cancelled",
+    "insufficient_evidence",
+  ] as const) {
+    await writeFile(manifestPath, `${canonicalJson({ ...activeManifest, status })}\n`);
+    const beforeTerminal = await snapshotTree(state.runRoot);
+    await assert.rejects(
+      state.runStore.publishDispatchLaunchRegistration({
+        runId: state.runId,
+        envelopes: terminalProbeCompilation.compiled_envelopes,
+      }),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "run.dispatch_launch_registration_terminal",
+      status,
+    );
+    assert.deepEqual(await snapshotTree(state.runRoot), beforeTerminal, status);
+  }
+  await writeFile(manifestPath, `${canonicalJson(activeManifest)}\n`);
+  await moveManifestUnit(state.runRoot, secondRegistration.unit_id, "completed_units");
+  const beforeDisposed = await snapshotTree(state.runRoot);
+  await assert.rejects(
+    state.runStore.publishDispatchLaunchRegistration({
+      runId: state.runId,
+      envelopes: terminalProbeCompilation.compiled_envelopes,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      [
+        "run.dispatch_launch_registration_unit_disposed",
+        "run.dispatch_launch_registration_task_not_current",
+      ].includes(error.code),
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeDisposed);
+  await writeFile(manifestPath, `${canonicalJson(activeManifest)}\n`);
+
   const secondRequest = await writeRequest("second", [
     registrations[1] as (typeof registrations)[number],
   ]);
@@ -1574,14 +1884,30 @@ test("public CLI closes exact Dispatch launch sets incrementally and rejects ide
   const checked = check();
   assert.equal(checked.status, 0, checked.stderr);
   assert.equal((JSON.parse(checked.stdout) as Record<string, unknown>).status, "closed");
+  const statusBeforeReopen = await state.runStore.status(state.runId);
   await new RunStore(state.runsRoot, state.validator).load(state.runId);
   const afterReopen = check();
   assert.equal(afterReopen.status, 0, afterReopen.stderr);
   assert.deepEqual(JSON.parse(afterReopen.stdout), JSON.parse(checked.stdout));
+  const statusAfterReopen = await state.runStore.status(state.runId);
+  assert.deepEqual(
+    statusAfterReopen.observability.laneTimings,
+    statusBeforeReopen.observability.laneTimings,
+  );
   for (const registration of registrations) {
+    const lifecycleIdentity = {
+      run_id: state.runId,
+      dispatch_batch_ref: `${dispatchRef}#${registration.task_id}`,
+      dispatch_batch_hash: dispatchHash,
+      task_ref: registration.task_ref,
+      task_id: registration.task_id,
+      unit_id: registration.unit_id,
+      attempt: registration.attempt,
+      execution_attempt_id: registration.execution_attempt_id,
+    };
     const lifecyclePath = path.join(
       state.runRoot,
-      `artifacts/runtime/lane-lifecycle/${registration.unit_id}.attempt-${registration.attempt}.launch.r1.json`,
+      canonicalLaneLifecyclePath(lifecycleIdentity, 1),
     );
     const persisted = JSON.parse(await readFile(lifecyclePath, "utf8")) as Record<string, unknown>;
     assert.equal(persisted.artifact_type, "startup_opportunity.lane_lifecycle.v1");
@@ -1611,8 +1937,9 @@ test("status derives retries from distinct execution attempts across the complet
     failureKind?: "validation_failed" | "publication_failed",
   ): Record<string, unknown> => {
     const document = lifecycle(state.runId, unitId, batch, 1, "agent_started");
-    document.lifecycle_id = `lifecycle_${unitId}_attempt_${ordinal}`;
+    document.attempt = ordinal;
     document.execution_attempt_id = `execution_${unitId}_attempt_${ordinal}`;
+    document.lifecycle_id = canonicalLaneLifecycleId(document);
     document.state = stateName;
     const timestamps = document.timestamps as Record<string, unknown>;
     if (stateName === "published") {
@@ -1633,28 +1960,20 @@ test("status derives retries from distinct execution attempts across the complet
   const successfulAttempt = attempt(3, "published");
   const successfulRefresh = structuredClone(successfulAttempt);
   successfulRefresh.revision = 2;
-  successfulRefresh.parent_lifecycle_ref = `artifacts/runtime/lane-lifecycle/${unitId}.attempt-3.r1.json`;
+  successfulRefresh.parent_lifecycle_ref = canonicalLaneLifecyclePath(successfulRefresh, 1);
   const lifecycleArtifacts = [
     runtimeArtifact(
-      `artifacts/runtime/lane-lifecycle/${unitId}.attempt-1.r1.json`,
+      canonicalLaneLifecyclePath(attempt(1, "failed", "validation_failed")),
       attempt(1, "failed", "validation_failed"),
       "main_agent",
     ),
     runtimeArtifact(
-      `artifacts/runtime/lane-lifecycle/${unitId}.attempt-2.r1.json`,
+      canonicalLaneLifecyclePath(attempt(2, "failed", "publication_failed")),
       attempt(2, "failed", "publication_failed"),
       "main_agent",
     ),
-    runtimeArtifact(
-      `artifacts/runtime/lane-lifecycle/${unitId}.attempt-3.r1.json`,
-      successfulAttempt,
-      "main_agent",
-    ),
-    runtimeArtifact(
-      `artifacts/runtime/lane-lifecycle/${unitId}.attempt-3.r2.json`,
-      successfulRefresh,
-      "main_agent",
-    ),
+    runtimeArtifact(canonicalLaneLifecyclePath(successfulAttempt), successfulAttempt, "main_agent"),
+    runtimeArtifact(canonicalLaneLifecyclePath(successfulRefresh), successfulRefresh, "main_agent"),
   ];
   await compiler.compile(compilationRequest(state.runId, "publish", lifecycleArtifacts));
 

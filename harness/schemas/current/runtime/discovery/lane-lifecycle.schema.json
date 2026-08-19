@@ -17,6 +17,7 @@
     "dispatch_batch_hash",
     "task_ref",
     "task_id",
+    "launch_registration_ref",
     "launch_registration_id",
     "launch_registration_hash",
     "state",
@@ -39,7 +40,7 @@
       "anyOf": [
         {
           "type": "string",
-          "pattern": "^artifacts/runtime/lane-lifecycle/.+\\.r[1-9][0-9]*\\.json$"
+          "pattern": "^artifacts/runtime/lane-lifecycle/lifecycle_[a-f0-9]{32}\\.r[1-9][0-9]*\\.json$"
         },
         {
           "type": "null"
@@ -72,6 +73,15 @@
     },
     "task_id": {
       "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "launch_registration_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^artifacts/runtime/dispatch-launch-registrations/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\.json$"
+        },
+        { "type": "null" }
+      ]
     },
     "launch_registration_id": {
       "anyOf": [
@@ -209,8 +219,18 @@
         "properties": { "launch_registration_id": { "type": "string" } },
         "required": ["launch_registration_id"]
       },
-      "then": { "properties": { "launch_registration_hash": { "type": "string" } } },
-      "else": { "properties": { "launch_registration_hash": { "type": "null" } } }
+      "then": {
+        "properties": {
+          "launch_registration_ref": { "type": "string" },
+          "launch_registration_hash": { "type": "string" }
+        }
+      },
+      "else": {
+        "properties": {
+          "launch_registration_ref": { "type": "null" },
+          "launch_registration_hash": { "type": "null" }
+        }
+      }
     }
   ]
 }

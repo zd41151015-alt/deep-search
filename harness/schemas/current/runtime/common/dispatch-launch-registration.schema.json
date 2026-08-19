@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/common/dispatch-launch-registration.schema.json",
+  "title": "Startup Opportunity Dispatch Launch Registration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "registration_id",
+    "run_id",
+    "dispatch_ref",
+    "dispatch_hash",
+    "request_hash",
+    "registered_at",
+    "registrations",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "startup_opportunity.dispatch_launch_registration.v1" },
+    "registration_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId" },
+    "dispatch_ref": {
+      "type": "string",
+      "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json$"
+    },
+    "dispatch_hash": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256" },
+    "request_hash": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256" },
+    "registered_at": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+    },
+    "registrations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "unit_id",
+          "task_ref",
+          "task_id",
+          "attempt",
+          "execution_attempt_id",
+          "lifecycle_ref",
+          "lifecycle_hash"
+        ],
+        "properties": {
+          "unit_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "task_ref": {
+            "type": "string",
+            "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "task_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "attempt": { "type": "integer", "minimum": 1 },
+          "execution_attempt_id": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "lifecycle_ref": {
+            "type": "string",
+            "pattern": "^artifacts/runtime/lane-lifecycle/lifecycle_[a-f0-9]{32}\\.r1\\.json$"
+          },
+          "lifecycle_hash": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "limitations": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

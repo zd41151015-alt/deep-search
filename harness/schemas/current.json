@@ -408,6 +408,11 @@
       "document_schema_version": "startup_opportunity.dispatch_launch_check_result.v1"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/dispatch-launch-registration.schema.json",
+      "file": "current/runtime/common/dispatch-launch-registration.schema.json",
+      "document_schema_version": "startup_opportunity.dispatch_launch_registration.v1"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/runtime/common/dispatch-launch-registration-request.schema.json",
       "file": "current/runtime/common/dispatch-launch-registration-request.schema.json",
       "document_schema_version": "startup_opportunity.dispatch_launch_registration_request.v1"

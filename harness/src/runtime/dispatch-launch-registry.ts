@@ -6,6 +6,11 @@ import {
   DeclarativeRuntimeCompiler,
   type DispatchLaunchCheckResult,
 } from "./declarative-runtime.js";
+import {
+  canonicalLaneLifecycleId,
+  canonicalLaneLifecyclePath,
+  dispatchLaunchRegistrationPath,
+} from "./lane-lifecycle-identity.js";
 
 export interface DispatchLaunchRegistrationRequest extends Record<string, unknown> {
   readonly schema_version: "startup_opportunity.dispatch_launch_registration_request.v1";
@@ -118,10 +123,6 @@ function taskSchema(
   );
 }
 
-function launchLifecyclePath(unitId: string, attempt: number): string {
-  return `artifacts/runtime/lane-lifecycle/${unitId}.attempt-${attempt}.launch.r1.json`;
-}
-
 export class DispatchLaunchRegistry {
   private readonly runs: RunStore;
   private readonly compiler: DeclarativeRuntimeCompiler;
@@ -193,8 +194,13 @@ export class DispatchLaunchRegistry {
       ? dispatch.document.tasks.filter(isRecord)
       : [];
     const taskIds = new Set(tasks.map((task) => String(task.task_id)));
+    const registeredLifecycleRefs = new Set(
+      await this.runs.registeredDispatchLaunchLifecycleRefs(runId),
+    );
     const lifecycles = artifacts.filter(
-      (entry) => entry.artifactType === "startup_opportunity.lane_lifecycle.v1",
+      (entry) =>
+        entry.artifactType === "startup_opportunity.lane_lifecycle.v1" &&
+        registeredLifecycleRefs.has(entry.path),
     );
     const matching = lifecycles.filter(
       (entry) =>
@@ -220,7 +226,7 @@ export class DispatchLaunchRegistry {
             entry.document.task_id === taskId &&
             entry.document.attempt === attempt &&
             entry.document.task_ref === taskRef(dispatchRef, task) &&
-            typeof entry.document.launch_registration_id === "string",
+            registeredLifecycleRefs.has(entry.path),
         );
         const executionAttemptIds = [
           ...new Set(registrations.map((entry) => String(entry.document.execution_attempt_id))),
@@ -320,32 +326,64 @@ export class DispatchLaunchRegistry {
         "one launch registration request cannot repeat a Unit or execution attempt",
       );
     }
-    const priorRequest = lifecycles.filter(
-      (entry) =>
-        entry.document.launch_registration_id === request.request_id &&
-        entry.document.revision === 1,
-    );
-    if (priorRequest.some((entry) => entry.document.launch_registration_hash !== requestHash)) {
-      throw new StoreError(
-        "runtime.launch_registration_replay_conflict",
-        "launch registration request id was already used with different content",
-        { requestId: request.request_id },
-      );
-    }
-    if (priorRequest.length > 0) {
-      const replayedUnits = priorRequest.map((entry) => String(entry.document.unit_id)).sort();
-      if (canonicalJson(replayedUnits) !== canonicalJson([...duplicateUnits].sort())) {
+    const registrationPath = dispatchLaunchRegistrationPath(request.request_id);
+    const existingRegistration = artifacts.find((entry) => entry.path === registrationPath);
+    if (existingRegistration !== undefined) {
+      if (
+        existingRegistration.artifactType !== "startup_opportunity.dispatch_launch_registration.v1"
+      ) {
+        throw new StoreError(
+          "runtime.launch_registration_path_conflict",
+          "launch registration path is already occupied by another formal record",
+          { registrationPath },
+        );
+      }
+      const storedRequest = existingRegistration.document;
+      const storedRegistrations = Array.isArray(storedRequest.registrations)
+        ? storedRequest.registrations.filter(isRecord)
+        : [];
+      const storedRequestHash = String(storedRequest.request_hash ?? "");
+      const storedRequestProjection = {
+        schema_version: "startup_opportunity.dispatch_launch_registration_request.v1",
+        request_id: storedRequest.registration_id,
+        run_id: storedRequest.run_id,
+        dispatch_ref: storedRequest.dispatch_ref,
+        dispatch_hash: storedRequest.dispatch_hash,
+        registered_at: storedRequest.registered_at,
+        registrations: storedRegistrations.map((item) => ({
+          unit_id: item.unit_id,
+          task_ref: item.task_ref,
+          task_id: item.task_id,
+          attempt: item.attempt,
+          execution_attempt_id: item.execution_attempt_id,
+        })),
+      };
+      if (
+        storedRequestHash !== canonicalContentHash(storedRequestProjection) ||
+        storedRequestHash !== requestHash ||
+        canonicalJson(storedRequestProjection) !== canonicalJson(request)
+      ) {
         throw new StoreError(
           "runtime.launch_registration_replay_conflict",
-          "launch registration replay does not match the original atomic batch",
+          "launch registration request id was already used with different content",
           { requestId: request.request_id },
         );
       }
       return this.check(request.run_id, request.dispatch_ref, request.dispatch_hash);
     }
 
-    const artifactsToPublish = request.registrations.map((registration) => {
-      const lifecyclePath = launchLifecyclePath(registration.unit_id, registration.attempt);
+    const lifecycleDocuments = request.registrations.map((registration) => {
+      const identityDocument = {
+        run_id: request.run_id,
+        dispatch_batch_ref: `${request.dispatch_ref}#${registration.task_id}`,
+        dispatch_batch_hash: request.dispatch_hash,
+        task_ref: registration.task_ref,
+        task_id: registration.task_id,
+        unit_id: registration.unit_id,
+        attempt: registration.attempt,
+        execution_attempt_id: registration.execution_attempt_id,
+      };
+      const lifecyclePath = canonicalLaneLifecyclePath(identityDocument, 1);
       if (artifacts.some((entry) => entry.path === lifecyclePath)) {
         throw new StoreError(
           "runtime.launch_registration_path_conflict",
@@ -404,7 +442,7 @@ export class DispatchLaunchRegistry {
       }
       const document = {
         schema_version: "startup_opportunity.lane_lifecycle.v1",
-        lifecycle_id: `lifecycle_${registration.unit_id}_attempt_${registration.attempt}`,
+        lifecycle_id: canonicalLaneLifecycleId(identityDocument),
         revision: 1,
         parent_lifecycle_ref: null,
         run_id: request.run_id,
@@ -415,6 +453,7 @@ export class DispatchLaunchRegistry {
         dispatch_batch_hash: request.dispatch_hash,
         task_ref: registration.task_ref,
         task_id: registration.task_id,
+        launch_registration_ref: registrationPath,
         launch_registration_id: request.request_id,
         launch_registration_hash: requestHash,
         state: "agent_started",
@@ -432,21 +471,55 @@ export class DispatchLaunchRegistry {
           "Caller-declared launch registration; the Harness does not verify that an external Codex task exists.",
         ],
       };
-      return {
+      return { lifecyclePath, document };
+    });
+
+    const registrationDocument = {
+      schema_version: "startup_opportunity.dispatch_launch_registration.v1",
+      registration_id: request.request_id,
+      run_id: request.run_id,
+      dispatch_ref: request.dispatch_ref,
+      dispatch_hash: request.dispatch_hash,
+      request_hash: requestHash,
+      registered_at: request.registered_at,
+      registrations: lifecycleDocuments.map(({ lifecyclePath, document }) => ({
+        unit_id: document.unit_id,
+        task_ref: document.task_ref,
+        task_id: document.task_id,
+        attempt: document.attempt,
+        execution_attempt_id: document.execution_attempt_id,
+        lifecycle_ref: lifecyclePath,
+        lifecycle_hash: canonicalContentHash(document),
+      })),
+      limitations: [
+        "Caller-declared launch registration; the Harness does not verify that an external Codex task exists.",
+      ],
+    };
+    const artifactsToValidate = [
+      {
+        artifact_type: "startup_opportunity.dispatch_launch_registration.v1",
+        artifact_path: registrationPath,
+        producer_role: "harness" as const,
+        document: registrationDocument,
+      },
+      ...lifecycleDocuments.map(({ lifecyclePath, document }) => ({
         artifact_type: document.schema_version,
         artifact_path: lifecyclePath,
         producer_role: "main_agent" as const,
         document,
-      };
-    });
-
-    await this.compiler.compile({
+      })),
+    ];
+    const compiled = await this.compiler.compile({
       schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
       request_id: request.request_id,
       run_id: request.run_id,
-      operation: "publish",
+      operation: "validate_only",
       created_at: request.registered_at,
-      artifacts: artifactsToPublish,
+      artifacts: artifactsToValidate,
+    });
+    await this.runs.publishDispatchLaunchRegistration({
+      runId: request.run_id,
+      envelopes: compiled.compiled_envelopes,
     });
     return this.check(request.run_id, request.dispatch_ref, request.dispatch_hash);
   }

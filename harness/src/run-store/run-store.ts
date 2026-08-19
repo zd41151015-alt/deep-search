@@ -61,6 +61,12 @@ import {
   type ReportRecoveryResult,
   recoverReportOperationsLocked,
 } from "../reporting/report-runtime.js";
+import {
+  canonicalLaneLifecycleId,
+  canonicalLaneLifecyclePath,
+  dispatchLaunchRegistrationPath,
+  dispatchLaunchRequestFromRegistration,
+} from "../runtime/lane-lifecycle-identity.js";
 import { type OperationObserver, operationTrace } from "../runtime/operation-observability.js";
 import {
   type ArtifactValidator,
@@ -115,6 +121,11 @@ export interface RunManifest extends Record<string, unknown> {
   readonly artifact_refs: readonly string[];
   readonly checkpoint_ref: string | null;
   readonly limitations: readonly string[];
+}
+
+export interface PublishDispatchLaunchRegistrationInput {
+  readonly runId: string;
+  readonly envelopes: readonly FormalArtifactEnvelope[];
 }
 
 export interface ResearchScope {
@@ -2679,6 +2690,17 @@ export class RunStore {
         "terminal report sources must use apply-plan-revision atomic closeout",
       );
     }
+    if (
+      input.envelope.artifact_type === "startup_opportunity.dispatch_launch_registration.v1" ||
+      (input.envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1" &&
+        input.envelope.document.revision === 1 &&
+        typeof input.envelope.document.launch_registration_ref === "string")
+    ) {
+      throw new StoreError(
+        "artifact.dispatch_launch_registration_entry_required",
+        "registered lifecycle roots must use the dedicated atomic Dispatch launch entry",
+      );
+    }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       const manifest = await this.readManifest(runRoot);
@@ -2776,6 +2798,20 @@ export class RunStore {
       throw new StoreError(
         "research_handoff.dedicated_entry_required",
         "research handoffs must use createResearchHandoff() so the Store captures exact authorized source bytes",
+      );
+    }
+    if (
+      input.envelopes.some(
+        (envelope) =>
+          envelope.artifact_type === "startup_opportunity.dispatch_launch_registration.v1" ||
+          (envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1" &&
+            envelope.document.revision === 1 &&
+            typeof envelope.document.launch_registration_ref === "string"),
+      )
+    ) {
+      throw new StoreError(
+        "artifact.dispatch_launch_registration_entry_required",
+        "registered lifecycle roots must use the dedicated atomic Dispatch launch entry",
       );
     }
     if (
@@ -2926,6 +2962,146 @@ export class RunStore {
         );
       }
       if (canonicalJson(manifest) !== canonicalJson(originalManifest)) {
+        await this.writeManifest(runRoot, manifest);
+      }
+      return result;
+    });
+  }
+
+  async publishDispatchLaunchRegistration(
+    input: PublishDispatchLaunchRegistrationInput,
+  ): Promise<PublishArtifactBundleResult> {
+    await this.assertCurrentLeaf(input.runId);
+    const runRoot = await openRunDirectory(this.runsRoot, input.runId);
+    return withRunLock(runRoot, async () => {
+      let manifest = await this.readManifest(runRoot);
+      await this.assertScopeBindingLocked(runRoot, manifest);
+      if (TERMINAL_RUN_STATUSES.has(manifest.status) || manifest.status === "reporting") {
+        throw new StoreError(
+          "run.dispatch_launch_registration_terminal",
+          "terminal or reporting Runs cannot accept a Dispatch launch registration",
+          { status: manifest.status },
+        );
+      }
+      const registration = input.envelopes.find(
+        (envelope) =>
+          envelope.artifact_type === "startup_opportunity.dispatch_launch_registration.v1",
+      );
+      const lifecycles = input.envelopes.filter(
+        (envelope) => envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1",
+      );
+      if (
+        registration === undefined ||
+        input.envelopes.length !== lifecycles.length + 1 ||
+        lifecycles.length === 0
+      ) {
+        throw new StoreError(
+          "artifact.dispatch_launch_registration_bundle_invalid",
+          "launch registration requires one formal registration and at least one lifecycle root",
+        );
+      }
+      const disposed = new Set([
+        ...manifest.completed_units,
+        ...manifest.failed_units,
+        ...manifest.invalidated_units,
+        ...manifest.skipped_units,
+        ...manifest.cancelled_units,
+        ...manifest.superseded_units,
+      ]);
+      const disposedUnitIds = lifecycles
+        .map((envelope) => String(envelope.document.unit_id))
+        .filter((unitId) => disposed.has(unitId))
+        .sort();
+      if (disposedUnitIds.length > 0) {
+        throw new StoreError(
+          "run.dispatch_launch_registration_unit_disposed",
+          "a Dispatch task cannot be launch-registered after formal Unit disposition",
+          { unitIds: disposedUnitIds },
+        );
+      }
+      const inactiveUnitIds = lifecycles
+        .map((envelope) => String(envelope.document.unit_id))
+        .filter((unitId) => !manifest.active_units.includes(unitId))
+        .sort();
+      const storedDispatch = (await this.artifacts.listFormalDocuments(runRoot)).find(
+        (entry) => entry.path === registration.document.dispatch_ref,
+      )?.document as FormalArtifactEnvelope | undefined;
+      if (
+        inactiveUnitIds.length > 0 ||
+        storedDispatch === undefined ||
+        ![
+          "startup_opportunity.dispatch_batch.discovery.current",
+          "startup_opportunity.dispatch_batch.assessment.current",
+        ].includes(storedDispatch.artifact_type) ||
+        storedDispatch.document.research_plan_ref !== manifest.current_plan_ref
+      ) {
+        throw new StoreError(
+          "run.dispatch_launch_registration_task_not_current",
+          "launch registration requires active tasks from the current non-superseded Dispatch",
+          {
+            inactiveUnitIds,
+            dispatchRef: registration.document.dispatch_ref,
+            currentPlanRef: manifest.current_plan_ref,
+            dispatchPlanRef: storedDispatch?.document.research_plan_ref,
+          },
+        );
+      }
+      await this.assertTransitionReadyLocked(runRoot, manifest, input.envelopes);
+      const validationContext = await this.buildValidationContextLocked(
+        runRoot,
+        input.runId,
+        {
+          schema_version: DOCUMENT_BUNDLE_SCHEMA_VERSION,
+          documents: input.envelopes.map((envelope) => ({
+            path: envelope.artifact_path,
+            document: envelope,
+          })),
+          exact_records: [],
+        },
+        false,
+        new Set(input.envelopes.map((envelope) => envelope.artifact_path)),
+      );
+      const validation = this.validator.validateDocumentBundle(
+        validationContext.bundle,
+        validationContext.referenceContext,
+      );
+      if (!validation.valid) {
+        throw new StoreError(
+          "artifact.dispatch_launch_registration_validation_failed",
+          "Dispatch launch registration bundle does not satisfy the current formal closure",
+          {
+            bundleErrors: validation.bundleErrors,
+            documentErrors: validation.documents.flatMap((document) => document.errors),
+            referenceErrors: validation.referenceErrors,
+          },
+        );
+      }
+      const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
+        runRoot,
+        input.runId,
+        this.validator,
+        this.artifacts,
+        this.logs,
+      );
+      const result = await this.artifacts.publishDispatchLaunchBundleLocked(
+        runRoot,
+        { runId: input.runId, envelopes: input.envelopes },
+        { historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings },
+      );
+      const statuses = new Map(
+        result.artifacts.map((artifact) => [artifact.artifactPath, artifact.status]),
+      );
+      for (const envelope of input.envelopes) {
+        manifest = await this.applyPublishedEnvelope(
+          runRoot,
+          manifest,
+          envelope,
+          false,
+          statuses.get(envelope.artifact_path) === "idempotent_replay",
+        );
+      }
+      const original = await this.readManifest(runRoot);
+      if (canonicalJson(manifest) !== canonicalJson(original)) {
         await this.writeManifest(runRoot, manifest);
       }
       return result;
@@ -3807,8 +3983,76 @@ export class RunStore {
       { readonly unitId: unknown; readonly taskRef: unknown; readonly attempt: unknown }
     >();
     const requestHashes = new Map<string, string>();
+    const revisions = new Map<string, FormalArtifactEnvelope>();
+    const byPath = new Map(
+      [...stored, ...incoming].map((envelope) => [envelope.artifact_path, envelope]),
+    );
     for (const lifecycle of [...stored, ...incoming]) {
       const document = lifecycle.document;
+      const lifecycleId = canonicalLaneLifecycleId(document);
+      const lifecyclePath = canonicalLaneLifecyclePath(document, Number(document.revision));
+      if (document.lifecycle_id !== lifecycleId || lifecycle.artifact_path !== lifecyclePath) {
+        throw new StoreError(
+          "artifact.lifecycle_identity_invalid",
+          "Lane Lifecycle id and path must be the canonical execution-attempt identity",
+          {
+            artifactPath: lifecycle.artifact_path,
+            expectedLifecycleId: lifecycleId,
+            lifecyclePath,
+          },
+        );
+      }
+      if (document.revision === 1 && document.parent_lifecycle_ref !== null) {
+        throw new StoreError(
+          "artifact.lifecycle_root_invalid",
+          "Lane Lifecycle revision one must have no parent",
+          { artifactPath: lifecycle.artifact_path },
+        );
+      }
+      if (Number(document.revision) > 1) {
+        const expectedParentRef = canonicalLaneLifecyclePath(
+          document,
+          Number(document.revision) - 1,
+        );
+        const parent = byPath.get(expectedParentRef);
+        if (
+          document.parent_lifecycle_ref !== expectedParentRef ||
+          parent?.artifact_type !== "startup_opportunity.lane_lifecycle.v1" ||
+          Number(parent.document.revision) + 1 !== Number(document.revision) ||
+          parent.document.lifecycle_id !== document.lifecycle_id ||
+          parent.document.run_id !== document.run_id ||
+          parent.document.unit_id !== document.unit_id ||
+          parent.document.attempt !== document.attempt ||
+          parent.document.execution_attempt_id !== document.execution_attempt_id ||
+          parent.document.dispatch_batch_ref !== document.dispatch_batch_ref ||
+          parent.document.dispatch_batch_hash !== document.dispatch_batch_hash ||
+          parent.document.task_ref !== document.task_ref ||
+          parent.document.task_id !== document.task_id ||
+          parent.document.launch_registration_ref !== document.launch_registration_ref ||
+          parent.document.launch_registration_id !== document.launch_registration_id ||
+          parent.document.launch_registration_hash !== document.launch_registration_hash
+        ) {
+          throw new StoreError(
+            "artifact.lifecycle_parent_invalid",
+            "Lane Lifecycle revisions must preserve the exact canonical parent and launch provenance",
+            { artifactPath: lifecycle.artifact_path, expectedParentRef },
+          );
+        }
+      }
+      const revisionKey = `${lifecycleId}:${String(document.revision)}`;
+      const priorRevision = revisions.get(revisionKey);
+      if (
+        priorRevision !== undefined &&
+        (priorRevision.artifact_path !== lifecycle.artifact_path ||
+          priorRevision.content_hash !== lifecycle.content_hash)
+      ) {
+        throw new StoreError(
+          "artifact.lifecycle_revision_conflict",
+          "one lifecycle identity can publish only one immutable document per revision",
+          { lifecycleId, revision: document.revision },
+        );
+      }
+      revisions.set(revisionKey, lifecycle);
       const executionAttemptId = String(document.execution_attempt_id ?? "");
       const identity = {
         unitId: document.unit_id,
@@ -3839,6 +4083,99 @@ export class RunStore {
     }
   }
 
+  private async registeredDispatchLaunchLifecycleRefsLocked(
+    runRoot: string,
+    manifest: RunManifest,
+  ): Promise<ReadonlySet<string>> {
+    const tracked = new Set(manifest.artifact_refs);
+    const stored = (await this.artifacts.listFormalDocuments(runRoot))
+      .filter(
+        (entry) =>
+          tracked.has(entry.path) &&
+          entry.document.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION,
+      )
+      .map((entry) => entry.document as FormalArtifactEnvelope);
+    const byPath = new Map(stored.map((envelope) => [envelope.artifact_path, envelope]));
+    const authorized = new Set<string>();
+    for (const registration of stored.filter(
+      (envelope) =>
+        envelope.artifact_type === "startup_opportunity.dispatch_launch_registration.v1",
+    )) {
+      const document = registration.document;
+      const expectedPath = dispatchLaunchRegistrationPath(String(document.registration_id));
+      const authority = await this.artifacts.dispatchLaunchBundleAuthorityLocked(
+        runRoot,
+        manifest.run_id,
+        registration.artifact_path,
+        tracked,
+      );
+      if (
+        registration.artifact_path !== expectedPath ||
+        document.run_id !== manifest.run_id ||
+        document.request_hash !==
+          canonicalContentHash(dispatchLaunchRequestFromRegistration(document)) ||
+        authority === null
+      ) {
+        throw new StoreError(
+          "artifact.dispatch_launch_registration_authority_invalid",
+          "stored launch registration lacks its exact dedicated Store publication authority",
+          { registrationRef: registration.artifact_path },
+        );
+      }
+      const authorityPaths = new Set(authority.map((envelope) => envelope.artifact_path));
+      const items = Array.isArray(document.registrations)
+        ? document.registrations.filter(isRecord)
+        : [];
+      if (authority.length !== items.length + 1) {
+        throw new StoreError(
+          "artifact.dispatch_launch_registration_authority_invalid",
+          "launch registration bundle membership differs from its exact registered roots",
+          { registrationRef: registration.artifact_path },
+        );
+      }
+      for (const item of items) {
+        const lifecycleRef = String(item.lifecycle_ref ?? "");
+        const lifecycle = byPath.get(lifecycleRef);
+        if (
+          !authorityPaths.has(lifecycleRef) ||
+          lifecycle?.artifact_type !== "startup_opportunity.lane_lifecycle.v1" ||
+          lifecycle.content_hash !== item.lifecycle_hash ||
+          lifecycle.document.revision !== 1 ||
+          lifecycle.document.parent_lifecycle_ref !== null ||
+          lifecycle.document.launch_registration_ref !== registration.artifact_path ||
+          lifecycle.document.launch_registration_id !== document.registration_id ||
+          lifecycle.document.launch_registration_hash !== document.request_hash ||
+          lifecycle.document.unit_id !== item.unit_id ||
+          lifecycle.document.task_ref !== item.task_ref ||
+          lifecycle.document.task_id !== item.task_id ||
+          lifecycle.document.attempt !== item.attempt ||
+          lifecycle.document.execution_attempt_id !== item.execution_attempt_id ||
+          lifecycle.document.lifecycle_id !== canonicalLaneLifecycleId(lifecycle.document) ||
+          lifecycle.artifact_path !== canonicalLaneLifecyclePath(lifecycle.document, 1)
+        ) {
+          throw new StoreError(
+            "artifact.dispatch_launch_registration_authority_invalid",
+            "launch registration does not resolve one exact canonical lifecycle root",
+            { registrationRef: registration.artifact_path, lifecycleRef },
+          );
+        }
+        authorized.add(lifecycleRef);
+      }
+    }
+    return authorized;
+  }
+
+  async registeredDispatchLaunchLifecycleRefs(runId: string): Promise<readonly string[]> {
+    await this.assertCurrentLeaf(runId);
+    const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
+    return withRunLock(runRoot, async () => {
+      const manifest = await this.readManifest(runRoot);
+      return [
+        ...(await this.registeredDispatchLaunchLifecycleRefsLocked(runRoot, manifest)),
+      ].sort();
+    });
+  }
+
   private async assertDispatchLaunchClosureLocked(
     runRoot: string,
     manifest: RunManifest,
@@ -3854,8 +4191,9 @@ export class RunStore {
       )
       .map((entry) => entry.document as FormalArtifactEnvelope);
     const all = [...stored, ...envelopes];
-    const lifecycles = all.filter(
-      (envelope) => envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1",
+    const authorizedLifecycleRefs = await this.registeredDispatchLaunchLifecycleRefsLocked(
+      runRoot,
+      manifest,
     );
     const disposed = new Set([
       ...manifest.completed_units,
@@ -3879,12 +4217,12 @@ export class RunStore {
         : []) {
         const unitId = String(task.unit_id ?? "");
         const dispatchTaskRef = `${dispatch.artifact_path}#${String(task.task_id)}`;
-        const started = lifecycles.some(
+        const started = stored.some(
           (lifecycle) =>
+            authorizedLifecycleRefs.has(lifecycle.artifact_path) &&
             lifecycle.document.dispatch_batch_ref === dispatchTaskRef &&
             lifecycle.document.dispatch_batch_hash === dispatch.content_hash &&
             lifecycle.document.unit_id === unitId &&
-            typeof lifecycle.document.launch_registration_id === "string" &&
             lifecycle.document.state !== "dispatch_requested",
         );
         if (!started && !disposed.has(unitId)) {

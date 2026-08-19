@@ -183,6 +183,12 @@ export {
   type LaneScopeFormalClosure,
 } from "./runtime/lane-delivery-closure.js";
 export {
+  canonicalLaneLifecycleId,
+  canonicalLaneLifecyclePath,
+  dispatchLaunchRegistrationPath,
+  laneLifecycleIdentity,
+} from "./runtime/lane-lifecycle-identity.js";
+export {
   type LaneDeliveryResult,
   LaneResultMaterializer,
 } from "./runtime/lane-materializer.js";

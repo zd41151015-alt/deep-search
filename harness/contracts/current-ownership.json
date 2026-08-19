@@ -459,6 +459,7 @@
       "ownerModules": [
         "harness/src/runtime/declarative-runtime.ts",
         "harness/src/runtime/dispatch-launch-registry.ts",
+        "harness/src/runtime/lane-lifecycle-identity.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "producerModules": [

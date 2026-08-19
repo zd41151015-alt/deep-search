@@ -776,6 +776,7 @@ test("current Envelope retains grouped ownership, path, and required-field const
     ],
     harness: [
       "startup_opportunity.decision_brief.discovery.current",
+      "startup_opportunity.dispatch_launch_registration.v1",
       "startup_opportunity.discovery_report_view.v1",
       "startup_opportunity.report_consistency_evaluation.discovery.current",
       "startup_opportunity.checkpoint.v1",
@@ -850,9 +851,14 @@ test("current Envelope retains grouped ownership, path, and required-field const
       type: "string",
       pattern: "^adaptations/gap-snapshots/.+\\.json$",
     },
+    "startup_opportunity.dispatch_launch_registration.v1": {
+      type: "string",
+      pattern:
+        "^artifacts/runtime/dispatch-launch-registrations/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\.json$",
+    },
     "startup_opportunity.lane_lifecycle.v1": {
       type: "string",
-      pattern: "^artifacts/runtime/lane-lifecycle/.+\\.r[1-9][0-9]*\\.json$",
+      pattern: "^artifacts/runtime/lane-lifecycle/lifecycle_[a-f0-9]{32}\\.r[1-9][0-9]*\\.json$",
     },
     "startup_opportunity.research_execution_plan.discovery.current": {
       type: "string",
