@@ -24,6 +24,22 @@ const RUNTIME_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.lane_delivery_receipt.current",
 ]);
 
+const DISCOVERY_SYNTHESIS_SCHEMA_VERSIONS = new Set([
+  "startup_opportunity.discovery_candidate_conversion.v2",
+  "startup_opportunity.demand_thesis.v1",
+  "startup_opportunity.baseline_option.v1",
+  "startup_opportunity.solution_hypothesis.v1",
+  "startup_opportunity.solution_evaluation.v1",
+  "startup_opportunity.opportunity_thesis.v1",
+  "startup_opportunity.thesis_evaluation_snapshot.v1",
+  "startup_opportunity.merge.v1",
+]);
+
+const DISCOVERY_JUDGMENT_SCHEMA_VERSIONS = new Set([
+  "startup_opportunity.judgment_assessment.discovery_candidate.current",
+  "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+]);
+
 const STAGE_ORDER = [
   "discovery_generation",
   "hard_gate_scan",
@@ -74,6 +90,22 @@ function issue(
 
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {
   return canonicalJson([...new Set(left)].sort()) === canonicalJson([...new Set(right)].sort());
+}
+
+function latestDocument(
+  documents: readonly DeclarativeRuntimeDocument[],
+): DeclarativeRuntimeDocument | null {
+  return (
+    [...documents].sort((left, right) => {
+      const createdDifference =
+        Date.parse(String(right.envelope?.created_at ?? right.document.created_at ?? "")) -
+        Date.parse(String(left.envelope?.created_at ?? left.document.created_at ?? ""));
+      if (Number.isFinite(createdDifference) && createdDifference !== 0) return createdDifference;
+      const revisionDifference =
+        Number(right.document.revision ?? 0) - Number(left.document.revision ?? 0);
+      return revisionDifference !== 0 ? revisionDifference : right.path.localeCompare(left.path);
+    })[0] ?? null
+  );
 }
 
 function target(
@@ -942,6 +974,15 @@ function validateReadiness(
       ),
     );
   }
+  if (nextStage !== null && nextStage.gate_before !== entry.path) {
+    errors.push(
+      issue(
+        "runtime.readiness_gate_binding_mismatch",
+        entry.path,
+        "the dependent next execution stage must name this exact Readiness artifact as its entry gate",
+      ),
+    );
+  }
   const expectedQuestions = records(plan.document.research_questions).map(
     (question) => `${String(readiness.research_plan_ref)}#${String(question.question_id)}`,
   );
@@ -956,6 +997,37 @@ function validateReadiness(
         "readiness must explicitly disposition every current Research Plan question",
       ),
     );
+  }
+  const questionCoverage = records(readiness.question_coverage);
+  for (const coverage of questionCoverage) {
+    const judgmentRefs = strings(coverage.judgment_refs);
+    const invalidJudgmentRefs = judgmentRefs.filter((ref) => {
+      const judgment = target(byPath, ref);
+      return (
+        judgment === null ||
+        !DISCOVERY_JUDGMENT_SCHEMA_VERSIONS.has(judgment.schemaVersion) ||
+        judgment.document.run_id !== readiness.run_id
+      );
+    });
+    if (coverage.status === "answered" && judgmentRefs.length === 0) {
+      errors.push(
+        issue(
+          "runtime.readiness_question_judgment_missing",
+          `${entry.path}#${String(coverage.question_ref)}`,
+          "an answered Plan question requires at least one formal Judgment disposition",
+        ),
+      );
+    }
+    if (invalidJudgmentRefs.length > 0) {
+      errors.push(
+        issue(
+          "runtime.readiness_question_judgment_invalid",
+          `${entry.path}#${String(coverage.question_ref)}`,
+          "Readiness question coverage may bind only exact same-Run discovery Judgments",
+          { invalidJudgmentRefs },
+        ),
+      );
+    }
   }
   const fanIn = target(byPath, readiness.source_fan_in_ref);
   const dispositions = new Map<string, string>();
@@ -1062,6 +1134,7 @@ function validateReadiness(
     (disposition === "ready" &&
       (blockers.length > 0 ||
         missingKinds.length > 0 ||
+        questionCoverage.some((coverage) => coverage.status !== "answered") ||
         !declaredActions.includes("continue_stage"))) ||
     (disposition === "blocked" && (blockers.length === 0 || readiness.stop_basis !== null)) ||
     (disposition === "terminal" &&
@@ -1074,6 +1147,116 @@ function validateReadiness(
         "runtime.readiness_disposition_invalid",
         entry.path,
         "ready, blocked, and terminal dispositions must reflect blockers, bounded actions, and stop basis",
+      ),
+    );
+  }
+}
+
+function validateDiscoverySynthesisReadinessBoundary(
+  documents: readonly DeclarativeRuntimeDocument[],
+  byPath: ReadonlyMap<string, DeclarativeRuntimeDocument>,
+  errors: ValidationIssue[],
+): void {
+  const synthesis = documents.filter((entry) =>
+    DISCOVERY_SYNTHESIS_SCHEMA_VERSIONS.has(entry.schemaVersion),
+  );
+  if (synthesis.length === 0) return;
+
+  const planRefs = [
+    ...new Set(
+      synthesis
+        .map((entry) => entry.document.research_plan_ref)
+        .filter((ref): ref is string => typeof ref === "string"),
+    ),
+  ];
+  const fanInRefs = [
+    ...new Set(
+      synthesis
+        .map((entry) => entry.document.discovery_fan_in_ref)
+        .filter((ref): ref is string => typeof ref === "string"),
+    ),
+  ];
+  if (planRefs.length !== 1 || fanInRefs.length !== 1) {
+    errors.push(
+      issue(
+        "runtime.discovery_synthesis_readiness_binding_mismatch",
+        synthesis[0]?.path ?? "/",
+        "G2.3 artifacts must share one exact current Plan and discovery fan-in before readiness can be evaluated",
+        { planRefs, fanInRefs },
+      ),
+    );
+    return;
+  }
+  const planRef = planRefs[0] as string;
+  const fanInRef = fanInRefs[0] as string;
+  const latestReadiness = latestDocument(
+    documents.filter(
+      (entry) =>
+        entry.schemaVersion === "startup_opportunity.discovery_stage_readiness.v1" &&
+        entry.document.research_plan_ref === planRef,
+    ),
+  );
+  if (latestReadiness === null) {
+    errors.push(
+      issue(
+        "runtime.discovery_synthesis_readiness_missing",
+        synthesis[0]?.path ?? "/",
+        "G2.3 requires a current post-fan-in Stage Readiness artifact",
+        { planRef, fanInRef },
+      ),
+    );
+    return;
+  }
+  const readinessGaps = documents.filter(
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.gap_snapshot.discovery.readiness.current" &&
+      entry.document.readiness_ref === latestReadiness.path,
+  );
+  const readinessGap = latestDocument(readinessGaps);
+  const execution = target(byPath, latestReadiness.document.execution_plan_ref);
+  const fanIn = target(byPath, fanInRef);
+  const nextStage =
+    execution?.schemaVersion === "startup_opportunity.research_execution_plan.discovery.current"
+      ? stageById(execution.document, latestReadiness.document.next_stage_id)
+      : null;
+  const questionCoverage = records(latestReadiness.document.question_coverage);
+  if (
+    readinessGap === null ||
+    readinessGap.document.based_on_plan_ref !== planRef ||
+    readinessGap.document.fan_in_ref !== fanInRef ||
+    latestReadiness.document.source_fan_in_ref !== fanInRef ||
+    execution?.document.research_plan_ref !== planRef ||
+    fanIn?.schemaVersion !== "startup_opportunity.discovery_fan_in.v2" ||
+    fanIn.document.research_plan_ref !== planRef ||
+    nextStage?.stage_kind !== "discovery_synthesis"
+  ) {
+    errors.push(
+      issue(
+        "runtime.discovery_synthesis_readiness_binding_mismatch",
+        latestReadiness.path,
+        "G2.3 Readiness and readiness Gap must bind the exact Plan, execution stage, and fan-in",
+        {
+          readinessGapRef: readinessGap?.path ?? null,
+          executionPlanRef: latestReadiness.document.execution_plan_ref,
+          fanInRef,
+        },
+      ),
+    );
+    return;
+  }
+  if (
+    latestReadiness.document.next_stage_readiness !== "ready" ||
+    records(latestReadiness.document.blockers).length > 0 ||
+    questionCoverage.some(
+      (coverage) => coverage.status !== "answered" || strings(coverage.judgment_refs).length === 0,
+    ) ||
+    strings(readinessGap.document.unresolved_decision_relevant_questions).length > 0
+  ) {
+    errors.push(
+      issue(
+        "runtime.discovery_synthesis_not_ready",
+        latestReadiness.path,
+        "G2.3 requires ready disposition, no blockers, and Judgment-backed answers for every Plan question",
       ),
     );
   }
@@ -1255,7 +1438,13 @@ export function validateDeclarativeRuntimeContract(
   documents: readonly DeclarativeRuntimeDocument[],
   exactJsonlRecords: ReadonlyMap<string, Record<string, unknown>> = new Map(),
 ): readonly ValidationIssue[] {
-  if (!documents.some((entry) => isDeclarativeRuntimeSchemaVersion(entry.schemaVersion))) {
+  if (
+    !documents.some(
+      (entry) =>
+        isDeclarativeRuntimeSchemaVersion(entry.schemaVersion) ||
+        DISCOVERY_SYNTHESIS_SCHEMA_VERSIONS.has(entry.schemaVersion),
+    )
+  ) {
     return [];
   }
   const errors: ValidationIssue[] = [];
@@ -1291,5 +1480,6 @@ export function validateDeclarativeRuntimeContract(
         break;
     }
   }
+  validateDiscoverySynthesisReadinessBoundary(documents, byPath, errors);
   return sortIssues(errors);
 }

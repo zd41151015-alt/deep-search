@@ -38,6 +38,7 @@ import {
   G22_SOLUTION_R1,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
+  discoverySynthesisReadinessEnvelopes,
   G23_MERGE,
   G23_OPPORTUNITY_A,
   G23_OPPORTUNITY_B,
@@ -366,6 +367,10 @@ async function publishThroughSynthesis(state: State): Promise<void> {
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
+    envelopes: discoverySynthesisReadinessEnvelopes(state.bundle),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
     envelopes: byTypes(runtime, ...SYNTHESIS_ARTIFACT_TYPES),
   });
 }
@@ -379,7 +384,7 @@ async function publishThroughEnrichmentBranches(state: State): Promise<void> {
       state.bundle,
       state.runId,
       "startup_opportunity.research_task.discovery_evaluation.current",
-      2,
+      3,
       "enrichment_runtime",
     ),
   });
@@ -415,7 +420,7 @@ async function publishThroughEvaluation(state: State): Promise<void> {
       state.bundle,
       state.runId,
       "startup_opportunity.research_task.discovery_evaluation.current",
-      2,
+      3,
       "enrichment_runtime",
     ),
   ];
@@ -1587,7 +1592,7 @@ test("G2.4 Store rejects an enrichment task that is absent from the current Plan
     state.bundle,
     state.runId,
     "startup_opportunity.research_task.discovery_evaluation.current",
-    2,
+    3,
     "enrichment_runtime",
   );
   const task = wave.find((envelope) => envelope.artifact_path === G24_TASK_SUPPORT);
@@ -2018,7 +2023,7 @@ test("G2.4 branch terminal states project mechanically and keep late or supersed
           state.bundle,
           state.runId,
           "startup_opportunity.research_task.discovery_evaluation.current",
-          2,
+          3,
           "enrichment_runtime",
         ),
       });

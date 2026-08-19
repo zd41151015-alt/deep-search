@@ -2508,6 +2508,18 @@ test("readiness and Gap semantics require bounded solution generation and basis 
   ]).map((issue) => issue.code);
   assert.ok(solutionCodes.includes("runtime.readiness_missing_candidate_action_missing"));
 
+  const answeredWithoutJudgment = structuredClone(readiness);
+  const answeredCoverage = answeredWithoutJudgment.question_coverage as Record<string, unknown>[];
+  assert.ok(answeredCoverage[0]);
+  answeredCoverage[0].status = "answered";
+  answeredCoverage[0].judgment_refs = [];
+  const answeredCodes = validateDeclarativeRuntimeContract([
+    planEntry,
+    executionEntry,
+    { ...readinessEntry, document: answeredWithoutJudgment },
+  ]).map((issue) => issue.code);
+  assert.ok(answeredCodes.includes("runtime.readiness_question_judgment_missing"));
+
   const terminalWithFollowup = structuredClone(readiness);
   terminalWithFollowup.next_stage_readiness = "terminal";
   (terminalWithFollowup as Record<string, unknown>).stop_basis = "method_boundary";

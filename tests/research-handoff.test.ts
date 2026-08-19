@@ -49,6 +49,7 @@ import {
 } from "./fixtures/g2.2/discovery-runtime-fixture.js";
 import {
   createDiscoverySynthesisFixture,
+  discoverySynthesisReadinessEnvelopes,
   G23_OPPORTUNITY_A,
   G23_OPPORTUNITY_B,
 } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
@@ -342,6 +343,10 @@ async function publishDiscoveryThroughFanIn(
   await state.store.publishArtifact({
     runId: state.targetRunId,
     envelope: runtimeEnvelope(bundle, G22_FAN_IN),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.targetRunId,
+    envelopes: discoverySynthesisReadinessEnvelopes(bundle),
   });
 }
 

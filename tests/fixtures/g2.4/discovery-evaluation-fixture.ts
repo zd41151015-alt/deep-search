@@ -1233,7 +1233,7 @@ export async function createDiscoveryEvaluationFixture(
       lineageFixture,
       runId,
       "startup_opportunity.research_task.discovery_evaluation.current",
-      2,
+      3,
       "enrichment_runtime",
     ),
   ];

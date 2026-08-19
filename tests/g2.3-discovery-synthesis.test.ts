@@ -32,6 +32,7 @@ import {
 import { runtimeEnvelope } from "./fixtures/g2.2/discovery-runtime-fixture.js";
 import {
   createDiscoverySynthesisFixture,
+  discoverySynthesisReadinessEnvelopes,
   G23_BASELINE,
   G23_BASELINE_CONVERSION,
   G23_DEMAND,
@@ -40,6 +41,8 @@ import {
   G23_MERGE,
   G23_OPPORTUNITY_A,
   G23_OPPORTUNITY_B,
+  G23_READINESS,
+  G23_READINESS_GAP,
   G23_SNAPSHOT,
   G23_SOLUTION,
   G23_SOLUTION_CONVERSION,
@@ -113,6 +116,41 @@ function synthesisEnvelopes(bundle: DocumentBundle): FormalArtifactEnvelope[] {
 
 function byTypes(bundle: DocumentBundle, ...types: readonly string[]): FormalArtifactEnvelope[] {
   return currentEnvelopes(bundle).filter((candidate) => types.includes(candidate.artifact_type));
+}
+
+function emptyGenericPlanGap(bundle: DocumentBundle): FormalArtifactEnvelope {
+  const readinessGap = clone(synthesisEnvelope(bundle, G23_READINESS_GAP));
+  const {
+    readiness_ref: _readinessRef,
+    fan_in_ref: _fanInRef,
+    ...genericDocument
+  } = readinessGap.document as Record<string, unknown> & {
+    readiness_ref?: unknown;
+    fan_in_ref?: unknown;
+  };
+  genericDocument.schema_version = "startup_opportunity.gap_snapshot.discovery.plan.current";
+  genericDocument.snapshot_id = "discovery_plan_empty";
+  genericDocument.snapshot_cycle_key = canonicalContentHash({
+    run_id: genericDocument.run_id,
+    plan_ref: genericDocument.based_on_plan_ref,
+    fan_in_ref: G22_FAN_IN,
+    cycle: "empty_generic_gap",
+  });
+  genericDocument.created_at = "2026-07-27T19:59:00Z";
+  genericDocument.observed_artifact_refs = [G22_FAN_IN];
+  genericDocument.gaps = [];
+  genericDocument.unresolved_decision_relevant_questions = ["question_demand"];
+  const artifactPath = "adaptations/gap-snapshots/discovery_plan_empty.r1.json";
+  return {
+    ...readinessGap,
+    artifact_type: "startup_opportunity.gap_snapshot.discovery.plan.current",
+    artifact_path: artifactPath,
+    created_at: "2026-07-27T19:59:00Z",
+    producer_role: "main_agent",
+    input_refs: [G21_PLAN_REF, G22_FAN_IN],
+    content_hash: canonicalContentHash(genericDocument),
+    document: genericDocument,
+  } as FormalArtifactEnvelope;
 }
 
 async function setup(context: TestContext, suffix: string): Promise<State> {
@@ -213,6 +251,10 @@ async function publishThroughFanIn(state: State): Promise<void> {
   await state.store.publishArtifact({
     runId: state.runId,
     envelope: runtimeEnvelope(state.bundle, G22_FAN_IN),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: discoverySynthesisReadinessEnvelopes(state.bundle),
   });
 }
 
@@ -397,6 +439,55 @@ test("G2.3 publishes caller-supplied synthesis artifacts with current receipts a
         (receipt) =>
           receipt.schema_version === "startup_opportunity.artifact_store_operation.current",
       ),
+  );
+  const insufficientJudgments = currentEnvelopes(state.bundle).filter(
+    (candidate) =>
+      candidate.artifact_type ===
+      "startup_opportunity.judgment_assessment.discovery_candidate.current",
+  );
+  assert.ok(insufficientJudgments.length > 0);
+  assert.ok(
+    insufficientJudgments.every(
+      (judgment) => judgment.document.decision_sufficiency === "insufficient",
+    ),
+  );
+});
+
+test("G2.3 rejects a generic empty Plan Gap as a substitute for post-fan-in readiness", async (context) => {
+  const state = await setup(context, "generic-gap-boundary");
+  await publishThroughFanIn(state);
+  const genericGap = emptyGenericPlanGap(state.bundle);
+  await state.store.publishArtifact({ runId: state.runId, envelope: genericGap });
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: synthesisEnvelopes(state.bundle),
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "run.discovery_synthesis_readiness_gap_required",
+  );
+});
+
+test("G2.3 rejects Readiness claiming ready while a Plan question remains unresolved", async (context) => {
+  const state = await setup(context, "dishonest-readiness");
+  const invalid = clone(state.bundle);
+  const readiness = effective(invalid, G23_READINESS);
+  const coverage = readiness.question_coverage as Record<string, unknown>[];
+  assert.ok(coverage[0]);
+  coverage[0].status = "unresolved";
+  const readinessGap = effective(invalid, G23_READINESS_GAP);
+  readinessGap.unresolved_decision_relevant_questions = [String(coverage[0].question_ref)];
+  refresh(invalid, G23_READINESS);
+  refresh(invalid, G23_READINESS_GAP);
+  const validator = await createArtifactValidator(repositoryRoot);
+  const result = validator.validateDocumentBundle(invalid);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.documents
+      .flatMap((document) => document.errors)
+      .concat(result.referenceErrors)
+      .some((error) => error.code === "runtime.discovery_synthesis_not_ready"),
   );
 });
 

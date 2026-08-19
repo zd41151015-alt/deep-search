@@ -69,6 +69,7 @@ import {
   type DocumentBundleEntry,
   type DocumentBundleReferenceContext,
 } from "../validators/artifact-validator.js";
+import { isDiscoverySynthesisSchemaVersion } from "../validators/discovery-synthesis-validator.js";
 import {
   researchHandoffCapturedPayloadValid,
   researchHandoffSourceRoleAllowed,
@@ -3653,6 +3654,8 @@ export class RunStore {
       );
     }
 
+    await this.assertDiscoverySynthesisReadinessLocked(runRoot, manifest, envelopes);
+
     let unresolvedBlockingGapIds: string[] = [];
     if (manifest.latest_gap_snapshot_ref !== null) {
       const stored = JSON.parse(
@@ -3775,6 +3778,233 @@ export class RunStore {
           },
         );
       }
+    }
+  }
+
+  private async assertDiscoverySynthesisReadinessLocked(
+    runRoot: string,
+    manifest: RunManifest,
+    envelopes: readonly FormalArtifactEnvelope[],
+  ): Promise<void> {
+    const synthesis = envelopes.filter((envelope) =>
+      isDiscoverySynthesisSchemaVersion(envelope.artifact_type),
+    );
+    if (
+      synthesis.length === 0 ||
+      synthesis.every((envelope) => manifest.artifact_refs.includes(envelope.artifact_path))
+    ) {
+      return;
+    }
+
+    const planRef = manifest.current_plan_ref;
+    const latestGapRef = manifest.latest_gap_snapshot_ref;
+    if (planRef === null || latestGapRef === null) {
+      throw new StoreError(
+        "run.discovery_synthesis_readiness_required",
+        "new G2.3 publication requires an immutable current Readiness and readiness Gap",
+        { currentPlanRef: planRef, latestGapSnapshotRef: latestGapRef },
+      );
+    }
+
+    const formal = await this.artifacts.listFormalDocuments(runRoot);
+    const currentRefs = new Set(manifest.artifact_refs);
+    const current = formal.filter((entry) => currentRefs.has(entry.path));
+    const byPath = new Map(current.map((entry) => [entry.path, entry] as const));
+    const envelopeAt = async (
+      artifactRef: string,
+      expectedType: string,
+      code: string,
+    ): Promise<FormalArtifactEnvelope> => {
+      const stored = byPath.get(artifactRef)?.document;
+      if (
+        !isRecord(stored) ||
+        !isCurrentEnvelopeSchema(stored.schema_version) ||
+        stored.artifact_path !== artifactRef ||
+        stored.artifact_type !== expectedType ||
+        !isRecord(stored.document)
+      ) {
+        throw new StoreError(code, "G2.3 readiness authority is missing or has the wrong type", {
+          artifactRef,
+          expectedType,
+          actualType: isRecord(stored) ? (stored.artifact_type ?? null) : null,
+        });
+      }
+      const envelope = stored as FormalArtifactEnvelope;
+      await this.artifacts.validateStoredEnvelope(runRoot, manifest.run_id, envelope);
+      return envelope;
+    };
+    const latestByCreation = (
+      candidates: readonly FormalArtifactEnvelope[],
+    ): FormalArtifactEnvelope | null =>
+      [...candidates].sort((left, right) => {
+        const createdDifference = Date.parse(right.created_at) - Date.parse(left.created_at);
+        if (createdDifference !== 0) return createdDifference;
+        const revisionDifference =
+          Number(right.document.revision ?? 0) - Number(left.document.revision ?? 0);
+        return revisionDifference !== 0
+          ? revisionDifference
+          : right.artifact_path.localeCompare(left.artifact_path);
+      })[0] ?? null;
+
+    const gap = await envelopeAt(
+      latestGapRef,
+      "startup_opportunity.gap_snapshot.discovery.readiness.current",
+      "run.discovery_synthesis_readiness_gap_required",
+    );
+    const readinessRef = gap.document.readiness_ref;
+    if (typeof readinessRef !== "string") {
+      throw new StoreError(
+        "run.discovery_synthesis_readiness_binding_invalid",
+        "the current readiness Gap does not identify an exact Readiness artifact",
+        { latestGapRef },
+      );
+    }
+    const readiness = await envelopeAt(
+      readinessRef,
+      "startup_opportunity.discovery_stage_readiness.v1",
+      "run.discovery_synthesis_readiness_required",
+    );
+    const latestReadiness = latestByCreation(
+      current
+        .map((entry) => entry.document)
+        .filter(
+          (candidate): candidate is FormalArtifactEnvelope =>
+            isRecord(candidate) &&
+            isCurrentEnvelopeSchema(candidate.schema_version) &&
+            candidate.artifact_type === "startup_opportunity.discovery_stage_readiness.v1" &&
+            isRecord(candidate.document) &&
+            candidate.document.research_plan_ref === planRef,
+        ),
+    );
+    if (latestReadiness?.artifact_path !== readiness.artifact_path) {
+      throw new StoreError(
+        "run.discovery_synthesis_readiness_stale",
+        "the current readiness Gap must bind the latest exact Readiness for the current Plan",
+        {
+          readinessRef: readiness.artifact_path,
+          latestReadinessRef: latestReadiness?.artifact_path ?? null,
+        },
+      );
+    }
+
+    const plan = await envelopeAt(
+      planRef,
+      "startup_opportunity.research_plan.v1",
+      "run.discovery_synthesis_readiness_binding_invalid",
+    );
+    const fanInRefs = [
+      ...new Set(
+        synthesis
+          .map((envelope) => envelope.document.discovery_fan_in_ref)
+          .filter((ref): ref is string => typeof ref === "string"),
+      ),
+    ];
+    const fanInRef = fanInRefs[0];
+    if (fanInRefs.length !== 1 || fanInRef === undefined) {
+      throw new StoreError(
+        "run.discovery_synthesis_readiness_binding_invalid",
+        "new G2.3 artifacts must share one exact discovery fan-in",
+        { fanInRefs },
+      );
+    }
+    if (synthesis.some((envelope) => envelope.document.research_plan_ref !== planRef)) {
+      throw new StoreError(
+        "run.discovery_synthesis_readiness_binding_invalid",
+        "new G2.3 artifacts must bind the current Manifest Plan",
+        { planRef },
+      );
+    }
+    const fanIn = await envelopeAt(
+      fanInRef,
+      "startup_opportunity.discovery_fan_in.v2",
+      "run.discovery_synthesis_readiness_binding_invalid",
+    );
+    const executionRef = readiness.document.execution_plan_ref;
+    if (typeof executionRef !== "string") {
+      throw new StoreError(
+        "run.discovery_synthesis_readiness_binding_invalid",
+        "G2.3 Readiness must identify the exact current execution overlay",
+      );
+    }
+    const execution = await envelopeAt(
+      executionRef,
+      "startup_opportunity.research_execution_plan.discovery.current",
+      "run.discovery_synthesis_readiness_binding_invalid",
+    );
+    const currentExecutions = current
+      .map((entry) => entry.document)
+      .filter(
+        (candidate): candidate is FormalArtifactEnvelope =>
+          isRecord(candidate) &&
+          isCurrentEnvelopeSchema(candidate.schema_version) &&
+          candidate.artifact_type ===
+            "startup_opportunity.research_execution_plan.discovery.current" &&
+          isRecord(candidate.document) &&
+          candidate.document.research_plan_ref === planRef,
+      );
+    const latestExecution = [...currentExecutions].sort(
+      (left, right) =>
+        Number(right.document.revision ?? 0) - Number(left.document.revision ?? 0) ||
+        right.artifact_path.localeCompare(left.artifact_path),
+    )[0];
+    const nextStage = records(execution.document.stages).find(
+      (stage) => stage.stage_id === readiness.document.next_stage_id,
+    );
+    const expectedQuestionRefs = records(plan.document.research_questions).map(
+      (question) => `${planRef}#${String(question.question_id)}`,
+    );
+    const coverage = records(readiness.document.question_coverage);
+    const coveredQuestionRefs = coverage.map((question) => String(question.question_ref));
+    const questionsAnswered =
+      canonicalJson([...new Set(expectedQuestionRefs)].sort()) ===
+        canonicalJson([...new Set(coveredQuestionRefs)].sort()) &&
+      coverage.every(
+        (question) => question.status === "answered" && strings(question.judgment_refs).length > 0,
+      );
+    if (
+      latestExecution?.artifact_path !== execution.artifact_path ||
+      readiness.document.run_id !== manifest.run_id ||
+      readiness.document.research_plan_ref !== planRef ||
+      readiness.document.source_fan_in_ref !== fanInRef ||
+      gap.document.run_id !== manifest.run_id ||
+      gap.document.based_on_plan_ref !== planRef ||
+      gap.document.fan_in_ref !== fanInRef ||
+      fanIn.document.run_id !== manifest.run_id ||
+      fanIn.document.research_plan_ref !== planRef ||
+      execution.document.run_id !== manifest.run_id ||
+      execution.document.research_plan_ref !== planRef ||
+      nextStage?.stage_kind !== "discovery_synthesis" ||
+      nextStage.gate_before !== readiness.artifact_path
+    ) {
+      throw new StoreError(
+        "run.discovery_synthesis_readiness_binding_invalid",
+        "G2.3 Readiness and readiness Gap must bind the current Plan, execution stage, and fan-in",
+        {
+          planRef,
+          fanInRef,
+          executionRef,
+          latestExecutionRef: latestExecution?.artifact_path ?? null,
+          readinessRef: readiness.artifact_path,
+          readinessGapRef: gap.artifact_path,
+        },
+      );
+    }
+    if (
+      readiness.document.next_stage_readiness !== "ready" ||
+      records(readiness.document.blockers).length > 0 ||
+      !questionsAnswered ||
+      strings(gap.document.unresolved_decision_relevant_questions).length > 0
+    ) {
+      throw new StoreError(
+        "run.discovery_synthesis_not_ready",
+        "G2.3 requires ready disposition, no blockers, and Judgment-backed answers for every current Plan question",
+        {
+          readiness: readiness.document.next_stage_readiness,
+          blockerCount: records(readiness.document.blockers).length,
+          questionsAnswered,
+          unresolvedQuestionRefs: gap.document.unresolved_decision_relevant_questions,
+        },
+      );
     }
   }
 

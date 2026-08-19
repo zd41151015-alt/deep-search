@@ -45,6 +45,9 @@ export const G23_OPPORTUNITY_B =
   "artifacts/discovery/opportunities/opportunity_household_variant.r1.json";
 export const G23_SNAPSHOT = "artifacts/discovery/thesis-snapshots/snapshot_household.r1.json";
 export const G23_MERGE = "artifacts/discovery/merges/merge_household.r1.json";
+export const G23_EXECUTION = "plans/research-execution.r2.json";
+export const G23_READINESS = "artifacts/discovery/readiness/discovery-synthesis.r1.json";
+export const G23_READINESS_GAP = "adaptations/gap-snapshots/discovery_synthesis_readiness.r1.json";
 
 const SYNTHETIC = "SYNTHETIC G2.3 fixture only; no real Evidence or validation.";
 
@@ -73,6 +76,7 @@ function envelope(
   document: Record<string, unknown>,
   inputRefs: readonly string[],
   createdAt: string,
+  producerRole: "main_agent" | "harness" = "main_agent",
 ): FormalArtifactEnvelope {
   return {
     schema_version: "startup_opportunity.artifact_envelope.current",
@@ -80,7 +84,7 @@ function envelope(
     artifact_path: path,
     run_id: runId,
     created_at: createdAt,
-    producer_role: "main_agent",
+    producer_role: producerRole,
     input_refs: [...new Set(inputRefs)].sort(),
     content_hash: canonicalContentHash(document),
     document,
@@ -562,7 +566,181 @@ export async function createDiscoverySynthesisFixture(
       ),
     ],
   ] as const;
-  const entries: FormalArtifactEnvelope[] = [];
+  const plan = fixtureEffective(bundle, G21_PLAN_REF);
+  const priorExecution = fixtureEffective(bundle, "plans/research-execution.r1.json");
+  const priorStage = (priorExecution.stages as Record<string, unknown>[])[0];
+  const priorLanes = (priorStage?.lanes as Record<string, unknown>[] | undefined) ?? [];
+  const ownerLane = priorLanes.find(
+    (lane) =>
+      (lane.incumbent_response_assignment as Record<string, unknown> | undefined)
+        ?.assignment_role === "owner",
+  );
+  const synthesisLane = priorLanes.find((lane) => lane !== ownerLane);
+  if (priorStage === undefined || ownerLane === undefined || synthesisLane === undefined) {
+    throw new Error("synthetic G2.3 readiness fixture requires two candidate execution lanes");
+  }
+  const readinessExecution = {
+    ...structuredClone(priorExecution),
+    execution_plan_id: "execution_discovery_synthesis",
+    revision: 2,
+    parent_execution_plan_ref: "plans/research-execution.r1.json",
+    created_at: "2026-07-27T19:55:00Z",
+    total_time_budget_minutes: 20,
+    stages: [
+      {
+        ...structuredClone(priorStage),
+        stage_id: "stage_candidate_fan_in_complete",
+        depends_on: [],
+        gate_before: null,
+        lanes: [structuredClone(ownerLane)],
+      },
+      {
+        ...structuredClone(priorStage),
+        stage_id: "stage_discovery_synthesis",
+        stage_kind: "discovery_synthesis",
+        depends_on: ["stage_candidate_fan_in_complete"],
+        gate_before: G23_READINESS,
+        gate_after: "required",
+        lanes: [
+          {
+            ...structuredClone(synthesisLane),
+            incumbent_response_assignment: {
+              analysis_depth: "not_assigned",
+              assignment_role: "none",
+              subject_refs: [],
+              rationale: "SYNTHETIC synthesis stage performs no incumbent response research.",
+            },
+          },
+        ],
+      },
+    ],
+    limitations: [
+      "SYNTHETIC G2.3 execution overlay; it records the entry boundary and performs no research.",
+    ],
+  };
+  const judgmentRefs = [
+    G22_JUDGMENT,
+    G22_DEMAND_EVALUATION_JUDGMENT,
+    G22_BASELINE_GENERATION_JUDGMENT,
+    G22_BASELINE_EVALUATION_JUDGMENT,
+    G22_SOLUTION_GENERATION_JUDGMENT,
+    G22_SOLUTION_EVALUATION_JUDGMENT,
+  ];
+  const questionCoverage = (plan.research_questions as Record<string, unknown>[]).map(
+    (question, index) => {
+      const judgmentRef = judgmentRefs[index % judgmentRefs.length] as string;
+      return {
+        question_ref: `${G21_PLAN_REF}#${String(question.question_id)}`,
+        status: "answered",
+        judgment_refs: [judgmentRef],
+        evidence_refs: [],
+        basis_refs: [judgmentRef],
+      };
+    },
+  );
+  const candidateRoles = (fanIn.candidate_dispositions as Record<string, unknown>[]).map(
+    (disposition) => {
+      const candidateRef = String(disposition.candidate_ref);
+      const candidateKind = String(fixtureEffective(bundle, candidateRef).candidate_kind);
+      const reportingRole =
+        candidateKind === "demand_seed"
+          ? "opportunity_direction"
+          : candidateKind === "baseline_seed"
+            ? "comparison_baseline"
+            : "solution_hypothesis";
+      return {
+        candidate_ref: candidateRef,
+        candidate_kind: candidateKind,
+        reporting_role: reportingRole,
+        disposition: disposition.disposition,
+      };
+    },
+  );
+  const readiness = {
+    schema_version: "startup_opportunity.discovery_stage_readiness.v1",
+    readiness_id: "readiness_discovery_synthesis",
+    revision: 1,
+    run_id: runId,
+    research_plan_ref: G21_PLAN_REF,
+    execution_plan_ref: G23_EXECUTION,
+    stage_id: "stage_candidate_fan_in_complete",
+    next_stage_id: "stage_discovery_synthesis",
+    source_fan_in_ref: G22_FAN_IN,
+    generation_result_refs: [],
+    candidate_roles: candidateRoles,
+    required_candidate_kinds: ["demand_seed", "baseline_seed", "solution_seed"],
+    missing_candidate_kinds: [],
+    question_coverage: questionCoverage,
+    commercial_signal_gate: {
+      demand_signal: true,
+      buyer_signal: false,
+      purchase_signal: false,
+      decision: "continue_research",
+    },
+    next_stage_readiness: "ready",
+    blockers: [],
+    allowed_next_actions: ["continue_stage"],
+    stop_basis: null,
+    limitations: [
+      "SYNTHETIC readiness: questions are dispositioned by insufficient Judgments; no validation success is claimed.",
+    ],
+  };
+  const readinessGap = {
+    schema_version: "startup_opportunity.gap_snapshot.discovery.readiness.current",
+    snapshot_id: "discovery_synthesis_readiness",
+    snapshot_cycle_key: canonicalContentHash({
+      run_id: runId,
+      plan_ref: G21_PLAN_REF,
+      readiness_ref: G23_READINESS,
+      fan_in_ref: G22_FAN_IN,
+    }),
+    run_id: runId,
+    based_on_plan_ref: G21_PLAN_REF,
+    revision: 1,
+    parent_snapshot_ref: null,
+    created_at: "2026-07-27T19:58:00Z",
+    trigger_kind: "wave_completed",
+    trigger_event_ref: null,
+    phase: "discovery",
+    wave_id: "wave_discovery_synthetic",
+    readiness_ref: G23_READINESS,
+    fan_in_ref: G22_FAN_IN,
+    observed_artifact_refs: [G23_READINESS, G22_FAN_IN],
+    gaps: [],
+    material_new_evidence_observed: false,
+    unresolved_decision_relevant_questions: [],
+    stop_signals: [],
+  };
+  const entries: FormalArtifactEnvelope[] = [
+    envelope(
+      runId,
+      G23_EXECUTION,
+      readinessExecution,
+      [G21_PLAN_REF, "plans/research-execution.r1.json"],
+      "2026-07-27T19:55:00Z",
+    ),
+    envelope(
+      runId,
+      G23_READINESS,
+      readiness,
+      [
+        G21_PLAN_REF,
+        G23_EXECUTION,
+        G22_FAN_IN,
+        ...candidateRoles.map((role) => String(role.candidate_ref)),
+        ...judgmentRefs,
+      ],
+      "2026-07-27T19:57:00Z",
+    ),
+    envelope(
+      runId,
+      G23_READINESS_GAP,
+      readinessGap,
+      [G21_PLAN_REF, G23_READINESS, G22_FAN_IN],
+      "2026-07-27T19:58:00Z",
+      "harness",
+    ),
+  ];
   for (const [path, document] of conversions) {
     entries.push(
       envelope(
@@ -725,7 +903,23 @@ export async function createDiscoverySynthesisFixture(
       document: document as unknown as Record<string, unknown>,
     })),
   );
+  const manifest = fixtureEffective(bundle, "manifest.json");
+  manifest.latest_gap_snapshot_ref = G23_READINESS_GAP;
+  manifest.artifact_refs = [
+    ...new Set([
+      ...((manifest.artifact_refs as string[] | undefined) ?? []),
+      ...entries.map((document) => document.artifact_path),
+    ]),
+  ].sort();
   return bundle;
+}
+
+export function discoverySynthesisReadinessEnvelopes(
+  bundle: DocumentBundle,
+): readonly FormalArtifactEnvelope[] {
+  return [G23_EXECUTION, G23_READINESS, G23_READINESS_GAP].map((artifactPath) =>
+    synthesisEnvelope(bundle, artifactPath),
+  );
 }
 
 export function synthesisEnvelope(

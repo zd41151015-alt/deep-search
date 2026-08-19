@@ -23,6 +23,7 @@ import {
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import { G22_DEMAND_R2, G22_FAN_IN } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
+  discoverySynthesisReadinessEnvelopes,
   G23_OPPORTUNITY_A,
   G23_OPPORTUNITY_B,
 } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
@@ -824,6 +825,10 @@ async function publishG33Prerequisites(
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
+    envelopes: discoverySynthesisReadinessEnvelopes(state.bundle),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
     envelopes: byTypes(discovery, ...SYNTHESIS_ARTIFACT_TYPES),
   });
 
@@ -832,7 +837,7 @@ async function publishG33Prerequisites(
     state.bundle,
     state.runId,
     "startup_opportunity.research_task.discovery_evaluation.current",
-    2,
+    3,
     "enrichment_runtime",
   );
   await state.store.publishArtifactBundle({
