@@ -2,6 +2,8 @@
 
 `discover` 从宽泛的消费行业、用户群、场景或能力变化创建 `opportunity_discovery` Run。当前 Harness 开放调用方显式提供的 G2.1 maps、G2.2 typed candidate/lane/fan-in、G2.3 conversion/formal thesis/evaluation/freeze/merge，以及 G2.4 enrichment/Business Engine/comparison/portfolio/report 的 closed validation/publication/reopen；`discover` orchestration、lane execution 和任何 research/thesis/enrichment/comparison 语义生成仍不可运行。
 
+G2.1 setup、dispatch wave、G2.2 fan-in 和 G2.3 synthesis 的公共路径是 `materialize-formal-stage`。Main Agent 先显式提交研究语义：setup 提交 seed/opportunity map/solution map/initial candidate 内容、关系、纳入排除理由和 unknowns/limitations；wave 提交从 current Plan 选择的 Unit、查询、Lane 角色、研究维度、预算、停止条件和 straggler 策略；fan-in 提交每个 Lane 的状态/处置、候选保留/合并/拆分/淘汰、候选修订和采用的具体 Lane/Artifact refs；synthesis 提交对象 kind、稳定 object id、create/revise 动作、research content 和显式 local refs/关系。每一步都先 `validate_only`，再用同一请求与返回的 exact `publication_plan` 执行 `publish`。Harness 只生成 path/revision/ref/hash/binding、正式 Envelope、派生投影和原子发布计划，不启动 Agent、不扫描 Run 目录选择材料、不从文本推断关系或研究判断。`compile-artifacts` 只保留给上述 stage 接口之外的通用 formal Artifact。
+
 正式方向形成前先做方案中立的用户语言、买方、价格、替代、渠道和商业行为扫描；这一阶段不得做具体方案的定价、获客或留存评估。形成具体方向后，才可深挖该方案的定价、获客、留存、单位经济和合规。产品或 AI seed 只是搜索输入，不是机会成立的证据。
 
 方案中立阶段同时执行 provider-agnostic `broad_scan`，方向形成后执行 `targeted_deep_dive`。每个 Lane 只对 Dispatch 分配的量化 family 和广义替代类型声明 `observed | partial | unavailable | not_applicable`；缺数据保留 attempted routes、原因、替代指标、limitations 和排序影响。八个量化 family 与七类替代的整体计划覆盖由 candidate/Wave/report 聚合显示。API 只是可选 acquisition method，Harness 不代 agent 查询。

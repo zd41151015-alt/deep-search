@@ -75,6 +75,10 @@ npm run harness -- record-evidence --run-id RUN_ID --unit-id UNIT_ID --source-ur
 npm run harness -- validate-artifact --file path/to/document.json --json
 npm run harness -- validate-plan --bundle path/to/document-bundle.json --json
 npm run harness -- publish-artifact --file path/to/envelope-or-bundle.json
+npm run harness -- compile-artifacts --file path/to/runtime-artifact-compilation-request.json
+npm run harness -- materialize-formal-stage --file path/to/formal-stage-materialization-request.json
+npm run harness -- materialize-lane-result --file path/to/lane-staging-document.json
+npm run harness -- scaffold-lane-submission --run-id RUN_ID --task-ref REF
 npm run harness -- checkpoint-run --file path/to/checkpoint-input.json
 npm run harness -- analyze-gaps --file path/to/gap-analysis-input.json --json
 npm run harness -- validate-adaptation --bundle path/to/document-bundle.json --json
@@ -87,6 +91,8 @@ npm run harness -- build-report --file path/to/build-report-input.json --json
 ```
 
 Command success proves mechanical validity only. It does not establish Evidence truth, sufficiency, market demand, recommendation readiness, external validation, or startup success.
+
+For Discovery G2.1 setup, dispatch waves, G2.2 fan-in, and G2.3 synthesis, Main Agent submits explicit research semantics to `materialize-formal-stage`: first `validate_only` to obtain a zero-write exact `publication_plan`, then `publish` with the same request and that exact plan. The Harness derives paths, revisions, refs, hashes, Run/Plan/Task bindings, envelopes, and atomic publication order; it does not dispatch agents or infer research judgments. `compile-artifacts` remains the generic formal Artifact surface outside those stage-specific paths.
 
 Normal research Runs use doctor once plus the workflow's targeted Artifact, Plan, adaptation, traceability, report, and status checks. The full repository test suite is reserved for engineering changes and is not part of an ordinary research Run.
 

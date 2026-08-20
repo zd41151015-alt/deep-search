@@ -18,8 +18,6 @@ import {
   projectCandidateFanIn,
   projectDiscoverySetup,
   projectDiscoverySynthesis,
-  projectedLocalRefsMatch,
-  projectFanInLaneClassification,
 } from "./discovery-stage-projections.js";
 
 export type FormalStageKind =
@@ -147,88 +145,6 @@ function automaticAuthorityRefs(
   ]);
 }
 
-const MECHANICAL_ROOT_FIELDS = new Set([
-  "schema_version",
-  "revision",
-  "run_id",
-  "mode",
-  "phase",
-  "owner_role",
-  "owner_slice",
-  "scope_frame_ref",
-  "research_plan_ref",
-  "parent_content_hash",
-  "parent_seed_probe_ref",
-  "parent_map_ref",
-  "parent_candidate_ref",
-  "parent_fan_in_ref",
-  "parent_conversion_ref",
-  "parent_demand_ref",
-  "parent_baseline_ref",
-  "parent_solution_ref",
-  "parent_evaluation_ref",
-  "parent_opportunity_ref",
-  "parent_snapshot_ref",
-  "parent_merge_ref",
-  "policy_binding",
-  "input_artifact_hashes",
-  "lane_result_classification",
-  "retained_candidate_refs",
-  "watchlist_candidate_refs",
-  "rejected_candidate_refs",
-  "judgment_assessment_refs",
-  "reference_only",
-  "solution_evaluation_required",
-  "manifest_projection",
-]);
-
-function authoredSemanticsMatch(
-  authored: unknown,
-  planned: unknown,
-  ignoredPointers: ReadonlySet<string>,
-  pointer = "",
-): boolean {
-  if (ignoredPointers.has(pointer)) return true;
-  if (Array.isArray(authored)) {
-    return (
-      Array.isArray(planned) &&
-      authored.length === planned.length &&
-      authored.every((entry, index) =>
-        authoredSemanticsMatch(
-          entry,
-          planned[index],
-          ignoredPointers,
-          `${pointer}/${String(index)}`,
-        ),
-      )
-    );
-  }
-  if (!isRecord(authored)) return canonicalJson(authored) === canonicalJson(planned);
-  if (!isRecord(planned)) return false;
-  return Object.entries(authored).every(([key, child]) => {
-    const childPointer = `${pointer}/${key}`;
-    if (pointer === "" && MECHANICAL_ROOT_FIELDS.has(key)) return true;
-    if (
-      (pointer === "/map_lineage" &&
-        [
-          "source_map_schema_version",
-          "source_map_id",
-          "source_map_revision",
-          "source_map_content_hash",
-          "fragment_ref",
-          "fragment_id",
-          "fragment_content_hash",
-          "fragment_status",
-        ].includes(key)) ||
-      (pointer === "/formation" &&
-        ["scope_frame_hash", "research_plan_hash", "synthesis_input_hashes"].includes(key))
-    ) {
-      return true;
-    }
-    return authoredSemanticsMatch(child, planned[key], ignoredPointers, childPointer);
-  });
-}
-
 export class FormalStageMaterializer {
   private readonly runs: RunStore;
   private readonly compiler: DeclarativeRuntimeCompiler;
@@ -274,7 +190,10 @@ export class FormalStageMaterializer {
         documents: [{ path: "manifest.json", document: status.manifest }],
         exact_records: [],
       },
-      { topLevelFormalRefs: topRefs },
+      {
+        topLevelFormalRefs: topRefs,
+        recoverPlanOperations: request.operation === "publish",
+      },
     );
     const byPath = new Map(
       context.bundle.documents.map((entry) => [entry.path, effective(entry.document)]),
@@ -291,12 +210,12 @@ export class FormalStageMaterializer {
       ...status.manifest.artifact_refs,
       ...status.manifest.ignored_late_artifact_refs,
     ]);
-    const replay = suppliedPlan?.publication.every((entry) =>
-      trackedPaths.has(entry.artifact_path),
-    );
+    const replay =
+      request.operation === "publish" &&
+      suppliedPlan?.publication.every((entry) => trackedPaths.has(entry.artifact_path));
     let compilation: RuntimeArtifactCompilationResult;
     if (replay && suppliedPlan !== undefined) {
-      this.assertReplayRequestBindings(request, suppliedPlan);
+      await this.assertReplayRequestBindings(request, suppliedPlan, planRef, plan, byPath);
       compilation = await this.compiler.compile({
         schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
         request_id: request.request_id,
@@ -307,10 +226,7 @@ export class FormalStageMaterializer {
         publication_plan: suppliedPlan,
       });
     } else {
-      const artifacts =
-        request.stage_kind === "discovery_wave"
-          ? this.projectWave(request, planRef, plan, byPath)
-          : this.projectObjects(request, planRef, plan, byPath);
+      const artifacts = this.projectArtifacts(request, planRef, plan, byPath);
       const compiledArtifacts = artifacts;
       if (request.operation === "validate_only") {
         compilation = await this.compiler.compile({
@@ -379,7 +295,10 @@ export class FormalStageMaterializer {
   private assertReplayRequestBindings(
     request: FormalStageMaterializationRequest,
     plan: RuntimePublicationPlan,
-  ): void {
+    planRef: string,
+    currentPlan: Record<string, unknown>,
+    byPath: ReadonlyMap<string, Record<string, unknown>>,
+  ): Promise<void> {
     if (
       plan.request_id !== request.request_id ||
       plan.run_id !== request.run_id ||
@@ -390,121 +309,88 @@ export class FormalStageMaterializer {
         "publication plan identity must match the exact formal-stage request",
       );
     }
-    if (request.fan_in !== undefined) {
-      const fanInEnvelope = plan.compiled_envelopes.find(
-        (entry) => entry.artifact_type === "startup_opportunity.discovery_fan_in.v2",
+    return this.assertReplayRequestBindingsAsync(request, plan, planRef, currentPlan, byPath);
+  }
+
+  private async assertReplayRequestBindingsAsync(
+    request: FormalStageMaterializationRequest,
+    plan: RuntimePublicationPlan,
+    planRef: string,
+    currentPlan: Record<string, unknown>,
+    byPath: ReadonlyMap<string, Record<string, unknown>>,
+  ): Promise<void> {
+    const replayProjectionContext = new Map(byPath);
+    for (const envelope of plan.compiled_envelopes) {
+      replayProjectionContext.delete(envelope.artifact_path);
+    }
+    let projectedArtifacts: readonly CompilerReadyArtifact[];
+    try {
+      projectedArtifacts = this.projectArtifacts(
+        request,
+        planRef,
+        currentPlan,
+        replayProjectionContext,
       );
-      const dispatch = plan.resolved_references.find(
-        (entry) => entry.ref === request.fan_in?.dispatch_ref,
-      );
-      const expectedClassification = projectFanInLaneClassification(request.fan_in.lanes);
-      const exactAuthorityRefs = [
-        request.fan_in.dispatch_ref,
-        ...request.fan_in.lanes.flatMap((lane) => [
-          ...(lane.lane_result_ref === undefined ? [] : [lane.lane_result_ref]),
-          ...(lane.delivery_receipt_ref === undefined ? [] : [lane.delivery_receipt_ref]),
-          ...lane.adopted_artifact_refs,
-        ]),
-      ];
-      if (
-        dispatch === undefined ||
-        fanInEnvelope === undefined ||
-        canonicalJson(fanInEnvelope.document.lane_result_classification) !==
-          canonicalJson(expectedClassification) ||
-        exactAuthorityRefs.some(
-          (ref) => !plan.resolved_references.some((entry) => entry.ref === ref),
-        )
-      ) {
+    } catch (error) {
+      if (error instanceof StoreError) {
         throw new StoreError(
-          "formal_materialization.publication_plan_authority_mismatch",
-          "fan-in replay must retain the exact Dispatch, Lane delivery, and adopted Artifact authority",
+          "formal_materialization.publication_plan_semantics_mismatch",
+          "authored stage semantics differ from the exact replay publication plan",
+          { cause_code: error.code, cause_details: error.details },
         );
       }
+      throw error;
     }
-    if (request.stage_kind === "discovery_wave") {
-      const wave = request.wave as WaveDeclaration;
-      const execution = plan.compiled_envelopes.find(
-        (entry) =>
-          entry.artifact_type === "startup_opportunity.research_execution_plan.discovery.current",
+    let projectedCompilation: RuntimeArtifactCompilationResult;
+    try {
+      projectedCompilation = await this.compiler.compile(
+        {
+          schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+          request_id: request.request_id,
+          run_id: request.run_id,
+          operation: "validate_only",
+          created_at: request.created_at,
+          artifacts: projectedArtifacts,
+        },
+        { recoverPlanOperations: false },
       );
-      const dispatch = plan.compiled_envelopes.find(
-        (entry) => entry.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
-      );
-      const stage = records(execution?.document.stages).find(
-        (entry) => entry.stage_id === wave.stage_id,
-      );
-      const lanes = records(stage?.lanes);
-      const tasks = plan.compiled_envelopes.filter((entry) =>
-        entry.artifact_type.startsWith("startup_opportunity.research_task.discovery_"),
-      );
-      const valid =
-        execution !== undefined &&
-        dispatch !== undefined &&
-        stage?.stage_kind === wave.stage_kind &&
-        stage.gate_before === wave.gate_before &&
-        stage.gate_after === wave.gate_after &&
-        execution.document.research_depth === wave.research_depth &&
-        execution.document.total_time_budget_minutes === wave.total_time_budget_minutes &&
-        canonicalJson(execution.document.resource_allocation) ===
-          canonicalJson(wave.resource_allocation) &&
-        canonicalJson(execution.document.limitations) === canonicalJson(wave.limitations) &&
-        canonicalJson(unique(lanes.map((entry) => String(entry.unit_id)))) ===
-          canonicalJson(unique(wave.unit_ids)) &&
-        wave.lanes.every((lane) => {
-          const plannedLane = lanes.find((entry) => entry.unit_id === lane.unit_id);
-          const task = tasks.find((entry) => entry.document.unit_id === lane.unit_id)?.document;
-          return (
-            plannedLane !== undefined &&
-            task !== undefined &&
-            canonicalJson(plannedLane.lane_role) === canonicalJson(lane.lane_role) &&
-            canonicalJson(plannedLane.candidate_scope) === canonicalJson(lane.candidate_scope) &&
-            canonicalJson(plannedLane.reporting_dimensions) ===
-              canonicalJson(lane.reporting_dimensions) &&
-            canonicalJson(plannedLane.time_budget_minutes) ===
-              canonicalJson(lane.time_budget_minutes) &&
-            canonicalJson(plannedLane.max_sources) === canonicalJson(lane.max_sources) &&
-            canonicalJson(plannedLane.straggler_policy) === canonicalJson(lane.straggler_policy) &&
-            Object.entries(lane.task_semantics).every(
-              ([key, value]) => canonicalJson(task[key]) === canonicalJson(value),
-            ) &&
-            Object.entries(lane.commercial_research_semantics).every(
-              ([key, value]) =>
-                canonicalJson(
-                  (task.commercial_research_requirements as Record<string, unknown>)[key],
-                ) === canonicalJson(value),
-            )
-          );
-        });
-      if (valid) return;
-    } else {
-      const relationBindingsMatch = projectedLocalRefsMatch(
-        request.artifacts ?? [],
-        plan.compiled_envelopes,
-      );
-      const valid = (request.artifacts ?? []).every((declaration) => {
-        const type = String(declaration.document.schema_version ?? declaration.artifact_type ?? "");
-        const planned = plan.compiled_envelopes.find(
-          (entry) =>
-            entry.artifact_type === type &&
-            (declaration.object_id === undefined ||
-              Object.values(entry.document).includes(declaration.object_id)),
+    } catch (error) {
+      if (error instanceof StoreError) {
+        throw new StoreError(
+          "formal_materialization.publication_plan_semantics_mismatch",
+          "authored stage semantics no longer compile to the exact replay publication plan",
+          { cause_code: error.code, cause_details: error.details },
         );
-        const ignored = new Set(
-          Object.keys(declaration.local_refs ?? {})
-            .filter((pointer) => pointer !== "parent")
-            .map((pointer) => (pointer.startsWith("/") ? pointer : `/${pointer}`)),
-        );
-        return (
-          planned !== undefined &&
-          authoredSemanticsMatch(declaration.document, planned.document, ignored)
-        );
-      });
-      if (valid && relationBindingsMatch) return;
+      }
+      throw error;
     }
-    throw new StoreError(
-      "formal_materialization.publication_plan_semantics_mismatch",
-      "authored stage semantics differ from the exact replay publication plan",
-    );
+    if (
+      canonicalJson(projectedCompilation.compiled_envelopes) !==
+        canonicalJson(plan.compiled_envelopes) ||
+      canonicalJson(plan.publication) !==
+        canonicalJson(
+          plan.compiled_envelopes.map((envelope) => ({
+            artifact_path: envelope.artifact_path,
+            content_hash: envelope.content_hash,
+          })),
+        )
+    ) {
+      throw new StoreError(
+        "formal_materialization.publication_plan_semantics_mismatch",
+        "authored stage semantics differ from the exact replay publication plan",
+      );
+    }
+  }
+
+  private projectArtifacts(
+    request: FormalStageMaterializationRequest,
+    planRef: string,
+    plan: Record<string, unknown>,
+    byPath: ReadonlyMap<string, Record<string, unknown>>,
+  ): readonly CompilerReadyArtifact[] {
+    return request.stage_kind === "discovery_wave"
+      ? this.projectWave(request, planRef, plan, byPath)
+      : this.projectObjects(request, planRef, plan, byPath);
   }
 
   private projectWave(

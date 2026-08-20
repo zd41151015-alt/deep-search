@@ -54,7 +54,6 @@
     },
     "accepted_evidence_refs": {
       "type": "array",
-      "minItems": 1,
       "uniqueItems": true,
       "items": {
         "type": "string",
@@ -82,22 +81,35 @@
       "required": ["earliest_valid_as_of", "latest_valid_as_of", "accepted_evidence_count"],
       "properties": {
         "earliest_valid_as_of": {
-          "type": "string",
-          "format": "date"
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "latest_valid_as_of": {
-          "type": "string",
-          "format": "date"
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "accepted_evidence_count": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 0
         }
       }
     },
     "stance_coverage": {
       "type": "array",
-      "minItems": 1,
       "uniqueItems": true,
       "items": {
         "enum": ["support", "oppose", "context"]

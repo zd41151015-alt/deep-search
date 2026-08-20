@@ -7,6 +7,7 @@ import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   canonicalContentHash,
+  createAdaptationAuthorRuntime,
   createArtifactValidator,
   EvidenceStore,
   type FormalArtifactEnvelope,
@@ -156,27 +157,117 @@ async function prepareRun(context: TestContext, suffix: string) {
     "general",
     true,
   );
+  return prepareRunFromBundle(context, {
+    root,
+    runsRoot,
+    runId,
+    validator,
+    bundle,
+    store,
+    publishSetupArtifacts: true,
+  });
+}
+
+async function prepareRunFromBundle(
+  _context: TestContext,
+  input: {
+    readonly root: string;
+    readonly runsRoot: string;
+    readonly runId: string;
+    readonly validator: Awaited<ReturnType<typeof createArtifactValidator>>;
+    readonly bundle: Awaited<ReturnType<typeof createDiscoveryRuntimeFixture>>;
+    readonly store: RunStore;
+    readonly publishSetupArtifacts: boolean;
+  },
+) {
+  const { root, runsRoot, runId, validator, bundle, store } = input;
   await publishInitialPlanBundle(
     store,
     runId,
     G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
   );
-  await store.publishArtifactBundle({
-    runId,
-    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
-  });
-  await store.publishArtifactBundle({
-    runId,
-    envelopes: bundle.documents
-      .map((entry) => entry.document as unknown as FormalArtifactEnvelope)
-      .filter(
-        (envelope) =>
-          envelope.schema_version === "startup_opportunity.artifact_envelope.current" &&
-          envelope.artifact_type === "startup_opportunity.discovery_candidate.v1" &&
-          envelope.document.revision === 1,
-      ),
-  });
+  if (input.publishSetupArtifacts) {
+    await store.publishArtifactBundle({
+      runId,
+      envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+    });
+    await store.publishArtifactBundle({
+      runId,
+      envelopes: bundle.documents
+        .map((entry) => entry.document as unknown as FormalArtifactEnvelope)
+        .filter(
+          (envelope) =>
+            envelope.schema_version === "startup_opportunity.artifact_envelope.current" &&
+            envelope.artifact_type === "startup_opportunity.discovery_candidate.v1" &&
+            envelope.document.revision === 1,
+        ),
+    });
+  }
   return { root, runsRoot, runId, validator, bundle, store };
+}
+
+async function prepareCleanPlanRun(context: TestContext, suffix: string) {
+  const root = await mkdtemp(path.join(tmpdir(), `formal-stage-${suffix}-`));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runId = `formal-stage-${suffix}`;
+  const validator = await createArtifactValidator(repositoryRoot);
+  const store = new RunStore(runsRoot, validator);
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test formal materialization",
+      researchLanguage: "en-US",
+    },
+    createdAt,
+  });
+  const evidence = new EvidenceStore(runsRoot);
+  const generation = (
+    await evidence.record({
+      runId,
+      unitId: "unit_seed_independent_demand",
+      researchGoal: "SYNTHETIC materialization substrate; not Evidence.",
+      source: {
+        kind: "user_provided",
+        canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-generation`,
+      },
+      rawContent: "SYNTHETIC generation bytes; not Evidence.",
+      recordedAt: createdAt,
+    })
+  ).record;
+  const evaluation = (
+    await evidence.record({
+      runId,
+      unitId: "unit_counterfactual",
+      researchGoal: "SYNTHETIC materialization substrate; not Evidence.",
+      source: {
+        kind: "user_provided",
+        canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-evaluation`,
+      },
+      rawContent: "SYNTHETIC evaluation bytes; not Evidence.",
+      recordedAt: createdAt,
+    })
+  ).record;
+  const bundle = await createDiscoveryRuntimeFixture(
+    runId,
+    { generation, evaluation },
+    [],
+    "general",
+    true,
+  );
+  return prepareRunFromBundle(context, {
+    root,
+    runsRoot,
+    runId,
+    validator,
+    bundle,
+    store,
+    publishSetupArtifacts: false,
+  });
 }
 
 function waveRequest(
@@ -243,6 +334,53 @@ function waveRequest(
       gate_after: "required",
       limitations: ["SYNTHETIC materialization test; no research was performed."],
     },
+  };
+}
+
+function setupRequest(
+  runId: string,
+  bundle: Awaited<ReturnType<typeof createDiscoveryRuntimeFixture>>,
+  operation: "validate_only" | "publish" = "validate_only",
+): Record<string, unknown> {
+  const seed = fixtureEffective(bundle, G21_SEED_REF);
+  const opportunityMap = fixtureEffective(bundle, G21_OPPORTUNITY_REF);
+  const solutionMap = fixtureEffective(bundle, G21_SOLUTION_REF);
+  const candidate = fixtureEffective(bundle, G22_DEMAND_R1);
+  return {
+    schema_version: "startup_opportunity.formal_stage_materialization_request.current",
+    request_id: "formal_setup_request",
+    run_id: runId,
+    operation,
+    created_at: createdAt,
+    stage_kind: "discovery_setup",
+    artifacts: [
+      {
+        local_key: "seed",
+        object_id: seed.seed_probe_id,
+        document: seed,
+      },
+      {
+        local_key: "opportunity-map",
+        object_id: opportunityMap.map_id,
+        document: opportunityMap,
+        local_refs: { seed_probe_ref: "seed" },
+      },
+      {
+        local_key: "solution-map",
+        object_id: solutionMap.map_id,
+        document: solutionMap,
+        local_refs: {
+          seed_probe_ref: "seed",
+          opportunity_space_map_ref: "opportunity-map",
+        },
+      },
+      {
+        local_key: "candidate-demand",
+        object_id: candidate.candidate_id,
+        document: candidate,
+        local_refs: { "/map_lineage/source_map_ref": "opportunity-map" },
+      },
+    ],
   };
 }
 
@@ -348,6 +486,151 @@ test("formal stage publish consumes the exact validation plan and replay rejects
       error.code === "formal_materialization.publication_plan_semantics_mismatch",
   );
   assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.runId)), before);
+});
+
+test("formal stage validate_only does not recover a pending Plan operation", async (t) => {
+  const state = await prepareRun(t, "validate-only-pending-plan");
+  const task = fixtureEffective(state.bundle, G22_EVALUATION_TASK);
+  const adaptationRequest = {
+    schema_version: "startup_opportunity.adaptation_author_request.current",
+    request_id: "formal_stage_pending_plan_adaptation",
+    run_id: state.runId,
+    operation: "validate_only",
+    top_level_formal_refs: G21_MAP_REFS,
+    gap: {
+      snapshot_id: "gap_pending_plan_noop",
+      created_at: "2026-08-19T09:10:00Z",
+      trigger_kind: "wave_completed",
+      trigger_event_ref: null,
+      phase: "discovery",
+      wave_id: "wave_discovery_synthetic",
+      observed_artifact_refs: [G22_DEMAND_R1],
+      material_new_evidence_observed: false,
+      repeated_source_refs: [],
+      machine_checks: [],
+      semantic_gaps: [],
+    },
+    decisions: [
+      {
+        adaptation_id: "adapt_pending_plan_noop",
+        cover_all_generated_gaps: true,
+        action: "request_clarification",
+        reason: "SYNTHETIC clarification request used only to create a pending Plan receipt.",
+        expected_decision_impact: ["next_action"],
+        clarification_question: "SYNTHETIC should the no-op pending receipt be resumed?",
+        success_condition: "Receive the synthetic clarification response.",
+        requested_by: "main_agent",
+        created_at: "2026-08-19T09:10:01Z",
+      },
+    ],
+    apply_created_at: "2026-08-19T09:10:02Z",
+    checkpoint_created_at: "2026-08-19T09:10:03Z",
+    next_phase: "discovery",
+    next_step: "Wait for the synthetic clarification.",
+    belief_summary: {
+      current_belief: "No new research meaning was introduced.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["This fixture creates only a pending Plan operation."],
+      remaining_disagreement: ["None in this synthetic no-op case."],
+      next_decision_relevant_question: "Does validate_only recover pending operations?",
+    },
+  };
+  const author = await createAdaptationAuthorRuntime(repositoryRoot, state.runsRoot);
+  const validated = await author.execute(adaptationRequest);
+  const published = await author.execute({
+    ...adaptationRequest,
+    operation: "publish",
+    publication_plan: validated.publication_plan,
+  });
+  await assert.rejects(
+    author.execute(
+      {
+        ...adaptationRequest,
+        operation: "apply",
+        publication_plan: published.publication_plan,
+      },
+      { faultAt: "after_intent" },
+    ),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "fault.injected" &&
+      error.details.boundary === "after_intent",
+  );
+
+  const runRoot = path.join(state.runsRoot, state.runId);
+  const before = await snapshotTree(runRoot);
+  const materialized = await new FormalStageMaterializer(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  ).materialize(waveRequest(state.runId, task));
+  assert.equal(materialized.status, "validated");
+  assert.deepEqual(await snapshotTree(runRoot), before);
+});
+
+test("formal setup exact replay rejects removed semantics, identity drift, and relation rewrites", async (t) => {
+  const state = await prepareCleanPlanRun(t, "setup-exact-replay");
+  const materializer = new FormalStageMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const request = setupRequest(state.runId, state.bundle);
+  const validated = await materializer.materialize(request);
+  const published = await materializer.materialize({
+    ...request,
+    operation: "publish",
+    publication_plan: validated.compilation.publication_plan,
+  });
+  assert.equal(published.status, "published");
+  assert.equal(
+    (
+      await materializer.materialize({
+        ...request,
+        operation: "publish",
+        publication_plan: validated.compilation.publication_plan,
+      })
+    ).status,
+    "idempotent_replay",
+  );
+
+  async function assertReplayRejected(mutated: Record<string, unknown>): Promise<void> {
+    const before = await snapshotTree(path.join(state.runsRoot, state.runId));
+    await assert.rejects(
+      materializer.materialize({
+        ...mutated,
+        operation: "publish",
+        publication_plan: validated.compilation.publication_plan,
+      }),
+      (error: unknown) =>
+        error instanceof StoreError &&
+        [
+          "formal_materialization.publication_plan_semantics_mismatch",
+          "formal_materialization.request_invalid",
+        ].includes(error.code),
+    );
+    assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.runId)), before);
+  }
+
+  const removedSemantics = structuredClone(request);
+  const seed = ((removedSemantics.artifacts as Record<string, unknown>[])[0]?.document ??
+    {}) as Record<string, unknown>;
+  (seed.initial_questions as unknown[]).pop();
+  await assertReplayRejected(removedSemantics);
+
+  const missingIdentity = structuredClone(request);
+  delete ((missingIdentity.artifacts as Record<string, unknown>[])[1] as Record<string, unknown>)
+    .object_id;
+  await assertReplayRejected(missingIdentity);
+
+  const duplicateIdentity = structuredClone(request);
+  (
+    (duplicateIdentity.artifacts as Record<string, unknown>[])[2] as Record<string, unknown>
+  ).local_key = "opportunity-map";
+  await assertReplayRejected(duplicateIdentity);
+
+  const relationRewrite = structuredClone(request);
+  (
+    ((relationRewrite.artifacts as Record<string, unknown>[])[3] as Record<string, unknown>)
+      .local_refs as Record<string, unknown>
+  )["/map_lineage/source_map_ref"] = "solution-map";
+  await assertReplayRejected(relationRewrite);
 });
 
 test("public CLI authors a clean setup through adaptation without internal publication calls", async (t) => {

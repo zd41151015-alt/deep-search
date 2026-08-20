@@ -508,8 +508,35 @@ function draftObjects(
         { artifactType: type },
       );
     }
+    const authoredIdentityField = IDENTITY_FIELDS[type];
+    if (typeof declaration.local_key !== "string" || declaration.local_key.length === 0) {
+      throw new StoreError(
+        "formal_materialization.local_identity_missing",
+        "stage declarations must provide an explicit request-local key for exact relation binding",
+        { artifactType: type },
+      );
+    }
+    if (
+      declaration.object_id === undefined ||
+      typeof authoredIdentityField !== "string" ||
+      declaration.document[authoredIdentityField] !== declaration.object_id
+    ) {
+      throw new StoreError(
+        "formal_materialization.semantic_identity_missing",
+        "stage declarations must bind every formal object to an explicit stable object_id matching the authored identity field",
+        {
+          artifactType: type,
+          identityField: authoredIdentityField ?? null,
+          objectId: declaration.object_id ?? null,
+          authoredIdentity:
+            typeof authoredIdentityField === "string"
+              ? (declaration.document[authoredIdentityField] ?? null)
+              : null,
+        },
+      );
+    }
     const id = objectIdentity(type, declaration);
-    const localKey = declaration.local_key ?? id;
+    const localKey = declaration.local_key;
     const parent = parentFor(declaration, type, id, context);
     if (declaration.action !== "revise" && declaration.local_refs?.parent !== undefined) {
       throw new StoreError(
@@ -874,8 +901,17 @@ export function projectedLocalRefsMatch(
   const localPaths = new Map<string, string>();
   for (const declaration of declarations) {
     const type = objectType(declaration);
-    const id = objectIdentity(type, declaration);
     const identityField = IDENTITY_FIELDS[type];
+    if (
+      typeof declaration.local_key !== "string" ||
+      declaration.local_key.length === 0 ||
+      typeof declaration.object_id !== "string" ||
+      identityField === undefined ||
+      declaration.document[identityField] !== declaration.object_id
+    ) {
+      return false;
+    }
+    const id = objectIdentity(type, declaration);
     const matches = plannedArtifacts.filter(
       (artifact) =>
         artifact.artifact_type === type &&
@@ -885,7 +921,7 @@ export function projectedLocalRefsMatch(
     if (matches.length !== 1) return false;
     const planned = matches[0] as (typeof matches)[number];
     plannedByDeclaration.set(declaration, planned);
-    localPaths.set(declaration.local_key ?? id, planned.artifact_path);
+    localPaths.set(declaration.local_key, planned.artifact_path);
   }
 
   const resolvedTarget = (target: string): string => localPaths.get(target) ?? target;

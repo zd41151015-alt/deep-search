@@ -344,6 +344,13 @@ function isAssessmentAuthority(authority: LaneDeliveryAuthority): boolean {
   ].includes(authority.taskSchema);
 }
 
+function isDiscoveryGenerationAuthority(authority: LaneDeliveryAuthority): boolean {
+  return (
+    authority.taskSchema === "startup_opportunity.research_task.discovery_candidate.current" &&
+    authority.task.required_artifact_schema === "startup_opportunity.discovery_generation_result.v1"
+  );
+}
+
 function discoveryLineage(authority: LaneDeliveryAuthority): Record<string, unknown> {
   return {
     task_ref: authority.taskRef,
@@ -384,6 +391,19 @@ function semanticArtifactContract(
   const assessment = isAssessmentAuthority(authority);
   const evaluation =
     authority.taskSchema === "startup_opportunity.research_task.discovery_evaluation.current";
+  const generation = isDiscoveryGenerationAuthority(authority);
+  if (generation && family === "evidence") {
+    return {
+      artifact_type: "startup_opportunity.candidate_neutral_evidence.v1",
+      artifact_path: `evidence/discovery/generation/${id}.json`,
+    };
+  }
+  if (generation && family === "source_manifest") {
+    return {
+      artifact_type: "startup_opportunity.source_manifest.discovery_runtime.current",
+      artifact_path: `evidence/source-manifests/discovery/${id}.json`,
+    };
+  }
   const suffix = assessment
     ? authority.taskSchema === "startup_opportunity.assessment_dispatch_task.current" &&
       family === "evidence"
@@ -397,7 +417,7 @@ function semanticArtifactContract(
       ? assessment
         ? "evidence/source-manifests"
         : evaluation
-          ? "evidence/source-manifests/discovery/enrichment"
+          ? "evidence/discovery/enrichment/source-manifests"
           : "evidence/source-manifests/discovery"
       : assessment
         ? family === "evidence"
@@ -405,7 +425,7 @@ function semanticArtifactContract(
           : `${family === "judgment" ? "judgments" : `${family}s`}`
         : evaluation
           ? family === "evidence"
-            ? "evidence/records"
+            ? "evidence/discovery/enrichment"
             : `${family === "judgment" ? "judgments" : `${family}s`}/discovery/enrichment`
           : family === "evidence"
             ? "evidence/records"
@@ -438,6 +458,27 @@ function mechanicalDocumentFields(
   const common = { schema_version: contract.artifact_type, run_id: authority.runId };
   if (family === "evidence") {
     if (evidenceRecord === undefined) return common;
+    if (isDiscoveryGenerationAuthority(authority)) {
+      return {
+        ...common,
+        evidence_id: evidenceRecord.evidence_id,
+        unit_id: authority.unitId,
+        dispatch_batch_ref: authority.dispatchTaskRef,
+        scope_frame_ref: authority.task.scope_frame_ref,
+        research_plan_ref: authority.planRef,
+        research_goal: authority.task.research_goal,
+        target_candidate_refs: [],
+        solution_refs: [],
+        mechanical_binding: {
+          substrate_record_ref: `evidence/manifest.jsonl#${evidenceRecord.evidence_id}`,
+          source_hash: evidenceRecord.source_hash,
+          content_hash: evidenceRecord.content_hash,
+          raw_content_ref: evidenceRecord.raw_content_ref,
+          operation_key: evidenceRecord.operation_key,
+          recorded_at: evidenceRecord.recorded_at,
+        },
+      };
+    }
     if (authority.taskSchema === "startup_opportunity.assessment_dispatch_task.current") {
       return {
         ...common,
@@ -497,6 +538,19 @@ function mechanicalDocumentFields(
         owner_role: "lane-researcher",
       };
     }
+    if (contract.artifact_type === "startup_opportunity.discovery_generation_result.v1") {
+      return {
+        ...common,
+        generation_result_id: `generation_${authority.unitId}_attempt_${String(
+          authority.task.attempt,
+        )}`,
+        unit_id: authority.unitId,
+        attempt: Number(authority.task.attempt),
+        dispatch_batch_ref: authority.dispatchTaskRef,
+        scope_frame_ref: authority.task.scope_frame_ref,
+        research_plan_ref: authority.planRef,
+      };
+    }
     if (contract.artifact_type === "startup_opportunity.assessment_lane_result.v1") {
       return {
         ...common,
@@ -505,6 +559,19 @@ function mechanicalDocumentFields(
         concept_hypothesis_ref: authority.assignedSubjectRefs[0],
         execution_plan_ref: authority.executionRef,
         stage_id: authority.stageId,
+      };
+    }
+    if (contract.artifact_type === "startup_opportunity.enrichment_branch_result.v1") {
+      return {
+        ...common,
+        branch_result_id: `branch_${authority.unitId}_attempt_${String(authority.task.attempt)}`,
+        unit_id: authority.unitId,
+        attempt: Number(authority.task.attempt),
+        task_ref: authority.taskRef,
+        source_snapshot_ref: authority.task.source_snapshot_ref,
+        source_merge_ref: authority.task.source_merge_ref,
+        opportunity_refs: strings(authority.task.target_opportunity_refs),
+        owner_role: "lane-researcher",
       };
     }
     if (
@@ -534,6 +601,18 @@ function mechanicalDocumentFields(
       return family === "judgment" ? common : { ...common, unit_id: authority.unitId, lineage };
     }
     return family === "judgment" ? common : { ...common, unit_id: authority.unitId };
+  }
+  if (
+    family === "source_manifest" &&
+    contract.artifact_type === "startup_opportunity.source_manifest.discovery_runtime.current"
+  ) {
+    return {
+      ...common,
+      unit_id: authority.unitId,
+      research_plan_ref: authority.planRef,
+      execution_plan_ref: authority.executionRef,
+      dispatch_batch_ref: authority.dispatchTaskRef,
+    };
   }
   return { ...common, unit_id: authority.unitId, lineage: discoveryLineage(authority) };
 }
@@ -907,7 +986,10 @@ export class LaneResultMaterializer {
         documents: [{ path: "manifest.json", document: status.manifest }],
         exact_records: [],
       },
-      { includeAllFormalArtifacts: true },
+      {
+        includeAllFormalArtifacts: true,
+        recoverPlanOperations: staging.operation === "publish",
+      },
     );
     const byPath = new Map(
       context.bundle.documents.map(effective).map((entry) => [entry.path, entry.document]),
@@ -1240,7 +1322,7 @@ export class LaneResultMaterializer {
             created_at: staging.created_at,
             artifacts: authoredArtifacts,
           },
-          { observe },
+          { observe, includeAllFormalArtifacts: true },
         );
       } catch (error) {
         sharedIssues = compilerPreflightIssues(staging, error, prepared);
@@ -1269,7 +1351,10 @@ export class LaneResultMaterializer {
                 ],
                 exact_records: [],
               },
-              { includeAllFormalArtifacts: true },
+              {
+                includeAllFormalArtifacts: true,
+                recoverPlanOperations: staging.operation === "publish",
+              },
             )
           ).bundle.documents.flatMap((entry) => {
             const envelope = entry.document;
@@ -1413,7 +1498,7 @@ export class LaneResultMaterializer {
         created_at: staging.created_at,
         artifacts,
       },
-      { observe },
+      { observe, includeAllFormalArtifacts: true },
     );
     let compilation = validated;
     if (staging.operation === "publish") {
@@ -1444,7 +1529,7 @@ export class LaneResultMaterializer {
           artifacts: [],
           publication_plan: staging.publication_plan,
         },
-        { observe },
+        { observe, includeAllFormalArtifacts: true },
       );
     }
     const deliveryReceipt = compilation.compiled_envelopes.find(

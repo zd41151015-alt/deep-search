@@ -300,6 +300,7 @@ test("closed mode policy accepts exact declared tuples and preserves installed o
   assert.equal(policy.phase_catalog.length, 5);
   assert.equal(new Set(policy.unit_rules.map((rule) => rule.unit_type)).size, 23);
   const installedOwnedSchemas = new Set([
+    "startup_opportunity.discovery_generation_result.v1",
     "startup_opportunity.discovery_lane_result.v1",
     "startup_opportunity.enrichment_branch_result.v1",
     "startup_opportunity.concept_evidence_assessment_branch_result.v1",

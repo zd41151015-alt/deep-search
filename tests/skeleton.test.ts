@@ -85,6 +85,53 @@ test("Skill fixes model-side parallel dispatch to direct acknowledged set closur
   assert.ok(laneCatalog.includes("部分失败只核对并补启动缺失 Unit，禁止整批重放"));
 });
 
+test("public Runtime surface exposes formal-stage materialization before generic compilation", async () => {
+  const skill = await read(".agents/skills/startup-opportunity/SKILL.md");
+  const discovery = await read(
+    ".agents/skills/startup-opportunity/references/opportunity-discovery.md",
+  );
+  const artifactContracts = await read(
+    ".agents/skills/startup-opportunity/references/artifact-contracts.md",
+  );
+  const readme = await read("README.md");
+  const operations = await read("docs/operations.md");
+  const help = spawnSync(process.execPath, ["--import", "tsx", "harness/src/cli.ts", "help"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  });
+  assert.equal(help.status, 0, help.stderr);
+
+  for (const command of [
+    "materialize-formal-stage",
+    "materialize-lane-result",
+    "scaffold-lane-submission",
+  ]) {
+    assert.ok(help.stdout.includes(command), `CLI help missing ${command}`);
+    assert.ok(skill.includes(command), `Skill missing ${command}`);
+    assert.ok(readme.includes(command), `README missing ${command}`);
+  }
+
+  for (const surface of [skill, discovery, artifactContracts, readme, operations]) {
+    assert.ok(surface.includes("materialize-formal-stage"));
+    assert.ok(surface.includes("validate_only"));
+    assert.ok(surface.includes("publication_plan"));
+  }
+  for (const phase of ["G2.1 setup", "dispatch wave", "G2.2 fan-in", "G2.3 synthesis"]) {
+    assert.ok(skill.includes(phase), `Skill missing formal-stage phase ${phase}`);
+    assert.ok(discovery.includes(phase), `Discovery reference missing formal-stage phase ${phase}`);
+  }
+
+  assert.ok(operations.includes("does not choose research directions"));
+  assert.ok(operations.includes("does not start a Lane Agent"));
+  assert.ok(discovery.includes("不从文本推断关系或研究判断"));
+  assert.ok(skill.includes("`compile-artifacts` 仅用于"));
+  assert.equal(
+    skill.includes("每个新 dispatch wave 必须把 execution overlay"),
+    false,
+    "Skill still points wave publication at generic compile-artifacts",
+  );
+});
+
 test("all three custom agents use the official standalone TOML fields", async () => {
   const expectedNames = new Set(["lane-researcher", "evidence-auditor", "adversarial-reviewer"]);
 

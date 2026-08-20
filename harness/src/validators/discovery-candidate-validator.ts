@@ -19,6 +19,7 @@ const CONTRACT_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.judgment_assessment.discovery_candidate.current",
   "startup_opportunity.source_manifest.discovery_candidate.current",
   "startup_opportunity.discovery_lane_result.v1",
+  "startup_opportunity.discovery_generation_result.v1",
   "startup_opportunity.discovery_fan_in.v2",
 ]);
 
@@ -32,8 +33,20 @@ const PRODUCER_BY_SCHEMA: Readonly<Record<string, string>> = {
   "startup_opportunity.judgment_assessment.discovery_candidate.current": "lane_researcher",
   "startup_opportunity.source_manifest.discovery_candidate.current": "lane_researcher",
   "startup_opportunity.discovery_lane_result.v1": "lane_researcher",
+  "startup_opportunity.discovery_generation_result.v1": "lane_researcher",
   "startup_opportunity.discovery_fan_in.v2": "main_agent",
 };
+
+const CANDIDATE_BOUND_SCHEMA_VERSIONS = new Set([
+  "startup_opportunity.discovery_lane_result.v1",
+  "startup_opportunity.discovery_fan_in.v2",
+  "startup_opportunity.evidence.discovery_candidate.current",
+  "startup_opportunity.claim.discovery_candidate.current",
+  "startup_opportunity.finding.discovery_candidate.current",
+  "startup_opportunity.insight.discovery_candidate.current",
+  "startup_opportunity.judgment_assessment.discovery_candidate.current",
+  "startup_opportunity.source_manifest.discovery_candidate.current",
+]);
 
 const EVIDENCE_LINEAGE_FIELDS = [
   "evidence_refs",
@@ -1321,6 +1334,22 @@ export function validateDiscoveryCandidateContract(
   const candidates = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.discovery_candidate.v1",
   );
+  const generationTasks = documents.filter(
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.research_task.discovery_candidate.current" &&
+      entry.document.required_artifact_schema ===
+        "startup_opportunity.discovery_generation_result.v1",
+  );
+  const generationResults = documents.filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.discovery_generation_result.v1",
+  );
+  const candidateBoundDocuments = documents.filter((entry) =>
+    CANDIDATE_BOUND_SCHEMA_VERSIONS.has(entry.schemaVersion),
+  );
+  const candidateNeutralGenerationOnly =
+    candidates.length === 0 &&
+    candidateBoundDocuments.length === 0 &&
+    (generationTasks.length > 0 || generationResults.length > 0);
   const candidatesByPath = new Map(candidates.map((entry) => [entry.path, entry]));
   const scopes = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.scope_frame.discovery.current",
@@ -1337,13 +1366,13 @@ export function validateDiscoveryCandidateContract(
     scopes.length !== 1 ||
     manifests.length !== 1 ||
     currentPlans.length !== 1 ||
-    candidates.length === 0
+    (candidates.length === 0 && !candidateNeutralGenerationOnly)
   ) {
     errors.push(
       issue(
         "discovery_candidate.bundle_cardinality",
         "/documents",
-        "G2.2 contract requires one Scope, one current Plan, and at least one typed candidate",
+        "G2.2 contract requires one Scope, one current Plan, and either typed candidates or a candidate-neutral generation task/result",
         {
           scopeCount: scopes.length,
           manifestCount: manifests.length,
@@ -1351,6 +1380,9 @@ export function validateDiscoveryCandidateContract(
           currentPlanCount: currentPlans.length,
           totalPlanCount: plans.length,
           candidateCount: candidates.length,
+          generationTaskCount: generationTasks.length,
+          generationResultCount: generationResults.length,
+          candidateBoundDocumentCount: candidateBoundDocuments.length,
         },
       ),
     );

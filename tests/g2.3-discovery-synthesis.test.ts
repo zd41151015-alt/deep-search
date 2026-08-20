@@ -718,9 +718,11 @@ function projectionContext(
 function setupDeclarations(): DiscoveryObjectDeclaration[] {
   return [
     {
+      local_key: "solution-map-authored",
       object_id: "solution-map-authored",
       document: {
         schema_version: "startup_opportunity.solution_space_map.v1",
+        map_id: "solution-map-authored",
         ai_boundary: { applicability: "not_applicable" },
         limitations: ["AI applicability remains explicitly not applicable."],
       },
@@ -730,27 +732,33 @@ function setupDeclarations(): DiscoveryObjectDeclaration[] {
       },
     },
     {
+      local_key: "candidate-authored",
       object_id: "candidate-authored",
       document: {
         schema_version: "startup_opportunity.discovery_candidate.v1",
+        candidate_id: "candidate-authored",
         candidate_kind: "demand_seed",
         honest_state: "unknown",
         limitations: ["Candidate remains unknown and unranked."],
       },
     },
     {
+      local_key: "opportunity-map-authored",
       object_id: "opportunity-map-authored",
       document: {
         schema_version: "startup_opportunity.opportunity_space_map.v1",
+        map_id: "opportunity-map-authored",
         unknowns: ["Demand recurrence is unknown."],
         limitations: ["No Evidence has been promoted."],
       },
       local_refs: { seed_probe_ref: "seed-authored" },
     },
     {
+      local_key: "seed-authored",
       object_id: "seed-authored",
       document: {
         schema_version: "startup_opportunity.seed_probe.v1",
+        seed_probe_id: "seed-authored",
         initial_questions: [{ uncertainty: "unknown" }],
         limitations: ["Seed is a search entry only."],
       },
@@ -964,6 +972,7 @@ function fanInProjectionFixture(): {
       action: "create",
       document: {
         schema_version: "startup_opportunity.discovery_fan_in.v2",
+        fan_in_id: "fan-in-authored",
         candidate_dispositions: [
           {
             disposition_id: "retain-demand",
@@ -1049,13 +1058,19 @@ test("formal replay relation check resolves request-local keys to exact planned 
       local_key: "demand-local",
       object_id: "demand-authored",
       action: "create",
-      document: { schema_version: "startup_opportunity.demand_thesis.v1" },
+      document: {
+        schema_version: "startup_opportunity.demand_thesis.v1",
+        demand_id: "demand-authored",
+      },
     },
     {
       local_key: "baseline-local",
       object_id: "baseline-authored",
       action: "create",
-      document: { schema_version: "startup_opportunity.baseline_option.v1" },
+      document: {
+        schema_version: "startup_opportunity.baseline_option.v1",
+        baseline_id: "baseline-authored",
+      },
       local_refs: { demand_thesis_ref: "demand-local" },
     },
   ];
@@ -1135,6 +1150,7 @@ test("G2.3 projection resolves multiple explicit local refs without semantic rew
       action: "create",
       document: {
         schema_version: "startup_opportunity.demand_thesis.v1",
+        demand_id: "demand-authored",
         research_state: "unknown",
         conflicts: ["Supporting and opposing Evidence conflict."],
         limitations: ["Demand is partial."],
@@ -1146,6 +1162,7 @@ test("G2.3 projection resolves multiple explicit local refs without semantic rew
       action: "create",
       document: {
         schema_version: "startup_opportunity.solution_hypothesis.v1",
+        solution_id: "solution-a",
         research_state: "inferred",
         limitations: ["Solution is inferred."],
       },
@@ -1157,6 +1174,7 @@ test("G2.3 projection resolves multiple explicit local refs without semantic rew
       action: "create",
       document: {
         schema_version: "startup_opportunity.solution_hypothesis.v1",
+        solution_id: "solution-b",
         research_state: "unavailable",
         limitations: ["Evaluation material is unavailable."],
       },
@@ -1168,6 +1186,7 @@ test("G2.3 projection resolves multiple explicit local refs without semantic rew
       action: "create",
       document: {
         schema_version: "startup_opportunity.solution_evaluation.v1",
+        evaluation_id: "evaluation-authored",
         decision_sufficiency: "insufficient_evidence",
         solution_hypothesis_refs: [],
         alternative_solution_refs: [],
@@ -1223,6 +1242,7 @@ test("G2.3 revision binds the exact same-Run parent and rejects invalid relation
         action: "revise",
         document: {
           schema_version: "startup_opportunity.demand_thesis.v1",
+          demand_id: "demand-authored",
           research_state: "no_evidence_found",
           limitations: ["No Evidence found is not unavailable."],
         },
@@ -1247,6 +1267,7 @@ test("G2.3 revision binds the exact same-Run parent and rejects invalid relation
             action: "revise",
             document: {
               schema_version: "startup_opportunity.demand_thesis.v1",
+              demand_id: "demand-authored",
               limitations: ["Cross-Run parent must fail closed."],
             },
             local_refs: { parent: parentRef },
@@ -1270,6 +1291,7 @@ test("G2.3 revision binds the exact same-Run parent and rejects invalid relation
             action: "revise",
             document: {
               schema_version: "startup_opportunity.demand_thesis.v1",
+              demand_id: "demand-authored",
               limitations: ["Stale selected parent must fail closed."],
             },
             local_refs: { parent: parentRef },
@@ -1291,6 +1313,7 @@ test("G2.3 revision binds the exact same-Run parent and rejects invalid relation
             action: "create",
             document: {
               schema_version: "startup_opportunity.solution_hypothesis.v1",
+              solution_id: "solution-authored",
               limitations: ["Explicit wrong relation."],
             },
             local_refs: { demand_thesis_ref: "solution" },
@@ -1311,6 +1334,7 @@ test("G2.3 explicit relations fail closed for unknown fields and non-Run targets
     action: "create",
     document: {
       schema_version: "startup_opportunity.demand_thesis.v1",
+      demand_id: "demand-authored",
       limitations: ["No semantics are inferred."],
     },
     local_refs: { invented_relation_ref: "scope.json" },

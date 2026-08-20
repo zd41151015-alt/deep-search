@@ -879,8 +879,8 @@ function validateSourceManifest(
   }
   dates.sort();
   const expectedTime = {
-    earliest_valid_as_of: dates[0],
-    latest_valid_as_of: dates.at(-1),
+    earliest_valid_as_of: dates[0] ?? null,
+    latest_valid_as_of: dates.at(-1) ?? null,
     accepted_evidence_count: evidence.length,
   };
   if (

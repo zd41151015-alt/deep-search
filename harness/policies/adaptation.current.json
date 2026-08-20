@@ -33,6 +33,7 @@
   ],
   "artifact_schema_catalog": [
     "startup_opportunity.discovery_lane_result.v1",
+    "startup_opportunity.discovery_generation_result.v1",
     "startup_opportunity.enrichment_branch_result.v1",
     "startup_opportunity.concept_evidence_assessment_branch_result.v1",
     "startup_opportunity.assessment_lane_result.v1",
@@ -45,6 +46,13 @@
       "unit_type": "user_language_mining",
       "agent_role": "lane-researcher",
       "required_artifact_schema": "startup_opportunity.discovery_lane_result.v1"
+    },
+    {
+      "mode": "opportunity_discovery",
+      "phase": "discovery",
+      "unit_type": "user_language_mining",
+      "agent_role": "lane-researcher",
+      "required_artifact_schema": "startup_opportunity.discovery_generation_result.v1"
     },
     {
       "mode": "opportunity_discovery",

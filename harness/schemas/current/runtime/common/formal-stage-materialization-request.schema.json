@@ -280,7 +280,7 @@
     "callerArtifact": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["document"],
+      "required": ["local_key", "object_id", "document"],
       "properties": {
         "artifact_type": { "type": "string" },
         "artifact_path": {
