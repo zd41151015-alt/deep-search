@@ -584,7 +584,10 @@ function canonicalDiscoveryTasks(
   const dispatchedUnitIds = new Set(
     (batch.tasks as Record<string, unknown>[])
       .filter(
-        (task) => task.required_artifact_schema === "startup_opportunity.discovery_lane_result.v1",
+        (task) =>
+          task.required_artifact_schema === "startup_opportunity.discovery_lane_result.v1" ||
+          task.required_artifact_schema === "startup_opportunity.discovery_generation_result.v1" ||
+          task.required_artifact_schema === "startup_opportunity.enrichment_branch_result.v1",
       )
       .map((task) => String(task.unit_id)),
   );
@@ -600,6 +603,13 @@ function canonicalDiscoveryTasks(
         string,
         unknown
       >;
+      task.document.allowed_output_path = dispatched.allowed_output_path;
+      task.document.required_artifact_schema = dispatched.required_artifact_schema;
+      if (
+        dispatched.required_artifact_schema === "startup_opportunity.discovery_generation_result.v1"
+      ) {
+        task.document.target_candidate_refs = [];
+      }
       requirements.incumbent_response_assignment = structuredClone(
         dispatched.incumbent_response_assignment,
       );
@@ -3236,7 +3246,7 @@ test("canonical Discovery task publication rejects missing waves, drift, and ter
 });
 
 test("candidate-neutral Evidence binds real substrate and generation completion wins recovery ordering", async (t) => {
-  const state = await prepareRun(t, "generation");
+  const state = await prepareDiscoveryTaskBridgeRun(t, "generation");
   const execution = executionPlan(state.runId, state.plan);
   const batch = dispatchBatch(state.runId, state.plan, execution);
   const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
@@ -3244,6 +3254,7 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
     compilationRequest(state.runId, "publish", [
       runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
       runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
+      ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
     ]),
   );
   const firstTask = (batch.tasks as Record<string, unknown>[])[0];

@@ -485,6 +485,7 @@ export interface BuildValidationContextResult {
   readonly schemaVersion: "startup_opportunity.validation_context.v1";
   readonly bundle: DocumentBundle;
   readonly referenceContext: DocumentBundleReferenceContext;
+  readonly planOperationRecovery: PlanOperationRecoveryResult;
 }
 
 const RUN_DIRECTORIES = [
@@ -2410,9 +2411,11 @@ export class RunStore {
     input: DocumentBundle,
     options: {
       readonly includeAllFormalArtifacts?: boolean;
+      readonly topLevelFormalRefs?: readonly string[];
       readonly prospectiveArtifactPaths?: readonly string[];
       readonly prospectiveManifest?: RunManifest;
       readonly exactRecordRefs?: readonly string[];
+      readonly recoverPlanOperations?: boolean;
     } = {},
   ): Promise<BuildValidationContextResult> {
     validateRunId(runId);
@@ -2435,6 +2438,8 @@ export class RunStore {
         new Set(options.prospectiveArtifactPaths ?? []),
         options.prospectiveManifest,
         new Set(options.exactRecordRefs ?? []),
+        new Set(options.topLevelFormalRefs ?? []),
+        options.recoverPlanOperations !== false,
       ),
     );
   }
@@ -2446,7 +2451,9 @@ export class RunStore {
     includeAllFormalArtifacts = false,
     prospectiveArtifactPaths: ReadonlySet<string> = new Set(),
     prospectiveManifest?: RunManifest,
-    requestedExactRecordRefs: ReadonlySet<string> = new Set(),
+    requestedExactRecordRefs: Set<string> = new Set(),
+    requestedTopLevelFormalRefs: ReadonlySet<string> = new Set(),
+    recoverPlanOperations = true,
   ): Promise<BuildValidationContextResult> {
     const storedManifest = await this.readManifest(runRoot);
     await this.assertScopeBindingLocked(runRoot, storedManifest);
@@ -2534,6 +2541,30 @@ export class RunStore {
     };
 
     await addAuthority({ path: "manifest.json", document: manifest });
+    for (const ref of [...requestedTopLevelFormalRefs].sort()) {
+      const parsed = validateArtifactRef(ref);
+      if (parsed.path === "manifest.json") continue;
+      if (parsed.path.endsWith(".jsonl")) {
+        if (parsed.fragment === null) {
+          throw new StoreError(
+            "validation_context.exact_record_ref_invalid",
+            "top-level JSONL refs must identify one exact record",
+            { ref },
+          );
+        }
+        requestedExactRecordRefs.add(ref);
+        continue;
+      }
+      const authority = stored.get(parsed.path);
+      if (authority === undefined) {
+        throw new StoreError(
+          "validation_context.top_level_ref_missing",
+          "an explicitly selected top-level formal ref is absent from the current Run",
+          { ref },
+        );
+      }
+      await addAuthority(authority);
+    }
     const terminalReportRequested = [...selected.values()].some(
       (entry) =>
         effective(entry.document).schema_version ===
@@ -2627,6 +2658,7 @@ export class RunStore {
       this.validator,
       this.artifacts,
       this.logs,
+      recoverPlanOperations,
     );
     for (const decision of await this.logs.listValidatedRecords(
       runRoot,
@@ -2667,6 +2699,7 @@ export class RunStore {
         historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
         artifactPublicationRecords: await this.artifacts.publicationRecordsLocked(runRoot, runId),
       },
+      planOperationRecovery,
     };
   }
 
@@ -2705,6 +2738,21 @@ export class RunStore {
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       const manifest = await this.readManifest(runRoot);
+      if (
+        input.expectedManifestContentHash !== undefined &&
+        canonicalContentHash(manifest) !== input.expectedManifestContentHash &&
+        !manifest.artifact_refs.includes(input.envelope.artifact_path) &&
+        !manifest.ignored_late_artifact_refs.includes(input.envelope.artifact_path)
+      ) {
+        throw new StoreError(
+          "artifact.manifest_stale",
+          "artifact publication no longer binds the exact planned Manifest",
+          {
+            expected: input.expectedManifestContentHash,
+            actual: canonicalContentHash(manifest),
+          },
+        );
+      }
       if (
         [
           "startup_opportunity.dispatch_batch.discovery.current",
@@ -2828,6 +2876,24 @@ export class RunStore {
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       let manifest = await this.readManifest(runRoot);
+      const trackedPaths = new Set([
+        ...manifest.artifact_refs,
+        ...manifest.ignored_late_artifact_refs,
+      ]);
+      if (
+        input.expectedManifestContentHash !== undefined &&
+        canonicalContentHash(manifest) !== input.expectedManifestContentHash &&
+        !input.envelopes.every((envelope) => trackedPaths.has(envelope.artifact_path))
+      ) {
+        throw new StoreError(
+          "artifact.manifest_stale",
+          "artifact bundle publication no longer binds the exact planned Manifest",
+          {
+            expected: input.expectedManifestContentHash,
+            actual: canonicalContentHash(manifest),
+          },
+        );
+      }
       await this.assertScopeBindingLocked(runRoot, manifest);
       await this.assertTransitionReadyLocked(runRoot, manifest, input.envelopes);
       await this.assertProspectiveScopeFormationLocked(runRoot, manifest, input.envelopes);
@@ -4630,6 +4696,8 @@ export class RunStore {
         .filter(
           (task) =>
             task.required_artifact_schema === "startup_opportunity.discovery_lane_result.v1" ||
+            task.required_artifact_schema ===
+              "startup_opportunity.discovery_generation_result.v1" ||
             task.required_artifact_schema === "startup_opportunity.enrichment_branch_result.v1",
         );
       for (const dispatched of dispatchedTasks) {

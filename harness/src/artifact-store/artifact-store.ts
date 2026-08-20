@@ -109,6 +109,7 @@ export interface PublishArtifactInput {
   readonly runId: string;
   readonly envelope: FormalArtifactEnvelope;
   readonly operationKey?: string;
+  readonly expectedManifestContentHash?: string;
   readonly faultAt?: ArtifactFaultBoundary;
 }
 
@@ -124,6 +125,7 @@ export interface PublishArtifactResult {
 export interface PublishArtifactBundleInput {
   readonly runId: string;
   readonly envelopes: readonly FormalArtifactEnvelope[];
+  readonly expectedManifestContentHash?: string;
 }
 
 export interface PublishArtifactBundleResult {

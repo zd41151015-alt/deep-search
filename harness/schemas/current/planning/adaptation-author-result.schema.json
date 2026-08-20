@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/planning/adaptation-author-result.schema.json",
+  "title": "Startup Opportunity Adaptation Author Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "run_id",
+    "operation",
+    "status",
+    "base_manifest_content_hash",
+    "result_manifest_content_hash",
+    "base_plan_ref",
+    "base_plan_content_hash",
+    "planning_run_state_hash",
+    "gap_envelope",
+    "adaptation_envelopes",
+    "candidate_bundle",
+    "plan_diff",
+    "publication_plan",
+    "publication_result",
+    "apply_result"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.adaptation_author_result.current"
+    },
+    "request_id": {
+      "$ref": "../core/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../core/definitions.schema.json#/$defs/runId"
+    },
+    "operation": {
+      "enum": ["validate_only", "publish", "apply"]
+    },
+    "status": {
+      "enum": ["validated", "published", "applied", "idempotent_replay"]
+    },
+    "base_manifest_content_hash": {
+      "$ref": "../core/definitions.schema.json#/$defs/sha256"
+    },
+    "result_manifest_content_hash": {
+      "$ref": "../core/definitions.schema.json#/$defs/sha256"
+    },
+    "base_plan_ref": {
+      "$ref": "../core/definitions.schema.json#/$defs/planRef"
+    },
+    "base_plan_content_hash": {
+      "$ref": "../core/definitions.schema.json#/$defs/sha256"
+    },
+    "planning_run_state_hash": {
+      "$ref": "../core/definitions.schema.json#/$defs/sha256"
+    },
+    "gap_envelope": {
+      "$ref": "../store/artifact-envelope.schema.json"
+    },
+    "adaptation_envelopes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "../store/artifact-envelope.schema.json"
+      }
+    },
+    "candidate_bundle": {
+      "anyOf": [{ "$ref": "../store/document-bundle.schema.json" }, { "type": "null" }]
+    },
+    "plan_diff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision_created",
+        "result_plan_ref",
+        "result_plan_content_hash",
+        "action_names",
+        "added_unit_ids",
+        "changed_unit_ids"
+      ],
+      "properties": {
+        "revision_created": { "type": "boolean" },
+        "result_plan_ref": {
+          "$ref": "../core/definitions.schema.json#/$defs/planRef"
+        },
+        "result_plan_content_hash": {
+          "anyOf": [{ "$ref": "../core/definitions.schema.json#/$defs/sha256" }, { "type": "null" }]
+        },
+        "action_names": {
+          "$ref": "../core/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "added_unit_ids": {
+          "$ref": "../core/definitions.schema.json#/$defs/identifierArray"
+        },
+        "changed_unit_ids": {
+          "$ref": "../core/definitions.schema.json#/$defs/identifierArray"
+        }
+      }
+    },
+    "publication_plan": { "$ref": "#/$defs/publicationPlan" },
+    "publication_result": {
+      "type": ["object", "null"]
+    },
+    "apply_result": {
+      "type": ["object", "null"]
+    }
+  },
+  "$defs": {
+    "publicationPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "plan_id",
+        "request_content_hash",
+        "operation_key",
+        "checkpoint_ref",
+        "manifest_content_hash",
+        "gap_ref",
+        "gap_content_hash",
+        "adaptation_refs",
+        "adaptation_content_hashes",
+        "candidate_plan_ref",
+        "candidate_plan_content_hash",
+        "candidate_context_ref",
+        "candidate_context_content_hash"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "startup_opportunity.adaptation_author_publication_plan.current"
+        },
+        "plan_id": {
+          "$ref": "../core/definitions.schema.json#/$defs/sha256"
+        },
+        "request_content_hash": {
+          "$ref": "../core/definitions.schema.json#/$defs/sha256"
+        },
+        "operation_key": {
+          "$ref": "../core/definitions.schema.json#/$defs/sha256"
+        },
+        "checkpoint_ref": {
+          "type": "string",
+          "pattern": "^checkpoints/checkpoint-plan-apply-[a-f0-9]{20}\\.json$"
+        },
+        "manifest_content_hash": {
+          "$ref": "../core/definitions.schema.json#/$defs/sha256"
+        },
+        "gap_ref": {
+          "$ref": "../core/definitions.schema.json#/$defs/gapSnapshotRef"
+        },
+        "gap_content_hash": {
+          "$ref": "../core/definitions.schema.json#/$defs/sha256"
+        },
+        "adaptation_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../core/definitions.schema.json#/$defs/adaptationRef"
+          }
+        },
+        "adaptation_content_hashes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "../core/definitions.schema.json#/$defs/sha256"
+          }
+        },
+        "candidate_plan_ref": {
+          "anyOf": [
+            { "$ref": "../core/definitions.schema.json#/$defs/planRef" },
+            { "type": "null" }
+          ]
+        },
+        "candidate_plan_content_hash": {
+          "anyOf": [{ "$ref": "../core/definitions.schema.json#/$defs/sha256" }, { "type": "null" }]
+        },
+        "candidate_context_ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^plans/planning-context\\.r[1-9][0-9]*\\.json$"
+            },
+            { "type": "null" }
+          ]
+        },
+        "candidate_context_content_hash": {
+          "anyOf": [{ "$ref": "../core/definitions.schema.json#/$defs/sha256" }, { "type": "null" }]
+        }
+      }
+    }
+  }
+}

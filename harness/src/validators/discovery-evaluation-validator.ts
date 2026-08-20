@@ -110,12 +110,18 @@ function collectRefs(value: unknown): readonly string[] {
   }
   return Object.entries(value).flatMap(([key, child]) => {
     if ((key.endsWith("_refs") || key === "input_refs") && Array.isArray(child)) {
-      return strings(child).filter((ref) => ref.includes("/") || ref.includes("#"));
+      return strings(child).filter(
+        (ref) =>
+          ref.includes("/") || ref.includes("#") || ref.endsWith(".json") || ref.endsWith(".jsonl"),
+      );
     }
     if (
       (key.endsWith("_ref") || key.endsWith("_refs") || key === "ref") &&
       typeof child === "string" &&
-      (child.includes("/") || child.includes("#"))
+      (child.includes("/") ||
+        child.includes("#") ||
+        child.endsWith(".json") ||
+        child.endsWith(".jsonl"))
     ) {
       return [child];
     }
@@ -130,7 +136,40 @@ function target(
   return typeof ref === "string" ? byPath.get(ref.split("#", 1)[0] ?? "") : undefined;
 }
 
-function validateEnvelope(entry: DiscoveryEvaluationDocument, errors: ValidationIssue[]): void {
+function isAllowedMechanicalInputRef(
+  byPath: ReadonlyMap<string, DiscoveryEvaluationDocument>,
+  ref: string,
+): boolean {
+  const refPath = ref.split("#", 1)[0] ?? ref;
+  if (
+    /^tasks\/discovery\/(?:enrichment\/)?[A-Za-z0-9][A-Za-z0-9._-]*\.attempt-[1-9][0-9]*\.json$/u.test(
+      refPath,
+    ) ||
+    /^tasks\/dispatch\/[A-Za-z0-9][A-Za-z0-9._-]*\.r1\.json$/u.test(refPath) ||
+    /^plans\/research-execution\.r[1-9][0-9]*\.json$/u.test(refPath) ||
+    /^plans\/research-plan\.r[1-9][0-9]*\.json$/u.test(refPath) ||
+    /^evidence\/manifest\.jsonl$/u.test(refPath)
+  ) {
+    return true;
+  }
+  const targetEntry = target(byPath, ref);
+  return [
+    "startup_opportunity.research_execution_plan.discovery.current",
+    "startup_opportunity.dispatch_batch.discovery.current",
+    "startup_opportunity.research_plan.v1",
+  ].includes(String(targetEntry?.schemaVersion));
+}
+
+function isFormalInputRef(ref: string): boolean {
+  const refPath = ref.split("#", 1)[0] ?? ref;
+  return refPath.endsWith(".json") || refPath.endsWith(".jsonl");
+}
+
+function validateEnvelope(
+  entry: DiscoveryEvaluationDocument,
+  byPath: ReadonlyMap<string, DiscoveryEvaluationDocument>,
+  errors: ValidationIssue[],
+): void {
   if (!EVALUATION_SCHEMA_VERSIONS.has(entry.schemaVersion)) {
     return;
   }
@@ -184,13 +223,21 @@ function validateEnvelope(entry: DiscoveryEvaluationDocument, errors: Validation
   const expectedInputRefs = [...new Set([...collectRefs(entry.document), ...bindingRefs])]
     .filter((ref) => ref !== entry.path)
     .sort();
-  if (!setEqual(strings(entry.envelope.input_refs), expectedInputRefs)) {
+  const actualInputRefs = strings(entry.envelope.input_refs);
+  const missingSemanticRefs = expectedInputRefs.filter(
+    (ref) => isFormalInputRef(ref) && !actualInputRefs.includes(ref),
+  );
+  const extraInputRefs = actualInputRefs.filter((ref) => !expectedInputRefs.includes(ref));
+  const invalidExtraInputRefs = extraInputRefs.filter(
+    (ref) => !isAllowedMechanicalInputRef(byPath, ref),
+  );
+  if (missingSemanticRefs.length > 0 || invalidExtraInputRefs.length > 0) {
     errors.push(
       issue(
         "g2_4.envelope_input_closure_mismatch",
         `${entry.path}#/input_refs`,
-        "envelope input_refs must exactly close over typed document refs",
-        { expectedInputRefs },
+        "envelope input_refs must close over typed document refs and may only add exact mechanical Runtime authority refs",
+        { expectedInputRefs, missingSemanticRefs, invalidExtraInputRefs },
       ),
     );
   }
@@ -1628,7 +1675,7 @@ export function validateDiscoveryEvaluationContract(
   const errors: ValidationIssue[] = [];
   const byPath = new Map(documents.map((entry) => [entry.path, entry]));
   for (const entry of entries) {
-    validateEnvelope(entry, errors);
+    validateEnvelope(entry, byPath, errors);
   }
   validateTaskAndMaterial(entries, byPath, exactJsonlRecords, errors);
   validateBranchesAndFanIn(entries, byPath, policy, errors);

@@ -41,6 +41,19 @@ function envelope(
   } as FormalArtifactEnvelope;
 }
 
+function refreshEnvelope(envelope: FormalArtifactEnvelope): FormalArtifactEnvelope {
+  const mutableEnvelope = envelope as {
+    input_refs: readonly string[];
+    content_hash: string;
+  };
+  mutableEnvelope.input_refs = artifactRefsForDocument({
+    path: envelope.artifact_path,
+    document: envelope.document,
+  }).filter((ref) => ref.split("#", 1)[0] !== envelope.artifact_path);
+  mutableEnvelope.content_hash = canonicalContentHash(envelope.document);
+  return envelope;
+}
+
 export function refreshDiscoveryRuntimeLineage(bundle: DocumentBundle): DocumentBundle {
   for (const entry of bundle.documents) {
     const stored = entry.document;
@@ -103,8 +116,7 @@ export function discoveryWaveEnvelopes(
     task.document.agent_role = binding.unit.agent_role;
     task.document.allowed_output_path = binding.unit.output_path;
     task.document.required_artifact_schema = binding.unit.required_artifact_schema;
-    (task as { content_hash: string }).content_hash = canonicalContentHash(task.document);
-    return task;
+    return refreshEnvelope(task);
   });
   const executionPath = `plans/research-execution.r${revision}.json`;
   const dispatchPath = `tasks/dispatch/${suffix}.r1.json`;
@@ -159,7 +171,7 @@ export function discoveryWaveEnvelopes(
     requirements.incumbent_response_assignment = structuredClone(
       index === ownerIndex ? incumbentResponseAssignment : unassignedIncumbentResponse,
     );
-    (task as { content_hash: string }).content_hash = canonicalContentHash(task.document);
+    refreshEnvelope(task);
   });
   const lanes = tasks.map((task, index) => ({
     unit_id: task.document.unit_id,
@@ -168,7 +180,7 @@ export function discoveryWaveEnvelopes(
     incumbent_response_assignment: structuredClone(
       index === ownerIndex ? incumbentResponseAssignment : unassignedIncumbentResponse,
     ),
-    reporting_dimensions: ["demand"],
+    reporting_dimensions: [targetedResponse ? "recent_user_language" : "demand"],
     submission_path: task.document.allowed_output_path,
     submission_schema: task.document.required_artifact_schema,
     ...lanePolicy,

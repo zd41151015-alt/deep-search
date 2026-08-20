@@ -193,6 +193,8 @@ export function dispatchLaunchChecklist(
 export interface CompileRuntimeArtifactsOptions {
   readonly faultAt?: ArtifactFaultBoundary;
   readonly observe?: OperationObserver | undefined;
+  readonly recoverPlanOperations?: boolean;
+  readonly includeAllFormalArtifacts?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -456,6 +458,8 @@ export class DeclarativeRuntimeCompiler {
       );
     }
     const request = requestValue as RuntimeArtifactCompilationRequest;
+    const recoverPlanOperations =
+      request.operation === "publish" && options.recoverPlanOperations !== false;
     trace.complete("request_validation", { request_errors: requestValidation.errors.length });
     trace.start("current_run_resolution");
     const resolution = await this.runs.resolveExecution(request.run_id);
@@ -508,7 +512,7 @@ export class DeclarativeRuntimeCompiler {
               ],
               exact_records: [],
             },
-            { includeAllFormalArtifacts: true },
+            { includeAllFormalArtifacts: true, recoverPlanOperations },
           )
         ).bundle.documents.map((entry) => ({
           artifact_type:
@@ -684,7 +688,10 @@ export class DeclarativeRuntimeCompiler {
       })),
       exact_records: [],
     };
-    const context = await this.runs.buildValidationContext(request.run_id, initialBundle);
+    const context = await this.runs.buildValidationContext(request.run_id, initialBundle, {
+      includeAllFormalArtifacts: options.includeAllFormalArtifacts === true,
+      recoverPlanOperations,
+    });
     const validation = this.validator.validateDocumentBundle(
       context.bundle,
       context.referenceContext,
@@ -956,6 +963,7 @@ export class DeclarativeRuntimeCompiler {
         const result = await this.runs.publishArtifact({
           runId: request.run_id,
           envelope,
+          expectedManifestContentHash: publicationPlan.manifest_content_hash,
           ...(options.faultAt === undefined ? {} : { faultAt: options.faultAt }),
         });
         publicationStatus = result.status;
@@ -964,6 +972,7 @@ export class DeclarativeRuntimeCompiler {
         const result = await this.runs.publishArtifactBundle({
           runId: request.run_id,
           envelopes,
+          expectedManifestContentHash: publicationPlan.manifest_content_hash,
         });
         publicationStatus = result.status;
         statuses = new Map(

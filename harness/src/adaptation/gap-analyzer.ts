@@ -34,6 +34,16 @@ const MACHINE_GAP_TYPES = new Set([
   "user_plan_change_requested",
 ]);
 
+const SEMANTIC_GAP_TYPES = new Set([
+  "evidence_insufficient",
+  "evidence_conflict",
+  "baseline_unclear",
+  "buyer_evidence_insufficient",
+  "acquisition_evidence_insufficient",
+  "reviewer_challenge",
+  "candidate_pre_killed",
+]);
+
 export interface MachineGapCheck {
   readonly checkId: string;
   readonly gapType:
@@ -49,6 +59,28 @@ export interface MachineGapCheck {
   readonly severity: "blocking" | "material" | "advisory";
   readonly recommendedUnitTypes?: readonly string[];
   readonly detail: string;
+}
+
+export interface SemanticGapInput {
+  readonly gapType:
+    | "evidence_insufficient"
+    | "evidence_conflict"
+    | "baseline_unclear"
+    | "buyer_evidence_insufficient"
+    | "acquisition_evidence_insufficient"
+    | "reviewer_challenge"
+    | "candidate_pre_killed";
+  readonly subjectRef: string;
+  readonly triggeredBy: {
+    readonly judgment_ref: string;
+    readonly decision_sufficiency: "sufficient" | "insufficient" | "blocked" | "not_applicable";
+    readonly independent_source_count: number;
+  };
+  readonly basisRefs: readonly string[];
+  readonly evidenceRefs: readonly string[];
+  readonly decisionImpact: readonly string[];
+  readonly severity: "blocking" | "material" | "advisory";
+  readonly recommendedUnitTypes: readonly string[];
 }
 
 export interface AnalyzeGapsInput {
@@ -69,6 +101,7 @@ export interface AnalyzeGapsInput {
   readonly materialNewEvidenceObserved: boolean;
   readonly repeatedSourceRefs?: readonly string[];
   readonly machineChecks?: readonly MachineGapCheck[];
+  readonly semanticGaps?: readonly SemanticGapInput[];
 }
 
 export interface GapAnalysisResult {
@@ -204,6 +237,12 @@ export class GapAnalyzer {
         ...check.basisRefs,
         ...(check.evidenceRefs ?? []),
       ]),
+      ...(input.semanticGaps ?? []).flatMap((gap) => [
+        gap.subjectRef,
+        gap.triggeredBy.judgment_ref,
+        ...gap.basisRefs,
+        ...gap.evidenceRefs,
+      ]),
       ...(input.triggerEventRef === null ? [] : [input.triggerEventRef]),
     ];
     for (const ref of uniqueSorted(refsToResolve)) {
@@ -312,13 +351,25 @@ export class GapAnalyzer {
         );
       }
     }
+    for (const gap of input.semanticGaps ?? []) {
+      if (!SEMANTIC_GAP_TYPES.has(gap.gapType) || gap.basisRefs.length === 0) {
+        errors.push(
+          analysisError(
+            "gap.semantic_input_invalid",
+            "semantic gaps require an explicit current gap type and non-empty basis refs",
+            { gapType: gap.gapType, subjectRef: gap.subjectRef },
+          ),
+        );
+      }
+    }
 
     if (
       scopeReconciliation &&
       (input.observedArtifactRefs.length !== 0 ||
         input.materialNewEvidenceObserved ||
         (input.repeatedSourceRefs?.length ?? 0) !== 0 ||
-        (input.machineChecks?.length ?? 0) !== 0)
+        (input.machineChecks?.length ?? 0) !== 0 ||
+        (input.semanticGaps?.length ?? 0) !== 0)
     ) {
       errors.push(
         analysisError(
@@ -514,6 +565,28 @@ export class GapAnalyzer {
         basis_refs: uniqueSorted(check.basisRefs),
         evidence_refs: uniqueSorted(check.evidenceRefs ?? []),
         recommended_unit_types: uniqueSorted(check.recommendedUnitTypes ?? []),
+      });
+    }
+
+    for (const semantic of [...(scopeReconciliation ? [] : (input.semanticGaps ?? []))].sort(
+      (left, right) =>
+        left.gapType.localeCompare(right.gapType) ||
+        left.subjectRef.localeCompare(right.subjectRef),
+    )) {
+      const semanticIdentity = {
+        gap_type: semantic.gapType,
+        subject_ref: semantic.subjectRef,
+        triggered_by: semantic.triggeredBy,
+        basis_refs: uniqueSorted(semantic.basisRefs),
+        evidence_refs: uniqueSorted(semantic.evidenceRefs),
+        decision_impact: uniqueSorted(semantic.decisionImpact),
+        severity: semantic.severity,
+        recommended_unit_types: uniqueSorted(semantic.recommendedUnitTypes),
+      };
+      gaps.push({
+        gap_id: gapId("agent_semantic", semanticIdentity),
+        ...semanticIdentity,
+        detection_mode: "agent_semantic",
       });
     }
 

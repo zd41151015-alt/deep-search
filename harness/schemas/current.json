@@ -458,6 +458,21 @@
       "document_schema_version": "startup_opportunity.research_execution_plan.discovery.current"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/lane-submission-checklist-result.schema.json",
+      "file": "current/runtime/common/lane-submission-checklist-result.schema.json",
+      "document_schema_version": "startup_opportunity.lane_submission_checklist_result.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/formal-stage-materialization-request.schema.json",
+      "file": "current/runtime/common/formal-stage-materialization-request.schema.json",
+      "document_schema_version": "startup_opportunity.formal_stage_materialization_request.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/formal-stage-materialization-result.schema.json",
+      "file": "current/runtime/common/formal-stage-materialization-result.schema.json",
+      "document_schema_version": "startup_opportunity.formal_stage_materialization_result.current"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/runtime/discovery/runtime-artifact-compilation-request.schema.json",
       "file": "current/runtime/discovery/runtime-artifact-compilation-request.schema.json",
       "document_schema_version": "startup_opportunity.runtime_artifact_compilation_request.v1"
@@ -521,6 +536,16 @@
       "id": "https://startup-opportunity.local/schemas/current/planning/adaptation-decision.schema.json",
       "file": "current/planning/adaptation-decision.schema.json",
       "document_schema_version": "startup_opportunity.adaptation_decision.discovery.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/planning/adaptation-author-request.schema.json",
+      "file": "current/planning/adaptation-author-request.schema.json",
+      "document_schema_version": "startup_opportunity.adaptation_author_request.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/planning/adaptation-author-result.schema.json",
+      "file": "current/planning/adaptation-author-result.schema.json",
+      "document_schema_version": "startup_opportunity.adaptation_author_result.current"
     },
     {
       "id": "https://startup-opportunity.local/schemas/current/planning/adaptation-policy.schema.json",

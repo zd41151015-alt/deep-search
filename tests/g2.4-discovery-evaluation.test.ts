@@ -118,13 +118,21 @@ function collectTypedRefs(value: unknown): readonly string[] {
   return Object.entries(value).flatMap(([key, child]) => {
     if ((key.endsWith("_refs") || key === "input_refs") && Array.isArray(child)) {
       return child.filter(
-        (ref): ref is string => typeof ref === "string" && (ref.includes("/") || ref.includes("#")),
+        (ref): ref is string =>
+          typeof ref === "string" &&
+          (ref.includes("/") ||
+            ref.includes("#") ||
+            ref.endsWith(".json") ||
+            ref.endsWith(".jsonl")),
       );
     }
     if (
       (key.endsWith("_ref") || key.endsWith("_refs") || key === "ref") &&
       typeof child === "string" &&
-      (child.includes("/") || child.includes("#"))
+      (child.includes("/") ||
+        child.includes("#") ||
+        child.endsWith(".json") ||
+        child.endsWith(".jsonl"))
     ) {
       return [child];
     }
@@ -148,7 +156,7 @@ function refreshEnvelopeClosure(bundle: DocumentBundle, artifactPath: string): v
   outer.input_refs = [
     ...new Set([...collectTypedRefs(outer.document), ...collectTypedRefs(outer.ai_bundle_binding)]),
   ]
-    .filter((ref) => ref !== artifactPath)
+    .filter((ref) => ref.split("#", 1)[0] !== artifactPath)
     .sort();
 }
 

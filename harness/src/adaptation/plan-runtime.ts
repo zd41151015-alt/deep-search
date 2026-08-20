@@ -12,6 +12,7 @@ import {
 import {
   isNodeError,
   openRunDirectory,
+  openRunDirectoryReadOnly,
   resolveRunPath,
   validateRunId,
 } from "../artifact-store/path-policy.js";
@@ -155,6 +156,8 @@ export interface ApplyPlanRevisionInput {
   readonly nextStep: string;
   readonly beliefSummary: BeliefSummary;
   readonly operationKey?: string;
+  readonly expectedManifestContentHash?: string;
+  readonly recoverPlanOperations?: boolean;
   readonly faultAt?: PlanApplyFaultBoundary;
   readonly terminalReportEnvelope?: FormalArtifactEnvelope;
   readonly terminalReportFaultAt?: ReportFaultBoundary;
@@ -1641,6 +1644,30 @@ export class PlanRevisionRuntime {
     this.reports = new ReportRuntime(runsRoot, validator);
   }
 
+  async hasExactOperation(runId: string, requestedOperationKey: string): Promise<boolean> {
+    validateRunId(runId);
+    const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
+    try {
+      const filename = await resolveRunPath(runRoot, receiptPath(requestedOperationKey));
+      const receipt = validateReceipt(
+        JSON.parse(await readFile(filename, "utf8")) as unknown,
+        path.basename(filename),
+        runId,
+      );
+      validateReceiptDocuments(receipt, this.validator, this.artifacts);
+      await validateReceiptSources(runRoot, receipt, this.logs, this.artifacts);
+      return true;
+    } catch (error) {
+      if (
+        isNodeError(error, "ENOENT") ||
+        (error instanceof StoreError && error.code === "path.parent_missing")
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
   async apply(input: ApplyPlanRevisionInput): Promise<PlanApplyResult> {
     validateRunId(input.runId);
     const selected = effectiveDocuments(input.adaptationBundle).filter((document) =>
@@ -1699,6 +1726,7 @@ export class PlanRevisionRuntime {
       this.validator,
       this.artifacts,
       this.logs,
+      input.recoverPlanOperations !== false,
     );
     const manifest = await readManifest(runRoot, this.validator);
     if (
@@ -1976,6 +2004,20 @@ export class PlanRevisionRuntime {
       this.artifacts,
       this.logs,
     );
+
+    if (
+      input.expectedManifestContentHash !== undefined &&
+      canonicalContentHash(manifest) !== input.expectedManifestContentHash
+    ) {
+      throw new StoreError(
+        "apply.manifest_stale",
+        "Plan apply input no longer binds the exact current Manifest",
+        {
+          expected: input.expectedManifestContentHash,
+          actual: canonicalContentHash(manifest),
+        },
+      );
+    }
 
     await assertStoredCandidateBindings(runRoot, candidateBindings, this.artifacts);
 
@@ -2491,6 +2533,7 @@ export async function recoverPlanRevisionOperationsLocked(
   validator: ArtifactValidator,
   artifacts: ArtifactStore,
   logs: JsonlStore,
+  completePendingOperations = true,
 ): Promise<PlanOperationRecoveryResult> {
   const directory = await resolveRunPath(runRoot, ".store/operations", { createParents: true });
   const completed: string[] = [];
@@ -2518,6 +2561,10 @@ export async function recoverPlanRevisionOperationsLocked(
     const current = await readManifest(runRoot, validator);
     if (current.current_plan_ref === receipt.result_plan_ref) {
       if (await planOperationCompletionIsDurable(runRoot, current, receipt, artifacts, logs)) {
+        continue;
+      }
+      if (!completePendingOperations) {
+        pending.push(receipt.operation_key);
         continue;
       }
       if ((await completeOperation(runRoot, receipt, artifacts, logs, validator)).changed) {
