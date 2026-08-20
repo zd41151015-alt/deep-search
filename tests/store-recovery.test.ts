@@ -9,6 +9,7 @@ import {
   canonicalJson,
   createArtifactValidator,
   type FormalArtifactEnvelope,
+  operationKey,
   RunStore,
   StoreError,
 } from "../harness/src/index.js";
@@ -43,6 +44,25 @@ async function setup(context: TestContext, runId: string) {
     createdAt: "2026-07-23T12:00:00Z",
   });
   return { runsRoot, runRoot: path.join(runsRoot, runId), store };
+}
+
+async function snapshotTree(root: string): Promise<Readonly<Record<string, string>>> {
+  const snapshot: Record<string, string> = {};
+  const visit = async (directory: string, prefix = ""): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolute, relative);
+      } else if (entry.isFile()) {
+        snapshot[relative] = (await readFile(absolute)).toString("base64");
+      }
+    }
+  };
+  await visit(root);
+  return Object.fromEntries(
+    Object.entries(snapshot).sort(([left], [right]) => left.localeCompare(right)),
+  );
 }
 
 async function publishRecoveryPlan(
@@ -662,6 +682,63 @@ test("whole-bundle recovery rejects a drifted immutable intent", async (context)
     (error: unknown) =>
       error instanceof StoreError && error.code === "recovery.invalid_bundle_operation",
   );
+});
+
+test("whole-bundle preflight rejects overlapping intent-only bundle before receipt writes", async (context) => {
+  const runId = "artifact-bundle-overlap-intent";
+  const { runRoot, store } = await setup(context, runId);
+  const sharedWinner = recoveryEventEnvelope(runId, "shared", "2026-07-23T12:05:00Z");
+  const sharedLoserDocument = {
+    ...sharedWinner.document,
+    reason: "SYNTHETIC loser bundle tries to reuse the winner path.",
+  };
+  const sharedLoser = {
+    ...sharedWinner,
+    content_hash: canonicalContentHash(sharedLoserDocument),
+    document: sharedLoserDocument,
+  };
+  const winnerOnly = recoveryEventEnvelope(runId, "winner-only", "2026-07-23T12:05:01Z");
+  const loserOnly = recoveryEventEnvelope(runId, "loser-only", "2026-07-23T12:05:02Z");
+  const winnerEnvelopes = [sharedWinner, winnerOnly].sort((left, right) =>
+    left.artifact_path.localeCompare(right.artifact_path),
+  );
+  const loserEnvelopes = [sharedLoser, loserOnly].sort((left, right) =>
+    left.artifact_path.localeCompare(right.artifact_path),
+  );
+  const winnerOperation = operationKey("publish_artifact_bundle", {
+    run_id: runId,
+    envelopes: winnerEnvelopes,
+  });
+  const winnerReceipt = {
+    schema_version: "startup_opportunity.artifact_bundle_operation.current",
+    operation_key: winnerOperation,
+    run_id: runId,
+    envelopes: winnerEnvelopes,
+  };
+  const operations = path.join(runRoot, ".store", "operations");
+  await mkdir(operations, { recursive: true });
+  await writeFile(
+    path.join(operations, `bundle-${winnerOperation.slice("sha256:".length)}.json`),
+    `${canonicalJson(winnerReceipt)}\n`,
+  );
+
+  const beforeLoser = await snapshotTree(runRoot);
+  await assert.rejects(
+    store.publishArtifactBundle({ runId, envelopes: loserEnvelopes }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "write.bundle_operation_conflict",
+  );
+  assert.deepEqual(await snapshotTree(runRoot), beforeLoser);
+
+  const recovered = await store.load(runId);
+  assert.deepEqual(
+    recovered.recoveredArtifactPaths,
+    winnerEnvelopes.map((envelope) => envelope.artifact_path).sort(),
+  );
+  const beforeReplay = await snapshotTree(runRoot);
+  const replay = await store.publishArtifactBundle({ runId, envelopes: winnerEnvelopes });
+  assert.equal(replay.status, "idempotent_replay");
+  assert.deepEqual(await snapshotTree(runRoot), beforeReplay);
 });
 
 test("Evidence recovery rejects a receipt stored under the wrong operation-key filename", async (context) => {

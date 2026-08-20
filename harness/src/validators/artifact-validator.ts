@@ -3674,9 +3674,39 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ...optionalRef(document, "parent_lifecycle_ref", "startup_opportunity.lane_lifecycle.v1"),
         ...optionalRef(
           document,
+          "launch_registration_ref",
+          "startup_opportunity.dispatch_launch_registration.v1",
+        ),
+        ...optionalRef(
+          document,
           "dispatch_batch_ref",
-          "startup_opportunity.dispatch_batch.discovery.current",
+          [
+            "startup_opportunity.dispatch_batch.discovery.current",
+            "startup_opportunity.dispatch_batch.assessment.current",
+          ],
           "task_id",
+        ),
+        ...optionalRef(
+          document,
+          "task_ref",
+          [
+            "startup_opportunity.dispatch_batch.discovery.current",
+            "startup_opportunity.dispatch_batch.assessment.current",
+          ],
+          "task_id",
+        ),
+      ];
+    case "startup_opportunity.dispatch_launch_registration.v1":
+      return [
+        ...optionalRef(document, "dispatch_ref", [
+          "startup_opportunity.dispatch_batch.discovery.current",
+          "startup_opportunity.dispatch_batch.assessment.current",
+        ]),
+        ...refsFromNestedArray(
+          document,
+          "registrations",
+          "lifecycle_ref",
+          "startup_opportunity.lane_lifecycle.v1",
         ),
       ];
     case "startup_opportunity.candidate_neutral_evidence.v1":

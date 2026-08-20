@@ -168,15 +168,26 @@ export {
 export {
   type CompileRuntimeArtifactsOptions,
   DeclarativeRuntimeCompiler,
+  type DispatchLaunchCheckResult,
   type RuntimeArtifactCompilationRequest,
   type RuntimeArtifactCompilationResult,
   type RuntimePublicationPlan,
 } from "./runtime/declarative-runtime.js";
 export {
+  type DispatchLaunchRegistrationRequest,
+  DispatchLaunchRegistry,
+} from "./runtime/dispatch-launch-registry.js";
+export {
   deriveLaneScopeFormalClosure,
   type LaneScopeDisposition,
   type LaneScopeFormalClosure,
 } from "./runtime/lane-delivery-closure.js";
+export {
+  canonicalLaneLifecycleId,
+  canonicalLaneLifecyclePath,
+  dispatchLaunchRegistrationPath,
+  laneLifecycleIdentity,
+} from "./runtime/lane-lifecycle-identity.js";
 export {
   type LaneDeliveryResult,
   LaneResultMaterializer,
@@ -188,8 +199,10 @@ export {
   operationTrace,
 } from "./runtime/operation-observability.js";
 export {
+  runCheckDispatchLaunches,
   runCompileArtifacts,
   runMaterializeLaneResult,
+  runRegisterDispatchLaunches,
   runScaffoldArtifact,
 } from "./runtime/runtime-commands.js";
 export {

@@ -75,6 +75,7 @@
         "startup_opportunity.discovery_stage_readiness.v1",
         "startup_opportunity.dispatch_batch.discovery.current",
         "startup_opportunity.dispatch_batch.assessment.current",
+        "startup_opportunity.dispatch_launch_registration.v1",
         "startup_opportunity.enrichment_branch_result.v1",
         "startup_opportunity.enrichment_fan_in.v1",
         "startup_opportunity.event.v1",
@@ -1712,6 +1713,29 @@
       "if": {
         "properties": {
           "artifact_type": {
+            "const": "startup_opportunity.dispatch_launch_registration.v1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "harness"
+          },
+          "artifact_path": {
+            "type": "string",
+            "pattern": "^artifacts/runtime/dispatch-launch-registrations/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\.json$"
+          },
+          "document": {
+            "$ref": "../runtime/common/dispatch-launch-registration.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
             "const": "startup_opportunity.lane_lifecycle.v1"
           }
         }
@@ -1723,7 +1747,7 @@
           },
           "artifact_path": {
             "type": "string",
-            "pattern": "^artifacts/runtime/lane-lifecycle/.+\\.r[1-9][0-9]*\\.json$"
+            "pattern": "^artifacts/runtime/lane-lifecycle/lifecycle_[a-f0-9]{32}\\.r[1-9][0-9]*\\.json$"
           },
           "document": {
             "$ref": "../runtime/discovery/lane-lifecycle.schema.json"

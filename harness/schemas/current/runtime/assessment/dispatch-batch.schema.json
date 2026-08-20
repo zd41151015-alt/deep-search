@@ -16,6 +16,7 @@
     "requested_at",
     "dispatch_mode",
     "agent_dispatch_performed",
+    "launch_registration_required",
     "tasks"
   ],
   "properties": {
@@ -60,6 +61,9 @@
     },
     "agent_dispatch_performed": {
       "const": false
+    },
+    "launch_registration_required": {
+      "const": true
     },
     "tasks": {
       "type": "array",

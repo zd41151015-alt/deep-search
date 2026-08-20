@@ -432,6 +432,7 @@ function assessmentDispatch(request: ScaffoldRequest): ScaffoldArtifact {
       requested_at: request.created_at,
       dispatch_mode: "parallel_immediate",
       agent_dispatch_performed: false,
+      launch_registration_required: true,
       tasks: [
         {
           task_id: "task_unit_assessment_scaffold",
@@ -501,6 +502,7 @@ function dispatch(request: ScaffoldRequest): ScaffoldArtifact {
         },
       ],
       agent_dispatch_performed: false,
+      launch_registration_required: true,
       limitations: [PLACEHOLDER],
     },
   };

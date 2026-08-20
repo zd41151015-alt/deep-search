@@ -452,6 +452,7 @@ function dispatchEnvelope(
       dispatch_mode: "parallel_immediate",
       tasks,
       agent_dispatch_performed: false,
+      launch_registration_required: true,
       limitations: ["SYNTHETIC dispatch descriptor; no agent dispatch was performed."],
     },
     "harness",

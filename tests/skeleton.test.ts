@@ -72,6 +72,10 @@ test("Skill fixes model-side parallel dispatch to direct acknowledged set closur
     "绝不从 `functions.exec`、`exec_command`、shell、脚本或其 `tools.*` 命名空间嵌套调用 `spawn_agent`",
     "在同一个 tool round 发出全部独立 Unit",
     "只有收到成功的 spawn acknowledgement",
+    "`register-dispatch-launches`",
+    "`check-dispatch-launches`",
+    "不能证明外部 Codex task 真实存在",
+    "`not_started` 只表示 Dispatch 集合差异",
     "不得重放整个 batch",
   ]) {
     assert.ok(

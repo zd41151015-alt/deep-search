@@ -13,7 +13,7 @@ The table below summarizes the Runtime surface from producers through schema fam
 | Assessment | main-agent and lane Runtime inputs | framing, execution, branch/fan-in, audit/review, terminal report families | Assessment execution/report validators and Report Runtime | `g1.*`, `p2`, reporting recovery |
 | Discovery | main-agent and lane Runtime inputs | maps, candidates, synthesis, enrichment, comparison/report families | Discovery validators, RunStore projections, Report Runtime | `g2.*`, `g4` integration |
 | AI | caller-supplied G3 inputs | baseline, reliability, data, economics, trust, mandatory coverage | AI validator and bound report/evaluation consumers | `g3.*` |
-| Declarative execution | Runtime compiler | compilation request/result, dispatch, lane lifecycle | declarative and Assessment execution validators | `p1`, `p2` |
+| Declarative execution | Runtime compiler and launch registry | compilation request/result, dispatch, launch checklist/registration, lane lifecycle | declarative and Assessment execution validators | `p1`, `p2` |
 | Store publication | ArtifactStore and RunStore | current Envelope, Document Bundle, Store receipt, publication policy | ArtifactStore recovery and all semantic validators | schema, Store, fault, recovery, integration |
 
 ## G2.3 Readiness Boundary
