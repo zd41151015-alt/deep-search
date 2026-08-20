@@ -44,7 +44,9 @@
         "delivered_artifact_count": { "type": "integer", "minimum": 1 },
         "scope_count": { "type": "integer", "minimum": 1 },
         "evidence_ref_count": { "type": "integer", "minimum": 0 },
-        "search_closure_status": { "enum": ["completed", "not_required"] }
+        "search_closure_status": {
+          "enum": ["completed", "not_required", "failed_before_search"]
+        }
       }
     },
     "delivery_receipt": { "$ref": "../../store/artifact-envelope.schema.json" },

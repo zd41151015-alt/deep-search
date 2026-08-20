@@ -79,6 +79,7 @@ npm run harness -- checkpoint-run --file path/to/checkpoint-input.json
 npm run harness -- analyze-gaps --file path/to/gap-analysis-input.json --json
 npm run harness -- validate-adaptation --bundle path/to/document-bundle.json --json
 npm run harness -- apply-plan-revision --file path/to/apply-input.json --json
+npm run harness -- author-plan-adaptation --file path/to/adaptation-author-request.json --runs-root path/to/runs --json
 npm run harness -- calculate-comparison --bundle path/to/document-bundle.json --json
 npm run harness -- calculate-sensitivity --bundle path/to/document-bundle.json --json
 npm run harness -- audit-traceability --bundle path/to/document-bundle.json --json

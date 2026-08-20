@@ -110,7 +110,7 @@ test("production exposes one current schema graph without version-selection stru
   assert.ok(result.activePolicyCount > 0);
   assert.ok(result.registryFamilyCount > 0);
   assert.equal(result.registeredArtifactTypeCount, result.artifactTypeCount);
-  assert.equal(result.registeredDirectRuntimeRootCount, 13);
+  assert.equal(result.registeredDirectRuntimeRootCount, 18);
 });
 
 test("ownership registry rejects a missing formal Artifact type owner", async (context) => {

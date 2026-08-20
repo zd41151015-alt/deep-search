@@ -9,13 +9,19 @@ import {
   type DocumentBundle,
   type DocumentBundleReferenceContext,
 } from "../validators/artifact-validator.js";
+import { createAdaptationAuthorRuntime } from "./adaptation-author-runtime.js";
 import { createAdaptationPolicyValidator } from "./adaptation-validator.js";
 import {
   type AnalyzeAssessmentGapInput,
   createAssessmentGapAnalyzer,
 } from "./assessment-gap-analyzer.js";
 import { isRecord } from "./contracts.js";
-import { type AnalyzeGapsInput, createGapAnalyzer, type MachineGapCheck } from "./gap-analyzer.js";
+import {
+  type AnalyzeGapsInput,
+  createGapAnalyzer,
+  type MachineGapCheck,
+  type SemanticGapInput,
+} from "./gap-analyzer.js";
 import { createPlanRevisionRuntime, type PlanApplyFaultBoundary } from "./plan-runtime.js";
 import { createPlanSemanticValidator } from "./plan-validator.js";
 
@@ -238,12 +244,38 @@ export async function runAnalyzeGaps(
       : [];
     const triggerEventRef =
       value.trigger_event_ref === null ? null : String(value.trigger_event_ref ?? "");
-    const assembled = await validationContext(
-      parsed,
-      repositoryRoot,
-      documentBundle(value.document_bundle),
-      triggerEventRef === null ? [] : [triggerEventRef],
+    const topLevelFormalRefs = stringArray(
+      value.top_level_formal_refs ?? value.observed_artifact_refs,
+      "top_level_formal_refs",
     );
+    const runId = parsed.values.get("--run-id");
+    const runStore =
+      runId === undefined
+        ? null
+        : new RunStore(
+            parsed.values.get("--runs-root") ?? path.join(repositoryRoot, "runs"),
+            await createArtifactValidator(repositoryRoot),
+          );
+    const inputBundle =
+      value.document_bundle === undefined && runStore !== null
+        ? ({
+            schema_version: "startup_opportunity.document_bundle.current",
+            documents: [
+              {
+                path: "manifest.json",
+                document: (await runStore.status(runId as string)).manifest,
+              },
+            ],
+            exact_records: [],
+          } as DocumentBundle)
+        : documentBundle(value.document_bundle);
+    const assembled =
+      runId === undefined
+        ? await validationContext(parsed, repositoryRoot, inputBundle)
+        : await (runStore as RunStore).buildValidationContext(runId, inputBundle, {
+            topLevelFormalRefs,
+            exactRecordRefs: triggerEventRef === null ? [] : [triggerEventRef],
+          });
     const input: AnalyzeGapsInput = {
       documentBundle: assembled.bundle,
       referenceContext: assembled.referenceContext,
@@ -257,6 +289,35 @@ export async function runAnalyzeGaps(
       materialNewEvidenceObserved: value.material_new_evidence_observed === true,
       repeatedSourceRefs: stringArray(value.repeated_source_refs ?? [], "repeated_source_refs"),
       machineChecks: checks,
+      semanticGaps: Array.isArray(value.semantic_gaps)
+        ? value.semantic_gaps.map((item) => {
+            if (!isRecord(item) || !isRecord(item.triggered_by)) {
+              throw new StoreError(
+                "command.invalid_arguments",
+                "semantic_gaps entries and triggered_by must be objects",
+              );
+            }
+            return {
+              gapType: String(item.gap_type ?? "") as SemanticGapInput["gapType"],
+              subjectRef: String(item.subject_ref ?? ""),
+              triggeredBy: {
+                judgment_ref: String(item.triggered_by.judgment_ref ?? ""),
+                decision_sufficiency: String(
+                  item.triggered_by.decision_sufficiency ?? "",
+                ) as SemanticGapInput["triggeredBy"]["decision_sufficiency"],
+                independent_source_count: Number(item.triggered_by.independent_source_count),
+              },
+              basisRefs: stringArray(item.basis_refs, "semantic_gaps.basis_refs"),
+              evidenceRefs: stringArray(item.evidence_refs, "semantic_gaps.evidence_refs"),
+              decisionImpact: stringArray(item.decision_impact, "semantic_gaps.decision_impact"),
+              severity: String(item.severity ?? "") as SemanticGapInput["severity"],
+              recommendedUnitTypes: stringArray(
+                item.recommended_unit_types,
+                "semantic_gaps.recommended_unit_types",
+              ),
+            };
+          })
+        : [],
     };
     return (await createGapAnalyzer(repositoryRoot)).analyze(input);
   });
@@ -295,6 +356,9 @@ export async function runApplyPlanRevision(
       nextStep: String(value.next_step ?? ""),
       beliefSummary: value.belief_summary as unknown as BeliefSummary,
       ...(typeof value.operation_key === "string" ? { operationKey: value.operation_key } : {}),
+      ...(typeof value.expected_manifest_content_hash === "string"
+        ? { expectedManifestContentHash: value.expected_manifest_content_hash }
+        : {}),
       ...(typeof value.fault_at === "string"
         ? { faultAt: value.fault_at as PlanApplyFaultBoundary }
         : {}),
@@ -308,5 +372,21 @@ export async function runApplyPlanRevision(
         ? { terminalReportFaultAt: value.terminal_report_fault_at as ReportFaultBoundary }
         : {}),
     });
+  });
+}
+
+export async function runAuthorPlanAdaptation(
+  args: readonly string[],
+  repositoryRoot = process.cwd(),
+): Promise<number> {
+  return runCommand(async () => {
+    const parsed = parseArguments(args);
+    rejectUnknown(parsed, ["--file", "--runs-root"]);
+    return (
+      await createAdaptationAuthorRuntime(
+        repositoryRoot,
+        parsed.values.get("--runs-root") ?? path.join(repositoryRoot, "runs"),
+      )
+    ).execute(await readObject(required(parsed, "--file")));
   });
 }

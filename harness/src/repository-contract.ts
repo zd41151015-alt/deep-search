@@ -63,6 +63,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
   "analyze-gaps",
   "validate-adaptation",
   "apply-plan-revision",
+  "author-plan-adaptation",
   "calculate-comparison",
   "calculate-sensitivity",
   "audit-traceability",
@@ -116,6 +117,7 @@ export const VALIDATOR_SOURCE_PATHS = [
   "harness/src/adaptation/apply-policy.ts",
   "harness/src/adaptation/plan-transformer.ts",
   "harness/src/adaptation/plan-runtime.ts",
+  "harness/src/adaptation/adaptation-author-runtime.ts",
   "harness/src/adaptation/adaptation-commands.ts",
 ] as const;
 

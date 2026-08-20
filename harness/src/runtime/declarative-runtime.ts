@@ -880,6 +880,7 @@ export class DeclarativeRuntimeCompiler {
         const result = await this.runs.publishArtifact({
           runId: request.run_id,
           envelope,
+          expectedManifestContentHash: publicationPlan.manifest_content_hash,
           ...(options.faultAt === undefined ? {} : { faultAt: options.faultAt }),
         });
         publicationStatus = result.status;
@@ -888,6 +889,7 @@ export class DeclarativeRuntimeCompiler {
         const result = await this.runs.publishArtifactBundle({
           runId: request.run_id,
           envelopes,
+          expectedManifestContentHash: publicationPlan.manifest_content_hash,
         });
         publicationStatus = result.status;
         statuses = new Map(

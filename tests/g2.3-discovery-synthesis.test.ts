@@ -14,6 +14,16 @@ import {
   StoreError,
 } from "../harness/src/index.js";
 import {
+  type CandidateFanInAuthority,
+  type DiscoveryObjectDeclaration,
+  type DiscoveryStageProjectionContext,
+  projectCandidateFanIn,
+  projectDiscoverySetup,
+  projectDiscoverySynthesis,
+  projectedLocalRefsMatch,
+  projectFanInLaneClassification,
+} from "../harness/src/runtime/discovery-stage-projections.js";
+import {
   fixtureEnvelope,
   G21_CORE_REFS,
   G21_MAP_REFS,
@@ -672,4 +682,662 @@ test("G2.3 recovers a current post-publish fault from the immutable receipt", as
   const recovered = await state.store.load(state.runId);
   assert.ok(recovered.manifest.artifact_refs.includes(G23_MERGE));
   assert.equal((await state.store.load(state.runId)).recovered, false);
+});
+
+function projectionContext(
+  additional: Readonly<Record<string, Record<string, unknown>>> = {},
+): DiscoveryStageProjectionContext {
+  const runId = "projection-current-run";
+  const currentScopeRef = "scope-frame.json";
+  const currentPlanRef = "plans/research-plan.r1.json";
+  const currentScope = {
+    schema_version: "startup_opportunity.scope_frame.discovery.current",
+    run_id: runId,
+    mode: "opportunity_discovery",
+  };
+  const currentPlan = {
+    schema_version: "startup_opportunity.research_plan.v1",
+    run_id: runId,
+    mode: "opportunity_discovery",
+    revision: 1,
+  };
+  return {
+    runId,
+    currentScopeRef,
+    currentScope,
+    currentPlanRef,
+    currentPlan,
+    documentsByPath: new Map([
+      [currentScopeRef, currentScope],
+      [currentPlanRef, currentPlan],
+      ...Object.entries(additional),
+    ]),
+  };
+}
+
+function setupDeclarations(): DiscoveryObjectDeclaration[] {
+  return [
+    {
+      object_id: "solution-map-authored",
+      document: {
+        schema_version: "startup_opportunity.solution_space_map.v1",
+        ai_boundary: { applicability: "not_applicable" },
+        limitations: ["AI applicability remains explicitly not applicable."],
+      },
+      local_refs: {
+        seed_probe_ref: "seed-authored",
+        opportunity_space_map_ref: "opportunity-map-authored",
+      },
+    },
+    {
+      object_id: "candidate-authored",
+      document: {
+        schema_version: "startup_opportunity.discovery_candidate.v1",
+        candidate_kind: "demand_seed",
+        honest_state: "unknown",
+        limitations: ["Candidate remains unknown and unranked."],
+      },
+    },
+    {
+      object_id: "opportunity-map-authored",
+      document: {
+        schema_version: "startup_opportunity.opportunity_space_map.v1",
+        unknowns: ["Demand recurrence is unknown."],
+        limitations: ["No Evidence has been promoted."],
+      },
+      local_refs: { seed_probe_ref: "seed-authored" },
+    },
+    {
+      object_id: "seed-authored",
+      document: {
+        schema_version: "startup_opportunity.seed_probe.v1",
+        initial_questions: [{ uncertainty: "unknown" }],
+        limitations: ["Seed is a search entry only."],
+      },
+    },
+  ];
+}
+
+test("formal setup projection derives bindings without rewriting authored unknowns", () => {
+  const context = projectionContext();
+  const policy = {
+    policyRef: "harness/policies/discovery-maps.current.json",
+    document: {
+      schema_version: "startup_opportunity.discovery_maps_policy.current",
+      policy_version: "1.0.0",
+      artifact_paths: {
+        seed_probe: "artifacts/discovery/seed-probe.r1.json",
+        opportunity_space_map: "artifacts/discovery/opportunity-space-map.r1.json",
+        solution_space_map: "artifacts/discovery/solution-space-map.r1.json",
+      },
+    },
+  };
+  const projected = projectDiscoverySetup(setupDeclarations(), context, policy);
+  const byType = new Map(projected.map((entry) => [entry.artifact_type, entry]));
+  const seed = byType.get("startup_opportunity.seed_probe.v1");
+  const opportunity = byType.get("startup_opportunity.opportunity_space_map.v1");
+  const solution = byType.get("startup_opportunity.solution_space_map.v1");
+  const candidate = byType.get("startup_opportunity.discovery_candidate.v1");
+  assert.equal(seed?.artifact_path, "artifacts/discovery/seed-probe.r1.json");
+  assert.equal(opportunity?.artifact_path, "artifacts/discovery/opportunity-space-map.r1.json");
+  assert.equal(solution?.artifact_path, "artifacts/discovery/solution-space-map.r1.json");
+  assert.equal(
+    candidate?.artifact_path,
+    "artifacts/discovery/candidates/candidate-authored.r1.json",
+  );
+  assert.deepEqual(seed?.document.initial_questions, [{ uncertainty: "unknown" }]);
+  assert.deepEqual(opportunity?.document.unknowns, ["Demand recurrence is unknown."]);
+  assert.deepEqual(solution?.document.ai_boundary, { applicability: "not_applicable" });
+  assert.equal(candidate?.document.honest_state, "unknown");
+  assert.equal(opportunity?.document.seed_probe_ref, seed?.artifact_path);
+  assert.equal(solution?.document.opportunity_space_map_ref, opportunity?.artifact_path);
+  assert.ok(solution);
+  assert.deepEqual(
+    (solution.document.input_artifact_hashes as Record<string, unknown>[]).find(
+      (entry) => entry.ref === opportunity?.artifact_path,
+    ),
+    {
+      ref: opportunity?.artifact_path,
+      content_hash: canonicalContentHash(opportunity?.document ?? {}),
+    },
+  );
+});
+
+test("formal setup projection rejects dangling explicit relationships", () => {
+  const declarations = setupDeclarations();
+  const opportunity = declarations.find(
+    (entry) => entry.document.schema_version === "startup_opportunity.opportunity_space_map.v1",
+  );
+  assert.ok(opportunity);
+  (opportunity.local_refs as Record<string, string>).seed_probe_ref = "missing-seed";
+  assert.throws(
+    () =>
+      projectDiscoverySetup(declarations, projectionContext(), {
+        policyRef: "harness/policies/discovery-maps.current.json",
+        document: {
+          schema_version: "startup_opportunity.discovery_maps_policy.current",
+          policy_version: "1.0.0",
+          artifact_paths: {
+            seed_probe: "artifacts/discovery/seed-probe.r1.json",
+            opportunity_space_map: "artifacts/discovery/opportunity-space-map.r1.json",
+            solution_space_map: "artifacts/discovery/solution-space-map.r1.json",
+          },
+        },
+      }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "formal_materialization.local_ref_dangling",
+  );
+});
+
+function fanInProjectionFixture(): {
+  readonly context: DiscoveryStageProjectionContext;
+  readonly authority: CandidateFanInAuthority;
+  readonly declaration: DiscoveryObjectDeclaration;
+} {
+  const runId = "projection-current-run";
+  const dispatchRef = "tasks/dispatch/fan-in-authority.r1.json";
+  const taskRef = "tasks/discovery/unit-demand.attempt-1.json";
+  const laneResultRef = "artifacts/discovery/lanes/unit-demand.attempt-1.json";
+  const receiptRef = "receipts/lane-unit-demand.json";
+  const candidateRef = "artifacts/discovery/candidates/demand.r1.json";
+  const judgmentRef = "artifacts/discovery/judgments/demand.json";
+  const weakRef = "artifacts/discovery/evidence/weak.json";
+  const opposingRef = "artifacts/discovery/claims/opposing.json";
+  const backgroundRef = "artifacts/discovery/findings/background.json";
+  const task = {
+    schema_version: "startup_opportunity.research_task.discovery_candidate.current",
+    task_id: "task_unit_demand_attempt_1",
+    run_id: runId,
+    unit_id: "unit-demand",
+    attempt: 1,
+    research_plan_ref: "plans/research-plan.r1.json",
+    allowed_output_path: laneResultRef,
+    required_artifact_schema: "startup_opportunity.discovery_lane_result.v1",
+  };
+  const laneResult = {
+    schema_version: "startup_opportunity.discovery_lane_result.v1",
+    run_id: runId,
+    unit_id: "unit-demand",
+    attempt: 1,
+    task_ref: taskRef,
+    status: "partial",
+    pre_kill_decisions: [
+      {
+        candidate_ref: candidateRef,
+        judgment_assessment_refs: [judgmentRef],
+      },
+    ],
+    scope_outcomes: [
+      { scope_key: "demand", disposition: "partial" },
+      { scope_key: "availability", disposition: "unavailable" },
+      { scope_key: "proxy", disposition: "inferred" },
+    ],
+  };
+  const candidate = {
+    schema_version: "startup_opportunity.discovery_candidate.v1",
+    candidate_id: "candidate-demand",
+    revision: 1,
+    run_id: runId,
+  };
+  const judgment = {
+    schema_version: "startup_opportunity.judgment_assessment.discovery_candidate.current",
+    run_id: runId,
+  };
+  const weak = {
+    schema_version: "startup_opportunity.evidence.discovery_candidate.current",
+    run_id: runId,
+    evidence_strength: "weak",
+  };
+  const opposing = {
+    schema_version: "startup_opportunity.claim.discovery_candidate.current",
+    run_id: runId,
+    stance: "oppose",
+  };
+  const background = {
+    schema_version: "startup_opportunity.finding.discovery_candidate.current",
+    run_id: runId,
+    evidence_role: "background",
+  };
+  const delivered = [
+    [laneResultRef, laneResult],
+    [candidateRef, candidate],
+    [judgmentRef, judgment],
+    [weakRef, weak],
+    [opposingRef, opposing],
+    [backgroundRef, background],
+  ].map(([artifactRef, document]) => ({
+    artifact_ref: artifactRef,
+    artifact_type: (document as Record<string, unknown>).schema_version,
+    content_hash: canonicalContentHash(document as Record<string, unknown>),
+  }));
+  const dispatch = {
+    schema_version: "startup_opportunity.dispatch_batch.discovery.current",
+    run_id: runId,
+    mode: "opportunity_discovery",
+    research_plan_ref: "plans/research-plan.r1.json",
+    execution_plan_ref: "plans/research-execution.r1.json",
+    tasks: [
+      {
+        task_id: task.task_id,
+        unit_id: task.unit_id,
+        straggler_policy: { on_timeout: "publish_partial", grace_minutes: 5, blocks_stage: false },
+      },
+    ],
+  };
+  const receipt = {
+    schema_version: "startup_opportunity.lane_delivery_receipt.current",
+    run_id: runId,
+    task_ref: taskRef,
+    research_plan_ref: "plans/research-plan.r1.json",
+    execution_plan_ref: "plans/research-execution.r1.json",
+    dispatch_task_ref: `${dispatchRef}#${task.task_id}`,
+    delivered_artifacts: delivered.filter((entry) => entry.artifact_ref !== candidateRef),
+  };
+  const context = projectionContext({
+    [dispatchRef]: dispatch,
+    [taskRef]: task,
+    [laneResultRef]: laneResult,
+    [receiptRef]: receipt,
+    [candidateRef]: candidate,
+    [judgmentRef]: judgment,
+    [weakRef]: weak,
+    [opposingRef]: opposing,
+    [backgroundRef]: background,
+  });
+  return {
+    context,
+    authority: {
+      dispatch_ref: dispatchRef,
+      lanes: [
+        {
+          unit_id: "unit-demand",
+          status: "partial",
+          lane_result_ref: laneResultRef,
+          delivery_receipt_ref: receiptRef,
+          adopted_artifact_refs: [judgmentRef, weakRef, opposingRef, backgroundRef],
+        },
+      ],
+    },
+    declaration: {
+      local_key: "fan-in-request",
+      object_id: "fan-in-authored",
+      action: "create",
+      document: {
+        schema_version: "startup_opportunity.discovery_fan_in.v2",
+        candidate_dispositions: [
+          {
+            disposition_id: "retain-demand",
+            candidate_ref: candidateRef,
+            source_candidate_refs: [candidateRef],
+            disposition: "retained",
+            supporting_lane_result_refs: [laneResultRef],
+            judgment_assessment_refs: [judgmentRef],
+            rationale: "Partial and opposing material remain visible.",
+            limitations: ["Evidence remains weak and conflicting."],
+          },
+        ],
+        candidate_diversity_summary: { known_blind_spots: ["Availability remains unavailable."] },
+        evidence_sufficiency_summary: "insufficient_evidence",
+        opposing_evidence_summary: ["Opposing Claim retained."],
+        pre_kill_summary: ["No semantic default applied."],
+        limitations: ["Fan-in is partial."],
+      },
+    },
+  };
+}
+
+test("candidate fan-in uses exact Dispatch delivery authority and preserves extra material", () => {
+  const fixture = fanInProjectionFixture();
+  const [projected] = projectCandidateFanIn(
+    [fixture.declaration],
+    fixture.authority,
+    fixture.context,
+  );
+  assert.equal(projected?.artifact_path, "artifacts/discovery/fan-in.r1.json");
+  assert.deepEqual(projected?.document.lane_result_classification, {
+    completed_refs: [],
+    partial_refs: [fixture.authority.lanes[0]?.lane_result_ref],
+    insufficient_evidence_refs: [],
+    failed_refs: [],
+    ignored_late_refs: [],
+    superseded_refs: [],
+    cancelled_units: [],
+    skipped_units: [],
+    missing_units: [],
+  });
+  assert.equal(projected?.document.evidence_sufficiency_summary, "insufficient_evidence");
+  assert.deepEqual(projected?.document.opposing_evidence_summary, ["Opposing Claim retained."]);
+  const dispositions = projected?.document.candidate_dispositions as Record<string, unknown>[];
+  assert.equal(dispositions[0]?.rationale, "Partial and opposing material remain visible.");
+  assert.equal(dispositions.length, 1);
+});
+
+test("fan-in replay classification binds non-delivery status and decision impact", () => {
+  const base: CandidateFanInAuthority["lanes"] = [
+    {
+      unit_id: "cancelled-unit",
+      status: "cancelled",
+      adopted_artifact_refs: [],
+      decision_impact: "The Main Agent explicitly stopped this Unit.",
+    },
+    {
+      unit_id: "missing-unit",
+      status: "missing",
+      adopted_artifact_refs: [],
+      decision_impact: "The missing Lane leaves one decision input unknown.",
+    },
+  ];
+  const planned = projectFanInLaneClassification(base);
+  assert.deepEqual(planned.cancelled_units, [
+    {
+      unit_id: "cancelled-unit",
+      decision_impact: "The Main Agent explicitly stopped this Unit.",
+    },
+  ]);
+  assert.notDeepEqual(
+    projectFanInLaneClassification([
+      { ...base[0], decision_impact: "Changed impact." },
+      { ...base[1], status: "skipped" },
+    ] as CandidateFanInAuthority["lanes"]),
+    planned,
+  );
+});
+
+test("formal replay relation check resolves request-local keys to exact planned paths", () => {
+  const declarations: DiscoveryObjectDeclaration[] = [
+    {
+      local_key: "demand-local",
+      object_id: "demand-authored",
+      action: "create",
+      document: { schema_version: "startup_opportunity.demand_thesis.v1" },
+    },
+    {
+      local_key: "baseline-local",
+      object_id: "baseline-authored",
+      action: "create",
+      document: { schema_version: "startup_opportunity.baseline_option.v1" },
+      local_refs: { demand_thesis_ref: "demand-local" },
+    },
+  ];
+  const planned = [
+    {
+      artifact_type: "startup_opportunity.demand_thesis.v1",
+      artifact_path: "artifacts/discovery/demands/demand-authored.r1.json",
+      document: {
+        schema_version: "startup_opportunity.demand_thesis.v1",
+        demand_id: "demand-authored",
+      },
+    },
+    {
+      artifact_type: "startup_opportunity.baseline_option.v1",
+      artifact_path: "artifacts/discovery/baselines/baseline-authored.r1.json",
+      document: {
+        schema_version: "startup_opportunity.baseline_option.v1",
+        baseline_id: "baseline-authored",
+        demand_thesis_ref: "artifacts/discovery/demands/demand-authored.r1.json",
+      },
+    },
+  ];
+  assert.equal(projectedLocalRefsMatch(declarations, planned), true);
+  const changed = structuredClone(declarations);
+  const baseline = changed[1];
+  assert.ok(baseline);
+  (baseline as unknown as Record<string, unknown>).local_refs = {
+    demand_thesis_ref: "stored-demand.r1.json",
+  };
+  assert.equal(projectedLocalRefsMatch(changed, planned), false);
+});
+
+test("candidate fan-in rejects an adopted Artifact absent from the Lane receipt", () => {
+  const fixture = fanInProjectionFixture();
+  const firstLane = fixture.authority.lanes[0] as CandidateFanInAuthority["lanes"][number];
+  const authority: CandidateFanInAuthority = {
+    dispatch_ref: fixture.authority.dispatch_ref,
+    lanes: [
+      {
+        ...firstLane,
+        adopted_artifact_refs: [
+          ...firstLane.adopted_artifact_refs,
+          "artifacts/discovery/evidence/not-delivered.json",
+        ],
+      },
+    ],
+  };
+  assert.throws(
+    () => projectCandidateFanIn([fixture.declaration], authority, fixture.context),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "formal_materialization.fan_in_delivery_mismatch",
+  );
+});
+
+test("candidate fan-in rejects missing or non-Dispatch Lane declarations", () => {
+  const fixture = fanInProjectionFixture();
+  assert.throws(
+    () =>
+      projectCandidateFanIn(
+        [fixture.declaration],
+        { dispatch_ref: fixture.authority.dispatch_ref, lanes: [] },
+        fixture.context,
+      ),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "formal_materialization.fan_in_lane_set_mismatch",
+  );
+});
+
+test("G2.3 projection resolves multiple explicit local refs without semantic rewriting", () => {
+  const context = projectionContext();
+  const declarations: DiscoveryObjectDeclaration[] = [
+    {
+      local_key: "demand",
+      object_id: "demand-authored",
+      action: "create",
+      document: {
+        schema_version: "startup_opportunity.demand_thesis.v1",
+        research_state: "unknown",
+        conflicts: ["Supporting and opposing Evidence conflict."],
+        limitations: ["Demand is partial."],
+      },
+    },
+    {
+      local_key: "solution-a-key",
+      object_id: "solution-a",
+      action: "create",
+      document: {
+        schema_version: "startup_opportunity.solution_hypothesis.v1",
+        research_state: "inferred",
+        limitations: ["Solution is inferred."],
+      },
+      local_refs: { demand_thesis_ref: "demand" },
+    },
+    {
+      local_key: "solution-b-key",
+      object_id: "solution-b",
+      action: "create",
+      document: {
+        schema_version: "startup_opportunity.solution_hypothesis.v1",
+        research_state: "unavailable",
+        limitations: ["Evaluation material is unavailable."],
+      },
+      local_refs: { demand_thesis_ref: "demand" },
+    },
+    {
+      local_key: "evaluation",
+      object_id: "evaluation-authored",
+      action: "create",
+      document: {
+        schema_version: "startup_opportunity.solution_evaluation.v1",
+        decision_sufficiency: "insufficient_evidence",
+        solution_hypothesis_refs: [],
+        alternative_solution_refs: [],
+        limitations: ["Terminal insufficiency remains honest."],
+      },
+      local_refs: {
+        demand_thesis_ref: "demand",
+        solution_hypothesis_refs: ["solution-a-key", "solution-b-key"],
+        selected_solution_ref: "solution-a-key",
+        alternative_solution_refs: ["solution-b-key"],
+      },
+    },
+  ];
+  const projected = projectDiscoverySynthesis(declarations, context);
+  const byId = new Map(
+    projected.map((entry) => [
+      entry.document.demand_id ?? entry.document.solution_id ?? entry.document.evaluation_id,
+      entry,
+    ]),
+  );
+  const demand = byId.get("demand-authored");
+  const solutionA = byId.get("solution-a");
+  const solutionB = byId.get("solution-b");
+  const evaluation = byId.get("evaluation-authored");
+  assert.equal(demand?.document.research_state, "unknown");
+  assert.equal(solutionA?.document.research_state, "inferred");
+  assert.equal(solutionB?.document.research_state, "unavailable");
+  assert.equal(evaluation?.document.decision_sufficiency, "insufficient_evidence");
+  assert.deepEqual(evaluation?.document.solution_hypothesis_refs, [
+    solutionA?.artifact_path,
+    solutionB?.artifact_path,
+  ]);
+  assert.equal(evaluation?.document.selected_solution_ref, solutionA?.artifact_path);
+  assert.deepEqual(evaluation?.document.alternative_solution_refs, [solutionB?.artifact_path]);
+  assert.deepEqual(demand?.document.conflicts, ["Supporting and opposing Evidence conflict."]);
+});
+
+test("G2.3 revision binds the exact same-Run parent and rejects invalid relations", () => {
+  const parentRef = "artifacts/discovery/demands/demand-authored.r1.json";
+  const parent = {
+    schema_version: "startup_opportunity.demand_thesis.v1",
+    demand_id: "demand-authored",
+    revision: 1,
+    run_id: "projection-current-run",
+    research_state: "partial",
+  };
+  const context = projectionContext({ [parentRef]: parent });
+  const [revision] = projectDiscoverySynthesis(
+    [
+      {
+        local_key: "demand-revision",
+        object_id: "demand-authored",
+        action: "revise",
+        document: {
+          schema_version: "startup_opportunity.demand_thesis.v1",
+          research_state: "no_evidence_found",
+          limitations: ["No Evidence found is not unavailable."],
+        },
+        local_refs: { parent: parentRef },
+      },
+    ],
+    context,
+  );
+  assert.equal(revision?.artifact_path, "artifacts/discovery/demands/demand-authored.r2.json");
+  assert.equal(revision?.document.parent_demand_ref, parentRef);
+  assert.equal(revision?.document.parent_content_hash, canonicalContentHash(parent));
+  assert.equal(revision?.document.research_state, "no_evidence_found");
+
+  const foreignParent = { ...parent, run_id: "another-run" };
+  assert.throws(
+    () =>
+      projectDiscoverySynthesis(
+        [
+          {
+            local_key: "foreign-demand-revision",
+            object_id: "demand-authored",
+            action: "revise",
+            document: {
+              schema_version: "startup_opportunity.demand_thesis.v1",
+              limitations: ["Cross-Run parent must fail closed."],
+            },
+            local_refs: { parent: parentRef },
+          },
+        ],
+        projectionContext({ [parentRef]: foreignParent }),
+      ),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "formal_materialization.parent_invalid",
+  );
+
+  const currentParentRef = "artifacts/discovery/demands/demand-authored.r2.json";
+  const currentParent = { ...parent, revision: 2 };
+  assert.throws(
+    () =>
+      projectDiscoverySynthesis(
+        [
+          {
+            local_key: "stale-demand-revision",
+            object_id: "demand-authored",
+            action: "revise",
+            document: {
+              schema_version: "startup_opportunity.demand_thesis.v1",
+              limitations: ["Stale selected parent must fail closed."],
+            },
+            local_refs: { parent: parentRef },
+          },
+        ],
+        projectionContext({ [parentRef]: parent, [currentParentRef]: currentParent }),
+      ),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "formal_materialization.parent_not_current",
+  );
+
+  assert.throws(
+    () =>
+      projectDiscoverySynthesis(
+        [
+          {
+            local_key: "solution",
+            object_id: "solution-authored",
+            action: "create",
+            document: {
+              schema_version: "startup_opportunity.solution_hypothesis.v1",
+              limitations: ["Explicit wrong relation."],
+            },
+            local_refs: { demand_thesis_ref: "solution" },
+          },
+        ],
+        context,
+      ),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "formal_materialization.local_ref_type_mismatch",
+  );
+});
+
+test("G2.3 explicit relations fail closed for unknown fields and non-Run targets", () => {
+  const declaration: DiscoveryObjectDeclaration = {
+    local_key: "demand",
+    object_id: "demand-authored",
+    action: "create",
+    document: {
+      schema_version: "startup_opportunity.demand_thesis.v1",
+      limitations: ["No semantics are inferred."],
+    },
+    local_refs: { invented_relation_ref: "scope.json" },
+  };
+  assert.throws(
+    () =>
+      projectDiscoverySynthesis(
+        [declaration],
+        projectionContext({
+          "scope.json": {
+            schema_version: "startup_opportunity.scope_frame.discovery.current",
+          },
+        }),
+      ),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "formal_materialization.cross_run_ref",
+  );
+  const sameRun = projectionContext({
+    "scope.json": {
+      schema_version: "startup_opportunity.scope_frame.discovery.current",
+      run_id: "projection-current-run",
+    },
+  });
+  assert.throws(
+    () => projectDiscoverySynthesis([declaration], sameRun),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "formal_materialization.local_ref_relation_unknown",
+  );
 });

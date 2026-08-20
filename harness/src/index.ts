@@ -1,6 +1,15 @@
 export {
+  ADAPTATION_AUTHOR_REQUEST_VERSION,
+  ADAPTATION_AUTHOR_RESULT_VERSION,
+  type AdaptationAuthorRequest,
+  type AdaptationAuthorResult,
+  AdaptationAuthorRuntime,
+  createAdaptationAuthorRuntime,
+} from "./adaptation/adaptation-author-runtime.js";
+export {
   runAnalyzeGaps,
   runApplyPlanRevision,
+  runAuthorPlanAdaptation,
   runValidateAdaptation,
   runValidatePlan,
 } from "./adaptation/adaptation-commands.js";
@@ -34,6 +43,7 @@ export {
   type GapAnalysisResult,
   GapAnalyzer,
   type MachineGapCheck,
+  type SemanticGapInput,
 } from "./adaptation/gap-analyzer.js";
 export {
   type ApplyPlanRevisionInput,
@@ -173,13 +183,24 @@ export {
   type RuntimePublicationPlan,
 } from "./runtime/declarative-runtime.js";
 export {
+  type CallerFormalArtifact,
+  type FormalStageKind,
+  type FormalStageMaterializationRequest,
+  type FormalStageMaterializationResult,
+  FormalStageMaterializer,
+  type WaveDeclaration,
+  type WaveLaneDeclaration,
+} from "./runtime/formal-stage-materializer.js";
+export {
   deriveLaneScopeFormalClosure,
   type LaneScopeDisposition,
   type LaneScopeFormalClosure,
+  laneScopeCoverageFromClosure,
 } from "./runtime/lane-delivery-closure.js";
 export {
   type LaneDeliveryResult,
   LaneResultMaterializer,
+  type LaneSubmissionChecklistResult,
 } from "./runtime/lane-materializer.js";
 export {
   type ObservableOperation,
@@ -189,8 +210,10 @@ export {
 } from "./runtime/operation-observability.js";
 export {
   runCompileArtifacts,
+  runMaterializeFormalStage,
   runMaterializeLaneResult,
   runScaffoldArtifact,
+  runScaffoldLaneSubmission,
 } from "./runtime/runtime-commands.js";
 export {
   type AiBundleDocument,

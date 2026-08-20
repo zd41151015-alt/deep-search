@@ -26,7 +26,15 @@
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
         },
         "status": {
-          "enum": ["covered", "partial", "no_evidence_found", "not_applicable"]
+          "enum": [
+            "covered",
+            "partial",
+            "no_evidence_found",
+            "not_applicable",
+            "unknown",
+            "unavailable",
+            "inferred"
+          ]
         },
         "evidence_refs": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
@@ -45,7 +53,15 @@
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
         },
         "disposition": {
-          "enum": ["covered", "partial", "no_evidence_found", "not_applicable"]
+          "enum": [
+            "covered",
+            "partial",
+            "no_evidence_found",
+            "not_applicable",
+            "unknown",
+            "unavailable",
+            "inferred"
+          ]
         },
         "evidence_bindings": {
           "type": "array",
@@ -110,7 +126,7 @@
       "required": ["status", "acquisition_routes_attempted", "unresolved_gaps", "stop_reason"],
       "properties": {
         "status": {
-          "enum": ["completed", "not_required"]
+          "enum": ["completed", "not_required", "failed_before_search"]
         },
         "acquisition_routes_attempted": {
           "type": "array",
@@ -238,6 +254,9 @@
         "partial_scope_count",
         "no_evidence_scope_count",
         "not_applicable_scope_count",
+        "unknown_scope_count",
+        "unavailable_scope_count",
+        "inferred_scope_count",
         "evidence_ref_count"
       ],
       "properties": {
@@ -261,6 +280,9 @@
         "partial_scope_count": { "type": "integer", "minimum": 0 },
         "no_evidence_scope_count": { "type": "integer", "minimum": 0 },
         "not_applicable_scope_count": { "type": "integer", "minimum": 0 },
+        "unknown_scope_count": { "type": "integer", "minimum": 0 },
+        "unavailable_scope_count": { "type": "integer", "minimum": 0 },
+        "inferred_scope_count": { "type": "integer", "minimum": 0 },
         "evidence_ref_count": { "type": "integer", "minimum": 0 }
       }
     },

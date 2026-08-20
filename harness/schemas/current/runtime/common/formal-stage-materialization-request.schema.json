@@ -1,0 +1,450 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/common/formal-stage-materialization-request.schema.json",
+  "title": "Startup Opportunity Formal Stage Materialization Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request_id", "run_id", "operation", "created_at", "stage_kind"],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.formal_stage_materialization_request.current"
+    },
+    "request_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId" },
+    "operation": { "enum": ["validate_only", "publish"] },
+    "created_at": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp" },
+    "stage_kind": {
+      "enum": ["discovery_wave", "discovery_setup", "candidate_fan_in", "g2_3_synthesis"]
+    },
+    "top_level_formal_refs": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "publication_plan": { "$ref": "./runtime-publication-plan.schema.json" },
+    "fan_in": { "$ref": "#/$defs/fanInAuthority" },
+    "wave": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wave_id",
+        "stage_id",
+        "stage_kind",
+        "unit_ids",
+        "lanes",
+        "research_depth",
+        "total_time_budget_minutes",
+        "resource_allocation",
+        "gate_before",
+        "gate_after",
+        "limitations"
+      ],
+      "properties": {
+        "wave_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "stage_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "stage_kind": {
+          "enum": [
+            "discovery_generation",
+            "hard_gate_scan",
+            "candidate_evaluation",
+            "retained_candidate_deep_review",
+            "discovery_synthesis"
+          ]
+        },
+        "unit_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          }
+        },
+        "lanes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/waveLane" } },
+        "research_depth": { "enum": ["quick", "standard", "deep"] },
+        "total_time_budget_minutes": { "type": "integer", "minimum": 5, "maximum": 480 },
+        "resource_allocation": {
+          "$ref": "../../assessment/commercial/commercial-research-requirements.schema.json#/$defs/allocation"
+        },
+        "gate_before": { "type": ["string", "null"] },
+        "gate_after": { "enum": ["required", "terminal_allowed", "none"] },
+        "dispatch_group": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "limitations": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        }
+      }
+    },
+    "artifacts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/callerArtifact" } }
+  },
+  "$defs": {
+    "waveLane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit_id",
+        "lane_role",
+        "candidate_scope",
+        "incumbent_response_assignment",
+        "reporting_dimensions",
+        "time_budget_minutes",
+        "max_sources",
+        "straggler_policy",
+        "commercial_research_semantics",
+        "task_semantics"
+      ],
+      "properties": {
+        "unit_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "lane_role": { "enum": ["opportunity", "evaluation", "risk"] },
+        "candidate_scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "candidate_refs"],
+          "properties": {
+            "kind": { "enum": ["none", "retained", "explicit"] },
+            "candidate_refs": {
+              "$ref": "../../discovery/candidates/definitions.schema.json#/$defs/candidateRefArray"
+            }
+          }
+        },
+        "incumbent_response_assignment": {
+          "$ref": "../../assessment/commercial/incumbent-response-risk.schema.json#/$defs/assignment"
+        },
+        "reporting_dimensions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          }
+        },
+        "time_budget_minutes": { "type": "integer", "minimum": 5, "maximum": 120 },
+        "max_sources": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "straggler_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["on_timeout", "grace_minutes", "blocks_stage"],
+          "properties": {
+            "on_timeout": { "enum": ["publish_partial", "mark_failed"] },
+            "grace_minutes": { "type": "integer", "minimum": 0, "maximum": 30 },
+            "blocks_stage": { "type": "boolean" }
+          }
+        },
+        "commercial_research_semantics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "research_stage",
+            "planned_queries",
+            "quantitative_competitive_scope",
+            "required_commercial_dimensions",
+            "commercial_audit_output_path"
+          ],
+          "properties": {
+            "research_stage": { "enum": ["solution_neutral_scan", "solution_specific_evaluation"] },
+            "planned_queries": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["query", "commercial_dimensions"],
+                "properties": {
+                  "query": {
+                    "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+                  },
+                  "commercial_dimensions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "enum": [
+                        "user_language",
+                        "buyer",
+                        "purchase",
+                        "pricing",
+                        "alternatives",
+                        "usage",
+                        "distribution",
+                        "retention",
+                        "unit_economics",
+                        "regulation",
+                        "market_structure",
+                        "mechanism",
+                        "counterevidence",
+                        "solution_pricing",
+                        "solution_acquisition",
+                        "solution_retention"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "quantitative_competitive_scope": {
+              "$ref": "../../assessment/commercial/quantitative-competitive-research.schema.json#/$defs/researchScope"
+            },
+            "required_commercial_dimensions": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "recent_user_language",
+                  "purchase_signal",
+                  "alternatives_pricing_usage",
+                  "distribution_channel",
+                  "independent_counterevidence"
+                ]
+              }
+            },
+            "commercial_audit_output_path": {
+              "type": "string",
+              "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+            }
+          }
+        },
+        "task_semantics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source_phase",
+            "required_source_group_ids",
+            "required_stances",
+            "stop_conditions",
+            "execution_contract"
+          ],
+          "properties": {
+            "target_candidate_refs": {
+              "$ref": "../../discovery/candidates/definitions.schema.json#/$defs/candidateRefArray"
+            },
+            "target_opportunity_refs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "../../discovery/synthesis/definitions.schema.json#/$defs/opportunityRef"
+              }
+            },
+            "source_snapshot_ref": {
+              "$ref": "../../discovery/synthesis/definitions.schema.json#/$defs/snapshotRef"
+            },
+            "source_merge_ref": {
+              "$ref": "../../discovery/synthesis/definitions.schema.json#/$defs/mergeRef"
+            },
+            "source_phase": {
+              "enum": [
+                "candidate_generation",
+                "candidate_evaluation",
+                "enrichment_evaluation",
+                "adversarial_challenger"
+              ]
+            },
+            "required_source_group_ids": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+              }
+            },
+            "required_stances": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": { "enum": ["support", "oppose"] },
+              "allOf": [
+                { "contains": { "const": "support" } },
+                { "contains": { "const": "oppose" } }
+              ]
+            },
+            "stop_conditions": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+              }
+            },
+            "execution_contract": { "type": "object" }
+          }
+        }
+      }
+    },
+    "callerArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document"],
+      "properties": {
+        "artifact_type": { "type": "string" },
+        "artifact_path": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"
+        },
+        "producer_role": { "enum": ["main_agent", "lane_researcher", "harness"] },
+        "local_key": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "object_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "action": { "enum": ["create", "revise"] },
+        "local_refs": {
+          "type": "object",
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              }
+            ]
+          }
+        },
+        "document": { "type": "object" }
+      }
+    },
+    "fanInAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dispatch_ref", "lanes"],
+      "properties": {
+        "dispatch_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "lanes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/fanInLane" }
+        }
+      }
+    },
+    "fanInLane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit_id", "status", "adopted_artifact_refs"],
+      "properties": {
+        "unit_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "partial",
+            "insufficient_evidence",
+            "failed",
+            "ignored_late",
+            "superseded",
+            "cancelled",
+            "skipped",
+            "missing"
+          ]
+        },
+        "lane_result_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "delivery_receipt_ref": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "adopted_artifact_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "decision_impact": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "completed",
+                  "partial",
+                  "insufficient_evidence",
+                  "failed",
+                  "ignored_late",
+                  "superseded"
+                ]
+              }
+            },
+            "required": ["status"]
+          },
+          "then": { "required": ["lane_result_ref", "delivery_receipt_ref"] },
+          "else": {
+            "required": ["decision_impact"],
+            "properties": {
+              "lane_result_ref": false,
+              "delivery_receipt_ref": false,
+              "adopted_artifact_refs": { "type": "array", "maxItems": 0 }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "operation": { "const": "validate_only" } },
+        "required": ["operation"]
+      },
+      "then": { "not": { "required": ["publication_plan"] } }
+    },
+    {
+      "if": {
+        "properties": { "operation": { "const": "publish" } },
+        "required": ["operation"]
+      },
+      "then": { "required": ["publication_plan"] }
+    },
+    {
+      "if": {
+        "properties": { "stage_kind": { "const": "discovery_wave" } },
+        "required": ["stage_kind"]
+      },
+      "then": { "required": ["wave"] }
+    },
+    {
+      "if": {
+        "properties": {
+          "stage_kind": { "enum": ["discovery_setup", "candidate_fan_in", "g2_3_synthesis"] }
+        },
+        "required": ["stage_kind"]
+      },
+      "then": { "required": ["artifacts"] }
+    },
+    {
+      "if": {
+        "properties": { "stage_kind": { "enum": ["candidate_fan_in", "g2_3_synthesis"] } },
+        "required": ["stage_kind"]
+      },
+      "then": {
+        "properties": {
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["local_key", "object_id", "action"]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "stage_kind": { "const": "candidate_fan_in" } },
+        "required": ["stage_kind"]
+      },
+      "then": { "required": ["fan_in"] }
+    }
+  ]
+}

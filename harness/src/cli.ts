@@ -3,6 +3,7 @@
 import {
   runAnalyzeGaps,
   runApplyPlanRevision,
+  runAuthorPlanAdaptation,
   runValidateAdaptation,
   runValidatePlan,
 } from "./adaptation/adaptation-commands.js";
@@ -29,8 +30,10 @@ import {
 } from "./run-store/store-commands.js";
 import {
   runCompileArtifacts,
+  runMaterializeFormalStage,
   runMaterializeLaneResult,
   runScaffoldArtifact,
+  runScaffoldLaneSubmission,
 } from "./runtime/runtime-commands.js";
 import { runValidateArtifact } from "./validators/validate-artifact-command.js";
 
@@ -85,11 +88,17 @@ switch (command) {
   case "compile-artifacts":
     process.exitCode = await runCompileArtifacts(args);
     break;
+  case "materialize-formal-stage":
+    process.exitCode = await runMaterializeFormalStage(args);
+    break;
   case "materialize-lane-result":
     process.exitCode = await runMaterializeLaneResult(args);
     break;
   case "scaffold-artifact":
     process.exitCode = await runScaffoldArtifact(args);
+    break;
+  case "scaffold-lane-submission":
+    process.exitCode = await runScaffoldLaneSubmission(args);
     break;
   case "checkpoint-run":
     process.exitCode = await runCheckpointRun(args);
@@ -105,6 +114,9 @@ switch (command) {
     break;
   case "apply-plan-revision":
     process.exitCode = await runApplyPlanRevision(args);
+    break;
+  case "author-plan-adaptation":
+    process.exitCode = await runAuthorPlanAdaptation(args);
     break;
   case "calculate-comparison":
     process.exitCode = await runCalculateComparison(args);

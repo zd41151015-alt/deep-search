@@ -49,7 +49,7 @@ interface LaneStagingDocument extends Record<string, unknown> {
   readonly evidence_receipt_refs: readonly string[];
   readonly delivery_contract: {
     readonly search_closure: {
-      readonly status: "completed" | "not_required";
+      readonly status: "completed" | "not_required" | "failed_before_search";
       readonly acquisition_routes_attempted: readonly string[];
       readonly unresolved_gaps: readonly string[];
       readonly stop_reason: string;
@@ -99,6 +99,7 @@ interface LaneDeliveryAuthority {
 }
 
 interface PreparedAgentArtifact {
+  readonly staging_index: number;
   readonly family: AgentArtifactFamily;
   readonly artifact_type: string;
   readonly artifact_path: string;
@@ -120,10 +121,25 @@ export interface LaneDeliveryResult {
     readonly delivered_artifact_count: number;
     readonly scope_count: number;
     readonly evidence_ref_count: number;
-    readonly search_closure_status: "completed" | "not_required";
+    readonly search_closure_status: "completed" | "not_required" | "failed_before_search";
   };
   readonly delivery_receipt: RuntimeArtifactCompilationResult["compiled_envelopes"][number];
   readonly compilation: RuntimeArtifactCompilationResult;
+}
+
+export interface LaneSubmissionChecklistResult {
+  readonly schema_version: "startup_opportunity.lane_submission_checklist_result.current";
+  readonly run_id: string;
+  readonly task_ref: string;
+  readonly checklist: readonly {
+    readonly scope_key: string;
+    readonly status: null;
+    readonly reason: null;
+    readonly evidence_refs: readonly [];
+    readonly limitations: readonly [];
+  }[];
+  readonly additional_material_allowed: true;
+  readonly formal_artifact: false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -152,6 +168,10 @@ function duplicateStrings(values: readonly string[]): readonly string[] {
     seen.add(value);
   }
   return [...duplicates].sort();
+}
+
+function pointerToken(value: string): string {
+  return value.replaceAll("~", "~0").replaceAll("/", "~1");
 }
 
 function issue(
@@ -196,9 +216,19 @@ function rootCauses(issues: readonly LaneDeliveryIssue[]): readonly Record<strin
     }));
 }
 
+function stagingDocumentPointer(artifact: PreparedAgentArtifact, reportedPath: string): string {
+  const formalPointer = reportedPath.startsWith(`${artifact.artifact_path}#`)
+    ? reportedPath.slice(artifact.artifact_path.length + 1)
+    : reportedPath.startsWith("/")
+      ? reportedPath
+      : "";
+  return `/agent_documents/${String(artifact.staging_index)}/document${formalPointer === "/" ? "" : formalPointer}`;
+}
+
 function compilerPreflightIssues(
   staging: LaneStagingDocument,
   error: unknown,
+  prepared: readonly PreparedAgentArtifact[],
 ): readonly LaneDeliveryIssue[] {
   if (!(error instanceof StoreError)) throw error;
   const reported = Array.isArray(error.details.issues) ? error.details.issues.filter(isRecord) : [];
@@ -216,15 +246,28 @@ function compilerPreflightIssues(
       ),
     ];
   }
-  return reported.map((reportedIssue) => {
+  return reported.flatMap((reportedIssue) => {
     const code = String(reportedIssue.code ?? error.code);
     const registration = gateRegistration(code);
     const artifact = String(reportedIssue.artifact ?? staging.staging_id);
     const reference = typeof reportedIssue.reference === "string" ? reportedIssue.reference : null;
-    return {
+    const reportedPath = String(reportedIssue.path ?? "");
+    const preparedArtifact = prepared.find(
+      (candidate) =>
+        candidate.artifact_path === artifact ||
+        reportedPath === candidate.artifact_path ||
+        reportedPath.startsWith(`${candidate.artifact_path}#`),
+    );
+    const path =
+      preparedArtifact === undefined
+        ? reportedPath.startsWith("/")
+          ? reportedPath
+          : "/agent_documents"
+        : stagingDocumentPointer(preparedArtifact, reportedPath);
+    const summary: LaneDeliveryIssue = {
       code,
       artifact,
-      path: String(reportedIssue.path ?? "/agent_documents"),
+      path,
       reference,
       message: String(reportedIssue.message ?? error.message),
       likely_cause: String(
@@ -240,6 +283,27 @@ function compilerPreflightIssues(
       category: registration.category,
       stages: registration.stages,
     };
+    const details = isRecord(reportedIssue.details) ? reportedIssue.details : {};
+    const nestedErrors = Array.isArray(details.errors) ? details.errors.filter(isRecord) : [];
+    if (preparedArtifact === undefined || nestedErrors.length === 0) return [summary];
+    return [
+      summary,
+      ...nestedErrors.map((nestedError) =>
+        issue(
+          staging.staging_id,
+          `lane_delivery.${String(nestedError.code ?? "schema.invalid")}`,
+          stagingDocumentPointer(
+            preparedArtifact,
+            String(nestedError.instancePath ?? nestedError.path ?? ""),
+          ),
+          String(nestedError.message ?? "the authored Lane document is invalid"),
+          "An Agent-authored Lane semantic field violates its current formal Artifact contract.",
+          artifact,
+          nestedError.keyword === "additionalProperties",
+          [artifact],
+        ),
+      ),
+    ];
   });
 }
 
@@ -278,6 +342,23 @@ function isAssessmentAuthority(authority: LaneDeliveryAuthority): boolean {
     "startup_opportunity.assessment_dispatch_task.current",
     "startup_opportunity.research_task.assessment.current",
   ].includes(authority.taskSchema);
+}
+
+function discoveryLineage(authority: LaneDeliveryAuthority): Record<string, unknown> {
+  return {
+    task_ref: authority.taskRef,
+    attempt: Number(authority.task.attempt),
+    ...(authority.taskSchema === "startup_opportunity.research_task.discovery_evaluation.current"
+      ? {
+          unit_id: authority.unitId,
+          opportunity_refs: strings(authority.task.target_opportunity_refs),
+          source_snapshot_ref: authority.task.source_snapshot_ref,
+          source_merge_ref: authority.task.source_merge_ref,
+        }
+      : { candidate_refs: strings(authority.task.target_candidate_refs) }),
+    scope_frame_ref: authority.task.scope_frame_ref,
+    research_plan_ref: authority.planRef,
+  };
 }
 
 function semanticArtifactContract(
@@ -380,6 +461,7 @@ function mechanicalDocumentFields(
       ...common,
       evidence_id: evidenceRecord.evidence_id,
       unit_id: authority.unitId,
+      lineage: discoveryLineage(authority),
       ...(authority.taskSchema === "startup_opportunity.research_task.assessment.current"
         ? {
             lineage: {
@@ -453,21 +535,7 @@ function mechanicalDocumentFields(
     }
     return family === "judgment" ? common : { ...common, unit_id: authority.unitId };
   }
-  const lineage = {
-    task_ref: authority.taskRef,
-    attempt: Number(authority.task.attempt),
-    ...(authority.taskSchema === "startup_opportunity.research_task.discovery_evaluation.current"
-      ? {
-          unit_id: authority.unitId,
-          opportunity_refs: strings(authority.task.target_opportunity_refs),
-          source_snapshot_ref: authority.task.source_snapshot_ref,
-          source_merge_ref: authority.task.source_merge_ref,
-        }
-      : { candidate_refs: strings(authority.task.target_candidate_refs) }),
-    scope_frame_ref: authority.task.scope_frame_ref,
-    research_plan_ref: authority.planRef,
-  };
-  return { ...common, unit_id: authority.unitId, lineage };
+  return { ...common, unit_id: authority.unitId, lineage: discoveryLineage(authority) };
 }
 
 function mechanicalMismatchIssues(
@@ -505,14 +573,20 @@ function preflight(
   const delivered = prepared.map((item) => ({
     artifact_type: item.artifact_type,
     artifact_path: item.artifact_path,
+    staging_index: item.staging_index,
   }));
   const deliveredIds = delivered.map((item) => `${item.artifact_type}\u0000${item.artifact_path}`);
   for (const duplicate of duplicateStrings(deliveredIds)) {
+    const duplicateIndex = delivered.findLast(
+      (item) => `${item.artifact_type}\u0000${item.artifact_path}` === duplicate,
+    )?.staging_index;
     issues.push(
       issue(
         staging.staging_id,
         "lane_delivery.delivered_artifact_duplicate",
-        "/agent_documents",
+        duplicateIndex === undefined
+          ? "/agent_documents"
+          : `/agent_documents/${String(duplicateIndex)}`,
         "the Lane submitted the same derived artifact more than once",
         "Two semantic documents resolve to the same Harness-owned publication identity.",
         duplicate.split("\u0000")[1] ?? null,
@@ -538,28 +612,6 @@ function preflight(
       );
     }
   }
-  const requiredSet = new Set(
-    authority.requiredArtifacts.map((item) => `${item.artifact_type}\u0000${item.artifact_path}`),
-  );
-  for (const item of prepared.filter(
-    (candidate) => candidate.family === "lane_result" || candidate.family === "commercial_audit",
-  )) {
-    if (!requiredSet.has(`${item.artifact_type}\u0000${item.artifact_path}`)) {
-      issues.push(
-        issue(
-          staging.staging_id,
-          "lane_delivery.undeclared_artifact",
-          "/agent_documents",
-          "the Lane submitted a task-level Artifact that was not assigned",
-          "The semantic delivery exceeds its immutable Dispatch assignment.",
-          item.artifact_path,
-          true,
-          [item.artifact_path, authority.dispatchTaskRef],
-        ),
-      );
-    }
-  }
-
   const declaredEvidence = new Set(staging.evidence_receipt_refs);
   for (const entry of scopeFormalClosure) {
     for (const reference of entry.evidence_bindings.map(
@@ -590,11 +642,20 @@ function preflight(
       return String(binding.substrate_record_ref ?? "");
     });
   for (const duplicate of duplicateStrings(boundEvidence)) {
+    const duplicateArtifact = prepared.findLast((artifact) => {
+      if (artifact.family !== "evidence") return false;
+      const binding = isRecord(artifact.document.mechanical_binding)
+        ? artifact.document.mechanical_binding
+        : {};
+      return binding.substrate_record_ref === duplicate;
+    });
     issues.push(
       issue(
         staging.staging_id,
         "lane_delivery.evidence_binding_duplicate",
-        "/agent_documents",
+        duplicateArtifact === undefined
+          ? "/agent_documents"
+          : `/agent_documents/${String(duplicateArtifact.staging_index)}/evidence_receipt_ref`,
         "an Evidence receipt is bound by more than one typed Evidence document",
         "The Lane submitted duplicate formal adoption semantics for one substrate receipt.",
         duplicate,
@@ -604,11 +665,12 @@ function preflight(
     );
   }
   for (const reference of [...declaredEvidence].filter((ref) => !boundEvidence.includes(ref))) {
+    const receiptIndex = staging.evidence_receipt_refs.indexOf(reference);
     issues.push(
       issue(
         staging.staging_id,
         "lane_delivery.typed_evidence_missing",
-        "/agent_documents",
+        `/evidence_receipt_refs/${String(receiptIndex)}`,
         "an adopted Evidence receipt has no typed Evidence semantic document in the Lane bundle",
         "Recorded substrate cannot satisfy Lane coverage until the researcher supplies its formal Evidence disposition.",
         reference,
@@ -631,6 +693,21 @@ function preflight(
         "/delivery_contract/search_closure/acquisition_routes_attempted",
         "completed search closure requires an actual acquisition route",
         "The Lane declared completion without disclosing how it searched.",
+      ),
+    );
+  }
+  if (
+    closure.status === "failed_before_search" &&
+    (closure.acquisition_routes_attempted.length !== 1 ||
+      closure.acquisition_routes_attempted[0] !== "none")
+  ) {
+    issues.push(
+      issue(
+        staging.staging_id,
+        "lane_delivery.failed_before_search_invalid",
+        "/delivery_contract/search_closure/acquisition_routes_attempted",
+        "failed-before-search closure must disclose that no acquisition route was attempted",
+        "The Lane declared a pre-search failure while also declaring an acquisition route.",
       ),
     );
   }
@@ -660,19 +737,54 @@ function preflight(
 function scopeClosureIssues(
   staging: LaneStagingDocument,
   derived: ReturnType<typeof deriveLaneScopeFormalClosure>,
+  prepared: readonly PreparedAgentArtifact[],
 ): readonly LaneDeliveryIssue[] {
-  return derived.issues.map((current) =>
-    issue(
+  return derived.issues.map((current) => {
+    const closure = derived.closure.find((entry) => entry.scope_key === current.scopeKey);
+    const binding = closure?.semantic_bindings.find((entry) =>
+      prepared.some((artifact) => artifact.artifact_path === entry.artifact_ref),
+    );
+    const boundArtifact =
+      binding === undefined
+        ? undefined
+        : prepared.find((artifact) => artifact.artifact_path === binding.artifact_ref);
+    const laneArtifact = prepared.find((artifact) => artifact.family === "lane_result");
+    const auditArtifact = prepared.find((artifact) => artifact.family === "commercial_audit");
+    const fallbackArtifact = laneArtifact ?? auditArtifact;
+    const missingCollection =
+      fallbackArtifact?.artifact_type === "startup_opportunity.discovery_lane_result.v1"
+        ? "/scope_outcomes"
+        : fallbackArtifact?.artifact_type === "startup_opportunity.assessment_lane_result.v1"
+          ? "/dimension_results"
+          : fallbackArtifact?.artifact_type ===
+              "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+            ? "/dimension_id"
+            : auditArtifact === undefined
+              ? ""
+              : current.scopeKey.startsWith("quantitative:")
+                ? "/quantitative_coverage"
+                : current.scopeKey.startsWith("competitive:")
+                  ? "/competitive_coverage"
+                  : current.scopeKey === "incumbent_response"
+                    ? "/incumbent_response_coverage"
+                    : `/coverage/${pointerToken(current.scopeKey)}`;
+    const path =
+      boundArtifact !== undefined && binding !== undefined
+        ? `/agent_documents/${String(boundArtifact.staging_index)}/document${binding.semantic_path === "/" ? "" : binding.semantic_path}`
+        : fallbackArtifact === undefined
+          ? "/agent_documents"
+          : `/agent_documents/${String(fallbackArtifact.staging_index)}/document${missingCollection}`;
+    return issue(
       staging.staging_id,
       current.code,
-      "/agent_documents",
+      path,
       current.message,
       "The compiled formal Lane Result or Audit does not prove the Task-assigned scope outcome.",
       current.scopeKey,
-      true,
+      false,
       [current.scopeKey, canonicalJson({ expected: current.expected, actual: current.actual })],
-    ),
-  );
+    );
+  });
 }
 
 function discoveryScopeOutcomeIssues(
@@ -689,19 +801,41 @@ function discoveryScopeOutcomeIssues(
   const outcomes = records(lane.document.scope_outcomes);
   const outcomeKeys = outcomes.map((outcome) => String(outcome.scope_key));
   const expectedScope = uniqueSorted(strings(authority.executionLane.reporting_dimensions));
-  if (canonicalJson(uniqueSorted(outcomeKeys)) === canonicalJson(expectedScope)) return [];
-  return [
-    issue(
-      staging.staging_id,
-      "lane_delivery.discovery_scope_outcomes_mismatch",
-      "/agent_documents",
-      "Discovery Lane Result scope outcomes must exactly cover the Task-assigned scope",
-      "The researcher omitted, duplicated, or added a scope outcome outside the derived Delivery Manifest.",
-      lane.artifact_path,
-      false,
-      [...expectedScope, ...outcomeKeys],
-    ),
-  ];
+  const issues: LaneDeliveryIssue[] = [];
+  const seen = new Set<string>();
+  for (const [index, scopeKey] of outcomeKeys.entries()) {
+    if (!seen.has(scopeKey)) {
+      seen.add(scopeKey);
+      continue;
+    }
+    issues.push(
+      issue(
+        staging.staging_id,
+        "lane_delivery.discovery_scope_outcomes_mismatch",
+        `/agent_documents/${String(lane.staging_index)}/document/scope_outcomes/${String(index)}/scope_key`,
+        "Discovery Lane Result scope outcomes require unique scope keys",
+        "The researcher repeated one authored scope outcome.",
+        scopeKey,
+        false,
+        [scopeKey, lane.artifact_path],
+      ),
+    );
+  }
+  for (const missingScope of expectedScope.filter((scopeKey) => !seen.has(scopeKey))) {
+    issues.push(
+      issue(
+        staging.staging_id,
+        "lane_delivery.discovery_scope_outcomes_mismatch",
+        `/agent_documents/${String(lane.staging_index)}/document/scope_outcomes`,
+        "Discovery Lane Result is missing a Task-assigned minimum scope outcome",
+        "The researcher omitted one required scope outcome; additional unique outcomes remain allowed.",
+        missingScope,
+        false,
+        [missingScope, lane.artifact_path],
+      ),
+    );
+  }
+  return issues;
 }
 
 export class LaneResultMaterializer {
@@ -717,6 +851,51 @@ export class LaneResultMaterializer {
     this.compiler = new DeclarativeRuntimeCompiler(runsRoot, validator, repositoryRoot);
     this.runs = new RunStore(runsRoot, validator);
     this.evidence = new EvidenceStore(runsRoot);
+  }
+
+  async checklist(runId: string, taskRef: string): Promise<LaneSubmissionChecklistResult> {
+    const authority = await this.authority({
+      schema_version: "startup_opportunity.lane_staging_document.current",
+      staging_id: "lane_checklist",
+      run_id: runId,
+      task_ref: taskRef,
+      created_at: "1970-01-01T00:00:00Z",
+      producer_role: "lane_researcher",
+      operation: "validate_only",
+      evidence_receipt_refs: [],
+      delivery_contract: {
+        search_closure: {
+          status: "failed_before_search",
+          acquisition_routes_attempted: ["none"],
+          unresolved_gaps: [],
+          stop_reason: "Mechanical checklist authority lookup only.",
+        },
+      },
+      agent_documents: [],
+    });
+    const result: LaneSubmissionChecklistResult = {
+      schema_version: "startup_opportunity.lane_submission_checklist_result.current",
+      run_id: runId,
+      task_ref: taskRef,
+      checklist: authority.assignedScope.map((scopeKey) => ({
+        scope_key: scopeKey,
+        status: null,
+        reason: null,
+        evidence_refs: [],
+        limitations: [],
+      })),
+      additional_material_allowed: true,
+      formal_artifact: false,
+    };
+    const validation = this.validator.validateDocument(result);
+    if (!validation.valid) {
+      throw new StoreError(
+        "runtime.lane_checklist_invalid",
+        "derived Lane checklist failed its current contract",
+        { errors: validation.errors },
+      );
+    }
+    return result;
   }
 
   private async authority(staging: LaneStagingDocument): Promise<LaneDeliveryAuthority> {
@@ -1023,6 +1202,7 @@ export class LaneResultMaterializer {
         ...artifactRefsForDocument({ path: contract.artifact_path, document }),
       ]);
       prepared.push({
+        staging_index: index,
         family: artifact.artifact_family,
         ...contract,
         producer_role: "lane_researcher",
@@ -1030,21 +1210,23 @@ export class LaneResultMaterializer {
         document,
       });
     }
-    const authoredArtifacts = prepared.map(({ family, ...artifact }) => ({
-      ...artifact,
-      input_refs: uniqueSorted([
-        ...artifact.input_refs,
-        ...(family === "lane_result" &&
-        authority.taskSchema === "startup_opportunity.research_task.assessment.current"
-          ? prepared
-              .filter(
-                (candidate) =>
-                  candidate.family === "source_manifest" || candidate.family === "insight",
-              )
-              .map((candidate) => candidate.artifact_path)
-          : []),
-      ]),
-    }));
+    const authoredArtifacts = prepared.map(
+      ({ family, staging_index: _stagingIndex, ...artifact }) => ({
+        ...artifact,
+        input_refs: uniqueSorted([
+          ...artifact.input_refs,
+          ...(family === "lane_result" &&
+          authority.taskSchema === "startup_opportunity.research_task.assessment.current"
+            ? prepared
+                .filter(
+                  (candidate) =>
+                    candidate.family === "source_manifest" || candidate.family === "insight",
+                )
+                .map((candidate) => candidate.artifact_path)
+            : []),
+        ]),
+      }),
+    );
     let preview: RuntimeArtifactCompilationResult | null = null;
     let sharedIssues: readonly LaneDeliveryIssue[] = [];
     if (authoredArtifacts.length > 0) {
@@ -1061,7 +1243,7 @@ export class LaneResultMaterializer {
           { observe },
         );
       } catch (error) {
-        sharedIssues = compilerPreflightIssues(staging, error);
+        sharedIssues = compilerPreflightIssues(staging, error, prepared);
       }
     }
     const compiledClosureArtifacts =
@@ -1129,7 +1311,7 @@ export class LaneResultMaterializer {
         ...constructionIssues,
         ...sharedIssues,
         ...discoveryScopeOutcomeIssues(staging, authority, prepared),
-        ...scopeClosureIssues(staging, scopeFormalClosure),
+        ...scopeClosureIssues(staging, scopeFormalClosure, prepared),
       ],
       scopeFormalClosure.closure,
     );
@@ -1196,6 +1378,10 @@ export class LaneResultMaterializer {
         not_applicable_scope_count: scopeCoverage.filter(
           (entry) => entry.status === "not_applicable",
         ).length,
+        unknown_scope_count: scopeCoverage.filter((entry) => entry.status === "unknown").length,
+        unavailable_scope_count: scopeCoverage.filter((entry) => entry.status === "unavailable")
+          .length,
+        inferred_scope_count: scopeCoverage.filter((entry) => entry.status === "inferred").length,
         evidence_ref_count: staging.evidence_receipt_refs.length,
       },
       gate_diagnostics: gateDiagnostics,
