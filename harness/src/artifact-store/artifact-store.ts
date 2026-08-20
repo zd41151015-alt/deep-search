@@ -867,6 +867,82 @@ export class ArtifactStore {
       receipts.push(receipt);
       receiptsByPath.set(receipt.artifact_path, receipts);
     }
+    const publicationRecords = await this.publicationRecordsLocked(runRoot, input.runId);
+    const bundleOperationKey = expectedArtifactBundleOperationKey(input.runId, input.envelopes);
+    const bundleReceipt: ArtifactBundleOperationReceipt = {
+      schema_version: "startup_opportunity.artifact_bundle_operation.current",
+      operation_key: bundleOperationKey,
+      run_id: input.runId,
+      envelopes: [...input.envelopes].sort((left, right) =>
+        left.artifact_path.localeCompare(right.artifact_path),
+      ),
+    };
+    let exactBundleReceiptExists = false;
+    const incomingByPath = new Map(
+      input.envelopes.map((envelope) => [envelope.artifact_path, envelope]),
+    );
+    const operationDirectory = await resolveRunPath(runRoot, ".store/operations", {
+      createParents: true,
+    });
+    const isDurablyCompleted = async (envelope: FormalArtifactEnvelope): Promise<boolean> => {
+      if (publicationRecords.get(envelope.artifact_path)?.contentHash !== envelope.content_hash) {
+        return false;
+      }
+      const expectedOperation = expectedArtifactOperationKey(envelope);
+      const hasExactArtifactReceipt = (receiptsByPath.get(envelope.artifact_path) ?? []).some(
+        (receipt) =>
+          receipt.operation_key === expectedOperation &&
+          canonicalJson(receipt.envelope) === canonicalJson(envelope),
+      );
+      if (!hasExactArtifactReceipt) return false;
+      try {
+        const existing = JSON.parse(
+          await readFile(await resolveRunPath(runRoot, envelope.artifact_path), "utf8"),
+        ) as unknown;
+        if (canonicalJson(existing) !== canonicalJson(envelope)) {
+          throw new StoreError("write.conflict", "formal artifact path is already occupied", {
+            path: envelope.artifact_path,
+          });
+        }
+        return true;
+      } catch (error) {
+        if (isMissingRunPath(error)) return false;
+        throw error;
+      }
+    };
+    for (const entry of (await readdir(operationDirectory)).sort()) {
+      if (!entry.startsWith("bundle-") || !entry.endsWith(".json")) continue;
+      const existingReceipt = validateArtifactBundleReceipt(
+        JSON.parse(
+          await readFile(await resolveRunPath(runRoot, `.store/operations/${entry}`), "utf8"),
+        ) as unknown,
+        entry,
+        input.runId,
+      );
+      if (canonicalJson(existingReceipt) === canonicalJson(bundleReceipt)) {
+        exactBundleReceiptExists = true;
+        continue;
+      }
+      for (const existingEnvelope of existingReceipt.envelopes) {
+        const incomingEnvelope = incomingByPath.get(existingEnvelope.artifact_path);
+        if (incomingEnvelope === undefined) continue;
+        if (
+          canonicalJson(existingEnvelope) !== canonicalJson(incomingEnvelope) ||
+          !(await isDurablyCompleted(existingEnvelope))
+        ) {
+          throw new StoreError(
+            "write.bundle_operation_conflict",
+            "bundle publication path overlaps another immutable bundle intent",
+            {
+              path: existingEnvelope.artifact_path,
+              existingOperationKey: existingReceipt.operation_key,
+              incomingOperationKey: bundleOperationKey,
+            },
+          );
+        }
+      }
+    }
+
     let allTargetsExist = true;
     let anyTargetExists = false;
     for (const envelope of input.envelopes) {
@@ -907,33 +983,6 @@ export class ArtifactStore {
         allTargetsExist = false;
       }
     }
-
-    const bundleOperationKey = expectedArtifactBundleOperationKey(input.runId, input.envelopes);
-    const bundleReceipt: ArtifactBundleOperationReceipt = {
-      schema_version: "startup_opportunity.artifact_bundle_operation.current",
-      operation_key: bundleOperationKey,
-      run_id: input.runId,
-      envelopes: [...input.envelopes].sort((left, right) =>
-        left.artifact_path.localeCompare(right.artifact_path),
-      ),
-    };
-    const receiptPath = `.store/operations/bundle-${sha256Hex(bundleOperationKey)}.json`;
-    let exactBundleReceiptExists = false;
-    try {
-      const existing = JSON.parse(
-        await readFile(await resolveRunPath(runRoot, receiptPath), "utf8"),
-      ) as unknown;
-      if (canonicalJson(existing) !== canonicalJson(bundleReceipt)) {
-        throw new StoreError(
-          "write.bundle_operation_conflict",
-          "bundle operation key was previously used with different content",
-          { operationKey: bundleOperationKey },
-        );
-      }
-      exactBundleReceiptExists = true;
-    } catch (error) {
-      if (!isMissingRunPath(error)) throw error;
-    }
     if (dedicatedDispatchLaunch && anyTargetExists && !exactBundleReceiptExists) {
       throw new StoreError(
         "artifact.dispatch_launch_registration_authority_missing",
@@ -941,7 +990,6 @@ export class ArtifactStore {
         { artifactPaths: input.envelopes.map((envelope) => envelope.artifact_path).sort() },
       );
     }
-    const publicationRecords = await this.publicationRecordsLocked(runRoot, input.runId);
     const allTargetsCommitted =
       allTargetsExist &&
       input.envelopes.every(
