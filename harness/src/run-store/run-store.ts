@@ -3000,6 +3000,19 @@ export class RunStore {
           "launch registration requires one formal registration and at least one lifecycle root",
         );
       }
+      const lockedPreflight = await this.artifacts.preflightDispatchLaunchBundleLocked(runRoot, {
+        runId: input.runId,
+        envelopes: input.envelopes,
+      });
+      if (
+        lockedPreflight === "idempotent_replay" &&
+        input.envelopes.every((envelope) => manifest.artifact_refs.includes(envelope.artifact_path))
+      ) {
+        return this.artifacts.publishDispatchLaunchBundleLocked(runRoot, {
+          runId: input.runId,
+          envelopes: input.envelopes,
+        });
+      }
       const disposed = new Set([
         ...manifest.completed_units,
         ...manifest.failed_units,

@@ -99,6 +99,12 @@ interface DispatchLaunchBundleShape {
   readonly lifecycles: readonly FormalArtifactEnvelope[];
 }
 
+interface ArtifactBundleTargetPreflight {
+  readonly exactBundleReceiptExists: boolean;
+  readonly allTargetsExist: boolean;
+  readonly allTargetsCommitted: boolean;
+}
+
 export interface PublishArtifactInput {
   readonly runId: string;
   readonly envelope: FormalArtifactEnvelope;
@@ -328,6 +334,13 @@ function validateArtifactReceipt(
     );
   }
   return receipt;
+}
+
+function isMissingRunPath(error: unknown): boolean {
+  return (
+    isNodeError(error, "ENOENT") ||
+    (error instanceof StoreError && error.code === "path.parent_missing")
+  );
 }
 
 const PUBLICATION_ORDINAL_WIDTH = 12;
@@ -732,6 +745,25 @@ export class ArtifactStore {
     return this.publishBundlePreparedLocked(runRoot, input, referenceContext, true);
   }
 
+  async preflightDispatchLaunchBundleLocked(
+    runRoot: string,
+    input: PublishArtifactBundleInput,
+  ): Promise<"publish" | "idempotent_replay"> {
+    if (dispatchLaunchBundleShape(input.envelopes) === null) {
+      throw new StoreError(
+        "artifact.dispatch_launch_registration_bundle_invalid",
+        "dedicated launch publication requires one registration and all of its lifecycle roots",
+      );
+    }
+    for (const envelope of input.envelopes) this.validateEnvelopeBoundary(input.runId, envelope);
+    const preflight = await this.preflightBundleTargetsLocked(runRoot, input, true);
+    return preflight.exactBundleReceiptExists &&
+      preflight.allTargetsExist &&
+      preflight.allTargetsCommitted
+      ? "idempotent_replay"
+      : "publish";
+  }
+
   private async publishBundlePreparedLocked(
     runRoot: string,
     input: PublishArtifactBundleInput,
@@ -782,6 +814,7 @@ export class ArtifactStore {
         left.artifact_path.localeCompare(right.artifact_path),
       ),
     };
+    await this.preflightBundleTargetsLocked(runRoot, input, dedicatedDispatchLaunch);
     const bundleReceiptPath = `.store/operations/bundle-${bundleOperationHex}.json`;
     const bundleReceiptFile = await resolveRunPath(runRoot, bundleReceiptPath, {
       createParents: true,
@@ -820,6 +853,102 @@ export class ArtifactStore {
         : "published",
       artifacts,
     };
+  }
+
+  private async preflightBundleTargetsLocked(
+    runRoot: string,
+    input: PublishArtifactBundleInput,
+    dedicatedDispatchLaunch: boolean,
+  ): Promise<ArtifactBundleTargetPreflight> {
+    const artifactReceipts = await this.artifactOperationReceiptsLocked(runRoot, input.runId);
+    const receiptsByPath = new Map<string, ArtifactOperationReceipt[]>();
+    for (const receipt of artifactReceipts) {
+      const receipts = receiptsByPath.get(receipt.artifact_path) ?? [];
+      receipts.push(receipt);
+      receiptsByPath.set(receipt.artifact_path, receipts);
+    }
+    let allTargetsExist = true;
+    let anyTargetExists = false;
+    for (const envelope of input.envelopes) {
+      const expectedOperation = expectedArtifactOperationKey(envelope);
+      const pathReceipts = receiptsByPath.get(envelope.artifact_path) ?? [];
+      if (
+        pathReceipts.some(
+          (receipt) =>
+            receipt.operation_key !== expectedOperation ||
+            canonicalJson(receipt.envelope) !== canonicalJson(envelope),
+        )
+      ) {
+        throw new StoreError(
+          "write.operation_conflict",
+          "formal artifact path has a conflicting immutable publication intent",
+          { path: envelope.artifact_path },
+        );
+      }
+      try {
+        const existing = JSON.parse(
+          await readFile(await resolveRunPath(runRoot, envelope.artifact_path), "utf8"),
+        ) as unknown;
+        anyTargetExists = true;
+        if (canonicalJson(existing) !== canonicalJson(envelope)) {
+          throw new StoreError("write.conflict", "formal artifact path is already occupied", {
+            path: envelope.artifact_path,
+          });
+        }
+        if (!pathReceipts.some((receipt) => receipt.operation_key === expectedOperation)) {
+          throw new StoreError(
+            "recovery.publication_receipt_missing",
+            "published bundle target lacks its exact immutable Artifact receipt",
+            { path: envelope.artifact_path },
+          );
+        }
+      } catch (error) {
+        if (!isMissingRunPath(error)) throw error;
+        allTargetsExist = false;
+      }
+    }
+
+    const bundleOperationKey = expectedArtifactBundleOperationKey(input.runId, input.envelopes);
+    const bundleReceipt: ArtifactBundleOperationReceipt = {
+      schema_version: "startup_opportunity.artifact_bundle_operation.current",
+      operation_key: bundleOperationKey,
+      run_id: input.runId,
+      envelopes: [...input.envelopes].sort((left, right) =>
+        left.artifact_path.localeCompare(right.artifact_path),
+      ),
+    };
+    const receiptPath = `.store/operations/bundle-${sha256Hex(bundleOperationKey)}.json`;
+    let exactBundleReceiptExists = false;
+    try {
+      const existing = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, receiptPath), "utf8"),
+      ) as unknown;
+      if (canonicalJson(existing) !== canonicalJson(bundleReceipt)) {
+        throw new StoreError(
+          "write.bundle_operation_conflict",
+          "bundle operation key was previously used with different content",
+          { operationKey: bundleOperationKey },
+        );
+      }
+      exactBundleReceiptExists = true;
+    } catch (error) {
+      if (!isMissingRunPath(error)) throw error;
+    }
+    if (dedicatedDispatchLaunch && anyTargetExists && !exactBundleReceiptExists) {
+      throw new StoreError(
+        "artifact.dispatch_launch_registration_authority_missing",
+        "an existing launch registration member requires its exact original bundle receipt",
+        { artifactPaths: input.envelopes.map((envelope) => envelope.artifact_path).sort() },
+      );
+    }
+    const publicationRecords = await this.publicationRecordsLocked(runRoot, input.runId);
+    const allTargetsCommitted =
+      allTargetsExist &&
+      input.envelopes.every(
+        (envelope) =>
+          publicationRecords.get(envelope.artifact_path)?.contentHash === envelope.content_hash,
+      );
+    return { exactBundleReceiptExists, allTargetsExist, allTargetsCommitted };
   }
 
   async dispatchLaunchBundleAuthorityLocked(
