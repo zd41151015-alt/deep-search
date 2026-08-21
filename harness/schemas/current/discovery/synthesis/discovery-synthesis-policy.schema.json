@@ -12,6 +12,7 @@
     "kind_target_map",
     "publication_order",
     "source_separation",
+    "solution_exploration_contract",
     "freeze_contract",
     "merge_contract",
     "execution_boundary"
@@ -69,6 +70,48 @@
         },
         "overlap_requires_disclosure": {
           "const": true
+        }
+      }
+    },
+    "solution_exploration_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "statuses",
+        "status_is_agent_declared",
+        "harness_infers_status_from_solution_count",
+        "compared_requires_multiple_and_closed_baselines",
+        "non_compared_selection_posture",
+        "automatic_gap_or_unit_creation"
+      ],
+      "properties": {
+        "statuses": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "compared_multiple_formal_solutions" },
+            { "const": "explored_no_other_formal_solution" },
+            { "const": "not_yet_explored" },
+            { "const": "insufficient_evidence" },
+            { "const": "not_applicable" }
+          ],
+          "minItems": 5,
+          "maxItems": 5,
+          "items": false
+        },
+        "status_is_agent_declared": {
+          "const": true
+        },
+        "harness_infers_status_from_solution_count": {
+          "const": false
+        },
+        "compared_requires_multiple_and_closed_baselines": {
+          "const": true
+        },
+        "non_compared_selection_posture": {
+          "const": "provisional_implementation"
+        },
+        "automatic_gap_or_unit_creation": {
+          "const": false
         }
       }
     },

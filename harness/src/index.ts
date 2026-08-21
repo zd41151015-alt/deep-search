@@ -30,6 +30,7 @@ export {
 export {
   type AnalyzeGapsInput,
   createGapAnalyzer,
+  deriveSolutionExplorationObservations,
   GAP_ANALYSIS_RESULT_VERSION,
   type GapAnalysisResult,
   GapAnalyzer,

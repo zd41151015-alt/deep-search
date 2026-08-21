@@ -1006,6 +1006,30 @@ function validateEvaluationAndReporting(
   for (const comparison of comparisons) {
     const fanIn = target(byPath, comparison.document.enrichment_fan_in_ref);
     const opportunityRef = comparison.document.opportunity_ref;
+    const opportunity = target(byPath, opportunityRef);
+    const solutionEvaluationRef = isRecord(opportunity?.document.solution_evaluation_summary)
+      ? opportunity.document.solution_evaluation_summary.solution_evaluation_ref
+      : undefined;
+    const comparisonHashRefs = new Set(
+      records(comparison.document.input_artifact_hashes).map((binding) => String(binding.ref)),
+    );
+    if (
+      opportunity?.schemaVersion !== "startup_opportunity.opportunity_thesis.v1" ||
+      !same(
+        comparison.document.solution_evaluation_summary,
+        opportunity.document.solution_evaluation_summary,
+      ) ||
+      !comparisonHashRefs.has(String(opportunityRef)) ||
+      !comparisonHashRefs.has(String(solutionEvaluationRef))
+    ) {
+      errors.push(
+        issue(
+          "g2_4.solution_exploration_projection_mismatch",
+          `${comparison.path}#/solution_evaluation_summary`,
+          "comparison must bind and exactly project the Opportunity's current Solution Evaluation summary",
+        ),
+      );
+    }
     const domainRefs = [
       comparison.document.value_layer_analysis_ref,
       comparison.document.user_state_context_model_ref,
@@ -1412,6 +1436,14 @@ function validateEvaluationAndReporting(
   const missingCommercialAuditHashes = strings(
     report?.document.commercial_research_audit_refs,
   ).filter((ref) => !reportInputHashRefs.has(ref));
+  const expectedSolutionEvaluations = comparisons.map((comparison) => {
+    const opportunity = target(byPath, comparison.document.opportunity_ref);
+    return {
+      opportunity_ref: comparison.document.opportunity_ref,
+      opportunity_title: opportunity?.document.title,
+      evaluation: structuredClone(comparison.document.solution_evaluation_summary),
+    };
+  });
   if (
     report !== undefined &&
     (report.document.decision_recommendation_ref !== recommendation?.path ||
@@ -1446,6 +1478,7 @@ function validateEvaluationAndReporting(
         strings(report.document.business_engine_refs),
         strings(recommendation?.document.business_engine_refs),
       ) ||
+      !same(report.document.solution_evaluations, expectedSolutionEvaluations) ||
       missingCommercialAuditHashes.length > 0 ||
       reportDecisionRefs.some((ref) => {
         const linked = target(byPath, ref);
@@ -1495,6 +1528,7 @@ function validateEvaluationAndReporting(
       brief.document.recommendation_meaning !== context?.recommendation_meaning ||
       brief.document.recommended_first_bet !== context?.recommended_first_bet ||
       !same(brief.document.alternative_bets, context?.alternative_bets) ||
+      !same(brief.document.solution_evaluations, report?.document.solution_evaluations) ||
       brief.document.partial_order_summary !== context?.partial_order_summary ||
       !setEqual(strings(brief.document.decisive_supporting_refs), decisiveSupportingRefs) ||
       !setEqual(strings(brief.document.decisive_opposing_refs), decisiveOpposingRefs) ||
@@ -1523,6 +1557,7 @@ function validateEvaluationAndReporting(
       view.document.recommendation_meaning !== context?.recommendation_meaning ||
       view.document.recommended_first_bet !== context?.recommended_first_bet ||
       !same(view.document.alternative_bets, context?.alternative_bets) ||
+      !same(view.document.solution_evaluations, report?.document.solution_evaluations) ||
       view.document.partial_order_summary !== context?.partial_order_summary ||
       !setEqual(strings(view.document.decisive_supporting_refs), decisiveSupportingRefs) ||
       !setEqual(strings(view.document.decisive_opposing_refs), decisiveOpposingRefs) ||

@@ -109,7 +109,10 @@
         "comparison_reason": { "$ref": "#/$defs/nonEmptyString" },
         "decisive_support_source_ids": { "$ref": "#/$defs/sourceIdArray" },
         "decisive_opposition_source_ids": { "$ref": "#/$defs/sourceIdArray" },
-        "open_questions": { "$ref": "#/$defs/uniqueStrings" }
+        "open_questions": { "$ref": "#/$defs/uniqueStrings" },
+        "solution_evaluation_summary": {
+          "$ref": "../discovery/synthesis/definitions.schema.json#/$defs/solutionEvaluationSummary"
+        }
       }
     },
     "validation_steps": {

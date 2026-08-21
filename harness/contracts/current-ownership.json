@@ -96,6 +96,7 @@
         "harness/src/artifact-store/artifact-store.ts",
         "harness/src/artifact-store/publication-policy.ts",
         "harness/src/adaptation/gap-analyzer.ts",
+        "harness/src/reporting/decision-subject-reformation.ts",
         "harness/src/adaptation/plan-transformer.ts",
         "harness/src/run-store/run-store.ts"
       ],
@@ -280,7 +281,8 @@
         "harness/src/validators/discovery-candidate-validator.ts",
         "harness/src/validators/discovery-evaluation-validator.ts",
         "harness/src/validators/discovery-maps-validator.ts",
-        "harness/src/validators/discovery-synthesis-validator.ts"
+        "harness/src/validators/discovery-synthesis-validator.ts",
+        "harness/src/validators/research-handoff-validator.ts"
       ],
       "producerModules": [
         "harness/src/commands.ts",
@@ -305,7 +307,8 @@
         "harness/src/validators/discovery-candidate-validator.ts",
         "harness/src/validators/discovery-evaluation-validator.ts",
         "harness/src/validators/discovery-maps-validator.ts",
-        "harness/src/validators/discovery-synthesis-validator.ts"
+        "harness/src/validators/discovery-synthesis-validator.ts",
+        "harness/src/validators/research-handoff-validator.ts"
       ],
       "policyPaths": [
         "harness/policies/discovery-adaptation-binding.current.json",
@@ -528,6 +531,7 @@
       "artifactTypeSelectors": [{ "prefix": "current/reporting/" }],
       "directRuntimeRoots": [],
       "ownerModules": [
+        "harness/src/reporting/decision-subject-reformation.ts",
         "harness/src/reporting/report-runtime.ts",
         "harness/src/reporting/terminal-reporting.ts"
       ],
@@ -722,6 +726,10 @@
       ]
     },
     {
+      "modulePath": "harness/src/reporting/decision-subject-reformation.ts",
+      "impactFamilies": ["run_control_planning", "terminal_reporting"]
+    },
+    {
       "modulePath": "harness/src/run-store/scope-write-guard.ts",
       "impactFamilies": [
         "ai_research",
@@ -783,7 +791,7 @@
     },
     {
       "modulePath": "harness/src/validators/research-handoff-validator.ts",
-      "impactFamilies": ["assessment_research", "run_control_planning"]
+      "impactFamilies": ["assessment_research", "discovery_research", "run_control_planning"]
     }
   ],
   "shared_schemas": [
@@ -848,7 +856,12 @@
     {
       "schemaFile": "current/discovery/synthesis/definitions.schema.json",
       "structuralOwner": "discovery_research",
-      "impactFamilies": ["ai_research", "discovery_research"]
+      "impactFamilies": [
+        "ai_research",
+        "discovery_research",
+        "run_control_planning",
+        "terminal_reporting"
+      ]
     }
   ]
 }

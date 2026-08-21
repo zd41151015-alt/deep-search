@@ -96,6 +96,25 @@
       "type": "string",
       "pattern": "^artifacts/comparison/opportunities/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
     },
+    "solutionEvaluationSummary": {
+      "$ref": "../synthesis/definitions.schema.json#/$defs/solutionEvaluationSummary"
+    },
+    "opportunitySolutionEvaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["opportunity_ref", "opportunity_title", "evaluation"],
+      "properties": {
+        "opportunity_ref": {
+          "$ref": "#/$defs/opportunityRef"
+        },
+        "opportunity_title": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "evaluation": {
+          "$ref": "#/$defs/solutionEvaluationSummary"
+        }
+      }
+    },
     "revisionBase": {
       "$ref": "../synthesis/definitions.schema.json#/$defs/revisionBase"
     },

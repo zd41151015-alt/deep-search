@@ -70,6 +70,7 @@
     "phase",
     "wave_id",
     "observed_artifact_refs",
+    "solution_exploration_observations",
     "gaps",
     "material_new_evidence_observed",
     "unresolved_decision_relevant_questions",
@@ -142,6 +143,46 @@
     },
     "observed_artifact_refs": {
       "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "solution_exploration_observations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "solution_evaluation_ref",
+          "solution_evaluation_content_hash",
+          "opportunity_refs",
+          "exploration_status",
+          "selection_posture",
+          "planning_effect"
+        ],
+        "properties": {
+          "solution_evaluation_ref": {
+            "$ref": "../discovery/synthesis/definitions.schema.json#/$defs/solutionEvaluationRef"
+          },
+          "solution_evaluation_content_hash": {
+            "$ref": "./definitions.schema.json#/$defs/sha256"
+          },
+          "opportunity_refs": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "../discovery/synthesis/definitions.schema.json#/$defs/opportunityRef"
+            }
+          },
+          "exploration_status": {
+            "$ref": "../discovery/synthesis/definitions.schema.json#/$defs/solutionExplorationStatus"
+          },
+          "selection_posture": {
+            "$ref": "../discovery/synthesis/definitions.schema.json#/$defs/solutionSelectionPosture"
+          },
+          "planning_effect": {
+            "const": "main_agent_decides_whether_to_adapt"
+          }
+        }
+      }
     },
     "gaps": {
       "type": "array",

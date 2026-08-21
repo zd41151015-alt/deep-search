@@ -193,6 +193,27 @@ const SUBJECT_REFORMATION_INPUT_SCHEMAS = [
   "startup_opportunity.opportunity_comparison.v1",
 ] as const;
 
+const SOLUTION_EXPLORATION_MATERIAL_SCHEMAS = [
+  "startup_opportunity.evidence.discovery_candidate.current",
+  "startup_opportunity.evidence.discovery_evaluation.current",
+  "startup_opportunity.claim.discovery_candidate.current",
+  "startup_opportunity.claim.discovery_evaluation.current",
+  "startup_opportunity.finding.discovery_candidate.current",
+  "startup_opportunity.finding.discovery_evaluation.current",
+  "startup_opportunity.insight.discovery_candidate.current",
+  "startup_opportunity.insight.discovery_evaluation.current",
+  "startup_opportunity.judgment_assessment.discovery_candidate.current",
+  "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+  "startup_opportunity.source_manifest.discovery_candidate.current",
+  "startup_opportunity.source_manifest.discovery_evaluation.current",
+  "startup_opportunity.discovery_lane_result.v1",
+  "startup_opportunity.enrichment_branch_result.v1",
+  "startup_opportunity.demand_thesis.v1",
+  "startup_opportunity.baseline_option.v1",
+  "startup_opportunity.solution_hypothesis.v1",
+  "startup_opportunity.opportunity_comparison.v1",
+] as const;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -389,6 +410,30 @@ function refsFromNestedObjectArray(
   });
 }
 
+function consideredApproachMaterialRefs(
+  value: unknown,
+  instancePath: string,
+  expectedSchemaVersion: string | readonly string[],
+): readonly ReferenceRequirement[] {
+  if (!isRecord(value)) return [];
+  return records(value.considered_approaches).flatMap((approach, approachIndex) =>
+    records(approach.material_bindings).flatMap((binding, bindingIndex) =>
+      typeof binding.ref === "string"
+        ? [
+            {
+              instancePath: `${instancePath}/considered_approaches/${approachIndex}/material_bindings/${bindingIndex}/ref`,
+              ref: binding.ref,
+              expectedSchemaVersions:
+                typeof expectedSchemaVersion === "string"
+                  ? [expectedSchemaVersion]
+                  : expectedSchemaVersion,
+            },
+          ]
+        : [],
+    ),
+  );
+}
+
 function refsFromNestedNestedObjectArray(
   document: Record<string, unknown>,
   outerArrayField: string,
@@ -573,6 +618,80 @@ function reportProjectionRefs(document: Record<string, unknown>): readonly Refer
   ];
 }
 
+function solutionSummaryRefs(
+  summary: Record<string, unknown>,
+  instancePath: string,
+): readonly ReferenceRequirement[] {
+  const requirements: ReferenceRequirement[] = [];
+  if (typeof summary.solution_evaluation_ref === "string") {
+    requirements.push({
+      instancePath: `${instancePath}/solution_evaluation_ref`,
+      ref: summary.solution_evaluation_ref,
+      expectedSchemaVersions: ["startup_opportunity.solution_evaluation.v1"],
+    });
+  }
+  for (const [index, solution] of records(summary.formal_solutions).entries()) {
+    if (typeof solution.solution_ref === "string") {
+      requirements.push({
+        instancePath: `${instancePath}/formal_solutions/${index}/solution_ref`,
+        ref: solution.solution_ref,
+        expectedSchemaVersions: ["startup_opportunity.solution_hypothesis.v1"],
+      });
+    }
+  }
+  for (const [index, rejected] of records(summary.rejected_solutions).entries()) {
+    if (typeof rejected.solution_ref === "string") {
+      requirements.push({
+        instancePath: `${instancePath}/rejected_solutions/${index}/solution_ref`,
+        ref: rejected.solution_ref,
+        expectedSchemaVersions: ["startup_opportunity.solution_hypothesis.v1"],
+      });
+    }
+    requirements.push(
+      ...refsFromNestedArray(
+        { rejected_solutions: [rejected] },
+        "rejected_solutions",
+        "judgment_assessment_refs",
+        "startup_opportunity.judgment_assessment.discovery_candidate.current",
+      ).map((requirement) => ({
+        ...requirement,
+        instancePath: `${instancePath}/${requirement.instancePath.slice(1)}`,
+      })),
+    );
+  }
+  requirements.push(
+    ...consideredApproachMaterialRefs(summary, instancePath, SOLUTION_EXPLORATION_MATERIAL_SCHEMAS),
+  );
+  return requirements;
+}
+
+function solutionSummaryProjectionRefs(
+  document: Record<string, unknown>,
+): readonly ReferenceRequirement[] {
+  const direct = isRecord(document.solution_evaluation_summary)
+    ? solutionSummaryRefs(document.solution_evaluation_summary, "/solution_evaluation_summary")
+    : [];
+  const rows = records(document.solution_evaluations).flatMap((row, index) => {
+    const evaluation = isRecord(row.evaluation) ? row.evaluation : row;
+    return solutionSummaryRefs(evaluation, `/solution_evaluations/${index}/evaluation`);
+  });
+  return [...direct, ...rows];
+}
+
+function solutionSummaryRefsFromArray(
+  document: Record<string, unknown>,
+  arrayField: string,
+): readonly ReferenceRequirement[] {
+  return records(document[arrayField]).flatMap((entry, index) =>
+    isRecord(entry.solution_evaluation_summary)
+      ? solutionSummaryRefs(
+          entry.solution_evaluation_summary,
+          `/${arrayField}/${index}/solution_evaluation_summary`,
+        )
+      : [],
+  );
+}
+
 function referenceRequirements(effective: EffectiveDocument): readonly ReferenceRequirement[] {
   const { document, schemaVersion } = effective;
   switch (schemaVersion) {
@@ -637,6 +756,18 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.gap_snapshot.discovery.plan.current",
         ),
         ...optionalRef(document, "trigger_event_ref", "startup_opportunity.event.v1", "event_id"),
+        ...refsFromNestedArray(
+          document,
+          "solution_exploration_observations",
+          "solution_evaluation_ref",
+          "startup_opportunity.solution_evaluation.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "solution_exploration_observations",
+          "opportunity_refs",
+          "startup_opportunity.opportunity_thesis.v1",
+        ),
       ];
     case "startup_opportunity.gap_snapshot.assessment.current":
       return [
@@ -2293,6 +2424,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "judgment_assessment_refs",
           "startup_opportunity.judgment_assessment.discovery_candidate.current",
         ),
+        ...consideredApproachMaterialRefs(
+          document.solution_exploration,
+          "/solution_exploration",
+          SOLUTION_EXPLORATION_MATERIAL_SCHEMAS,
+        ),
       ];
     case "startup_opportunity.opportunity_thesis.v1":
       return [
@@ -2326,6 +2462,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "solution_evaluation_ref",
           "startup_opportunity.solution_evaluation.v1",
         ),
+        ...solutionSummaryProjectionRefs(document),
         ...refsFromArray(document, "source_lanes", "startup_opportunity.discovery_lane_result.v1"),
         ...refsFromArray(
           document,
@@ -2852,6 +2989,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.enrichment_fan_in.v1",
         ),
         ...optionalRef(document, "opportunity_ref", "startup_opportunity.opportunity_thesis.v1"),
+        ...solutionSummaryProjectionRefs(document),
         ...optionalRef(
           document,
           "value_layer_analysis_ref",
@@ -2987,6 +3125,13 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
     case "startup_opportunity.report.v1":
       return [
         ...reportProjectionRefs(document),
+        ...refsFromNestedArray(
+          document,
+          "solution_evaluations",
+          "opportunity_ref",
+          "startup_opportunity.opportunity_thesis.v1",
+        ),
+        ...solutionSummaryProjectionRefs(document),
         ...optionalRef(document, "decision_context_ref", "startup_opportunity.decision_context.v1"),
         ...optionalRef(
           document,
@@ -3051,6 +3196,13 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
     case "startup_opportunity.decision_brief.discovery.current":
     case "startup_opportunity.discovery_report_view.v1":
       return [
+        ...refsFromNestedArray(
+          document,
+          "solution_evaluations",
+          "opportunity_ref",
+          "startup_opportunity.opportunity_thesis.v1",
+        ),
+        ...solutionSummaryProjectionRefs(document),
         ...optionalRef(document, "report_ref", "startup_opportunity.report.v1"),
         ...optionalRef(
           document,
@@ -3170,10 +3322,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.concept_evidence_assessment.reporting.current",
           "startup_opportunity.opportunity_comparison.v1",
         ]),
+        ...(isRecord(document.direction) ? solutionSummaryProjectionRefs(document.direction) : []),
       ];
     case "startup_opportunity.terminal_report_source.v1":
       return [
         ...reportProjectionRefs(document),
+        ...solutionSummaryRefsFromArray(document, "directions"),
         ...optionalRef(
           document,
           "decision_subject_snapshot_ref",

@@ -155,6 +155,15 @@ const ZH_ENUMS: Readonly<Record<string, string>> = {
   pricing: "定价",
   retention_or_usage: "留存或使用",
   unit_economics: "单位经济",
+  compared_multiple_formal_solutions: "已比较多个正式方案",
+  explored_no_other_formal_solution: "已探索，未形成其他正式方案",
+  not_yet_explored: "尚未探索其他实现方式",
+  not_applicable: "不适用",
+  compared_selection: "比较后选定",
+  provisional_implementation: "暂定实现",
+  selected: "选中",
+  alternative: "保留为替代",
+  rejected: "未保留",
 };
 
 function enumLabel(value: unknown, zh: boolean): string {
@@ -308,6 +317,46 @@ function renderDirections(source: Record<string, unknown>, zh: boolean, compact:
         lines.push(bulletList(strings(direction.key_risks), zh ? "无" : "None"));
         lines.push(`\n${zh ? "仍未回答" : "Open questions"}:\n`);
         lines.push(bulletList(strings(direction.open_questions), zh ? "无" : "None"));
+      }
+      const solutionSummary = isRecord(direction.solution_evaluation_summary)
+        ? direction.solution_evaluation_summary
+        : null;
+      if (solutionSummary !== null) {
+        lines.push(
+          `\n${zh ? "替代方案探索状态" : "Alternative exploration status"}: ${enumLabel(solutionSummary.exploration_status, zh)}\n\n`,
+          `${zh ? "当前方案表述" : "Current solution posture"}: ${enumLabel(solutionSummary.selection_posture, zh)}\n\n`,
+          `${zh ? "全部正式方案" : "All formal solutions"}:\n`,
+          bulletList(
+            records(solutionSummary.formal_solutions).map((solution) => {
+              const ai =
+                solution.uses_ai === true
+                  ? zh
+                    ? "使用 AI"
+                    : "uses AI"
+                  : zh
+                    ? "不使用 AI"
+                    : "does not use AI";
+              return `${enumLabel(solution.disposition, zh)}: ${userVisibleText(solution.solution_behavior, zh)} (${userVisibleText(solution.solution_type, zh)}; ${userVisibleText(solution.delivery_form, zh)}; ${ai})`;
+            }),
+            zh ? "无" : "None recorded",
+          ),
+        );
+        if (!compact) {
+          lines.push(
+            `\n${zh ? "研究过但未正式化的方向" : "Considered but non-formalized approaches"}:\n`,
+            bulletList(
+              records(solutionSummary.considered_approaches).map(
+                (approach) =>
+                  `${userVisibleText(approach.implementation_direction, zh)}: ${strings(
+                    approach.disposition_reasons,
+                  )
+                    .map((reason) => userVisibleText(reason, zh))
+                    .join("; ")}`,
+              ),
+              zh ? "无" : "None recorded",
+            ),
+          );
+        }
       }
       const directionUncertainties = uncertainties.filter(
         (entry) => entry.direction_id === direction.direction_id,

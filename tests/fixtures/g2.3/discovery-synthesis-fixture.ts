@@ -408,6 +408,12 @@ export async function createDiscoverySynthesisFixture(
     selected_solution_ref: G23_SOLUTION,
     alternative_solution_refs: [],
     rejected_solutions: [],
+    solution_exploration: {
+      status: "not_yet_explored",
+      status_rationale:
+        "SYNTHETIC fixture declares one provisional solution without exploring other implementation approaches.",
+      considered_approaches: [],
+    },
     baseline_comparisons: [
       {
         solution_ref: G23_SOLUTION,
@@ -440,6 +446,35 @@ export async function createDiscoverySynthesisFixture(
   );
   opportunityA.selected_delivery_form = solution.delivery_form;
   opportunityB.selected_delivery_form = solution.delivery_form;
+  const solutionEvaluationSummary = {
+    solution_evaluation_ref: G23_EVALUATION,
+    solution_evaluation_content_hash: canonicalContentHash(evaluation),
+    exploration_status: "not_yet_explored",
+    selection_posture: "provisional_implementation",
+    status_rationale:
+      "SYNTHETIC fixture declares one provisional solution without exploring other implementation approaches.",
+    formal_solution_refs: [G23_SOLUTION],
+    formal_solutions: [
+      {
+        solution_ref: G23_SOLUTION,
+        solution_content_hash: canonicalContentHash(solution),
+        disposition: "selected",
+        solution_id: solution.solution_id,
+        solution_type: solution.solution_type,
+        solution_behavior: solution.solution_behavior,
+        delivery_form: solution.delivery_form,
+        uses_ai: solution.uses_ai,
+      },
+    ],
+    selected_solution_ref: G23_SOLUTION,
+    alternative_solution_refs: [],
+    rejected_solutions: [],
+    considered_approaches: [],
+    critical_unknowns: [SYNTHETIC],
+    limitations: [SYNTHETIC],
+  };
+  opportunityA.solution_evaluation_summary = solutionEvaluationSummary;
+  opportunityB.solution_evaluation_summary = structuredClone(solutionEvaluationSummary);
   const snapshot = {
     schema_version: "startup_opportunity.thesis_evaluation_snapshot.v1",
     snapshot_id: "snapshot_household",

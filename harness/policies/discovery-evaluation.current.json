@@ -79,6 +79,13 @@
     ],
     "mixed_inputs_use_strictest_ceiling": true
   },
+  "solution_exploration_projection_contract": {
+    "comparison_reads_exact_opportunity_summary": true,
+    "report_projects_all_formal_solutions": true,
+    "non_compared_selection_posture": "provisional_implementation",
+    "changes_demand_gate_or_ranking": false,
+    "harness_selects_or_generates_solutions": false
+  },
   "publication_order": [
     "enrichment_task",
     "typed_material",
@@ -110,7 +117,8 @@
       "new_conclusions",
       "market_validation_language",
       "probability_language",
-      "global_score_language"
+      "global_score_language",
+      "solution_exploration"
     ],
     "global_score_forbidden": true,
     "market_validation_claim_forbidden": true,

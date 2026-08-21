@@ -366,6 +366,7 @@ function gapSnapshot(
     phase: "enrichment",
     wave_id: "wave_runtime_1",
     observed_artifact_refs: [],
+    solution_exploration_observations: [],
     gaps: [
       {
         gap_id: "gap_runtime_001",

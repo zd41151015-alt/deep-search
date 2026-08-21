@@ -540,6 +540,9 @@
           },
           "open_questions": {
             "$ref": "#/$defs/uniqueStrings"
+          },
+          "solution_evaluation_summary": {
+            "$ref": "../discovery/synthesis/definitions.schema.json#/$defs/solutionEvaluationSummary"
           }
         }
       }

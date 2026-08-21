@@ -215,6 +215,7 @@
         "phase": "enrichment",
         "wave_id": "wave_enrichment_1",
         "observed_artifact_refs": ["artifacts/lanes/initial.json"],
+        "solution_exploration_observations": [],
         "gaps": [
           {
             "gap_id": "gap_buyer_001",

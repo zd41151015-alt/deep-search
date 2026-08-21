@@ -9,6 +9,7 @@ import { discoveryWaveEnvelopes } from "../../helpers/discovery-wave.js";
 import { G21_DECISION_REF, G21_PLAN_REF, G21_SCOPE_REF } from "../g2.1/discovery-maps-fixture.js";
 import {
   createDiscoverySynthesisFixture,
+  G23_EVALUATION,
   G23_MERGE,
   G23_OPPORTUNITY_A,
   G23_OPPORTUNITY_B,
@@ -592,6 +593,11 @@ function comparison(
     suffix === "a" ? G24_BUYER_A : G24_BUYER_B,
     suffix === "a" ? G24_ENGINE_A : G24_ENGINE_B,
   ];
+  const solutionEvaluationSummary = documents.get(opportunityRef)?.solution_evaluation_summary;
+  const solutionEvaluationRef =
+    typeof solutionEvaluationSummary === "object" && solutionEvaluationSummary !== null
+      ? (solutionEvaluationSummary as Record<string, unknown>).solution_evaluation_ref
+      : undefined;
   return {
     schema_version: "startup_opportunity.opportunity_comparison.v1",
     comparison_id: `comparison_${suffix}`,
@@ -605,6 +611,7 @@ function comparison(
     source_merge_ref: G23_MERGE,
     enrichment_fan_in_ref: G24_FAN_IN,
     opportunity_ref: opportunityRef,
+    solution_evaluation_summary: structuredClone(solutionEvaluationSummary),
     value_layer_analysis_ref: domainRefs[0],
     user_state_context_model_ref: domainRefs[1],
     buyer_purchase_language_ref: domainRefs[2],
@@ -612,7 +619,14 @@ function comparison(
     comparison_policy_version: "1.0.0",
     rubric_version: "1.0.0",
     input_artifact_hashes: hashRefs(
-      [G23_SNAPSHOT, G23_MERGE, G24_FAN_IN, ...domainRefs],
+      [
+        G23_SNAPSHOT,
+        G23_MERGE,
+        G24_FAN_IN,
+        opportunityRef,
+        ...(typeof solutionEvaluationRef === "string" ? [solutionEvaluationRef] : []),
+        ...domainRefs,
+      ],
       documents,
     ),
     hard_gates_evaluated_at: "2026-07-27T21:20:00Z",
@@ -1341,6 +1355,10 @@ export async function createDiscoveryEvaluationFixture(
     G24_PORTFOLIO,
     G24_SENSITIVITY,
     G24_TRACEABILITY,
+    G23_OPPORTUNITY_A,
+    G23_OPPORTUNITY_B,
+    G23_EVALUATION,
+    G23_SOLUTION,
     ...commercialAuditRefs,
   ];
   const reportSections = Object.fromEntries(
@@ -1390,6 +1408,11 @@ export async function createDiscoveryEvaluationFixture(
     portfolio_view_ref: G24_PORTFOLIO,
     comparison_refs: [G24_COMPARISON_A, G24_COMPARISON_B],
     business_engine_refs: [G24_ENGINE_A, G24_ENGINE_B],
+    solution_evaluations: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B].map((opportunityRef) => ({
+      opportunity_ref: opportunityRef,
+      opportunity_title: documents.get(opportunityRef)?.title,
+      evaluation: structuredClone(documents.get(opportunityRef)?.solution_evaluation_summary),
+    })),
     top_opportunity_refs: [],
     watchlist_refs: [],
     rejected_opportunity_refs: [],

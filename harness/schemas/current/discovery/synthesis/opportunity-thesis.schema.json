@@ -24,6 +24,7 @@
     "alternative_solution_refs",
     "baseline_option_ref",
     "solution_evaluation_ref",
+    "solution_evaluation_summary",
     "selected_delivery_form",
     "incremental_value_over_baseline",
     "mental_positioning",
@@ -135,6 +136,9 @@
     },
     "solution_evaluation_ref": {
       "$ref": "./definitions.schema.json#/$defs/solutionEvaluationRef"
+    },
+    "solution_evaluation_summary": {
+      "$ref": "./definitions.schema.json#/$defs/solutionEvaluationSummary"
     },
     "selected_delivery_form": {
       "$ref": "./definitions.schema.json#/$defs/deliveryForm"

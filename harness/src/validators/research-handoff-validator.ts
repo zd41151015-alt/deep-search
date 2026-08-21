@@ -212,6 +212,7 @@ function typedFormationRefs(document: ResearchHandoffDocument): readonly string[
     ]);
   }
   if (document.schemaVersion === "startup_opportunity.solution_evaluation.v1") {
+    const exploration = isRecord(value.solution_exploration) ? value.solution_exploration : {};
     return [
       ...strings([
         value.parent_evaluation_ref,
@@ -224,9 +225,17 @@ function typedFormationRefs(document: ResearchHandoffDocument): readonly string[
       ...records(value.rejected_solutions).flatMap((rejected) =>
         typeof rejected.solution_ref === "string" ? [rejected.solution_ref] : [],
       ),
+      ...records(exploration.considered_approaches).flatMap((approach) =>
+        records(approach.material_bindings).flatMap((binding) =>
+          typeof binding.ref === "string" ? [binding.ref] : [],
+        ),
+      ),
     ];
   }
   if (document.schemaVersion === "startup_opportunity.opportunity_thesis.v1") {
+    const summary = isRecord(value.solution_evaluation_summary)
+      ? value.solution_evaluation_summary
+      : {};
     return [
       ...strings([
         value.parent_opportunity_ref,
@@ -236,6 +245,16 @@ function typedFormationRefs(document: ResearchHandoffDocument): readonly string[
         value.solution_evaluation_ref,
       ]),
       ...strings(value.alternative_solution_refs),
+      ...strings(summary.formal_solution_refs),
+      ...records(summary.rejected_solutions).flatMap((rejected) => [
+        ...strings([rejected.solution_ref]),
+        ...strings(rejected.judgment_assessment_refs),
+      ]),
+      ...records(summary.considered_approaches).flatMap((approach) =>
+        records(approach.material_bindings).flatMap((binding) =>
+          typeof binding.ref === "string" ? [binding.ref] : [],
+        ),
+      ),
     ];
   }
   if (

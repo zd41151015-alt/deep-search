@@ -30,6 +30,7 @@ export interface DiscoveryEvaluationPolicy extends DiscoveryEvaluationPolicyBase
   readonly ai_solution_gate_contract: Readonly<Record<string, unknown>>;
   readonly ai_mandatory_bundle_contract: Readonly<Record<string, unknown>>;
   readonly decision_tier_ceiling: Readonly<Record<string, unknown>>;
+  readonly solution_exploration_projection_contract: Readonly<Record<string, unknown>>;
 }
 
 export const REQUIRED_HARD_GATES = [
@@ -70,6 +71,7 @@ export const REQUIRED_REPORT_CONSISTENCY_DIMENSIONS = [
   "market_validation_language",
   "probability_language",
   "global_score_language",
+  "solution_exploration",
 ] as const;
 
 export const DECISION_TIER_ORDER = [
@@ -158,6 +160,14 @@ export async function loadDiscoveryEvaluationPolicy(
     canonicalJson(policy.decision_tier_ceiling.first_bet_ready_requirements) !==
       canonicalJson(FIRST_BET_READY_REQUIREMENTS) ||
     policy.decision_tier_ceiling.mixed_inputs_use_strictest_ceiling !== true ||
+    policy.solution_exploration_projection_contract.comparison_reads_exact_opportunity_summary !==
+      true ||
+    policy.solution_exploration_projection_contract.report_projects_all_formal_solutions !== true ||
+    policy.solution_exploration_projection_contract.non_compared_selection_posture !==
+      "provisional_implementation" ||
+    policy.solution_exploration_projection_contract.changes_demand_gate_or_ranking !== false ||
+    policy.solution_exploration_projection_contract.harness_selects_or_generates_solutions !==
+      false ||
     policy.execution_boundary.harness_generated_research !== false ||
     policy.execution_boundary.harness_generated_judgment !== false ||
     policy.execution_boundary.publication_implies_validation !== false ||

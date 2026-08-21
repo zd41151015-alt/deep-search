@@ -118,6 +118,55 @@ function exactRecordMap(input: AnalyzeGapsInput): ReadonlyMap<string, Record<str
   return records;
 }
 
+export function deriveSolutionExplorationObservations(
+  documents: ReadonlyMap<string, EffectiveDocument>,
+  observedRefs: readonly string[],
+): readonly Record<string, unknown>[] {
+  const observedPaths = new Set(observedRefs.map((ref) => ref.split("#", 1)[0] ?? ref));
+  const observedOpportunities = [...documents.values()].filter(
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.opportunity_thesis.v1" &&
+      observedPaths.has(entry.path),
+  );
+  const observedEvaluationRefs = new Set(
+    observedOpportunities.flatMap((opportunity) =>
+      typeof opportunity.document.solution_evaluation_ref === "string"
+        ? [opportunity.document.solution_evaluation_ref]
+        : [],
+    ),
+  );
+  const evaluations = [...documents.values()].filter(
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.solution_evaluation.v1" &&
+      (observedPaths.has(entry.path) || observedEvaluationRefs.has(entry.path)),
+  );
+  return evaluations
+    .map((evaluation) => {
+      const exploration = isRecord(evaluation.document.solution_exploration)
+        ? evaluation.document.solution_exploration
+        : {};
+      const opportunityRefs = observedOpportunities
+        .filter((opportunity) => opportunity.document.solution_evaluation_ref === evaluation.path)
+        .map((opportunity) => opportunity.path)
+        .sort();
+      return {
+        solution_evaluation_ref: evaluation.path,
+        solution_evaluation_content_hash:
+          evaluation.envelope?.content_hash ?? canonicalContentHash(evaluation.document),
+        opportunity_refs: opportunityRefs,
+        exploration_status: exploration.status,
+        selection_posture:
+          exploration.status === "compared_multiple_formal_solutions"
+            ? "compared_selection"
+            : "provisional_implementation",
+        planning_effect: "main_agent_decides_whether_to_adapt",
+      };
+    })
+    .sort((left, right) =>
+      String(left.solution_evaluation_ref).localeCompare(String(right.solution_evaluation_ref)),
+    );
+}
+
 export class GapAnalyzer {
   constructor(
     private readonly plans: PlanSemanticValidator,
@@ -555,6 +604,10 @@ export class GapAnalyzer {
       phase: input.phase,
       wave_id: input.waveId,
       observed_artifact_refs: observedRefs,
+      solution_exploration_observations: deriveSolutionExplorationObservations(
+        documents,
+        observedRefs,
+      ),
       gaps: gaps.sort((left, right) => String(left.gap_id).localeCompare(String(right.gap_id))),
       material_new_evidence_observed: scopeReconciliation
         ? false

@@ -20,6 +20,7 @@
     "selected_solution_ref",
     "alternative_solution_refs",
     "rejected_solutions",
+    "solution_exploration",
     "baseline_comparisons",
     "solution_rationale",
     "critical_unknowns",
@@ -94,28 +95,24 @@
     "rejected_solutions": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["solution_ref", "reasons", "judgment_assessment_refs"],
-        "properties": {
-          "solution_ref": {
-            "$ref": "./definitions.schema.json#/$defs/solutionRef"
-          },
-          "reasons": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
-            },
-            "uniqueItems": true
-          },
-          "judgment_assessment_refs": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "$ref": "../candidates/definitions.schema.json#/$defs/judgmentRef"
-            },
-            "uniqueItems": true
+        "$ref": "./definitions.schema.json#/$defs/rejectedSolution"
+      }
+    },
+    "solution_exploration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "status_rationale", "considered_approaches"],
+      "properties": {
+        "status": {
+          "$ref": "./definitions.schema.json#/$defs/solutionExplorationStatus"
+        },
+        "status_rationale": {
+          "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "considered_approaches": {
+          "type": "array",
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/consideredApproach"
           }
         }
       }
@@ -203,6 +200,122 @@
           },
           "parent_content_hash": {
             "$ref": "./definitions.schema.json#/$defs/sha256"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "solution_exploration": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "compared_multiple_formal_solutions"
+              }
+            },
+            "required": ["status"]
+          }
+        },
+        "required": ["solution_exploration"]
+      },
+      "then": {
+        "properties": {
+          "solution_hypothesis_refs": {
+            "type": "array",
+            "minItems": 2
+          },
+          "decision_sufficiency": {
+            "const": "sufficient_for_thesis"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "solution_exploration": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "explored_no_other_formal_solution"
+              }
+            },
+            "required": ["status"]
+          }
+        },
+        "required": ["solution_exploration"]
+      },
+      "then": {
+        "properties": {
+          "solution_hypothesis_refs": {
+            "type": "array",
+            "maxItems": 1
+          },
+          "solution_exploration": {
+            "type": "object",
+            "properties": {
+              "considered_approaches": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "solution_exploration": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "not_yet_explored"
+              }
+            },
+            "required": ["status"]
+          }
+        },
+        "required": ["solution_exploration"]
+      },
+      "then": {
+        "properties": {
+          "solution_exploration": {
+            "type": "object",
+            "properties": {
+              "considered_approaches": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "solution_exploration": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "insufficient_evidence"
+              }
+            },
+            "required": ["status"]
+          }
+        },
+        "required": ["solution_exploration"]
+      },
+      "then": {
+        "properties": {
+          "decision_sufficiency": {
+            "enum": ["insufficient_evidence", "blocked"]
+          },
+          "critical_unknowns": {
+            "type": "array",
+            "minItems": 1
           }
         }
       }

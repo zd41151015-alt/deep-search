@@ -8,6 +8,7 @@ import {
   canonicalContentHash,
   createArtifactValidator,
   type DocumentBundle,
+  deriveSolutionExplorationObservations,
   EvidenceStore,
   type FormalArtifactEnvelope,
   RunStore,
@@ -24,6 +25,7 @@ import {
   G22_BASELINE_EVALUATION_JUDGMENT,
   G22_BASELINE_GENERATION_JUDGMENT,
   G22_DEMAND_R2,
+  G22_EVALUATION_CLAIM,
   G22_FAN_IN,
   G22_FINDING,
   G22_GENERATION_CLAIM,
@@ -138,6 +140,7 @@ function emptyGenericPlanGap(bundle: DocumentBundle): FormalArtifactEnvelope {
   });
   genericDocument.created_at = "2026-07-27T19:59:00Z";
   genericDocument.observed_artifact_refs = [G22_FAN_IN];
+  genericDocument.solution_exploration_observations = [];
   genericDocument.gaps = [];
   genericDocument.unresolved_decision_relevant_questions = ["question_demand"];
   const artifactPath = "adaptations/gap-snapshots/discovery_plan_empty.r1.json";
@@ -151,6 +154,70 @@ function emptyGenericPlanGap(bundle: DocumentBundle): FormalArtifactEnvelope {
     content_hash: canonicalContentHash(genericDocument),
     document: genericDocument,
   } as FormalArtifactEnvelope;
+}
+
+function setSolutionExplorationState(
+  bundle: DocumentBundle,
+  status:
+    | "not_yet_explored"
+    | "explored_no_other_formal_solution"
+    | "insufficient_evidence"
+    | "not_applicable",
+  consideredApproaches: readonly Record<string, unknown>[] = [],
+): void {
+  const evaluation = effective(bundle, G23_EVALUATION);
+  evaluation.solution_exploration = {
+    status,
+    status_rationale: `SYNTHETIC explicit ${status} state for focused regression.`,
+    considered_approaches: structuredClone(consideredApproaches),
+  };
+  if (status === "insufficient_evidence") evaluation.decision_sufficiency = "insufficient_evidence";
+  refresh(bundle, G23_EVALUATION);
+  const solution = effective(bundle, G23_SOLUTION);
+  const summary = {
+    solution_evaluation_ref: G23_EVALUATION,
+    solution_evaluation_content_hash: canonicalContentHash(evaluation),
+    exploration_status: status,
+    selection_posture: "provisional_implementation",
+    status_rationale: (evaluation.solution_exploration as Record<string, unknown>).status_rationale,
+    formal_solution_refs: [G23_SOLUTION],
+    formal_solutions: [
+      {
+        solution_ref: G23_SOLUTION,
+        solution_content_hash: canonicalContentHash(solution),
+        disposition: "selected",
+        solution_id: solution.solution_id,
+        solution_type: solution.solution_type,
+        solution_behavior: solution.solution_behavior,
+        delivery_form: solution.delivery_form,
+        uses_ai: solution.uses_ai,
+      },
+    ],
+    selected_solution_ref: G23_SOLUTION,
+    alternative_solution_refs: [],
+    rejected_solutions: [],
+    considered_approaches: structuredClone(consideredApproaches),
+    critical_unknowns: structuredClone(evaluation.critical_unknowns),
+    limitations: structuredClone(evaluation.limitations),
+  };
+  for (const opportunityRef of [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B]) {
+    const opportunity = effective(bundle, opportunityRef);
+    opportunity.solution_evaluation_summary = structuredClone(summary);
+    const opportunityEnvelope = entry(bundle, opportunityRef);
+    if (consideredApproaches.length > 0) {
+      opportunityEnvelope.input_refs = [
+        ...new Set([...(opportunityEnvelope.input_refs as string[]), G22_EVALUATION_CLAIM]),
+      ].sort();
+    }
+    refresh(bundle, opportunityRef);
+  }
+  const evaluationEnvelope = entry(bundle, G23_EVALUATION);
+  if (consideredApproaches.length > 0) {
+    evaluationEnvelope.input_refs = [
+      ...new Set([...(evaluationEnvelope.input_refs as string[]), G22_EVALUATION_CLAIM]),
+    ].sort();
+    refresh(bundle, G23_EVALUATION);
+  }
 }
 
 async function setup(context: TestContext, suffix: string): Promise<State> {
@@ -264,6 +331,132 @@ test("G2.3 validates a closed conversion, formal thesis, freeze, and semantic me
   const result = validator.validateDocumentBundle(state.bundle);
   assert.equal(result.valid, true, JSON.stringify(result.referenceErrors, null, 2));
   assert.equal(synthesisEnvelopes(state.bundle).length, SYNTHESIS_PATHS.size);
+});
+
+test("G2.3 preserves explicit single-Solution exploration states and provisional posture", async (context) => {
+  const validator = await createArtifactValidator(repositoryRoot);
+  const cases: readonly {
+    readonly status:
+      | "not_yet_explored"
+      | "explored_no_other_formal_solution"
+      | "insufficient_evidence"
+      | "not_applicable";
+    readonly approaches?: readonly Record<string, unknown>[];
+  }[] = [
+    { status: "not_yet_explored" },
+    {
+      status: "explored_no_other_formal_solution",
+      approaches: [
+        {
+          approach_id: "approach_manual_review",
+          implementation_direction: "SYNTHETIC manual review workflow",
+          disposition: "not_formalized",
+          disposition_reasons: ["SYNTHETIC no separate formal thesis was retained."],
+          material_bindings: [
+            { ref: G22_EVALUATION_CLAIM, content_hash: canonicalContentHash("placeholder") },
+          ],
+          unknowns: ["SYNTHETIC unknown"],
+          limitations: ["SYNTHETIC limitation"],
+        },
+      ],
+    },
+    { status: "insufficient_evidence" },
+    { status: "not_applicable" },
+  ];
+  for (const [index, testCase] of cases.entries()) {
+    const state = await setup(context, `exploration-${index}`);
+    const bundle = clone(state.bundle);
+    const approaches = testCase.approaches?.map((approach) => ({
+      ...approach,
+      material_bindings: [
+        {
+          ref: G22_EVALUATION_CLAIM,
+          content_hash: canonicalContentHash(effective(bundle, G22_EVALUATION_CLAIM)),
+        },
+      ],
+    }));
+    setSolutionExplorationState(bundle, testCase.status, approaches);
+    const result = validator.validateDocumentBundle(bundle);
+    assert.equal(
+      result.valid,
+      true,
+      `${testCase.status}: ${JSON.stringify(result.referenceErrors)}`,
+    );
+    const opportunity = effective(bundle, G23_OPPORTUNITY_A);
+    const summary = opportunity.solution_evaluation_summary as Record<string, unknown>;
+    assert.equal(summary.exploration_status, testCase.status);
+    assert.equal(summary.selection_posture, "provisional_implementation");
+  }
+});
+
+test("G2.3 rejects compared status without complete closure and bad considered material hash", async (context) => {
+  const state = await setup(context, "exploration-negative");
+  const validator = await createArtifactValidator(repositoryRoot);
+  const compared = clone(state.bundle);
+  const comparedEvaluation = effective(compared, G23_EVALUATION);
+  comparedEvaluation.solution_exploration = {
+    status: "compared_multiple_formal_solutions",
+    status_rationale: "SYNTHETIC invalid comparison claim.",
+    considered_approaches: [],
+  };
+  refresh(compared, G23_EVALUATION);
+  const comparedResult = validator.validateDocumentBundle(compared);
+  assert.equal(comparedResult.valid, false);
+  assert.ok(
+    comparedResult.documents
+      .flatMap((document) => document.errors)
+      .some((error) => error.code === "schema.minItems"),
+  );
+
+  const badMaterial = clone(state.bundle);
+  const approach = {
+    approach_id: "approach_bad_hash",
+    implementation_direction: "SYNTHETIC other approach",
+    disposition: "not_formalized",
+    disposition_reasons: ["SYNTHETIC not retained."],
+    material_bindings: [{ ref: G22_EVALUATION_CLAIM, content_hash: "0".repeat(64) }],
+    unknowns: [],
+    limitations: [],
+  };
+  setSolutionExplorationState(badMaterial, "explored_no_other_formal_solution", [approach]);
+  const badMaterialResult = validator.validateDocumentBundle(badMaterial);
+  assert.equal(badMaterialResult.valid, false);
+  assert.ok(
+    badMaterialResult.referenceErrors.some(
+      (error) =>
+        error.code === "reference.hash_mismatch" ||
+        error.code === "synthesis.considered_approach_material_binding_mismatch",
+    ),
+  );
+});
+
+test("Gap projection exposes Solution exploration without creating a Gap or Unit", async (context) => {
+  const state = await setup(context, "gap-observation");
+  const documents = new Map(
+    currentEnvelopes(state.bundle).map((envelope) => [
+      envelope.artifact_path,
+      {
+        path: envelope.artifact_path,
+        schemaVersion: envelope.artifact_type,
+        document: envelope.document,
+        envelope,
+      },
+    ]),
+  );
+  assert.deepEqual(
+    deriveSolutionExplorationObservations(documents, [G23_EVALUATION, G23_OPPORTUNITY_A]),
+    [
+      {
+        solution_evaluation_ref: G23_EVALUATION,
+        solution_evaluation_content_hash: synthesisEnvelope(state.bundle, G23_EVALUATION)
+          .content_hash,
+        opportunity_refs: [G23_OPPORTUNITY_A],
+        exploration_status: "not_yet_explored",
+        selection_posture: "provisional_implementation",
+        planning_effect: "main_agent_decides_whether_to_adapt",
+      },
+    ],
+  );
 });
 
 test("G2.3 rejects closed lineage, source-separation, freeze, and merge mutations with stable codes", async (context) => {

@@ -384,6 +384,63 @@ function renderReportStatistics(report: Record<string, unknown>, zh = false): st
     : `- Readable sources ${String(statistics.readable_source_count ?? 0)}; quantitative signals ${String(statistics.quantitative_signal_count ?? 0)} (decision-grade ${String(statistics.decision_grade_quantitative_signal_count ?? 0)}, directional/context ${String(statistics.directional_or_context_quantitative_signal_count ?? 0)}); competitive/substitute objects ${String(statistics.competitive_object_count ?? 0)}; full gap rows ${String(statistics.full_gap_row_count ?? 0)}; critical gap groups ${String(statistics.critical_gap_group_count ?? 0)}.\n`;
 }
 
+function renderSolutionEvaluations(
+  report: Record<string, unknown>,
+  zh: boolean,
+  compact: boolean,
+): string {
+  const evaluations = records(report.solution_evaluations);
+  if (evaluations.length === 0) return zh ? "- 无\n" : "- None recorded.\n";
+  return `${evaluations
+    .map((row) => {
+      const evaluation = isRecord(row.evaluation) ? row.evaluation : {};
+      const rejected = records(evaluation.rejected_solutions);
+      const considered = records(evaluation.considered_approaches);
+      const formalSolutions = records(evaluation.formal_solutions);
+      const lines = [
+        `### ${userVisibleText(row.opportunity_title, zh)}\n`,
+        `${zh ? "替代方案探索状态" : "Alternative exploration status"}: ${localizedEnum(evaluation.exploration_status, zh)}\n\n`,
+        `${zh ? "当前方案表述" : "Current solution posture"}: ${localizedEnum(evaluation.selection_posture, zh)}\n\n`,
+        `${zh ? "状态依据" : "Status rationale"}: ${userVisibleText(evaluation.status_rationale, zh)}\n`,
+        `\n${zh ? "全部正式方案" : "All formal solutions"}:\n`,
+        markdownList(
+          formalSolutions.map((solution) => {
+            const ai =
+              solution.uses_ai === true
+                ? zh
+                  ? "使用 AI"
+                  : "uses AI"
+                : zh
+                  ? "不使用 AI"
+                  : "does not use AI";
+            return `${localizedEnum(solution.disposition, zh)}: ${userVisibleText(solution.solution_behavior, zh)} (${userVisibleText(solution.solution_type, zh)}; ${userVisibleText(solution.delivery_form, zh)}; ${ai})`;
+          }),
+          zh ? "无" : "None recorded.",
+        ),
+      ];
+      if (!compact) {
+        lines.push(
+          `\n${zh ? "保留的替代方案" : "Retained alternatives"}: ${strings(evaluation.alternative_solution_refs).length}\n`,
+          `\n${zh ? "未保留的正式方案" : "Rejected formal solutions"}: ${rejected.length}\n`,
+          `\n${zh ? "研究过但未正式化的方向" : "Considered but non-formalized approaches"}:\n`,
+          markdownList(
+            considered.map((approach) =>
+              userVisibleText(
+                `${String(approach.implementation_direction)}: ${strings(approach.disposition_reasons).join("; ")}`,
+                zh,
+              ),
+            ),
+            zh ? "无" : "None recorded.",
+          ),
+          `\n${zh ? "方案选择未知项" : "Solution-selection unknowns"}:\n`,
+          boundedMarkdownList(evaluation.critical_unknowns, zh),
+        );
+      }
+      return lines.join("");
+    })
+    .join("\n")}\n`;
+}
+
 function renderGenericAuditAppendix(
   report: Record<string, unknown>,
   title: string,
@@ -595,6 +652,8 @@ function renderDiscoveryDecisionBrief(report: Record<string, unknown>): string {
     `${userVisibleText(context.partial_order_summary, zh)}\n\n`,
     `## ${zh ? "研究概览" : "Key Research Counts"}\n`,
     renderReportStatistics(report, zh),
+    `\n## ${zh ? "方案探索与暂定实现" : "Solution Exploration And Provisional Implementations"}\n`,
+    renderSolutionEvaluations(report, zh, true),
     `\n## ${zh ? "关键支持材料" : "Decisive Support"}\n`,
     summaryList(context.decisive_support, zh, 4),
     `\n## ${zh ? "关键反对材料" : "Decisive Opposition"}\n`,
@@ -623,6 +682,8 @@ function renderDiscoveryFullReport(report: Record<string, unknown>): string {
     `\n${zh ? "生成时间" : "Generated at"}: ${String(metadata.generated_at)}\n`,
     `\n## ${zh ? "研究概览" : "Key Research Counts"}\n`,
     renderReportStatistics(report, zh),
+    `\n## ${zh ? "方案探索与暂定实现" : "Solution Exploration And Provisional Implementations"}\n`,
+    renderSolutionEvaluations(report, zh, false),
   ];
   for (const sectionId of DISCOVERY_REPORT_SECTION_ORDER) {
     if (sectionId === "top_opportunities") {
@@ -700,6 +761,7 @@ function deriveDiscoveryReportEnvelopes(
     recommendation_meaning: context.recommendation_meaning,
     recommended_first_bet: context.recommended_first_bet,
     alternative_bets: context.alternative_bets,
+    solution_evaluations: report.solution_evaluations,
     partial_order_summary: context.partial_order_summary,
     decisive_supporting_refs: supportingRefs,
     decisive_opposing_refs: opposingRefs,
@@ -739,6 +801,7 @@ function deriveDiscoveryReportEnvelopes(
     recommendation_meaning: context.recommendation_meaning,
     recommended_first_bet: context.recommended_first_bet,
     alternative_bets: context.alternative_bets,
+    solution_evaluations: report.solution_evaluations,
     partial_order_summary: context.partial_order_summary,
     decisive_supporting_refs: supportingRefs,
     decisive_opposing_refs: opposingRefs,

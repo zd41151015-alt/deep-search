@@ -43,6 +43,9 @@ const OPPORTUNITY_SEMANTIC_FIELDS = [
   "research_axes",
   "selected_delivery_form",
   "incremental_value_over_baseline",
+  "baseline_option_ref",
+  "solution_evaluation_ref",
+  "solution_evaluation_summary",
   "mental_positioning",
   "mental_position_occupation",
   "trigger_phrase",
@@ -79,6 +82,26 @@ function bindingRefs(value: unknown): readonly string[] {
         isRecord(entry) && typeof entry.ref === "string" ? [entry.ref] : [],
       )
     : [];
+}
+
+function solutionSummaryClosureRefs(value: unknown): readonly string[] {
+  if (!isRecord(value)) return [];
+  return [
+    ...strings([value.solution_evaluation_ref, value.selected_solution_ref]),
+    ...strings(value.formal_solution_refs),
+    ...strings(value.alternative_solution_refs),
+    ...records(value.rejected_solutions).flatMap((rejected) => [
+      ...strings([rejected.solution_ref]),
+      ...strings(rejected.judgment_assessment_refs),
+    ]),
+    ...records(value.considered_approaches).flatMap((approach) =>
+      records(approach.material_bindings).flatMap((binding) => strings([binding.ref])),
+    ),
+  ];
+}
+
+function records(value: unknown): readonly Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
 }
 
 function formationBindings(value: unknown): readonly SubjectFormationBinding[] {
@@ -164,6 +187,7 @@ export function subjectRevisionDescriptor(
         ...strings(document.judgment_assessment_refs),
         ...strings(document.audit_refs),
         ...strings(mentalPosition.evidence_refs),
+        ...solutionSummaryClosureRefs(document.solution_evaluation_summary),
       ]),
       formationBindings: [],
       expectedPath:

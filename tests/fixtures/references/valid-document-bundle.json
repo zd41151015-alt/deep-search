@@ -84,6 +84,7 @@
         "phase": "discovery",
         "wave_id": "wave_1",
         "observed_artifact_refs": ["artifacts/lanes/user-language.json"],
+        "solution_exploration_observations": [],
         "gaps": [
           {
             "gap_id": "gap_buyer_001",

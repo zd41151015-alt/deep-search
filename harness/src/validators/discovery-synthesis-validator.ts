@@ -102,11 +102,13 @@ function sourceCandidateRefs(
     });
   }
   if (entry.schemaVersion === "startup_opportunity.opportunity_thesis.v1") {
+    const summary = isRecord(entry.document.solution_evaluation_summary)
+      ? entry.document.solution_evaluation_summary
+      : {};
     return [
       entry.document.demand_thesis_ref,
       entry.document.baseline_option_ref,
-      entry.document.selected_solution_ref,
-      ...strings(entry.document.alternative_solution_refs),
+      ...strings(summary.formal_solution_refs),
     ].flatMap((ref) => {
       const formal = typeof ref === "string" ? byPath.get(ref) : undefined;
       return typeof formal?.document.source_candidate_ref === "string"
@@ -135,14 +137,21 @@ function materialRefs(entry: DiscoverySynthesisDocument): readonly string[] {
         ...strings(document.opposing_claim_refs),
         ...strings(document.judgment_assessment_refs),
       ];
-    case "startup_opportunity.solution_evaluation.v1":
+    case "startup_opportunity.solution_evaluation.v1": {
+      const exploration = isRecord(document.solution_exploration)
+        ? document.solution_exploration
+        : {};
       return [
         ...refsFromSourceGroups(document),
         ...strings(document.judgment_assessment_refs),
         ...records(document.rejected_solutions).flatMap((value) =>
           strings(value.judgment_assessment_refs),
         ),
+        ...records(exploration.considered_approaches).flatMap((approach) =>
+          records(approach.material_bindings).map((binding) => String(binding.ref)),
+        ),
       ];
+    }
     case "startup_opportunity.opportunity_thesis.v1":
       return [
         ...strings(document.source_lanes),
@@ -240,6 +249,31 @@ function refsFromResearchHandoffs(document: Record<string, unknown>): readonly s
   );
 }
 
+function consideredApproachRefs(document: Record<string, unknown>): readonly string[] {
+  const exploration = isRecord(document.solution_exploration) ? document.solution_exploration : {};
+  return records(exploration.considered_approaches).flatMap((approach) =>
+    records(approach.material_bindings).flatMap((binding) =>
+      typeof binding.ref === "string" ? [binding.ref] : [],
+    ),
+  );
+}
+
+function summaryRefs(document: Record<string, unknown>): readonly string[] {
+  const summary = isRecord(document.solution_evaluation_summary)
+    ? document.solution_evaluation_summary
+    : {};
+  return [
+    ...strings(summary.formal_solution_refs),
+    ...records(summary.rejected_solutions).flatMap((rejected) => [
+      ...strings([rejected.solution_ref]),
+      ...strings(rejected.judgment_assessment_refs),
+    ]),
+    ...records(summary.considered_approaches).flatMap((approach) =>
+      records(approach.material_bindings).flatMap((binding) => strings([binding.ref])),
+    ),
+  ];
+}
+
 function expectedInputRefs(entry: DiscoverySynthesisDocument): readonly string[] {
   const document = entry.document;
   const common = [
@@ -314,6 +348,7 @@ function expectedInputRefs(entry: DiscoverySynthesisDocument): readonly string[]
         ]),
         ...refsFromSourceGroups(document),
         ...strings(document.judgment_assessment_refs),
+        ...consideredApproachRefs(document),
       ]);
     case "startup_opportunity.opportunity_thesis.v1":
       return uniqueSorted([
@@ -327,6 +362,7 @@ function expectedInputRefs(entry: DiscoverySynthesisDocument): readonly string[]
           document.solution_evaluation_ref,
         ]),
         ...strings(document.alternative_solution_refs),
+        ...summaryRefs(document),
         ...strings(document.source_lanes),
         ...strings(document.supporting_insight_refs),
         ...strings(document.opposing_claim_refs),
@@ -834,6 +870,18 @@ function validateSolutionEvaluations(
     const classified = [selected, ...alternatives, ...rejected];
     const solutions = solutionRefs.map((ref) => byPath.get(ref));
     const comparisons = records(evaluation.document.baseline_comparisons);
+    const exploration = isRecord(evaluation.document.solution_exploration)
+      ? evaluation.document.solution_exploration
+      : {};
+    const explorationStatus = String(exploration.status);
+    const decisionBySolution = new Map(
+      comparisons.map((comparison) => [String(comparison.solution_ref), comparison.decision]),
+    );
+    const expectedDecisionBySolution = new Map<string, string>([
+      [selected, "selected"],
+      ...alternatives.map((ref): [string, string] => [ref, "alternative"]),
+      ...rejected.map((ref): [string, string] => [ref, "rejected"]),
+    ]);
     if (
       !setEqual(solutionRefs, classified) ||
       new Set(classified).size !== classified.length ||
@@ -847,7 +895,12 @@ function validateSolutionEvaluations(
         comparisons.map((entry) => String(entry.solution_ref)),
         solutionRefs,
       ) ||
-      comparisons.find((entry) => entry.solution_ref === selected)?.decision !== "selected"
+      comparisons.length !== new Set(comparisons.map((entry) => entry.solution_ref)).size ||
+      [...expectedDecisionBySolution].some(
+        ([ref, decision]) => decisionBySolution.get(ref) !== decision,
+      ) ||
+      (explorationStatus === "compared_multiple_formal_solutions" && solutionRefs.length < 2) ||
+      (explorationStatus === "explored_no_other_formal_solution" && solutionRefs.length !== 1)
     ) {
       errors.push(
         issue(
@@ -857,7 +910,78 @@ function validateSolutionEvaluations(
         ),
       );
     }
+    const approaches = records(exploration.considered_approaches);
+    const approachIds = approaches.map((approach) => String(approach.approach_id));
+    const materialBindingMismatch = approaches.some((approach) =>
+      records(approach.material_bindings).some((binding) => {
+        const material = typeof binding.ref === "string" ? byPath.get(binding.ref) : undefined;
+        return (
+          material === undefined ||
+          material.document.run_id !== evaluation.document.run_id ||
+          binding.content_hash !== targetHash(material)
+        );
+      }),
+    );
+    if (new Set(approachIds).size !== approachIds.length || materialBindingMismatch) {
+      errors.push(
+        issue(
+          "synthesis.considered_approach_material_binding_mismatch",
+          `${evaluation.path}#/solution_exploration/considered_approaches`,
+          "considered approaches must have unique identities and exact same-Run formal material ref/hash bindings",
+        ),
+      );
+    }
   }
+}
+
+export function solutionSelectionPosture(status: unknown): string {
+  return status === "compared_multiple_formal_solutions"
+    ? "compared_selection"
+    : "provisional_implementation";
+}
+
+export function deriveSolutionEvaluationSummary(
+  evaluation: DiscoverySynthesisDocument,
+  byPath: ReadonlyMap<string, DiscoverySynthesisDocument>,
+): Record<string, unknown> {
+  const exploration = isRecord(evaluation.document.solution_exploration)
+    ? evaluation.document.solution_exploration
+    : {};
+  return {
+    solution_evaluation_ref: evaluation.path,
+    solution_evaluation_content_hash: targetHash(evaluation),
+    exploration_status: exploration.status,
+    selection_posture: solutionSelectionPosture(exploration.status),
+    status_rationale: exploration.status_rationale,
+    formal_solution_refs: structuredClone(evaluation.document.solution_hypothesis_refs),
+    formal_solutions: strings(evaluation.document.solution_hypothesis_refs).map((ref) => {
+      const solution = byPath.get(ref);
+      const rejectedRefs = new Set(
+        records(evaluation.document.rejected_solutions).map((entry) => String(entry.solution_ref)),
+      );
+      return {
+        solution_ref: ref,
+        solution_content_hash: solution === undefined ? "" : targetHash(solution),
+        disposition:
+          ref === evaluation.document.selected_solution_ref
+            ? "selected"
+            : rejectedRefs.has(ref)
+              ? "rejected"
+              : "alternative",
+        solution_id: solution?.document.solution_id,
+        solution_type: solution?.document.solution_type,
+        solution_behavior: solution?.document.solution_behavior,
+        delivery_form: solution?.document.delivery_form,
+        uses_ai: solution?.document.uses_ai,
+      };
+    }),
+    selected_solution_ref: evaluation.document.selected_solution_ref,
+    alternative_solution_refs: structuredClone(evaluation.document.alternative_solution_refs),
+    rejected_solutions: structuredClone(evaluation.document.rejected_solutions),
+    considered_approaches: structuredClone(exploration.considered_approaches),
+    critical_unknowns: structuredClone(evaluation.document.critical_unknowns),
+    limitations: structuredClone(evaluation.document.limitations),
+  };
 }
 
 function validateThesesSnapshotsAndMerge(
@@ -886,6 +1010,9 @@ function validateThesesSnapshotsAndMerge(
         strings(evaluation.document.alternative_solution_refs),
         strings(opportunity.document.alternative_solution_refs),
       ) ||
+      !isRecord(opportunity.document.solution_evaluation_summary) ||
+      canonicalJson(opportunity.document.solution_evaluation_summary) !==
+        canonicalJson(deriveSolutionEvaluationSummary(evaluation, byPath)) ||
       selected.document.delivery_form !== opportunity.document.selected_delivery_form
     ) {
       errors.push(
@@ -908,8 +1035,11 @@ function validateThesesSnapshotsAndMerge(
       String(entry?.document.solution_evaluation_ref),
     );
     const expectedSolutions = subjects.flatMap((entry) => [
-      String(entry?.document.selected_solution_ref),
-      ...strings(entry?.document.alternative_solution_refs),
+      ...strings(
+        isRecord(entry?.document.solution_evaluation_summary)
+          ? entry.document.solution_evaluation_summary.formal_solution_refs
+          : [],
+      ),
     ]);
     const sourceDocuments = subjects.flatMap((entry) =>
       [entry?.document.demand_thesis_ref, entry?.document.solution_evaluation_ref].flatMap((ref) =>

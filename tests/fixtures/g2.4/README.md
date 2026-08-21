@@ -9,3 +9,5 @@ The G2.4 test mutates exact task/material lineage, Evidence substrate binding, b
 hard gates, panel closure, evidence ceiling, sensitivity, portfolio, freshness, report closure, and
 current Envelope binding. Runtime tests exercise immutable publication, exact current receipt
 recovery, terminal branch projection, report materialization, checkpoint, and reopen.
+
+Each Comparison, report, Decision Brief, and report view carries the exact Opportunity Solution Evaluation summary, including exploration state, provisional/compared posture, and every formal Solution classification.

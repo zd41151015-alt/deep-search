@@ -6,3 +6,5 @@ Baseline Option, Solution Hypothesis, Solution Evaluation, two Opportunity Thesi
 immutable pre-enrichment snapshot, and a semantic merge result. Every value is marked synthetic;
 the fixture performs no research and claims no Evidence truth, external validation, or validation
 success.
+
+The fixture's single formal Solution explicitly declares `not_yet_explored` and therefore projects a provisional implementation. This is intentional: a single Solution is not treated as proof that alternatives were compared.

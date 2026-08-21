@@ -16,6 +16,7 @@
     "ai_solution_gate_contract",
     "ai_mandatory_bundle_contract",
     "decision_tier_ceiling",
+    "solution_exploration_projection_contract",
     "publication_order",
     "reporting_contract",
     "execution_boundary"
@@ -314,6 +315,34 @@
         },
         "mixed_inputs_use_strictest_ceiling": {
           "const": true
+        }
+      }
+    },
+    "solution_exploration_projection_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "comparison_reads_exact_opportunity_summary",
+        "report_projects_all_formal_solutions",
+        "non_compared_selection_posture",
+        "changes_demand_gate_or_ranking",
+        "harness_selects_or_generates_solutions"
+      ],
+      "properties": {
+        "comparison_reads_exact_opportunity_summary": {
+          "const": true
+        },
+        "report_projects_all_formal_solutions": {
+          "const": true
+        },
+        "non_compared_selection_posture": {
+          "const": "provisional_implementation"
+        },
+        "changes_demand_gate_or_ranking": {
+          "const": false
+        },
+        "harness_selects_or_generates_solutions": {
+          "const": false
         }
       }
     },

@@ -31,6 +31,20 @@
     "generation_and_evaluation_distinct": true,
     "overlap_requires_disclosure": true
   },
+  "solution_exploration_contract": {
+    "statuses": [
+      "compared_multiple_formal_solutions",
+      "explored_no_other_formal_solution",
+      "not_yet_explored",
+      "insufficient_evidence",
+      "not_applicable"
+    ],
+    "status_is_agent_declared": true,
+    "harness_infers_status_from_solution_count": false,
+    "compared_requires_multiple_and_closed_baselines": true,
+    "non_compared_selection_posture": "provisional_implementation",
+    "automatic_gap_or_unit_creation": false
+  },
   "freeze_contract": {
     "before_enrichment": true,
     "immutable": true,

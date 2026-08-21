@@ -15,6 +15,7 @@ export interface DiscoverySynthesisPolicy extends Record<string, unknown> {
   readonly kind_target_map: Readonly<Record<string, string>>;
   readonly publication_order: readonly string[];
   readonly source_separation: Readonly<Record<string, boolean>>;
+  readonly solution_exploration_contract: Readonly<Record<string, unknown>>;
   readonly freeze_contract: Readonly<Record<string, unknown>>;
   readonly merge_contract: Readonly<Record<string, unknown>>;
   readonly execution_boundary: Readonly<Record<string, unknown>>;
@@ -62,6 +63,20 @@ export async function loadDiscoverySynthesisPolicy(
     canonicalJson(policy.publication_order) !== canonicalJson(EXPECTED_ORDER) ||
     policy.source_separation.generation_and_evaluation_distinct !== true ||
     policy.source_separation.overlap_requires_disclosure !== true ||
+    canonicalJson(policy.solution_exploration_contract.statuses) !==
+      canonicalJson([
+        "compared_multiple_formal_solutions",
+        "explored_no_other_formal_solution",
+        "not_yet_explored",
+        "insufficient_evidence",
+        "not_applicable",
+      ]) ||
+    policy.solution_exploration_contract.status_is_agent_declared !== true ||
+    policy.solution_exploration_contract.harness_infers_status_from_solution_count !== false ||
+    policy.solution_exploration_contract.compared_requires_multiple_and_closed_baselines !== true ||
+    policy.solution_exploration_contract.non_compared_selection_posture !==
+      "provisional_implementation" ||
+    policy.solution_exploration_contract.automatic_gap_or_unit_creation !== false ||
     policy.freeze_contract.revision_policy !== "new_immutable_snapshot_revision_required" ||
     policy.merge_contract.all_frozen_theses_classified_once !== true ||
     policy.merge_contract.title_similarity_only_forbidden !== true ||

@@ -6,6 +6,8 @@ Discovery fan-in 完成后，进入 G2.3 synthesis 前必须先发布当前 Plan
 
 正式方向形成前先做方案中立的用户语言、买方、价格、替代、渠道和商业行为扫描；这一阶段不得做具体方案的定价、获客或留存评估。形成具体方向后，才可深挖该方案的定价、获客、留存、单位经济和合规。产品或 AI seed 只是搜索输入，不是机会成立的证据。
 
+G2.3 Solution Evaluation 必须由主 Agent 明确声明替代方案探索状态：`compared_multiple_formal_solutions`、`explored_no_other_formal_solution`、`not_yet_explored`、`insufficient_evidence` 或 `not_applicable`。Harness 不按 Solution 数量推断状态，也不生成、筛选或决定研究方向。单一 Solution 在尚未探索、证据不足或不适用时仍可继续支撑 Opportunity Thesis，但下游必须称为暂定实现；研究过但未正式化时要保留考虑过的实现方向、未正式化原因、材料引用、未知项和局限。
+
 方案中立阶段同时执行 provider-agnostic `broad_scan`，方向形成后执行 `targeted_deep_dive`。每个 Lane 只对 Dispatch 分配的量化 family 和广义替代类型声明 `observed | partial | unavailable | not_applicable`；缺数据保留 attempted routes、原因、替代指标、limitations 和排序影响。八个量化 family 与七类替代的整体计划覆盖由 candidate/Wave/report 聚合显示。API 只是可选 acquisition method，Harness 不代 agent 查询。
 
 Incumbent Absorption & Response Risk 不得进入 solution-neutral candidate generation。候选形成后的 evaluation 对 assigned candidates 做 bounded lightweight scan；只有 shortlist/retained opportunities 才由 immutable Execution Plan/Dispatch 分配 targeted deep dive。潜在 responder 不限同类公司，也包括 platform/suite owner、adjacent leader、channel/distribution controller、data owner 和 marketplace。分别判断 ability、五类响应成本、incentive/cannibalization、horizon、distribution leverage、thesis coverage 与 residual differentiation；不得由 ability 高推导一定响应或候选失败。Agent 只提交这些结构化研究维度与 Evidence/不确定性，不编写 pass/fail、淘汰、行动、推荐上限或正式 strategic implication；Harness 固定生成 validator 可验证的 reference-only strategic context。该分析只作为综合判断上下文，不改变 ranking eligibility、Claim confidence 或 recommendation ceiling；缺材料发布 `unknown`，其正式表述只说明材料与语义不足以形成完整结论，不声称没有 assessment 或 Evidence；不适用发布 `not_applicable`。

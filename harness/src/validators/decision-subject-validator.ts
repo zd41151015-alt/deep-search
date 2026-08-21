@@ -412,6 +412,26 @@ function validateSynthesis(
       ),
     );
   }
+  const subjectSummary =
+    subject?.schemaVersion === "startup_opportunity.opportunity_thesis.v1" &&
+    isRecord(subject.document.solution_evaluation_summary)
+      ? subject.document.solution_evaluation_summary
+      : null;
+  const direction = isRecord(document.direction) ? document.direction : {};
+  if (
+    subjectSummary !== null
+      ? !isRecord(direction.solution_evaluation_summary) ||
+        canonicalJson(direction.solution_evaluation_summary) !== canonicalJson(subjectSummary)
+      : direction.solution_evaluation_summary !== undefined
+  ) {
+    errors.push(
+      issue(
+        "decision_subject.solution_exploration_projection_mismatch",
+        `${synthesis.path}#/direction/solution_evaluation_summary`,
+        "an Opportunity synthesis must exactly project its Solution Evaluation summary, while other subject kinds must not carry one",
+      ),
+    );
+  }
 }
 
 function validateSnapshot(

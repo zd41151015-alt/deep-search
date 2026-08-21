@@ -17,6 +17,7 @@
     "source_merge_ref",
     "enrichment_fan_in_ref",
     "opportunity_ref",
+    "solution_evaluation_summary",
     "value_layer_analysis_ref",
     "user_state_context_model_ref",
     "buyer_purchase_language_ref",
@@ -88,6 +89,9 @@
     },
     "opportunity_ref": {
       "$ref": "./definitions.schema.json#/$defs/opportunityRef"
+    },
+    "solution_evaluation_summary": {
+      "$ref": "./definitions.schema.json#/$defs/solutionEvaluationSummary"
     },
     "value_layer_analysis_ref": {
       "$ref": "./definitions.schema.json#/$defs/artifactRef"

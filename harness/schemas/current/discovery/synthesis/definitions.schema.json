@@ -74,6 +74,204 @@
       "type": "string",
       "pattern": "^artifacts/discovery/merges/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
     },
+    "solutionExplorationStatus": {
+      "enum": [
+        "compared_multiple_formal_solutions",
+        "explored_no_other_formal_solution",
+        "not_yet_explored",
+        "insufficient_evidence",
+        "not_applicable"
+      ]
+    },
+    "solutionSelectionPosture": {
+      "enum": ["compared_selection", "provisional_implementation"]
+    },
+    "formalMaterialBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "content_hash"],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/artifactRef"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "consideredApproach": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approach_id",
+        "implementation_direction",
+        "disposition",
+        "disposition_reasons",
+        "material_bindings",
+        "unknowns",
+        "limitations"
+      ],
+      "properties": {
+        "approach_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "implementation_direction": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "disposition": {
+          "enum": ["not_formalized", "not_retained_as_formal_solution"]
+        },
+        "disposition_reasons": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "material_bindings": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/formalMaterialBinding"
+          }
+        },
+        "unknowns": {
+          "$ref": "#/$defs/uniqueStringArray"
+        },
+        "limitations": {
+          "$ref": "#/$defs/uniqueStringArray"
+        }
+      }
+    },
+    "rejectedSolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["solution_ref", "reasons", "judgment_assessment_refs"],
+      "properties": {
+        "solution_ref": {
+          "$ref": "#/$defs/solutionRef"
+        },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "judgment_assessment_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../candidates/definitions.schema.json#/$defs/judgmentRef"
+          }
+        }
+      }
+    },
+    "formalSolutionProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "solution_ref",
+        "solution_content_hash",
+        "disposition",
+        "solution_id",
+        "solution_type",
+        "solution_behavior",
+        "delivery_form",
+        "uses_ai"
+      ],
+      "properties": {
+        "solution_ref": { "$ref": "#/$defs/solutionRef" },
+        "solution_content_hash": { "$ref": "#/$defs/sha256" },
+        "disposition": { "enum": ["selected", "alternative", "rejected"] },
+        "solution_id": { "$ref": "#/$defs/identifier" },
+        "solution_type": { "$ref": "#/$defs/nonEmptyString" },
+        "solution_behavior": { "$ref": "#/$defs/nonEmptyString" },
+        "delivery_form": { "$ref": "#/$defs/deliveryForm" },
+        "uses_ai": { "type": "boolean" }
+      }
+    },
+    "solutionEvaluationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "solution_evaluation_ref",
+        "solution_evaluation_content_hash",
+        "exploration_status",
+        "selection_posture",
+        "status_rationale",
+        "formal_solution_refs",
+        "selected_solution_ref",
+        "alternative_solution_refs",
+        "rejected_solutions",
+        "considered_approaches",
+        "critical_unknowns",
+        "limitations"
+      ],
+      "properties": {
+        "solution_evaluation_ref": {
+          "$ref": "#/$defs/solutionEvaluationRef"
+        },
+        "solution_evaluation_content_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "exploration_status": {
+          "$ref": "#/$defs/solutionExplorationStatus"
+        },
+        "selection_posture": {
+          "$ref": "#/$defs/solutionSelectionPosture"
+        },
+        "status_rationale": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "formal_solution_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/solutionRef"
+          }
+        },
+        "formal_solutions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/formalSolutionProjection" }
+        },
+        "selected_solution_ref": {
+          "$ref": "#/$defs/solutionRef"
+        },
+        "alternative_solution_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/solutionRef"
+          }
+        },
+        "rejected_solutions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/rejectedSolution"
+          }
+        },
+        "considered_approaches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/consideredApproach"
+          }
+        },
+        "critical_unknowns": {
+          "$ref": "#/$defs/uniqueStringArray"
+        },
+        "limitations": {
+          "$ref": "#/$defs/uniqueStringArray"
+        }
+      }
+    },
     "nullableParent": {
       "anyOf": [
         {

@@ -21,6 +21,7 @@
     "portfolio_view_ref",
     "comparison_refs",
     "business_engine_refs",
+    "solution_evaluations",
     "top_opportunity_refs",
     "watchlist_refs",
     "rejected_opportunity_refs",
@@ -137,6 +138,14 @@
     },
     "business_engine_refs": {
       "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "solution_evaluations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/opportunitySolutionEvaluation"
+      }
     },
     "top_opportunity_refs": {
       "type": "array",
