@@ -639,11 +639,21 @@ function validateHashEntries(
   owner: DiscoveryEvaluationDocument,
   hashes: unknown,
   byPath: ReadonlyMap<string, DiscoveryEvaluationDocument>,
+  exactJsonlRecords: ReadonlyMap<string, Record<string, unknown>>,
   errors: ValidationIssue[],
 ): void {
   for (const entry of records(hashes)) {
     const linked = target(byPath, entry.ref);
-    if (linked === undefined || entry.content_hash !== canonicalContentHash(linked.document)) {
+    const exact =
+      linked === undefined && typeof entry.ref === "string"
+        ? exactJsonlRecords.get(entry.ref)
+        : undefined;
+    const document = linked?.document ?? exact;
+    if (
+      document === undefined ||
+      typeof entry.content_hash !== "string" ||
+      entry.content_hash !== canonicalContentHash(document)
+    ) {
       errors.push(
         issue(
           "g2_4.input_hash_mismatch",
@@ -929,10 +939,37 @@ function teamMaterialRefs(panel: Record<string, unknown>): readonly string[] {
   ]);
 }
 
+function invalidTeamMaterialRefs(
+  refs: readonly string[],
+  comparison: DiscoveryEvaluationDocument,
+  byPath: ReadonlyMap<string, DiscoveryEvaluationDocument>,
+  exactJsonlRecords: ReadonlyMap<string, Record<string, unknown>>,
+): readonly string[] {
+  return refs.filter((ref) => {
+    if (ref.startsWith("evidence/manifest.jsonl#")) {
+      const exact = exactJsonlRecords.get(ref);
+      return (
+        exact === undefined ||
+        exact.schema_version !== "startup_opportunity.evidence_store_record.v2" ||
+        exact.run_id !== comparison.document.run_id
+      );
+    }
+    const linked = target(byPath, ref);
+    if (linked === undefined || linked.document.run_id !== comparison.document.run_id) return true;
+    const subjectRefs = [
+      linked.document.subject_ref,
+      linked.document.opportunity_ref,
+      ...strings(linked.document.opportunity_refs),
+    ].filter((value): value is string => typeof value === "string");
+    return !subjectRefs.includes(String(comparison.document.opportunity_ref));
+  });
+}
+
 function validateTeamComparison(
   comparison: DiscoveryEvaluationDocument,
   scope: DiscoveryEvaluationDocument | undefined,
   byPath: ReadonlyMap<string, DiscoveryEvaluationDocument>,
+  exactJsonlRecords: ReadonlyMap<string, Record<string, unknown>>,
   errors: ValidationIssue[],
 ): void {
   const panel = teamPanel(comparison);
@@ -961,16 +998,7 @@ function validateTeamComparison(
     ...records(scopeContext?.known_strengths_and_gaps),
   ];
   const basisIds = strings(match.basis_condition_ids);
-  const invalidRefs = burdenRefs.filter((ref) => {
-    const linked = target(byPath, ref);
-    if (linked === undefined || linked.document.run_id !== comparison.document.run_id) return true;
-    const subjectRefs = [
-      linked.document.subject_ref,
-      linked.document.opportunity_ref,
-      ...strings(linked.document.opportunity_refs),
-    ].filter((value): value is string => typeof value === "string");
-    return !subjectRefs.includes(String(comparison.document.opportunity_ref));
-  });
+  const invalidRefs = invalidTeamMaterialRefs(burdenRefs, comparison, byPath, exactJsonlRecords);
   if (
     burden.opportunity_ref !== comparison.document.opportunity_ref ||
     match.opportunity_ref !== comparison.document.opportunity_ref ||
@@ -1161,13 +1189,20 @@ function validateEvaluationAndReporting(
 
   for (const entry of entries) {
     if ("input_artifact_hashes" in entry.document) {
-      validateHashEntries(entry, entry.document.input_artifact_hashes, byPath, errors);
+      validateHashEntries(
+        entry,
+        entry.document.input_artifact_hashes,
+        byPath,
+        exactJsonlRecords,
+        errors,
+      );
     }
     if (isRecord(entry.document.report_metadata)) {
       validateHashEntries(
         entry,
         entry.document.report_metadata.input_artifact_hashes,
         byPath,
+        exactJsonlRecords,
         errors,
       );
     }
@@ -1287,6 +1322,7 @@ function validateEvaluationAndReporting(
       comparison,
       target(byPath, comparison.document.scope_frame_ref),
       byPath,
+      exactJsonlRecords,
       errors,
     );
     const allJudgments = [

@@ -189,6 +189,132 @@ function refreshAllInputHashes(bundle: DocumentBundle): void {
   }
 }
 
+function mutableExactRecords(
+  bundle: DocumentBundle,
+): { ref: string; document: Record<string, unknown> }[] {
+  const mutable = bundle as unknown as {
+    exact_records?: { ref: string; document: Record<string, unknown> }[];
+  };
+  mutable.exact_records ??= [];
+  return mutable.exact_records;
+}
+
+function exactRecordDocument(bundle: DocumentBundle, ref: string): Record<string, unknown> {
+  const found = mutableExactRecords(bundle).find((record) => record.ref === ref);
+  assert.ok(found, ref);
+  return found.document;
+}
+
+function ensureHashBinding(hashes: unknown, ref: string, contentHash: string): void {
+  assert.ok(Array.isArray(hashes));
+  const binding = hashes.find(
+    (candidate): candidate is Record<string, unknown> =>
+      typeof candidate === "object" &&
+      candidate !== null &&
+      "ref" in candidate &&
+      candidate.ref === ref,
+  );
+  if (binding === undefined) {
+    hashes.push({ ref, content_hash: contentHash });
+  } else {
+    binding.content_hash = contentHash;
+  }
+}
+
+function updateHashBindingIfPresent(hashes: unknown, ref: string, contentHash: string): void {
+  if (!Array.isArray(hashes)) {
+    return;
+  }
+  for (const binding of hashes) {
+    if (
+      typeof binding === "object" &&
+      binding !== null &&
+      "ref" in binding &&
+      binding.ref === ref
+    ) {
+      (binding as Record<string, unknown>).content_hash = contentHash;
+    }
+  }
+}
+
+function teamFitPanel(bundle: DocumentBundle, comparisonRef: string): Record<string, unknown> {
+  const comparison = effective(bundle, comparisonRef);
+  const panel = (comparison.comparison_panels as Record<string, unknown>[]).find(
+    (candidate) => candidate.panel_id === "team_fit_and_learning",
+  );
+  assert.ok(panel);
+  return panel;
+}
+
+function syncReportTeamAnalysis(bundle: DocumentBundle, comparisonRef: string): void {
+  const comparison = effective(bundle, comparisonRef);
+  const panel = teamFitPanel(bundle, comparisonRef);
+  const summary = effective(bundle, G24_REPORT).team_decision_summary as Record<string, unknown>;
+  const analysis = (summary.opportunity_analyses as Record<string, unknown>[]).find(
+    (candidate) => candidate.comparison_ref === comparisonRef,
+  );
+  assert.ok(analysis);
+  analysis.opportunity_ref = comparison.opportunity_ref;
+  analysis.team_startup_burden = clone(panel.team_startup_burden);
+  analysis.team_match_analysis = clone(panel.team_match_analysis);
+}
+
+function addTeamBurdenExactEvidenceRecord(bundle: DocumentBundle): string {
+  const exactRecords = mutableExactRecords(bundle);
+  const seed = exactRecords.find((record) => record.ref.startsWith("evidence/manifest.jsonl#"));
+  assert.ok(seed);
+  const seedKey = `team-burden-exact-${exactRecords.length}`;
+  const evidenceId = `ev_${sha256Bytes(seedKey).slice("sha256:".length)}`;
+  const ref = `evidence/manifest.jsonl#${evidenceId}`;
+  exactRecords.push({
+    ref,
+    document: {
+      ...clone(seed.document),
+      evidence_id: evidenceId,
+      operation_key: sha256Bytes(seedKey),
+    },
+  });
+  return ref;
+}
+
+function bindTeamBurdenToExactEvidence(bundle: DocumentBundle, comparisonRef: string): string {
+  const exactRef = addTeamBurdenExactEvidenceRecord(bundle);
+  const exactDocument = exactRecordDocument(bundle, exactRef);
+  const exactHash = canonicalContentHash(exactDocument);
+  const comparison = effective(bundle, comparisonRef);
+  const panel = teamFitPanel(bundle, comparisonRef);
+  const burden = panel.team_startup_burden as Record<string, unknown>;
+  const firstDimension = (burden.dimensions as Record<string, unknown>[])[0];
+  assert.ok(firstDimension);
+  firstDimension.supporting_refs = [exactRef];
+  firstDimension.opposing_refs = [exactRef];
+  ensureHashBinding(comparison.input_artifact_hashes, exactRef, exactHash);
+  refreshEnvelopeClosure(bundle, comparisonRef);
+
+  syncReportTeamAnalysis(bundle, comparisonRef);
+  const reportMetadata = effective(bundle, G24_REPORT).report_metadata as Record<string, unknown>;
+  ensureHashBinding(reportMetadata.input_artifact_hashes, exactRef, exactHash);
+  refreshAllInputHashes(bundle);
+  refreshEnvelopeClosure(bundle, comparisonRef);
+  refreshEnvelopeClosure(bundle, G24_REPORT);
+  return exactRef;
+}
+
+function refreshExactHashBindings(bundle: DocumentBundle, ref: string): void {
+  const exactHash = canonicalContentHash(exactRecordDocument(bundle, ref));
+  for (const candidate of bundle.documents) {
+    const document = effective(bundle, candidate.path);
+    updateHashBindingIfPresent(document.input_artifact_hashes, ref, exactHash);
+    const metadata = document.report_metadata as Record<string, unknown> | undefined;
+    if (metadata !== undefined) {
+      updateHashBindingIfPresent(metadata.input_artifact_hashes, ref, exactHash);
+    }
+  }
+  refreshAllInputHashes(bundle);
+  refreshEnvelopeClosure(bundle, G24_COMPARISON_A);
+  refreshEnvelopeClosure(bundle, G24_REPORT);
+}
+
 async function setup(
   context: TestContext,
   suffix: string,
@@ -674,6 +800,81 @@ test("G2.4 preserves opportunity burden, explicit team matching, ranking, and re
   );
   assert.equal((summary.opportunity_analyses as unknown[]).length, 2);
   assert.deepEqual(summary.opportunity_ranking, portfolio.opportunity_ranking);
+});
+
+test("G2.4 accepts exact JSONL Evidence refs and hashes in team startup burden", async (context) => {
+  const state = await setup(context, "team-exact-jsonl");
+
+  const valid = clone(state.bundle);
+  const exactRef = bindTeamBurdenToExactEvidence(valid, G24_COMPARISON_A);
+  const validResult = state.validator.validateDocumentBundle(valid);
+  assert.equal(validResult.valid, true, JSON.stringify(validResult, null, 2));
+
+  const missing = clone(valid);
+  (
+    missing as unknown as {
+      exact_records?: { ref: string; document: Record<string, unknown> }[];
+    }
+  ).exact_records = mutableExactRecords(missing).filter((record) => record.ref !== exactRef);
+  const missingResult = state.validator.validateDocumentBundle(missing);
+  assert.equal(missingResult.valid, false);
+  assert.ok(
+    missingResult.referenceErrors.some((error) => error.code === "g2_4.input_hash_mismatch"),
+    JSON.stringify(missingResult.referenceErrors, null, 2),
+  );
+
+  const crossRun = clone(valid);
+  exactRecordDocument(crossRun, exactRef).run_id = "other-run";
+  refreshExactHashBindings(crossRun, exactRef);
+  const crossRunResult = state.validator.validateDocumentBundle(crossRun);
+  assert.equal(crossRunResult.valid, false);
+  assert.ok(
+    crossRunResult.referenceErrors.some(
+      (error) =>
+        error.code === "reference.run_mismatch" ||
+        error.code === "g2_4.team_analysis_binding_mismatch",
+    ),
+    JSON.stringify(crossRunResult.referenceErrors, null, 2),
+  );
+
+  const malformed = clone(valid);
+  exactRecordDocument(malformed, exactRef).schema_version =
+    "startup_opportunity.evidence_store_record.v1";
+  refreshExactHashBindings(malformed, exactRef);
+  const malformedResult = state.validator.validateDocumentBundle(malformed);
+  assert.equal(malformedResult.valid, false);
+  assert.ok(
+    malformedResult.bundleErrors.some((error) => error.code.startsWith("schema.")) ||
+      malformedResult.referenceErrors.some(
+        (error) =>
+          error.code === "reference.target_invalid" ||
+          error.code === "reference.type_mismatch" ||
+          error.code === "g2_4.team_analysis_binding_mismatch",
+      ),
+    JSON.stringify(
+      {
+        bundleErrors: malformedResult.bundleErrors,
+        referenceErrors: malformedResult.referenceErrors,
+      },
+      null,
+      2,
+    ),
+  );
+
+  const badHash = clone(valid);
+  const badHashComparison = effective(badHash, G24_COMPARISON_A);
+  const badHashEntry = (badHashComparison.input_artifact_hashes as Record<string, unknown>[]).find(
+    (binding) => binding.ref === exactRef,
+  );
+  assert.ok(badHashEntry);
+  badHashEntry.content_hash = `sha256:${"0".repeat(64)}`;
+  refreshEnvelopeClosure(badHash, G24_COMPARISON_A);
+  const badHashResult = state.validator.validateDocumentBundle(badHash);
+  assert.equal(badHashResult.valid, false);
+  assert.ok(
+    badHashResult.referenceErrors.some((error) => error.code === "g2_4.input_hash_mismatch"),
+    JSON.stringify(badHashResult.referenceErrors, null, 2),
+  );
 });
 
 test("G2.4 rejects computed or unbound team matching without blocking unknown research", async (context) => {

@@ -454,6 +454,7 @@ function refsFromObjectArray(
 }
 
 const TEAM_BURDEN_REFERENCE_SCHEMAS = [
+  "startup_opportunity.evidence_store_record.v2",
   "startup_opportunity.evidence.discovery_evaluation.current",
   "startup_opportunity.claim.discovery_evaluation.current",
   "startup_opportunity.finding.discovery_evaluation.current",
