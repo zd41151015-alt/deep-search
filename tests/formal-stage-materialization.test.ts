@@ -1542,6 +1542,8 @@ test("public CLI authors a clean setup through adaptation without internal publi
 
   const generationLaneResultRef = String(generationTaskEnvelope.document.allowed_output_path);
   const laneResultRef = String(taskEnvelope.document.allowed_output_path);
+  const retainedPreCandidateRef =
+    "artifacts/discovery/concrete-pre-candidates/pre_candidate_formal_author_demand.r1.json";
   const candidateRevision = structuredClone(setupCandidateEnvelope.document);
   candidateRevision.evidence_lineage = {
     evidence_refs: [generationEvidenceRef, evidenceRef],
@@ -1573,6 +1575,16 @@ test("public CLI authors a clean setup through adaptation without internal publi
   };
   candidateRevision.limitations = [
     "Weak supporting and opposing context remains partial, conflicting, and insufficient.",
+  ];
+  const preCandidateMaterialRefs = [
+    generationEvidenceRef,
+    generationClaimRef,
+    generationFindingRef,
+    generationJudgmentRef,
+    evidenceRef,
+    claimRef,
+    findingRef,
+    judgmentRef,
   ];
   const fanInRequest = {
     schema_version: "startup_opportunity.formal_stage_materialization_request.current",
@@ -1623,6 +1635,106 @@ test("public CLI authors a clean setup through adaptation without internal publi
         local_refs: { parent: candidateRef },
       },
       {
+        local_key: "pre-candidate-demand",
+        object_id: "pre_candidate_formal_author_demand",
+        action: "create",
+        document: {
+          schema_version: "startup_opportunity.concrete_pre_candidate.v1",
+          pre_candidate_id: "pre_candidate_formal_author_demand",
+          revision: 1,
+          parent_pre_candidate_ref: null,
+          parent_content_hash: null,
+          run_id: runId,
+          mode: "opportunity_discovery",
+          phase: "discovery",
+          owner_role: "main_agent",
+          scope_frame_ref: "",
+          research_plan_ref: G21_PLAN_REF,
+          formation: { relationship_kind: "direct", relationship_group_id: null },
+          seed_bindings: [
+            {
+              ref: "artifacts/discovery/candidates/candidate_demand.r2.json",
+              schema_version: "startup_opportunity.discovery_candidate.v1",
+              candidate_kind: "demand_seed",
+              content_hash: "0".repeat(64),
+            },
+          ],
+          lane_result_bindings: [
+            {
+              ref: generationLaneResultRef,
+              schema_version: "startup_opportunity.discovery_lane_result.v1",
+              status: "partial",
+              content_hash: "0".repeat(64),
+            },
+            {
+              ref: laneResultRef,
+              schema_version: "startup_opportunity.discovery_lane_result.v1",
+              status: "partial",
+              content_hash: "0".repeat(64),
+            },
+          ],
+          triage_profile: {
+            users: {
+              state: "partial",
+              statements: ["Synthetic user segment remains partial."],
+              basis_material_refs: [generationJudgmentRef],
+              limitations: ["No independent user Evidence is introduced."],
+            },
+            job_to_be_done: {
+              state: "conflicting",
+              statements: [
+                "The job remains unresolved because supporting and opposing context conflict.",
+              ],
+              basis_material_refs: [generationClaimRef, claimRef],
+              limitations: ["The direction remains pre-formal and insufficient."],
+            },
+            entry_scene: {
+              state: "unknown",
+              statements: ["Entry scene is unknown in this synthetic fixture."],
+              basis_material_refs: [],
+              limitations: ["Unknown state is preserved."],
+            },
+            buyer_or_payment_logic: {
+              state: "unknown",
+              statements: ["Buyer or payment logic is unknown."],
+              basis_material_refs: [],
+              limitations: ["No payment claim is inferred."],
+            },
+            current_alternatives: {
+              state: "unavailable",
+              statements: ["Alternative evidence is unavailable."],
+              basis_material_refs: [],
+              limitations: ["Unavailable state is preserved."],
+            },
+            solution_boundary: {
+              state: "partial",
+              statements: ["Solution boundary is only a partial pre-candidate note."],
+              basis_material_refs: [judgmentRef],
+              limitations: ["No formal Solution is created here."],
+            },
+          },
+          material_dispositions: preCandidateMaterialRefs.map((materialRef) => ({
+            material_ref: materialRef,
+            material_schema_version:
+              "startup_opportunity.judgment_assessment.discovery_candidate.current",
+            material_content_hash: "0".repeat(64),
+            disposition:
+              materialRef === claimRef || materialRef === judgmentRef ? "opposing" : "supporting",
+            rationale: "The Main Agent explicitly dispositions every typed Lane material.",
+          })),
+          materialization_rationale:
+            "Materialize one direct retained concrete pre-candidate so G2.3 cannot infer lineage.",
+          pre_formal_boundary: {
+            formal_opportunity_created: false,
+            validated_market_claim: false,
+            harness_inferred_candidate: false,
+            harness_ranked_candidate: false,
+            external_validation_performed: false,
+          },
+          limitations: ["This remains a partial, pre-formal synthetic candidate."],
+        },
+      },
+      {
         local_key: "fan-in",
         object_id: "fan_in_formal_author_cli",
         action: "create",
@@ -1642,10 +1754,26 @@ test("public CLI authors a clean setup through adaptation without internal publi
               limitations: ["Evidence remains weak, conflicting, and insufficient."],
             },
           ],
+          pre_candidate_relation_refs: [],
+          pre_candidate_dispositions: [
+            {
+              disposition_id: "fan_in_pre_disposition_cli_candidate",
+              pre_candidate_ref: retainedPreCandidateRef,
+              pre_candidate_content_hash: "0".repeat(64),
+              disposition: "retained",
+              supporting_lane_result_refs: [generationLaneResultRef, laneResultRef],
+              judgment_assessment_refs: [generationJudgmentRef, judgmentRef],
+              rationale:
+                "Retain the direct concrete pre-candidate without promoting it to a formal Opportunity.",
+              limitations: ["Concrete triage remains partial and insufficient."],
+            },
+          ],
           candidate_diversity_summary: {
             preserved_dimensions: ["counterfactual", "conflicting_context"],
             diversity_retention_refs: [candidateRef],
             counterfactual_candidate_refs: [candidateRef],
+            pre_candidate_diversity_retention_refs: [retainedPreCandidateRef],
+            counterfactual_pre_candidate_refs: [retainedPreCandidateRef],
             known_blind_spots: ["Independent buyer Evidence remains unavailable."],
           },
           evidence_sufficiency_summary: {
@@ -1742,6 +1870,7 @@ test("public CLI authors a clean setup through adaptation without internal publi
     top_level_formal_refs: [
       fanInRef,
       retainedCandidateRef,
+      retainedPreCandidateRef,
       claimRef,
       judgmentRef,
       generationSourceManifestRef,
@@ -1756,6 +1885,7 @@ test("public CLI authors a clean setup through adaptation without internal publi
         document: conversion,
         local_refs: {
           source_candidate_ref: retainedCandidateRef,
+          source_pre_candidate_ref: retainedPreCandidateRef,
           discovery_fan_in_ref: fanInRef,
           target_artifact_ref: "demand",
         },
@@ -1768,6 +1898,7 @@ test("public CLI authors a clean setup through adaptation without internal publi
         local_refs: {
           source_conversion_ref: "conversion",
           source_candidate_ref: retainedCandidateRef,
+          source_pre_candidate_ref: retainedPreCandidateRef,
           discovery_fan_in_ref: fanInRef,
         },
       },

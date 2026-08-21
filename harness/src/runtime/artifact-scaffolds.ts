@@ -565,6 +565,7 @@ function readiness(request: ScaffoldRequest): ScaffoldArtifact {
       source_fan_in_ref: null,
       generation_result_refs: [],
       candidate_roles: [],
+      pre_candidate_roles: [],
       required_candidate_kinds: ["demand_seed", "baseline_seed", "solution_seed"],
       missing_candidate_kinds: ["demand_seed", "baseline_seed", "solution_seed"],
       question_coverage: [

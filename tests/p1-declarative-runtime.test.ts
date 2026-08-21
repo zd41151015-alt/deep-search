@@ -231,6 +231,7 @@ function terminalReadiness(runId: string, plan: Record<string, unknown>): Record
     source_fan_in_ref: null,
     generation_result_refs: [],
     candidate_roles: candidateRoles,
+    pre_candidate_roles: [],
     required_candidate_kinds: ["demand_seed", "baseline_seed", "solution_seed"],
     missing_candidate_kinds: [],
     question_coverage: (plan.research_questions as Record<string, unknown>[]).map((question) => ({
@@ -3423,6 +3424,7 @@ test("readiness and Gap semantics require bounded solution generation and basis 
     source_fan_in_ref: null,
     generation_result_refs: [],
     candidate_roles: [],
+    pre_candidate_roles: [],
     required_candidate_kinds: missingKinds,
     missing_candidate_kinds: missingKinds,
     question_coverage: questions,

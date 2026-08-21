@@ -3772,6 +3772,8 @@ export class RunStore {
     }
     const downstreamTypes = new Set([
       "startup_opportunity.discovery_candidate.v1",
+      "startup_opportunity.concrete_pre_candidate.v1",
+      "startup_opportunity.pre_candidate_relation.v1",
       "startup_opportunity.discovery_candidate_conversion.v2",
       "startup_opportunity.discovery_fan_in.v2",
       "startup_opportunity.concept_evidence_assessment_fan_in.v1",
@@ -4354,6 +4356,32 @@ export class RunStore {
           blockerCount: records(readiness.document.blockers).length,
           questionsAnswered,
           unresolvedQuestionRefs: gap.document.unresolved_decision_relevant_questions,
+        },
+      );
+    }
+    const sourcePreCandidateRefs = [
+      ...new Set(
+        synthesis
+          .map((envelope) => envelope.document.source_pre_candidate_ref)
+          .filter((ref): ref is string => typeof ref === "string"),
+      ),
+    ];
+    const retainedPreCandidateRefs = strings(fanIn.document.retained_pre_candidate_refs);
+    const readinessRetainedPreCandidateRefs = records(readiness.document.pre_candidate_roles)
+      .filter((role) => role.disposition === "retained")
+      .map((role) => String(role.pre_candidate_ref));
+    if (
+      sourcePreCandidateRefs.length > 0 &&
+      (!sourcePreCandidateRefs.every((ref) => retainedPreCandidateRefs.includes(ref)) ||
+        !sourcePreCandidateRefs.every((ref) => readinessRetainedPreCandidateRefs.includes(ref)))
+    ) {
+      throw new StoreError(
+        "run.discovery_synthesis_pre_candidate_not_retained",
+        "G2.3 may formalize only retained concrete pre-candidates visible in current Readiness",
+        {
+          sourcePreCandidateRefs,
+          retainedPreCandidateRefs,
+          readinessRetainedPreCandidateRefs,
         },
       );
     }

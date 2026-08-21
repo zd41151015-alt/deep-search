@@ -15,6 +15,7 @@ export interface DiscoverySynthesisPolicy extends Record<string, unknown> {
   readonly kind_target_map: Readonly<Record<string, string>>;
   readonly publication_order: readonly string[];
   readonly source_separation: Readonly<Record<string, boolean>>;
+  readonly concrete_pre_candidate_boundary: Readonly<Record<string, unknown>>;
   readonly freeze_contract: Readonly<Record<string, unknown>>;
   readonly merge_contract: Readonly<Record<string, unknown>>;
   readonly execution_boundary: Readonly<Record<string, unknown>>;
@@ -62,6 +63,15 @@ export async function loadDiscoverySynthesisPolicy(
     canonicalJson(policy.publication_order) !== canonicalJson(EXPECTED_ORDER) ||
     policy.source_separation.generation_and_evaluation_distinct !== true ||
     policy.source_separation.overlap_requires_disclosure !== true ||
+    policy.concrete_pre_candidate_boundary.source_artifact !==
+      "startup_opportunity.concrete_pre_candidate.v1" ||
+    policy.concrete_pre_candidate_boundary.source_disposition_required !== "retained" ||
+    policy.concrete_pre_candidate_boundary.conversion_bijection !== true ||
+    policy.concrete_pre_candidate_boundary.formal_targets_bind_source_pre_candidate_ref !== true ||
+    policy.concrete_pre_candidate_boundary.source_pre_candidate_hash_required_on_conversion !==
+      true ||
+    policy.concrete_pre_candidate_boundary.unretained_pre_candidates_forbidden !== true ||
+    policy.concrete_pre_candidate_boundary.implicit_split_merge_forbidden_in_g2_3 !== true ||
     policy.freeze_contract.revision_policy !== "new_immutable_snapshot_revision_required" ||
     policy.merge_contract.all_frozen_theses_classified_once !== true ||
     policy.merge_contract.title_similarity_only_forbidden !== true ||

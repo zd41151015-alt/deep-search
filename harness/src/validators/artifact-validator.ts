@@ -2116,6 +2116,79 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.source_manifest.discovery_candidate.current",
         ),
       ];
+    case "startup_opportunity.concrete_pre_candidate.v1": {
+      const triage = isRecord(document.triage_profile) ? document.triage_profile : {};
+      return [
+        ...optionalRef(
+          document,
+          "parent_pre_candidate_ref",
+          "startup_opportunity.concrete_pre_candidate.v1",
+        ),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromNestedArray(
+          document,
+          "seed_bindings",
+          "ref",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "lane_result_bindings",
+          "ref",
+          "startup_opportunity.discovery_lane_result.v1",
+        ),
+        ...refsFromNestedArray(document, "material_dispositions", "material_ref", [
+          "startup_opportunity.evidence.discovery_candidate.current",
+          "startup_opportunity.claim.discovery_candidate.current",
+          "startup_opportunity.finding.discovery_candidate.current",
+          "startup_opportunity.insight.discovery_candidate.current",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
+        ]),
+        ...Object.entries(triage).flatMap(([dimension, value]) =>
+          refsFromArray(isRecord(value) ? value : {}, "basis_material_refs", [
+            "startup_opportunity.evidence.discovery_candidate.current",
+            "startup_opportunity.claim.discovery_candidate.current",
+            "startup_opportunity.finding.discovery_candidate.current",
+            "startup_opportunity.insight.discovery_candidate.current",
+            "startup_opportunity.judgment_assessment.discovery_candidate.current",
+          ]).map((requirement) => ({
+            ...requirement,
+            instancePath: `/triage_profile/${dimension}${requirement.instancePath}`,
+          })),
+        ),
+      ];
+    }
+    case "startup_opportunity.pre_candidate_relation.v1":
+      return [
+        ...optionalRef(
+          document,
+          "parent_relation_ref",
+          "startup_opportunity.pre_candidate_relation.v1",
+        ),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromNestedArray(
+          document,
+          "source_seed_bindings",
+          "ref",
+          "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "result_candidate_bindings",
+          "ref",
+          "startup_opportunity.concrete_pre_candidate.v1",
+        ),
+      ];
     case "startup_opportunity.discovery_fan_in.v2":
       return [
         ...optionalRef(
@@ -2159,6 +2232,49 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "lane_result_classification",
           "superseded_refs",
           "startup_opportunity.discovery_lane_result.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "materialized_pre_candidate_refs",
+          "startup_opportunity.concrete_pre_candidate.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "pre_candidate_relation_refs",
+          "startup_opportunity.pre_candidate_relation.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "pre_candidate_dispositions",
+          "pre_candidate_ref",
+          "startup_opportunity.concrete_pre_candidate.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "pre_candidate_dispositions",
+          "supporting_lane_result_refs",
+          "startup_opportunity.discovery_lane_result.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "pre_candidate_dispositions",
+          "judgment_assessment_refs",
+          "startup_opportunity.judgment_assessment.discovery_candidate.current",
+        ),
+        ...refsFromArray(
+          document,
+          "retained_pre_candidate_refs",
+          "startup_opportunity.concrete_pre_candidate.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "watchlist_pre_candidate_refs",
+          "startup_opportunity.concrete_pre_candidate.v1",
+        ),
+        ...refsFromArray(
+          document,
+          "rejected_pre_candidate_refs",
+          "startup_opportunity.concrete_pre_candidate.v1",
         ),
         ...refsFromNestedArray(
           document,
@@ -2216,6 +2332,18 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "counterfactual_candidate_refs",
           "startup_opportunity.discovery_candidate.v1",
         ),
+        ...refsFromObjectArray(
+          document,
+          "candidate_diversity_summary",
+          "pre_candidate_diversity_retention_refs",
+          "startup_opportunity.concrete_pre_candidate.v1",
+        ),
+        ...refsFromObjectArray(
+          document,
+          "candidate_diversity_summary",
+          "counterfactual_pre_candidate_refs",
+          "startup_opportunity.concrete_pre_candidate.v1",
+        ),
       ];
     case "startup_opportunity.discovery_candidate_conversion.v2":
       return [
@@ -2234,6 +2362,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "source_candidate_ref",
           "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...optionalRef(
+          document,
+          "source_pre_candidate_ref",
+          "startup_opportunity.concrete_pre_candidate.v1",
         ),
         ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
         ...optionalRef(document, "target_artifact_ref", [
@@ -2261,6 +2394,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "source_candidate_ref",
           "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...optionalRef(
+          document,
+          "source_pre_candidate_ref",
+          "startup_opportunity.concrete_pre_candidate.v1",
         ),
         ...refsFromObjectArray(
           document,
@@ -2310,6 +2448,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "source_candidate_ref",
           "startup_opportunity.discovery_candidate.v1",
         ),
+        ...optionalRef(
+          document,
+          "source_pre_candidate_ref",
+          "startup_opportunity.concrete_pre_candidate.v1",
+        ),
         ...optionalRef(document, "demand_thesis_ref", "startup_opportunity.demand_thesis.v1"),
         ...refsFromArray(
           document,
@@ -2340,6 +2483,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           document,
           "source_candidate_ref",
           "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...optionalRef(
+          document,
+          "source_pre_candidate_ref",
+          "startup_opportunity.concrete_pre_candidate.v1",
         ),
         ...optionalRef(document, "demand_thesis_ref", "startup_opportunity.demand_thesis.v1"),
         ...optionalRef(document, "baseline_option_ref", "startup_opportunity.baseline_option.v1"),
@@ -2373,6 +2521,11 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
         ),
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
         ...optionalRef(document, "discovery_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
+        ...optionalRef(
+          document,
+          "source_pre_candidate_ref",
+          "startup_opportunity.concrete_pre_candidate.v1",
+        ),
         ...optionalRef(document, "demand_thesis_ref", "startup_opportunity.demand_thesis.v1"),
         ...optionalRef(document, "baseline_option_ref", "startup_opportunity.baseline_option.v1"),
         ...optionalRef(
@@ -3952,6 +4105,12 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "candidate_roles",
           "candidate_ref",
           "startup_opportunity.discovery_candidate.v1",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "pre_candidate_roles",
+          "pre_candidate_ref",
+          "startup_opportunity.concrete_pre_candidate.v1",
         ),
         ...refsFromNestedArray(
           document,

@@ -37,7 +37,11 @@ import {
   G22_FAN_IN,
   G22_GENERATION_CLAIM,
   G22_GENERATION_LANE,
+  G22_PRE_CANDIDATE_RELATION,
+  G22_REJECTED_PRE_CANDIDATE,
+  G22_RETAINED_PRE_CANDIDATE,
   G22_RUN_ID,
+  G22_WATCHLIST_PRE_CANDIDATE,
   refreshDiscoveryCandidateFormation,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
@@ -219,6 +223,19 @@ async function publishThroughLanes(state: RuntimeState): Promise<void> {
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: envelopesByType(state.bundle, "startup_opportunity.discovery_lane_result.v1"),
+  });
+}
+
+async function publishConcretePreCandidates(state: RuntimeState): Promise<void> {
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: [
+      runtimeEnvelope(state.bundle, G22_DEMAND_R2),
+      runtimeEnvelope(state.bundle, G22_RETAINED_PRE_CANDIDATE),
+      runtimeEnvelope(state.bundle, G22_WATCHLIST_PRE_CANDIDATE),
+      runtimeEnvelope(state.bundle, G22_REJECTED_PRE_CANDIDATE),
+      runtimeEnvelope(state.bundle, G22_PRE_CANDIDATE_RELATION),
+    ],
   });
 }
 
@@ -461,6 +478,49 @@ test("G2.2 Candidate formation closes current Scope, Plan, synthesis inputs, and
   );
 });
 
+test("G2.2 fan-in fails closed when a current concrete pre-candidate is omitted", async () => {
+  const policy = JSON.parse(
+    await readFile(
+      path.join(repositoryRoot, "harness/policies/discovery-candidates.current.json"),
+      "utf8",
+    ),
+  ) as DiscoveryCandidatePolicy;
+  const bundle = await createDiscoveryCandidateFixture();
+  const relationEnvelope = fixtureEnvelope(bundle, G22_PRE_CANDIDATE_RELATION);
+  const relation = relationEnvelope.document;
+  relation.result_candidate_bindings = (
+    relation.result_candidate_bindings as Record<string, unknown>[]
+  ).filter((binding) => binding.ref !== G22_WATCHLIST_PRE_CANDIDATE);
+  (relationEnvelope as unknown as { input_refs: string[] }).input_refs =
+    relationEnvelope.input_refs.filter((ref) => ref !== G22_WATCHLIST_PRE_CANDIDATE);
+  (relationEnvelope as unknown as { content_hash: string }).content_hash =
+    canonicalContentHash(relation);
+
+  const fanInEnvelope = fixtureEnvelope(bundle, G22_FAN_IN);
+  const fanIn = fanInEnvelope.document;
+  fanIn.materialized_pre_candidate_refs = (
+    fanIn.materialized_pre_candidate_refs as string[]
+  ).filter((ref) => ref !== G22_WATCHLIST_PRE_CANDIDATE);
+  fanIn.pre_candidate_dispositions = (
+    fanIn.pre_candidate_dispositions as Record<string, unknown>[]
+  ).filter((entry) => entry.pre_candidate_ref !== G22_WATCHLIST_PRE_CANDIDATE);
+  fanIn.watchlist_pre_candidate_refs = [];
+  const diversity = fanIn.candidate_diversity_summary as Record<string, unknown>;
+  diversity.pre_candidate_diversity_retention_refs = [G22_RETAINED_PRE_CANDIDATE];
+  diversity.counterfactual_pre_candidate_refs = [G22_RETAINED_PRE_CANDIDATE];
+  (fanInEnvelope as unknown as { input_refs: string[] }).input_refs =
+    fanInEnvelope.input_refs.filter((ref) => ref !== G22_WATCHLIST_PRE_CANDIDATE);
+  (fanInEnvelope as unknown as { content_hash: string }).content_hash = canonicalContentHash(fanIn);
+
+  const codes = validateDiscoveryCandidateContract(candidateContractDocuments(bundle), policy).map(
+    (issue) => issue.code,
+  );
+  assert.ok(
+    codes.includes("discovery_candidate.fan_in_materialized_pre_candidate_closure_mismatch"),
+    JSON.stringify(codes),
+  );
+});
+
 test("Store rejects an admitted prior Candidate relabelled as unmarked current discovery", async (context) => {
   const state = await setup(context, "prior-candidate-copy");
   const sourceRunId = "g2-2-prior-candidate-copy-source";
@@ -544,10 +604,7 @@ test("G2.2 publishes explicit candidates, tasks, typed lane material, pre-kill r
   ]);
   assert.deepEqual(afterLanes.manifest.active_units, []);
 
-  await state.store.publishArtifact({
-    runId: state.runId,
-    envelope: runtimeEnvelope(state.bundle, G22_DEMAND_R2),
-  });
+  await publishConcretePreCandidates(state);
   const fanIn = runtimeEnvelope(state.bundle, G22_FAN_IN);
   const first = await state.store.publishArtifact({ runId: state.runId, envelope: fanIn });
   assert.equal(first.status, "published");
@@ -885,6 +942,15 @@ test("G2.2 current recovery completes candidate temp writes and indexes publishe
   const recoveredCandidate = await state.store.load(state.runId);
   assert.ok(recoveredCandidate.recoveredArtifactPaths.includes(G22_DEMAND_R2));
   assert.ok(recoveredCandidate.manifest.artifact_refs.includes(G22_DEMAND_R2));
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: [
+      runtimeEnvelope(state.bundle, G22_RETAINED_PRE_CANDIDATE),
+      runtimeEnvelope(state.bundle, G22_WATCHLIST_PRE_CANDIDATE),
+      runtimeEnvelope(state.bundle, G22_REJECTED_PRE_CANDIDATE),
+      runtimeEnvelope(state.bundle, G22_PRE_CANDIDATE_RELATION),
+    ],
+  });
 
   await assert.rejects(
     state.store.publishArtifact({

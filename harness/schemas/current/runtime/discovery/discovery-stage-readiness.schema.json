@@ -16,6 +16,7 @@
     "source_fan_in_ref",
     "generation_result_refs",
     "candidate_roles",
+    "pre_candidate_roles",
     "required_candidate_kinds",
     "missing_candidate_kinds",
     "question_coverage",
@@ -95,6 +96,24 @@
           },
           "reporting_role": {
             "enum": ["opportunity_direction", "comparison_baseline", "solution_hypothesis"]
+          },
+          "disposition": {
+            "enum": ["retained", "watchlist", "rejected"]
+          }
+        }
+      }
+    },
+    "pre_candidate_roles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pre_candidate_ref", "disposition"],
+        "properties": {
+          "pre_candidate_ref": {
+            "type": "string",
+            "pattern": "^artifacts/discovery/concrete-pre-candidates/.+\\.json$"
           },
           "disposition": {
             "enum": ["retained", "watchlist", "rejected"]
