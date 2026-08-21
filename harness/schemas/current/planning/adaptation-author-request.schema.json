@@ -96,8 +96,7 @@
         "observed_artifact_refs",
         "material_new_evidence_observed",
         "repeated_source_refs",
-        "machine_checks",
-        "semantic_gaps"
+        "agent_declared_gaps"
       ],
       "properties": {
         "snapshot_id": {
@@ -139,25 +138,19 @@
         "repeated_source_refs": {
           "$ref": "../core/definitions.schema.json#/$defs/artifactRefArray"
         },
-        "machine_checks": {
+        "agent_declared_gaps": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/machineCheck"
-          }
-        },
-        "semantic_gaps": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/semanticGap"
+            "$ref": "#/$defs/agentDeclaredGap"
           }
         }
       }
     },
-    "machineCheck": {
+    "agentDeclaredGap": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "check_id",
+        "declaration_id",
         "gap_type",
         "subject_ref",
         "basis_refs",
@@ -168,16 +161,26 @@
         "detail"
       ],
       "properties": {
-        "check_id": {
+        "declaration_id": {
           "$ref": "../core/definitions.schema.json#/$defs/identifier"
         },
         "gap_type": {
           "enum": [
             "mandatory_dimension_missing",
+            "evidence_insufficient",
+            "evidence_conflict",
+            "baseline_unclear",
+            "buyer_evidence_insufficient",
+            "acquisition_evidence_insufficient",
             "freshness_failed",
+            "reviewer_challenge",
+            "candidate_pre_killed",
+            "unit_failed",
             "runtime_blocked",
             "scope_invalidated",
-            "user_plan_change_requested"
+            "user_plan_change_requested",
+            "source_repetition",
+            "no_material_new_evidence"
           ]
         },
         "subject_ref": {
@@ -204,77 +207,6 @@
         },
         "detail": {
           "$ref": "../core/definitions.schema.json#/$defs/nonEmptyString"
-        }
-      }
-    },
-    "semanticGap": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "gap_type",
-        "subject_ref",
-        "triggered_by",
-        "basis_refs",
-        "evidence_refs",
-        "decision_impact",
-        "severity",
-        "recommended_unit_types"
-      ],
-      "properties": {
-        "gap_type": {
-          "enum": [
-            "evidence_insufficient",
-            "evidence_conflict",
-            "baseline_unclear",
-            "buyer_evidence_insufficient",
-            "acquisition_evidence_insufficient",
-            "reviewer_challenge",
-            "candidate_pre_killed"
-          ]
-        },
-        "subject_ref": {
-          "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
-        },
-        "triggered_by": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["judgment_ref", "decision_sufficiency", "independent_source_count"],
-          "properties": {
-            "judgment_ref": {
-              "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
-            },
-            "decision_sufficiency": {
-              "enum": ["sufficient", "insufficient", "blocked", "not_applicable"]
-            },
-            "independent_source_count": {
-              "type": "integer",
-              "minimum": 0
-            }
-          }
-        },
-        "basis_refs": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "../core/definitions.schema.json#/$defs/artifactRef"
-          }
-        },
-        "evidence_refs": {
-          "$ref": "../core/definitions.schema.json#/$defs/artifactRefArray"
-        },
-        "decision_impact": {
-          "$ref": "../core/definitions.schema.json#/$defs/decisionImpactArray"
-        },
-        "severity": {
-          "enum": ["blocking", "material", "advisory"]
-        },
-        "recommended_unit_types": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "$ref": "../core/definitions.schema.json#/$defs/unitType"
-          }
         }
       }
     },

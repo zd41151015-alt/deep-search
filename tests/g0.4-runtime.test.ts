@@ -2173,9 +2173,9 @@ test("Gap analyzer emits deterministic checks and preserves explicit semantic ga
   const questionFragment = analyzer.analyze({
     ...input,
     materialNewEvidenceObserved: true,
-    machineChecks: [
+    agentDeclaredGaps: [
       {
-        checkId: "question_fragment_check",
+        declarationId: "question_fragment_check",
         gapType: "mandatory_dimension_missing",
         subjectRef: `${PLAN_REF}#rq_runtime_001`,
         basisRefs: [`${PLAN_REF}#rq_runtime_001`],
@@ -2189,9 +2189,9 @@ test("Gap analyzer emits deterministic checks and preserves explicit semantic ga
   assert.equal(questionFragment.valid, true, JSON.stringify(questionFragment.errors));
   const missingQuestionFragment = analyzer.analyze({
     ...input,
-    machineChecks: [
+    agentDeclaredGaps: [
       {
-        checkId: "missing_question_fragment_check",
+        declarationId: "missing_question_fragment_check",
         gapType: "mandatory_dimension_missing",
         subjectRef: `${PLAN_REF}#rq_missing`,
         basisRefs: [`${PLAN_REF}#rq_missing`],
@@ -2209,20 +2209,17 @@ test("Gap analyzer emits deterministic checks and preserves explicit semantic ga
   const semanticConflict = analyzer.analyze({
     ...input,
     materialNewEvidenceObserved: true,
-    semanticGaps: [
+    agentDeclaredGaps: [
       {
+        declarationId: "semantic_conflict",
         gapType: "evidence_conflict",
         subjectRef: `${PLAN_REF}#rq_runtime_001`,
-        triggeredBy: {
-          judgment_ref: "judgment_synthetic_conflict",
-          decision_sufficiency: "blocked",
-          independent_source_count: 0,
-        },
         basisRefs: [`${PLAN_REF}#rq_runtime_001`],
         evidenceRefs: [],
         decisionImpact: ["next_action"],
         severity: "advisory",
         recommendedUnitTypes: ["counter_evidence"],
+        detail: "The current evidence has unresolved conflict.",
       },
     ],
   });
@@ -2232,34 +2229,70 @@ test("Gap analyzer emits deterministic checks and preserves explicit semantic ga
     (gap) => gap.detection_mode === "agent_semantic",
   );
   assert.deepEqual(semanticGap?.triggered_by, {
-    judgment_ref: "judgment_synthetic_conflict",
-    decision_sufficiency: "blocked",
-    independent_source_count: 0,
+    declaration_id: "semantic_conflict",
+    declared_by: "main_agent",
+    observed_artifact_refs: [],
+    detail: "The current evidence has unresolved conflict.",
   });
   assert.deepEqual(semanticGap?.evidence_refs, []);
   assert.equal(semanticGap?.gap_type, "evidence_conflict");
 
   const semanticWithoutBasis = analyzer.analyze({
     ...input,
-    semanticGaps: [
+    agentDeclaredGaps: [
       {
+        declarationId: "semantic_without_basis",
         gapType: "evidence_insufficient",
         subjectRef: `${PLAN_REF}#rq_runtime_001`,
-        triggeredBy: {
-          judgment_ref: "judgment_synthetic_insufficient",
-          decision_sufficiency: "insufficient",
-          independent_source_count: 0,
-        },
         basisRefs: [],
         evidenceRefs: [],
         decisionImpact: ["next_action"],
         severity: "material",
         recommendedUnitTypes: [],
+        detail: "The evidence is not sufficient for the next decision.",
       },
     ],
   });
   assert.ok(
-    semanticWithoutBasis.errors.some((error) => error.code === "gap.semantic_input_invalid"),
+    semanticWithoutBasis.errors.some((error) => error.code === "gap.agent_declaration_invalid"),
+  );
+});
+
+test("Gap CLI rejects caller machine checks and malformed Agent declarations", async (contextTest) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-gap-cli-authority-"));
+  contextTest.after(() => rm(root, { recursive: true, force: true }));
+  const machineInput = path.join(root, "machine-input.json");
+  await writeFile(
+    machineInput,
+    `${canonicalJson({
+      schema_version: "startup_opportunity.gap_analysis_input.v1",
+      machine_checks: [],
+    })}\n`,
+  );
+  const machineResult = runScript("harness/src/cli.ts", ["analyze-gaps", "--file", machineInput]);
+  assert.equal(machineResult.status, 64);
+  assert.equal(
+    (JSON.parse(machineResult.stderr) as { error: { code: string } }).error.code,
+    "command.invalid_arguments",
+  );
+
+  const malformedInput = path.join(root, "malformed-agent-input.json");
+  await writeFile(
+    malformedInput,
+    `${canonicalJson({
+      schema_version: "startup_opportunity.gap_analysis_input.v1",
+      agent_declared_gaps: "not-an-array",
+    })}\n`,
+  );
+  const malformedResult = runScript("harness/src/cli.ts", [
+    "analyze-gaps",
+    "--file",
+    malformedInput,
+  ]);
+  assert.equal(malformedResult.status, 64);
+  assert.equal(
+    (JSON.parse(malformedResult.stderr) as { error: { code: string } }).error.code,
+    "command.invalid_arguments",
   );
 });
 
@@ -2480,9 +2513,9 @@ test("Gap cycle identity binds base Plan, exact event, and observed Artifact has
   assertRunMismatch(
     analyzer.analyze({
       ...input,
-      machineChecks: [
+      agentDeclaredGaps: [
         {
-          checkId: "foreign_basis",
+          declarationId: "foreign_basis",
           gapType: "freshness_failed",
           subjectRef: PLAN_REF,
           basisRefs: [`${foreignEventRef}#gap_trigger_foreign`],
@@ -2497,9 +2530,9 @@ test("Gap cycle identity binds base Plan, exact event, and observed Artifact has
   assertRunMismatch(
     analyzer.analyze({
       ...input,
-      machineChecks: [
+      agentDeclaredGaps: [
         {
-          checkId: "foreign_evidence",
+          declarationId: "foreign_evidence",
           gapType: "freshness_failed",
           subjectRef: PLAN_REF,
           basisRefs: [PLAN_REF],
@@ -3463,7 +3496,7 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
     observed_artifact_refs: [],
     material_new_evidence_observed: false,
     repeated_source_refs: [],
-    machine_checks: [],
+    agent_declared_gaps: [],
   };
   await writeFile(gapInputFile, `${canonicalJson(gapInput)}\n`);
   const gapCommand = runScript("harness/src/cli.ts", [
@@ -4108,8 +4141,7 @@ test("a later same-Run adaptation preserves receipt-bound historical discovery v
       observed_artifact_refs: [],
       material_new_evidence_observed: false,
       repeated_source_refs: [],
-      machine_checks: [],
-      semantic_gaps: [],
+      agent_declared_gaps: [],
     })}\n`,
   );
   for (const [command, skillScript, flag, filename] of [
@@ -6941,7 +6973,7 @@ test("Harness CLI and repo-local Skill scripts run all four G0.4 entries", async
       observed_artifact_refs: [],
       material_new_evidence_observed: false,
       repeated_source_refs: [],
-      machine_checks: [],
+      agent_declared_gaps: [],
     })}\n`,
   );
   await writeFile(
@@ -7054,8 +7086,7 @@ test("public adaptation author path validates without writes, publishes exact co
       observed_artifact_refs: [],
       material_new_evidence_observed: false,
       repeated_source_refs: [],
-      machine_checks: [],
-      semantic_gaps: [],
+      agent_declared_gaps: [],
     },
     decisions: [
       {
@@ -7307,8 +7338,7 @@ test("adaptation author validate-only does not complete a pending Plan recovery"
         observed_artifact_refs: [],
         material_new_evidence_observed: false,
         repeated_source_refs: [],
-        machine_checks: [],
-        semantic_gaps: [],
+        agent_declared_gaps: [],
       },
       decisions: [
         {

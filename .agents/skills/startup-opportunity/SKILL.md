@@ -13,13 +13,13 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 
 ## Action Routing
 
-- `discover` 映射到新 Run 的 `opportunity_discovery`；向用户呈现解析后的 action/mode，按 `scripts/create-run.ts` 创建 Run，只读取 `references/opportunity-discovery.md`。
+- `discover` 映射到新 Run 的 `opportunity_discovery`；向用户呈现解析后的 action/mode，按 `scripts/create-run.ts` 创建 Run，只读取 `references/opportunity-discovery.md`。进入 G2.4 规划时必须通过 `scaffold-artifact` 的 `planning_capabilities` kind 读取 current capability，不得从测试 fixture 推断 Unit 数量或拓扑。
 - `assess` 映射到新 Run 的 `concept_evidence_assessment`；向用户呈现解析后的 action/mode，按 `scripts/create-run.ts` 创建 Run，只读取 `references/concept-evidence-assessment.md`。
 - `resume` 需要持久化 `run_id`；先读取 `references/artifact-contracts.md`，再运行 `scripts/load-run.ts` 完成显式恢复，从 validated manifest/checkpoint 继续当前 mode。
 - `status` 需要持久化 `run_id`；先读取 `references/artifact-contracts.md`，再运行只读 `scripts/status-run.ts`。同时读取 `derivedExecutionDisposition`、`terminalReportDisposition` 和 `terminalReportIssues`；terminal Manifest 不等于已完成报告交付。绝不启动 subagent、恢复或修改 Run。
 - 如果请求混合宽泛 discovery 与具体 thesis，且选择会改变输出 contract，则在创建 Run 前要求澄清。
 - 创建任何正式 Run 前，必须取得用户明确给出的地域、B2C/B2B/B2B2C/mixed、目标用户群、决策目标和主要研究语言；不得从用户所用语言推断市场。`create-run` 会拒绝缺少这些参数的请求，并在写入前把支持的人类语言名称规范为用户可见的 BCP-47 值（例如 `中文` 为 `zh-CN`）。
-- `create-run` 只把 Scope proposal 作为 revision 1 原子追加到 `decisions.jsonl`，Manifest 状态保持 `awaiting_scope_confirmation`。必须把返回的 exact revision/ref/hash 所绑定 canonical Scope 展示给用户，收到明确确认后再调用 `scripts/confirm-scope.ts`；Harness 只记录 caller-attested confirmation，无法认证聊天身份。当前 Run 内的用户修正先用 `scripts/propose-scope.ts` 追加 proposal，再独立确认；首个 Plan 前的修正确认可继续形成 Intake、DecisionContext、ScopeFrame 和首个对账 Plan。已有 Plan 时，以同一 `--run-id` 调用 `analyze-gaps` 的 `resume_reconciliation`：observed refs、repeated refs 与 machine checks 为空且 `material_new_evidence_observed=false`，由 Harness 从 exact Scope confirmation 机械派生唯一 Scope Gap，再按 Gap -> `reconcile_scope` Adaptation Decision -> immutable Plan Revision 对账。纯对账 revision 不新增研究 unit 或消耗 follow-up round。
+- `create-run` 只把 Scope proposal 作为 revision 1 原子追加到 `decisions.jsonl`，Manifest 状态保持 `awaiting_scope_confirmation`。必须把返回的 exact revision/ref/hash 所绑定 canonical Scope 展示给用户，收到明确确认后再调用 `scripts/confirm-scope.ts`；Harness 只记录 caller-attested confirmation，无法认证聊天身份。当前 Run 内的用户修正先用 `scripts/propose-scope.ts` 追加 proposal，再独立确认；首个 Plan 前的修正确认可继续形成 Intake、DecisionContext、ScopeFrame 和首个对账 Plan。已有 Plan 时，以同一 `--run-id` 调用 `analyze-gaps` 的 `resume_reconciliation`：observed refs、repeated refs 与 `agent_declared_gaps` 为空且 `material_new_evidence_observed=false`，由 Harness 从 exact Scope confirmation 机械派生唯一 Scope Gap，再按 Gap -> `reconcile_scope` Adaptation Decision -> immutable Plan Revision 对账。纯对账 revision 不新增研究 unit 或消耗 follow-up round。
 - Run 不得静默改变 mode，并且只包含一个主要市场和一种主要研究语言。
 
 ## Non-Negotiable Rules

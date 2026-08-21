@@ -37,13 +37,12 @@ export {
   loadAssessmentAdaptationPolicy,
 } from "./adaptation/assessment-policy.js";
 export {
+  type AgentDeclaredGap,
   type AnalyzeGapsInput,
   createGapAnalyzer,
   GAP_ANALYSIS_RESULT_VERSION,
   type GapAnalysisResult,
   GapAnalyzer,
-  type MachineGapCheck,
-  type SemanticGapInput,
 } from "./adaptation/gap-analyzer.js";
 export {
   type ApplyPlanRevisionInput,
@@ -310,6 +309,11 @@ export {
   isDiscoveryMapSchemaVersion,
   validateDiscoveryMapsContract,
 } from "./validators/discovery-maps-validator.js";
+export {
+  DISCOVERY_COUNTER_EVIDENCE_MINIMUM,
+  DISCOVERY_COUNTER_EVIDENCE_UNIT_TYPES,
+  G24_FAN_IN_HARD_GATE_CARDINALITY,
+} from "./validators/g24-planning-rules.js";
 export {
   type CoverageIdentity,
   coverageKey,

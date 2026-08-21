@@ -18,6 +18,10 @@ Incumbent Absorption & Response Risk 不得进入 solution-neutral candidate gen
 
 Lane result 在 user、JTBD、entry scene、buyer model、delivery form 和 opportunity source 之间保留候选多样性。它们返回支持与反对 Claim、pre-kill decision、retained/watchlist/rejected 引用、Evidence sufficiency 和局限。只有 core thesis、assumption 和 kill criteria 冻结后，才能开始 enrichment。
 
+G2.4 规划前，以当前 `run_id` 构造 `startup_opportunity.scaffold_request.current`，令 `kind="planning_capabilities"`、`mode="opportunity_discovery"`，再调用 `scaffold-artifact`。其 Harness-owned capability Artifact 从 current adaptation/evaluation Policy、enrichment task Schema 和 owning validator closed rules 确定性投影当前允许的 enrichment unit types、每个 task 至少一个且可包含多个 Opportunity、Plan 级 counter-evidence/adversarial 最低要求，以及 fan-in 对每个 Opportunity 的 exact hard-gate closure。该 surface 不推荐 Unit 数量、不拆研究任务、不判断 Gap，也不选择 topology。Agent 必须根据当前正式 Gap 自主决定共享 Unit、逐 Opportunity、逐研究维度或混合拓扑；Unit/branch 数量不固定，三个以上 branch 合法。`tests/fixtures/g2.4/discovery-evaluation-fixture.ts` 的 support/challenge 两分支只用于工程验证，是合法示例之一，不是 Runtime 规划权威。
+
+`analyze-gaps` 只把 Harness 从 validated closed state 实际推导的检查标为 `detection_mode="deterministic"`。Agent 对研究不足、冲突、partial/unavailable/unknown/inferred/not_applicable/no_evidence_found disposition 或规划需要的判断通过 `agent_declared_gaps` 提交，正式 Gap 保留 `detection_mode="agent_semantic"`、`declared_by="main_agent"` 和 declaration provenance；这种声明不会变成 Harness 硬要求。Gap 可以继续引用 supporting、opposing、background 与 contradictory material，Harness 只验证 exact ref/hash、same-Run、Plan 与 schema closure，不替 Agent 分析研究或决定 remediation topology。
+
 最终 discovery 输出使用 Hard Gate、四个独立 comparison panel、sensitivity、partial-order relation、建议的 first bet、替代方案和明确局限。绝不把全局分数表示为客观成功概率。
 
 最终报告固定输出量化信号表、竞品/替代矩阵、头部公司吸收与响应风险表和 coverage gap 表。响应风险表展示 responder/control point、ability/cost、incentive、horizon、distribution leverage、thesis coverage、residual differentiation、正反/背景 Evidence、uncertainty/gap 和 Harness-owned reference-only strategic context；未分配、缺研究或不适用也必须显示，不能静默省略。每条量化信号显示 metric definition、地域、周期、measurement type、可比性和 uncertainty；排名、评分人数、下载、MAU、收入估算和付费人数保持不同语义，跨地域/周期/类别/口径不可直接横比。

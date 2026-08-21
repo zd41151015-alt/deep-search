@@ -278,6 +278,11 @@
       "document_schema_version": "startup_opportunity.portfolio_view.v1"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/discovery/evaluation/planning-capabilities.schema.json",
+      "file": "current/discovery/evaluation/planning-capabilities.schema.json",
+      "document_schema_version": "startup_opportunity.planning_capabilities.discovery_evaluation.current"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/discovery/evaluation/research-task.schema.json",
       "file": "current/discovery/evaluation/research-task.schema.json",
       "document_schema_version": "startup_opportunity.research_task.discovery_evaluation.current"

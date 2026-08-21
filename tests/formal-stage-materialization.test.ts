@@ -507,8 +507,7 @@ test("formal stage validate_only does not recover a pending Plan operation", asy
       observed_artifact_refs: [G22_DEMAND_R1],
       material_new_evidence_observed: false,
       repeated_source_refs: [],
-      machine_checks: [],
-      semantic_gaps: [],
+      agent_declared_gaps: [],
     },
     decisions: [
       {
@@ -1804,8 +1803,7 @@ test("public CLI authors a clean setup through adaptation without internal publi
       observed_artifact_refs: [fanInRef],
       material_new_evidence_observed: false,
       repeated_source_refs: [evidenceRef],
-      machine_checks: [],
-      semantic_gaps: [],
+      agent_declared_gaps: [],
     },
     decisions: [
       {

@@ -29,6 +29,7 @@
         "readiness",
         "gap",
         "decision",
+        "planning_capabilities",
         "decision_subject_snapshot",
         "terminal_report_source"
       ]
@@ -45,5 +46,24 @@
     "scope_confirmation": {
       "$ref": "../../assessment/core/intake.schema.json#/properties/scope_confirmation"
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "planning_capabilities"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": {
+          "mode": {
+            "const": "opportunity_discovery"
+          }
+        }
+      }
+    }
+  ]
 }

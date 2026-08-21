@@ -41,6 +41,25 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "required": ["declaration_id", "declared_by", "observed_artifact_refs", "detail"],
+          "properties": {
+            "declaration_id": {
+              "$ref": "./definitions.schema.json#/$defs/identifier"
+            },
+            "declared_by": {
+              "const": "main_agent"
+            },
+            "observed_artifact_refs": {
+              "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+            },
+            "detail": {
+              "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
           "required": ["event_ref", "detail"],
           "properties": {
             "event_ref": {

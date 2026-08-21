@@ -25,7 +25,7 @@ import {
   leafPlanningContexts,
   unitEntries,
 } from "./contracts.js";
-import { createGapAnalyzer, type MachineGapCheck, type SemanticGapInput } from "./gap-analyzer.js";
+import { type AgentDeclaredGap, createGapAnalyzer } from "./gap-analyzer.js";
 import {
   createPlanRevisionRuntime,
   type PlanApplyFaultBoundary,
@@ -161,30 +161,17 @@ function envelope(
   };
 }
 
-function machineChecks(value: unknown): readonly MachineGapCheck[] {
-  return records(value).map((check) => ({
-    checkId: String(check.check_id),
-    gapType: String(check.gap_type) as MachineGapCheck["gapType"],
-    subjectRef: String(check.subject_ref),
-    basisRefs: strings(check.basis_refs),
-    evidenceRefs: strings(check.evidence_refs),
-    decisionImpact: strings(check.decision_impact),
-    severity: String(check.severity) as MachineGapCheck["severity"],
-    recommendedUnitTypes: strings(check.recommended_unit_types),
-    detail: String(check.detail),
-  }));
-}
-
-function semanticGaps(value: unknown): readonly SemanticGapInput[] {
+function agentDeclaredGaps(value: unknown): readonly AgentDeclaredGap[] {
   return records(value).map((gap) => ({
-    gapType: String(gap.gap_type) as SemanticGapInput["gapType"],
+    declarationId: String(gap.declaration_id),
+    gapType: String(gap.gap_type),
     subjectRef: String(gap.subject_ref),
-    triggeredBy: gap.triggered_by as SemanticGapInput["triggeredBy"],
     basisRefs: strings(gap.basis_refs),
     evidenceRefs: strings(gap.evidence_refs),
     decisionImpact: strings(gap.decision_impact),
-    severity: String(gap.severity) as SemanticGapInput["severity"],
+    severity: String(gap.severity) as AgentDeclaredGap["severity"],
     recommendedUnitTypes: strings(gap.recommended_unit_types),
+    detail: String(gap.detail),
   }));
 }
 
@@ -205,16 +192,10 @@ function requestAuthorityRefs(request: AdaptationAuthorRequest): readonly string
     ...request.top_level_formal_refs,
     ...strings(gap.observed_artifact_refs),
     ...strings(gap.repeated_source_refs),
-    ...machineChecks(gap.machine_checks).flatMap((check) => [
-      check.subjectRef,
-      ...check.basisRefs,
-      ...(check.evidenceRefs ?? []),
-    ]),
-    ...semanticGaps(gap.semantic_gaps).flatMap((semantic) => [
-      semantic.subjectRef,
-      semantic.triggeredBy.judgment_ref,
-      ...semantic.basisRefs,
-      ...semantic.evidenceRefs,
+    ...agentDeclaredGaps(gap.agent_declared_gaps).flatMap((declared) => [
+      declared.subjectRef,
+      ...declared.basisRefs,
+      ...(declared.evidenceRefs ?? []),
     ]),
     ...(typeof gap.trigger_event_ref === "string" ? [gap.trigger_event_ref] : []),
     ...decisionRefs,
@@ -409,48 +390,28 @@ function exactStoredGapMatchesRequest(
     return false;
   }
   const gaps = records(gap.gaps);
-  const checks = machineChecks(requestGap.machine_checks);
-  for (const check of checks) {
-    const generated = gaps.find(
-      (entry) => isRecord(entry.triggered_by) && entry.triggered_by.check_id === check.checkId,
-    );
-    if (
-      generated === undefined ||
-      generated.gap_type !== check.gapType ||
-      generated.subject_ref !== check.subjectRef ||
-      generated.severity !== check.severity ||
-      canonicalJson(uniqueSorted(strings(generated.basis_refs))) !==
-        canonicalJson(uniqueSorted(check.basisRefs)) ||
-      canonicalJson(uniqueSorted(strings(generated.evidence_refs))) !==
-        canonicalJson(uniqueSorted(check.evidenceRefs ?? [])) ||
-      canonicalJson(uniqueSorted(strings(generated.decision_impact))) !==
-        canonicalJson(uniqueSorted(check.decisionImpact)) ||
-      canonicalJson(uniqueSorted(strings(generated.recommended_unit_types))) !==
-        canonicalJson(uniqueSorted(check.recommendedUnitTypes ?? [])) ||
-      (generated.triggered_by as Record<string, unknown>).detail !== check.detail
-    ) {
-      return false;
-    }
-  }
-  for (const semantic of semanticGaps(requestGap.semantic_gaps)) {
+  const declarations = agentDeclaredGaps(requestGap.agent_declared_gaps);
+  for (const declaration of declarations) {
     const generated = gaps.find(
       (entry) =>
-        entry.detection_mode === "agent_semantic" &&
-        entry.gap_type === semantic.gapType &&
-        entry.subject_ref === semantic.subjectRef &&
-        canonicalJson(entry.triggered_by) === canonicalJson(semantic.triggeredBy),
+        isRecord(entry.triggered_by) &&
+        entry.triggered_by.declaration_id === declaration.declarationId,
     );
     if (
       generated === undefined ||
-      generated.severity !== semantic.severity ||
+      generated.gap_type !== declaration.gapType ||
+      generated.subject_ref !== declaration.subjectRef ||
+      generated.severity !== declaration.severity ||
       canonicalJson(uniqueSorted(strings(generated.basis_refs))) !==
-        canonicalJson(uniqueSorted(semantic.basisRefs)) ||
+        canonicalJson(uniqueSorted(declaration.basisRefs)) ||
       canonicalJson(uniqueSorted(strings(generated.evidence_refs))) !==
-        canonicalJson(uniqueSorted(semantic.evidenceRefs)) ||
+        canonicalJson(uniqueSorted(declaration.evidenceRefs ?? [])) ||
       canonicalJson(uniqueSorted(strings(generated.decision_impact))) !==
-        canonicalJson(uniqueSorted(semantic.decisionImpact)) ||
+        canonicalJson(uniqueSorted(declaration.decisionImpact)) ||
       canonicalJson(uniqueSorted(strings(generated.recommended_unit_types))) !==
-        canonicalJson(uniqueSorted(semantic.recommendedUnitTypes))
+        canonicalJson(uniqueSorted(declaration.recommendedUnitTypes ?? [])) ||
+      (generated.triggered_by as Record<string, unknown>).declared_by !== "main_agent" ||
+      (generated.triggered_by as Record<string, unknown>).detail !== declaration.detail
     ) {
       return false;
     }
@@ -972,13 +933,12 @@ export class AdaptationAuthorRuntime {
         observedArtifactRefs: strings(request.gap.observed_artifact_refs),
         materialNewEvidenceObserved: request.gap.material_new_evidence_observed === true,
         repeatedSourceRefs: strings(request.gap.repeated_source_refs),
-        machineChecks: machineChecks(request.gap.machine_checks),
-        semanticGaps: semanticGaps(request.gap.semantic_gaps),
+        agentDeclaredGaps: agentDeclaredGaps(request.gap.agent_declared_gaps),
       });
       if (!analyzed.valid || analyzed.snapshot === null) {
         throw new StoreError(
           "adaptation.author_gap_invalid",
-          "Gap Snapshot could not be derived from current authority and explicit machine inputs",
+          "Gap Snapshot could not be derived from current authority and explicit Agent-declared gaps",
           { result: analyzed },
         );
       }

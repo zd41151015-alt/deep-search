@@ -10,6 +10,7 @@ import {
   INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH,
 } from "../harness/src/incumbent-response-contract.js";
 import {
+  buildArtifactScaffold,
   canonicalContentHash,
   canonicalJson,
   createArtifactValidator,
@@ -47,7 +48,9 @@ import {
   G23_SOLUTION_CONVERSION,
 } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
 import {
+  createDiscoveryEnrichmentPlanningFixture,
   createDiscoveryEvaluationFixture,
+  type DiscoveryEvaluationSubstrate,
   evaluationEnvelope,
   G24_BRANCH_CHALLENGE,
   G24_BRANCH_SUPPORT,
@@ -79,6 +82,7 @@ interface State {
   readonly store: RunStore;
   readonly validator: Awaited<ReturnType<typeof createArtifactValidator>>;
   readonly bundle: DocumentBundle;
+  readonly substrate: DiscoveryEvaluationSubstrate;
 }
 
 function clone<T>(value: T): T {
@@ -313,14 +317,15 @@ async function setup(
         recordedAt: "2026-07-27T20:50:00Z",
       })
     ).record;
+  const substrate = {
+    generation: await record("unit_seed_independent_demand", "generation"),
+    evaluation: await record("unit_counterfactual", "evaluation"),
+    support: await record("unit_enrichment_support", "support"),
+    challenge: await record("unit_enrichment_challenge", "challenge"),
+  };
   const bundle = await createDiscoveryEvaluationFixture(
     runId,
-    {
-      generation: await record("unit_seed_independent_demand", "generation"),
-      evaluation: await record("unit_counterfactual", "evaluation"),
-      support: await record("unit_enrichment_support", "support"),
-      challenge: await record("unit_enrichment_challenge", "challenge"),
-    },
+    substrate,
     profile,
     researchLanguage,
   );
@@ -332,6 +337,7 @@ async function setup(
     store,
     validator,
     bundle,
+    substrate,
   };
 }
 
@@ -739,6 +745,213 @@ test("G2.4 validates closed enrichment, hard gates, comparison, portfolio, and r
       ),
     true,
   );
+});
+
+test("G2.4 public planning capabilities project current Policy, Schema, and closed validators", async () => {
+  const validator = await createArtifactValidator(repositoryRoot);
+  const runId = "g2-4-planning-capabilities-synthetic";
+  const result = await buildArtifactScaffold(
+    {
+      schema_version: "startup_opportunity.scaffold_request.current",
+      scaffold_id: "g2_4_planning_capabilities_synthetic",
+      kind: "planning_capabilities",
+      run_id: runId,
+      mode: "opportunity_discovery",
+      created_at: "2026-07-27T20:55:00Z",
+      scope_confirmation: {
+        geography: "synthetic-primary-market",
+        customer_model: "b2c",
+        target_users: ["SYNTHETIC user; not Evidence."],
+        decision_goal: "SYNTHETIC inspect mechanical planning capabilities.",
+        research_language: "en-US",
+        user_confirmed: true,
+      },
+    },
+    validator,
+    repositoryRoot,
+  );
+  const compilation = result.compilation_request as Record<string, unknown>;
+  const artifact = (compilation.artifacts as Record<string, unknown>[])[0] as Record<
+    string,
+    unknown
+  >;
+  const capability = artifact.document as Record<string, unknown>;
+  assert.equal(artifact.producer_role, "harness");
+  assert.equal(
+    capability.schema_version,
+    "startup_opportunity.planning_capabilities.discovery_evaluation.current",
+  );
+  assert.deepEqual(result.planning_capabilities, capability);
+  const missingCapability = structuredClone(result);
+  delete missingCapability.planning_capabilities;
+  assert.equal(validator.validateDocument(missingCapability).valid, false);
+  const units = capability.enrichment_units as Record<string, unknown>;
+  assert.deepEqual(units.task_target_opportunity_cardinality, { minimum: 1, maximum: null });
+  assert.equal(units.unit_count_fixed, false);
+  assert.deepEqual(units.supported_topology_forms, [
+    "shared_across_opportunities",
+    "per_opportunity",
+    "per_research_dimension",
+    "mixed",
+  ]);
+  assert.ok((units.allowed_unit_types as string[]).includes("counter_evidence"));
+  assert.deepEqual(capability.current_plan_counter_evidence, {
+    scope: "current_plan",
+    minimum_enabled_matching_units: 1,
+    enabled_unit_type_any_of: ["counter_evidence", "adversarial_review"],
+  });
+  const fanIn = capability.fan_in_hard_gate_closure as Record<string, unknown>;
+  assert.equal(fanIn.scope, "per_opportunity");
+  assert.equal(fanIn.cardinality, "exactly_once_per_opportunity");
+  assert.deepEqual(capability.execution_boundary, {
+    capability_only: true,
+    recommends_unit_count: false,
+    selects_topology: false,
+    decomposes_research_tasks: false,
+    analyzes_research_gaps: false,
+    generates_research_semantics: false,
+    hidden_llm_calls: false,
+  });
+});
+
+test("G2.4 accepts shared, per-opportunity, per-dimension, and mixed planning topologies", async (t) => {
+  const cases = [
+    {
+      name: "shared-across-opportunities",
+      units: [
+        {
+          unitId: "unit_shared_market",
+          unitType: "market_space",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+        {
+          unitId: "unit_shared_counter",
+          unitType: "counter_evidence",
+          sourcePhase: "adversarial_challenger" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+      ],
+    },
+    {
+      name: "per-opportunity",
+      units: [
+        {
+          unitId: "unit_opportunity_a",
+          unitType: "market_space",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A],
+        },
+        {
+          unitId: "unit_opportunity_b_counter",
+          unitType: "counter_evidence",
+          sourcePhase: "adversarial_challenger" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_B],
+        },
+      ],
+    },
+    {
+      name: "per-research-dimension",
+      units: [
+        {
+          unitId: "unit_dimension_monetization",
+          unitType: "monetization",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+        {
+          unitId: "unit_dimension_buyer",
+          unitType: "buyer_language",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+        {
+          unitId: "unit_dimension_counter",
+          unitType: "counter_evidence",
+          sourcePhase: "adversarial_challenger" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+      ],
+    },
+    {
+      name: "mixed-four-branch",
+      units: [
+        {
+          unitId: "unit_mixed_shared",
+          unitType: "market_space",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+        {
+          unitId: "unit_mixed_a",
+          unitType: "acquisition",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A],
+        },
+        {
+          unitId: "unit_mixed_b_counter",
+          unitType: "counter_evidence",
+          sourcePhase: "adversarial_challenger" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_B],
+        },
+        {
+          unitId: "unit_mixed_compliance",
+          unitType: "compliance_risk",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+      ],
+    },
+  ] as const;
+  for (const topology of cases) {
+    await t.test(topology.name, async (context) => {
+      const state = await setup(context, `planning-${topology.name}`);
+      const planningBundle = await createDiscoveryEnrichmentPlanningFixture(
+        state.runId,
+        state.substrate,
+        topology.units,
+      );
+      const validation = state.validator.validateDocumentBundle(planningBundle);
+      assert.equal(validation.valid, true, JSON.stringify(validation, null, 2));
+      const plan = effective(planningBundle, "plans/research-plan.r1.json");
+      const enrichmentWave = (plan.waves as Record<string, unknown>[]).find(
+        (wave) => wave.wave_id === "wave_enrichment",
+      );
+      assert.ok(enrichmentWave);
+      assert.equal((enrichmentWave.units as unknown[]).length, topology.units.length);
+      assert.deepEqual(
+        (enrichmentWave.units as Record<string, unknown>[]).map((unit) => unit.unit_type).sort(),
+        topology.units.map((unit) => unit.unitType).sort(),
+      );
+      const execution = effective(planningBundle, "plans/research-execution.r3.json");
+      const executionStage = (execution.stages as Record<string, unknown>[]).find(
+        (stage) => stage.stage_id === "stage_enrichment_runtime",
+      );
+      assert.ok(executionStage);
+      const lanes = executionStage.lanes as Record<string, unknown>[];
+      const dispatch = effective(planningBundle, "tasks/dispatch/enrichment_runtime.r1.json");
+      const dispatchTasks = dispatch.tasks as Record<string, unknown>[];
+      assert.equal(lanes.length, topology.units.length);
+      assert.equal(dispatchTasks.length, topology.units.length);
+      for (const expected of topology.units) {
+        const taskPath = `tasks/discovery/enrichment/${expected.unitId}.attempt-1.json`;
+        const taskDocument = effective(planningBundle, taskPath);
+        assert.deepEqual(taskDocument.target_opportunity_refs, expected.targetOpportunityRefs);
+        assert.equal(taskDocument.unit_type, expected.unitType);
+        const planUnit: Record<string, unknown> | undefined = (
+          enrichmentWave.units as Record<string, unknown>[]
+        ).find((unit) => unit.unit_id === expected.unitId);
+        const lane = lanes.find((candidate) => candidate.unit_id === expected.unitId);
+        const dispatched = dispatchTasks.find((candidate) => candidate.unit_id === expected.unitId);
+        assert.ok(planUnit);
+        assert.ok(lane);
+        assert.ok(dispatched);
+        assert.equal(lane.submission_path, planUnit.output_path);
+        assert.equal(dispatched.allowed_output_path, planUnit.output_path);
+        assert.equal(dispatched.task_id, taskDocument.task_id);
+      }
+    });
+  }
 });
 
 test("G2.4 opportunity-family report rendering preserves knowledge states in English", async (context) => {

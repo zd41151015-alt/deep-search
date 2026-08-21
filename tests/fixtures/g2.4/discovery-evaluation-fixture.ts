@@ -220,10 +220,11 @@ function enrichmentPlanUnit(
   unitId: string,
   outputPath: string,
   sourcePhase: "enrichment_evaluation" | "adversarial_challenger",
+  unitType = sourcePhase === "adversarial_challenger" ? "counter_evidence" : "market_space",
 ): Record<string, unknown> {
   return {
     unit_id: unitId,
-    unit_type: sourcePhase === "adversarial_challenger" ? "counter_evidence" : "market_space",
+    unit_type: unitType,
     plan_disposition: "enabled",
     priority_band: "high",
     attempt: 1,
@@ -244,6 +245,8 @@ function task(
   unitId: string,
   outputPath: string,
   sourcePhase: "enrichment_evaluation" | "adversarial_challenger",
+  unitType = sourcePhase === "adversarial_challenger" ? "counter_evidence" : "market_space",
+  targetOpportunityRefs: readonly string[] = OPPORTUNITIES,
 ): Record<string, unknown> {
   return {
     schema_version: "startup_opportunity.research_task.discovery_evaluation.current",
@@ -253,7 +256,7 @@ function task(
     mode: "opportunity_discovery",
     phase: "enrichment",
     wave_id: "wave_enrichment",
-    unit_type: sourcePhase === "adversarial_challenger" ? "counter_evidence" : "market_space",
+    unit_type: unitType,
     research_goal: SYNTHETIC,
     commercial_research_requirements: {
       research_stage: "solution_specific_evaluation",
@@ -290,7 +293,7 @@ function task(
       ],
       commercial_audit_output_path: `artifacts/research-audits/${unitId}.json`,
     },
-    target_opportunity_refs: [...OPPORTUNITIES],
+    target_opportunity_refs: [...targetOpportunityRefs],
     source_snapshot_ref: G23_SNAPSHOT,
     source_merge_ref: G23_MERGE,
     scope_frame_ref: G21_SCOPE_REF,
@@ -313,6 +316,73 @@ function task(
     execution_contract: boundary(),
     dispatched_at: "2026-07-27T21:00:00Z",
   };
+}
+
+export interface DiscoveryEnrichmentPlanningUnit {
+  readonly unitId: string;
+  readonly unitType: string;
+  readonly sourcePhase: "enrichment_evaluation" | "adversarial_challenger";
+  readonly targetOpportunityRefs: readonly string[];
+}
+
+export async function createDiscoveryEnrichmentPlanningFixture(
+  runId: string,
+  substrate: Pick<DiscoveryEvaluationSubstrate, "generation" | "evaluation">,
+  units: readonly DiscoveryEnrichmentPlanningUnit[],
+): Promise<DocumentBundle> {
+  const bundle = await createDiscoverySynthesisFixture(runId, substrate, [
+    {
+      wave_id: "wave_enrichment",
+      depends_on: ["wave_discovery_synthetic"],
+      units: units.map((unit) => {
+        const outputPath = `artifacts/discovery/enrichment/branches/${unit.unitId}.attempt-1.json`;
+        return enrichmentPlanUnit(unit.unitId, outputPath, unit.sourcePhase, unit.unitType);
+      }),
+    },
+  ]);
+  const mutableDocuments = bundle.documents as {
+    path: string;
+    document: Record<string, unknown>;
+  }[];
+  for (const unit of units) {
+    const outputPath = `artifacts/discovery/enrichment/branches/${unit.unitId}.attempt-1.json`;
+    const taskPath = `tasks/discovery/enrichment/${unit.unitId}.attempt-1.json`;
+    mutableDocuments.push({
+      path: taskPath,
+      document: envelope(
+        runId,
+        taskPath,
+        task(
+          runId,
+          unit.unitId,
+          outputPath,
+          unit.sourcePhase,
+          unit.unitType,
+          unit.targetOpportunityRefs,
+        ),
+        "2026-07-27T20:55:00Z",
+      ) as unknown as Record<string, unknown>,
+    });
+  }
+  const runtimeWave = discoveryWaveEnvelopes(
+    bundle,
+    runId,
+    "startup_opportunity.research_task.discovery_evaluation.current",
+    3,
+    "enrichment_runtime",
+  );
+  for (const artifact of runtimeWave) {
+    const entry = {
+      path: artifact.artifact_path,
+      document: artifact as unknown as Record<string, unknown>,
+    };
+    const existingIndex = mutableDocuments.findIndex(
+      (candidate) => candidate.path === artifact.artifact_path,
+    );
+    if (existingIndex === -1) mutableDocuments.push(entry);
+    else mutableDocuments[existingIndex] = entry;
+  }
+  return bundle;
 }
 
 function evidence(
