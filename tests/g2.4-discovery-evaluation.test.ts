@@ -1169,6 +1169,24 @@ test("G2.4 forbidden-expression rules cover every formal surface and separator v
   }
   assert.deepEqual(scanReportSurface("report_view", "local score remains unknown"), []);
   assert.deepEqual(scanReportSurface("structured_report", "market validation remains pending"), []);
+  assert.deepEqual(
+    scanReportSurface(
+      "structured_report",
+      {
+        source_title: "Best practices for the workflow",
+        quoted_text: "Users call this the best option",
+        solution_evaluations: [
+          {
+            evaluation: {
+              exploration_status: "not_yet_explored",
+            },
+          },
+        ],
+      },
+      true,
+    ),
+    [],
+  );
 
   const state = await setup(context, "surface-boundary");
   const report = evaluationEnvelope(state.bundle, G24_REPORT);
@@ -1215,6 +1233,123 @@ test("G2.4 forbidden-expression rules cover every formal surface and separator v
   assert.ok(
     appendixValidation.errors.some((error) => error.code === "g2_4.forbidden_report_expression"),
   );
+});
+
+test("G2.4 mixed compared and provisional opportunities keep comparative wording scoped to the compared opportunity", async (context) => {
+  const state = await setup(context, "mixed-scope", "general", "en-US", "compared");
+  await publishThroughEvaluation(state);
+  const report = evaluationEnvelope(state.bundle, G24_REPORT);
+  const structured = report.document as Record<string, unknown>;
+  const evaluations = structured.solution_evaluations as Record<string, unknown>[];
+  assert.equal(evaluations.length, 2);
+  const comparedEvaluation = evaluations[0]?.evaluation as Record<string, unknown>;
+  const provisionalEvaluation = evaluations[1]?.evaluation as Record<string, unknown>;
+  comparedEvaluation.current_recommendation = "best compared selection for the first opportunity";
+  comparedEvaluation.partial_order_summary = "preferred after comparison";
+  provisionalEvaluation.current_recommendation = "provisional choice only";
+  provisionalEvaluation.selection_posture = "provisional_implementation";
+  provisionalEvaluation.status_rationale = "evidence remains provisional and not yet explored.";
+  structured.curated_judgment_context = {
+    ...(structured.curated_judgment_context as Record<string, unknown>),
+    current_recommendation: "best compared selection for the first opportunity",
+    partial_order_summary: "preferred after comparison",
+  };
+  const reportSections = structured.report_sections as Record<string, unknown>;
+  reportSections.decision_recommendation = ["best compared selection for the first opportunity"];
+  reportSections.conclusion_summary = ["best compared selection for the first opportunity"];
+  (report as { content_hash: string }).content_hash = canonicalContentHash(report.document);
+  const derived = deriveReportEnvelopes(report);
+  const consistency = derived.find(
+    (candidate) =>
+      candidate.artifact_type ===
+      "startup_opportunity.report_consistency_evaluation.discovery.current",
+  );
+  assert.ok(consistency);
+  assert.equal(consistency.document.evaluator_result, "passed");
+  assert.deepEqual(consistency.document.forbidden_expression_matches, []);
+  const decisionBrief = String(
+    derived.find(
+      (candidate) =>
+        candidate.artifact_type === "startup_opportunity.decision_brief.discovery.current",
+    )?.document.markdown,
+  );
+  const reportMarkdown = String(
+    derived.find(
+      (candidate) => candidate.artifact_type === "startup_opportunity.discovery_report_view.v1",
+    )?.document.markdown,
+  );
+  const projectedReport = report.document as Record<string, unknown>;
+  const solutionEvaluations = projectedReport.solution_evaluations as Record<string, unknown>[];
+  const firstEvaluation = solutionEvaluations[0];
+  const secondEvaluation = solutionEvaluations[1];
+  assert.ok(firstEvaluation);
+  assert.ok(secondEvaluation);
+  assert.equal(
+    (firstEvaluation.evaluation as Record<string, unknown>).exploration_status,
+    "compared_multiple_formal_solutions",
+  );
+  assert.equal(
+    (secondEvaluation.evaluation as Record<string, unknown>).selection_posture,
+    "provisional_implementation",
+  );
+  assert.match(decisionBrief, /best compared selection/);
+  assert.match(reportMarkdown, /best compared selection/);
+});
+
+test("G2.4 mixed compared and provisional opportunities reject comparative-best wording in the provisional opportunity before publication and writes nothing", async (context) => {
+  const state = await setup(context, "mixed-provisional-clamp", "general", "en-US", "compared");
+  await publishThroughEvaluation(state);
+  const report = clone(evaluationEnvelope(state.bundle, G24_REPORT));
+  const structured = report.document as Record<string, unknown>;
+  const evaluations = structured.solution_evaluations as Record<string, unknown>[];
+  assert.equal(evaluations.length, 2);
+  const comparedEvaluation = evaluations[0]?.evaluation as Record<string, unknown>;
+  const provisionalEvaluation = evaluations[1]?.evaluation as Record<string, unknown>;
+  comparedEvaluation.exploration_status = "compared_multiple_formal_solutions";
+  comparedEvaluation.current_recommendation = "best compared selection for the first opportunity";
+  comparedEvaluation.partial_order_summary = "preferred after comparison";
+  provisionalEvaluation.exploration_status = "not_yet_explored";
+  provisionalEvaluation.current_recommendation = "the best choice for the provisional opportunity";
+  provisionalEvaluation.selection_posture = "provisional_implementation";
+  provisionalEvaluation.status_rationale = "evidence remains provisional and not yet explored.";
+  (report as { content_hash: string }).content_hash = canonicalContentHash(report.document);
+  const before = await treeSnapshot(state.runRoot);
+  const derived = deriveReportEnvelopes(report);
+  const consistency = derived.find(
+    (candidate) =>
+      candidate.artifact_type ===
+      "startup_opportunity.report_consistency_evaluation.discovery.current",
+  );
+  assert.ok(consistency);
+  assert.equal(consistency.document.evaluator_result, "failed");
+  assert.ok(
+    (consistency.document.forbidden_expression_matches as string[]).some((match) =>
+      match.startsWith("comparative_selection_claim@structured_report:"),
+    ),
+  );
+  assert.deepEqual(await treeSnapshot(state.runRoot), before);
+});
+
+test("G2.4 provisional evidence with best in source title and quote does not trigger comparative clamp", async (context) => {
+  const state = await setup(context, "evidence-surface");
+  await publishThroughEvaluation(state);
+  const report = evaluationEnvelope(state.bundle, G24_REPORT);
+  const structured = report.document as Record<string, unknown>;
+  const evidence = (structured.curated_judgment_context as Record<string, unknown>)
+    .decisive_support as Record<string, unknown>[];
+  assert.ok(evidence[0]);
+  evidence[0].summary = "Best practices for the workflow";
+  evidence[0].refs = evidence[0].refs ?? [];
+  (report as { content_hash: string }).content_hash = canonicalContentHash(report.document);
+  const derived = deriveReportEnvelopes(report);
+  const consistency = derived.find(
+    (candidate) =>
+      candidate.artifact_type ===
+      "startup_opportunity.report_consistency_evaluation.discovery.current",
+  );
+  assert.ok(consistency);
+  assert.equal(consistency.document.evaluator_result, "passed");
+  assert.deepEqual(consistency.document.forbidden_expression_matches, []);
 });
 
 test("G2.4 forbidden sidecar fails before receipt and remains absent through checkpoint recovery", async (context) => {
