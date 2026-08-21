@@ -17,6 +17,8 @@
     "research_plan_ref",
     "plan_lineage_refs",
     "applied_adaptation_refs",
+    "source_merge_ref",
+    "opportunity_family_projection",
     "decision_recommendation_ref",
     "portfolio_view_ref",
     "comparison_refs",
@@ -120,6 +122,12 @@
     },
     "applied_adaptation_refs": {
       "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "source_merge_ref": {
+      "$ref": "./definitions.schema.json#/$defs/mergeRef"
+    },
+    "opportunity_family_projection": {
+      "$ref": "../synthesis/definitions.schema.json#/$defs/opportunityFamilyProjection"
     },
     "decision_recommendation_ref": {
       "$ref": "./definitions.schema.json#/$defs/artifactRef"

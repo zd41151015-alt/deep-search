@@ -277,6 +277,7 @@
       "artifactTypeSelectors": [{ "prefix": "current/discovery/" }],
       "directRuntimeRoots": [],
       "ownerModules": [
+        "harness/src/opportunity-family-contract.ts",
         "harness/src/validators/discovery-candidate-validator.ts",
         "harness/src/validators/discovery-evaluation-validator.ts",
         "harness/src/validators/discovery-maps-validator.ts",
@@ -287,6 +288,7 @@
         "harness/src/comparison/comparison-commands.ts",
         "harness/src/evidence-store/evidence-store.ts",
         "harness/src/index.ts",
+        "harness/src/opportunity-family-contract.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "consumerModules": [

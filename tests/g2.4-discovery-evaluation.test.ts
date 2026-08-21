@@ -625,6 +625,26 @@ test("G2.4 validates closed enrichment, hard gates, comparison, portfolio, and r
   const validator = await createArtifactValidator(repositoryRoot);
   const result = validator.validateDocumentBundle(state.bundle);
   assert.equal(result.valid, true, JSON.stringify(result, null, 2));
+  const familyProjection = effective(state.bundle, G24_PORTFOLIO)
+    .opportunity_family_projection as Record<string, unknown>;
+  assert.equal(familyProjection.independent_opportunity_family_count, 1);
+  assert.equal(familyProjection.concrete_direction_count, 2);
+  assert.equal(familyProjection.unknown_family_relation_count, 0);
+  const projectedMembers = (familyProjection.families as Record<string, unknown>[]).flatMap(
+    (family) => family.members as Record<string, unknown>[],
+  );
+  assert.deepEqual(projectedMembers.map((member) => member.relation_to_family).sort(), [
+    "delivery_or_implementation_variant",
+    "segment_variant",
+  ]);
+  assert.ok(
+    projectedMembers.every(
+      (member) =>
+        member.uses_ai === effective(state.bundle, G23_SOLUTION).uses_ai &&
+        member.solution_type === effective(state.bundle, G23_SOLUTION).solution_type &&
+        member.delivery_form === effective(state.bundle, G23_SOLUTION).delivery_form,
+    ),
+  );
   assert.equal(
     state.bundle.documents
       .filter((candidate) => candidate.path.startsWith("artifacts/"))
@@ -1459,6 +1479,39 @@ test("G2.4 rejects closed contract mutations with deterministic error codes", as
       },
     },
     {
+      code: "g2_4.opportunity_family_projection_mismatch",
+      mutate(bundle) {
+        const projection = effective(bundle, G24_PORTFOLIO).opportunity_family_projection as Record<
+          string,
+          unknown
+        >;
+        const member = (
+          (projection.families as Record<string, unknown>[])[0]?.members as
+            | Record<string, unknown>[]
+            | undefined
+        )?.[0];
+        assert.ok(member);
+        member.uses_ai = !member.uses_ai;
+        refreshEnvelopeClosure(bundle, G24_PORTFOLIO);
+      },
+    },
+    {
+      code: "g2_4.opportunity_family_projection_mismatch",
+      mutate(bundle) {
+        effective(bundle, G23_SOLUTION).uses_ai = !effective(bundle, G23_SOLUTION).uses_ai;
+        refresh(bundle, G23_SOLUTION);
+        refreshAllInputHashes(bundle);
+      },
+    },
+    {
+      code: "g2_4.opportunity_family_projection_mismatch",
+      mutate(bundle) {
+        effective(bundle, G23_OPPORTUNITY_A).title = "SYNTHETIC changed opportunity title";
+        refresh(bundle, G23_OPPORTUNITY_A);
+        refreshAllInputHashes(bundle);
+      },
+    },
+    {
       code: "g2_4.evidence_substrate_binding_mismatch",
       mutate(bundle) {
         (
@@ -1757,6 +1810,12 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   const projectedReport = JSON.parse(
     await readFile(path.join(state.runRoot, "report.json"), "utf8"),
   ) as Record<string, unknown>;
+  const projectedFamilies = projectedReport.opportunity_family_projection as Record<
+    string,
+    unknown
+  >;
+  assert.equal(projectedFamilies.independent_opportunity_family_count, 1);
+  assert.equal(projectedFamilies.concrete_direction_count, 2);
   const watchProjectionDocument = structuredClone(projectedReport);
   delete watchProjectionDocument.materialized_path;
   (watchProjectionDocument.curated_judgment_context as Record<string, unknown>).decision_tier =
@@ -1887,10 +1946,14 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   assert.ok(loaded.manifest.artifact_refs.includes(first.consistencyEvaluationRef));
   const decisionBrief = await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8");
   assert.match(decisionBrief, /局部排序/);
+  assert.match(decisionBrief, /1 个可区分的机会家族、2 个具体方向/);
+  assert.match(decisionBrief, /共享机制/);
   assert.match(decisionBrief, /头部公司吸收与响应风险/);
   assert.ok(decisionBrief.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
   assert.match(reportMarkdown, /方向组合/);
+  assert.match(reportMarkdown, /1 个可区分的机会家族、2 个具体方向/);
+  assert.match(reportMarkdown, /交付或实施变体/);
   assert.match(reportMarkdown, /头部公司吸收与响应风险/);
   assert.ok(reportMarkdown.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   const auditAppendix = await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8");

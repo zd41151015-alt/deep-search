@@ -9,6 +9,8 @@
     "traceability_id",
     "run_id",
     "source_snapshot_ref",
+    "source_merge_ref",
+    "opportunity_family_projection",
     "decision_recommendation_ref",
     "comparison_refs",
     "enrichment_fan_in_ref",
@@ -32,6 +34,12 @@
     },
     "source_snapshot_ref": {
       "$ref": "./definitions.schema.json#/$defs/snapshotRef"
+    },
+    "source_merge_ref": {
+      "$ref": "./definitions.schema.json#/$defs/mergeRef"
+    },
+    "opportunity_family_projection": {
+      "$ref": "../synthesis/definitions.schema.json#/$defs/opportunityFamilyProjection"
     },
     "decision_recommendation_ref": {
       "$ref": "./definitions.schema.json#/$defs/artifactRef"

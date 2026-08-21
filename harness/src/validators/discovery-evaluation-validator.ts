@@ -1,5 +1,6 @@
 import type { FormalArtifactEnvelope } from "../artifact-store/artifact-store.js";
 import { canonicalContentHash, canonicalJson, sha256Bytes } from "../artifact-store/canonical.js";
+import { deriveOpportunityFamilyProjection } from "../opportunity-family-contract.js";
 import { deriveReportStatistics } from "../reporting/commercial-report-tables.js";
 import { deriveReportCitations } from "../reporting/report-citation-authority.js";
 import {
@@ -1219,6 +1220,65 @@ function validateEvaluationAndReporting(
   const recommendation = entries.find(
     (entry) => entry.schemaVersion === "startup_opportunity.decision_recommendation.v1",
   );
+  const traceability = entries.find(
+    (entry) => entry.schemaVersion === "startup_opportunity.traceability.discovery.current",
+  );
+  const familyConsumers = [portfolio, recommendation, traceability, report].filter(
+    (entry): entry is DiscoveryEvaluationDocument => entry !== undefined,
+  );
+  const sourceMergeRefs = familyConsumers.map((entry) => String(entry.document.source_merge_ref));
+  if (familyConsumers.length > 0) {
+    try {
+      const sourceMergeRef = sourceMergeRefs[0] as string;
+      const expectedProjection = deriveOpportunityFamilyProjection(
+        sourceMergeRef,
+        new Map(
+          [...byPath].map(([path, entry]) => [
+            path,
+            {
+              path,
+              schemaVersion: entry.schemaVersion,
+              document: entry.document,
+              contentHash:
+                typeof entry.envelope?.content_hash === "string"
+                  ? entry.envelope.content_hash
+                  : canonicalContentHash(entry.document),
+            },
+          ]),
+        ),
+      );
+      const projectedMemberRefs = records(expectedProjection.families).flatMap((family) =>
+        records(family.members).map((member) => String(member.opportunity_ref)),
+      );
+      const comparedOpportunityRefs = comparisons.map((entry) =>
+        String(entry.document.opportunity_ref),
+      );
+      if (
+        !sourceMergeRefs.every((ref) => ref === sourceMergeRef) ||
+        !setEqual(projectedMemberRefs, comparedOpportunityRefs) ||
+        familyConsumers.some(
+          (entry) => !same(entry.document.opportunity_family_projection, expectedProjection),
+        )
+      ) {
+        errors.push(
+          issue(
+            "g2_4.opportunity_family_projection_mismatch",
+            portfolio?.path ?? recommendation?.path ?? report?.path ?? "artifacts/discovery",
+            "G2.4 must mechanically preserve one exact Merge family projection and every member Opportunity",
+            { sourceMergeRef, projectedMemberRefs, comparedOpportunityRefs },
+          ),
+        );
+      }
+    } catch (error) {
+      errors.push(
+        issue(
+          "g2_4.opportunity_family_projection_invalid",
+          portfolio?.path ?? recommendation?.path ?? report?.path ?? "artifacts/discovery",
+          error instanceof Error ? error.message : "opportunity-family projection is invalid",
+        ),
+      );
+    }
+  }
   if (portfolio !== undefined) {
     const opportunities = comparisons.map((entry) => String(entry.document.opportunity_ref));
     const partition = [
@@ -1334,9 +1394,6 @@ function validateEvaluationAndReporting(
     }
   }
 
-  const traceability = entries.find(
-    (entry) => entry.schemaVersion === "startup_opportunity.traceability.discovery.current",
-  );
   if (traceability !== undefined) {
     const traceabilityFanIn = target(byPath, traceability.document.enrichment_fan_in_ref);
     const statements = records(traceability.document.statements);
@@ -1418,6 +1475,11 @@ function validateEvaluationAndReporting(
       report.document.portfolio_view_ref !== portfolio?.path ||
       report.document.sensitivity_ref !== sensitivity?.path ||
       report.document.traceability_ref !== traceability?.path ||
+      report.document.source_merge_ref !== recommendation?.document.source_merge_ref ||
+      !same(
+        report.document.opportunity_family_projection,
+        recommendation?.document.opportunity_family_projection,
+      ) ||
       !setEqual(
         strings(report.document.comparison_refs),
         comparisons.map((entry) => entry.path),
@@ -1489,6 +1551,10 @@ function validateEvaluationAndReporting(
     (brief.document.report_ref !== report?.path ||
       brief.document.report_content_hash !== reportHash ||
       brief.document.decision_recommendation_ref !== recommendation?.path ||
+      !same(
+        brief.document.opportunity_family_projection,
+        report?.document.opportunity_family_projection,
+      ) ||
       brief.document.decision_question !== context?.decision_question ||
       brief.document.decision_tier !== context?.decision_tier ||
       brief.document.current_recommendation !== context?.current_recommendation ||
@@ -1519,6 +1585,10 @@ function validateEvaluationAndReporting(
     (view.document.report_ref !== report?.path ||
       view.document.report_content_hash !== reportHash ||
       view.document.decision_recommendation_ref !== recommendation?.path ||
+      !same(
+        view.document.opportunity_family_projection,
+        report?.document.opportunity_family_projection,
+      ) ||
       view.document.decision_tier !== context?.decision_tier ||
       view.document.recommendation_meaning !== context?.recommendation_meaning ||
       view.document.recommended_first_bet !== context?.recommended_first_bet ||

@@ -504,6 +504,50 @@ export async function createDiscoverySynthesisFixture(
       },
     ],
     preserved_variants: [G23_OPPORTUNITY_B],
+    opportunity_families: [
+      {
+        family_id: "family_household_coordination",
+        title: "SYNTHETIC shared household coordination mechanism",
+        family_relation: "shared_opportunity_family",
+        members: [
+          {
+            opportunity_ref: G23_OPPORTUNITY_A,
+            relation_to_family: "segment_variant",
+          },
+          {
+            opportunity_ref: G23_OPPORTUNITY_B,
+            relation_to_family: "delivery_or_implementation_variant",
+          },
+        ],
+        shared_value_or_solution_mechanism: {
+          state: "inferred",
+          description:
+            "SYNTHETIC shared coordination loop; this is research semantics, not a Harness inference.",
+        },
+        shared_assumptions: [SYNTHETIC],
+        shared_failure_risks: [SYNTHETIC],
+        member_specific_differences: [
+          {
+            opportunity_ref: G23_OPPORTUNITY_A,
+            dimensions: [{ dimension: "user", state: "declared", description: SYNTHETIC }],
+          },
+          {
+            opportunity_ref: G23_OPPORTUNITY_B,
+            dimensions: [
+              { dimension: "delivery_boundary", state: "partial", description: SYNTHETIC },
+            ],
+          },
+        ],
+        evidence_basis: {
+          supporting_refs: [],
+          opposing_refs: [],
+          background_refs: [],
+          unknown_refs: [],
+          limitations: [SYNTHETIC],
+          unresolved_questions: [SYNTHETIC],
+        },
+      },
+    ],
     candidate_diversity_after_merge: {
       covered_users: [SYNTHETIC],
       covered_jobs: [SYNTHETIC],

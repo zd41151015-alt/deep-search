@@ -24,10 +24,13 @@ import {
   G22_BASELINE_EVALUATION_JUDGMENT,
   G22_BASELINE_GENERATION_JUDGMENT,
   G22_DEMAND_R2,
+  G22_EVALUATION_CLAIM,
   G22_FAN_IN,
   G22_FINDING,
   G22_GENERATION_CLAIM,
+  G22_GENERATION_MANIFEST,
   G22_INSIGHT,
+  G22_JUDGMENT,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import { runtimeEnvelope } from "./fixtures/g2.2/discovery-runtime-fixture.js";
 import {
@@ -92,6 +95,55 @@ function currentEnvelopes(bundle: DocumentBundle): FormalArtifactEnvelope[] {
     .filter(
       (candidate) => candidate.schema_version === "startup_opportunity.artifact_envelope.current",
     );
+}
+
+function familyDeclaration(
+  familyId: string,
+  familyRelation: "independent_opportunity" | "shared_opportunity_family" | "unknown",
+  members: readonly {
+    readonly opportunity_ref: string;
+    readonly relation_to_family:
+      | "independent_opportunity"
+      | "segment_variant"
+      | "delivery_or_implementation_variant"
+      | "unknown";
+  }[],
+): Record<string, unknown> {
+  return {
+    family_id: familyId,
+    title: `SYNTHETIC ${familyId}`,
+    family_relation: familyRelation,
+    members: members.map((member) => ({ ...member })),
+    shared_value_or_solution_mechanism: {
+      state: familyRelation === "unknown" ? "unknown" : "declared",
+      description: `SYNTHETIC mechanism for ${familyId}; no real conclusion.`,
+    },
+    shared_assumptions: ["SYNTHETIC assumption."],
+    shared_failure_risks: ["SYNTHETIC shared risk."],
+    member_specific_differences: members.map((member) => ({
+      opportunity_ref: member.opportunity_ref,
+      dimensions: [
+        {
+          dimension: "user",
+          state: familyRelation === "unknown" ? "unknown" : "partial",
+          description: "SYNTHETIC member difference; no real conclusion.",
+        },
+      ],
+    })),
+    evidence_basis: {
+      supporting_refs: [],
+      opposing_refs: [],
+      background_refs: [],
+      unknown_refs: [],
+      limitations: ["SYNTHETIC limitation."],
+      unresolved_questions: ["SYNTHETIC unresolved question."],
+    },
+  };
+}
+
+function setFamilies(bundle: DocumentBundle, families: readonly Record<string, unknown>[]): void {
+  effective(bundle, G23_MERGE).opportunity_families = structuredClone(families);
+  refresh(bundle, G23_MERGE);
 }
 
 const SYNTHESIS_PATHS = new Set([
@@ -264,6 +316,256 @@ test("G2.3 validates a closed conversion, formal thesis, freeze, and semantic me
   const result = validator.validateDocumentBundle(state.bundle);
   assert.equal(result.valid, true, JSON.stringify(result.referenceErrors, null, 2));
   assert.equal(synthesisEnvelopes(state.bundle).length, SYNTHESIS_PATHS.size);
+});
+
+test("G2.3 represents independent, segment, delivery, mixed, and unknown family relations without changing Opportunities", async (context) => {
+  const state = await setup(context, "family-relations");
+  const validator = await createArtifactValidator(repositoryRoot);
+  const relationCases: readonly {
+    readonly name: string;
+    readonly families: readonly Record<string, unknown>[];
+  }[] = [
+    {
+      name: "multiple-independent-families",
+      families: [
+        familyDeclaration("family_independent_a", "independent_opportunity", [
+          { opportunity_ref: G23_OPPORTUNITY_A, relation_to_family: "independent_opportunity" },
+        ]),
+        familyDeclaration("family_independent_b", "independent_opportunity", [
+          { opportunity_ref: G23_OPPORTUNITY_B, relation_to_family: "independent_opportunity" },
+        ]),
+      ],
+    },
+    {
+      name: "shared-segments",
+      families: [
+        familyDeclaration("family_segments", "shared_opportunity_family", [
+          { opportunity_ref: G23_OPPORTUNITY_A, relation_to_family: "segment_variant" },
+          { opportunity_ref: G23_OPPORTUNITY_B, relation_to_family: "segment_variant" },
+        ]),
+      ],
+    },
+    {
+      name: "delivery-variant",
+      families: [
+        familyDeclaration("family_delivery", "shared_opportunity_family", [
+          { opportunity_ref: G23_OPPORTUNITY_A, relation_to_family: "segment_variant" },
+          {
+            opportunity_ref: G23_OPPORTUNITY_B,
+            relation_to_family: "delivery_or_implementation_variant",
+          },
+        ]),
+      ],
+    },
+    {
+      name: "mixed-independent-and-single-member-family",
+      families: [
+        familyDeclaration("family_single_member", "shared_opportunity_family", [
+          { opportunity_ref: G23_OPPORTUNITY_A, relation_to_family: "segment_variant" },
+        ]),
+        familyDeclaration("family_mixed_independent", "independent_opportunity", [
+          { opportunity_ref: G23_OPPORTUNITY_B, relation_to_family: "independent_opportunity" },
+        ]),
+      ],
+    },
+    {
+      name: "unknown-relation",
+      families: [
+        familyDeclaration("family_unknown", "unknown", [
+          { opportunity_ref: G23_OPPORTUNITY_A, relation_to_family: "unknown" },
+          { opportunity_ref: G23_OPPORTUNITY_B, relation_to_family: "unknown" },
+        ]),
+      ],
+    },
+  ];
+  for (const relationCase of relationCases) {
+    const bundle = clone(state.bundle);
+    const before = [
+      canonicalContentHash(effective(bundle, G23_OPPORTUNITY_A)),
+      canonicalContentHash(effective(bundle, G23_OPPORTUNITY_B)),
+    ];
+    setFamilies(bundle, relationCase.families);
+    const result = validator.validateDocumentBundle(bundle);
+    assert.equal(
+      result.valid,
+      true,
+      `${relationCase.name}: ${JSON.stringify(result.referenceErrors, null, 2)}`,
+    );
+    assert.deepEqual(
+      [
+        canonicalContentHash(effective(bundle, G23_OPPORTUNITY_A)),
+        canonicalContentHash(effective(bundle, G23_OPPORTUNITY_B)),
+      ],
+      before,
+      relationCase.name,
+    );
+  }
+});
+
+test("G2.3 preserves distinct knowledge states and supporting, opposing, background, and unknown family material", async (context) => {
+  const state = await setup(context, "family-evidence-states");
+  const family = familyDeclaration("family_semantic_states", "shared_opportunity_family", [
+    { opportunity_ref: G23_OPPORTUNITY_A, relation_to_family: "segment_variant" },
+    { opportunity_ref: G23_OPPORTUNITY_B, relation_to_family: "segment_variant" },
+  ]);
+  family.shared_value_or_solution_mechanism = {
+    state: "unavailable",
+    description: "SYNTHETIC unavailable mechanism detail; no absence claim.",
+  };
+  family.member_specific_differences = [
+    {
+      opportunity_ref: G23_OPPORTUNITY_A,
+      dimensions: [
+        { dimension: "user", state: "partial", description: "SYNTHETIC partial." },
+        {
+          dimension: "job_to_be_done",
+          state: "unavailable",
+          description: "SYNTHETIC unavailable.",
+        },
+        { dimension: "entry_scene", state: "unknown", description: "SYNTHETIC unknown." },
+      ],
+    },
+    {
+      opportunity_ref: G23_OPPORTUNITY_B,
+      dimensions: [
+        { dimension: "buyer", state: "inferred", description: "SYNTHETIC inferred." },
+        {
+          dimension: "acquisition",
+          state: "not_applicable",
+          description: "SYNTHETIC not applicable.",
+        },
+        {
+          dimension: "compliance",
+          state: "no_evidence_found",
+          description: "SYNTHETIC no evidence found after the declared search boundary.",
+        },
+      ],
+    },
+  ];
+  family.evidence_basis = {
+    supporting_refs: [G22_GENERATION_CLAIM],
+    opposing_refs: [G22_EVALUATION_CLAIM],
+    background_refs: [G22_GENERATION_MANIFEST],
+    unknown_refs: [G22_JUDGMENT],
+    limitations: ["SYNTHETIC limitation."],
+    unresolved_questions: ["SYNTHETIC unresolved question."],
+  };
+  setFamilies(state.bundle, [family]);
+  const mergeEnvelope = entry(state.bundle, G23_MERGE);
+  mergeEnvelope.input_refs = [
+    ...new Set([
+      ...(mergeEnvelope.input_refs as string[]),
+      G22_GENERATION_CLAIM,
+      G22_EVALUATION_CLAIM,
+      G22_GENERATION_MANIFEST,
+      G22_JUDGMENT,
+    ]),
+  ].sort();
+  const validator = await createArtifactValidator(repositoryRoot);
+  const result = validator.validateDocumentBundle(state.bundle);
+  assert.equal(result.valid, true, JSON.stringify(result.referenceErrors, null, 2));
+});
+
+test("G2.3 accepts one single-member family and reports one direction rather than fabricating more families", async (context) => {
+  const state = await setup(context, "single-family");
+  (state.bundle.documents as { path: string; document: Record<string, unknown> }[]) =
+    state.bundle.documents.filter((entry) => entry.path !== G23_OPPORTUNITY_B);
+  const snapshot = effective(state.bundle, G23_SNAPSHOT);
+  snapshot.subject_refs = [G23_OPPORTUNITY_A];
+  const snapshotEnvelope = entry(state.bundle, G23_SNAPSHOT);
+  snapshotEnvelope.input_refs = (snapshotEnvelope.input_refs as string[]).filter(
+    (ref) => ref !== G23_OPPORTUNITY_B,
+  );
+  refresh(state.bundle, G23_SNAPSHOT);
+  const merge = effective(state.bundle, G23_MERGE);
+  merge.source_thesis_refs = [G23_OPPORTUNITY_A];
+  merge.merged_opportunities = [
+    {
+      cluster_id: "cluster_single",
+      canonical_opportunity_ref: G23_OPPORTUNITY_A,
+      member_thesis_refs: [G23_OPPORTUNITY_A],
+    },
+  ];
+  const decision = structuredClone(
+    (merge.merge_or_split_decisions as Record<string, unknown>[])[0],
+  );
+  assert.ok(decision);
+  decision.decision_id = "decision_single";
+  decision.cluster_id = "cluster_single";
+  decision.decision = "preserve";
+  decision.member_thesis_refs = [G23_OPPORTUNITY_A];
+  merge.merge_or_split_decisions = [decision];
+  merge.preserved_variants = [G23_OPPORTUNITY_A];
+  setFamilies(state.bundle, [
+    familyDeclaration("family_only", "shared_opportunity_family", [
+      { opportunity_ref: G23_OPPORTUNITY_A, relation_to_family: "segment_variant" },
+    ]),
+  ]);
+  const mergeEnvelope = entry(state.bundle, G23_MERGE);
+  mergeEnvelope.input_refs = (mergeEnvelope.input_refs as string[]).filter(
+    (ref) => ref !== G23_OPPORTUNITY_B,
+  );
+  const validator = await createArtifactValidator(repositoryRoot);
+  const result = validator.validateDocumentBundle(state.bundle);
+  assert.equal(result.valid, true, JSON.stringify(result.referenceErrors, null, 2));
+});
+
+test("G2.3 rejects duplicate or omitted family members before atomic publication writes anything", async (context) => {
+  for (const mutation of ["duplicate", "omitted"] as const) {
+    const state = await setup(context, `family-${mutation}`);
+    await publishThroughFanIn(state);
+    const invalid = clone(synthesisEnvelopes(state.bundle));
+    const mergeEnvelope = invalid.find((entry) => entry.artifact_path === G23_MERGE);
+    assert.ok(mergeEnvelope);
+    const families = mergeEnvelope.document.opportunity_families as Record<string, unknown>[];
+    const members = families[0]?.members as Record<string, unknown>[];
+    assert.ok(members?.[0]);
+    if (mutation === "duplicate") members.push(structuredClone(members[0]));
+    else members.pop();
+    (mergeEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
+      mergeEnvelope.document,
+    );
+    await assert.rejects(
+      state.store.publishArtifactBundle({ runId: state.runId, envelopes: invalid }),
+      (error: unknown) => error instanceof StoreError,
+    );
+    const loaded = await state.store.load(state.runId);
+    assert.ok(
+      synthesisEnvelopes(state.bundle).every(
+        (entry) => !loaded.manifest.artifact_refs.includes(entry.artifact_path),
+      ),
+      mutation,
+    );
+  }
+});
+
+test("G2.3 rejects cross-Run members and stale selected Solution typed facts", async (context) => {
+  const state = await setup(context, "family-authority-bindings");
+  const validator = await createArtifactValidator(repositoryRoot);
+
+  const crossRun = clone(state.bundle);
+  effective(crossRun, G23_OPPORTUNITY_A).run_id = "foreign-run-not-this-one";
+  refresh(crossRun, G23_OPPORTUNITY_A);
+  const crossRunResult = validator.validateDocumentBundle(crossRun);
+  assert.equal(crossRunResult.valid, false);
+  assert.ok(
+    crossRunResult.referenceErrors.some(
+      (error) => error.code === "opportunity_family.member_authority_invalid",
+    ),
+    JSON.stringify(crossRunResult.referenceErrors, null, 2),
+  );
+
+  const staleSolution = clone(state.bundle);
+  effective(staleSolution, G23_SOLUTION).delivery_form = "human_coaching";
+  refresh(staleSolution, G23_SOLUTION);
+  const staleSolutionResult = validator.validateDocumentBundle(staleSolution);
+  assert.equal(staleSolutionResult.valid, false);
+  assert.ok(
+    staleSolutionResult.referenceErrors.some(
+      (error) => error.code === "opportunity_family.selected_solution_authority_invalid",
+    ),
+    JSON.stringify(staleSolutionResult.referenceErrors, null, 2),
+  );
 });
 
 test("G2.3 rejects closed lineage, source-separation, freeze, and merge mutations with stable codes", async (context) => {

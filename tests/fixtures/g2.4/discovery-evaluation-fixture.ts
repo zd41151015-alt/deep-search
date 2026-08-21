@@ -5,6 +5,7 @@ import {
   type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
 } from "../../../harness/src/index.js";
+import { deriveOpportunityFamilyProjection } from "../../../harness/src/opportunity-family-contract.js";
 import { discoveryWaveEnvelopes } from "../../helpers/discovery-wave.js";
 import { G21_DECISION_REF, G21_PLAN_REF, G21_SCOPE_REF } from "../g2.1/discovery-maps-fixture.js";
 import {
@@ -723,6 +724,20 @@ export async function createDiscoveryEvaluationFixture(
       ];
     }),
   );
+  const familyProjection = deriveOpportunityFamilyProjection(
+    G23_MERGE,
+    new Map(
+      [...documents].map(([artifactPath, document]) => [
+        artifactPath,
+        {
+          path: artifactPath,
+          schemaVersion: String(document.schema_version),
+          document,
+          contentHash: canonicalContentHash(document),
+        },
+      ]),
+    ),
+  );
   const add = (path: string, document: Record<string, unknown>): void => {
     documents.set(path, document);
   };
@@ -1063,6 +1078,8 @@ export async function createDiscoveryEvaluationFixture(
     schema_version: "startup_opportunity.portfolio_view.v1",
     portfolio_id: "portfolio_discovery",
     run_id: runId,
+    source_merge_ref: G23_MERGE,
+    opportunity_family_projection: familyProjection,
     sensitivity_ref: G24_SENSITIVITY,
     comparison_refs: [G24_COMPARISON_A, G24_COMPARISON_B],
     recommended_first_bet: null,
@@ -1082,6 +1099,8 @@ export async function createDiscoveryEvaluationFixture(
     run_id: runId,
     decision_context_ref: G21_DECISION_REF,
     source_snapshot_ref: G23_SNAPSHOT,
+    source_merge_ref: G23_MERGE,
+    opportunity_family_projection: familyProjection,
     comparison_refs: [G24_COMPARISON_A, G24_COMPARISON_B],
     sensitivity_ref: G24_SENSITIVITY,
     recommended_first_bet: null,
@@ -1118,6 +1137,7 @@ export async function createDiscoveryEvaluationFixture(
   });
   const traceInputRefs = [
     G23_SNAPSHOT,
+    G23_MERGE,
     G24_FAN_IN,
     G24_RECOMMENDATION,
     G24_COMPARISON_A,
@@ -1130,6 +1150,8 @@ export async function createDiscoveryEvaluationFixture(
     traceability_id: "traceability_discovery",
     run_id: runId,
     source_snapshot_ref: G23_SNAPSHOT,
+    source_merge_ref: G23_MERGE,
+    opportunity_family_projection: familyProjection,
     decision_recommendation_ref: G24_RECOMMENDATION,
     comparison_refs: [G24_COMPARISON_A, G24_COMPARISON_B],
     enrichment_fan_in_ref: G24_FAN_IN,
@@ -1337,6 +1359,7 @@ export async function createDiscoveryEvaluationFixture(
     )
     .map(([taskRef, taskDocument]) => ({ taskRef, task: taskDocument }));
   const reportInputRefs = [
+    G23_MERGE,
     G24_RECOMMENDATION,
     G24_PORTFOLIO,
     G24_SENSITIVITY,
@@ -1386,6 +1409,8 @@ export async function createDiscoveryEvaluationFixture(
     research_plan_ref: G21_PLAN_REF,
     plan_lineage_refs: [G21_PLAN_REF],
     applied_adaptation_refs: [],
+    source_merge_ref: G23_MERGE,
+    opportunity_family_projection: familyProjection,
     decision_recommendation_ref: G24_RECOMMENDATION,
     portfolio_view_ref: G24_PORTFOLIO,
     comparison_refs: [G24_COMPARISON_A, G24_COMPARISON_B],

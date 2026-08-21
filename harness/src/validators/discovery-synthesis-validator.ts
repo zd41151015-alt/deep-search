@@ -1,4 +1,9 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
+import { StoreError } from "../artifact-store/store-error.js";
+import {
+  deriveOpportunityFamilyProjection,
+  opportunityFamilyEvidenceRefs,
+} from "../opportunity-family-contract.js";
 import type { DiscoverySynthesisPolicy } from "./discovery-synthesis-policy.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
@@ -354,6 +359,7 @@ function expectedInputRefs(entry: DiscoverySynthesisDocument): readonly string[]
         ...common,
         ...strings([document.parent_merge_ref, document.source_snapshot_ref]),
         ...strings(document.source_thesis_refs),
+        ...opportunityFamilyEvidenceRefs(document),
       ]);
     default:
       return uniqueSorted(common);
@@ -1003,6 +1009,33 @@ function validateThesesSnapshotsAndMerge(
           "synthesis.merge_closure_mismatch",
           merge.path,
           "merge must classify every frozen thesis exactly once using a non-title-only semantic decision",
+        ),
+      );
+    }
+    try {
+      deriveOpportunityFamilyProjection(
+        merge.path,
+        new Map(
+          [...byPath].map(([path, entry]) => [
+            path,
+            {
+              path,
+              schemaVersion: entry.schemaVersion,
+              document: entry.document,
+              contentHash: targetHash(entry),
+            },
+          ]),
+        ),
+      );
+    } catch (error) {
+      errors.push(
+        issue(
+          error instanceof StoreError ? error.code : "opportunity_family.projection_invalid",
+          `${merge.path}#/opportunity_families`,
+          error instanceof Error
+            ? error.message
+            : "opportunity-family projection could not be derived",
+          error instanceof StoreError ? error.details : {},
         ),
       );
     }
