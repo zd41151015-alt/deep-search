@@ -90,6 +90,7 @@
         "harness/src/commands.ts",
         "harness/src/evidence-store/evidence-store.ts",
         "harness/src/index.ts",
+        "harness/src/runtime/g24-planning-capabilities.ts",
         "harness/src/run-store/store-commands.ts"
       ],
       "consumerModules": [
@@ -107,6 +108,7 @@
         "harness/src/run-store/scope-write-guard.ts",
         "harness/src/validators/artifact-ref-resolver.ts",
         "harness/src/validators/artifact-validator.ts",
+        "harness/src/validators/g24-planning-rules.ts",
         "harness/src/validators/planning-contract-validator.ts",
         "harness/src/validators/research-handoff-validator.ts"
       ],
@@ -287,6 +289,7 @@
         "harness/src/comparison/comparison-commands.ts",
         "harness/src/evidence-store/evidence-store.ts",
         "harness/src/index.ts",
+        "harness/src/runtime/g24-planning-capabilities.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "consumerModules": [
@@ -304,6 +307,7 @@
         "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/discovery-candidate-validator.ts",
         "harness/src/validators/discovery-evaluation-validator.ts",
+        "harness/src/validators/g24-planning-rules.ts",
         "harness/src/validators/discovery-maps-validator.ts",
         "harness/src/validators/discovery-synthesis-validator.ts"
       ],
@@ -464,6 +468,7 @@
         "harness/src/index.ts",
         "harness/src/runtime/artifact-scaffolds.ts",
         "harness/src/runtime/declarative-runtime.ts",
+        "harness/src/runtime/g24-planning-capabilities.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "consumerModules": [
@@ -742,6 +747,10 @@
       "impactFamilies": ["ai_research", "declarative_runtime"]
     },
     {
+      "modulePath": "harness/src/runtime/g24-planning-capabilities.ts",
+      "impactFamilies": ["declarative_runtime", "discovery_research", "run_control_planning"]
+    },
+    {
       "modulePath": "harness/src/runtime/lane-materializer.ts",
       "impactFamilies": ["assessment_research", "declarative_runtime", "discovery_research"]
     },
@@ -780,6 +789,10 @@
     {
       "modulePath": "harness/src/validators/discovery-evaluation-validator.ts",
       "impactFamilies": ["assessment_research", "discovery_research"]
+    },
+    {
+      "modulePath": "harness/src/validators/g24-planning-rules.ts",
+      "impactFamilies": ["discovery_research", "run_control_planning"]
     },
     {
       "modulePath": "harness/src/validators/research-handoff-validator.ts",

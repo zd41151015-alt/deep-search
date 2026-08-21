@@ -2117,7 +2117,7 @@ test("public publication cannot replace leaf planning authority after the initia
   assert.deepEqual(await snapshotRunTree(runRoot), before);
 });
 
-test("Gap analyzer emits only deterministic machine-observable gaps and stop signals", async () => {
+test("Gap analyzer separates Harness-derived checks from Agent-declared research gaps", async (contextTest) => {
   const runId = "gap-analysis-fixture";
   const plan = basePlan(runId);
   const runManifest = manifest(runId, plan);
@@ -2157,6 +2157,7 @@ test("Gap analyzer emits only deterministic machine-observable gaps and stop sig
     "no_material_new_evidence",
     "unit_failed",
   ]);
+  assert.ok(gaps.every((gap) => gap.detection_mode === "deterministic"));
   assert.deepEqual(first.snapshot?.stop_signals, [
     "max_followup_rounds_reached",
     "no_material_new_evidence",
@@ -2172,9 +2173,9 @@ test("Gap analyzer emits only deterministic machine-observable gaps and stop sig
   const questionFragment = analyzer.analyze({
     ...input,
     materialNewEvidenceObserved: true,
-    machineChecks: [
+    agentDeclaredGaps: [
       {
-        checkId: "question_fragment_check",
+        declarationId: "question_fragment_gap",
         gapType: "mandatory_dimension_missing",
         subjectRef: `${PLAN_REF}#rq_runtime_001`,
         basisRefs: [`${PLAN_REF}#rq_runtime_001`],
@@ -2186,11 +2187,22 @@ test("Gap analyzer emits only deterministic machine-observable gaps and stop sig
     ],
   });
   assert.equal(questionFragment.valid, true, JSON.stringify(questionFragment.errors));
+  assert.ok(questionFragment.snapshot);
+  const declaredGap = (questionFragment.snapshot.gaps as Record<string, unknown>[]).find(
+    (gap) => gap.gap_type === "mandatory_dimension_missing",
+  );
+  assert.equal(declaredGap?.detection_mode, "agent_semantic");
+  assert.deepEqual(declaredGap?.triggered_by, {
+    declaration_id: "question_fragment_gap",
+    declared_by: "main_agent",
+    observed_artifact_refs: [],
+    detail: "The exact research question remains decision-relevant.",
+  });
   const missingQuestionFragment = analyzer.analyze({
     ...input,
-    machineChecks: [
+    agentDeclaredGaps: [
       {
-        checkId: "missing_question_fragment_check",
+        declarationId: "missing_question_fragment_gap",
         gapType: "mandatory_dimension_missing",
         subjectRef: `${PLAN_REF}#rq_missing`,
         basisRefs: [`${PLAN_REF}#rq_missing`],
@@ -2204,6 +2216,47 @@ test("Gap analyzer emits only deterministic machine-observable gaps and stop sig
   assert.ok(
     missingQuestionFragment.errors.some((error) => error.code === "gap.reference_fragment_missing"),
   );
+
+  const legacyInputRoot = await mkdtemp(path.join(tmpdir(), "startup-opportunity-gap-authority-"));
+  contextTest.after(async () => rm(legacyInputRoot, { recursive: true, force: true }));
+  const legacyInputPath = path.join(legacyInputRoot, "legacy-machine-checks.json");
+  await writeFile(
+    legacyInputPath,
+    `${canonicalJson({
+      schema_version: "startup_opportunity.gap_analysis_input.v1",
+      machine_checks: [],
+    })}\n`,
+  );
+  const legacyCommand = runScript("harness/src/cli.ts", [
+    "analyze-gaps",
+    "--file",
+    legacyInputPath,
+  ]);
+  assert.equal(legacyCommand.status, 64);
+  const legacyError = JSON.parse(legacyCommand.stderr) as Record<string, unknown>;
+  assert.equal((legacyError.error as Record<string, unknown>).code, "command.invalid_arguments");
+  assert.match(legacyCommand.stderr, /machine_checks is not a caller authority/u);
+
+  const malformedGapInputPath = path.join(legacyInputRoot, "malformed-agent-declared-gaps.json");
+  await writeFile(
+    malformedGapInputPath,
+    `${canonicalJson({
+      schema_version: "startup_opportunity.gap_analysis_input.v1",
+      agent_declared_gaps: {},
+    })}\n`,
+  );
+  const malformedGapCommand = runScript("harness/src/cli.ts", [
+    "analyze-gaps",
+    "--file",
+    malformedGapInputPath,
+  ]);
+  assert.equal(malformedGapCommand.status, 64);
+  const malformedGapError = JSON.parse(malformedGapCommand.stderr) as Record<string, unknown>;
+  assert.equal(
+    (malformedGapError.error as Record<string, unknown>).code,
+    "command.invalid_arguments",
+  );
+  assert.match(malformedGapCommand.stderr, /agent_declared_gaps must be an array/u);
 });
 
 test("run_id validation context assembles persisted authority and exact records", async (contextTest) => {
@@ -2423,9 +2476,9 @@ test("Gap cycle identity binds base Plan, exact event, and observed Artifact has
   assertRunMismatch(
     analyzer.analyze({
       ...input,
-      machineChecks: [
+      agentDeclaredGaps: [
         {
-          checkId: "foreign_basis",
+          declarationId: "foreign_basis",
           gapType: "freshness_failed",
           subjectRef: PLAN_REF,
           basisRefs: [`${foreignEventRef}#gap_trigger_foreign`],
@@ -2440,9 +2493,9 @@ test("Gap cycle identity binds base Plan, exact event, and observed Artifact has
   assertRunMismatch(
     analyzer.analyze({
       ...input,
-      machineChecks: [
+      agentDeclaredGaps: [
         {
-          checkId: "foreign_evidence",
+          declarationId: "foreign_evidence",
           gapType: "freshness_failed",
           subjectRef: PLAN_REF,
           basisRefs: [PLAN_REF],
@@ -3406,7 +3459,7 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
     observed_artifact_refs: [],
     material_new_evidence_observed: false,
     repeated_source_refs: [],
-    machine_checks: [],
+    agent_declared_gaps: [],
   };
   await writeFile(gapInputFile, `${canonicalJson(gapInput)}\n`);
   const gapCommand = runScript("harness/src/cli.ts", [
@@ -4051,7 +4104,7 @@ test("a later same-Run adaptation preserves receipt-bound historical discovery v
       observed_artifact_refs: [],
       material_new_evidence_observed: false,
       repeated_source_refs: [],
-      machine_checks: [],
+      agent_declared_gaps: [],
     })}\n`,
   );
   for (const [command, skillScript, flag, filename] of [
@@ -6883,7 +6936,7 @@ test("Harness CLI and repo-local Skill scripts run all four G0.4 entries", async
       observed_artifact_refs: [],
       material_new_evidence_observed: false,
       repeated_source_refs: [],
-      machine_checks: [],
+      agent_declared_gaps: [],
     })}\n`,
   );
   await writeFile(

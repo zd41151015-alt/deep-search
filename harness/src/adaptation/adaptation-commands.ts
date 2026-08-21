@@ -15,7 +15,7 @@ import {
   createAssessmentGapAnalyzer,
 } from "./assessment-gap-analyzer.js";
 import { isRecord } from "./contracts.js";
-import { type AnalyzeGapsInput, createGapAnalyzer, type MachineGapCheck } from "./gap-analyzer.js";
+import { type AgentDeclaredGap, type AnalyzeGapsInput, createGapAnalyzer } from "./gap-analyzer.js";
 import { createPlanRevisionRuntime, type PlanApplyFaultBoundary } from "./plan-runtime.js";
 import { createPlanSemanticValidator } from "./plan-validator.js";
 
@@ -212,28 +212,43 @@ export async function runAnalyzeGaps(
       };
       return (await createAssessmentGapAnalyzer(repositoryRoot)).analyze(assessmentInput);
     }
-    const checks = Array.isArray(value.machine_checks)
-      ? value.machine_checks.map((item) => {
+    if (value.machine_checks !== undefined) {
+      throw new StoreError(
+        "command.invalid_arguments",
+        "machine_checks is not a caller authority; use agent_declared_gaps",
+      );
+    }
+    if (value.agent_declared_gaps !== undefined && !Array.isArray(value.agent_declared_gaps)) {
+      throw new StoreError("command.invalid_arguments", "agent_declared_gaps must be an array");
+    }
+    const declaredGaps = Array.isArray(value.agent_declared_gaps)
+      ? value.agent_declared_gaps.map((item) => {
           if (!isRecord(item)) {
             throw new StoreError(
               "command.invalid_arguments",
-              "machine_checks entries must be objects",
+              "agent_declared_gaps entries must be objects",
             );
           }
           return {
-            checkId: String(item.check_id ?? ""),
+            declarationId: String(item.declaration_id ?? ""),
             gapType: String(item.gap_type ?? ""),
             subjectRef: String(item.subject_ref ?? ""),
-            basisRefs: stringArray(item.basis_refs, "machine_checks.basis_refs"),
-            evidenceRefs: stringArray(item.evidence_refs ?? [], "machine_checks.evidence_refs"),
-            decisionImpact: stringArray(item.decision_impact, "machine_checks.decision_impact"),
+            basisRefs: stringArray(item.basis_refs, "agent_declared_gaps.basis_refs"),
+            evidenceRefs: stringArray(
+              item.evidence_refs ?? [],
+              "agent_declared_gaps.evidence_refs",
+            ),
+            decisionImpact: stringArray(
+              item.decision_impact,
+              "agent_declared_gaps.decision_impact",
+            ),
             severity: String(item.severity ?? ""),
             recommendedUnitTypes: stringArray(
               item.recommended_unit_types ?? [],
-              "machine_checks.recommended_unit_types",
+              "agent_declared_gaps.recommended_unit_types",
             ),
             detail: String(item.detail ?? ""),
-          } as MachineGapCheck;
+          } as AgentDeclaredGap;
         })
       : [];
     const triggerEventRef =
@@ -256,7 +271,7 @@ export async function runAnalyzeGaps(
       observedArtifactRefs: stringArray(value.observed_artifact_refs, "observed_artifact_refs"),
       materialNewEvidenceObserved: value.material_new_evidence_observed === true,
       repeatedSourceRefs: stringArray(value.repeated_source_refs ?? [], "repeated_source_refs"),
-      machineChecks: checks,
+      agentDeclaredGaps: declaredGaps,
     };
     return (await createGapAnalyzer(repositoryRoot)).analyze(input);
   });

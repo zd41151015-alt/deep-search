@@ -128,7 +128,9 @@ export async function runScaffoldArtifact(
     }
     const request = JSON.parse(await readFile(file, "utf8")) as unknown;
     const validator = await createArtifactValidator(repositoryRoot);
-    process.stdout.write(`${JSON.stringify(buildArtifactScaffold(request, validator), null, 2)}\n`);
+    process.stdout.write(
+      `${JSON.stringify(await buildArtifactScaffold(request, validator, repositoryRoot), null, 2)}\n`,
+    );
     return 0;
   } catch (error) {
     process.stderr.write(

@@ -26,22 +26,27 @@ import {
 
 export const GAP_ANALYSIS_RESULT_VERSION = "startup_opportunity.gap_analysis_result.v1" as const;
 
-const MACHINE_GAP_TYPES = new Set([
+const AGENT_DECLARED_GAP_TYPES = new Set([
   "mandatory_dimension_missing",
+  "evidence_insufficient",
+  "evidence_conflict",
+  "baseline_unclear",
+  "buyer_evidence_insufficient",
+  "acquisition_evidence_insufficient",
   "freshness_failed",
+  "reviewer_challenge",
+  "candidate_pre_killed",
+  "unit_failed",
   "runtime_blocked",
   "scope_invalidated",
   "user_plan_change_requested",
+  "source_repetition",
+  "no_material_new_evidence",
 ]);
 
-export interface MachineGapCheck {
-  readonly checkId: string;
-  readonly gapType:
-    | "mandatory_dimension_missing"
-    | "freshness_failed"
-    | "runtime_blocked"
-    | "scope_invalidated"
-    | "user_plan_change_requested";
+export interface AgentDeclaredGap {
+  readonly declarationId: string;
+  readonly gapType: string;
   readonly subjectRef: string;
   readonly basisRefs: readonly string[];
   readonly evidenceRefs?: readonly string[];
@@ -68,7 +73,7 @@ export interface AnalyzeGapsInput {
   readonly observedArtifactRefs: readonly string[];
   readonly materialNewEvidenceObserved: boolean;
   readonly repeatedSourceRefs?: readonly string[];
-  readonly machineChecks?: readonly MachineGapCheck[];
+  readonly agentDeclaredGaps?: readonly AgentDeclaredGap[];
 }
 
 export interface GapAnalysisResult {
@@ -199,10 +204,10 @@ export class GapAnalyzer {
     const refsToResolve = [
       ...input.observedArtifactRefs,
       ...(input.repeatedSourceRefs ?? []),
-      ...(input.machineChecks ?? []).flatMap((check) => [
-        check.subjectRef,
-        ...check.basisRefs,
-        ...(check.evidenceRefs ?? []),
+      ...(input.agentDeclaredGaps ?? []).flatMap((gap) => [
+        gap.subjectRef,
+        ...gap.basisRefs,
+        ...(gap.evidenceRefs ?? []),
       ]),
       ...(input.triggerEventRef === null ? [] : [input.triggerEventRef]),
     ];
@@ -301,13 +306,17 @@ export class GapAnalyzer {
       }
     }
 
-    for (const check of input.machineChecks ?? []) {
-      if (!MACHINE_GAP_TYPES.has(check.gapType) || check.basisRefs.length === 0) {
+    for (const gap of input.agentDeclaredGaps ?? []) {
+      if (
+        !AGENT_DECLARED_GAP_TYPES.has(gap.gapType) ||
+        gap.declarationId.length === 0 ||
+        gap.basisRefs.length === 0
+      ) {
         errors.push(
           analysisError(
-            "gap.machine_check_invalid",
-            "machine checks require a closed deterministic gap type and basis refs",
-            { checkId: check.checkId, gapType: check.gapType },
+            "gap.agent_declaration_invalid",
+            "agent-declared gaps require a declaration id, current gap type, and basis refs",
+            { declarationId: gap.declarationId, gapType: gap.gapType },
           ),
         );
       }
@@ -318,7 +327,7 @@ export class GapAnalyzer {
       (input.observedArtifactRefs.length !== 0 ||
         input.materialNewEvidenceObserved ||
         (input.repeatedSourceRefs?.length ?? 0) !== 0 ||
-        (input.machineChecks?.length ?? 0) !== 0)
+        (input.agentDeclaredGaps?.length ?? 0) !== 0)
     ) {
       errors.push(
         analysisError(
@@ -496,24 +505,28 @@ export class GapAnalyzer {
       });
     }
 
-    for (const check of [...(scopeReconciliation ? [] : (input.machineChecks ?? []))].sort(
-      (left, right) => left.checkId.localeCompare(right.checkId),
-    )) {
+    for (const declaration of [
+      ...(scopeReconciliation ? [] : (input.agentDeclaredGaps ?? [])),
+    ].sort((left, right) => left.declarationId.localeCompare(right.declarationId))) {
       gaps.push({
-        gap_id: gapId(check.gapType, { check_id: check.checkId, subject_ref: check.subjectRef }),
-        subject_ref: check.subjectRef,
-        gap_type: check.gapType,
-        detection_mode: "deterministic",
+        gap_id: gapId(declaration.gapType, {
+          declaration_id: declaration.declarationId,
+          subject_ref: declaration.subjectRef,
+        }),
+        subject_ref: declaration.subjectRef,
+        gap_type: declaration.gapType,
+        detection_mode: "agent_semantic",
         triggered_by: {
-          check_id: check.checkId,
+          declaration_id: declaration.declarationId,
+          declared_by: "main_agent",
           observed_artifact_refs: observedRefs,
-          detail: check.detail,
+          detail: declaration.detail,
         },
-        decision_impact: uniqueSorted(check.decisionImpact),
-        severity: check.severity,
-        basis_refs: uniqueSorted(check.basisRefs),
-        evidence_refs: uniqueSorted(check.evidenceRefs ?? []),
-        recommended_unit_types: uniqueSorted(check.recommendedUnitTypes ?? []),
+        decision_impact: uniqueSorted(declaration.decisionImpact),
+        severity: declaration.severity,
+        basis_refs: uniqueSorted(declaration.basisRefs),
+        evidence_refs: uniqueSorted(declaration.evidenceRefs ?? []),
+        recommended_unit_types: uniqueSorted(declaration.recommendedUnitTypes ?? []),
       });
     }
 
@@ -536,7 +549,7 @@ export class GapAnalyzer {
     }
     if (
       !scopeReconciliation &&
-      (input.machineChecks ?? []).some((check) => check.gapType === "runtime_blocked")
+      (input.agentDeclaredGaps ?? []).some((gap) => gap.gapType === "runtime_blocked")
     ) {
       stopSignals.push("runtime_blocked");
     }

@@ -18,6 +18,7 @@ import {
   DECISION_TIER_ORDER,
   type DiscoveryEvaluationPolicy,
 } from "./discovery-evaluation-policy.js";
+import { G24_FAN_IN_HARD_GATE_CARDINALITY } from "./g24-planning-rules.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
 export interface DiscoveryEvaluationDocument {
@@ -577,6 +578,7 @@ function validateBranchesAndFanIn(
     for (const opportunityRef of opportunities) {
       const opportunityGates = gates.filter((gate) => gate.opportunity_ref === opportunityRef);
       if (
+        opportunityGates.length !== policy.required_hard_gates.length ||
         !setEqual(
           opportunityGates.map((gate) => String(gate.gate_id)),
           policy.required_hard_gates,
@@ -586,8 +588,8 @@ function validateBranchesAndFanIn(
           issue(
             "g2_4.hard_gate_closure_mismatch",
             `${fanIn.path}#/hard_gate_inputs`,
-            "fan-in requires all hard gates exactly once for every opportunity",
-            { opportunityRef },
+            `fan-in requires all hard gates ${G24_FAN_IN_HARD_GATE_CARDINALITY.replaceAll("_", " ")}`,
+            { opportunityRef, scope: "per_opportunity" },
           ),
         );
       }
@@ -616,6 +618,18 @@ function validateBranchesAndFanIn(
           );
         }
       }
+    }
+    if (
+      gates.length !== opportunities.length * policy.required_hard_gates.length ||
+      gates.some((gate) => !opportunities.includes(String(gate.opportunity_ref)))
+    ) {
+      errors.push(
+        issue(
+          "g2_4.hard_gate_closure_mismatch",
+          `${fanIn.path}#/hard_gate_inputs`,
+          "fan-in hard gates must bind only declared opportunities and close each one exactly once",
+        ),
+      );
     }
     const ceilings = records(fanIn.document.opportunity_conclusion_ceilings);
     if (

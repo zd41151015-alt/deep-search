@@ -39,6 +39,29 @@
     },
     "compilation_request": {
       "$ref": "../discovery/runtime-artifact-compilation-request.schema.json"
+    },
+    "planning_capabilities": {
+      "$ref": "../../discovery/evaluation/planning-capabilities.schema.json"
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "planning_capabilities"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "required": ["planning_capabilities"]
+      },
+      "else": {
+        "not": {
+          "required": ["planning_capabilities"]
+        }
+      }
+    }
+  ]
 }

@@ -2,6 +2,7 @@ import { canonicalContentHash } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
 import type { RuntimeArtifactCompilationRequest } from "./declarative-runtime.js";
+import { buildG24PlanningCapabilities } from "./g24-planning-capabilities.js";
 
 export type ScaffoldKind =
   | "intake"
@@ -11,6 +12,7 @@ export type ScaffoldKind =
   | "readiness"
   | "gap"
   | "decision"
+  | "planning_capabilities"
   | "decision_subject_snapshot"
   | "terminal_report_source";
 
@@ -779,6 +781,24 @@ function decision(request: ScaffoldRequest): ScaffoldArtifact {
   };
 }
 
+async function planningCapabilities(
+  request: ScaffoldRequest,
+  root: string,
+): Promise<ScaffoldArtifact> {
+  if (request.mode !== "opportunity_discovery") {
+    throw new StoreError(
+      "scaffold.kind_mode_mismatch",
+      "G2.4 planning capabilities are available only for opportunity_discovery",
+    );
+  }
+  return {
+    artifact_type: "startup_opportunity.planning_capabilities.discovery_evaluation.current",
+    artifact_path: "artifacts/runtime/g2-4-planning-capabilities.json",
+    producer_role: "harness",
+    document: await buildG24PlanningCapabilities(request.run_id, root),
+  };
+}
+
 function terminalReportSource(request: ScaffoldRequest): ScaffoldArtifact {
   const artifactPath = "artifacts/reporting/terminal-report-source.r1.json";
   return {
@@ -886,7 +906,12 @@ function decisionSubjectSnapshot(request: ScaffoldRequest): ScaffoldArtifact {
   };
 }
 
-const BUILDERS: Readonly<Record<ScaffoldKind, (request: ScaffoldRequest) => ScaffoldArtifact>> = {
+type ScaffoldBuilder = (
+  request: ScaffoldRequest,
+  root: string,
+) => ScaffoldArtifact | Promise<ScaffoldArtifact>;
+
+const BUILDERS: Readonly<Record<ScaffoldKind, ScaffoldBuilder>> = {
   intake,
   planning,
   task,
@@ -894,14 +919,16 @@ const BUILDERS: Readonly<Record<ScaffoldKind, (request: ScaffoldRequest) => Scaf
   readiness,
   gap,
   decision,
+  planning_capabilities: planningCapabilities,
   decision_subject_snapshot: decisionSubjectSnapshot,
   terminal_report_source: terminalReportSource,
 };
 
-export function buildArtifactScaffold(
+export async function buildArtifactScaffold(
   value: unknown,
   validator: ArtifactValidator,
-): Record<string, unknown> {
+  root = process.cwd(),
+): Promise<Record<string, unknown>> {
   const requestValidation = validator.validateDocument(value);
   if (
     !requestValidation.valid ||
@@ -914,7 +941,7 @@ export function buildArtifactScaffold(
     });
   }
   const request = value as ScaffoldRequest;
-  const artifact = BUILDERS[request.kind](request);
+  const artifact = await BUILDERS[request.kind](request, root);
   const documentValidation = validator.validateDocument(artifact.document, artifact.artifact_path);
   if (!documentValidation.valid) {
     throw new StoreError("scaffold.output_invalid", "deterministic scaffold is not schema-valid", {
@@ -939,6 +966,9 @@ export function buildArtifactScaffold(
     semantic_judgment_generated: false,
     working_directory: `dist/research-working/${request.run_id}`,
     compilation_request: compilationRequest,
+    ...(request.kind === "planning_capabilities"
+      ? { planning_capabilities: artifact.document }
+      : {}),
   };
   const resultValidation = validator.validateDocument(result);
   if (!resultValidation.valid) {

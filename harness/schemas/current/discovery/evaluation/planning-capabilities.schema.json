@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/evaluation/planning-capabilities.schema.json",
+  "title": "Startup Opportunity G2.4 Planning Capabilities",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "capability_id",
+    "run_id",
+    "mode",
+    "phase",
+    "authority_bindings",
+    "enrichment_units",
+    "current_plan_counter_evidence",
+    "fan_in_hard_gate_closure",
+    "execution_boundary"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.planning_capabilities.discovery_evaluation.current"
+    },
+    "capability_id": {
+      "const": "g2_4_enrichment_planning"
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "const": "opportunity_discovery"
+    },
+    "phase": {
+      "const": "enrichment"
+    },
+    "authority_bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adaptation_policy",
+        "discovery_evaluation_policy",
+        "enrichment_task_schema",
+        "plan_validator_rule",
+        "fan_in_validator_rule"
+      ],
+      "properties": {
+        "adaptation_policy": {
+          "$ref": "#/$defs/policyBinding"
+        },
+        "discovery_evaluation_policy": {
+          "$ref": "#/$defs/policyBinding"
+        },
+        "enrichment_task_schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ref", "schema_id", "content_hash"],
+          "properties": {
+            "ref": {
+              "const": "harness/schemas/current/discovery/evaluation/research-task.schema.json"
+            },
+            "schema_id": {
+              "const": "https://startup-opportunity.local/schemas/current/discovery/evaluation/research-task.schema.json"
+            },
+            "content_hash": {
+              "$ref": "./definitions.schema.json#/$defs/sha256"
+            }
+          }
+        },
+        "plan_validator_rule": {
+          "const": "plan.counter_evidence_missing"
+        },
+        "fan_in_validator_rule": {
+          "const": "g2_4.hard_gate_closure_mismatch"
+        }
+      }
+    },
+    "enrichment_units": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_unit_types",
+        "task_target_opportunity_cardinality",
+        "unit_count_fixed",
+        "supported_topology_forms",
+        "topology_selected_by"
+      ],
+      "properties": {
+        "allowed_unit_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../../core/definitions.schema.json#/$defs/unitType"
+          }
+        },
+        "task_target_opportunity_cardinality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minimum", "maximum"],
+          "properties": {
+            "minimum": {
+              "const": 1
+            },
+            "maximum": {
+              "type": "null"
+            }
+          }
+        },
+        "unit_count_fixed": {
+          "const": false
+        },
+        "supported_topology_forms": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "shared_across_opportunities" },
+            { "const": "per_opportunity" },
+            { "const": "per_research_dimension" },
+            { "const": "mixed" }
+          ],
+          "items": false,
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "topology_selected_by": {
+          "const": "agent_from_current_gap"
+        }
+      }
+    },
+    "current_plan_counter_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "minimum_enabled_matching_units", "enabled_unit_type_any_of"],
+      "properties": {
+        "scope": {
+          "const": "current_plan"
+        },
+        "minimum_enabled_matching_units": {
+          "const": 1
+        },
+        "enabled_unit_type_any_of": {
+          "type": "array",
+          "prefixItems": [{ "const": "counter_evidence" }, { "const": "adversarial_review" }],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "fan_in_hard_gate_closure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "cardinality", "required_gate_ids"],
+      "properties": {
+        "scope": {
+          "const": "per_opportunity"
+        },
+        "cardinality": {
+          "const": "exactly_once_per_opportunity"
+        },
+        "required_gate_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+          }
+        }
+      }
+    },
+    "execution_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capability_only",
+        "recommends_unit_count",
+        "selects_topology",
+        "decomposes_research_tasks",
+        "analyzes_research_gaps",
+        "generates_research_semantics",
+        "hidden_llm_calls"
+      ],
+      "properties": {
+        "capability_only": { "const": true },
+        "recommends_unit_count": { "const": false },
+        "selects_topology": { "const": false },
+        "decomposes_research_tasks": { "const": false },
+        "analyzes_research_gaps": { "const": false },
+        "generates_research_semantics": { "const": false },
+        "hidden_llm_calls": { "const": false }
+      }
+    }
+  },
+  "$defs": {
+    "policyBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "schema_version", "policy_version", "content_hash"],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^harness/policies/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+        },
+        "schema_version": {
+          "$ref": "../../core/definitions.schema.json#/$defs/schemaVersion"
+        },
+        "policy_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content_hash": {
+          "$ref": "./definitions.schema.json#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

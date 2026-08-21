@@ -1,5 +1,9 @@
 import { canonicalJson } from "../artifact-store/canonical.js";
 import type { DocumentBundleReferenceContext } from "../validators/artifact-validator.js";
+import {
+  DISCOVERY_COUNTER_EVIDENCE_MINIMUM,
+  DISCOVERY_COUNTER_EVIDENCE_UNIT_TYPES,
+} from "../validators/g24-planning-rules.js";
 import type { PlanningContractValidationResult } from "../validators/planning-contract-validator.js";
 import {
   createAssessmentPlanningContractEvaluator,
@@ -382,12 +386,14 @@ export class PlanSemanticValidator {
         );
       }
     }
-    const enabledTypes = new Set(
-      entries
-        .filter((entry) => entry.unit.plan_disposition === "enabled")
-        .map((entry) => String(entry.unit.unit_type)),
+    const enabledCounterEvidenceUnits = entries.filter(
+      (entry) =>
+        entry.unit.plan_disposition === "enabled" &&
+        DISCOVERY_COUNTER_EVIDENCE_UNIT_TYPES.includes(
+          String(entry.unit.unit_type) as (typeof DISCOVERY_COUNTER_EVIDENCE_UNIT_TYPES)[number],
+        ),
     );
-    if (!enabledTypes.has("counter_evidence") && !enabledTypes.has("adversarial_review")) {
+    if (enabledCounterEvidenceUnits.length < DISCOVERY_COUNTER_EVIDENCE_MINIMUM) {
       errors.push(
         issue(
           "plan.counter_evidence_missing",
