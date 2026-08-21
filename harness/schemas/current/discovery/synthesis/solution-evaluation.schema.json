@@ -281,6 +281,11 @@
       },
       "then": {
         "properties": {
+          "solution_hypothesis_refs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1
+          },
           "solution_exploration": {
             "type": "object",
             "properties": {

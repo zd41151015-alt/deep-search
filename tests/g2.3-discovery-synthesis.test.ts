@@ -47,7 +47,11 @@ import {
   G23_READINESS_GAP,
   G23_SNAPSHOT,
   G23_SOLUTION,
+  G23_SOLUTION_ALT,
+  G23_SOLUTION_ALT_CONVERSION,
   G23_SOLUTION_CONVERSION,
+  G23_SOLUTION_REJECTED,
+  G23_SOLUTION_REJECTED_CONVERSION,
   synthesisEnvelope,
 } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
 import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
@@ -88,6 +92,41 @@ function refresh(bundle: DocumentBundle, artifactPath: string): void {
   }
 }
 
+function collectTypedRefs(value: unknown): readonly string[] {
+  if (Array.isArray(value)) return value.flatMap(collectTypedRefs);
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([key, child]) => {
+    if ((key.endsWith("_refs") || key === "input_refs") && Array.isArray(child)) {
+      return child.filter(
+        (ref): ref is string => typeof ref === "string" && (ref.includes("/") || ref.includes("#")),
+      );
+    }
+    if (
+      (key.endsWith("_ref") || key.endsWith("_refs") || key === "ref") &&
+      typeof child === "string" &&
+      (child.includes("/") || child.includes("#"))
+    ) {
+      return [child];
+    }
+    return collectTypedRefs(child);
+  });
+}
+
+async function treeSnapshot(root: string, relative = ""): Promise<Record<string, string>> {
+  const snapshot: Record<string, string> = {};
+  for (const candidate of (await readdir(path.join(root, relative), { withFileTypes: true })).sort(
+    (left, right) => left.name.localeCompare(right.name),
+  )) {
+    const child = path.posix.join(relative, candidate.name);
+    if (candidate.isDirectory()) {
+      Object.assign(snapshot, await treeSnapshot(root, child));
+    } else if (candidate.isFile()) {
+      snapshot[child] = (await readFile(path.join(root, child))).toString("base64");
+    }
+  }
+  return snapshot;
+}
+
 function currentEnvelopes(bundle: DocumentBundle): FormalArtifactEnvelope[] {
   return bundle.documents
     .map((candidate) => candidate.document as unknown as FormalArtifactEnvelope)
@@ -110,9 +149,23 @@ const SYNTHESIS_PATHS = new Set([
   G23_MERGE,
 ]);
 
+const COMPARED_SYNTHESIS_PATHS = new Set([
+  ...SYNTHESIS_PATHS,
+  G23_SOLUTION_ALT_CONVERSION,
+  G23_SOLUTION_ALT,
+  G23_SOLUTION_REJECTED_CONVERSION,
+  G23_SOLUTION_REJECTED,
+]);
+
 function synthesisEnvelopes(bundle: DocumentBundle): FormalArtifactEnvelope[] {
   return currentEnvelopes(bundle).filter((candidate) =>
     SYNTHESIS_PATHS.has(candidate.artifact_path),
+  );
+}
+
+function comparedSynthesisEnvelopes(bundle: DocumentBundle): FormalArtifactEnvelope[] {
+  return currentEnvelopes(bundle).filter((candidate) =>
+    COMPARED_SYNTHESIS_PATHS.has(candidate.artifact_path),
   );
 }
 
@@ -174,6 +227,7 @@ function setSolutionExplorationState(
   if (status === "insufficient_evidence") evaluation.decision_sufficiency = "insufficient_evidence";
   refresh(bundle, G23_EVALUATION);
   const solution = effective(bundle, G23_SOLUTION);
+  const consideredRefs = [...new Set(consideredApproaches.flatMap(collectTypedRefs))].sort();
   const summary = {
     solution_evaluation_ref: G23_EVALUATION,
     solution_evaluation_content_hash: canonicalContentHash(evaluation),
@@ -204,23 +258,27 @@ function setSolutionExplorationState(
     const opportunity = effective(bundle, opportunityRef);
     opportunity.solution_evaluation_summary = structuredClone(summary);
     const opportunityEnvelope = entry(bundle, opportunityRef);
-    if (consideredApproaches.length > 0) {
+    if (consideredRefs.length > 0) {
       opportunityEnvelope.input_refs = [
-        ...new Set([...(opportunityEnvelope.input_refs as string[]), G22_EVALUATION_CLAIM]),
+        ...new Set([...(opportunityEnvelope.input_refs as string[]), ...consideredRefs]),
       ].sort();
     }
     refresh(bundle, opportunityRef);
   }
   const evaluationEnvelope = entry(bundle, G23_EVALUATION);
-  if (consideredApproaches.length > 0) {
+  if (consideredRefs.length > 0) {
     evaluationEnvelope.input_refs = [
-      ...new Set([...(evaluationEnvelope.input_refs as string[]), G22_EVALUATION_CLAIM]),
+      ...new Set([...(evaluationEnvelope.input_refs as string[]), ...consideredRefs]),
     ].sort();
     refresh(bundle, G23_EVALUATION);
   }
 }
 
-async function setup(context: TestContext, suffix: string): Promise<State> {
+async function setup(
+  context: TestContext,
+  suffix: string,
+  solutionExplorationVariant: "single" | "compared" = "single",
+): Promise<State> {
   const root = await mkdtemp(path.join(tmpdir(), `startup-opportunity-g2-3-${suffix}-`));
   context.after(() => rm(root, { recursive: true, force: true }));
   const runsRoot = path.join(root, "runs");
@@ -266,7 +324,14 @@ async function setup(context: TestContext, suffix: string): Promise<State> {
       recordedAt: "2026-07-27T17:41:00Z",
     })
   ).record;
-  const bundle = await createDiscoverySynthesisFixture(runId, { generation, evaluation });
+  const bundle = await createDiscoverySynthesisFixture(
+    runId,
+    { generation, evaluation },
+    [],
+    "general",
+    "en-US",
+    solutionExplorationVariant,
+  );
   await publishInitialPlanBundle(
     store,
     runId,
@@ -428,6 +493,199 @@ test("G2.3 rejects compared status without complete closure and bad considered m
         error.code === "synthesis.considered_approach_material_binding_mismatch",
     ),
   );
+});
+
+test("G2.3 compared exploration preserves all formal solutions and compared selection posture", async (context) => {
+  const state = await setup(context, "compared-closure", "compared");
+  const validator = await createArtifactValidator(repositoryRoot);
+  await publishThroughFanIn(state);
+  const result = validator.validateDocumentBundle(state.bundle);
+  assert.equal(result.valid, true, JSON.stringify(result.referenceErrors, null, 2));
+  const evaluation = effective(state.bundle, G23_EVALUATION);
+  assert.equal((evaluation.solution_hypothesis_refs as string[]).length, 3);
+  const summary = effective(state.bundle, G23_OPPORTUNITY_A).solution_evaluation_summary as Record<
+    string,
+    unknown
+  >;
+  assert.equal(summary.exploration_status, "compared_multiple_formal_solutions");
+  assert.equal(summary.selection_posture, "compared_selection");
+  assert.deepEqual(
+    (summary.formal_solution_refs as string[]).sort(),
+    [G23_SOLUTION, G23_SOLUTION_ALT, G23_SOLUTION_REJECTED].sort(),
+  );
+  assert.deepEqual(
+    (summary.formal_solutions as Record<string, unknown>[]).map((entry) =>
+      String(entry.disposition),
+    ),
+    ["selected", "alternative", "rejected"],
+  );
+  const first = await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: comparedSynthesisEnvelopes(state.bundle),
+  });
+  assert.ok(first.artifacts.every((artifact) => artifact.status === "published"));
+  const replay = await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: comparedSynthesisEnvelopes(state.bundle),
+  });
+  assert.ok(replay.artifacts.every((artifact) => artifact.status === "idempotent_replay"));
+  const loaded = await state.store.load(state.runId);
+  assert.ok(loaded.manifest.artifact_refs.includes(G23_SOLUTION_ALT));
+  assert.ok(loaded.manifest.artifact_refs.includes(G23_SOLUTION_REJECTED));
+});
+
+test("G2.3 rejects not_yet_explored when multiple formal solutions remain and writes nothing", async (context) => {
+  const state = await setup(context, "not-yet-explored-multi", "compared");
+  const validator = await createArtifactValidator(repositoryRoot);
+  await publishThroughFanIn(state);
+  const bundle = clone(state.bundle);
+  setSolutionExplorationState(bundle, "not_yet_explored");
+  const result = validator.validateDocumentBundle(bundle);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.referenceErrors.some(
+      (error) =>
+        error.code === "synthesis.solution_evaluation_mismatch" ||
+        error.code === "schema.maxItems" ||
+        error.code === "schema.minItems",
+    ),
+    JSON.stringify(result.referenceErrors, null, 2),
+  );
+  const before = await treeSnapshot(state.runRoot);
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: comparedSynthesisEnvelopes(bundle),
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "artifact.schema_invalid",
+  );
+  assert.deepEqual(await treeSnapshot(state.runRoot), before);
+});
+
+test("G2.3 rejects considered approaches whose material is not reachable from the current solution lineage", async (context) => {
+  const state = await setup(context, "lineage-unrelated");
+  const validator = await createArtifactValidator(repositoryRoot);
+  await publishThroughFanIn(state);
+  const bundle = clone(state.bundle);
+  const unrelatedMaterial = effective(bundle, G22_GENERATION_CLAIM);
+  const lineage = unrelatedMaterial.lineage as Record<string, unknown>;
+  lineage.candidate_refs = [G22_DEMAND_R2];
+  refresh(bundle, G22_GENERATION_CLAIM);
+  const approach = {
+    approach_id: "approach_unrelated_material",
+    implementation_direction: "SYNTHETIC unrelated implementation direction",
+    disposition: "not_formalized",
+    disposition_reasons: ["SYNTHETIC no formalization retained."],
+    material_bindings: [
+      {
+        ref: G22_GENERATION_CLAIM,
+        content_hash: canonicalContentHash(unrelatedMaterial),
+      },
+    ],
+    unknowns: ["SYNTHETIC unknown"],
+    limitations: ["SYNTHETIC limitation"],
+  };
+  setSolutionExplorationState(bundle, "explored_no_other_formal_solution", [approach]);
+  const result = validator.validateDocumentBundle(bundle);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.referenceErrors.some(
+      (error) => error.code === "synthesis.considered_approach_material_binding_mismatch",
+    ),
+    JSON.stringify(result.referenceErrors, null, 2),
+  );
+  const before = await treeSnapshot(state.runRoot);
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: synthesisEnvelopes(bundle),
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "artifact.reference_invalid",
+  );
+  assert.deepEqual(await treeSnapshot(state.runRoot), before);
+});
+
+test("G2.3 rejects considered approaches with wrong task or subject binding and writes nothing", async (context) => {
+  const state = await setup(context, "lineage-bad-binding");
+  const validator = await createArtifactValidator(repositoryRoot);
+  await publishThroughFanIn(state);
+
+  const wrongTaskBundle = clone(state.bundle);
+  const wrongTaskMaterial = effective(wrongTaskBundle, G22_EVALUATION_CLAIM);
+  (wrongTaskMaterial.lineage as Record<string, unknown>).task_ref =
+    "tasks/discovery/unrelated.attempt-1.json";
+  refresh(wrongTaskBundle, G22_EVALUATION_CLAIM);
+  setSolutionExplorationState(wrongTaskBundle, "explored_no_other_formal_solution", [
+    {
+      approach_id: "approach_wrong_task",
+      implementation_direction: "SYNTHETIC wrong-task implementation direction",
+      disposition: "not_formalized",
+      disposition_reasons: ["SYNTHETIC no formalization retained."],
+      material_bindings: [
+        {
+          ref: G22_EVALUATION_CLAIM,
+          content_hash: canonicalContentHash(wrongTaskMaterial),
+        },
+      ],
+      unknowns: ["SYNTHETIC unknown"],
+      limitations: ["SYNTHETIC limitation"],
+    },
+  ]);
+  const wrongTaskResult = validator.validateDocumentBundle(wrongTaskBundle);
+  assert.equal(wrongTaskResult.valid, false);
+  assert.ok(
+    wrongTaskResult.referenceErrors.some(
+      (error) => error.code === "synthesis.considered_approach_material_binding_mismatch",
+    ),
+    JSON.stringify(wrongTaskResult.referenceErrors, null, 2),
+  );
+  const wrongTaskBefore = await treeSnapshot(state.runRoot);
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: synthesisEnvelopes(wrongTaskBundle),
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "artifact.reference_invalid",
+  );
+  assert.deepEqual(await treeSnapshot(state.runRoot), wrongTaskBefore);
+
+  const wrongSubjectBundle = clone(state.bundle);
+  const wrongSubjectMaterial = effective(wrongSubjectBundle, G22_BASELINE_EVALUATION_JUDGMENT);
+  wrongSubjectMaterial.subject_ref = "artifacts/discovery/candidates/candidate_ghost.r1.json";
+  refresh(wrongSubjectBundle, G22_BASELINE_EVALUATION_JUDGMENT);
+  setSolutionExplorationState(wrongSubjectBundle, "explored_no_other_formal_solution", [
+    {
+      approach_id: "approach_wrong_subject",
+      implementation_direction: "SYNTHETIC wrong-subject implementation direction",
+      disposition: "not_formalized",
+      disposition_reasons: ["SYNTHETIC no formalization retained."],
+      material_bindings: [
+        {
+          ref: G22_BASELINE_EVALUATION_JUDGMENT,
+          content_hash: canonicalContentHash(wrongSubjectMaterial),
+        },
+      ],
+      unknowns: ["SYNTHETIC unknown"],
+      limitations: ["SYNTHETIC limitation"],
+    },
+  ]);
+  const wrongSubjectResult = validator.validateDocumentBundle(wrongSubjectBundle);
+  assert.equal(wrongSubjectResult.valid, false);
+  assert.ok(
+    wrongSubjectResult.referenceErrors.some(
+      (error) => error.code === "synthesis.considered_approach_material_binding_mismatch",
+    ),
+    JSON.stringify(wrongSubjectResult.referenceErrors, null, 2),
+  );
+  const wrongSubjectBefore = await treeSnapshot(state.runRoot);
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: synthesisEnvelopes(wrongSubjectBundle),
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "artifact.reference_invalid",
+  );
+  assert.deepEqual(await treeSnapshot(state.runRoot), wrongSubjectBefore);
 });
 
 test("Gap projection exposes Solution exploration without creating a Gap or Unit", async (context) => {

@@ -43,7 +43,9 @@ import {
   G23_OPPORTUNITY_A,
   G23_OPPORTUNITY_B,
   G23_SOLUTION,
+  G23_SOLUTION_ALT,
   G23_SOLUTION_CONVERSION,
+  G23_SOLUTION_REJECTED,
 } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
 import {
   createDiscoveryEvaluationFixture,
@@ -193,6 +195,7 @@ async function setup(
   suffix: string,
   profile: DiscoveryProfile = "general",
   researchLanguage = "en-US",
+  solutionExplorationVariant: "single" | "compared" = "single",
 ): Promise<State> {
   const root = await mkdtemp(path.join(tmpdir(), `startup-opportunity-g2-4-${suffix}-`));
   context.after(() => rm(root, { recursive: true, force: true }));
@@ -238,6 +241,7 @@ async function setup(
     },
     profile,
     researchLanguage,
+    solutionExplorationVariant,
   );
   return {
     root,
@@ -1888,11 +1892,21 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   const decisionBrief = await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8");
   assert.match(decisionBrief, /局部排序/);
   assert.match(decisionBrief, /头部公司吸收与响应风险/);
+  assert.match(decisionBrief, /尚未探索其他实现方式/);
+  assert.match(decisionBrief, /暂定实现/);
   assert.ok(decisionBrief.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
   assert.match(reportMarkdown, /方向组合/);
   assert.match(reportMarkdown, /头部公司吸收与响应风险/);
+  assert.match(reportMarkdown, /尚未探索其他实现方式/);
+  assert.match(reportMarkdown, /暂定实现/);
   assert.ok(reportMarkdown.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
+  for (const surface of [decisionBrief, reportMarkdown]) {
+    assert.doesNotMatch(
+      surface,
+      /\b(?:best|preferred|optimal|optimum|top choice|first choice)\b/iu,
+    );
+  }
   const auditAppendix = await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8");
   assert.match(auditAppendix, /全部量化信号/);
   assert.match(auditAppendix, /完整竞品与广义替代矩阵/);
@@ -1935,6 +1949,56 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
           "startup_opportunity.artifact_store_operation.current",
       ),
   );
+});
+
+test("G2.4 compared exploration keeps all formal solutions visible in report surfaces", async (context) => {
+  const state = await setup(context, "compared-report", "general", "zh-CN", "compared");
+  await publishThroughEvaluation(state);
+  const runtime = new ReportRuntime(state.runsRoot, state.validator);
+  const report = evaluationEnvelope(state.bundle, G24_REPORT);
+  const first = await runtime.build({ reportEnvelope: report });
+  assert.equal(first.status, "published");
+  const projectedReport = JSON.parse(
+    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  const solutionEvaluations = projectedReport.solution_evaluations as Record<string, unknown>[];
+  assert.equal(solutionEvaluations.length, 2);
+  const comparedEntry = solutionEvaluations[0];
+  assert.ok(comparedEntry);
+  const comparedEvaluation = comparedEntry.evaluation as Record<string, unknown>;
+  assert.equal(comparedEvaluation.exploration_status, "compared_multiple_formal_solutions");
+  assert.equal(comparedEvaluation.selection_posture, "compared_selection");
+  assert.equal((comparedEvaluation.formal_solutions as Record<string, unknown>[]).length, 3);
+  assert.deepEqual(
+    (comparedEvaluation.formal_solution_refs as string[]).sort(),
+    [G23_SOLUTION, G23_SOLUTION_ALT, G23_SOLUTION_REJECTED].sort(),
+  );
+  const decisionBrief = await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8");
+  const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
+  assert.match(decisionBrief, /比较后选定/);
+  assert.match(reportMarkdown, /比较后选定/);
+  assert.match(decisionBrief, /全部正式方案/);
+  assert.match(reportMarkdown, /全部正式方案/);
+});
+
+test("G2.4 provisional exploration rejects comparative-best wording before publication and writes nothing", async (context) => {
+  const state = await setup(context, "provisional-report-clamp");
+  await publishThroughEvaluation(state);
+  const runtime = new ReportRuntime(state.runsRoot, state.validator);
+  const report = evaluationEnvelope(state.bundle, G24_REPORT);
+  const judgmentContext = report.document.curated_judgment_context as Record<string, unknown>;
+  judgmentContext.current_recommendation = "the best choice for now";
+  const reportSections = report.document.report_sections as Record<string, unknown>;
+  reportSections.decision_recommendation = ["the best choice for now"];
+  reportSections.conclusion_summary = ["the best choice for now"];
+  (report as { content_hash: string }).content_hash = canonicalContentHash(report.document);
+  const before = await treeSnapshot(state.runRoot);
+  await assert.rejects(
+    runtime.build({ reportEnvelope: report }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.forbidden_expression_detected",
+  );
+  assert.deepEqual(await treeSnapshot(state.runRoot), before);
 });
 
 test("G2.4 checkpoint, reopen, and report fault recovery preserve the validated current index", async (context) => {

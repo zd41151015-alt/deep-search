@@ -6,7 +6,7 @@ Discovery fan-in 完成后，进入 G2.3 synthesis 前必须先发布当前 Plan
 
 正式方向形成前先做方案中立的用户语言、买方、价格、替代、渠道和商业行为扫描；这一阶段不得做具体方案的定价、获客或留存评估。形成具体方向后，才可深挖该方案的定价、获客、留存、单位经济和合规。产品或 AI seed 只是搜索输入，不是机会成立的证据。
 
-G2.3 Solution Evaluation 必须由主 Agent 明确声明替代方案探索状态：`compared_multiple_formal_solutions`、`explored_no_other_formal_solution`、`not_yet_explored`、`insufficient_evidence` 或 `not_applicable`。Harness 不按 Solution 数量推断状态，也不生成、筛选或决定研究方向。单一 Solution 在尚未探索、证据不足或不适用时仍可继续支撑 Opportunity Thesis，但下游必须称为暂定实现；研究过但未正式化时要保留考虑过的实现方向、未正式化原因、材料引用、未知项和局限。
+G2.3 Solution Evaluation 必须由主 Agent 明确声明替代方案探索状态：`compared_multiple_formal_solutions`、`explored_no_other_formal_solution`、`not_yet_explored`、`insufficient_evidence` 或 `not_applicable`。Harness 不按 Solution 数量推断状态，也不生成、筛选或决定研究方向。`not_yet_explored` 只能对应单一正式 Solution 且没有任何 considered approaches；单一 Solution 在尚未探索、证据不足或不适用时仍可继续支撑 Opportunity Thesis，但下游必须称为暂定实现；研究过但未正式化时要保留考虑过的实现方向、未正式化原因、材料引用、未知项和局限。considered approaches 必须绑定当前 Run 内可达的正式 task/subject 谱系，而不只是同 Run ref/hash。
 
 方案中立阶段同时执行 provider-agnostic `broad_scan`，方向形成后执行 `targeted_deep_dive`。每个 Lane 只对 Dispatch 分配的量化 family 和广义替代类型声明 `observed | partial | unavailable | not_applicable`；缺数据保留 attempted routes、原因、替代指标、limitations 和排序影响。八个量化 family 与七类替代的整体计划覆盖由 candidate/Wave/report 聚合显示。API 只是可选 acquisition method，Harness 不代 agent 查询。
 

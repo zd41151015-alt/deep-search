@@ -6,6 +6,7 @@ import {
   type PublicationPolicy,
 } from "../artifact-store/publication-policy.js";
 import {
+  requiresComparativeSelectionClamp,
   requiresDeterministicReportScan,
   scanReportSurface,
 } from "../reporting/report-consistency.js";
@@ -4320,7 +4321,11 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
         : surface === "report_view"
           ? `${String(document.document.markdown)}\n${String(document.document.audit_appendix_markdown)}`
           : document.document.markdown;
-    const forbiddenMatches = scanReportSurface(surface, scanValue);
+    const forbiddenMatches = scanReportSurface(
+      surface,
+      scanValue,
+      requiresComparativeSelectionClamp(document.document),
+    );
     if (forbiddenMatches.length > 0) {
       errors.push({
         code: "g2_4.forbidden_report_expression",

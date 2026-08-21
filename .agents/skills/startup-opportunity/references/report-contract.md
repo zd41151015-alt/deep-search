@@ -8,7 +8,7 @@ validated artifacts -> report.json -> decision-brief.md -> report.md -> audit-ap
 
 decision brief 是默认用户入口。它说明决策问题、当前建议及其含义、决定性的支持与反对 Evidence、未选替代方案、关键未知项、能够改变决策的 Evidence、belief update、有效日期、scope 和局限。不能为了简短而省略强 counter-evidence。
 
-Discovery report additionally shows each Opportunity's Solution exploration state and posture. All formal Solutions remain visible with their selected/alternative/rejected disposition; a non-compared state is rendered as a provisional implementation and never as a best or compared selection. Considered but non-formalized approaches retain their reasons, exact material bindings, unknowns, and limitations.
+Discovery report additionally shows each Opportunity's Solution exploration state and posture. All formal Solutions remain visible with their selected/alternative/rejected disposition; a non-compared state is rendered as a provisional implementation and never as a best or compared selection. Considered but non-formalized approaches retain their reasons, exact material bindings, unknowns, limitations, and reachable same-Run task/subject lineage.
 
 v17 terminal source 适用于完整结论和提前收口，不要求伪造未执行的 comparison、portfolio 或 assessment stage。它分别声明 `execution.completeness`、`research_conclusion` 和 `runtime_health`，并显式列出未完成阶段、required follow-up、pending operation 和工程问题。terminal source 只能随 `apply-plan-revision` 的正式终止动作提交，由同一 durable intent 在 Manifest 变为终态前闭合 source、三张 sidecar 和三个 materialized view；`build-report` 不接受 terminal source。只有 source 与正式 terminal Manifest 匹配、三视图闭合且 `status-run` 返回 `terminalReportDisposition=ready` 才能交付。
 

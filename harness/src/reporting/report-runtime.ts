@@ -49,6 +49,7 @@ import { canonicalizeReadableSources, deriveReportCitations } from "./report-cit
 import {
   REPORT_SCAN_CONTRACT_VERSION,
   REPORT_SCAN_SURFACES,
+  requiresComparativeSelectionClamp,
   scanDiscoveryReportSurfaces,
 } from "./report-consistency.js";
 import { renderEvidenceDispositions } from "./report-evidence-dispositions.js";
@@ -785,6 +786,7 @@ function deriveDiscoveryReportEnvelopes(
   const reportMarkdown = renderDiscoveryFullReport(report);
   const auditAppendixMarkdown = renderDiscoveryAuditAppendix(report);
   localizedLeakageGuard(report, `${reportMarkdown}\n${auditAppendixMarkdown}`);
+  const comparativeSelectionClamp = requiresComparativeSelectionClamp(report);
   const viewDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.discovery_report_view.v1",
     view_id: `report_markdown_${revision.replace("r", "")}`,
@@ -821,11 +823,14 @@ function deriveDiscoveryReportEnvelopes(
     viewDocument,
     [],
   );
-  const forbiddenExpressionMatches = scanDiscoveryReportSurfaces({
-    structuredReport: report,
-    decisionBrief: briefMarkdown,
-    reportView: `${reportMarkdown}\n${auditAppendixMarkdown}`,
-  });
+  const forbiddenExpressionMatches = scanDiscoveryReportSurfaces(
+    {
+      structuredReport: report,
+      decisionBrief: briefMarkdown,
+      reportView: `${reportMarkdown}\n${auditAppendixMarkdown}`,
+    },
+    comparativeSelectionClamp,
+  );
   const evaluatorResult = forbiddenExpressionMatches.length === 0 ? "passed" : "failed";
   const consistencyDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.report_consistency_evaluation.discovery.current",

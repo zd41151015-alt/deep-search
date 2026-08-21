@@ -107,7 +107,7 @@
     "evaluation_policy_ref": "harness/policies/discovery-evaluation.current.json",
     "evaluation_policy_schema_version": "startup_opportunity.discovery_evaluation_policy.current",
     "ai_missing_bundle_behavior": "insufficient_evidence_and_investigate_further_ceiling",
-    "report_scan_contract_version": "startup_opportunity.deterministic_forbidden_expression_scan.v1",
+    "report_scan_contract_version": "startup_opportunity.deterministic_forbidden_expression_scan.v2",
     "explicit_artifact_input_only": true,
     "harness_generates_semantics": false,
     "report_materialization": "deterministic_from_validated_report_sidecar",

@@ -5,6 +5,7 @@ import { deriveReportCitations } from "../reporting/report-citation-authority.js
 import {
   REPORT_SCAN_CONTRACT_VERSION,
   REPORT_SCAN_SURFACES,
+  requiresComparativeSelectionClamp,
   scanDiscoveryReportSurfaces,
 } from "../reporting/report-consistency.js";
 import { localizedInternalLeakageIssues } from "../reporting/report-localization.js";
@@ -1575,11 +1576,14 @@ function validateEvaluationAndReporting(
       ).length > 0);
   const forbiddenMatches =
     report !== undefined && brief !== undefined && view !== undefined
-      ? scanDiscoveryReportSurfaces({
-          structuredReport: report.document,
-          decisionBrief: String(brief.document.markdown),
-          reportView: `${String(view.document.markdown)}\n${String(view.document.audit_appendix_markdown)}`,
-        })
+      ? scanDiscoveryReportSurfaces(
+          {
+            structuredReport: report.document,
+            decisionBrief: String(brief.document.markdown),
+            reportView: `${String(view.document.markdown)}\n${String(view.document.audit_appendix_markdown)}`,
+          },
+          requiresComparativeSelectionClamp(report.document),
+        )
       : [];
   const expectedDimensions = strings(policy.reporting_contract.consistency_dimensions);
   const consistencyMismatch =

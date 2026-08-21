@@ -186,13 +186,39 @@ function materialBindsCandidate(
   if (task?.schemaVersion !== "startup_opportunity.research_task.discovery_candidate.current") {
     return false;
   }
+  if (
+    task.document.run_id !== material.document.run_id ||
+    (typeof material.document.unit_id === "string" &&
+      task.document.unit_id !== material.document.unit_id) ||
+    (typeof lineage.attempt === "number" && task.document.attempt !== lineage.attempt) ||
+    (typeof material.document.attempt === "number" &&
+      task.document.attempt !== material.document.attempt) ||
+    (typeof lineage.scope_frame_ref === "string" &&
+      task.document.scope_frame_ref !== lineage.scope_frame_ref) ||
+    (typeof material.document.scope_frame_ref === "string" &&
+      task.document.scope_frame_ref !== material.document.scope_frame_ref) ||
+    (typeof lineage.research_plan_ref === "string" &&
+      task.document.research_plan_ref !== lineage.research_plan_ref) ||
+    (typeof material.document.research_plan_ref === "string" &&
+      task.document.research_plan_ref !== material.document.research_plan_ref)
+  ) {
+    return false;
+  }
   const targets = strings(task.document.target_candidate_refs)
     .map((ref) => candidatesByPath.get(ref))
     .filter((candidate): candidate is DiscoverySynthesisDocument => candidate !== undefined);
+  const materialCandidates = lineageCandidateRefs(material)
+    .map((ref) => candidatesByPath.get(ref))
+    .filter((candidate): candidate is DiscoverySynthesisDocument => candidate !== undefined);
   if (
+    targets.length === 0 ||
     !candidates.some((candidate) =>
       targets.some((target) => descendants(candidate, target, candidatesByPath)),
-    )
+    ) ||
+    (materialCandidates.length > 0 &&
+      !candidates.some((candidate) =>
+        materialCandidates.some((target) => descendants(candidate, target, candidatesByPath)),
+      ))
   ) {
     return false;
   }
@@ -207,7 +233,9 @@ function materialBindsCandidate(
       : undefined;
   return (
     subject !== undefined &&
-    candidates.some((candidate) => descendants(candidate, subject, candidatesByPath))
+    candidates.some((candidate) => descendants(candidate, subject, candidatesByPath)) &&
+    (materialCandidates.length === 0 ||
+      materialCandidates.some((candidate) => descendants(subject, candidate, candidatesByPath)))
   );
 }
 
@@ -256,6 +284,11 @@ function consideredApproachRefs(document: Record<string, unknown>): readonly str
       typeof binding.ref === "string" ? [binding.ref] : [],
     ),
   );
+}
+
+function lineageCandidateRefs(material: DiscoverySynthesisDocument): readonly string[] {
+  const lineage = isRecord(material.document.lineage) ? material.document.lineage : {};
+  return strings(lineage.candidate_refs);
 }
 
 function summaryRefs(document: Record<string, unknown>): readonly string[] {
@@ -858,6 +891,11 @@ function validateSolutionEvaluations(
   byPath: ReadonlyMap<string, DiscoverySynthesisDocument>,
   errors: ValidationIssue[],
 ): void {
+  const candidatesByPath = new Map(
+    [...byPath.values()]
+      .filter((entry) => entry.schemaVersion === "startup_opportunity.discovery_candidate.v1")
+      .map((entry) => [entry.path, entry] as const),
+  );
   for (const evaluation of [...byPath.values()].filter(
     (entry) => entry.schemaVersion === "startup_opportunity.solution_evaluation.v1",
   )) {
@@ -874,6 +912,21 @@ function validateSolutionEvaluations(
       ? evaluation.document.solution_exploration
       : {};
     const explorationStatus = String(exploration.status);
+    const evaluationCandidates = strings(evaluation.document.solution_hypothesis_refs)
+      .map((ref) => byPath.get(ref))
+      .filter(
+        (entry): entry is DiscoverySynthesisDocument =>
+          entry?.schemaVersion === "startup_opportunity.solution_hypothesis.v1" &&
+          typeof entry.document.source_candidate_ref === "string" &&
+          candidatesByPath.has(String(entry.document.source_candidate_ref)),
+      )
+      .map(
+        (entry) =>
+          candidatesByPath.get(
+            String(entry.document.source_candidate_ref),
+          ) as DiscoverySynthesisDocument,
+      );
+    const approaches = records(exploration.considered_approaches);
     const decisionBySolution = new Map(
       comparisons.map((comparison) => [String(comparison.solution_ref), comparison.decision]),
     );
@@ -882,6 +935,12 @@ function validateSolutionEvaluations(
       ...alternatives.map((ref): [string, string] => [ref, "alternative"]),
       ...rejected.map((ref): [string, string] => [ref, "rejected"]),
     ]);
+    const exploredNoOtherFormalSolutionMismatch =
+      explorationStatus === "explored_no_other_formal_solution" &&
+      (solutionRefs.length !== 1 || approaches.length === 0);
+    const notYetExploredMismatch =
+      explorationStatus === "not_yet_explored" &&
+      (solutionRefs.length !== 1 || approaches.length !== 0);
     if (
       !setEqual(solutionRefs, classified) ||
       new Set(classified).size !== classified.length ||
@@ -900,7 +959,8 @@ function validateSolutionEvaluations(
         ([ref, decision]) => decisionBySolution.get(ref) !== decision,
       ) ||
       (explorationStatus === "compared_multiple_formal_solutions" && solutionRefs.length < 2) ||
-      (explorationStatus === "explored_no_other_formal_solution" && solutionRefs.length !== 1)
+      exploredNoOtherFormalSolutionMismatch ||
+      notYetExploredMismatch
     ) {
       errors.push(
         issue(
@@ -910,7 +970,6 @@ function validateSolutionEvaluations(
         ),
       );
     }
-    const approaches = records(exploration.considered_approaches);
     const approachIds = approaches.map((approach) => String(approach.approach_id));
     const materialBindingMismatch = approaches.some((approach) =>
       records(approach.material_bindings).some((binding) => {
@@ -922,12 +981,25 @@ function validateSolutionEvaluations(
         );
       }),
     );
-    if (new Set(approachIds).size !== approachIds.length || materialBindingMismatch) {
+    const consideredApproachLineageMismatch = approaches.some((approach) =>
+      records(approach.material_bindings).some((binding) => {
+        const material = typeof binding.ref === "string" ? byPath.get(binding.ref) : undefined;
+        return (
+          material === undefined ||
+          !materialBindsCandidate(material, evaluationCandidates, byPath, candidatesByPath)
+        );
+      }),
+    );
+    if (
+      new Set(approachIds).size !== approachIds.length ||
+      materialBindingMismatch ||
+      consideredApproachLineageMismatch
+    ) {
       errors.push(
         issue(
           "synthesis.considered_approach_material_binding_mismatch",
           `${evaluation.path}#/solution_exploration/considered_approaches`,
-          "considered approaches must have unique identities and exact same-Run formal material ref/hash bindings",
+          "considered approaches must have unique identities, exact same-Run formal material ref/hash bindings, and reachable current solution-lineage task/subject bindings",
         ),
       );
     }

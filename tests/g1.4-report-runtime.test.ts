@@ -1250,6 +1250,79 @@ test("Chinese terminal prose localizes compiler inference text without changing 
   assert.deepEqual(localizedTerminalUserViewIssues(source, full), []);
 });
 
+test("Chinese terminal report renders provisional solution exploration and rejects comparative-best wording", async (context) => {
+  const state = await prepareRun(context, { researchLanguage: "zh-CN" });
+  await markRunTerminal(state);
+  const reportEnvelope = terminalReportEnvelope(state);
+  const source = reportEnvelope.document;
+  source.research_provenance = {
+    available_handoff_count: 0,
+    captured_item_count: 0,
+    consumed_item_refs: [],
+    used_handoff_items: [],
+    imported_substrate_refs: [],
+    adopted_inherited_evidence_refs: [],
+    cited_inherited_evidence_refs: [],
+    adopted_current_evidence_refs: [],
+    cited_current_evidence_refs: [],
+    revalidation_gaps: [],
+  };
+  const direction = (source.directions as Record<string, unknown>[])[0];
+  assert.ok(direction);
+  direction.solution_evaluation_summary = {
+    exploration_status: "not_yet_explored",
+    selection_posture: "provisional_implementation",
+    status_rationale: "SYNTHETIC provisional solution exploration for terminal report regression.",
+    formal_solution_refs: ["solution-hypothesis.json"],
+    formal_solutions: [
+      {
+        solution_ref: "solution-hypothesis.json",
+        solution_content_hash: `sha256:${"1".repeat(64)}`,
+        disposition: "selected",
+        solution_behavior: "SYNTHETIC provisional solution behavior.",
+        solution_type: "SYNTHETIC solution type",
+        delivery_form: "SYNTHETIC delivery form",
+        uses_ai: false,
+      },
+    ],
+    selected_solution_ref: "solution-hypothesis.json",
+    alternative_solution_refs: [],
+    rejected_solutions: [],
+    considered_approaches: [],
+    critical_unknowns: [],
+    limitations: [],
+  };
+  const brief = renderTerminalDecisionBrief(source);
+  const full = renderTerminalFullReport(source);
+  assert.match(brief, /尚未探索其他实现方式/);
+  assert.match(brief, /暂定实现/);
+  assert.match(full, /尚未探索其他实现方式/);
+  assert.match(full, /暂定实现/);
+  assert.doesNotMatch(
+    `${brief}\n${full}`,
+    /\b(?:best|preferred|optimal|optimum|top choice|first choice)\b/iu,
+  );
+
+  const rejectEnvelope = terminalReportEnvelope(state);
+  const rejectConclusion = rejectEnvelope.document.research_conclusion as Record<string, unknown>;
+  rejectConclusion.current_recommendation = "the best choice for now";
+  (rejectEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
+    rejectEnvelope.document,
+  );
+  const before = await snapshotTree(state.runRoot);
+  const prospectiveManifest = (await state.store.status(G14_RUN_ID)).manifest;
+  await assert.rejects(
+    state.runtime.prepareTerminalLocked(state.runRoot, {
+      reportEnvelope: rejectEnvelope,
+      prospectiveManifest,
+      supportingEnvelopes: [],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.forbidden_expression_detected",
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
+});
+
 test("ReportRuntime localizes terminal inference vocabulary while preserving structured truth", async (context) => {
   const state = await prepareRun(context, {
     injectTerminalLocalizationVocabulary: true,

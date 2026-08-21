@@ -681,6 +681,7 @@ export async function createDiscoveryEvaluationFixture(
   substrate: DiscoveryEvaluationSubstrate,
   profile: DiscoveryProfile = "general",
   researchLanguage = "en-US",
+  solutionExplorationVariant: "single" | "compared" = "single",
 ): Promise<DocumentBundle> {
   const usesAi = profile === "ai_first" || profile === "hybrid";
   const bundle = await createDiscoverySynthesisFixture(
@@ -709,6 +710,7 @@ export async function createDiscoveryEvaluationFixture(
     ],
     profile,
     researchLanguage,
+    solutionExplorationVariant,
   );
   (bundle as { schema_version: string }).schema_version =
     "startup_opportunity.document_bundle.current";
@@ -1387,7 +1389,7 @@ export async function createDiscoveryEvaluationFixture(
     schema_version: "startup_opportunity.report.v1",
     report_id: "discovery_report",
     run_id: runId,
-    research_language: "en-US",
+    research_language: researchLanguage,
     producer_role: "main_agent",
     owned_output_path: G24_REPORT,
     materialized_path: "report.json",

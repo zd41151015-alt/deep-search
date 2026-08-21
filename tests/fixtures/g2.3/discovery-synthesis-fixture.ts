@@ -38,6 +38,13 @@ export const G23_SOLUTION_CONVERSION = "artifacts/discovery/conversions/candidat
 export const G23_DEMAND = "artifacts/discovery/demands/demand_household.r1.json";
 export const G23_BASELINE = "artifacts/discovery/baselines/baseline_manual.r1.json";
 export const G23_SOLUTION = "artifacts/discovery/solutions/solution_coordination.r1.json";
+export const G23_SOLUTION_ALT = "artifacts/discovery/solutions/solution_coordination_alt.r1.json";
+export const G23_SOLUTION_REJECTED =
+  "artifacts/discovery/solutions/solution_coordination_rejected.r1.json";
+export const G23_SOLUTION_ALT_CONVERSION =
+  "artifacts/discovery/conversions/candidate_solution_alt.r1.json";
+export const G23_SOLUTION_REJECTED_CONVERSION =
+  "artifacts/discovery/conversions/candidate_solution_rejected.r1.json";
 export const G23_EVALUATION =
   "artifacts/discovery/solution-evaluations/evaluation_household.r1.json";
 export const G23_OPPORTUNITY_A = "artifacts/discovery/opportunities/opportunity_household.r1.json";
@@ -234,6 +241,7 @@ export async function createDiscoverySynthesisFixture(
   additionalPlanWaves: readonly Record<string, unknown>[] = [],
   profile: DiscoveryProfile = "general",
   researchLanguage = "en-US",
+  solutionExplorationVariant: "single" | "compared" = "single",
 ): Promise<DocumentBundle> {
   const bundle = await createDiscoveryRuntimeFixture(
     runId,
@@ -392,6 +400,82 @@ export async function createDiscoverySynthesisFixture(
     source_boundary: boundary(),
     limitations: [SYNTHETIC],
   };
+  const comparedSolutionAlternative = structuredClone(solution) as Record<string, unknown>;
+  comparedSolutionAlternative.solution_id = "solution_coordination_alt";
+  comparedSolutionAlternative.source_conversion_ref = G23_SOLUTION_ALT_CONVERSION;
+  comparedSolutionAlternative.solution_behavior =
+    "SYNTHETIC G2.3 fixture alternative solution behavior; no real Evidence or validation.";
+  comparedSolutionAlternative.workflow_change =
+    "SYNTHETIC G2.3 fixture alternative workflow change; no real Evidence or validation.";
+  comparedSolutionAlternative.incremental_value_over_baseline = SYNTHETIC;
+  comparedSolutionAlternative.market_motion = "consumer";
+  comparedSolutionAlternative.acquisition_motion = "community";
+  comparedSolutionAlternative.buyer_model = "household_payer";
+  comparedSolutionAlternative.payment_mode = "subscription";
+  comparedSolutionAlternative.expected_outcomes = [
+    "SYNTHETIC G2.3 fixture alternative expected outcome; no real Evidence or validation.",
+  ];
+  comparedSolutionAlternative.risks = [
+    "SYNTHETIC G2.3 fixture alternative risk; no real Evidence or validation.",
+  ];
+  comparedSolutionAlternative.kill_criteria = [
+    "SYNTHETIC G2.3 fixture alternative kill criterion; no real Evidence or validation.",
+  ];
+  const comparedSolutionRejected = structuredClone(solution) as Record<string, unknown>;
+  comparedSolutionRejected.solution_id = "solution_coordination_rejected";
+  comparedSolutionRejected.source_conversion_ref = G23_SOLUTION_REJECTED_CONVERSION;
+  comparedSolutionRejected.solution_behavior =
+    "SYNTHETIC G2.3 fixture rejected solution behavior; no real Evidence or validation.";
+  comparedSolutionRejected.workflow_change =
+    "SYNTHETIC G2.3 fixture rejected workflow change; no real Evidence or validation.";
+  comparedSolutionRejected.incremental_value_over_baseline = SYNTHETIC;
+  comparedSolutionRejected.market_motion = "consumer";
+  comparedSolutionRejected.acquisition_motion = "community";
+  comparedSolutionRejected.buyer_model = "household_payer";
+  comparedSolutionRejected.payment_mode = "subscription";
+  comparedSolutionRejected.expected_outcomes = [
+    "SYNTHETIC G2.3 fixture rejected expected outcome; no real Evidence or validation.",
+  ];
+  comparedSolutionRejected.risks = [
+    "SYNTHETIC G2.3 fixture rejected risk; no real Evidence or validation.",
+  ];
+  comparedSolutionRejected.kill_criteria = [
+    "SYNTHETIC G2.3 fixture rejected kill criterion; no real Evidence or validation.",
+  ];
+  const formalSolutionDocuments = [
+    [
+      G23_SOLUTION,
+      solution,
+      "selected",
+      G23_SOLUTION_CONVERSION,
+      "candidate_solution",
+      "2026-07-27T20:01:00Z",
+    ],
+    [
+      G23_SOLUTION_ALT,
+      comparedSolutionAlternative,
+      "alternative",
+      G23_SOLUTION_ALT_CONVERSION,
+      "candidate_solution_alt",
+      "2026-07-27T20:01:10Z",
+    ],
+    [
+      G23_SOLUTION_REJECTED,
+      comparedSolutionRejected,
+      "rejected",
+      G23_SOLUTION_REJECTED_CONVERSION,
+      "candidate_solution_rejected",
+      "2026-07-27T20:01:20Z",
+    ],
+  ] as const;
+  const publishedFormalSolutionDocuments =
+    solutionExplorationVariant === "compared"
+      ? formalSolutionDocuments
+      : formalSolutionDocuments.slice(0, 1);
+  const formalSolutionRefs =
+    solutionExplorationVariant === "compared"
+      ? publishedFormalSolutionDocuments.map(([path]) => path)
+      : [G23_SOLUTION];
   const evaluation = {
     schema_version: "startup_opportunity.solution_evaluation.v1",
     evaluation_id: "evaluation_household",
@@ -404,24 +488,52 @@ export async function createDiscoverySynthesisFixture(
     discovery_fan_in_ref: G22_FAN_IN,
     demand_thesis_ref: G23_DEMAND,
     baseline_option_ref: G23_BASELINE,
-    solution_hypothesis_refs: [G23_SOLUTION],
+    solution_hypothesis_refs: formalSolutionRefs,
     selected_solution_ref: G23_SOLUTION,
-    alternative_solution_refs: [],
-    rejected_solutions: [],
+    alternative_solution_refs: solutionExplorationVariant === "compared" ? [G23_SOLUTION_ALT] : [],
+    rejected_solutions:
+      solutionExplorationVariant === "compared"
+        ? [
+            {
+              solution_ref: G23_SOLUTION_REJECTED,
+              reasons: [SYNTHETIC.replace("solution.", "solution rejected.")],
+              judgment_assessment_refs: [G22_SOLUTION_EVALUATION_JUDGMENT],
+            },
+          ]
+        : [],
     solution_exploration: {
-      status: "not_yet_explored",
+      status:
+        solutionExplorationVariant === "compared"
+          ? "compared_multiple_formal_solutions"
+          : "not_yet_explored",
       status_rationale:
-        "SYNTHETIC fixture declares one provisional solution without exploring other implementation approaches.",
+        solutionExplorationVariant === "compared"
+          ? "SYNTHETIC fixture compares three formal solutions with explicit selected/alternative/rejected closure."
+          : "SYNTHETIC fixture declares one provisional solution without exploring other implementation approaches.",
       considered_approaches: [],
     },
-    baseline_comparisons: [
-      {
-        solution_ref: G23_SOLUTION,
-        incremental_value: SYNTHETIC,
-        migration_cost: SYNTHETIC,
-        decision: "selected",
-      },
-    ],
+    baseline_comparisons:
+      solutionExplorationVariant === "compared"
+        ? formalSolutionDocuments.map(([path, _document, disposition]) => ({
+            solution_ref: path,
+            incremental_value:
+              disposition === "selected"
+                ? SYNTHETIC
+                : `SYNTHETIC G2.3 fixture ${disposition} baseline comparison; no real Evidence or validation.`,
+            migration_cost:
+              disposition === "selected"
+                ? SYNTHETIC
+                : `SYNTHETIC G2.3 fixture ${disposition} migration cost; no real Evidence or validation.`,
+            decision: disposition,
+          }))
+        : [
+            {
+              solution_ref: G23_SOLUTION,
+              incremental_value: SYNTHETIC,
+              migration_cost: SYNTHETIC,
+              decision: "selected",
+            },
+          ],
     solution_rationale: SYNTHETIC,
     critical_unknowns: [SYNTHETIC],
     capability_only_signals: [],
@@ -449,32 +561,48 @@ export async function createDiscoverySynthesisFixture(
   const solutionEvaluationSummary = {
     solution_evaluation_ref: G23_EVALUATION,
     solution_evaluation_content_hash: canonicalContentHash(evaluation),
-    exploration_status: "not_yet_explored",
-    selection_posture: "provisional_implementation",
+    exploration_status:
+      solutionExplorationVariant === "compared"
+        ? "compared_multiple_formal_solutions"
+        : "not_yet_explored",
+    selection_posture:
+      solutionExplorationVariant === "compared"
+        ? "compared_selection"
+        : "provisional_implementation",
     status_rationale:
-      "SYNTHETIC fixture declares one provisional solution without exploring other implementation approaches.",
-    formal_solution_refs: [G23_SOLUTION],
-    formal_solutions: [
-      {
-        solution_ref: G23_SOLUTION,
-        solution_content_hash: canonicalContentHash(solution),
-        disposition: "selected",
-        solution_id: solution.solution_id,
-        solution_type: solution.solution_type,
-        solution_behavior: solution.solution_behavior,
-        delivery_form: solution.delivery_form,
-        uses_ai: solution.uses_ai,
-      },
-    ],
+      solutionExplorationVariant === "compared"
+        ? "SYNTHETIC fixture compares three formal solutions with explicit selected/alternative/rejected closure."
+        : "SYNTHETIC fixture declares one provisional solution without exploring other implementation approaches.",
+    formal_solution_refs:
+      solutionExplorationVariant === "compared" ? formalSolutionRefs : [G23_SOLUTION],
+    formal_solutions: publishedFormalSolutionDocuments.map(([path, document, disposition]) => ({
+      solution_ref: path,
+      solution_content_hash: canonicalContentHash(document as Record<string, unknown>),
+      disposition,
+      solution_id: String((document as Record<string, unknown>).solution_id),
+      solution_type: String((document as Record<string, unknown>).solution_type),
+      solution_behavior: String((document as Record<string, unknown>).solution_behavior),
+      delivery_form: String((document as Record<string, unknown>).delivery_form),
+      uses_ai: Boolean((document as Record<string, unknown>).uses_ai),
+    })),
     selected_solution_ref: G23_SOLUTION,
-    alternative_solution_refs: [],
-    rejected_solutions: [],
+    alternative_solution_refs: solutionExplorationVariant === "compared" ? [G23_SOLUTION_ALT] : [],
+    rejected_solutions:
+      solutionExplorationVariant === "compared"
+        ? structuredClone(evaluation.rejected_solutions)
+        : [],
     considered_approaches: [],
     critical_unknowns: [SYNTHETIC],
     limitations: [SYNTHETIC],
   };
   opportunityA.solution_evaluation_summary = solutionEvaluationSummary;
   opportunityB.solution_evaluation_summary = structuredClone(solutionEvaluationSummary);
+  if (solutionExplorationVariant === "compared") {
+    opportunityA.alternative_solution_refs = [G23_SOLUTION_ALT];
+    opportunityB.alternative_solution_refs = [G23_SOLUTION_ALT];
+  }
+  const opportunitySolutionSummaryRefs =
+    solutionExplorationVariant === "compared" ? [G22_SOLUTION_EVALUATION_JUDGMENT] : [];
   const snapshot = {
     schema_version: "startup_opportunity.thesis_evaluation_snapshot.v1",
     snapshot_id: "snapshot_household",
@@ -486,7 +614,7 @@ export async function createDiscoverySynthesisFixture(
     research_plan_ref: G21_PLAN_REF,
     subject_refs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
     demand_thesis_refs: [G23_DEMAND],
-    solution_hypothesis_refs: [G23_SOLUTION],
+    solution_hypothesis_refs: formalSolutionRefs,
     baseline_option_refs: [G23_BASELINE],
     solution_evaluation_refs: [G23_EVALUATION],
     business_model_assumptions: [SYNTHETIC],
@@ -552,12 +680,14 @@ export async function createDiscoverySynthesisFixture(
     limitations: [SYNTHETIC],
   };
 
-  const targetDocuments = [
-    [G23_DEMAND, demand],
-    [G23_BASELINE, baseline],
-    [G23_SOLUTION, solution],
+  const targetDocuments: ReadonlyArray<readonly [string, Record<string, unknown>, string]> = [
+    [G23_DEMAND, demand, "2026-07-27T20:01:00Z"],
+    [G23_BASELINE, baseline, "2026-07-27T20:01:00Z"],
+    ...publishedFormalSolutionDocuments.map(
+      ([path, document, , , , createdAt]) => [path, document, createdAt] as const,
+    ),
   ] as const;
-  const conversions = [
+  const conversions: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
     [
       G23_DEMAND_CONVERSION,
       conversion(
@@ -586,20 +716,23 @@ export async function createDiscoverySynthesisFixture(
         canonicalContentHash(baseline),
       ),
     ],
-    [
-      G23_SOLUTION_CONVERSION,
-      conversion(
-        runId,
-        "candidate_solution",
-        G22_SOLUTION_R1,
-        "solution_seed",
-        1,
-        canonicalContentHash(fixtureEffective(bundle, G22_SOLUTION_R1)),
-        "startup_opportunity.solution_hypothesis.v1",
-        G23_SOLUTION,
-        canonicalContentHash(solution),
-      ),
-    ],
+    ...publishedFormalSolutionDocuments.map(
+      ([path, document, , conversionRef, conversionId]) =>
+        [
+          conversionRef,
+          conversion(
+            runId,
+            conversionId,
+            G22_SOLUTION_R1,
+            "solution_seed",
+            1,
+            canonicalContentHash(fixtureEffective(bundle, G22_SOLUTION_R1)),
+            "startup_opportunity.solution_hypothesis.v1",
+            path,
+            canonicalContentHash(document as Record<string, unknown>),
+          ),
+        ] as const,
+    ),
   ] as const;
   const plan = fixtureEffective(bundle, G21_PLAN_REF);
   const priorExecution = fixtureEffective(bundle, "plans/research-execution.r1.json");
@@ -793,6 +926,23 @@ export async function createDiscoverySynthesisFixture(
       ),
     );
   }
+  const publishedSolutionTargetInputs: readonly [string, readonly string[]][] =
+    publishedFormalSolutionDocuments.map(([path, _document, _disposition, conversionRef]) => [
+      path,
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        G22_FAN_IN,
+        conversionRef,
+        G22_SOLUTION_R1,
+        G23_DEMAND,
+        G23_BASELINE,
+        G22_GENERATION_CLAIM,
+        G22_EVALUATION_CLAIM,
+        G22_SOLUTION_GENERATION_JUDGMENT,
+        G22_SOLUTION_EVALUATION_JUDGMENT,
+      ],
+    ]);
   const targetInputs = new Map<string, readonly string[]>([
     [
       G23_DEMAND,
@@ -839,10 +989,17 @@ export async function createDiscoverySynthesisFixture(
         G22_SOLUTION_EVALUATION_JUDGMENT,
       ],
     ],
+    ...publishedSolutionTargetInputs,
   ]);
-  for (const [path, document] of targetDocuments) {
+  for (const [path, document, createdAt] of targetDocuments) {
     entries.push(
-      envelope(runId, path, document, targetInputs.get(path) ?? [], "2026-07-27T20:01:00Z"),
+      envelope(
+        runId,
+        path,
+        document as Record<string, unknown>,
+        targetInputs.get(path) ?? [],
+        createdAt,
+      ),
     );
   }
   entries.push(
@@ -856,7 +1013,7 @@ export async function createDiscoverySynthesisFixture(
         G22_FAN_IN,
         G23_DEMAND,
         G23_BASELINE,
-        G23_SOLUTION,
+        ...formalSolutionRefs,
         G22_GENERATION_MANIFEST,
         G22_EVALUATION_MANIFEST,
         G22_SOLUTION_GENERATION_JUDGMENT,
@@ -874,7 +1031,7 @@ export async function createDiscoverySynthesisFixture(
         G22_FAN_IN,
         G23_DEMAND,
         G23_BASELINE,
-        G23_SOLUTION,
+        ...formalSolutionRefs,
         G23_EVALUATION,
         G22_GENERATION_LANE,
         G22_EVALUATION_LANE,
@@ -882,6 +1039,7 @@ export async function createDiscoverySynthesisFixture(
         G22_EVALUATION_CLAIM,
         G22_JUDGMENT,
         G22_DEMAND_EVALUATION_JUDGMENT,
+        ...opportunitySolutionSummaryRefs,
       ],
       "2026-07-27T20:05:00Z",
     ),
@@ -895,7 +1053,7 @@ export async function createDiscoverySynthesisFixture(
         G22_FAN_IN,
         G23_DEMAND,
         G23_BASELINE,
-        G23_SOLUTION,
+        ...formalSolutionRefs,
         G23_EVALUATION,
         G22_GENERATION_LANE,
         G22_EVALUATION_LANE,
@@ -903,6 +1061,7 @@ export async function createDiscoverySynthesisFixture(
         G22_EVALUATION_CLAIM,
         G22_JUDGMENT,
         G22_DEMAND_EVALUATION_JUDGMENT,
+        ...opportunitySolutionSummaryRefs,
       ],
       "2026-07-27T20:06:00Z",
     ),
@@ -917,7 +1076,7 @@ export async function createDiscoverySynthesisFixture(
         G23_OPPORTUNITY_B,
         G23_DEMAND,
         G23_BASELINE,
-        G23_SOLUTION,
+        ...formalSolutionRefs,
         G23_EVALUATION,
         G22_GENERATION_MANIFEST,
         G22_EVALUATION_MANIFEST,
