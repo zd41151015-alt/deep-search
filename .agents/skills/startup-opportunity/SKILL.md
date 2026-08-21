@@ -32,7 +32,7 @@ description: 发现并评估消费级 Startup Opportunity，评估具体产品�
 - 为每个 subagent 提供 typed task envelope 和唯一 output path。main agent 始终是唯一 orchestrator。
 - 语义判断留给 agent；deterministic 验证、存储、版本控制和报告机制留给 Harness。
 - 每个 Opportunity 的 `team_fit_and_learning` panel 还由主 Agent提交五维“团队启动负担分析”（启动资本/开发复杂度、持续人工交付、获客与渠道依赖、合规/数据/专业责任、首次有效验证或收入时间），逐维保留 assessment、支持/反对 refs、limitations 和 `partial`/`unknown`/`insufficient_evidence` 等诚实状态。Harness 只验证 same-Run、subject/ref/hash 和报告闭合，不分析 Evidence、不评分、不排除高负担机会。
-- 主 Agent 必须把 Scope 中已知团队条件与每个机会的启动负担显式提交为 `match`、`conditional`、`mismatch` 或 `unknown`，并写出未知前提、会改变结论的条件和限制。排序必须引用这些匹配分析，同时继续保留需求、买方、替代、证据强度和反对材料；团队匹配不是 Harness 自动排序或默认硬拒绝。
+- 主 Agent 必须把 Scope 中已知团队条件与每个机会的启动负担显式提交为 `match`、`conditional`、`mismatch` 或 `unknown`，并写出未知前提、会改变结论的条件和限制。排序必须引用这些匹配分析，同时继续保留需求、买方、替代、证据强度和反对材料；可以提交并列、局部排序或因 Evidence 不足明确未排序的机会。团队匹配不是 Harness 自动排序或默认硬拒绝，Harness 只机械校验排序闭包和 first bet 与显式顶部排序的一致性。
 - 绝不覆盖 current plan。Runtime 调整必须依次经过 Gap Snapshot、一个或多个已验证 Adaptation Decision 和不可变 Plan Revision。
 - 新 Run 必须先形成并发布 Intake、DecisionContext 与 ScopeFrame，再生成和验证 `plans/research-plan.r1.json`；不得从聊天摘要跳到 research wave。
 - 每个 wave 只使用 typed task envelope 启动 bounded custom agent。agent completion summary 只作通知，父任务必须从唯一 output path 重新读取并验证正式 Artifact。

@@ -869,6 +869,52 @@ const TEAM_BURDEN_DIMENSIONS = [
   "time_to_first_meaningful_validation_or_revenue",
 ] as const;
 
+const TEAM_BURDEN_NON_DECISIVE_STATUSES = new Set([
+  "partial",
+  "unavailable",
+  "unknown",
+  "inferred",
+  "no_evidence_found",
+  "insufficient_evidence",
+]);
+
+function validateTeamConditionIds(
+  entries: readonly DiscoveryEvaluationDocument[],
+  errors: ValidationIssue[],
+): void {
+  for (const scope of entries.filter((entry) =>
+    [
+      "startup_opportunity.scope_frame.discovery.current",
+      "startup_opportunity.scope_frame.assessment.current",
+    ].includes(entry.schemaVersion),
+  )) {
+    const context = isRecord(scope.document.team_context) ? scope.document.team_context : undefined;
+    if (context === undefined) continue;
+    const conditions = [
+      ...records(context.hard_constraints),
+      ...records(context.known_strengths_and_gaps),
+    ];
+    const seen = new Map<string, number>();
+    const duplicateIds: string[] = [];
+    for (const condition of conditions) {
+      const id = String(condition.condition_id ?? "");
+      const count = (seen.get(id) ?? 0) + 1;
+      seen.set(id, count);
+      if (count === 2) duplicateIds.push(id);
+    }
+    if (duplicateIds.length > 0) {
+      errors.push(
+        issue(
+          "g2_4.team_condition_id_duplicate",
+          `${scope.path}#/team_context`,
+          "team condition IDs must be unique across hard constraints and known strengths or gaps",
+          { duplicateIds: duplicateIds.sort() },
+        ),
+      );
+    }
+  }
+}
+
 function teamPanel(comparison: DiscoveryEvaluationDocument): Record<string, unknown> | undefined {
   return records(comparison.document.comparison_panels).find(
     (panel) => panel.panel_id === "team_fit_and_learning",
@@ -895,6 +941,9 @@ function validateTeamComparison(
   const match = isRecord(panel.team_match_analysis) ? panel.team_match_analysis : {};
   const dimensions = records(burden.dimensions);
   const dimensionIds = dimensions.map((dimension) => String(dimension.dimension_id));
+  const nonDecisiveBurdenDimensions = dimensions.filter((dimension) =>
+    TEAM_BURDEN_NON_DECISIVE_STATUSES.has(String(dimension.status)),
+  );
   const burdenRefs = teamMaterialRefs(panel);
   const inputHashRefs = new Set(
     records(comparison.document.input_artifact_hashes).map((binding) => String(binding.ref ?? "")),
@@ -911,7 +960,6 @@ function validateTeamComparison(
     ...records(scopeContext?.hard_constraints),
     ...records(scopeContext?.known_strengths_and_gaps),
   ];
-  const conditionIds = new Set(conditions.map((condition) => String(condition.condition_id)));
   const basisIds = strings(match.basis_condition_ids);
   const invalidRefs = burdenRefs.filter((ref) => {
     const linked = target(byPath, ref);
@@ -931,7 +979,9 @@ function validateTeamComparison(
     !setEqual(strings(match.burden_dimension_ids), TEAM_BURDEN_DIMENSIONS) ||
     invalidRefs.length > 0 ||
     requiredHashRefs.some((ref) => !inputHashRefs.has(ref)) ||
-    basisIds.some((id) => !conditionIds.has(id))
+    basisIds.some(
+      (id) => conditions.filter((condition) => String(condition.condition_id) === id).length !== 1,
+    )
   ) {
     errors.push(
       issue(
@@ -961,13 +1011,20 @@ function validateTeamComparison(
           condition.confirmation_status !== "user_confirmed"
         );
       }) ||
-      strings(match.unknown_assumptions).length > 0)
+      strings(match.unknown_assumptions).length > 0 ||
+      nonDecisiveBurdenDimensions.length > 0)
   ) {
     errors.push(
       issue(
         "g2_4.unconditional_team_match_invalid",
         `${comparison.path}#/comparison_panels/team_fit_and_learning/team_match_analysis/conclusion`,
-        "an unconditional team match requires confirmed team conditions and no stated unknown assumptions",
+        "an unconditional team match requires at least one confirmed basis team condition, decisive burden statuses, and no stated unknown assumptions",
+        {
+          missingConfirmedBasis: basisIds.length === 0,
+          nonDecisiveBurdenDimensions: nonDecisiveBurdenDimensions.map((dimension) =>
+            String(dimension.dimension_id),
+          ),
+        },
       ),
     );
   }
@@ -1342,14 +1399,9 @@ function validateEvaluationAndReporting(
     const opportunities = comparisons.map((entry) => String(entry.document.opportunity_ref));
     const ranking = records(portfolio.document.opportunity_ranking);
     const comparisonByPath = new Map(comparisons.map((entry) => [entry.path, entry]));
+    const rankingOpportunityRefs = ranking.map((entry) => String(entry.opportunity_ref));
     const rankingInvalid =
-      ranking.length !== opportunities.length ||
-      !setEqual(
-        ranking.map((entry) => String(entry.opportunity_ref)),
-        opportunities,
-      ) ||
-      canonicalJson(ranking.map((entry) => Number(entry.rank)).sort((a, b) => a - b)) !==
-        canonicalJson(opportunities.map((_, index) => index + 1)) ||
+      new Set(rankingOpportunityRefs).size !== rankingOpportunityRefs.length ||
       ranking.some((entry) => {
         const comparison = comparisonByPath.get(String(entry.comparison_ref));
         const team = comparison === undefined ? undefined : teamPanel(comparison);
@@ -1371,8 +1423,11 @@ function validateEvaluationAndReporting(
           : [];
         return (
           comparison === undefined ||
+          !opportunities.includes(String(entry.opportunity_ref)) ||
           comparison.document.opportunity_ref !== entry.opportunity_ref ||
           match?.opportunity_ref !== entry.opportunity_ref ||
+          (entry.rank !== null &&
+            (typeof entry.rank !== "number" || !Number.isInteger(entry.rank) || entry.rank < 1)) ||
           (isRecord(entry.hard_constraint_effect) &&
             entry.hard_constraint_effect.status === "applied" &&
             (appliedIds.length === 0 || appliedIds.some((id) => !hardIds.has(id))))
@@ -1383,7 +1438,36 @@ function validateEvaluationAndReporting(
         issue(
           "g2_4.opportunity_ranking_binding_mismatch",
           `${portfolio.path}#/opportunity_ranking`,
-          "explicit opportunity ranking must cover each comparison exactly once with same-opportunity team analysis and valid hard-constraint references",
+          "explicit opportunity ranking must contain only unique current opportunities with same-opportunity team analysis and valid hard-constraint references; ranks may tie or remain null",
+        ),
+      );
+    }
+    const rankedEntries = ranking.filter(
+      (entry) => typeof entry.rank === "number" && Number.isInteger(entry.rank),
+    );
+    const minimumRank = rankedEntries.reduce<number | null>(
+      (minimum, entry) =>
+        minimum === null ? (entry.rank as number) : Math.min(minimum, entry.rank as number),
+      null,
+    );
+    const recommendedFirstBet = portfolio.document.recommended_first_bet;
+    const recommendedRanking =
+      typeof recommendedFirstBet === "string"
+        ? ranking.find((entry) => entry.opportunity_ref === recommendedFirstBet)
+        : undefined;
+    if (
+      typeof recommendedFirstBet === "string" &&
+      (minimumRank === null ||
+        recommendedRanking === undefined ||
+        recommendedRanking.rank === null ||
+        recommendedRanking.rank !== minimumRank)
+    ) {
+      errors.push(
+        issue(
+          "g2_4.first_bet_ranking_mismatch",
+          `${portfolio.path}#/recommended_first_bet`,
+          "recommended first bet must be one of the explicitly top-ranked opportunities; an unranked or lower-ranked opportunity cannot be selected",
+          { recommendedFirstBet, minimumRank },
         ),
       );
     }
@@ -1651,12 +1735,23 @@ function validateEvaluationAndReporting(
             },
           ];
     });
+    const expectedOpportunityLabels = expectedAnalyses.map((analysis) => {
+      const opportunity = target(byPath, String(analysis.opportunity_ref));
+      return {
+        opportunity_ref: analysis.opportunity_ref,
+        label: opportunity?.document.title,
+      };
+    });
     const expectedTeamSummary = {
       team_context: scope?.document.team_context,
+      opportunity_labels: expectedOpportunityLabels,
       opportunity_analyses: expectedAnalyses,
       opportunity_ranking: portfolio.document.opportunity_ranking,
     };
-    if (!same(report.document.team_decision_summary, expectedTeamSummary)) {
+    if (
+      report.document.team_decision_summary !== undefined &&
+      !same(report.document.team_decision_summary, expectedTeamSummary)
+    ) {
       errors.push(
         issue(
           "g2_4.team_report_projection_mismatch",
@@ -1827,6 +1922,7 @@ export function validateDiscoveryEvaluationContract(
     return [];
   }
   const errors: ValidationIssue[] = [];
+  validateTeamConditionIds(documents, errors);
   const byPath = new Map(documents.map((entry) => [entry.path, entry]));
   for (const entry of entries) {
     validateEnvelope(entry, errors);

@@ -24,6 +24,7 @@ import {
   sha256Bytes,
 } from "../harness/src/index.js";
 import { scanReportSurface } from "../harness/src/reporting/report-consistency.js";
+import { renderDiscoveryTeamDecisionSummary } from "../harness/src/reporting/report-runtime.js";
 import {
   fixtureEnvelope,
   G21_CORE_REFS,
@@ -474,6 +475,10 @@ function setFirstBet(bundle: DocumentBundle, firstBet: string): void {
   const portfolio = effective(bundle, G24_PORTFOLIO);
   portfolio.recommended_first_bet = firstBet;
   portfolio.alternative_bets = [alternative];
+  const ranking = portfolio.opportunity_ranking as Record<string, unknown>[];
+  for (const entry of ranking) {
+    entry.rank = entry.opportunity_ref === firstBet ? 1 : null;
+  }
   refreshEnvelopeClosure(bundle, G24_PORTFOLIO);
   const recommendation = effective(bundle, G24_RECOMMENDATION);
   recommendation.recommended_first_bet = firstBet;
@@ -659,7 +664,7 @@ test("G2.4 preserves opportunity burden, explicit team matching, ranking, and re
   const portfolio = effective(state.bundle, G24_PORTFOLIO);
   assert.deepEqual(
     (portfolio.opportunity_ranking as Record<string, unknown>[]).map((entry) => entry.rank),
-    [1, 2],
+    [null, null],
   );
   const report = effective(state.bundle, G24_REPORT);
   const summary = report.team_decision_summary as Record<string, unknown>;
@@ -745,6 +750,260 @@ test("G2.4 rejects computed or unbound team matching without blocking unknown re
     ),
     true,
     "high or uncertain burden remains visible instead of being filtered",
+  );
+});
+
+test("G2.4 report team projection preserves provenance labels and opportunity titles", () => {
+  const dimensions = [
+    "startup_capital_and_build_complexity",
+    "ongoing_human_delivery",
+    "acquisition_and_channel_dependency",
+    "compliance_data_and_professional_liability",
+    "time_to_first_meaningful_validation_or_revenue",
+  ].map((dimension_id) => ({
+    dimension_id,
+    status: "unknown",
+    assessment: "The fixture does not establish this burden dimension.",
+    supporting_refs: [],
+    opposing_refs: [],
+    limitations: ["Synthetic fixture limitation."],
+  }));
+  const burden = {
+    opportunity_ref: "opportunity-a",
+    dimensions,
+    overall_limitations: ["Synthetic burden limitation."],
+  };
+  const match = {
+    opportunity_ref: "opportunity-a",
+    scope_frame_ref: "scope-frame.json",
+    conclusion: "conditional",
+    assessment: "The conclusion depends on unconfirmed team assumptions.",
+    basis_condition_ids: [],
+    burden_dimension_ids: dimensions.map((dimension) => dimension.dimension_id),
+    unknown_assumptions: ["Channel access remains unknown."],
+    conditions_that_would_change_conclusion: ["Confirmed channel access."],
+    limitations: ["Synthetic match limitation."],
+  };
+  const summary = {
+    team_context: {
+      hard_constraints: [
+        {
+          condition_id: "budget",
+          statement: "Budget is fixed by the user.",
+          source_kind: "user_provided",
+          confirmation_status: "user_confirmed",
+          reporting_disclosure: null,
+        },
+      ],
+      known_strengths_and_gaps: [
+        {
+          condition_id: "authorized_assumption",
+          statement: "The team may have a channel partnership.",
+          source_kind: "agent_assumed",
+          confirmation_status: "user_authorized_assumption",
+          reporting_disclosure: "The user authorized this provisional assumption.",
+        },
+        {
+          condition_id: "unconfirmed_assumption",
+          statement: "The team may have specialist compliance coverage.",
+          source_kind: "agent_assumed",
+          confirmation_status: "unconfirmed_assumption",
+          reporting_disclosure: "This assumption has not been confirmed by the user.",
+        },
+      ],
+      other_team_conditions: {
+        status: "unknown",
+        source_kind: "unknown",
+        confirmation_status: "unknown",
+        reporting_disclosure: "Other team conditions were not captured.",
+      },
+    },
+    opportunity_labels: [
+      { opportunity_ref: "opportunity-a", label: "家庭照护协同" },
+      { opportunity_ref: "opportunity-b", label: "本地亲子服务" },
+    ],
+    opportunity_analyses: [
+      {
+        opportunity_ref: "opportunity-a",
+        comparison_ref: "comparison-a",
+        team_startup_burden: burden,
+        team_match_analysis: match,
+      },
+      {
+        opportunity_ref: "opportunity-b",
+        comparison_ref: "comparison-b",
+        team_startup_burden: { ...burden, opportunity_ref: "opportunity-b" },
+        team_match_analysis: { ...match, opportunity_ref: "opportunity-b" },
+      },
+    ],
+    opportunity_ranking: [
+      {
+        rank: null,
+        opportunity_ref: "opportunity-a",
+        comparison_ref: "comparison-a",
+        team_fit_contribution: "unknown",
+        rationale: "Evidence is insufficient to order this direction.",
+        other_decision_factors: ["Demand remains unknown."],
+        hard_constraint_effect: {
+          status: "not_applied",
+          condition_ids: [],
+          rationale: "No hard constraint applied.",
+        },
+        limitations: [],
+      },
+      {
+        rank: null,
+        opportunity_ref: "opportunity-b",
+        comparison_ref: "comparison-b",
+        team_fit_contribution: "unknown",
+        rationale: "Evidence is insufficient to order this direction.",
+        other_decision_factors: ["Demand remains unknown."],
+        hard_constraint_effect: {
+          status: "not_applied",
+          condition_ids: [],
+          rationale: "No hard constraint applied.",
+        },
+        limitations: [],
+      },
+    ],
+  };
+  const report = {
+    report_subject_labels: [
+      { subject_id: "opportunity-a", subject_ref: "opportunity-a", label: "家庭照护协同" },
+    ],
+    team_decision_summary: summary,
+  };
+  const english = renderDiscoveryTeamDecisionSummary(report, false);
+  const chinese = renderDiscoveryTeamDecisionSummary(report, true);
+  for (const rendered of [english, chinese]) {
+    assert.match(rendered, /家庭照护协同/u);
+    assert.match(rendered, /本地亲子服务/u);
+    assert.match(rendered, /User-confirmed|用户已确认/u);
+    assert.match(rendered, /User-authorized assumption|用户授权假设/u);
+    assert.match(rendered, /Unconfirmed assumption|未确认假设/u);
+    assert.match(rendered, /The user authorized this provisional assumption|用户授权/u);
+    assert.match(rendered, /This assumption has not been confirmed by the user|尚未由用户确认/u);
+  }
+  assert.match(english, /Opportunity: 家庭照护协同 - Opportunity startup burden/u);
+  assert.match(english, /Opportunity: 本地亲子服务 - Opportunity startup burden/u);
+  assert.match(english, /Unranked: 家庭照护协同/u);
+  assert.match(english, /Unranked: 本地亲子服务/u);
+  assert.match(chinese, /机会: 家庭照护协同 - 机会自身启动负担/u);
+  assert.match(chinese, /机会: 本地亲子服务 - 机会自身启动负担/u);
+  assert.match(chinese, /未排序: 家庭照护协同/u);
+  assert.match(chinese, /未排序: 本地亲子服务/u);
+});
+
+test("G2.4 accepts tied, partial, and explicitly unranked opportunities", async (context) => {
+  const state = await setup(context, "ranking-nondegradation");
+  for (const mode of ["tied", "partial"] as const) {
+    const bundle = clone(state.bundle);
+    const portfolio = effective(bundle, G24_PORTFOLIO);
+    const ranking = portfolio.opportunity_ranking as Record<string, unknown>[];
+    if (mode === "tied") {
+      ranking.forEach((entry) => {
+        entry.rank = 1;
+      });
+    } else {
+      const firstRankingEntry = ranking[0] as Record<string, unknown>;
+      firstRankingEntry.rank = null;
+      portfolio.opportunity_ranking = [firstRankingEntry];
+    }
+    delete effective(bundle, G24_REPORT).team_decision_summary;
+    refreshAllInputHashes(bundle);
+    refreshEnvelopeClosure(bundle, G24_PORTFOLIO);
+    refreshEnvelopeClosure(bundle, G24_REPORT);
+    const result = state.validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, true, `${mode}: ${JSON.stringify(result, null, 2)}`);
+  }
+});
+
+test("G2.4 rejects ambiguous team condition IDs, weak burden matches, and first-bet ranking drift", async (context) => {
+  const state = await setup(context, "team-closure-negative");
+
+  for (const duplicateLocation of ["same-array", "cross-array"] as const) {
+    const bundle = clone(state.bundle);
+    const scope = effective(bundle, G21_SCOPE_REF);
+    const duplicate = {
+      condition_id: "duplicate_team_condition",
+      statement: "Synthetic duplicate team condition.",
+      source_kind: "user_provided",
+      confirmation_status: "user_confirmed",
+      reporting_disclosure: null,
+    };
+    const teamContext = scope.team_context as Record<string, unknown>;
+    if (duplicateLocation === "same-array") {
+      teamContext.hard_constraints = [duplicate, { ...duplicate }];
+    } else {
+      teamContext.hard_constraints = [duplicate];
+      teamContext.known_strengths_and_gaps = [{ ...duplicate }];
+    }
+    refreshAllInputHashes(bundle);
+    const result = state.validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, false);
+    assert.ok(
+      result.referenceErrors.some((error) => error.code === "g2_4.team_condition_id_duplicate"),
+      `${duplicateLocation}: ${JSON.stringify(result.referenceErrors, null, 2)}`,
+    );
+  }
+
+  const weakMatch = clone(state.bundle);
+  const weakComparison = effective(weakMatch, G24_COMPARISON_A);
+  const weakPanel = (weakComparison.comparison_panels as Record<string, unknown>[]).find(
+    (panel) => panel.panel_id === "team_fit_and_learning",
+  );
+  assert.ok(weakPanel);
+  const weakAnalysis = weakPanel.team_match_analysis as Record<string, unknown>;
+  weakAnalysis.conclusion = "match";
+  weakAnalysis.unknown_assumptions = [];
+  refreshAllInputHashes(weakMatch);
+  const weakResult = state.validator.validateDocumentBundle(weakMatch);
+  assert.equal(weakResult.valid, false);
+  assert.ok(
+    weakResult.referenceErrors.some(
+      (error) => error.code === "g2_4.unconditional_team_match_invalid",
+    ),
+    JSON.stringify(weakResult.referenceErrors, null, 2),
+  );
+
+  const noTeamBasis = clone(state.bundle);
+  const noBasisComparison = effective(noTeamBasis, G24_COMPARISON_A);
+  const noBasisPanel = (noBasisComparison.comparison_panels as Record<string, unknown>[]).find(
+    (panel) => panel.panel_id === "team_fit_and_learning",
+  );
+  assert.ok(noBasisPanel);
+  const noBasisBurden = noBasisPanel.team_startup_burden as Record<string, unknown>;
+  for (const dimension of noBasisBurden.dimensions as Record<string, unknown>[]) {
+    dimension.status = "supported";
+  }
+  const noBasisAnalysis = noBasisPanel.team_match_analysis as Record<string, unknown>;
+  noBasisAnalysis.conclusion = "match";
+  noBasisAnalysis.unknown_assumptions = [];
+  noBasisAnalysis.basis_condition_ids = [];
+  refreshAllInputHashes(noTeamBasis);
+  const noBasisResult = state.validator.validateDocumentBundle(noTeamBasis);
+  assert.equal(noBasisResult.valid, false);
+  assert.ok(
+    noBasisResult.referenceErrors.some(
+      (error) => error.code === "g2_4.unconditional_team_match_invalid",
+    ),
+    JSON.stringify(noBasisResult.referenceErrors, null, 2),
+  );
+
+  const firstBetDrift = clone(state.bundle);
+  setFirstBet(firstBetDrift, G23_OPPORTUNITY_B);
+  const driftPortfolio = effective(firstBetDrift, G24_PORTFOLIO);
+  const driftRanking = driftPortfolio.opportunity_ranking as Record<string, unknown>[];
+  for (const entry of driftRanking) {
+    entry.rank = entry.opportunity_ref === G23_OPPORTUNITY_A ? 1 : 2;
+  }
+  delete effective(firstBetDrift, G24_REPORT).team_decision_summary;
+  refreshAllInputHashes(firstBetDrift);
+  const driftResult = state.validator.validateDocumentBundle(firstBetDrift);
+  assert.equal(driftResult.valid, false);
+  assert.ok(
+    driftResult.referenceErrors.some((error) => error.code === "g2_4.first_bet_ranking_mismatch"),
+    JSON.stringify(driftResult.referenceErrors, null, 2),
   );
 });
 
@@ -1818,11 +2077,16 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   portfolio.alternative_bets = [];
   portfolio.watchlist_refs = [watchlist];
   portfolio.rejected_refs = [];
+  const ranking = portfolio.opportunity_ranking as Record<string, unknown>[];
+  for (const entry of ranking) {
+    entry.rank = entry.opportunity_ref === firstBet ? 1 : null;
+  }
   const recommendation = effective(state.bundle, G24_RECOMMENDATION);
   recommendation.recommended_first_bet = firstBet;
   recommendation.alternative_bets = [];
   recommendation.rejected_or_watchlist_refs = [watchlist];
   const reportSource = effective(state.bundle, G24_REPORT);
+  delete reportSource.team_decision_summary;
   delete reportSource.research_language;
   reportSource.top_opportunity_refs = [firstBet];
   reportSource.watchlist_refs = [watchlist];
@@ -1831,9 +2095,9 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   judgmentContext.recommended_first_bet = firstBet;
   judgmentContext.alternative_bets = [];
   refreshAllInputHashes(state.bundle);
+  refreshEnvelopeClosure(state.bundle, G24_REPORT);
   refreshEnvelopeClosure(state.bundle, G24_PORTFOLIO);
   refreshEnvelopeClosure(state.bundle, G24_RECOMMENDATION);
-  refreshEnvelopeClosure(state.bundle, G24_REPORT);
   await publishThroughEvaluation(state);
   const runtime = new ReportRuntime(state.runsRoot, state.validator);
   const report = evaluationEnvelope(state.bundle, G24_REPORT);
@@ -1894,7 +2158,19 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   }
   const firstBetId = String(effective(state.bundle, firstBet).opportunity_id);
   const watchlistId = String(effective(state.bundle, watchlist).opportunity_id);
+  const firstBetTitle = String(effective(state.bundle, firstBet).title);
+  const watchlistTitle = String(effective(state.bundle, watchlist).title);
   assert.equal(projectedReport.research_language, "zh-CN");
+  assert.deepEqual(
+    (
+      (projectedReport.team_decision_summary as Record<string, unknown>)
+        .opportunity_labels as Record<string, unknown>[]
+    ).map((entry) => ({ opportunity_ref: entry.opportunity_ref, label: entry.label })),
+    [
+      { opportunity_ref: firstBet, label: firstBetTitle },
+      { opportunity_ref: watchlist, label: watchlistTitle },
+    ],
+  );
   assert.deepEqual(
     (projectedReport.report_subject_labels as Record<string, unknown>[]).map(
       (entry) => entry.subject_id,
@@ -2003,12 +2279,18 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   assert.match(decisionBrief, /机会自身启动负担与当前团队匹配/);
   assert.match(decisionBrief, /当前团队匹配结论/);
   assert.match(decisionBrief, /主 Agent 明确提交的机会排序/);
+  assert.match(decisionBrief, new RegExp(`第1位: ${firstBetTitle}`, "u"));
+  assert.match(decisionBrief, new RegExp(`未排序: ${watchlistTitle}`, "u"));
+  assert.match(decisionBrief, new RegExp(`机会: ${firstBetTitle} - 机会自身启动负担`, "u"));
+  assert.match(decisionBrief, new RegExp(`机会: ${watchlistTitle} - 机会自身启动负担`, "u"));
   assert.match(decisionBrief, /头部公司吸收与响应风险/);
   assert.ok(decisionBrief.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
   assert.match(reportMarkdown, /方向组合/);
   assert.match(reportMarkdown, /当前团队条件/);
   assert.match(reportMarkdown, /机会自身启动负担与当前团队匹配/);
+  assert.match(reportMarkdown, new RegExp(`第1位: ${firstBetTitle}`, "u"));
+  assert.match(reportMarkdown, new RegExp(`未排序: ${watchlistTitle}`, "u"));
   assert.match(reportMarkdown, /头部公司吸收与响应风险/);
   assert.ok(reportMarkdown.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   const auditAppendix = await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8");

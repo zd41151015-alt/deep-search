@@ -1135,7 +1135,7 @@ export async function createDiscoveryEvaluationFixture(
     rejected_refs: [],
     opportunity_ranking: [
       {
-        rank: 1,
+        rank: null,
         opportunity_ref: G23_OPPORTUNITY_A,
         comparison_ref: G24_COMPARISON_A,
         team_fit_contribution: "supporting",
@@ -1151,7 +1151,7 @@ export async function createDiscoveryEvaluationFixture(
         limitations: [SYNTHETIC],
       },
       {
-        rank: 2,
+        rank: null,
         opportunity_ref: G23_OPPORTUNITY_B,
         comparison_ref: G24_COMPARISON_B,
         team_fit_contribution: "unknown",
@@ -1508,6 +1508,10 @@ export async function createDiscoveryEvaluationFixture(
     traceability_ref: G24_TRACEABILITY,
     team_decision_summary: {
       team_context: documents.get(G21_SCOPE_REF)?.team_context,
+      opportunity_labels: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B].map((opportunityRef) => ({
+        opportunity_ref: opportunityRef,
+        label: documents.get(opportunityRef)?.title,
+      })),
       opportunity_analyses: [G24_COMPARISON_A, G24_COMPARISON_B].flatMap((comparisonRef) => {
         const comparison = documents.get(comparisonRef);
         const panels = Array.isArray(comparison?.comparison_panels)

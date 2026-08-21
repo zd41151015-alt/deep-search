@@ -327,7 +327,9 @@
         "limitations"
       ],
       "properties": {
-        "rank": { "type": "integer", "minimum": 1 },
+        "rank": {
+          "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }]
+        },
         "opportunity_ref": { "$ref": "#/$defs/opportunityRef" },
         "comparison_ref": { "$ref": "#/$defs/comparisonRef" },
         "team_fit_contribution": {
@@ -370,10 +372,28 @@
     "teamDecisionSummary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["team_context", "opportunity_analyses", "opportunity_ranking"],
+      "required": [
+        "team_context",
+        "opportunity_labels",
+        "opportunity_analyses",
+        "opportunity_ranking"
+      ],
       "properties": {
         "team_context": {
           "$ref": "../../core/team-context.schema.json#/$defs/teamContext"
+        },
+        "opportunity_labels": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["opportunity_ref", "label"],
+            "properties": {
+              "opportunity_ref": { "$ref": "#/$defs/opportunityRef" },
+              "label": { "$ref": "#/$defs/nonEmptyString" }
+            }
+          }
         },
         "opportunity_analyses": {
           "type": "array",

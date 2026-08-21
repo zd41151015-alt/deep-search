@@ -808,12 +808,16 @@ export async function createG33CompleteAiBundleFixture(
   const portfolio = g3Envelope(bundle, G24_PORTFOLIO).document;
   portfolio.recommended_first_bet = G23_OPPORTUNITY_A;
   portfolio.alternative_bets = [G23_OPPORTUNITY_B];
+  for (const entry of portfolio.opportunity_ranking as Record<string, unknown>[]) {
+    entry.rank = entry.opportunity_ref === G23_OPPORTUNITY_A ? 1 : null;
+  }
   const recommendation = g3Envelope(bundle, G24_RECOMMENDATION).document;
   recommendation.recommended_first_bet = G23_OPPORTUNITY_A;
   recommendation.alternative_bets = [G23_OPPORTUNITY_B];
   recommendation.decision_tier = "prioritize";
   const reportEnvelope = g3Envelope(bundle, G24_REPORT);
   const report = reportEnvelope.document;
+  delete report.team_decision_summary;
   report.top_opportunity_refs = [G23_OPPORTUNITY_A];
   const context = report.curated_judgment_context as Record<string, unknown>;
   context.recommended_first_bet = G23_OPPORTUNITY_A;
