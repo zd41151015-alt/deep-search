@@ -138,6 +138,28 @@
       },
       "uniqueItems": true
     },
+    "concretePreCandidateRef": {
+      "type": "string",
+      "pattern": "^artifacts/discovery/concrete-pre-candidates/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "concretePreCandidateRefArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/concretePreCandidateRef"
+      },
+      "uniqueItems": true
+    },
+    "preCandidateRelationRef": {
+      "type": "string",
+      "pattern": "^artifacts/discovery/pre-candidate-relations/[A-Za-z0-9][A-Za-z0-9._-]*\\.r[1-9][0-9]*\\.json$"
+    },
+    "preCandidateRelationRefArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/preCandidateRelationRef"
+      },
+      "uniqueItems": true
+    },
     "discoveryTaskRef": {
       "type": "string",
       "pattern": "^tasks/discovery/[A-Za-z0-9][A-Za-z0-9._-]*\\.attempt-[1-9][0-9]*\\.json$"

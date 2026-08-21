@@ -41,6 +41,8 @@
         "judgment",
         "source_manifest",
         "lane_result",
+        "concrete_pre_candidate",
+        "pre_candidate_relation",
         "fan_in",
         "artifact_envelope",
         "document_bundle"
@@ -73,6 +75,12 @@
         "lane_result": {
           "const": "startup_opportunity.discovery_lane_result.v1"
         },
+        "concrete_pre_candidate": {
+          "const": "startup_opportunity.concrete_pre_candidate.v1"
+        },
+        "pre_candidate_relation": {
+          "const": "startup_opportunity.pre_candidate_relation.v1"
+        },
         "fan_in": {
           "const": "startup_opportunity.discovery_fan_in.v2"
         },
@@ -103,7 +111,15 @@
     "ownership": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["candidate", "research_task", "lane_material", "lane_result", "fan_in"],
+      "required": [
+        "candidate",
+        "research_task",
+        "lane_material",
+        "lane_result",
+        "concrete_pre_candidate",
+        "pre_candidate_relation",
+        "fan_in"
+      ],
       "properties": {
         "candidate": {
           "const": "main_agent"
@@ -116,6 +132,12 @@
         },
         "lane_result": {
           "const": "lane_researcher"
+        },
+        "concrete_pre_candidate": {
+          "const": "main_agent"
+        },
+        "pre_candidate_relation": {
+          "const": "main_agent"
         },
         "fan_in": {
           "const": "main_agent"
@@ -247,6 +269,12 @@
         "excluded_lane_statuses",
         "missing_work_is_neutral",
         "candidate_revision_upgrade_explicit",
+        "current_concrete_pre_candidate_set_closed",
+        "materialized_pre_candidate_refs_exact_current_set",
+        "pre_candidate_disposition_sets_exclusive_and_closed",
+        "pre_candidate_material_dispositions_exact_typed_closure",
+        "pre_candidate_relation_explicit_for_split_merge",
+        "pre_candidate_disposition_hash_binding_required",
         "judgment_subject_matches_source_candidate_revision",
         "judgment_subject_must_ancestor_final_candidate",
         "judgments_must_come_from_supporting_lane_disposition",
@@ -278,6 +306,24 @@
           "const": false
         },
         "candidate_revision_upgrade_explicit": {
+          "const": true
+        },
+        "current_concrete_pre_candidate_set_closed": {
+          "const": true
+        },
+        "materialized_pre_candidate_refs_exact_current_set": {
+          "const": true
+        },
+        "pre_candidate_disposition_sets_exclusive_and_closed": {
+          "const": true
+        },
+        "pre_candidate_material_dispositions_exact_typed_closure": {
+          "const": true
+        },
+        "pre_candidate_relation_explicit_for_split_merge": {
+          "const": true
+        },
+        "pre_candidate_disposition_hash_binding_required": {
           "const": true
         },
         "judgment_subject_matches_source_candidate_revision": {

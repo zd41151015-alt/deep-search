@@ -42,6 +42,10 @@ import {
   G22_FAN_IN,
   G22_GENERATION_CLAIM,
   G22_GENERATION_EVIDENCE,
+  G22_PRE_CANDIDATE_RELATION,
+  G22_REJECTED_PRE_CANDIDATE,
+  G22_RETAINED_PRE_CANDIDATE,
+  G22_WATCHLIST_PRE_CANDIDATE,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
   createDiscoveryRuntimeFixture,
@@ -351,6 +355,18 @@ async function publishDiscoveryThroughFanIn(
   await state.store.publishArtifact({
     runId: state.targetRunId,
     envelope: runtimeEnvelope(bundle, G22_DEMAND_R2),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.targetRunId,
+    envelopes: [
+      G22_RETAINED_PRE_CANDIDATE,
+      G22_WATCHLIST_PRE_CANDIDATE,
+      G22_REJECTED_PRE_CANDIDATE,
+    ].map((artifactPath) => runtimeEnvelope(bundle, artifactPath)),
+  });
+  await state.store.publishArtifact({
+    runId: state.targetRunId,
+    envelope: runtimeEnvelope(bundle, G22_PRE_CANDIDATE_RELATION),
   });
   await state.store.publishArtifact({
     runId: state.targetRunId,

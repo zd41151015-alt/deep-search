@@ -1198,9 +1198,16 @@ function validateReadiness(
   }
   const fanIn = target(byPath, readiness.source_fan_in_ref);
   const dispositions = new Map<string, string>();
+  const preCandidateDispositions = new Map<string, string>();
   if (fanIn?.schemaVersion === "startup_opportunity.discovery_fan_in.v2") {
     for (const disposition of records(fanIn.document.candidate_dispositions)) {
       dispositions.set(String(disposition.candidate_ref), String(disposition.disposition));
+    }
+    for (const disposition of records(fanIn.document.pre_candidate_dispositions)) {
+      preCandidateDispositions.set(
+        String(disposition.pre_candidate_ref),
+        String(disposition.disposition),
+      );
     }
   }
   const expectedRoles = records(readiness.candidate_roles).map((role) => {
@@ -1230,6 +1237,37 @@ function validateReadiness(
     }
     return String(kind ?? "");
   });
+  const preCandidateRoles = records(readiness.pre_candidate_roles);
+  const preCandidateRoleRefs = preCandidateRoles.map((role) => String(role.pre_candidate_ref));
+  if (!sameStrings(preCandidateRoleRefs, [...preCandidateDispositions.keys()])) {
+    errors.push(
+      issue(
+        "runtime.readiness_pre_candidate_role_closure_mismatch",
+        entry.path,
+        "pre-candidate roles must close the exact concrete pre-candidate disposition set from source fan-in",
+        {
+          expectedRefs: [...preCandidateDispositions.keys()].sort(),
+          actualRefs: [...preCandidateRoleRefs].sort(),
+        },
+      ),
+    );
+  }
+  for (const role of preCandidateRoles) {
+    const preCandidate = byPath.get(String(role.pre_candidate_ref));
+    if (
+      preCandidate?.schemaVersion !== "startup_opportunity.concrete_pre_candidate.v1" ||
+      preCandidate.document.run_id !== readiness.run_id ||
+      role.disposition !== preCandidateDispositions.get(String(role.pre_candidate_ref))
+    ) {
+      errors.push(
+        issue(
+          "runtime.readiness_pre_candidate_role_mismatch",
+          `${entry.path}#${String(role.pre_candidate_ref)}`,
+          "pre-candidate role and disposition must be derived from the concrete pre-candidate and fan-in",
+        ),
+      );
+    }
+  }
   const requiredKinds = strings(readiness.required_candidate_kinds);
   const missingKinds = requiredKinds.filter((kind) => !expectedRoles.includes(kind)).sort();
   if (!sameStrings(missingKinds, strings(readiness.missing_candidate_kinds))) {
@@ -1446,6 +1484,31 @@ function validateDiscoverySynthesisReadinessBoundary(
         "runtime.discovery_synthesis_not_ready",
         latestReadiness.path,
         "G2.3 requires ready disposition, no blockers, and Judgment-backed answers for every Plan question",
+      ),
+    );
+  }
+  const retainedPreCandidates = strings(fanIn.document.retained_pre_candidate_refs);
+  const sourcePreCandidateRefs = [
+    ...new Set(
+      synthesis
+        .map((entry) => entry.document.source_pre_candidate_ref)
+        .filter((ref): ref is string => typeof ref === "string"),
+    ),
+  ];
+  const readinessPreCandidateRefs = records(latestReadiness.document.pre_candidate_roles)
+    .filter((role) => role.disposition === "retained")
+    .map((role) => String(role.pre_candidate_ref));
+  if (
+    sourcePreCandidateRefs.length > 0 &&
+    (!sourcePreCandidateRefs.every((ref) => retainedPreCandidates.includes(ref)) ||
+      !sourcePreCandidateRefs.every((ref) => readinessPreCandidateRefs.includes(ref)))
+  ) {
+    errors.push(
+      issue(
+        "runtime.discovery_synthesis_pre_candidate_not_retained",
+        latestReadiness.path,
+        "G2.3 artifacts may source only retained concrete pre-candidates visible in readiness",
+        { sourcePreCandidateRefs, retainedPreCandidates, readinessPreCandidateRefs },
       ),
     );
   }

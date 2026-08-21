@@ -93,6 +93,8 @@ const IDENTITY_FIELDS: Readonly<Record<string, string>> = {
   "startup_opportunity.opportunity_space_map.v1": "map_id",
   "startup_opportunity.solution_space_map.v1": "map_id",
   "startup_opportunity.discovery_candidate.v1": "candidate_id",
+  "startup_opportunity.concrete_pre_candidate.v1": "pre_candidate_id",
+  "startup_opportunity.pre_candidate_relation.v1": "relation_id",
   "startup_opportunity.discovery_fan_in.v2": "fan_in_id",
   "startup_opportunity.discovery_candidate_conversion.v2": "conversion_id",
   "startup_opportunity.demand_thesis.v1": "demand_id",
@@ -109,6 +111,8 @@ const PARENT_FIELDS: Readonly<Record<string, string>> = {
   "startup_opportunity.opportunity_space_map.v1": "parent_map_ref",
   "startup_opportunity.solution_space_map.v1": "parent_map_ref",
   "startup_opportunity.discovery_candidate.v1": "parent_candidate_ref",
+  "startup_opportunity.concrete_pre_candidate.v1": "parent_pre_candidate_ref",
+  "startup_opportunity.pre_candidate_relation.v1": "parent_relation_ref",
   "startup_opportunity.discovery_fan_in.v2": "parent_fan_in_ref",
   "startup_opportunity.discovery_candidate_conversion.v2": "parent_conversion_ref",
   "startup_opportunity.demand_thesis.v1": "parent_demand_ref",
@@ -137,11 +141,20 @@ const RELATION_TYPES: Readonly<Record<string, Readonly<Record<string, readonly s
   "startup_opportunity.discovery_fan_in.v2": {
     candidate_ref: ["startup_opportunity.discovery_candidate.v1"],
     source_candidate_refs: ["startup_opportunity.discovery_candidate.v1"],
+    pre_candidate_ref: ["startup_opportunity.concrete_pre_candidate.v1"],
+    materialized_pre_candidate_refs: ["startup_opportunity.concrete_pre_candidate.v1"],
+    retained_pre_candidate_refs: ["startup_opportunity.concrete_pre_candidate.v1"],
+    watchlist_pre_candidate_refs: ["startup_opportunity.concrete_pre_candidate.v1"],
+    rejected_pre_candidate_refs: ["startup_opportunity.concrete_pre_candidate.v1"],
+    pre_candidate_relation_refs: ["startup_opportunity.pre_candidate_relation.v1"],
     diversity_retention_refs: ["startup_opportunity.discovery_candidate.v1"],
     counterfactual_candidate_refs: ["startup_opportunity.discovery_candidate.v1"],
+    pre_candidate_diversity_retention_refs: ["startup_opportunity.concrete_pre_candidate.v1"],
+    counterfactual_pre_candidate_refs: ["startup_opportunity.concrete_pre_candidate.v1"],
   },
   "startup_opportunity.discovery_candidate_conversion.v2": {
     source_candidate_ref: ["startup_opportunity.discovery_candidate.v1"],
+    source_pre_candidate_ref: ["startup_opportunity.concrete_pre_candidate.v1"],
     target_artifact_ref: [
       "startup_opportunity.demand_thesis.v1",
       "startup_opportunity.baseline_option.v1",
@@ -152,17 +165,20 @@ const RELATION_TYPES: Readonly<Record<string, Readonly<Record<string, readonly s
   "startup_opportunity.demand_thesis.v1": {
     source_conversion_ref: ["startup_opportunity.discovery_candidate_conversion.v2"],
     source_candidate_ref: ["startup_opportunity.discovery_candidate.v1"],
+    source_pre_candidate_ref: ["startup_opportunity.concrete_pre_candidate.v1"],
     discovery_fan_in_ref: ["startup_opportunity.discovery_fan_in.v2"],
   },
   "startup_opportunity.baseline_option.v1": {
     source_conversion_ref: ["startup_opportunity.discovery_candidate_conversion.v2"],
     source_candidate_ref: ["startup_opportunity.discovery_candidate.v1"],
+    source_pre_candidate_ref: ["startup_opportunity.concrete_pre_candidate.v1"],
     demand_thesis_ref: ["startup_opportunity.demand_thesis.v1"],
     discovery_fan_in_ref: ["startup_opportunity.discovery_fan_in.v2"],
   },
   "startup_opportunity.solution_hypothesis.v1": {
     source_conversion_ref: ["startup_opportunity.discovery_candidate_conversion.v2"],
     source_candidate_ref: ["startup_opportunity.discovery_candidate.v1"],
+    source_pre_candidate_ref: ["startup_opportunity.concrete_pre_candidate.v1"],
     demand_thesis_ref: ["startup_opportunity.demand_thesis.v1"],
     baseline_option_ref: ["startup_opportunity.baseline_option.v1"],
     discovery_fan_in_ref: ["startup_opportunity.discovery_fan_in.v2"],
@@ -177,6 +193,7 @@ const RELATION_TYPES: Readonly<Record<string, Readonly<Record<string, readonly s
     discovery_fan_in_ref: ["startup_opportunity.discovery_fan_in.v2"],
   },
   "startup_opportunity.opportunity_thesis.v1": {
+    source_pre_candidate_ref: ["startup_opportunity.concrete_pre_candidate.v1"],
     demand_thesis_ref: ["startup_opportunity.demand_thesis.v1"],
     baseline_option_ref: ["startup_opportunity.baseline_option.v1"],
     selected_solution_ref: ["startup_opportunity.solution_hypothesis.v1"],
@@ -227,6 +244,14 @@ function uniqueSorted(values: readonly string[]): readonly string[] {
   return [...new Set(values)].sort();
 }
 
+function setEqual(left: readonly string[], right: readonly string[]): boolean {
+  return (
+    new Set(left).size === left.length &&
+    new Set(right).size === right.length &&
+    canonicalJson([...left].sort()) === canonicalJson([...right].sort())
+  );
+}
+
 function cleanId(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]/gu, "-");
 }
@@ -272,6 +297,8 @@ function defaultPath(type: string, id: string, revision: number): string {
   );
   const base: Readonly<Record<string, string>> = {
     "startup_opportunity.discovery_candidate.v1": `artifacts/discovery/candidates/${clean}`,
+    "startup_opportunity.concrete_pre_candidate.v1": `artifacts/discovery/concrete-pre-candidates/${clean}`,
+    "startup_opportunity.pre_candidate_relation.v1": `artifacts/discovery/pre-candidate-relations/${clean}`,
     "startup_opportunity.discovery_fan_in.v2": "artifacts/discovery/fan-in",
     "startup_opportunity.discovery_candidate_conversion.v2": `artifacts/discovery/conversions/${clean}`,
     "startup_opportunity.demand_thesis.v1": `artifacts/discovery/demands/${clean}`,
@@ -636,6 +663,13 @@ function resolveRelations(
           entry.document.source_candidate_revision = target.document.revision;
           entry.document.source_candidate_content_hash = canonicalContentHash(target.document);
         }
+        if (
+          leaf === "source_pre_candidate_ref" &&
+          "source_pre_candidate_revision" in entry.document
+        ) {
+          entry.document.source_pre_candidate_revision = target.document.revision;
+          entry.document.source_pre_candidate_content_hash = canonicalContentHash(target.document);
+        }
         if (leaf === "target_artifact_ref") {
           entry.document.target_schema_version = target.type;
           entry.document.target_content_hash = canonicalContentHash(target.document);
@@ -673,6 +707,146 @@ function exactInputHashes(
     }
     return { ref, content_hash: canonicalContentHash(document) };
   });
+}
+
+function selectedDocument(
+  ref: string,
+  localByPath: ReadonlyMap<string, DraftedArtifact>,
+  context: DiscoveryStageProjectionContext,
+): { readonly path: string; readonly type: string; readonly document: Record<string, unknown> } {
+  const targetPath = ref.split("#", 1)[0] ?? ref;
+  const local = localByPath.get(targetPath);
+  if (local !== undefined) {
+    return { path: local.path, type: local.type, document: local.document };
+  }
+  const stored = context.documentsByPath.get(targetPath);
+  if (stored === undefined) {
+    throw new StoreError(
+      "formal_materialization.binding_ref_dangling",
+      "formal stage projection requires each authored binding ref to resolve in the selected closure",
+      { ref },
+    );
+  }
+  if (stored.run_id !== context.runId) {
+    throw new StoreError(
+      "formal_materialization.cross_run_ref",
+      "formal object bindings must remain within the current Run",
+      { ref, expectedRunId: context.runId, actualRunId: stored.run_id },
+    );
+  }
+  return { path: targetPath, type: String(stored.schema_version ?? ""), document: stored };
+}
+
+function requireSelectedDocument(
+  ref: string,
+  expectedTypes: readonly string[],
+  localByPath: ReadonlyMap<string, DraftedArtifact>,
+  context: DiscoveryStageProjectionContext,
+): { readonly path: string; readonly type: string; readonly document: Record<string, unknown> } {
+  const target = selectedDocument(ref, localByPath, context);
+  if (!expectedTypes.includes(target.type)) {
+    throw new StoreError(
+      "formal_materialization.binding_ref_type_mismatch",
+      "authored binding ref targets an incompatible formal object type",
+      { ref, actualType: target.type, expectedTypes },
+    );
+  }
+  return target;
+}
+
+const PRE_CANDIDATE_MATERIAL_TYPES = [
+  "startup_opportunity.evidence.discovery_candidate.current",
+  "startup_opportunity.claim.discovery_candidate.current",
+  "startup_opportunity.finding.discovery_candidate.current",
+  "startup_opportunity.insight.discovery_candidate.current",
+  "startup_opportunity.judgment_assessment.discovery_candidate.current",
+] as const;
+
+function projectConcretePreCandidateBindings(
+  entry: DraftedArtifact,
+  localByPath: ReadonlyMap<string, DraftedArtifact>,
+  context: DiscoveryStageProjectionContext,
+): void {
+  entry.document.mode = context.currentPlan.mode;
+  entry.document.phase = "discovery";
+  entry.document.owner_role = "main_agent";
+  entry.document.scope_frame_ref = context.currentScopeRef;
+  entry.document.research_plan_ref = context.currentPlanRef;
+  entry.document.pre_formal_boundary = {
+    formal_opportunity_created: false,
+    validated_market_claim: false,
+    harness_inferred_candidate: false,
+    harness_ranked_candidate: false,
+    external_validation_performed: false,
+  };
+
+  for (const binding of records(entry.document.seed_bindings)) {
+    const target = requireSelectedDocument(
+      String(binding.ref),
+      ["startup_opportunity.discovery_candidate.v1"],
+      localByPath,
+      context,
+    );
+    binding.schema_version = target.type;
+    binding.candidate_kind = target.document.candidate_kind;
+    binding.content_hash = canonicalContentHash(target.document);
+  }
+
+  for (const binding of records(entry.document.lane_result_bindings)) {
+    const target = requireSelectedDocument(
+      String(binding.ref),
+      ["startup_opportunity.discovery_lane_result.v1"],
+      localByPath,
+      context,
+    );
+    binding.schema_version = target.type;
+    binding.status = target.document.status;
+    binding.content_hash = canonicalContentHash(target.document);
+  }
+
+  for (const disposition of records(entry.document.material_dispositions)) {
+    const target = requireSelectedDocument(
+      String(disposition.material_ref),
+      PRE_CANDIDATE_MATERIAL_TYPES,
+      localByPath,
+      context,
+    );
+    disposition.material_schema_version = target.type;
+    disposition.material_content_hash = canonicalContentHash(target.document);
+  }
+}
+
+function projectPreCandidateRelationBindings(
+  entry: DraftedArtifact,
+  localByPath: ReadonlyMap<string, DraftedArtifact>,
+  context: DiscoveryStageProjectionContext,
+): void {
+  entry.document.mode = context.currentPlan.mode;
+  entry.document.phase = "discovery";
+  entry.document.owner_role = "main_agent";
+  entry.document.scope_frame_ref = context.currentScopeRef;
+  entry.document.research_plan_ref = context.currentPlanRef;
+  entry.document.harness_inferred = false;
+
+  for (const binding of records(entry.document.source_seed_bindings)) {
+    const target = requireSelectedDocument(
+      String(binding.ref),
+      ["startup_opportunity.discovery_candidate.v1"],
+      localByPath,
+      context,
+    );
+    binding.content_hash = canonicalContentHash(target.document);
+  }
+
+  for (const binding of records(entry.document.result_candidate_bindings)) {
+    const target = requireSelectedDocument(
+      String(binding.ref),
+      ["startup_opportunity.concrete_pre_candidate.v1"],
+      localByPath,
+      context,
+    );
+    binding.content_hash = canonicalContentHash(target.document);
+  }
 }
 
 export function projectDiscoverySetup(
@@ -959,6 +1133,73 @@ function dispositionRefs(
   );
 }
 
+function preCandidateDispositionRefs(
+  fanIn: Record<string, unknown>,
+  disposition: "retained" | "watchlist" | "rejected",
+): readonly string[] {
+  return uniqueSorted(
+    records(fanIn.pre_candidate_dispositions).flatMap((entry) =>
+      entry.disposition === disposition && typeof entry.pre_candidate_ref === "string"
+        ? [entry.pre_candidate_ref]
+        : [],
+    ),
+  );
+}
+
+function projectDirectSynthesisBindings(
+  entries: readonly DraftedArtifact[],
+  localByPath: ReadonlyMap<string, DraftedArtifact>,
+  context: DiscoveryStageProjectionContext,
+): void {
+  for (const entry of entries) {
+    if (
+      typeof entry.document.source_pre_candidate_ref === "string" &&
+      "source_pre_candidate_revision" in entry.document
+    ) {
+      const source = requireSelectedDocument(
+        entry.document.source_pre_candidate_ref,
+        ["startup_opportunity.concrete_pre_candidate.v1"],
+        localByPath,
+        context,
+      );
+      entry.document.source_pre_candidate_revision = source.document.revision;
+      entry.document.source_pre_candidate_content_hash = canonicalContentHash(source.document);
+    }
+    if (
+      typeof entry.document.source_candidate_ref === "string" &&
+      "source_candidate_schema_version" in entry.document
+    ) {
+      const source = requireSelectedDocument(
+        entry.document.source_candidate_ref,
+        ["startup_opportunity.discovery_candidate.v1"],
+        localByPath,
+        context,
+      );
+      entry.document.source_candidate_schema_version = source.type;
+      entry.document.source_candidate_kind = source.document.candidate_kind;
+      entry.document.source_candidate_revision = source.document.revision;
+      entry.document.source_candidate_content_hash = canonicalContentHash(source.document);
+    }
+    if (
+      typeof entry.document.target_artifact_ref === "string" &&
+      "target_schema_version" in entry.document
+    ) {
+      const target = requireSelectedDocument(
+        entry.document.target_artifact_ref,
+        [
+          "startup_opportunity.demand_thesis.v1",
+          "startup_opportunity.baseline_option.v1",
+          "startup_opportunity.solution_hypothesis.v1",
+        ],
+        localByPath,
+        context,
+      );
+      entry.document.target_schema_version = target.type;
+      entry.document.target_content_hash = canonicalContentHash(target.document);
+    }
+  }
+}
+
 export function projectCandidateFanIn(
   declarations: readonly DiscoveryObjectDeclaration[],
   authority: CandidateFanInAuthority,
@@ -1089,20 +1330,40 @@ export function projectCandidateFanIn(
   const candidateDeclarations = declarations.filter(
     (entry) => objectType(entry) === "startup_opportunity.discovery_candidate.v1",
   );
+  const preCandidateDeclarations = declarations.filter(
+    (entry) => objectType(entry) === "startup_opportunity.concrete_pre_candidate.v1",
+  );
+  const relationDeclarations = declarations.filter(
+    (entry) => objectType(entry) === "startup_opportunity.pre_candidate_relation.v1",
+  );
   if (
     fanInDeclarations.length !== 1 ||
-    declarations.length !== fanInDeclarations.length + candidateDeclarations.length
+    declarations.length !==
+      fanInDeclarations.length +
+        candidateDeclarations.length +
+        preCandidateDeclarations.length +
+        relationDeclarations.length
   ) {
     throw new StoreError(
       "formal_materialization.fan_in_artifact_set_invalid",
-      "candidate fan-in accepts one authored Fan-in and zero or more explicit Candidate revisions",
+      "candidate fan-in accepts one authored Fan-in plus explicit Candidate, concrete pre-candidate, and pre-candidate relation revisions",
     );
   }
   const allowed = new Set([
     "startup_opportunity.discovery_candidate.v1",
+    "startup_opportunity.concrete_pre_candidate.v1",
+    "startup_opportunity.pre_candidate_relation.v1",
     "startup_opportunity.discovery_fan_in.v2",
   ]);
   const drafted = draftObjects(declarations, context, allowed, {}, true);
+  const localByPath = new Map(drafted.map((entry) => [entry.path, entry]));
+  for (const entry of drafted) {
+    if (entry.type === "startup_opportunity.concrete_pre_candidate.v1") {
+      projectConcretePreCandidateBindings(entry, localByPath, context);
+    } else if (entry.type === "startup_opportunity.pre_candidate_relation.v1") {
+      projectPreCandidateRelationBindings(entry, localByPath, context);
+    }
+  }
   const fanIn = drafted.find((entry) => entry.type === "startup_opportunity.discovery_fan_in.v2");
   if (fanIn === undefined || fanIn.document.revision !== 1) {
     throw new StoreError(
@@ -1116,13 +1377,55 @@ export function projectCandidateFanIn(
   fanIn.document.scope_frame_ref = context.currentScopeRef;
   fanIn.document.research_plan_ref = context.currentPlanRef;
   fanIn.document.lane_result_classification = projectFanInLaneClassification(orderedLanes);
+  fanIn.document.pre_candidate_dispositions = records(fanIn.document.pre_candidate_dispositions);
   fanIn.document.retained_candidate_refs = dispositionRefs(fanIn.document, "retained");
   fanIn.document.watchlist_candidate_refs = dispositionRefs(fanIn.document, "watchlist");
   fanIn.document.rejected_candidate_refs = dispositionRefs(fanIn.document, "rejected");
-  fanIn.document.judgment_assessment_refs = uniqueSorted(
-    records(fanIn.document.candidate_dispositions).flatMap((entry) =>
-      strings(entry.judgment_assessment_refs),
+  for (const disposition of records(fanIn.document.pre_candidate_dispositions)) {
+    if (typeof disposition.pre_candidate_ref !== "string") continue;
+    const target = requireSelectedDocument(
+      disposition.pre_candidate_ref,
+      ["startup_opportunity.concrete_pre_candidate.v1"],
+      localByPath,
+      context,
+    );
+    disposition.pre_candidate_content_hash = canonicalContentHash(target.document);
+  }
+  fanIn.document.materialized_pre_candidate_refs = uniqueSorted(
+    records(fanIn.document.pre_candidate_dispositions).flatMap((entry) =>
+      typeof entry.pre_candidate_ref === "string" ? [entry.pre_candidate_ref] : [],
     ),
+  );
+  fanIn.document.pre_candidate_relation_refs = uniqueSorted(
+    strings(fanIn.document.pre_candidate_relation_refs),
+  );
+  fanIn.document.retained_pre_candidate_refs = preCandidateDispositionRefs(
+    fanIn.document,
+    "retained",
+  );
+  fanIn.document.watchlist_pre_candidate_refs = preCandidateDispositionRefs(
+    fanIn.document,
+    "watchlist",
+  );
+  fanIn.document.rejected_pre_candidate_refs = preCandidateDispositionRefs(
+    fanIn.document,
+    "rejected",
+  );
+  const diversitySummary = isRecord(fanIn.document.candidate_diversity_summary)
+    ? fanIn.document.candidate_diversity_summary
+    : {};
+  diversitySummary.pre_candidate_diversity_retention_refs = uniqueSorted(
+    strings(diversitySummary.pre_candidate_diversity_retention_refs),
+  );
+  diversitySummary.counterfactual_pre_candidate_refs = uniqueSorted(
+    strings(diversitySummary.counterfactual_pre_candidate_refs),
+  );
+  fanIn.document.candidate_diversity_summary = diversitySummary;
+  fanIn.document.judgment_assessment_refs = uniqueSorted(
+    [
+      ...records(fanIn.document.candidate_dispositions),
+      ...records(fanIn.document.pre_candidate_dispositions),
+    ].flatMap((entry) => strings(entry.judgment_assessment_refs)),
   );
   fanIn.document.reference_only = true;
   fanIn.document.solution_evaluation_required = true;
@@ -1170,6 +1473,31 @@ export function projectCandidateFanIn(
       );
     }
   }
+  for (const disposition of records(fanIn.document.pre_candidate_dispositions)) {
+    const ref = String(disposition.pre_candidate_ref ?? "");
+    const preCandidate = ref.length === 0 ? null : selectedDocument(ref, localByPath, context);
+    const supportingLaneRefs = strings(disposition.supporting_lane_result_refs);
+    const candidateLaneRefs =
+      preCandidate?.type === "startup_opportunity.concrete_pre_candidate.v1"
+        ? records(preCandidate.document.lane_result_bindings).map((binding) => String(binding.ref))
+        : [];
+    const invalidLaneRefs = supportingLaneRefs.filter((laneRef) => !laneResultRefs.has(laneRef));
+    const unadoptedArtifactRefs = strings(disposition.judgment_assessment_refs).filter(
+      (judgmentRef) => !requestLocalPaths.has(judgmentRef) && !adoptedRefs.has(judgmentRef),
+    );
+    if (
+      preCandidate?.type !== "startup_opportunity.concrete_pre_candidate.v1" ||
+      invalidLaneRefs.length > 0 ||
+      !setEqual(supportingLaneRefs, candidateLaneRefs) ||
+      unadoptedArtifactRefs.length > 0
+    ) {
+      throw new StoreError(
+        "formal_materialization.fan_in_pre_candidate_adoption_mismatch",
+        "concrete pre-candidate dispositions must bind exact request-local or selected pre-candidates, all and only their Dispatch Lanes, and delivered Lane Judgments",
+        { ref, invalidLaneRefs, candidateLaneRefs, unadoptedArtifactRefs },
+      );
+    }
+  }
   return compilerReady(drafted);
 }
 
@@ -1183,5 +1511,11 @@ export function projectDiscoverySynthesis(
       "G2.3 synthesis requires at least one explicitly authored formal object",
     );
   }
-  return compilerReady(draftObjects(declarations, context, SYNTHESIS_TYPES, {}, true));
+  const drafted = draftObjects(declarations, context, SYNTHESIS_TYPES, {}, true);
+  projectDirectSynthesisBindings(
+    drafted,
+    new Map(drafted.map((entry) => [entry.path, entry])),
+    context,
+  );
+  return compilerReady(drafted);
 }

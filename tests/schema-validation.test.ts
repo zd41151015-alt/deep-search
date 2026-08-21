@@ -20,6 +20,7 @@ import {
   G22_EVALUATION_LANE,
   G22_FAN_IN,
   G22_GENERATION_MANIFEST,
+  refreshDiscoveryCandidateFormation,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -507,6 +508,7 @@ test("G2.2 lane terminal classes preserve partial results and exclude failed or 
 
     fixtureEntry(bundle, G22_EVALUATION_LANE).content_hash = canonicalContentHash(lane);
     fixtureEntry(bundle, G22_FAN_IN).content_hash = canonicalContentHash(fanIn);
+    refreshDiscoveryCandidateFormation(bundle);
     const result = validator.validateDocumentBundle(bundle);
     if (excluded) {
       assert.equal(result.valid, false, `${status} influenced current candidate unexpectedly`);

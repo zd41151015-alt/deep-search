@@ -16,7 +16,13 @@
     "scope_frame_ref",
     "research_plan_ref",
     "lane_result_classification",
+    "materialized_pre_candidate_refs",
+    "pre_candidate_relation_refs",
+    "pre_candidate_dispositions",
     "candidate_dispositions",
+    "retained_pre_candidate_refs",
+    "watchlist_pre_candidate_refs",
+    "rejected_pre_candidate_refs",
     "retained_candidate_refs",
     "watchlist_candidate_refs",
     "rejected_candidate_refs",
@@ -170,6 +176,77 @@
         }
       }
     },
+    "materialized_pre_candidate_refs": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/concretePreCandidateRefArray"
+    },
+    "pre_candidate_relation_refs": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/preCandidateRelationRefArray"
+    },
+    "pre_candidate_dispositions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "disposition_id",
+          "pre_candidate_ref",
+          "pre_candidate_content_hash",
+          "disposition",
+          "supporting_lane_result_refs",
+          "judgment_assessment_refs",
+          "rationale",
+          "limitations"
+        ],
+        "properties": {
+          "disposition_id": {
+            "$ref": "../candidates/definitions.schema.json#/$defs/identifier"
+          },
+          "pre_candidate_ref": {
+            "$ref": "../candidates/definitions.schema.json#/$defs/concretePreCandidateRef"
+          },
+          "pre_candidate_content_hash": {
+            "$ref": "../candidates/definitions.schema.json#/$defs/sha256"
+          },
+          "disposition": {
+            "enum": ["retained", "watchlist", "rejected"]
+          },
+          "supporting_lane_result_refs": {
+            "allOf": [
+              {
+                "$ref": "../candidates/definitions.schema.json#/$defs/discoveryLaneResultRefArray"
+              },
+              {
+                "type": "array",
+                "minItems": 1
+              }
+            ]
+          },
+          "judgment_assessment_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "../candidates/definitions.schema.json#/$defs/judgmentRef"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "rationale": {
+            "$ref": "../candidates/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "limitations": {
+            "$ref": "../candidates/definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "retained_pre_candidate_refs": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/concretePreCandidateRefArray"
+    },
+    "watchlist_pre_candidate_refs": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/concretePreCandidateRefArray"
+    },
+    "rejected_pre_candidate_refs": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/concretePreCandidateRefArray"
+    },
     "retained_candidate_refs": {
       "$ref": "../candidates/definitions.schema.json#/$defs/candidateRefArray"
     },
@@ -194,6 +271,8 @@
         "preserved_dimensions",
         "diversity_retention_refs",
         "counterfactual_candidate_refs",
+        "pre_candidate_diversity_retention_refs",
+        "counterfactual_pre_candidate_refs",
         "known_blind_spots"
       ],
       "properties": {
@@ -205,6 +284,12 @@
         },
         "counterfactual_candidate_refs": {
           "$ref": "../candidates/definitions.schema.json#/$defs/candidateRefArray"
+        },
+        "pre_candidate_diversity_retention_refs": {
+          "$ref": "../candidates/definitions.schema.json#/$defs/concretePreCandidateRefArray"
+        },
+        "counterfactual_pre_candidate_refs": {
+          "$ref": "../candidates/definitions.schema.json#/$defs/concretePreCandidateRefArray"
         },
         "known_blind_spots": {
           "$ref": "../candidates/definitions.schema.json#/$defs/uniqueStringArray"

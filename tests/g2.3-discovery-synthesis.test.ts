@@ -33,6 +33,7 @@ import {
 import {
   G22_BASELINE_EVALUATION_JUDGMENT,
   G22_BASELINE_GENERATION_JUDGMENT,
+  G22_BASELINE_R1,
   G22_DEMAND_R2,
   G22_EVALUATION_CLAIM,
   G22_FAN_IN,
@@ -41,6 +42,10 @@ import {
   G22_GENERATION_MANIFEST,
   G22_INSIGHT,
   G22_JUDGMENT,
+  G22_PRE_CANDIDATE_RELATION,
+  G22_REJECTED_PRE_CANDIDATE,
+  G22_RETAINED_PRE_CANDIDATE,
+  G22_WATCHLIST_PRE_CANDIDATE,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import { runtimeEnvelope } from "./fixtures/g2.2/discovery-runtime-fixture.js";
 import {
@@ -99,12 +104,53 @@ function refresh(bundle: DocumentBundle, artifactPath: string): void {
   }
 }
 
+function refreshRetainedPreCandidateBindings(bundle: DocumentBundle): void {
+  const preCandidate = effective(bundle, G22_RETAINED_PRE_CANDIDATE);
+  const preCandidateHash = canonicalContentHash(preCandidate);
+  entry(bundle, G22_RETAINED_PRE_CANDIDATE).content_hash = preCandidateHash;
+
+  const relation = effective(bundle, G22_PRE_CANDIDATE_RELATION);
+  const resultBinding = (relation.result_candidate_bindings as Record<string, unknown>[]).find(
+    (binding) => binding.ref === G22_RETAINED_PRE_CANDIDATE,
+  );
+  assert.ok(resultBinding);
+  resultBinding.content_hash = preCandidateHash;
+  refresh(bundle, G22_PRE_CANDIDATE_RELATION);
+
+  const fanIn = effective(bundle, G22_FAN_IN);
+  const disposition = (fanIn.pre_candidate_dispositions as Record<string, unknown>[]).find(
+    (candidate) => candidate.pre_candidate_ref === G22_RETAINED_PRE_CANDIDATE,
+  );
+  assert.ok(disposition);
+  disposition.pre_candidate_content_hash = preCandidateHash;
+  refresh(bundle, G22_FAN_IN);
+
+  for (const conversionRef of [
+    G23_DEMAND_CONVERSION,
+    G23_BASELINE_CONVERSION,
+    G23_SOLUTION_CONVERSION,
+  ]) {
+    effective(bundle, conversionRef).source_pre_candidate_content_hash = preCandidateHash;
+    refresh(bundle, conversionRef);
+  }
+}
+
 function currentEnvelopes(bundle: DocumentBundle): FormalArtifactEnvelope[] {
   return bundle.documents
     .map((candidate) => candidate.document as unknown as FormalArtifactEnvelope)
     .filter(
       (candidate) => candidate.schema_version === "startup_opportunity.artifact_envelope.current",
     );
+}
+
+function validationIssueCodes(result: {
+  readonly referenceErrors: readonly { readonly code: string }[];
+  readonly documents: readonly { readonly errors: readonly { readonly code: string }[] }[];
+}): readonly string[] {
+  return [
+    ...result.referenceErrors.map((error) => error.code),
+    ...result.documents.flatMap((document) => document.errors.map((error) => error.code)),
+  ];
 }
 
 function familyDeclaration(
@@ -355,6 +401,18 @@ async function publishThroughFanIn(state: State): Promise<void> {
   await state.store.publishArtifact({
     runId: state.runId,
     envelope: runtimeEnvelope(state.bundle, G22_DEMAND_R2),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: [
+      G22_RETAINED_PRE_CANDIDATE,
+      G22_WATCHLIST_PRE_CANDIDATE,
+      G22_REJECTED_PRE_CANDIDATE,
+    ].map((artifactPath) => runtimeEnvelope(state.bundle, artifactPath)),
+  });
+  await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: runtimeEnvelope(state.bundle, G22_PRE_CANDIDATE_RELATION),
   });
   await state.store.publishArtifact({
     runId: state.runId,
@@ -705,25 +763,37 @@ test("G2.3 rejects closed lineage, source-separation, freeze, and merge mutation
       code: "synthesis.conversion_lineage_mismatch",
       mutate(bundle) {
         const fanIn = effective(bundle, G22_FAN_IN);
-        const decisions = fanIn.candidate_dispositions as Record<string, unknown>[];
+        const decisions = fanIn.pre_candidate_dispositions as Record<string, unknown>[];
         const decision = decisions.find(
-          (candidate) =>
-            candidate.candidate_ref === "artifacts/discovery/candidates/candidate_solution.r1.json",
+          (candidate) => candidate.pre_candidate_ref === G22_RETAINED_PRE_CANDIDATE,
         );
         assert.ok(decision);
         decision.disposition = "watchlist";
-        fanIn.retained_candidate_refs = [
-          G22_DEMAND_R2,
-          "artifacts/discovery/candidates/candidate_baseline.r1.json",
-        ];
-        fanIn.watchlist_candidate_refs = [
-          "artifacts/discovery/candidates/candidate_solution.r1.json",
+        fanIn.retained_pre_candidate_refs = [];
+        fanIn.watchlist_pre_candidate_refs = [
+          G22_RETAINED_PRE_CANDIDATE,
+          G22_WATCHLIST_PRE_CANDIDATE,
         ];
         (fanIn.candidate_diversity_summary as Record<string, unknown>).diversity_retention_refs = [
           G22_DEMAND_R2,
           "artifacts/discovery/candidates/candidate_baseline.r1.json",
+          "artifacts/discovery/candidates/candidate_solution.r1.json",
         ];
+        (
+          fanIn.candidate_diversity_summary as Record<string, unknown>
+        ).pre_candidate_diversity_retention_refs = [];
+        (
+          fanIn.candidate_diversity_summary as Record<string, unknown>
+        ).counterfactual_pre_candidate_refs = [];
+        const readiness = effective(bundle, G23_READINESS);
+        const roles = readiness.pre_candidate_roles as Record<string, unknown>[];
+        const role = roles.find(
+          (candidate) => candidate.pre_candidate_ref === G22_RETAINED_PRE_CANDIDATE,
+        );
+        assert.ok(role);
+        role.disposition = "watchlist";
         refresh(bundle, G22_FAN_IN);
+        refresh(bundle, G23_READINESS);
       },
     },
     {
@@ -814,6 +884,96 @@ test("G2.3 rejects closed lineage, source-separation, freeze, and merge mutation
       result.referenceErrors.some((error) => error.code === mutation.code),
       `${mutation.code}: ${JSON.stringify(result.referenceErrors, null, 2)}`,
     );
+  }
+});
+
+test("G2.3 rejects concrete pre-candidate conversion boundary mutations", async (context) => {
+  const state = await setup(context, "pre-candidate-boundary");
+  const validator = await createArtifactValidator(repositoryRoot);
+  const mutations: readonly {
+    readonly name: string;
+    readonly code: string;
+    readonly mutate: (bundle: DocumentBundle) => void;
+  }[] = [
+    {
+      name: "conversion reuse for one concrete pre-candidate target kind",
+      code: "synthesis.conversion_bijection_mismatch",
+      mutate(bundle) {
+        effective(bundle, G23_BASELINE_CONVERSION).target_schema_version =
+          "startup_opportunity.demand_thesis.v1";
+        refresh(bundle, G23_BASELINE_CONVERSION);
+      },
+    },
+    {
+      name: "one conversion points at a target already owned by another conversion",
+      code: "synthesis.conversion_bijection_mismatch",
+      mutate(bundle) {
+        effective(bundle, G23_SOLUTION_CONVERSION).target_artifact_ref = G23_BASELINE;
+        const envelope = entry(bundle, G23_SOLUTION_CONVERSION);
+        envelope.input_refs = (envelope.input_refs as string[]).map((ref) =>
+          ref === G23_SOLUTION ? G23_BASELINE : ref,
+        );
+        refresh(bundle, G23_SOLUTION_CONVERSION);
+      },
+    },
+    {
+      name: "conversion uses the wrong typed mother seed",
+      code: "synthesis.conversion_lineage_mismatch",
+      mutate(bundle) {
+        effective(bundle, G23_DEMAND_CONVERSION).source_candidate_ref = G22_BASELINE_R1;
+        const envelope = entry(bundle, G23_DEMAND_CONVERSION);
+        envelope.input_refs = (envelope.input_refs as string[]).map((ref) =>
+          ref === G22_DEMAND_R2 ? G22_BASELINE_R1 : ref,
+        );
+        refresh(bundle, G23_DEMAND_CONVERSION);
+      },
+    },
+    {
+      name: "concrete pre-candidate crosses Run ownership",
+      code: "discovery_candidate.pre_candidate_identity_mismatch",
+      mutate(bundle) {
+        effective(bundle, G22_RETAINED_PRE_CANDIDATE).run_id = "foreign-run-not-this-one";
+        refreshRetainedPreCandidateBindings(bundle);
+      },
+    },
+    {
+      name: "conversion carries a stale concrete pre-candidate hash",
+      code: "synthesis.conversion_lineage_mismatch",
+      mutate(bundle) {
+        effective(bundle, G23_DEMAND_CONVERSION).source_pre_candidate_content_hash = "0".repeat(64);
+        refresh(bundle, G23_DEMAND_CONVERSION);
+      },
+    },
+    {
+      name: "concrete pre-candidate omits disposition for a typed material ref",
+      code: "discovery_candidate.pre_candidate_material_disposition_mismatch",
+      mutate(bundle) {
+        const preCandidate = effective(bundle, G22_RETAINED_PRE_CANDIDATE);
+        preCandidate.material_dispositions = (
+          preCandidate.material_dispositions as Record<string, unknown>[]
+        ).filter((disposition) => disposition.material_ref !== G22_GENERATION_CLAIM);
+        const alternatives = (
+          preCandidate.triage_profile as Record<string, Record<string, unknown>>
+        ).current_alternatives;
+        assert.ok(alternatives);
+        alternatives.basis_material_refs = (alternatives.basis_material_refs as string[]).filter(
+          (ref) => ref !== G22_GENERATION_CLAIM,
+        );
+        entry(bundle, G22_RETAINED_PRE_CANDIDATE).input_refs = (
+          entry(bundle, G22_RETAINED_PRE_CANDIDATE).input_refs as string[]
+        ).filter((ref) => ref !== G22_GENERATION_CLAIM);
+        refreshRetainedPreCandidateBindings(bundle);
+      },
+    },
+  ];
+
+  for (const mutation of mutations) {
+    const bundle = clone(state.bundle);
+    mutation.mutate(bundle);
+    const result = validator.validateDocumentBundle(bundle);
+    const codes = validationIssueCodes(result);
+    assert.equal(result.valid, false, mutation.name);
+    assert.ok(codes.includes(mutation.code), `${mutation.name}: ${JSON.stringify(codes)}`);
   }
 });
 

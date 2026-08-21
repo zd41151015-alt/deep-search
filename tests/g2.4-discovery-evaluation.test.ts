@@ -39,7 +39,11 @@ import {
   G22_DEMAND_R2,
   G22_FAN_IN,
   G22_GENERATION_LANE,
+  G22_PRE_CANDIDATE_RELATION,
+  G22_REJECTED_PRE_CANDIDATE,
+  G22_RETAINED_PRE_CANDIDATE,
   G22_SOLUTION_R1,
+  G22_WATCHLIST_PRE_CANDIDATE,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
   discoverySynthesisReadinessEnvelopes,
@@ -589,6 +593,25 @@ async function publishThroughSynthesis(state: State): Promise<void> {
     runId: state.runId,
     envelope: runtime.find(
       (candidate) => candidate.artifact_path === G22_DEMAND_R2,
+    ) as FormalArtifactEnvelope,
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: [
+      G22_RETAINED_PRE_CANDIDATE,
+      G22_WATCHLIST_PRE_CANDIDATE,
+      G22_REJECTED_PRE_CANDIDATE,
+    ].map(
+      (artifactPath) =>
+        runtime.find(
+          (candidate) => candidate.artifact_path === artifactPath,
+        ) as FormalArtifactEnvelope,
+    ),
+  });
+  await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: runtime.find(
+      (candidate) => candidate.artifact_path === G22_PRE_CANDIDATE_RELATION,
     ) as FormalArtifactEnvelope,
   });
   await state.store.publishArtifact({

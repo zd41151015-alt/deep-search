@@ -18,6 +18,9 @@
     "source_candidate_kind",
     "source_candidate_revision",
     "source_candidate_content_hash",
+    "source_pre_candidate_ref",
+    "source_pre_candidate_revision",
+    "source_pre_candidate_content_hash",
     "discovery_fan_in_ref",
     "target_schema_version",
     "target_artifact_ref",
@@ -74,6 +77,16 @@
       "minimum": 1
     },
     "source_candidate_content_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "source_pre_candidate_ref": {
+      "$ref": "./definitions.schema.json#/$defs/concretePreCandidateRef"
+    },
+    "source_pre_candidate_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "source_pre_candidate_content_hash": {
       "$ref": "./definitions.schema.json#/$defs/sha256"
     },
     "discovery_fan_in_ref": {

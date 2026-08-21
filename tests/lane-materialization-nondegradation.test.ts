@@ -31,6 +31,10 @@ import {
   G22_GENERATION_EVIDENCE,
   G22_GENERATION_LANE,
   G22_GENERATION_TASK,
+  G22_PRE_CANDIDATE_RELATION,
+  G22_REJECTED_PRE_CANDIDATE,
+  G22_RETAINED_PRE_CANDIDATE,
+  G22_WATCHLIST_PRE_CANDIDATE,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import { createDiscoveryRuntimeFixture } from "./fixtures/g2.2/discovery-runtime-fixture.js";
 import { discoverySynthesisReadinessEnvelopes } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
@@ -420,6 +424,18 @@ async function prepareEnrichmentBranchRun(t: TestContext) {
     envelope: envelopesByType(bundle, "startup_opportunity.discovery_candidate.v1").find(
       (entry) => entry.document.revision === 2,
     ) as FormalArtifactEnvelope,
+  });
+  await store.publishArtifactBundle({
+    runId,
+    envelopes: [
+      G22_RETAINED_PRE_CANDIDATE,
+      G22_WATCHLIST_PRE_CANDIDATE,
+      G22_REJECTED_PRE_CANDIDATE,
+    ].map((artifactPath) => fixtureEnvelope(bundle, artifactPath)),
+  });
+  await store.publishArtifact({
+    runId,
+    envelope: fixtureEnvelope(bundle, G22_PRE_CANDIDATE_RELATION),
   });
   await store.publishArtifact({
     runId,

@@ -6866,6 +6866,8 @@ test("late Artifact is persisted only as ignored and remains ignored after reope
         "startup_opportunity.research_plan.v1",
         "startup_opportunity.discovery_lane_result.v1",
         "startup_opportunity.discovery_candidate.v1",
+        "startup_opportunity.concrete_pre_candidate.v1",
+        "startup_opportunity.pre_candidate_relation.v1",
         "startup_opportunity.discovery_fan_in.v2",
       ].includes(envelope.artifact_type)
     ) {

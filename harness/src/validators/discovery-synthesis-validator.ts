@@ -25,6 +25,14 @@ const SYNTHESIS_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.merge.v1",
 ]);
 
+const PRE_CANDIDATE_MATERIAL_SCHEMA_VERSIONS = new Set([
+  "startup_opportunity.evidence.discovery_candidate.current",
+  "startup_opportunity.claim.discovery_candidate.current",
+  "startup_opportunity.finding.discovery_candidate.current",
+  "startup_opportunity.insight.discovery_candidate.current",
+  "startup_opportunity.judgment_assessment.discovery_candidate.current",
+]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -184,6 +192,36 @@ function sourceCandidateRefs(
   return [];
 }
 
+function sourcePreCandidateRefs(
+  entry: DiscoverySynthesisDocument,
+  byPath: ReadonlyMap<string, DiscoverySynthesisDocument>,
+): readonly string[] {
+  const direct = entry.document.source_pre_candidate_ref;
+  if (typeof direct === "string") return [direct];
+  if (entry.schemaVersion === "startup_opportunity.solution_evaluation.v1") {
+    return strings(entry.document.solution_hypothesis_refs).flatMap((ref) => {
+      const solution = byPath.get(ref);
+      return typeof solution?.document.source_pre_candidate_ref === "string"
+        ? [solution.document.source_pre_candidate_ref]
+        : [];
+    });
+  }
+  if (entry.schemaVersion === "startup_opportunity.opportunity_thesis.v1") {
+    return [
+      entry.document.demand_thesis_ref,
+      entry.document.baseline_option_ref,
+      entry.document.selected_solution_ref,
+      ...strings(entry.document.alternative_solution_refs),
+    ].flatMap((ref) => {
+      const formal = typeof ref === "string" ? byPath.get(ref) : undefined;
+      return typeof formal?.document.source_pre_candidate_ref === "string"
+        ? [formal.document.source_pre_candidate_ref]
+        : [];
+    });
+  }
+  return [];
+}
+
 function materialRefs(entry: DiscoverySynthesisDocument): readonly string[] {
   const document = entry.document;
   switch (entry.schemaVersion) {
@@ -322,6 +360,7 @@ function expectedInputRefs(entry: DiscoverySynthesisDocument): readonly string[]
         ...strings([
           document.parent_conversion_ref,
           document.source_candidate_ref,
+          document.source_pre_candidate_ref,
           document.target_artifact_ref,
         ]),
       ]);
@@ -332,6 +371,7 @@ function expectedInputRefs(entry: DiscoverySynthesisDocument): readonly string[]
           document.parent_demand_ref,
           document.source_conversion_ref,
           document.source_candidate_ref,
+          document.source_pre_candidate_ref,
         ]),
         ...refsFromSourceGroups(document),
         ...strings(document.supporting_claim_refs),
@@ -345,6 +385,7 @@ function expectedInputRefs(entry: DiscoverySynthesisDocument): readonly string[]
           document.parent_baseline_ref,
           document.source_conversion_ref,
           document.source_candidate_ref,
+          document.source_pre_candidate_ref,
           document.demand_thesis_ref,
         ]),
         ...strings(document.judgment_assessment_refs),
@@ -356,6 +397,7 @@ function expectedInputRefs(entry: DiscoverySynthesisDocument): readonly string[]
           document.parent_solution_ref,
           document.source_conversion_ref,
           document.source_candidate_ref,
+          document.source_pre_candidate_ref,
           document.demand_thesis_ref,
           document.baseline_option_ref,
         ]),
@@ -388,6 +430,7 @@ function expectedInputRefs(entry: DiscoverySynthesisDocument): readonly string[]
         ...refsFromResearchHandoffs(document),
         ...strings([
           document.parent_opportunity_ref,
+          document.source_pre_candidate_ref,
           document.demand_thesis_ref,
           document.selected_solution_ref,
           document.baseline_option_ref,
@@ -594,6 +637,7 @@ function validateMaterialCandidateBindings(
   synthesis: readonly DiscoverySynthesisDocument[],
   byPath: ReadonlyMap<string, DiscoverySynthesisDocument>,
   candidatesByPath: ReadonlyMap<string, DiscoverySynthesisDocument>,
+  preCandidatesByPath: ReadonlyMap<string, DiscoverySynthesisDocument>,
   errors: ValidationIssue[],
 ): void {
   for (const entry of synthesis) {
@@ -601,13 +645,34 @@ function validateMaterialCandidateBindings(
       .map((ref) => candidatesByPath.get(ref))
       .filter((candidate): candidate is DiscoverySynthesisDocument => candidate !== undefined);
     const refs = materialRefs(entry);
+    const preCandidateRefs = sourcePreCandidateRefs(entry, byPath);
+    const allowedMaterials = new Set(
+      preCandidateRefs.flatMap((ref) =>
+        records(preCandidatesByPath.get(ref)?.document.material_dispositions)
+          .filter((disposition) => disposition.disposition !== "not_applicable")
+          .map((disposition) => String(disposition.material_ref)),
+      ),
+    );
+    const preCandidateCreatedAt = Math.max(
+      ...preCandidateRefs.map((ref) => createdAt(preCandidatesByPath.get(ref))),
+    );
+    const allowsPostTerminalMaterial =
+      entry.schemaVersion === "startup_opportunity.opportunity_thesis.v1" &&
+      Number.isFinite(preCandidateCreatedAt);
     if (
       refs.length > 0 &&
       (candidates.length === 0 ||
+        preCandidateRefs.length === 0 ||
         refs.some((ref) => {
           const material = byPath.get(ref);
+          if (material === undefined) return true;
+          const requiresPreCandidateDisposition = PRE_CANDIDATE_MATERIAL_SCHEMA_VERSIONS.has(
+            material.schemaVersion,
+          );
           return (
-            material === undefined ||
+            (requiresPreCandidateDisposition &&
+              !allowedMaterials.has(ref) &&
+              !(allowsPostTerminalMaterial && createdAt(material) > preCandidateCreatedAt)) ||
             !materialBindsCandidate(material, candidates, byPath, candidatesByPath)
           );
         }))
@@ -616,8 +681,12 @@ function validateMaterialCandidateBindings(
         issue(
           "synthesis.material_candidate_binding_mismatch",
           entry.path,
-          "each typed synthesis material must bind an ancestor revision of the exact source candidate through its owning discovery task",
-          { candidateRefs: candidates.map((candidate) => candidate.path), materialRefs: refs },
+          "each typed synthesis material must be explicitly applicable to the exact concrete pre-candidate and bind an ancestor mother seed through its owning discovery task",
+          {
+            candidateRefs: candidates.map((candidate) => candidate.path),
+            preCandidateRefs,
+            materialRefs: refs,
+          },
         ),
       );
     }
@@ -696,11 +765,13 @@ function validateConversions(
   documents: readonly DiscoverySynthesisDocument[],
   byPath: ReadonlyMap<string, DiscoverySynthesisDocument>,
   candidates: readonly DiscoverySynthesisDocument[],
+  preCandidates: readonly DiscoverySynthesisDocument[],
   fanIn: DiscoverySynthesisDocument,
   policy: DiscoverySynthesisPolicy,
   errors: ValidationIssue[],
 ): void {
   const candidatesByPath = new Map(candidates.map((entry) => [entry.path, entry]));
+  const preCandidatesByPath = new Map(preCandidates.map((entry) => [entry.path, entry]));
   const latestRevisionById = new Map<string, number>();
   for (const candidate of candidates) {
     latestRevisionById.set(
@@ -711,32 +782,77 @@ function validateConversions(
       ),
     );
   }
-  for (const conversion of documents.filter(
+  const conversions = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.discovery_candidate_conversion.v2",
-  )) {
+  );
+  const sourcePreCandidateTargets = conversions.map(
+    (entry) =>
+      `${String(entry.document.source_pre_candidate_ref)}\u0000${String(
+        entry.document.target_schema_version,
+      )}`,
+  );
+  const targetRefs = conversions.map((entry) => String(entry.document.target_artifact_ref));
+  const formalTargets = documents.filter((entry) =>
+    [
+      "startup_opportunity.demand_thesis.v1",
+      "startup_opportunity.baseline_option.v1",
+      "startup_opportunity.solution_hypothesis.v1",
+    ].includes(entry.schemaVersion),
+  );
+  if (
+    new Set(sourcePreCandidateTargets).size !== sourcePreCandidateTargets.length ||
+    new Set(targetRefs).size !== targetRefs.length ||
+    conversions.length !== formalTargets.length ||
+    formalTargets.some((target) => !targetRefs.includes(target.path))
+  ) {
+    errors.push(
+      issue(
+        "synthesis.conversion_bijection_mismatch",
+        "/documents",
+        "each retained concrete pre-candidate conversion and each formal Demand/Baseline/Solution target must participate in one exact one-to-one binding",
+        { sourcePreCandidateTargets, targetRefs },
+      ),
+    );
+  }
+  for (const conversion of conversions) {
     const source =
       typeof conversion.document.source_candidate_ref === "string"
         ? candidatesByPath.get(conversion.document.source_candidate_ref)
+        : undefined;
+    const sourcePreCandidate =
+      typeof conversion.document.source_pre_candidate_ref === "string"
+        ? preCandidatesByPath.get(conversion.document.source_pre_candidate_ref)
         : undefined;
     const target =
       typeof conversion.document.target_artifact_ref === "string"
         ? byPath.get(conversion.document.target_artifact_ref)
         : undefined;
     const kind = String(source?.document.candidate_kind);
+    const preCandidateSeedBindings = records(sourcePreCandidate?.document.seed_bindings);
+    const exactSeedBinding = preCandidateSeedBindings.find(
+      (binding) => binding.ref === source?.path,
+    );
     if (
       source === undefined ||
       source.document.revision !== latestRevisionById.get(candidateId(source.document)) ||
-      !strings(fanIn.document.retained_candidate_refs).includes(source.path) ||
+      sourcePreCandidate?.schemaVersion !== "startup_opportunity.concrete_pre_candidate.v1" ||
+      sourcePreCandidate.document.run_id !== source.document.run_id ||
+      !strings(fanIn.document.retained_pre_candidate_refs).includes(sourcePreCandidate.path) ||
+      exactSeedBinding?.candidate_kind !== source.document.candidate_kind ||
+      exactSeedBinding?.content_hash !== targetHash(source) ||
       conversion.document.source_candidate_kind !== source.document.candidate_kind ||
       conversion.document.source_candidate_revision !== source.document.revision ||
       conversion.document.source_candidate_content_hash !== targetHash(source) ||
+      conversion.document.source_pre_candidate_revision !== sourcePreCandidate?.document.revision ||
+      conversion.document.source_pre_candidate_content_hash !==
+        (sourcePreCandidate === undefined ? undefined : targetHash(sourcePreCandidate)) ||
       conversion.document.target_schema_version !== policy.kind_target_map[kind]
     ) {
       errors.push(
         issue(
           "synthesis.conversion_lineage_mismatch",
           conversion.path,
-          "conversion must bind the current retained candidate, exact kind/revision/hash, and allowed target type",
+          "conversion must bind a current typed mother seed inside one retained concrete pre-candidate, exact kind/revision/hash, and allowed target type",
         ),
       );
       continue;
@@ -746,7 +862,8 @@ function validateConversions(
       conversion.document.target_content_hash !==
         (target === undefined ? undefined : targetHash(target)) ||
       target?.document.source_conversion_ref !== conversion.path ||
-      target?.document.source_candidate_ref !== source.path
+      target?.document.source_candidate_ref !== source.path ||
+      target?.document.source_pre_candidate_ref !== sourcePreCandidate?.path
     ) {
       errors.push(
         issue(
@@ -795,6 +912,7 @@ function validateFormalLineage(
     if (
       demand?.schemaVersion !== "startup_opportunity.demand_thesis.v1" ||
       source?.document.candidate_kind !== "baseline_seed" ||
+      baseline.document.source_pre_candidate_ref !== demand.document.source_pre_candidate_ref ||
       demandSource === undefined ||
       boundDemand === undefined ||
       !descendants(demandSource, boundDemand, candidatesByPath)
@@ -843,6 +961,8 @@ function validateFormalLineage(
       baseline?.schemaVersion !== "startup_opportunity.baseline_option.v1" ||
       baseline.document.demand_thesis_ref !== demand.path ||
       source?.document.candidate_kind !== "solution_seed" ||
+      solution.document.source_pre_candidate_ref !== demand.document.source_pre_candidate_ref ||
+      solution.document.source_pre_candidate_ref !== baseline.document.source_pre_candidate_ref ||
       demandSource === undefined ||
       baselineSource === undefined ||
       boundDemand === undefined ||
@@ -944,9 +1064,21 @@ function validateThesesSnapshotsAndMerge(
       typeof opportunity.document.selected_solution_ref === "string"
         ? byPath.get(opportunity.document.selected_solution_ref)
         : undefined;
+    const demand =
+      typeof opportunity.document.demand_thesis_ref === "string"
+        ? byPath.get(opportunity.document.demand_thesis_ref)
+        : undefined;
+    const baseline =
+      typeof opportunity.document.baseline_option_ref === "string"
+        ? byPath.get(opportunity.document.baseline_option_ref)
+        : undefined;
+    const sourcePreCandidateRef = opportunity.document.source_pre_candidate_ref;
     if (
       evaluation?.schemaVersion !== "startup_opportunity.solution_evaluation.v1" ||
       selected?.schemaVersion !== "startup_opportunity.solution_hypothesis.v1" ||
+      demand?.document.source_pre_candidate_ref !== sourcePreCandidateRef ||
+      baseline?.document.source_pre_candidate_ref !== sourcePreCandidateRef ||
+      selected.document.source_pre_candidate_ref !== sourcePreCandidateRef ||
       evaluation.document.demand_thesis_ref !== opportunity.document.demand_thesis_ref ||
       evaluation.document.baseline_option_ref !== opportunity.document.baseline_option_ref ||
       evaluation.document.selected_solution_ref !== opportunity.document.selected_solution_ref ||
@@ -1131,17 +1263,27 @@ export function validateDiscoverySynthesisContract(
   const candidates = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.discovery_candidate.v1",
   );
+  const preCandidates = documents.filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.concrete_pre_candidate.v1",
+  );
   const synthesis = documents.filter((entry) => SYNTHESIS_SCHEMA_VERSIONS.has(entry.schemaVersion));
-  if (scope === undefined || plan === undefined || fanIn === undefined || candidates.length === 0) {
+  if (
+    scope === undefined ||
+    plan === undefined ||
+    fanIn === undefined ||
+    candidates.length === 0 ||
+    preCandidates.length === 0
+  ) {
     return [
       issue(
         "synthesis.bundle_cardinality",
         "/documents",
-        "G2.3 requires exact Scope, current Plan, v2 fan-in, and typed candidate lineage",
+        "G2.3 requires exact Scope, current Plan, v2 fan-in, typed candidate lineage, and concrete pre-candidate lineage",
       ),
     ];
   }
   const candidatesByPath = new Map(candidates.map((entry) => [entry.path, entry]));
+  const preCandidatesByPath = new Map(preCandidates.map((entry) => [entry.path, entry]));
   for (const entry of synthesis) {
     validateEnvelopeAndPath(entry, errors);
     validateIdentity(entry, scope, plan, fanIn, errors);
@@ -1166,9 +1308,15 @@ export function validateDiscoverySynthesisContract(
       validateRevision(entry, byPath, fields[0], fields[1], errors);
     }
   }
-  validateConversions(documents, byPath, candidates, fanIn, policy, errors);
+  validateConversions(documents, byPath, candidates, preCandidates, fanIn, policy, errors);
   validateFormalLineage(byPath, candidatesByPath, enforceCandidateSemanticPreservation, errors);
-  validateMaterialCandidateBindings(synthesis, byPath, candidatesByPath, errors);
+  validateMaterialCandidateBindings(
+    synthesis,
+    byPath,
+    candidatesByPath,
+    preCandidatesByPath,
+    errors,
+  );
   validateSolutionEvaluations(byPath, errors);
   validateThesesSnapshotsAndMerge(byPath, errors);
   validatePublicationOrder(byPath, errors);

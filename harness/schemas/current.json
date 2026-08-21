@@ -153,6 +153,16 @@
       "document_schema_version": "startup_opportunity.discovery_fan_in.v2"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/discovery/candidates/concrete-pre-candidate.schema.json",
+      "file": "current/discovery/candidates/concrete-pre-candidate.schema.json",
+      "document_schema_version": "startup_opportunity.concrete_pre_candidate.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/discovery/candidates/pre-candidate-relation.schema.json",
+      "file": "current/discovery/candidates/pre-candidate-relation.schema.json",
+      "document_schema_version": "startup_opportunity.pre_candidate_relation.v1"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/discovery/synthesis/baseline-option.schema.json",
       "file": "current/discovery/synthesis/baseline-option.schema.json",
       "document_schema_version": "startup_opportunity.baseline_option.v1"
