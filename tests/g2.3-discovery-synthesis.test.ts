@@ -34,8 +34,10 @@ import {
   G22_BASELINE_EVALUATION_JUDGMENT,
   G22_BASELINE_GENERATION_JUDGMENT,
   G22_BASELINE_R1,
+  G22_DEMAND_EVALUATION_JUDGMENT,
   G22_DEMAND_R2,
   G22_EVALUATION_CLAIM,
+  G22_EVALUATION_MANIFEST,
   G22_FAN_IN,
   G22_FINDING,
   G22_GENERATION_CLAIM,
@@ -262,6 +264,9 @@ const SYNTHESIS_PATHS = new Set([
   G23_MERGE,
 ]);
 
+const G23_DEMAND_CONVERSION_R2 = "artifacts/discovery/conversions/candidate_demand.r2.json";
+const G23_DEMAND_R2 = "artifacts/discovery/demands/demand_household.r2.json";
+
 function synthesisEnvelopes(bundle: DocumentBundle): FormalArtifactEnvelope[] {
   return currentEnvelopes(bundle).filter((candidate) =>
     SYNTHESIS_PATHS.has(candidate.artifact_path),
@@ -270,6 +275,111 @@ function synthesisEnvelopes(bundle: DocumentBundle): FormalArtifactEnvelope[] {
 
 function byTypes(bundle: DocumentBundle, ...types: readonly string[]): FormalArtifactEnvelope[] {
   return currentEnvelopes(bundle).filter((candidate) => types.includes(candidate.artifact_type));
+}
+
+function appendEnvelope(bundle: DocumentBundle, envelope: FormalArtifactEnvelope): void {
+  (
+    bundle as unknown as { documents: { path: string; document: Record<string, unknown> }[] }
+  ).documents.push({
+    path: envelope.artifact_path,
+    document: envelope as unknown as Record<string, unknown>,
+  });
+  const manifest = effective(bundle, "manifest.json");
+  manifest.artifact_refs = [
+    ...new Set([
+      ...(((manifest.artifact_refs as string[] | undefined) ?? []) as string[]),
+      envelope.artifact_path,
+    ]),
+  ].sort();
+}
+
+function revisionEnvelope(
+  runId: string,
+  artifactPath: string,
+  document: Record<string, unknown>,
+  inputRefs: readonly string[],
+  createdAt: string,
+): FormalArtifactEnvelope {
+  return {
+    schema_version: "startup_opportunity.artifact_envelope.current",
+    artifact_type: String(document.schema_version),
+    artifact_path: artifactPath,
+    run_id: runId,
+    created_at: createdAt,
+    producer_role: "main_agent",
+    input_refs: [...new Set(inputRefs)].sort(),
+    content_hash: canonicalContentHash(document),
+    document,
+  } as FormalArtifactEnvelope;
+}
+
+function appendDemandRevisionChain(
+  bundle: DocumentBundle,
+): Readonly<{ conversionRef: string; demandRef: string }> {
+  const demandR1 = effective(bundle, G23_DEMAND);
+  const conversionR1 = effective(bundle, G23_DEMAND_CONVERSION);
+  const demandR2: Record<string, unknown> = {
+    ...clone(demandR1),
+    revision: 2,
+    parent_demand_ref: G23_DEMAND,
+    parent_content_hash: canonicalContentHash(demandR1),
+    source_conversion_ref: G23_DEMAND_CONVERSION_R2,
+    limitations: [
+      ...((demandR1.limitations as string[] | undefined) ?? []),
+      "SYNTHETIC r2 revision preserves the same retained pre-candidate lineage.",
+    ],
+  };
+  const conversionR2: Record<string, unknown> = {
+    ...clone(conversionR1),
+    revision: 2,
+    parent_conversion_ref: G23_DEMAND_CONVERSION,
+    parent_content_hash: canonicalContentHash(conversionR1),
+    target_artifact_ref: G23_DEMAND_R2,
+    target_content_hash: canonicalContentHash(demandR2),
+  };
+  appendEnvelope(
+    bundle,
+    revisionEnvelope(
+      String(demandR2.run_id),
+      G23_DEMAND_CONVERSION_R2,
+      conversionR2,
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        G22_FAN_IN,
+        G23_DEMAND_CONVERSION,
+        G22_DEMAND_R2,
+        G22_RETAINED_PRE_CANDIDATE,
+        G23_DEMAND_R2,
+      ],
+      "2026-07-27T20:01:30Z",
+    ),
+  );
+  appendEnvelope(
+    bundle,
+    revisionEnvelope(
+      String(demandR2.run_id),
+      G23_DEMAND_R2,
+      demandR2,
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        G22_FAN_IN,
+        G23_DEMAND,
+        G23_DEMAND_CONVERSION_R2,
+        G22_DEMAND_R2,
+        G22_RETAINED_PRE_CANDIDATE,
+        G22_GENERATION_MANIFEST,
+        G22_EVALUATION_MANIFEST,
+        G22_GENERATION_CLAIM,
+        G22_EVALUATION_CLAIM,
+        G22_JUDGMENT,
+        G22_DEMAND_EVALUATION_JUDGMENT,
+      ],
+      "2026-07-27T20:02:00Z",
+    ),
+  );
+  return { conversionRef: G23_DEMAND_CONVERSION_R2, demandRef: G23_DEMAND_R2 };
 }
 
 function emptyGenericPlanGap(bundle: DocumentBundle): FormalArtifactEnvelope {
@@ -430,6 +540,58 @@ test("G2.3 validates a closed conversion, formal thesis, freeze, and semantic me
   const result = validator.validateDocumentBundle(state.bundle);
   assert.equal(result.valid, true, JSON.stringify(result.referenceErrors, null, 2));
   assert.equal(synthesisEnvelopes(state.bundle).length, SYNTHESIS_PATHS.size);
+});
+
+test("G2.3 conversion bijection uses only current stable-object revisions", async (context) => {
+  const state = await setup(context, "conversion-revision");
+  const validator = await createArtifactValidator(repositoryRoot);
+  const bundle = clone(state.bundle);
+  appendDemandRevisionChain(bundle);
+
+  const result = validator.validateDocumentBundle(bundle);
+  assert.equal(result.valid, true, JSON.stringify(validationIssueCodes(result), null, 2));
+});
+
+test("G2.3 current conversion revision rejects duplicate target and wrong parent", async (context) => {
+  const state = await setup(context, "conversion-revision-negative");
+  const validator = await createArtifactValidator(repositoryRoot);
+
+  const duplicateTargetBundle = clone(state.bundle);
+  const duplicateRefs = appendDemandRevisionChain(duplicateTargetBundle);
+  const baselineConversion = effective(duplicateTargetBundle, G23_BASELINE_CONVERSION);
+  baselineConversion.target_schema_version = "startup_opportunity.demand_thesis.v1";
+  baselineConversion.target_artifact_ref = duplicateRefs.demandRef;
+  baselineConversion.target_content_hash = canonicalContentHash(
+    effective(duplicateTargetBundle, duplicateRefs.demandRef),
+  );
+  entry(duplicateTargetBundle, G23_BASELINE_CONVERSION).input_refs = (
+    entry(duplicateTargetBundle, G23_BASELINE_CONVERSION).input_refs as string[]
+  ).map((ref) => (ref === G23_BASELINE ? duplicateRefs.demandRef : ref));
+  refresh(duplicateTargetBundle, G23_BASELINE_CONVERSION);
+  const duplicateResult = validator.validateDocumentBundle(duplicateTargetBundle);
+  assert.equal(duplicateResult.valid, false);
+  assert.ok(
+    validationIssueCodes(duplicateResult).includes("synthesis.conversion_bijection_mismatch"),
+    JSON.stringify(validationIssueCodes(duplicateResult), null, 2),
+  );
+
+  const wrongParentBundle = clone(state.bundle);
+  const wrongParentRefs = appendDemandRevisionChain(wrongParentBundle);
+  const conversionR2 = effective(wrongParentBundle, wrongParentRefs.conversionRef);
+  conversionR2.parent_conversion_ref = G23_BASELINE_CONVERSION;
+  conversionR2.parent_content_hash = canonicalContentHash(
+    effective(wrongParentBundle, G23_BASELINE_CONVERSION),
+  );
+  entry(wrongParentBundle, wrongParentRefs.conversionRef).input_refs = (
+    entry(wrongParentBundle, wrongParentRefs.conversionRef).input_refs as string[]
+  ).map((ref) => (ref === G23_DEMAND_CONVERSION ? G23_BASELINE_CONVERSION : ref));
+  refresh(wrongParentBundle, wrongParentRefs.conversionRef);
+  const wrongParentResult = validator.validateDocumentBundle(wrongParentBundle);
+  assert.equal(wrongParentResult.valid, false);
+  assert.ok(
+    validationIssueCodes(wrongParentResult).includes("synthesis.parent_revision_mismatch"),
+    JSON.stringify(validationIssueCodes(wrongParentResult), null, 2),
+  );
 });
 
 test("G2.3 represents independent, segment, delivery, mixed, and unknown family relations without changing Opportunities", async (context) => {

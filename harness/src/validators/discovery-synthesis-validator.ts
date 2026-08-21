@@ -76,6 +76,52 @@ function setEqual(left: readonly string[], right: readonly string[]): boolean {
   return canonicalJson(uniqueSorted(left)) === canonicalJson(uniqueSorted(right));
 }
 
+function revisionNumber(entry: DiscoverySynthesisDocument): number {
+  const revision = Number(entry.document.revision);
+  return Number.isFinite(revision) ? revision : Number.NEGATIVE_INFINITY;
+}
+
+function stableSynthesisObjectId(entry: DiscoverySynthesisDocument): string | null {
+  switch (entry.schemaVersion) {
+    case "startup_opportunity.discovery_candidate_conversion.v2":
+      return String(entry.document.conversion_id);
+    case "startup_opportunity.demand_thesis.v1":
+      return String(entry.document.demand_id);
+    case "startup_opportunity.baseline_option.v1":
+      return String(entry.document.baseline_id);
+    case "startup_opportunity.solution_hypothesis.v1":
+      return String(entry.document.solution_id);
+    case "startup_opportunity.solution_evaluation.v1":
+      return String(entry.document.evaluation_id);
+    case "startup_opportunity.opportunity_thesis.v1":
+      return String(entry.document.opportunity_id);
+    case "startup_opportunity.thesis_evaluation_snapshot.v1":
+      return String(entry.document.snapshot_id);
+    case "startup_opportunity.merge.v1":
+      return String(entry.document.merge_id);
+    default:
+      return null;
+  }
+}
+
+function currentSynthesisRevisions(
+  entries: readonly DiscoverySynthesisDocument[],
+): readonly DiscoverySynthesisDocument[] {
+  const currentByStableObject = new Map<string, DiscoverySynthesisDocument>();
+  for (const entry of entries) {
+    const stableId = stableSynthesisObjectId(entry);
+    if (stableId === null) continue;
+    const key = `${entry.schemaVersion}\u0000${stableId}`;
+    const current = currentByStableObject.get(key);
+    if (current === undefined || revisionNumber(entry) > revisionNumber(current)) {
+      currentByStableObject.set(key, entry);
+    }
+  }
+  return [...currentByStableObject.values()].sort((left, right) =>
+    left.path.localeCompare(right.path),
+  );
+}
+
 function mergeFamilyCompatibilityIssues(
   merge: DiscoverySynthesisDocument,
 ): readonly ValidationIssue[] {
@@ -785,13 +831,14 @@ function validateConversions(
   const conversions = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.discovery_candidate_conversion.v2",
   );
-  const sourcePreCandidateTargets = conversions.map(
+  const currentConversions = currentSynthesisRevisions(conversions);
+  const sourcePreCandidateTargets = currentConversions.map(
     (entry) =>
       `${String(entry.document.source_pre_candidate_ref)}\u0000${String(
         entry.document.target_schema_version,
       )}`,
   );
-  const targetRefs = conversions.map((entry) => String(entry.document.target_artifact_ref));
+  const targetRefs = currentConversions.map((entry) => String(entry.document.target_artifact_ref));
   const formalTargets = documents.filter((entry) =>
     [
       "startup_opportunity.demand_thesis.v1",
@@ -799,11 +846,12 @@ function validateConversions(
       "startup_opportunity.solution_hypothesis.v1",
     ].includes(entry.schemaVersion),
   );
+  const currentFormalTargets = currentSynthesisRevisions(formalTargets);
   if (
     new Set(sourcePreCandidateTargets).size !== sourcePreCandidateTargets.length ||
     new Set(targetRefs).size !== targetRefs.length ||
-    conversions.length !== formalTargets.length ||
-    formalTargets.some((target) => !targetRefs.includes(target.path))
+    currentConversions.length !== currentFormalTargets.length ||
+    currentFormalTargets.some((target) => !targetRefs.includes(target.path))
   ) {
     errors.push(
       issue(
@@ -814,7 +862,7 @@ function validateConversions(
       ),
     );
   }
-  for (const conversion of conversions) {
+  for (const conversion of currentConversions) {
     const source =
       typeof conversion.document.source_candidate_ref === "string"
         ? candidatesByPath.get(conversion.document.source_candidate_ref)
