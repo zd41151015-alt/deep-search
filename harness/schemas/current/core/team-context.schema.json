@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/core/team-context.schema.json",
+  "title": "Startup Opportunity Team Context",
+  "$defs": {
+    "teamCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "condition_id",
+        "statement",
+        "source_kind",
+        "confirmation_status",
+        "reporting_disclosure"
+      ],
+      "properties": {
+        "condition_id": {
+          "$ref": "./definitions.schema.json#/$defs/identifier"
+        },
+        "statement": {
+          "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "source_kind": {
+          "enum": ["user_provided", "agent_assumed"]
+        },
+        "confirmation_status": {
+          "enum": ["user_confirmed", "user_authorized_assumption", "unconfirmed_assumption"]
+        },
+        "reporting_disclosure": {
+          "anyOf": [
+            { "$ref": "./definitions.schema.json#/$defs/nonEmptyString" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "source_kind": { "const": "user_provided" } },
+            "required": ["source_kind"]
+          },
+          "then": {
+            "properties": {
+              "confirmation_status": { "const": "user_confirmed" },
+              "reporting_disclosure": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "source_kind": { "const": "agent_assumed" } },
+            "required": ["source_kind"]
+          },
+          "then": {
+            "properties": {
+              "confirmation_status": {
+                "enum": ["user_authorized_assumption", "unconfirmed_assumption"]
+              },
+              "reporting_disclosure": {
+                "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "hardConstraint": {
+      "allOf": [
+        { "$ref": "#/$defs/teamCondition" },
+        {
+          "type": "object",
+          "properties": {
+            "source_kind": { "const": "user_provided" },
+            "confirmation_status": { "const": "user_confirmed" }
+          }
+        }
+      ]
+    },
+    "teamContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hard_constraints", "known_strengths_and_gaps", "other_team_conditions"],
+      "properties": {
+        "hard_constraints": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/hardConstraint" }
+        },
+        "known_strengths_and_gaps": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/teamCondition" }
+        },
+        "other_team_conditions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "source_kind", "confirmation_status", "reporting_disclosure"],
+          "properties": {
+            "status": { "const": "unknown" },
+            "source_kind": { "const": "unknown" },
+            "confirmation_status": { "const": "unknown" },
+            "reporting_disclosure": {
+              "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -64,6 +64,17 @@ const TARGET_SCOPE_R1 = {
   targetUsers: ["synthetic handoff fixture user"],
   decisionGoal: "test explicit current-contract research handoff",
   researchLanguage: "en-US",
+  teamContext: {
+    hardConstraints: [],
+    knownStrengthsAndGaps: [],
+    otherTeamConditions: {
+      status: "unknown" as const,
+      sourceKind: "unknown" as const,
+      confirmationStatus: "unknown" as const,
+      reportingDisclosure:
+        "Team conditions not explicitly captured as hard constraints or known strengths and gaps remain unknown.",
+    },
+  },
 };
 
 interface HandoffState {
@@ -263,6 +274,7 @@ async function reviseScope(state: HandoffState, suffix: string): Promise<void> {
       targetUsers: ["synthetic revised handoff user"],
       decisionGoal: "reconcile a confirmed Scope revision without replaying prior research",
       researchLanguage: "en-US",
+      teamContext: TARGET_SCOPE_R1.teamContext,
     },
   });
   await state.store.confirmScope({
@@ -414,6 +426,16 @@ function assessmentFormationEnvelopes(
     target_users: scope.targetUsers,
     decision_goal: scope.decisionGoal,
     research_language: scope.researchLanguage,
+    team_context: {
+      hard_constraints: scope.teamContext.hardConstraints,
+      known_strengths_and_gaps: scope.teamContext.knownStrengthsAndGaps,
+      other_team_conditions: {
+        status: scope.teamContext.otherTeamConditions.status,
+        source_kind: scope.teamContext.otherTeamConditions.sourceKind,
+        confirmation_status: scope.teamContext.otherTeamConditions.confirmationStatus,
+        reporting_disclosure: scope.teamContext.otherTeamConditions.reportingDisclosure,
+      },
+    },
     user_confirmed: true,
   };
   const constraints = intake.explicit_constraints as Record<string, unknown>;
@@ -426,6 +448,16 @@ function assessmentFormationEnvelopes(
   scopeFrame.market = scope.geography;
   scopeFrame.language = scope.researchLanguage;
   scopeFrame.target_user = scope.targetUsers;
+  scopeFrame.team_context = {
+    hard_constraints: scope.teamContext.hardConstraints,
+    known_strengths_and_gaps: scope.teamContext.knownStrengthsAndGaps,
+    other_team_conditions: {
+      status: scope.teamContext.otherTeamConditions.status,
+      source_kind: scope.teamContext.otherTeamConditions.sourceKind,
+      confirmation_status: scope.teamContext.otherTeamConditions.confirmationStatus,
+      reporting_disclosure: scope.teamContext.otherTeamConditions.reportingDisclosure,
+    },
+  };
   return [
     envelopeForRun(runId, decisionPath, decision, []),
     envelopeForRun(runId, intakePath, intake, [decisionPath]),
@@ -1839,6 +1871,7 @@ test("Scope r2 Assessment handoff binds exact re-formation through Concept and f
     targetUsers: ["synthetic revised handoff user"],
     decisionGoal: "reconcile a confirmed Scope revision without replaying prior research",
     researchLanguage: "en-US",
+    teamContext: TARGET_SCOPE_R1.teamContext,
   };
   const targetRoot = path.join(state.runsRoot, state.targetRunId);
   const beforeWrongTarget = await snapshotTree(targetRoot);

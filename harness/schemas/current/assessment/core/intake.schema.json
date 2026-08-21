@@ -53,6 +53,7 @@
         "target_users",
         "decision_goal",
         "research_language",
+        "team_context",
         "user_confirmed"
       ],
       "properties": {
@@ -75,6 +76,9 @@
         },
         "research_language": {
           "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "team_context": {
+          "$ref": "../../core/team-context.schema.json#/$defs/teamContext"
         },
         "user_confirmed": {
           "const": true
@@ -109,9 +113,6 @@
         "decision_horizon": {
           "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
         },
-        "founder_advantages": {
-          "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
-        },
         "non_negotiable_constraints": {
           "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
         },
@@ -129,9 +130,6 @@
           "uniqueItems": true
         },
         "business_model_preferences": {
-          "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
-        },
-        "team_capabilities": {
           "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
         },
         "risk_preferences": {

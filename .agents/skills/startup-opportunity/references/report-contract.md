@@ -12,6 +12,8 @@ v17 terminal source 适用于完整结论和提前收口，不要求伪造未执
 
 Decision Brief 按 canonical `research_language` 本地化 Harness 自己生成的固定文案、状态、内部枚举与机械 inference/reason 文案；结构化 terminal source 与 Audit 的 exact prose/ref/hash 真值不被翻译覆盖。用户正文先给动作建议，再展示带名称、链接、有效日期、立场和强弱的可读来源；错误码、内部 stage、文件/Schema/Manifest/Validator 名、堆栈、Gap 和内部路径只保留在日志或结构化审计数据，不进入 Decision Brief 或完整报告正文。`zh-CN` 用户正文使用自然业务语言并执行确定性的内部术语 leakage guard；来源原始标题与 URL 可以保留，不对所有用户字段做无边界的词表扫描。
 
+Discovery 报告必须清楚分开三层：Scope 当前已知团队条件（硬约束、优势/短板、其他条件 `unknown`）、每个机会自身的五维启动负担、以及主 Agent 对该机会的匹配结论和未知前提。匹配结论只能是 `match`、`conditional`、`mismatch` 或 `unknown`；`unknown` 团队信息不得被渲染成无条件“适合当前团队”，也不得阻止机会保留和完整研究。Portfolio 的显式排序逐项绑定 comparison 与主 Agent 匹配分析，同时保留其他研究维度和限制；允许并列、局部排序和明确未排序。Harness 从 exact Scope、Comparison、Portfolio 与 Opportunity title 机械投影 `team_decision_summary` 供报告渲染，Agent 不手写该机械摘要；Harness 不计算匹配或排序。
+
 每个方向必须直观写清谁使用、什么场景、什么问题、产品具体做什么、当前替代、谁付款、为何现在值得看。商业维度在审计来源中明确区分 `observed`、`inferred` 和 `unknown`；用户正文可以保留有依据的推测，但必须呈现依据、推理、不确定性和待验证项，不能写成已观察事实。没有直接商业材料支持的方向不能成为第一优先或已成立机会，只能是未排序待验证假设；Vendor-only 方向也保持低置信度待验证，直到有独立或行为材料验证。
 
 Discovery 的 `report.json`、Decision Brief 与完整报告必须从同一 exact Merge family projection 展示独立机会家族数、具体方向数、unknown family relation、每个 family 的共享机制/风险和 member-specific 差异。Markdown 必须显示共享机制 state，并对每个 member difference 显示 dimension、state 和 description；unknown、unavailable、inferred、not_applicable、no_evidence_found 等状态不得在用户报告中升格成已声明事实。报告保留每个方向自己的 ranking、readiness、ceiling 与 Evidence；同一 family 的多个 segment 不得被无条件叙述为多个独立创业机会。请求固定数量机会时仍以正式投影如实写成“X 个机会家族、Y 个具体方向”，允许只有一个 family，不为凑数制造或删除方向。

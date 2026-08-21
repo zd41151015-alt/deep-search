@@ -245,8 +245,31 @@
           },
           "limitations": {
             "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+          },
+          "team_startup_burden": {
+            "$ref": "./definitions.schema.json#/$defs/teamStartupBurden"
+          },
+          "team_match_analysis": {
+            "$ref": "./definitions.schema.json#/$defs/teamMatchAnalysis"
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "panel_id": { "const": "team_fit_and_learning" } },
+              "required": ["panel_id"]
+            },
+            "then": {
+              "required": ["team_startup_burden", "team_match_analysis"]
+            },
+            "else": {
+              "properties": {
+                "team_startup_burden": false,
+                "team_match_analysis": false
+              }
+            }
+          }
+        ]
       }
     },
     "ordering_mode": {

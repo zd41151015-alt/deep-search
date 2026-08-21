@@ -282,6 +282,9 @@
         "$ref": "../../assessment/commercial/quantitative-competitive-research.schema.json#/$defs/gateWarning"
       }
     },
+    "team_decision_summary": {
+      "$ref": "./definitions.schema.json#/$defs/teamDecisionSummary"
+    },
     "traceability_ref": {
       "$ref": "./definitions.schema.json#/$defs/artifactRef"
     },

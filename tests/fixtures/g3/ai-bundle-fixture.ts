@@ -599,10 +599,50 @@ function effectiveFixtureDocument(bundle: DocumentBundle, artifactPath: string) 
     : outer;
 }
 
+function collectFixtureRefs(value: unknown): readonly string[] {
+  if (Array.isArray(value)) return value.flatMap(collectFixtureRefs);
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([key, child]) => {
+    if ((key.endsWith("_refs") || key === "input_refs") && Array.isArray(child)) {
+      return child.filter(
+        (ref): ref is string => typeof ref === "string" && (ref.includes("/") || ref.includes("#")),
+      );
+    }
+    if (
+      (key.endsWith("_ref") || key === "ref") &&
+      typeof child === "string" &&
+      (child.includes("/") || child.includes("#"))
+    ) {
+      return [child];
+    }
+    return collectFixtureRefs(child);
+  });
+}
+
+function reportMaterializationRootRefs(document: Record<string, unknown>): readonly string[] {
+  if (document.schema_version !== "startup_opportunity.report.v1") {
+    return [];
+  }
+  return [document.decision_context_ref, document.scope_frame_ref].filter(
+    (ref): ref is string => typeof ref === "string",
+  );
+}
+
 function refreshFixtureEnvelope(bundle: DocumentBundle, artifactPath: string): void {
   const outer = g3Envelope(bundle, artifactPath) as unknown as Record<string, unknown>;
   if (String(outer.schema_version).startsWith("startup_opportunity.artifact_envelope.")) {
     outer.content_hash = canonicalContentHash(outer.document as Record<string, unknown>);
+    if (artifactPath === G24_REPORT) {
+      outer.input_refs = [
+        ...new Set([
+          ...collectFixtureRefs(outer.document),
+          ...collectFixtureRefs(outer.ai_bundle_binding),
+          ...reportMaterializationRootRefs(outer.document as Record<string, unknown>),
+        ]),
+      ]
+        .filter((ref) => ref !== artifactPath)
+        .sort();
+    }
   }
 }
 
@@ -778,12 +818,16 @@ export async function createG33CompleteAiBundleFixture(
   const portfolio = g3Envelope(bundle, G24_PORTFOLIO).document;
   portfolio.recommended_first_bet = G23_OPPORTUNITY_A;
   portfolio.alternative_bets = [G23_OPPORTUNITY_B];
+  for (const entry of portfolio.opportunity_ranking as Record<string, unknown>[]) {
+    entry.rank = entry.opportunity_ref === G23_OPPORTUNITY_A ? 1 : null;
+  }
   const recommendation = g3Envelope(bundle, G24_RECOMMENDATION).document;
   recommendation.recommended_first_bet = G23_OPPORTUNITY_A;
   recommendation.alternative_bets = [G23_OPPORTUNITY_B];
   recommendation.decision_tier = "prioritize";
   const reportEnvelope = g3Envelope(bundle, G24_REPORT);
   const report = reportEnvelope.document;
+  delete report.team_decision_summary;
   report.top_opportunity_refs = [G23_OPPORTUNITY_A];
   const context = report.curated_judgment_context as Record<string, unknown>;
   context.recommended_first_bet = G23_OPPORTUNITY_A;

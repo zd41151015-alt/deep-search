@@ -12,6 +12,10 @@ Discovery fan-in 完成后，进入 G2.3 synthesis 前必须先发布当前 Plan
 
 方案中立阶段同时执行 provider-agnostic `broad_scan`，方向形成后执行 `targeted_deep_dive`。每个 Lane 只对 Dispatch 分配的量化 family 和广义替代类型声明 `observed | partial | unavailable | not_applicable`；缺数据保留 attempted routes、原因、替代指标、limitations 和排序影响。八个量化 family 与七类替代的整体计划覆盖由 candidate/Wave/report 聚合显示。API 只是可选 acquisition method，Harness 不代 agent 查询。
 
+Scope 中的团队上下文保持最小且只含三类：用户明确的硬约束、已知优势或明显短板、以及显式 `unknown` 的其他团队条件。每个方向的 `team_fit_and_learning` panel 由主 Agent说明机会自身启动负担的五个维度：启动资本/开发复杂度、持续人工交付、获客与渠道依赖、合规/数据/专业责任、首次有效验证或收入时间。负担不是某种“小团队适配”结论，也不排除高负担机会；每维保留支持/反对材料、限制和 `partial`、`unavailable`、`unknown`、`inferred`、`not_applicable`、`no_evidence_found`、`insufficient_evidence` 等状态。
+
+主 Agent再将已知团队条件与每个方向的负担显式匹配，提交 `match`、`conditional`、`mismatch` 或 `unknown`、未知前提、改变条件和限制，并在 Portfolio 中提交可追溯的明确排序。团队信息为 `unknown` 时仍可完整研究和比较；不得把理论可启动投影为适合当前团队。Harness 只检查 same-Run/subject/ref/hash、一致性和报告投影，不自动计算匹配、排序、评分或硬拒绝，需求、购买、替代、证据强度和反对材料仍独立生效。
+
 Incumbent Absorption & Response Risk 不得进入 solution-neutral candidate generation。候选形成后的 evaluation 对 assigned candidates 做 bounded lightweight scan；只有 shortlist/retained opportunities 才由 immutable Execution Plan/Dispatch 分配 targeted deep dive。潜在 responder 不限同类公司，也包括 platform/suite owner、adjacent leader、channel/distribution controller、data owner 和 marketplace。分别判断 ability、五类响应成本、incentive/cannibalization、horizon、distribution leverage、thesis coverage 与 residual differentiation；不得由 ability 高推导一定响应或候选失败。Agent 只提交这些结构化研究维度与 Evidence/不确定性，不编写 pass/fail、淘汰、行动、推荐上限或正式 strategic implication；Harness 固定生成 validator 可验证的 reference-only strategic context。该分析只作为综合判断上下文，不改变 ranking eligibility、Claim confidence 或 recommendation ceiling；缺材料发布 `unknown`，其正式表述只说明材料与语义不足以形成完整结论，不声称没有 assessment 或 Evidence；不适用发布 `not_applicable`。
 
 可排序方向必须同时具备近期、直接的用户语言、购买/付费信号、竞品或非产品替代及价格/使用信号、现实分发渠道和独立反对材料。各维度必须分别提供对应数据点或摘录；有依据的推测保留为 `inferred` 并披露推理与不确定性，但不能满足排序 Gate。缺少购买、价格或渠道时只能列为未排序待验证假设；Vendor-only 方向可以留在候选池，但没有独立/行为交叉验证前保持低置信度。Wave 1 连需求、买方和购买信号都没有时，停止方案评估并输出证据不足及待补维度。

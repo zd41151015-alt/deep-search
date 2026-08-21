@@ -6859,6 +6859,17 @@ test("all deterministic scaffold kinds are schema-valid and preserve runtime bou
             target_users: ["synthetic user"],
             decision_goal: "decide whether to continue synthetic research",
             research_language: "en-US",
+            team_context: {
+              hard_constraints: [],
+              known_strengths_and_gaps: [],
+              other_team_conditions: {
+                status: "unknown",
+                source_kind: "unknown",
+                confirmation_status: "unknown",
+                reporting_disclosure:
+                  "Team conditions not explicitly captured as hard constraints or known strengths and gaps remain unknown.",
+              },
+            },
             user_confirmed: true,
           },
         },
@@ -6896,6 +6907,17 @@ test("all deterministic scaffold kinds are schema-valid and preserve runtime bou
         target_users: ["synthetic user"],
         decision_goal: "decide whether to continue synthetic research",
         research_language: "en-US",
+        team_context: {
+          hard_constraints: [],
+          known_strengths_and_gaps: [],
+          other_team_conditions: {
+            status: "unknown",
+            source_kind: "unknown",
+            confirmation_status: "unknown",
+            reporting_disclosure:
+              "Team conditions not explicitly captured as hard constraints or known strengths and gaps remain unknown.",
+          },
+        },
         user_confirmed: true,
       },
     },

@@ -29,6 +29,7 @@ interface ScaffoldRequest extends Record<string, unknown> {
     readonly target_users: readonly string[];
     readonly decision_goal: string;
     readonly research_language: string;
+    readonly team_context: Readonly<Record<string, unknown>>;
     readonly user_confirmed: true;
   };
 }

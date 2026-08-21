@@ -135,6 +135,29 @@ export interface ResearchScope {
   readonly targetUsers: readonly string[];
   readonly decisionGoal: string;
   readonly researchLanguage: string;
+  readonly teamContext?: TeamContext;
+}
+
+export interface TeamCondition {
+  readonly conditionId: string;
+  readonly statement: string;
+  readonly sourceKind: "user_provided" | "agent_assumed";
+  readonly confirmationStatus:
+    | "user_confirmed"
+    | "user_authorized_assumption"
+    | "unconfirmed_assumption";
+  readonly reportingDisclosure: string | null;
+}
+
+export interface TeamContext {
+  readonly hardConstraints: readonly TeamCondition[];
+  readonly knownStrengthsAndGaps: readonly TeamCondition[];
+  readonly otherTeamConditions: {
+    readonly status: "unknown";
+    readonly sourceKind: "unknown";
+    readonly confirmationStatus: "unknown";
+    readonly reportingDisclosure: string;
+  };
 }
 
 export interface CreateRunInput {
@@ -877,6 +900,67 @@ function canonicalResearchScope(scope: ResearchScope): ResearchScope {
   return {
     ...scope,
     researchLanguage: canonicalResearchLanguage(scope.researchLanguage),
+    teamContext: scope.teamContext ?? {
+      hardConstraints: [],
+      knownStrengthsAndGaps: [],
+      otherTeamConditions: {
+        status: "unknown",
+        sourceKind: "unknown",
+        confirmationStatus: "unknown",
+        reportingDisclosure:
+          "Team conditions not explicitly captured as hard constraints or known strengths and gaps remain unknown.",
+      },
+    },
+  };
+}
+
+function teamContextFromDocument(value: unknown): TeamContext {
+  const context = value as Record<string, unknown>;
+  const condition = (entry: unknown): TeamCondition => {
+    const record = entry as Record<string, unknown>;
+    return {
+      conditionId: String(record.condition_id),
+      statement: String(record.statement),
+      sourceKind: record.source_kind as TeamCondition["sourceKind"],
+      confirmationStatus: record.confirmation_status as TeamCondition["confirmationStatus"],
+      reportingDisclosure:
+        typeof record.reporting_disclosure === "string" ? record.reporting_disclosure : null,
+    };
+  };
+  const other = context.other_team_conditions as Record<string, unknown>;
+  return {
+    hardConstraints: Array.isArray(context.hard_constraints)
+      ? context.hard_constraints.map(condition)
+      : [],
+    knownStrengthsAndGaps: Array.isArray(context.known_strengths_and_gaps)
+      ? context.known_strengths_and_gaps.map(condition)
+      : [],
+    otherTeamConditions: {
+      status: "unknown",
+      sourceKind: "unknown",
+      confirmationStatus: "unknown",
+      reportingDisclosure: String(other.reporting_disclosure),
+    },
+  };
+}
+
+function teamContextDocument(context: TeamContext): Record<string, unknown> {
+  const condition = (entry: TeamCondition): Record<string, unknown> => ({
+    condition_id: entry.conditionId,
+    statement: entry.statement,
+    source_kind: entry.sourceKind,
+    confirmation_status: entry.confirmationStatus,
+    reporting_disclosure: entry.reportingDisclosure,
+  });
+  return {
+    hard_constraints: context.hardConstraints.map(condition),
+    known_strengths_and_gaps: context.knownStrengthsAndGaps.map(condition),
+    other_team_conditions: {
+      status: context.otherTeamConditions.status,
+      source_kind: context.otherTeamConditions.sourceKind,
+      confirmation_status: context.otherTeamConditions.confirmationStatus,
+      reporting_disclosure: context.otherTeamConditions.reportingDisclosure,
+    },
   };
 }
 
@@ -889,6 +973,7 @@ function researchScopeFromDocument(scope: Record<string, unknown>): ResearchScop
       : [],
     decisionGoal: String(scope.decision_goal),
     researchLanguage: canonicalResearchLanguage(String(scope.research_language)),
+    teamContext: teamContextFromDocument(scope.team_context),
   };
 }
 
@@ -901,6 +986,7 @@ function scopeDocument(scope: ResearchScope, revision: number): Record<string, u
     target_users: [...canonicalScope.targetUsers],
     decision_goal: canonicalScope.decisionGoal,
     research_language: canonicalScope.researchLanguage,
+    team_context: teamContextDocument(canonicalScope.teamContext as TeamContext),
   };
 }
 
@@ -3376,6 +3462,7 @@ export class RunStore {
       target_users: scope.target_users,
       decision_goal: scope.decision_goal,
       research_language: scope.research_language,
+      team_context: scope.team_context,
       user_confirmed: true,
     };
     const intakeConstraints = isRecord(document.explicit_constraints)
@@ -3400,7 +3487,8 @@ export class RunStore {
       envelope.artifact_type === "startup_opportunity.scope_frame.discovery.current" &&
       (document.market !== scope.geography ||
         document.language !== scope.research_language ||
-        canonicalJson(document.target_users) !== canonicalJson(scope.target_users))
+        canonicalJson(document.target_users) !== canonicalJson(scope.target_users) ||
+        canonicalJson(document.team_context) !== canonicalJson(scope.team_context))
     ) {
       this.scopeFormationMismatch(
         envelope.artifact_path,
@@ -3411,7 +3499,8 @@ export class RunStore {
       envelope.artifact_type === "startup_opportunity.scope_frame.assessment.current" &&
       (document.market !== scope.geography ||
         document.language !== scope.research_language ||
-        canonicalJson(document.target_user) !== canonicalJson(scope.target_users))
+        canonicalJson(document.target_user) !== canonicalJson(scope.target_users) ||
+        canonicalJson(document.team_context) !== canonicalJson(scope.team_context))
     ) {
       this.scopeFormationMismatch(
         envelope.artifact_path,
