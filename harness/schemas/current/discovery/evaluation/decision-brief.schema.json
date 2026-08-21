@@ -15,6 +15,7 @@
     "report_ref",
     "report_content_hash",
     "decision_recommendation_ref",
+    "opportunity_family_projection",
     "decision_question",
     "decision_tier",
     "current_recommendation",
@@ -66,6 +67,9 @@
     },
     "decision_recommendation_ref": {
       "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "opportunity_family_projection": {
+      "$ref": "../synthesis/definitions.schema.json#/$defs/opportunityFamilyProjection"
     },
     "decision_question": {
       "$ref": "./definitions.schema.json#/$defs/nonEmptyString"

@@ -789,9 +789,6 @@ export async function createG33CompleteAiBundleFixture(
   context.recommended_first_bet = G23_OPPORTUNITY_A;
   context.alternative_bets = [G23_OPPORTUNITY_B];
   context.decision_tier = "prioritize";
-  (reportEnvelope as { input_refs: readonly string[] }).input_refs = [
-    ...new Set(reportEnvelope.input_refs.filter((ref) => ref !== G23_OPPORTUNITY_B)),
-  ].sort();
 
   for (const artifactPath of [G24_COMPARISON_A, G24_RECOMMENDATION, G24_TRACEABILITY, G24_REPORT]) {
     const consumer = g3Envelope(bundle, artifactPath);

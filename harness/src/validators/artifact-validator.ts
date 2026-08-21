@@ -314,6 +314,64 @@ function nestedRef(
   ];
 }
 
+const OPPORTUNITY_FAMILY_EVIDENCE_SCHEMA_VERSIONS = [
+  "startup_opportunity.evidence.discovery_candidate.current",
+  "startup_opportunity.claim.discovery_candidate.current",
+  "startup_opportunity.finding.discovery_candidate.current",
+  "startup_opportunity.insight.discovery_candidate.current",
+  "startup_opportunity.judgment_assessment.discovery_candidate.current",
+  "startup_opportunity.source_manifest.discovery_candidate.current",
+  "startup_opportunity.evidence.discovery_evaluation.current",
+  "startup_opportunity.claim.discovery_evaluation.current",
+  "startup_opportunity.finding.discovery_evaluation.current",
+  "startup_opportunity.insight.discovery_evaluation.current",
+  "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+  "startup_opportunity.source_manifest.discovery_evaluation.current",
+] as const;
+
+function opportunityFamilyRefs(document: Record<string, unknown>): readonly ReferenceRequirement[] {
+  const families = document.opportunity_families;
+  if (!Array.isArray(families)) return [];
+  return families.flatMap((family, familyIndex) => {
+    if (!isRecord(family)) return [];
+    const members = Array.isArray(family.members) ? family.members : [];
+    const memberRefs = members.flatMap((member, memberIndex) =>
+      isRecord(member) && typeof member.opportunity_ref === "string"
+        ? [
+            {
+              instancePath: `/opportunity_families/${familyIndex}/members/${memberIndex}/opportunity_ref`,
+              ref: member.opportunity_ref,
+              expectedSchemaVersions: ["startup_opportunity.opportunity_thesis.v1"],
+            },
+          ]
+        : [],
+    );
+    const basis = isRecord(family.evidence_basis) ? family.evidence_basis : {};
+    const evidenceRefs = [
+      "supporting_refs",
+      "opposing_refs",
+      "background_refs",
+      "unknown_refs",
+    ].flatMap((field) => {
+      const values = basis[field];
+      return Array.isArray(values)
+        ? values.flatMap((ref, refIndex) =>
+            typeof ref === "string"
+              ? [
+                  {
+                    instancePath: `/opportunity_families/${familyIndex}/evidence_basis/${field}/${refIndex}`,
+                    ref,
+                    expectedSchemaVersions: OPPORTUNITY_FAMILY_EVIDENCE_SCHEMA_VERSIONS,
+                  },
+                ]
+              : [],
+          )
+        : [];
+    });
+    return [...memberRefs, ...evidenceRefs];
+  });
+}
+
 function refsFromNestedArray(
   document: Record<string, unknown>,
   arrayField: string,
@@ -2409,6 +2467,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "source_thesis_refs",
           "startup_opportunity.opportunity_thesis.v1",
         ),
+        ...opportunityFamilyRefs(document),
       ];
     case "startup_opportunity.research_task.discovery_evaluation.current":
       return [
@@ -2899,6 +2958,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       ];
     case "startup_opportunity.portfolio_view.v1":
       return [
+        ...optionalRef(document, "source_merge_ref", "startup_opportunity.merge.v1"),
         ...optionalRef(document, "sensitivity_ref", "startup_opportunity.sensitivity.v1"),
         ...refsFromArray(
           document,
@@ -2914,6 +2974,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "source_snapshot_ref",
           "startup_opportunity.thesis_evaluation_snapshot.v1",
         ),
+        ...optionalRef(document, "source_merge_ref", "startup_opportunity.merge.v1"),
         ...refsFromArray(
           document,
           "comparison_refs",
@@ -2939,6 +3000,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "source_snapshot_ref",
           "startup_opportunity.thesis_evaluation_snapshot.v1",
         ),
+        ...optionalRef(document, "source_merge_ref", "startup_opportunity.merge.v1"),
         ...optionalRef(
           document,
           "decision_recommendation_ref",
@@ -2999,6 +3061,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.adaptation_decision.discovery.current",
           "startup_opportunity.adaptation_decision.assessment.current",
         ]),
+        ...optionalRef(document, "source_merge_ref", "startup_opportunity.merge.v1"),
         ...optionalRef(
           document,
           "decision_recommendation_ref",

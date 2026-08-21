@@ -8,6 +8,8 @@
     "schema_version",
     "portfolio_id",
     "run_id",
+    "source_merge_ref",
+    "opportunity_family_projection",
     "sensitivity_ref",
     "comparison_refs",
     "recommended_first_bet",
@@ -30,6 +32,12 @@
     },
     "run_id": {
       "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "source_merge_ref": {
+      "$ref": "./definitions.schema.json#/$defs/mergeRef"
+    },
+    "opportunity_family_projection": {
+      "$ref": "../synthesis/definitions.schema.json#/$defs/opportunityFamilyProjection"
     },
     "sensitivity_ref": {
       "$ref": "./definitions.schema.json#/$defs/artifactRef"

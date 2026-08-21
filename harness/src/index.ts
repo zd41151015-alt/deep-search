@@ -97,6 +97,11 @@ export {
   type RecordEvidenceInput,
   type RecordEvidenceResult,
 } from "./evidence-store/evidence-store.js";
+export {
+  deriveOpportunityFamilyProjection,
+  type OpportunityFamilyDocument,
+  opportunityFamilyEvidenceRefs,
+} from "./opportunity-family-contract.js";
 export { runAuditTraceability, runBuildReport } from "./reporting/report-commands.js";
 export {
   type BuildReportInput,

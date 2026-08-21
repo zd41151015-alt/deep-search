@@ -23,6 +23,7 @@ import {
 import { withReportLock, withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { EvidenceStore } from "../evidence-store/evidence-store.js";
+import { deriveOpportunityFamilyProjection } from "../opportunity-family-contract.js";
 import { type RunManifest, RunStore } from "../run-store/run-store.js";
 import { type OperationObserver, operationTrace } from "../runtime/operation-observability.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
@@ -591,6 +592,7 @@ function renderDiscoveryDecisionBrief(report: Record<string, unknown>): string {
     `${userVisibleText(context.current_recommendation, zh)}\n\n`,
     `${zh ? "决策层级" : "Decision tier"}: ${localizedEnum(context.decision_tier, zh)}\n\n`,
     `${zh ? "含义" : "Meaning"}: ${userVisibleText(context.recommendation_meaning, zh)}\n\n`,
+    renderOpportunityFamilySummary(report, zh),
     `## ${zh ? "局部排序" : "Partial Order"}\n`,
     `${userVisibleText(context.partial_order_summary, zh)}\n\n`,
     `## ${zh ? "研究概览" : "Key Research Counts"}\n`,
@@ -610,6 +612,55 @@ function renderDiscoveryDecisionBrief(report: Record<string, unknown>): string {
   ].join("");
 }
 
+function renderOpportunityFamilySummary(report: Record<string, unknown>, zh: boolean): string {
+  const projection = isRecord(report.opportunity_family_projection)
+    ? report.opportunity_family_projection
+    : {};
+  const families = records(projection.families);
+  const countLine = zh
+    ? `本次结果包含 ${String(projection.independent_opportunity_family_count ?? 0)} 个可区分的机会家族、${String(projection.concrete_direction_count ?? 0)} 个具体方向；其中 ${String(projection.unknown_family_relation_count ?? 0)} 个方向的家族关系仍未知。`
+    : `This result contains ${String(projection.independent_opportunity_family_count ?? 0)} distinct opportunity families and ${String(projection.concrete_direction_count ?? 0)} concrete directions; ${String(projection.unknown_family_relation_count ?? 0)} directions still have an unknown family relationship.`;
+  const familyLines = families.map((family) => {
+    const mechanism = isRecord(family.shared_value_or_solution_mechanism)
+      ? family.shared_value_or_solution_mechanism
+      : {};
+    const members = records(family.members);
+    const relations = [...new Set(members.map((member) => String(member.relation_to_family)))];
+    const risks = strings(family.shared_failure_risks);
+    const differences = new Map(
+      records(family.member_specific_differences).map((difference) => [
+        String(difference.opportunity_ref),
+        records(difference.dimensions).map((dimension) =>
+          zh
+            ? `${localizedEnum(dimension.dimension ?? "other", true)}（状态：${localizedEnum(dimension.state ?? "unknown", true)}；说明：${userVisibleText(dimension.description, true)}）`
+            : `${localizedEnum(dimension.dimension ?? "other", false)} (state: ${localizedEnum(dimension.state ?? "unknown", false)}; description: ${userVisibleText(dimension.description, false)})`,
+        ),
+      ]),
+    );
+    const memberSummary = members
+      .map((member) => {
+        const memberDifferences = differences.get(String(member.opportunity_ref)) ?? [];
+        return zh
+          ? `${userVisibleText(member.opportunity_title, true)}（${localizedEnum(member.relation_to_family, true)}；差异：${memberDifferences.map((value) => userVisibleText(value, true)).join("；")}）`
+          : `${userVisibleText(member.opportunity_title, false)} (${localizedEnum(member.relation_to_family, false)}; differences: ${memberDifferences.map((value) => userVisibleText(value, false)).join("; ")})`;
+      })
+      .join(zh ? "；" : "; ");
+    const mechanismSummary = zh
+      ? `共享机制状态：${localizedEnum(mechanism.state ?? "unknown", true)}；说明：${userVisibleText(mechanism.description, true)}`
+      : `shared mechanism state: ${localizedEnum(mechanism.state ?? "unknown", false)}; description: ${userVisibleText(mechanism.description, false)}`;
+    return zh
+      ? `- ${userVisibleText(family.title, true)}：${members.length} 个方向；关系 ${relations.map((value) => localizedEnum(value, true)).join("、")}；${mechanismSummary}；共享风险 ${risks.length === 0 ? "无已声明项" : risks.map((value) => userVisibleText(value, true)).join("；")}；具体方向 ${memberSummary}。`
+      : `- ${userVisibleText(family.title, false)}: ${members.length} direction${members.length === 1 ? "" : "s"}; relation ${relations.map((value) => localizedEnum(value, false)).join(", ")}; ${mechanismSummary}; shared risks ${risks.length === 0 ? "none declared" : risks.map((value) => userVisibleText(value, false)).join("; ")}; concrete directions ${memberSummary}.`;
+  });
+  return [
+    `## ${zh ? "机会家族与具体方向" : "Opportunity Families And Directions"}\n`,
+    `${countLine}\n`,
+    familyLines.length === 0
+      ? `- ${zh ? "无" : "None recorded."}\n\n`
+      : `${familyLines.join("\n")}\n\n`,
+  ].join("");
+}
+
 function renderDiscoveryFullReport(report: Record<string, unknown>): string {
   const zh = isChineseResearchLanguage(report.research_language);
   const context = requiredRecord(report.curated_judgment_context, "curated_judgment_context");
@@ -623,6 +674,7 @@ function renderDiscoveryFullReport(report: Record<string, unknown>): string {
     `\n${zh ? "生成时间" : "Generated at"}: ${String(metadata.generated_at)}\n`,
     `\n## ${zh ? "研究概览" : "Key Research Counts"}\n`,
     renderReportStatistics(report, zh),
+    `\n${renderOpportunityFamilySummary(report, zh)}`,
   ];
   for (const sectionId of DISCOVERY_REPORT_SECTION_ORDER) {
     if (sectionId === "top_opportunities") {
@@ -694,6 +746,7 @@ function deriveDiscoveryReportEnvelopes(
     report_ref: reportEnvelope.artifact_path,
     report_content_hash: reportHash,
     decision_recommendation_ref: recommendationRef,
+    opportunity_family_projection: structuredClone(report.opportunity_family_projection),
     decision_question: context.decision_question,
     decision_tier: context.decision_tier,
     current_recommendation: context.current_recommendation,
@@ -735,6 +788,7 @@ function deriveDiscoveryReportEnvelopes(
     report_ref: reportEnvelope.artifact_path,
     report_content_hash: reportHash,
     decision_recommendation_ref: recommendationRef,
+    opportunity_family_projection: structuredClone(report.opportunity_family_projection),
     decision_tier: context.decision_tier,
     recommendation_meaning: context.recommendation_meaning,
     recommended_first_bet: context.recommended_first_bet,
@@ -2106,6 +2160,34 @@ export class ReportRuntime {
       envelopesByPath,
       researchLanguage,
     );
+    const opportunityFamilyProjection =
+      source.artifact_type === "startup_opportunity.report.v1"
+        ? deriveOpportunityFamilyProjection(
+            requiredString(sourceDocument.source_merge_ref, "source_merge_ref"),
+            new Map(
+              [...envelopesByPath].map(([artifactPath, envelope]) => [
+                artifactPath,
+                {
+                  path: artifactPath,
+                  schemaVersion: envelope.artifact_type,
+                  document: envelope.document,
+                  contentHash: envelope.content_hash,
+                },
+              ]),
+            ),
+          )
+        : undefined;
+    if (
+      opportunityFamilyProjection !== undefined &&
+      sourceDocument.opportunity_family_projection !== undefined &&
+      canonicalJson(sourceDocument.opportunity_family_projection) !==
+        canonicalJson(opportunityFamilyProjection)
+    ) {
+      throw new StoreError(
+        "report.opportunity_family_projection_drift",
+        "caller-supplied opportunity-family projection drifts from the exact Merge authority",
+      );
+    }
     if (
       source.artifact_type === "startup_opportunity.terminal_report_source.v1" &&
       ((records(sourceDocument.directions).length > 0 &&
@@ -2163,6 +2245,9 @@ export class ReportRuntime {
       ...sourceDocument,
       research_language: researchLanguage,
       ...projection,
+      ...(opportunityFamilyProjection === undefined
+        ? {}
+        : { opportunity_family_projection: opportunityFamilyProjection }),
       ...(terminalProjection
         ? {
             current_decision_subject_ids: currentDecisionSubjectIds,
@@ -2238,6 +2323,9 @@ export class ReportRuntime {
       ...sourceDocument,
       research_language: researchLanguage,
       ...projection,
+      ...(opportunityFamilyProjection === undefined
+        ? {}
+        : { opportunity_family_projection: opportunityFamilyProjection }),
       full_commercial_projection: fullProjection,
       report_evidence_dispositions: dispositions.reportEvidenceDispositions,
       report_source_dispositions: dispositions.reportSourceDispositions,
