@@ -2,7 +2,7 @@
 
 `discover` 从宽泛的消费行业、用户群、场景或能力变化创建 `opportunity_discovery` Run。当前 Harness 开放调用方显式提供的 G2.1 maps、G2.2 typed candidate/lane/fan-in、G2.3 conversion/formal thesis/evaluation/freeze/merge，以及 G2.4 enrichment/Business Engine/comparison/portfolio/report 的 closed validation/publication/reopen；`discover` orchestration、lane execution 和任何 research/thesis/enrichment/comparison 语义生成仍不可运行。
 
-G2.3 Merge 同时承载 main Agent 的机会家族声明。每个 frozen Opportunity 必须恰好属于一个独立机会、共享 family 下的 segment/delivery variant 或 unknown 关系；Harness 不自动形成 family，只机械投影 exact selected Solution facts 并校验闭包。所有 Opportunity 继续进入 G2.4 独立研究与比较，family 只约束用户可见的“独立机会数量”表述和共享机制/风险展示。
+G2.3 Merge 同时承载 main Agent 的机会家族声明。每个 frozen Opportunity 必须恰好属于一个独立机会、共享 family 下的 segment/delivery variant 或 unknown 关系；Harness 不自动形成 family，只机械投影 exact selected Solution facts 并校验闭包与 merge/family 交叉一致性。多成员 `decision=merge` 只能落在同一个 shared family 的 segment/delivery members 内；split/preserve 不反向强制拆开 shared family。所有 Opportunity 继续进入 G2.4 独立研究与比较，family 只约束用户可见的“独立机会数量”表述和共享机制/风险展示。
 
 Discovery fan-in 完成后，进入 G2.3 synthesis 前必须先发布当前 Plan、fan-in 和执行 stage 绑定的 exact Readiness artifact pair：`startup_opportunity.discovery_stage_readiness.v1` 与 `startup_opportunity.gap_snapshot.discovery.readiness.current`。只有 Readiness 为 `ready`、无 blockers、下一 stage 为 `discovery_synthesis`，且每个当前 Plan question 都由同一 Run 的正式 Judgment disposition（包括 unknown、opposing、partial 或 insufficient evidence）覆盖时，才能发布 conversion/thesis synthesis。Generic Plan Gap 即使 `gaps=[]` 也只用于 Plan adaptation，不能替代 post-fan-in readiness；unresolved、method boundary、runtime blocked 和 terminal 状态必须通过 Readiness/Gap 保持可见并走 bounded follow-up 或 evidence-insufficient termination。
 

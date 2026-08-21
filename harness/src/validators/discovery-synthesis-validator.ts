@@ -68,6 +68,68 @@ function setEqual(left: readonly string[], right: readonly string[]): boolean {
   return canonicalJson(uniqueSorted(left)) === canonicalJson(uniqueSorted(right));
 }
 
+function mergeFamilyCompatibilityIssues(
+  merge: DiscoverySynthesisDocument,
+): readonly ValidationIssue[] {
+  const familyByOpportunity = new Map<
+    string,
+    {
+      readonly familyId: string;
+      readonly familyRelation: string;
+      readonly relationToFamily: string;
+    }
+  >();
+  for (const family of records(merge.document.opportunity_families)) {
+    for (const member of records(family.members)) {
+      familyByOpportunity.set(String(member.opportunity_ref), {
+        familyId: String(family.family_id),
+        familyRelation: String(family.family_relation),
+        relationToFamily: String(member.relation_to_family),
+      });
+    }
+  }
+
+  return records(merge.document.merge_or_split_decisions).flatMap((decision, decisionIndex) => {
+    const memberRefs = strings(decision.member_thesis_refs);
+    if (decision.decision !== "merge" || memberRefs.length < 2) return [];
+    const memberships = memberRefs.flatMap((ref) => {
+      const membership = familyByOpportunity.get(ref);
+      return membership === undefined ? [] : [membership];
+    });
+    const familyIds = uniqueSorted(memberships.map((membership) => membership.familyId));
+    const familyRelations = uniqueSorted(
+      memberships.map((membership) => membership.familyRelation),
+    );
+    const memberRelations = uniqueSorted(
+      memberships.map((membership) => membership.relationToFamily),
+    );
+    const oneSharedFamily =
+      memberships.length === memberRefs.length &&
+      familyIds.length === 1 &&
+      familyRelations.length === 1 &&
+      familyRelations[0] === "shared_opportunity_family";
+    const onlyVariantMembers = memberRelations.every(
+      (relation) =>
+        relation === "segment_variant" || relation === "delivery_or_implementation_variant",
+    );
+    if (oneSharedFamily && onlyVariantMembers) return [];
+    return [
+      issue(
+        "opportunity_family.merge_decision_conflict",
+        `${merge.path}#/merge_or_split_decisions/${decisionIndex}`,
+        "decision=merge with multiple members must stay within one shared opportunity family and cannot use independent or unknown member relations",
+        {
+          decisionId: decision.decision_id,
+          memberRefs,
+          familyIds,
+          familyRelations,
+          memberRelations,
+        },
+      ),
+    ];
+  });
+}
+
 function candidateId(document: Record<string, unknown>): string {
   return String(document.candidate_id);
 }
@@ -1039,6 +1101,7 @@ function validateThesesSnapshotsAndMerge(
         ),
       );
     }
+    errors.push(...mergeFamilyCompatibilityIssues(merge));
   }
 }
 

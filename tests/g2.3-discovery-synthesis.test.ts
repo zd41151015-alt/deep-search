@@ -146,6 +146,52 @@ function setFamilies(bundle: DocumentBundle, families: readonly Record<string, u
   refresh(bundle, G23_MERGE);
 }
 
+function mergeDecision(
+  bundle: DocumentBundle,
+  decisionId: string,
+  clusterId: string,
+  decisionKind: "merge" | "preserve" | "split",
+  memberRefs: readonly string[],
+): Record<string, unknown> {
+  const baseDecision = (
+    effective(bundle, G23_MERGE).merge_or_split_decisions as Record<string, unknown>[]
+  )[0];
+  assert.ok(baseDecision);
+  return {
+    ...structuredClone(baseDecision),
+    decision_id: decisionId,
+    cluster_id: clusterId,
+    decision: decisionKind,
+    member_thesis_refs: [...memberRefs],
+  };
+}
+
+function setSingletonPreserveMerge(bundle: DocumentBundle): void {
+  const merge = effective(bundle, G23_MERGE);
+  merge.merged_opportunities = [
+    {
+      cluster_id: "cluster_preserve_a",
+      canonical_opportunity_ref: G23_OPPORTUNITY_A,
+      member_thesis_refs: [G23_OPPORTUNITY_A],
+    },
+    {
+      cluster_id: "cluster_preserve_b",
+      canonical_opportunity_ref: G23_OPPORTUNITY_B,
+      member_thesis_refs: [G23_OPPORTUNITY_B],
+    },
+  ];
+  merge.merge_or_split_decisions = [
+    mergeDecision(bundle, "decision_preserve_a", "cluster_preserve_a", "preserve", [
+      G23_OPPORTUNITY_A,
+    ]),
+    mergeDecision(bundle, "decision_preserve_b", "cluster_preserve_b", "preserve", [
+      G23_OPPORTUNITY_B,
+    ]),
+  ];
+  merge.preserved_variants = [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B];
+  refresh(bundle, G23_MERGE);
+}
+
 const SYNTHESIS_PATHS = new Set([
   G23_DEMAND_CONVERSION,
   G23_DEMAND,
@@ -324,15 +370,30 @@ test("G2.3 represents independent, segment, delivery, mixed, and unknown family 
   const relationCases: readonly {
     readonly name: string;
     readonly families: readonly Record<string, unknown>[];
+    readonly configureMerge?: (bundle: DocumentBundle) => void;
   }[] = [
     {
       name: "multiple-independent-families",
+      configureMerge: setSingletonPreserveMerge,
       families: [
         familyDeclaration("family_independent_a", "independent_opportunity", [
           { opportunity_ref: G23_OPPORTUNITY_A, relation_to_family: "independent_opportunity" },
         ]),
         familyDeclaration("family_independent_b", "independent_opportunity", [
           { opportunity_ref: G23_OPPORTUNITY_B, relation_to_family: "independent_opportunity" },
+        ]),
+      ],
+    },
+    {
+      name: "shared-family-preserved-members",
+      configureMerge: setSingletonPreserveMerge,
+      families: [
+        familyDeclaration("family_preserved_shared", "shared_opportunity_family", [
+          { opportunity_ref: G23_OPPORTUNITY_A, relation_to_family: "segment_variant" },
+          {
+            opportunity_ref: G23_OPPORTUNITY_B,
+            relation_to_family: "delivery_or_implementation_variant",
+          },
         ]),
       ],
     },
@@ -359,6 +420,7 @@ test("G2.3 represents independent, segment, delivery, mixed, and unknown family 
     },
     {
       name: "mixed-independent-and-single-member-family",
+      configureMerge: setSingletonPreserveMerge,
       families: [
         familyDeclaration("family_single_member", "shared_opportunity_family", [
           { opportunity_ref: G23_OPPORTUNITY_A, relation_to_family: "segment_variant" },
@@ -370,6 +432,7 @@ test("G2.3 represents independent, segment, delivery, mixed, and unknown family 
     },
     {
       name: "unknown-relation",
+      configureMerge: setSingletonPreserveMerge,
       families: [
         familyDeclaration("family_unknown", "unknown", [
           { opportunity_ref: G23_OPPORTUNITY_A, relation_to_family: "unknown" },
@@ -384,6 +447,7 @@ test("G2.3 represents independent, segment, delivery, mixed, and unknown family 
       canonicalContentHash(effective(bundle, G23_OPPORTUNITY_A)),
       canonicalContentHash(effective(bundle, G23_OPPORTUNITY_B)),
     ];
+    relationCase.configureMerge?.(bundle);
     setFamilies(bundle, relationCase.families);
     const result = validator.validateDocumentBundle(bundle);
     assert.equal(
@@ -400,6 +464,58 @@ test("G2.3 represents independent, segment, delivery, mixed, and unknown family 
       relationCase.name,
     );
   }
+});
+
+test("G2.3 rejects merge decisions that contradict opportunity-family declarations before atomic publication writes anything", async (context) => {
+  const state = await setup(context, "family-merge-conflict");
+  const validator = await createArtifactValidator(repositoryRoot);
+  const conflictCases = [
+    [
+      familyDeclaration("family_independent_a", "independent_opportunity", [
+        { opportunity_ref: G23_OPPORTUNITY_A, relation_to_family: "independent_opportunity" },
+      ]),
+      familyDeclaration("family_independent_b", "independent_opportunity", [
+        { opportunity_ref: G23_OPPORTUNITY_B, relation_to_family: "independent_opportunity" },
+      ]),
+    ],
+    [
+      familyDeclaration("family_unknown", "unknown", [
+        { opportunity_ref: G23_OPPORTUNITY_A, relation_to_family: "unknown" },
+        { opportunity_ref: G23_OPPORTUNITY_B, relation_to_family: "unknown" },
+      ]),
+    ],
+  ] as const;
+  for (const conflictingFamilies of conflictCases) {
+    const conflictingBundle = clone(state.bundle);
+    setFamilies(conflictingBundle, conflictingFamilies);
+    const validation = validator.validateDocumentBundle(conflictingBundle);
+    assert.equal(validation.valid, false);
+    assert.ok(
+      validation.referenceErrors.some(
+        (error) => error.code === "opportunity_family.merge_decision_conflict",
+      ),
+      JSON.stringify(validation.referenceErrors, null, 2),
+    );
+  }
+
+  await publishThroughFanIn(state);
+  const invalid = clone(synthesisEnvelopes(state.bundle));
+  const mergeEnvelope = invalid.find((entry) => entry.artifact_path === G23_MERGE);
+  assert.ok(mergeEnvelope);
+  mergeEnvelope.document.opportunity_families = conflictCases[0];
+  (mergeEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
+    mergeEnvelope.document,
+  );
+  await assert.rejects(
+    state.store.publishArtifactBundle({ runId: state.runId, envelopes: invalid }),
+    (error: unknown) => error instanceof StoreError,
+  );
+  const loaded = await state.store.load(state.runId);
+  assert.ok(
+    synthesisEnvelopes(state.bundle).every(
+      (entry) => !loaded.manifest.artifact_refs.includes(entry.artifact_path),
+    ),
+  );
 });
 
 test("G2.3 preserves distinct knowledge states and supporting, opposing, background, and unknown family material", async (context) => {

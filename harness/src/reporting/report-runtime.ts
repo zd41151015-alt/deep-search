@@ -630,7 +630,11 @@ function renderOpportunityFamilySummary(report: Record<string, unknown>, zh: boo
     const differences = new Map(
       records(family.member_specific_differences).map((difference) => [
         String(difference.opportunity_ref),
-        records(difference.dimensions).map((dimension) => String(dimension.description)),
+        records(difference.dimensions).map((dimension) =>
+          zh
+            ? `${localizedEnum(dimension.dimension ?? "other", true)}（状态：${localizedEnum(dimension.state ?? "unknown", true)}；说明：${userVisibleText(dimension.description, true)}）`
+            : `${localizedEnum(dimension.dimension ?? "other", false)} (state: ${localizedEnum(dimension.state ?? "unknown", false)}; description: ${userVisibleText(dimension.description, false)})`,
+        ),
       ]),
     );
     const memberSummary = members
@@ -641,9 +645,12 @@ function renderOpportunityFamilySummary(report: Record<string, unknown>, zh: boo
           : `${userVisibleText(member.opportunity_title, false)} (${localizedEnum(member.relation_to_family, false)}; differences: ${memberDifferences.map((value) => userVisibleText(value, false)).join("; ")})`;
       })
       .join(zh ? "；" : "; ");
+    const mechanismSummary = zh
+      ? `共享机制状态：${localizedEnum(mechanism.state ?? "unknown", true)}；说明：${userVisibleText(mechanism.description, true)}`
+      : `shared mechanism state: ${localizedEnum(mechanism.state ?? "unknown", false)}; description: ${userVisibleText(mechanism.description, false)}`;
     return zh
-      ? `- ${userVisibleText(family.title, true)}：${members.length} 个方向；关系 ${relations.map((value) => localizedEnum(value, true)).join("、")}；共享机制 ${userVisibleText(mechanism.description, true)}；共享风险 ${risks.length === 0 ? "无已声明项" : risks.map((value) => userVisibleText(value, true)).join("；")}；具体方向 ${memberSummary}。`
-      : `- ${userVisibleText(family.title, false)}: ${members.length} direction${members.length === 1 ? "" : "s"}; relation ${relations.map((value) => localizedEnum(value, false)).join(", ")}; shared mechanism ${userVisibleText(mechanism.description, false)}; shared risks ${risks.length === 0 ? "none declared" : risks.map((value) => userVisibleText(value, false)).join("; ")}; concrete directions ${memberSummary}.`;
+      ? `- ${userVisibleText(family.title, true)}：${members.length} 个方向；关系 ${relations.map((value) => localizedEnum(value, true)).join("、")}；${mechanismSummary}；共享风险 ${risks.length === 0 ? "无已声明项" : risks.map((value) => userVisibleText(value, true)).join("；")}；具体方向 ${memberSummary}。`
+      : `- ${userVisibleText(family.title, false)}: ${members.length} direction${members.length === 1 ? "" : "s"}; relation ${relations.map((value) => localizedEnum(value, false)).join(", ")}; ${mechanismSummary}; shared risks ${risks.length === 0 ? "none declared" : risks.map((value) => userVisibleText(value, false)).join("; ")}; concrete directions ${memberSummary}.`;
   });
   return [
     `## ${zh ? "机会家族与具体方向" : "Opportunity Families And Directions"}\n`,

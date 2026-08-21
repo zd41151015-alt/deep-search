@@ -15,6 +15,7 @@ import {
   createArtifactValidator,
   type DiscoveryProfile,
   type DocumentBundle,
+  deriveOpportunityFamilyProjection,
   deriveReportEnvelopes,
   EvidenceStore,
   type FormalArtifactEnvelope,
@@ -186,6 +187,82 @@ function refreshAllInputHashes(bundle: DocumentBundle): void {
       return;
     }
   }
+}
+
+function refreshOpportunityFamilyProjection(bundle: DocumentBundle): void {
+  refresh(bundle, G23_MERGE);
+  const projection = deriveOpportunityFamilyProjection(
+    G23_MERGE,
+    new Map(
+      bundle.documents.map((candidate) => {
+        const outer = entry(bundle, candidate.path);
+        const document = effective(bundle, candidate.path);
+        const contentHash = String(outer.schema_version).startsWith(
+          "startup_opportunity.artifact_envelope.",
+        )
+          ? String(outer.content_hash)
+          : canonicalContentHash(document);
+        return [
+          candidate.path,
+          {
+            path: candidate.path,
+            schemaVersion: String(document.schema_version),
+            document,
+            contentHash,
+          },
+        ];
+      }),
+    ),
+  );
+  for (const artifactPath of [G24_PORTFOLIO, G24_RECOMMENDATION, G24_TRACEABILITY, G24_REPORT]) {
+    effective(bundle, artifactPath).opportunity_family_projection = structuredClone(projection);
+  }
+  refreshAllInputHashes(bundle);
+}
+
+function installStateRichOpportunityFamily(bundle: DocumentBundle): void {
+  const merge = effective(bundle, G23_MERGE);
+  const family = ((merge.opportunity_families as Record<string, unknown>[])[0] ?? {}) as Record<
+    string,
+    unknown
+  >;
+  family.shared_value_or_solution_mechanism = {
+    state: "unknown",
+    description: "SYNTHETIC shared mechanism remains unresolved; no assertion is made.",
+  };
+  family.member_specific_differences = [
+    {
+      opportunity_ref: G23_OPPORTUNITY_A,
+      dimensions: [
+        {
+          dimension: "user",
+          state: "unavailable",
+          description: "SYNTHETIC user difference unavailable.",
+        },
+        {
+          dimension: "buyer",
+          state: "inferred",
+          description: "SYNTHETIC buyer difference inferred from bounded material.",
+        },
+      ],
+    },
+    {
+      opportunity_ref: G23_OPPORTUNITY_B,
+      dimensions: [
+        {
+          dimension: "acquisition",
+          state: "not_applicable",
+          description: "SYNTHETIC acquisition difference not applicable.",
+        },
+        {
+          dimension: "compliance",
+          state: "no_evidence_found",
+          description: "SYNTHETIC no evidence found within the declared boundary.",
+        },
+      ],
+    },
+  ];
+  refreshOpportunityFamilyProjection(bundle);
 }
 
 async function setup(
@@ -654,6 +731,46 @@ test("G2.4 validates closed enrichment, hard gates, comparison, portfolio, and r
       ),
     true,
   );
+});
+
+test("G2.4 opportunity-family report rendering preserves knowledge states in English", async (context) => {
+  const state = await setup(context, "family-report-states-en", "general", "en-US");
+  installStateRichOpportunityFamily(state.bundle);
+  const validation = state.validator.validateDocumentBundle(state.bundle);
+  assert.equal(validation.valid, true, JSON.stringify(validation.referenceErrors, null, 2));
+  const report = evaluationEnvelope(state.bundle, G24_REPORT);
+  const projection = report.document.opportunity_family_projection as Record<string, unknown>;
+  const family = (projection.families as Record<string, unknown>[])[0] as Record<string, unknown>;
+  assert.equal(
+    (family.shared_value_or_solution_mechanism as Record<string, unknown>).state,
+    "unknown",
+  );
+  const derived = deriveReportEnvelopes(report);
+  const brief = String(
+    derived.find(
+      (entry) => entry.artifact_type === "startup_opportunity.decision_brief.discovery.current",
+    )?.document.markdown,
+  );
+  const full = String(
+    derived.find((entry) => entry.artifact_type === "startup_opportunity.discovery_report_view.v1")
+      ?.document.markdown,
+  );
+  for (const surface of [brief, full]) {
+    assert.match(
+      surface,
+      /shared mechanism state: unknown; description: SYNTHETIC shared mechanism remains unresolved/,
+    );
+    assert.match(surface, /user \(state: unavailable; description: SYNTHETIC user difference/);
+    assert.match(surface, /buyer \(state: inferred; description: SYNTHETIC buyer difference/);
+    assert.match(
+      surface,
+      /acquisition \(state: not applicable; description: SYNTHETIC acquisition difference/,
+    );
+    assert.match(
+      surface,
+      /compliance \(state: no evidence found; description: SYNTHETIC no evidence found/,
+    );
+  }
 });
 
 test("G2.4 whole-chain fixtures preserve profile, counterfactual, merge, and AI ceilings", async (t) => {
@@ -1771,6 +1888,7 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   const judgmentContext = reportSource.curated_judgment_context as Record<string, unknown>;
   judgmentContext.recommended_first_bet = firstBet;
   judgmentContext.alternative_bets = [];
+  installStateRichOpportunityFamily(state.bundle);
   refreshAllInputHashes(state.bundle);
   refreshEnvelopeClosure(state.bundle, G24_PORTFOLIO);
   refreshEnvelopeClosure(state.bundle, G24_RECOMMENDATION);
@@ -1816,6 +1934,22 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   >;
   assert.equal(projectedFamilies.independent_opportunity_family_count, 1);
   assert.equal(projectedFamilies.concrete_direction_count, 2);
+  const projectedFamily = (projectedFamilies.families as Record<string, unknown>[])[0] as Record<
+    string,
+    unknown
+  >;
+  assert.equal(
+    (projectedFamily.shared_value_or_solution_mechanism as Record<string, unknown>).state,
+    "unknown",
+  );
+  assert.deepEqual(
+    (projectedFamily.member_specific_differences as Record<string, unknown>[])
+      .flatMap((difference) =>
+        (difference.dimensions as Record<string, unknown>[]).map((dimension) => dimension.state),
+      )
+      .sort(),
+    ["inferred", "no_evidence_found", "not_applicable", "unavailable"].sort(),
+  );
   const watchProjectionDocument = structuredClone(projectedReport);
   delete watchProjectionDocument.materialized_path;
   (watchProjectionDocument.curated_judgment_context as Record<string, unknown>).decision_tier =
@@ -1944,16 +2078,57 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   const loaded = await state.store.load(state.runId);
   assert.ok(loaded.manifest.artifact_refs.includes(G24_REPORT));
   assert.ok(loaded.manifest.artifact_refs.includes(first.consistencyEvaluationRef));
+  const briefSidecar = JSON.parse(
+    await readFile(path.join(state.runRoot, "artifacts/reporting/decision-brief.r1.json"), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const reportSidecar = JSON.parse(
+    await readFile(path.join(state.runRoot, "artifacts/reporting/report-markdown.r1.json"), "utf8"),
+  ) as FormalArtifactEnvelope;
+  assert.deepEqual(
+    briefSidecar.document.opportunity_family_projection,
+    projectedReport.opportunity_family_projection,
+  );
+  assert.deepEqual(
+    reportSidecar.document.opportunity_family_projection,
+    projectedReport.opportunity_family_projection,
+  );
   const decisionBrief = await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8");
   assert.match(decisionBrief, /局部排序/);
   assert.match(decisionBrief, /1 个可区分的机会家族、2 个具体方向/);
-  assert.match(decisionBrief, /共享机制/);
+  assert.match(
+    decisionBrief,
+    /共享机制状态：未知；说明：SYNTHETIC shared mechanism remains unresolved/,
+  );
+  assert.match(
+    decisionBrief,
+    /用户（状态：来源不可用；说明：SYNTHETIC user difference unavailable/,
+  );
+  assert.match(decisionBrief, /买方（状态：推断；说明：SYNTHETIC buyer difference inferred/);
+  assert.match(
+    decisionBrief,
+    /获客（状态：不适用；说明：SYNTHETIC acquisition difference not applicable/,
+  );
+  assert.match(decisionBrief, /合规（状态：未发现证据；说明：SYNTHETIC no 证据 found/);
   assert.match(decisionBrief, /头部公司吸收与响应风险/);
   assert.ok(decisionBrief.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
   assert.match(reportMarkdown, /方向组合/);
   assert.match(reportMarkdown, /1 个可区分的机会家族、2 个具体方向/);
+  assert.match(
+    reportMarkdown,
+    /共享机制状态：未知；说明：SYNTHETIC shared mechanism remains unresolved/,
+  );
   assert.match(reportMarkdown, /交付或实施变体/);
+  assert.match(
+    reportMarkdown,
+    /用户（状态：来源不可用；说明：SYNTHETIC user difference unavailable/,
+  );
+  assert.match(reportMarkdown, /买方（状态：推断；说明：SYNTHETIC buyer difference inferred/);
+  assert.match(
+    reportMarkdown,
+    /获客（状态：不适用；说明：SYNTHETIC acquisition difference not applicable/,
+  );
+  assert.match(reportMarkdown, /合规（状态：未发现证据；说明：SYNTHETIC no 证据 found/);
   assert.match(reportMarkdown, /头部公司吸收与响应风险/);
   assert.ok(reportMarkdown.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   const auditAppendix = await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8");
