@@ -13,6 +13,7 @@ import {
   type FormalArtifactEnvelope,
   RunStore,
   StoreError,
+  validateDecisionSubjectContract,
 } from "../harness/src/index.js";
 import {
   fixtureEnvelope,
@@ -66,6 +67,13 @@ interface State {
   readonly runId: string;
   readonly store: RunStore;
   readonly bundle: DocumentBundle;
+}
+
+interface DecisionSubjectProjectionDocument {
+  readonly path: string;
+  readonly schemaVersion: string;
+  readonly document: Record<string, unknown>;
+  readonly envelope: Record<string, unknown> | null;
 }
 
 function clone<T>(value: T): T {
@@ -272,6 +280,252 @@ function setSolutionExplorationState(
     ].sort();
     refresh(bundle, G23_EVALUATION);
   }
+}
+
+function buildOpportunityTerminalProjection(state: State): {
+  readonly documents: DecisionSubjectProjectionDocument[];
+  readonly opportunityPath: string;
+  readonly snapshotPath: string;
+  readonly synthesisPath: string;
+  readonly terminalPath: string;
+  readonly opportunitySummary: Record<string, unknown>;
+} {
+  const text = (value: unknown, fallback: string): string =>
+    typeof value === "string" && value.length > 0 ? value : fallback;
+  const firstText = (value: unknown, fallback: string): string =>
+    Array.isArray(value) && typeof value[0] === "string" && value[0].length > 0
+      ? value[0]
+      : fallback;
+  const strings = (value: unknown, fallback: readonly string[]): string[] => {
+    const values = Array.isArray(value)
+      ? value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+      : [];
+    return values.length > 0 ? values : [...fallback];
+  };
+
+  const opportunityPath = G23_OPPORTUNITY_A;
+  const snapshotPath = "artifacts/reporting/decision-subject-snapshot.r1.json";
+  const synthesisPath =
+    "artifacts/reporting/decision-subject-synthesis/opportunity-terminal-posture.r1.json";
+  const terminalPath = "artifacts/reporting/terminal-report-source.r1.json";
+
+  const manifest = clone(effective(state.bundle, "manifest.json"));
+  const scope = clone(effective(state.bundle, G21_SCOPE_REF));
+  const plan = clone(effective(state.bundle, G21_PLAN_REF));
+  const opportunity = clone(effective(state.bundle, opportunityPath));
+  assert.ok(
+    typeof opportunity.solution_evaluation_summary === "object" &&
+      opportunity.solution_evaluation_summary !== null,
+  );
+  const opportunitySummary = structuredClone(
+    opportunity.solution_evaluation_summary as Record<string, unknown>,
+  );
+  const opportunityHash = canonicalContentHash(opportunity);
+  const opportunityId = text(opportunity.opportunity_id, "opportunity_terminal_posture");
+
+  const snapshotDocument: Record<string, unknown> = {
+    schema_version: "startup_opportunity.decision_subject_snapshot.current",
+    snapshot_id: "decision_subjects_opportunity_terminal_posture",
+    revision: 1,
+    parent_snapshot_ref: null,
+    parent_snapshot_hash: null,
+    run_id: state.runId,
+    mode: "opportunity_discovery",
+    scope_frame_ref: G21_SCOPE_REF,
+    scope_frame_hash: canonicalContentHash(scope),
+    research_plan_ref: G21_PLAN_REF,
+    research_plan_hash: canonicalContentHash(plan),
+    synthesis_input_hashes: [{ ref: opportunityPath, content_hash: opportunityHash }],
+    created_at: "2026-08-10T12:00:00Z",
+    subjects: [
+      {
+        subject_id: opportunityId,
+        subject_ref: opportunityPath,
+        subject_content_hash: opportunityHash,
+        subject_kind: "opportunity_thesis",
+        lifecycle_status: "current",
+        reporting_role: "final",
+        superseded_by_subject_id: null,
+        formation_reason:
+          "SYNTHETIC current Opportunity Thesis subject for terminal posture projection.",
+        lifecycle_reason:
+          "SYNTHETIC current final subject for the opportunity terminal posture regression.",
+      },
+    ],
+    limitations: ["SYNTHETIC decision subject snapshot; not market Evidence."],
+  };
+  const snapshotHash = canonicalContentHash(snapshotDocument);
+  manifest.current_plan_ref = G21_PLAN_REF;
+  manifest.current_decision_subject_snapshot_ref = snapshotPath;
+  manifest.current_decision_subject_snapshot_hash = snapshotHash;
+
+  const direction = {
+    priority: 1,
+    ranking_status: "ranked",
+    label: text(opportunity.title, "SYNTHETIC opportunity terminal posture"),
+    maturity: "supported_opportunity_thesis",
+    action: "validate",
+    target_user: firstText(opportunity.buyer, "SYNTHETIC buyer"),
+    narrow_scenario: text(opportunity.entry_scene, "SYNTHETIC narrow scenario"),
+    problem: text(opportunity.opportunity_thesis, "SYNTHETIC problem"),
+    current_alternative: text(opportunity.mental_positioning, "SYNTHETIC current alternative"),
+    payer: firstText(opportunity.payer, "SYNTHETIC payer"),
+    product_form: text(opportunity.selected_delivery_form, "SYNTHETIC product form"),
+    core_value: text(opportunity.incremental_value_over_baseline, "SYNTHETIC core value"),
+    why_now: text(opportunity.why_now, "SYNTHETIC why now"),
+    key_risks: strings(opportunity.risks, ["SYNTHETIC opportunity risk"]),
+    first_testable_assumption:
+      "SYNTHETIC current Opportunity keeps its implementation posture as provisional.",
+    comparison_reason:
+      "SYNTHETIC report projection preserves the structured implementation posture.",
+    decisive_support_source_ids: [],
+    decisive_opposition_source_ids: [],
+    open_questions: ["SYNTHETIC remaining solution exploration question."],
+    solution_evaluation_summary: structuredClone(opportunitySummary),
+  };
+  const validationStep = {
+    order: 1,
+    hypothesis: "SYNTHETIC terminal projection preserves the Opportunity solution posture.",
+    why_now: "SYNTHETIC current contract requires exact same-Run posture projection.",
+    method: "desk_research",
+    pass_signal: "The terminal source retains the exact Opportunity solution summary.",
+    fail_signal: "A solution posture value drifts in synthesis or terminal projection.",
+    decision_effect: "Reject the terminal projection when the posture drifts.",
+    execution_owner: "main_agent",
+    execution_supported: true,
+    result_tracking_supported: true,
+  };
+  const synthesisDocument: Record<string, unknown> = {
+    schema_version: "startup_opportunity.decision_subject_synthesis.current",
+    synthesis_id: "decision_subject_synthesis_opportunity_terminal_posture_r1",
+    run_id: state.runId,
+    subject_id: opportunityId,
+    subject_ref: opportunityPath,
+    subject_content_hash: opportunityHash,
+    synthesis_basis_hashes: [{ ref: opportunityPath, content_hash: opportunityHash }],
+    direction,
+    validation_steps: [validationStep],
+    created_at: "2026-08-10T12:00:30Z",
+    limitations: ["SYNTHETIC decision subject synthesis; not market Evidence."],
+  };
+  const synthesisHash = canonicalContentHash(synthesisDocument);
+  const terminalDocument: Record<string, unknown> = {
+    schema_version: "startup_opportunity.terminal_report_source.v1",
+    report_id: "terminal_opportunity_posture",
+    run_id: state.runId,
+    mode: "opportunity_discovery",
+    research_language: "en-US",
+    producer_role: "main_agent",
+    owned_output_path: terminalPath,
+    materialized_path: "report.json",
+    generated_at: "2026-08-10T12:01:00Z",
+    decision_subject_snapshot_ref: snapshotPath,
+    decision_subject_snapshot_hash: snapshotHash,
+    decision_subject_synthesis_hashes: [{ ref: synthesisPath, content_hash: synthesisHash }],
+    current_decision_subject_ids: [opportunityId],
+    terminal_outcome: "completed",
+    decision_question: "SYNTHETIC opportunity terminal posture projection.",
+    execution: {
+      completeness: "complete",
+      completed_stages: ["opportunity_discovery", "decision_subject_synthesis"],
+      incomplete_stages: [],
+      required_followups: [],
+      pending_operation_refs: [],
+    },
+    research_conclusion: {
+      outcome: "investigate_further",
+      current_recommendation:
+        "SYNTHETIC retain the Opportunity while its implementation remains provisional.",
+      meaning: "SYNTHETIC opportunity priority and implementation posture are separate structures.",
+      evidence_strength: "insufficient",
+      allowed_claim: "SYNTHETIC the implementation posture is mechanically projected.",
+    },
+    runtime_health: { status: "healthy", issues: [] },
+    directions: [
+      {
+        direction_id: opportunityId,
+        subject_ref: opportunityPath,
+        subject_content_hash: opportunityHash,
+        synthesis_ref: synthesisPath,
+        synthesis_content_hash: synthesisHash,
+        ...structuredClone(direction),
+      },
+    ],
+    sources: [],
+    excluded_evidence: [],
+    commercial_research_audit_refs: [],
+    commercial_uncertainties: [],
+    quantitative_signal_rows: [],
+    competitive_substitute_rows: [],
+    incumbent_response_risk_rows: [],
+    research_coverage_gaps: [],
+    commercial_subject_aggregates: [],
+    commercial_background_material: [],
+    commercial_research_status: {
+      state: "not_planned",
+      planned_task_refs: [],
+      missing_task_refs: [],
+      submitted_audit_refs: [],
+    },
+    gate_warnings: [],
+    ordered_validation_plan: [
+      {
+        direction_id: opportunityId,
+        subject_ref: opportunityPath,
+        subject_content_hash: opportunityHash,
+        synthesis_ref: synthesisPath,
+        synthesis_content_hash: synthesisHash,
+        ...structuredClone(validationStep),
+      },
+    ],
+    freshness: {
+      earliest_valid_as_of: null,
+      latest_valid_as_of: null,
+      summary: "SYNTHETIC terminal posture projection; no market Evidence is asserted.",
+    },
+    limitations: ["SYNTHETIC terminal source fixture; not market Evidence."],
+    external_action_boundary: {
+      execution_owner: "user",
+      execution_supported: false,
+      result_tracking_supported: false,
+      external_validation_claimed: false,
+    },
+    audit_refs: [],
+  };
+
+  const document = (
+    artifactPath: string,
+    artifactDocument: Record<string, unknown>,
+    envelope: Record<string, unknown> | null = null,
+  ): DecisionSubjectProjectionDocument => ({
+    path: artifactPath,
+    schemaVersion: String(artifactDocument.schema_version),
+    document: artifactDocument,
+    envelope,
+  });
+
+  return {
+    documents: [
+      document("manifest.json", manifest),
+      document(G21_SCOPE_REF, scope),
+      document(G21_PLAN_REF, plan),
+      document(opportunityPath, opportunity),
+      document(snapshotPath, snapshotDocument),
+      document(synthesisPath, synthesisDocument, {
+        artifact_type: "startup_opportunity.decision_subject_synthesis.current",
+        artifact_path: synthesisPath,
+        run_id: state.runId,
+        producer_role: "main_agent",
+        content_hash: synthesisHash,
+      }),
+      document(terminalPath, terminalDocument),
+    ],
+    opportunityPath,
+    snapshotPath,
+    synthesisPath,
+    terminalPath,
+    opportunitySummary,
+  };
 }
 
 async function setup(
@@ -560,6 +814,68 @@ test("G2.3 rejects solution evaluation summaries without formal_solutions and wr
     (error: unknown) => error instanceof StoreError && error.code === "artifact.schema_invalid",
   );
   assert.deepEqual(await treeSnapshot(state.runRoot), before);
+});
+
+test("G2.3 projects provisional Opportunity solution posture through synthesis and terminal source exactly", async (context) => {
+  const state = await setup(context, "terminal-posture");
+  const validator = await createArtifactValidator(repositoryRoot);
+  const projection = buildOpportunityTerminalProjection(state);
+  assert.equal(projection.opportunitySummary.selection_posture, "provisional_implementation");
+  assert.equal(projection.opportunitySummary.exploration_status, "not_yet_explored");
+
+  for (const document of projection.documents) {
+    const result = validator.validateDocument(document.document, document.path);
+    assert.equal(result.valid, true, `${document.path}: ${JSON.stringify(result.errors, null, 2)}`);
+  }
+  assert.deepEqual(validateDecisionSubjectContract(projection.documents), []);
+
+  const findDocument = (
+    documents: readonly DecisionSubjectProjectionDocument[],
+    artifactPath: string,
+  ): DecisionSubjectProjectionDocument => {
+    const document = documents.find((candidate) => candidate.path === artifactPath);
+    assert.ok(document, artifactPath);
+    return document;
+  };
+
+  const synthesisDrift = clone(
+    projection.documents.filter((document) => document.path !== projection.terminalPath),
+  );
+  const driftedSynthesis = findDocument(synthesisDrift, projection.synthesisPath);
+  const driftedSynthesisDirection = driftedSynthesis.document.direction as Record<string, unknown>;
+  const driftedSynthesisSummary = driftedSynthesisDirection.solution_evaluation_summary as Record<
+    string,
+    unknown
+  >;
+  driftedSynthesisSummary.selection_posture = "compared_selection";
+  assert.equal(
+    validator.validateDocument(driftedSynthesis.document, projection.synthesisPath).valid,
+    true,
+  );
+  assert.ok(driftedSynthesis.envelope);
+  driftedSynthesis.envelope.content_hash = canonicalContentHash(driftedSynthesis.document);
+  assert.deepEqual(
+    validateDecisionSubjectContract(synthesisDrift).map((issue) => issue.code),
+    ["decision_subject.solution_exploration_projection_mismatch"],
+  );
+
+  const terminalDrift = clone(projection.documents);
+  const driftedTerminal = findDocument(terminalDrift, projection.terminalPath);
+  const driftedDirection = (driftedTerminal.document.directions as Record<string, unknown>[])[0];
+  assert.ok(driftedDirection);
+  const driftedTerminalSummary = driftedDirection.solution_evaluation_summary as Record<
+    string,
+    unknown
+  >;
+  driftedTerminalSummary.selection_posture = "compared_selection";
+  assert.equal(
+    validator.validateDocument(driftedTerminal.document, projection.terminalPath).valid,
+    true,
+  );
+  assert.deepEqual(
+    validateDecisionSubjectContract(terminalDrift).map((issue) => issue.code),
+    ["decision_subject.direction_body_mismatch"],
+  );
 });
 
 test("G2.3 rejects not_yet_explored when multiple formal solutions remain and writes nothing", async (context) => {
