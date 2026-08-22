@@ -20,12 +20,14 @@ import {
   RunStore,
   StoreError,
   sha256Bytes,
+  validateDecisionSubjectContract,
 } from "../harness/src/index.js";
 import {
   localizedTerminalUserViewIssues,
   renderTerminalDecisionBrief,
   renderTerminalFullReport,
 } from "../harness/src/reporting/terminal-reporting.js";
+import { deriveResearchProvenance } from "../harness/src/validators/research-handoff-validator.js";
 import {
   type TerminalReportingDocument,
   validateTerminalReportingContract,
@@ -549,6 +551,37 @@ function decisionSubjectValidationSteps(): readonly Record<string, unknown>[] {
   ];
 }
 
+function terminalProvisionalSolutionEvaluationSummary(): Record<string, unknown> {
+  const solutionRef = "artifacts/discovery/solutions/terminal_provisional.r1.json";
+  return {
+    solution_evaluation_ref:
+      "artifacts/discovery/solution-evaluations/terminal_provisional.r1.json",
+    solution_evaluation_content_hash: `sha256:${"1".repeat(64)}`,
+    exploration_status: "not_yet_explored",
+    selection_posture: "provisional_implementation",
+    status_rationale: "SYNTHETIC provisional solution exploration for terminal report regression.",
+    formal_solution_refs: [solutionRef],
+    formal_solutions: [
+      {
+        solution_ref: solutionRef,
+        solution_content_hash: `sha256:${"2".repeat(64)}`,
+        disposition: "selected",
+        solution_id: "solution_terminal_provisional",
+        solution_type: "SYNTHETIC solution type",
+        solution_behavior: "SYNTHETIC provisional solution behavior.",
+        delivery_form: "mobile_web",
+        uses_ai: false,
+      },
+    ],
+    selected_solution_ref: solutionRef,
+    alternative_solution_refs: [],
+    rejected_solutions: [],
+    considered_approaches: [],
+    critical_unknowns: [],
+    limitations: [],
+  };
+}
+
 function nextReportRevision(source: FormalArtifactEnvelope): FormalArtifactEnvelope {
   const artifactPath = "artifacts/reporting/report-json.r2.json";
   const createdAt = "2026-07-25T19:10:00Z";
@@ -950,7 +983,15 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
   const commercialAuditRefs = g14Branches()
     .map((branch) => `artifacts/research-audits/${branch.unitId}.json`)
     .sort();
-  const auditRefs = [G14_ASSESSMENT_REF, ...commercialAuditRefs, ...state.evidenceRefs].sort();
+  const taskRefs = g14Branches()
+    .map((branch) => `tasks/${branch.unitId}.attempt-1.json`)
+    .sort();
+  const auditRefs = [
+    G14_ASSESSMENT_REF,
+    ...commercialAuditRefs,
+    ...taskRefs,
+    ...state.evidenceRefs,
+  ].sort();
   const subjectRef = String(state.decisionSubjectSynthesisEnvelope.document.subject_ref);
   const subjectHash = String(state.decisionSubjectSynthesisEnvelope.document.subject_content_hash);
   const projectedDirection = {
@@ -970,150 +1011,191 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     synthesis_content_hash: state.decisionSubjectSynthesisHash,
     ...structuredClone(step),
   }));
-  const document: Record<string, unknown> = {
-    schema_version: "startup_opportunity.terminal_report_source.v1",
-    report_id: "terminal_report_synthetic_1",
-    run_id: G14_RUN_ID,
-    mode: "concept_evidence_assessment",
-    research_language: "zh-CN",
-    producer_role: "main_agent",
-    owned_output_path: artifactPath,
-    materialized_path: "report.json",
-    generated_at: "2026-07-25T19:16:00Z",
-    decision_subject_snapshot_ref: state.decisionSubjectSnapshotRef,
-    decision_subject_snapshot_hash: state.decisionSubjectSnapshotHash,
-    decision_subject_synthesis_hashes: [
+  const document = structuredClone(state.reportEnvelope.document) as Record<string, unknown>;
+  for (const key of [
+    "report_metadata",
+    "decision_context_ref",
+    "concept_frame_ref",
+    "concept_hypothesis_ref",
+    "evidence_assessment_plan_ref",
+    "research_plan_ref",
+    "plan_lineage_refs",
+    "applied_adaptation_refs",
+    "hypothesis_evidence_matrix_ref",
+    "adversarial_review_ref",
+    "evidence_audit_ref",
+    "concept_evidence_assessment_ref",
+    "business_engine_ref",
+    "judgment_assessment_refs",
+    "source_manifest_refs",
+    "traceability_ref",
+    "curated_judgment_context",
+    "report_sections",
+    "statements",
+    "freshness_summary",
+  ]) {
+    delete document[key];
+  }
+  Object.assign(
+    document,
+    commercialReportProjection(state.commercialAudits, [], new Map(), ["concept_assess_001"]),
+  );
+  document.schema_version = "startup_opportunity.terminal_report_source.v1";
+  document.report_id = "terminal_report_synthetic_1";
+  document.run_id = G14_RUN_ID;
+  document.mode = "concept_evidence_assessment";
+  document.research_language = "zh-CN";
+  document.producer_role = "main_agent";
+  document.owned_output_path = artifactPath;
+  document.materialized_path = "report.json";
+  document.generated_at = "2026-07-25T19:16:00Z";
+  document.decision_subject_snapshot_ref = state.decisionSubjectSnapshotRef;
+  document.decision_subject_snapshot_hash = state.decisionSubjectSnapshotHash;
+  document.decision_subject_synthesis_hashes = [
+    {
+      ref: state.decisionSubjectSynthesisRef,
+      content_hash: state.decisionSubjectSynthesisHash,
+    },
+  ];
+  document.current_decision_subject_ids = ["concept_assess_001"];
+  document.terminal_outcome = "insufficient_evidence";
+  document.decision_question = "这个合成的窄方向是否值得继续调研？";
+  document.execution = {
+    completeness: "partial",
+    completed_stages: ["初轮评估"],
+    incomplete_stages: [
       {
-        ref: state.decisionSubjectSynthesisRef,
-        content_hash: state.decisionSubjectSynthesisHash,
+        stage: "买方追加调研",
+        cause: "runtime_blocked",
+        detail: "合成的计划修订发布没有完成。",
+        conclusion_impact: "当前结果不能描述为完整评估。",
+        related_refs: [G14_ASSESSMENT_REF],
       },
     ],
-    current_decision_subject_ids: ["concept_assess_001"],
-    terminal_outcome: "insufficient_evidence",
-    decision_question: "这个合成的窄方向是否值得继续调研？",
-    execution: {
-      completeness: "partial",
-      completed_stages: ["初轮评估"],
-      incomplete_stages: [
-        {
-          stage: "买方追加调研",
-          cause: "runtime_blocked",
-          detail: "合成的计划修订发布没有完成。",
-          conclusion_impact: "当前结果不能描述为完整评估。",
-          related_refs: [G14_ASSESSMENT_REF],
-        },
-      ],
-      required_followups: [
-        {
-          followup_id: "buyer_followup",
-          status: "not_executed",
-          detail: "合成的买方材料仍未收集。",
-          related_refs: [G14_ASSESSMENT_REF],
-        },
-      ],
-      pending_operation_refs: [],
-    },
-    research_conclusion: {
-      outcome: "insufficient_evidence",
-      current_recommendation: "先验证窄场景中的买方触发，再决定是否继续。",
-      meaning: "现有材料只支持保留一个待验证假设，不能支持投入结论。",
-      evidence_strength: "insufficient",
-      allowed_claim: "初轮公开资料形成了一个待验证方向，但评估流程尚未完整执行。",
-    },
-    runtime_health: {
-      status: "blocked",
-      issues: [
-        {
-          code: "plan_revision_failed",
-          stage: "买方追加调研",
-          detail: "合成的确定性发布故障阻止了必需的追加调研。",
-          conclusion_impact: "结论强度被限制为证据不足。",
-          related_refs: [G14_ASSESSMENT_REF],
-        },
-      ],
-    },
-    directions: [projectedDirection],
-    sources: [
+    required_followups: [
       {
-        source_id: "synthetic_support",
-        title: "Synthetic contract source",
-        url: "https://unit_demand.synthetic.invalid/support",
-        retrieved_at: "2026-07-25T18:00:00Z",
-        published_at: "2026-07-25T00:00:00Z",
-        observed_at: null,
-        data_period_end: null,
-        valid_as_of: "2026-07-25",
-        freshness_status: "current",
-        claim_type: "current_market_change",
-        claim_state: "inferred",
-        inference: {
-          basis_refs: [state.evidenceRef],
-          starting_point: "合成输入包含一个待验证方向。",
-          reasoning: "该方向只用于演示从输入到假设的推理链。",
-          uncertainty: "没有真实市场资料，无法判断方向是否成立。",
-          validation_needed: "需要收集近期用户、购买和渠道行为材料。",
-        },
-        source_kind: "independent",
-        evidence_character: "inference",
-        independence: "independent",
-        commercial_coverage_keys: [],
-        stance: "supports",
-        strength: "weak",
-        claim: "仅为合成输入，用于测试来源可读性，不代表真实市场证据。",
-        evidence_ref: state.evidenceRef,
+        followup_id: "buyer_followup",
+        status: "not_executed",
+        detail: "合成的买方材料仍未收集。",
+        related_refs: [G14_ASSESSMENT_REF],
       },
     ],
-    excluded_evidence: state.evidenceRefs
-      .filter((ref) => ref !== state.evidenceRef)
-      .map((evidence_ref) => ({
-        evidence_ref,
-        reason: "该材料不是本次终态结论的决定性来源，但保留在完整审计范围中。",
-      })),
-    commercial_research_audit_refs: commercialAuditRefs,
-    commercial_uncertainties: [
+    pending_operation_refs: [],
+  };
+  document.research_conclusion = {
+    outcome: "insufficient_evidence",
+    current_recommendation: "先验证窄场景中的买方触发，再决定是否继续。",
+    meaning: "现有材料只支持保留一个待验证假设，不能支持投入结论。",
+    evidence_strength: "insufficient",
+    allowed_claim: "初轮公开资料形成了一个待验证方向，但评估流程尚未完整执行。",
+  };
+  document.runtime_health = {
+    status: "blocked",
+    issues: [
       {
-        direction_id: "concept_assess_001",
-        coverage_key: "purchase_signal",
-        state: "inferred",
-        statement: "当前行为可能反映购买意向，但尚未观察到实际付款。",
+        code: "plan_revision_failed",
+        stage: "买方追加调研",
+        detail: "合成的确定性发布故障阻止了必需的追加调研。",
+        conclusion_impact: "结论强度被限制为证据不足。",
+        related_refs: [G14_ASSESSMENT_REF],
+      },
+    ],
+  };
+  document.directions = [structuredClone(projectedDirection)];
+  document.sources = [
+    {
+      source_id: "synthetic_support",
+      title: "Synthetic contract source",
+      url: "https://unit_demand.synthetic.invalid/support",
+      source_access: "public",
+      retrieved_at: "2026-07-25T18:00:00Z",
+      published_at: "2026-07-25T00:00:00Z",
+      observed_at: null,
+      data_period_end: null,
+      valid_as_of: "2026-07-25",
+      freshness_status: "current",
+      claim_type: "current_market_change",
+      claim_state: "inferred",
+      inference: {
         basis_refs: [state.evidenceRef],
-        starting_point: "合成材料描述了与购买相邻的行为。",
-        reasoning: "该行为可能意味着购买意向，但没有观察到交易。",
-        uncertainty: "意向可能不会转化为付款。",
-        validation_needed: "需要观察近期购买或付款承诺。",
+        starting_point: "合成输入包含一个待验证方向。",
+        reasoning: "该方向只用于演示从输入到假设的推理链。",
+        uncertainty: "没有真实市场资料，无法判断方向是否成立。",
+        validation_needed: "需要收集近期用户、购买和渠道行为材料。",
       },
-      ...[
-        ["recent_user_language", "尚不清楚目标用户如何描述该问题。"],
-        ["alternatives_pricing_usage", "尚不清楚用户如何使用或支付当前替代方案。"],
-        ["distribution_channel", "尚不清楚现实可达的分发渠道。"],
-        ["independent_counterevidence", "尚缺独立反对材料。"],
-      ].map(([coverage_key, statement]) => ({
-        direction_id: "concept_assess_001",
-        coverage_key,
-        state: "unknown",
-        statement,
-        basis_refs: [],
-        starting_point: null,
-        reasoning: null,
-        uncertainty: "当前合成材料不能支持判断。",
-        validation_needed: "需要收集对应维度的近期直接商业材料。",
-      })),
-    ],
-    ...commercialReportProjection(state.commercialAudits),
-    ordered_validation_plan: projectedValidationPlan,
-    freshness: {
-      earliest_valid_as_of: "2026-07-25",
-      latest_valid_as_of: "2026-07-25",
-      summary: "仅引用一条 2026-07-25 的合成来源；不代表真实市场新鲜度。",
+      source_kind: "independent",
+      evidence_character: "inference",
+      independence: "independent",
+      commercial_coverage_keys: [],
+      stance: "supports",
+      strength: "weak",
+      claim: "仅为合成输入，用于测试来源可读性，不代表真实市场证据。",
+      evidence_ref: state.evidenceRef,
     },
-    limitations: ["合成测试数据；未执行真实调研或外部验证。"],
-    external_action_boundary: {
-      execution_owner: "user",
-      execution_supported: false,
-      result_tracking_supported: false,
-      external_validation_claimed: false,
+  ];
+  document.excluded_evidence = state.evidenceRefs
+    .filter((ref) => ref !== state.evidenceRef)
+    .map((evidence_ref) => ({
+      evidence_ref,
+      reason: "该材料不是本次终态结论的决定性来源，但保留在完整审计范围中。",
+    }));
+  document.commercial_uncertainties = [
+    {
+      direction_id: "concept_assess_001",
+      coverage_key: "purchase_signal",
+      state: "inferred",
+      statement: "当前行为可能反映购买意向，但尚未观察到实际付款。",
+      basis_refs: [state.evidenceRef],
+      starting_point: "合成材料描述了与购买相邻的行为。",
+      reasoning: "该行为可能意味着购买意向，但没有观察到交易。",
+      uncertainty: "意向可能不会转化为付款。",
+      validation_needed: "需要观察近期购买或付款承诺。",
     },
-    audit_refs: auditRefs,
+    ...[
+      ["recent_user_language", "尚不清楚目标用户如何描述该问题。"],
+      ["alternatives_pricing_usage", "尚不清楚用户如何使用或支付当前替代方案。"],
+      ["distribution_channel", "尚不清楚现实可达的分发渠道。"],
+      ["independent_counterevidence", "尚缺独立反对材料。"],
+    ].map(([coverage_key, statement]) => ({
+      direction_id: "concept_assess_001",
+      coverage_key,
+      state: "unknown",
+      statement,
+      basis_refs: [],
+      starting_point: null,
+      reasoning: null,
+      uncertainty: "当前合成材料不能支持判断。",
+      validation_needed: "需要收集对应维度的近期直接商业材料。",
+    })),
+  ];
+  document.ordered_validation_plan = projectedValidationPlan;
+  document.freshness = {
+    earliest_valid_as_of: "2026-07-25",
+    latest_valid_as_of: "2026-07-25",
+    summary: "仅引用一条 2026-07-25 的合成来源；不代表真实市场新鲜度。",
+  };
+  document.limitations = ["合成测试数据；未执行真实调研或外部验证。"];
+  document.external_action_boundary = {
+    execution_owner: "user",
+    execution_supported: false,
+    result_tracking_supported: false,
+    external_validation_claimed: false,
+  };
+  document.audit_refs = auditRefs;
+  document.research_provenance = {
+    available_handoff_count: 0,
+    captured_item_count: 0,
+    causal_handoff_refs: [],
+    consumed_item_refs: [],
+    used_handoff_items: [],
+    imported_substrate_refs: [],
+    formal_inherited_evidence_refs: [],
+    adopted_inherited_evidence_refs: [],
+    cited_inherited_evidence_refs: [],
+    formal_current_evidence_refs: [],
+    adopted_current_evidence_refs: [],
+    cited_current_evidence_refs: [],
+    revalidation_gaps: [],
   };
   return {
     schema_version: "startup_opportunity.artifact_envelope.current",
@@ -1131,6 +1213,101 @@ function terminalReportEnvelope(state: PreparedRun): FormalArtifactEnvelope {
     content_hash: canonicalContentHash(document),
     document,
   };
+}
+
+async function finalizeTerminalReportEnvelope(
+  state: PreparedRun,
+  reportEnvelope: FormalArtifactEnvelope,
+  prospectiveManifest: Record<string, unknown>,
+): Promise<void> {
+  const provisionalContext = await state.store.buildValidationContext(G14_RUN_ID, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [
+      { path: "manifest.json", document: prospectiveManifest },
+      {
+        path: state.decisionSubjectSnapshotEnvelope.artifact_path,
+        document: state.decisionSubjectSnapshotEnvelope,
+      },
+      {
+        path: state.decisionSubjectSynthesisEnvelope.artifact_path,
+        document: state.decisionSubjectSynthesisEnvelope,
+      },
+      { path: reportEnvelope.artifact_path, document: reportEnvelope },
+    ],
+    exact_records: [],
+  });
+  const provisionalDocuments = provisionalContext.bundle.documents;
+  const documentsByPath = new Map(
+    provisionalDocuments.map((entry) => [entry.path, effective(entry.document)]),
+  );
+  const commercialAudits = provisionalDocuments
+    .filter((entry) => entry.path.startsWith("artifacts/research-audits/"))
+    .map((entry) => ({ auditRef: entry.path, audit: effective(entry.document) }));
+  const commercialTasks = provisionalDocuments
+    .filter(
+      (entry) => entry.path.startsWith("tasks/unit_") && entry.path.endsWith(".attempt-1.json"),
+    )
+    .map((entry) => ({ taskRef: entry.path, task: effective(entry.document) }));
+  const currentDecisionSubjectIds = Array.isArray(
+    reportEnvelope.document.current_decision_subject_ids,
+  )
+    ? reportEnvelope.document.current_decision_subject_ids.filter(
+        (subjectId): subjectId is string => typeof subjectId === "string",
+      )
+    : [];
+  Object.assign(
+    reportEnvelope.document,
+    commercialReportProjection(
+      commercialAudits,
+      commercialTasks,
+      documentsByPath,
+      currentDecisionSubjectIds,
+    ),
+  );
+  (reportEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
+    reportEnvelope.document,
+  );
+  const finalizedContext = await state.store.buildValidationContext(G14_RUN_ID, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [
+      { path: "manifest.json", document: prospectiveManifest },
+      {
+        path: state.decisionSubjectSnapshotEnvelope.artifact_path,
+        document: state.decisionSubjectSnapshotEnvelope,
+      },
+      {
+        path: state.decisionSubjectSynthesisEnvelope.artifact_path,
+        document: state.decisionSubjectSynthesisEnvelope,
+      },
+      { path: reportEnvelope.artifact_path, document: reportEnvelope },
+    ],
+    exact_records: [],
+  });
+  const provenanceDocuments = finalizedContext.bundle.documents.map((entry) => {
+    const document = effective(entry.document);
+    const schemaVersion = String(document.schema_version);
+    return {
+      path: entry.path,
+      schemaVersion,
+      document,
+      envelope: String(entry.document.schema_version).startsWith(
+        "startup_opportunity.artifact_envelope.",
+      )
+        ? entry.document
+        : null,
+    };
+  });
+  const exactRecords = finalizedContext.referenceContext.exactJsonlRecords ?? new Map();
+  (reportEnvelope.document as Record<string, unknown>).research_provenance =
+    deriveResearchProvenance(
+      G14_RUN_ID,
+      provenanceDocuments,
+      exactRecords,
+      reportEnvelope.artifact_path,
+    );
+  (reportEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
+    reportEnvelope.document,
+  );
 }
 
 test("Chinese terminal report localizes quantitative priority and readiness enums", async (context) => {
@@ -1253,8 +1430,58 @@ test("Chinese terminal prose localizes compiler inference text without changing 
 test("Chinese terminal report renders provisional solution exploration and rejects selection posture drift", async (context) => {
   const state = await prepareRun(context, { researchLanguage: "zh-CN" });
   await markRunTerminal(state);
+  const prospectiveManifest = (await state.store.status(G14_RUN_ID)).manifest;
   const reportEnvelope = terminalReportEnvelope(state);
-  const source = reportEnvelope.document;
+  await finalizeTerminalReportEnvelope(state, reportEnvelope, prospectiveManifest);
+  const baselineValidation = state.validator.validateDocument(
+    reportEnvelope,
+    reportEnvelope.artifact_path,
+  );
+  assert.equal(baselineValidation.valid, true, JSON.stringify(baselineValidation, null, 2));
+  const baselineContext = await state.store.buildValidationContext(G14_RUN_ID, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [
+      { path: "manifest.json", document: prospectiveManifest },
+      {
+        path: state.decisionSubjectSnapshotEnvelope.artifact_path,
+        document: state.decisionSubjectSnapshotEnvelope,
+      },
+      {
+        path: state.decisionSubjectSynthesisEnvelope.artifact_path,
+        document: state.decisionSubjectSynthesisEnvelope,
+      },
+      { path: reportEnvelope.artifact_path, document: reportEnvelope },
+    ],
+    exact_records: [],
+  });
+  const baselineReportEntry = baselineContext.bundle.documents.find(
+    (entry) => entry.path === reportEnvelope.artifact_path,
+  );
+  assert.ok(baselineReportEntry);
+  const baselineBundleValidation = state.validator.validateDocumentBundle(
+    baselineContext.bundle,
+    baselineContext.referenceContext,
+  );
+  assert.equal(
+    baselineBundleValidation.valid,
+    true,
+    JSON.stringify(baselineBundleValidation, null, 2),
+  );
+  assert.deepEqual(
+    validateDecisionSubjectContract(
+      reportingDocuments(baselineContext.bundle.documents),
+      baselineContext.referenceContext.exactJsonlRecords,
+      baselineContext.referenceContext.artifactPublicationRecords,
+    ),
+    [],
+  );
+  await state.runtime.prepareTerminalLocked(state.runRoot, {
+    reportEnvelope,
+    prospectiveManifest,
+    supportingEnvelopes: [],
+  });
+
+  const source = structuredClone(reportEnvelope.document) as Record<string, unknown>;
   source.research_provenance = {
     available_handoff_count: 0,
     captured_item_count: 0,
@@ -1269,29 +1496,7 @@ test("Chinese terminal report renders provisional solution exploration and rejec
   };
   const direction = (source.directions as Record<string, unknown>[])[0];
   assert.ok(direction);
-  direction.solution_evaluation_summary = {
-    exploration_status: "not_yet_explored",
-    selection_posture: "provisional_implementation",
-    status_rationale: "SYNTHETIC provisional solution exploration for terminal report regression.",
-    formal_solution_refs: ["solution-hypothesis.json"],
-    formal_solutions: [
-      {
-        solution_ref: "solution-hypothesis.json",
-        solution_content_hash: `sha256:${"1".repeat(64)}`,
-        disposition: "selected",
-        solution_behavior: "SYNTHETIC provisional solution behavior.",
-        solution_type: "SYNTHETIC solution type",
-        delivery_form: "SYNTHETIC delivery form",
-        uses_ai: false,
-      },
-    ],
-    selected_solution_ref: "solution-hypothesis.json",
-    alternative_solution_refs: [],
-    rejected_solutions: [],
-    considered_approaches: [],
-    critical_unknowns: [],
-    limitations: [],
-  };
+  direction.solution_evaluation_summary = terminalProvisionalSolutionEvaluationSummary();
   const brief = renderTerminalDecisionBrief(source);
   const full = renderTerminalFullReport(source);
   assert.match(brief, /尚未探索其他实现方式/);
@@ -1299,7 +1504,7 @@ test("Chinese terminal report renders provisional solution exploration and rejec
   assert.match(full, /尚未探索其他实现方式/);
   assert.match(full, /暂定实现/);
 
-  const rejectEnvelope = terminalReportEnvelope(state);
+  const rejectEnvelope = structuredClone(reportEnvelope);
   const rejectDirection = (rejectEnvelope.document.directions as Record<string, unknown>[])[0];
   assert.ok(rejectDirection);
   rejectDirection.solution_evaluation_summary = structuredClone(
@@ -1311,15 +1516,54 @@ test("Chinese terminal report renders provisional solution exploration and rejec
   (rejectEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
     rejectEnvelope.document,
   );
+  const rejectContext = await state.store.buildValidationContextLocked(
+    state.runRoot,
+    G14_RUN_ID,
+    {
+      schema_version: "startup_opportunity.document_bundle.current",
+      documents: [
+        { path: "manifest.json", document: prospectiveManifest },
+        {
+          path: state.decisionSubjectSnapshotEnvelope.artifact_path,
+          document: state.decisionSubjectSnapshotEnvelope,
+        },
+        {
+          path: state.decisionSubjectSynthesisEnvelope.artifact_path,
+          document: state.decisionSubjectSynthesisEnvelope,
+        },
+        { path: rejectEnvelope.artifact_path, document: rejectEnvelope },
+      ],
+      exact_records: [],
+    },
+    true,
+    new Set([rejectEnvelope.artifact_path]),
+    prospectiveManifest,
+  );
+  const rejectDecisionIssues = validateDecisionSubjectContract(
+    reportingDocuments(rejectContext.bundle.documents),
+    rejectContext.referenceContext.exactJsonlRecords,
+    rejectContext.referenceContext.artifactPublicationRecords,
+  );
+  assert.ok(
+    rejectDecisionIssues.some(
+      (issue) =>
+        issue.code === "decision_subject.direction_body_mismatch" ||
+        issue.code === "decision_subject.solution_exploration_projection_mismatch",
+    ),
+    JSON.stringify(rejectDecisionIssues, null, 2),
+  );
   const before = await snapshotTree(state.runRoot);
-  const prospectiveManifest = (await state.store.status(G14_RUN_ID)).manifest;
   await assert.rejects(
     state.runtime.prepareTerminalLocked(state.runRoot, {
       reportEnvelope: rejectEnvelope,
       prospectiveManifest,
       supportingEnvelopes: [],
     }),
-    (error: unknown) => error instanceof StoreError && error.code === "report.source_invalid",
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.equal(error.code, "report.source_invalid");
+      return true;
+    },
   );
   assert.deepEqual(await snapshotTree(state.runRoot), before);
 });
@@ -1342,9 +1586,9 @@ test("ReportRuntime localizes terminal inference vocabulary while preserving str
   requestSource.claim = TERMINAL_LOCALIZATION_VOCABULARY;
   const requestInference = requestSource.inference as Record<string, unknown>;
   requestInference.reasoning = TERMINAL_LOCALIZATION_VOCABULARY;
-  (request as { content_hash: string }).content_hash = canonicalContentHash(request.document);
-  const requestTruth = canonicalJson(request);
   const prospectiveManifest = (await state.store.status(G14_RUN_ID)).manifest;
+  await finalizeTerminalReportEnvelope(state, request, prospectiveManifest);
+  const requestTruth = canonicalJson(request);
   const operation = await state.runtime
     .prepareTerminalLocked(state.runRoot, {
       reportEnvelope: request,
