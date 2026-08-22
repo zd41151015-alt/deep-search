@@ -122,14 +122,9 @@
     ],
     "global_score_forbidden": true,
     "market_validation_claim_forbidden": true,
-    "scan_contract_version": "startup_opportunity.deterministic_forbidden_expression_scan.v2",
+    "scan_contract_version": "startup_opportunity.deterministic_forbidden_expression_scan.v3",
     "scan_surfaces": ["structured_report", "decision_brief", "report_view"],
-    "forbidden_rule_ids": [
-      "market_validation_success",
-      "probability_claim",
-      "global_score",
-      "comparative_selection_claim"
-    ]
+    "forbidden_rule_ids": ["market_validation_success", "probability_claim", "global_score"]
   },
   "execution_boundary": {
     "formal_artifacts_explicit": true,

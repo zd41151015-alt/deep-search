@@ -15,7 +15,6 @@ import {
 import {
   REPORT_SCAN_CONTRACT_VERSION,
   REPORT_SCAN_SURFACES,
-  requiresComparativeSelectionClamp,
   scanDiscoveryReportSurfaces,
 } from "./report-consistency.js";
 import { renderEvidenceDispositions } from "./report-evidence-dispositions.js";
@@ -744,14 +743,11 @@ export function deriveTerminalReportDocuments(
     audit_appendix_markdown: auditAppendixMarkdown,
     audit_appendix_content_hash: sha256Bytes(auditAppendixMarkdown),
   };
-  const matches = scanDiscoveryReportSurfaces(
-    {
-      structuredReport: source,
-      decisionBrief: briefMarkdown,
-      reportView: `${viewMarkdown}\n${auditAppendixMarkdown}`,
-    },
-    requiresComparativeSelectionClamp(source),
-  );
+  const matches = scanDiscoveryReportSurfaces({
+    structuredReport: source,
+    decisionBrief: briefMarkdown,
+    reportView: `${viewMarkdown}\n${auditAppendixMarkdown}`,
+  });
   const consistencyDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.report_consistency_evaluation.terminal.current",
     evaluation_id: `terminal_report_consistency_${revision.slice(1)}`,

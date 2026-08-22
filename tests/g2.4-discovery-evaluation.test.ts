@@ -24,6 +24,7 @@ import {
   sha256Bytes,
 } from "../harness/src/index.js";
 import { scanReportSurface } from "../harness/src/reporting/report-consistency.js";
+import { deriveSolutionEvaluationSummary } from "../harness/src/validators/discovery-synthesis-validator.js";
 import {
   fixtureEnvelope,
   G21_CORE_REFS,
@@ -35,13 +36,16 @@ import {
   G22_DEMAND_R2,
   G22_FAN_IN,
   G22_GENERATION_LANE,
+  G22_SOLUTION_EVALUATION_JUDGMENT,
   G22_SOLUTION_R1,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
   discoverySynthesisReadinessEnvelopes,
+  G23_EVALUATION,
   G23_MERGE,
   G23_OPPORTUNITY_A,
   G23_OPPORTUNITY_B,
+  G23_SNAPSHOT,
   G23_SOLUTION,
   G23_SOLUTION_ALT,
   G23_SOLUTION_CONVERSION,
@@ -188,6 +192,195 @@ function refreshAllInputHashes(bundle: DocumentBundle): void {
       return;
     }
   }
+}
+
+function synthesisDocumentsByPath(bundle: DocumentBundle): Map<
+  string,
+  {
+    readonly path: string;
+    readonly schemaVersion: string;
+    readonly document: Record<string, unknown>;
+    readonly envelope: Record<string, unknown> | null;
+  }
+> {
+  const documents: Array<
+    [
+      string,
+      {
+        readonly path: string;
+        readonly schemaVersion: string;
+        readonly document: Record<string, unknown>;
+        readonly envelope: Record<string, unknown> | null;
+      },
+    ]
+  > = bundle.documents.map((candidate) => {
+    const outer = candidate.document as Record<string, unknown>;
+    if (String(outer.schema_version).startsWith("startup_opportunity.artifact_envelope.")) {
+      return [
+        candidate.path,
+        {
+          path: candidate.path,
+          schemaVersion: String(outer.artifact_type),
+          document: outer.document as Record<string, unknown>,
+          envelope: outer,
+        },
+      ] as const;
+    }
+    return [
+      candidate.path,
+      {
+        path: candidate.path,
+        schemaVersion: String(outer.schema_version),
+        document: outer,
+        envelope: null,
+      },
+    ] as const;
+  });
+  return new Map(documents);
+}
+
+function appendHashBinding(
+  bindings: unknown,
+  ref: string,
+  document: Record<string, unknown>,
+): void {
+  if (!Array.isArray(bindings)) {
+    return;
+  }
+  if (
+    bindings.some(
+      (entry) =>
+        entry &&
+        typeof entry === "object" &&
+        String((entry as Record<string, unknown>).ref) === ref,
+    )
+  ) {
+    return;
+  }
+  bindings.push({ ref, content_hash: canonicalContentHash(document) });
+}
+
+function projectMixedSolutionExploration(bundle: DocumentBundle): Record<string, unknown> {
+  const provisionalEvaluationPath =
+    "artifacts/discovery/solution-evaluations/evaluation_household_provisional.r1.json";
+  const comparedEnvelope = clone(entry(bundle, G23_EVALUATION)) as Record<string, unknown>;
+  const comparedEvaluation = comparedEnvelope.document as Record<string, unknown>;
+  const provisionalEvaluation = clone(comparedEvaluation);
+  provisionalEvaluation.evaluation_id = "evaluation_household_provisional";
+  provisionalEvaluation.solution_hypothesis_refs = [G23_SOLUTION];
+  provisionalEvaluation.selected_solution_ref = G23_SOLUTION;
+  provisionalEvaluation.alternative_solution_refs = [];
+  provisionalEvaluation.rejected_solutions = [];
+  provisionalEvaluation.solution_exploration = {
+    status: "not_yet_explored",
+    status_rationale: "SYNTHETIC provisional solution exploration for mixed regression.",
+    considered_approaches: [],
+  };
+  provisionalEvaluation.baseline_comparisons = [
+    {
+      solution_ref: G23_SOLUTION,
+      incremental_value: "SYNTHETIC provisional incremental value.",
+      migration_cost: "SYNTHETIC provisional migration cost.",
+      decision: "selected",
+    },
+  ];
+  const provisionalEnvelope = {
+    ...comparedEnvelope,
+    artifact_path: provisionalEvaluationPath,
+    content_hash: canonicalContentHash(provisionalEvaluation),
+    document: provisionalEvaluation,
+  } as Record<string, unknown>;
+  (bundle.documents as { path: string; document: Record<string, unknown> }[]).push({
+    path: provisionalEvaluationPath,
+    document: provisionalEnvelope as Record<string, unknown>,
+  });
+  provisionalEnvelope.input_refs = (provisionalEnvelope.input_refs as string[]).filter(
+    (ref) => ref !== G23_SOLUTION_ALT && ref !== G23_SOLUTION_REJECTED,
+  );
+  const provisionalByPath = synthesisDocumentsByPath(bundle).get(provisionalEvaluationPath);
+  assert.ok(provisionalByPath);
+  const provisionalSummary = deriveSolutionEvaluationSummary(
+    provisionalByPath as Parameters<typeof deriveSolutionEvaluationSummary>[0],
+    synthesisDocumentsByPath(bundle) as Parameters<typeof deriveSolutionEvaluationSummary>[1],
+  );
+  const opportunityB = effective(bundle, G23_OPPORTUNITY_B);
+  opportunityB.solution_evaluation_ref = provisionalEvaluationPath;
+  opportunityB.solution_evaluation_summary = structuredClone(provisionalSummary);
+  opportunityB.alternative_solution_refs = [];
+  const opportunityBEnvelope = entry(bundle, G23_OPPORTUNITY_B);
+  opportunityBEnvelope.input_refs = [
+    ...new Set(
+      [...(opportunityBEnvelope.input_refs as string[]), provisionalEvaluationPath].filter(
+        (ref) =>
+          ref !== G23_EVALUATION &&
+          ref !== G22_SOLUTION_EVALUATION_JUDGMENT &&
+          ref !== G23_SOLUTION_ALT &&
+          ref !== G23_SOLUTION_REJECTED,
+      ),
+    ),
+  ].sort();
+  const comparisonB = effective(bundle, G24_COMPARISON_B);
+  comparisonB.solution_evaluation_summary = structuredClone(provisionalSummary);
+  appendHashBinding(
+    comparisonB.input_artifact_hashes,
+    provisionalEvaluationPath,
+    provisionalEvaluation,
+  );
+  const comparisonBEnvelope = entry(bundle, G24_COMPARISON_B);
+  comparisonBEnvelope.input_refs = [
+    ...new Set(
+      [...(comparisonBEnvelope.input_refs as string[]), provisionalEvaluationPath].filter(
+        (ref) =>
+          ref !== G23_SOLUTION_ALT &&
+          ref !== G23_SOLUTION_REJECTED &&
+          ref !== G22_SOLUTION_EVALUATION_JUDGMENT,
+      ),
+    ),
+  ].sort();
+  const snapshot = effective(bundle, G23_SNAPSHOT);
+  snapshot.solution_evaluation_refs = [G23_EVALUATION, provisionalEvaluationPath];
+  const snapshotEnvelope = entry(bundle, G23_SNAPSHOT);
+  snapshotEnvelope.input_refs = [
+    ...new Set([
+      ...(snapshotEnvelope.input_refs as string[]),
+      provisionalEvaluationPath,
+      G23_SOLUTION_ALT,
+      G23_SOLUTION_REJECTED,
+    ]),
+  ].sort();
+  const portfolio = effective(bundle, G24_PORTFOLIO);
+  portfolio.recommended_first_bet = G23_OPPORTUNITY_B;
+  portfolio.alternative_bets = [G23_OPPORTUNITY_A];
+  const recommendation = effective(bundle, G24_RECOMMENDATION);
+  recommendation.recommended_first_bet = G23_OPPORTUNITY_B;
+  recommendation.alternative_bets = [G23_OPPORTUNITY_A];
+  const report = effective(bundle, G24_REPORT);
+  report.top_opportunity_refs = [G23_OPPORTUNITY_B];
+  const reportContext = report.curated_judgment_context as Record<string, unknown>;
+  reportContext.current_recommendation =
+    "Opportunity B remains the first bet, but its implementation posture is provisional.";
+  reportContext.recommended_first_bet = G23_OPPORTUNITY_B;
+  reportContext.alternative_bets = [G23_OPPORTUNITY_A];
+  const reportEvaluations = report.solution_evaluations as Record<string, unknown>[];
+  const reportB = reportEvaluations.find((entry) => entry.opportunity_ref === G23_OPPORTUNITY_B);
+  if (reportB?.evaluation && typeof reportB.evaluation === "object") {
+    Object.assign(reportB.evaluation as Record<string, unknown>, provisionalSummary);
+  }
+  const reportMetadata = report.report_metadata as Record<string, unknown> | undefined;
+  appendHashBinding(
+    reportMetadata?.input_artifact_hashes,
+    provisionalEvaluationPath,
+    provisionalEvaluation,
+  );
+  const reportEnvelope = entry(bundle, G24_REPORT);
+  reportEnvelope.input_refs = [
+    ...new Set([...(reportEnvelope.input_refs as string[]), provisionalEvaluationPath]),
+  ].sort();
+  refreshAllInputHashes(bundle);
+  return {
+    provisionalEvaluationPath,
+    provisionalSummary,
+  };
 }
 
 async function setup(
@@ -1170,21 +1363,17 @@ test("G2.4 forbidden-expression rules cover every formal surface and separator v
   assert.deepEqual(scanReportSurface("report_view", "local score remains unknown"), []);
   assert.deepEqual(scanReportSurface("structured_report", "market validation remains pending"), []);
   assert.deepEqual(
-    scanReportSurface(
-      "structured_report",
-      {
-        source_title: "Best practices for the workflow",
-        quoted_text: "Users call this the best option",
-        solution_evaluations: [
-          {
-            evaluation: {
-              exploration_status: "not_yet_explored",
-            },
+    scanReportSurface("structured_report", {
+      source_title: "Best practices for the workflow",
+      quoted_text: "Users call this the best option",
+      solution_evaluations: [
+        {
+          evaluation: {
+            exploration_status: "not_yet_explored",
           },
-        ],
-      },
-      true,
-    ),
+        },
+      ],
+    }),
     [],
   );
 
@@ -1235,102 +1424,89 @@ test("G2.4 forbidden-expression rules cover every formal surface and separator v
   );
 });
 
-test("G2.4 mixed compared and provisional opportunities keep comparative wording scoped to the compared opportunity", async (context) => {
+test("G2.4 mixed compared and provisional opportunities preserve exact posture projection and allow a provisional first bet", async (context) => {
   const state = await setup(context, "mixed-scope", "general", "en-US", "compared");
-  await publishThroughEvaluation(state);
-  const report = evaluationEnvelope(state.bundle, G24_REPORT);
-  const structured = report.document as Record<string, unknown>;
-  const evaluations = structured.solution_evaluations as Record<string, unknown>[];
-  assert.equal(evaluations.length, 2);
-  const comparedEvaluation = evaluations[0]?.evaluation as Record<string, unknown>;
-  const provisionalEvaluation = evaluations[1]?.evaluation as Record<string, unknown>;
-  comparedEvaluation.current_recommendation = "best compared selection for the first opportunity";
-  comparedEvaluation.partial_order_summary = "preferred after comparison";
-  provisionalEvaluation.current_recommendation = "provisional choice only";
-  provisionalEvaluation.selection_posture = "provisional_implementation";
-  provisionalEvaluation.status_rationale = "evidence remains provisional and not yet explored.";
-  structured.curated_judgment_context = {
-    ...(structured.curated_judgment_context as Record<string, unknown>),
-    current_recommendation: "best compared selection for the first opportunity",
-    partial_order_summary: "preferred after comparison",
-  };
-  const reportSections = structured.report_sections as Record<string, unknown>;
-  reportSections.decision_recommendation = ["best compared selection for the first opportunity"];
-  reportSections.conclusion_summary = ["best compared selection for the first opportunity"];
-  (report as { content_hash: string }).content_hash = canonicalContentHash(report.document);
-  const derived = deriveReportEnvelopes(report);
-  const consistency = derived.find(
-    (candidate) =>
-      candidate.artifact_type ===
-      "startup_opportunity.report_consistency_evaluation.discovery.current",
-  );
-  assert.ok(consistency);
-  assert.equal(consistency.document.evaluator_result, "passed");
-  assert.deepEqual(consistency.document.forbidden_expression_matches, []);
-  const decisionBrief = String(
-    derived.find(
-      (candidate) =>
-        candidate.artifact_type === "startup_opportunity.decision_brief.discovery.current",
-    )?.document.markdown,
-  );
-  const reportMarkdown = String(
-    derived.find(
-      (candidate) => candidate.artifact_type === "startup_opportunity.discovery_report_view.v1",
-    )?.document.markdown,
-  );
-  const projectedReport = report.document as Record<string, unknown>;
-  const solutionEvaluations = projectedReport.solution_evaluations as Record<string, unknown>[];
-  const firstEvaluation = solutionEvaluations[0];
-  const secondEvaluation = solutionEvaluations[1];
-  assert.ok(firstEvaluation);
-  assert.ok(secondEvaluation);
+  projectMixedSolutionExploration(state.bundle);
+  const bundleValidation = state.validator.validateDocumentBundle(state.bundle);
   assert.equal(
-    (firstEvaluation.evaluation as Record<string, unknown>).exploration_status,
+    bundleValidation.valid,
+    true,
+    JSON.stringify(bundleValidation.referenceErrors, null, 2),
+  );
+  await publishThroughEvaluation(state);
+  const runtime = new ReportRuntime(state.runsRoot, state.validator);
+  const report = clone(evaluationEnvelope(state.bundle, G24_REPORT));
+  const build = await runtime.build({ reportEnvelope: report });
+  assert.equal(build.status, "published");
+  const projectedReport = JSON.parse(
+    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  const solutionEvaluations = projectedReport.solution_evaluations as Record<string, unknown>[];
+  assert.equal(solutionEvaluations.length, 2);
+  assert.ok(solutionEvaluations[0]);
+  assert.ok(solutionEvaluations[1]);
+  assert.equal(
+    (solutionEvaluations[0].evaluation as Record<string, unknown>).exploration_status,
     "compared_multiple_formal_solutions",
   );
   assert.equal(
-    (secondEvaluation.evaluation as Record<string, unknown>).selection_posture,
+    (solutionEvaluations[0].evaluation as Record<string, unknown>).selection_posture,
+    "compared_selection",
+  );
+  assert.equal(
+    (solutionEvaluations[1].evaluation as Record<string, unknown>).exploration_status,
+    "not_yet_explored",
+  );
+  assert.equal(
+    (solutionEvaluations[1].evaluation as Record<string, unknown>).selection_posture,
     "provisional_implementation",
   );
-  assert.match(decisionBrief, /best compared selection/);
-  assert.match(reportMarkdown, /best compared selection/);
+  assert.equal(
+    (projectedReport.curated_judgment_context as Record<string, unknown>).recommended_first_bet,
+    G23_OPPORTUNITY_B,
+  );
+  assert.deepEqual(
+    (projectedReport.curated_judgment_context as Record<string, unknown>).alternative_bets,
+    [G23_OPPORTUNITY_A],
+  );
+  const decisionBrief = await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8");
+  const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
+  assert.match(decisionBrief, /compared selection/);
+  assert.match(decisionBrief, /provisional implementation/);
+  assert.match(reportMarkdown, /compared selection/);
+  assert.match(reportMarkdown, /provisional implementation/);
 });
 
-test("G2.4 mixed compared and provisional opportunities reject comparative-best wording in the provisional opportunity before publication and writes nothing", async (context) => {
+test("G2.4 mixed compared and provisional opportunities reject structural posture drift before publication and writes nothing", async (context) => {
   const state = await setup(context, "mixed-provisional-clamp", "general", "en-US", "compared");
-  await publishThroughEvaluation(state);
-  const report = clone(evaluationEnvelope(state.bundle, G24_REPORT));
-  const structured = report.document as Record<string, unknown>;
-  const evaluations = structured.solution_evaluations as Record<string, unknown>[];
-  assert.equal(evaluations.length, 2);
-  const comparedEvaluation = evaluations[0]?.evaluation as Record<string, unknown>;
-  const provisionalEvaluation = evaluations[1]?.evaluation as Record<string, unknown>;
-  comparedEvaluation.exploration_status = "compared_multiple_formal_solutions";
-  comparedEvaluation.current_recommendation = "best compared selection for the first opportunity";
-  comparedEvaluation.partial_order_summary = "preferred after comparison";
-  provisionalEvaluation.exploration_status = "not_yet_explored";
-  provisionalEvaluation.current_recommendation = "the best choice for the provisional opportunity";
-  provisionalEvaluation.selection_posture = "provisional_implementation";
-  provisionalEvaluation.status_rationale = "evidence remains provisional and not yet explored.";
-  (report as { content_hash: string }).content_hash = canonicalContentHash(report.document);
-  const before = await treeSnapshot(state.runRoot);
-  const derived = deriveReportEnvelopes(report);
-  const consistency = derived.find(
-    (candidate) =>
-      candidate.artifact_type ===
-      "startup_opportunity.report_consistency_evaluation.discovery.current",
-  );
-  assert.ok(consistency);
-  assert.equal(consistency.document.evaluator_result, "failed");
+  projectMixedSolutionExploration(state.bundle);
+  const opportunityB = effective(state.bundle, G23_OPPORTUNITY_B) as Record<string, unknown>;
+  const opportunityBSummary = opportunityB.solution_evaluation_summary as Record<string, unknown>;
+  opportunityBSummary.selection_posture = "compared_selection";
+  const validation = state.validator.validateDocumentBundle(state.bundle);
+  assert.equal(validation.valid, false);
   assert.ok(
-    (consistency.document.forbidden_expression_matches as string[]).some((match) =>
-      match.startsWith("comparative_selection_claim@structured_report:"),
-    ),
+    validation.referenceErrors.some((error) => error.code === "synthesis.thesis_lineage_mismatch"),
+    JSON.stringify(validation.referenceErrors, null, 2),
+  );
+  const before = await treeSnapshot(state.runRoot);
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: byTypes(
+        envelopes(state.bundle, "startup_opportunity.artifact_envelope.current"),
+        ...SYNTHESIS_ARTIFACT_TYPES,
+      ),
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      (error.code === "artifact.reference_invalid" ||
+        error.code === "run.discovery_synthesis_readiness_required"),
   );
   assert.deepEqual(await treeSnapshot(state.runRoot), before);
 });
 
-test("G2.4 provisional evidence with best in source title and quote does not trigger comparative clamp", async (context) => {
+test("G2.4 source and quote text can contain best without affecting report scan", async (context) => {
   const state = await setup(context, "evidence-surface");
   await publishThroughEvaluation(state);
   const report = evaluationEnvelope(state.bundle, G24_REPORT);
@@ -2036,12 +2212,6 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   assert.match(reportMarkdown, /尚未探索其他实现方式/);
   assert.match(reportMarkdown, /暂定实现/);
   assert.ok(reportMarkdown.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
-  for (const surface of [decisionBrief, reportMarkdown]) {
-    assert.doesNotMatch(
-      surface,
-      /\b(?:best|preferred|optimal|optimum|top choice|first choice)\b/iu,
-    );
-  }
   const auditAppendix = await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8");
   assert.match(auditAppendix, /全部量化信号/);
   assert.match(auditAppendix, /完整竞品与广义替代矩阵/);
@@ -2116,22 +2286,19 @@ test("G2.4 compared exploration keeps all formal solutions visible in report sur
   assert.match(reportMarkdown, /全部正式方案/);
 });
 
-test("G2.4 provisional exploration rejects comparative-best wording before publication and writes nothing", async (context) => {
+test("G2.4 provisional exploration rejects selection posture drift before publication and writes nothing", async (context) => {
   const state = await setup(context, "provisional-report-clamp");
   await publishThroughEvaluation(state);
   const runtime = new ReportRuntime(state.runsRoot, state.validator);
-  const report = evaluationEnvelope(state.bundle, G24_REPORT);
-  const judgmentContext = report.document.curated_judgment_context as Record<string, unknown>;
-  judgmentContext.current_recommendation = "the best choice for now";
-  const reportSections = report.document.report_sections as Record<string, unknown>;
-  reportSections.decision_recommendation = ["the best choice for now"];
-  reportSections.conclusion_summary = ["the best choice for now"];
+  const report = clone(evaluationEnvelope(state.bundle, G24_REPORT));
+  const evaluation = (report.document.solution_evaluations as Record<string, unknown>[])[0]
+    ?.evaluation as Record<string, unknown>;
+  evaluation.selection_posture = "compared_selection";
   (report as { content_hash: string }).content_hash = canonicalContentHash(report.document);
   const before = await treeSnapshot(state.runRoot);
   await assert.rejects(
     runtime.build({ reportEnvelope: report }),
-    (error: unknown) =>
-      error instanceof StoreError && error.code === "report.forbidden_expression_detected",
+    (error: unknown) => error instanceof StoreError && error.code === "report.source_invalid",
   );
   assert.deepEqual(await treeSnapshot(state.runRoot), before);
 });

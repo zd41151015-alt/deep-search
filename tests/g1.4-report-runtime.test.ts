@@ -1250,7 +1250,7 @@ test("Chinese terminal prose localizes compiler inference text without changing 
   assert.deepEqual(localizedTerminalUserViewIssues(source, full), []);
 });
 
-test("Chinese terminal report renders provisional solution exploration and rejects comparative-best wording", async (context) => {
+test("Chinese terminal report renders provisional solution exploration and rejects selection posture drift", async (context) => {
   const state = await prepareRun(context, { researchLanguage: "zh-CN" });
   await markRunTerminal(state);
   const reportEnvelope = terminalReportEnvelope(state);
@@ -1298,14 +1298,16 @@ test("Chinese terminal report renders provisional solution exploration and rejec
   assert.match(brief, /暂定实现/);
   assert.match(full, /尚未探索其他实现方式/);
   assert.match(full, /暂定实现/);
-  assert.doesNotMatch(
-    `${brief}\n${full}`,
-    /\b(?:best|preferred|optimal|optimum|top choice|first choice)\b/iu,
-  );
 
   const rejectEnvelope = terminalReportEnvelope(state);
-  const rejectConclusion = rejectEnvelope.document.research_conclusion as Record<string, unknown>;
-  rejectConclusion.current_recommendation = "the best choice for now";
+  const rejectDirection = (rejectEnvelope.document.directions as Record<string, unknown>[])[0];
+  assert.ok(rejectDirection);
+  rejectDirection.solution_evaluation_summary = structuredClone(
+    direction.solution_evaluation_summary,
+  );
+  const rejectSummary = rejectDirection.solution_evaluation_summary as Record<string, unknown>;
+  assert.ok(rejectSummary);
+  rejectSummary.selection_posture = "compared_selection";
   (rejectEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
     rejectEnvelope.document,
   );
@@ -1317,8 +1319,7 @@ test("Chinese terminal report renders provisional solution exploration and rejec
       prospectiveManifest,
       supportingEnvelopes: [],
     }),
-    (error: unknown) =>
-      error instanceof StoreError && error.code === "report.forbidden_expression_detected",
+    (error: unknown) => error instanceof StoreError && error.code === "report.source_invalid",
   );
   assert.deepEqual(await snapshotTree(state.runRoot), before);
 });

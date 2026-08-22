@@ -534,6 +534,34 @@ test("G2.3 compared exploration preserves all formal solutions and compared sele
   assert.ok(loaded.manifest.artifact_refs.includes(G23_SOLUTION_REJECTED));
 });
 
+test("G2.3 rejects solution evaluation summaries without formal_solutions and writes nothing", async (context) => {
+  const state = await setup(context, "formal-solutions-required", "compared");
+  const validator = await createArtifactValidator(repositoryRoot);
+  await publishThroughFanIn(state);
+  const bundle = clone(state.bundle);
+  delete (
+    effective(bundle, G23_OPPORTUNITY_A).solution_evaluation_summary as Record<string, unknown>
+  ).formal_solutions;
+  refresh(bundle, G23_OPPORTUNITY_A);
+  const result = validator.validateDocumentBundle(bundle);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.documents
+      .flatMap((document) => document.errors)
+      .some((error) => error.code === "schema.required"),
+    JSON.stringify(result.documents, null, 2),
+  );
+  const before = await treeSnapshot(state.runRoot);
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: comparedSynthesisEnvelopes(bundle),
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "artifact.schema_invalid",
+  );
+  assert.deepEqual(await treeSnapshot(state.runRoot), before);
+});
+
 test("G2.3 rejects not_yet_explored when multiple formal solutions remain and writes nothing", async (context) => {
   const state = await setup(context, "not-yet-explored-multi", "compared");
   const validator = await createArtifactValidator(repositoryRoot);

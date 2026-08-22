@@ -83,7 +83,7 @@
       }
     },
     "scan_contract_version": {
-      "const": "startup_opportunity.deterministic_forbidden_expression_scan.v2"
+      "const": "startup_opportunity.deterministic_forbidden_expression_scan.v3"
     },
     "scanned_surfaces": {
       "type": "array",

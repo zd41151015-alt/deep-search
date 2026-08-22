@@ -7,7 +7,6 @@ import {
 } from "../artifact-store/publication-policy.js";
 import {
   requiresDeterministicReportScan,
-  scanComparativeSelectionSurface,
   scanReportSurface,
 } from "../reporting/report-consistency.js";
 import { type AiBundleDocument, validateAiBundleContract } from "./ai-bundle-validator.js";
@@ -4321,10 +4320,7 @@ function validateResearchEnvelopeContract(document: unknown): readonly Validatio
         : surface === "report_view"
           ? `${String(document.document.markdown)}\n${String(document.document.audit_appendix_markdown)}`
           : document.document.markdown;
-    const forbiddenMatches = [
-      ...scanReportSurface(surface, scanValue),
-      ...scanComparativeSelectionSurface(surface, document.document),
-    ].sort();
+    const forbiddenMatches = scanReportSurface(surface, scanValue);
     if (forbiddenMatches.length > 0) {
       errors.push({
         code: "g2_4.forbidden_report_expression",
