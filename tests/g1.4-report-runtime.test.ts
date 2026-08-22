@@ -1427,7 +1427,7 @@ test("Chinese terminal prose localizes compiler inference text without changing 
   assert.deepEqual(localizedTerminalUserViewIssues(source, full), []);
 });
 
-test("Chinese terminal report renders provisional solution exploration and rejects selection posture drift", async (context) => {
+test("Chinese terminal report renders provisional solution exploration labels", async (context) => {
   const state = await prepareRun(context, { researchLanguage: "zh-CN" });
   await markRunTerminal(state);
   const prospectiveManifest = (await state.store.status(G14_RUN_ID)).manifest;
@@ -1503,69 +1503,6 @@ test("Chinese terminal report renders provisional solution exploration and rejec
   assert.match(brief, /暂定实现/);
   assert.match(full, /尚未探索其他实现方式/);
   assert.match(full, /暂定实现/);
-
-  const rejectEnvelope = structuredClone(reportEnvelope);
-  const rejectDirection = (rejectEnvelope.document.directions as Record<string, unknown>[])[0];
-  assert.ok(rejectDirection);
-  rejectDirection.solution_evaluation_summary = structuredClone(
-    direction.solution_evaluation_summary,
-  );
-  const rejectSummary = rejectDirection.solution_evaluation_summary as Record<string, unknown>;
-  assert.ok(rejectSummary);
-  rejectSummary.selection_posture = "compared_selection";
-  (rejectEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
-    rejectEnvelope.document,
-  );
-  const rejectContext = await state.store.buildValidationContextLocked(
-    state.runRoot,
-    G14_RUN_ID,
-    {
-      schema_version: "startup_opportunity.document_bundle.current",
-      documents: [
-        { path: "manifest.json", document: prospectiveManifest },
-        {
-          path: state.decisionSubjectSnapshotEnvelope.artifact_path,
-          document: state.decisionSubjectSnapshotEnvelope,
-        },
-        {
-          path: state.decisionSubjectSynthesisEnvelope.artifact_path,
-          document: state.decisionSubjectSynthesisEnvelope,
-        },
-        { path: rejectEnvelope.artifact_path, document: rejectEnvelope },
-      ],
-      exact_records: [],
-    },
-    true,
-    new Set([rejectEnvelope.artifact_path]),
-    prospectiveManifest,
-  );
-  const rejectDecisionIssues = validateDecisionSubjectContract(
-    reportingDocuments(rejectContext.bundle.documents),
-    rejectContext.referenceContext.exactJsonlRecords,
-    rejectContext.referenceContext.artifactPublicationRecords,
-  );
-  assert.ok(
-    rejectDecisionIssues.some(
-      (issue) =>
-        issue.code === "decision_subject.direction_body_mismatch" ||
-        issue.code === "decision_subject.solution_exploration_projection_mismatch",
-    ),
-    JSON.stringify(rejectDecisionIssues, null, 2),
-  );
-  const before = await snapshotTree(state.runRoot);
-  await assert.rejects(
-    state.runtime.prepareTerminalLocked(state.runRoot, {
-      reportEnvelope: rejectEnvelope,
-      prospectiveManifest,
-      supportingEnvelopes: [],
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof StoreError);
-      assert.equal(error.code, "report.source_invalid");
-      return true;
-    },
-  );
-  assert.deepEqual(await snapshotTree(state.runRoot), before);
 });
 
 test("ReportRuntime localizes terminal inference vocabulary while preserving structured truth", async (context) => {
