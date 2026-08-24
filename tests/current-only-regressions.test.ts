@@ -6835,13 +6835,17 @@ test("all deterministic scaffold kinds are schema-valid and preserve runtime bou
     "readiness",
     "gap",
     "decision",
+    "planning_capabilities",
     "decision_subject_snapshot",
     "terminal_report_source",
   ] as const;
   for (const mode of modes) {
     for (const kind of kinds) {
+      if (kind === "planning_capabilities" && mode === "concept_evidence_assessment") {
+        continue;
+      }
       const runId = `current-only-scaffold-${mode}-synthetic`;
-      const result = buildArtifactScaffold(
+      const result = await buildArtifactScaffold(
         {
           schema_version: "startup_opportunity.scaffold_request.current",
           scaffold_id: `scaffold_${mode}_${kind}_synthetic`,
@@ -6855,6 +6859,17 @@ test("all deterministic scaffold kinds are schema-valid and preserve runtime bou
             target_users: ["synthetic user"],
             decision_goal: "decide whether to continue synthetic research",
             research_language: "en-US",
+            team_context: {
+              hard_constraints: [],
+              known_strengths_and_gaps: [],
+              other_team_conditions: {
+                status: "unknown",
+                source_kind: "unknown",
+                confirmation_status: "unknown",
+                reporting_disclosure:
+                  "Team conditions not explicitly captured as hard constraints or known strengths and gaps remain unknown.",
+              },
+            },
             user_confirmed: true,
           },
         },
@@ -6863,6 +6878,10 @@ test("all deterministic scaffold kinds are schema-valid and preserve runtime bou
       assert.equal(result.schema_valid, true);
       assert.equal(result.semantic_judgment_generated, false);
       assert.equal(result.working_directory, `dist/research-working/${runId}`);
+      assert.equal(
+        Object.hasOwn(result, "planning_capabilities"),
+        kind === "planning_capabilities",
+      );
       const compilation = result.compilation_request as Record<string, unknown>;
       const artifacts = compilation.artifacts as Record<string, unknown>[];
       assert.equal(artifacts.length, 1);
@@ -6874,7 +6893,7 @@ test("all deterministic scaffold kinds are schema-valid and preserve runtime bou
     }
   }
 
-  const dispatch = buildArtifactScaffold(
+  const dispatch = await buildArtifactScaffold(
     {
       schema_version: "startup_opportunity.scaffold_request.current",
       scaffold_id: "scaffold_dispatch_tokens_synthetic",
@@ -6888,6 +6907,17 @@ test("all deterministic scaffold kinds are schema-valid and preserve runtime bou
         target_users: ["synthetic user"],
         decision_goal: "decide whether to continue synthetic research",
         research_language: "en-US",
+        team_context: {
+          hard_constraints: [],
+          known_strengths_and_gaps: [],
+          other_team_conditions: {
+            status: "unknown",
+            source_kind: "unknown",
+            confirmation_status: "unknown",
+            reporting_disclosure:
+              "Team conditions not explicitly captured as hard constraints or known strengths and gaps remain unknown.",
+          },
+        },
         user_confirmed: true,
       },
     },

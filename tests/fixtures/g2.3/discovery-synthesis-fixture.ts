@@ -23,6 +23,7 @@ import {
   G22_GENERATION_MANIFEST,
   G22_INSIGHT,
   G22_JUDGMENT,
+  G22_RETAINED_PRE_CANDIDATE,
   G22_SOLUTION_EVALUATION_JUDGMENT,
   G22_SOLUTION_GENERATION_JUDGMENT,
   G22_SOLUTION_R1,
@@ -105,6 +106,9 @@ function conversion(
   kind: "demand_seed" | "baseline_seed" | "solution_seed",
   revision: number,
   sourceHash: string,
+  sourcePreCandidateRef: string,
+  sourcePreCandidateRevision: number,
+  sourcePreCandidateHash: string,
   targetType: string,
   targetRef: string,
   targetHash: string,
@@ -123,6 +127,9 @@ function conversion(
     source_candidate_kind: kind,
     source_candidate_revision: revision,
     source_candidate_content_hash: sourceHash,
+    source_pre_candidate_ref: sourcePreCandidateRef,
+    source_pre_candidate_revision: sourcePreCandidateRevision,
+    source_pre_candidate_content_hash: sourcePreCandidateHash,
     discovery_fan_in_ref: G22_FAN_IN,
     target_schema_version: targetType,
     target_artifact_ref: targetRef,
@@ -158,6 +165,7 @@ function opportunity(
     scope_frame_ref: G21_SCOPE_REF,
     research_plan_ref: G21_PLAN_REF,
     discovery_fan_in_ref: G22_FAN_IN,
+    source_pre_candidate_ref: G22_RETAINED_PRE_CANDIDATE,
     title,
     description: SYNTHETIC,
     opportunity_thesis: SYNTHETIC,
@@ -276,6 +284,8 @@ export async function createDiscoverySynthesisFixture(
   fanIn.pre_kill_summary = ["SYNTHETIC all three typed candidates retained for G2.3 fixture."];
   const fanInEnvelope = fixtureEntry(bundle, G22_FAN_IN);
   fanInEnvelope.content_hash = canonicalContentHash(fanIn);
+  const retainedPreCandidate = fixtureEffective(bundle, G22_RETAINED_PRE_CANDIDATE);
+  const retainedPreCandidateHash = canonicalContentHash(retainedPreCandidate);
   const sourceSolutionSubject = fixtureEffective(bundle, G22_SOLUTION_R1).subject as Record<
     string,
     unknown
@@ -293,6 +303,7 @@ export async function createDiscoverySynthesisFixture(
     discovery_fan_in_ref: G22_FAN_IN,
     source_conversion_ref: G23_DEMAND_CONVERSION,
     source_candidate_ref: G22_DEMAND_R2,
+    source_pre_candidate_ref: G22_RETAINED_PRE_CANDIDATE,
     solution_neutral: true,
     source_groups: sourceGroups(),
     user: [SYNTHETIC],
@@ -351,6 +362,7 @@ export async function createDiscoverySynthesisFixture(
     discovery_fan_in_ref: G22_FAN_IN,
     source_conversion_ref: G23_BASELINE_CONVERSION,
     source_candidate_ref: G22_BASELINE_R1,
+    source_pre_candidate_ref: G22_RETAINED_PRE_CANDIDATE,
     demand_thesis_ref: G23_DEMAND,
     current_workflow: SYNTHETIC,
     current_cost: SYNTHETIC,
@@ -375,6 +387,7 @@ export async function createDiscoverySynthesisFixture(
     discovery_fan_in_ref: G22_FAN_IN,
     source_conversion_ref: G23_SOLUTION_CONVERSION,
     source_candidate_ref: G22_SOLUTION_R1,
+    source_pre_candidate_ref: G22_RETAINED_PRE_CANDIDATE,
     demand_thesis_ref: G23_DEMAND,
     baseline_option_ref: G23_BASELINE,
     selected: false,
@@ -667,6 +680,50 @@ export async function createDiscoverySynthesisFixture(
       },
     ],
     preserved_variants: [G23_OPPORTUNITY_B],
+    opportunity_families: [
+      {
+        family_id: "family_household_coordination",
+        title: "SYNTHETIC shared household coordination mechanism",
+        family_relation: "shared_opportunity_family",
+        members: [
+          {
+            opportunity_ref: G23_OPPORTUNITY_A,
+            relation_to_family: "segment_variant",
+          },
+          {
+            opportunity_ref: G23_OPPORTUNITY_B,
+            relation_to_family: "delivery_or_implementation_variant",
+          },
+        ],
+        shared_value_or_solution_mechanism: {
+          state: "inferred",
+          description:
+            "SYNTHETIC shared coordination loop; this is research semantics, not a Harness inference.",
+        },
+        shared_assumptions: [SYNTHETIC],
+        shared_failure_risks: [SYNTHETIC],
+        member_specific_differences: [
+          {
+            opportunity_ref: G23_OPPORTUNITY_A,
+            dimensions: [{ dimension: "user", state: "declared", description: SYNTHETIC }],
+          },
+          {
+            opportunity_ref: G23_OPPORTUNITY_B,
+            dimensions: [
+              { dimension: "delivery_boundary", state: "partial", description: SYNTHETIC },
+            ],
+          },
+        ],
+        evidence_basis: {
+          supporting_refs: [],
+          opposing_refs: [],
+          background_refs: [],
+          unknown_refs: [],
+          limitations: [SYNTHETIC],
+          unresolved_questions: [SYNTHETIC],
+        },
+      },
+    ],
     candidate_diversity_after_merge: {
       covered_users: [SYNTHETIC],
       covered_jobs: [SYNTHETIC],
@@ -697,6 +754,9 @@ export async function createDiscoverySynthesisFixture(
         "demand_seed",
         2,
         canonicalContentHash(fixtureEffective(bundle, G22_DEMAND_R2)),
+        G22_RETAINED_PRE_CANDIDATE,
+        Number(retainedPreCandidate.revision),
+        retainedPreCandidateHash,
         "startup_opportunity.demand_thesis.v1",
         G23_DEMAND,
         canonicalContentHash(demand),
@@ -711,6 +771,9 @@ export async function createDiscoverySynthesisFixture(
         "baseline_seed",
         1,
         canonicalContentHash(fixtureEffective(bundle, G22_BASELINE_R1)),
+        G22_RETAINED_PRE_CANDIDATE,
+        Number(retainedPreCandidate.revision),
+        retainedPreCandidateHash,
         "startup_opportunity.baseline_option.v1",
         G23_BASELINE,
         canonicalContentHash(baseline),
@@ -727,6 +790,9 @@ export async function createDiscoverySynthesisFixture(
             "solution_seed",
             1,
             canonicalContentHash(fixtureEffective(bundle, G22_SOLUTION_R1)),
+            G22_RETAINED_PRE_CANDIDATE,
+            Number(retainedPreCandidate.revision),
+            retainedPreCandidateHash,
             "startup_opportunity.solution_hypothesis.v1",
             path,
             canonicalContentHash(document as Record<string, unknown>),
@@ -824,6 +890,12 @@ export async function createDiscoverySynthesisFixture(
       };
     },
   );
+  const preCandidateRoles = (fanIn.pre_candidate_dispositions as Record<string, unknown>[]).map(
+    (disposition) => ({
+      pre_candidate_ref: String(disposition.pre_candidate_ref),
+      disposition: String(disposition.disposition),
+    }),
+  );
   const readiness = {
     schema_version: "startup_opportunity.discovery_stage_readiness.v1",
     readiness_id: "readiness_discovery_synthesis",
@@ -836,6 +908,7 @@ export async function createDiscoverySynthesisFixture(
     source_fan_in_ref: G22_FAN_IN,
     generation_result_refs: [],
     candidate_roles: candidateRoles,
+    pre_candidate_roles: preCandidateRoles,
     required_candidate_kinds: ["demand_seed", "baseline_seed", "solution_seed"],
     missing_candidate_kinds: [],
     question_coverage: questionCoverage,
@@ -896,6 +969,7 @@ export async function createDiscoverySynthesisFixture(
         G23_EXECUTION,
         G22_FAN_IN,
         ...candidateRoles.map((role) => String(role.candidate_ref)),
+        ...preCandidateRoles.map((role) => String(role.pre_candidate_ref)),
         ...judgmentRefs,
       ],
       "2026-07-27T19:57:00Z",
@@ -920,6 +994,7 @@ export async function createDiscoverySynthesisFixture(
           G21_PLAN_REF,
           G22_FAN_IN,
           String(document.source_candidate_ref),
+          String(document.source_pre_candidate_ref),
           String(document.target_artifact_ref),
         ],
         "2026-07-27T20:00:00Z",
@@ -935,6 +1010,7 @@ export async function createDiscoverySynthesisFixture(
         G22_FAN_IN,
         conversionRef,
         G22_SOLUTION_R1,
+        G22_RETAINED_PRE_CANDIDATE,
         G23_DEMAND,
         G23_BASELINE,
         G22_GENERATION_CLAIM,
@@ -952,6 +1028,7 @@ export async function createDiscoverySynthesisFixture(
         G22_FAN_IN,
         G23_DEMAND_CONVERSION,
         G22_DEMAND_R2,
+        G22_RETAINED_PRE_CANDIDATE,
         G22_GENERATION_MANIFEST,
         G22_EVALUATION_MANIFEST,
         G22_GENERATION_CLAIM,
@@ -968,6 +1045,7 @@ export async function createDiscoverySynthesisFixture(
         G22_FAN_IN,
         G23_BASELINE_CONVERSION,
         G22_BASELINE_R1,
+        G22_RETAINED_PRE_CANDIDATE,
         G23_DEMAND,
         G22_BASELINE_GENERATION_JUDGMENT,
         G22_BASELINE_EVALUATION_JUDGMENT,
@@ -981,6 +1059,7 @@ export async function createDiscoverySynthesisFixture(
         G22_FAN_IN,
         G23_SOLUTION_CONVERSION,
         G22_SOLUTION_R1,
+        G22_RETAINED_PRE_CANDIDATE,
         G23_DEMAND,
         G23_BASELINE,
         G22_GENERATION_CLAIM,
@@ -1029,6 +1108,7 @@ export async function createDiscoverySynthesisFixture(
         G21_SCOPE_REF,
         G21_PLAN_REF,
         G22_FAN_IN,
+        G22_RETAINED_PRE_CANDIDATE,
         G23_DEMAND,
         G23_BASELINE,
         ...formalSolutionRefs,
@@ -1051,6 +1131,7 @@ export async function createDiscoverySynthesisFixture(
         G21_SCOPE_REF,
         G21_PLAN_REF,
         G22_FAN_IN,
+        G22_RETAINED_PRE_CANDIDATE,
         G23_DEMAND,
         G23_BASELINE,
         ...formalSolutionRefs,

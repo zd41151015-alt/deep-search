@@ -43,6 +43,12 @@ export interface DiscoveryCandidatePolicy extends Record<string, unknown> {
     readonly judgment_subject_must_ancestor_final_candidate: true;
     readonly judgments_must_come_from_supporting_lane_disposition: true;
     readonly top_level_judgment_refs_exact_disposition_closure: true;
+    readonly current_concrete_pre_candidate_set_closed: true;
+    readonly materialized_pre_candidate_refs_exact_current_set: true;
+    readonly pre_candidate_disposition_sets_exclusive_and_closed: true;
+    readonly pre_candidate_material_dispositions_exact_typed_closure: true;
+    readonly pre_candidate_relation_explicit_for_split_merge: true;
+    readonly pre_candidate_disposition_hash_binding_required: true;
   };
   readonly publication_contract: Readonly<Record<string, unknown>>;
   readonly manifest_projection_contract: Readonly<Record<string, unknown>>;
@@ -108,6 +114,12 @@ export async function loadDiscoveryCandidatePolicy(
     policy.fan_in_contract.judgment_subject_must_ancestor_final_candidate !== true ||
     policy.fan_in_contract.judgments_must_come_from_supporting_lane_disposition !== true ||
     policy.fan_in_contract.top_level_judgment_refs_exact_disposition_closure !== true ||
+    policy.fan_in_contract.current_concrete_pre_candidate_set_closed !== true ||
+    policy.fan_in_contract.materialized_pre_candidate_refs_exact_current_set !== true ||
+    policy.fan_in_contract.pre_candidate_disposition_sets_exclusive_and_closed !== true ||
+    policy.fan_in_contract.pre_candidate_material_dispositions_exact_typed_closure !== true ||
+    policy.fan_in_contract.pre_candidate_relation_explicit_for_split_merge !== true ||
+    policy.fan_in_contract.pre_candidate_disposition_hash_binding_required !== true ||
     policy.publication_contract.envelope_schema_version !==
       "startup_opportunity.artifact_envelope.current" ||
     policy.publication_contract.document_bundle_schema_version !==

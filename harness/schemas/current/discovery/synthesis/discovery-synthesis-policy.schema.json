@@ -13,6 +13,7 @@
     "publication_order",
     "source_separation",
     "solution_exploration_contract",
+    "concrete_pre_candidate_boundary",
     "freeze_contract",
     "merge_contract",
     "execution_boundary"
@@ -112,6 +113,42 @@
         },
         "automatic_gap_or_unit_creation": {
           "const": false
+        }
+      }
+    },
+    "concrete_pre_candidate_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_artifact",
+        "source_disposition_required",
+        "conversion_bijection",
+        "formal_targets_bind_source_pre_candidate_ref",
+        "source_pre_candidate_hash_required_on_conversion",
+        "unretained_pre_candidates_forbidden",
+        "implicit_split_merge_forbidden_in_g2_3"
+      ],
+      "properties": {
+        "source_artifact": {
+          "const": "startup_opportunity.concrete_pre_candidate.v1"
+        },
+        "source_disposition_required": {
+          "const": "retained"
+        },
+        "conversion_bijection": {
+          "const": true
+        },
+        "formal_targets_bind_source_pre_candidate_ref": {
+          "const": true
+        },
+        "source_pre_candidate_hash_required_on_conversion": {
+          "const": true
+        },
+        "unretained_pre_candidates_forbidden": {
+          "const": true
+        },
+        "implicit_split_merge_forbidden_in_g2_3": {
+          "const": true
         }
       }
     },

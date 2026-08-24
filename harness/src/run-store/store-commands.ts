@@ -15,6 +15,8 @@ import {
   type ResearchScope,
   type RunMode,
   RunStore,
+  type TeamCondition,
+  type TeamContext,
 } from "./run-store.js";
 
 interface ParsedArguments {
@@ -125,6 +127,63 @@ function researchScope(parsed: ParsedArguments): ResearchScope {
     targetUsers,
     decisionGoal: required(parsed, "--decision-goal"),
     researchLanguage: required(parsed, "--research-language"),
+    teamContext: teamContext(parsed),
+  };
+}
+
+function teamContext(parsed: ParsedArguments): TeamContext {
+  const entries = (
+    option: string,
+    prefix: string,
+    sourceKind: TeamCondition["sourceKind"],
+    confirmationStatus: TeamCondition["confirmationStatus"],
+    reportingDisclosure: string | null,
+  ): TeamCondition[] =>
+    (parsed.repeated.get(option) ?? []).map((statement, index) => ({
+      conditionId: `${prefix}_${index + 1}`,
+      statement,
+      sourceKind,
+      confirmationStatus,
+      reportingDisclosure,
+    }));
+  return {
+    hardConstraints: entries(
+      "--team-hard-constraint",
+      "team_hard_constraint",
+      "user_provided",
+      "user_confirmed",
+      null,
+    ),
+    knownStrengthsAndGaps: [
+      ...entries(
+        "--team-known-condition",
+        "team_known_condition",
+        "user_provided",
+        "user_confirmed",
+        null,
+      ),
+      ...entries(
+        "--team-confirmed-assumption",
+        "team_confirmed_assumption",
+        "agent_assumed",
+        "user_authorized_assumption",
+        "This is a provisional team assumption explicitly authorized by the user.",
+      ),
+      ...entries(
+        "--team-unconfirmed-assumption",
+        "team_unconfirmed_assumption",
+        "agent_assumed",
+        "unconfirmed_assumption",
+        "This is an unconfirmed team assumption and must not be presented as a user fact.",
+      ),
+    ],
+    otherTeamConditions: {
+      status: "unknown",
+      sourceKind: "unknown",
+      confirmationStatus: "unknown",
+      reportingDisclosure:
+        "Team conditions not explicitly captured as hard constraints or known strengths and gaps remain unknown.",
+    },
   };
 }
 
@@ -149,7 +208,13 @@ export async function runCreateRun(
   repositoryRoot = process.cwd(),
 ): Promise<number> {
   return runCommand(async () => {
-    const parsed = parseArguments(args, ["--target-user"]);
+    const parsed = parseArguments(args, [
+      "--target-user",
+      "--team-hard-constraint",
+      "--team-known-condition",
+      "--team-confirmed-assumption",
+      "--team-unconfirmed-assumption",
+    ]);
     rejectUnknown(parsed, [
       "--run-id",
       "--mode",
@@ -161,6 +226,10 @@ export async function runCreateRun(
       "--target-user",
       "--decision-goal",
       "--research-language",
+      "--team-hard-constraint",
+      "--team-known-condition",
+      "--team-confirmed-assumption",
+      "--team-unconfirmed-assumption",
     ]);
     const mode = required(parsed, "--mode");
     if (mode !== "opportunity_discovery" && mode !== "concept_evidence_assessment") {
@@ -224,7 +293,13 @@ export async function runProposeScope(
   repositoryRoot = process.cwd(),
 ): Promise<number> {
   return runCommand(async () => {
-    const parsed = parseArguments(args, ["--target-user"]);
+    const parsed = parseArguments(args, [
+      "--target-user",
+      "--team-hard-constraint",
+      "--team-known-condition",
+      "--team-confirmed-assumption",
+      "--team-unconfirmed-assumption",
+    ]);
     rejectUnknown(parsed, [
       "--run-id",
       "--expected-scope-revision",
@@ -233,6 +308,10 @@ export async function runProposeScope(
       "--target-user",
       "--decision-goal",
       "--research-language",
+      "--team-hard-constraint",
+      "--team-known-condition",
+      "--team-confirmed-assumption",
+      "--team-unconfirmed-assumption",
       "--reason",
       "--proposed-at",
       "--runs-root",

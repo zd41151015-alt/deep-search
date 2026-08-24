@@ -23,3 +23,12 @@ requires a one-shot delivery declaration covering every required Artifact and as
 including explicit `no_evidence_found` coverage and Search Closure. The Harness preflights the full
 delivery, emits a formal `lane_delivery_receipt`, and atomically publishes it with the Lane bundle;
 preflight failures return stable, root-cause-grouped diagnostics and publish nothing.
+
+Every published Dispatch is returned with a deterministic `dispatch_launch_checklists` projection.
+After the caller actually receives an external launch acknowledgement, it uses
+`register-dispatch-launches` to atomically publish caller-declared `lane_lifecycle.v1` start records;
+`check-dispatch-launches` derives the exact started/not-started set. Incremental and out-of-order
+registration is allowed. Exact replay is idempotent, while stale Dispatch hashes, cross-Run/task/
+attempt drift, duplicate launches, and conflicting execution attempts fail before publication. The
+Harness neither starts nor polls an agent and cannot verify that an external Codex task exists. A
+not-started item is only an execution-set difference, never research failure or an Evidence result.

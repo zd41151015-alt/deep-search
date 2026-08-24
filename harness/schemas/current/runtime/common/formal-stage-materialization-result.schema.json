@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/common/formal-stage-materialization-result.schema.json",
+  "title": "Startup Opportunity Formal Stage Materialization Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "run_id",
+    "stage_kind",
+    "status",
+    "artifacts",
+    "diagnostics",
+    "compilation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.formal_stage_materialization_result.current"
+    },
+    "request_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId" },
+    "stage_kind": {
+      "enum": ["discovery_wave", "discovery_setup", "candidate_fan_in", "g2_3_synthesis"]
+    },
+    "status": { "enum": ["validated", "published", "idempotent_replay"] },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["artifact_type", "artifact_path", "content_hash"],
+        "additionalProperties": false,
+        "properties": {
+          "artifact_type": { "type": "string" },
+          "artifact_path": { "type": "string" },
+          "content_hash": {
+            "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "diagnostics": { "type": "array", "items": { "type": "object" } },
+    "compilation": { "type": "object" }
+  }
+}

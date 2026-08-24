@@ -18,6 +18,7 @@
     "merged_opportunities",
     "merge_or_split_decisions",
     "preserved_variants",
+    "opportunity_families",
     "candidate_diversity_after_merge",
     "conflicts",
     "audit_refs",
@@ -177,6 +178,13 @@
         "$ref": "./definitions.schema.json#/$defs/opportunityRef"
       },
       "uniqueItems": true
+    },
+    "opportunity_families": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "./definitions.schema.json#/$defs/opportunityFamilyDeclaration"
+      }
     },
     "candidate_diversity_after_merge": {
       "type": "object",

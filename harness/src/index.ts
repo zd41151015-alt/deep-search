@@ -1,6 +1,15 @@
 export {
+  ADAPTATION_AUTHOR_REQUEST_VERSION,
+  ADAPTATION_AUTHOR_RESULT_VERSION,
+  type AdaptationAuthorRequest,
+  type AdaptationAuthorResult,
+  AdaptationAuthorRuntime,
+  createAdaptationAuthorRuntime,
+} from "./adaptation/adaptation-author-runtime.js";
+export {
   runAnalyzeGaps,
   runApplyPlanRevision,
+  runAuthorPlanAdaptation,
   runValidateAdaptation,
   runValidatePlan,
 } from "./adaptation/adaptation-commands.js";
@@ -28,13 +37,13 @@ export {
   loadAssessmentAdaptationPolicy,
 } from "./adaptation/assessment-policy.js";
 export {
+  type AgentDeclaredGap,
   type AnalyzeGapsInput,
   createGapAnalyzer,
   deriveSolutionExplorationObservations,
   GAP_ANALYSIS_RESULT_VERSION,
   type GapAnalysisResult,
   GapAnalyzer,
-  type MachineGapCheck,
 } from "./adaptation/gap-analyzer.js";
 export {
   type ApplyPlanRevisionInput,
@@ -88,6 +97,11 @@ export {
   type RecordEvidenceInput,
   type RecordEvidenceResult,
 } from "./evidence-store/evidence-store.js";
+export {
+  deriveOpportunityFamilyProjection,
+  type OpportunityFamilyDocument,
+  opportunityFamilyEvidenceRefs,
+} from "./opportunity-family-contract.js";
 export { runAuditTraceability, runBuildReport } from "./reporting/report-commands.js";
 export {
   type BuildReportInput,
@@ -169,18 +183,40 @@ export {
 export {
   type CompileRuntimeArtifactsOptions,
   DeclarativeRuntimeCompiler,
+  type DispatchLaunchCheckResult,
   type RuntimeArtifactCompilationRequest,
   type RuntimeArtifactCompilationResult,
   type RuntimePublicationPlan,
 } from "./runtime/declarative-runtime.js";
 export {
+  type DispatchLaunchRegistrationRequest,
+  DispatchLaunchRegistry,
+} from "./runtime/dispatch-launch-registry.js";
+export {
+  type CallerFormalArtifact,
+  type FormalStageKind,
+  type FormalStageMaterializationRequest,
+  type FormalStageMaterializationResult,
+  FormalStageMaterializer,
+  type WaveDeclaration,
+  type WaveLaneDeclaration,
+} from "./runtime/formal-stage-materializer.js";
+export {
   deriveLaneScopeFormalClosure,
   type LaneScopeDisposition,
   type LaneScopeFormalClosure,
+  laneScopeCoverageFromClosure,
 } from "./runtime/lane-delivery-closure.js";
+export {
+  canonicalLaneLifecycleId,
+  canonicalLaneLifecyclePath,
+  dispatchLaunchRegistrationPath,
+  laneLifecycleIdentity,
+} from "./runtime/lane-lifecycle-identity.js";
 export {
   type LaneDeliveryResult,
   LaneResultMaterializer,
+  type LaneSubmissionChecklistResult,
 } from "./runtime/lane-materializer.js";
 export {
   type ObservableOperation,
@@ -189,9 +225,13 @@ export {
   operationTrace,
 } from "./runtime/operation-observability.js";
 export {
+  runCheckDispatchLaunches,
   runCompileArtifacts,
+  runMaterializeFormalStage,
   runMaterializeLaneResult,
+  runRegisterDispatchLaunches,
   runScaffoldArtifact,
+  runScaffoldLaneSubmission,
 } from "./runtime/runtime-commands.js";
 export {
   type AiBundleDocument,
@@ -270,6 +310,11 @@ export {
   isDiscoveryMapSchemaVersion,
   validateDiscoveryMapsContract,
 } from "./validators/discovery-maps-validator.js";
+export {
+  DISCOVERY_COUNTER_EVIDENCE_MINIMUM,
+  DISCOVERY_COUNTER_EVIDENCE_UNIT_TYPES,
+  G24_FAN_IN_HARD_GATE_CARDINALITY,
+} from "./validators/g24-planning-rules.js";
 export {
   type CoverageIdentity,
   coverageKey,

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   canonicalContentHash,
   createArtifactValidator,
+  DispatchLaunchRegistry,
   type DocumentBundle,
   deriveSolutionExplorationObservations,
   EvidenceStore,
@@ -66,6 +67,7 @@ interface State {
   readonly runRoot: string;
   readonly runId: string;
   readonly store: RunStore;
+  readonly validator: Awaited<ReturnType<typeof createArtifactValidator>>;
   readonly bundle: DocumentBundle;
 }
 
@@ -595,7 +597,7 @@ async function setup(
     runId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
   });
-  return { root, runsRoot, runRoot: path.join(runsRoot, runId), runId, store, bundle };
+  return { root, runsRoot, runRoot: path.join(runsRoot, runId), runId, store, validator, bundle };
 }
 
 async function publishThroughFanIn(state: State): Promise<void> {
@@ -604,35 +606,59 @@ async function publishThroughFanIn(state: State): Promise<void> {
     "startup_opportunity.discovery_candidate.v1",
   ).filter((candidate) => candidate.document.revision === 1);
   await state.store.publishArtifactBundle({ runId: state.runId, envelopes: initialCandidates });
+  const candidateRuntimeEnvelopes = discoveryWaveEnvelopes(
+    state.bundle,
+    state.runId,
+    "startup_opportunity.research_task.discovery_candidate.current",
+    1,
+    "candidate_runtime",
+  );
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: discoveryWaveEnvelopes(
-      state.bundle,
-      state.runId,
-      "startup_opportunity.research_task.discovery_candidate.current",
-      1,
-      "candidate_runtime",
-    ),
+    envelopes: candidateRuntimeEnvelopes,
+  });
+  const dispatchEnvelope = candidateRuntimeEnvelopes.find(
+    (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(dispatchEnvelope);
+  const registry = new DispatchLaunchRegistry(state.runsRoot, state.validator, repositoryRoot);
+  const checklist = await registry.check(
+    state.runId,
+    dispatchEnvelope.artifact_path,
+    dispatchEnvelope.content_hash,
+  );
+  await registry.register({
+    schema_version: "startup_opportunity.dispatch_launch_registration_request.v1",
+    request_id: "launch_g2_3_candidate_runtime",
+    run_id: state.runId,
+    dispatch_ref: dispatchEnvelope.artifact_path,
+    dispatch_hash: dispatchEnvelope.content_hash,
+    registered_at: "2026-07-27T18:02:00Z",
+    registrations: checklist.checklist.map((entry) => ({
+      unit_id: entry.unit_id,
+      task_ref: entry.task_ref,
+      task_id: entry.task_id,
+      attempt: entry.attempt,
+      execution_attempt_id: `exec_g2_3_${entry.unit_id}`,
+    })),
   });
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: byTypes(
-      state.bundle,
-      "startup_opportunity.evidence.discovery_candidate.current",
-      "startup_opportunity.claim.discovery_candidate.current",
-      "startup_opportunity.finding.discovery_candidate.current",
-      "startup_opportunity.insight.discovery_candidate.current",
-      "startup_opportunity.judgment_assessment.discovery_candidate.current",
-      "startup_opportunity.source_manifest.discovery_candidate.current",
-    ),
-  });
-  await state.store.publishArtifactBundle({
-    runId: state.runId,
-    envelopes: byTypes(state.bundle, "startup_opportunity.discovery_lane_result.v1"),
-  });
-  await state.store.publishArtifact({
-    runId: state.runId,
-    envelope: runtimeEnvelope(state.bundle, G22_DEMAND_R2),
+    envelopes: [
+      ...byTypes(
+        state.bundle,
+        "startup_opportunity.evidence.discovery_candidate.current",
+        "startup_opportunity.claim.discovery_candidate.current",
+        "startup_opportunity.finding.discovery_candidate.current",
+        "startup_opportunity.insight.discovery_candidate.current",
+        "startup_opportunity.judgment_assessment.discovery_candidate.current",
+        "startup_opportunity.source_manifest.discovery_candidate.current",
+        "startup_opportunity.discovery_lane_result.v1",
+        "startup_opportunity.concrete_pre_candidate.v1",
+        "startup_opportunity.pre_candidate_relation.v1",
+      ),
+      runtimeEnvelope(state.bundle, G22_DEMAND_R2),
+    ],
   });
   await state.store.publishArtifact({
     runId: state.runId,
@@ -854,10 +880,12 @@ test("G2.3 projects provisional Opportunity solution posture through synthesis a
   );
   assert.ok(driftedSynthesis.envelope);
   driftedSynthesis.envelope.content_hash = canonicalContentHash(driftedSynthesis.document);
+  const synthesisDriftBefore = await treeSnapshot(state.runRoot);
   assert.deepEqual(
     validateDecisionSubjectContract(synthesisDrift).map((issue) => issue.code),
     ["decision_subject.solution_exploration_projection_mismatch"],
   );
+  assert.deepEqual(await treeSnapshot(state.runRoot), synthesisDriftBefore);
 
   const terminalDrift = clone(projection.documents);
   const driftedTerminal = findDocument(terminalDrift, projection.terminalPath);
@@ -872,10 +900,12 @@ test("G2.3 projects provisional Opportunity solution posture through synthesis a
     validator.validateDocument(driftedTerminal.document, projection.terminalPath).valid,
     true,
   );
+  const terminalDriftBefore = await treeSnapshot(state.runRoot);
   assert.deepEqual(
     validateDecisionSubjectContract(terminalDrift).map((issue) => issue.code),
     ["decision_subject.direction_body_mismatch"],
   );
+  assert.deepEqual(await treeSnapshot(state.runRoot), terminalDriftBefore);
 });
 
 test("G2.3 rejects not_yet_explored when multiple formal solutions remain and writes nothing", async (context) => {
@@ -1071,26 +1101,8 @@ test("G2.3 rejects closed lineage, source-separation, freeze, and merge mutation
     {
       code: "synthesis.conversion_lineage_mismatch",
       mutate(bundle) {
-        const fanIn = effective(bundle, G22_FAN_IN);
-        const decisions = fanIn.candidate_dispositions as Record<string, unknown>[];
-        const decision = decisions.find(
-          (candidate) =>
-            candidate.candidate_ref === "artifacts/discovery/candidates/candidate_solution.r1.json",
-        );
-        assert.ok(decision);
-        decision.disposition = "watchlist";
-        fanIn.retained_candidate_refs = [
-          G22_DEMAND_R2,
-          "artifacts/discovery/candidates/candidate_baseline.r1.json",
-        ];
-        fanIn.watchlist_candidate_refs = [
-          "artifacts/discovery/candidates/candidate_solution.r1.json",
-        ];
-        (fanIn.candidate_diversity_summary as Record<string, unknown>).diversity_retention_refs = [
-          G22_DEMAND_R2,
-          "artifacts/discovery/candidates/candidate_baseline.r1.json",
-        ];
-        refresh(bundle, G22_FAN_IN);
+        effective(bundle, G23_SOLUTION_CONVERSION).source_candidate_revision = 2;
+        refresh(bundle, G23_SOLUTION_CONVERSION);
       },
     },
     {

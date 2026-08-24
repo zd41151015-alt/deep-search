@@ -9,13 +9,14 @@ import {
   type DocumentBundle,
   type DocumentBundleReferenceContext,
 } from "../validators/artifact-validator.js";
+import { createAdaptationAuthorRuntime } from "./adaptation-author-runtime.js";
 import { createAdaptationPolicyValidator } from "./adaptation-validator.js";
 import {
   type AnalyzeAssessmentGapInput,
   createAssessmentGapAnalyzer,
 } from "./assessment-gap-analyzer.js";
 import { isRecord } from "./contracts.js";
-import { type AnalyzeGapsInput, createGapAnalyzer, type MachineGapCheck } from "./gap-analyzer.js";
+import { type AgentDeclaredGap, type AnalyzeGapsInput, createGapAnalyzer } from "./gap-analyzer.js";
 import { createPlanRevisionRuntime, type PlanApplyFaultBoundary } from "./plan-runtime.js";
 import { createPlanSemanticValidator } from "./plan-validator.js";
 
@@ -212,38 +213,79 @@ export async function runAnalyzeGaps(
       };
       return (await createAssessmentGapAnalyzer(repositoryRoot)).analyze(assessmentInput);
     }
-    const checks = Array.isArray(value.machine_checks)
-      ? value.machine_checks.map((item) => {
+    if (value.machine_checks !== undefined || value.semantic_gaps !== undefined) {
+      throw new StoreError(
+        "command.invalid_arguments",
+        "machine_checks and semantic_gaps are not caller authorities; use agent_declared_gaps",
+      );
+    }
+    if (value.agent_declared_gaps !== undefined && !Array.isArray(value.agent_declared_gaps)) {
+      throw new StoreError("command.invalid_arguments", "agent_declared_gaps must be an array");
+    }
+    const declaredGaps = Array.isArray(value.agent_declared_gaps)
+      ? value.agent_declared_gaps.map((item) => {
           if (!isRecord(item)) {
             throw new StoreError(
               "command.invalid_arguments",
-              "machine_checks entries must be objects",
+              "agent_declared_gaps entries must be objects",
             );
           }
           return {
-            checkId: String(item.check_id ?? ""),
+            declarationId: String(item.declaration_id ?? ""),
             gapType: String(item.gap_type ?? ""),
             subjectRef: String(item.subject_ref ?? ""),
-            basisRefs: stringArray(item.basis_refs, "machine_checks.basis_refs"),
-            evidenceRefs: stringArray(item.evidence_refs ?? [], "machine_checks.evidence_refs"),
-            decisionImpact: stringArray(item.decision_impact, "machine_checks.decision_impact"),
+            basisRefs: stringArray(item.basis_refs, "agent_declared_gaps.basis_refs"),
+            evidenceRefs: stringArray(
+              item.evidence_refs ?? [],
+              "agent_declared_gaps.evidence_refs",
+            ),
+            decisionImpact: stringArray(
+              item.decision_impact,
+              "agent_declared_gaps.decision_impact",
+            ),
             severity: String(item.severity ?? ""),
             recommendedUnitTypes: stringArray(
               item.recommended_unit_types ?? [],
-              "machine_checks.recommended_unit_types",
+              "agent_declared_gaps.recommended_unit_types",
             ),
             detail: String(item.detail ?? ""),
-          } as MachineGapCheck;
+          } as AgentDeclaredGap;
         })
       : [];
     const triggerEventRef =
       value.trigger_event_ref === null ? null : String(value.trigger_event_ref ?? "");
-    const assembled = await validationContext(
-      parsed,
-      repositoryRoot,
-      documentBundle(value.document_bundle),
-      triggerEventRef === null ? [] : [triggerEventRef],
+    const topLevelFormalRefs = stringArray(
+      value.top_level_formal_refs ?? value.observed_artifact_refs,
+      "top_level_formal_refs",
     );
+    const runId = parsed.values.get("--run-id");
+    const runStore =
+      runId === undefined
+        ? null
+        : new RunStore(
+            parsed.values.get("--runs-root") ?? path.join(repositoryRoot, "runs"),
+            await createArtifactValidator(repositoryRoot),
+          );
+    const inputBundle =
+      value.document_bundle === undefined && runStore !== null
+        ? ({
+            schema_version: "startup_opportunity.document_bundle.current",
+            documents: [
+              {
+                path: "manifest.json",
+                document: (await runStore.status(runId as string)).manifest,
+              },
+            ],
+            exact_records: [],
+          } as DocumentBundle)
+        : documentBundle(value.document_bundle);
+    const assembled =
+      runId === undefined
+        ? await validationContext(parsed, repositoryRoot, inputBundle)
+        : await (runStore as RunStore).buildValidationContext(runId, inputBundle, {
+            topLevelFormalRefs,
+            exactRecordRefs: triggerEventRef === null ? [] : [triggerEventRef],
+          });
     const input: AnalyzeGapsInput = {
       documentBundle: assembled.bundle,
       referenceContext: assembled.referenceContext,
@@ -256,7 +298,7 @@ export async function runAnalyzeGaps(
       observedArtifactRefs: stringArray(value.observed_artifact_refs, "observed_artifact_refs"),
       materialNewEvidenceObserved: value.material_new_evidence_observed === true,
       repeatedSourceRefs: stringArray(value.repeated_source_refs ?? [], "repeated_source_refs"),
-      machineChecks: checks,
+      agentDeclaredGaps: declaredGaps,
     };
     return (await createGapAnalyzer(repositoryRoot)).analyze(input);
   });
@@ -295,6 +337,9 @@ export async function runApplyPlanRevision(
       nextStep: String(value.next_step ?? ""),
       beliefSummary: value.belief_summary as unknown as BeliefSummary,
       ...(typeof value.operation_key === "string" ? { operationKey: value.operation_key } : {}),
+      ...(typeof value.expected_manifest_content_hash === "string"
+        ? { expectedManifestContentHash: value.expected_manifest_content_hash }
+        : {}),
       ...(typeof value.fault_at === "string"
         ? { faultAt: value.fault_at as PlanApplyFaultBoundary }
         : {}),
@@ -308,5 +353,21 @@ export async function runApplyPlanRevision(
         ? { terminalReportFaultAt: value.terminal_report_fault_at as ReportFaultBoundary }
         : {}),
     });
+  });
+}
+
+export async function runAuthorPlanAdaptation(
+  args: readonly string[],
+  repositoryRoot = process.cwd(),
+): Promise<number> {
+  return runCommand(async () => {
+    const parsed = parseArguments(args);
+    rejectUnknown(parsed, ["--file", "--runs-root"]);
+    return (
+      await createAdaptationAuthorRuntime(
+        repositoryRoot,
+        parsed.values.get("--runs-root") ?? path.join(repositoryRoot, "runs"),
+      )
+    ).execute(await readObject(required(parsed, "--file")));
   });
 }

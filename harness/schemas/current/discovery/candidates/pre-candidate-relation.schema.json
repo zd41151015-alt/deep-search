@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/candidates/pre-candidate-relation.schema.json",
+  "title": "Startup Opportunity Concrete Pre-candidate Relation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "relation_id",
+    "revision",
+    "parent_relation_ref",
+    "parent_content_hash",
+    "run_id",
+    "mode",
+    "phase",
+    "owner_role",
+    "scope_frame_ref",
+    "research_plan_ref",
+    "relationship_group_id",
+    "relationship_kind",
+    "source_seed_bindings",
+    "result_candidate_bindings",
+    "rationale",
+    "harness_inferred",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.pre_candidate_relation.v1"
+    },
+    "relation_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "parent_relation_ref": {
+      "anyOf": [
+        { "$ref": "./definitions.schema.json#/$defs/preCandidateRelationRef" },
+        { "type": "null" }
+      ]
+    },
+    "parent_content_hash": {
+      "anyOf": [{ "$ref": "./definitions.schema.json#/$defs/sha256" }, { "type": "null" }]
+    },
+    "run_id": {
+      "$ref": "./definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "const": "opportunity_discovery"
+    },
+    "phase": {
+      "const": "discovery"
+    },
+    "owner_role": {
+      "const": "main_agent"
+    },
+    "scope_frame_ref": {
+      "$ref": "./definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_plan_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/planRef"
+    },
+    "relationship_group_id": {
+      "$ref": "./definitions.schema.json#/$defs/identifier"
+    },
+    "relationship_kind": {
+      "enum": ["split", "merge"]
+    },
+    "source_seed_bindings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/seedBinding" }
+    },
+    "result_candidate_bindings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/resultBinding" }
+    },
+    "rationale": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "harness_inferred": {
+      "const": false
+    },
+    "limitations": {
+      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "revision": { "const": 1 } },
+        "required": ["revision"]
+      },
+      "then": {
+        "properties": {
+          "parent_relation_ref": { "type": "null" },
+          "parent_content_hash": { "type": "null" }
+        }
+      },
+      "else": {
+        "properties": {
+          "parent_relation_ref": {
+            "$ref": "./definitions.schema.json#/$defs/preCandidateRelationRef"
+          },
+          "parent_content_hash": {
+            "$ref": "./definitions.schema.json#/$defs/sha256"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "relationship_kind": { "const": "split" } },
+        "required": ["relationship_kind"]
+      },
+      "then": {
+        "properties": {
+          "result_candidate_bindings": { "type": "array", "minItems": 2 }
+        }
+      },
+      "else": {
+        "properties": {
+          "source_seed_bindings": { "type": "array", "minItems": 2 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "seedBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "content_hash"],
+      "properties": {
+        "ref": { "$ref": "./definitions.schema.json#/$defs/candidateRef" },
+        "content_hash": { "$ref": "./definitions.schema.json#/$defs/sha256" }
+      }
+    },
+    "resultBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "content_hash"],
+      "properties": {
+        "ref": { "$ref": "./definitions.schema.json#/$defs/concretePreCandidateRef" },
+        "content_hash": { "$ref": "./definitions.schema.json#/$defs/sha256" }
+      }
+    }
+  }
+}

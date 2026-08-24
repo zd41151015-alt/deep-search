@@ -38,6 +38,9 @@
     "candidateRef": {
       "$ref": "../candidates/definitions.schema.json#/$defs/candidateRef"
     },
+    "concretePreCandidateRef": {
+      "$ref": "../candidates/definitions.schema.json#/$defs/concretePreCandidateRef"
+    },
     "fanInRef": {
       "type": "string",
       "pattern": "^artifacts/discovery/fan-in\\.r[1-9][0-9]*\\.json$"
@@ -270,6 +273,289 @@
         },
         "limitations": {
           "$ref": "#/$defs/uniqueStringArray"
+        }
+      }
+    },
+    "opportunityFamilyKnowledgeState": {
+      "enum": [
+        "declared",
+        "partial",
+        "unavailable",
+        "unknown",
+        "inferred",
+        "not_applicable",
+        "no_evidence_found"
+      ]
+    },
+    "opportunityFamilyEvidenceBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supporting_refs",
+        "opposing_refs",
+        "background_refs",
+        "unknown_refs",
+        "limitations",
+        "unresolved_questions"
+      ],
+      "properties": {
+        "supporting_refs": { "$ref": "#/$defs/artifactRefArray" },
+        "opposing_refs": { "$ref": "#/$defs/artifactRefArray" },
+        "background_refs": { "$ref": "#/$defs/artifactRefArray" },
+        "unknown_refs": { "$ref": "#/$defs/artifactRefArray" },
+        "limitations": { "$ref": "#/$defs/uniqueStringArray" },
+        "unresolved_questions": { "$ref": "#/$defs/uniqueStringArray" }
+      }
+    },
+    "opportunityFamilyMemberDifference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["opportunity_ref", "dimensions"],
+      "properties": {
+        "opportunity_ref": { "$ref": "#/$defs/opportunityRef" },
+        "dimensions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["dimension", "state", "description"],
+            "properties": {
+              "dimension": {
+                "enum": [
+                  "user",
+                  "job_to_be_done",
+                  "entry_scene",
+                  "buyer",
+                  "acquisition",
+                  "compliance",
+                  "delivery_boundary",
+                  "other"
+                ]
+              },
+              "state": { "$ref": "#/$defs/opportunityFamilyKnowledgeState" },
+              "description": { "$ref": "#/$defs/nonEmptyString" }
+            }
+          }
+        }
+      }
+    },
+    "opportunityFamilyDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family_id",
+        "title",
+        "family_relation",
+        "members",
+        "shared_value_or_solution_mechanism",
+        "shared_assumptions",
+        "shared_failure_risks",
+        "member_specific_differences",
+        "evidence_basis"
+      ],
+      "properties": {
+        "family_id": { "$ref": "#/$defs/identifier" },
+        "title": { "$ref": "#/$defs/nonEmptyString" },
+        "family_relation": {
+          "enum": ["independent_opportunity", "shared_opportunity_family", "unknown"]
+        },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["opportunity_ref", "relation_to_family"],
+            "properties": {
+              "opportunity_ref": { "$ref": "#/$defs/opportunityRef" },
+              "relation_to_family": {
+                "enum": [
+                  "independent_opportunity",
+                  "segment_variant",
+                  "delivery_or_implementation_variant",
+                  "unknown"
+                ]
+              }
+            }
+          }
+        },
+        "shared_value_or_solution_mechanism": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "description"],
+          "properties": {
+            "state": { "$ref": "#/$defs/opportunityFamilyKnowledgeState" },
+            "description": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        },
+        "shared_assumptions": { "$ref": "#/$defs/uniqueStringArray" },
+        "shared_failure_risks": { "$ref": "#/$defs/uniqueStringArray" },
+        "member_specific_differences": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/opportunityFamilyMemberDifference" }
+        },
+        "evidence_basis": { "$ref": "#/$defs/opportunityFamilyEvidenceBasis" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "family_relation": { "const": "independent_opportunity" } },
+            "required": ["family_relation"]
+          },
+          "then": {
+            "properties": {
+              "members": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "relation_to_family": { "const": "independent_opportunity" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "family_relation": { "const": "shared_opportunity_family" } },
+            "required": ["family_relation"]
+          },
+          "then": {
+            "properties": {
+              "members": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "relation_to_family": {
+                      "enum": ["segment_variant", "delivery_or_implementation_variant"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "family_relation": { "const": "unknown" } },
+            "required": ["family_relation"]
+          },
+          "then": {
+            "properties": {
+              "members": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": { "relation_to_family": { "const": "unknown" } }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "opportunityFamilyProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_merge_ref",
+        "source_merge_content_hash",
+        "independent_opportunity_family_count",
+        "concrete_direction_count",
+        "unknown_family_relation_count",
+        "families"
+      ],
+      "properties": {
+        "source_merge_ref": { "$ref": "#/$defs/mergeRef" },
+        "source_merge_content_hash": { "$ref": "#/$defs/sha256" },
+        "independent_opportunity_family_count": { "type": "integer", "minimum": 0 },
+        "concrete_direction_count": { "type": "integer", "minimum": 1 },
+        "unknown_family_relation_count": { "type": "integer", "minimum": 0 },
+        "families": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "family_id",
+              "title",
+              "family_relation",
+              "shared_value_or_solution_mechanism",
+              "shared_assumptions",
+              "shared_failure_risks",
+              "member_specific_differences",
+              "evidence_basis",
+              "members"
+            ],
+            "properties": {
+              "family_id": { "$ref": "#/$defs/identifier" },
+              "title": { "$ref": "#/$defs/nonEmptyString" },
+              "family_relation": {
+                "enum": ["independent_opportunity", "shared_opportunity_family", "unknown"]
+              },
+              "shared_value_or_solution_mechanism": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["state", "description"],
+                "properties": {
+                  "state": { "$ref": "#/$defs/opportunityFamilyKnowledgeState" },
+                  "description": { "$ref": "#/$defs/nonEmptyString" }
+                }
+              },
+              "shared_assumptions": { "$ref": "#/$defs/uniqueStringArray" },
+              "shared_failure_risks": { "$ref": "#/$defs/uniqueStringArray" },
+              "member_specific_differences": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "$ref": "#/$defs/opportunityFamilyMemberDifference" }
+              },
+              "evidence_basis": { "$ref": "#/$defs/opportunityFamilyEvidenceBasis" },
+              "members": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "opportunity_ref",
+                    "opportunity_content_hash",
+                    "opportunity_title",
+                    "relation_to_family",
+                    "selected_solution_ref",
+                    "selected_solution_content_hash",
+                    "uses_ai",
+                    "solution_type",
+                    "delivery_form"
+                  ],
+                  "properties": {
+                    "opportunity_ref": { "$ref": "#/$defs/opportunityRef" },
+                    "opportunity_content_hash": { "$ref": "#/$defs/sha256" },
+                    "opportunity_title": { "$ref": "#/$defs/nonEmptyString" },
+                    "relation_to_family": {
+                      "enum": [
+                        "independent_opportunity",
+                        "segment_variant",
+                        "delivery_or_implementation_variant",
+                        "unknown"
+                      ]
+                    },
+                    "selected_solution_ref": { "$ref": "#/$defs/solutionRef" },
+                    "selected_solution_content_hash": { "$ref": "#/$defs/sha256" },
+                    "uses_ai": { "type": "boolean" },
+                    "solution_type": { "$ref": "#/$defs/nonEmptyString" },
+                    "delivery_form": { "$ref": "#/$defs/deliveryForm" }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

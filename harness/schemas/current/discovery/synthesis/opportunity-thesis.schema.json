@@ -14,6 +14,7 @@
     "scope_frame_ref",
     "research_plan_ref",
     "discovery_fan_in_ref",
+    "source_pre_candidate_ref",
     "title",
     "description",
     "opportunity_thesis",
@@ -97,6 +98,9 @@
     },
     "discovery_fan_in_ref": {
       "$ref": "./definitions.schema.json#/$defs/fanInRef"
+    },
+    "source_pre_candidate_ref": {
+      "$ref": "./definitions.schema.json#/$defs/concretePreCandidateRef"
     },
     "title": {
       "$ref": "./definitions.schema.json#/$defs/nonEmptyString"

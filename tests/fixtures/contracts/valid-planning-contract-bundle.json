@@ -358,7 +358,17 @@
           "customer_model": "b2c",
           "target_users": ["consumer households"],
           "decision_goal": "evaluate current opportunity evidence",
-          "research_language": "zh-CN"
+          "research_language": "zh-CN",
+          "team_context": {
+            "hard_constraints": [],
+            "known_strengths_and_gaps": [],
+            "other_team_conditions": {
+              "status": "unknown",
+              "source_kind": "unknown",
+              "confirmation_status": "unknown",
+              "reporting_disclosure": "no other team conditions were provided"
+            }
+          }
         }
       }
     },
@@ -381,7 +391,17 @@
           "customer_model": "b2c",
           "target_users": ["consumer households"],
           "decision_goal": "evaluate current opportunity evidence",
-          "research_language": "zh-CN"
+          "research_language": "zh-CN",
+          "team_context": {
+            "hard_constraints": [],
+            "known_strengths_and_gaps": [],
+            "other_team_conditions": {
+              "status": "unknown",
+              "source_kind": "unknown",
+              "confirmation_status": "unknown",
+              "reporting_disclosure": "no other team conditions were provided"
+            }
+          }
         },
         "scope_proposal_ref": "decisions.jsonl#scope_proposal_r1_571d56111002b2987bb8b771bc4226d979a6f5787b1883a30fc0507db50933fe",
         "scope_proposal_hash": "sha256:6609bd07030748c0c4c69d291bc19e8940bac457511594e8d4b7e12a3612865a",

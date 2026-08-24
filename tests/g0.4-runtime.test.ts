@@ -11,6 +11,7 @@ import {
   canonicalContentHash,
   canonicalJson,
   coverageKey,
+  createAdaptationAuthorRuntime,
   createAdaptationPolicyValidator,
   createArtifactValidator,
   createGapAnalyzer,
@@ -66,6 +67,17 @@ const CONFIRMED_SCOPE = {
   target_users: ["synthetic user"],
   decision_goal: "test current contract",
   research_language: "en-US",
+  team_context: {
+    hard_constraints: [],
+    known_strengths_and_gaps: [],
+    other_team_conditions: {
+      status: "unknown",
+      source_kind: "unknown",
+      confirmation_status: "unknown",
+      reporting_disclosure:
+        "Team conditions not explicitly captured as hard constraints or known strengths and gaps remain unknown.",
+    },
+  },
 };
 
 function scopeDecisions(runId: string): readonly Record<string, unknown>[] {
@@ -1297,7 +1309,7 @@ async function prepareTerminalReporting(
       native_app_required: false,
       delivery_form_preferences: [],
       business_model_preferences: [],
-      team_capability_constraints: [],
+      team_context: CONFIRMED_SCOPE.team_context,
       risk_preferences: ["SYNTHETIC avoid unsupported conclusions."],
       ai_scope: "optional",
       assumptions: ["SYNTHETIC Scope is not market Evidence."],
@@ -2118,7 +2130,7 @@ test("public publication cannot replace leaf planning authority after the initia
   assert.deepEqual(await snapshotRunTree(runRoot), before);
 });
 
-test("Gap analyzer emits only deterministic machine-observable gaps and stop signals", async () => {
+test("Gap analyzer emits deterministic checks and preserves explicit semantic gaps", async () => {
   const runId = "gap-analysis-fixture";
   const plan = basePlan(runId);
   const runManifest = manifest(runId, plan);
@@ -2173,9 +2185,9 @@ test("Gap analyzer emits only deterministic machine-observable gaps and stop sig
   const questionFragment = analyzer.analyze({
     ...input,
     materialNewEvidenceObserved: true,
-    machineChecks: [
+    agentDeclaredGaps: [
       {
-        checkId: "question_fragment_check",
+        declarationId: "question_fragment_check",
         gapType: "mandatory_dimension_missing",
         subjectRef: `${PLAN_REF}#rq_runtime_001`,
         basisRefs: [`${PLAN_REF}#rq_runtime_001`],
@@ -2189,9 +2201,9 @@ test("Gap analyzer emits only deterministic machine-observable gaps and stop sig
   assert.equal(questionFragment.valid, true, JSON.stringify(questionFragment.errors));
   const missingQuestionFragment = analyzer.analyze({
     ...input,
-    machineChecks: [
+    agentDeclaredGaps: [
       {
-        checkId: "missing_question_fragment_check",
+        declarationId: "missing_question_fragment_check",
         gapType: "mandatory_dimension_missing",
         subjectRef: `${PLAN_REF}#rq_missing`,
         basisRefs: [`${PLAN_REF}#rq_missing`],
@@ -2204,6 +2216,95 @@ test("Gap analyzer emits only deterministic machine-observable gaps and stop sig
   });
   assert.ok(
     missingQuestionFragment.errors.some((error) => error.code === "gap.reference_fragment_missing"),
+  );
+
+  const semanticConflict = analyzer.analyze({
+    ...input,
+    materialNewEvidenceObserved: true,
+    agentDeclaredGaps: [
+      {
+        declarationId: "semantic_conflict",
+        gapType: "evidence_conflict",
+        subjectRef: `${PLAN_REF}#rq_runtime_001`,
+        basisRefs: [`${PLAN_REF}#rq_runtime_001`],
+        evidenceRefs: [],
+        decisionImpact: ["next_action"],
+        severity: "advisory",
+        recommendedUnitTypes: ["counter_evidence"],
+        detail: "The current evidence has unresolved conflict.",
+      },
+    ],
+  });
+  assert.equal(semanticConflict.valid, true, JSON.stringify(semanticConflict.errors));
+  assert.ok(semanticConflict.snapshot);
+  const semanticGap = (semanticConflict.snapshot.gaps as Record<string, unknown>[]).find(
+    (gap) => gap.detection_mode === "agent_semantic",
+  );
+  assert.deepEqual(semanticGap?.triggered_by, {
+    declaration_id: "semantic_conflict",
+    declared_by: "main_agent",
+    observed_artifact_refs: [],
+    detail: "The current evidence has unresolved conflict.",
+  });
+  assert.deepEqual(semanticGap?.evidence_refs, []);
+  assert.equal(semanticGap?.gap_type, "evidence_conflict");
+
+  const semanticWithoutBasis = analyzer.analyze({
+    ...input,
+    agentDeclaredGaps: [
+      {
+        declarationId: "semantic_without_basis",
+        gapType: "evidence_insufficient",
+        subjectRef: `${PLAN_REF}#rq_runtime_001`,
+        basisRefs: [],
+        evidenceRefs: [],
+        decisionImpact: ["next_action"],
+        severity: "material",
+        recommendedUnitTypes: [],
+        detail: "The evidence is not sufficient for the next decision.",
+      },
+    ],
+  });
+  assert.ok(
+    semanticWithoutBasis.errors.some((error) => error.code === "gap.agent_declaration_invalid"),
+  );
+});
+
+test("Gap CLI rejects caller machine checks and malformed Agent declarations", async (contextTest) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-gap-cli-authority-"));
+  contextTest.after(() => rm(root, { recursive: true, force: true }));
+  const machineInput = path.join(root, "machine-input.json");
+  await writeFile(
+    machineInput,
+    `${canonicalJson({
+      schema_version: "startup_opportunity.gap_analysis_input.v1",
+      machine_checks: [],
+    })}\n`,
+  );
+  const machineResult = runScript("harness/src/cli.ts", ["analyze-gaps", "--file", machineInput]);
+  assert.equal(machineResult.status, 64);
+  assert.equal(
+    (JSON.parse(machineResult.stderr) as { error: { code: string } }).error.code,
+    "command.invalid_arguments",
+  );
+
+  const malformedInput = path.join(root, "malformed-agent-input.json");
+  await writeFile(
+    malformedInput,
+    `${canonicalJson({
+      schema_version: "startup_opportunity.gap_analysis_input.v1",
+      agent_declared_gaps: "not-an-array",
+    })}\n`,
+  );
+  const malformedResult = runScript("harness/src/cli.ts", [
+    "analyze-gaps",
+    "--file",
+    malformedInput,
+  ]);
+  assert.equal(malformedResult.status, 64);
+  assert.equal(
+    (JSON.parse(malformedResult.stderr) as { error: { code: string } }).error.code,
+    "command.invalid_arguments",
   );
 });
 
@@ -2424,9 +2525,9 @@ test("Gap cycle identity binds base Plan, exact event, and observed Artifact has
   assertRunMismatch(
     analyzer.analyze({
       ...input,
-      machineChecks: [
+      agentDeclaredGaps: [
         {
-          checkId: "foreign_basis",
+          declarationId: "foreign_basis",
           gapType: "freshness_failed",
           subjectRef: PLAN_REF,
           basisRefs: [`${foreignEventRef}#gap_trigger_foreign`],
@@ -2441,9 +2542,9 @@ test("Gap cycle identity binds base Plan, exact event, and observed Artifact has
   assertRunMismatch(
     analyzer.analyze({
       ...input,
-      machineChecks: [
+      agentDeclaredGaps: [
         {
-          checkId: "foreign_evidence",
+          declarationId: "foreign_evidence",
           gapType: "freshness_failed",
           subjectRef: PLAN_REF,
           basisRefs: [PLAN_REF],
@@ -2972,6 +3073,7 @@ test("a confirmed pre-Plan Scope revision still reaches formation and the first 
     target_users: ["synthetic revised user"],
     decision_goal: "form the first Plan from the revised confirmed Scope",
     research_language: "en-US",
+    team_context: CONFIRMED_SCOPE.team_context,
     user_confirmed: true,
   };
   const constraints = intakeEnvelope.document.explicit_constraints as Record<string, unknown>;
@@ -2984,6 +3086,7 @@ test("a confirmed pre-Plan Scope revision still reaches formation and the first 
   scopeEnvelope.document.market = "Synthetic revised geography";
   scopeEnvelope.document.language = "en-US";
   scopeEnvelope.document.target_users = ["synthetic revised user"];
+  scopeEnvelope.document.team_context = CONFIRMED_SCOPE.team_context;
   (scopeEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
     scopeEnvelope.document,
   );
@@ -3125,6 +3228,7 @@ test("first Plan after a pre-Plan Scope correction requires an exact immutable r
     target_users: ["synthetic r2 user"],
     decision_goal: "form the first Plan from exact r2 formation",
     research_language: "en-US",
+    team_context: CONFIRMED_SCOPE.team_context,
     user_confirmed: true,
   };
   const r2Constraints = r2Intake.document.explicit_constraints as Record<string, unknown>;
@@ -3135,6 +3239,7 @@ test("first Plan after a pre-Plan Scope correction requires an exact immutable r
   r2Scope.document.market = "Synthetic r2 geography";
   r2Scope.document.language = "en-US";
   r2Scope.document.target_users = ["synthetic r2 user"];
+  r2Scope.document.team_context = CONFIRMED_SCOPE.team_context;
   (r2Scope as { content_hash: string }).content_hash = canonicalContentHash(r2Scope.document);
 
   for (const mismatch of [
@@ -3268,7 +3373,7 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
     native_app_required: false,
     delivery_form_preferences: [],
     business_model_preferences: [],
-    team_capability_constraints: [],
+    team_context: CONFIRMED_SCOPE.team_context,
     risk_preferences: ["SYNTHETIC avoid unsupported conclusions."],
     ai_scope: "optional",
     assumptions: ["SYNTHETIC Scope is not market Evidence."],
@@ -3407,7 +3512,7 @@ test("Scope revision handoff replay survives Gap and Plan reconciliation", async
     observed_artifact_refs: [],
     material_new_evidence_observed: false,
     repeated_source_refs: [],
-    machine_checks: [],
+    agent_declared_gaps: [],
   };
   await writeFile(gapInputFile, `${canonicalJson(gapInput)}\n`);
   const gapCommand = runScript("harness/src/cli.ts", [
@@ -4052,7 +4157,7 @@ test("a later same-Run adaptation preserves receipt-bound historical discovery v
       observed_artifact_refs: [],
       material_new_evidence_observed: false,
       repeated_source_refs: [],
-      machine_checks: [],
+      agent_declared_gaps: [],
     })}\n`,
   );
   for (const [command, skillScript, flag, filename] of [
@@ -6762,6 +6867,8 @@ test("late Artifact is persisted only as ignored and remains ignored after reope
         "startup_opportunity.research_plan.v1",
         "startup_opportunity.discovery_lane_result.v1",
         "startup_opportunity.discovery_candidate.v1",
+        "startup_opportunity.concrete_pre_candidate.v1",
+        "startup_opportunity.pre_candidate_relation.v1",
         "startup_opportunity.discovery_fan_in.v2",
       ].includes(envelope.artifact_type)
     ) {
@@ -6884,7 +6991,7 @@ test("Harness CLI and repo-local Skill scripts run all four G0.4 entries", async
       observed_artifact_refs: [],
       material_new_evidence_observed: false,
       repeated_source_refs: [],
-      machine_checks: [],
+      agent_declared_gaps: [],
     })}\n`,
   );
   await writeFile(
@@ -6952,4 +7059,337 @@ test("Harness CLI and repo-local Skill scripts run all four G0.4 entries", async
       "command.invalid_arguments",
     );
   }
+});
+
+test("public adaptation author path validates without writes, publishes exact controls, and atomically applies no-change", async (contextTest) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-adaptation-author-"));
+  contextTest.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runId = "adaptation-author-public-path";
+  const store = new RunStore(runsRoot, await createArtifactValidator(repositoryRoot));
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "verify the current adaptation author path",
+      researchLanguage: "en-US",
+    },
+    createdAt: "2026-08-10T08:00:00Z",
+  });
+  const plan = basePlan(runId);
+  await publishInitialPlanBundle(
+    store,
+    runId,
+    [formalEnvelope(runId, PLAN_REF, plan)],
+    "enrichment",
+  );
+  const initialManifest = (await store.status(runId)).manifest;
+  const author = await createAdaptationAuthorRuntime(repositoryRoot, runsRoot);
+  const request = {
+    schema_version: "startup_opportunity.adaptation_author_request.current",
+    request_id: "author_stop_followup",
+    run_id: runId,
+    operation: "validate_only",
+    top_level_formal_refs: [],
+    gap: {
+      snapshot_id: "gap_author_stop_followup",
+      created_at: "2026-08-10T08:10:00Z",
+      trigger_kind: "wave_completed",
+      trigger_event_ref: null,
+      phase: "enrichment",
+      wave_id: "wave_runtime_1",
+      observed_artifact_refs: [],
+      material_new_evidence_observed: false,
+      repeated_source_refs: [],
+      agent_declared_gaps: [],
+    },
+    decisions: [
+      {
+        adaptation_id: "adapt_author_stop_followup",
+        cover_all_generated_gaps: true,
+        action: "stop_followup",
+        reason: "The explicitly bounded cycle produced no material new evidence.",
+        expected_decision_impact: ["next_action"],
+        stop_condition: "No material new evidence was observed in the bounded cycle.",
+        requested_by: "main_agent",
+        created_at: "2026-08-10T08:11:00Z",
+      },
+    ],
+    apply_created_at: "2026-08-10T08:12:00Z",
+    checkpoint_created_at: "2026-08-10T08:13:00Z",
+    next_phase: "enrichment",
+    next_step: "Continue with the unchanged Plan under the explicit stop disposition.",
+    belief_summary: {
+      current_belief: "The bounded follow-up should stop without changing research conclusions.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["No research conclusion is upgraded by this lifecycle decision."],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Is the unchanged Plan ready for its next explicit stage?",
+    },
+  } as const;
+  const before = await readFile(path.join(runsRoot, runId, "manifest.json"), "utf8");
+  const requestFile = path.join(root, "adaptation-author-request.json");
+  await writeFile(requestFile, `${canonicalJson(request)}\n`);
+  const cliValidation = runScript("harness/src/cli.ts", [
+    "author-plan-adaptation",
+    "--file",
+    requestFile,
+    "--runs-root",
+    runsRoot,
+  ]);
+  assert.equal(cliValidation.status, 0, cliValidation.stderr);
+  assert.equal((JSON.parse(cliValidation.stdout) as { status: string }).status, "validated");
+  const skillValidation = runScript(
+    ".agents/skills/startup-opportunity/scripts/author-plan-adaptation.ts",
+    ["--file", requestFile, "--runs-root", runsRoot],
+  );
+  assert.equal(skillValidation.status, 0, skillValidation.stderr);
+  assert.equal((JSON.parse(skillValidation.stdout) as { status: string }).status, "validated");
+  const validated = await author.execute(request);
+  assert.equal(validated.status, "validated");
+  assert.equal(validated.candidate_bundle, null);
+  assert.equal(
+    await readFile(path.join(runsRoot, runId, "manifest.json"), "utf8"),
+    before,
+    "validate_only must not mutate Manifest",
+  );
+  await assert.rejects(
+    readFile(path.join(runsRoot, runId, validated.gap_envelope.artifact_path), "utf8"),
+    (error: unknown) =>
+      typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT",
+  );
+
+  const published = await author.execute({
+    ...request,
+    operation: "publish",
+    publication_plan: validated.publication_plan,
+  });
+  assert.equal(published.status, "published");
+  const publishedManifest = (await store.status(runId)).manifest;
+  assert.equal(publishedManifest.latest_gap_snapshot_ref, published.gap_envelope.artifact_path);
+  assert.deepEqual(
+    publishedManifest.pending_adaptation_refs,
+    published.adaptation_envelopes.map((entry) => entry.artifact_path),
+  );
+  assert.equal(
+    (
+      await author.execute({
+        ...request,
+        operation: "publish",
+        publication_plan: validated.publication_plan,
+      })
+    ).status,
+    "idempotent_replay",
+  );
+
+  const beforeStaleApply = await readFile(path.join(runsRoot, runId, "manifest.json"), "utf8");
+  await assert.rejects(
+    author.execute({
+      ...request,
+      operation: "apply",
+      publication_plan: {
+        ...published.publication_plan,
+        manifest_content_hash: canonicalContentHash(initialManifest),
+      },
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "adaptation.author_publication_plan_stale",
+  );
+  assert.equal(
+    await readFile(path.join(runsRoot, runId, "manifest.json"), "utf8"),
+    beforeStaleApply,
+    "stale apply must leave Manifest unchanged",
+  );
+
+  const applied = await author.execute({
+    ...request,
+    operation: "apply",
+    publication_plan: published.publication_plan,
+  });
+  assert.equal(applied.status, "applied");
+  assert.equal(applied.apply_result?.revisionCreated, false);
+  const finalManifest = (await store.status(runId)).manifest;
+  assert.equal(finalManifest.current_plan_ref, PLAN_REF);
+  assert.deepEqual(finalManifest.pending_adaptation_refs, []);
+  assert.deepEqual(
+    finalManifest.applied_adaptation_refs,
+    published.adaptation_envelopes.map((entry) => entry.artifact_path),
+  );
+
+  const revisionRequest = {
+    ...request,
+    request_id: "author_reprioritize_unit",
+    gap: {
+      ...request.gap,
+      snapshot_id: "gap_author_reprioritize",
+      created_at: "2026-08-10T08:20:00Z",
+    },
+    decisions: [
+      {
+        adaptation_id: "adapt_author_reprioritize",
+        cover_all_generated_gaps: true,
+        action: "reprioritize_unit",
+        target_unit_ref: `${PLAN_REF}#value_pending`,
+        priority_band: "blocking",
+        reason: "The explicit next-stage decision makes this pending unit blocking.",
+        expected_decision_impact: ["next_action"],
+        success_condition: "The immutable Plan Revision records the explicit priority change.",
+        requested_by: "main_agent",
+        created_at: "2026-08-10T08:21:00Z",
+      },
+    ],
+    apply_created_at: "2026-08-10T08:22:00Z",
+    checkpoint_created_at: "2026-08-10T08:23:00Z",
+    next_step: "Execute the explicitly reprioritized pending unit.",
+  } as const;
+  const revisionValidated = await author.execute(revisionRequest);
+  assert.ok(revisionValidated.candidate_bundle);
+  assert.deepEqual(revisionValidated.plan_diff.changed_unit_ids, ["value_pending"]);
+  const revisionPublished = await author.execute({
+    ...revisionRequest,
+    operation: "publish",
+    publication_plan: revisionValidated.publication_plan,
+  });
+  assert.equal(
+    (
+      await author.execute({
+        ...revisionRequest,
+        operation: "publish",
+        publication_plan: revisionValidated.publication_plan,
+      })
+    ).status,
+    "idempotent_replay",
+  );
+  const revisionApplyRequest = {
+    ...revisionRequest,
+    operation: "apply" as const,
+    publication_plan: revisionPublished.publication_plan,
+  };
+  await assert.rejects(
+    author.execute(revisionApplyRequest, { faultAt: "after_manifest_update" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const interruptedManifest = (await store.status(runId)).manifest;
+  assert.equal(interruptedManifest.current_plan_ref, "plans/research-plan.r2.json");
+  assert.ok(interruptedManifest.checkpoint_ref);
+  await assert.rejects(
+    readFile(path.join(runsRoot, runId, interruptedManifest.checkpoint_ref), "utf8"),
+    (error: unknown) =>
+      typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT",
+  );
+  const revisionApplied = await author.execute(revisionApplyRequest);
+  assert.equal(revisionApplied.status, "idempotent_replay");
+  assert.equal(revisionApplied.apply_result?.revisionCreated, true);
+  assert.equal(
+    (await store.status(runId)).manifest.current_plan_ref,
+    "plans/research-plan.r2.json",
+  );
+  assert.equal(
+    revisionPublished.gap_envelope.document.parent_snapshot_ref,
+    published.gap_envelope.artifact_path,
+  );
+});
+
+test("adaptation author validate-only does not complete a pending Plan recovery", async (contextTest) => {
+  const runId = "adaptation-author-read-only-recovery";
+  const setup = await setupPersistedRun(contextTest, runId);
+  const { candidateBundle } = candidateFor(setup);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  await assert.rejects(
+    runtime.apply({
+      runId,
+      adaptationBundle: setup.adaptationBundle,
+      adaptationRefs: [DECISION_REF],
+      candidateBundle,
+      createdAt: "2026-07-24T12:08:00Z",
+      checkpointCreatedAt: "2026-07-24T12:09:00Z",
+      nextStep: "Leave the injected post-Manifest recovery pending for read-only validation.",
+      beliefSummary: {
+        current_belief: "The current Plan changed, but its mechanical closeout is still pending.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: ["No research conclusion changes at this recovery boundary."],
+        remaining_disagreement: [],
+        next_decision_relevant_question:
+          "Can validation inspect current authority without recovery writes?",
+      },
+      faultAt: "after_manifest_update",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+
+  const pendingManifest = JSON.parse(
+    await readFile(path.join(setup.runRoot, "manifest.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.equal(pendingManifest.current_plan_ref, "plans/research-plan.r2.json");
+  assert.equal(typeof pendingManifest.checkpoint_ref, "string");
+  await assert.rejects(
+    readFile(path.join(setup.runRoot, String(pendingManifest.checkpoint_ref)), "utf8"),
+    (error: unknown) =>
+      typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT",
+  );
+  assert.equal(
+    (await readdir(path.join(setup.runRoot, ".store/operations"))).filter((entry) =>
+      entry.startsWith("plan-revision-"),
+    ).length,
+    1,
+  );
+  const before = await snapshotRunTree(setup.runRoot);
+
+  const author = await createAdaptationAuthorRuntime(repositoryRoot, setup.runsRoot);
+  await assert.rejects(
+    author.execute({
+      schema_version: "startup_opportunity.adaptation_author_request.current",
+      request_id: "author_read_only_pending_recovery",
+      run_id: runId,
+      operation: "validate_only",
+      top_level_formal_refs: [],
+      gap: {
+        snapshot_id: "gap_author_read_only_pending_recovery",
+        created_at: "2026-08-10T09:02:00Z",
+        trigger_kind: "wave_completed",
+        trigger_event_ref: null,
+        phase: "enrichment",
+        wave_id: "wave_runtime_1",
+        observed_artifact_refs: [],
+        material_new_evidence_observed: false,
+        repeated_source_refs: [],
+        agent_declared_gaps: [],
+      },
+      decisions: [
+        {
+          adaptation_id: "adapt_author_read_only_pending_recovery",
+          cover_all_generated_gaps: true,
+          action: "stop_followup",
+          reason:
+            "The caller explicitly stops this bounded follow-up without changing conclusions.",
+          expected_decision_impact: ["next_action"],
+          stop_condition: "No material new evidence was observed in this bounded follow-up.",
+          requested_by: "main_agent",
+          created_at: "2026-08-10T09:03:00Z",
+        },
+      ],
+      apply_created_at: "2026-08-10T09:04:00Z",
+      checkpoint_created_at: "2026-08-10T09:05:00Z",
+      next_phase: "enrichment",
+      next_step: "Preserve the pending recovery until an explicit mutating operation resumes it.",
+      belief_summary: {
+        current_belief: "Read-only validation must not complete pending mechanical recovery.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: ["No research conclusion is upgraded by validation."],
+        remaining_disagreement: [],
+        next_decision_relevant_question:
+          "Will a later mutating path recover the pending operation?",
+      },
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "adaptation.author_recovery_pending",
+  );
+  assert.deepEqual(
+    await snapshotRunTree(setup.runRoot),
+    before,
+    "validate_only must not publish a Checkpoint or complete pending Plan recovery",
+  );
 });

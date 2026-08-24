@@ -19,6 +19,9 @@ const CONTRACT_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.judgment_assessment.discovery_candidate.current",
   "startup_opportunity.source_manifest.discovery_candidate.current",
   "startup_opportunity.discovery_lane_result.v1",
+  "startup_opportunity.discovery_generation_result.v1",
+  "startup_opportunity.concrete_pre_candidate.v1",
+  "startup_opportunity.pre_candidate_relation.v1",
   "startup_opportunity.discovery_fan_in.v2",
 ]);
 
@@ -32,8 +35,24 @@ const PRODUCER_BY_SCHEMA: Readonly<Record<string, string>> = {
   "startup_opportunity.judgment_assessment.discovery_candidate.current": "lane_researcher",
   "startup_opportunity.source_manifest.discovery_candidate.current": "lane_researcher",
   "startup_opportunity.discovery_lane_result.v1": "lane_researcher",
+  "startup_opportunity.discovery_generation_result.v1": "lane_researcher",
+  "startup_opportunity.concrete_pre_candidate.v1": "main_agent",
+  "startup_opportunity.pre_candidate_relation.v1": "main_agent",
   "startup_opportunity.discovery_fan_in.v2": "main_agent",
 };
+
+const CANDIDATE_BOUND_SCHEMA_VERSIONS = new Set([
+  "startup_opportunity.discovery_lane_result.v1",
+  "startup_opportunity.discovery_fan_in.v2",
+  "startup_opportunity.concrete_pre_candidate.v1",
+  "startup_opportunity.pre_candidate_relation.v1",
+  "startup_opportunity.evidence.discovery_candidate.current",
+  "startup_opportunity.claim.discovery_candidate.current",
+  "startup_opportunity.finding.discovery_candidate.current",
+  "startup_opportunity.insight.discovery_candidate.current",
+  "startup_opportunity.judgment_assessment.discovery_candidate.current",
+  "startup_opportunity.source_manifest.discovery_candidate.current",
+]);
 
 const EVIDENCE_LINEAGE_FIELDS = [
   "evidence_refs",
@@ -159,6 +178,30 @@ function expectedDispositionSets(
     rejected: decisions
       .filter((entry) => entry.disposition === "rejected")
       .map((entry) => String(entry.candidate_ref)),
+  };
+}
+
+function preCandidateRefSets(document: Record<string, unknown>): readonly (readonly string[])[] {
+  return [
+    strings(document.retained_pre_candidate_refs),
+    strings(document.watchlist_pre_candidate_refs),
+    strings(document.rejected_pre_candidate_refs),
+  ];
+}
+
+function expectedPreCandidateDispositionSets(
+  decisions: readonly Record<string, unknown>[],
+): Readonly<Record<string, readonly string[]>> {
+  return {
+    retained: decisions
+      .filter((entry) => entry.disposition === "retained")
+      .map((entry) => String(entry.pre_candidate_ref)),
+    watchlist: decisions
+      .filter((entry) => entry.disposition === "watchlist")
+      .map((entry) => String(entry.pre_candidate_ref)),
+    rejected: decisions
+      .filter((entry) => entry.disposition === "rejected")
+      .map((entry) => String(entry.pre_candidate_ref)),
   };
 }
 
@@ -1109,6 +1152,358 @@ function descendants(
   return false;
 }
 
+const PRE_CANDIDATE_MATERIAL_FIELDS = [
+  "evidence_refs",
+  "claim_refs",
+  "finding_refs",
+  "insight_refs",
+  "judgment_assessment_refs",
+] as const;
+
+function candidateEnrichmentBasisRefs(
+  candidate: DiscoveryCandidateDocument | undefined,
+): readonly string[] {
+  return isRecord(candidate?.document.enrichment)
+    ? strings(candidate.document.enrichment.basis_refs)
+    : [];
+}
+
+function laneEligibleSeedRefs(
+  seedRefs: readonly string[],
+  laneRef: string,
+  documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
+): ReadonlySet<string> {
+  const eligible = new Set(seedRefs);
+  for (const seedRef of seedRefs) {
+    const seed = documentsByPath.get(seedRef);
+    if (
+      seed?.schemaVersion !== "startup_opportunity.discovery_candidate.v1" ||
+      !candidateEnrichmentBasisRefs(seed).includes(laneRef)
+    ) {
+      continue;
+    }
+    const identity = candidateIdentity(seed);
+    const runId = seed.document.run_id;
+    const seen = new Set<string>([seedRef]);
+    let parentRef = seed.document.parent_candidate_ref;
+    while (typeof parentRef === "string" && !seen.has(parentRef)) {
+      seen.add(parentRef);
+      const parent = documentsByPath.get(parentRef);
+      if (
+        parent?.schemaVersion !== "startup_opportunity.discovery_candidate.v1" ||
+        parent.document.run_id !== runId ||
+        candidateIdentity(parent) !== identity
+      ) {
+        break;
+      }
+      eligible.add(parentRef);
+      parentRef = parent.document.parent_candidate_ref;
+    }
+  }
+  return eligible;
+}
+
+function taskTargetsEligibleSeed(
+  task: DiscoveryCandidateDocument | undefined,
+  seedRefs: readonly string[],
+  laneRef: string,
+  documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
+): boolean {
+  const eligible = laneEligibleSeedRefs(seedRefs, laneRef, documentsByPath);
+  return strings(task?.document.target_candidate_refs).some((ref) => eligible.has(ref));
+}
+
+function validateConcretePreCandidate(
+  preCandidate: DiscoveryCandidateDocument,
+  documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
+  preCandidatesByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
+  scope: DiscoveryCandidateDocument,
+  plan: DiscoveryCandidateDocument,
+  errors: ValidationIssue[],
+): void {
+  const expectedPath = `artifacts/discovery/concrete-pre-candidates/${String(
+    preCandidate.document.pre_candidate_id,
+  )}.r${String(preCandidate.document.revision)}.json`;
+  const parentRef = preCandidate.document.parent_pre_candidate_ref;
+  const parent = typeof parentRef === "string" ? preCandidatesByPath.get(parentRef) : undefined;
+  const revision = Number(preCandidate.document.revision);
+  if (
+    preCandidate.path !== expectedPath ||
+    preCandidate.document.run_id !== scope.document.run_id ||
+    preCandidate.document.scope_frame_ref !== scope.path ||
+    preCandidate.document.research_plan_ref !== plan.path ||
+    (revision > 1 &&
+      (parent?.schemaVersion !== "startup_opportunity.concrete_pre_candidate.v1" ||
+        parent.document.pre_candidate_id !== preCandidate.document.pre_candidate_id ||
+        Number(parent.document.revision) !== revision - 1 ||
+        preCandidate.document.parent_content_hash !== targetHash(parent)))
+  ) {
+    errors.push(
+      issue(
+        "discovery_candidate.pre_candidate_identity_mismatch",
+        preCandidate.path,
+        "concrete pre-candidate must bind its exact immutable identity, previous revision, same-Run Scope, and current Plan",
+        { expectedPath },
+      ),
+    );
+  }
+
+  const seedBindings = records(preCandidate.document.seed_bindings);
+  const seedRefs = seedBindings.map((binding) => String(binding.ref));
+  const latestSeedRevisionById = new Map<string, number>();
+  for (const candidate of documentsByPath.values()) {
+    if (candidate.schemaVersion !== "startup_opportunity.discovery_candidate.v1") continue;
+    latestSeedRevisionById.set(
+      candidateIdentity(candidate),
+      Math.max(
+        latestSeedRevisionById.get(candidateIdentity(candidate)) ?? 0,
+        Number(candidate.document.revision),
+      ),
+    );
+  }
+  const invalidSeedBindings = seedBindings.filter((binding) => {
+    const seed = documentsByPath.get(String(binding.ref));
+    return (
+      seed?.schemaVersion !== "startup_opportunity.discovery_candidate.v1" ||
+      seed.document.run_id !== preCandidate.document.run_id ||
+      seed.document.research_plan_ref !== preCandidate.document.research_plan_ref ||
+      seed.document.candidate_kind !== binding.candidate_kind ||
+      Number(seed.document.revision) !== latestSeedRevisionById.get(candidateIdentity(seed)) ||
+      binding.content_hash !== targetHash(seed)
+    );
+  });
+  if (new Set(seedRefs).size !== seedRefs.length || invalidSeedBindings.length > 0) {
+    errors.push(
+      issue(
+        "discovery_candidate.pre_candidate_seed_binding_mismatch",
+        `${preCandidate.path}#/seed_bindings`,
+        "concrete pre-candidate seed bindings must be unique exact current same-Run candidate refs, kinds, Plan bindings, and hashes",
+        { invalidRefs: invalidSeedBindings.map((binding) => binding.ref) },
+      ),
+    );
+  }
+
+  const laneBindings = records(preCandidate.document.lane_result_bindings);
+  const laneRefs = laneBindings.map((binding) => String(binding.ref));
+  const expectedMaterialRefs: string[] = [];
+  const invalidLaneBindings = laneBindings.filter((binding) => {
+    const lane = documentsByPath.get(String(binding.ref));
+    const task =
+      typeof lane?.document.task_ref === "string"
+        ? documentsByPath.get(lane.document.task_ref)
+        : undefined;
+    if (lane !== undefined) {
+      const lineage = evidenceLineage(lane.document);
+      for (const field of PRE_CANDIDATE_MATERIAL_FIELDS) {
+        expectedMaterialRefs.push(...strings(lineage[field]));
+      }
+    }
+    return (
+      lane?.schemaVersion !== "startup_opportunity.discovery_lane_result.v1" ||
+      !["completed", "partial", "insufficient_evidence"].includes(String(lane.document.status)) ||
+      lane.document.run_id !== preCandidate.document.run_id ||
+      lane.document.status !== binding.status ||
+      binding.content_hash !== targetHash(lane) ||
+      task?.schemaVersion !== "startup_opportunity.research_task.discovery_candidate.current" ||
+      !taskTargetsEligibleSeed(task, seedRefs, String(binding.ref), documentsByPath)
+    );
+  });
+  if (new Set(laneRefs).size !== laneRefs.length || invalidLaneBindings.length > 0) {
+    errors.push(
+      issue(
+        "discovery_candidate.pre_candidate_lane_binding_mismatch",
+        `${preCandidate.path}#/lane_result_bindings`,
+        "each concrete pre-candidate Lane binding must be eligible, exact-hash, same-Run, and assigned to at least one bound mother seed",
+        { invalidRefs: invalidLaneBindings.map((binding) => binding.ref) },
+      ),
+    );
+  }
+
+  const materialDispositions = records(preCandidate.document.material_dispositions);
+  const materialRefs = materialDispositions.map((disposition) => String(disposition.material_ref));
+  const invalidMaterialDispositions = materialDispositions.filter((disposition) => {
+    const material = documentsByPath.get(String(disposition.material_ref));
+    const lineage = material === undefined ? {} : lineageOf(material.document);
+    const task =
+      typeof lineage.task_ref === "string" ? documentsByPath.get(lineage.task_ref) : undefined;
+    const owningLaneRef = laneRefs.find(
+      (laneRef) => documentsByPath.get(laneRef)?.document.task_ref === task?.path,
+    );
+    return (
+      material === undefined ||
+      material.schemaVersion !== disposition.material_schema_version ||
+      material.document.run_id !== preCandidate.document.run_id ||
+      disposition.material_content_hash !== targetHash(material) ||
+      task?.schemaVersion !== "startup_opportunity.research_task.discovery_candidate.current" ||
+      owningLaneRef === undefined ||
+      !taskTargetsEligibleSeed(task, seedRefs, owningLaneRef, documentsByPath)
+    );
+  });
+  const expectedMaterialClosure = [...new Set(expectedMaterialRefs)];
+  if (!setEqual(materialRefs, expectedMaterialClosure) || invalidMaterialDispositions.length > 0) {
+    errors.push(
+      issue(
+        "discovery_candidate.pre_candidate_material_disposition_mismatch",
+        `${preCandidate.path}#/material_dispositions`,
+        "concrete pre-candidate must explicitly disposition the exact typed material closure of every bound Lane with exact ref/hash and mother-seed task ownership",
+        {
+          expectedMaterialRefs: expectedMaterialClosure.sort(),
+          actualMaterialRefs: [...new Set(materialRefs)].sort(),
+          invalidRefs: invalidMaterialDispositions.map((item) => item.material_ref),
+        },
+      ),
+    );
+  }
+
+  const triage = isRecord(preCandidate.document.triage_profile)
+    ? preCandidate.document.triage_profile
+    : {};
+  const triageBasisRefs: string[] = [];
+  for (const [dimensionName, dimension] of Object.entries(triage)) {
+    if (!isRecord(dimension)) continue;
+    const basisRefs = strings(dimension.basis_material_refs);
+    triageBasisRefs.push(...basisRefs);
+    if (
+      basisRefs.some((ref) => !materialRefs.includes(ref)) ||
+      (["observed", "inferred", "partial", "conflicting"].includes(String(dimension.state)) &&
+        basisRefs.length === 0)
+    ) {
+      errors.push(
+        issue(
+          "discovery_candidate.pre_candidate_triage_binding_mismatch",
+          `${preCandidate.path}#/triage_profile/${dimensionName}`,
+          "triage dimensions must use only explicitly dispositioned candidate material; evidence-bearing states require at least one exact basis ref",
+        ),
+      );
+    }
+  }
+
+  const expectedInputs = [
+    ...strings([parentRef]),
+    String(preCandidate.document.scope_frame_ref),
+    String(preCandidate.document.research_plan_ref),
+    ...seedRefs,
+    ...laneRefs,
+    ...materialRefs,
+    ...triageBasisRefs,
+  ];
+  if (!setEqual(strings(preCandidate.envelope?.input_refs), [...new Set(expectedInputs)])) {
+    errors.push(
+      issue(
+        "discovery_candidate.pre_candidate_input_closure_mismatch",
+        `${preCandidate.path}#/input_refs`,
+        "concrete pre-candidate envelope inputs must be the exact direct seed, Lane, typed material, Scope, Plan, and parent closure",
+      ),
+    );
+  }
+}
+
+function validatePreCandidateRelation(
+  relation: DiscoveryCandidateDocument,
+  documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
+  scope: DiscoveryCandidateDocument,
+  plan: DiscoveryCandidateDocument,
+  errors: ValidationIssue[],
+): void {
+  const expectedPath = `artifacts/discovery/pre-candidate-relations/${String(
+    relation.document.relation_id,
+  )}.r${String(relation.document.revision)}.json`;
+  const seedBindings = records(relation.document.source_seed_bindings);
+  const resultBindings = records(relation.document.result_candidate_bindings);
+  const seedRefs = seedBindings.map((binding) => String(binding.ref));
+  const resultRefs = resultBindings.map((binding) => String(binding.ref));
+  const invalidSeeds = seedBindings.filter((binding) => {
+    const seed = documentsByPath.get(String(binding.ref));
+    return (
+      seed?.schemaVersion !== "startup_opportunity.discovery_candidate.v1" ||
+      seed.document.run_id !== relation.document.run_id ||
+      binding.content_hash !== targetHash(seed)
+    );
+  });
+  const invalidResults = resultBindings.filter((binding) => {
+    const result = documentsByPath.get(String(binding.ref));
+    const formation = isRecord(result?.document.formation) ? result.document.formation : {};
+    const resultSeeds = records(result?.document.seed_bindings).map((item) => String(item.ref));
+    return (
+      result?.schemaVersion !== "startup_opportunity.concrete_pre_candidate.v1" ||
+      result.document.run_id !== relation.document.run_id ||
+      binding.content_hash !== targetHash(result) ||
+      formation.relationship_kind !== relation.document.relationship_kind ||
+      formation.relationship_group_id !== relation.document.relationship_group_id ||
+      resultSeeds.some((ref) => !seedRefs.includes(ref))
+    );
+  });
+  const resultSeedClosure = [
+    ...new Set(
+      resultRefs.flatMap((ref) =>
+        records(documentsByPath.get(ref)?.document.seed_bindings).map((binding) =>
+          String(binding.ref),
+        ),
+      ),
+    ),
+  ];
+  const parentRef = relation.document.parent_relation_ref;
+  const parent = typeof parentRef === "string" ? documentsByPath.get(parentRef) : undefined;
+  const revision = Number(relation.document.revision);
+  const expectedInputs = [
+    ...strings([parentRef]),
+    String(relation.document.scope_frame_ref),
+    String(relation.document.research_plan_ref),
+    ...seedRefs,
+    ...resultRefs,
+  ];
+  if (
+    relation.path !== expectedPath ||
+    relation.document.run_id !== scope.document.run_id ||
+    relation.document.scope_frame_ref !== scope.path ||
+    relation.document.research_plan_ref !== plan.path ||
+    new Set(seedRefs).size !== seedRefs.length ||
+    new Set(resultRefs).size !== resultRefs.length ||
+    invalidSeeds.length > 0 ||
+    invalidResults.length > 0 ||
+    !setEqual(seedRefs, resultSeedClosure) ||
+    (revision > 1 &&
+      (parent?.schemaVersion !== "startup_opportunity.pre_candidate_relation.v1" ||
+        parent.document.relation_id !== relation.document.relation_id ||
+        Number(parent.document.revision) !== revision - 1 ||
+        relation.document.parent_content_hash !== targetHash(parent))) ||
+    !setEqual(strings(relation.envelope?.input_refs), [...new Set(expectedInputs)])
+  ) {
+    errors.push(
+      issue(
+        "discovery_candidate.pre_candidate_relation_mismatch",
+        relation.path,
+        "split/merge relation must explicitly and immutably close exact same-Run seed/result refs and hashes without Harness inference",
+        { expectedPath, seedRefs, resultRefs },
+      ),
+    );
+  }
+}
+
+function currentConcretePreCandidateRefs(
+  runId: string,
+  documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
+): readonly string[] {
+  const currentById = new Map<string, { readonly revision: number; readonly path: string }>();
+  for (const document of documentsByPath.values()) {
+    if (
+      document.schemaVersion !== "startup_opportunity.concrete_pre_candidate.v1" ||
+      document.document.run_id !== runId
+    ) {
+      continue;
+    }
+    const id = String(document.document.pre_candidate_id);
+    const revision = Number(document.document.revision);
+    const existing = currentById.get(id);
+    if (existing === undefined || revision > existing.revision) {
+      currentById.set(id, { revision, path: document.path });
+    }
+  }
+  return [...currentById.values()]
+    .map((entry) => entry.path)
+    .sort((left, right) => left.localeCompare(right));
+}
+
 function validateFanIn(
   fanIn: DiscoveryCandidateDocument,
   documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
@@ -1186,8 +1581,51 @@ function validateFanIn(
       ),
     );
   }
+  const preCandidateDecisions = records(fanIn.document.pre_candidate_dispositions);
+  const preCandidateDispositionIds = preCandidateDecisions.map((entry) =>
+    String(entry.disposition_id),
+  );
+  const preCandidateDispositionRefs = preCandidateDecisions.map((entry) =>
+    String(entry.pre_candidate_ref),
+  );
+  const materializedPreCandidateRefs = strings(fanIn.document.materialized_pre_candidate_refs);
+  const currentPreCandidateRefs = currentConcretePreCandidateRefs(
+    String(fanIn.document.run_id),
+    documentsByPath,
+  );
+  const expectedPreCandidateSets = expectedPreCandidateDispositionSets(preCandidateDecisions);
+  const actualPreCandidateSets = preCandidateRefSets(fanIn.document);
+  if (!setEqual(materializedPreCandidateRefs, currentPreCandidateRefs)) {
+    errors.push(
+      issue(
+        "discovery_candidate.fan_in_materialized_pre_candidate_closure_mismatch",
+        fanIn.path,
+        "fan-in must close the exact current concrete pre-candidate bundle set",
+        { expectedRefs: currentPreCandidateRefs, actualRefs: materializedPreCandidateRefs },
+      ),
+    );
+  }
+  if (
+    new Set(preCandidateDispositionIds).size !== preCandidateDispositionIds.length ||
+    !setEqual(materializedPreCandidateRefs, preCandidateDispositionRefs) ||
+    !disjoint(actualPreCandidateSets) ||
+    !setEqual(actualPreCandidateSets[0] ?? [], expectedPreCandidateSets.retained ?? []) ||
+    !setEqual(actualPreCandidateSets[1] ?? [], expectedPreCandidateSets.watchlist ?? []) ||
+    !setEqual(actualPreCandidateSets[2] ?? [], expectedPreCandidateSets.rejected ?? [])
+  ) {
+    errors.push(
+      issue(
+        "discovery_candidate.fan_in_pre_candidate_disposition_mismatch",
+        fanIn.path,
+        "fan-in must disposition every materialized concrete pre-candidate exactly once into exclusive retained/watchlist/rejected sets",
+      ),
+    );
+  }
   const dispositionJudgmentRefs = [
-    ...new Set(decisions.flatMap((entry) => strings(entry.judgment_assessment_refs))),
+    ...new Set([
+      ...decisions.flatMap((entry) => strings(entry.judgment_assessment_refs)),
+      ...preCandidateDecisions.flatMap((entry) => strings(entry.judgment_assessment_refs)),
+    ]),
   ];
   if (!setEqual(strings(fanIn.document.judgment_assessment_refs), dispositionJudgmentRefs)) {
     errors.push(
@@ -1301,6 +1739,150 @@ function validateFanIn(
       );
     }
   }
+  const latestPreCandidateRevisionById = new Map<string, number>();
+  for (const document of documentsByPath.values()) {
+    if (document.schemaVersion !== "startup_opportunity.concrete_pre_candidate.v1") continue;
+    const id = String(document.document.pre_candidate_id);
+    latestPreCandidateRevisionById.set(
+      id,
+      Math.max(latestPreCandidateRevisionById.get(id) ?? 0, Number(document.document.revision)),
+    );
+  }
+  for (const decision of preCandidateDecisions) {
+    const ref = String(decision.pre_candidate_ref);
+    const preCandidate = documentsByPath.get(ref);
+    const candidateLaneRefs = records(preCandidate?.document.lane_result_bindings).map((binding) =>
+      String(binding.ref),
+    );
+    const supportingLaneRefs = strings(decision.supporting_lane_result_refs);
+    const candidateMaterials = records(preCandidate?.document.material_dispositions);
+    const candidateJudgments = new Set(
+      candidateMaterials
+        .filter(
+          (item) =>
+            item.material_schema_version ===
+            "startup_opportunity.judgment_assessment.discovery_candidate.current",
+        )
+        .map((item) => String(item.material_ref)),
+    );
+    const laneJudgments = new Set(
+      supportingLaneRefs.flatMap((laneRef) =>
+        strings(
+          evidenceLineage(documentsByPath.get(laneRef)?.document ?? {}).judgment_assessment_refs,
+        ),
+      ),
+    );
+    const judgments = strings(decision.judgment_assessment_refs);
+    if (
+      preCandidate?.schemaVersion !== "startup_opportunity.concrete_pre_candidate.v1" ||
+      preCandidate.document.run_id !== fanIn.document.run_id ||
+      Number(preCandidate.document.revision) !==
+        latestPreCandidateRevisionById.get(String(preCandidate.document.pre_candidate_id)) ||
+      decision.pre_candidate_content_hash !== targetHash(preCandidate) ||
+      !setEqual(supportingLaneRefs, candidateLaneRefs) ||
+      supportingLaneRefs.some((laneRef) => !eligible.includes(laneRef)) ||
+      judgments.some(
+        (judgmentRef) => !candidateJudgments.has(judgmentRef) || !laneJudgments.has(judgmentRef),
+      )
+    ) {
+      errors.push(
+        issue(
+          "discovery_candidate.fan_in_pre_candidate_binding_mismatch",
+          `${fanIn.path}#/pre_candidate_dispositions`,
+          "each fan-in pre-candidate disposition must bind the exact current concrete pre-candidate hash, all and only its eligible Lanes, and its explicitly dispositioned Lane Judgments",
+          { ref, supportingLaneRefs, candidateLaneRefs, judgments },
+        ),
+      );
+    }
+  }
+
+  const relationRefs = strings(fanIn.document.pre_candidate_relation_refs);
+  const requiredRelationGroups = [
+    ...new Set(
+      materializedPreCandidateRefs.flatMap((ref) => {
+        const formation = isRecord(documentsByPath.get(ref)?.document.formation)
+          ? (documentsByPath.get(ref)?.document.formation as Record<string, unknown>)
+          : {};
+        return formation.relationship_kind === "direct"
+          ? []
+          : [String(formation.relationship_group_id)];
+      }),
+    ),
+  ];
+  const actualRelationGroups = relationRefs.flatMap((ref) => {
+    const relation = documentsByPath.get(ref);
+    if (
+      relation?.schemaVersion !== "startup_opportunity.pre_candidate_relation.v1" ||
+      relation.document.run_id !== fanIn.document.run_id ||
+      records(relation.document.result_candidate_bindings).some(
+        (binding) => !materializedPreCandidateRefs.includes(String(binding.ref)),
+      )
+    ) {
+      errors.push(
+        issue(
+          "discovery_candidate.fan_in_relation_mismatch",
+          `${fanIn.path}#/pre_candidate_relation_refs`,
+          "fan-in relation refs must be exact same-Run explicit relations whose results are materialized in this fan-in",
+          { ref },
+        ),
+      );
+    }
+    return relation === undefined ? [] : [String(relation.document.relationship_group_id)];
+  });
+  if (!setEqual(requiredRelationGroups, actualRelationGroups)) {
+    errors.push(
+      issue(
+        "discovery_candidate.fan_in_relation_mismatch",
+        `${fanIn.path}#/pre_candidate_relation_refs`,
+        "every split/merge materialization group must have exactly one explicit relation and direct candidates must not invent one",
+        { requiredGroups: requiredRelationGroups, actualGroups: actualRelationGroups },
+      ),
+    );
+  }
+
+  for (const ref of [
+    ...strings(diversity.pre_candidate_diversity_retention_refs),
+    ...strings(diversity.counterfactual_pre_candidate_refs),
+  ]) {
+    if (!(actualPreCandidateSets[0] ?? []).includes(ref)) {
+      errors.push(
+        issue(
+          "discovery_candidate.fan_in_pre_candidate_diversity_mismatch",
+          `${fanIn.path}#/candidate_diversity_summary`,
+          "fan-in concrete pre-candidate diversity references must be retained concrete pre-candidates",
+          { ref },
+        ),
+      );
+    }
+  }
+
+  const expectedInputs = [
+    String(fanIn.document.scope_frame_ref),
+    String(fanIn.document.research_plan_ref),
+    ...classifiedSets.flat(),
+    ...materializedPreCandidateRefs,
+    ...relationRefs,
+    ...preCandidateDecisions.flatMap((decision) => [
+      ...strings(decision.supporting_lane_result_refs),
+      ...strings(decision.judgment_assessment_refs),
+    ]),
+    ...decisions.flatMap((decision) => [
+      ...strings(decision.supporting_lane_result_refs),
+      ...strings(decision.judgment_assessment_refs),
+      ...strings(decision.source_candidate_refs),
+      String(decision.candidate_ref),
+    ]),
+    ...strings(fanIn.document.judgment_assessment_refs),
+  ];
+  if (!setEqual(strings(fanIn.envelope?.input_refs), [...new Set(expectedInputs)])) {
+    errors.push(
+      issue(
+        "discovery_candidate.fan_in_input_closure_mismatch",
+        `${fanIn.path}#/input_refs`,
+        "fan-in envelope inputs must exactly close classified Lanes, typed candidates, concrete pre-candidates, explicit relations, Judgments, Scope, and Plan",
+      ),
+    );
+  }
 }
 
 export function isDiscoveryCandidateSchemaVersion(schemaVersion: string): boolean {
@@ -1321,7 +1903,27 @@ export function validateDiscoveryCandidateContract(
   const candidates = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.discovery_candidate.v1",
   );
+  const generationTasks = documents.filter(
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.research_task.discovery_candidate.current" &&
+      entry.document.required_artifact_schema ===
+        "startup_opportunity.discovery_generation_result.v1",
+  );
+  const generationResults = documents.filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.discovery_generation_result.v1",
+  );
+  const candidateBoundDocuments = documents.filter((entry) =>
+    CANDIDATE_BOUND_SCHEMA_VERSIONS.has(entry.schemaVersion),
+  );
+  const candidateNeutralGenerationOnly =
+    candidates.length === 0 &&
+    candidateBoundDocuments.length === 0 &&
+    (generationTasks.length > 0 || generationResults.length > 0);
   const candidatesByPath = new Map(candidates.map((entry) => [entry.path, entry]));
+  const preCandidates = documents.filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.concrete_pre_candidate.v1",
+  );
+  const preCandidatesByPath = new Map(preCandidates.map((entry) => [entry.path, entry]));
   const scopes = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.scope_frame.discovery.current",
   );
@@ -1337,13 +1939,13 @@ export function validateDiscoveryCandidateContract(
     scopes.length !== 1 ||
     manifests.length !== 1 ||
     currentPlans.length !== 1 ||
-    candidates.length === 0
+    (candidates.length === 0 && !candidateNeutralGenerationOnly)
   ) {
     errors.push(
       issue(
         "discovery_candidate.bundle_cardinality",
         "/documents",
-        "G2.2 contract requires one Scope, one current Plan, and at least one typed candidate",
+        "G2.2 contract requires one Scope, one current Plan, and either typed candidates or a candidate-neutral generation task/result",
         {
           scopeCount: scopes.length,
           manifestCount: manifests.length,
@@ -1351,6 +1953,9 @@ export function validateDiscoveryCandidateContract(
           currentPlanCount: currentPlans.length,
           totalPlanCount: plans.length,
           candidateCount: candidates.length,
+          generationTaskCount: generationTasks.length,
+          generationResultCount: generationResults.length,
+          candidateBoundDocumentCount: candidateBoundDocuments.length,
         },
       ),
     );
@@ -1370,6 +1975,21 @@ export function validateDiscoveryCandidateContract(
     validateCandidateFormation(candidate, documentsByPath, exactRecords, errors);
     validateMapLineage(candidate, documentsByPath, policy, errors);
     validateSourcePartition(candidate, documentsByPath, errors);
+  }
+  for (const preCandidate of preCandidates) {
+    validateConcretePreCandidate(
+      preCandidate,
+      documentsByPath,
+      preCandidatesByPath,
+      scope,
+      plan,
+      errors,
+    );
+  }
+  for (const relation of documents.filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.pre_candidate_relation.v1",
+  )) {
+    validatePreCandidateRelation(relation, documentsByPath, scope, plan, errors);
   }
   for (const task of documents.filter(
     (entry) =>

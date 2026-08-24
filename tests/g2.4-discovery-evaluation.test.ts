@@ -14,7 +14,9 @@ import {
   canonicalJson,
   createArtifactValidator,
   type DiscoveryProfile,
+  DispatchLaunchRegistry,
   type DocumentBundle,
+  deriveOpportunityFamilyProjection,
   deriveReportEnvelopes,
   EvidenceStore,
   type FormalArtifactEnvelope,
@@ -124,13 +126,21 @@ function collectTypedRefs(value: unknown): readonly string[] {
   return Object.entries(value).flatMap(([key, child]) => {
     if ((key.endsWith("_refs") || key === "input_refs") && Array.isArray(child)) {
       return child.filter(
-        (ref): ref is string => typeof ref === "string" && (ref.includes("/") || ref.includes("#")),
+        (ref): ref is string =>
+          typeof ref === "string" &&
+          (ref.includes("/") ||
+            ref.includes("#") ||
+            ref.endsWith(".json") ||
+            ref.endsWith(".jsonl")),
       );
     }
     if (
-      (key.endsWith("_ref") || key.endsWith("_refs") || key === "ref") &&
+      (key.endsWith("_ref") || key === "ref") &&
       typeof child === "string" &&
-      (child.includes("/") || child.includes("#"))
+      (child.includes("/") ||
+        child.includes("#") ||
+        child.endsWith(".json") ||
+        child.endsWith(".jsonl"))
     ) {
       return [child];
     }
@@ -351,6 +361,7 @@ function projectMixedSolutionExploration(bundle: DocumentBundle): Record<string,
   const portfolio = effective(bundle, G24_PORTFOLIO);
   portfolio.recommended_first_bet = G23_OPPORTUNITY_B;
   portfolio.alternative_bets = [G23_OPPORTUNITY_A];
+  rankFirstBet(bundle, G23_OPPORTUNITY_B);
   const recommendation = effective(bundle, G24_RECOMMENDATION);
   recommendation.recommended_first_bet = G23_OPPORTUNITY_B;
   recommendation.alternative_bets = [G23_OPPORTUNITY_A];
@@ -376,6 +387,29 @@ function projectMixedSolutionExploration(bundle: DocumentBundle): Record<string,
   reportEnvelope.input_refs = [
     ...new Set([...(reportEnvelope.input_refs as string[]), provisionalEvaluationPath]),
   ].sort();
+  const exactFamilyProjection = deriveOpportunityFamilyProjection(
+    G23_MERGE,
+    new Map(
+      [...synthesisDocumentsByPath(bundle)].map(([artifactPath, document]) => [
+        artifactPath,
+        {
+          path: artifactPath,
+          schemaVersion: document.schemaVersion,
+          document: document.document,
+          contentHash: canonicalContentHash(document.document),
+        },
+      ]),
+    ),
+  );
+  for (const familyConsumerRef of [
+    G24_PORTFOLIO,
+    G24_RECOMMENDATION,
+    G24_TRACEABILITY,
+    G24_REPORT,
+  ]) {
+    effective(bundle, familyConsumerRef).opportunity_family_projection =
+      structuredClone(exactFamilyProjection);
+  }
   refreshAllInputHashes(bundle);
   return {
     provisionalEvaluationPath,
@@ -488,6 +522,39 @@ const EVALUATION_AGGREGATE_ARTIFACT_TYPES = [
   "startup_opportunity.report_consistency_evaluation.discovery.current",
 ] as const;
 
+async function registerDispatchLaunches(
+  state: State,
+  dispatchEnvelopes: readonly FormalArtifactEnvelope[],
+  requestId: string,
+  registeredAt: string,
+): Promise<void> {
+  const dispatchEnvelope = dispatchEnvelopes.find((envelope) =>
+    envelope.artifact_type.endsWith("dispatch_batch.discovery.current"),
+  );
+  assert.ok(dispatchEnvelope);
+  const registry = new DispatchLaunchRegistry(state.runsRoot, state.validator, repositoryRoot);
+  const checklist = await registry.check(
+    state.runId,
+    dispatchEnvelope.artifact_path,
+    dispatchEnvelope.content_hash,
+  );
+  await registry.register({
+    schema_version: "startup_opportunity.dispatch_launch_registration_request.v1",
+    request_id: requestId,
+    run_id: state.runId,
+    dispatch_ref: dispatchEnvelope.artifact_path,
+    dispatch_hash: dispatchEnvelope.content_hash,
+    registered_at: registeredAt,
+    registrations: checklist.checklist.map((entry) => ({
+      unit_id: entry.unit_id,
+      task_ref: entry.task_ref,
+      task_id: entry.task_id,
+      attempt: entry.attempt,
+      execution_attempt_id: `exec_${requestId}_${entry.unit_id}`,
+    })),
+  });
+}
+
 async function publishThroughSynthesis(state: State): Promise<void> {
   await publishInitialPlanBundle(
     state.store,
@@ -524,37 +591,42 @@ async function publishThroughSynthesis(state: State): Promise<void> {
       }
       throw error;
     });
+  const candidateRuntimeEnvelopes = discoveryWaveEnvelopes(
+    state.bundle,
+    state.runId,
+    "startup_opportunity.research_task.discovery_candidate.current",
+    1,
+    "candidate_runtime",
+  );
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: discoveryWaveEnvelopes(
-      state.bundle,
-      state.runId,
-      "startup_opportunity.research_task.discovery_candidate.current",
-      1,
-      "candidate_runtime",
-    ),
+    envelopes: candidateRuntimeEnvelopes,
   });
+  await registerDispatchLaunches(
+    state,
+    candidateRuntimeEnvelopes,
+    "launch_g2_4_candidate_runtime",
+    "2026-07-27T18:02:00Z",
+  );
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: byTypes(
-      runtime,
-      "startup_opportunity.evidence.discovery_candidate.current",
-      "startup_opportunity.claim.discovery_candidate.current",
-      "startup_opportunity.finding.discovery_candidate.current",
-      "startup_opportunity.insight.discovery_candidate.current",
-      "startup_opportunity.judgment_assessment.discovery_candidate.current",
-      "startup_opportunity.source_manifest.discovery_candidate.current",
-    ),
-  });
-  await state.store.publishArtifactBundle({
-    runId: state.runId,
-    envelopes: byTypes(runtime, "startup_opportunity.discovery_lane_result.v1"),
-  });
-  await state.store.publishArtifact({
-    runId: state.runId,
-    envelope: runtime.find(
-      (candidate) => candidate.artifact_path === G22_DEMAND_R2,
-    ) as FormalArtifactEnvelope,
+    envelopes: [
+      ...byTypes(
+        runtime,
+        "startup_opportunity.evidence.discovery_candidate.current",
+        "startup_opportunity.claim.discovery_candidate.current",
+        "startup_opportunity.finding.discovery_candidate.current",
+        "startup_opportunity.insight.discovery_candidate.current",
+        "startup_opportunity.judgment_assessment.discovery_candidate.current",
+        "startup_opportunity.source_manifest.discovery_candidate.current",
+        "startup_opportunity.discovery_lane_result.v1",
+        "startup_opportunity.concrete_pre_candidate.v1",
+        "startup_opportunity.pre_candidate_relation.v1",
+      ),
+      runtime.find(
+        (candidate) => candidate.artifact_path === G22_DEMAND_R2,
+      ) as FormalArtifactEnvelope,
+    ],
   });
   await state.store.publishArtifact({
     runId: state.runId,
@@ -575,16 +647,23 @@ async function publishThroughSynthesis(state: State): Promise<void> {
 async function publishThroughEnrichmentBranches(state: State): Promise<void> {
   await publishThroughSynthesis(state);
   const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
+  const enrichmentRuntimeEnvelopes = discoveryWaveEnvelopes(
+    state.bundle,
+    state.runId,
+    "startup_opportunity.research_task.discovery_evaluation.current",
+    3,
+    "enrichment_runtime",
+  );
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: discoveryWaveEnvelopes(
-      state.bundle,
-      state.runId,
-      "startup_opportunity.research_task.discovery_evaluation.current",
-      3,
-      "enrichment_runtime",
-    ),
+    envelopes: enrichmentRuntimeEnvelopes,
   });
+  await registerDispatchLaunches(
+    state,
+    enrichmentRuntimeEnvelopes,
+    "launch_g2_4_enrichment_runtime",
+    "2026-07-27T21:02:00Z",
+  );
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(
@@ -670,11 +749,25 @@ function terminalBranch(
   return { ...candidate, content_hash: canonicalContentHash(candidate.document) };
 }
 
+function rankFirstBet(bundle: DocumentBundle, firstBet: string): void {
+  const portfolio = effective(bundle, G24_PORTFOLIO);
+  const ranking = portfolio.opportunity_ranking as Record<string, unknown>[];
+  for (const row of ranking) {
+    row.rank = row.opportunity_ref === firstBet ? 1 : 2;
+  }
+  const report = effective(bundle, G24_REPORT);
+  const teamSummary = report.team_decision_summary as Record<string, unknown> | undefined;
+  if (teamSummary !== undefined) {
+    teamSummary.opportunity_ranking = structuredClone(portfolio.opportunity_ranking);
+  }
+}
+
 function setFirstBet(bundle: DocumentBundle, firstBet: string): void {
   const alternative = firstBet === G23_OPPORTUNITY_A ? G23_OPPORTUNITY_B : G23_OPPORTUNITY_A;
   const portfolio = effective(bundle, G24_PORTFOLIO);
   portfolio.recommended_first_bet = firstBet;
   portfolio.alternative_bets = [alternative];
+  rankFirstBet(bundle, firstBet);
   refreshEnvelopeClosure(bundle, G24_PORTFOLIO);
   const recommendation = effective(bundle, G24_RECOMMENDATION);
   recommendation.recommended_first_bet = firstBet;
@@ -2021,6 +2114,7 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   portfolio.alternative_bets = [];
   portfolio.watchlist_refs = [watchlist];
   portfolio.rejected_refs = [];
+  rankFirstBet(state.bundle, firstBet);
   const recommendation = effective(state.bundle, G24_RECOMMENDATION);
   recommendation.recommended_first_bet = firstBet;
   recommendation.alternative_bets = [];

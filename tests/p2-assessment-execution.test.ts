@@ -10,6 +10,7 @@ import {
   canonicalContentHash,
   createArtifactValidator,
   DeclarativeRuntimeCompiler,
+  DispatchLaunchRegistry,
   deriveAssessmentFollowupRevision,
   deriveAssessmentInformationGainAuthority,
   EvidenceStore,
@@ -513,6 +514,7 @@ function dispatchForStage(
     requested_at: createdAt,
     dispatch_mode: "parallel_immediate",
     agent_dispatch_performed: false,
+    launch_registration_required: true,
     tasks,
   });
 }
@@ -1698,6 +1700,52 @@ test("Assessment Evidence binds a current dispatch task and exact Evidence Store
       exactRecords,
     ).includes("assessment_execution.evidence_substrate_invalid"),
   );
+});
+
+test("Assessment Dispatch checklist registers every exact task fragment without a second Task contract", async (t) => {
+  const state = await prepareStoreRun(t, "launch-checklist");
+  const execution = executionPlan(state.runId, state.plan);
+  const dispatch = dispatchForStage(state.runId, execution, 0, null);
+  const compiled = await state.compiler.compile(
+    compilationRequest(
+      state.runId,
+      [
+        runtimeArtifact(executionPath, execution, "main_agent"),
+        runtimeArtifact(dispatch.path, dispatch.document, "harness"),
+      ],
+      "compile_assessment_launch_checklist",
+    ),
+  );
+  const checklist = compiled.dispatch_launch_checklists[0];
+  assert.ok(checklist);
+  assert.equal(checklist.status, "open");
+  assert.ok(
+    checklist.checklist.every(
+      (item) =>
+        item.task_ref === `${dispatch.path}#${item.task_id}` &&
+        item.required_artifact_schema === "startup_opportunity.assessment_lane_result.v1" &&
+        item.attempt === 1,
+    ),
+  );
+  const registry = new DispatchLaunchRegistry(state.runsRoot, state.validator, repositoryRoot);
+  const closed = await registry.register({
+    schema_version: "startup_opportunity.dispatch_launch_registration_request.v1",
+    request_id: "assessment_launch_registration",
+    run_id: state.runId,
+    dispatch_ref: dispatch.path,
+    dispatch_hash: canonicalContentHash(dispatch.document),
+    registered_at: "2026-08-02T16:00:01Z",
+    registrations: checklist.checklist.map((item) => ({
+      unit_id: item.unit_id,
+      task_ref: item.task_ref,
+      task_id: item.task_id,
+      attempt: item.attempt,
+      execution_attempt_id: `external_${item.unit_id}_attempt_1`,
+    })),
+  });
+  assert.equal(closed.status, "closed");
+  assert.deepEqual(closed.not_started_unit_ids, []);
+  assert.deepEqual(closed.started_unit_ids, checklist.not_started_unit_ids);
 });
 
 test("Assessment gates close later units without directly making the Run terminal", async (t) => {

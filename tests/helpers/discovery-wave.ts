@@ -41,6 +41,19 @@ function envelope(
   } as FormalArtifactEnvelope;
 }
 
+function refreshEnvelope(envelope: FormalArtifactEnvelope): FormalArtifactEnvelope {
+  const mutableEnvelope = envelope as {
+    input_refs: readonly string[];
+    content_hash: string;
+  };
+  mutableEnvelope.input_refs = artifactRefsForDocument({
+    path: envelope.artifact_path,
+    document: envelope.document,
+  }).filter((ref) => ref.split("#", 1)[0] !== envelope.artifact_path);
+  mutableEnvelope.content_hash = canonicalContentHash(envelope.document);
+  return envelope;
+}
+
 export function refreshDiscoveryRuntimeLineage(bundle: DocumentBundle): DocumentBundle {
   for (const entry of bundle.documents) {
     const stored = entry.document;
@@ -103,8 +116,7 @@ export function discoveryWaveEnvelopes(
     task.document.agent_role = binding.unit.agent_role;
     task.document.allowed_output_path = binding.unit.output_path;
     task.document.required_artifact_schema = binding.unit.required_artifact_schema;
-    (task as { content_hash: string }).content_hash = canonicalContentHash(task.document);
-    return task;
+    return refreshEnvelope(task);
   });
   const executionPath = `plans/research-execution.r${revision}.json`;
   const dispatchPath = `tasks/dispatch/${suffix}.r1.json`;
@@ -119,31 +131,8 @@ export function discoveryWaveEnvelopes(
       blocks_stage: true,
     },
   };
-  const candidateRefs = [
-    ...new Set(
-      tasks.flatMap((task) => {
-        const targetRefs = [
-          ...(Array.isArray(task.document.target_candidate_refs)
-            ? task.document.target_candidate_refs
-            : []),
-          ...(Array.isArray(task.document.target_opportunity_refs)
-            ? task.document.target_opportunity_refs
-            : []),
-        ];
-        return targetRefs.filter((ref): ref is string => typeof ref === "string");
-      }),
-    ),
-  ];
   const targetedResponse =
     taskType === "startup_opportunity.research_task.discovery_evaluation.current";
-  const incumbentResponseAssignment = {
-    analysis_depth: targetedResponse ? "targeted_deep_dive" : "lightweight_scan",
-    assignment_role: "owner",
-    subject_refs: candidateRefs,
-    rationale: targetedResponse
-      ? "Shortlisted opportunities receive a bounded targeted response deep dive."
-      : "Formed candidates receive a bounded lightweight response scan.",
-  };
   const unassignedIncumbentResponse = {
     analysis_depth: "not_assigned",
     assignment_role: "none",
@@ -154,12 +143,31 @@ export function discoveryWaveEnvelopes(
     0,
     tasks.findIndex((task) => task.document.source_phase !== "candidate_generation"),
   );
+  const ownerTask = tasks[ownerIndex];
+  if (ownerTask === undefined) {
+    throw new Error("missing fixture incumbent response owner task");
+  }
+  const incumbentResponseAssignment = {
+    analysis_depth: targetedResponse ? "targeted_deep_dive" : "lightweight_scan",
+    assignment_role: "owner",
+    subject_refs: [
+      ...(Array.isArray(ownerTask.document.target_candidate_refs)
+        ? ownerTask.document.target_candidate_refs
+        : []),
+      ...(Array.isArray(ownerTask.document.target_opportunity_refs)
+        ? ownerTask.document.target_opportunity_refs
+        : []),
+    ],
+    rationale: targetedResponse
+      ? "Shortlisted opportunities receive a bounded targeted response deep dive."
+      : "Formed candidates receive a bounded lightweight response scan.",
+  };
   tasks.forEach((task, index) => {
     const requirements = task.document.commercial_research_requirements as Record<string, unknown>;
     requirements.incumbent_response_assignment = structuredClone(
       index === ownerIndex ? incumbentResponseAssignment : unassignedIncumbentResponse,
     );
-    (task as { content_hash: string }).content_hash = canonicalContentHash(task.document);
+    refreshEnvelope(task);
   });
   const lanes = tasks.map((task, index) => ({
     unit_id: task.document.unit_id,
@@ -168,7 +176,7 @@ export function discoveryWaveEnvelopes(
     incumbent_response_assignment: structuredClone(
       index === ownerIndex ? incumbentResponseAssignment : unassignedIncumbentResponse,
     ),
-    reporting_dimensions: ["demand"],
+    reporting_dimensions: [targetedResponse ? "recent_user_language" : "demand"],
     submission_path: task.document.allowed_output_path,
     submission_schema: task.document.required_artifact_schema,
     ...lanePolicy,
@@ -234,6 +242,7 @@ export function discoveryWaveEnvelopes(
       };
     }),
     agent_dispatch_performed: false,
+    launch_registration_required: true,
     limitations: ["SYNTHETIC fixture Dispatch; no agent was started."],
   };
   return [

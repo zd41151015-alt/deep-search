@@ -23,6 +23,7 @@ import {
 import { withReportLock, withRunLock } from "../artifact-store/run-lock.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { EvidenceStore } from "../evidence-store/evidence-store.js";
+import { deriveOpportunityFamilyProjection } from "../opportunity-family-contract.js";
 import { type RunManifest, RunStore } from "../run-store/run-store.js";
 import { type OperationObserver, operationTrace } from "../runtime/operation-observability.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
@@ -366,6 +367,289 @@ function summaryList(value: unknown, zh: boolean, limit?: number): string {
   );
 }
 
+function teamConditionProvenance(condition: Record<string, unknown>, zh: boolean): string {
+  const sourceLabels: Readonly<Record<string, string>> = zh
+    ? { user_provided: "用户提供", agent_assumed: "Agent 假设", unknown: "未知" }
+    : { user_provided: "User-provided", agent_assumed: "Agent-assumed", unknown: "Unknown" };
+  const confirmationLabels: Readonly<Record<string, string>> = zh
+    ? {
+        user_confirmed: "用户已确认",
+        user_authorized_assumption: "用户授权假设",
+        unconfirmed_assumption: "未确认假设",
+        unknown: "未知",
+      }
+    : {
+        user_confirmed: "User-confirmed",
+        user_authorized_assumption: "User-authorized assumption",
+        unconfirmed_assumption: "Unconfirmed assumption",
+        unknown: "Unknown",
+      };
+  const source = sourceLabels[String(condition.source_kind)] ?? String(condition.source_kind);
+  const confirmation =
+    confirmationLabels[String(condition.confirmation_status)] ??
+    String(condition.confirmation_status);
+  const disclosure =
+    typeof condition.reporting_disclosure === "string"
+      ? userVisibleText(condition.reporting_disclosure, zh)
+      : "";
+  return `${zh ? "来源" : "Source"}: ${source}; ${zh ? "确认状态" : "Confirmation"}: ${confirmation}${disclosure.length > 0 ? `; ${zh ? "披露" : "Disclosure"}: ${disclosure}` : ""}`;
+}
+
+function renderTeamConditions(value: unknown, zh: boolean, empty: string): string {
+  const conditions = records(value);
+  if (conditions.length === 0) return `${empty}\n`;
+  return `${conditions
+    .map(
+      (condition) =>
+        `- ${userVisibleText(condition.statement, zh)}\n  - ${teamConditionProvenance(condition, zh)}`,
+    )
+    .join("\n")}\n`;
+}
+
+function reportOpportunityLabel(
+  report: Record<string, unknown>,
+  opportunityRef: unknown,
+  index: number,
+  zh: boolean,
+): string {
+  const ref = String(opportunityRef);
+  const summary = isRecord(report.team_decision_summary) ? report.team_decision_summary : {};
+  const teamLabel = records(summary.opportunity_labels).find(
+    (entry) => entry.opportunity_ref === ref,
+  )?.label;
+  if (typeof teamLabel === "string") return userVisibleText(teamLabel, zh);
+  const labels = records(report.report_subject_labels);
+  const label = labels.find(
+    (entry) => entry.subject_ref === ref || entry.subject_id === ref,
+  )?.label;
+  return typeof label === "string"
+    ? userVisibleText(label, zh)
+    : `${zh ? "机会" : "Opportunity"} ${index + 1}`;
+}
+
+export function renderDiscoveryTeamDecisionSummary(
+  report: Record<string, unknown>,
+  zh: boolean,
+): string {
+  const summary = requiredRecord(report.team_decision_summary, "team_decision_summary");
+  const team = requiredRecord(summary.team_context, "team_context");
+  const otherConditions = requiredRecord(team.other_team_conditions, "other_team_conditions");
+  const teamTerm = (value: unknown): string => {
+    const labels: Readonly<Record<string, string>> = zh
+      ? {
+          conditional: "有条件",
+          match: "匹配",
+          mismatch: "不匹配",
+          unknown: "未知",
+          supporting: "支持排序",
+          constraining: "形成约束",
+          neutral: "中性",
+          insufficient_evidence: "证据不足",
+          partial: "部分",
+          unavailable: "不可用",
+          inferred: "推断",
+          not_applicable: "不适用",
+          no_evidence_found: "未找到证据",
+        }
+      : {};
+    return labels[String(value)] ?? String(value);
+  };
+  const analyses = records(summary.opportunity_analyses);
+  const burdenLabels: Readonly<Record<string, string>> = zh
+    ? {
+        startup_capital_and_build_complexity: "启动资本与开发复杂度",
+        ongoing_human_delivery: "持续人工交付",
+        acquisition_and_channel_dependency: "获客与渠道依赖",
+        compliance_data_and_professional_liability: "合规、数据与专业责任",
+        time_to_first_meaningful_validation_or_revenue: "首次有效验证或收入时间",
+      }
+    : {
+        startup_capital_and_build_complexity: "Startup capital and build complexity",
+        ongoing_human_delivery: "Ongoing human delivery",
+        acquisition_and_channel_dependency: "Acquisition and channel dependency",
+        compliance_data_and_professional_liability: "Compliance, data, and professional liability",
+        time_to_first_meaningful_validation_or_revenue:
+          "Time to first meaningful validation or revenue",
+      };
+  const analysisBlocks = analyses.map((analysis, index) => {
+    const burden = requiredRecord(analysis.team_startup_burden, "team_startup_burden");
+    const match = requiredRecord(analysis.team_match_analysis, "team_match_analysis");
+    const label = reportOpportunityLabel(report, analysis.opportunity_ref, index, zh);
+    const dimensions = records(burden.dimensions)
+      .map(
+        (dimension) =>
+          `- ${burdenLabels[String(dimension.dimension_id)] ?? String(dimension.dimension_id)}: ${teamTerm(dimension.status)}; ${userVisibleText(dimension.assessment, zh)}`,
+      )
+      .join("\n");
+    return [
+      `### ${zh ? "机会" : "Opportunity"}: ${label} - ${zh ? "机会自身启动负担" : "Opportunity startup burden"}`,
+      dimensions || (zh ? "- 无" : "- None recorded."),
+      `${zh ? "负担限制" : "Burden limitations"}:`,
+      boundedMarkdownList(burden.overall_limitations, zh),
+      `**${zh ? "当前团队匹配结论" : "Current team match conclusion"}:** ${teamTerm(match.conclusion)}. ${userVisibleText(match.assessment, zh)}`,
+      `${zh ? "未知前提" : "Unknown assumptions"}:`,
+      boundedMarkdownList(match.unknown_assumptions, zh),
+      `${zh ? "会改变结论的条件" : "Conditions that would change the conclusion"}:`,
+      boundedMarkdownList(match.conditions_that_would_change_conclusion, zh),
+      `${zh ? "匹配限制" : "Match limitations"}:`,
+      boundedMarkdownList(match.limitations, zh),
+    ].join("\n");
+  });
+  const ranking = [...records(summary.opportunity_ranking)]
+    .map((entry, index) => ({ entry, index }))
+    .sort((left, right) => {
+      const leftRank = typeof left.entry.rank === "number" ? left.entry.rank : null;
+      const rightRank = typeof right.entry.rank === "number" ? right.entry.rank : null;
+      if (leftRank === null && rightRank === null) return left.index - right.index;
+      if (leftRank === null) return 1;
+      if (rightRank === null) return -1;
+      return leftRank - rightRank || left.index - right.index;
+    })
+    .map(({ entry, index }) => {
+      const label = reportOpportunityLabel(report, entry.opportunity_ref, index, zh);
+      const rankLabel =
+        typeof entry.rank === "number"
+          ? zh
+            ? `第${String(entry.rank)}位`
+            : `Rank ${String(entry.rank)}`
+          : zh
+            ? "未排序"
+            : "Unranked";
+      return `- ${rankLabel}: ${label}; ${teamTerm(entry.team_fit_contribution)}; ${userVisibleText(entry.rationale, zh)}`;
+    })
+    .join("\n");
+  return [
+    `## ${zh ? "当前团队条件" : "Current Team Conditions"}`,
+    `${zh ? "硬约束" : "Hard constraints"}:`,
+    renderTeamConditions(
+      team.hard_constraints,
+      zh,
+      zh ? "- 未提供；保持 unknown。" : "- None provided; remains unknown.",
+    ),
+    `${zh ? "已知优势或短板" : "Known strengths or gaps"}:`,
+    renderTeamConditions(
+      team.known_strengths_and_gaps,
+      zh,
+      zh ? "- 未提供；保持 unknown。" : "- None provided; remains unknown.",
+    ),
+    `${zh ? "其他团队条件" : "Other team conditions"}: ${teamTerm(otherConditions.status)}. ${teamConditionProvenance(otherConditions, zh)}\n`,
+    `\n## ${zh ? "机会自身启动负担与当前团队匹配" : "Opportunity Startup Burden And Current Team Match"}`,
+    analysisBlocks.length > 0 ? analysisBlocks.join("\n\n") : zh ? "- 无" : "- None recorded.",
+    `\n## ${zh ? "主 Agent 明确提交的机会排序" : "Explicit Main-Agent Opportunity Ranking"}`,
+    ranking || (zh ? "- 无" : "- None recorded."),
+  ].join("\n");
+}
+
+function renderOpportunityFamilySummary(report: Record<string, unknown>, zh: boolean): string {
+  const projection = isRecord(report.opportunity_family_projection)
+    ? report.opportunity_family_projection
+    : {};
+  const families = records(projection.families);
+  const countLine = zh
+    ? `本次结果包含 ${String(projection.independent_opportunity_family_count ?? 0)} 个可区分的机会家族、${String(projection.concrete_direction_count ?? 0)} 个具体方向；其中 ${String(projection.unknown_family_relation_count ?? 0)} 个方向的家族关系仍未知。`
+    : `This result contains ${String(projection.independent_opportunity_family_count ?? 0)} distinct opportunity families and ${String(projection.concrete_direction_count ?? 0)} concrete directions; ${String(projection.unknown_family_relation_count ?? 0)} directions still have an unknown family relationship.`;
+  const familyLines = families.map((family) => {
+    const mechanism = isRecord(family.shared_value_or_solution_mechanism)
+      ? family.shared_value_or_solution_mechanism
+      : {};
+    const members = records(family.members);
+    const relations = [...new Set(members.map((member) => String(member.relation_to_family)))];
+    const risks = strings(family.shared_failure_risks);
+    const differences = new Map(
+      records(family.member_specific_differences).map((difference) => [
+        String(difference.opportunity_ref),
+        records(difference.dimensions).map((dimension) =>
+          zh
+            ? `${localizedEnum(dimension.dimension ?? "other", true)}（状态：${localizedEnum(dimension.state ?? "unknown", true)}；说明：${userVisibleText(dimension.description, true)}）`
+            : `${localizedEnum(dimension.dimension ?? "other", false)} (state: ${localizedEnum(dimension.state ?? "unknown", false)}; description: ${userVisibleText(dimension.description, false)})`,
+        ),
+      ]),
+    );
+    const memberSummary = members
+      .map((member) => {
+        const memberDifferences = differences.get(String(member.opportunity_ref)) ?? [];
+        return zh
+          ? `${userVisibleText(member.opportunity_title, true)}（${localizedEnum(member.relation_to_family, true)}；差异：${memberDifferences.map((value) => userVisibleText(value, true)).join("；")}）`
+          : `${userVisibleText(member.opportunity_title, false)} (${localizedEnum(member.relation_to_family, false)}; differences: ${memberDifferences.map((value) => userVisibleText(value, false)).join("; ")})`;
+      })
+      .join(zh ? "；" : "; ");
+    const mechanismSummary = zh
+      ? `共享机制状态：${localizedEnum(mechanism.state ?? "unknown", true)}；说明：${userVisibleText(mechanism.description, true)}`
+      : `shared mechanism state: ${localizedEnum(mechanism.state ?? "unknown", false)}; description: ${userVisibleText(mechanism.description, false)}`;
+    return zh
+      ? `- ${userVisibleText(family.title, true)}：${members.length} 个方向；关系 ${relations.map((value) => localizedEnum(value, true)).join("、")}；${mechanismSummary}；共享风险 ${risks.length === 0 ? "无已声明项" : risks.map((value) => userVisibleText(value, true)).join("；")}；具体方向 ${memberSummary}。`
+      : `- ${userVisibleText(family.title, false)}: ${members.length} direction${members.length === 1 ? "" : "s"}; relation ${relations.map((value) => localizedEnum(value, false)).join(", ")}; ${mechanismSummary}; shared risks ${risks.length === 0 ? "none declared" : risks.map((value) => userVisibleText(value, false)).join("; ")}; concrete directions ${memberSummary}.`;
+  });
+  return [
+    `## ${zh ? "机会家族与具体方向" : "Opportunity Families And Directions"}\n`,
+    `${countLine}\n`,
+    familyLines.length === 0
+      ? `- ${zh ? "无" : "None recorded."}\n\n`
+      : `${familyLines.join("\n")}\n\n`,
+  ].join("");
+}
+
+function deriveDiscoveryTeamDecisionSummary(
+  sourceDocument: Record<string, unknown>,
+  documentsByPath: ReadonlyMap<string, Record<string, unknown>>,
+): Record<string, unknown> {
+  const scopeRef = String(sourceDocument.scope_frame_ref ?? "");
+  const portfolioRef = String(sourceDocument.portfolio_view_ref ?? "");
+  const scope = documentsByPath.get(scopeRef);
+  const portfolio = documentsByPath.get(portfolioRef);
+  const teamContext = scope?.team_context;
+  if (scope === undefined || !isRecord(teamContext) || portfolio === undefined) {
+    throw new StoreError(
+      "report.source_invalid",
+      "discovery team decision projection requires exact ScopeFrame and Portfolio authorities",
+      { scopeRef, portfolioRef },
+    );
+  }
+  const opportunityAnalyses = strings(sourceDocument.comparison_refs).map((comparisonRef) => {
+    const comparison = documentsByPath.get(comparisonRef);
+    const panel =
+      comparison === undefined
+        ? undefined
+        : records(comparison.comparison_panels).find(
+            (candidate) => candidate.panel_id === "team_fit_and_learning",
+          );
+    if (comparison === undefined || panel === undefined) {
+      throw new StoreError(
+        "report.source_invalid",
+        "discovery team decision projection requires each exact Comparison team panel",
+        { comparisonRef },
+      );
+    }
+    return {
+      opportunity_ref: comparison.opportunity_ref,
+      comparison_ref: comparisonRef,
+      team_startup_burden: structuredClone(panel.team_startup_burden),
+      team_match_analysis: structuredClone(panel.team_match_analysis),
+    };
+  });
+  const opportunityLabels = opportunityAnalyses.map((analysis) => {
+    const opportunityRef = String(analysis.opportunity_ref);
+    const opportunity = documentsByPath.get(opportunityRef);
+    if (opportunity === undefined || typeof opportunity.title !== "string") {
+      throw new StoreError(
+        "report.source_invalid",
+        "discovery team decision projection requires each exact Opportunity title",
+        { opportunityRef },
+      );
+    }
+    return {
+      opportunity_ref: opportunityRef,
+      label: opportunity.title,
+    };
+  });
+  return {
+    team_context: structuredClone(teamContext),
+    opportunity_labels: opportunityLabels,
+    opportunity_analyses: opportunityAnalyses,
+    opportunity_ranking: structuredClone(portfolio.opportunity_ranking),
+  };
+}
+
 function localizedLeakageGuard(report: Record<string, unknown>, markdown: string): void {
   const issues = localizedInternalLeakageIssues(report.research_language, markdown);
   if (issues.length > 0) {
@@ -648,8 +932,10 @@ function renderDiscoveryDecisionBrief(report: Record<string, unknown>): string {
     `${userVisibleText(context.current_recommendation, zh)}\n\n`,
     `${zh ? "决策层级" : "Decision tier"}: ${localizedEnum(context.decision_tier, zh)}\n\n`,
     `${zh ? "含义" : "Meaning"}: ${userVisibleText(context.recommendation_meaning, zh)}\n\n`,
+    renderOpportunityFamilySummary(report, zh),
     `## ${zh ? "局部排序" : "Partial Order"}\n`,
     `${userVisibleText(context.partial_order_summary, zh)}\n\n`,
+    `${renderDiscoveryTeamDecisionSummary(report, zh)}\n`,
     `## ${zh ? "研究概览" : "Key Research Counts"}\n`,
     renderReportStatistics(report, zh),
     `\n## ${zh ? "方案探索与暂定实现" : "Solution Exploration And Provisional Implementations"}\n`,
@@ -680,8 +966,10 @@ function renderDiscoveryFullReport(report: Record<string, unknown>): string {
     `\n${zh ? "建议" : "Recommendation"}: ${userVisibleText(context.current_recommendation, zh)}\n`,
     `\n${zh ? "有效日期" : "Valid as of"}: ${String(context.valid_as_of)}\n`,
     `\n${zh ? "生成时间" : "Generated at"}: ${String(metadata.generated_at)}\n`,
+    `\n${renderDiscoveryTeamDecisionSummary(report, zh)}\n`,
     `\n## ${zh ? "研究概览" : "Key Research Counts"}\n`,
     renderReportStatistics(report, zh),
+    `\n${renderOpportunityFamilySummary(report, zh)}`,
     `\n## ${zh ? "方案探索与暂定实现" : "Solution Exploration And Provisional Implementations"}\n`,
     renderSolutionEvaluations(report, zh, false),
   ];
@@ -739,6 +1027,7 @@ function deriveDiscoveryReportEnvelopes(
   const traceabilityRef = requiredString(report.traceability_ref, "traceability_ref");
   const supportingRefs = flattenSummaryRefs(context.decisive_support);
   const opposingRefs = flattenSummaryRefs(context.decisive_opposition);
+  const opportunityFamilyProjection = structuredClone(report.opportunity_family_projection);
   const decisionBriefPath = `artifacts/reporting/decision-brief.${revision}.json`;
   const reportViewPath = `artifacts/reporting/report-markdown.${revision}.json`;
   const consistencyPath = `artifacts/reporting/consistency-evaluation.${revision}.json`;
@@ -755,6 +1044,7 @@ function deriveDiscoveryReportEnvelopes(
     report_ref: reportEnvelope.artifact_path,
     report_content_hash: reportHash,
     decision_recommendation_ref: recommendationRef,
+    opportunity_family_projection: opportunityFamilyProjection,
     decision_question: context.decision_question,
     decision_tier: context.decision_tier,
     current_recommendation: context.current_recommendation,
@@ -797,6 +1087,7 @@ function deriveDiscoveryReportEnvelopes(
     report_ref: reportEnvelope.artifact_path,
     report_content_hash: reportHash,
     decision_recommendation_ref: recommendationRef,
+    opportunity_family_projection: opportunityFamilyProjection,
     decision_tier: context.decision_tier,
     recommendation_meaning: context.recommendation_meaning,
     recommended_first_bet: context.recommended_first_bet,
@@ -2169,6 +2460,34 @@ export class ReportRuntime {
       envelopesByPath,
       researchLanguage,
     );
+    const opportunityFamilyProjection =
+      source.artifact_type === "startup_opportunity.report.v1"
+        ? deriveOpportunityFamilyProjection(
+            requiredString(sourceDocument.source_merge_ref, "source_merge_ref"),
+            new Map(
+              [...envelopesByPath].map(([artifactPath, envelope]) => [
+                artifactPath,
+                {
+                  path: artifactPath,
+                  schemaVersion: envelope.artifact_type,
+                  document: envelope.document,
+                  contentHash: envelope.content_hash,
+                },
+              ]),
+            ),
+          )
+        : undefined;
+    if (
+      opportunityFamilyProjection !== undefined &&
+      sourceDocument.opportunity_family_projection !== undefined &&
+      canonicalJson(sourceDocument.opportunity_family_projection) !==
+        canonicalJson(opportunityFamilyProjection)
+    ) {
+      throw new StoreError(
+        "report.opportunity_family_projection_drift",
+        "caller-supplied opportunity-family projection drifts from the exact Merge authority",
+      );
+    }
     if (
       source.artifact_type === "startup_opportunity.terminal_report_source.v1" &&
       ((records(sourceDocument.directions).length > 0 &&
@@ -2186,6 +2505,24 @@ export class ReportRuntime {
     const commercialProjector = createCommercialAuditProjector(audits, tasks, documentsByPath);
     const fullProjection = commercialProjector.project();
     const projection = commercialProjector.project(projectedSubjectIds);
+    let projectedTeamDecisionSummary: Record<string, unknown> | undefined;
+    if (source.artifact_type === "startup_opportunity.report.v1") {
+      const teamDecisionSummary = deriveDiscoveryTeamDecisionSummary(
+        sourceDocument,
+        documentsByPath,
+      );
+      if (
+        sourceDocument.team_decision_summary !== undefined &&
+        canonicalJson(sourceDocument.team_decision_summary) !== canonicalJson(teamDecisionSummary)
+      ) {
+        throw new StoreError(
+          "report.mechanical_projection_drift",
+          "caller-supplied team decision summary drifts from exact Scope, Comparison, and Portfolio authorities",
+        );
+      }
+      sourceDocument.team_decision_summary = teamDecisionSummary;
+      projectedTeamDecisionSummary = teamDecisionSummary;
+    }
     const currentAuditRefs = new Set(
       records(projection.commercial_subject_aggregates).flatMap((aggregate) =>
         strings(aggregate.audit_refs),
@@ -2226,6 +2563,12 @@ export class ReportRuntime {
       ...sourceDocument,
       research_language: researchLanguage,
       ...projection,
+      ...(projectedTeamDecisionSummary === undefined
+        ? {}
+        : { team_decision_summary: projectedTeamDecisionSummary }),
+      ...(opportunityFamilyProjection === undefined
+        ? {}
+        : { opportunity_family_projection: opportunityFamilyProjection }),
       ...(terminalProjection
         ? {
             current_decision_subject_ids: currentDecisionSubjectIds,
@@ -2301,6 +2644,12 @@ export class ReportRuntime {
       ...sourceDocument,
       research_language: researchLanguage,
       ...projection,
+      ...(projectedTeamDecisionSummary === undefined
+        ? {}
+        : { team_decision_summary: projectedTeamDecisionSummary }),
+      ...(opportunityFamilyProjection === undefined
+        ? {}
+        : { opportunity_family_projection: opportunityFamilyProjection }),
       full_commercial_projection: fullProjection,
       report_evidence_dispositions: dispositions.reportEvidenceDispositions,
       report_source_dispositions: dispositions.reportSourceDispositions,

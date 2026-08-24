@@ -4,6 +4,12 @@ import { EvidenceStore } from "../evidence-store/evidence-store.js";
 import { assertRunIsCurrentContinuationLeaf } from "../run-store/continuation-guard.js";
 import { JsonlStore } from "../run-store/jsonl-store.js";
 import { assertScopeAllowsStorageMutationLocked } from "../run-store/scope-write-guard.js";
+import {
+  canonicalLaneLifecycleId,
+  canonicalLaneLifecyclePath,
+  dispatchLaunchRegistrationPath,
+  dispatchLaunchRequestFromRegistration,
+} from "../runtime/lane-lifecycle-identity.js";
 import { storedArtifactFragmentExists } from "../validators/artifact-ref-resolver.js";
 import {
   type ArtifactValidator,
@@ -88,10 +94,22 @@ interface ArtifactBundleOperationReceipt {
   readonly envelopes: readonly FormalArtifactEnvelope[];
 }
 
+interface DispatchLaunchBundleShape {
+  readonly registration: FormalArtifactEnvelope;
+  readonly lifecycles: readonly FormalArtifactEnvelope[];
+}
+
+interface ArtifactBundleTargetPreflight {
+  readonly exactBundleReceiptExists: boolean;
+  readonly allTargetsExist: boolean;
+  readonly allTargetsCommitted: boolean;
+}
+
 export interface PublishArtifactInput {
   readonly runId: string;
   readonly envelope: FormalArtifactEnvelope;
   readonly operationKey?: string;
+  readonly expectedManifestContentHash?: string;
   readonly faultAt?: ArtifactFaultBoundary;
 }
 
@@ -107,6 +125,7 @@ export interface PublishArtifactResult {
 export interface PublishArtifactBundleInput {
   readonly runId: string;
   readonly envelopes: readonly FormalArtifactEnvelope[];
+  readonly expectedManifestContentHash?: string;
 }
 
 export interface PublishArtifactBundleResult {
@@ -217,6 +236,63 @@ function validateArtifactBundleReceipt(
   return receipt;
 }
 
+function dispatchLaunchBundleShape(
+  envelopes: readonly FormalArtifactEnvelope[],
+): DispatchLaunchBundleShape | null {
+  const registrations = envelopes.filter(
+    (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_launch_registration.v1",
+  );
+  const lifecycles = envelopes.filter(
+    (envelope) => envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1",
+  );
+  const registration = registrations[0];
+  if (
+    registration === undefined ||
+    registrations.length !== 1 ||
+    lifecycles.length < 1 ||
+    envelopes.length !== lifecycles.length + 1 ||
+    !Array.isArray(registration.document.registrations) ||
+    registration.document.registrations.length !== lifecycles.length ||
+    registration.artifact_path !==
+      dispatchLaunchRegistrationPath(String(registration.document.registration_id ?? "")) ||
+    registration.document.request_hash !==
+      canonicalContentHash(dispatchLaunchRequestFromRegistration(registration.document))
+  ) {
+    return null;
+  }
+  const lifecycleByPath = new Map(
+    lifecycles.map((lifecycle) => [lifecycle.artifact_path, lifecycle]),
+  );
+  for (const item of registration.document.registrations) {
+    if (!isRecord(item)) return null;
+    const lifecycle = lifecycleByPath.get(String(item.lifecycle_ref ?? ""));
+    if (
+      lifecycle === undefined ||
+      lifecycle.content_hash !== item.lifecycle_hash ||
+      lifecycle.document.revision !== 1 ||
+      lifecycle.document.parent_lifecycle_ref !== null ||
+      lifecycle.document.launch_registration_ref !== registration.artifact_path ||
+      lifecycle.document.launch_registration_id !== registration.document.registration_id ||
+      lifecycle.document.launch_registration_hash !== registration.document.request_hash ||
+      lifecycle.document.run_id !== registration.document.run_id ||
+      lifecycle.document.dispatch_batch_ref !==
+        `${String(registration.document.dispatch_ref)}#${String(item.task_id ?? "")}` ||
+      lifecycle.document.dispatch_batch_hash !== registration.document.dispatch_hash ||
+      lifecycle.document.unit_id !== item.unit_id ||
+      lifecycle.document.task_ref !== item.task_ref ||
+      lifecycle.document.task_id !== item.task_id ||
+      lifecycle.document.attempt !== item.attempt ||
+      lifecycle.document.execution_attempt_id !== item.execution_attempt_id ||
+      lifecycle.document.lifecycle_id !== canonicalLaneLifecycleId(lifecycle.document) ||
+      lifecycle.artifact_path !== canonicalLaneLifecyclePath(lifecycle.document, 1)
+    ) {
+      return null;
+    }
+    lifecycleByPath.delete(lifecycle.artifact_path);
+  }
+  return lifecycleByPath.size === 0 ? { registration, lifecycles } : null;
+}
+
 function validateArtifactReceipt(
   value: unknown,
   filename: string,
@@ -260,6 +336,13 @@ function validateArtifactReceipt(
     );
   }
   return receipt;
+}
+
+function isMissingRunPath(error: unknown): boolean {
+  return (
+    isNodeError(error, "ENOENT") ||
+    (error instanceof StoreError && error.code === "path.parent_missing")
+  );
 }
 
 const PUBLICATION_ORDINAL_WIDTH = 12;
@@ -522,7 +605,8 @@ function publicationRank(envelope: FormalArtifactEnvelope): number {
     "startup_opportunity.report_consistency_evaluation.terminal.current": 103,
     "startup_opportunity.research_execution_plan.discovery.current": 1,
     "startup_opportunity.dispatch_batch.discovery.current": 2,
-    "startup_opportunity.lane_lifecycle.v1": 3,
+    "startup_opportunity.dispatch_launch_registration.v1": 3,
+    "startup_opportunity.lane_lifecycle.v1": 4,
     "startup_opportunity.candidate_neutral_evidence.v1": 20,
     "startup_opportunity.source_manifest.discovery_runtime.current": 25,
     "startup_opportunity.discovery_generation_result.v1": 30,
@@ -635,6 +719,59 @@ export class ArtifactStore {
     input: PublishArtifactBundleInput,
     referenceContext: DocumentBundleReferenceContext = {},
   ): Promise<PublishArtifactBundleResult> {
+    if (
+      input.envelopes.some(
+        (envelope) =>
+          envelope.artifact_type === "startup_opportunity.dispatch_launch_registration.v1",
+      )
+    ) {
+      throw new StoreError(
+        "artifact.dispatch_launch_registration_entry_required",
+        "Dispatch launch registration must use the dedicated atomic registry publisher",
+      );
+    }
+    return this.publishBundlePreparedLocked(runRoot, input, referenceContext);
+  }
+
+  async publishDispatchLaunchBundleLocked(
+    runRoot: string,
+    input: PublishArtifactBundleInput,
+    referenceContext: DocumentBundleReferenceContext = {},
+  ): Promise<PublishArtifactBundleResult> {
+    if (dispatchLaunchBundleShape(input.envelopes) === null) {
+      throw new StoreError(
+        "artifact.dispatch_launch_registration_bundle_invalid",
+        "dedicated launch publication requires one registration and all of its lifecycle roots",
+      );
+    }
+    return this.publishBundlePreparedLocked(runRoot, input, referenceContext, true);
+  }
+
+  async preflightDispatchLaunchBundleLocked(
+    runRoot: string,
+    input: PublishArtifactBundleInput,
+  ): Promise<"publish" | "idempotent_replay"> {
+    if (dispatchLaunchBundleShape(input.envelopes) === null) {
+      throw new StoreError(
+        "artifact.dispatch_launch_registration_bundle_invalid",
+        "dedicated launch publication requires one registration and all of its lifecycle roots",
+      );
+    }
+    for (const envelope of input.envelopes) this.validateEnvelopeBoundary(input.runId, envelope);
+    const preflight = await this.preflightBundleTargetsLocked(runRoot, input, true);
+    return preflight.exactBundleReceiptExists &&
+      preflight.allTargetsExist &&
+      preflight.allTargetsCommitted
+      ? "idempotent_replay"
+      : "publish";
+  }
+
+  private async publishBundlePreparedLocked(
+    runRoot: string,
+    input: PublishArtifactBundleInput,
+    referenceContext: DocumentBundleReferenceContext = {},
+    dedicatedDispatchLaunch = false,
+  ): Promise<PublishArtifactBundleResult> {
     validateRunId(input.runId);
     await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
     await assertScopeAllowsStorageMutationLocked(this.runsRoot, runRoot, input.runId, {
@@ -679,6 +816,7 @@ export class ArtifactStore {
         left.artifact_path.localeCompare(right.artifact_path),
       ),
     };
+    await this.preflightBundleTargetsLocked(runRoot, input, dedicatedDispatchLaunch);
     const bundleReceiptPath = `.store/operations/bundle-${bundleOperationHex}.json`;
     const bundleReceiptFile = await resolveRunPath(runRoot, bundleReceiptPath, {
       createParents: true,
@@ -703,7 +841,11 @@ export class ArtifactStore {
       const rank = publicationRank(left) - publicationRank(right);
       return rank === 0 ? left.artifact_path.localeCompare(right.artifact_path) : rank;
     })) {
-      artifacts.push(await this.publishLocked(runRoot, { runId: input.runId, envelope }, true));
+      artifacts.push(
+        dedicatedDispatchLaunch
+          ? await this.publishPreparedLocked(runRoot, { runId: input.runId, envelope }, true)
+          : await this.publishLocked(runRoot, { runId: input.runId, envelope }, true),
+      );
     }
     return {
       schemaVersion: "startup_opportunity.artifact_bundle_publish_result.v1",
@@ -713,6 +855,202 @@ export class ArtifactStore {
         : "published",
       artifacts,
     };
+  }
+
+  private async preflightBundleTargetsLocked(
+    runRoot: string,
+    input: PublishArtifactBundleInput,
+    dedicatedDispatchLaunch: boolean,
+  ): Promise<ArtifactBundleTargetPreflight> {
+    const artifactReceipts = await this.artifactOperationReceiptsLocked(runRoot, input.runId);
+    const receiptsByPath = new Map<string, ArtifactOperationReceipt[]>();
+    for (const receipt of artifactReceipts) {
+      const receipts = receiptsByPath.get(receipt.artifact_path) ?? [];
+      receipts.push(receipt);
+      receiptsByPath.set(receipt.artifact_path, receipts);
+    }
+    const publicationRecords = await this.publicationRecordsLocked(runRoot, input.runId);
+    const bundleOperationKey = expectedArtifactBundleOperationKey(input.runId, input.envelopes);
+    const bundleReceipt: ArtifactBundleOperationReceipt = {
+      schema_version: "startup_opportunity.artifact_bundle_operation.current",
+      operation_key: bundleOperationKey,
+      run_id: input.runId,
+      envelopes: [...input.envelopes].sort((left, right) =>
+        left.artifact_path.localeCompare(right.artifact_path),
+      ),
+    };
+    let exactBundleReceiptExists = false;
+    const incomingByPath = new Map(
+      input.envelopes.map((envelope) => [envelope.artifact_path, envelope]),
+    );
+    const operationDirectory = await resolveRunPath(runRoot, ".store/operations", {
+      createParents: true,
+    });
+    const isDurablyCompleted = async (envelope: FormalArtifactEnvelope): Promise<boolean> => {
+      if (publicationRecords.get(envelope.artifact_path)?.contentHash !== envelope.content_hash) {
+        return false;
+      }
+      const expectedOperation = expectedArtifactOperationKey(envelope);
+      const hasExactArtifactReceipt = (receiptsByPath.get(envelope.artifact_path) ?? []).some(
+        (receipt) =>
+          receipt.operation_key === expectedOperation &&
+          canonicalJson(receipt.envelope) === canonicalJson(envelope),
+      );
+      if (!hasExactArtifactReceipt) return false;
+      try {
+        const existing = JSON.parse(
+          await readFile(await resolveRunPath(runRoot, envelope.artifact_path), "utf8"),
+        ) as unknown;
+        if (canonicalJson(existing) !== canonicalJson(envelope)) {
+          throw new StoreError("write.conflict", "formal artifact path is already occupied", {
+            path: envelope.artifact_path,
+          });
+        }
+        return true;
+      } catch (error) {
+        if (isMissingRunPath(error)) return false;
+        throw error;
+      }
+    };
+    for (const entry of (await readdir(operationDirectory)).sort()) {
+      if (!entry.startsWith("bundle-") || !entry.endsWith(".json")) continue;
+      const existingReceipt = validateArtifactBundleReceipt(
+        JSON.parse(
+          await readFile(await resolveRunPath(runRoot, `.store/operations/${entry}`), "utf8"),
+        ) as unknown,
+        entry,
+        input.runId,
+      );
+      if (canonicalJson(existingReceipt) === canonicalJson(bundleReceipt)) {
+        exactBundleReceiptExists = true;
+        continue;
+      }
+      for (const existingEnvelope of existingReceipt.envelopes) {
+        const incomingEnvelope = incomingByPath.get(existingEnvelope.artifact_path);
+        if (incomingEnvelope === undefined) continue;
+        if (
+          canonicalJson(existingEnvelope) !== canonicalJson(incomingEnvelope) ||
+          !(await isDurablyCompleted(existingEnvelope))
+        ) {
+          throw new StoreError(
+            "write.bundle_operation_conflict",
+            "bundle publication path overlaps another immutable bundle intent",
+            {
+              path: existingEnvelope.artifact_path,
+              existingOperationKey: existingReceipt.operation_key,
+              incomingOperationKey: bundleOperationKey,
+            },
+          );
+        }
+      }
+    }
+
+    let allTargetsExist = true;
+    let anyTargetExists = false;
+    for (const envelope of input.envelopes) {
+      const expectedOperation = expectedArtifactOperationKey(envelope);
+      const pathReceipts = receiptsByPath.get(envelope.artifact_path) ?? [];
+      if (
+        pathReceipts.some(
+          (receipt) =>
+            receipt.operation_key !== expectedOperation ||
+            canonicalJson(receipt.envelope) !== canonicalJson(envelope),
+        )
+      ) {
+        throw new StoreError(
+          "write.operation_conflict",
+          "formal artifact path has a conflicting immutable publication intent",
+          { path: envelope.artifact_path },
+        );
+      }
+      try {
+        const existing = JSON.parse(
+          await readFile(await resolveRunPath(runRoot, envelope.artifact_path), "utf8"),
+        ) as unknown;
+        anyTargetExists = true;
+        if (canonicalJson(existing) !== canonicalJson(envelope)) {
+          throw new StoreError("write.conflict", "formal artifact path is already occupied", {
+            path: envelope.artifact_path,
+          });
+        }
+        if (!pathReceipts.some((receipt) => receipt.operation_key === expectedOperation)) {
+          throw new StoreError(
+            "recovery.publication_receipt_missing",
+            "published bundle target lacks its exact immutable Artifact receipt",
+            { path: envelope.artifact_path },
+          );
+        }
+      } catch (error) {
+        if (!isMissingRunPath(error)) throw error;
+        allTargetsExist = false;
+      }
+    }
+    if (dedicatedDispatchLaunch && anyTargetExists && !exactBundleReceiptExists) {
+      throw new StoreError(
+        "artifact.dispatch_launch_registration_authority_missing",
+        "an existing launch registration member requires its exact original bundle receipt",
+        { artifactPaths: input.envelopes.map((envelope) => envelope.artifact_path).sort() },
+      );
+    }
+    const allTargetsCommitted =
+      allTargetsExist &&
+      input.envelopes.every(
+        (envelope) =>
+          publicationRecords.get(envelope.artifact_path)?.contentHash === envelope.content_hash,
+      );
+    return { exactBundleReceiptExists, allTargetsExist, allTargetsCommitted };
+  }
+
+  async dispatchLaunchBundleAuthorityLocked(
+    runRoot: string,
+    runId: string,
+    registrationRef: string,
+    trackedArtifactRefs: ReadonlySet<string>,
+  ): Promise<readonly FormalArtifactEnvelope[] | null> {
+    const operationDirectory = await resolveRunPath(runRoot, ".store/operations", {
+      createParents: false,
+    });
+    const publicationRecords = await this.publicationRecordsLocked(runRoot, runId);
+    for (const filename of (await readdir(operationDirectory)).sort()) {
+      if (!filename.startsWith("bundle-") || !filename.endsWith(".json")) continue;
+      const receipt = validateArtifactBundleReceipt(
+        JSON.parse(
+          await readFile(await resolveRunPath(runRoot, `.store/operations/${filename}`), "utf8"),
+        ) as unknown,
+        filename,
+        runId,
+      );
+      const registration = receipt.envelopes.find(
+        (envelope) => envelope.artifact_path === registrationRef,
+      );
+      const launchBundle = dispatchLaunchBundleShape(receipt.envelopes);
+      if (
+        registration?.artifact_type !== "startup_opportunity.dispatch_launch_registration.v1" ||
+        launchBundle?.registration.artifact_path !== registrationRef
+      ) {
+        continue;
+      }
+      let valid = true;
+      for (const envelope of receipt.envelopes) {
+        const publication = publicationRecords.get(envelope.artifact_path);
+        if (
+          !trackedArtifactRefs.has(envelope.artifact_path) ||
+          publication?.contentHash !== envelope.content_hash
+        ) {
+          valid = false;
+          break;
+        }
+        const stored = JSON.parse(
+          await readFile(await resolveRunPath(runRoot, envelope.artifact_path), "utf8"),
+        ) as unknown;
+        if (canonicalJson(stored) !== canonicalJson(envelope)) {
+          valid = false;
+          break;
+        }
+      }
+      if (valid) return receipt.envelopes;
+    }
+    return null;
   }
 
   async publishPrevalidatedTerminalReportBundleLocked(
@@ -773,6 +1111,12 @@ export class ArtifactStore {
     referencesPrevalidated = false,
     referenceContext: DocumentBundleReferenceContext = {},
   ): Promise<PublishArtifactResult> {
+    if (input.envelope.artifact_type === "startup_opportunity.dispatch_launch_registration.v1") {
+      throw new StoreError(
+        "artifact.dispatch_launch_registration_entry_required",
+        "Dispatch launch registration must use the dedicated atomic registry publisher",
+      );
+    }
     if (input.envelope.artifact_type === "startup_opportunity.research_handoff.current") {
       throw new StoreError(
         "research_handoff.dedicated_entry_required",
@@ -1094,6 +1438,36 @@ export class ArtifactStore {
     const recovered: string[] = [];
     const existingCommits = await this.publicationCommitsLocked(runRoot, runId);
     const committedOperations = new Set(existingCommits.map((commit) => commit.operation_key));
+    const bundleReceipts: {
+      readonly receipt: ArtifactBundleOperationReceipt;
+      readonly launchBundle: DispatchLaunchBundleShape | null;
+    }[] = [];
+    for (const entry of (await readdir(operationDirectory)).sort()) {
+      if (!entry.startsWith("bundle-") || !entry.endsWith(".json")) continue;
+      const receipt = validateArtifactBundleReceipt(
+        JSON.parse(
+          await readFile(await resolveRunPath(runRoot, `.store/operations/${entry}`), "utf8"),
+        ) as unknown,
+        entry,
+        runId,
+      );
+      for (const envelope of receipt.envelopes) this.validateEnvelopeBoundary(runId, envelope);
+      const launchBundle = dispatchLaunchBundleShape(receipt.envelopes);
+      if (
+        launchBundle === null &&
+        receipt.envelopes.some(
+          (envelope) =>
+            envelope.artifact_type === "startup_opportunity.dispatch_launch_registration.v1",
+        )
+      ) {
+        throw new StoreError(
+          "recovery.invalid_dispatch_launch_bundle",
+          "a launch registration receipt must contain its exact lifecycle-root bundle",
+          { path: `.store/operations/${entry}` },
+        );
+      }
+      bundleReceipts.push({ receipt, launchBundle });
+    }
     const operations: {
       readonly receiptPath: string;
       readonly receipt: ArtifactOperationReceipt;
@@ -1207,12 +1581,7 @@ export class ArtifactStore {
     }
 
     const committedRecords = await this.publicationRecordsLocked(runRoot, runId);
-    for (const entry of (await readdir(operationDirectory)).sort()) {
-      if (!entry.startsWith("bundle-") || !entry.endsWith(".json")) continue;
-      const receiptValue = JSON.parse(
-        await readFile(await resolveRunPath(runRoot, `.store/operations/${entry}`), "utf8"),
-      ) as unknown;
-      const receipt = validateArtifactBundleReceipt(receiptValue, entry, runId);
+    for (const { receipt, launchBundle } of bundleReceipts) {
       for (const envelope of receipt.envelopes) {
         this.validateEnvelopeBoundary(runId, envelope);
         const target = await resolveRunPath(runRoot, envelope.artifact_path, {
@@ -1240,7 +1609,9 @@ export class ArtifactStore {
           missing = true;
         }
         if (missing) {
-          if (envelope.artifact_type === "startup_opportunity.research_handoff.current") {
+          if (launchBundle !== null) {
+            await this.publishPreparedLocked(runRoot, { runId, envelope }, true);
+          } else if (envelope.artifact_type === "startup_opportunity.research_handoff.current") {
             await this.publishResearchHandoffLocked(runRoot, { runId, envelope });
           } else {
             await this.publishLocked(runRoot, { runId, envelope }, true);

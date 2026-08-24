@@ -118,6 +118,11 @@
       "document_schema_version": null
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/core/team-context.schema.json",
+      "file": "current/core/team-context.schema.json",
+      "document_schema_version": null
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/core/event.schema.json",
       "file": "current/core/event.schema.json",
       "document_schema_version": "startup_opportunity.event.v1"
@@ -146,6 +151,16 @@
       "id": "https://startup-opportunity.local/schemas/current/discovery/synthesis/discovery-fan-in.schema.json",
       "file": "current/discovery/synthesis/discovery-fan-in.schema.json",
       "document_schema_version": "startup_opportunity.discovery_fan_in.v2"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/discovery/candidates/concrete-pre-candidate.schema.json",
+      "file": "current/discovery/candidates/concrete-pre-candidate.schema.json",
+      "document_schema_version": "startup_opportunity.concrete_pre_candidate.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/discovery/candidates/pre-candidate-relation.schema.json",
+      "file": "current/discovery/candidates/pre-candidate-relation.schema.json",
+      "document_schema_version": "startup_opportunity.pre_candidate_relation.v1"
     },
     {
       "id": "https://startup-opportunity.local/schemas/current/discovery/synthesis/baseline-option.schema.json",
@@ -278,6 +293,11 @@
       "document_schema_version": "startup_opportunity.portfolio_view.v1"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/discovery/evaluation/planning-capabilities.schema.json",
+      "file": "current/discovery/evaluation/planning-capabilities.schema.json",
+      "document_schema_version": "startup_opportunity.planning_capabilities.discovery_evaluation.current"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/discovery/evaluation/research-task.schema.json",
       "file": "current/discovery/evaluation/research-task.schema.json",
       "document_schema_version": "startup_opportunity.research_task.discovery_evaluation.current"
@@ -403,6 +423,21 @@
       "document_schema_version": "startup_opportunity.terminal_report_view.v1"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/dispatch-launch-check-result.schema.json",
+      "file": "current/runtime/common/dispatch-launch-check-result.schema.json",
+      "document_schema_version": "startup_opportunity.dispatch_launch_check_result.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/dispatch-launch-registration.schema.json",
+      "file": "current/runtime/common/dispatch-launch-registration.schema.json",
+      "document_schema_version": "startup_opportunity.dispatch_launch_registration.v1"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/dispatch-launch-registration-request.schema.json",
+      "file": "current/runtime/common/dispatch-launch-registration-request.schema.json",
+      "document_schema_version": "startup_opportunity.dispatch_launch_registration_request.v1"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/runtime/discovery/candidate-neutral-evidence.schema.json",
       "file": "current/runtime/discovery/candidate-neutral-evidence.schema.json",
       "document_schema_version": "startup_opportunity.candidate_neutral_evidence.v1"
@@ -441,6 +476,21 @@
       "id": "https://startup-opportunity.local/schemas/current/runtime/discovery/research-execution-plan.schema.json",
       "file": "current/runtime/discovery/research-execution-plan.schema.json",
       "document_schema_version": "startup_opportunity.research_execution_plan.discovery.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/lane-submission-checklist-result.schema.json",
+      "file": "current/runtime/common/lane-submission-checklist-result.schema.json",
+      "document_schema_version": "startup_opportunity.lane_submission_checklist_result.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/formal-stage-materialization-request.schema.json",
+      "file": "current/runtime/common/formal-stage-materialization-request.schema.json",
+      "document_schema_version": "startup_opportunity.formal_stage_materialization_request.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/formal-stage-materialization-result.schema.json",
+      "file": "current/runtime/common/formal-stage-materialization-result.schema.json",
+      "document_schema_version": "startup_opportunity.formal_stage_materialization_result.current"
     },
     {
       "id": "https://startup-opportunity.local/schemas/current/runtime/discovery/runtime-artifact-compilation-request.schema.json",
@@ -506,6 +556,16 @@
       "id": "https://startup-opportunity.local/schemas/current/planning/adaptation-decision.schema.json",
       "file": "current/planning/adaptation-decision.schema.json",
       "document_schema_version": "startup_opportunity.adaptation_decision.discovery.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/planning/adaptation-author-request.schema.json",
+      "file": "current/planning/adaptation-author-request.schema.json",
+      "document_schema_version": "startup_opportunity.adaptation_author_request.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/planning/adaptation-author-result.schema.json",
+      "file": "current/planning/adaptation-author-result.schema.json",
+      "document_schema_version": "startup_opportunity.adaptation_author_result.current"
     },
     {
       "id": "https://startup-opportunity.local/schemas/current/planning/adaptation-policy.schema.json",

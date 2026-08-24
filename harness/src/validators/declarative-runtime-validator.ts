@@ -3,6 +3,12 @@ import {
   deriveLaneScopeFormalClosure,
   laneScopeCoverageFromClosure,
 } from "../runtime/lane-delivery-closure.js";
+import {
+  canonicalLaneLifecycleId,
+  canonicalLaneLifecyclePath,
+  dispatchLaunchRegistrationPath,
+  dispatchLaunchRequestFromRegistration,
+} from "../runtime/lane-lifecycle-identity.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
 export interface DeclarativeRuntimeDocument {
@@ -16,6 +22,7 @@ const RUNTIME_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.research_execution_plan.discovery.current",
   "startup_opportunity.dispatch_batch.discovery.current",
   "startup_opportunity.lane_lifecycle.v1",
+  "startup_opportunity.dispatch_launch_registration.v1",
   "startup_opportunity.candidate_neutral_evidence.v1",
   "startup_opportunity.discovery_generation_result.v1",
   "startup_opportunity.discovery_stage_readiness.v1",
@@ -602,8 +609,27 @@ function validateLifecycle(
   errors: ValidationIssue[],
 ): void {
   const lifecycle = entry.document;
+  const revision = Number(lifecycle.revision);
+  const expectedLifecycleId = canonicalLaneLifecycleId(lifecycle);
+  const expectedPath = canonicalLaneLifecyclePath(lifecycle, revision);
+  if (lifecycle.lifecycle_id !== expectedLifecycleId || entry.path !== expectedPath) {
+    errors.push(
+      issue(
+        "runtime.lifecycle_identity_invalid",
+        entry.path,
+        "lifecycle id and path must be the canonical projection of one exact execution attempt",
+        { expectedLifecycleId, expectedPath },
+      ),
+    );
+  }
   const batch = target(byPath, lifecycle.dispatch_batch_ref);
-  if (batch?.schemaVersion !== "startup_opportunity.dispatch_batch.discovery.current") {
+  if (
+    batch === null ||
+    ![
+      "startup_opportunity.dispatch_batch.discovery.current",
+      "startup_opportunity.dispatch_batch.assessment.current",
+    ].includes(batch.schemaVersion)
+  ) {
     return;
   }
   const taskId = String(lifecycle.dispatch_batch_ref).split("#", 2)[1];
@@ -611,7 +637,10 @@ function validateLifecycle(
   if (
     task === undefined ||
     lifecycle.run_id !== batch.document.run_id ||
-    lifecycle.unit_id !== task.unit_id
+    lifecycle.unit_id !== task.unit_id ||
+    lifecycle.task_id !== task.task_id ||
+    lifecycle.task_ref !== lifecycle.dispatch_batch_ref ||
+    lifecycle.dispatch_batch_hash !== canonicalContentHash(batch.document)
   ) {
     errors.push(
       issue(
@@ -622,9 +651,11 @@ function validateLifecycle(
     );
   }
   const timestamps = isRecord(lifecycle.timestamps) ? lifecycle.timestamps : {};
+  const taskReadyAt = batch.document.task_ready_at ?? batch.document.requested_at;
+  const dispatchRequestedAt = batch.document.dispatch_requested_at ?? batch.document.requested_at;
   if (
-    timestamps.task_ready_at !== batch.document.task_ready_at ||
-    timestamps.dispatch_requested_at !== batch.document.dispatch_requested_at
+    timestamps.task_ready_at !== taskReadyAt ||
+    timestamps.dispatch_requested_at !== dispatchRequestedAt
   ) {
     errors.push(
       issue(
@@ -698,18 +729,70 @@ function validateLifecycle(
       ),
     );
   }
+  const lifecycleRootRef = canonicalLaneLifecyclePath(lifecycle, 1);
+  const lifecycleRoot = target(byPath, lifecycleRootRef);
+  const registration = target(byPath, lifecycle.launch_registration_ref);
+  if (typeof lifecycle.launch_registration_ref === "string") {
+    const registrationEntry = records(registration?.document.registrations).find(
+      (candidate) => candidate.lifecycle_ref === lifecycleRootRef,
+    );
+    if (
+      registration?.schemaVersion !== "startup_opportunity.dispatch_launch_registration.v1" ||
+      lifecycleRoot?.schemaVersion !== "startup_opportunity.lane_lifecycle.v1" ||
+      lifecycleRoot.document.revision !== 1 ||
+      registration?.document.registration_id !== lifecycle.launch_registration_id ||
+      registration?.document.request_hash !== lifecycle.launch_registration_hash ||
+      registration?.document.run_id !== lifecycle.run_id ||
+      registration?.document.dispatch_ref !==
+        String(lifecycle.dispatch_batch_ref).split("#", 1)[0] ||
+      registration?.document.dispatch_hash !== lifecycle.dispatch_batch_hash ||
+      registrationEntry === undefined ||
+      registrationEntry.unit_id !== lifecycle.unit_id ||
+      registrationEntry.task_ref !== lifecycle.task_ref ||
+      registrationEntry.task_id !== lifecycle.task_id ||
+      registrationEntry.attempt !== lifecycle.attempt ||
+      registrationEntry.execution_attempt_id !== lifecycle.execution_attempt_id ||
+      registrationEntry.lifecycle_hash !== canonicalContentHash(lifecycleRoot.document)
+    ) {
+      errors.push(
+        issue(
+          "runtime.lifecycle_launch_registration_invalid",
+          entry.path,
+          "launch lifecycle must resolve to the exact formal registration and registered root hash",
+        ),
+      );
+    }
+  }
   const parent = target(byPath, lifecycle.parent_lifecycle_ref);
-  if (Number(lifecycle.revision) === 1) {
+  if (revision === 1) {
+    if (lifecycle.parent_lifecycle_ref !== null) {
+      errors.push(
+        issue(
+          "runtime.lifecycle_root_invalid",
+          entry.path,
+          "lifecycle revision one must be the single canonical root with no parent",
+        ),
+      );
+    }
     return;
   }
+  const expectedParentRef = canonicalLaneLifecyclePath(lifecycle, revision - 1);
   if (
+    lifecycle.parent_lifecycle_ref !== expectedParentRef ||
     parent?.schemaVersion !== "startup_opportunity.lane_lifecycle.v1" ||
-    Number(parent.document.revision) + 1 !== Number(lifecycle.revision) ||
+    Number(parent.document.revision) + 1 !== revision ||
     parent.document.lifecycle_id !== lifecycle.lifecycle_id ||
+    parent.document.run_id !== lifecycle.run_id ||
     parent.document.unit_id !== lifecycle.unit_id ||
     parent.document.attempt !== lifecycle.attempt ||
     parent.document.execution_attempt_id !== lifecycle.execution_attempt_id ||
-    parent.document.dispatch_batch_ref !== lifecycle.dispatch_batch_ref
+    parent.document.dispatch_batch_ref !== lifecycle.dispatch_batch_ref ||
+    parent.document.dispatch_batch_hash !== lifecycle.dispatch_batch_hash ||
+    parent.document.task_ref !== lifecycle.task_ref ||
+    parent.document.task_id !== lifecycle.task_id ||
+    parent.document.launch_registration_ref !== lifecycle.launch_registration_ref ||
+    parent.document.launch_registration_id !== lifecycle.launch_registration_id ||
+    parent.document.launch_registration_hash !== lifecycle.launch_registration_hash
   ) {
     errors.push(
       issue(
@@ -727,6 +810,90 @@ function validateLifecycle(
     errors.push(
       issue("runtime.lifecycle_state_regression", entry.path, "lifecycle state cannot regress"),
     );
+  }
+}
+
+function validateDispatchLaunchRegistration(
+  entry: DeclarativeRuntimeDocument,
+  byPath: ReadonlyMap<string, DeclarativeRuntimeDocument>,
+  errors: ValidationIssue[],
+): void {
+  const registration = entry.document;
+  const items = records(registration.registrations);
+  const expectedPath = dispatchLaunchRegistrationPath(String(registration.registration_id));
+  const request = dispatchLaunchRequestFromRegistration(registration);
+  const batch = target(byPath, registration.dispatch_ref);
+  if (
+    entry.path !== expectedPath ||
+    registration.request_hash !== canonicalContentHash(request) ||
+    batch === null ||
+    ![
+      "startup_opportunity.dispatch_batch.discovery.current",
+      "startup_opportunity.dispatch_batch.assessment.current",
+    ].includes(batch.schemaVersion) ||
+    batch.document.run_id !== registration.run_id ||
+    canonicalContentHash(batch.document) !== registration.dispatch_hash
+  ) {
+    errors.push(
+      issue(
+        "runtime.launch_registration_authority_invalid",
+        entry.path,
+        "formal launch registration must bind its canonical path, exact request, and Dispatch",
+        { expectedPath },
+      ),
+    );
+  }
+  const unitAttempts = new Set<string>();
+  const executionAttempts = new Set<string>();
+  const lifecycleRefs = new Set<string>();
+  for (const item of items) {
+    const unitAttempt = canonicalJson({
+      unit_id: item.unit_id,
+      task_ref: item.task_ref,
+      task_id: item.task_id,
+      attempt: item.attempt,
+    });
+    const executionAttempt = String(item.execution_attempt_id ?? "");
+    const lifecycleRef = String(item.lifecycle_ref ?? "");
+    if (
+      unitAttempts.has(unitAttempt) ||
+      executionAttempts.has(executionAttempt) ||
+      lifecycleRefs.has(lifecycleRef)
+    ) {
+      errors.push(
+        issue(
+          "runtime.launch_registration_items_conflict",
+          `${entry.path}#/registrations`,
+          "one registration batch cannot repeat a Dispatch task, execution attempt, or lifecycle root",
+        ),
+      );
+    }
+    unitAttempts.add(unitAttempt);
+    executionAttempts.add(executionAttempt);
+    lifecycleRefs.add(lifecycleRef);
+    const lifecycle = target(byPath, item.lifecycle_ref);
+    if (
+      lifecycle?.schemaVersion !== "startup_opportunity.lane_lifecycle.v1" ||
+      lifecycle.document.revision !== 1 ||
+      lifecycle.document.launch_registration_ref !== entry.path ||
+      lifecycle.document.launch_registration_id !== registration.registration_id ||
+      lifecycle.document.launch_registration_hash !== registration.request_hash ||
+      lifecycle.document.unit_id !== item.unit_id ||
+      lifecycle.document.task_ref !== item.task_ref ||
+      lifecycle.document.task_id !== item.task_id ||
+      lifecycle.document.attempt !== item.attempt ||
+      lifecycle.document.execution_attempt_id !== item.execution_attempt_id ||
+      item.lifecycle_hash !== canonicalContentHash(lifecycle.document)
+    ) {
+      errors.push(
+        issue(
+          "runtime.launch_registration_lifecycle_invalid",
+          `${entry.path}#/registrations`,
+          "each formal registration item must bind one exact canonical lifecycle root",
+          { lifecycleRef: item.lifecycle_ref },
+        ),
+      );
+    }
   }
 }
 
@@ -911,8 +1078,8 @@ function validateSourceManifest(
   }
   dates.sort();
   const expectedTime = {
-    earliest_valid_as_of: dates[0],
-    latest_valid_as_of: dates.at(-1),
+    earliest_valid_as_of: dates[0] ?? null,
+    latest_valid_as_of: dates.at(-1) ?? null,
     accepted_evidence_count: evidence.length,
   };
   if (
@@ -1031,9 +1198,16 @@ function validateReadiness(
   }
   const fanIn = target(byPath, readiness.source_fan_in_ref);
   const dispositions = new Map<string, string>();
+  const preCandidateDispositions = new Map<string, string>();
   if (fanIn?.schemaVersion === "startup_opportunity.discovery_fan_in.v2") {
     for (const disposition of records(fanIn.document.candidate_dispositions)) {
       dispositions.set(String(disposition.candidate_ref), String(disposition.disposition));
+    }
+    for (const disposition of records(fanIn.document.pre_candidate_dispositions)) {
+      preCandidateDispositions.set(
+        String(disposition.pre_candidate_ref),
+        String(disposition.disposition),
+      );
     }
   }
   const expectedRoles = records(readiness.candidate_roles).map((role) => {
@@ -1063,6 +1237,37 @@ function validateReadiness(
     }
     return String(kind ?? "");
   });
+  const preCandidateRoles = records(readiness.pre_candidate_roles);
+  const preCandidateRoleRefs = preCandidateRoles.map((role) => String(role.pre_candidate_ref));
+  if (!sameStrings(preCandidateRoleRefs, [...preCandidateDispositions.keys()])) {
+    errors.push(
+      issue(
+        "runtime.readiness_pre_candidate_role_closure_mismatch",
+        entry.path,
+        "pre-candidate roles must close the exact concrete pre-candidate disposition set from source fan-in",
+        {
+          expectedRefs: [...preCandidateDispositions.keys()].sort(),
+          actualRefs: [...preCandidateRoleRefs].sort(),
+        },
+      ),
+    );
+  }
+  for (const role of preCandidateRoles) {
+    const preCandidate = byPath.get(String(role.pre_candidate_ref));
+    if (
+      preCandidate?.schemaVersion !== "startup_opportunity.concrete_pre_candidate.v1" ||
+      preCandidate.document.run_id !== readiness.run_id ||
+      role.disposition !== preCandidateDispositions.get(String(role.pre_candidate_ref))
+    ) {
+      errors.push(
+        issue(
+          "runtime.readiness_pre_candidate_role_mismatch",
+          `${entry.path}#${String(role.pre_candidate_ref)}`,
+          "pre-candidate role and disposition must be derived from the concrete pre-candidate and fan-in",
+        ),
+      );
+    }
+  }
   const requiredKinds = strings(readiness.required_candidate_kinds);
   const missingKinds = requiredKinds.filter((kind) => !expectedRoles.includes(kind)).sort();
   if (!sameStrings(missingKinds, strings(readiness.missing_candidate_kinds))) {
@@ -1093,6 +1298,28 @@ function validateReadiness(
     );
   }
   const blockers = records(readiness.blockers);
+  const requiredQuestionBlockers = [
+    ["method_boundary", "method_boundary"],
+    ["runtime_blocked", "runtime_blocked"],
+  ] as const;
+  for (const [coverageStatus, blockerKind] of requiredQuestionBlockers) {
+    const questionRefs = questionCoverage
+      .filter((coverage) => coverage.status === coverageStatus)
+      .map((coverage) => String(coverage.question_ref));
+    if (
+      questionRefs.length > 0 &&
+      !blockers.some((blocker) => blocker.blocker_kind === blockerKind)
+    ) {
+      errors.push(
+        issue(
+          "runtime.readiness_question_blocker_mismatch",
+          entry.path,
+          "method-boundary and runtime-blocked question dispositions require a matching readiness blocker",
+          { coverageStatus, requiredBlockerKind: blockerKind, questionRefs },
+        ),
+      );
+    }
+  }
   for (const kind of missingKinds) {
     const blocker = blockers.find(
       (candidate) =>
@@ -1257,6 +1484,31 @@ function validateDiscoverySynthesisReadinessBoundary(
         "runtime.discovery_synthesis_not_ready",
         latestReadiness.path,
         "G2.3 requires ready disposition, no blockers, and Judgment-backed answers for every Plan question",
+      ),
+    );
+  }
+  const retainedPreCandidates = strings(fanIn.document.retained_pre_candidate_refs);
+  const sourcePreCandidateRefs = [
+    ...new Set(
+      synthesis
+        .map((entry) => entry.document.source_pre_candidate_ref)
+        .filter((ref): ref is string => typeof ref === "string"),
+    ),
+  ];
+  const readinessPreCandidateRefs = records(latestReadiness.document.pre_candidate_roles)
+    .filter((role) => role.disposition === "retained")
+    .map((role) => String(role.pre_candidate_ref));
+  if (
+    sourcePreCandidateRefs.length > 0 &&
+    (!sourcePreCandidateRefs.every((ref) => retainedPreCandidates.includes(ref)) ||
+      !sourcePreCandidateRefs.every((ref) => readinessPreCandidateRefs.includes(ref)))
+  ) {
+    errors.push(
+      issue(
+        "runtime.discovery_synthesis_pre_candidate_not_retained",
+        latestReadiness.path,
+        "G2.3 artifacts may source only retained concrete pre-candidates visible in readiness",
+        { sourcePreCandidateRefs, retainedPreCandidates, readinessPreCandidateRefs },
       ),
     );
   }
@@ -1460,6 +1712,9 @@ export function validateDeclarativeRuntimeContract(
       case "startup_opportunity.lane_lifecycle.v1":
         validateLifecycle(entry, byPath, errors);
         break;
+      case "startup_opportunity.dispatch_launch_registration.v1":
+        validateDispatchLaunchRegistration(entry, byPath, errors);
+        break;
       case "startup_opportunity.discovery_generation_result.v1":
         validateGenerationResult(entry, byPath, errors);
         break;
@@ -1481,5 +1736,92 @@ export function validateDeclarativeRuntimeContract(
     }
   }
   validateDiscoverySynthesisReadinessBoundary(documents, byPath, errors);
+  const lifecycles = documents.filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.lane_lifecycle.v1",
+  );
+  const rootsByLifecycleId = new Map<string, DeclarativeRuntimeDocument[]>();
+  const revisionsByIdentity = new Map<string, DeclarativeRuntimeDocument[]>();
+  for (const entry of lifecycles) {
+    const lifecycleId = String(entry.document.lifecycle_id ?? "");
+    const revisionIdentity = `${lifecycleId}:${String(entry.document.revision)}`;
+    revisionsByIdentity.set(revisionIdentity, [
+      ...(revisionsByIdentity.get(revisionIdentity) ?? []),
+      entry,
+    ]);
+    if (entry.document.revision === 1) {
+      rootsByLifecycleId.set(lifecycleId, [...(rootsByLifecycleId.get(lifecycleId) ?? []), entry]);
+    }
+  }
+  for (const entries of [...rootsByLifecycleId.values(), ...revisionsByIdentity.values()]) {
+    if (entries.length > 1) {
+      errors.push(
+        issue(
+          "runtime.lifecycle_revision_conflict",
+          entries[0]?.path ?? "lane_lifecycle",
+          "one canonical lifecycle identity can have only one root and one document per revision",
+          { paths: entries.map((entry) => entry.path).sort() },
+        ),
+      );
+    }
+  }
+  const launched = lifecycles.filter(
+    (entry) => typeof entry.document.launch_registration_id === "string",
+  );
+  const byDispatchedAttempt = new Map<string, DeclarativeRuntimeDocument[]>();
+  const byExecutionAttempt = new Map<string, DeclarativeRuntimeDocument[]>();
+  for (const entry of launched) {
+    const dispatchedAttempt = canonicalJson({
+      dispatchBatchRef: entry.document.dispatch_batch_ref,
+      dispatchBatchHash: entry.document.dispatch_batch_hash,
+      unitId: entry.document.unit_id,
+      taskRef: entry.document.task_ref,
+      taskId: entry.document.task_id,
+      attempt: entry.document.attempt,
+    });
+    byDispatchedAttempt.set(dispatchedAttempt, [
+      ...(byDispatchedAttempt.get(dispatchedAttempt) ?? []),
+      entry,
+    ]);
+    const executionAttemptId = String(entry.document.execution_attempt_id ?? "");
+    byExecutionAttempt.set(executionAttemptId, [
+      ...(byExecutionAttempt.get(executionAttemptId) ?? []),
+      entry,
+    ]);
+  }
+  for (const entries of byDispatchedAttempt.values()) {
+    const attempts = new Set(entries.map((entry) => entry.document.execution_attempt_id));
+    const lifecycleIds = new Set(entries.map((entry) => entry.document.lifecycle_id));
+    if (attempts.size > 1 || lifecycleIds.size > 1) {
+      errors.push(
+        issue(
+          "runtime.lifecycle_launch_conflict",
+          entries[0]?.path ?? "lane_lifecycle",
+          "one exact Dispatch task attempt cannot have multiple launch registrations",
+          { paths: entries.map((entry) => entry.path).sort() },
+        ),
+      );
+    }
+  }
+  for (const [executionAttemptId, entries] of byExecutionAttempt) {
+    const identities = new Set(
+      entries.map((entry) =>
+        canonicalJson({
+          unitId: entry.document.unit_id,
+          taskRef: entry.document.task_ref,
+          attempt: entry.document.attempt,
+        }),
+      ),
+    );
+    if (identities.size > 1) {
+      errors.push(
+        issue(
+          "runtime.lifecycle_execution_attempt_conflict",
+          entries[0]?.path ?? "lane_lifecycle",
+          "one execution attempt id cannot identify different Dispatch tasks",
+          { executionAttemptId, paths: entries.map((entry) => entry.path).sort() },
+        ),
+      );
+    }
+  }
   return sortIssues(errors);
 }

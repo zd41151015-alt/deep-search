@@ -14,6 +14,12 @@
     "attempt",
     "execution_attempt_id",
     "dispatch_batch_ref",
+    "dispatch_batch_hash",
+    "task_ref",
+    "task_id",
+    "launch_registration_ref",
+    "launch_registration_id",
+    "launch_registration_hash",
     "state",
     "timestamps",
     "failure",
@@ -34,7 +40,7 @@
       "anyOf": [
         {
           "type": "string",
-          "pattern": "^artifacts/runtime/lane-lifecycle/.+\\.r[1-9][0-9]*\\.json$"
+          "pattern": "^artifacts/runtime/lane-lifecycle/lifecycle_[a-f0-9]{32}\\.r[1-9][0-9]*\\.json$"
         },
         {
           "type": "null"
@@ -57,6 +63,37 @@
     "dispatch_batch_ref": {
       "type": "string",
       "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "dispatch_batch_hash": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "task_ref": {
+      "type": "string",
+      "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "task_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "launch_registration_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^artifacts/runtime/dispatch-launch-registrations/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\.json$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "launch_registration_id": {
+      "anyOf": [
+        { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier" },
+        { "type": "null" }
+      ]
+    },
+    "launch_registration_hash": {
+      "anyOf": [
+        { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256" },
+        { "type": "null" }
+      ]
     },
     "state": {
       "enum": [
@@ -175,5 +212,25 @@
     "limitations": {
       "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "launch_registration_id": { "type": "string" } },
+        "required": ["launch_registration_id"]
+      },
+      "then": {
+        "properties": {
+          "launch_registration_ref": { "type": "string" },
+          "launch_registration_hash": { "type": "string" }
+        }
+      },
+      "else": {
+        "properties": {
+          "launch_registration_ref": { "type": "null" },
+          "launch_registration_hash": { "type": "null" }
+        }
+      }
+    }
+  ]
 }

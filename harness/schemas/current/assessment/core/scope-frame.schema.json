@@ -21,7 +21,7 @@
     "delivery_form",
     "business_model",
     "acquisition_hypothesis",
-    "team_constraints",
+    "team_context",
     "assumptions",
     "unknowns",
     "kill_criteria",
@@ -76,8 +76,8 @@
     "acquisition_hypothesis": {
       "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
     },
-    "team_constraints": {
-      "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"
+    "team_context": {
+      "$ref": "../../core/team-context.schema.json#/$defs/teamContext"
     },
     "assumptions": {
       "$ref": "./definitions.schema.json#/$defs/uniqueStringArray"

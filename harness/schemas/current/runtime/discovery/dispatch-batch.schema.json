@@ -19,6 +19,7 @@
     "dispatch_mode",
     "tasks",
     "agent_dispatch_performed",
+    "launch_registration_required",
     "limitations"
   ],
   "properties": {
@@ -137,6 +138,9 @@
     },
     "agent_dispatch_performed": {
       "const": false
+    },
+    "launch_registration_required": {
+      "const": true
     },
     "limitations": {
       "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"

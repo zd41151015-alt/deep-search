@@ -16,6 +16,7 @@
     "discovery_fan_in_ref",
     "source_conversion_ref",
     "source_candidate_ref",
+    "source_pre_candidate_ref",
     "solution_neutral",
     "source_groups",
     "user",
@@ -82,6 +83,9 @@
     },
     "source_candidate_ref": {
       "$ref": "./definitions.schema.json#/$defs/candidateRef"
+    },
+    "source_pre_candidate_ref": {
+      "$ref": "./definitions.schema.json#/$defs/concretePreCandidateRef"
     },
     "solution_neutral": {
       "const": true

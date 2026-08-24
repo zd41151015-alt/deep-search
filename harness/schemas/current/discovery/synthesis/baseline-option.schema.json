@@ -16,6 +16,7 @@
     "discovery_fan_in_ref",
     "source_conversion_ref",
     "source_candidate_ref",
+    "source_pre_candidate_ref",
     "demand_thesis_ref",
     "current_workflow",
     "current_cost",
@@ -69,6 +70,9 @@
     },
     "source_candidate_ref": {
       "$ref": "./definitions.schema.json#/$defs/candidateRef"
+    },
+    "source_pre_candidate_ref": {
+      "$ref": "./definitions.schema.json#/$defs/concretePreCandidateRef"
     },
     "demand_thesis_ref": {
       "$ref": "./definitions.schema.json#/$defs/demandRef"

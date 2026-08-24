@@ -43,6 +43,14 @@ export const G22_SOLUTION_EVALUATION_JUDGMENT =
   "judgments/discovery/judgment-solution-evaluation.json";
 export const G22_GENERATION_MANIFEST = "evidence/source-manifests/discovery/generation.json";
 export const G22_EVALUATION_MANIFEST = "evidence/source-manifests/discovery/evaluation.json";
+export const G22_RETAINED_PRE_CANDIDATE =
+  "artifacts/discovery/concrete-pre-candidates/pre_candidate_household_coordination.r1.json";
+export const G22_WATCHLIST_PRE_CANDIDATE =
+  "artifacts/discovery/concrete-pre-candidates/pre_candidate_adult_microlearning.r1.json";
+export const G22_REJECTED_PRE_CANDIDATE =
+  "artifacts/discovery/concrete-pre-candidates/pre_candidate_exam_error_drill.r1.json";
+export const G22_PRE_CANDIDATE_RELATION =
+  "artifacts/discovery/pre-candidate-relations/relation_broad_seed_split.r1.json";
 export const G22_FAN_IN = "artifacts/discovery/fan-in.r1.json";
 
 const createdAt = "2026-07-27T18:00:00Z";
@@ -118,6 +126,36 @@ function preThesisBoundary(): Record<string, unknown> {
     formal_solution_hypothesis: false,
     external_validation_claimed: false,
     validation_success_claimed: false,
+  };
+}
+
+function preFormalBoundary(): Record<string, unknown> {
+  return {
+    formal_opportunity_created: false,
+    validated_market_claim: false,
+    harness_inferred_candidate: false,
+    harness_ranked_candidate: false,
+    external_validation_performed: false,
+  };
+}
+
+function triageDimension(
+  state:
+    | "observed"
+    | "inferred"
+    | "partial"
+    | "unknown"
+    | "unavailable"
+    | "conflicting"
+    | "not_applicable",
+  statements: readonly string[],
+  basisMaterialRefs: readonly string[],
+): Record<string, unknown> {
+  return {
+    state,
+    statements: [...statements],
+    basis_material_refs: [...basisMaterialRefs],
+    limitations: [synthetic(`${state} concrete pre-candidate triage state`)],
   };
 }
 
@@ -580,6 +618,8 @@ export function fixtureEffective(
 }
 
 export function refreshDiscoveryCandidateFormation(bundle: DocumentBundle): DocumentBundle {
+  const hasPath = (artifactPath: string): boolean =>
+    bundle.documents.some((item) => item.path === artifactPath);
   for (const candidateRef of [G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1, G22_DEMAND_R2]) {
     const candidate = fixtureEffective(bundle, candidateRef);
     const formation = candidate.formation as Record<string, unknown>;
@@ -610,6 +650,62 @@ export function refreshDiscoveryCandidateFormation(bundle: DocumentBundle): Docu
     }
     (fixtureEnvelope(bundle, candidateRef) as unknown as { content_hash: string }).content_hash =
       canonicalContentHash(candidate);
+  }
+  const preCandidateRefs = [
+    G22_RETAINED_PRE_CANDIDATE,
+    G22_WATCHLIST_PRE_CANDIDATE,
+    G22_REJECTED_PRE_CANDIDATE,
+  ];
+  if (preCandidateRefs.every(hasPath)) {
+    for (const preCandidateRef of preCandidateRefs) {
+      const preCandidate = fixtureEffective(bundle, preCandidateRef);
+      for (const binding of preCandidate.seed_bindings as Record<string, unknown>[]) {
+        const seed = fixtureEffective(bundle, String(binding.ref));
+        binding.schema_version = seed.schema_version;
+        binding.candidate_kind = seed.candidate_kind;
+        binding.content_hash = canonicalContentHash(seed);
+      }
+      for (const binding of preCandidate.lane_result_bindings as Record<string, unknown>[]) {
+        const lane = fixtureEffective(bundle, String(binding.ref));
+        binding.schema_version = lane.schema_version;
+        binding.status = lane.status;
+        binding.content_hash = canonicalContentHash(lane);
+      }
+      for (const disposition of preCandidate.material_dispositions as Record<string, unknown>[]) {
+        const material = fixtureEffective(bundle, String(disposition.material_ref));
+        disposition.material_schema_version = material.schema_version;
+        disposition.material_content_hash = canonicalContentHash(material);
+      }
+      (
+        fixtureEnvelope(bundle, preCandidateRef) as unknown as { content_hash: string }
+      ).content_hash = canonicalContentHash(preCandidate);
+    }
+  }
+  if (hasPath(G22_PRE_CANDIDATE_RELATION) && preCandidateRefs.every(hasPath)) {
+    const relation = fixtureEffective(bundle, G22_PRE_CANDIDATE_RELATION);
+    for (const binding of relation.source_seed_bindings as Record<string, unknown>[]) {
+      const seed = fixtureEffective(bundle, String(binding.ref));
+      binding.content_hash = canonicalContentHash(seed);
+    }
+    for (const binding of relation.result_candidate_bindings as Record<string, unknown>[]) {
+      binding.content_hash = fixtureEnvelope(bundle, String(binding.ref)).content_hash;
+    }
+    (
+      fixtureEnvelope(bundle, G22_PRE_CANDIDATE_RELATION) as unknown as {
+        content_hash: string;
+      }
+    ).content_hash = canonicalContentHash(relation);
+  }
+  if (hasPath(G22_FAN_IN) && preCandidateRefs.every(hasPath)) {
+    const fanIn = fixtureEffective(bundle, G22_FAN_IN);
+    for (const disposition of fanIn.pre_candidate_dispositions as Record<string, unknown>[]) {
+      disposition.pre_candidate_content_hash = fixtureEnvelope(
+        bundle,
+        String(disposition.pre_candidate_ref),
+      ).content_hash;
+    }
+    (fixtureEnvelope(bundle, G22_FAN_IN) as unknown as { content_hash: string }).content_hash =
+      canonicalContentHash(fanIn);
   }
   return bundle;
 }
@@ -947,6 +1043,233 @@ export async function createDiscoveryCandidateFixture(
       basis_refs: [G22_GENERATION_LANE, G22_EVALUATION_LANE],
     },
   };
+  const seedDocs = new Map([
+    [G22_DEMAND_R2, demandR2],
+    [G22_BASELINE_R1, baselineR1],
+    [G22_SOLUTION_R1, solutionR1],
+  ]);
+  const seedRefs = [G22_DEMAND_R2, G22_BASELINE_R1, G22_SOLUTION_R1] as const;
+  const materialDocs = new Map([
+    [G22_GENERATION_EVIDENCE, generationEvidence],
+    [G22_EVALUATION_EVIDENCE, evaluationEvidence],
+    [G22_GENERATION_CLAIM, generationClaim],
+    [G22_EVALUATION_CLAIM, evaluationClaim],
+    [G22_FINDING, finding],
+    [G22_INSIGHT, insight],
+    [G22_JUDGMENT, demandGenerationJudgment],
+    [G22_DEMAND_EVALUATION_JUDGMENT, demandEvaluationJudgment],
+    [G22_BASELINE_GENERATION_JUDGMENT, baselineGenerationJudgment],
+    [G22_BASELINE_EVALUATION_JUDGMENT, baselineEvaluationJudgment],
+    [G22_SOLUTION_GENERATION_JUDGMENT, solutionGenerationJudgment],
+    [G22_SOLUTION_EVALUATION_JUDGMENT, solutionEvaluationJudgment],
+  ]);
+  const materialRefs = [...materialDocs.keys()];
+  const materialDispositions = (
+    overrides: Readonly<
+      Record<string, "supporting" | "opposing" | "background" | "conflicting" | "not_applicable">
+    >,
+  ) =>
+    materialRefs.map((ref) => {
+      const material = materialDocs.get(ref) as Record<string, unknown>;
+      const disposition = overrides[ref] ?? "background";
+      return {
+        material_ref: ref,
+        material_schema_version: material.schema_version,
+        material_content_hash: canonicalContentHash(material),
+        disposition,
+        rationale: synthetic(`${disposition} material disposition for concrete pre-candidate`),
+      };
+    });
+  const concretePreCandidate = (
+    id: string,
+    triageProfile: Record<string, unknown>,
+    overrides: Readonly<
+      Record<string, "supporting" | "opposing" | "background" | "conflicting" | "not_applicable">
+    >,
+  ): Record<string, unknown> => ({
+    schema_version: "startup_opportunity.concrete_pre_candidate.v1",
+    pre_candidate_id: id,
+    revision: 1,
+    parent_pre_candidate_ref: null,
+    parent_content_hash: null,
+    run_id: G22_RUN_ID,
+    mode: "opportunity_discovery",
+    phase: "discovery",
+    owner_role: "main_agent",
+    scope_frame_ref: G21_SCOPE_REF,
+    research_plan_ref: G21_PLAN_REF,
+    formation: {
+      relationship_kind: "split",
+      relationship_group_id: "group_broad_seed_split",
+    },
+    seed_bindings: seedRefs.map((ref) => {
+      const seed = seedDocs.get(ref) as Record<string, unknown>;
+      return {
+        ref,
+        schema_version: "startup_opportunity.discovery_candidate.v1",
+        candidate_kind: seed.candidate_kind,
+        content_hash: canonicalContentHash(seed),
+      };
+    }),
+    lane_result_bindings: [
+      {
+        ref: G22_GENERATION_LANE,
+        schema_version: "startup_opportunity.discovery_lane_result.v1",
+        status: generationLane.status,
+        content_hash: canonicalContentHash(generationLane),
+      },
+      {
+        ref: G22_EVALUATION_LANE,
+        schema_version: "startup_opportunity.discovery_lane_result.v1",
+        status: evaluationLane.status,
+        content_hash: canonicalContentHash(evaluationLane),
+      },
+    ],
+    triage_profile: triageProfile,
+    material_dispositions: materialDispositions(overrides),
+    materialization_rationale: synthetic(
+      `${id} is an authored concrete pre-candidate split from broad Lane material`,
+    ),
+    pre_formal_boundary: preFormalBoundary(),
+    limitations: [synthetic("concrete pre-candidate remains partial and unvalidated")],
+  });
+  const retainedPreCandidate = concretePreCandidate(
+    "pre_candidate_household_coordination",
+    {
+      users: triageDimension(
+        "partial",
+        [synthetic("household learner support user")],
+        [G22_JUDGMENT],
+      ),
+      job_to_be_done: triageDimension(
+        "partial",
+        [synthetic("coordinate repeated practice")],
+        [G22_FINDING],
+      ),
+      entry_scene: triageDimension("unknown", [synthetic("entry scene not resolved")], []),
+      buyer_or_payment_logic: triageDimension(
+        "unavailable",
+        [synthetic("buyer proof unavailable")],
+        [],
+      ),
+      current_alternatives: triageDimension(
+        "conflicting",
+        [synthetic("manual alternatives are both plausible and burdensome")],
+        [G22_GENERATION_CLAIM, G22_EVALUATION_CLAIM],
+      ),
+      solution_boundary: triageDimension(
+        "partial",
+        [synthetic("assistant boundary remains pre-formal")],
+        [G22_SOLUTION_GENERATION_JUDGMENT],
+      ),
+    },
+    {
+      [G22_GENERATION_EVIDENCE]: "supporting",
+      [G22_EVALUATION_EVIDENCE]: "opposing",
+      [G22_GENERATION_CLAIM]: "supporting",
+      [G22_EVALUATION_CLAIM]: "opposing",
+      [G22_JUDGMENT]: "supporting",
+      [G22_DEMAND_EVALUATION_JUDGMENT]: "conflicting",
+    },
+  );
+  const watchlistPreCandidate = concretePreCandidate(
+    "pre_candidate_adult_microlearning",
+    {
+      users: triageDimension("inferred", [synthetic("adult learner inferred")], [G22_INSIGHT]),
+      job_to_be_done: triageDimension("unknown", [synthetic("job remains unknown")], []),
+      entry_scene: triageDimension("partial", [synthetic("fragmented time entry")], [G22_FINDING]),
+      buyer_or_payment_logic: triageDimension("unknown", [synthetic("payment logic unknown")], []),
+      current_alternatives: triageDimension(
+        "partial",
+        [synthetic("baseline option weakly observed")],
+        [G22_BASELINE_GENERATION_JUDGMENT],
+      ),
+      solution_boundary: triageDimension(
+        "unavailable",
+        [synthetic("solution boundary unavailable")],
+        [],
+      ),
+    },
+    {
+      [G22_BASELINE_GENERATION_JUDGMENT]: "supporting",
+      [G22_BASELINE_EVALUATION_JUDGMENT]: "conflicting",
+      [G22_GENERATION_CLAIM]: "background",
+      [G22_EVALUATION_CLAIM]: "opposing",
+    },
+  );
+  const rejectedPreCandidate = concretePreCandidate(
+    "pre_candidate_exam_error_drill",
+    {
+      users: triageDimension(
+        "conflicting",
+        [synthetic("exam drill user signal conflicts")],
+        [G22_SOLUTION_GENERATION_JUDGMENT, G22_SOLUTION_EVALUATION_JUDGMENT],
+      ),
+      job_to_be_done: triageDimension(
+        "partial",
+        [synthetic("repeat mistakes")],
+        [G22_SOLUTION_EVALUATION_JUDGMENT],
+      ),
+      entry_scene: triageDimension("unknown", [synthetic("exam entry scene unknown")], []),
+      buyer_or_payment_logic: triageDimension(
+        "not_applicable",
+        [synthetic("not retained for buyer analysis")],
+        [],
+      ),
+      current_alternatives: triageDimension(
+        "unavailable",
+        [synthetic("alternative material unavailable")],
+        [],
+      ),
+      solution_boundary: triageDimension(
+        "conflicting",
+        [synthetic("solution boundary overfit risk")],
+        [G22_SOLUTION_GENERATION_JUDGMENT, G22_SOLUTION_EVALUATION_JUDGMENT],
+      ),
+    },
+    {
+      [G22_SOLUTION_GENERATION_JUDGMENT]: "conflicting",
+      [G22_SOLUTION_EVALUATION_JUDGMENT]: "opposing",
+      [G22_EVALUATION_CLAIM]: "opposing",
+      [G22_GENERATION_CLAIM]: "not_applicable",
+    },
+  );
+  const relation = {
+    schema_version: "startup_opportunity.pre_candidate_relation.v1",
+    relation_id: "relation_broad_seed_split",
+    revision: 1,
+    parent_relation_ref: null,
+    parent_content_hash: null,
+    run_id: G22_RUN_ID,
+    mode: "opportunity_discovery",
+    phase: "discovery",
+    owner_role: "main_agent",
+    scope_frame_ref: G21_SCOPE_REF,
+    research_plan_ref: G21_PLAN_REF,
+    relationship_group_id: "group_broad_seed_split",
+    relationship_kind: "split",
+    source_seed_bindings: seedRefs.map((ref) => ({
+      ref,
+      content_hash: canonicalContentHash(seedDocs.get(ref) as Record<string, unknown>),
+    })),
+    result_candidate_bindings: [
+      {
+        ref: G22_RETAINED_PRE_CANDIDATE,
+        content_hash: canonicalContentHash(retainedPreCandidate),
+      },
+      {
+        ref: G22_WATCHLIST_PRE_CANDIDATE,
+        content_hash: canonicalContentHash(watchlistPreCandidate),
+      },
+      {
+        ref: G22_REJECTED_PRE_CANDIDATE,
+        content_hash: canonicalContentHash(rejectedPreCandidate),
+      },
+    ],
+    rationale: synthetic("Agent-authored split relation for three concrete directions"),
+    harness_inferred: false,
+    limitations: [synthetic("relation is explicit but synthetic")],
+  };
   const fanIn = {
     schema_version: "startup_opportunity.discovery_fan_in.v2",
     fan_in_id: "fan_in_g2_2_contract",
@@ -969,6 +1292,50 @@ export async function createDiscoveryCandidateFixture(
       skipped_units: [],
       missing_units: [],
     },
+    materialized_pre_candidate_refs: [
+      G22_RETAINED_PRE_CANDIDATE,
+      G22_WATCHLIST_PRE_CANDIDATE,
+      G22_REJECTED_PRE_CANDIDATE,
+    ],
+    pre_candidate_relation_refs: [G22_PRE_CANDIDATE_RELATION],
+    pre_candidate_dispositions: [
+      {
+        disposition_id: "fan_pre_disposition_household_coordination",
+        pre_candidate_ref: G22_RETAINED_PRE_CANDIDATE,
+        pre_candidate_content_hash: canonicalContentHash(retainedPreCandidate),
+        disposition: "retained",
+        supporting_lane_result_refs: [G22_GENERATION_LANE, G22_EVALUATION_LANE],
+        judgment_assessment_refs: [G22_JUDGMENT, G22_DEMAND_EVALUATION_JUDGMENT],
+        rationale: synthetic("retained concrete direction remains independently triageable"),
+        limitations: [synthetic("partial and conflicting material remains visible")],
+      },
+      {
+        disposition_id: "fan_pre_disposition_adult_microlearning",
+        pre_candidate_ref: G22_WATCHLIST_PRE_CANDIDATE,
+        pre_candidate_content_hash: canonicalContentHash(watchlistPreCandidate),
+        disposition: "watchlist",
+        supporting_lane_result_refs: [G22_GENERATION_LANE, G22_EVALUATION_LANE],
+        judgment_assessment_refs: [
+          G22_BASELINE_GENERATION_JUDGMENT,
+          G22_BASELINE_EVALUATION_JUDGMENT,
+        ],
+        rationale: synthetic("watchlist concrete direction is visible but not promoted"),
+        limitations: [synthetic("unknown job and payment logic remain")],
+      },
+      {
+        disposition_id: "fan_pre_disposition_exam_error_drill",
+        pre_candidate_ref: G22_REJECTED_PRE_CANDIDATE,
+        pre_candidate_content_hash: canonicalContentHash(rejectedPreCandidate),
+        disposition: "rejected",
+        supporting_lane_result_refs: [G22_GENERATION_LANE, G22_EVALUATION_LANE],
+        judgment_assessment_refs: [
+          G22_SOLUTION_GENERATION_JUDGMENT,
+          G22_SOLUTION_EVALUATION_JUDGMENT,
+        ],
+        rationale: synthetic("rejected concrete direction remains auditable"),
+        limitations: [synthetic("not eligible for G2.3 formalization")],
+      },
+    ],
     candidate_dispositions: [
       {
         disposition_id: "fan_disposition_demand",
@@ -1007,6 +1374,9 @@ export async function createDiscoveryCandidateFixture(
         limitations: [synthetic("not a formal Solution Hypothesis")],
       },
     ],
+    retained_pre_candidate_refs: [G22_RETAINED_PRE_CANDIDATE],
+    watchlist_pre_candidate_refs: [G22_WATCHLIST_PRE_CANDIDATE],
+    rejected_pre_candidate_refs: [G22_REJECTED_PRE_CANDIDATE],
     retained_candidate_refs: [G22_DEMAND_R2],
     watchlist_candidate_refs: [G22_BASELINE_R1],
     rejected_candidate_refs: [G22_SOLUTION_R1],
@@ -1022,6 +1392,8 @@ export async function createDiscoveryCandidateFixture(
       preserved_dimensions: ["user", "job", "entry_scene", "buyer_model", "candidate_kind"],
       diversity_retention_refs: [G22_DEMAND_R2],
       counterfactual_candidate_refs: [G22_DEMAND_R2],
+      pre_candidate_diversity_retention_refs: [G22_RETAINED_PRE_CANDIDATE],
+      counterfactual_pre_candidate_refs: [G22_RETAINED_PRE_CANDIDATE],
       known_blind_spots: [synthetic("all real research absent")],
     },
     evidence_sufficiency_summary: {
@@ -1174,12 +1546,71 @@ export async function createDiscoveryCandidateFixture(
       [G22_DEMAND_R1, G22_GENERATION_LANE, G22_EVALUATION_LANE],
     ],
     [
+      G22_RETAINED_PRE_CANDIDATE,
+      retainedPreCandidate,
+      "main_agent",
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        ...seedRefs,
+        G22_GENERATION_LANE,
+        G22_EVALUATION_LANE,
+        ...materialRefs,
+      ],
+    ],
+    [
+      G22_WATCHLIST_PRE_CANDIDATE,
+      watchlistPreCandidate,
+      "main_agent",
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        ...seedRefs,
+        G22_GENERATION_LANE,
+        G22_EVALUATION_LANE,
+        ...materialRefs,
+      ],
+    ],
+    [
+      G22_REJECTED_PRE_CANDIDATE,
+      rejectedPreCandidate,
+      "main_agent",
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        ...seedRefs,
+        G22_GENERATION_LANE,
+        G22_EVALUATION_LANE,
+        ...materialRefs,
+      ],
+    ],
+    [
+      G22_PRE_CANDIDATE_RELATION,
+      relation,
+      "main_agent",
+      [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
+        ...seedRefs,
+        G22_RETAINED_PRE_CANDIDATE,
+        G22_WATCHLIST_PRE_CANDIDATE,
+        G22_REJECTED_PRE_CANDIDATE,
+      ],
+    ],
+    [
       G22_FAN_IN,
       fanIn,
       "main_agent",
       [
+        G21_SCOPE_REF,
+        G21_PLAN_REF,
         G22_GENERATION_LANE,
         G22_EVALUATION_LANE,
+        G22_RETAINED_PRE_CANDIDATE,
+        G22_WATCHLIST_PRE_CANDIDATE,
+        G22_REJECTED_PRE_CANDIDATE,
+        G22_PRE_CANDIDATE_RELATION,
+        G22_DEMAND_R1,
         G22_DEMAND_R2,
         G22_BASELINE_R1,
         G22_SOLUTION_R1,

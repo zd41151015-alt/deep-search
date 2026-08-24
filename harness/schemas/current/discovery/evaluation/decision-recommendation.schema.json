@@ -10,6 +10,8 @@
     "run_id",
     "decision_context_ref",
     "source_snapshot_ref",
+    "source_merge_ref",
+    "opportunity_family_projection",
     "comparison_refs",
     "sensitivity_ref",
     "recommended_first_bet",
@@ -47,6 +49,12 @@
     },
     "source_snapshot_ref": {
       "$ref": "./definitions.schema.json#/$defs/snapshotRef"
+    },
+    "source_merge_ref": {
+      "$ref": "./definitions.schema.json#/$defs/mergeRef"
+    },
+    "opportunity_family_projection": {
+      "$ref": "../synthesis/definitions.schema.json#/$defs/opportunityFamilyProjection"
     },
     "comparison_refs": {
       "type": "array",

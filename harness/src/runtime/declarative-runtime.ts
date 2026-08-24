@@ -95,6 +95,7 @@ export interface RuntimeArtifactCompilationResult {
     readonly publication_count: number;
     readonly gate_diagnostics?: GateDiagnosticSummary;
   };
+  readonly dispatch_launch_checklists: readonly DispatchLaunchCheckResult[];
   readonly working_directory: string;
   readonly validation_closure: {
     readonly document_bundle_schema_version: "startup_opportunity.document_bundle.current";
@@ -114,9 +115,86 @@ export interface RuntimeArtifactCompilationResult {
   }[];
 }
 
+export interface DispatchLaunchCheckResult extends Record<string, unknown> {
+  readonly schema_version: "startup_opportunity.dispatch_launch_check_result.v1";
+  readonly run_id: string;
+  readonly dispatch_ref: string;
+  readonly dispatch_hash: string;
+  readonly checklist: readonly {
+    readonly unit_id: string;
+    readonly task_ref: string;
+    readonly task_id: string;
+    readonly attempt: number;
+    readonly allowed_output_path: string;
+    readonly required_artifact_schema: string;
+    readonly execution_attempt_ids: readonly string[];
+    readonly launch_state: "started" | "not_started" | "conflict";
+  }[];
+  readonly started_unit_ids: readonly string[];
+  readonly not_started_unit_ids: readonly string[];
+  readonly unexpected_registrations: readonly string[];
+  readonly status: "closed" | "open" | "conflict";
+}
+
+export function dispatchLaunchChecklist(
+  envelope: FormalArtifactEnvelope,
+  availableEnvelopes: readonly FormalArtifactEnvelope[] = [],
+): DispatchLaunchCheckResult {
+  const tasks = Array.isArray(envelope.document.tasks)
+    ? envelope.document.tasks.filter(isRecord)
+    : [];
+  const checklist = tasks
+    .map((task) => {
+      const formalTask = availableEnvelopes.find(
+        (candidate) =>
+          candidate.artifact_type.startsWith("startup_opportunity.research_task.") &&
+          candidate.document.task_id === task.task_id &&
+          candidate.document.unit_id === task.unit_id,
+      );
+      const submissionAttempt = /\.attempt-([1-9][0-9]*)\.json$/u.exec(
+        String(task.submission_path ?? ""),
+      )?.[1];
+      return {
+        unit_id: String(task.unit_id),
+        task_ref: `${envelope.artifact_path}#${String(task.task_id)}`,
+        task_id: String(task.task_id),
+        attempt: Number(formalTask?.document.attempt ?? task.attempt ?? submissionAttempt ?? 1),
+        allowed_output_path: String(
+          formalTask?.document.allowed_output_path ??
+            task.allowed_output_path ??
+            task.submission_path,
+        ),
+        required_artifact_schema: String(
+          formalTask?.document.required_artifact_schema ??
+            task.required_artifact_schema ??
+            task.submission_schema ??
+            (envelope.artifact_type === "startup_opportunity.dispatch_batch.assessment.current"
+              ? "startup_opportunity.assessment_lane_result.v1"
+              : ""),
+        ),
+        execution_attempt_ids: [] as string[],
+        launch_state: "not_started" as const,
+      };
+    })
+    .sort((left, right) => left.unit_id.localeCompare(right.unit_id));
+  return {
+    schema_version: "startup_opportunity.dispatch_launch_check_result.v1",
+    run_id: envelope.run_id,
+    dispatch_ref: envelope.artifact_path,
+    dispatch_hash: envelope.content_hash,
+    checklist,
+    started_unit_ids: [],
+    not_started_unit_ids: checklist.map((entry) => entry.unit_id),
+    unexpected_registrations: [],
+    status: "open",
+  };
+}
+
 export interface CompileRuntimeArtifactsOptions {
   readonly faultAt?: ArtifactFaultBoundary;
   readonly observe?: OperationObserver | undefined;
+  readonly recoverPlanOperations?: boolean;
+  readonly includeAllFormalArtifacts?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -380,6 +458,8 @@ export class DeclarativeRuntimeCompiler {
       );
     }
     const request = requestValue as RuntimeArtifactCompilationRequest;
+    const recoverPlanOperations =
+      request.operation === "publish" && options.recoverPlanOperations !== false;
     trace.complete("request_validation", { request_errors: requestValidation.errors.length });
     trace.start("current_run_resolution");
     const resolution = await this.runs.resolveExecution(request.run_id);
@@ -432,7 +512,7 @@ export class DeclarativeRuntimeCompiler {
               ],
               exact_records: [],
             },
-            { includeAllFormalArtifacts: true },
+            { includeAllFormalArtifacts: true, recoverPlanOperations },
           )
         ).bundle.documents.map((entry) => ({
           artifact_type:
@@ -608,7 +688,10 @@ export class DeclarativeRuntimeCompiler {
       })),
       exact_records: [],
     };
-    const context = await this.runs.buildValidationContext(request.run_id, initialBundle);
+    const context = await this.runs.buildValidationContext(request.run_id, initialBundle, {
+      includeAllFormalArtifacts: options.includeAllFormalArtifacts === true,
+      recoverPlanOperations,
+    });
     const validation = this.validator.validateDocumentBundle(
       context.bundle,
       context.referenceContext,
@@ -880,6 +963,7 @@ export class DeclarativeRuntimeCompiler {
         const result = await this.runs.publishArtifact({
           runId: request.run_id,
           envelope,
+          expectedManifestContentHash: publicationPlan.manifest_content_hash,
           ...(options.faultAt === undefined ? {} : { faultAt: options.faultAt }),
         });
         publicationStatus = result.status;
@@ -888,6 +972,7 @@ export class DeclarativeRuntimeCompiler {
         const result = await this.runs.publishArtifactBundle({
           runId: request.run_id,
           envelopes,
+          expectedManifestContentHash: publicationPlan.manifest_content_hash,
         });
         publicationStatus = result.status;
         statuses = new Map(
@@ -918,6 +1003,14 @@ export class DeclarativeRuntimeCompiler {
           ? {}
           : { gate_diagnostics: summarizeGateDiagnostics(gateIssues, "artifact_compilation") }),
       },
+      dispatch_launch_checklists: envelopes
+        .filter((envelope) =>
+          [
+            "startup_opportunity.dispatch_batch.discovery.current",
+            "startup_opportunity.dispatch_batch.assessment.current",
+          ].includes(envelope.artifact_type),
+        )
+        .map((envelope) => dispatchLaunchChecklist(envelope, envelopes)),
       working_directory: `dist/research-working/${request.run_id}`,
       validation_closure: {
         document_bundle_schema_version: context.bundle.schema_version,

@@ -649,7 +649,7 @@ test("prior consumption replays exactly after tainted Maps, checkpoint, and reop
 
 test("empty decision subject scaffold compiles and publishes through exact Store closure", async (context) => {
   const state = await prepareRun(context, "general", "snapshot-scaffold");
-  const scaffold = buildArtifactScaffold(
+  const scaffold = await buildArtifactScaffold(
     {
       schema_version: "startup_opportunity.scaffold_request.current",
       scaffold_id: "decision_subject_snapshot_store_synthetic",
@@ -663,6 +663,16 @@ test("empty decision subject scaffold compiles and publishes through exact Store
         target_users: ["synthetic user"],
         decision_goal: "test current snapshot scaffold publication",
         research_language: "en-US",
+        team_context: {
+          hard_constraints: [],
+          known_strengths_and_gaps: [],
+          other_team_conditions: {
+            status: "unknown",
+            source_kind: "unknown",
+            confirmation_status: "unknown",
+            reporting_disclosure: "No other team conditions were provided; keep unknown.",
+          },
+        },
         user_confirmed: true,
       },
     },

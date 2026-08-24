@@ -61,6 +61,12 @@ import {
   type ReportRecoveryResult,
   recoverReportOperationsLocked,
 } from "../reporting/report-runtime.js";
+import {
+  canonicalLaneLifecycleId,
+  canonicalLaneLifecyclePath,
+  dispatchLaunchRegistrationPath,
+  dispatchLaunchRequestFromRegistration,
+} from "../runtime/lane-lifecycle-identity.js";
 import { type OperationObserver, operationTrace } from "../runtime/operation-observability.js";
 import {
   type ArtifactValidator,
@@ -118,12 +124,40 @@ export interface RunManifest extends Record<string, unknown> {
   readonly limitations: readonly string[];
 }
 
+export interface PublishDispatchLaunchRegistrationInput {
+  readonly runId: string;
+  readonly envelopes: readonly FormalArtifactEnvelope[];
+}
+
 export interface ResearchScope {
   readonly geography: string;
   readonly customerModel: "b2c" | "b2b" | "b2b2c" | "mixed";
   readonly targetUsers: readonly string[];
   readonly decisionGoal: string;
   readonly researchLanguage: string;
+  readonly teamContext?: TeamContext;
+}
+
+export interface TeamCondition {
+  readonly conditionId: string;
+  readonly statement: string;
+  readonly sourceKind: "user_provided" | "agent_assumed";
+  readonly confirmationStatus:
+    | "user_confirmed"
+    | "user_authorized_assumption"
+    | "unconfirmed_assumption";
+  readonly reportingDisclosure: string | null;
+}
+
+export interface TeamContext {
+  readonly hardConstraints: readonly TeamCondition[];
+  readonly knownStrengthsAndGaps: readonly TeamCondition[];
+  readonly otherTeamConditions: {
+    readonly status: "unknown";
+    readonly sourceKind: "unknown";
+    readonly confirmationStatus: "unknown";
+    readonly reportingDisclosure: string;
+  };
 }
 
 export interface CreateRunInput {
@@ -474,6 +508,7 @@ export interface BuildValidationContextResult {
   readonly schemaVersion: "startup_opportunity.validation_context.v1";
   readonly bundle: DocumentBundle;
   readonly referenceContext: DocumentBundleReferenceContext;
+  readonly planOperationRecovery: PlanOperationRecoveryResult;
 }
 
 const RUN_DIRECTORIES = [
@@ -865,6 +900,67 @@ function canonicalResearchScope(scope: ResearchScope): ResearchScope {
   return {
     ...scope,
     researchLanguage: canonicalResearchLanguage(scope.researchLanguage),
+    teamContext: scope.teamContext ?? {
+      hardConstraints: [],
+      knownStrengthsAndGaps: [],
+      otherTeamConditions: {
+        status: "unknown",
+        sourceKind: "unknown",
+        confirmationStatus: "unknown",
+        reportingDisclosure:
+          "Team conditions not explicitly captured as hard constraints or known strengths and gaps remain unknown.",
+      },
+    },
+  };
+}
+
+function teamContextFromDocument(value: unknown): TeamContext {
+  const context = value as Record<string, unknown>;
+  const condition = (entry: unknown): TeamCondition => {
+    const record = entry as Record<string, unknown>;
+    return {
+      conditionId: String(record.condition_id),
+      statement: String(record.statement),
+      sourceKind: record.source_kind as TeamCondition["sourceKind"],
+      confirmationStatus: record.confirmation_status as TeamCondition["confirmationStatus"],
+      reportingDisclosure:
+        typeof record.reporting_disclosure === "string" ? record.reporting_disclosure : null,
+    };
+  };
+  const other = context.other_team_conditions as Record<string, unknown>;
+  return {
+    hardConstraints: Array.isArray(context.hard_constraints)
+      ? context.hard_constraints.map(condition)
+      : [],
+    knownStrengthsAndGaps: Array.isArray(context.known_strengths_and_gaps)
+      ? context.known_strengths_and_gaps.map(condition)
+      : [],
+    otherTeamConditions: {
+      status: "unknown",
+      sourceKind: "unknown",
+      confirmationStatus: "unknown",
+      reportingDisclosure: String(other.reporting_disclosure),
+    },
+  };
+}
+
+function teamContextDocument(context: TeamContext): Record<string, unknown> {
+  const condition = (entry: TeamCondition): Record<string, unknown> => ({
+    condition_id: entry.conditionId,
+    statement: entry.statement,
+    source_kind: entry.sourceKind,
+    confirmation_status: entry.confirmationStatus,
+    reporting_disclosure: entry.reportingDisclosure,
+  });
+  return {
+    hard_constraints: context.hardConstraints.map(condition),
+    known_strengths_and_gaps: context.knownStrengthsAndGaps.map(condition),
+    other_team_conditions: {
+      status: context.otherTeamConditions.status,
+      source_kind: context.otherTeamConditions.sourceKind,
+      confirmation_status: context.otherTeamConditions.confirmationStatus,
+      reporting_disclosure: context.otherTeamConditions.reportingDisclosure,
+    },
   };
 }
 
@@ -877,6 +973,7 @@ function researchScopeFromDocument(scope: Record<string, unknown>): ResearchScop
       : [],
     decisionGoal: String(scope.decision_goal),
     researchLanguage: canonicalResearchLanguage(String(scope.research_language)),
+    teamContext: teamContextFromDocument(scope.team_context),
   };
 }
 
@@ -889,6 +986,7 @@ function scopeDocument(scope: ResearchScope, revision: number): Record<string, u
     target_users: [...canonicalScope.targetUsers],
     decision_goal: canonicalScope.decisionGoal,
     research_language: canonicalScope.researchLanguage,
+    team_context: teamContextDocument(canonicalScope.teamContext as TeamContext),
   };
 }
 
@@ -2399,9 +2497,11 @@ export class RunStore {
     input: DocumentBundle,
     options: {
       readonly includeAllFormalArtifacts?: boolean;
+      readonly topLevelFormalRefs?: readonly string[];
       readonly prospectiveArtifactPaths?: readonly string[];
       readonly prospectiveManifest?: RunManifest;
       readonly exactRecordRefs?: readonly string[];
+      readonly recoverPlanOperations?: boolean;
     } = {},
   ): Promise<BuildValidationContextResult> {
     validateRunId(runId);
@@ -2424,6 +2524,8 @@ export class RunStore {
         new Set(options.prospectiveArtifactPaths ?? []),
         options.prospectiveManifest,
         new Set(options.exactRecordRefs ?? []),
+        new Set(options.topLevelFormalRefs ?? []),
+        options.recoverPlanOperations !== false,
       ),
     );
   }
@@ -2435,7 +2537,9 @@ export class RunStore {
     includeAllFormalArtifacts = false,
     prospectiveArtifactPaths: ReadonlySet<string> = new Set(),
     prospectiveManifest?: RunManifest,
-    requestedExactRecordRefs: ReadonlySet<string> = new Set(),
+    requestedExactRecordRefs: Set<string> = new Set(),
+    requestedTopLevelFormalRefs: ReadonlySet<string> = new Set(),
+    recoverPlanOperations = true,
   ): Promise<BuildValidationContextResult> {
     const storedManifest = await this.readManifest(runRoot);
     await this.assertScopeBindingLocked(runRoot, storedManifest);
@@ -2523,6 +2627,30 @@ export class RunStore {
     };
 
     await addAuthority({ path: "manifest.json", document: manifest });
+    for (const ref of [...requestedTopLevelFormalRefs].sort()) {
+      const parsed = validateArtifactRef(ref);
+      if (parsed.path === "manifest.json") continue;
+      if (parsed.path.endsWith(".jsonl")) {
+        if (parsed.fragment === null) {
+          throw new StoreError(
+            "validation_context.exact_record_ref_invalid",
+            "top-level JSONL refs must identify one exact record",
+            { ref },
+          );
+        }
+        requestedExactRecordRefs.add(ref);
+        continue;
+      }
+      const authority = stored.get(parsed.path);
+      if (authority === undefined) {
+        throw new StoreError(
+          "validation_context.top_level_ref_missing",
+          "an explicitly selected top-level formal ref is absent from the current Run",
+          { ref },
+        );
+      }
+      await addAuthority(authority);
+    }
     const terminalReportRequested = [...selected.values()].some(
       (entry) =>
         effective(entry.document).schema_version ===
@@ -2584,6 +2712,36 @@ export class RunStore {
           }
         }
       }
+      if (
+        String(nextDocument.schema_version).startsWith("startup_opportunity.research_task.") &&
+        typeof nextDocument.task_id === "string" &&
+        typeof nextDocument.unit_id === "string"
+      ) {
+        for (const authority of [...stored.values()].sort((left, right) =>
+          left.path.localeCompare(right.path),
+        )) {
+          const authorityDocument = effective(authority.document);
+          if (
+            ![
+              "startup_opportunity.dispatch_batch.discovery.current",
+              "startup_opportunity.dispatch_batch.assessment.current",
+            ].includes(String(authorityDocument.schema_version))
+          ) {
+            continue;
+          }
+          const taskProjection = Array.isArray(authorityDocument.tasks)
+            ? authorityDocument.tasks
+                .filter(isRecord)
+                .find(
+                  (task) =>
+                    task.task_id === nextDocument.task_id && task.unit_id === nextDocument.unit_id,
+                )
+            : undefined;
+          if (taskProjection !== undefined) {
+            await addAuthority(authority);
+          }
+        }
+      }
       for (const ref of artifactRefsForDocument(next)) {
         const parsed = validateArtifactRef(ref);
         if (parsed.path === "events.jsonl" || parsed.path === "decisions.jsonl") {
@@ -2616,6 +2774,7 @@ export class RunStore {
       this.validator,
       this.artifacts,
       this.logs,
+      recoverPlanOperations,
     );
     for (const decision of await this.logs.listValidatedRecords(
       runRoot,
@@ -2656,6 +2815,7 @@ export class RunStore {
         historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
         artifactPublicationRecords: await this.artifacts.publicationRecordsLocked(runRoot, runId),
       },
+      planOperationRecovery,
     };
   }
 
@@ -2680,9 +2840,35 @@ export class RunStore {
         "terminal report sources must use apply-plan-revision atomic closeout",
       );
     }
+    if (
+      input.envelope.artifact_type === "startup_opportunity.dispatch_launch_registration.v1" ||
+      (input.envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1" &&
+        input.envelope.document.revision === 1 &&
+        typeof input.envelope.document.launch_registration_ref === "string")
+    ) {
+      throw new StoreError(
+        "artifact.dispatch_launch_registration_entry_required",
+        "registered lifecycle roots must use the dedicated atomic Dispatch launch entry",
+      );
+    }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       const manifest = await this.readManifest(runRoot);
+      if (
+        input.expectedManifestContentHash !== undefined &&
+        canonicalContentHash(manifest) !== input.expectedManifestContentHash &&
+        !manifest.artifact_refs.includes(input.envelope.artifact_path) &&
+        !manifest.ignored_late_artifact_refs.includes(input.envelope.artifact_path)
+      ) {
+        throw new StoreError(
+          "artifact.manifest_stale",
+          "artifact publication no longer binds the exact planned Manifest",
+          {
+            expected: input.expectedManifestContentHash,
+            actual: canonicalContentHash(manifest),
+          },
+        );
+      }
       if (
         [
           "startup_opportunity.dispatch_batch.discovery.current",
@@ -2781,6 +2967,20 @@ export class RunStore {
     }
     if (
       input.envelopes.some(
+        (envelope) =>
+          envelope.artifact_type === "startup_opportunity.dispatch_launch_registration.v1" ||
+          (envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1" &&
+            envelope.document.revision === 1 &&
+            typeof envelope.document.launch_registration_ref === "string"),
+      )
+    ) {
+      throw new StoreError(
+        "artifact.dispatch_launch_registration_entry_required",
+        "registered lifecycle roots must use the dedicated atomic Dispatch launch entry",
+      );
+    }
+    if (
+      input.envelopes.some(
         (envelope) => envelope.artifact_type === "startup_opportunity.terminal_report_source.v1",
       )
     ) {
@@ -2792,6 +2992,24 @@ export class RunStore {
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       let manifest = await this.readManifest(runRoot);
+      const trackedPaths = new Set([
+        ...manifest.artifact_refs,
+        ...manifest.ignored_late_artifact_refs,
+      ]);
+      if (
+        input.expectedManifestContentHash !== undefined &&
+        canonicalContentHash(manifest) !== input.expectedManifestContentHash &&
+        !input.envelopes.every((envelope) => trackedPaths.has(envelope.artifact_path))
+      ) {
+        throw new StoreError(
+          "artifact.manifest_stale",
+          "artifact bundle publication no longer binds the exact planned Manifest",
+          {
+            expected: input.expectedManifestContentHash,
+            actual: canonicalContentHash(manifest),
+          },
+        );
+      }
       await this.assertScopeBindingLocked(runRoot, manifest);
       await this.assertTransitionReadyLocked(runRoot, manifest, input.envelopes);
       await this.assertProspectiveScopeFormationLocked(runRoot, manifest, input.envelopes);
@@ -2927,6 +3145,159 @@ export class RunStore {
         );
       }
       if (canonicalJson(manifest) !== canonicalJson(originalManifest)) {
+        await this.writeManifest(runRoot, manifest);
+      }
+      return result;
+    });
+  }
+
+  async publishDispatchLaunchRegistration(
+    input: PublishDispatchLaunchRegistrationInput,
+  ): Promise<PublishArtifactBundleResult> {
+    await this.assertCurrentLeaf(input.runId);
+    const runRoot = await openRunDirectory(this.runsRoot, input.runId);
+    return withRunLock(runRoot, async () => {
+      let manifest = await this.readManifest(runRoot);
+      await this.assertScopeBindingLocked(runRoot, manifest);
+      if (TERMINAL_RUN_STATUSES.has(manifest.status) || manifest.status === "reporting") {
+        throw new StoreError(
+          "run.dispatch_launch_registration_terminal",
+          "terminal or reporting Runs cannot accept a Dispatch launch registration",
+          { status: manifest.status },
+        );
+      }
+      const registration = input.envelopes.find(
+        (envelope) =>
+          envelope.artifact_type === "startup_opportunity.dispatch_launch_registration.v1",
+      );
+      const lifecycles = input.envelopes.filter(
+        (envelope) => envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1",
+      );
+      if (
+        registration === undefined ||
+        input.envelopes.length !== lifecycles.length + 1 ||
+        lifecycles.length === 0
+      ) {
+        throw new StoreError(
+          "artifact.dispatch_launch_registration_bundle_invalid",
+          "launch registration requires one formal registration and at least one lifecycle root",
+        );
+      }
+      const lockedPreflight = await this.artifacts.preflightDispatchLaunchBundleLocked(runRoot, {
+        runId: input.runId,
+        envelopes: input.envelopes,
+      });
+      if (
+        lockedPreflight === "idempotent_replay" &&
+        input.envelopes.every((envelope) => manifest.artifact_refs.includes(envelope.artifact_path))
+      ) {
+        return this.artifacts.publishDispatchLaunchBundleLocked(runRoot, {
+          runId: input.runId,
+          envelopes: input.envelopes,
+        });
+      }
+      const disposed = new Set([
+        ...manifest.completed_units,
+        ...manifest.failed_units,
+        ...manifest.invalidated_units,
+        ...manifest.skipped_units,
+        ...manifest.cancelled_units,
+        ...manifest.superseded_units,
+      ]);
+      const disposedUnitIds = lifecycles
+        .map((envelope) => String(envelope.document.unit_id))
+        .filter((unitId) => disposed.has(unitId))
+        .sort();
+      if (disposedUnitIds.length > 0) {
+        throw new StoreError(
+          "run.dispatch_launch_registration_unit_disposed",
+          "a Dispatch task cannot be launch-registered after formal Unit disposition",
+          { unitIds: disposedUnitIds },
+        );
+      }
+      const inactiveUnitIds = lifecycles
+        .map((envelope) => String(envelope.document.unit_id))
+        .filter((unitId) => !manifest.active_units.includes(unitId))
+        .sort();
+      const storedDispatch = (await this.artifacts.listFormalDocuments(runRoot)).find(
+        (entry) => entry.path === registration.document.dispatch_ref,
+      )?.document as FormalArtifactEnvelope | undefined;
+      if (
+        inactiveUnitIds.length > 0 ||
+        storedDispatch === undefined ||
+        ![
+          "startup_opportunity.dispatch_batch.discovery.current",
+          "startup_opportunity.dispatch_batch.assessment.current",
+        ].includes(storedDispatch.artifact_type) ||
+        storedDispatch.document.research_plan_ref !== manifest.current_plan_ref
+      ) {
+        throw new StoreError(
+          "run.dispatch_launch_registration_task_not_current",
+          "launch registration requires active tasks from the current non-superseded Dispatch",
+          {
+            inactiveUnitIds,
+            dispatchRef: registration.document.dispatch_ref,
+            currentPlanRef: manifest.current_plan_ref,
+            dispatchPlanRef: storedDispatch?.document.research_plan_ref,
+          },
+        );
+      }
+      await this.assertTransitionReadyLocked(runRoot, manifest, input.envelopes);
+      const validationContext = await this.buildValidationContextLocked(
+        runRoot,
+        input.runId,
+        {
+          schema_version: DOCUMENT_BUNDLE_SCHEMA_VERSION,
+          documents: input.envelopes.map((envelope) => ({
+            path: envelope.artifact_path,
+            document: envelope,
+          })),
+          exact_records: [],
+        },
+        false,
+        new Set(input.envelopes.map((envelope) => envelope.artifact_path)),
+      );
+      const validation = this.validator.validateDocumentBundle(
+        validationContext.bundle,
+        validationContext.referenceContext,
+      );
+      if (!validation.valid) {
+        throw new StoreError(
+          "artifact.dispatch_launch_registration_validation_failed",
+          "Dispatch launch registration bundle does not satisfy the current formal closure",
+          {
+            bundleErrors: validation.bundleErrors,
+            documentErrors: validation.documents.flatMap((document) => document.errors),
+            referenceErrors: validation.referenceErrors,
+          },
+        );
+      }
+      const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
+        runRoot,
+        input.runId,
+        this.validator,
+        this.artifacts,
+        this.logs,
+      );
+      const result = await this.artifacts.publishDispatchLaunchBundleLocked(
+        runRoot,
+        { runId: input.runId, envelopes: input.envelopes },
+        { historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings },
+      );
+      const statuses = new Map(
+        result.artifacts.map((artifact) => [artifact.artifactPath, artifact.status]),
+      );
+      for (const envelope of input.envelopes) {
+        manifest = await this.applyPublishedEnvelope(
+          runRoot,
+          manifest,
+          envelope,
+          false,
+          statuses.get(envelope.artifact_path) === "idempotent_replay",
+        );
+      }
+      const original = await this.readManifest(runRoot);
+      if (canonicalJson(manifest) !== canonicalJson(original)) {
         await this.writeManifest(runRoot, manifest);
       }
       return result;
@@ -3121,6 +3492,7 @@ export class RunStore {
       target_users: scope.target_users,
       decision_goal: scope.decision_goal,
       research_language: scope.research_language,
+      team_context: scope.team_context,
       user_confirmed: true,
     };
     const intakeConstraints = isRecord(document.explicit_constraints)
@@ -3145,7 +3517,8 @@ export class RunStore {
       envelope.artifact_type === "startup_opportunity.scope_frame.discovery.current" &&
       (document.market !== scope.geography ||
         document.language !== scope.research_language ||
-        canonicalJson(document.target_users) !== canonicalJson(scope.target_users))
+        canonicalJson(document.target_users) !== canonicalJson(scope.target_users) ||
+        canonicalJson(document.team_context) !== canonicalJson(scope.team_context))
     ) {
       this.scopeFormationMismatch(
         envelope.artifact_path,
@@ -3156,7 +3529,8 @@ export class RunStore {
       envelope.artifact_type === "startup_opportunity.scope_frame.assessment.current" &&
       (document.market !== scope.geography ||
         document.language !== scope.research_language ||
-        canonicalJson(document.target_user) !== canonicalJson(scope.target_users))
+        canonicalJson(document.target_user) !== canonicalJson(scope.target_users) ||
+        canonicalJson(document.team_context) !== canonicalJson(scope.team_context))
     ) {
       this.scopeFormationMismatch(
         envelope.artifact_path,
@@ -3403,6 +3777,7 @@ export class RunStore {
     envelopes: readonly FormalArtifactEnvelope[],
   ): Promise<void> {
     await this.assertScopeBindingLocked(runRoot, manifest);
+    await this.assertLaneLifecycleLaunchIdentitiesLocked(runRoot, manifest, envelopes);
     if (manifest.status === "awaiting_scope_confirmation") {
       throw new StoreError(
         "run.scope_confirmation_required",
@@ -3427,6 +3802,8 @@ export class RunStore {
     }
     const downstreamTypes = new Set([
       "startup_opportunity.discovery_candidate.v1",
+      "startup_opportunity.concrete_pre_candidate.v1",
+      "startup_opportunity.pre_candidate_relation.v1",
       "startup_opportunity.discovery_candidate_conversion.v2",
       "startup_opportunity.discovery_fan_in.v2",
       "startup_opportunity.concept_evidence_assessment_fan_in.v1",
@@ -3447,6 +3824,12 @@ export class RunStore {
       "startup_opportunity.concept_evidence_assessment_fan_in.v1",
       "startup_opportunity.enrichment_fan_in.v1",
     ]);
+    const launchClosureTypes = new Set([
+      ...downstreamTypes,
+      "startup_opportunity.discovery_stage_readiness.v1",
+      "startup_opportunity.assessment_stage_gate.v1",
+    ]);
+    await this.assertDispatchLaunchClosureLocked(runRoot, manifest, envelopes, launchClosureTypes);
     if (!envelopes.some((envelope) => downstreamTypes.has(envelope.artifact_type))) return;
 
     const publishingIdentities = new Set(
@@ -4006,6 +4389,316 @@ export class RunStore {
         },
       );
     }
+    const sourcePreCandidateRefs = [
+      ...new Set(
+        synthesis
+          .map((envelope) => envelope.document.source_pre_candidate_ref)
+          .filter((ref): ref is string => typeof ref === "string"),
+      ),
+    ];
+    const retainedPreCandidateRefs = strings(fanIn.document.retained_pre_candidate_refs);
+    const readinessRetainedPreCandidateRefs = records(readiness.document.pre_candidate_roles)
+      .filter((role) => role.disposition === "retained")
+      .map((role) => String(role.pre_candidate_ref));
+    if (
+      sourcePreCandidateRefs.length > 0 &&
+      (!sourcePreCandidateRefs.every((ref) => retainedPreCandidateRefs.includes(ref)) ||
+        !sourcePreCandidateRefs.every((ref) => readinessRetainedPreCandidateRefs.includes(ref)))
+    ) {
+      throw new StoreError(
+        "run.discovery_synthesis_pre_candidate_not_retained",
+        "G2.3 may formalize only retained concrete pre-candidates visible in current Readiness",
+        {
+          sourcePreCandidateRefs,
+          retainedPreCandidateRefs,
+          readinessRetainedPreCandidateRefs,
+        },
+      );
+    }
+  }
+
+  private async assertLaneLifecycleLaunchIdentitiesLocked(
+    runRoot: string,
+    manifest: RunManifest,
+    envelopes: readonly FormalArtifactEnvelope[],
+  ): Promise<void> {
+    const incoming = envelopes.filter(
+      (envelope) => envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1",
+    );
+    if (incoming.length === 0) return;
+    const stored = (await this.artifacts.listFormalDocuments(runRoot))
+      .filter(
+        (entry) =>
+          manifest.artifact_refs.includes(entry.path) &&
+          entry.document.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
+          entry.document.artifact_type === "startup_opportunity.lane_lifecycle.v1",
+      )
+      .map((entry) => entry.document as FormalArtifactEnvelope);
+    const identities = new Map<
+      string,
+      { readonly unitId: unknown; readonly taskRef: unknown; readonly attempt: unknown }
+    >();
+    const requestHashes = new Map<string, string>();
+    const revisions = new Map<string, FormalArtifactEnvelope>();
+    const byPath = new Map(
+      [...stored, ...incoming].map((envelope) => [envelope.artifact_path, envelope]),
+    );
+    for (const lifecycle of [...stored, ...incoming]) {
+      const document = lifecycle.document;
+      const lifecycleId = canonicalLaneLifecycleId(document);
+      const lifecyclePath = canonicalLaneLifecyclePath(document, Number(document.revision));
+      if (document.lifecycle_id !== lifecycleId || lifecycle.artifact_path !== lifecyclePath) {
+        throw new StoreError(
+          "artifact.lifecycle_identity_invalid",
+          "Lane Lifecycle id and path must be the canonical execution-attempt identity",
+          {
+            artifactPath: lifecycle.artifact_path,
+            expectedLifecycleId: lifecycleId,
+            lifecyclePath,
+          },
+        );
+      }
+      if (document.revision === 1 && document.parent_lifecycle_ref !== null) {
+        throw new StoreError(
+          "artifact.lifecycle_root_invalid",
+          "Lane Lifecycle revision one must have no parent",
+          { artifactPath: lifecycle.artifact_path },
+        );
+      }
+      if (Number(document.revision) > 1) {
+        const expectedParentRef = canonicalLaneLifecyclePath(
+          document,
+          Number(document.revision) - 1,
+        );
+        const parent = byPath.get(expectedParentRef);
+        if (
+          document.parent_lifecycle_ref !== expectedParentRef ||
+          parent?.artifact_type !== "startup_opportunity.lane_lifecycle.v1" ||
+          Number(parent.document.revision) + 1 !== Number(document.revision) ||
+          parent.document.lifecycle_id !== document.lifecycle_id ||
+          parent.document.run_id !== document.run_id ||
+          parent.document.unit_id !== document.unit_id ||
+          parent.document.attempt !== document.attempt ||
+          parent.document.execution_attempt_id !== document.execution_attempt_id ||
+          parent.document.dispatch_batch_ref !== document.dispatch_batch_ref ||
+          parent.document.dispatch_batch_hash !== document.dispatch_batch_hash ||
+          parent.document.task_ref !== document.task_ref ||
+          parent.document.task_id !== document.task_id ||
+          parent.document.launch_registration_ref !== document.launch_registration_ref ||
+          parent.document.launch_registration_id !== document.launch_registration_id ||
+          parent.document.launch_registration_hash !== document.launch_registration_hash
+        ) {
+          throw new StoreError(
+            "artifact.lifecycle_parent_invalid",
+            "Lane Lifecycle revisions must preserve the exact canonical parent and launch provenance",
+            { artifactPath: lifecycle.artifact_path, expectedParentRef },
+          );
+        }
+      }
+      const revisionKey = `${lifecycleId}:${String(document.revision)}`;
+      const priorRevision = revisions.get(revisionKey);
+      if (
+        priorRevision !== undefined &&
+        (priorRevision.artifact_path !== lifecycle.artifact_path ||
+          priorRevision.content_hash !== lifecycle.content_hash)
+      ) {
+        throw new StoreError(
+          "artifact.lifecycle_revision_conflict",
+          "one lifecycle identity can publish only one immutable document per revision",
+          { lifecycleId, revision: document.revision },
+        );
+      }
+      revisions.set(revisionKey, lifecycle);
+      const executionAttemptId = String(document.execution_attempt_id ?? "");
+      const identity = {
+        unitId: document.unit_id,
+        taskRef: document.task_ref,
+        attempt: document.attempt,
+      };
+      const priorIdentity = identities.get(executionAttemptId);
+      if (priorIdentity !== undefined && canonicalJson(priorIdentity) !== canonicalJson(identity)) {
+        throw new StoreError(
+          "artifact.lifecycle_execution_attempt_conflict",
+          "one execution attempt id cannot identify different Dispatch tasks",
+          { executionAttemptId, priorIdentity, identity },
+        );
+      }
+      identities.set(executionAttemptId, identity);
+      if (typeof document.launch_registration_id !== "string") continue;
+      const registrationId = document.launch_registration_id;
+      const registrationHash = String(document.launch_registration_hash ?? "");
+      const priorHash = requestHashes.get(registrationId);
+      if (priorHash !== undefined && priorHash !== registrationHash) {
+        throw new StoreError(
+          "artifact.lifecycle_launch_request_conflict",
+          "one launch registration id cannot identify different request content",
+          { registrationId, priorHash, registrationHash },
+        );
+      }
+      requestHashes.set(registrationId, registrationHash);
+    }
+  }
+
+  private async registeredDispatchLaunchLifecycleRefsLocked(
+    runRoot: string,
+    manifest: RunManifest,
+  ): Promise<ReadonlySet<string>> {
+    const tracked = new Set(manifest.artifact_refs);
+    const stored = (await this.artifacts.listFormalDocuments(runRoot))
+      .filter(
+        (entry) =>
+          tracked.has(entry.path) &&
+          entry.document.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION,
+      )
+      .map((entry) => entry.document as FormalArtifactEnvelope);
+    const byPath = new Map(stored.map((envelope) => [envelope.artifact_path, envelope]));
+    const authorized = new Set<string>();
+    for (const registration of stored.filter(
+      (envelope) =>
+        envelope.artifact_type === "startup_opportunity.dispatch_launch_registration.v1",
+    )) {
+      const document = registration.document;
+      const expectedPath = dispatchLaunchRegistrationPath(String(document.registration_id));
+      const authority = await this.artifacts.dispatchLaunchBundleAuthorityLocked(
+        runRoot,
+        manifest.run_id,
+        registration.artifact_path,
+        tracked,
+      );
+      if (
+        registration.artifact_path !== expectedPath ||
+        document.run_id !== manifest.run_id ||
+        document.request_hash !==
+          canonicalContentHash(dispatchLaunchRequestFromRegistration(document)) ||
+        authority === null
+      ) {
+        throw new StoreError(
+          "artifact.dispatch_launch_registration_authority_invalid",
+          "stored launch registration lacks its exact dedicated Store publication authority",
+          { registrationRef: registration.artifact_path },
+        );
+      }
+      const authorityPaths = new Set(authority.map((envelope) => envelope.artifact_path));
+      const items = Array.isArray(document.registrations)
+        ? document.registrations.filter(isRecord)
+        : [];
+      if (authority.length !== items.length + 1) {
+        throw new StoreError(
+          "artifact.dispatch_launch_registration_authority_invalid",
+          "launch registration bundle membership differs from its exact registered roots",
+          { registrationRef: registration.artifact_path },
+        );
+      }
+      for (const item of items) {
+        const lifecycleRef = String(item.lifecycle_ref ?? "");
+        const lifecycle = byPath.get(lifecycleRef);
+        if (
+          !authorityPaths.has(lifecycleRef) ||
+          lifecycle?.artifact_type !== "startup_opportunity.lane_lifecycle.v1" ||
+          lifecycle.content_hash !== item.lifecycle_hash ||
+          lifecycle.document.revision !== 1 ||
+          lifecycle.document.parent_lifecycle_ref !== null ||
+          lifecycle.document.launch_registration_ref !== registration.artifact_path ||
+          lifecycle.document.launch_registration_id !== document.registration_id ||
+          lifecycle.document.launch_registration_hash !== document.request_hash ||
+          lifecycle.document.unit_id !== item.unit_id ||
+          lifecycle.document.task_ref !== item.task_ref ||
+          lifecycle.document.task_id !== item.task_id ||
+          lifecycle.document.attempt !== item.attempt ||
+          lifecycle.document.execution_attempt_id !== item.execution_attempt_id ||
+          lifecycle.document.lifecycle_id !== canonicalLaneLifecycleId(lifecycle.document) ||
+          lifecycle.artifact_path !== canonicalLaneLifecyclePath(lifecycle.document, 1)
+        ) {
+          throw new StoreError(
+            "artifact.dispatch_launch_registration_authority_invalid",
+            "launch registration does not resolve one exact canonical lifecycle root",
+            { registrationRef: registration.artifact_path, lifecycleRef },
+          );
+        }
+        authorized.add(lifecycleRef);
+      }
+    }
+    return authorized;
+  }
+
+  async registeredDispatchLaunchLifecycleRefs(runId: string): Promise<readonly string[]> {
+    await this.assertCurrentLeaf(runId);
+    const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
+    return withRunLock(runRoot, async () => {
+      const manifest = await this.readManifest(runRoot);
+      return [
+        ...(await this.registeredDispatchLaunchLifecycleRefsLocked(runRoot, manifest)),
+      ].sort();
+    });
+  }
+
+  private async assertDispatchLaunchClosureLocked(
+    runRoot: string,
+    manifest: RunManifest,
+    envelopes: readonly FormalArtifactEnvelope[],
+    downstreamTypes: ReadonlySet<string>,
+  ): Promise<void> {
+    if (!envelopes.some((envelope) => downstreamTypes.has(envelope.artifact_type))) return;
+    const stored = (await this.artifacts.listFormalDocuments(runRoot))
+      .filter(
+        (entry) =>
+          manifest.artifact_refs.includes(entry.path) &&
+          entry.document.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION,
+      )
+      .map((entry) => entry.document as FormalArtifactEnvelope);
+    const all = [...stored, ...envelopes];
+    const authorizedLifecycleRefs = await this.registeredDispatchLaunchLifecycleRefsLocked(
+      runRoot,
+      manifest,
+    );
+    const disposed = new Set([
+      ...manifest.completed_units,
+      ...manifest.failed_units,
+      ...manifest.invalidated_units,
+      ...manifest.skipped_units,
+      ...manifest.cancelled_units,
+      ...manifest.superseded_units,
+    ]);
+    const unresolved: { readonly dispatchRef: string; readonly unitId: string }[] = [];
+    for (const dispatch of all.filter(
+      (envelope) =>
+        envelope.document.launch_registration_required === true &&
+        [
+          "startup_opportunity.dispatch_batch.discovery.current",
+          "startup_opportunity.dispatch_batch.assessment.current",
+        ].includes(envelope.artifact_type),
+    )) {
+      for (const task of Array.isArray(dispatch.document.tasks)
+        ? dispatch.document.tasks.filter(isRecord)
+        : []) {
+        const unitId = String(task.unit_id ?? "");
+        const dispatchTaskRef = `${dispatch.artifact_path}#${String(task.task_id)}`;
+        const started = stored.some(
+          (lifecycle) =>
+            authorizedLifecycleRefs.has(lifecycle.artifact_path) &&
+            lifecycle.document.dispatch_batch_ref === dispatchTaskRef &&
+            lifecycle.document.dispatch_batch_hash === dispatch.content_hash &&
+            lifecycle.document.unit_id === unitId &&
+            lifecycle.document.state !== "dispatch_requested",
+        );
+        if (!started && !disposed.has(unitId)) {
+          unresolved.push({ dispatchRef: dispatch.artifact_path, unitId });
+        }
+      }
+    }
+    if (unresolved.length > 0) {
+      throw new StoreError(
+        "run.transition_dispatch_launch_open",
+        "downstream closure cannot silently bypass Dispatch lanes without a launch registration or formal disposition",
+        {
+          unresolved: unresolved.sort(
+            (left, right) =>
+              left.dispatchRef.localeCompare(right.dispatchRef) ||
+              left.unitId.localeCompare(right.unitId),
+          ),
+        },
+      );
+    }
   }
 
   private async researchTaskPublicationMode(
@@ -4150,6 +4843,8 @@ export class RunStore {
         .filter(
           (task) =>
             task.required_artifact_schema === "startup_opportunity.discovery_lane_result.v1" ||
+            task.required_artifact_schema ===
+              "startup_opportunity.discovery_generation_result.v1" ||
             task.required_artifact_schema === "startup_opportunity.enrichment_branch_result.v1",
         );
       for (const dispatched of dispatchedTasks) {

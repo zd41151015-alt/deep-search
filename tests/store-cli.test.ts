@@ -272,6 +272,71 @@ test("G0.3 command entries reject incomplete arguments with structured failure",
   }
 });
 
+test("create-run persists only the three scoped team-context categories with provenance", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-team-scope-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const result = runScript("harness/src/cli.ts", [
+    "create-run",
+    "--runs-root",
+    runsRoot,
+    "--run-id",
+    "team-context-synthetic",
+    "--mode",
+    "opportunity_discovery",
+    "--geography",
+    "United States",
+    "--customer-model",
+    "b2c",
+    "--target-user",
+    "synthetic user",
+    "--decision-goal",
+    "compare synthetic opportunities",
+    "--research-language",
+    "en-US",
+    "--team-hard-constraint",
+    "must launch within six months",
+    "--team-known-condition",
+    "strong customer discovery capability",
+    "--team-confirmed-assumption",
+    "temporary assumption: founder can access a channel partner",
+    "--team-unconfirmed-assumption",
+    "unconfirmed assumption: specialized compliance expertise is available",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const decisions = (
+    await readFile(path.join(runsRoot, "team-context-synthetic", "decisions.jsonl"), "utf8")
+  )
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  const scope = decisions[0]?.scope as Record<string, unknown>;
+  assert.deepEqual(Object.keys(scope).sort(), [
+    "customer_model",
+    "decision_goal",
+    "geography",
+    "research_language",
+    "revision",
+    "target_users",
+    "team_context",
+  ]);
+  const team = scope.team_context as Record<string, unknown>;
+  assert.equal(
+    (team.hard_constraints as Record<string, unknown>[])[0]?.source_kind,
+    "user_provided",
+  );
+  assert.equal((team.known_strengths_and_gaps as Record<string, unknown>[]).length, 3);
+  assert.equal(
+    (team.known_strengths_and_gaps as Record<string, unknown>[])[1]?.confirmation_status,
+    "user_authorized_assumption",
+  );
+  assert.equal(
+    (team.known_strengths_and_gaps as Record<string, unknown>[])[2]?.confirmation_status,
+    "unconfirmed_assumption",
+  );
+  assert.equal((team.other_team_conditions as Record<string, unknown>).status, "unknown");
+});
+
 test("create-run rejects retired product and build identity options", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-store-cli-identity-"));
   context.after(() => rm(root, { recursive: true, force: true }));

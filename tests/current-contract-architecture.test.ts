@@ -103,6 +103,10 @@ function rulesFor(rules: readonly EnvelopeRule[], artifactType: string): readonl
 
 test("production exposes one current schema graph without version-selection structures", async () => {
   const result = await inspectCurrentContract(repositoryRoot);
+  const registry = JSON.parse(
+    await readFile(path.join(repositoryRoot, ownershipRegistryPath), "utf8"),
+  ) as MutableOwnershipRegistry;
+  const directRuntimeRoots = registry.families.flatMap((family) => family.directRuntimeRoots);
   assert.equal(result.valid, true, JSON.stringify(result, null, 2));
   assert.equal(result.schemaReferenceClosureCount, result.manifestSchemaCount);
   assert.ok(result.schemaRootCount > 0);
@@ -110,7 +114,17 @@ test("production exposes one current schema graph without version-selection stru
   assert.ok(result.activePolicyCount > 0);
   assert.ok(result.registryFamilyCount > 0);
   assert.equal(result.registeredArtifactTypeCount, result.artifactTypeCount);
-  assert.equal(result.registeredDirectRuntimeRootCount, 13);
+  assert.equal(result.registeredDirectRuntimeRootCount, 20);
+  assert.ok(directRuntimeRoots.includes("startup_opportunity.dispatch_launch_check_result.v1"));
+  assert.ok(
+    directRuntimeRoots.includes("startup_opportunity.dispatch_launch_registration_request.v1"),
+  );
+  assert.ok(
+    directRuntimeRoots.includes("startup_opportunity.formal_stage_materialization_request.current"),
+  );
+  assert.ok(
+    directRuntimeRoots.includes("startup_opportunity.formal_stage_materialization_result.current"),
+  );
 });
 
 test("ownership registry rejects a missing formal Artifact type owner", async (context) => {
@@ -768,6 +782,7 @@ test("current Envelope retains grouped ownership, path, and required-field const
     ],
     harness: [
       "startup_opportunity.decision_brief.discovery.current",
+      "startup_opportunity.dispatch_launch_registration.v1",
       "startup_opportunity.discovery_report_view.v1",
       "startup_opportunity.report_consistency_evaluation.discovery.current",
       "startup_opportunity.checkpoint.v1",
@@ -842,9 +857,14 @@ test("current Envelope retains grouped ownership, path, and required-field const
       type: "string",
       pattern: "^adaptations/gap-snapshots/.+\\.json$",
     },
+    "startup_opportunity.dispatch_launch_registration.v1": {
+      type: "string",
+      pattern:
+        "^artifacts/runtime/dispatch-launch-registrations/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\.json$",
+    },
     "startup_opportunity.lane_lifecycle.v1": {
       type: "string",
-      pattern: "^artifacts/runtime/lane-lifecycle/.+\\.r[1-9][0-9]*\\.json$",
+      pattern: "^artifacts/runtime/lane-lifecycle/lifecycle_[a-f0-9]{32}\\.r[1-9][0-9]*\\.json$",
     },
     "startup_opportunity.research_execution_plan.discovery.current": {
       type: "string",

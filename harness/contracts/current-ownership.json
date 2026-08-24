@@ -79,24 +79,29 @@
       "domain": "Run control, planning, gap analysis, adaptation, and checkpoints",
       "schemaSelectors": [{ "prefix": "current/core/" }, { "prefix": "current/planning/" }],
       "artifactTypeSelectors": [{ "prefix": "current/core/" }, { "prefix": "current/planning/" }],
-      "directRuntimeRoots": [],
+      "directRuntimeRoots": [
+        "startup_opportunity.adaptation_author_request.current",
+        "startup_opportunity.adaptation_author_result.current"
+      ],
       "ownerModules": [
         "harness/src/adaptation/assessment-gap-analyzer.ts",
+        "harness/src/adaptation/adaptation-author-runtime.ts",
         "harness/src/adaptation/plan-runtime.ts",
         "harness/src/run-store/run-store.ts"
       ],
       "producerModules": [
         "harness/src/adaptation/adaptation-commands.ts",
+        "harness/src/adaptation/adaptation-author-runtime.ts",
         "harness/src/commands.ts",
         "harness/src/evidence-store/evidence-store.ts",
         "harness/src/index.ts",
+        "harness/src/runtime/g24-planning-capabilities.ts",
         "harness/src/run-store/store-commands.ts"
       ],
       "consumerModules": [
         "harness/src/artifact-store/artifact-store.ts",
         "harness/src/artifact-store/publication-policy.ts",
         "harness/src/adaptation/gap-analyzer.ts",
-        "harness/src/reporting/decision-subject-reformation.ts",
         "harness/src/adaptation/plan-transformer.ts",
         "harness/src/run-store/run-store.ts"
       ],
@@ -108,6 +113,7 @@
         "harness/src/run-store/scope-write-guard.ts",
         "harness/src/validators/artifact-ref-resolver.ts",
         "harness/src/validators/artifact-validator.ts",
+        "harness/src/validators/g24-planning-rules.ts",
         "harness/src/validators/planning-contract-validator.ts",
         "harness/src/validators/research-handoff-validator.ts"
       ],
@@ -278,17 +284,23 @@
       "artifactTypeSelectors": [{ "prefix": "current/discovery/" }],
       "directRuntimeRoots": [],
       "ownerModules": [
+        "harness/src/runtime/discovery-stage-projections.ts",
+        "harness/src/runtime/formal-stage-materializer.ts",
+        "harness/src/opportunity-family-contract.ts",
         "harness/src/validators/discovery-candidate-validator.ts",
         "harness/src/validators/discovery-evaluation-validator.ts",
         "harness/src/validators/discovery-maps-validator.ts",
-        "harness/src/validators/discovery-synthesis-validator.ts",
-        "harness/src/validators/research-handoff-validator.ts"
+        "harness/src/validators/discovery-synthesis-validator.ts"
       ],
       "producerModules": [
         "harness/src/commands.ts",
         "harness/src/comparison/comparison-commands.ts",
         "harness/src/evidence-store/evidence-store.ts",
         "harness/src/index.ts",
+        "harness/src/runtime/discovery-stage-projections.ts",
+        "harness/src/runtime/formal-stage-materializer.ts",
+        "harness/src/opportunity-family-contract.ts",
+        "harness/src/runtime/g24-planning-capabilities.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "consumerModules": [
@@ -306,9 +318,9 @@
         "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/discovery-candidate-validator.ts",
         "harness/src/validators/discovery-evaluation-validator.ts",
+        "harness/src/validators/g24-planning-rules.ts",
         "harness/src/validators/discovery-maps-validator.ts",
-        "harness/src/validators/discovery-synthesis-validator.ts",
-        "harness/src/validators/research-handoff-validator.ts"
+        "harness/src/validators/discovery-synthesis-validator.ts"
       ],
       "policyPaths": [
         "harness/policies/discovery-adaptation-binding.current.json",
@@ -378,7 +390,8 @@
           "ranking",
           "confidence",
           "readiness",
-          "recommendation_ceiling"
+          "recommendation_ceiling",
+          "user_visible_report"
         ]
       }
     },
@@ -449,7 +462,12 @@
       "artifactTypeSelectors": [{ "prefix": "current/runtime/" }],
       "directRuntimeRoots": [
         "startup_opportunity.continuation_lineage_entry.v1",
+        "startup_opportunity.dispatch_launch_check_result.v1",
+        "startup_opportunity.dispatch_launch_registration_request.v1",
+        "startup_opportunity.formal_stage_materialization_request.current",
+        "startup_opportunity.formal_stage_materialization_result.current",
         "startup_opportunity.lane_staging_document.current",
+        "startup_opportunity.lane_submission_checklist_result.current",
         "startup_opportunity.lane_delivery_result.current",
         "startup_opportunity.runtime_artifact_compilation_request.v1",
         "startup_opportunity.runtime_artifact_compilation_result.discovery.current",
@@ -459,6 +477,10 @@
       ],
       "ownerModules": [
         "harness/src/runtime/declarative-runtime.ts",
+        "harness/src/runtime/dispatch-launch-registry.ts",
+        "harness/src/runtime/lane-lifecycle-identity.ts",
+        "harness/src/runtime/discovery-stage-projections.ts",
+        "harness/src/runtime/formal-stage-materializer.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "producerModules": [
@@ -467,6 +489,10 @@
         "harness/src/index.ts",
         "harness/src/runtime/artifact-scaffolds.ts",
         "harness/src/runtime/declarative-runtime.ts",
+        "harness/src/runtime/dispatch-launch-registry.ts",
+        "harness/src/runtime/discovery-stage-projections.ts",
+        "harness/src/runtime/formal-stage-materializer.ts",
+        "harness/src/runtime/g24-planning-capabilities.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "consumerModules": [
@@ -489,13 +515,18 @@
       "focusedTests": [
         "tests/batch5-responder-performance-observability.test.ts",
         "tests/current-contract-architecture.test.ts",
+        "tests/formal-stage-materialization.test.ts",
+        "tests/g2.3-discovery-synthesis.test.ts",
         "tests/lane-delivery-closure.test.ts",
+        "tests/lane-materialization-nondegradation.test.ts",
         "tests/p1-declarative-runtime.test.ts",
         "tests/p2-assessment-execution.test.ts"
       ],
       "testScripts": [
         "test:batch5",
         "test:contract-architecture",
+        "test:formal-stage",
+        "test:g2.3",
         "test:lane-delivery",
         "test:p1",
         "test:p2"
@@ -531,7 +562,6 @@
       "artifactTypeSelectors": [{ "prefix": "current/reporting/" }],
       "directRuntimeRoots": [],
       "ownerModules": [
-        "harness/src/reporting/decision-subject-reformation.ts",
         "harness/src/reporting/report-runtime.ts",
         "harness/src/reporting/terminal-reporting.ts"
       ],
@@ -726,10 +756,6 @@
       ]
     },
     {
-      "modulePath": "harness/src/reporting/decision-subject-reformation.ts",
-      "impactFamilies": ["run_control_planning", "terminal_reporting"]
-    },
-    {
       "modulePath": "harness/src/run-store/scope-write-guard.ts",
       "impactFamilies": [
         "ai_research",
@@ -748,6 +774,18 @@
     {
       "modulePath": "harness/src/runtime/declarative-runtime.ts",
       "impactFamilies": ["ai_research", "declarative_runtime"]
+    },
+    {
+      "modulePath": "harness/src/runtime/discovery-stage-projections.ts",
+      "impactFamilies": ["declarative_runtime", "discovery_research"]
+    },
+    {
+      "modulePath": "harness/src/runtime/formal-stage-materializer.ts",
+      "impactFamilies": ["declarative_runtime", "discovery_research"]
+    },
+    {
+      "modulePath": "harness/src/runtime/g24-planning-capabilities.ts",
+      "impactFamilies": ["declarative_runtime", "discovery_research", "run_control_planning"]
     },
     {
       "modulePath": "harness/src/runtime/lane-materializer.ts",
@@ -790,8 +828,12 @@
       "impactFamilies": ["assessment_research", "discovery_research"]
     },
     {
+      "modulePath": "harness/src/validators/g24-planning-rules.ts",
+      "impactFamilies": ["discovery_research", "run_control_planning"]
+    },
+    {
       "modulePath": "harness/src/validators/research-handoff-validator.ts",
-      "impactFamilies": ["assessment_research", "discovery_research", "run_control_planning"]
+      "impactFamilies": ["assessment_research", "run_control_planning"]
     }
   ],
   "shared_schemas": [
@@ -834,7 +876,7 @@
     {
       "schemaFile": "current/discovery/candidates/definitions.schema.json",
       "structuralOwner": "discovery_research",
-      "impactFamilies": ["discovery_research"]
+      "impactFamilies": ["declarative_runtime", "discovery_research"]
     },
     {
       "schemaFile": "current/discovery/evaluation/definitions.schema.json",
@@ -858,6 +900,7 @@
       "structuralOwner": "discovery_research",
       "impactFamilies": [
         "ai_research",
+        "declarative_runtime",
         "discovery_research",
         "run_control_planning",
         "terminal_reporting"

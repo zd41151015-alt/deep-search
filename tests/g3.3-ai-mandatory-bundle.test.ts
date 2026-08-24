@@ -21,7 +21,14 @@ import {
   G21_CORE_REFS,
   G21_MAP_REFS,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
-import { G22_DEMAND_R2, G22_FAN_IN } from "./fixtures/g2.2/discovery-candidate-fixture.js";
+import {
+  G22_DEMAND_R2,
+  G22_FAN_IN,
+  G22_PRE_CANDIDATE_RELATION,
+  G22_REJECTED_PRE_CANDIDATE,
+  G22_RETAINED_PRE_CANDIDATE,
+  G22_WATCHLIST_PRE_CANDIDATE,
+} from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
   discoverySynthesisReadinessEnvelopes,
   G23_OPPORTUNITY_A,
@@ -815,6 +822,25 @@ async function publishG33Prerequisites(
     runId: state.runId,
     envelope: discovery.find(
       (candidate) => candidate.artifact_path === G22_DEMAND_R2,
+    ) as FormalArtifactEnvelope,
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: [
+      G22_RETAINED_PRE_CANDIDATE,
+      G22_WATCHLIST_PRE_CANDIDATE,
+      G22_REJECTED_PRE_CANDIDATE,
+    ].map(
+      (artifactPath) =>
+        discovery.find(
+          (candidate) => candidate.artifact_path === artifactPath,
+        ) as FormalArtifactEnvelope,
+    ),
+  });
+  await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: discovery.find(
+      (candidate) => candidate.artifact_path === G22_PRE_CANDIDATE_RELATION,
     ) as FormalArtifactEnvelope,
   });
   await state.store.publishArtifact({

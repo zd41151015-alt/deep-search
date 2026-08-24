@@ -12,6 +12,8 @@
     "judgment": "startup_opportunity.judgment_assessment.discovery_candidate.current",
     "source_manifest": "startup_opportunity.source_manifest.discovery_candidate.current",
     "lane_result": "startup_opportunity.discovery_lane_result.v1",
+    "concrete_pre_candidate": "startup_opportunity.concrete_pre_candidate.v1",
+    "pre_candidate_relation": "startup_opportunity.pre_candidate_relation.v1",
     "fan_in": "startup_opportunity.discovery_fan_in.v2",
     "artifact_envelope": "startup_opportunity.artifact_envelope.current",
     "document_bundle": "startup_opportunity.document_bundle.current"
@@ -46,6 +48,8 @@
     "research_task": "main_agent",
     "lane_material": "lane_researcher",
     "lane_result": "lane_researcher",
+    "concrete_pre_candidate": "main_agent",
+    "pre_candidate_relation": "main_agent",
     "fan_in": "main_agent"
   },
   "revision_contract": {
@@ -87,6 +91,12 @@
     "excluded_lane_statuses": ["failed", "ignored_late", "superseded"],
     "missing_work_is_neutral": false,
     "candidate_revision_upgrade_explicit": true,
+    "current_concrete_pre_candidate_set_closed": true,
+    "materialized_pre_candidate_refs_exact_current_set": true,
+    "pre_candidate_disposition_sets_exclusive_and_closed": true,
+    "pre_candidate_material_dispositions_exact_typed_closure": true,
+    "pre_candidate_relation_explicit_for_split_merge": true,
+    "pre_candidate_disposition_hash_binding_required": true,
     "judgment_subject_matches_source_candidate_revision": true,
     "judgment_subject_must_ancestor_final_candidate": true,
     "judgments_must_come_from_supporting_lane_disposition": true,

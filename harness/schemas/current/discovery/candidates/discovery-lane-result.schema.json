@@ -93,7 +93,15 @@
         "properties": {
           "scope_key": { "$ref": "./definitions.schema.json#/$defs/identifier" },
           "disposition": {
-            "enum": ["covered", "partial", "no_evidence_found", "not_applicable"]
+            "enum": [
+              "covered",
+              "partial",
+              "no_evidence_found",
+              "not_applicable",
+              "unknown",
+              "unavailable",
+              "inferred"
+            ]
           },
           "evidence_refs": {
             "type": "array",

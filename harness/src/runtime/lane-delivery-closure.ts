@@ -7,7 +7,14 @@ export interface LaneClosureArtifact {
   readonly document: Record<string, unknown>;
 }
 
-export type LaneScopeDisposition = "covered" | "partial" | "no_evidence_found" | "not_applicable";
+export type LaneScopeDisposition =
+  | "covered"
+  | "partial"
+  | "no_evidence_found"
+  | "not_applicable"
+  | "unknown"
+  | "unavailable"
+  | "inferred";
 
 export interface LaneScopeCoverage {
   readonly scope_key: string;

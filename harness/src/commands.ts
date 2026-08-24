@@ -19,13 +19,18 @@ Usage:
   npm run harness -- record-evidence --run-id ID --unit-id ID (--source-url URL | --source-uri URN) --research-goal GOAL --content-file FILE
   npm run harness -- publish-artifact --file FILE [--runs-root DIR]
   npm run harness -- compile-artifacts --file FILE [--runs-root DIR] [--observe]
+  npm run harness -- materialize-formal-stage --file FILE [--runs-root DIR] [--observe]
+  npm run harness -- register-dispatch-launches --file FILE [--runs-root DIR]
+  npm run harness -- check-dispatch-launches --run-id ID --dispatch-ref REF --dispatch-hash HASH [--runs-root DIR]
   npm run harness -- materialize-lane-result --file FILE [--runs-root DIR] [--observe]
+  npm run harness -- scaffold-lane-submission --run-id ID --task-ref REF [--runs-root DIR]
   npm run harness -- scaffold-artifact --file FILE
   npm run harness -- checkpoint-run --file FILE
   npm run harness -- validate-plan --bundle FILE [--run-id ID] [--runs-root DIR] [--json]
   npm run harness -- analyze-gaps --file FILE [--run-id ID] [--runs-root DIR] [--json]
   npm run harness -- validate-adaptation --bundle FILE [--run-id ID] [--runs-root DIR] [--json]
   npm run harness -- apply-plan-revision --file FILE [--runs-root DIR] [--json]
+  npm run harness -- author-plan-adaptation --file FILE [--runs-root DIR] [--json]
   npm run harness -- calculate-comparison --bundle FILE [--json]
   npm run harness -- calculate-sensitivity --bundle FILE [--json]
   npm run harness -- audit-traceability --bundle FILE [--json]
@@ -48,13 +53,18 @@ Commands:
   record-evidence    Persist raw evidence with canonical hashes and deterministic deduplication.
   publish-artifact   Validate and publish one formal envelope or an explicit envelope bundle.
   compile-artifacts  Compile semantic JSON into an immutable publication plan, Run closure, and optional publication.
+  materialize-formal-stage Project one declared Wave or explicit setup/fan-in/synthesis object batch through the current compiler.
+  register-dispatch-launches Atomically record caller-declared starts for exact Dispatch tasks as Lane Lifecycle revisions.
+  check-dispatch-launches Read the exact Dispatch launch checklist and started/not-started set difference.
   materialize-lane-result Materialize a caller-supplied lane staging document through the same compiler.
+  scaffold-lane-submission Derive an unfilled minimum coverage checklist from one exact current Task.
   scaffold-artifact  Produce a schema-valid structural scaffold without research judgment.
   checkpoint-run     Publish an immutable checkpoint from a JSON input document.
   validate-plan      Validate Planning Context v2 and full Research Plan semantics; --run-id assembles persisted authority.
   analyze-gaps       Build a deterministic Gap draft; --run-id assembles persisted current/history authority.
   validate-adaptation Validate closed actions; --run-id assembles persisted current/history authority.
   apply-plan-revision Apply validated actions through CAS and immutable Plan Revision receipts.
+  author-plan-adaptation Build, validate, publish, or atomically apply a current Gap/Adaptation author request.
   calculate-comparison Validate and summarize caller-supplied G2.4 comparison Artifacts.
   calculate-sensitivity Validate and summarize the caller-supplied G2.4 sensitivity Artifact.
   audit-traceability Validate a closed G1.4 assessment or G2.4 discovery traceability/report chain.

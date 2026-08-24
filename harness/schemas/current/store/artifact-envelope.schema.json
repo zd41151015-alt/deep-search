@@ -56,6 +56,7 @@
         "startup_opportunity.concept_evidence_report_view.v1",
         "startup_opportunity.concept_hypothesis.assessment.current",
         "startup_opportunity.concept_hypothesis.assessment_intake.current",
+        "startup_opportunity.concrete_pre_candidate.v1",
         "startup_opportunity.coverage_attestation.v1",
         "startup_opportunity.decision.v1",
         "startup_opportunity.decision_brief.assessment.current",
@@ -75,6 +76,7 @@
         "startup_opportunity.discovery_stage_readiness.v1",
         "startup_opportunity.dispatch_batch.discovery.current",
         "startup_opportunity.dispatch_batch.assessment.current",
+        "startup_opportunity.dispatch_launch_registration.v1",
         "startup_opportunity.enrichment_branch_result.v1",
         "startup_opportunity.enrichment_fan_in.v1",
         "startup_opportunity.event.v1",
@@ -105,6 +107,7 @@
         "startup_opportunity.planning_context.general.current",
         "startup_opportunity.planning_context.ai_source_bound.current",
         "startup_opportunity.portfolio_view.v1",
+        "startup_opportunity.pre_candidate_relation.v1",
         "startup_opportunity.report.v1",
         "startup_opportunity.report_consistency_evaluation.assessment.current",
         "startup_opportunity.report_consistency_evaluation.discovery.current",
@@ -1186,6 +1189,46 @@
       "if": {
         "properties": {
           "artifact_type": {
+            "const": "startup_opportunity.concrete_pre_candidate.v1"
+          }
+        },
+        "required": ["artifact_type"]
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "main_agent"
+          },
+          "document": {
+            "$ref": "../discovery/candidates/concrete-pre-candidate.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "const": "startup_opportunity.pre_candidate_relation.v1"
+          }
+        },
+        "required": ["artifact_type"]
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "main_agent"
+          },
+          "document": {
+            "$ref": "../discovery/candidates/pre-candidate-relation.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
             "const": "startup_opportunity.discovery_fan_in.v2"
           }
         },
@@ -1712,6 +1755,29 @@
       "if": {
         "properties": {
           "artifact_type": {
+            "const": "startup_opportunity.dispatch_launch_registration.v1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "harness"
+          },
+          "artifact_path": {
+            "type": "string",
+            "pattern": "^artifacts/runtime/dispatch-launch-registrations/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\.json$"
+          },
+          "document": {
+            "$ref": "../runtime/common/dispatch-launch-registration.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
             "const": "startup_opportunity.lane_lifecycle.v1"
           }
         }
@@ -1723,7 +1789,7 @@
           },
           "artifact_path": {
             "type": "string",
-            "pattern": "^artifacts/runtime/lane-lifecycle/.+\\.r[1-9][0-9]*\\.json$"
+            "pattern": "^artifacts/runtime/lane-lifecycle/lifecycle_[a-f0-9]{32}\\.r[1-9][0-9]*\\.json$"
           },
           "document": {
             "$ref": "../runtime/discovery/lane-lifecycle.schema.json"
