@@ -72,7 +72,7 @@ test("project config and hook registry expose the narrow repo-local integration"
     mcp_servers?: Record<string, Record<string, unknown>>;
   };
   assert.equal(config.features?.hooks, true);
-  assert.equal(config.agents?.max_concurrent_threads_per_session, 6);
+  assert.equal(config.agents?.max_concurrent_threads_per_session, 10);
   const evidence = config.mcp_servers?.startup_opportunity_evidence;
   assert.equal(evidence?.command, "node");
   assert.deepEqual(evidence?.args, ["--import", "tsx", "harness/src/mcp/evidence-server.ts"]);
