@@ -10,6 +10,7 @@ import {
   INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH,
 } from "../harness/src/incumbent-response-contract.js";
 import {
+  buildArtifactScaffold,
   canonicalContentHash,
   canonicalJson,
   createArtifactValidator,
@@ -26,11 +27,13 @@ import {
   sha256Bytes,
 } from "../harness/src/index.js";
 import { scanReportSurface } from "../harness/src/reporting/report-consistency.js";
+import { renderDiscoveryTeamDecisionSummary } from "../harness/src/reporting/report-runtime.js";
 import { deriveSolutionEvaluationSummary } from "../harness/src/validators/discovery-synthesis-validator.js";
 import {
   fixtureEnvelope,
   G21_CORE_REFS,
   G21_MAP_REFS,
+  G21_SCOPE_REF,
   G21_SOLUTION_REF,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import {
@@ -38,8 +41,12 @@ import {
   G22_DEMAND_R2,
   G22_FAN_IN,
   G22_GENERATION_LANE,
+  G22_PRE_CANDIDATE_RELATION,
+  G22_REJECTED_PRE_CANDIDATE,
+  G22_RETAINED_PRE_CANDIDATE,
   G22_SOLUTION_EVALUATION_JUDGMENT,
   G22_SOLUTION_R1,
+  G22_WATCHLIST_PRE_CANDIDATE,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
   discoverySynthesisReadinessEnvelopes,
@@ -54,7 +61,9 @@ import {
   G23_SOLUTION_REJECTED,
 } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
 import {
+  createDiscoveryEnrichmentPlanningFixture,
   createDiscoveryEvaluationFixture,
+  type DiscoveryEvaluationSubstrate,
   evaluationEnvelope,
   G24_BRANCH_CHALLENGE,
   G24_BRANCH_SUPPORT,
@@ -86,6 +95,7 @@ interface State {
   readonly store: RunStore;
   readonly validator: Awaited<ReturnType<typeof createArtifactValidator>>;
   readonly bundle: DocumentBundle;
+  readonly substrate: DiscoveryEvaluationSubstrate;
 }
 
 function clone<T>(value: T): T {
@@ -135,7 +145,7 @@ function collectTypedRefs(value: unknown): readonly string[] {
       );
     }
     if (
-      (key.endsWith("_ref") || key === "ref") &&
+      (key.endsWith("_ref") || key.endsWith("_refs") || key === "ref") &&
       typeof child === "string" &&
       (child.includes("/") ||
         child.includes("#") ||
@@ -146,6 +156,15 @@ function collectTypedRefs(value: unknown): readonly string[] {
     }
     return collectTypedRefs(child);
   });
+}
+
+function reportMaterializationRootRefs(document: Record<string, unknown>): readonly string[] {
+  if (document.schema_version !== "startup_opportunity.report.v1") {
+    return [];
+  }
+  return [document.decision_context_ref, document.scope_frame_ref].filter(
+    (ref): ref is string => typeof ref === "string",
+  );
 }
 
 function refresh(bundle: DocumentBundle, artifactPath: string): void {
@@ -162,9 +181,13 @@ function refreshEnvelopeClosure(bundle: DocumentBundle, artifactPath: string): v
     return;
   }
   outer.input_refs = [
-    ...new Set([...collectTypedRefs(outer.document), ...collectTypedRefs(outer.ai_bundle_binding)]),
+    ...new Set([
+      ...collectTypedRefs(outer.document),
+      ...collectTypedRefs(outer.ai_bundle_binding),
+      ...reportMaterializationRootRefs(outer.document as Record<string, unknown>),
+    ]),
   ]
-    .filter((ref) => ref !== artifactPath)
+    .filter((ref) => ref.split("#", 1)[0] !== artifactPath)
     .sort();
 }
 
@@ -417,6 +440,208 @@ function projectMixedSolutionExploration(bundle: DocumentBundle): Record<string,
   };
 }
 
+function refreshOpportunityFamilyProjection(bundle: DocumentBundle): void {
+  refresh(bundle, G23_MERGE);
+  const projection = deriveOpportunityFamilyProjection(
+    G23_MERGE,
+    new Map(
+      bundle.documents.map((candidate) => {
+        const outer = entry(bundle, candidate.path);
+        const document = effective(bundle, candidate.path);
+        const contentHash = String(outer.schema_version).startsWith(
+          "startup_opportunity.artifact_envelope.",
+        )
+          ? String(outer.content_hash)
+          : canonicalContentHash(document);
+        return [
+          candidate.path,
+          {
+            path: candidate.path,
+            schemaVersion: String(document.schema_version),
+            document,
+            contentHash,
+          },
+        ];
+      }),
+    ),
+  );
+  for (const artifactPath of [G24_PORTFOLIO, G24_RECOMMENDATION, G24_TRACEABILITY, G24_REPORT]) {
+    effective(bundle, artifactPath).opportunity_family_projection = structuredClone(projection);
+  }
+  refreshAllInputHashes(bundle);
+}
+
+function installStateRichOpportunityFamily(bundle: DocumentBundle): void {
+  const merge = effective(bundle, G23_MERGE);
+  const family = ((merge.opportunity_families as Record<string, unknown>[])[0] ?? {}) as Record<
+    string,
+    unknown
+  >;
+  family.shared_value_or_solution_mechanism = {
+    state: "unknown",
+    description: "SYNTHETIC shared mechanism remains unresolved; no assertion is made.",
+  };
+  family.member_specific_differences = [
+    {
+      opportunity_ref: G23_OPPORTUNITY_A,
+      dimensions: [
+        {
+          dimension: "user",
+          state: "unavailable",
+          description: "SYNTHETIC user difference unavailable.",
+        },
+        {
+          dimension: "buyer",
+          state: "inferred",
+          description: "SYNTHETIC buyer difference inferred from bounded material.",
+        },
+      ],
+    },
+    {
+      opportunity_ref: G23_OPPORTUNITY_B,
+      dimensions: [
+        {
+          dimension: "acquisition",
+          state: "not_applicable",
+          description: "SYNTHETIC acquisition difference not applicable.",
+        },
+        {
+          dimension: "compliance",
+          state: "no_evidence_found",
+          description: "SYNTHETIC no evidence found within the declared boundary.",
+        },
+      ],
+    },
+  ];
+  refreshOpportunityFamilyProjection(bundle);
+}
+
+function mutableExactRecords(
+  bundle: DocumentBundle,
+): { ref: string; document: Record<string, unknown> }[] {
+  const mutable = bundle as unknown as {
+    exact_records?: { ref: string; document: Record<string, unknown> }[];
+  };
+  mutable.exact_records ??= [];
+  return mutable.exact_records;
+}
+
+function exactRecordDocument(bundle: DocumentBundle, ref: string): Record<string, unknown> {
+  const found = mutableExactRecords(bundle).find((record) => record.ref === ref);
+  assert.ok(found, ref);
+  return found.document;
+}
+
+function ensureHashBinding(hashes: unknown, ref: string, contentHash: string): void {
+  assert.ok(Array.isArray(hashes));
+  const binding = hashes.find(
+    (candidate): candidate is Record<string, unknown> =>
+      typeof candidate === "object" &&
+      candidate !== null &&
+      "ref" in candidate &&
+      candidate.ref === ref,
+  );
+  if (binding === undefined) {
+    hashes.push({ ref, content_hash: contentHash });
+  } else {
+    binding.content_hash = contentHash;
+  }
+}
+
+function updateHashBindingIfPresent(hashes: unknown, ref: string, contentHash: string): void {
+  if (!Array.isArray(hashes)) {
+    return;
+  }
+  for (const binding of hashes) {
+    if (
+      typeof binding === "object" &&
+      binding !== null &&
+      "ref" in binding &&
+      binding.ref === ref
+    ) {
+      (binding as Record<string, unknown>).content_hash = contentHash;
+    }
+  }
+}
+
+function teamFitPanel(bundle: DocumentBundle, comparisonRef: string): Record<string, unknown> {
+  const comparison = effective(bundle, comparisonRef);
+  const panel = (comparison.comparison_panels as Record<string, unknown>[]).find(
+    (candidate) => candidate.panel_id === "team_fit_and_learning",
+  );
+  assert.ok(panel);
+  return panel;
+}
+
+function syncReportTeamAnalysis(bundle: DocumentBundle, comparisonRef: string): void {
+  const comparison = effective(bundle, comparisonRef);
+  const panel = teamFitPanel(bundle, comparisonRef);
+  const summary = effective(bundle, G24_REPORT).team_decision_summary as Record<string, unknown>;
+  const analysis = (summary.opportunity_analyses as Record<string, unknown>[]).find(
+    (candidate) => candidate.comparison_ref === comparisonRef,
+  );
+  assert.ok(analysis);
+  analysis.opportunity_ref = comparison.opportunity_ref;
+  analysis.team_startup_burden = clone(panel.team_startup_burden);
+  analysis.team_match_analysis = clone(panel.team_match_analysis);
+}
+
+function addTeamBurdenExactEvidenceRecord(bundle: DocumentBundle): string {
+  const exactRecords = mutableExactRecords(bundle);
+  const seed = exactRecords.find((record) => record.ref.startsWith("evidence/manifest.jsonl#"));
+  assert.ok(seed);
+  const seedKey = `team-burden-exact-${exactRecords.length}`;
+  const evidenceId = `ev_${sha256Bytes(seedKey).slice("sha256:".length)}`;
+  const ref = `evidence/manifest.jsonl#${evidenceId}`;
+  exactRecords.push({
+    ref,
+    document: {
+      ...clone(seed.document),
+      evidence_id: evidenceId,
+      operation_key: sha256Bytes(seedKey),
+    },
+  });
+  return ref;
+}
+
+function bindTeamBurdenToExactEvidence(bundle: DocumentBundle, comparisonRef: string): string {
+  const exactRef = addTeamBurdenExactEvidenceRecord(bundle);
+  const exactDocument = exactRecordDocument(bundle, exactRef);
+  const exactHash = canonicalContentHash(exactDocument);
+  const comparison = effective(bundle, comparisonRef);
+  const panel = teamFitPanel(bundle, comparisonRef);
+  const burden = panel.team_startup_burden as Record<string, unknown>;
+  const firstDimension = (burden.dimensions as Record<string, unknown>[])[0];
+  assert.ok(firstDimension);
+  firstDimension.supporting_refs = [exactRef];
+  firstDimension.opposing_refs = [exactRef];
+  ensureHashBinding(comparison.input_artifact_hashes, exactRef, exactHash);
+  refreshEnvelopeClosure(bundle, comparisonRef);
+
+  syncReportTeamAnalysis(bundle, comparisonRef);
+  const reportMetadata = effective(bundle, G24_REPORT).report_metadata as Record<string, unknown>;
+  ensureHashBinding(reportMetadata.input_artifact_hashes, exactRef, exactHash);
+  refreshAllInputHashes(bundle);
+  refreshEnvelopeClosure(bundle, comparisonRef);
+  refreshEnvelopeClosure(bundle, G24_REPORT);
+  return exactRef;
+}
+
+function refreshExactHashBindings(bundle: DocumentBundle, ref: string): void {
+  const exactHash = canonicalContentHash(exactRecordDocument(bundle, ref));
+  for (const candidate of bundle.documents) {
+    const document = effective(bundle, candidate.path);
+    updateHashBindingIfPresent(document.input_artifact_hashes, ref, exactHash);
+    const metadata = document.report_metadata as Record<string, unknown> | undefined;
+    if (metadata !== undefined) {
+      updateHashBindingIfPresent(metadata.input_artifact_hashes, ref, exactHash);
+    }
+  }
+  refreshAllInputHashes(bundle);
+  refreshEnvelopeClosure(bundle, G24_COMPARISON_A);
+  refreshEnvelopeClosure(bundle, G24_REPORT);
+}
+
 async function setup(
   context: TestContext,
   suffix: string,
@@ -458,14 +683,15 @@ async function setup(
         recordedAt: "2026-07-27T20:50:00Z",
       })
     ).record;
+  const substrate = {
+    generation: await record("unit_seed_independent_demand", "generation"),
+    evaluation: await record("unit_counterfactual", "evaluation"),
+    support: await record("unit_enrichment_support", "support"),
+    challenge: await record("unit_enrichment_challenge", "challenge"),
+  };
   const bundle = await createDiscoveryEvaluationFixture(
     runId,
-    {
-      generation: await record("unit_seed_independent_demand", "generation"),
-      evaluation: await record("unit_counterfactual", "evaluation"),
-      support: await record("unit_enrichment_support", "support"),
-      challenge: await record("unit_enrichment_challenge", "challenge"),
-    },
+    substrate,
     profile,
     researchLanguage,
     solutionExplorationVariant,
@@ -478,6 +704,7 @@ async function setup(
     store,
     validator,
     bundle,
+    substrate,
   };
 }
 
@@ -610,23 +837,44 @@ async function publishThroughSynthesis(state: State): Promise<void> {
   );
   await state.store.publishArtifactBundle({
     runId: state.runId,
+    envelopes: byTypes(
+      runtime,
+      "startup_opportunity.evidence.discovery_candidate.current",
+      "startup_opportunity.claim.discovery_candidate.current",
+      "startup_opportunity.finding.discovery_candidate.current",
+      "startup_opportunity.insight.discovery_candidate.current",
+      "startup_opportunity.judgment_assessment.discovery_candidate.current",
+      "startup_opportunity.source_manifest.discovery_candidate.current",
+    ),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: byTypes(runtime, "startup_opportunity.discovery_lane_result.v1"),
+  });
+  await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: runtime.find(
+      (candidate) => candidate.artifact_path === G22_DEMAND_R2,
+    ) as FormalArtifactEnvelope,
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
     envelopes: [
-      ...byTypes(
-        runtime,
-        "startup_opportunity.evidence.discovery_candidate.current",
-        "startup_opportunity.claim.discovery_candidate.current",
-        "startup_opportunity.finding.discovery_candidate.current",
-        "startup_opportunity.insight.discovery_candidate.current",
-        "startup_opportunity.judgment_assessment.discovery_candidate.current",
-        "startup_opportunity.source_manifest.discovery_candidate.current",
-        "startup_opportunity.discovery_lane_result.v1",
-        "startup_opportunity.concrete_pre_candidate.v1",
-        "startup_opportunity.pre_candidate_relation.v1",
-      ),
-      runtime.find(
-        (candidate) => candidate.artifact_path === G22_DEMAND_R2,
-      ) as FormalArtifactEnvelope,
-    ],
+      G22_RETAINED_PRE_CANDIDATE,
+      G22_WATCHLIST_PRE_CANDIDATE,
+      G22_REJECTED_PRE_CANDIDATE,
+    ].map(
+      (artifactPath) =>
+        runtime.find(
+          (candidate) => candidate.artifact_path === artifactPath,
+        ) as FormalArtifactEnvelope,
+    ),
+  });
+  await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: runtime.find(
+      (candidate) => candidate.artifact_path === G22_PRE_CANDIDATE_RELATION,
+    ) as FormalArtifactEnvelope,
   });
   await state.store.publishArtifact({
     runId: state.runId,
@@ -767,7 +1015,10 @@ function setFirstBet(bundle: DocumentBundle, firstBet: string): void {
   const portfolio = effective(bundle, G24_PORTFOLIO);
   portfolio.recommended_first_bet = firstBet;
   portfolio.alternative_bets = [alternative];
-  rankFirstBet(bundle, firstBet);
+  const ranking = portfolio.opportunity_ranking as Record<string, unknown>[];
+  for (const entry of ranking) {
+    entry.rank = entry.opportunity_ref === firstBet ? 1 : null;
+  }
   refreshEnvelopeClosure(bundle, G24_PORTFOLIO);
   const recommendation = effective(bundle, G24_RECOMMENDATION);
   recommendation.recommended_first_bet = firstBet;
@@ -915,6 +1166,26 @@ test("G2.4 validates closed enrichment, hard gates, comparison, portfolio, and r
   const validator = await createArtifactValidator(repositoryRoot);
   const result = validator.validateDocumentBundle(state.bundle);
   assert.equal(result.valid, true, JSON.stringify(result, null, 2));
+  const familyProjection = effective(state.bundle, G24_PORTFOLIO)
+    .opportunity_family_projection as Record<string, unknown>;
+  assert.equal(familyProjection.independent_opportunity_family_count, 1);
+  assert.equal(familyProjection.concrete_direction_count, 2);
+  assert.equal(familyProjection.unknown_family_relation_count, 0);
+  const projectedMembers = (familyProjection.families as Record<string, unknown>[]).flatMap(
+    (family) => family.members as Record<string, unknown>[],
+  );
+  assert.deepEqual(projectedMembers.map((member) => member.relation_to_family).sort(), [
+    "delivery_or_implementation_variant",
+    "segment_variant",
+  ]);
+  assert.ok(
+    projectedMembers.every(
+      (member) =>
+        member.uses_ai === effective(state.bundle, G23_SOLUTION).uses_ai &&
+        member.solution_type === effective(state.bundle, G23_SOLUTION).solution_type &&
+        member.delivery_form === effective(state.bundle, G23_SOLUTION).delivery_form,
+    ),
+  );
   assert.equal(
     state.bundle.documents
       .filter((candidate) => candidate.path.startsWith("artifacts/"))
@@ -923,6 +1194,708 @@ test("G2.4 validates closed enrichment, hard gates, comparison, portfolio, and r
           candidate.document.schema_version === "startup_opportunity.artifact_envelope.current",
       ),
     true,
+  );
+});
+
+test("G2.4 public planning capabilities project current Policy, Schema, and closed validators", async () => {
+  const validator = await createArtifactValidator(repositoryRoot);
+  const runId = "g2-4-planning-capabilities-synthetic";
+  const result = await buildArtifactScaffold(
+    {
+      schema_version: "startup_opportunity.scaffold_request.current",
+      scaffold_id: "g2_4_planning_capabilities_synthetic",
+      kind: "planning_capabilities",
+      run_id: runId,
+      mode: "opportunity_discovery",
+      created_at: "2026-07-27T20:55:00Z",
+      scope_confirmation: {
+        geography: "synthetic-primary-market",
+        customer_model: "b2c",
+        target_users: ["SYNTHETIC user; not Evidence."],
+        decision_goal: "SYNTHETIC inspect mechanical planning capabilities.",
+        research_language: "en-US",
+        team_context: {
+          hard_constraints: [],
+          known_strengths_and_gaps: [],
+          other_team_conditions: {
+            status: "unknown",
+            source_kind: "unknown",
+            confirmation_status: "unknown",
+            reporting_disclosure: "Synthetic team conditions were not provided.",
+          },
+        },
+        user_confirmed: true,
+      },
+    },
+    validator,
+    repositoryRoot,
+  );
+  const compilation = result.compilation_request as Record<string, unknown>;
+  const artifact = (compilation.artifacts as Record<string, unknown>[])[0] as Record<
+    string,
+    unknown
+  >;
+  const capability = artifact.document as Record<string, unknown>;
+  assert.equal(artifact.producer_role, "harness");
+  assert.equal(
+    capability.schema_version,
+    "startup_opportunity.planning_capabilities.discovery_evaluation.current",
+  );
+  assert.deepEqual(result.planning_capabilities, capability);
+  const missingCapability = structuredClone(result);
+  delete missingCapability.planning_capabilities;
+  assert.equal(validator.validateDocument(missingCapability).valid, false);
+  const units = capability.enrichment_units as Record<string, unknown>;
+  assert.deepEqual(units.task_target_opportunity_cardinality, { minimum: 1, maximum: null });
+  assert.equal(units.unit_count_fixed, false);
+  assert.deepEqual(units.supported_topology_forms, [
+    "shared_across_opportunities",
+    "per_opportunity",
+    "per_research_dimension",
+    "mixed",
+  ]);
+  assert.ok((units.allowed_unit_types as string[]).includes("counter_evidence"));
+  assert.deepEqual(capability.current_plan_counter_evidence, {
+    scope: "current_plan",
+    minimum_enabled_matching_units: 1,
+    enabled_unit_type_any_of: ["counter_evidence", "adversarial_review"],
+  });
+  const fanIn = capability.fan_in_hard_gate_closure as Record<string, unknown>;
+  assert.equal(fanIn.scope, "per_opportunity");
+  assert.equal(fanIn.cardinality, "exactly_once_per_opportunity");
+  assert.deepEqual(capability.execution_boundary, {
+    capability_only: true,
+    recommends_unit_count: false,
+    selects_topology: false,
+    decomposes_research_tasks: false,
+    analyzes_research_gaps: false,
+    generates_research_semantics: false,
+    hidden_llm_calls: false,
+  });
+});
+
+test("G2.4 accepts shared, per-opportunity, per-dimension, and mixed planning topologies", async (t) => {
+  const cases = [
+    {
+      name: "shared-across-opportunities",
+      units: [
+        {
+          unitId: "unit_shared_market",
+          unitType: "market_space",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+        {
+          unitId: "unit_shared_counter",
+          unitType: "counter_evidence",
+          sourcePhase: "adversarial_challenger" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+      ],
+    },
+    {
+      name: "per-opportunity",
+      units: [
+        {
+          unitId: "unit_opportunity_a",
+          unitType: "market_space",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A],
+        },
+        {
+          unitId: "unit_opportunity_b_counter",
+          unitType: "counter_evidence",
+          sourcePhase: "adversarial_challenger" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_B],
+        },
+      ],
+    },
+    {
+      name: "per-research-dimension",
+      units: [
+        {
+          unitId: "unit_dimension_monetization",
+          unitType: "monetization",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+        {
+          unitId: "unit_dimension_buyer",
+          unitType: "buyer_language",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+        {
+          unitId: "unit_dimension_counter",
+          unitType: "counter_evidence",
+          sourcePhase: "adversarial_challenger" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+      ],
+    },
+    {
+      name: "mixed-four-branch",
+      units: [
+        {
+          unitId: "unit_mixed_shared",
+          unitType: "market_space",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+        {
+          unitId: "unit_mixed_a",
+          unitType: "acquisition",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A],
+        },
+        {
+          unitId: "unit_mixed_b_counter",
+          unitType: "counter_evidence",
+          sourcePhase: "adversarial_challenger" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_B],
+        },
+        {
+          unitId: "unit_mixed_compliance",
+          unitType: "compliance_risk",
+          sourcePhase: "enrichment_evaluation" as const,
+          targetOpportunityRefs: [G23_OPPORTUNITY_A, G23_OPPORTUNITY_B],
+        },
+      ],
+    },
+  ] as const;
+  for (const topology of cases) {
+    await t.test(topology.name, async (context) => {
+      const state = await setup(context, `planning-${topology.name}`);
+      const planningBundle = await createDiscoveryEnrichmentPlanningFixture(
+        state.runId,
+        state.substrate,
+        topology.units,
+      );
+      const validation = state.validator.validateDocumentBundle(planningBundle);
+      assert.equal(validation.valid, true, JSON.stringify(validation, null, 2));
+      const plan = effective(planningBundle, "plans/research-plan.r1.json");
+      const enrichmentWave = (plan.waves as Record<string, unknown>[]).find(
+        (wave) => wave.wave_id === "wave_enrichment",
+      );
+      assert.ok(enrichmentWave);
+      assert.equal((enrichmentWave.units as unknown[]).length, topology.units.length);
+      assert.deepEqual(
+        (enrichmentWave.units as Record<string, unknown>[]).map((unit) => unit.unit_type).sort(),
+        topology.units.map((unit) => unit.unitType).sort(),
+      );
+      const execution = effective(planningBundle, "plans/research-execution.r3.json");
+      const executionStage = (execution.stages as Record<string, unknown>[]).find(
+        (stage) => stage.stage_id === "stage_enrichment_runtime",
+      );
+      assert.ok(executionStage);
+      const lanes = executionStage.lanes as Record<string, unknown>[];
+      const dispatch = effective(planningBundle, "tasks/dispatch/enrichment_runtime.r1.json");
+      const dispatchTasks = dispatch.tasks as Record<string, unknown>[];
+      assert.equal(lanes.length, topology.units.length);
+      assert.equal(dispatchTasks.length, topology.units.length);
+      for (const expected of topology.units) {
+        const taskPath = `tasks/discovery/enrichment/${expected.unitId}.attempt-1.json`;
+        const taskDocument = effective(planningBundle, taskPath);
+        assert.deepEqual(taskDocument.target_opportunity_refs, expected.targetOpportunityRefs);
+        assert.equal(taskDocument.unit_type, expected.unitType);
+        const planUnit: Record<string, unknown> | undefined = (
+          enrichmentWave.units as Record<string, unknown>[]
+        ).find((unit) => unit.unit_id === expected.unitId);
+        const lane = lanes.find((candidate) => candidate.unit_id === expected.unitId);
+        const dispatched = dispatchTasks.find((candidate) => candidate.unit_id === expected.unitId);
+        assert.ok(planUnit);
+        assert.ok(lane);
+        assert.ok(dispatched);
+        assert.equal(lane.submission_path, planUnit.output_path);
+        assert.equal(dispatched.allowed_output_path, planUnit.output_path);
+        assert.equal(dispatched.task_id, taskDocument.task_id);
+      }
+    });
+  }
+});
+
+test("G2.4 opportunity-family report rendering preserves knowledge states in English", async (context) => {
+  const state = await setup(context, "family-report-states-en", "general", "en-US");
+  installStateRichOpportunityFamily(state.bundle);
+  const validation = state.validator.validateDocumentBundle(state.bundle);
+  assert.equal(validation.valid, true, JSON.stringify(validation.referenceErrors, null, 2));
+  const report = evaluationEnvelope(state.bundle, G24_REPORT);
+  const projection = report.document.opportunity_family_projection as Record<string, unknown>;
+  const family = (projection.families as Record<string, unknown>[])[0] as Record<string, unknown>;
+  assert.equal(
+    (family.shared_value_or_solution_mechanism as Record<string, unknown>).state,
+    "unknown",
+  );
+  const derived = deriveReportEnvelopes(report);
+  const brief = String(
+    derived.find(
+      (entry) => entry.artifact_type === "startup_opportunity.decision_brief.discovery.current",
+    )?.document.markdown,
+  );
+  const full = String(
+    derived.find((entry) => entry.artifact_type === "startup_opportunity.discovery_report_view.v1")
+      ?.document.markdown,
+  );
+  for (const surface of [brief, full]) {
+    assert.match(
+      surface,
+      /shared mechanism state: unknown; description: SYNTHETIC shared mechanism remains unresolved/,
+    );
+    assert.match(surface, /user \(state: unavailable; description: SYNTHETIC user difference/);
+    assert.match(surface, /buyer \(state: inferred; description: SYNTHETIC buyer difference/);
+    assert.match(
+      surface,
+      /acquisition \(state: not applicable; description: SYNTHETIC acquisition difference/,
+    );
+    assert.match(
+      surface,
+      /compliance \(state: no evidence found; description: SYNTHETIC no evidence found/,
+    );
+  }
+});
+
+test("G2.4 preserves opportunity burden, explicit team matching, ranking, and report layers", async (context) => {
+  const state = await setup(context, "team-positive", "general", "en-US");
+  const comparisonA = effective(state.bundle, G24_COMPARISON_A);
+  const comparisonB = effective(state.bundle, G24_COMPARISON_B);
+  const teamPanelA = (comparisonA.comparison_panels as Record<string, unknown>[]).find(
+    (panel) => panel.panel_id === "team_fit_and_learning",
+  );
+  const teamPanelB = (comparisonB.comparison_panels as Record<string, unknown>[]).find(
+    (panel) => panel.panel_id === "team_fit_and_learning",
+  );
+  assert.ok(teamPanelA && teamPanelB);
+  const burdenA = teamPanelA.team_startup_burden as Record<string, unknown>;
+  const burdenB = teamPanelB.team_startup_burden as Record<string, unknown>;
+  assert.notDeepEqual(burdenA.dimensions, burdenB.dimensions);
+  assert.equal(
+    (teamPanelA.team_match_analysis as Record<string, unknown>).conclusion,
+    "conditional",
+  );
+  assert.equal((teamPanelB.team_match_analysis as Record<string, unknown>).conclusion, "unknown");
+  assert.equal(
+    comparisonA.hard_gate_outcome as string,
+    "insufficient_evidence",
+    "team matching does not become a hard rejection or replace evidence gates",
+  );
+  const portfolio = effective(state.bundle, G24_PORTFOLIO);
+  assert.deepEqual(
+    (portfolio.opportunity_ranking as Record<string, unknown>[]).map((entry) => entry.rank),
+    [null, null],
+  );
+  const report = effective(state.bundle, G24_REPORT);
+  const summary = report.team_decision_summary as Record<string, unknown>;
+  assert.equal(
+    (summary.team_context as Record<string, unknown>).other_team_conditions !== undefined,
+    true,
+  );
+  assert.equal((summary.opportunity_analyses as unknown[]).length, 2);
+  assert.deepEqual(summary.opportunity_ranking, portfolio.opportunity_ranking);
+});
+
+test("G2.4 accepts exact JSONL Evidence refs and hashes in team startup burden", async (context) => {
+  const state = await setup(context, "team-exact-jsonl");
+
+  const valid = clone(state.bundle);
+  const exactRef = bindTeamBurdenToExactEvidence(valid, G24_COMPARISON_A);
+  const validResult = state.validator.validateDocumentBundle(valid);
+  assert.equal(validResult.valid, true, JSON.stringify(validResult, null, 2));
+
+  const missing = clone(valid);
+  (
+    missing as unknown as {
+      exact_records?: { ref: string; document: Record<string, unknown> }[];
+    }
+  ).exact_records = mutableExactRecords(missing).filter((record) => record.ref !== exactRef);
+  const missingResult = state.validator.validateDocumentBundle(missing);
+  assert.equal(missingResult.valid, false);
+  assert.ok(
+    missingResult.referenceErrors.some((error) => error.code === "g2_4.input_hash_mismatch"),
+    JSON.stringify(missingResult.referenceErrors, null, 2),
+  );
+
+  const crossRun = clone(valid);
+  exactRecordDocument(crossRun, exactRef).run_id = "other-run";
+  refreshExactHashBindings(crossRun, exactRef);
+  const crossRunResult = state.validator.validateDocumentBundle(crossRun);
+  assert.equal(crossRunResult.valid, false);
+  assert.ok(
+    crossRunResult.referenceErrors.some(
+      (error) =>
+        error.code === "reference.run_mismatch" ||
+        error.code === "g2_4.team_analysis_binding_mismatch",
+    ),
+    JSON.stringify(crossRunResult.referenceErrors, null, 2),
+  );
+
+  const malformed = clone(valid);
+  exactRecordDocument(malformed, exactRef).schema_version =
+    "startup_opportunity.evidence_store_record.v1";
+  refreshExactHashBindings(malformed, exactRef);
+  const malformedResult = state.validator.validateDocumentBundle(malformed);
+  assert.equal(malformedResult.valid, false);
+  assert.ok(
+    malformedResult.bundleErrors.some((error) => error.code.startsWith("schema.")) ||
+      malformedResult.referenceErrors.some(
+        (error) =>
+          error.code === "reference.target_invalid" ||
+          error.code === "reference.type_mismatch" ||
+          error.code === "g2_4.team_analysis_binding_mismatch",
+      ),
+    JSON.stringify(
+      {
+        bundleErrors: malformedResult.bundleErrors,
+        referenceErrors: malformedResult.referenceErrors,
+      },
+      null,
+      2,
+    ),
+  );
+
+  const badHash = clone(valid);
+  const badHashComparison = effective(badHash, G24_COMPARISON_A);
+  const badHashEntry = (badHashComparison.input_artifact_hashes as Record<string, unknown>[]).find(
+    (binding) => binding.ref === exactRef,
+  );
+  assert.ok(badHashEntry);
+  badHashEntry.content_hash = `sha256:${"0".repeat(64)}`;
+  refreshEnvelopeClosure(badHash, G24_COMPARISON_A);
+  const badHashResult = state.validator.validateDocumentBundle(badHash);
+  assert.equal(badHashResult.valid, false);
+  assert.ok(
+    badHashResult.referenceErrors.some((error) => error.code === "g2_4.input_hash_mismatch"),
+    JSON.stringify(badHashResult.referenceErrors, null, 2),
+  );
+});
+
+test("G2.4 rejects computed or unbound team matching without blocking unknown research", async (context) => {
+  const state = await setup(context, "team-negative");
+
+  const computedMatch = clone(state.bundle);
+  const computedComparison = effective(computedMatch, G24_COMPARISON_A);
+  const computedPanel = (computedComparison.comparison_panels as Record<string, unknown>[]).find(
+    (panel) => panel.panel_id === "team_fit_and_learning",
+  );
+  assert.ok(computedPanel);
+  const computedAnalysis = computedPanel.team_match_analysis as Record<string, unknown>;
+  computedAnalysis.conclusion = "match";
+  computedAnalysis.assessment = "Harness-derived match; no Agent judgment was supplied.";
+  computedAnalysis.unknown_assumptions = [];
+  refresh(computedMatch, G24_COMPARISON_A);
+  const computedResult = state.validator.validateDocumentBundle(computedMatch);
+  assert.equal(computedResult.valid, false);
+  assert.ok(
+    computedResult.referenceErrors.some(
+      (error) => error.code === "g2_4.unconditional_team_match_invalid",
+    ),
+    JSON.stringify(computedResult.referenceErrors, null, 2),
+  );
+
+  const unbound = clone(state.bundle);
+  const unboundComparison = effective(unbound, G24_COMPARISON_B);
+  const unboundPanel = (unboundComparison.comparison_panels as Record<string, unknown>[]).find(
+    (panel) => panel.panel_id === "team_fit_and_learning",
+  );
+  assert.ok(unboundPanel);
+  const unboundAnalysis = unboundPanel.team_match_analysis as Record<string, unknown>;
+  unboundAnalysis.scope_frame_ref = "scope-frame-missing.json";
+  const inputHashes = unboundComparison.input_artifact_hashes as Record<string, unknown>[];
+  unboundComparison.input_artifact_hashes = inputHashes.filter(
+    (binding) => binding.ref !== G21_SCOPE_REF,
+  );
+  refresh(unbound, G24_COMPARISON_B);
+  const unboundResult = state.validator.validateDocumentBundle(unbound);
+  assert.equal(unboundResult.valid, false);
+  assert.ok(
+    unboundResult.referenceErrors.some(
+      (error) => error.code === "g2_4.team_analysis_binding_mismatch",
+    ),
+    JSON.stringify(unboundResult.referenceErrors, null, 2),
+  );
+
+  const reportDrift = clone(state.bundle);
+  const teamSummary = effective(reportDrift, G24_REPORT).team_decision_summary as Record<
+    string,
+    unknown
+  >;
+  teamSummary.opportunity_ranking = [];
+  refresh(reportDrift, G24_REPORT);
+  const reportResult = state.validator.validateDocumentBundle(reportDrift);
+  assert.equal(reportResult.valid, false);
+  assert.ok(
+    reportResult.referenceErrors.some(
+      (error) => error.code === "g2_4.team_report_projection_mismatch",
+    ),
+    JSON.stringify(reportResult.referenceErrors, null, 2),
+  );
+
+  assert.equal(state.validator.validateDocumentBundle(state.bundle).valid, true);
+  const preservedBurden = (
+    effective(state.bundle, G24_COMPARISON_B).comparison_panels as Record<string, unknown>[]
+  ).find((panel) => panel.panel_id === "team_fit_and_learning")?.team_startup_burden as Record<
+    string,
+    unknown
+  >;
+  assert.equal(
+    (preservedBurden.dimensions as Record<string, unknown>[]).some(
+      (dimension) => dimension.status === "insufficient_evidence",
+    ),
+    true,
+    "high or uncertain burden remains visible instead of being filtered",
+  );
+});
+
+test("G2.4 report team projection preserves provenance labels and opportunity titles", () => {
+  const dimensions = [
+    "startup_capital_and_build_complexity",
+    "ongoing_human_delivery",
+    "acquisition_and_channel_dependency",
+    "compliance_data_and_professional_liability",
+    "time_to_first_meaningful_validation_or_revenue",
+  ].map((dimension_id) => ({
+    dimension_id,
+    status: "unknown",
+    assessment: "The fixture does not establish this burden dimension.",
+    supporting_refs: [],
+    opposing_refs: [],
+    limitations: ["Synthetic fixture limitation."],
+  }));
+  const burden = {
+    opportunity_ref: "opportunity-a",
+    dimensions,
+    overall_limitations: ["Synthetic burden limitation."],
+  };
+  const match = {
+    opportunity_ref: "opportunity-a",
+    scope_frame_ref: "scope-frame.json",
+    conclusion: "conditional",
+    assessment: "The conclusion depends on unconfirmed team assumptions.",
+    basis_condition_ids: [],
+    burden_dimension_ids: dimensions.map((dimension) => dimension.dimension_id),
+    unknown_assumptions: ["Channel access remains unknown."],
+    conditions_that_would_change_conclusion: ["Confirmed channel access."],
+    limitations: ["Synthetic match limitation."],
+  };
+  const summary = {
+    team_context: {
+      hard_constraints: [
+        {
+          condition_id: "budget",
+          statement: "Budget is fixed by the user.",
+          source_kind: "user_provided",
+          confirmation_status: "user_confirmed",
+          reporting_disclosure: null,
+        },
+      ],
+      known_strengths_and_gaps: [
+        {
+          condition_id: "authorized_assumption",
+          statement: "The team may have a channel partnership.",
+          source_kind: "agent_assumed",
+          confirmation_status: "user_authorized_assumption",
+          reporting_disclosure: "The user authorized this provisional assumption.",
+        },
+        {
+          condition_id: "unconfirmed_assumption",
+          statement: "The team may have specialist compliance coverage.",
+          source_kind: "agent_assumed",
+          confirmation_status: "unconfirmed_assumption",
+          reporting_disclosure: "This assumption has not been confirmed by the user.",
+        },
+      ],
+      other_team_conditions: {
+        status: "unknown",
+        source_kind: "unknown",
+        confirmation_status: "unknown",
+        reporting_disclosure: "Other team conditions were not captured.",
+      },
+    },
+    opportunity_labels: [
+      { opportunity_ref: "opportunity-a", label: "家庭照护协同" },
+      { opportunity_ref: "opportunity-b", label: "本地亲子服务" },
+    ],
+    opportunity_analyses: [
+      {
+        opportunity_ref: "opportunity-a",
+        comparison_ref: "comparison-a",
+        team_startup_burden: burden,
+        team_match_analysis: match,
+      },
+      {
+        opportunity_ref: "opportunity-b",
+        comparison_ref: "comparison-b",
+        team_startup_burden: { ...burden, opportunity_ref: "opportunity-b" },
+        team_match_analysis: { ...match, opportunity_ref: "opportunity-b" },
+      },
+    ],
+    opportunity_ranking: [
+      {
+        rank: null,
+        opportunity_ref: "opportunity-a",
+        comparison_ref: "comparison-a",
+        team_fit_contribution: "unknown",
+        rationale: "Evidence is insufficient to order this direction.",
+        other_decision_factors: ["Demand remains unknown."],
+        hard_constraint_effect: {
+          status: "not_applied",
+          condition_ids: [],
+          rationale: "No hard constraint applied.",
+        },
+        limitations: [],
+      },
+      {
+        rank: null,
+        opportunity_ref: "opportunity-b",
+        comparison_ref: "comparison-b",
+        team_fit_contribution: "unknown",
+        rationale: "Evidence is insufficient to order this direction.",
+        other_decision_factors: ["Demand remains unknown."],
+        hard_constraint_effect: {
+          status: "not_applied",
+          condition_ids: [],
+          rationale: "No hard constraint applied.",
+        },
+        limitations: [],
+      },
+    ],
+  };
+  const report = {
+    report_subject_labels: [
+      { subject_id: "opportunity-a", subject_ref: "opportunity-a", label: "家庭照护协同" },
+    ],
+    team_decision_summary: summary,
+  };
+  const english = renderDiscoveryTeamDecisionSummary(report, false);
+  const chinese = renderDiscoveryTeamDecisionSummary(report, true);
+  for (const rendered of [english, chinese]) {
+    assert.match(rendered, /家庭照护协同/u);
+    assert.match(rendered, /本地亲子服务/u);
+    assert.match(rendered, /User-confirmed|用户已确认/u);
+    assert.match(rendered, /User-authorized assumption|用户授权假设/u);
+    assert.match(rendered, /Unconfirmed assumption|未确认假设/u);
+    assert.match(rendered, /The user authorized this provisional assumption|用户授权/u);
+    assert.match(rendered, /This assumption has not been confirmed by the user|尚未由用户确认/u);
+  }
+  assert.match(english, /Opportunity: 家庭照护协同 - Opportunity startup burden/u);
+  assert.match(english, /Opportunity: 本地亲子服务 - Opportunity startup burden/u);
+  assert.match(english, /Unranked: 家庭照护协同/u);
+  assert.match(english, /Unranked: 本地亲子服务/u);
+  assert.match(chinese, /机会: 家庭照护协同 - 机会自身启动负担/u);
+  assert.match(chinese, /机会: 本地亲子服务 - 机会自身启动负担/u);
+  assert.match(chinese, /未排序: 家庭照护协同/u);
+  assert.match(chinese, /未排序: 本地亲子服务/u);
+});
+
+test("G2.4 accepts tied, partial, and explicitly unranked opportunities", async (context) => {
+  const state = await setup(context, "ranking-nondegradation");
+  for (const mode of ["tied", "partial"] as const) {
+    const bundle = clone(state.bundle);
+    const portfolio = effective(bundle, G24_PORTFOLIO);
+    const ranking = portfolio.opportunity_ranking as Record<string, unknown>[];
+    if (mode === "tied") {
+      ranking.forEach((entry) => {
+        entry.rank = 1;
+      });
+    } else {
+      const firstRankingEntry = ranking[0] as Record<string, unknown>;
+      firstRankingEntry.rank = null;
+      portfolio.opportunity_ranking = [firstRankingEntry];
+    }
+    delete effective(bundle, G24_REPORT).team_decision_summary;
+    refreshAllInputHashes(bundle);
+    refreshEnvelopeClosure(bundle, G24_PORTFOLIO);
+    refreshEnvelopeClosure(bundle, G24_REPORT);
+    const result = state.validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, true, `${mode}: ${JSON.stringify(result, null, 2)}`);
+  }
+});
+
+test("G2.4 rejects ambiguous team condition IDs, weak burden matches, and first-bet ranking drift", async (context) => {
+  const state = await setup(context, "team-closure-negative");
+
+  for (const duplicateLocation of ["same-array", "cross-array"] as const) {
+    const bundle = clone(state.bundle);
+    const scope = effective(bundle, G21_SCOPE_REF);
+    const duplicate = {
+      condition_id: "duplicate_team_condition",
+      statement: "Synthetic duplicate team condition.",
+      source_kind: "user_provided",
+      confirmation_status: "user_confirmed",
+      reporting_disclosure: null,
+    };
+    const teamContext = scope.team_context as Record<string, unknown>;
+    if (duplicateLocation === "same-array") {
+      teamContext.hard_constraints = [duplicate, { ...duplicate }];
+    } else {
+      teamContext.hard_constraints = [duplicate];
+      teamContext.known_strengths_and_gaps = [{ ...duplicate }];
+    }
+    refreshAllInputHashes(bundle);
+    const result = state.validator.validateDocumentBundle(bundle);
+    assert.equal(result.valid, false);
+    assert.ok(
+      result.referenceErrors.some((error) => error.code === "g2_4.team_condition_id_duplicate"),
+      `${duplicateLocation}: ${JSON.stringify(result.referenceErrors, null, 2)}`,
+    );
+  }
+
+  const weakMatch = clone(state.bundle);
+  const weakComparison = effective(weakMatch, G24_COMPARISON_A);
+  const weakPanel = (weakComparison.comparison_panels as Record<string, unknown>[]).find(
+    (panel) => panel.panel_id === "team_fit_and_learning",
+  );
+  assert.ok(weakPanel);
+  const weakAnalysis = weakPanel.team_match_analysis as Record<string, unknown>;
+  weakAnalysis.conclusion = "match";
+  weakAnalysis.unknown_assumptions = [];
+  refreshAllInputHashes(weakMatch);
+  const weakResult = state.validator.validateDocumentBundle(weakMatch);
+  assert.equal(weakResult.valid, false);
+  assert.ok(
+    weakResult.referenceErrors.some(
+      (error) => error.code === "g2_4.unconditional_team_match_invalid",
+    ),
+    JSON.stringify(weakResult.referenceErrors, null, 2),
+  );
+
+  const noTeamBasis = clone(state.bundle);
+  const noBasisComparison = effective(noTeamBasis, G24_COMPARISON_A);
+  const noBasisPanel = (noBasisComparison.comparison_panels as Record<string, unknown>[]).find(
+    (panel) => panel.panel_id === "team_fit_and_learning",
+  );
+  assert.ok(noBasisPanel);
+  const noBasisBurden = noBasisPanel.team_startup_burden as Record<string, unknown>;
+  for (const dimension of noBasisBurden.dimensions as Record<string, unknown>[]) {
+    dimension.status = "supported";
+  }
+  const noBasisAnalysis = noBasisPanel.team_match_analysis as Record<string, unknown>;
+  noBasisAnalysis.conclusion = "match";
+  noBasisAnalysis.unknown_assumptions = [];
+  noBasisAnalysis.basis_condition_ids = [];
+  refreshAllInputHashes(noTeamBasis);
+  const noBasisResult = state.validator.validateDocumentBundle(noTeamBasis);
+  assert.equal(noBasisResult.valid, false);
+  assert.ok(
+    noBasisResult.referenceErrors.some(
+      (error) => error.code === "g2_4.unconditional_team_match_invalid",
+    ),
+    JSON.stringify(noBasisResult.referenceErrors, null, 2),
+  );
+
+  const firstBetDrift = clone(state.bundle);
+  setFirstBet(firstBetDrift, G23_OPPORTUNITY_B);
+  const driftPortfolio = effective(firstBetDrift, G24_PORTFOLIO);
+  const driftRanking = driftPortfolio.opportunity_ranking as Record<string, unknown>[];
+  for (const entry of driftRanking) {
+    entry.rank = entry.opportunity_ref === G23_OPPORTUNITY_A ? 1 : 2;
+  }
+  delete effective(firstBetDrift, G24_REPORT).team_decision_summary;
+  refreshAllInputHashes(firstBetDrift);
+  const driftResult = state.validator.validateDocumentBundle(firstBetDrift);
+  assert.equal(driftResult.valid, false);
+  assert.ok(
+    driftResult.referenceErrors.some((error) => error.code === "g2_4.first_bet_ranking_mismatch"),
+    JSON.stringify(driftResult.referenceErrors, null, 2),
   );
 });
 
@@ -1867,6 +2840,39 @@ test("G2.4 rejects closed contract mutations with deterministic error codes", as
       },
     },
     {
+      code: "g2_4.opportunity_family_projection_mismatch",
+      mutate(bundle) {
+        const projection = effective(bundle, G24_PORTFOLIO).opportunity_family_projection as Record<
+          string,
+          unknown
+        >;
+        const member = (
+          (projection.families as Record<string, unknown>[])[0]?.members as
+            | Record<string, unknown>[]
+            | undefined
+        )?.[0];
+        assert.ok(member);
+        member.uses_ai = !member.uses_ai;
+        refreshEnvelopeClosure(bundle, G24_PORTFOLIO);
+      },
+    },
+    {
+      code: "g2_4.opportunity_family_projection_mismatch",
+      mutate(bundle) {
+        effective(bundle, G23_SOLUTION).uses_ai = !effective(bundle, G23_SOLUTION).uses_ai;
+        refresh(bundle, G23_SOLUTION);
+        refreshAllInputHashes(bundle);
+      },
+    },
+    {
+      code: "g2_4.opportunity_family_projection_mismatch",
+      mutate(bundle) {
+        effective(bundle, G23_OPPORTUNITY_A).title = "SYNTHETIC changed opportunity title";
+        refresh(bundle, G23_OPPORTUNITY_A);
+        refreshAllInputHashes(bundle);
+      },
+    },
+    {
       code: "g2_4.evidence_substrate_binding_mismatch",
       mutate(bundle) {
         (
@@ -2114,12 +3120,16 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   portfolio.alternative_bets = [];
   portfolio.watchlist_refs = [watchlist];
   portfolio.rejected_refs = [];
-  rankFirstBet(state.bundle, firstBet);
+  const ranking = portfolio.opportunity_ranking as Record<string, unknown>[];
+  for (const entry of ranking) {
+    entry.rank = entry.opportunity_ref === firstBet ? 1 : null;
+  }
   const recommendation = effective(state.bundle, G24_RECOMMENDATION);
   recommendation.recommended_first_bet = firstBet;
   recommendation.alternative_bets = [];
   recommendation.rejected_or_watchlist_refs = [watchlist];
   const reportSource = effective(state.bundle, G24_REPORT);
+  delete reportSource.team_decision_summary;
   delete reportSource.research_language;
   reportSource.top_opportunity_refs = [firstBet];
   reportSource.watchlist_refs = [watchlist];
@@ -2127,10 +3137,11 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   const judgmentContext = reportSource.curated_judgment_context as Record<string, unknown>;
   judgmentContext.recommended_first_bet = firstBet;
   judgmentContext.alternative_bets = [];
+  installStateRichOpportunityFamily(state.bundle);
   refreshAllInputHashes(state.bundle);
+  refreshEnvelopeClosure(state.bundle, G24_REPORT);
   refreshEnvelopeClosure(state.bundle, G24_PORTFOLIO);
   refreshEnvelopeClosure(state.bundle, G24_RECOMMENDATION);
-  refreshEnvelopeClosure(state.bundle, G24_REPORT);
   await publishThroughEvaluation(state);
   const runtime = new ReportRuntime(state.runsRoot, state.validator);
   const report = evaluationEnvelope(state.bundle, G24_REPORT);
@@ -2166,6 +3177,28 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   const projectedReport = JSON.parse(
     await readFile(path.join(state.runRoot, "report.json"), "utf8"),
   ) as Record<string, unknown>;
+  const projectedFamilies = projectedReport.opportunity_family_projection as Record<
+    string,
+    unknown
+  >;
+  assert.equal(projectedFamilies.independent_opportunity_family_count, 1);
+  assert.equal(projectedFamilies.concrete_direction_count, 2);
+  const projectedFamily = (projectedFamilies.families as Record<string, unknown>[])[0] as Record<
+    string,
+    unknown
+  >;
+  assert.equal(
+    (projectedFamily.shared_value_or_solution_mechanism as Record<string, unknown>).state,
+    "unknown",
+  );
+  assert.deepEqual(
+    (projectedFamily.member_specific_differences as Record<string, unknown>[])
+      .flatMap((difference) =>
+        (difference.dimensions as Record<string, unknown>[]).map((dimension) => dimension.state),
+      )
+      .sort(),
+    ["inferred", "no_evidence_found", "not_applicable", "unavailable"].sort(),
+  );
   const watchProjectionDocument = structuredClone(projectedReport);
   delete watchProjectionDocument.materialized_path;
   (watchProjectionDocument.curated_judgment_context as Record<string, unknown>).decision_tier =
@@ -2191,7 +3224,19 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   }
   const firstBetId = String(effective(state.bundle, firstBet).opportunity_id);
   const watchlistId = String(effective(state.bundle, watchlist).opportunity_id);
+  const firstBetTitle = String(effective(state.bundle, firstBet).title);
+  const watchlistTitle = String(effective(state.bundle, watchlist).title);
   assert.equal(projectedReport.research_language, "zh-CN");
+  assert.deepEqual(
+    (
+      (projectedReport.team_decision_summary as Record<string, unknown>)
+        .opportunity_labels as Record<string, unknown>[]
+    ).map((entry) => ({ opportunity_ref: entry.opportunity_ref, label: entry.label })),
+    [
+      { opportunity_ref: firstBet, label: firstBetTitle },
+      { opportunity_ref: watchlist, label: watchlistTitle },
+    ],
+  );
   assert.deepEqual(
     (projectedReport.report_subject_labels as Record<string, unknown>[]).map(
       (entry) => entry.subject_id,
@@ -2294,17 +3339,70 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   const loaded = await state.store.load(state.runId);
   assert.ok(loaded.manifest.artifact_refs.includes(G24_REPORT));
   assert.ok(loaded.manifest.artifact_refs.includes(first.consistencyEvaluationRef));
+  const briefSidecar = JSON.parse(
+    await readFile(path.join(state.runRoot, "artifacts/reporting/decision-brief.r1.json"), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const reportSidecar = JSON.parse(
+    await readFile(path.join(state.runRoot, "artifacts/reporting/report-markdown.r1.json"), "utf8"),
+  ) as FormalArtifactEnvelope;
+  assert.deepEqual(
+    briefSidecar.document.opportunity_family_projection,
+    projectedReport.opportunity_family_projection,
+  );
+  assert.deepEqual(
+    reportSidecar.document.opportunity_family_projection,
+    projectedReport.opportunity_family_projection,
+  );
   const decisionBrief = await readFile(path.join(state.runRoot, "decision-brief.md"), "utf8");
   assert.match(decisionBrief, /局部排序/);
+  assert.match(decisionBrief, /1 个可区分的机会家族、2 个具体方向/);
+  assert.match(
+    decisionBrief,
+    /共享机制状态：未知；说明：SYNTHETIC shared mechanism remains unresolved/,
+  );
+  assert.match(
+    decisionBrief,
+    /用户（状态：来源不可用；说明：SYNTHETIC user difference unavailable/,
+  );
+  assert.match(decisionBrief, /买方（状态：推断；说明：SYNTHETIC buyer difference inferred/);
+  assert.match(
+    decisionBrief,
+    /获客（状态：不适用；说明：SYNTHETIC acquisition difference not applicable/,
+  );
+  assert.match(decisionBrief, /合规（状态：未发现证据；说明：SYNTHETIC no 证据 found/);
+  assert.match(decisionBrief, /当前团队条件/);
+  assert.match(decisionBrief, /机会自身启动负担与当前团队匹配/);
+  assert.match(decisionBrief, /当前团队匹配结论/);
+  assert.match(decisionBrief, /主 Agent 明确提交的机会排序/);
+  assert.match(decisionBrief, new RegExp(`第1位: ${firstBetTitle}`, "u"));
+  assert.match(decisionBrief, new RegExp(`未排序: ${watchlistTitle}`, "u"));
+  assert.match(decisionBrief, new RegExp(`机会: ${firstBetTitle} - 机会自身启动负担`, "u"));
+  assert.match(decisionBrief, new RegExp(`机会: ${watchlistTitle} - 机会自身启动负担`, "u"));
   assert.match(decisionBrief, /头部公司吸收与响应风险/);
-  assert.match(decisionBrief, /尚未探索其他实现方式/);
-  assert.match(decisionBrief, /暂定实现/);
   assert.ok(decisionBrief.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   const reportMarkdown = await readFile(path.join(state.runRoot, "report.md"), "utf8");
   assert.match(reportMarkdown, /方向组合/);
+  assert.match(reportMarkdown, /1 个可区分的机会家族、2 个具体方向/);
+  assert.match(
+    reportMarkdown,
+    /共享机制状态：未知；说明：SYNTHETIC shared mechanism remains unresolved/,
+  );
+  assert.match(reportMarkdown, /交付或实施变体/);
+  assert.match(
+    reportMarkdown,
+    /用户（状态：来源不可用；说明：SYNTHETIC user difference unavailable/,
+  );
+  assert.match(reportMarkdown, /买方（状态：推断；说明：SYNTHETIC buyer difference inferred/);
+  assert.match(
+    reportMarkdown,
+    /获客（状态：不适用；说明：SYNTHETIC acquisition difference not applicable/,
+  );
+  assert.match(reportMarkdown, /合规（状态：未发现证据；说明：SYNTHETIC no 证据 found/);
+  assert.match(reportMarkdown, /当前团队条件/);
+  assert.match(reportMarkdown, /机会自身启动负担与当前团队匹配/);
+  assert.match(reportMarkdown, new RegExp(`第1位: ${firstBetTitle}`, "u"));
+  assert.match(reportMarkdown, new RegExp(`未排序: ${watchlistTitle}`, "u"));
   assert.match(reportMarkdown, /头部公司吸收与响应风险/);
-  assert.match(reportMarkdown, /尚未探索其他实现方式/);
-  assert.match(reportMarkdown, /暂定实现/);
   assert.ok(reportMarkdown.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   const auditAppendix = await readFile(path.join(state.runRoot, "audit-appendix.md"), "utf8");
   assert.match(auditAppendix, /全部量化信号/);

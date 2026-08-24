@@ -581,6 +581,64 @@ function strings(value: unknown): readonly string[] {
     : [];
 }
 
+function outputPathForTaskProjection(task: Record<string, unknown>): string | null {
+  return typeof task.allowed_output_path === "string"
+    ? task.allowed_output_path
+    : typeof task.submission_path === "string"
+      ? task.submission_path
+      : null;
+}
+
+function outputSchemaForTaskProjection(task: Record<string, unknown>): string | null {
+  return typeof task.required_artifact_schema === "string"
+    ? task.required_artifact_schema
+    : typeof task.submission_schema === "string"
+      ? task.submission_schema
+      : null;
+}
+
+function dispatchOwnsResearchTask(
+  manifest: RunManifest,
+  taskDocument: Record<string, unknown>,
+  dispatchDocument: Record<string, unknown>,
+  taskProjection: Record<string, unknown>,
+): boolean {
+  if (
+    dispatchDocument.run_id !== taskDocument.run_id ||
+    dispatchDocument.run_id !== manifest.run_id ||
+    dispatchDocument.research_plan_ref !== manifest.current_plan_ref ||
+    dispatchDocument.research_plan_ref !== taskDocument.research_plan_ref ||
+    dispatchDocument.mode !== taskDocument.mode ||
+    taskProjection.task_id !== taskDocument.task_id ||
+    taskProjection.unit_id !== taskDocument.unit_id
+  ) {
+    return false;
+  }
+  if (
+    typeof dispatchDocument.wave_id === "string" &&
+    typeof taskDocument.wave_id === "string" &&
+    dispatchDocument.wave_id !== taskDocument.wave_id
+  ) {
+    return false;
+  }
+  const taskOutputPath = outputPathForTaskProjection(taskDocument);
+  const dispatchOutputPath = outputPathForTaskProjection(taskProjection);
+  if (
+    taskOutputPath !== null &&
+    dispatchOutputPath !== null &&
+    taskOutputPath !== dispatchOutputPath
+  ) {
+    return false;
+  }
+  const taskOutputSchema = outputSchemaForTaskProjection(taskDocument);
+  const dispatchOutputSchema = outputSchemaForTaskProjection(taskProjection);
+  return (
+    taskOutputSchema === null ||
+    dispatchOutputSchema === null ||
+    taskOutputSchema === dispatchOutputSchema
+  );
+}
+
 function researchHandoffOperationFilename(operationKeyValue: string): string {
   return `research-handoff-${sha256Hex(operationKeyValue)}.json`;
 }
@@ -2732,9 +2790,8 @@ export class RunStore {
           const taskProjection = Array.isArray(authorityDocument.tasks)
             ? authorityDocument.tasks
                 .filter(isRecord)
-                .find(
-                  (task) =>
-                    task.task_id === nextDocument.task_id && task.unit_id === nextDocument.unit_id,
+                .find((task) =>
+                  dispatchOwnsResearchTask(manifest, nextDocument, authorityDocument, task),
                 )
             : undefined;
           if (taskProjection !== undefined) {

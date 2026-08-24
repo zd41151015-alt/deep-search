@@ -285,6 +285,34 @@ function strings(value: unknown): readonly string[] {
     : [];
 }
 
+function typedReportInputRefs(value: unknown): readonly string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap(typedReportInputRefs);
+  }
+  if (!isRecord(value)) {
+    return [];
+  }
+  return Object.entries(value).flatMap(([key, child]) => {
+    if ((key.endsWith("_refs") || key === "input_refs") && Array.isArray(child)) {
+      return strings(child).filter(
+        (ref) =>
+          ref.includes("/") || ref.includes("#") || ref.endsWith(".json") || ref.endsWith(".jsonl"),
+      );
+    }
+    if (
+      (key.endsWith("_ref") || key.endsWith("_refs") || key === "ref") &&
+      typeof child === "string" &&
+      (child.includes("/") ||
+        child.includes("#") ||
+        child.endsWith(".json") ||
+        child.endsWith(".jsonl"))
+    ) {
+      return [child];
+    }
+    return typedReportInputRefs(child);
+  });
+}
+
 function requiredRecord(value: unknown, field: string): Record<string, unknown> {
   if (!isRecord(value)) {
     throw new StoreError("report.source_invalid", `report field ${field} must be an object`, {
@@ -2677,6 +2705,9 @@ export class ReportRuntime {
       input_refs: [
         ...new Set([
           ...source.input_refs.filter((ref) => !ref.startsWith("artifacts/research-audits/")),
+          ...typedReportInputRefs(provisionalDocument).filter(
+            (ref) => ref.split("#", 1)[0] !== source.artifact_path,
+          ),
           ...strings(researchProvenance.causal_handoff_refs),
           ...fullProjection.commercial_research_audit_refs,
           ...reportCitations.map((citation) => citation.evidence_ref),

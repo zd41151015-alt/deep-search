@@ -179,6 +179,54 @@ async function registerAllDispatchLaunches(
   assert.equal(closed.status, "closed");
 }
 
+test("validation context binds a research task only to its owning Dispatch authority", async (t) => {
+  const state = await prepareRun(t, "validation-context-dispatch-scope");
+  const wave = discoveryWaveEnvelopes(
+    state.bundle,
+    state.runId,
+    "startup_opportunity.research_task.discovery_candidate.current",
+    1,
+    "candidate_runtime",
+  );
+  await state.store.publishArtifactBundle({ runId: state.runId, envelopes: wave });
+  const task = wave.find(
+    (entry) =>
+      entry.artifact_type === "startup_opportunity.research_task.discovery_candidate.current",
+  );
+  const dispatch = wave.find(
+    (entry) => entry.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(task);
+  assert.ok(dispatch);
+  const unrelatedDispatch = structuredClone(dispatch) as FormalArtifactEnvelope & {
+    artifact_path: string;
+    content_hash: string;
+  };
+  unrelatedDispatch.artifact_path = "tasks/dispatch/unrelated_historical_candidate_runtime.r1.json";
+  unrelatedDispatch.document.batch_id = "batch_unrelated_historical_candidate_runtime";
+  const unrelatedTaskProjection = (
+    unrelatedDispatch.document.tasks as Record<string, unknown>[]
+  ).find(
+    (entry) => entry.task_id === task.document.task_id && entry.unit_id === task.document.unit_id,
+  );
+  assert.ok(unrelatedTaskProjection);
+  unrelatedTaskProjection.allowed_output_path =
+    "artifacts/discovery/lanes/unrelated-historical.attempt-1.json";
+  unrelatedDispatch.content_hash = canonicalContentHash(unrelatedDispatch.document);
+  await writeFile(
+    path.join(state.runsRoot, state.runId, unrelatedDispatch.artifact_path),
+    `${JSON.stringify(unrelatedDispatch, null, 2)}\n`,
+  );
+
+  const context = await state.store.buildValidationContext(state.runId, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [{ path: task.artifact_path, document: task as unknown as Record<string, unknown> }],
+  });
+  const selectedPaths = context.bundle.documents.map((entry) => entry.path).sort();
+  assert.ok(selectedPaths.includes(dispatch.artifact_path));
+  assert.ok(!selectedPaths.includes(unrelatedDispatch.artifact_path));
+});
+
 async function prepareRun(context: TestContext, suffix: string) {
   const root = await mkdtemp(path.join(tmpdir(), `formal-stage-${suffix}-`));
   context.after(() => rm(root, { recursive: true, force: true }));

@@ -181,12 +181,6 @@ export class FormalStageMaterializer {
       ...status.manifest.artifact_refs.filter((ref) =>
         ref.startsWith("plans/research-execution.r"),
       ),
-      ...status.manifest.artifact_refs.filter(
-        (ref) =>
-          ref.startsWith("tasks/dispatch/") ||
-          ref.startsWith("tasks/discovery/") ||
-          ref.startsWith("tasks/assessment/"),
-      ),
       ...automaticAuthorityRefs(request, status.manifest.artifact_refs),
     ]);
     const context = await this.runs.buildValidationContext(
