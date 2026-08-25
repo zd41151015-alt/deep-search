@@ -138,7 +138,8 @@ function evidenceSubstrate(artifact: LaneClosureArtifact): string | null {
 function isTypedEvidenceArtifact(artifactType: string): boolean {
   return (
     artifactType.startsWith("startup_opportunity.evidence.") ||
-    artifactType === "startup_opportunity.assessment_evidence.v1"
+    artifactType === "startup_opportunity.assessment_evidence.v1" ||
+    artifactType === "startup_opportunity.candidate_neutral_evidence.v1"
   );
 }
 

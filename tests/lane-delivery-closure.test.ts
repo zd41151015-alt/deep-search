@@ -117,6 +117,113 @@ test("commercial scope closure binds exact typed Evidence and field identities",
   }
 });
 
+test("commercial scope closure recognizes candidate-neutral Evidence across generation coverage", () => {
+  const candidateNeutralDocument = {
+    schema_version: "startup_opportunity.candidate_neutral_evidence.v1",
+    evidence_id: "ev_candidate_neutral_scope",
+    mechanical_binding: {
+      substrate_record_ref: "evidence/manifest.jsonl#ev_candidate_neutral_scope",
+    },
+  };
+  const candidateNeutralEvidence = {
+    artifact_ref: "evidence/discovery/generation/ev_candidate_neutral_scope.json",
+    artifact_type: "startup_opportunity.candidate_neutral_evidence.v1",
+    content_hash: canonicalContentHash(candidateNeutralDocument),
+    document: candidateNeutralDocument,
+  };
+  const scopeKeys = ["recent_user_language", "alternatives_pricing_usage", "distribution_channel"];
+  const competitorTypes = ["direct_product", "adjacent_product", "service"];
+  const candidateNeutralAuditDocument = {
+    schema_version: "startup_opportunity.commercial_research_audit.current",
+    coverage: Object.fromEntries(
+      scopeKeys.map((scopeKey) => [
+        scopeKey,
+        {
+          state: "observed",
+          content_covered: true,
+          evidence_refs: [candidateNeutralEvidence.artifact_ref],
+        },
+      ]),
+    ),
+    competitive_coverage: competitorTypes.map((competitorType) => ({
+      subject_id: "subject_candidate_neutral",
+      competitor_type: competitorType,
+      state: "observed",
+      competitive_object_ids: [`competitor_${competitorType}`],
+    })),
+    competitive_objects: competitorTypes.map((competitorType) => ({
+      competitive_object_id: `competitor_${competitorType}`,
+      source_refs: [candidateNeutralEvidence.artifact_ref],
+    })),
+    search_closure: { remaining_gaps: [] },
+  };
+  const candidateNeutralAudit = {
+    artifact_ref: "artifacts/research-audits/unit_candidate_neutral.json",
+    artifact_type: "startup_opportunity.commercial_research_audit.current",
+    content_hash: canonicalContentHash(candidateNeutralAuditDocument),
+    document: candidateNeutralAuditDocument,
+  };
+  const assignedScope = [
+    ...scopeKeys,
+    ...competitorTypes.map((competitorType) => `competitive:${competitorType}`),
+  ];
+
+  const result = deriveLaneScopeFormalClosure(
+    assignedScope,
+    [candidateNeutralAudit, candidateNeutralEvidence],
+    [candidateNeutralAudit.artifact_ref],
+  );
+
+  assert.deepEqual(result.issues, []);
+  assert.deepEqual(
+    result.closure.map((entry) => [entry.scope_key, entry.disposition]),
+    [...assignedScope].sort().map((scopeKey) => [scopeKey, "covered"]),
+  );
+  for (const entry of result.closure) {
+    assert.deepEqual(entry.evidence_bindings, [
+      {
+        evidence_ref: candidateNeutralEvidence.artifact_ref,
+        artifact_type: candidateNeutralEvidence.artifact_type,
+        content_hash: candidateNeutralEvidence.content_hash,
+        substrate_record_ref: "evidence/manifest.jsonl#ev_candidate_neutral_scope",
+      },
+    ]);
+  }
+});
+
+test("candidate-neutral Evidence without a substrate binding cannot satisfy covered scope", () => {
+  const unboundDocument = {
+    schema_version: "startup_opportunity.candidate_neutral_evidence.v1",
+    evidence_id: "ev_candidate_neutral_unbound",
+  };
+  const unboundEvidence = {
+    artifact_ref: "evidence/discovery/generation/ev_candidate_neutral_unbound.json",
+    artifact_type: "startup_opportunity.candidate_neutral_evidence.v1",
+    content_hash: canonicalContentHash(unboundDocument),
+    document: unboundDocument,
+  };
+  const unboundAuditDocument = structuredClone(auditDocument);
+  unboundAuditDocument.coverage.purchase_signal.evidence_refs = [unboundEvidence.artifact_ref];
+  const unboundAudit = {
+    ...audit,
+    content_hash: canonicalContentHash(unboundAuditDocument),
+    document: unboundAuditDocument,
+  };
+
+  const result = deriveLaneScopeFormalClosure(
+    ["purchase_signal"],
+    [unboundAudit, unboundEvidence],
+    [unboundAudit.artifact_ref],
+  );
+
+  assert.equal(result.closure[0]?.disposition, "covered");
+  assert.deepEqual(result.closure[0]?.evidence_bindings, []);
+  assert.deepEqual(
+    result.issues.map((issue) => [issue.code, issue.scopeKey]),
+    [["lane_delivery.scope_formal_disposition_invalid", "purchase_signal"]],
+  );
+});
+
 test("commercial scope closure preserves Evidence traceability without overstating incomplete coverage", () => {
   const incompleteAuditDocument = structuredClone(auditDocument);
   incompleteAuditDocument.coverage.purchase_signal = {
