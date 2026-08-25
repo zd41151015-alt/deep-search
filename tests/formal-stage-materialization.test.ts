@@ -227,6 +227,45 @@ test("validation context binds a research task only to its owning Dispatch autho
   assert.ok(!selectedPaths.includes(unrelatedDispatch.artifact_path));
 });
 
+test("validation context ignores an orphan same-fields Dispatch authority outside the manifest", async (t) => {
+  const state = await prepareRun(t, "validation-context-orphan-dispatch");
+  const wave = discoveryWaveEnvelopes(
+    state.bundle,
+    state.runId,
+    "startup_opportunity.research_task.discovery_candidate.current",
+    1,
+    "candidate_runtime",
+  );
+  await state.store.publishArtifactBundle({ runId: state.runId, envelopes: wave });
+  const task = wave.find(
+    (entry) =>
+      entry.artifact_type === "startup_opportunity.research_task.discovery_candidate.current",
+  );
+  const dispatch = wave.find(
+    (entry) => entry.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(task);
+  assert.ok(dispatch);
+
+  const orphanDispatch = structuredClone(dispatch) as FormalArtifactEnvelope & {
+    artifact_path: string;
+  };
+  orphanDispatch.artifact_path = "tasks/dispatch/orphan_same_fields_candidate_runtime.r1.json";
+  await writeFile(
+    path.join(state.runsRoot, state.runId, orphanDispatch.artifact_path),
+    `${JSON.stringify(orphanDispatch, null, 2)}\n`,
+  );
+  assert.ok(!state.bundle.documents.some((entry) => entry.path === orphanDispatch.artifact_path));
+
+  const context = await state.store.buildValidationContext(state.runId, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [{ path: task.artifact_path, document: task as unknown as Record<string, unknown> }],
+  });
+  const selectedPaths = context.bundle.documents.map((entry) => entry.path).sort();
+  assert.ok(selectedPaths.includes(dispatch.artifact_path));
+  assert.ok(!selectedPaths.includes(orphanDispatch.artifact_path));
+});
+
 async function prepareRun(context: TestContext, suffix: string) {
   const root = await mkdtemp(path.join(tmpdir(), `formal-stage-${suffix}-`));
   context.after(() => rm(root, { recursive: true, force: true }));

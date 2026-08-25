@@ -2775,9 +2775,13 @@ export class RunStore {
         typeof nextDocument.task_id === "string" &&
         typeof nextDocument.unit_id === "string"
       ) {
+        const currentArtifactRefs = new Set(manifest.artifact_refs);
         for (const authority of [...stored.values()].sort((left, right) =>
           left.path.localeCompare(right.path),
         )) {
+          if (!currentArtifactRefs.has(authority.path)) {
+            continue;
+          }
           const authorityDocument = effective(authority.document);
           if (
             ![
