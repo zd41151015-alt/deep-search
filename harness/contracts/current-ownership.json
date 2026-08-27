@@ -219,6 +219,7 @@
       "reportProjectionModules": [
         "harness/src/reporting/commercial-report-tables.ts",
         "harness/src/reporting/report-localization.ts",
+        "harness/src/reporting/report-citation-authority.ts",
         "harness/src/reporting/report-projection-authority.ts",
         "harness/src/reporting/report-runtime.ts"
       ],
@@ -338,6 +339,7 @@
       "reportProjectionModules": [
         "harness/src/reporting/commercial-report-tables.ts",
         "harness/src/reporting/report-localization.ts",
+        "harness/src/reporting/report-citation-authority.ts",
         "harness/src/reporting/report-projection-authority.ts",
         "harness/src/reporting/report-runtime.ts"
       ],
@@ -595,12 +597,14 @@
         "harness/src/validators/artifact-ref-resolver.ts",
         "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/decision-subject-validator.ts",
+        "harness/src/validators/research-handoff-validator.ts",
         "harness/src/validators/terminal-reporting-validator.ts"
       ],
       "policyPaths": [],
       "reportProjectionModules": [
         "harness/src/reporting/commercial-report-tables.ts",
         "harness/src/reporting/report-localization.ts",
+        "harness/src/reporting/report-citation-authority.ts",
         "harness/src/reporting/report-projection-authority.ts",
         "harness/src/reporting/report-runtime.ts",
         "harness/src/reporting/terminal-reporting.ts"
@@ -610,6 +614,7 @@
         "tests/batch4-report-projection.test.ts",
         "tests/batch5-responder-performance-observability.test.ts",
         "tests/current-contract-architecture.test.ts",
+        "tests/g0.4-runtime.test.ts",
         "tests/g1.4-report-runtime.test.ts",
         "tests/g4-integration.test.ts",
         "tests/g4-operational.test.ts"
@@ -617,6 +622,7 @@
       "testScripts": [
         "test:batch5",
         "test:contract-architecture",
+        "test:g0.4",
         "test:g1.4",
         "test:g4",
         "test:report-projection"
@@ -633,7 +639,10 @@
         "categories": ["harness_derived", "store_identity", "report_projected"]
       },
       "researchImpact": {
-        "preservedInputsAndRoles": ["all_adopted_and_excluded_evidence_with_dispositions"],
+        "preservedInputsAndRoles": [
+          "all_adopted_and_excluded_evidence_with_dispositions",
+          "captured_not_formalized_substrate_inventory"
+        ],
         "distinctSemanticStates": [
           "partial",
           "unavailable",
@@ -750,6 +759,10 @@
       "impactFamilies": ["assessment_research", "discovery_research", "terminal_reporting"]
     },
     {
+      "modulePath": "harness/src/reporting/report-citation-authority.ts",
+      "impactFamilies": ["assessment_research", "discovery_research", "terminal_reporting"]
+    },
+    {
       "modulePath": "harness/src/reporting/report-projection-authority.ts",
       "impactFamilies": ["assessment_research", "discovery_research", "terminal_reporting"]
     },
@@ -859,7 +872,7 @@
     },
     {
       "modulePath": "harness/src/validators/research-handoff-validator.ts",
-      "impactFamilies": ["assessment_research", "run_control_planning"]
+      "impactFamilies": ["assessment_research", "run_control_planning", "terminal_reporting"]
     }
   ],
   "shared_schemas": [

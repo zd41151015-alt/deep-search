@@ -14,6 +14,7 @@ import {
   deriveReportDispositions,
   deriveReportSubjectLabels,
   deriveTerminalReportSubjectAuthorities,
+  isFormalEvidenceSchemaVersion,
 } from "../reporting/report-projection-authority.js";
 import {
   deriveDiscoveryReviewSummaries,
@@ -992,15 +993,8 @@ function validateSource(
       );
     }
   }
-  const evidenceSchemaVersions = new Set([
-    "startup_opportunity.evidence.assessment.current",
-    "startup_opportunity.evidence.discovery_candidate.current",
-    "startup_opportunity.evidence.discovery_evaluation.current",
-    "startup_opportunity.assessment_evidence.v1",
-    "startup_opportunity.candidate_neutral_evidence.v1",
-  ]);
   const validatedEvidenceRefs = documents
-    .filter((candidate) => evidenceSchemaVersions.has(candidate.schemaVersion))
+    .filter((candidate) => isFormalEvidenceSchemaVersion(candidate.schemaVersion))
     .map((candidate) => candidate.path)
     .sort();
   if (validatedEvidenceRefs.length > 0) {

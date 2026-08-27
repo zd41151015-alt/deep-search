@@ -146,6 +146,133 @@
         }
       }
     },
+    "evidenceStoreHandoffBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "handoff_ref",
+        "handoff_item_id",
+        "source_run_id",
+        "source_evidence_path",
+        "source_record_hash",
+        "source_raw_content_hash",
+        "source_recorded_at",
+        "freshness_disposition",
+        "applicability_disposition",
+        "revalidation_status"
+      ],
+      "properties": {
+        "handoff_ref": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+        },
+        "handoff_item_id": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "source_run_id": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/runId"
+        },
+        "source_evidence_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_record_hash": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+        },
+        "source_raw_content_hash": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+        },
+        "source_recorded_at": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+        },
+        "freshness_disposition": {
+          "enum": ["current", "historical", "unknown"]
+        },
+        "applicability_disposition": {
+          "enum": ["applicable", "partially_applicable", "unknown"]
+        },
+        "revalidation_status": {
+          "enum": ["not_required", "required"]
+        }
+      }
+    },
+    "capturedSubstrateInventoryItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_ref", "source", "research_goal", "recorded_at", "status"],
+      "properties": {
+        "evidence_ref": {
+          "type": "string",
+          "pattern": "^evidence/manifest\\.jsonl#ev_[a-f0-9]{64}$"
+        },
+        "source": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "canonical_url"],
+              "properties": {
+                "kind": {
+                  "const": "public_url"
+                },
+                "canonical_url": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "canonical_uri"],
+              "properties": {
+                "kind": {
+                  "const": "user_provided"
+                },
+                "canonical_uri": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          ]
+        },
+        "research_goal": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "recorded_at": {
+          "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+        },
+        "status": {
+          "const": "captured_not_formalized"
+        },
+        "handoff_binding": {
+          "$ref": "#/$defs/evidenceStoreHandoffBinding"
+        }
+      }
+    },
+    "capturedSubstrateInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "unformalized_reason", "conclusion_support_status", "items"],
+      "properties": {
+        "status": {
+          "const": "captured_not_formalized"
+        },
+        "unformalized_reason": {
+          "enum": ["runtime_failure", "insufficient_evidence", "cancelled", "deprioritized"]
+        },
+        "conclusion_support_status": {
+          "const": "does_not_support_conclusions"
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/capturedSubstrateInventoryItem"
+          }
+        }
+      }
+    },
     "researchProvenance": {
       "type": "object",
       "additionalProperties": false,
@@ -210,6 +337,9 @@
         },
         "cited_current_evidence_refs": {
           "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "captured_substrate_inventory": {
+          "$ref": "#/$defs/capturedSubstrateInventory"
         },
         "revalidation_gaps": {
           "type": "array",

@@ -73,7 +73,8 @@ function uniqueSorted(values: readonly string[]): readonly string[] {
 }
 
 function reviewLiteralText(value: unknown): string {
-  return typeof value === "string" ? value : String(value ?? "");
+  const text = typeof value === "string" ? value : String(value ?? "");
+  return text.replaceAll("\r\n", "\n").replaceAll("\r", "\n").replaceAll("\n", "\n    ");
 }
 
 function callerAuthoredText(value: unknown): string {
@@ -208,6 +209,27 @@ function requiredRecord(value: unknown, field: string): Record<string, unknown> 
   return value;
 }
 
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`terminal report field ${field} must be a non-empty string`);
+  }
+  return value;
+}
+
+function requiredRecordArray(value: unknown, field: string): readonly Record<string, unknown>[] {
+  if (!Array.isArray(value) || value.some((item) => !isRecord(item))) {
+    throw new Error(`terminal report field ${field} must be an array of objects`);
+  }
+  return value as readonly Record<string, unknown>[];
+}
+
+function markdownListContinuation(value: unknown, field: string): string {
+  return requiredString(value, field)
+    .replaceAll("\r\n", "\n")
+    .replaceAll("\r", "\n")
+    .replaceAll("\n", "\n      ");
+}
+
 function revisionOf(path: string): string {
   const revision = path.match(
     /^artifacts\/reporting\/terminal-report-source\.(r[1-9][0-9]*)\.json$/,
@@ -224,6 +246,7 @@ function isChinese(language: unknown): boolean {
 
 const ZH_ENUMS: Readonly<Record<string, string>> = {
   blocked: "运行受阻",
+  captured_not_formalized: "已采集但未正式化",
   cancelled: "已取消",
   complete: "完整执行",
   completed: "已完成",
@@ -243,6 +266,7 @@ const ZH_ENUMS: Readonly<Record<string, string>> = {
   partial: "部分执行",
   prioritize: "优先关注",
   reject: "淘汰",
+  runtime_failure: "运行失败阻断正式化",
   strong: "强",
   validate: "验证",
   weak: "弱",
@@ -405,6 +429,131 @@ function commercialReadinessLabel(value: unknown, zh: boolean): string {
       >
     )[String(value)] ?? enumLabel(value, true)
   );
+}
+
+function substrateInventoryReasonLabel(value: unknown, zh: boolean): string {
+  switch (value) {
+    case "runtime_failure":
+      return zh ? "运行失败阻断正式化" : "runtime failure";
+    case "insufficient_evidence":
+      return zh ? "证据不足导致未正式化" : "insufficient evidence";
+    case "cancelled":
+      return zh ? "已取消导致未正式化" : "cancelled";
+    case "deprioritized":
+      return zh ? "已降低优先级导致未正式化" : "deprioritized";
+    default:
+      throw new Error(
+        `terminal report captured substrate unformalized_reason is unsupported: ${String(value)}`,
+      );
+  }
+}
+
+function substrateInventoryStatusLabel(value: unknown, zh: boolean): string {
+  if (value !== "captured_not_formalized") {
+    throw new Error(`terminal report captured substrate status is unsupported: ${String(value)}`);
+  }
+  return zh ? "已采集但未正式化" : "captured but not formalized";
+}
+
+function substrateConclusionBoundaryLabel(value: unknown, zh: boolean): string {
+  if (value !== "does_not_support_conclusions") {
+    throw new Error(
+      `terminal report captured substrate conclusion_support_status is unsupported: ${String(
+        value,
+      )}`,
+    );
+  }
+  return zh ? "不支持任何研究结论" : "does not support any research conclusion";
+}
+
+function substrateEvidenceRef(value: unknown, field: string): string {
+  const ref = requiredString(value, field);
+  if (!/^evidence\/manifest\.jsonl#ev_[a-f0-9]{64}$/u.test(ref)) {
+    throw new Error(`terminal report field ${field} must be an exact Evidence Store ref`);
+  }
+  return ref;
+}
+
+function capturedSubstrateInventory(
+  provenance: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (provenance.captured_substrate_inventory === undefined) return null;
+  return requiredRecord(
+    provenance.captured_substrate_inventory,
+    "research_provenance.captured_substrate_inventory",
+  );
+}
+
+function capturedSubstrateInventoryItems(
+  inventory: Record<string, unknown>,
+): readonly Record<string, unknown>[] {
+  const items = requiredRecordArray(
+    inventory.items,
+    "research_provenance.captured_substrate_inventory.items",
+  );
+  if (items.length === 0) {
+    throw new Error("terminal report captured substrate inventory must contain at least one item");
+  }
+  return items;
+}
+
+function substrateSourceDisplay(sourceValue: unknown, zh: boolean): string {
+  const source = requiredRecord(
+    sourceValue,
+    "research_provenance.captured_substrate_inventory.items[].source",
+  );
+  switch (source.kind) {
+    case "public_url": {
+      const url = requiredString(
+        source.canonical_url,
+        "research_provenance.captured_substrate_inventory.items[].source.canonical_url",
+      );
+      return zh ? `[公开来源](${url})` : `[public source](${url})`;
+    }
+    case "user_provided": {
+      const uri = requiredString(
+        source.canonical_uri,
+        "research_provenance.captured_substrate_inventory.items[].source.canonical_uri",
+      );
+      return zh ? `用户提供/非公开 \`${uri}\`` : `user-provided/non-public \`${uri}\``;
+    }
+    default:
+      throw new Error(
+        `terminal report captured substrate source kind is unsupported: ${String(source.kind)}`,
+      );
+  }
+}
+
+function renderCapturedSubstrateInventory(
+  inventory: Record<string, unknown>,
+  zh: boolean,
+  detailed: boolean,
+): string {
+  const items = capturedSubstrateInventoryItems(inventory);
+  const lines = [
+    `- ${zh ? "已采集但未正式化的材料" : "Captured but not formalized substrate inventory"}: ${String(items.length)} (${zh ? "状态" : "status"}: ${substrateInventoryStatusLabel(inventory.status, zh)}; ${zh ? "原因" : "reason"}: ${substrateInventoryReasonLabel(inventory.unformalized_reason, zh)}; ${zh ? "结论边界" : "conclusion boundary"}: ${substrateConclusionBoundaryLabel(inventory.conclusion_support_status, zh)})`,
+  ];
+  if (detailed) {
+    lines.push(
+      ...items.flatMap((item, index) => [
+        `  - ${index + 1}. ${substrateEvidenceRef(
+          item.evidence_ref,
+          "research_provenance.captured_substrate_inventory.items[].evidence_ref",
+        )}`,
+        `    - ${zh ? "来源" : "Source"}: ${substrateSourceDisplay(item.source, zh)}`,
+        `    - ${zh ? "记录时间" : "Recorded at"}: ${requiredString(
+          item.recorded_at,
+          "research_provenance.captured_substrate_inventory.items[].recorded_at",
+        )}`,
+        `    - ${zh ? "处置状态" : "Status"}: ${substrateInventoryStatusLabel(item.status, zh)}`,
+        `    - ${zh ? "研究目标" : "Research goal"}: ${markdownListContinuation(
+          item.research_goal,
+          "research_provenance.captured_substrate_inventory.items[].research_goal",
+        )}`,
+      ]),
+    );
+  }
+  return lines.join("\n");
 }
 
 function bulletList(values: readonly string[], emptyText: string): string {
@@ -718,6 +867,7 @@ function renderResearchProvenance(
   const current = strings(provenance.adopted_current_evidence_refs);
   const currentCited = strings(provenance.cited_current_evidence_refs);
   const revalidation = records(provenance.revalidation_gaps);
+  const capturedInventory = capturedSubstrateInventory(provenance);
   const lines = [
     `- ${zh ? "可用交接 / 捕获条目" : "Available handoffs / captured items"}: ${String(provenance.available_handoff_count)} / ${String(provenance.captured_item_count)}`,
     `- ${zh ? "已消费 / 实际用于形成" : "Consumed / used for formation"}: ${strings(provenance.consumed_item_refs).length} / ${used.length}`,
@@ -726,6 +876,9 @@ function renderResearchProvenance(
     `- ${zh ? "采用 / 报告引用的本次材料" : "Adopted / cited current-Run Evidence"}: ${current.length} / ${currentCited.length}`,
     `- ${zh ? "适用性或重验缺口" : "Applicability or revalidation gaps"}: ${revalidation.length}`,
   ];
+  if (capturedInventory !== null) {
+    lines.push(renderCapturedSubstrateInventory(capturedInventory, zh, detailed));
+  }
   if (detailed && revalidation.length > 0) {
     lines.push(
       ...revalidation.map((item, index) =>
@@ -749,6 +902,20 @@ function renderDiscoveryReviewReferenceNotice(
     : `\n## Discovery Adversarial Review Boundary\n\n${count} Discovery adversarial review result${count === 1 ? "" : "s"} are listed in the audit appendix as reference-only material; they are not a Gate, ranking, elimination, or confidence-ceiling authority.\n\n`;
 }
 
+function renderBriefCapturedSubstrateInventory(
+  source: Record<string, unknown>,
+  zh: boolean,
+): string {
+  const provenance = requiredRecord(source.research_provenance, "research_provenance");
+  const inventory = capturedSubstrateInventory(provenance);
+  if (inventory === null) return "";
+  return [
+    `\n## ${zh ? "已采集但未正式化材料" : "Captured But Not Formalized Materials"}\n`,
+    renderCapturedSubstrateInventory(inventory, zh, false),
+    "\n",
+  ].join("");
+}
+
 export function renderTerminalDecisionBrief(source: Record<string, unknown>): string {
   const zh = isChinese(source.research_language);
   const conclusion = requiredRecord(source.research_conclusion, "research_conclusion");
@@ -766,6 +933,7 @@ export function renderTerminalDecisionBrief(source: Record<string, unknown>): st
     renderExecution(source, zh),
     `\n## ${zh ? "运行健康" : "Runtime Health"}\n`,
     renderRuntimeHealth(source, zh),
+    renderBriefCapturedSubstrateInventory(source, zh),
     `\n## ${zh ? "优先方向与可测试产品假设" : "Priority Directions And Testable Product Hypotheses"}\n`,
     renderDirections(source, zh, true),
     `\n## ${zh ? "决定性来源与证据强弱" : "Decisive Sources And Evidence Strength"}\n`,
@@ -813,7 +981,7 @@ export function renderTerminalFullReport(source: Record<string, unknown>): strin
     `\n## ${zh ? "来源与证据强弱" : "Sources And Evidence Strength"}\n`,
     renderSources(source, zh),
     `\n## ${zh ? "研究来源沿袭" : "Research Provenance"}\n`,
-    renderResearchProvenance(source, zh),
+    renderResearchProvenance(source, zh, true),
     `\n## ${zh ? "有顺序的验证建议" : "Ordered Validation Recommendations"}\n`,
     renderValidationPlan(source, zh),
     renderDiscoveryReviewReferenceNotice(source, zh),

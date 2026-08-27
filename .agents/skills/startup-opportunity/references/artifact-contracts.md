@@ -30,6 +30,10 @@ dropped/superseded 主体不得靠同一 ref、仅改 revision/path 或任意 Ar
 
 所有 validated Evidence 必须在 source 中采用或明确排除；用户 Markdown view 与结构化工程审计数据分离。结构化 terminal source/Audit 保留 exact reason、ref/hash 和推理真值；Harness-owned localization 只转换用户可见的机械文案与内部术语，中文 Brief/core/appendix 继续执行 leakage guard，不用翻译后的 prose 反向替代审计 authority。
 
+非 completed terminal source 遇到同一 Run 已采集但未正式化的 Evidence Store substrate 时，Harness 在 `research_provenance.captured_substrate_inventory` 中投影独立审计清单：exact substrate ref、公开 URL 或用户提供 URI、research goal、`recorded_at`、`captured_not_formalized` 状态、机械未正式化原因和 `does_not_support_conclusions` 边界。该清单不能作为正式 Evidence、readable source、citation、coverage、Gate、排序、confidence、recommendation ceiling、统计或 sufficiency 输入；相同 raw/source identity 不折叠 exact records。
+
+该清单的 Markdown 展示由 Harness renderer 从 `captured_substrate_inventory` 结构化字段精确派生，不是通用内部 ref 可见性放行。Decision Brief 只展示有界摘要，完整报告、审计附录和结构化 `report.json` 保留全部 exact items。字段枚举和 Evidence Store source kind 必须穷尽映射并在未知值时失败；多行 research goal 保持 literal identity，但 renderer 必须把续行约束在所属 Markdown 列表项内，不能让自由文本建立报告章节边界。zh-CN 用户视图校验按结构化 surface 绑定：审计附录中的 Harness-owned Gate diagnostic 区必须与 `gate_warnings` 的字段专属本地化 row exact 闭合，Brief 和 core report 不扫描自由研究 prose。decision question、结论 prose、source claim/inference、commercial uncertainty、validation prose、freshness、limitations 和 inventory research goal 等自由研究 prose 不做关键词/路径 regex 扫描；不接受 caller prose、关键词、substring、token count、首个/末个 fragment 命中、字段白名单或全局 regex/字面量豁免作为 authority。
+
 `report.json`/terminal source 的 `commercial_research_audit_refs` 由 Harness 从 Manifest 自动闭合所有 current formal Audit；`quantitative_signal_rows`、`competitive_substitute_rows`、`incumbent_response_risk_rows` 和 `research_coverage_gaps` 是这些 Audit 的 exact complete projection。caller 漏 ref 或重复表格由 compiler 覆盖；计划 task 确实缺少 Audit 时必须作为 warning、数据缺口和 decision impact 明确展示，不得静默生成空表。编译后正式 projection/hash 漂移在 publication、replay 和 recovery 中仍 fail closed。
 
 Artifact、Store、schema、report 或 recovery 成功都只证明机械 contract，不证明来源真实、Evidence 充分、市场已验证、产品可行或建议正确。

@@ -1563,7 +1563,7 @@ test("Discovery review audit appendix localizes structured enums without rewriti
   const callerSummary = "研究材料指出 plans/private-terminal-state.json 是某产品文档中的公开路径。";
   const callerGapSummary = "论文讨论 contract.unit_tuple_not_allowed 这一协议标识，不能改写。";
   const callerStopReason =
-    "合法研究摘要：\n- [warning / decision_validity] contract.unit_tuple_not_allowed 是被研究产品的原文。";
+    "合法研究摘要：\n- [warning / decision_validity] contract.unit_tuple_not_allowed 是被研究产品的原文。\n## 非阻塞诊断\n## 研究来源沿袭\n## 材料采用、限制与排除";
   const reviewBase = {
     review_ref: "artifacts/reviews/review-enum-matrix.json",
     review_content_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -1840,7 +1840,9 @@ test("Discovery review audit appendix localizes structured enums without rewriti
   assert.match(zhAppendix, /终态: 证据不足/);
   assert.ok(zhAppendix.includes(callerSummary));
   assert.ok(zhAppendix.includes(callerGapSummary));
-  assert.ok(zhAppendix.includes(callerStopReason));
+  assert.ok(zhAppendix.replaceAll("\n    ", "\n").includes(callerStopReason));
+  assert.match(zhAppendix, /\n {4}## 非阻塞诊断\n {4}## 研究来源沿袭/u);
+  assert.deepEqual(localizedTerminalUserViewIssues(source, zhAppendix, "audit_appendix"), []);
   assert.equal(zhAppendix.includes("adversarial-reviewer"), false);
   assert.equal(zhAppendix.includes("search_not_required"), false);
   assert.equal(zhAppendix.includes("retry_unit"), false);
@@ -1871,7 +1873,7 @@ test("Discovery review audit appendix localizes structured enums without rewriti
   assert.match(enAppendix, /Status: insufficient evidence/);
   assert.ok(enAppendix.includes(callerSummary));
   assert.ok(enAppendix.includes(callerGapSummary));
-  assert.ok(enAppendix.includes(callerStopReason));
+  assert.ok(enAppendix.replaceAll("\n    ", "\n").includes(callerStopReason));
   assert.equal(enAppendix.includes("adversarial-reviewer"), false);
   assert.equal(enAppendix.includes("search_not_required"), false);
   assert.equal(enAppendix.includes("manual_review"), false);

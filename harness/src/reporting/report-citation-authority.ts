@@ -1,3 +1,5 @@
+import { isFormalEvidenceSchemaVersion } from "./report-projection-authority.js";
+
 export type ReportCitation =
   | {
       readonly evidence_ref: string;
@@ -11,14 +13,6 @@ export type ReportCitation =
       readonly source_access: "user_provided_non_public";
       readonly canonical_uri: string;
     };
-
-const FORMAL_EVIDENCE_SCHEMA_VERSIONS = new Set([
-  "startup_opportunity.evidence.assessment.current",
-  "startup_opportunity.evidence.discovery_candidate.current",
-  "startup_opportunity.evidence.discovery_evaluation.current",
-  "startup_opportunity.assessment_evidence.v1",
-  "startup_opportunity.candidate_neutral_evidence.v1",
-]);
 
 const MECHANICAL_REPORT_FIELDS = new Set([
   "report_citations",
@@ -64,7 +58,7 @@ export function deriveReportCitations(
   finalReportModel: unknown,
 ): readonly ReportCitation[] {
   const evidenceDocuments = formalDocuments.filter((entry) =>
-    FORMAL_EVIDENCE_SCHEMA_VERSIONS.has(String(entry.document.schema_version)),
+    isFormalEvidenceSchemaVersion(entry.document.schema_version),
   );
   const referenced = new Set(
     reportEvidenceRefs(finalReportModel, new Set(evidenceDocuments.map((entry) => entry.path))),

@@ -2,13 +2,19 @@ import type { FormalArtifactEnvelope } from "../artifact-store/artifact-store.js
 import { canonicalContentHash } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
 
-const FORMAL_EVIDENCE_SCHEMA_VERSIONS = new Set([
+const FORMAL_EVIDENCE_SCHEMA_VERSION_VALUES = [
   "startup_opportunity.evidence.assessment.current",
   "startup_opportunity.evidence.discovery_candidate.current",
   "startup_opportunity.evidence.discovery_evaluation.current",
   "startup_opportunity.assessment_evidence.v1",
   "startup_opportunity.candidate_neutral_evidence.v1",
-]);
+] as const;
+
+const FORMAL_EVIDENCE_SCHEMA_VERSIONS = new Set<string>(FORMAL_EVIDENCE_SCHEMA_VERSION_VALUES);
+
+export function isFormalEvidenceSchemaVersion(value: unknown): boolean {
+  return typeof value === "string" && FORMAL_EVIDENCE_SCHEMA_VERSIONS.has(value);
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -44,10 +50,7 @@ function evidenceBinding(
   envelopesByPath: ReadonlyMap<string, FormalArtifactEnvelope>,
 ): Record<string, unknown> {
   const envelope = envelopesByPath.get(ref);
-  if (
-    envelope === undefined ||
-    !FORMAL_EVIDENCE_SCHEMA_VERSIONS.has(String(envelope.document.schema_version))
-  ) {
+  if (envelope === undefined || !isFormalEvidenceSchemaVersion(envelope.document.schema_version)) {
     throw new StoreError(
       "report.evidence_disposition_authority_missing",
       "report Evidence disposition must target exact typed Evidence",
@@ -366,7 +369,7 @@ export function deriveReportDispositions(
       ]),
     );
     const formalEvidence = [...envelopesByPath.values()]
-      .filter((entry) => FORMAL_EVIDENCE_SCHEMA_VERSIONS.has(String(entry.document.schema_version)))
+      .filter((entry) => isFormalEvidenceSchemaVersion(entry.document.schema_version))
       .sort((left, right) => left.artifact_path.localeCompare(right.artifact_path));
     const dispositions = formalEvidence.map((entry) => {
       const isIncluded = included.has(entry.artifact_path);

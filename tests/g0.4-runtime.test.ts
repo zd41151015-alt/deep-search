@@ -29,6 +29,13 @@ import {
   transformPlan,
 } from "../harness/src/index.js";
 import {
+  localizedTerminalUserViewIssues,
+  renderTerminalAuditAppendix,
+  renderTerminalDecisionBrief,
+  renderTerminalFullReport,
+} from "../harness/src/reporting/terminal-reporting.js";
+import { deriveResearchProvenance } from "../harness/src/validators/research-handoff-validator.js";
+import {
   createDiscoveryMapsFixture,
   fixtureEnvelope,
   G21_CORE_REFS,
@@ -81,8 +88,20 @@ const CONFIRMED_SCOPE = {
   },
 };
 
-function scopeDecisions(runId: string): readonly Record<string, unknown>[] {
-  const scopeHash = canonicalContentHash(CONFIRMED_SCOPE);
+function confirmedScope(
+  researchLanguage = CONFIRMED_SCOPE.research_language,
+): Record<string, unknown> {
+  return researchLanguage === CONFIRMED_SCOPE.research_language
+    ? CONFIRMED_SCOPE
+    : { ...CONFIRMED_SCOPE, research_language: researchLanguage };
+}
+
+function scopeDecisions(
+  runId: string,
+  researchLanguage = CONFIRMED_SCOPE.research_language,
+): readonly Record<string, unknown>[] {
+  const scope = confirmedScope(researchLanguage);
+  const scopeHash = canonicalContentHash(scope);
   const proposal = {
     schema_version: "startup_opportunity.decision.v1",
     decision_id: `scope_proposal_r1_${sha256Hex(scopeHash)}`,
@@ -94,7 +113,7 @@ function scopeDecisions(runId: string): readonly Record<string, unknown>[] {
     artifact_refs: [],
     scope_revision: 1,
     scope_hash: scopeHash,
-    scope: CONFIRMED_SCOPE,
+    scope,
   };
   return [
     proposal,
@@ -729,6 +748,7 @@ function bundle(
   gap: Record<string, unknown>,
   decision: Record<string, unknown>,
   extras: readonly { readonly path: string; readonly document: Record<string, unknown> }[] = [],
+  researchLanguage = CONFIRMED_SCOPE.research_language,
 ): DocumentBundle {
   return {
     schema_version: "startup_opportunity.document_bundle.current",
@@ -740,7 +760,7 @@ function bundle(
       { path: DECISION_REF, document: decision },
       ...extras,
     ],
-    exact_records: scopeDecisions(String(runManifest.run_id)).map((document) => ({
+    exact_records: scopeDecisions(String(runManifest.run_id), researchLanguage).map((document) => ({
       ref: `decisions.jsonl#${String(document.decision_id)}`,
       document,
     })),
@@ -1049,6 +1069,197 @@ function terminalReportSource(
   return { ...source, created_at: generatedAt };
 }
 
+async function seedRuntimeFailureSubstrateOnlyEvidence(
+  runsRoot: string,
+  runId: string,
+): Promise<readonly Record<string, unknown>[]> {
+  const evidence = new EvidenceStore(runsRoot);
+  const records: Record<string, unknown>[] = [];
+  for (let index = 0; index < 17; index += 1) {
+    const publicIndex = index < 12;
+    const repeatedUrlBucket = index % 3;
+    const recorded = await evidence.record({
+      runId,
+      unitId: `runtime_failure_capture_${String(index + 1).padStart(2, "0")}`,
+      source: publicIndex
+        ? {
+            kind: "public_url",
+            canonical_url:
+              index < 6
+                ? `https://synthetic.invalid/runtime-failure/shared-${repeatedUrlBucket}`
+                : `https://synthetic.invalid/runtime-failure/source-${index + 1}`,
+          }
+        : {
+            kind: "user_provided",
+            canonical_uri: `urn:startup-opportunity:user-provided:${runId}-capture-${index + 1}`,
+          },
+      researchGoal: `SYNTHETIC runtime failure captured source ${index + 1}; retained only as substrate and not formal Evidence.`,
+      rawContent: `SYNTHETIC runtime failure raw bytes ${index + 1}; not formal Evidence and not a conclusion source.`,
+      recordedAt: `2026-07-24T12:${String(10 + index).padStart(2, "0")}:00Z`,
+    });
+    records.push(recorded.record as Record<string, unknown>);
+  }
+  return records;
+}
+
+function forgedReadableSource(evidenceRef: string): Record<string, unknown> {
+  return {
+    source_id: "forged_substrate_source",
+    title: "Forged substrate source",
+    url: "https://synthetic.invalid/forged-substrate-source",
+    source_access: "public",
+    retrieved_at: "2026-07-24T12:30:00Z",
+    published_at: null,
+    observed_at: null,
+    data_period_end: null,
+    valid_as_of: null,
+    freshness_status: "undated",
+    claim_type: "vendor_statement",
+    claim_state: "observed",
+    inference: null,
+    source_kind: "vendor",
+    evidence_character: "vendor_claim",
+    independence: "interested_party",
+    commercial_coverage_keys: [],
+    stance: "supports",
+    strength: "weak",
+    claim: "This forged source attempts to turn substrate into conclusion Evidence.",
+    evidence_ref: evidenceRef,
+  };
+}
+
+async function assertNoTerminalReportOutputs(runRoot: string): Promise<void> {
+  for (const relativePath of [
+    "report.json",
+    "decision-brief.md",
+    "report.md",
+    "audit-appendix.md",
+  ]) {
+    await assert.rejects(readFile(path.join(runRoot, relativePath), "utf8"));
+  }
+}
+
+function terminalSourceWithCapturedSubstrateInventory(
+  mutate: (inventory: Record<string, unknown>) => void,
+): Record<string, unknown> {
+  const source = clone(
+    terminalReportSource(
+      "runtime-renderer-fail-closed",
+      sha256Bytes("synthetic decision subject snapshot"),
+      true,
+      DECISION_SUBJECT_SNAPSHOT_REF,
+      PLAN_REF,
+      "2026-07-24T12:09:30Z",
+      undefined,
+      "zh-CN",
+    ).document,
+  );
+  const inventory = {
+    status: "captured_not_formalized",
+    unformalized_reason: "runtime_failure",
+    conclusion_support_status: "does_not_support_conclusions",
+    items: [
+      {
+        evidence_ref: `evidence/manifest.jsonl#ev_${"1".repeat(64)}`,
+        source: {
+          kind: "public_url",
+          canonical_url: "https://synthetic.invalid/runtime-renderer/source",
+        },
+        research_goal: "SYNTHETIC captured substrate audit identity.",
+        recorded_at: "2026-07-24T12:30:00Z",
+        status: "captured_not_formalized",
+      },
+    ],
+  };
+  mutate(inventory);
+  source.research_provenance = {
+    available_handoff_count: 0,
+    captured_item_count: 0,
+    causal_handoff_refs: [],
+    consumed_item_refs: [],
+    used_handoff_items: [],
+    imported_substrate_refs: [],
+    formal_inherited_evidence_refs: [],
+    adopted_inherited_evidence_refs: [],
+    cited_inherited_evidence_refs: [],
+    formal_current_evidence_refs: [],
+    adopted_current_evidence_refs: [],
+    cited_current_evidence_refs: [],
+    captured_substrate_inventory: inventory,
+    revalidation_gaps: [],
+  };
+  return source;
+}
+
+function terminalApplyInput(
+  setup: Awaited<ReturnType<typeof setupPersistedRun>>,
+  terminal: Awaited<ReturnType<typeof prepareTerminalReporting>>,
+  currentBelief: string,
+  times: {
+    readonly createdAt: string;
+    readonly checkpointCreatedAt: string;
+  } = {
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+  },
+) {
+  return {
+    runId: String(setup.currentManifest.run_id),
+    adaptationBundle: terminal.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    terminalReportEnvelope: terminal.reportEnvelope,
+    createdAt: times.createdAt,
+    checkpointCreatedAt: times.checkpointCreatedAt,
+    nextStep: "Publish the exact terminal report source.",
+    beliefSummary: {
+      current_belief: currentBelief,
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Can a later current Run proceed from clean authority?",
+    },
+  };
+}
+
+function discoveryRuntimeEnvelopes(
+  setup: Awaited<ReturnType<typeof setupPersistedRun>>,
+  artifactTypes: readonly string[],
+): readonly FormalArtifactEnvelope[] {
+  assert.ok(setup.discoveryBundle);
+  return setup.discoveryBundle.documents.flatMap((entry) => {
+    const document = entry.document;
+    return document.schema_version === "startup_opportunity.artifact_envelope.current" &&
+      artifactTypes.includes(String(document.artifact_type))
+      ? [document as unknown as FormalArtifactEnvelope]
+      : [];
+  });
+}
+
+function excludeFormalEvidence(
+  terminal: Awaited<ReturnType<typeof prepareTerminalReporting>>,
+  evidenceRefs: readonly string[],
+): void {
+  terminal.reportEnvelope.document.excluded_evidence = evidenceRefs.map((ref, index) => ({
+    evidence_ref: ref,
+    reason: `SYNTHETIC formal Evidence ${index + 1} is explicitly excluded from the terminal conclusion.`,
+  }));
+  terminal.reportEnvelope.document.audit_refs = [
+    ...new Set([
+      ...((terminal.reportEnvelope.document.audit_refs as string[]) ?? []),
+      ...evidenceRefs,
+    ]),
+  ].sort();
+  (terminal.reportEnvelope as unknown as { input_refs: string[] }).input_refs = [
+    ...new Set([
+      ...((terminal.reportEnvelope as unknown as { input_refs?: string[] }).input_refs ?? []),
+      ...evidenceRefs,
+    ]),
+  ].sort();
+  (terminal.reportEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
+    terminal.reportEnvelope.document,
+  );
+}
+
 async function setupPersistedRun(
   contextTest: TestContext,
   runId: string,
@@ -1070,6 +1281,7 @@ async function setupPersistedRun(
     | "phase-transition-add" = "retry",
   requestedByUser = false,
   eventDriven = false,
+  researchLanguage = CONFIRMED_SCOPE.research_language,
 ) {
   const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g04-"));
   contextTest.after(() => rm(root, { recursive: true, force: true }));
@@ -1084,7 +1296,7 @@ async function setupPersistedRun(
       customerModel: "b2c",
       targetUsers: ["synthetic user"],
       decisionGoal: "test current contract",
-      researchLanguage: "en-US",
+      researchLanguage,
     },
     createdAt: "2026-07-24T12:00:00Z",
   });
@@ -1148,6 +1360,7 @@ async function setupPersistedRun(
       ],
       "general",
       true,
+      researchLanguage,
     );
     const bootstrapManifest = (await store.load(runId)).manifest as unknown as Record<
       string,
@@ -1407,21 +1620,29 @@ async function setupPersistedRun(
     path: loaded.lastValidCheckpointRef,
     document: checkpointEnvelope.document,
   };
-  const adaptationBundle = bundle(currentManifest, plan, planningContext, gap, decision, [
-    checkpointEntry,
-    ...(discoveryBundle === null
-      ? []
-      : [
-          {
-            path: PRE_KILL_CANDIDATE_REF,
-            document: runtimeEnvelope(discoveryBundle, PRE_KILL_CANDIDATE_REF),
-          },
-        ]),
-    ...(userDecision === null ? [] : [{ path: "decisions.jsonl", document: userDecision }]),
-    ...(triggerEventRecord === null
-      ? []
-      : [{ path: "events.jsonl", document: triggerEventRecord }]),
-  ]);
+  const adaptationBundle = bundle(
+    currentManifest,
+    plan,
+    planningContext,
+    gap,
+    decision,
+    [
+      checkpointEntry,
+      ...(discoveryBundle === null
+        ? []
+        : [
+            {
+              path: PRE_KILL_CANDIDATE_REF,
+              document: runtimeEnvelope(discoveryBundle, PRE_KILL_CANDIDATE_REF),
+            },
+          ]),
+      ...(userDecision === null ? [] : [{ path: "decisions.jsonl", document: userDecision }]),
+      ...(triggerEventRecord === null
+        ? []
+        : [{ path: "events.jsonl", document: triggerEventRecord }]),
+    ],
+    researchLanguage,
+  );
   return {
     root,
     runsRoot,
@@ -1438,6 +1659,7 @@ async function setupPersistedRun(
     adaptationBundle,
     checkpointEntry,
     discoveryBundle,
+    researchLanguage,
   };
 }
 
@@ -1445,6 +1667,8 @@ async function prepareTerminalReporting(
   setup: Awaited<ReturnType<typeof setupPersistedRun>>,
   runtimeFailure = false,
   terminalOutcomeOverride?: "completed" | "cancelled",
+  researchLanguage = setup.researchLanguage,
+  generatedAt = "2026-07-24T12:09:30Z",
 ) {
   const runId = String(setup.currentManifest.run_id);
   const storedDecisionContextEnvelope =
@@ -1485,7 +1709,7 @@ async function prepareTerminalReporting(
       discovery_profile: "general",
       research_axes: ["user_language", "jtbd_workflow"],
       market: "Synthetic",
-      language: "en-US",
+      language: researchLanguage,
       target_users: ["synthetic user"],
       excluded_users: [],
       platform: "SYNTHETIC delivery platform remains unknown.",
@@ -1563,8 +1787,9 @@ async function prepareTerminalReporting(
       runtimeFailure,
       DECISION_SUBJECT_SNAPSHOT_REF,
       PLAN_REF,
-      "2026-07-24T12:09:30Z",
+      generatedAt,
       terminalOutcomeOverride,
+      researchLanguage,
     ),
   };
 }
@@ -4902,6 +5127,183 @@ test("completed and cancelled outcomes use the atomic terminal Plan closeout", a
   }
 });
 
+test("completed terminal report omits substrate-only inventory while preserving empty readable-source authority", async (contextTest) => {
+  const runId = "runtime-terminal-completed-substrate-omit";
+  const setup = await setupPersistedRun(contextTest, runId, "complete");
+  await seedRuntimeFailureSubstrateOnlyEvidence(setup.runsRoot, runId);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const terminal = await prepareTerminalReporting(setup, false, "completed");
+  const result = await runtime.apply(
+    terminalApplyInput(
+      setup,
+      terminal,
+      "A completed terminal lifecycle must not project audit-only substrate inventory.",
+    ),
+  );
+  assert.equal(result.status, "applied");
+  assert.equal(result.terminalReport?.status, "published");
+  const report = JSON.parse(
+    await readFile(path.join(setup.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  const provenance = report.research_provenance as Record<string, unknown>;
+  assert.equal(provenance.captured_substrate_inventory, undefined);
+  assert.equal((report.sources as unknown[]).length, 0);
+  assert.equal((report.excluded_evidence as unknown[]).length, 0);
+  assert.equal((report.report_citations as unknown[]).length, 0);
+  assert.equal((report.report_statistics as Record<string, unknown>).readable_source_count, 0);
+  assert.equal((await setup.store.status(runId)).manifest.status, "completed");
+  const capturedInventorySurfacePattern =
+    /Captured But Not Formalized Materials|Captured but not formalized substrate inventory|已采集但未正式化材料|已采集但未正式化的材料/u;
+  for (const relativePath of ["decision-brief.md", "report.md", "audit-appendix.md"] as const) {
+    assert.doesNotMatch(
+      await readFile(path.join(setup.runRoot, relativePath), "utf8"),
+      capturedInventorySurfacePattern,
+    );
+  }
+  const zhCompletedSource = clone(report);
+  zhCompletedSource.research_language = "zh-CN";
+  for (const markdown of [
+    renderTerminalDecisionBrief(zhCompletedSource),
+    renderTerminalFullReport(zhCompletedSource),
+    renderTerminalAuditAppendix(zhCompletedSource),
+  ]) {
+    assert.doesNotMatch(markdown, capturedInventorySurfacePattern);
+  }
+});
+
+test("insufficient-evidence terminal report keeps mixed formal and unformalized substrate separate", async (contextTest) => {
+  const runId = "runtime-terminal-insufficient-mixed-substrate";
+  const setup = await setupPersistedRun(contextTest, runId, "pre-kill-exact");
+  const formalEvidenceEnvelopes = discoveryRuntimeEnvelopes(setup, [
+    "startup_opportunity.evidence.discovery_candidate.current",
+  ]);
+  const formalEvidenceRefs = formalEvidenceEnvelopes
+    .map((envelope) => envelope.artifact_path)
+    .sort();
+  assert.equal(formalEvidenceRefs.length, 2);
+  const unformalizedRecords = await seedRuntimeFailureSubstrateOnlyEvidence(setup.runsRoot, runId);
+  const terminal = await prepareTerminalReporting(
+    setup,
+    false,
+    undefined,
+    setup.researchLanguage,
+    "2026-07-28T12:09:30Z",
+  );
+  terminal.reportEnvelope.document.runtime_health = {
+    status: "blocked",
+    issues: [
+      {
+        code: "synthetic_blocked_health_does_not_change_terminal_outcome_reason",
+        stage: "synthetic-insufficient-evidence",
+        detail:
+          "SYNTHETIC runtime health is blocked but terminal outcome is insufficient_evidence.",
+        conclusion_impact: "The inventory reason must remain insufficient_evidence.",
+        related_refs: [GAP_REF],
+      },
+    ],
+  };
+  excludeFormalEvidence(terminal, formalEvidenceRefs);
+  terminal.reportEnvelope.document.report_citations = [];
+  terminal.reportEnvelope.document.report_statistics = {
+    readable_source_count: 0,
+    quantitative_signal_count: 0,
+    decision_grade_quantitative_signal_count: 0,
+    directional_or_context_quantitative_signal_count: 0,
+    competitive_object_count: 0,
+    full_gap_row_count: 0,
+    critical_gap_group_count: 0,
+  };
+  const evidenceStore = new EvidenceStore(setup.runsRoot);
+  const exactRecords = new Map(
+    (await evidenceStore.listRecords(runId)).map(
+      (record) =>
+        [
+          `evidence/manifest.jsonl#${record.evidence_id}`,
+          record as Record<string, unknown>,
+        ] as const,
+    ),
+  );
+  const derivedProvenance = deriveResearchProvenance(
+    runId,
+    [
+      {
+        path: terminal.reportEnvelope.artifact_path,
+        schemaVersion: terminal.reportEnvelope.artifact_type,
+        document: terminal.reportEnvelope.document,
+        envelope: terminal.reportEnvelope as unknown as Record<string, unknown>,
+      },
+      ...formalEvidenceEnvelopes.map((envelope) => ({
+        path: envelope.artifact_path,
+        schemaVersion: envelope.artifact_type,
+        document: envelope.document,
+        envelope: envelope as unknown as Record<string, unknown>,
+      })),
+    ],
+    exactRecords,
+    terminal.reportEnvelope.artifact_path,
+  );
+  terminal.reportEnvelope.document.research_provenance = derivedProvenance;
+  const report = terminal.reportEnvelope.document;
+  const reportProvenance = report.research_provenance as Record<string, unknown>;
+  const inventory = reportProvenance.captured_substrate_inventory as Record<string, unknown>;
+  assert.ok(inventory);
+  assert.equal(inventory.unformalized_reason, "insufficient_evidence");
+  assert.equal(inventory.conclusion_support_status, "does_not_support_conclusions");
+  assert.deepEqual(
+    (reportProvenance.formal_current_evidence_refs as string[]).sort(),
+    formalEvidenceRefs,
+  );
+  assert.deepEqual(reportProvenance.adopted_current_evidence_refs as unknown[], []);
+  assert.deepEqual(reportProvenance.cited_current_evidence_refs as unknown[], []);
+  const inventoryItems = inventory.items as Record<string, unknown>[];
+  const inventoryRefs = inventoryItems.map((item) => String(item.evidence_ref));
+  assert.equal(inventoryRefs.length, unformalizedRecords.length);
+  assert.equal(new Set(inventoryRefs).size, unformalizedRecords.length);
+  assert.deepEqual(
+    inventoryRefs.sort(),
+    unformalizedRecords
+      .map((record) => `evidence/manifest.jsonl#${String(record.evidence_id)}`)
+      .sort(),
+  );
+  const repeatedSourceItems = inventoryItems.filter(
+    (item) =>
+      (item.source as Record<string, unknown>).canonical_url ===
+      "https://synthetic.invalid/runtime-failure/shared-0",
+  );
+  assert.equal(repeatedSourceItems.length, 2);
+  assert.equal(new Set(repeatedSourceItems.map((item) => item.evidence_ref)).size, 2);
+  for (const formalRef of formalEvidenceRefs) {
+    const formalEnvelope = formalEvidenceEnvelopes.find(
+      (envelope) => envelope.artifact_path === formalRef,
+    );
+    assert.ok(formalEnvelope);
+    const binding = formalEnvelope.document.mechanical_binding as Record<string, unknown>;
+    assert.equal(inventoryRefs.includes(String(binding.substrate_record_ref)), false);
+  }
+  assert.deepEqual(
+    (report.excluded_evidence as Record<string, unknown>[])
+      .map((entry) => String(entry.evidence_ref))
+      .sort(),
+    formalEvidenceRefs,
+  );
+  assert.deepEqual(report.sources as unknown[], []);
+  assert.deepEqual(report.report_citations as unknown[], []);
+  assert.equal((report.report_statistics as Record<string, unknown>).readable_source_count, 0);
+  assert.equal(
+    (report.research_conclusion as Record<string, unknown>).outcome,
+    "insufficient_evidence",
+  );
+  assert.equal(
+    (report.research_conclusion as Record<string, unknown>).evidence_strength,
+    "insufficient",
+  );
+  assert.deepEqual(report.directions as unknown[], []);
+  assert.deepEqual(report.gate_warnings as unknown[], []);
+  const reportMarkdown = renderTerminalFullReport(report);
+  assert.match(reportMarkdown, /Captured but not formalized substrate inventory: 17/);
+  assert.equal(reportMarkdown.includes(formalEvidenceRefs[0] ?? "unreachable"), false);
+});
+
 test("complete_research rejects incomplete current Plan unit closure before an intent", async (contextTest) => {
   const runId = "runtime-terminal-complete-incomplete";
   const setup = await setupPersistedRun(contextTest, runId, "complete");
@@ -5175,6 +5577,7 @@ test("decision subject authority survives Plan r2 transition, terminal reporting
 test("Discovery runtime failure terminates and reports from the original Run", async (contextTest) => {
   const runId = "runtime-failure-original-run";
   const setup = await setupPersistedRun(contextTest, runId, "runtime-failure");
+  const substrateRecords = await seedRuntimeFailureSubstrateOnlyEvidence(setup.runsRoot, runId);
   const terminal = await prepareTerminalReporting(setup, true);
   const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
   const input = {
@@ -5200,9 +5603,752 @@ test("Discovery runtime failure terminates and reports from the original Run", a
   assert.equal(status.manifest.status, "failed");
   assert.equal(status.continuationRunIds.length, 0);
   assert.equal(status.terminalReportDisposition, "ready", JSON.stringify(status, null, 2));
+  const report = JSON.parse(
+    await readFile(path.join(setup.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  const provenance = report.research_provenance as Record<string, unknown>;
+  assert.equal(provenance.captured_item_count, 0);
+  const inventory = provenance.captured_substrate_inventory as Record<string, unknown>;
+  assert.ok(inventory);
+  assert.equal(inventory.status, "captured_not_formalized");
+  assert.equal(inventory.unformalized_reason, "runtime_failure");
+  assert.equal(inventory.conclusion_support_status, "does_not_support_conclusions");
+  const capturedItems = inventory.items as Record<string, unknown>[];
+  assert.equal(capturedItems.length, 17);
+  assert.deepEqual(
+    capturedItems.map((item) => item.evidence_ref).sort(),
+    substrateRecords
+      .map((record) => `evidence/manifest.jsonl#${String(record.evidence_id)}`)
+      .sort(),
+  );
+  assert.equal(new Set(capturedItems.map((item) => item.evidence_ref)).size, 17);
+  const repeatedSourceItems = capturedItems.filter(
+    (item) =>
+      (item.source as Record<string, unknown>).canonical_url ===
+      "https://synthetic.invalid/runtime-failure/shared-0",
+  );
+  assert.equal(repeatedSourceItems.length, 2);
+  assert.equal(new Set(repeatedSourceItems.map((item) => item.evidence_ref)).size, 2);
+  assert.equal((report.sources as unknown[]).length, 0);
+  assert.equal((report.excluded_evidence as unknown[]).length, 0);
+  assert.equal((provenance.formal_current_evidence_refs as unknown[]).length, 0);
+  assert.equal((provenance.adopted_current_evidence_refs as unknown[]).length, 0);
+  assert.equal((provenance.cited_current_evidence_refs as unknown[]).length, 0);
+  const statistics = report.report_statistics as Record<string, unknown>;
+  assert.equal(statistics.readable_source_count, 0);
+  assert.equal(
+    (report.research_conclusion as Record<string, unknown>).outcome,
+    "no_recommendation",
+  );
+  assert.equal(
+    (report.research_conclusion as Record<string, unknown>).evidence_strength,
+    "insufficient",
+  );
   const brief = await readFile(path.join(setup.runRoot, "decision-brief.md"), "utf8");
   assert.match(brief, /本次运行失败/);
   assert.match(brief, /Status: blocked/);
+  const full = await readFile(path.join(setup.runRoot, "report.md"), "utf8");
+  assert.match(full, /Captured but not formalized substrate inventory: 17/);
+  assert.match(full, /conclusion boundary: does not support any research conclusion/);
+  for (const record of substrateRecords) {
+    assert.match(full, new RegExp(`evidence/manifest\\.jsonl#${String(record.evidence_id)}`));
+    assert.match(full, new RegExp(String(record.recorded_at)));
+  }
+  assert.match(full, /https:\/\/synthetic\.invalid\/runtime-failure\/shared-0/);
+  assert.match(
+    full,
+    /urn:startup-opportunity:user-provided:runtime-failure-original-run-capture-13/,
+  );
+});
+
+test("Chinese runtime failure reports exact captured substrate inventory without global ref exemption", async (contextTest) => {
+  const runId = "runtime-failure-zh-substrate-inventory";
+  const setup = await setupPersistedRun(
+    contextTest,
+    runId,
+    "runtime-failure",
+    false,
+    false,
+    "zh-CN",
+  );
+  const substrateRecords = await seedRuntimeFailureSubstrateOnlyEvidence(setup.runsRoot, runId);
+  const terminal = await prepareTerminalReporting(setup, true);
+  const result = await (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply(
+    terminalApplyInput(
+      setup,
+      terminal,
+      "The runtime failure must remain visible without supporting a research conclusion.",
+    ),
+  );
+  assert.equal(result.status, "applied");
+  assert.equal(result.terminalReport?.status, "published");
+
+  const report = JSON.parse(
+    await readFile(path.join(setup.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  const provenance = report.research_provenance as Record<string, unknown>;
+  const inventory = provenance.captured_substrate_inventory as Record<string, unknown>;
+  assert.ok(inventory);
+  assert.equal(inventory.unformalized_reason, "runtime_failure");
+  assert.equal(inventory.conclusion_support_status, "does_not_support_conclusions");
+  const capturedItems = inventory.items as Record<string, unknown>[];
+  assert.equal(capturedItems.length, 17);
+  assert.equal((report.sources as unknown[]).length, 0);
+  assert.equal((report.excluded_evidence as unknown[]).length, 0);
+  assert.equal((report.report_citations as unknown[]).length, 0);
+  assert.equal((report.report_statistics as Record<string, unknown>).readable_source_count, 0);
+  assert.equal(
+    (report.research_conclusion as Record<string, unknown>).outcome,
+    "no_recommendation",
+  );
+  assert.equal(
+    (report.research_conclusion as Record<string, unknown>).evidence_strength,
+    "insufficient",
+  );
+
+  const renderedSurfaces = await Promise.all(
+    (["decision-brief.md", "report.md", "audit-appendix.md"] as const).map(
+      async (relativePath) =>
+        [relativePath, await readFile(path.join(setup.runRoot, relativePath), "utf8")] as const,
+    ),
+  );
+  const renderedByPath = new Map(renderedSurfaces);
+  const firstRef = `evidence/manifest.jsonl#${String(substrateRecords[0]?.evidence_id)}`;
+  const brief = renderedByPath.get("decision-brief.md");
+  assert.ok(brief);
+  assert.match(brief, /已采集但未正式化材料/);
+  assert.match(brief, /已采集但未正式化的材料: 17/);
+  assert.match(brief, /结论边界: 不支持任何研究结论/);
+  assert.equal(brief.includes(firstRef), false);
+  for (const record of substrateRecords) {
+    assert.equal(brief.includes(`evidence/manifest.jsonl#${String(record.evidence_id)}`), false);
+    assert.equal(brief.includes(String(record.recorded_at)), false);
+  }
+  assert.deepEqual(
+    localizedTerminalUserViewIssues(report, brief, "decision_brief"),
+    [],
+    "decision-brief.md",
+  );
+
+  for (const relativePath of ["report.md", "audit-appendix.md"] as const) {
+    const markdown = renderedByPath.get(relativePath);
+    assert.ok(markdown);
+    assert.match(markdown, /已采集但未正式化的材料: 17/);
+    assert.match(markdown, /结论边界: 不支持任何研究结论/);
+    assert.equal(markdown.includes(firstRef), true, relativePath);
+    for (const record of substrateRecords) {
+      assert.equal(
+        markdown.includes(`evidence/manifest.jsonl#${String(record.evidence_id)}`),
+        true,
+        relativePath,
+      );
+      assert.equal(markdown.includes(String(record.recorded_at)), true, relativePath);
+    }
+    assert.deepEqual(
+      localizedTerminalUserViewIssues(
+        report,
+        markdown,
+        relativePath === "audit-appendix.md" ? "audit_appendix" : "report",
+      ),
+      [],
+      relativePath,
+    );
+  }
+});
+
+test("terminal substrate inventory preserves caller prose without lexical eligibility authority", () => {
+  const sourceTitleDiagnosticLiteral = "contract.unit_tuple_not_allowed";
+  const citationLabelDiagnosticLiteral = "plans/private-terminal-state.json";
+  const base = terminalSourceWithCapturedSubstrateInventory(() => {});
+  const baseMarkdown = renderTerminalFullReport(base);
+  const inventoryFragment = baseMarkdown.match(
+    /- 已采集但未正式化的材料: 1[\s\S]*?(?=\n## |$)/u,
+  )?.[0];
+  assert.ok(inventoryFragment);
+  const source = terminalSourceWithCapturedSubstrateInventory(() => {});
+  const conclusion = source.research_conclusion as Record<string, unknown>;
+  conclusion.current_recommendation = `${inventoryFragment}\n\n本次运行失败，不能形成研究建议。`;
+  source.decision_question = `${inventoryFragment}\n\n用户问题保留 literal evidence/manifest.jsonl#ev_${"1".repeat(
+    64,
+  )} 和 terminal_reporting.localized_internal_term。`;
+  source.sources = [
+    {
+      ...forgedReadableSource("artifacts/synthetic/formal-evidence.r1.json"),
+      title: sourceTitleDiagnosticLiteral,
+      claim: `${inventoryFragment}\n\nSource claim literal plans/private-terminal-state.json after contract.unit_tuple_not_allowed.`,
+    },
+  ];
+  source.report_citations = [
+    {
+      evidence_ref: "artifacts/synthetic/formal-evidence.r1.json",
+      label: citationLabelDiagnosticLiteral,
+      source_access: "public",
+      url: "https://synthetic.invalid/citation-literal",
+    },
+  ];
+  source.commercial_uncertainties = [
+    {
+      coverage_key: "purchase_signal",
+      statement: `${inventoryFragment}\n\nCommercial uncertainty literal evidence/manifest.jsonl#ev_${"1".repeat(
+        64,
+      )} and runtime_blocked.`,
+      starting_point: "Caller prose may preserve exact internal-looking strings literally.",
+      reasoning: "Caller prose is not a structured diagnostic renderer.",
+      uncertainty: "The literal string is research prose, not an authority leak.",
+      validation_needed: "No lexical validation should decide report eligibility from this prose.",
+      related_subject_ids: [],
+      related_source_ids: [],
+    },
+  ];
+  const canonicalMarkdown = renderTerminalFullReport(source);
+  assert.equal(canonicalMarkdown.split(inventoryFragment).length - 1, 4);
+  assert.match(canonicalMarkdown, /\[contract\.unit_tuple_not_allowed\]/u);
+  assert.deepEqual(localizedTerminalUserViewIssues(source, canonicalMarkdown, "report"), []);
+  assert.deepEqual(
+    localizedTerminalUserViewIssues(
+      {
+        research_language: "zh-CN",
+        sources: [
+          {
+            title: sourceTitleDiagnosticLiteral,
+            url: "https://example.invalid",
+          },
+        ],
+        report_citations: [],
+      },
+      `结构化诊断: ${sourceTitleDiagnosticLiteral}`,
+    ),
+    [],
+  );
+});
+
+test("captured substrate research goal cannot impersonate audit section boundaries", () => {
+  const source = terminalSourceWithCapturedSubstrateInventory((inventory) => {
+    const item = (inventory.items as Record<string, unknown>[])[0];
+    assert.ok(item);
+    item.research_goal =
+      "Caller research goal keeps literal headings:\n## 研究来源沿袭\n## 材料采用、限制与排除";
+  });
+  const appendix = renderTerminalAuditAppendix(source);
+  assert.match(appendix, /Caller research goal keeps literal headings/u);
+  assert.deepEqual(localizedTerminalUserViewIssues(source, appendix, "audit_appendix"), []);
+});
+
+function syntheticEvidenceRecord(
+  runId: string,
+  hex: string,
+  recordedAt: string,
+): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.evidence_store_record.v2",
+    run_id: runId,
+    evidence_id: `ev_${hex.repeat(64)}`,
+    unit_id: "synthetic_unit",
+    source: {
+      kind: "public_url",
+      canonical_url: "https://synthetic.invalid/formal-authority/shared",
+    },
+    research_goal: `SYNTHETIC substrate ${hex}; preserve exact formalization boundary.`,
+    recorded_at: recordedAt,
+  };
+}
+
+function provenanceDocument(
+  pathValue: string,
+  schemaVersion: string,
+  document: Record<string, unknown>,
+  inputRefs: readonly string[] = [],
+) {
+  return {
+    path: pathValue,
+    schemaVersion,
+    document,
+    envelope: { input_refs: inputRefs },
+  };
+}
+
+test("research provenance uses the shared formal Evidence authority for runtime substrate inventory", () => {
+  for (const [schemaVersion, formalPath, sourceManifestVersion] of [
+    [
+      "startup_opportunity.assessment_evidence.v1",
+      "artifacts/assessment/evidence/formal-assessment.r1.json",
+      "startup_opportunity.source_manifest.assessment.current",
+    ],
+    [
+      "startup_opportunity.candidate_neutral_evidence.v1",
+      "artifacts/discovery/evidence/candidate-neutral.r1.json",
+      "startup_opportunity.source_manifest.discovery_candidate.current",
+    ],
+  ] as const) {
+    const runId = `runtime-formal-authority-${schemaVersion
+      .replaceAll("startup_opportunity.", "")
+      .replaceAll(".", "-")}`;
+    const formalRecord = syntheticEvidenceRecord(runId, "a", "2026-07-24T12:10:00Z");
+    const unformalizedOne = syntheticEvidenceRecord(runId, "b", "2026-07-24T12:11:00Z");
+    const unformalizedTwo = syntheticEvidenceRecord(runId, "c", "2026-07-24T12:12:00Z");
+    const exactRecords = new Map(
+      [formalRecord, unformalizedOne, unformalizedTwo].map(
+        (record) => [`evidence/manifest.jsonl#${String(record.evidence_id)}`, record] as const,
+      ),
+    );
+    const sourceManifestPath = `artifacts/source-manifests/${schemaVersion.replaceAll(
+      ".",
+      "-",
+    )}.json`;
+    const reportPath = "artifacts/reporting/terminal-report-source.r1.json";
+    const projection = deriveResearchProvenance(
+      runId,
+      [
+        provenanceDocument(
+          reportPath,
+          "startup_opportunity.terminal_report_source.v1",
+          {
+            terminal_outcome: "failed",
+            runtime_health: { status: "blocked", issues: [] },
+            sources: [{ evidence_ref: formalPath }],
+          },
+          [formalPath, sourceManifestPath],
+        ),
+        provenanceDocument(formalPath, schemaVersion, {
+          schema_version: schemaVersion,
+          mechanical_binding: {
+            substrate_record_ref: `evidence/manifest.jsonl#${String(formalRecord.evidence_id)}`,
+          },
+        }),
+        provenanceDocument(sourceManifestPath, sourceManifestVersion, {
+          schema_version: sourceManifestVersion,
+          accepted_evidence_refs: [formalPath],
+        }),
+      ],
+      exactRecords,
+      reportPath,
+    );
+    assert.deepEqual(projection.formal_current_evidence_refs, [formalPath], schemaVersion);
+    assert.deepEqual(projection.adopted_current_evidence_refs, [formalPath], schemaVersion);
+    assert.deepEqual(projection.cited_current_evidence_refs, [formalPath], schemaVersion);
+    const inventory = projection.captured_substrate_inventory as Record<string, unknown>;
+    assert.ok(inventory, schemaVersion);
+    const inventoryRefs = (inventory.items as Record<string, unknown>[]).map((item) =>
+      String(item.evidence_ref),
+    );
+    assert.deepEqual(
+      inventoryRefs,
+      [
+        `evidence/manifest.jsonl#${String(unformalizedOne.evidence_id)}`,
+        `evidence/manifest.jsonl#${String(unformalizedTwo.evidence_id)}`,
+      ],
+      schemaVersion,
+    );
+    assert.equal(
+      inventoryRefs.includes(`evidence/manifest.jsonl#${String(formalRecord.evidence_id)}`),
+      false,
+      schemaVersion,
+    );
+    assert.equal(new Set(inventoryRefs).size, 2, schemaVersion);
+    assert.equal(
+      new Set(
+        (inventory.items as Record<string, unknown>[]).map(
+          (item) => (item.source as Record<string, unknown>).canonical_url,
+        ),
+      ).size,
+      1,
+      schemaVersion,
+    );
+  }
+});
+
+test("captured substrate inventory renderer fails closed on unknown structured values", () => {
+  const valid = terminalSourceWithCapturedSubstrateInventory(() => {});
+  assert.doesNotThrow(() => renderTerminalFullReport(valid));
+  for (const [label, mutate, pattern] of [
+    [
+      "inventory status",
+      (inventory: Record<string, unknown>) => {
+        inventory.status = "available";
+      },
+      /captured substrate status/u,
+    ],
+    [
+      "inventory reason",
+      (inventory: Record<string, unknown>) => {
+        inventory.unformalized_reason = "raw_runtime_failure";
+      },
+      /unformalized_reason/u,
+    ],
+    [
+      "unreachable inventory reason",
+      (inventory: Record<string, unknown>) => {
+        inventory.unformalized_reason = "other_early_stop";
+      },
+      /unformalized_reason/u,
+    ],
+    [
+      "conclusion boundary",
+      (inventory: Record<string, unknown>) => {
+        inventory.conclusion_support_status = "supports_conclusions";
+      },
+      /conclusion_support_status/u,
+    ],
+    [
+      "item status",
+      (inventory: Record<string, unknown>) => {
+        const item = (inventory.items as Record<string, unknown>[])[0];
+        assert.ok(item);
+        item.status = "available";
+      },
+      /captured substrate status/u,
+    ],
+    [
+      "source kind",
+      (inventory: Record<string, unknown>) => {
+        const item = (inventory.items as Record<string, unknown>[])[0];
+        assert.ok(item);
+        item.source = { kind: "private_url", canonical_url: "https://synthetic.invalid/private" };
+      },
+      /source kind/u,
+    ],
+    [
+      "source identity",
+      (inventory: Record<string, unknown>) => {
+        const item = (inventory.items as Record<string, unknown>[])[0];
+        assert.ok(item);
+        item.source = { kind: "public_url" };
+      },
+      /canonical_url/u,
+    ],
+  ] as const) {
+    const source = terminalSourceWithCapturedSubstrateInventory(mutate);
+    assert.throws(() => renderTerminalFullReport(source), pattern, label);
+  }
+});
+
+test("runtime failure substrate cannot be promoted into terminal report sources", async (contextTest) => {
+  const runId = "runtime-failure-forged-substrate-source";
+  const setup = await setupPersistedRun(contextTest, runId, "runtime-failure");
+  const substrateRecords = await seedRuntimeFailureSubstrateOnlyEvidence(setup.runsRoot, runId);
+  const firstRecord = substrateRecords[0];
+  assert.ok(firstRecord);
+  const substrateRef = `evidence/manifest.jsonl#${String(firstRecord.evidence_id)}`;
+  const terminal = await prepareTerminalReporting(setup, true);
+  const forged = clone(terminal.reportEnvelope);
+  forged.document.sources = [forgedReadableSource(substrateRef)];
+  (forged as { content_hash: string }).content_hash = canonicalContentHash(forged.document);
+  await assert.rejects(
+    (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+      runId,
+      adaptationBundle: terminal.adaptationBundle,
+      adaptationRefs: [DECISION_REF],
+      terminalReportEnvelope: forged,
+      createdAt: "2026-07-24T12:08:00Z",
+      checkpointCreatedAt: "2026-07-24T12:09:00Z",
+      nextStep: "Reject substrate-only material as a formal report source.",
+      beliefSummary: {
+        current_belief: "Substrate records remain audit-only after a runtime failure.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Can a later repaired Run formalize these materials?",
+      },
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "report.source_invalid" &&
+      JSON.stringify(error.details).includes(substrateRef),
+  );
+  assert.equal((await setup.store.status(runId)).manifest.status, "researching");
+  for (const relativePath of ["report.json", "decision-brief.md", "report.md"]) {
+    await assert.rejects(readFile(path.join(setup.runRoot, relativePath), "utf8"));
+  }
+});
+
+test("runtime failure rejects cross-Run or broken caller substrate provenance", async (contextTest) => {
+  const runId = "runtime-failure-forged-substrate-provenance";
+  const setup = await setupPersistedRun(contextTest, runId, "runtime-failure");
+  const sourceRunId = "runtime-failure-cross-run-substrate-source";
+  await createConfirmedRun(setup.store, {
+    runId: sourceRunId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic source user"],
+      decisionGoal: "provide a cross-Run substrate record that must not project",
+      researchLanguage: "en-US",
+    },
+    createdAt: "2026-07-24T11:00:00Z",
+  });
+  const crossRunRecords = await seedRuntimeFailureSubstrateOnlyEvidence(
+    setup.runsRoot,
+    sourceRunId,
+  );
+  const crossRunRecord = crossRunRecords[0];
+  assert.ok(crossRunRecord);
+  const crossRunRef = `evidence/manifest.jsonl#${String(crossRunRecord.evidence_id)}`;
+  const brokenRef = `evidence/manifest.jsonl#ev_${"0".repeat(64)}`;
+  const terminal = await prepareTerminalReporting(setup, true);
+  const forged = clone(terminal.reportEnvelope);
+  forged.document.research_provenance = {
+    available_handoff_count: 0,
+    captured_item_count: 0,
+    causal_handoff_refs: [],
+    consumed_item_refs: [],
+    used_handoff_items: [],
+    imported_substrate_refs: [],
+    formal_inherited_evidence_refs: [],
+    adopted_inherited_evidence_refs: [],
+    cited_inherited_evidence_refs: [],
+    formal_current_evidence_refs: [],
+    adopted_current_evidence_refs: [],
+    cited_current_evidence_refs: [],
+    captured_substrate_inventory: {
+      status: "captured_not_formalized",
+      unformalized_reason: "runtime_failure",
+      conclusion_support_status: "does_not_support_conclusions",
+      items: [
+        {
+          evidence_ref: crossRunRef,
+          source: crossRunRecord.source,
+          research_goal: crossRunRecord.research_goal,
+          recorded_at: crossRunRecord.recorded_at,
+          status: "captured_not_formalized",
+        },
+        {
+          evidence_ref: brokenRef,
+          source: {
+            kind: "public_url",
+            canonical_url: "https://synthetic.invalid/runtime-failure/broken-ref",
+          },
+          research_goal: "SYNTHETIC broken ref must not be accepted into terminal provenance.",
+          recorded_at: "2026-07-24T12:30:00Z",
+          status: "captured_not_formalized",
+        },
+      ],
+    },
+    revalidation_gaps: [],
+  };
+  (forged as { content_hash: string }).content_hash = canonicalContentHash(forged.document);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  await assert.rejects(
+    runtime.apply({
+      runId,
+      adaptationBundle: terminal.adaptationBundle,
+      adaptationRefs: [DECISION_REF],
+      terminalReportEnvelope: forged,
+      createdAt: "2026-07-24T12:08:00Z",
+      checkpointCreatedAt: "2026-07-24T12:09:00Z",
+      nextStep: "Reject cross-Run or broken substrate provenance.",
+      beliefSummary: {
+        current_belief: "Only exact same-Run Evidence Store records may be projected.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Can a clean terminal report omit foreign records?",
+      },
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "report.source_invalid" &&
+      error.message.includes("research provenance"),
+  );
+  assert.equal((await setup.store.status(runId)).manifest.status, "researching");
+
+  const clean = await runtime.apply({
+    runId,
+    adaptationBundle: terminal.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    terminalReportEnvelope: terminal.reportEnvelope,
+    createdAt: "2026-07-24T12:08:00Z",
+    checkpointCreatedAt: "2026-07-24T12:09:00Z",
+    nextStep: "Publish only exact same-Run terminal provenance.",
+    beliefSummary: {
+      current_belief: "The target Run has no same-Run substrate records to project.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Can a repaired Run capture formal Evidence?",
+    },
+  });
+  assert.equal(clean.status, "applied");
+  const report = JSON.parse(
+    await readFile(path.join(setup.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  const provenance = report.research_provenance as Record<string, unknown>;
+  assert.equal(provenance.captured_substrate_inventory, undefined);
+  assert.doesNotMatch(await readFile(path.join(setup.runRoot, "report.md"), "utf8"), /cross-run/iu);
+  assert.doesNotMatch(
+    await readFile(path.join(setup.runRoot, "report.md"), "utf8"),
+    new RegExp(String(crossRunRecord.evidence_id)),
+  );
+});
+
+test("runtime failure rejects caller substrate provenance from another Run before report writes", async (contextTest) => {
+  const runId = "runtime-failure-cross-run-substrate-provenance";
+  const setup = await setupPersistedRun(contextTest, runId, "runtime-failure");
+  const sourceRunId = "runtime-failure-cross-run-only-source";
+  await createConfirmedRun(setup.store, {
+    runId: sourceRunId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic source user"],
+      decisionGoal: "provide a cross-Run substrate record that must not project",
+      researchLanguage: "en-US",
+    },
+    createdAt: "2026-07-24T11:00:00Z",
+  });
+  const crossRunRecords = await seedRuntimeFailureSubstrateOnlyEvidence(
+    setup.runsRoot,
+    sourceRunId,
+  );
+  const crossRunRecord = crossRunRecords[0];
+  assert.ok(crossRunRecord);
+  const crossRunRef = `evidence/manifest.jsonl#${String(crossRunRecord.evidence_id)}`;
+  const terminal = await prepareTerminalReporting(setup, true);
+  const forged = clone(terminal.reportEnvelope);
+  forged.document.research_provenance = {
+    available_handoff_count: 0,
+    captured_item_count: 0,
+    causal_handoff_refs: [],
+    consumed_item_refs: [],
+    used_handoff_items: [],
+    imported_substrate_refs: [],
+    formal_inherited_evidence_refs: [],
+    adopted_inherited_evidence_refs: [],
+    cited_inherited_evidence_refs: [],
+    formal_current_evidence_refs: [],
+    adopted_current_evidence_refs: [],
+    cited_current_evidence_refs: [],
+    captured_substrate_inventory: {
+      status: "captured_not_formalized",
+      unformalized_reason: "runtime_failure",
+      conclusion_support_status: "does_not_support_conclusions",
+      items: [
+        {
+          evidence_ref: crossRunRef,
+          source: crossRunRecord.source,
+          research_goal: crossRunRecord.research_goal,
+          recorded_at: crossRunRecord.recorded_at,
+          status: "captured_not_formalized",
+        },
+      ],
+    },
+    revalidation_gaps: [],
+  };
+  (forged as { content_hash: string }).content_hash = canonicalContentHash(forged.document);
+  await assert.rejects(
+    (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+      ...terminalApplyInput(
+        setup,
+        { ...terminal, reportEnvelope: forged },
+        "Foreign substrate records must remain outside this Run's terminal provenance.",
+      ),
+      terminalReportEnvelope: forged,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "report.source_invalid" &&
+      error.message.includes("research provenance"),
+  );
+  assert.equal((await setup.store.status(runId)).manifest.status, "researching");
+  await assertNoTerminalReportOutputs(setup.runRoot);
+});
+
+test("runtime failure rejects missing caller substrate provenance before report writes", async (contextTest) => {
+  const runId = "runtime-failure-missing-substrate-provenance";
+  const setup = await setupPersistedRun(contextTest, runId, "runtime-failure");
+  const missingRef = `evidence/manifest.jsonl#ev_${"0".repeat(64)}`;
+  const terminal = await prepareTerminalReporting(setup, true);
+  const forged = clone(terminal.reportEnvelope);
+  forged.document.research_provenance = {
+    available_handoff_count: 0,
+    captured_item_count: 0,
+    causal_handoff_refs: [],
+    consumed_item_refs: [],
+    used_handoff_items: [],
+    imported_substrate_refs: [],
+    formal_inherited_evidence_refs: [],
+    adopted_inherited_evidence_refs: [],
+    cited_inherited_evidence_refs: [],
+    formal_current_evidence_refs: [],
+    adopted_current_evidence_refs: [],
+    cited_current_evidence_refs: [],
+    captured_substrate_inventory: {
+      status: "captured_not_formalized",
+      unformalized_reason: "runtime_failure",
+      conclusion_support_status: "does_not_support_conclusions",
+      items: [
+        {
+          evidence_ref: missingRef,
+          source: {
+            kind: "public_url",
+            canonical_url: "https://synthetic.invalid/runtime-failure/missing-ref",
+          },
+          research_goal: "SYNTHETIC missing ref must not be accepted into terminal provenance.",
+          recorded_at: "2026-07-24T12:30:00Z",
+          status: "captured_not_formalized",
+        },
+      ],
+    },
+    revalidation_gaps: [],
+  };
+  (forged as { content_hash: string }).content_hash = canonicalContentHash(forged.document);
+  await assert.rejects(
+    (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+      ...terminalApplyInput(
+        setup,
+        { ...terminal, reportEnvelope: forged },
+        "Missing substrate refs must fail closed before terminal outputs are written.",
+      ),
+      terminalReportEnvelope: forged,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "report.source_invalid" &&
+      error.message.includes("research provenance"),
+  );
+  assert.equal((await setup.store.status(runId)).manifest.status, "researching");
+  await assertNoTerminalReportOutputs(setup.runRoot);
+});
+
+test("runtime failure substrate inventory fails closed on broken Evidence Store hashes", async (contextTest) => {
+  const runId = "runtime-failure-broken-substrate-hash";
+  const setup = await setupPersistedRun(contextTest, runId, "runtime-failure");
+  await seedRuntimeFailureSubstrateOnlyEvidence(setup.runsRoot, runId);
+  const terminal = await prepareTerminalReporting(setup, true);
+  const manifestPath = path.join(setup.runRoot, "evidence/manifest.jsonl");
+  const lines = (await readFile(manifestPath, "utf8")).trimEnd().split("\n");
+  assert.ok(lines[0]);
+  const tampered = JSON.parse(lines[0]) as Record<string, unknown>;
+  tampered.source_hash = sha256Bytes("synthetic wrong source hash");
+  lines[0] = canonicalJson(tampered);
+  await writeFile(manifestPath, `${lines.join("\n")}\n`);
+  await assert.rejects(
+    (await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot)).apply({
+      runId,
+      adaptationBundle: terminal.adaptationBundle,
+      adaptationRefs: [DECISION_REF],
+      terminalReportEnvelope: terminal.reportEnvelope,
+      createdAt: "2026-07-24T12:08:00Z",
+      checkpointCreatedAt: "2026-07-24T12:09:00Z",
+      nextStep: "Reject a runtime failure report whose substrate store is corrupt.",
+      beliefSummary: {
+        current_belief: "Evidence Store hash integrity is required even for audit-only projection.",
+        evidence_that_changed_belief: [],
+        unchanged_assumptions: [],
+        remaining_disagreement: [],
+        next_decision_relevant_question: "Can the store be repaired before reporting?",
+      },
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "evidence.invalid_record",
+  );
+  await assert.rejects(
+    setup.store.status(runId),
+    (error: unknown) => error instanceof StoreError && error.code === "evidence.invalid_record",
+  );
+  for (const relativePath of ["report.json", "decision-brief.md", "report.md"]) {
+    await assert.rejects(readFile(path.join(setup.runRoot, relativePath), "utf8"));
+  }
 });
 
 test("runtime failure alone may close with a disclosed missing Search Closure", async (contextTest) => {

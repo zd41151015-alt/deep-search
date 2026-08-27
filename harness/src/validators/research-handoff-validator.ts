@@ -1,4 +1,10 @@
 import { canonicalContentHash, canonicalJson, sha256Bytes } from "../artifact-store/canonical.js";
+import { StoreError } from "../artifact-store/store-error.js";
+import type {
+  CanonicalEvidenceSource,
+  EvidenceHandoffBinding,
+} from "../evidence-store/evidence-store.js";
+import { isFormalEvidenceSchemaVersion } from "../reporting/report-projection-authority.js";
 import type { ValidationIssue } from "./schema-bundle.js";
 
 export interface ResearchHandoffDocument {
@@ -21,7 +27,30 @@ export interface ResearchProvenanceProjection extends Record<string, unknown> {
   readonly formal_current_evidence_refs: readonly string[];
   readonly adopted_current_evidence_refs: readonly string[];
   readonly cited_current_evidence_refs: readonly string[];
+  readonly captured_substrate_inventory?: CapturedSubstrateInventory;
   readonly revalidation_gaps: readonly Record<string, unknown>[];
+}
+
+export interface CapturedSubstrateInventoryItem extends Record<string, unknown> {
+  readonly evidence_ref: string;
+  readonly source: CanonicalEvidenceSource;
+  readonly research_goal: string;
+  readonly recorded_at: string;
+  readonly status: "captured_not_formalized";
+  readonly handoff_binding?: EvidenceHandoffBinding;
+}
+
+type CapturedSubstrateReason =
+  | "runtime_failure"
+  | "insufficient_evidence"
+  | "cancelled"
+  | "deprioritized";
+
+export interface CapturedSubstrateInventory extends Record<string, unknown> {
+  readonly status: "captured_not_formalized";
+  readonly unformalized_reason: CapturedSubstrateReason;
+  readonly conclusion_support_status: "does_not_support_conclusions";
+  readonly items: readonly CapturedSubstrateInventoryItem[];
 }
 
 const CONTROL_SCHEMA_VERSIONS = new Set([
@@ -434,13 +463,7 @@ export function deriveResearchProvenance(
     .filter((ref, index, values) => values.indexOf(ref) === index)
     .sort();
   const evidenceDocuments = documents.filter(
-    (entry) =>
-      causalPaths.has(entry.path) &&
-      [
-        "startup_opportunity.evidence.assessment.current",
-        "startup_opportunity.evidence.discovery_candidate.current",
-        "startup_opportunity.evidence.discovery_evaluation.current",
-      ].includes(entry.schemaVersion),
+    (entry) => causalPaths.has(entry.path) && isFormalEvidenceSchemaVersion(entry.schemaVersion),
   );
   const acceptedEvidenceRefs = new Set(
     documents
@@ -471,6 +494,90 @@ export function deriveResearchProvenance(
       adopted: acceptedEvidenceRefs.has(entry.path),
     };
   });
+  const allEvidenceDocuments = documents.filter((entry) =>
+    isFormalEvidenceSchemaVersion(entry.schemaVersion),
+  );
+  const formalEvidenceSubstrateRefs = new Set(
+    allEvidenceDocuments.flatMap((entry) => {
+      const binding = isRecord(entry.document.mechanical_binding)
+        ? entry.document.mechanical_binding
+        : {};
+      return typeof binding.substrate_record_ref === "string"
+        ? [String(binding.substrate_record_ref)]
+        : [];
+    }),
+  );
+  const reportRoot = documents.find((entry) => entry.path === reportRootPath);
+  const reportRootDocument = isRecord(reportRoot?.document) ? reportRoot.document : null;
+  const terminalOutcome =
+    reportRootDocument !== null && typeof reportRootDocument.terminal_outcome === "string"
+      ? reportRootDocument.terminal_outcome
+      : null;
+  const runtimeHealth = isRecord(reportRootDocument?.runtime_health)
+    ? reportRootDocument.runtime_health
+    : null;
+  const capturedSubstrateReason =
+    terminalOutcome === "failed" || terminalOutcome === "blocked"
+      ? "runtime_failure"
+      : terminalOutcome === "insufficient_evidence"
+        ? "insufficient_evidence"
+        : terminalOutcome === "deprioritized"
+          ? "deprioritized"
+          : terminalOutcome === "cancelled"
+            ? "cancelled"
+            : runtimeHealth?.status === "blocked"
+              ? "runtime_failure"
+              : null;
+  const projectCapturedSubstrateInventory = capturedSubstrateReason !== null;
+  const capturedSubstrateInventory = projectCapturedSubstrateInventory
+    ? [...exactRecords.values()]
+        .filter(
+          (record): record is Record<string, unknown> =>
+            isRecord(record) &&
+            record.schema_version === "startup_opportunity.evidence_store_record.v2" &&
+            record.run_id === runId &&
+            typeof record.evidence_id === "string" &&
+            typeof record.research_goal === "string" &&
+            typeof record.recorded_at === "string" &&
+            !formalEvidenceSubstrateRefs.has(
+              `evidence/manifest.jsonl#${String(record.evidence_id)}`,
+            ),
+        )
+        .map((record) => {
+          const source = isRecord(record.source) ? record.source : null;
+          if (
+            source === null ||
+            !["public_url", "user_provided"].includes(String(source.kind)) ||
+            (source.kind === "public_url" && typeof source.canonical_url !== "string") ||
+            (source.kind === "user_provided" && typeof source.canonical_uri !== "string")
+          ) {
+            throw new StoreError(
+              "report.provenance_substrate_invalid",
+              "terminal provenance must project exact Evidence Store substrate source identity",
+              { evidenceRef: `evidence/manifest.jsonl#${String(record.evidence_id)}` },
+            );
+          }
+          return {
+            evidence_ref: `evidence/manifest.jsonl#${String(record.evidence_id)}`,
+            source: structuredClone(source) as unknown as CanonicalEvidenceSource,
+            research_goal: String(record.research_goal),
+            recorded_at: String(record.recorded_at),
+            status: "captured_not_formalized" as const,
+            ...(isRecord(record.handoff_binding)
+              ? {
+                  handoff_binding: structuredClone(
+                    record.handoff_binding,
+                  ) as unknown as EvidenceHandoffBinding,
+                }
+              : {}),
+          };
+        })
+        .sort(
+          (left, right) =>
+            String(left.recorded_at).localeCompare(String(right.recorded_at)) ||
+            String(left.evidence_ref).localeCompare(String(right.evidence_ref)),
+        )
+    : [];
   const citedRefs = new Set<string>();
   for (const entry of documents.filter((candidate) => causalPaths.has(candidate.path))) {
     refsInValue(
@@ -526,6 +633,16 @@ export function deriveResearchProvenance(
       .filter((entry) => !entry.inherited && entry.adopted && citedRefs.has(entry.path))
       .map((entry) => entry.path)
       .sort(),
+    ...(capturedSubstrateInventory.length === 0 || capturedSubstrateReason === null
+      ? {}
+      : {
+          captured_substrate_inventory: {
+            status: "captured_not_formalized",
+            unformalized_reason: capturedSubstrateReason,
+            conclusion_support_status: "does_not_support_conclusions",
+            items: capturedSubstrateInventory,
+          },
+        }),
     revalidation_gaps: usedItems.filter(
       (item) =>
         item.revalidation_status === "required" ||
