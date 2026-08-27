@@ -4240,7 +4240,7 @@ test("Chinese commercial tables keep exact refs in structured data but hide inte
     (structuredResponseRow.assessment.semantic as Record<string, unknown>).background_evidence_refs,
     [evidenceRef],
   );
-  assert.match(chinese, /中国大陆 B2C 教育替代基线/);
+  assert.match(chinese, /china_b2c_education_alternatives_baseline/);
   assert.match(chinese, /audit-appendix\.md/u);
   const researchGap = renderResearchCoverageGaps(
     {
@@ -4259,8 +4259,8 @@ test("Chinese commercial tables keep exact refs in structured data but hide inte
     },
     true,
   );
-  assert.match(researchGap, /独立反向证据/);
-  assert.doesNotMatch(researchGap, /independent_counterevidence/);
+  assert.match(researchGap, /independent_counterevidence/);
+  assert.doesNotMatch(researchGap, /独立反向证据/);
   const gateWarnings = renderGateWarnings(
     {
       gate_warnings: [

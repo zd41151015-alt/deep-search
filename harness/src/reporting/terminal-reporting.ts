@@ -18,7 +18,12 @@ import {
   scanDiscoveryReportSurfaces,
 } from "./report-consistency.js";
 import { renderEvidenceDispositions } from "./report-evidence-dispositions.js";
-import { userVisibleText } from "./report-localization.js";
+import { localizedDeliveryForm, userVisibleText } from "./report-localization.js";
+
+export {
+  localizedTerminalDerivedDocumentIssueDetails,
+  localizedTerminalUserViewIssues,
+} from "./report-localization.js";
 
 const TERMINAL_REPORT_SECTION_IDS = [
   "execution",
@@ -379,6 +384,10 @@ function reviewEnumList(values: readonly string[], zh: boolean): string {
   return values.map((value) => reviewEnumLabel(value, zh)).join(", ");
 }
 
+function prose(value: unknown, zh: boolean): string {
+  return zh ? userVisibleText(value, true) : String(value);
+}
+
 function marketPriorityLabel(value: unknown, zh: boolean): string {
   if (!zh) return enumLabel(value, false);
   return (
@@ -422,10 +431,10 @@ function renderExecution(source: Record<string, unknown>, zh: boolean): string {
   const incomplete = records(execution.incomplete_stages).map((stage) => {
     const refs = strings(stage.related_refs);
     const audit = refs.length === 0 ? "" : zh ? "（详见审计附录）" : " (see audit appendix)";
-    return `${zh ? "对结论的影响" : "Conclusion impact"}: ${String(stage.conclusion_impact)}${audit}`;
+    return `${zh ? "对结论的影响" : "Conclusion impact"}: ${prose(stage.conclusion_impact, zh)}${audit}`;
   });
   const followups = records(execution.required_followups).map(
-    (followup) => `${enumLabel(followup.status, zh)} - ${String(followup.detail)}`,
+    (followup) => `${enumLabel(followup.status, zh)} - ${prose(followup.detail, zh)}`,
   );
   return [
     `${zh ? "执行完整度" : "Completeness"}: ${enumLabel(execution.completeness, zh)}\n\n`,
@@ -449,7 +458,8 @@ function renderExecution(source: Record<string, unknown>, zh: boolean): string {
 function renderRuntimeHealth(source: Record<string, unknown>, zh: boolean): string {
   const runtime = requiredRecord(source.runtime_health, "runtime_health");
   const issues = records(runtime.issues).map(
-    (issue) => `${zh ? "对结论的影响" : "Conclusion impact"}: ${String(issue.conclusion_impact)}`,
+    (issue) =>
+      `${zh ? "对结论的影响" : "Conclusion impact"}: ${prose(issue.conclusion_impact, zh)}`,
   );
   return [
     `${zh ? "状态" : "Status"}: ${enumLabel(runtime.status, zh)}\n\n`,
@@ -487,37 +497,47 @@ function renderDirections(source: Record<string, unknown>, zh: boolean, compact:
         : null;
       const lines = compact
         ? [
-            `### ${direction.priority === null ? (zh ? "待验证" : "Unranked") : String(direction.priority)}. ${String(direction.label)}\n`,
+            `### ${direction.priority === null ? (zh ? "待验证" : "Unranked") : String(direction.priority)}. ${prose(direction.label, zh)}\n`,
             `${zh ? "成熟度 / 当前动作" : "Maturity / action"}: ${enumLabel(direction.maturity, zh)} / ${enumLabel(direction.action, zh)}\n\n`,
             `${zh ? "市场研究优先级" : "Market research priority"}: ${marketPriorityLabel(marketPriority?.level ?? "unknown", zh)}\n\n`,
             `${zh ? "商业验证就绪度" : "Commercial validation readiness"}: ${commercialReadinessLabel(commercialReadiness?.level ?? "not_ready", zh)}\n\n`,
-            `${zh ? "核心价值" : "Core value"}: ${String(direction.core_value)}\n\n`,
-            `${zh ? "最先验证的假设" : "First testable assumption"}: ${String(direction.first_testable_assumption)}\n\n`,
-            `${zh ? "排序理由" : "Comparison reason"}: ${String(direction.comparison_reason)}\n`,
+            `${zh ? "核心价值" : "Core value"}: ${prose(direction.core_value, zh)}\n\n`,
+            `${zh ? "最先验证的假设" : "First testable assumption"}: ${prose(direction.first_testable_assumption, zh)}\n\n`,
+            `${zh ? "排序理由" : "Comparison reason"}: ${prose(direction.comparison_reason, zh)}\n`,
           ]
         : [
-            `### ${direction.priority === null ? (zh ? "待验证" : "Unranked") : String(direction.priority)}. ${String(direction.label)}\n`,
+            `### ${direction.priority === null ? (zh ? "待验证" : "Unranked") : String(direction.priority)}. ${prose(direction.label, zh)}\n`,
             `${zh ? "排序状态" : "Ranking status"}: ${enumLabel(direction.ranking_status, zh)}\n\n`,
             `${zh ? "成熟度" : "Maturity"}: ${enumLabel(direction.maturity, zh)}\n\n`,
             `${zh ? "当前动作" : "Current action"}: ${enumLabel(direction.action, zh)}\n\n`,
             `${zh ? "市场研究优先级" : "Market research priority"}: ${marketPriorityLabel(marketPriority?.level ?? "unknown", zh)}\n\n`,
             `${zh ? "商业验证就绪度" : "Commercial validation readiness"}: ${commercialReadinessLabel(commercialReadiness?.level ?? "not_ready", zh)}\n\n`,
-            `${zh ? "目标用户" : "Target user"}: ${String(direction.target_user)}\n\n`,
-            `${zh ? "窄场景" : "Narrow scenario"}: ${String(direction.narrow_scenario)}\n\n`,
-            `${zh ? "当前替代" : "Current alternative"}: ${String(direction.current_alternative)}\n\n`,
-            `${zh ? "付款方" : "Payer"}: ${String(direction.payer)}\n\n`,
-            `${zh ? "产品/服务形态" : "Product or service form"}: ${String(direction.product_form)}\n\n`,
-            `${zh ? "核心价值" : "Core value"}: ${String(direction.core_value)}\n\n`,
-            `${zh ? "为什么现在值得关注" : "Why now"}: ${String(direction.why_now)}\n\n`,
-            `${zh ? "最先验证的假设" : "First testable assumption"}: ${String(direction.first_testable_assumption)}\n\n`,
-            `${zh ? "排序理由" : "Comparison reason"}: ${String(direction.comparison_reason)}\n`,
+            `${zh ? "目标用户" : "Target user"}: ${prose(direction.target_user, zh)}\n\n`,
+            `${zh ? "窄场景" : "Narrow scenario"}: ${prose(direction.narrow_scenario, zh)}\n\n`,
+            `${zh ? "当前替代" : "Current alternative"}: ${prose(direction.current_alternative, zh)}\n\n`,
+            `${zh ? "付款方" : "Payer"}: ${prose(direction.payer, zh)}\n\n`,
+            `${zh ? "产品/服务形态" : "Product or service form"}: ${prose(direction.product_form, zh)}\n\n`,
+            `${zh ? "核心价值" : "Core value"}: ${prose(direction.core_value, zh)}\n\n`,
+            `${zh ? "为什么现在值得关注" : "Why now"}: ${prose(direction.why_now, zh)}\n\n`,
+            `${zh ? "最先验证的假设" : "First testable assumption"}: ${prose(direction.first_testable_assumption, zh)}\n\n`,
+            `${zh ? "排序理由" : "Comparison reason"}: ${prose(direction.comparison_reason, zh)}\n`,
           ];
       if (!compact) {
-        lines.push(`\n${zh ? "问题" : "Problem"}: ${String(direction.problem)}\n`);
+        lines.push(`\n${zh ? "问题" : "Problem"}: ${prose(direction.problem, zh)}\n`);
         lines.push(`\n${zh ? "关键风险" : "Key risks"}:\n`);
-        lines.push(bulletList(strings(direction.key_risks), zh ? "无" : "None"));
+        lines.push(
+          bulletList(
+            strings(direction.key_risks).map((entry) => prose(entry, zh)),
+            zh ? "无" : "None",
+          ),
+        );
         lines.push(`\n${zh ? "仍未回答" : "Open questions"}:\n`);
-        lines.push(bulletList(strings(direction.open_questions), zh ? "无" : "None"));
+        lines.push(
+          bulletList(
+            strings(direction.open_questions).map((entry) => prose(entry, zh)),
+            zh ? "无" : "None",
+          ),
+        );
       }
       const solutionSummary = isRecord(direction.solution_evaluation_summary)
         ? direction.solution_evaluation_summary
@@ -537,7 +557,7 @@ function renderDirections(source: Record<string, unknown>, zh: boolean, compact:
                   : zh
                     ? "不使用 AI"
                     : "does not use AI";
-              return `${enumLabel(solution.disposition, zh)}: ${callerAuthoredText(solution.solution_behavior)} (${callerAuthoredText(solution.solution_type)}; ${callerAuthoredText(solution.delivery_form)}; ${ai})`;
+              return `${enumLabel(solution.disposition, zh)}: ${userVisibleText(solution.solution_behavior, zh)} (${userVisibleText(solution.solution_type, zh)}; ${localizedDeliveryForm(solution.delivery_form, zh)}; ${ai})`;
             }),
             zh ? "无" : "None recorded",
           ),
@@ -604,7 +624,7 @@ function renderSources(source: Record<string, unknown>, zh: boolean, limit?: num
         : `[${String(entry.title)}](${String(entry.url)})`;
     const base = `${sourceLabel} (${validity}; ${enumLabel(entry.stance, zh)}; ${enumLabel(entry.strength, zh)}; ${enumLabel(entry.evidence_character, zh)})`;
     if (entry.claim_state !== "inferred" || !isRecord(entry.inference)) {
-      return `${base}: ${String(entry.claim)}`;
+      return `${base}: ${prose(entry.claim, zh)}`;
     }
     const inference = entry.inference;
     return zh
@@ -666,11 +686,11 @@ function renderValidationPlan(
   const rendered = steps
     .map((step) =>
       [
-        `### ${String(step.order)}. ${String(step.hypothesis)}\n`,
-        `${zh ? "为何先做" : "Why now"}: ${String(step.why_now)}\n\n`,
-        `${zh ? "通过信号" : "Pass signal"}: ${String(step.pass_signal)}\n\n`,
-        `${zh ? "失败信号" : "Fail signal"}: ${String(step.fail_signal)}\n\n`,
-        `${zh ? "如何改变决定" : "Decision effect"}: ${String(step.decision_effect)}\n\n`,
+        `### ${String(step.order)}. ${prose(step.hypothesis, zh)}\n`,
+        `${zh ? "为何先做" : "Why now"}: ${prose(step.why_now, zh)}\n\n`,
+        `${zh ? "通过信号" : "Pass signal"}: ${prose(step.pass_signal, zh)}\n\n`,
+        `${zh ? "失败信号" : "Fail signal"}: ${prose(step.fail_signal, zh)}\n\n`,
+        `${zh ? "如何改变决定" : "Decision effect"}: ${prose(step.decision_effect, zh)}\n\n`,
         zh
           ? "执行边界：涉及外部行动时由用户自行决定和执行，本研究工具不执行或跟踪结果。\n"
           : "Execution boundary: external action remains user-owned; the Harness does not execute or track it.\n",
@@ -736,10 +756,10 @@ export function renderTerminalDecisionBrief(source: Record<string, unknown>): st
   return [
     `# ${zh ? "决策简报" : "Decision Brief"}\n\n`,
     `## ${zh ? "现在应该做什么" : "What To Do Now"}\n`,
-    `${String(conclusion.current_recommendation)}\n\n`,
+    `${prose(conclusion.current_recommendation, zh)}\n\n`,
     `${zh ? "研究结论" : "Research conclusion"}: ${enumLabel(conclusion.outcome, zh)}\n\n`,
     `${zh ? "证据强度" : "Evidence strength"}: ${enumLabel(conclusion.evidence_strength, zh)}\n\n`,
-    `${zh ? "这意味着" : "Meaning"}: ${String(conclusion.meaning)}\n\n`,
+    `${zh ? "这意味着" : "Meaning"}: ${prose(conclusion.meaning, zh)}\n\n`,
     `## ${zh ? "研究概览" : "Research At A Glance"}\n`,
     renderStatistics(source, zh),
     `## ${zh ? "执行完整度" : "Execution Completeness"}\n`,
@@ -756,8 +776,11 @@ export function renderTerminalDecisionBrief(source: Record<string, unknown>): st
     renderValidationPlan(source, zh, 5),
     renderDiscoveryReviewReferenceNotice(source, zh),
     `\n## ${zh ? "有效期与局限" : "Freshness And Limitations"}\n`,
-    `${String(freshness.summary)}\n\n`,
-    bulletList(strings(source.limitations), zh ? "无" : "None"),
+    `${prose(freshness.summary, zh)}\n\n`,
+    bulletList(
+      strings(source.limitations).map((entry) => prose(entry, zh)),
+      zh ? "无" : "None",
+    ),
   ].join("");
 }
 
@@ -767,10 +790,10 @@ export function renderTerminalFullReport(source: Record<string, unknown>): strin
   const freshness = requiredRecord(source.freshness, "freshness");
   return [
     `# ${zh ? "创业机会研究终态报告" : "Startup Opportunity Terminal Research Report"}\n\n`,
-    `${zh ? "决策问题" : "Decision question"}: ${String(source.decision_question)}\n\n`,
+    `${zh ? "决策问题" : "Decision question"}: ${prose(source.decision_question, zh)}\n\n`,
     `## ${zh ? "研究结论" : "Research Conclusion"}\n`,
-    `${String(conclusion.current_recommendation)}\n\n${String(conclusion.meaning)}\n\n`,
-    `${zh ? "允许的结论措辞" : "Allowed claim"}: ${String(conclusion.allowed_claim)}\n\n`,
+    `${prose(conclusion.current_recommendation, zh)}\n\n${prose(conclusion.meaning, zh)}\n\n`,
+    `${zh ? "允许的结论措辞" : "Allowed claim"}: ${prose(conclusion.allowed_claim, zh)}\n\n`,
     `## ${zh ? "研究概览" : "Research At A Glance"}\n`,
     renderStatistics(source, zh),
     `## ${zh ? "执行完整度" : "Execution Completeness"}\n`,
@@ -795,9 +818,12 @@ export function renderTerminalFullReport(source: Record<string, unknown>): strin
     renderValidationPlan(source, zh),
     renderDiscoveryReviewReferenceNotice(source, zh),
     `\n## ${zh ? "证据新鲜度" : "Evidence Freshness"}\n`,
-    `${String(freshness.summary)}\n\n`,
+    `${prose(freshness.summary, zh)}\n\n`,
     `## ${zh ? "局限" : "Limitations"}\n`,
-    bulletList(strings(source.limitations), zh ? "无" : "None"),
+    bulletList(
+      strings(source.limitations).map((entry) => prose(entry, zh)),
+      zh ? "无" : "None",
+    ),
   ].join("");
 }
 
@@ -829,7 +855,11 @@ export function renderTerminalAuditAppendix(source: Record<string, unknown>): st
 
 function renderReviewRefs(label: string, refs: readonly string[], zh: boolean): string {
   if (refs.length === 0) return "";
-  return `  - ${label}: ${refs.map((ref) => userVisibleText(ref, zh)).join(", ")}\n`;
+  return `  - ${label}: ${zh ? "详见结构化审计" : "see structured audit"}\n`;
+}
+
+function reviewRefPlaceholder(zh: boolean): string {
+  return zh ? "详见结构化审计" : "see structured audit";
 }
 
 function renderDiscoveryReviewFindings(review: Record<string, unknown>, zh: boolean): string {
@@ -842,7 +872,7 @@ function renderDiscoveryReviewFindings(review: Record<string, unknown>, zh: bool
         `- ${zh ? "立场" : "Stance"}=${reviewEnumLabel(finding.stance, zh)}; ${zh ? "材料状态" : "material state"}=${reviewEnumLabel(finding.evidence_state, zh)}; ${zh ? "问题" : "questions"}=${strings(
           finding.reviewed_plan_question_refs,
         )
-          .map((ref) => userVisibleText(ref, zh))
+          .map(() => reviewRefPlaceholder(zh))
           .join(", ")}`,
         `  - ${zh ? "摘要" : "Summary"}: ${reviewLiteralText(finding.summary)}`,
         renderReviewRefs(zh ? "支持材料" : "Supporting refs", strings(finding.supporting_refs), zh),
@@ -881,7 +911,7 @@ function renderDiscoveryReviewMaterialVisibility(
         unknown_refs: "Unknown refs",
       };
   return DISCOVERY_REVIEW_MATERIAL_REF_FIELDS.map((field) => {
-    const refs = strings(visibility[field]).map((ref) => userVisibleText(ref, zh));
+    const refs = strings(visibility[field]).map(() => reviewRefPlaceholder(zh));
     return `- ${labels[field]}: ${refs.length === 0 ? (zh ? "无" : "None recorded") : refs.join(", ")}\n`;
   }).join("");
 }
@@ -938,14 +968,14 @@ function renderDiscoveryReviewSummaries(source: Record<string, unknown>, zh: boo
     .map((review) =>
       [
         `### ${reviewLiteralText(review.review_result_id)}\n\n`,
-        `- ${zh ? "复核引用" : "Review ref"}: ${userVisibleText(review.review_ref, zh)}\n`,
+        `- ${zh ? "复核引用" : "Review ref"}: ${reviewRefPlaceholder(zh)}\n`,
         `- ${zh ? "负责人角色" : "Owner role"}: ${reviewEnumLabel(review.owner_role, zh)}\n`,
         `- ${zh ? "结果状态" : "Result status"}: ${reviewEnumLabel(review.status, zh)}\n`,
-        `- ${zh ? "任务引用" : "Task ref"}: ${userVisibleText(review.task_ref, zh)}\n`,
-        `- ${zh ? "执行引用" : "Execution ref"}: ${userVisibleText(review.execution_plan_ref, zh)}\n`,
-        `- ${zh ? "分派引用" : "Dispatch ref"}: ${userVisibleText(review.dispatch_batch_ref, zh)}\n`,
+        `- ${zh ? "任务引用" : "Task ref"}: ${reviewRefPlaceholder(zh)}\n`,
+        `- ${zh ? "执行引用" : "Execution ref"}: ${reviewRefPlaceholder(zh)}\n`,
+        `- ${zh ? "分派引用" : "Dispatch ref"}: ${reviewRefPlaceholder(zh)}\n`,
         `- ${zh ? "问题引用" : "Question refs"}: ${strings(review.reviewed_plan_question_refs)
-          .map((ref) => userVisibleText(ref, zh))
+          .map(() => reviewRefPlaceholder(zh))
           .join(", ")}\n`,
         `- ${zh ? "要求立场" : "Required stances"}: ${reviewEnumList(strings(review.required_stances), zh)}\n`,
         `- ${zh ? "边界" : "Boundary"}: ${
@@ -965,31 +995,6 @@ function renderDiscoveryReviewSummaries(source: Record<string, unknown>, zh: boo
     )
     .join("\n");
 }
-
-const ZH_STRUCTURED_DIAGNOSTIC_RULES = [
-  /\b(?:artifacts|claims|evidence|findings|harness|insights|judgments|plans|runs|tasks)\/[A-Za-z0-9_./:#-]+/u,
-  /\b(?:artifact|commercial_research|contract|report|run|terminal_reporting)\.[a-z0-9_.-]+\b/u,
-] as const;
-
-function renderedHarnessDiagnosticText(source: Record<string, unknown>): string {
-  return records(source.gate_warnings)
-    .flatMap((warning) => [warning.message, warning.decision_impact])
-    .filter((value): value is string => typeof value === "string")
-    .join("\n");
-}
-
-export function localizedTerminalUserViewIssues(
-  source: Record<string, unknown>,
-  markdown: string,
-): readonly string[] {
-  if (!isChinese(source.research_language)) return [];
-  void markdown;
-  const visible = renderedHarnessDiagnosticText(source);
-  return ZH_STRUCTURED_DIAGNOSTIC_RULES.flatMap((rule, index) =>
-    rule.test(visible) ? [`localized_structured_diagnostic_${index + 1}`] : [],
-  );
-}
-
 export interface DerivedTerminalReportDocument {
   readonly artifactPath: string;
   readonly artifactType: string;

@@ -22,7 +22,10 @@ import {
   sha256Bytes,
   validateDecisionSubjectContract,
 } from "../harness/src/index.js";
-import { createCommercialAuditProjector } from "../harness/src/reporting/commercial-report-tables.js";
+import {
+  createCommercialAuditProjector,
+  renderGateWarnings,
+} from "../harness/src/reporting/commercial-report-tables.js";
 import {
   localizedTerminalUserViewIssues,
   renderTerminalAuditAppendix,
@@ -65,9 +68,9 @@ import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const execFileAsync = promisify(execFile);
 const TERMINAL_LOCALIZATION_VOCABULARY =
-  "baseline counterfactual same-run pre-thesis Manifest Schema Validator Gap";
+  "Google Cloud Audit Logs helps users inspect changes. Schema.org vocabulary. Evidence Based Design. mobile_web.delivery_form. open_data.product_protocol.";
 const TERMINAL_LOCALIZATION_SOURCE_URL =
-  "https://unit_demand.synthetic.invalid/baseline-counterfactual-same-run-pre-thesis-Manifest-Schema-Validator-Gap";
+  "https://unit_demand.synthetic.invalid/Google-Cloud-Audit-Logs/mobile_web.delivery_form/Schema.org";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -611,6 +614,7 @@ async function prepareRun(
   options: {
     readonly omitCommercialAuditUnitId?: string;
     readonly injectHistoricalCompilerWarning?: boolean;
+    readonly injectHarnessDiagnosticLeak?: boolean;
     readonly injectTerminalLocalizationVocabulary?: boolean;
     readonly researchLanguage?: string;
   } = {},
@@ -758,6 +762,25 @@ async function prepareRun(
         category: "decision_validity",
         message: "SYNTHETIC historical-only warning must remain outside the terminal Brief.",
         decision_impact: "SYNTHETIC audit-only context; no current decision impact.",
+        artifact_refs: [commercialAudit.artifact_path],
+      });
+      (commercialAudit as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+        commercialAudit.document,
+      );
+    }
+    if (options.injectHarnessDiagnosticLeak === true && branch.unitId === "unit_demand") {
+      const compilerWarnings = commercialAudit.document.compiler_warnings as Record<
+        string,
+        unknown
+      >[];
+      compilerWarnings.push({
+        code: "commercial_research.synthetic_unknown_diagnostic",
+        severity: "warning",
+        category: "coverage",
+        message:
+          "Search Closure validator reported terminal_reporting.search_closure_incomplete for the planned Audit Lane.",
+        decision_impact:
+          "Audit and Search Closure details remain visible only in structured diagnostics.",
         artifact_refs: [commercialAudit.artifact_path],
       });
       (commercialAudit as unknown as { content_hash: string }).content_hash = canonicalContentHash(
@@ -1387,7 +1410,7 @@ test("Chinese terminal report localizes quantitative priority and readiness enum
   for (const markdown of [brief, full]) {
     assert.doesNotMatch(
       markdown,
-      /\b(?:high|not_ready|directional_proxy|directional_demand_signal|competitive_scope_disposed|candidate_purchase_or_commitment|acquisition_or_distribution|retention_or_usage|unit_economics)\b/,
+      /\b(?:high|not_ready|directional_proxy|directional_demand_signal)\b/,
     );
     assert.match(markdown, /市场研究优先级: 高/);
     assert.match(markdown, /商业验证就绪度: 未就绪/);
@@ -1415,7 +1438,7 @@ test("Chinese terminal prose preserves caller-authored research wording without 
   assert.ok(uncertainty);
   assert.ok(readableSource);
   uncertainty.statement = "Evidence supports only an inferred purchase signal.";
-  uncertainty.reasoning = "Harness inference retains exact Evidence refs in the Artifact audit.";
+  uncertainty.reasoning = "Harness inference retains exact Evidence refs in the Artifact record.";
   readableSource.claim = "Evidence indicates a current-Run hypothesis, not validation.";
   const inference = readableSource.inference as Record<string, unknown>;
   inference.reasoning = "Harness-owned reasoning cites the exact Evidence Artifact.";
@@ -1427,7 +1450,7 @@ test("Chinese terminal prose preserves caller-authored research wording without 
   assert.match(full, /Evidence supports only an inferred purchase signal/);
   assert.match(
     `${brief}\n${full}`,
-    /Harness inference retains exact Evidence refs in the Artifact audit/,
+    /Harness inference retains exact Evidence refs in the Artifact record/,
   );
   assert.match(`${brief}\n${full}`, /Evidence indicates a current-Run hypothesis, not validation/);
   assert.match(`${brief}\n${full}`, /Harness-owned reasoning cites the exact Evidence Artifact/);
@@ -1435,7 +1458,7 @@ test("Chinese terminal prose preserves caller-authored research wording without 
   assert.deepEqual(localizedTerminalUserViewIssues(source, full), []);
 });
 
-test("localized terminal guard allows ordinary research prose and rejects structured diagnostic leaks", () => {
+test("localized terminal guard does not infer diagnostics from ordinary research prose", () => {
   const source = {
     research_language: "zh-CN",
     sources: [],
@@ -1493,7 +1516,7 @@ test("localized terminal guard allows ordinary research prose and rejects struct
       },
       "结构化警告的可见形态不再决定 guard 结果。",
     ),
-    ["localized_structured_diagnostic_1", "localized_structured_diagnostic_2"],
+    [],
   );
   assert.deepEqual(
     localizedTerminalUserViewIssues(
@@ -1512,7 +1535,7 @@ test("localized terminal guard allows ordinary research prose and rejects struct
       },
       "- [warning / decision_validity] plans/private-terminal-state.json contract.unit_tuple_not_allowed 决策影响: synthetic",
     ),
-    ["localized_structured_diagnostic_1", "localized_structured_diagnostic_2"],
+    [],
   );
 });
 
@@ -1937,11 +1960,37 @@ test("Chinese terminal report renders provisional solution exploration labels", 
   const full = renderTerminalFullReport(source);
   assert.match(brief, /尚未探索其他实现方式/);
   assert.match(brief, /暂定实现/);
+  assert.match(
+    brief,
+    /SYNTHETIC provisional solution behavior\. \(SYNTHETIC solution type; 移动网页; 不使用 AI\)/u,
+  );
+  assert.doesNotMatch(brief, /SYNTHETIC solution type; mobile_web; 不使用 AI/u);
   assert.match(full, /尚未探索其他实现方式/);
   assert.match(full, /暂定实现/);
+  assert.match(
+    full,
+    /SYNTHETIC provisional solution behavior\. \(SYNTHETIC solution type; 移动网页; 不使用 AI\)/u,
+  );
+  assert.doesNotMatch(full, /SYNTHETIC solution type; mobile_web; 不使用 AI/u);
+
+  const unknown = structuredClone(source);
+  const unknownDirection = (unknown.directions as Record<string, unknown>[])[0];
+  assert.ok(unknownDirection);
+  const unknownSummary = unknownDirection.solution_evaluation_summary as Record<string, unknown>;
+  const unknownSolutions = unknownSummary.formal_solutions as Record<string, unknown>[];
+  assert.ok(unknownSolutions[0]);
+  unknownSolutions[0].delivery_form = "desktop_app";
+  assert.throws(
+    () => renderTerminalDecisionBrief(unknown),
+    /report localized delivery_form mapping is missing for desktop_app/u,
+  );
+  assert.throws(
+    () => renderTerminalFullReport(unknown),
+    /report localized delivery_form mapping is missing for desktop_app/u,
+  );
 });
 
-test("ReportRuntime preserves terminal inference vocabulary while rejecting structured diagnostic leaks", async (context) => {
+test("ReportRuntime preserves legitimate terminal prose while preserving structured truth", async (context) => {
   const state = await prepareRun(context, {
     injectTerminalLocalizationVocabulary: true,
     researchLanguage: "zh-CN",
@@ -2020,48 +2069,153 @@ test("ReportRuntime preserves terminal inference vocabulary while rejecting stru
     .map((target) => String(outputs.get(target)))
     .join("\n");
   const userProse = markdown.replaceAll(TERMINAL_LOCALIZATION_SOURCE_URL, "");
-  assert.match(
-    userProse,
-    /baseline counterfactual same-run pre-thesis Manifest Schema Validator Gap/,
-  );
+  for (const preserved of [
+    "Google Cloud Audit Logs helps users inspect changes.",
+    "Schema.org vocabulary.",
+    "Evidence Based Design.",
+    "mobile_web.delivery_form.",
+    "open_data.product_protocol.",
+  ]) {
+    assert.match(userProse, new RegExp(preserved.replaceAll(".", "\\.")));
+  }
   for (const target of ["decision-brief.md", "report.md", "audit-appendix.md"] as const) {
     assert.deepEqual(
       localizedTerminalUserViewIssues(
         operation.source_envelope.document,
         String(outputs.get(target)),
+        target === "audit-appendix.md"
+          ? "audit_appendix"
+          : target === "decision-brief.md"
+            ? "decision_brief"
+            : "report",
       ),
       [],
     );
   }
+});
 
-  const internalDiagnostic = structuredClone(storedDemandAudit) as FormalArtifactEnvelope & {
-    artifact_path: string;
-    document: {
-      compiler_warnings: Record<string, unknown>[];
-    };
+test("ReportRuntime preserves hidden terminal diagnostics without projecting them to Markdown", async (context) => {
+  const state = await prepareRun(context, { researchLanguage: "zh-CN" });
+  await markRunTerminal(state);
+  const request = terminalReportEnvelope(state);
+  const execution = request.document.execution as Record<string, unknown>;
+  execution.incomplete_stages = [
+    ...((execution.incomplete_stages as Record<string, unknown>[]) ?? []),
+    {
+      stage: "Audit Lane Search Closure",
+      cause: "evidence_ceiling",
+      detail: "lane_delivery.search_closure_route_missing",
+      conclusion_impact: "计划中的搜索完成记录缺失，因此结论保持证据不足。",
+      related_refs: [],
+    },
+  ];
+  const runtimeHealth = request.document.runtime_health as Record<string, unknown>;
+  runtimeHealth.issues = [
+    ...((runtimeHealth.issues as Record<string, unknown>[]) ?? []),
+    {
+      code: "synthetic_hidden_diagnostic",
+      stage: "Audit",
+      detail: "lane_delivery.search_closure_route_missing",
+      conclusion_impact: "结构化诊断只约束执行披露，不提高结论强度。",
+      related_refs: [],
+    },
+  ];
+  (request as { content_hash: string }).content_hash = canonicalContentHash(request.document);
+  const prospectiveManifest = (await state.store.status(G14_RUN_ID)).manifest;
+  await finalizeTerminalReportEnvelope(state, request, prospectiveManifest);
+  const operation = await state.runtime.prepareTerminalLocked(state.runRoot, {
+    reportEnvelope: request,
+    prospectiveManifest,
+    supportingEnvelopes: [],
+  });
+  const outputs = new Map(
+    operation.materialized_outputs.map((output) => [output.target_path, output.bytes]),
+  );
+  const reportJson = JSON.parse(String(outputs.get("report.json"))) as Record<string, unknown>;
+  const jsonExecution = reportJson.execution as Record<string, unknown>;
+  const hiddenStage = (jsonExecution.incomplete_stages as Record<string, unknown>[]).find(
+    (stage) => stage.detail === "lane_delivery.search_closure_route_missing",
+  );
+  assert.ok(hiddenStage);
+  assert.equal(hiddenStage.stage, "Audit Lane Search Closure");
+  const jsonRuntime = reportJson.runtime_health as Record<string, unknown>;
+  const hiddenRuntimeIssue = (jsonRuntime.issues as Record<string, unknown>[]).find(
+    (issue) => issue.detail === "lane_delivery.search_closure_route_missing",
+  );
+  assert.ok(hiddenRuntimeIssue);
+  assert.equal(hiddenRuntimeIssue.stage, "Audit");
+
+  const markdown = (["decision-brief.md", "report.md", "audit-appendix.md"] as const)
+    .map((target) => String(outputs.get(target)))
+    .join("\n");
+  assert.doesNotMatch(markdown, /Audit Lane Search Closure/u);
+  assert.doesNotMatch(markdown, /lane_delivery\.search_closure_route_missing/u);
+  assert.match(markdown, /计划中的搜索完成记录缺失/);
+  for (const target of ["decision-brief.md", "report.md", "audit-appendix.md"] as const) {
+    assert.deepEqual(
+      localizedTerminalUserViewIssues(
+        operation.source_envelope.document,
+        String(outputs.get(target)),
+        target === "audit-appendix.md"
+          ? "audit_appendix"
+          : target === "decision-brief.md"
+            ? "decision_brief"
+            : "report",
+      ),
+      [],
+    );
+  }
+});
+
+test("ReportRuntime localizes Harness-owned terminal diagnostics without mutating structured warnings", async (context) => {
+  const state = await prepareRun(context, {
+    injectHarnessDiagnosticLeak: true,
+    researchLanguage: "zh-CN",
+  });
+  await markRunTerminal(state);
+  const request = terminalReportEnvelope(state);
+  const prospectiveManifest = (await state.store.status(G14_RUN_ID)).manifest;
+  await finalizeTerminalReportEnvelope(state, request, prospectiveManifest);
+  const operation = await state.runtime.prepareTerminalLocked(state.runRoot, {
+    reportEnvelope: request,
+    prospectiveManifest,
+    supportingEnvelopes: [],
+  });
+  const outputs = new Map(
+    operation.materialized_outputs.map((output) => [output.target_path, output.bytes]),
+  );
+  const reportJson = JSON.parse(String(outputs.get("report.json"))) as Record<string, unknown>;
+  const warnings = reportJson.gate_warnings as Record<string, unknown>[];
+  const unknown = warnings.find(
+    (warning) => warning.code === "commercial_research.synthetic_unknown_diagnostic",
+  );
+  assert.ok(unknown);
+  assert.equal(
+    unknown.message,
+    "Search Closure validator reported terminal_reporting.search_closure_incomplete for the planned Audit Lane.",
+  );
+  assert.equal(
+    unknown.decision_impact,
+    "Audit and Search Closure details remain visible only in structured diagnostics.",
+  );
+
+  const appendix = String(outputs.get("audit-appendix.md"));
+  assert.match(appendix, /研究系统记录了一条非阻塞诊断/);
+  assert.doesNotMatch(
+    appendix,
+    /\b(?:Search Closures?|Audits?|Lanes?|terminal_reporting\.[A-Za-z0-9_.-]+|commercial_research\.[A-Za-z0-9_.-]+)\b/iu,
+  );
+  assert.deepEqual(
+    localizedTerminalUserViewIssues(operation.source_envelope.document, appendix, "audit_appendix"),
+    [],
+  );
+
+  const enWarning = {
+    gate_warnings: [unknown],
   };
-  internalDiagnostic.artifact_path = "artifacts/research-audits/terminal-structured-leak.json";
-  const internalWarning = internalDiagnostic.document.compiler_warnings[0];
-  assert.ok(internalWarning);
-  internalWarning.message =
-    "Safe first line.\nInspect plans/private-terminal-state.json after contract.unit_tuple_not_allowed.";
-  internalWarning.decision_impact =
-    "SYNTHETIC gate warning must stay inside structured diagnostics.";
-  internalWarning.artifact_refs = [internalDiagnostic.artifact_path];
-  (internalDiagnostic as { content_hash: string }).content_hash = canonicalContentHash(
-    internalDiagnostic.document,
-  );
-  await assert.rejects(
-    state.runtime.prepareTerminalLocked(state.runRoot, {
-      reportEnvelope: request,
-      prospectiveManifest,
-      supportingEnvelopes: [internalDiagnostic],
-    }),
-    (error: unknown) =>
-      error instanceof StoreError &&
-      error.code === "report.source_invalid" &&
-      JSON.stringify(error.details).includes("terminal_reporting.localized_internal_term"),
-  );
+  const englishAppendix = renderGateWarnings(enWarning, false);
+  assert.match(englishAppendix, /commercial_research\.synthetic_unknown_diagnostic/u);
+  assert.match(englishAppendix, /Search Closure validator/u);
 });
 
 test("public ReportRuntime rejects terminal sources before any standalone report write", async (context) => {
@@ -2323,6 +2477,66 @@ test("terminal report rejects false completion, derived drift, and caller-declar
   assert.equal(driftResult.valid, false);
   assert.ok(
     driftResult.referenceErrors.some((entry) => entry.code === "terminal_reporting.derived_drift"),
+  );
+
+  const localizedBase = structuredClone(base);
+  localizedBase.document.research_language = "zh-CN";
+  localizedBase.document.gate_warnings = [
+    {
+      code: "terminal_reporting.search_closure_incomplete",
+      severity: "warning",
+      category: "integrity",
+      message:
+        "A planned Search Closure is missing; the report discloses incomplete execution and the related decision limit.",
+      decision_impact:
+        "A planned Search Closure is missing; the report discloses incomplete execution and the related decision limit.",
+      artifact_refs: [],
+    },
+  ];
+  (localizedBase as { content_hash: string }).content_hash = canonicalContentHash(
+    localizedBase.document,
+  );
+  const localizedDerived = deriveReportEnvelopes(localizedBase);
+  const rawAppendixView = structuredClone(
+    localizedDerived.find(
+      (entry) => entry.artifact_type === "startup_opportunity.terminal_report_view.v1",
+    ),
+  );
+  assert.ok(rawAppendixView);
+  rawAppendixView.document.audit_appendix_markdown = String(
+    rawAppendixView.document.audit_appendix_markdown,
+  ).replace(
+    renderGateWarnings(localizedBase.document, true).trim(),
+    renderGateWarnings(localizedBase.document, false).trim(),
+  );
+  rawAppendixView.document.audit_appendix_content_hash = sha256Bytes(
+    String(rawAppendixView.document.audit_appendix_markdown),
+  );
+  (rawAppendixView as { content_hash: string }).content_hash = canonicalContentHash(
+    rawAppendixView.document,
+  );
+  const rawAppendixAssembled = await state.store.buildValidationContext(G14_RUN_ID, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [
+      { path: localizedBase.artifact_path, document: localizedBase },
+      { path: rawAppendixView.artifact_path, document: rawAppendixView },
+    ],
+    exact_records: [],
+  });
+  const rawAppendixResult = validator.validateDocumentBundle(
+    rawAppendixAssembled.bundle,
+    rawAppendixAssembled.referenceContext,
+  );
+  assert.equal(rawAppendixResult.valid, false);
+  assert.ok(
+    rawAppendixResult.referenceErrors.some(
+      (entry) => entry.code === "terminal_reporting.localized_internal_term",
+    ),
+  );
+  assert.ok(
+    rawAppendixResult.referenceErrors.some(
+      (entry) => entry.code === "terminal_reporting.derived_drift",
+    ),
   );
 });
 
@@ -3128,8 +3342,12 @@ test("build-report publishes formal sidecars, materializes four outputs, and exa
   assert.match(appendix, /完整头部公司吸收与响应评估/);
   assert.match(appendix, /对象 \/ 深度/);
   for (const surface of [decisionBrief, coreReport, appendix]) {
-    assert.doesNotMatch(surface, /assessment_result|decision_grade|artifacts\//u);
+    assert.doesNotMatch(surface, /artifacts\//u);
   }
+  assert.match(
+    coreReport,
+    /SYNTHETIC assessment_result_and_evidence_strength contract content only/u,
+  );
   const storedAudit = JSON.parse(
     await readFile(path.join(state.runRoot, G14_AUDIT_REF), "utf8"),
   ) as FormalArtifactEnvelope;

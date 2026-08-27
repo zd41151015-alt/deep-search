@@ -7,6 +7,12 @@ import {
   sha256Hex,
 } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
+import {
+  type LocalizedTerminalUserVisibleIssue,
+  localizedTerminalDerivedDocumentIssueDetails,
+  localizedTerminalSourceIssues,
+} from "../reporting/report-localization.js";
+import { deriveTerminalReportDocuments } from "../reporting/terminal-reporting.js";
 import { type BeliefSummary, type RunManifest, RunStore } from "../run-store/run-store.js";
 import {
   type ArtifactValidator,
@@ -217,6 +223,85 @@ function validateRequest(validator: ArtifactValidator, value: unknown): Adaptati
     );
   }
   return value as AdaptationAuthorRequest;
+}
+
+function normalizeTerminalReportEnvelope(
+  envelopeValue: FormalArtifactEnvelope,
+): FormalArtifactEnvelope {
+  if (
+    !isRecord(envelopeValue) ||
+    envelopeValue.artifact_type !== "startup_opportunity.terminal_report_source.v1" ||
+    !isRecord(envelopeValue.document)
+  ) {
+    return envelopeValue;
+  }
+  return {
+    ...envelopeValue,
+    content_hash: canonicalContentHash(envelopeValue.document),
+  };
+}
+
+function normalizeRequest(request: AdaptationAuthorRequest): AdaptationAuthorRequest {
+  return request.terminal_report_envelope === undefined
+    ? request
+    : {
+        ...request,
+        terminal_report_envelope: normalizeTerminalReportEnvelope(request.terminal_report_envelope),
+      };
+}
+
+function prefixedSurfaceIssue(
+  issue: LocalizedTerminalUserVisibleIssue,
+): LocalizedTerminalUserVisibleIssue {
+  return issue.field.startsWith("surface:")
+    ? issue
+    : {
+        ...issue,
+        field: issue.field.startsWith("#/")
+          ? `#/terminal_report_envelope/document${issue.field.slice(1)}`
+          : `#/terminal_report_envelope/document/${issue.field}`,
+      };
+}
+
+function assertTerminalUserVisibleBoundary(request: AdaptationAuthorRequest): void {
+  const envelopeValue = request.terminal_report_envelope;
+  if (
+    envelopeValue === undefined ||
+    envelopeValue.artifact_type !== "startup_opportunity.terminal_report_source.v1" ||
+    !isRecord(envelopeValue.document) ||
+    envelopeValue.document.schema_version !== "startup_opportunity.terminal_report_source.v1"
+  ) {
+    return;
+  }
+  const source = envelopeValue.document;
+  const sourceIssues = localizedTerminalSourceIssues(source, "#").map(prefixedSurfaceIssue);
+  let issues: readonly LocalizedTerminalUserVisibleIssue[] = [];
+  try {
+    issues = [
+      ...sourceIssues,
+      ...deriveTerminalReportDocuments(envelopeValue).flatMap((document) =>
+        localizedTerminalDerivedDocumentIssueDetails(source, document.document, "#"),
+      ),
+    ].map(prefixedSurfaceIssue);
+  } catch (error) {
+    issues = [
+      ...sourceIssues,
+      {
+        code: "localized_terminal_projection_failed",
+        field: "#/terminal_report_envelope",
+        matched_text: error instanceof Error ? error.message : "terminal report projection failed",
+        repair_hint:
+          "Fix terminal report source values so the Harness can render the localized terminal brief, report, and audit appendix.",
+      },
+    ];
+  }
+  if (issues.length > 0) {
+    throw new StoreError(
+      "adaptation.author_terminal_user_view_invalid",
+      "terminal report source contains user-visible internal mechanics; fix every listed field before publication",
+      { issues },
+    );
+  }
 }
 
 function storedEnvelope(
@@ -449,7 +534,8 @@ export class AdaptationAuthorRuntime {
     value: unknown,
     options: AdaptationAuthorExecutionOptions = {},
   ): Promise<AdaptationAuthorResult> {
-    const request = validateRequest(this.validator, value);
+    const request = normalizeRequest(validateRequest(this.validator, value));
+    assertTerminalUserVisibleBoundary(request);
     if (request.operation !== "validate_only") {
       assertPublicationPlanIdentity(request, request.publication_plan as Record<string, unknown>);
     }

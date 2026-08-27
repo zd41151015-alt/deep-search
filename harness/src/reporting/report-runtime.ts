@@ -56,8 +56,12 @@ import { renderEvidenceDispositions } from "./report-evidence-dispositions.js";
 import {
   boundedValues,
   isChineseResearchLanguage,
+  localizedDeliveryForm,
   localizedEnum,
+  localizedFixedReportTerm,
   localizedInternalLeakageIssues,
+  localizedTerminalDerivedDocumentIssueDetails,
+  localizedTerminalSourceIssues,
   userVisibleText,
 } from "./report-localization.js";
 import {
@@ -728,7 +732,7 @@ function renderSolutionEvaluations(
                 : zh
                   ? "不使用 AI"
                   : "does not use AI";
-            return `${localizedEnum(solution.disposition, zh)}: ${userVisibleText(solution.solution_behavior, zh)} (${userVisibleText(solution.solution_type, zh)}; ${userVisibleText(solution.delivery_form, zh)}; ${ai})`;
+            return `${localizedEnum(solution.disposition, zh)}: ${userVisibleText(solution.solution_behavior, zh)} (${userVisibleText(solution.solution_type, zh)}; ${localizedDeliveryForm(solution.delivery_form, zh)}; ${ai})`;
           }),
           zh ? "无" : "None recorded.",
         ),
@@ -800,7 +804,7 @@ function renderDecisionBrief(report: Record<string, unknown>): string {
     `## ${zh ? "当前建议" : "Current Recommendation"}\n`,
     `${userVisibleText(context.current_recommendation, zh)}\n\n`,
     `${zh ? "评估结果" : "Assessment result"}: ${localizedEnum(context.assessment_result, zh)}\n\n`,
-    `${zh ? "含义" : "Meaning"}: ${userVisibleText(context.recommendation_meaning, zh)}\n\n`,
+    `${zh ? "含义" : "Meaning"}: ${localizedFixedReportTerm(context.recommendation_meaning, zh)}\n\n`,
     `## ${zh ? "研究概览" : "Key Research Counts"}\n`,
     renderReportStatistics(report, zh),
     `\n## ${zh ? "关键支持材料" : "Decisive Support"}\n`,
@@ -845,7 +849,7 @@ function renderFullReport(report: Record<string, unknown>): string {
     `# ${zh ? "产品假设证据评估报告" : "Concept Evidence Assessment Report"}\n`,
     `\n${zh ? "评估结果" : "Assessment result"}: ${localizedEnum(context.assessment_result, zh)}\n`,
     `\n${zh ? "建议" : "Recommendation"}: ${userVisibleText(context.current_recommendation, zh)}\n`,
-    `\n${zh ? "含义" : "Meaning"}: ${userVisibleText(context.recommendation_meaning, zh)}\n`,
+    `\n${zh ? "含义" : "Meaning"}: ${localizedFixedReportTerm(context.recommendation_meaning, zh)}\n`,
     `\n${zh ? "有效日期" : "Valid as of"}: ${String(context.valid_as_of)}\n`,
     `\n${zh ? "生成时间" : "Generated at"}: ${String(metadata.generated_at)}\n`,
     `\n## ${zh ? "研究概览" : "Key Research Counts"}\n`,
@@ -1210,6 +1214,31 @@ function assertDerivedConsistencyPassed(derived: readonly FormalArtifactEnvelope
       "report.forbidden_expression_detected",
       "discovery report contains forbidden validation, probability, or global-score language",
       { matches: consistency.document.forbidden_expression_matches },
+    );
+  }
+}
+
+function assertTerminalUserVisibleBoundary(
+  source: FormalArtifactEnvelope,
+  derived: readonly FormalArtifactEnvelope[],
+): void {
+  if (
+    source.artifact_type !== "startup_opportunity.terminal_report_source.v1" ||
+    source.document.schema_version !== "startup_opportunity.terminal_report_source.v1"
+  ) {
+    return;
+  }
+  const issues = [
+    ...localizedTerminalSourceIssues(source.document, "#"),
+    ...derived.flatMap((entry) =>
+      localizedTerminalDerivedDocumentIssueDetails(source.document, entry.document, "#"),
+    ),
+  ];
+  if (issues.length > 0) {
+    throw new StoreError(
+      "report.terminal_user_view_invalid",
+      "terminal report source contains user-visible internal mechanics; fix every listed field before publication",
+      { issues },
     );
   }
 }
@@ -2180,6 +2209,7 @@ export class ReportRuntime {
       input.supportingEnvelopes,
     );
     const derived = deriveReportEnvelopes(source);
+    assertTerminalUserVisibleBoundary(source, derived);
     assertDerivedConsistencyPassed(derived);
     const prospectivePaths = new Set(
       [source, ...derived].map((envelope) => envelope.artifact_path),

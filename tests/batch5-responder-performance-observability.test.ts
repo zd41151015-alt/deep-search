@@ -199,7 +199,7 @@ test("responder narrative preserves unknown and not-applicable states and locali
   const narrative = renderIncumbentResponseNarratives(source, true);
   assert.ok(narrative.includes(INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH));
   assert.match(narrative, /能力（不代表意愿）.*高/su);
-  assert.match(narrative, /功能复制.*捆绑提供.*原生集成/su);
+  assert.match(narrative, /copy<br>bundle<br>native_integration/u);
   assert.match(narrative, /中期/u);
   assert.match(narrative, /单项功能/u);
   assert.match(narrative, /状态: 未知/u);
@@ -208,10 +208,7 @@ test("responder narrative preserves unknown and not-applicable states and locali
   assert.match(narrative, /均保持未知/u);
   assert.match(narrative, /不适用/u);
   assert.match(narrative, /均保持不适用/u);
-  assert.doesNotMatch(
-    narrative,
-    /\b(?:native_integration|medium_term|single_feature|targeted_deep_dive)\b/u,
-  );
+  assert.doesNotMatch(narrative, /\b(?:medium_term|single_feature|targeted_deep_dive)\b/u);
   assert.doesNotMatch(narrative, /evidence\/records\//u);
 });
 

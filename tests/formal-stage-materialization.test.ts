@@ -21,6 +21,7 @@ import {
   RunStore,
   StoreError,
 } from "../harness/src/index.js";
+import { deriveTerminalReportDocuments } from "../harness/src/reporting/terminal-reporting.js";
 import {
   fixtureEnvelope,
   G21_CORE_REFS,
@@ -210,6 +211,129 @@ function retargetRuntimePublicationPlanManifest(
     }
   }
   refreshRuntimePublicationPlanId(plan);
+}
+
+function terminalReportEnvelopeWithHiddenDiagnostics(runId: string): FormalArtifactEnvelope {
+  const artifactPath = "artifacts/reporting/terminal-report-source.r1.json";
+  const document = {
+    schema_version: "startup_opportunity.terminal_report_source.v1",
+    report_id: "terminal_report_hidden_diagnostics",
+    run_id: runId,
+    mode: "opportunity_discovery",
+    research_language: "zh-CN",
+    producer_role: "main_agent",
+    owned_output_path: artifactPath,
+    materialized_path: "report.json",
+    generated_at: "2026-08-19T09:07:02Z",
+    decision_subject_snapshot_ref: "artifacts/reporting/decision-subject-snapshot.r1.json",
+    decision_subject_snapshot_hash: `sha256:${"0".repeat(64)}`,
+    decision_subject_synthesis_hashes: [],
+    current_decision_subject_ids: [],
+    terminal_outcome: "insufficient_evidence",
+    decision_question: "当前部分发现周期是否应以证据不足如实收口？",
+    execution: {
+      completeness: "partial",
+      completed_stages: [],
+      incomplete_stages: [
+        {
+          stage: "Audit Lane Search Closure",
+          cause: "evidence_ceiling",
+          detail: "lane_delivery.search_closure_route_missing",
+          conclusion_impact: "计划中的搜索完成记录缺失，因此结论保持证据不足。",
+          related_refs: [],
+        },
+      ],
+      required_followups: [
+        {
+          followup_id: "repair_terminal_source",
+          status: "not_executed",
+          detail: "后续只应补充当前计划内缺失的搜索完成记录。",
+          related_refs: [],
+        },
+      ],
+      pending_operation_refs: [],
+    },
+    research_conclusion: {
+      outcome: "insufficient_evidence",
+      current_recommendation: "当前材料不足以支持方向性结论。",
+      meaning: "本次研究应保留为证据不足的终态，不提升建议强度。",
+      evidence_strength: "insufficient",
+      allowed_claim: "只能说明当前材料不足，不能声称需求或市场已被验证。",
+    },
+    runtime_health: {
+      status: "healthy",
+      issues: [
+        {
+          code: "synthetic_leak",
+          stage: "Audit",
+          detail: "lane_delivery.search_closure_route_missing",
+          conclusion_impact: "结构化诊断只约束执行披露，不提高结论强度。",
+          related_refs: [],
+        },
+      ],
+    },
+    directions: [],
+    sources: [],
+    research_provenance: {
+      available_handoff_count: 0,
+      captured_item_count: 0,
+      causal_handoff_refs: [],
+      consumed_item_refs: [],
+      used_handoff_items: [],
+      imported_substrate_refs: [],
+      formal_inherited_evidence_refs: [],
+      adopted_inherited_evidence_refs: [],
+      cited_inherited_evidence_refs: [],
+      formal_current_evidence_refs: [],
+      adopted_current_evidence_refs: [],
+      cited_current_evidence_refs: [],
+      revalidation_gaps: [],
+    },
+    report_citations: [],
+    report_evidence_dispositions: [],
+    report_source_dispositions: [],
+    excluded_evidence: [],
+    commercial_research_audit_refs: [],
+    commercial_uncertainties: [],
+    quantitative_signal_rows: [],
+    competitive_substitute_rows: [],
+    incumbent_response_risk_rows: [],
+    research_coverage_gaps: [],
+    commercial_subject_aggregates: [],
+    commercial_background_material: [],
+    commercial_research_status: {
+      state: "not_planned",
+      planned_task_refs: [],
+      missing_task_refs: [],
+      submitted_audit_refs: [],
+    },
+    gate_warnings: [],
+    ordered_validation_plan: [],
+    freshness: {
+      earliest_valid_as_of: null,
+      latest_valid_as_of: null,
+      summary: "没有足够当前材料支持方向性结论。",
+    },
+    limitations: ["结构化审计真值保留 exact diagnostic detail；中文 Markdown 只展示结论影响。"],
+    external_action_boundary: {
+      execution_owner: "user",
+      execution_supported: false,
+      result_tracking_supported: false,
+      external_validation_claimed: false,
+    },
+    audit_refs: [],
+  };
+  return {
+    schema_version: "startup_opportunity.artifact_envelope.current",
+    artifact_type: "startup_opportunity.terminal_report_source.v1",
+    artifact_path: artifactPath,
+    run_id: runId,
+    created_at: "2026-08-19T09:07:02Z",
+    producer_role: "main_agent",
+    input_refs: [],
+    content_hash: `sha256:${"0".repeat(64)}`,
+    document,
+  };
 }
 
 async function snapshotTree(root: string): Promise<Readonly<Record<string, string>>> {
@@ -4786,6 +4910,73 @@ test("public CLI authors a clean setup through adaptation without internal publi
         "Should an explicitly scoped later cycle gather independent Evidence?",
     },
   };
+
+  const hiddenDiagnosticTerminalEnvelope = terminalReportEnvelopeWithHiddenDiagnostics(runId);
+  const hiddenDiagnosticValidationFile = await writeJson(root, "adaptation-terminal-hidden.json", {
+    ...adaptationRequest,
+    request_id: "formal_author_terminal_hidden_diagnostics",
+    terminal_report_envelope: hiddenDiagnosticTerminalEnvelope,
+  });
+  const beforeHiddenDiagnosticValidation = await snapshotTree(runRoot);
+  const hiddenDiagnosticValidated = parseCli<Record<string, unknown>>(
+    cli("author-plan-adaptation", "--file", hiddenDiagnosticValidationFile),
+  );
+  assert.equal(hiddenDiagnosticValidated.status, "validated");
+  assert.deepEqual(await snapshotTree(runRoot), beforeHiddenDiagnosticValidation);
+  const hiddenMarkdown = deriveTerminalReportDocuments(hiddenDiagnosticTerminalEnvelope)
+    .flatMap((document) => [
+      ...(typeof document.document.markdown === "string" ? [document.document.markdown] : []),
+      ...(typeof document.document.audit_appendix_markdown === "string"
+        ? [document.document.audit_appendix_markdown]
+        : []),
+    ])
+    .join("\n");
+  assert.doesNotMatch(hiddenMarkdown, /Audit Lane Search Closure/u);
+  assert.doesNotMatch(hiddenMarkdown, /lane_delivery\.search_closure_route_missing/u);
+  assert.match(hiddenMarkdown, /计划中的搜索完成记录缺失/);
+  assert.equal(
+    (
+      (hiddenDiagnosticTerminalEnvelope.document.execution as Record<string, unknown>)
+        .incomplete_stages as Record<string, unknown>[]
+    )[0]?.detail,
+    "lane_delivery.search_closure_route_missing",
+  );
+  assert.equal(
+    (
+      (hiddenDiagnosticTerminalEnvelope.document.runtime_health as Record<string, unknown>)
+        .issues as Record<string, unknown>[]
+    )[0]?.detail,
+    "lane_delivery.search_closure_route_missing",
+  );
+
+  const invalidTerminalEnvelope = structuredClone(hiddenDiagnosticTerminalEnvelope);
+  invalidTerminalEnvelope.document.execution = {
+    ...(invalidTerminalEnvelope.document.execution as Record<string, unknown>),
+    completeness: "synthetic_unmapped_status",
+  };
+  (invalidTerminalEnvelope as { content_hash: string }).content_hash = canonicalContentHash(
+    invalidTerminalEnvelope.document,
+  );
+  const invalidTerminalValidationFile = await writeJson(root, "adaptation-terminal-invalid.json", {
+    ...adaptationRequest,
+    request_id: "formal_author_terminal_invalid_status",
+    terminal_report_envelope: invalidTerminalEnvelope,
+  });
+  const beforeInvalidTerminalValidation = await snapshotTree(runRoot);
+  const invalidTerminalRejected = cli(
+    "author-plan-adaptation",
+    "--file",
+    invalidTerminalValidationFile,
+  );
+  assert.equal(invalidTerminalRejected.status, 1);
+  assert.match(invalidTerminalRejected.stderr, /adaptation\.author_request_invalid/u);
+  assert.match(invalidTerminalRejected.stderr, /schema\.enum/u);
+  assert.match(
+    invalidTerminalRejected.stderr,
+    /\/terminal_report_envelope\/document\/execution\/completeness/u,
+  );
+  assert.deepEqual(await snapshotTree(runRoot), beforeInvalidTerminalValidation);
+
   const adaptationValidationFile = await writeJson(
     root,
     "adaptation-validate.json",

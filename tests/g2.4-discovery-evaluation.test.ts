@@ -3369,7 +3369,7 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
     decisionBrief,
     /获客（状态：不适用；说明：SYNTHETIC acquisition difference not applicable/,
   );
-  assert.match(decisionBrief, /合规（状态：未发现证据；说明：SYNTHETIC no 证据 found/);
+  assert.match(decisionBrief, /合规（状态：未发现证据；说明：SYNTHETIC no evidence found/);
   assert.match(decisionBrief, /当前团队条件/);
   assert.match(decisionBrief, /机会自身启动负担与当前团队匹配/);
   assert.match(decisionBrief, /当前团队匹配结论/);
@@ -3397,7 +3397,7 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
     reportMarkdown,
     /获客（状态：不适用；说明：SYNTHETIC acquisition difference not applicable/,
   );
-  assert.match(reportMarkdown, /合规（状态：未发现证据；说明：SYNTHETIC no 证据 found/);
+  assert.match(reportMarkdown, /合规（状态：未发现证据；说明：SYNTHETIC no evidence found/);
   assert.match(reportMarkdown, /当前团队条件/);
   assert.match(reportMarkdown, /机会自身启动负担与当前团队匹配/);
   assert.match(reportMarkdown, new RegExp(`第1位: ${firstBetTitle}`, "u"));
@@ -3418,12 +3418,12 @@ test("G2.4 publishes evaluation artifacts, materializes the discovery report, an
   );
   assert.equal(
     auditAppendix.match(
-      /Synthetic unavailable (?:support|challenge) source（用户提供\/非公开） - SYNTHETIC G2\.4 contract fixture only; no real 证据 or validation\./gu,
+      /Synthetic unavailable (?:support|challenge) source（用户提供\/非公开） - SYNTHETIC G2\.4 contract fixture only; no real Evidence or validation\./gu,
     )?.length,
     2,
   );
   for (const surface of [decisionBrief, reportMarkdown, auditAppendix]) {
-    assert.doesNotMatch(surface, /decision_tier|insufficient_evidence|artifacts\//u);
+    assert.doesNotMatch(surface, /artifacts\//u);
   }
   const receipts = await Promise.all(
     (await readdir(path.join(state.runRoot, ".store/operations")))

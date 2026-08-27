@@ -11,6 +11,7 @@ import {
   isFormalScopeDisposed,
   isQuantitativeCoverageFormallyComplete,
 } from "../validators/quantitative-research-semantics.js";
+import { localizedGateWarningRow } from "./report-localization.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -52,198 +53,300 @@ function markdownLink(label: string, url: string): string {
   return `[${label.replaceAll("[", "\\[").replaceAll("]", "\\]")}](${url.replaceAll(")", "%29")})`;
 }
 
-const ZH_LABELS: Readonly<Record<string, string>> = {
-  active_users: "活跃用户",
-  adjacent_product: "相邻产品",
-  artifact: "研究材料",
-  authorized_commercial_api: "已授权商业接口",
-  baseline: "基线",
-  broad_education_consumers: "广泛教育消费者",
-  business: "商业",
-  candidate_applied_practice_feedback: "实践反馈候选",
-  candidate_learning_execution: "学习执行候选",
-  candidate_lifelong_digital_help: "长期数字帮助候选",
-  candidate_outcome_verification: "结果核验候选",
-  candidate_purchase_decision: "购买决策候选",
-  candidate_solution_execution_micro_coaching: "执行微教练方案",
-  candidate_solution_outcome_milestone_check: "结果里程碑检查方案",
-  candidate_solution_practice_expert_review: "实践专家审阅方案",
-  candidate_solution_purchase_decision_dossier: "购买决策档案方案",
-  commercial_behavior: "商业行为",
-  comparable: "可比较",
-  competitive: "竞争与替代",
-  competitive_intensity: "竞争强度",
-  competitor_count: "竞品数量",
-  concept_evidence_assessment: "产品假设证据评估",
-  counterfactual: "反向检验",
-  demand_scale: "需求规模",
-  direct_measurement: "直接测量",
-  direct_product: "直接产品",
-  disclosed: "公开披露",
-  discovery_generation: "方向生成",
-  distribution: "分发",
-  distribution_reach: "分发覆盖",
-  decision_grade: "决策级",
-  directional_proxy: "方向性代理指标",
-  context_only: "仅作背景",
-  assessed: "已评估",
+function localizedStructuredValue(
+  value: unknown,
+  field: string,
+  labels: Readonly<Record<string, string>>,
+): string {
+  if (value === null || value === undefined || value === "") return "-";
+  const raw = String(value);
+  const localized = labels[raw];
+  if (localized === undefined) {
+    throw new Error(`commercial report localized enum mapping is missing for ${field}: ${raw}`);
+  }
+  return localized;
+}
+
+function plainDisplay(value: unknown): string {
+  return cell(value);
+}
+
+function enumDisplay(
+  value: unknown,
+  zh: boolean,
+  field: string,
+  labels: Readonly<Record<string, string>>,
+): string {
+  return zh ? localizedStructuredValue(value, field, labels) : cell(value);
+}
+
+const priorityLabels = {
+  high: "高",
+  medium: "中",
+  low: "低",
+} as const;
+
+const readinessLabels = {
+  ready: "已就绪",
+  partial: "部分就绪",
+  not_ready: "未就绪",
+} as const;
+
+const marketPriorityBasisCodeLabels = {
+  competitive_scope_disposed: "竞争研究范围已处置",
+  current_user_language: "存在当前用户语言材料",
+  decision_grade_demand_signal: "存在决策级需求信号",
+  directional_demand_signal: "存在方向性需求信号",
+  market_priority_signal_limited: "市场研究优先级信号有限",
+} as const;
+
+const commercialReadinessDimensionLabels = {
+  acquisition_or_distribution: "获客或分发",
+  candidate_purchase_or_commitment: "候选方向付款或承诺",
+  pricing: "定价",
+  retention_or_usage: "留存或使用",
+  unit_economics: "单位经济",
+} as const;
+
+const assessmentLevelLabels = {
+  high: "高",
+  medium: "中",
+  low: "低",
   unknown: "未知",
+  not_applicable: "不适用",
+} as const;
+
+const analysisDepthLabels = {
+  not_assigned: "未分配",
   lightweight_scan: "轻量扫描",
   targeted_deep_dive: "定向深入研究",
-  not_assigned: "未分配",
-  copy: "功能复制",
-  bundle: "捆绑提供",
-  native_integration: "原生集成",
+} as const;
+
+const analysisStateLabels = {
+  assessed: "已评估",
+  unknown: "未知",
+  not_applicable: "不适用",
+} as const;
+
+const responseHorizonLabels = {
   immediate: "立即",
   near_term: "近期",
   medium_term: "中期",
   long_term: "长期",
+  unknown: "未知",
+  not_applicable: "不适用",
+} as const;
+
+const thesisCoverageScopeLabels = {
   single_feature: "单项功能",
   partial_workflow: "部分工作流",
   full_value_proposition: "完整价值主张",
-  high: "高",
-  medium: "中",
-  low: "低",
-  ready: "已就绪",
-  not_ready: "未就绪",
-  decision_grade_demand_signal: "存在决策级需求信号",
-  directional_demand_signal: "存在方向性需求信号",
-  current_user_language: "存在当前用户语言材料",
-  competitive_scope_disposed: "竞争研究范围已处置",
-  market_priority_signal_limited: "市场研究优先级信号有限",
-  candidate_purchase_or_commitment: "候选方向付款或承诺",
-  acquisition_or_distribution: "获客或分发",
-  pricing: "定价",
-  retention_or_usage: "留存或使用",
-  downloadable_dataset: "可下载数据集",
-  downloads: "下载量",
-  estimated: "估算",
-  estimate: "估算",
-  estimate_not_observation: "估算而非直接观察",
-  evidence: "证据",
-  growth_change: "增长变化",
-  growth_rate: "增长率",
-  harness: "研究系统",
-  independent_counterevidence: "独立反向证据",
-  limited: "有限可比",
-  manual_workaround: "人工替代",
-  market_size: "市场规模",
-  modeled: "模型推算",
-  non_consumption: "不消费",
+  unknown: "未知",
   not_applicable: "不适用",
-  not_comparable: "不可比较",
-  not_executed: "未执行",
-  not_found: "未找到",
-  observed: "已观察",
-  official_dataset: "官方数据集",
-  opportunity_discovery: "机会发现",
-  other: "其他",
-  outcome_rate: "结果达成率",
+} as const;
+
+const metricFamilyLabels = {
+  demand_scale: "需求规模",
+  usage_behavior: "使用行为",
+  commercial_behavior: "商业行为",
+  growth_change: "增长变化",
+  competitive_intensity: "竞争强度",
+  distribution: "分发",
+  retention_outcomes: "留存与结果",
+  unit_economics: "单位经济",
+} as const;
+
+const metricSemanticsLabels = {
+  market_size: "市场规模",
+  search_interest: "搜索兴趣",
+  rank: "排名",
+  rating_count: "评分数",
+  review_count: "评论数",
+  downloads: "下载量",
+  active_users: "活跃用户",
+  usage_frequency: "使用频次",
+  transaction_count: "交易次数",
+  purchase_count: "购买次数",
   paid_customers: "付费客户",
   paid_customers_estimate: "付费客户估算",
-  partial: "部分覆盖",
-  platform: "平台",
-  price: "价格",
-  proxy: "代理指标",
-  public_api: "公开接口",
-  purchase_count: "购买次数",
-  quantitative: "量化",
-  rank: "排名",
-  rate_limited: "受到频率限制",
-  rating_count: "评分数",
-  repository_dataset: "仓库数据集",
-  research: "研究",
-  retention_outcomes: "留存与结果",
-  retention_rate: "留存率",
   revenue: "收入",
   revenue_estimate: "收入估算",
-  review_count: "评论数",
-  runtime_blocked: "运行受阻",
-  same_run: "同一研究批次",
-  search_interest: "搜索兴趣",
-  service: "服务",
-  status_quo: "现状",
-  transaction_count: "交易次数",
-  unavailable: "不可用",
+  price: "价格",
+  growth_rate: "增长率",
+  retention_rate: "留存率",
+  outcome_rate: "结果达成率",
+  distribution_reach: "分发覆盖",
+  competitor_count: "竞品数量",
   unit_cost: "单位成本",
-  unit_economics: "单位经济",
   unit_margin: "单位利润",
-  unranked_hypothesis: "未排序待验证假设",
-  usage_behavior: "使用行为",
-  usage_frequency: "使用频次",
-  user_provided_dataset: "用户提供的数据集",
+  other: "其他",
+} as const;
+
+const decisionGradeLabels = {
+  decision_grade: "决策级",
+  directional_proxy: "方向性代理指标",
+  context_only: "仅作背景",
+} as const;
+
+const measurementTypeLabels = {
+  direct_measurement: "直接测量",
+  disclosed: "公开披露",
+  estimated: "估算",
+  modeled: "模型推算",
+  proxy: "代理指标",
+} as const;
+
+const comparabilityStatusLabels = {
+  comparable: "可比较",
+  limited: "有限可比",
+  not_comparable: "不可比较",
+} as const;
+
+const competitorTypeLabels = {
+  direct_product: "直接产品",
+  adjacent_product: "相邻产品",
+  service: "服务",
+  platform: "平台",
+  manual_workaround: "人工替代",
+  status_quo: "现状",
+  non_consumption: "不消费",
+} as const;
+
+const coverageKindLabels = {
+  quantitative: "量化",
+  competitive: "竞争与替代",
+  business: "商业",
+  research: "研究",
+  execution: "执行/研究",
+  incumbent_response: "头部公司吸收与响应风险",
+} as const;
+
+const coverageDimensionLabels = {
+  absorption_and_response_risk: "头部公司吸收与响应风险",
+} as const;
+
+const commercialDimensionLabels = {
+  recent_user_language: "近期用户语言材料",
+  purchase_signal: "购买信号",
+  alternatives_pricing_usage: "替代方案、定价与使用",
+  distribution_channel: "分发渠道",
+  independent_counterevidence: "独立反向材料",
+} as const;
+
+const coverageStateLabels = {
+  observed: "已观察",
+  partial: "部分覆盖",
+  unavailable: "不可用",
+  not_applicable: "不适用",
+} as const;
+
+const acquisitionMethodLabels = {
+  public_api: "公开接口",
+  authorized_commercial_api: "已授权商业接口",
+  official_dataset: "官方数据集",
+  downloadable_dataset: "可下载数据集",
   webpage: "网页",
-  china_b2c_education_alternatives_baseline: "中国大陆 B2C 教育替代基线",
-};
+  user_provided_dataset: "用户提供的数据集",
+  repository_dataset: "仓库数据集",
+  other: "其他",
+} as const;
 
-const ZH_INTERNAL_TEXT_REPLACEMENTS: readonly [RegExp, string][] = [
-  [/\bsame[- ]run\b/giu, "同一研究批次"],
-  [/\bpre[- ]thesis\b/giu, "前期产品假设"],
-  [/\bbaseline\b/giu, "基线"],
-  [/\bcounterfactual\b/giu, "反向检验"],
-  [/\bevidence\b/giu, "证据"],
-  [/\bharness\b/giu, "研究系统"],
-  [/\bartifact\b/giu, "研究材料"],
-  [/\bopportunity_discovery\b/giu, "机会发现"],
-  [/\bconcept_evidence_assessment\b/giu, "产品假设证据评估"],
-  [/\bassessment_early_kill\b/giu, "评估提前终止"],
-  [/\bassessment_commercial\b/giu, "商业评估"],
-  [/\bassessment_delivery\b/giu, "交付评估"],
-  [/\bdiscovery_generation\b/giu, "方向生成"],
-  [/\bcandidate_evaluation\b/giu, "候选评估"],
-  [/\bruntime_blocked\b/giu, "运行受阻"],
-  [/\bnot_executed\b/giu, "未执行"],
-  [/\bunranked_hypothesis\b/giu, "未排序待验证假设"],
-];
-
-function zhText(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "-";
-  const raw = String(value);
-  const exact = ZH_LABELS[raw];
-  if (exact !== undefined) return exact;
-  return ZH_INTERNAL_TEXT_REPLACEMENTS.reduce(
-    (current, [pattern, replacement]) => current.replace(pattern, replacement),
-    raw,
-  );
-}
-
-function display(value: unknown, zh: boolean): string {
-  return zh ? zhText(value) : cell(value);
-}
+const queryOutcomeLabels = {
+  no_data: "没有数据",
+  access_unavailable: "访问不可用",
+  authorization_unavailable: "授权不可用",
+  rate_limited: "受到频率限制",
+  not_found: "未找到",
+  not_applicable: "不适用",
+} as const;
 
 function subjectDisplay(
   source: Readonly<Record<string, unknown>>,
   subjectId: unknown,
-  zh: boolean,
+  _zh: boolean,
 ): string {
   const label = records(source.report_subject_labels).find(
     (entry) => entry.subject_id === subjectId,
   )?.label;
-  return display(typeof label === "string" ? label : subjectId, zh);
+  return plainDisplay(typeof label === "string" ? label : subjectId);
 }
 
 function priorityDisplay(value: unknown, zh: boolean): string {
-  if (!zh) return cell(value);
-  return (
-    ({ high: "高", medium: "中", low: "低" } as Readonly<Record<string, string>>)[String(value)] ??
-    zhText(value)
-  );
+  return enumDisplay(value, zh, "market_priority.level", priorityLabels);
 }
 
 function readinessDisplay(value: unknown, zh: boolean): string {
-  if (!zh) return cell(value);
-  return (
-    (
-      { ready: "已就绪", partial: "部分就绪", not_ready: "未就绪" } as Readonly<
-        Record<string, string>
-      >
-    )[String(value)] ?? zhText(value)
+  return enumDisplay(value, zh, "commercial_readiness.level", readinessLabels);
+}
+
+function queryAttemptDisplay(attempt: Readonly<Record<string, unknown>>, zh: boolean): string {
+  return `${enumDisplay(attempt.acquisition_method, zh, "query_attempt.acquisition_method", acquisitionMethodLabels)} / ${plainDisplay(attempt.provider)} / ${enumDisplay(attempt.outcome, zh, "query_attempt.outcome", queryOutcomeLabels)}: ${plainDisplay(attempt.reason)}`;
+}
+
+function coverageKindDisplay(value: unknown, zh: boolean): string {
+  return enumDisplay(value, zh, "research_coverage_gap.coverage_kind", coverageKindLabels);
+}
+
+function coverageStateDisplay(coverageKind: unknown, value: unknown, zh: boolean): string {
+  return String(coverageKind) === "incumbent_response"
+    ? enumDisplay(value, zh, "incumbent_response.coverage.state", analysisStateLabels)
+    : enumDisplay(value, zh, "research_coverage_gap.state", coverageStateLabels);
+}
+
+function coverageDimensionDisplay(
+  coverageKind: unknown,
+  coverage: Readonly<Record<string, unknown>>,
+  zh: boolean,
+): string {
+  if (coverageKind === "quantitative") {
+    return enumDisplay(
+      coverage.metric_family,
+      zh,
+      "quantitative_coverage.metric_family",
+      metricFamilyLabels,
+    );
+  }
+  if (coverageKind === "competitive") {
+    return enumDisplay(
+      coverage.competitor_type,
+      zh,
+      "competitive_coverage.competitor_type",
+      competitorTypeLabels,
+    );
+  }
+  return enumDisplay(
+    "absorption_and_response_risk",
+    zh,
+    "incumbent_response.coverage.dimension",
+    coverageDimensionLabels,
+  );
+}
+
+function assignedCommercialDimensionDisplay(value: unknown, zh: boolean): string {
+  return enumDisplay(
+    value,
+    zh,
+    "execution_gap.assigned_commercial_dimensions",
+    commercialDimensionLabels,
   );
 }
 
 function displayList(value: unknown, zh: boolean): string {
+  void zh;
   const values = strings(value);
-  return values.length === 0 ? "-" : values.map((entry) => display(entry, zh)).join("<br>");
+  return values.length === 0 ? "-" : values.map((entry) => plainDisplay(entry)).join("<br>");
+}
+
+function enumListDisplay(
+  value: unknown,
+  zh: boolean,
+  field: string,
+  labels: Readonly<Record<string, string>>,
+): string {
+  const values = strings(value);
+  return values.length === 0
+    ? "-"
+    : values.map((entry) => enumDisplay(entry, zh, field, labels)).join("<br>");
 }
 
 function auditReferenceSummary(
@@ -1233,7 +1336,7 @@ export function projectCommercialAuditTables(
 
 function graded(value: unknown, zh: boolean): string {
   if (!isRecord(value)) return "-";
-  return `${display(value.level, zh)}: ${display(value.rationale, zh)}`;
+  return `${enumDisplay(value.level, zh, "incumbent_response.assessment_level", assessmentLevelLabels)}: ${plainDisplay(value.rationale)}`;
 }
 
 export function renderIncumbentResponseDisclosure(
@@ -1315,7 +1418,7 @@ export function renderIncumbentResponseNarratives(
       const state = String(semantic.analysis_state);
       if (state === "not_applicable") {
         parts.push(
-          `- ${zh ? "不适用" : "Not applicable"}: ${display(semantic.inference_boundary, zh)}\n`,
+          `- ${zh ? "不适用" : "Not applicable"}: ${plainDisplay(semantic.inference_boundary)}\n`,
         );
         parts.push(
           zh
@@ -1329,10 +1432,10 @@ export function renderIncumbentResponseNarratives(
       }
       if (state === "unknown") {
         parts.push(
-          `- ${zh ? "状态" : "State"}: ${zh ? "未知" : "unknown"}. ${display(semantic.uncertainty, zh)}\n`,
+          `- ${zh ? "状态" : "State"}: ${zh ? "未知" : "unknown"}. ${plainDisplay(semantic.uncertainty)}\n`,
         );
         parts.push(
-          `  - ${zh ? "推理边界" : "Inference boundary"}: ${display(semantic.inference_boundary, zh)}\n`,
+          `  - ${zh ? "推理边界" : "Inference boundary"}: ${plainDisplay(semantic.inference_boundary)}\n`,
         );
         parts.push(
           zh
@@ -1361,10 +1464,10 @@ export function renderIncumbentResponseNarratives(
         : {};
       const residualDimensions = records(residual.dimensions).map(
         (dimension) =>
-          `${display(dimension.kind, zh)} (${display(dimension.strength, zh)}): ${display(dimension.rationale, zh)}`,
+          `${plainDisplay(dimension.kind)} (${enumDisplay(dimension.strength, zh, "incumbent_response.residual_dimension.strength", assessmentLevelLabels)}): ${plainDisplay(dimension.rationale)}`,
       );
       parts.push(
-        `- ${zh ? "潜在响应者" : "Potential responder"}: ${display(semantic.responder_identity, zh)} (${display(semantic.responder_category, zh)}), ${zh ? "控制点" : "control point"}: ${display(semantic.control_point, zh)}.\n`,
+        `- ${zh ? "潜在响应者" : "Potential responder"}: ${plainDisplay(semantic.responder_identity)} (${plainDisplay(semantic.responder_category)}), ${zh ? "控制点" : "control point"}: ${plainDisplay(semantic.control_point)}.\n`,
       );
       parts.push(
         `  - ${zh ? "能力（不代表意愿）" : "Ability (not willingness)"}: ${graded(semantic.capability_adjacency, zh)}; ${zh ? "响应方式" : "modes"}: ${displayList(semantic.response_modes, zh)}.\n`,
@@ -1373,22 +1476,22 @@ export function renderIncumbentResponseNarratives(
         `  - ${zh ? "响应成本" : "Response costs"}: ${zh ? "实施" : "implementation"} ${graded(costs.implementation, zh)}; ${zh ? "运营" : "operations"} ${graded(costs.operational, zh)}; ${zh ? "合规" : "compliance"} ${graded(costs.compliance, zh)}; ${zh ? "数据" : "data"} ${graded(costs.data, zh)}; ${zh ? "分发" : "distribution"} ${graded(costs.distribution, zh)}.\n`,
       );
       parts.push(
-        `  - ${zh ? "响应意愿" : "Willingness"}: ${display(incentive.level, zh)}: ${display(incentive.rationale, zh)} ${zh ? "驱动" : "Drivers"}: ${displayList(incentive.drivers, zh)}. ${zh ? "抑制" : "Disincentives"}: ${displayList(incentive.disincentives, zh)}. ${zh ? "自我蚕食" : "Cannibalization"}: ${display(incentive.cannibalization, zh)}.\n`,
+        `  - ${zh ? "响应意愿" : "Willingness"}: ${enumDisplay(incentive.level, zh, "incumbent_response.incentive.level", assessmentLevelLabels)}: ${plainDisplay(incentive.rationale)} ${zh ? "驱动" : "Drivers"}: ${displayList(incentive.drivers, zh)}. ${zh ? "抑制" : "Disincentives"}: ${displayList(incentive.disincentives, zh)}. ${zh ? "自我蚕食" : "Cannibalization"}: ${plainDisplay(incentive.cannibalization)}.\n`,
       );
       parts.push(
-        `  - ${zh ? "时间与分发" : "Horizon and distribution"}: ${display(horizon.band, zh)}: ${display(horizon.rationale, zh)}; ${graded(distribution, zh)}; ${displayList(distribution.control_points, zh)}.\n`,
+        `  - ${zh ? "时间与分发" : "Horizon and distribution"}: ${enumDisplay(horizon.band, zh, "incumbent_response.response_horizon.band", responseHorizonLabels)}: ${plainDisplay(horizon.rationale)}; ${graded(distribution, zh)}; ${displayList(distribution.control_points, zh)}.\n`,
       );
       parts.push(
-        `  - ${zh ? "产品主张覆盖（功能复制不等于完整覆盖）" : "Thesis coverage (feature copying is not full coverage)"}: ${display(coverage.scope, zh)}: ${display(coverage.rationale, zh)} ${zh ? "已覆盖" : "Covered"}: ${displayList(coverage.covered_elements, zh)}. ${zh ? "未覆盖" : "Uncovered"}: ${displayList(coverage.uncovered_elements, zh)}.\n`,
+        `  - ${zh ? "产品主张覆盖（功能复制不等于完整覆盖）" : "Thesis coverage (feature copying is not full coverage)"}: ${enumDisplay(coverage.scope, zh, "incumbent_response.thesis_coverage.scope", thesisCoverageScopeLabels)}: ${plainDisplay(coverage.rationale)} ${zh ? "已覆盖" : "Covered"}: ${displayList(coverage.covered_elements, zh)}. ${zh ? "未覆盖" : "Uncovered"}: ${displayList(coverage.uncovered_elements, zh)}.\n`,
       );
       parts.push(
-        `  - ${zh ? "剩余差异化" : "Residual differentiation"}: ${display(residual.overall_strength, zh)}: ${display(residual.rationale, zh)}${residualDimensions.length === 0 ? "" : `; ${residualDimensions.join("; ")}`}.\n`,
+        `  - ${zh ? "剩余差异化" : "Residual differentiation"}: ${enumDisplay(residual.overall_strength, zh, "incumbent_response.residual_differentiation.overall_strength", assessmentLevelLabels)}: ${plainDisplay(residual.rationale)}${residualDimensions.length === 0 ? "" : `; ${residualDimensions.join("; ")}`}.\n`,
       );
       parts.push(
         `  - ${zh ? "材料角色" : "Evidence roles"}: ${zh ? "支持" : "supporting"} ${auditReferenceSummary(semantic.supporting_evidence_refs, zh, false, citations)}; ${zh ? "反证" : "opposing"} ${auditReferenceSummary(semantic.opposing_evidence_refs, zh, false, citations)}; ${zh ? "背景" : "background"} ${auditReferenceSummary(semantic.background_evidence_refs, zh, false, citations)}.\n`,
       );
       parts.push(
-        `  - ${zh ? "推理边界与缺口" : "Inference boundary and gaps"}: ${display(semantic.inference_boundary, zh)} ${zh ? "不确定性" : "Uncertainty"}: ${display(semantic.uncertainty, zh)}. ${zh ? "未知" : "Unknowns"}: ${displayList(semantic.unknowns, zh)}. ${zh ? "数据缺口" : "Data gaps"}: ${displayList(semantic.data_gaps, zh)}.\n`,
+        `  - ${zh ? "推理边界与缺口" : "Inference boundary and gaps"}: ${plainDisplay(semantic.inference_boundary)} ${zh ? "不确定性" : "Uncertainty"}: ${plainDisplay(semantic.uncertainty)}. ${zh ? "未知" : "Unknowns"}: ${displayList(semantic.unknowns, zh)}. ${zh ? "数据缺口" : "Data gaps"}: ${displayList(semantic.data_gaps, zh)}.\n`,
       );
     }
   }
@@ -1454,11 +1557,11 @@ export function renderIncumbentResponseRiskTable(
       : {};
     const residualDimensions = records(residual.dimensions).map(
       (dimension) =>
-        `${display(dimension.kind, zh)} (${display(dimension.strength, zh)}): ${display(dimension.rationale, zh)}`,
+        `${plainDisplay(dimension.kind)} (${enumDisplay(dimension.strength, zh, "incumbent_response.residual_dimension.strength", assessmentLevelLabels)}): ${plainDisplay(dimension.rationale)}`,
     );
     return [
-      `${subjectDisplay(source as Readonly<Record<string, unknown>>, semantic.subject_id, zh)} / ${display(assessment.analysis_depth, zh)} / ${display(semantic.analysis_state, zh)}`,
-      `${display(semantic.responder_identity, zh)} / ${display(semantic.responder_category, zh)} / ${display(semantic.control_point, zh)}`,
+      `${subjectDisplay(source as Readonly<Record<string, unknown>>, semantic.subject_id, zh)} / ${enumDisplay(assessment.analysis_depth, zh, "incumbent_response.analysis_depth", analysisDepthLabels)} / ${enumDisplay(semantic.analysis_state, zh, "incumbent_response.analysis_state", analysisStateLabels)}`,
+      `${plainDisplay(semantic.responder_identity)} / ${plainDisplay(semantic.responder_category)} / ${plainDisplay(semantic.control_point)}`,
       displayList(semantic.response_modes, zh),
       graded(semantic.capability_adjacency, zh),
       [
@@ -1468,13 +1571,13 @@ export function renderIncumbentResponseRiskTable(
         `${zh ? "数据" : "data"}: ${graded(costs.data, zh)}`,
         `${zh ? "分发" : "distribution"}: ${graded(costs.distribution, zh)}`,
       ].join("<br>"),
-      `${display(incentive.level, zh)}: ${display(incentive.rationale, zh)}<br>${zh ? "驱动" : "drivers"}: ${displayList(incentive.drivers, zh)}<br>${zh ? "抑制" : "disincentives"}: ${displayList(incentive.disincentives, zh)}<br>${zh ? "自我蚕食" : "cannibalization"}: ${display(incentive.cannibalization, zh)}`,
-      `${display(horizon.band, zh)}: ${display(horizon.rationale, zh)}`,
+      `${enumDisplay(incentive.level, zh, "incumbent_response.incentive.level", assessmentLevelLabels)}: ${plainDisplay(incentive.rationale)}<br>${zh ? "驱动" : "drivers"}: ${displayList(incentive.drivers, zh)}<br>${zh ? "抑制" : "disincentives"}: ${displayList(incentive.disincentives, zh)}<br>${zh ? "自我蚕食" : "cannibalization"}: ${plainDisplay(incentive.cannibalization)}`,
+      `${enumDisplay(horizon.band, zh, "incumbent_response.response_horizon.band", responseHorizonLabels)}: ${plainDisplay(horizon.rationale)}`,
       `${graded(distribution, zh)}<br>${displayList(distribution.control_points, zh)}`,
-      `${display(coverage.scope, zh)}: ${display(coverage.rationale, zh)}<br>${zh ? "已覆盖" : "covered"}: ${displayList(coverage.covered_elements, zh)}<br>${zh ? "未覆盖" : "uncovered"}: ${displayList(coverage.uncovered_elements, zh)}`,
-      `${display(residual.overall_strength, zh)}: ${display(residual.rationale, zh)}${residualDimensions.length === 0 ? "" : `<br>${residualDimensions.join("<br>")}`}`,
+      `${enumDisplay(coverage.scope, zh, "incumbent_response.thesis_coverage.scope", thesisCoverageScopeLabels)}: ${plainDisplay(coverage.rationale)}<br>${zh ? "已覆盖" : "covered"}: ${displayList(coverage.covered_elements, zh)}<br>${zh ? "未覆盖" : "uncovered"}: ${displayList(coverage.uncovered_elements, zh)}`,
+      `${enumDisplay(residual.overall_strength, zh, "incumbent_response.residual_differentiation.overall_strength", assessmentLevelLabels)}: ${plainDisplay(residual.rationale)}${residualDimensions.length === 0 ? "" : `<br>${residualDimensions.join("<br>")}`}`,
       `${zh ? "支持" : "supporting"}: ${auditReferenceSummary(semantic.supporting_evidence_refs, zh, false, citations)}<br>${zh ? "反证" : "opposing"}: ${auditReferenceSummary(semantic.opposing_evidence_refs, zh, false, citations)}<br>${zh ? "背景" : "background"}: ${auditReferenceSummary(semantic.background_evidence_refs, zh, false, citations)}`,
-      `${display(semantic.confidence, zh)}: ${display(semantic.uncertainty, zh)}<br>${zh ? "推理边界" : "inference boundary"}: ${display(semantic.inference_boundary, zh)}<br>${zh ? "未知" : "unknowns"}: ${displayList(semantic.unknowns, zh)}<br>${zh ? "数据缺口" : "data gaps"}: ${displayList(semantic.data_gaps, zh)}`,
+      `${enumDisplay(semantic.confidence, zh, "incumbent_response.confidence", assessmentLevelLabels)}: ${plainDisplay(semantic.uncertainty)}<br>${zh ? "推理边界" : "inference boundary"}: ${plainDisplay(semantic.inference_boundary)}<br>${zh ? "未知" : "unknowns"}: ${displayList(semantic.unknowns, zh)}<br>${zh ? "数据缺口" : "data gaps"}: ${displayList(semantic.data_gaps, zh)}`,
       zh ? INCUMBENT_RESPONSE_STRATEGIC_CONTEXT_ZH : INCUMBENT_RESPONSE_STRATEGIC_CONTEXT,
     ];
   });
@@ -1553,13 +1656,13 @@ function cell(value: unknown): string {
 
 function metricValue(value: unknown, zh = false): string {
   if (!isRecord(value)) return "-";
-  const unit = display(value.unit, zh);
-  const currency = value.currency === null ? "" : ` ${display(value.currency, zh)}`;
+  const unit = plainDisplay(value.unit);
+  const currency = value.currency === null ? "" : ` ${plainDisplay(value.currency)}`;
   if (value.shape === "range") {
     return `${cell(value.lower_bound)}-${cell(value.upper_bound)} ${unit}${currency}`.trim();
   }
   if (value.shape === "index") {
-    return `${cell(value.value)} ${unit} (${display(value.index_base, zh)})`;
+    return `${cell(value.value)} ${unit} (${plainDisplay(value.index_base)})`;
   }
   if (value.shape === "estimate") {
     const bounds =
@@ -1574,9 +1677,9 @@ function metricValue(value: unknown, zh = false): string {
 function period(value: unknown, zh = false): string {
   if (!isRecord(value)) return "-";
   if (value.as_of !== null) {
-    return `${display(value.label, zh)}; ${zh ? "截至" : "as of"} ${cell(value.as_of)}`;
+    return `${plainDisplay(value.label)}; ${zh ? "截至" : "as of"} ${cell(value.as_of)}`;
   }
-  return `${display(value.label, zh)}; ${cell(value.period_start)} ${zh ? "至" : "to"} ${cell(value.period_end)}`;
+  return `${plainDisplay(value.label)}; ${cell(value.period_start)} ${zh ? "至" : "to"} ${cell(value.period_end)}`;
 }
 
 export function renderQuantitativeSignalTable(
@@ -1615,13 +1718,13 @@ export function renderQuantitativeSignalTable(
     const comparability = isRecord(observation.comparability) ? observation.comparability : {};
     return [
       subjectDisplay(source, observation.subject_id, zh),
-      `${display(observation.metric_family, zh)} / ${display(observation.metric_name, zh)} (${display(observation.metric_semantics, zh)})`,
+      `${enumDisplay(observation.metric_family, zh, "quantitative_observation.metric_family", metricFamilyLabels)} / ${plainDisplay(observation.metric_name)} (${enumDisplay(observation.metric_semantics, zh, "quantitative_observation.metric_semantics", metricSemanticsLabels)})`,
       metricValue(observation.value, zh),
-      display(observation.metric_definition, zh),
-      display(observation.geography, zh),
+      plainDisplay(observation.metric_definition),
+      plainDisplay(observation.geography),
       period(observation.period, zh),
-      `${display(isRecord(observation.decision_use) ? observation.decision_use.grade : "context_only", zh)} / ${display(observation.measurement_type, zh)}`,
-      `${display(comparability.status, zh)}; ${display(comparability.category, zh)}; ${
+      `${enumDisplay(isRecord(observation.decision_use) ? observation.decision_use.grade : "context_only", zh, "quantitative_observation.decision_use.grade", decisionGradeLabels)} / ${enumDisplay(observation.measurement_type, zh, "quantitative_observation.measurement_type", measurementTypeLabels)}`,
+      `${enumDisplay(comparability.status, zh, "quantitative_observation.comparability.status", comparabilityStatusLabels)}; ${plainDisplay(comparability.category)}; ${
         comparability.direct_comparison_allowed === true
           ? zh
             ? "可直接比较"
@@ -1630,7 +1733,7 @@ export function renderQuantitativeSignalTable(
             ? "不可直接比较"
             : "no direct comparison"
       }`,
-      display(observation.error_uncertainty, zh),
+      plainDisplay(observation.error_uncertainty),
       auditReferenceSummary(observation.evidence_refs, zh, false, citations),
     ];
   });
@@ -1680,10 +1783,25 @@ export function renderMarketPriorityAndCommercialReadiness(
     return [
       subjectDisplay(source, aggregate.subject_id, zh),
       priorityDisplay(priority.level ?? "low", zh),
-      displayList(priority.basis_codes, zh),
+      enumListDisplay(
+        priority.basis_codes,
+        zh,
+        "market_priority.basis_codes",
+        marketPriorityBasisCodeLabels,
+      ),
       readinessDisplay(readiness.level ?? "not_ready", zh),
-      displayList(readiness.satisfied_dimensions, zh),
-      displayList(readiness.missing_dimensions, zh),
+      enumListDisplay(
+        readiness.satisfied_dimensions,
+        zh,
+        "commercial_readiness.satisfied_dimensions",
+        commercialReadinessDimensionLabels,
+      ),
+      enumListDisplay(
+        readiness.missing_dimensions,
+        zh,
+        "commercial_readiness.missing_dimensions",
+        commercialReadinessDimensionLabels,
+      ),
     ];
   });
   if (body.length === 0) {
@@ -1751,7 +1869,7 @@ export function renderDecisionGradeQuantitativeSummary(
       const displayed = observations.slice(0, 5);
       const metrics = displayed.map((observation) => {
         const sources = auditReferenceSummary(observation.evidence_refs, zh, false, citations);
-        return `${display(observation.metric_family, zh)} / ${display(observation.metric_name, zh)}: ${metricValue(observation.value, zh)} (${sources})`;
+        return `${enumDisplay(observation.metric_family, zh, "quantitative_observation.metric_family", metricFamilyLabels)} / ${plainDisplay(observation.metric_name)}: ${metricValue(observation.value, zh)} (${sources})`;
       });
       const omitted = observations.length - displayed.length;
       return `- **${subjectDisplay(source, subjectId, zh)}**: ${metrics.join("; ")}${
@@ -1804,23 +1922,23 @@ export function renderCompetitiveSubjectSummary(
       const objects = rows.slice(0, 5).map((row) => {
         const object = isRecord(row.competitive_object) ? row.competitive_object : {};
         const refs = auditReferenceSummary(object.source_refs, zh, false, citations);
-        return `${display(object.competitor_type, zh)}: ${display(object.name, zh)}；${zh ? "定位" : "positioning"}: ${display(object.positioning, zh)}；${zh ? "定价" : "pricing"}: ${auditReferenceSummary(object.pricing_observation_refs, zh, true, citations)}；${zh ? "使用/市场信号" : "usage/market signals"}: ${auditReferenceSummary(object.traction_observation_refs, zh, true, citations)}；${zh ? "优势" : "strengths"}: ${displayList(object.strengths, zh)}；${zh ? "弱点" : "weaknesses"}: ${displayList(object.weaknesses, zh)}；${zh ? "差异化缺口" : "differentiation gaps"}: ${displayList(object.differentiation_gaps, zh)} (${refs})`;
+        return `${enumDisplay(object.competitor_type, zh, "competitive_object.competitor_type", competitorTypeLabels)}: ${plainDisplay(object.name)}；${zh ? "定位" : "positioning"}: ${plainDisplay(object.positioning)}；${zh ? "定价" : "pricing"}: ${auditReferenceSummary(object.pricing_observation_refs, zh, true, citations)}；${zh ? "使用/市场信号" : "usage/market signals"}: ${auditReferenceSummary(object.traction_observation_refs, zh, true, citations)}；${zh ? "优势" : "strengths"}: ${displayList(object.strengths, zh)}；${zh ? "弱点" : "weaknesses"}: ${displayList(object.weaknesses, zh)}；${zh ? "差异化缺口" : "differentiation gaps"}: ${displayList(object.differentiation_gaps, zh)} (${refs})`;
       });
       const lines = [
         `- **${subjectDisplay(source, subjectId, zh)}**: ${objects.length === 0 ? (zh ? "未形成竞品对象" : "no competitive object formed") : objects.join("; ")}`,
         ...(typesBySubject.get(subjectId)?.length
           ? [
-              `  ${zh ? "已观察类型" : "Observed types"}: ${(typesBySubject.get(subjectId) ?? []).map((entry) => display(entry, zh)).join(", ")}`,
+              `  ${zh ? "已观察类型" : "Observed types"}: ${(typesBySubject.get(subjectId) ?? []).map((entry) => enumDisplay(entry, zh, "competitive_object.competitor_type", competitorTypeLabels)).join(", ")}`,
             ]
           : []),
         ...(disposed.length > 0
           ? [
-              `  ${zh ? "明确不适用" : "Explicitly not applicable"}: ${disposed.map((entry) => display(entry.competitor_type, zh)).join(", ")}`,
+              `  ${zh ? "明确不适用" : "Explicitly not applicable"}: ${disposed.map((entry) => enumDisplay(entry.competitor_type, zh, "competitive_coverage.competitor_type", competitorTypeLabels)).join(", ")}`,
             ]
           : []),
         ...(gaps.length > 0
           ? [
-              `  ${zh ? "仍有缺口" : "Remaining gaps"}: ${gaps.map((entry) => `${display(entry.competitor_type, zh)} (${display(entry.state, zh)})`).join(", ")}`,
+              `  ${zh ? "仍有缺口" : "Remaining gaps"}: ${gaps.map((entry) => `${enumDisplay(entry.competitor_type, zh, "competitive_coverage.competitor_type", competitorTypeLabels)} (${coverageStateDisplay("competitive", entry.state, zh)})`).join(", ")}`,
             ]
           : []),
         ...(rows.length > 5
@@ -1870,11 +1988,16 @@ export function renderCompetitiveSubstituteMatrix(
   const body = rows.map((row) => {
     const competitiveObject = isRecord(row.competitive_object) ? row.competitive_object : {};
     return [
-      display(competitiveObject.competitor_type, zh),
-      display(competitiveObject.name, zh),
-      display(competitiveObject.target_segment, zh),
-      display(competitiveObject.scenario, zh),
-      display(competitiveObject.positioning, zh),
+      enumDisplay(
+        competitiveObject.competitor_type,
+        zh,
+        "competitive_object.competitor_type",
+        competitorTypeLabels,
+      ),
+      plainDisplay(competitiveObject.name),
+      plainDisplay(competitiveObject.target_segment),
+      plainDisplay(competitiveObject.scenario),
+      plainDisplay(competitiveObject.positioning),
       auditReferenceSummary(competitiveObject.pricing_observation_refs, zh, true, citations),
       auditReferenceSummary(competitiveObject.traction_observation_refs, zh, true, citations),
       displayList(competitiveObject.strengths, zh),
@@ -1926,9 +2049,25 @@ export function renderResearchCoverageGaps(
   const body = rows.map((row) => {
     if (row.coverage_kind === "execution") {
       const assignedDimensions = [
-        ...strings(row.assigned_commercial_dimensions),
-        ...strings(row.assigned_metric_families),
-        ...strings(row.assigned_competitor_types),
+        ...strings(row.assigned_commercial_dimensions).map((dimension) =>
+          assignedCommercialDimensionDisplay(dimension, zh),
+        ),
+        ...strings(row.assigned_metric_families).map((metricFamily) =>
+          enumDisplay(
+            metricFamily,
+            zh,
+            "execution_gap.assigned_metric_families",
+            metricFamilyLabels,
+          ),
+        ),
+        ...strings(row.assigned_competitor_types).map((competitorType) =>
+          enumDisplay(
+            competitorType,
+            zh,
+            "execution_gap.assigned_competitor_types",
+            competitorTypeLabels,
+          ),
+        ),
       ];
       return [
         zh
@@ -1938,21 +2077,20 @@ export function renderResearchCoverageGaps(
           : displayList(row.subject_ids, false),
         zh ? "执行/研究" : "execution / research",
         assignedDimensions.length > 0
-          ? assignedDimensions.map((dimension) => display(dimension, zh)).join("<br>")
+          ? assignedDimensions.map((dimension) => plainDisplay(dimension)).join("<br>")
           : zh
             ? "对应研究任务"
-            : display(row.task_ref, false),
-        display(row.state, zh),
+            : plainDisplay(row.task_ref),
+        coverageStateDisplay("execution", row.state, zh),
         "-",
-        display(row.reason, zh),
+        plainDisplay(row.reason),
         "-",
-        display(row.decision_impact, zh),
+        plainDisplay(row.decision_impact),
       ];
     }
     if (["business", "research"].includes(String(row.coverage_kind))) {
-      const attempts = records(row.query_attempts).map(
-        (attempt) =>
-          `${display(attempt.acquisition_method, zh)} / ${display(attempt.provider, zh)} / ${display(attempt.outcome, zh)}: ${display(attempt.reason, zh)}`,
+      const attempts = records(row.query_attempts).map((attempt) =>
+        queryAttemptDisplay(attempt, zh),
       );
       return [
         zh
@@ -1960,38 +2098,30 @@ export function renderResearchCoverageGaps(
               .map((subjectId) => subjectDisplay(source, subjectId, true))
               .join("<br>")
           : displayList(row.subject_ids, false),
-        display(row.coverage_kind, zh),
-        display(row.dimension, zh),
-        display(row.state, zh),
+        coverageKindDisplay(row.coverage_kind, zh),
+        plainDisplay(row.dimension),
+        coverageStateDisplay(row.coverage_kind, row.state, zh),
         attempts.length === 0 ? "-" : attempts.join("<br>"),
-        display(row.reason, zh),
-        display(row.alternative_metric, zh),
-        display(row.decision_impact, zh),
+        plainDisplay(row.reason),
+        plainDisplay(row.alternative_metric),
+        plainDisplay(row.decision_impact),
       ];
     }
     const coverage = isRecord(row.coverage) ? row.coverage : {};
-    const attempts = records(coverage.query_attempts).map(
-      (attempt) =>
-        `${display(attempt.acquisition_method, zh)} / ${display(attempt.provider, zh)} / ${display(attempt.outcome, zh)}: ${display(attempt.reason, zh)}`,
+    const attempts = records(coverage.query_attempts).map((attempt) =>
+      queryAttemptDisplay(attempt, zh),
     );
     return [
       subjectDisplay(source, coverage.subject_id, zh),
-      display(row.coverage_kind, zh),
-      display(
-        row.coverage_kind === "quantitative"
-          ? coverage.metric_family
-          : row.coverage_kind === "competitive"
-            ? coverage.competitor_type
-            : "absorption_and_response_risk",
-        zh,
-      ),
-      display(coverage.state, zh),
+      coverageKindDisplay(row.coverage_kind, zh),
+      coverageDimensionDisplay(row.coverage_kind, coverage, zh),
+      coverageStateDisplay(row.coverage_kind, coverage.state, zh),
       attempts.length === 0 ? "-" : attempts.join("<br>"),
-      display(coverage.reason, zh),
+      plainDisplay(coverage.reason),
       row.coverage_kind === "incumbent_response"
         ? displayList(coverage.data_gaps, zh)
-        : display(coverage.alternative_metric, zh),
-      display(coverage.decision_impact, zh),
+        : plainDisplay(coverage.alternative_metric),
+      plainDisplay(coverage.decision_impact),
     ];
   });
   if (body.length === 0) {
@@ -2217,7 +2347,7 @@ export function renderCriticalResearchGaps(
           ]
         : subjectGroups.map(
             (group) =>
-              `- **${subjectDisplay(source, group.subjectId, zh)}** / ${display(group.state, zh)} / ${group.dimensions.map((entry) => display(entry, zh)).join(", ")}: ${display(group.decisionImpact, zh)}${group.reasons.length === 0 ? "" : ` (${group.reasons.map((entry) => display(entry, zh)).join("; ")})`}`,
+              `- **${subjectDisplay(source, group.subjectId, zh)}** / ${coverageStateDisplay("research", group.state, zh)} / ${group.dimensions.map((entry) => plainDisplay(entry)).join(", ")}: ${plainDisplay(group.decisionImpact)}${group.reasons.length === 0 ? "" : ` (${group.reasons.map((entry) => plainDisplay(entry)).join("; ")})`}`,
           );
     })
     .join("\n")}\n`;
@@ -2228,11 +2358,5 @@ export function renderGateWarnings(source: Readonly<Record<string, unknown>>, zh
   if (warnings.length === 0) {
     return zh ? "- 没有非阻塞门禁诊断。\n" : "- No non-blocking Gate diagnostics.\n";
   }
-  return `${warnings
-    .map((warning) =>
-      zh
-        ? `- [${display(warning.severity, true)} / ${display(warning.category, true)}] ${display(warning.message, true)} 决策影响: ${display(warning.decision_impact, true)}`
-        : `- [${display(warning.severity, false)} / ${display(warning.category, false)}] ${display(warning.code, false)}: ${display(warning.message, false)} Decision impact: ${display(warning.decision_impact, false)}`,
-    )
-    .join("\n")}\n`;
+  return `${warnings.map((warning) => localizedGateWarningRow(warning, zh)).join("\n")}\n`;
 }

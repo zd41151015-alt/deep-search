@@ -1178,6 +1178,171 @@ test("market priority remains independent from commercial validation readiness",
   }
   assert.match(zhTable, /高/);
   assert.match(zhTable, /未就绪/);
+  assert.match(zhTable, /存在方向性需求信号/);
+  assert.match(zhTable, /竞争研究范围已处置/);
+  assert.match(zhTable, /候选方向付款或承诺/);
+  assert.match(zhTable, /获客或分发/);
+  assert.match(zhTable, /留存或使用/);
+  assert.match(zhTable, /单位经济/);
+
+  const collisionTable = renderMarketPriorityAndCommercialReadiness(
+    {
+      report_subject_labels: [{ subject_id: "candidate_current", label: "unit_economics" }],
+      commercial_subject_aggregates: [
+        {
+          subject_id: "candidate_current",
+          market_research_priority: {
+            level: "low",
+            basis_codes: ["market_priority_signal_limited"],
+          },
+          commercial_validation_readiness: {
+            level: "partial",
+            satisfied_dimensions: ["unit_economics"],
+            missing_dimensions: [],
+          },
+        },
+      ],
+    },
+    true,
+  );
+  assert.match(collisionTable, /\| unit_economics \| 低 \| 市场研究优先级信号有限/u);
+  assert.match(collisionTable, /单位经济/u);
+
+  const allStructuredEnumsTable = renderMarketPriorityAndCommercialReadiness(
+    {
+      commercial_subject_aggregates: [
+        {
+          subject_id: "candidate_current",
+          market_research_priority: {
+            level: "high",
+            basis_codes: [
+              "competitive_scope_disposed",
+              "current_user_language",
+              "decision_grade_demand_signal",
+              "directional_demand_signal",
+              "market_priority_signal_limited",
+            ],
+          },
+          commercial_validation_readiness: {
+            level: "ready",
+            satisfied_dimensions: [
+              "acquisition_or_distribution",
+              "candidate_purchase_or_commitment",
+              "pricing",
+              "retention_or_usage",
+              "unit_economics",
+            ],
+            missing_dimensions: [
+              "acquisition_or_distribution",
+              "candidate_purchase_or_commitment",
+              "pricing",
+              "retention_or_usage",
+              "unit_economics",
+            ],
+          },
+        },
+      ],
+    },
+    true,
+  );
+  for (const leaked of [
+    "competitive_scope_disposed",
+    "current_user_language",
+    "decision_grade_demand_signal",
+    "directional_demand_signal",
+    "market_priority_signal_limited",
+    "acquisition_or_distribution",
+    "candidate_purchase_or_commitment",
+    "pricing",
+    "retention_or_usage",
+    "unit_economics",
+  ]) {
+    assert.doesNotMatch(allStructuredEnumsTable, new RegExp(`\\b${leaked}\\b`));
+  }
+  for (const localized of [
+    "竞争研究范围已处置",
+    "存在当前用户语言材料",
+    "存在决策级需求信号",
+    "存在方向性需求信号",
+    "市场研究优先级信号有限",
+    "获客或分发",
+    "候选方向付款或承诺",
+    "定价",
+    "留存或使用",
+    "单位经济",
+  ]) {
+    assert.match(allStructuredEnumsTable, new RegExp(localized, "u"));
+  }
+
+  assert.throws(
+    () =>
+      renderMarketPriorityAndCommercialReadiness(
+        {
+          commercial_subject_aggregates: [
+            {
+              subject_id: "candidate_current",
+              market_research_priority: {
+                level: "high",
+                basis_codes: ["new_priority_basis"],
+              },
+              commercial_validation_readiness: {
+                level: "ready",
+                satisfied_dimensions: [],
+                missing_dimensions: [],
+              },
+            },
+          ],
+        },
+        true,
+      ),
+    /commercial report localized enum mapping is missing for market_priority\.basis_codes: new_priority_basis/u,
+  );
+  assert.throws(
+    () =>
+      renderMarketPriorityAndCommercialReadiness(
+        {
+          commercial_subject_aggregates: [
+            {
+              subject_id: "candidate_current",
+              market_research_priority: {
+                level: "high",
+                basis_codes: [],
+              },
+              commercial_validation_readiness: {
+                level: "ready",
+                satisfied_dimensions: ["new_readiness_dimension"],
+                missing_dimensions: [],
+              },
+            },
+          ],
+        },
+        true,
+      ),
+    /commercial report localized enum mapping is missing for commercial_readiness\.satisfied_dimensions: new_readiness_dimension/u,
+  );
+  assert.throws(
+    () =>
+      renderMarketPriorityAndCommercialReadiness(
+        {
+          commercial_subject_aggregates: [
+            {
+              subject_id: "candidate_current",
+              market_research_priority: {
+                level: "high",
+                basis_codes: [],
+              },
+              commercial_validation_readiness: {
+                level: "ready",
+                satisfied_dimensions: [],
+                missing_dimensions: ["new_missing_readiness_dimension"],
+              },
+            },
+          ],
+        },
+        true,
+      ),
+    /commercial report localized enum mapping is missing for commercial_readiness\.missing_dimensions: new_missing_readiness_dimension/u,
+  );
 
   const zhQuantitative = renderQuantitativeSignalTable(
     {

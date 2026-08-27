@@ -18,7 +18,7 @@ import {
 import {
   deriveDiscoveryReviewSummaries,
   deriveTerminalReportDocuments,
-  localizedTerminalUserViewIssues,
+  localizedTerminalDerivedDocumentIssueDetails,
   terminalReportDocumentsEqual,
 } from "../reporting/terminal-reporting.js";
 import { type CommercialResearchPolicy, deriveValidAsOf } from "./commercial-research-validator.js";
@@ -1091,14 +1091,11 @@ export function validateTerminalReportingContract(
     );
     return errors;
   }
-  const localizedIssues = expected.flatMap((derived) => [
-    ...(typeof derived.document.markdown === "string"
-      ? localizedTerminalUserViewIssues(source.document, derived.document.markdown)
-      : []),
-    ...(typeof derived.document.audit_appendix_markdown === "string"
-      ? localizedTerminalUserViewIssues(source.document, derived.document.audit_appendix_markdown)
-      : []),
-  ]);
+  const localizedIssues = expected.flatMap((derived) =>
+    localizedTerminalDerivedDocumentIssueDetails(source.document, derived.document).map(
+      (entry) => `${entry.code}:${entry.field}`,
+    ),
+  );
   if (localizedIssues.length > 0) {
     errors.push(
       issue(
@@ -1113,6 +1110,20 @@ export function validateTerminalReportingContract(
     const actual = relevant.find((entry) => entry.path === derived.artifactPath);
     if (actual === undefined) {
       continue;
+    }
+    const actualLocalizedIssues = localizedTerminalDerivedDocumentIssueDetails(
+      source.document,
+      actual.document,
+    ).map((entry) => `${entry.code}:${entry.field}`);
+    if (actualLocalizedIssues.length > 0) {
+      errors.push(
+        issue(
+          "terminal_reporting.localized_internal_term",
+          actual.path,
+          "localized user report surfaces must not expose internal contract terminology",
+          { localizedIssues: [...new Set(actualLocalizedIssues)].sort() },
+        ),
+      );
     }
     if (
       actual.schemaVersion !== derived.artifactType ||

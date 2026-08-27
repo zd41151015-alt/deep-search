@@ -7,15 +7,22 @@ import {
   renderCompetitiveSubjectSummary,
   renderCriticalResearchGaps,
   renderDecisionGradeQuantitativeSummary,
+  renderGateWarnings,
   renderQuantitativeSignalTable,
+  renderResearchCoverageGaps,
 } from "../harness/src/reporting/commercial-report-tables.js";
 import {
   canonicalizeReadableSources,
   deriveReportCitations,
 } from "../harness/src/reporting/report-citation-authority.js";
 import {
+  localizedDeliveryForm,
   localizedEnum,
+  localizedFixedReportTerm,
   localizedInternalLeakageIssues,
+  localizedTerminalSourceIssues,
+  localizedTerminalUserViewIssueDetails,
+  localizedTerminalUserViewIssues,
   userVisibleText,
 } from "../harness/src/reporting/report-localization.js";
 import {
@@ -46,6 +53,39 @@ function researchGap(
   };
 }
 
+function terminalAuditSource(
+  overrides: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    research_language: "zh-CN",
+    report_statistics: {},
+    report_subject_labels: [],
+    report_citations: [],
+    quantitative_signal_rows: [],
+    competitive_substitute_rows: [],
+    incumbent_response_risk_rows: [],
+    current_decision_subject_ids: [],
+    research_coverage_gaps: [],
+    gate_warnings: [],
+    report_evidence_dispositions: [],
+    report_source_dispositions: [],
+    commercial_research_status: { state: "not_planned" },
+    research_provenance: {
+      available_handoff_count: 0,
+      captured_item_count: 0,
+      consumed_item_refs: [],
+      used_handoff_items: [],
+      imported_substrate_refs: [],
+      adopted_inherited_evidence_refs: [],
+      cited_inherited_evidence_refs: [],
+      adopted_current_evidence_refs: [],
+      cited_current_evidence_refs: [],
+      revalidation_gaps: [],
+    },
+    ...overrides,
+  };
+}
+
 test("critical gap projection is truthful per subject, state, and decision impact and caps only the view", () => {
   const source = {
     report_subject_labels: [
@@ -56,10 +96,10 @@ test("critical gap projection is truthful per subject, state, and decision impac
     research_coverage_gaps: [
       researchGap("subject_a", "buyer", "partial", "could change ranking"),
       researchGap("subject_a", "pricing", "partial", "could change ranking"),
-      researchGap("subject_a", "retention", "unknown", "could change conclusion"),
+      researchGap("subject_a", "retention", "unavailable", "could change conclusion"),
       researchGap("subject_a", "distribution", "unavailable", "could change ranking"),
       researchGap("subject_a", "competition", "partial", "could change conclusion"),
-      researchGap("subject_a", "unit_economics", "unknown", "could change ranking"),
+      researchGap("subject_a", "unit_economics", "unavailable", "could change ranking"),
       researchGap("subject_a", "purchase", "unavailable", "could change conclusion", "blocking"),
       researchGap("subject_a", "background", "partial", "context only", "context_only"),
       researchGap("subject_b", "buyer", "partial", "could change ranking"),
@@ -68,7 +108,7 @@ test("critical gap projection is truthful per subject, state, and decision impac
         coverage_kind: "incumbent_response",
         coverage: {
           subject_id: "subject_c",
-          state: "unknown",
+          state: "partial",
           decision_impact: "Context only; no automatic decision effect.",
           reason: "No bounded response assessment was assigned.",
         },
@@ -211,31 +251,427 @@ test("final subject labels bind the exact immutable revision instead of the firs
   ]);
 });
 
-test("Chinese report localization maps fixed contract codes and rejects leaked mechanics", () => {
-  const localized = userVisibleText(
-    "current_evidence_cannot_support_a_directional_conclusion; assessment_result_and_evidence_strength; artifacts/reporting/internal.json",
+test("Chinese report localization maps exact structured values without rewriting research prose", () => {
+  assert.equal(
+    localizedFixedReportTerm("current_evidence_cannot_support_a_directional_conclusion", true),
+    "当前材料不足以支持方向性结论",
+  );
+  assert.equal(
+    userVisibleText("current_evidence_cannot_support_a_directional_conclusion", true),
+    "current_evidence_cannot_support_a_directional_conclusion",
+  );
+  assert.equal(
+    userVisibleText(
+      "current_evidence_cannot_support_a_directional_conclusion appears as quoted research text.",
+      true,
+    ),
+    "current_evidence_cannot_support_a_directional_conclusion appears as quoted research text.",
+  );
+  assert.equal(localizedEnum("watch", true), "持续观察");
+  assert.throws(() => localizedEnum("new_unmapped_contract_enum", true), /mapping is missing/u);
+  assert.deepEqual(
+    [
+      "native_app",
+      "mini_program",
+      "mobile_web",
+      "PWA",
+      "hybrid_app",
+      "platform_native",
+      "service_assisted",
+      "status_quo",
+      "not_applicable",
+    ].map((value) => localizedDeliveryForm(value, true)),
+    [
+      "原生应用",
+      "小程序",
+      "移动网页",
+      "渐进式网页应用",
+      "混合应用",
+      "平台原生形态",
+      "服务辅助形态",
+      "现状",
+      "不适用",
+    ],
+  );
+  assert.equal(localizedDeliveryForm("mobile_web", false), "mobile_web");
+  assert.throws(
+    () => localizedDeliveryForm("desktop_app", true),
+    /report localized delivery_form mapping is missing for desktop_app/u,
+  );
+
+  const legitimateProse = [
+    "Google Cloud Audit Logs helps users inspect changes.",
+    "Schema.org vocabulary",
+    "Evidence Based Design",
+    "mobile_web.delivery_form",
+    "com.example.product_protocol",
+    "service",
+    "baseline",
+    "evidence",
+    "platform",
+    "普通 dotted 文本 foo.bar 和普通网址 https://example.invalid/source 可以保留。",
+  ];
+  for (const text of legitimateProse) {
+    assert.equal(userVisibleText(text, true), text);
+    assert.deepEqual(localizedInternalLeakageIssues("zh-CN", text), []);
+    assert.deepEqual(
+      localizedTerminalSourceIssues({
+        research_language: "zh-CN",
+        decision_question: text,
+        sources: [],
+        report_citations: [],
+      }),
+      [],
+    );
+    assert.deepEqual(
+      localizedTerminalUserViewIssues(
+        { research_language: "zh-CN", sources: [], report_citations: [] },
+        text,
+      ),
+      [],
+    );
+  }
+});
+
+test("Chinese commercial report tables preserve legitimate research terminology", () => {
+  const rendered = renderResearchCoverageGaps(
+    {
+      report_subject_labels: [{ subject_id: "subject_a", label: "service" }],
+      research_coverage_gaps: [
+        {
+          coverage_kind: "research",
+          subject_ids: ["subject_a"],
+          dimension: "mobile_web.delivery_form",
+          state: "unavailable",
+          query_attempts: [],
+          reason: "baseline",
+          alternative_metric: "evidence",
+          decision_impact: "platform",
+          decision_relevance: "non_blocking",
+        },
+        {
+          coverage_kind: "research",
+          subject_ids: ["subject_a"],
+          dimension: "open_data.product_protocol",
+          state: "partial",
+          query_attempts: [
+            {
+              acquisition_method: "public_api",
+              provider: "Google Cloud Audit Logs",
+              outcome: "no_data",
+              reason: "Schema.org vocabulary and Evidence Based Design are legal source terms.",
+            },
+          ],
+          reason: "Schema.org vocabulary and Evidence Based Design are legal source terms.",
+          alternative_metric: "open_data.product_protocol",
+          decision_impact: "Google Cloud Audit Logs helps users inspect changes.",
+          decision_relevance: "non_blocking",
+        },
+      ],
+    },
     true,
   );
-  assert.match(localized, /当前材料不足以支持方向性结论/);
-  assert.match(localized, /评估结果与材料强度/);
-  assert.match(localized, /详见结构化审计/);
-  assert.deepEqual(localizedInternalLeakageIssues("zh-CN", localized), []);
-  assert.ok(
-    localizedInternalLeakageIssues(
-      "zh-CN",
-      "assessment_result_and_evidence_strength artifacts/reporting/internal.json",
-    ).length >= 2,
+  assert.match(rendered, /\| service \|/u);
+  assert.match(rendered, /\| .*baseline.* \| evidence \| platform \|/u);
+  assert.match(rendered, /公开接口 \/ Google Cloud Audit Logs \/ 没有数据/u);
+  assert.match(rendered, /Google Cloud Audit Logs/u);
+  assert.match(rendered, /mobile_web\.delivery_form/u);
+  assert.match(rendered, /Schema\.org vocabulary/u);
+  assert.match(rendered, /Evidence Based Design/u);
+  assert.match(rendered, /open_data\.product_protocol/u);
+  assert.doesNotMatch(rendered, /服务/u);
+  assert.doesNotMatch(rendered, /基线/u);
+  assert.doesNotMatch(rendered, /平台/u);
+  assert.doesNotMatch(rendered, /结构合同\.org/u);
+  assert.doesNotMatch(rendered, /证据 Based Design/u);
+  assert.doesNotMatch(rendered, /结构化诊断/u);
+  assert.doesNotMatch(rendered, /商业研究记录 Logs/u);
+});
+
+test("Chinese quantitative tables keep free comparability labels while enum fields localize", () => {
+  const rendered = renderQuantitativeSignalTable(
+    {
+      report_subject_labels: [{ subject_id: "subject_a", label: "Subject A" }],
+      report_citations: [],
+      quantitative_signal_rows: [
+        {
+          observation: {
+            subject_id: "subject_a",
+            metric_family: "commercial_behavior",
+            metric_name: "paid users",
+            metric_semantics: "paid_customers",
+            value: { shape: "point", value: 10, unit: "users", currency: null },
+            metric_definition: "service",
+            geography: "platform",
+            period: {
+              period_start: null,
+              period_end: null,
+              as_of: "2026-08-01",
+              label: "baseline",
+            },
+            measurement_type: "direct_measurement",
+            comparability: {
+              status: "comparable",
+              category: "service",
+              direct_comparison_allowed: true,
+            },
+            error_uncertainty: "evidence",
+            evidence_refs: [],
+            decision_use: { grade: "decision_grade" },
+          },
+        },
+      ],
+    },
+    true,
+  );
+  assert.match(rendered, /商业行为 \/ paid users \(付费客户\)/u);
+  assert.match(rendered, /决策级 \/ 直接测量/u);
+  assert.match(rendered, /可比较; service; 可直接比较/u);
+  assert.match(rendered, /\| service \| platform \| baseline; 截至 2026-08-01/u);
+  assert.doesNotMatch(rendered, /可比较; 服务; 可直接比较/u);
+});
+
+test("Chinese commercial report enum projection fails closed for unmapped enum values", () => {
+  assert.throws(
+    () =>
+      renderResearchCoverageGaps(
+        {
+          report_subject_labels: [{ subject_id: "subject_a", label: "Subject A" }],
+          research_coverage_gaps: [
+            {
+              coverage_kind: "research",
+              subject_ids: ["subject_a"],
+              dimension: "query outcome",
+              state: "partial",
+              query_attempts: [
+                {
+                  acquisition_method: "public_api",
+                  provider: "Synthetic provider",
+                  outcome: "new_unknown_outcome",
+                  reason: "Synthetic reason.",
+                },
+              ],
+              reason: "Synthetic reason.",
+              alternative_metric: null,
+              decision_impact: "Synthetic impact.",
+              decision_relevance: "non_blocking",
+            },
+          ],
+        },
+        true,
+      ),
+    /commercial report localized enum mapping is missing for query_attempt\.outcome: new_unknown_outcome/u,
+  );
+});
+
+test("Chinese commercial coverage gap enum projection covers current schema values", () => {
+  const rendered = renderResearchCoverageGaps(
+    {
+      report_subject_labels: [{ subject_id: "subject_a", label: "Subject A" }],
+      research_coverage_gaps: [
+        {
+          coverage_kind: "incumbent_response",
+          coverage: {
+            subject_id: "subject_a",
+            state: "unknown",
+            decision_impact: "Context only; no automatic decision effect.",
+            reason: "Synthetic responder research gap.",
+            data_gaps: ["baseline", "evidence"],
+          },
+          decision_relevance: "context_only",
+        },
+      ],
+    },
+    true,
+  );
+  assert.match(rendered, /头部公司吸收与响应风险/u);
+  assert.match(rendered, /未知/u);
+  assert.match(rendered, /baseline<br>evidence/u);
+  assert.doesNotMatch(rendered, /incumbent_response/u);
+  assert.doesNotMatch(rendered, /absorption_and_response_risk/u);
+});
+
+test("Chinese terminal boundary reports only structure-bound Harness diagnostic leaks", () => {
+  const source = terminalAuditSource({
+    gate_warnings: [
+      {
+        code: "terminal_reporting.search_closure_incomplete",
+        severity: "warning",
+        category: "integrity",
+        message:
+          "A planned Search Closure is missing; the report discloses incomplete execution and the related decision limit.",
+        decision_impact:
+          "A planned Search Closure is missing; the report discloses incomplete execution and the related decision limit.",
+      },
+    ],
+  });
+  const localized = renderTerminalAuditAppendix(source);
+  assert.match(localized, /计划中的搜索完成记录缺失/);
+  assert.doesNotMatch(localized, /terminal_reporting\.search_closure_incomplete/u);
+  assert.doesNotMatch(localized, /A planned Search Closure is missing/u);
+  assert.deepEqual(localizedTerminalSourceIssues(source), []);
+  assert.deepEqual(localizedTerminalUserViewIssueDetails(source, localized, "audit_appendix"), []);
+
+  const fakeCallerBlock = [
+    "## 非阻塞诊断",
+    "- [警告 / 覆盖度] Evidence Based Design 决策影响: No decision effect",
+    "## 研究来源沿袭",
+  ].join("\n");
+  const callerInjected = localized.replace(
+    "\n## 完整研究覆盖缺口\n",
+    `\n${fakeCallerBlock}\n\n## 完整研究覆盖缺口\n`,
   );
   assert.deepEqual(
-    localizedInternalLeakageIssues(
-      "en-US",
-      "assessment_result_and_evidence_strength artifacts/reporting/internal.json",
+    localizedTerminalUserViewIssueDetails(source, callerInjected, "audit_appendix"),
+    [],
+  );
+
+  const rawRow = renderGateWarnings(source, false).trim();
+  const broken = localized.replace(renderGateWarnings(source, true).trim(), rawRow);
+  const issues = localizedTerminalUserViewIssueDetails(source, broken, "audit_appendix");
+  assert.deepEqual(
+    issues.map((issue) => [issue.field, issue.matched_text]),
+    [["#/gate_warnings/0", rawRow]],
+  );
+
+  const missing = localized.replace(renderGateWarnings(source, true).trim(), "");
+  assert.deepEqual(
+    localizedTerminalUserViewIssueDetails(source, missing, "audit_appendix").map(
+      (issue) => issue.code,
+    ),
+    ["localized_harness_diagnostic_missing"],
+  );
+  const missingSection = localized.replace(
+    `\n## 非阻塞诊断\n${renderGateWarnings(source, true)}\n## 研究来源沿袭\n`,
+    "\n## 研究来源沿袭\n",
+  );
+  assert.deepEqual(
+    localizedTerminalUserViewIssueDetails(source, missingSection, "audit_appendix").map(
+      (issue) => issue.code,
+    ),
+    ["localized_harness_diagnostic_section_missing"],
+  );
+
+  const extra = localized.replace(
+    renderGateWarnings(source, true).trim(),
+    `${renderGateWarnings(source, true).trim()}\n- [警告 / 覆盖度] 额外诊断 决策影响: 额外影响`,
+  );
+  assert.deepEqual(
+    localizedTerminalUserViewIssueDetails(source, extra, "audit_appendix").map(
+      (issue) => issue.code,
+    ),
+    ["localized_harness_diagnostic_drift"],
+  );
+
+  const drift = localized.replace("计划中的搜索完成记录缺失。", "搜索完成记录已经关闭。");
+  assert.deepEqual(
+    localizedTerminalUserViewIssueDetails(source, drift, "audit_appendix")
+      .map((issue) => issue.code)
+      .sort(),
+    ["localized_harness_diagnostic_drift", "localized_harness_diagnostic_missing"],
+  );
+});
+
+test("Chinese terminal audit diagnostic closure ignores earlier legal section-title prose", () => {
+  const source = terminalAuditSource();
+  const localized = renderTerminalAuditAppendix(source);
+  const altered = localized.replace(
+    "\n## 完整研究覆盖缺口\n",
+    "\n研究原文包含标题：\n## 材料采用、限制与排除\n\n## 完整研究覆盖缺口\n",
+  );
+  assert.deepEqual(localizedTerminalUserViewIssueDetails(source, altered, "audit_appendix"), []);
+
+  const missingDiagnostic = localized.replace(
+    `\n## 非阻塞诊断\n${renderGateWarnings(source, true)}\n## 研究来源沿袭\n`,
+    "\n## 研究来源沿袭\n",
+  );
+  assert.deepEqual(
+    localizedTerminalUserViewIssueDetails(source, missingDiagnostic, "audit_appendix").map(
+      (issue) => issue.code,
+    ),
+    ["localized_harness_diagnostic_section_missing"],
+  );
+
+  const missingProvenance = localized.replace("\n## 研究来源沿袭\n", "\n## 来源沿袭缺失\n");
+  assert.deepEqual(
+    localizedTerminalUserViewIssueDetails(source, missingProvenance, "audit_appendix").map(
+      (issue) => issue.code,
+    ),
+    ["localized_harness_diagnostic_section_missing"],
+  );
+});
+
+test("Chinese terminal warning validation ignores legal prose collisions outside diagnostic rows", () => {
+  const source = {
+    research_language: "zh-CN",
+    sources: [{ title: "Evidence Based Design", url: "https://example.invalid/source" }],
+    report_citations: [
+      {
+        label: "Evidence Based Design",
+        url: "https://example.invalid/citation",
+        source_access: "public",
+      },
+    ],
+    gate_warnings: [
+      {
+        code: "third_party.product_protocol",
+        severity: "warning",
+        category: "coverage",
+        message: "Evidence Based Design",
+        decision_impact: "No decision effect",
+      },
+    ],
+  };
+  const callerProse = [
+    "## 非阻塞诊断",
+    "- [警告 / 覆盖度] Evidence Based Design 决策影响: No decision effect",
+    "[Evidence Based Design](https://example.invalid/source)",
+    "[Evidence Based Design](https://example.invalid/citation)",
+    "正文 Evidence Based Design 是被评估的产品名称。",
+    "供应商原文写道：No decision effect。",
+    "第三方 API 标识 third_party.product_protocol 合法出现在研究正文。",
+  ].join("\n");
+  assert.deepEqual(
+    localizedTerminalUserViewIssueDetails(source, callerProse, "decision_brief"),
+    [],
+  );
+  assert.deepEqual(localizedTerminalUserViewIssueDetails(source, callerProse, "report"), []);
+  assert.deepEqual(localizedTerminalUserViewIssues(source, callerProse), []);
+});
+
+test("Chinese unknown gate diagnostic fallback does not erase possible decision impact", () => {
+  const source = terminalAuditSource({
+    gate_warnings: [
+      {
+        code: "synthetic.coverage_blocks_ranking",
+        severity: "warning",
+        category: "coverage",
+        message: "Synthetic coverage warning.",
+        decision_impact: "This direction must remain unranked until buyer coverage closes.",
+      },
+      {
+        code: "synthetic.decision_validity_limits_conclusion",
+        severity: "warning",
+        category: "decision_validity",
+        message: "Synthetic decision validity warning.",
+        decision_impact: "This report cannot support a directional conclusion.",
+      },
+    ],
+  });
+  const rendered = renderGateWarnings(source, true);
+  assert.match(rendered, /可能表示覆盖不足，并约束相关排序、建议或结论强度/u);
+  assert.match(rendered, /可能约束排序、建议或结论强度/u);
+  assert.match(rendered, /原始决策影响/u);
+  assert.doesNotMatch(rendered, /只用于审计披露/u);
+  assert.doesNotMatch(rendered, /不能提高结论强度/u);
+  assert.deepEqual(
+    localizedTerminalUserViewIssueDetails(
+      source,
+      renderTerminalAuditAppendix(source),
+      "audit_appendix",
     ),
     [],
   );
-  assert.equal(localizedEnum("watch", true), "持续观察");
-  assert.ok(localizedInternalLeakageIssues("zh-CN", "决策层级: watch").length > 0);
-  assert.throws(() => localizedEnum("new_unmapped_contract_enum", true), /mapping is missing/u);
 });
 
 test("Discovery source dispositions retain exact canonical identity and a distinct specific reason", () => {
