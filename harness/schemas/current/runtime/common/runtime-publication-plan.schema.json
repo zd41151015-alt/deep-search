@@ -11,6 +11,8 @@
     "run_id",
     "created_at",
     "manifest_content_hash",
+    "manifest_snapshot",
+    "publication_commit_snapshot",
     "compiled_envelopes",
     "validation_closure",
     "resolved_references",
@@ -34,6 +36,56 @@
     },
     "manifest_content_hash": {
       "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "manifest_snapshot": {
+      "$ref": "../../core/run-manifest.schema.json"
+    },
+    "publication_commit_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publication_ordinal", "publication_commit_hash"],
+      "properties": {
+        "publication_ordinal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "publication_commit_hash": {
+          "anyOf": [
+            {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "publication_ordinal": {
+                "const": 0
+              }
+            },
+            "required": ["publication_ordinal"]
+          },
+          "then": {
+            "properties": {
+              "publication_commit_hash": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "publication_commit_hash": {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+              }
+            }
+          }
+        }
+      ]
     },
     "compiled_envelopes": {
       "type": "array",

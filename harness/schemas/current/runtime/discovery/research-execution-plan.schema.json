@@ -85,6 +85,7 @@
               "hard_gate_scan",
               "candidate_evaluation",
               "retained_candidate_deep_review",
+              "review",
               "discovery_synthesis",
               "assessment_early_kill",
               "assessment_commercial",
@@ -136,7 +137,7 @@
                   "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
                 },
                 "lane_role": {
-                  "enum": ["opportunity", "evaluation", "risk"]
+                  "enum": ["opportunity", "evaluation", "risk", "review"]
                 },
                 "candidate_scope": {
                   "type": "object",
@@ -166,6 +167,15 @@
                   "items": {
                     "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
                   }
+                },
+                "assigned_plan_question_refs": {
+                  "type": "array",
+                  "allOf": [
+                    {
+                      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+                    }
+                  ],
+                  "minItems": 1
                 },
                 "submission_path": {
                   "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"

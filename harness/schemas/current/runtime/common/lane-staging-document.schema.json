@@ -33,7 +33,7 @@
       "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
     },
     "producer_role": {
-      "const": "lane_researcher"
+      "enum": ["lane_researcher", "adversarial_reviewer"]
     },
     "operation": {
       "enum": ["validate_only", "publish"]

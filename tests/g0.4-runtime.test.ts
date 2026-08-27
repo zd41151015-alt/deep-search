@@ -20,6 +20,7 @@ import {
   type DocumentBundle,
   EvidenceStore,
   type FormalArtifactEnvelope,
+  FormalStageMaterializer,
   operationKey,
   planningRunStateHash,
   RunStore,
@@ -493,6 +494,27 @@ function retryDecision(runId: string): Record<string, unknown> {
   };
 }
 
+function generationRetryDecision(runId: string): Record<string, unknown> {
+  return {
+    ...retryDecision(runId),
+    adaptation_id: "adapt_generation_retry_runtime_001",
+    target_unit: unit(
+      "unit_user_language_v2",
+      "user_language_mining",
+      "artifacts/discovery/generation/unit_user_language_v2.r1.json",
+      {
+        attempt: 2,
+        supersedes_unit_ref: `${PLAN_REF}#acquisition_failed`,
+        required_artifact_schema: "startup_opportunity.discovery_generation_result.v1",
+        required_outputs: ["startup_opportunity.discovery_generation_result.v1"],
+      },
+    ),
+    reason:
+      "The failed candidate-neutral generation unit requires a retry without coupling Artifact revision to execution attempt.",
+    success_condition: "A new generation Artifact revision path remains independently valid.",
+  };
+}
+
 function stopFollowupDecision(runId: string): Record<string, unknown> {
   return {
     schema_version: "startup_opportunity.adaptation_decision.discovery.current",
@@ -754,6 +776,127 @@ function formalEnvelope(
   };
 }
 
+function sourceBoundaryContract(): Record<string, unknown> {
+  return {
+    chat_is_artifact: false,
+    task_completion_is_artifact: false,
+    hidden_llm_calls: false,
+    harness_dispatches_agent: false,
+    external_validation_supported: false,
+    publication_implies_validation: false,
+  };
+}
+
+function quantitativeCompetitiveScopeContract(): Record<string, unknown> {
+  return {
+    scan_mode: "broad_scan",
+    required_metric_families: [
+      "demand_scale",
+      "usage_behavior",
+      "commercial_behavior",
+      "growth_change",
+      "competitive_intensity",
+      "distribution",
+      "retention_outcomes",
+      "unit_economics",
+    ],
+    required_competitor_types: [
+      "direct_product",
+      "adjacent_product",
+      "service",
+      "platform",
+      "manual_workaround",
+      "status_quo",
+      "non_consumption",
+    ],
+    api_is_optional: true,
+    provider_allowlist_enforced: false,
+    acquisition_execution_owner: "research_agent_or_caller",
+    harness_hidden_network_calls: false,
+    prohibited_access_methods: [
+      "bypass_access_control",
+      "circumvent_login",
+      "circumvent_paywall",
+      "circumvent_captcha",
+      "store_credentials",
+    ],
+  };
+}
+
+function generationFormalWaveRequest(
+  runId: string,
+  waveId: string,
+  unitId: string,
+  requestId: string,
+  createdAtValue: string,
+): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.formal_stage_materialization_request.current",
+    request_id: requestId,
+    run_id: runId,
+    operation: "validate_only",
+    created_at: createdAtValue,
+    stage_kind: "discovery_wave",
+    wave: {
+      wave_id: waveId,
+      stage_id: `stage_${requestId}`,
+      stage_kind: "discovery_generation",
+      unit_ids: [unitId],
+      lanes: [
+        {
+          unit_id: unitId,
+          lane_role: "opportunity",
+          candidate_scope: { kind: "none", candidate_refs: [] },
+          incumbent_response_assignment: {
+            analysis_depth: "not_assigned",
+            assignment_role: "none",
+            subject_refs: [],
+            rationale: "Candidate-neutral generation has no incumbent response assignment.",
+          },
+          reporting_dimensions: ["recent_user_language"],
+          time_budget_minutes: 10,
+          max_sources: 5,
+          straggler_policy: {
+            on_timeout: "publish_partial",
+            grace_minutes: 2,
+            blocks_stage: true,
+          },
+          commercial_research_semantics: {
+            research_stage: "solution_neutral_scan",
+            planned_queries: [
+              {
+                query: "SYNTHETIC candidate-neutral generation query; not external research.",
+                commercial_dimensions: ["user_language"],
+              },
+            ],
+            quantitative_competitive_scope: quantitativeCompetitiveScopeContract(),
+            required_commercial_dimensions: ["recent_user_language"],
+            commercial_audit_output_path: `artifacts/research-audits/${unitId}_${requestId}.json`,
+          },
+          task_semantics: {
+            target_candidate_refs: [],
+            source_phase: "candidate_generation",
+            required_source_group_ids: [`source_group_${requestId}`],
+            required_stances: ["support", "oppose"],
+            stop_conditions: ["SYNTHETIC bounded generation stop condition."],
+            execution_contract: sourceBoundaryContract(),
+          },
+        },
+      ],
+      research_depth: "quick",
+      total_time_budget_minutes: 10,
+      resource_allocation: {
+        customer_commercial_percent: 65,
+        market_structure_percent: 17,
+        academic_percent: 18,
+      },
+      gate_before: null,
+      gate_after: "required",
+      limitations: ["SYNTHETIC generation retry materialization; no research was performed."],
+    },
+  };
+}
+
 function terminalReportSource(
   runId: string,
   decisionSubjectSnapshotHash: string,
@@ -917,6 +1060,7 @@ async function setupPersistedRun(
     | "terminate"
     | "terminate-unclosed"
     | "runtime-failure"
+    | "generation-retry"
     | "complete"
     | "cancel"
     | "pre-kill-exact"
@@ -1026,12 +1170,49 @@ async function setupPersistedRun(
     plan = runtimeEnvelope(discoveryBundle, PLAN_REF).document;
   } else {
     plan = basePlan(runId);
+    let initialPlanningEnvelopes: readonly FormalArtifactEnvelope[] = [
+      formalEnvelope(runId, PLAN_REF, plan),
+    ];
+    if (action === "generation-retry") {
+      const generationTarget = (plan.waves as Record<string, unknown>[])
+        .flatMap((wave) => wave.units as Record<string, unknown>[])
+        .find((unitEntry) => unitEntry.unit_id === "acquisition_failed");
+      assert.ok(generationTarget);
+      generationTarget.unit_type = "user_language_mining";
+      generationTarget.output_path = "artifacts/discovery/generation/acquisition_failed.r1.json";
+      generationTarget.required_artifact_schema =
+        "startup_opportunity.discovery_generation_result.v1";
+      generationTarget.required_outputs = ["startup_opportunity.discovery_generation_result.v1"];
+      const formationBundle = await createDiscoveryMapsFixture("general", runId);
+      initialPlanningEnvelopes = [
+        ...[DECISION_CONTEXT_REF, "intake.json", SCOPE_FRAME_REF].map((ref) =>
+          fixtureEnvelope(formationBundle, ref),
+        ),
+        formalEnvelope(runId, PLAN_REF, plan, [SCOPE_FRAME_REF]),
+      ];
+    }
     await publishInitialPlanBundle(
       store,
       runId,
-      [formalEnvelope(runId, PLAN_REF, plan)],
-      "enrichment",
+      initialPlanningEnvelopes,
+      action === "generation-retry" ? "discovery" : "enrichment",
     );
+    if (action === "generation-retry") {
+      const materializer = new FormalStageMaterializer(runsRoot, validator, repositoryRoot);
+      const request = generationFormalWaveRequest(
+        runId,
+        "wave_runtime_1",
+        "acquisition_failed",
+        "initial_generation_wave",
+        "2026-07-24T12:02:00Z",
+      );
+      const validated = await materializer.materialize(request);
+      await materializer.materialize({
+        ...request,
+        operation: "publish",
+        publication_plan: validated.compilation.publication_plan,
+      });
+    }
   }
   const runRoot = path.join(runsRoot, runId);
   const persistedManifest = manifest(runId, plan);
@@ -1040,10 +1221,13 @@ async function setupPersistedRun(
   persistedManifest.scope_proposal_hash = storeManifest.scope_proposal_hash;
   persistedManifest.scope_confirmation_ref = storeManifest.scope_confirmation_ref;
   persistedManifest.scope_confirmation_hash = storeManifest.scope_confirmation_hash;
-  persistedManifest.current_phase = discoveryBacked ? "discovery" : "enrichment";
+  persistedManifest.current_phase =
+    discoveryBacked || action === "generation-retry" ? "discovery" : "enrichment";
   persistedManifest.artifact_refs = discoveryBacked
     ? storeManifest.artifact_refs
-    : [PLAN_REF, CONTEXT_REF];
+    : action === "generation-retry"
+      ? storeManifest.artifact_refs
+      : [PLAN_REF, CONTEXT_REF];
   persistedManifest.latest_gap_snapshot_ref = null;
   persistedManifest.pending_adaptation_refs = [];
   if (action === "terminate" || action === "terminate-unclosed") {
@@ -1106,9 +1290,11 @@ async function setupPersistedRun(
                 ? cancellationAdaptationDecision(runId)
                 : action === "retry"
                   ? retryDecision(runId)
-                  : action === "supersede"
-                    ? supersedeDecision(runId)
-                    : retryDecision(runId);
+                  : action === "generation-retry"
+                    ? generationRetryDecision(runId)
+                    : action === "supersede"
+                      ? supersedeDecision(runId)
+                      : retryDecision(runId);
   if (action === "post-g2-add" || action === "phase-transition-add") {
     const phaseTransition = action === "phase-transition-add";
     decision.adaptation_id = phaseTransition
@@ -1241,6 +1427,7 @@ async function setupPersistedRun(
     runsRoot,
     runRoot,
     store,
+    validator,
     plan,
     gap,
     decision,
@@ -1844,6 +2031,58 @@ test("Plan semantic validation enforces DAG, output uniqueness, policy tuple, an
   assert.ok(
     validator
       .validateDocumentBundle(obsoleteOutputPath)
+      .planErrors.some((error) => error.code === "plan.output_path_contract_mismatch"),
+  );
+
+  const generation = clone(validBundle);
+  const generationPlan = generation.documents.find((entry) => entry.path === PLAN_REF)
+    ?.document as Record<string, unknown>;
+  const generationUnits = (generationPlan.waves as { units: Record<string, unknown>[] }[])[0]
+    ?.units;
+  assert.ok(generationUnits);
+  generationUnits.push(
+    unit(
+      "user_language_mining_001",
+      "user_language_mining",
+      "artifacts/discovery/generation/user_language_mining_001.r1.json",
+      {
+        required_artifact_schema: "startup_opportunity.discovery_generation_result.v1",
+      },
+    ),
+  );
+  generationUnits.push(
+    unit(
+      "unit_user_language_v2",
+      "user_language_mining",
+      "artifacts/discovery/generation/unit_user_language_v2.r1.json",
+      {
+        attempt: 2,
+        supersedes_unit_ref: `${PLAN_REF}#user_language_mining_001`,
+        required_artifact_schema: "startup_opportunity.discovery_generation_result.v1",
+      },
+    ),
+  );
+  const generationPlanHash = canonicalContentHash(generationPlan);
+  const generationContext = generation.documents.find((entry) => entry.path === CONTEXT_REF)
+    ?.document as Record<string, unknown>;
+  assert.ok(generationContext);
+  (generationContext.target_plan_binding as Record<string, unknown>).plan_content_hash =
+    generationPlanHash;
+  assert.equal(validator.validateDocumentBundle(generation).valid, true);
+
+  const obsoleteGenerationPath = clone(generation);
+  const obsoleteGenerationPlan = obsoleteGenerationPath.documents.find(
+    (entry) => entry.path === PLAN_REF,
+  )?.document as Record<string, unknown>;
+  const obsoleteGenerationUnit = (
+    obsoleteGenerationPlan.waves as { units: Record<string, unknown>[] }[]
+  )[0]?.units.find((candidate) => candidate.unit_id === "user_language_mining_001");
+  assert.ok(obsoleteGenerationUnit);
+  obsoleteGenerationUnit.output_path =
+    "artifacts/discovery/generation/user_language_mining_001.attempt-1.json";
+  assert.ok(
+    validator
+      .validateDocumentBundle(obsoleteGenerationPath)
       .planErrors.some((error) => error.code === "plan.output_path_contract_mismatch"),
   );
 
@@ -2883,7 +3122,11 @@ test("candidate pre-kill skips only an exact exclusive pending unit and replays 
       planRef: PLAN_REF,
       planHash: canonicalContentHash(setup.plan),
       planRevision: 1,
-      candidateRefs: [PRE_KILL_CANDIDATE_REF],
+      candidateRefs: [
+        "artifacts/discovery/candidates/candidate_baseline.r1.json",
+        PRE_KILL_CANDIDATE_REF,
+        RETAINED_SHARED_CANDIDATE_REF,
+      ],
     },
   ]);
   const assembled = await setup.store.buildValidationContext(runId, {
@@ -3720,9 +3963,9 @@ test("candidate-bound historical Plan views always revalidate G2.1 maps and G2.2
       },
     },
     {
-      name: "g2-2-unbound-candidate-profile-drift",
+      name: "g2-2-bound-candidate-profile-drift",
       artifactPath: RETAINED_SHARED_CANDIDATE_REF,
-      expectedDomainCode: "discovery_candidate.scope_identity_mismatch",
+      expectedDomainCode: null,
       mutate: (document: Record<string, unknown>) => {
         document.discovery_profile = "industry_first";
       },
@@ -3737,6 +3980,9 @@ test("candidate-bound historical Plan views always revalidate G2.1 maps and G2.2
       );
       await rewriteStoredArtifactAndReceipt(setup.runRoot, scenario.artifactPath, scenario.mutate);
       await assert.rejects(setup.store.load(runId), (error: unknown) => {
+        if (scenario.expectedDomainCode === null) {
+          return error instanceof StoreError && error.code === "recovery.invalid_plan_operation";
+        }
         return (
           error instanceof StoreError &&
           error.code === "recovery.reference_invalid" &&
@@ -3758,6 +4004,9 @@ test("candidate-bound historical Plan views always revalidate G2.1 maps and G2.2
       await rewriteStoredArtifactAndReceipt(setup.runRoot, scenario.artifactPath, scenario.mutate);
       const { faultAt: _faultAt, ...replayInput } = input;
       await assert.rejects(runtime.apply(replayInput), (error: unknown) => {
+        if (scenario.expectedDomainCode === null) {
+          return error instanceof StoreError && error.code === "recovery.invalid_plan_operation";
+        }
         return (
           error instanceof StoreError &&
           error.code === "artifact.reference_invalid" &&
@@ -5630,7 +5879,8 @@ test("candidate pre-kill rejects a durable null candidate before creating a rece
       preKillApplyInput(setup, candidateBundle),
     ),
     (error: unknown) =>
-      error instanceof StoreError && error.code === "adaptation.pre_kill_candidate_binding_invalid",
+      error instanceof StoreError &&
+      error.code === "adaptation.discovery_candidate_binding_invalid",
   );
   assert.deepEqual(await planApplyBoundaryState(setup.runRoot), before);
 });
@@ -6526,6 +6776,96 @@ test("Plan Revision apply is CAS-safe, immutable, and idempotent on a real Run",
   await assert.rejects(
     runtime.apply(stale),
     (error: unknown) => error instanceof StoreError && error.code === "apply.stale_input_bundle",
+  );
+});
+
+test("generation retry attempt two keeps Artifact revision independent through materialization", async (contextTest) => {
+  const runId = "runtime-generation-retry-materialization";
+  const setup = await setupPersistedRun(contextTest, runId, "generation-retry");
+  const applyCreatedAt = "2026-07-26T17:01:00Z";
+  const checkpointCreatedAt = "2026-07-26T17:02:00Z";
+  const { candidateBundle } = candidateFor(setup, applyCreatedAt, "2026-07-26T17:01:30Z");
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const applied = await runtime.apply({
+    runId,
+    adaptationBundle: setup.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    candidateBundle,
+    createdAt: applyCreatedAt,
+    checkpointCreatedAt,
+    nextStep: "Run the approved generation retry unit.",
+    beliefSummary: {
+      current_belief: "The failed generation unit has one approved retry.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Does the retry materialize without forcing Artifact r2?",
+    },
+  });
+  assert.equal(applied.status, "applied");
+  const planEnvelope = JSON.parse(
+    await readFile(path.join(setup.runRoot, "plans/research-plan.r2.json"), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const successor = (planEnvelope.document.waves as Record<string, unknown>[])
+    .flatMap((wave) => wave.units as Record<string, unknown>[])
+    .find((unitEntry) => unitEntry.unit_id === "unit_user_language_v2");
+  assert.ok(successor);
+  assert.equal(successor.attempt, 2);
+  assert.equal(
+    successor.output_path,
+    "artifacts/discovery/generation/unit_user_language_v2.r1.json",
+  );
+  const reopenedAfterApply = await setup.store.load(runId);
+  assert.deepEqual(reopenedAfterApply.planOperationRecovery.historicalDiscoveryPlanBindings, [
+    {
+      planRef: PLAN_REF,
+      planHash: canonicalContentHash(setup.plan),
+      planRevision: 1,
+      candidateRefs: [],
+      generationTaskRefs: ["tasks/discovery/acquisition_failed.attempt-1.json"],
+    },
+  ]);
+
+  const materializer = new FormalStageMaterializer(setup.runsRoot, setup.validator, repositoryRoot);
+  const request = generationFormalWaveRequest(
+    runId,
+    "wave_runtime_1",
+    "unit_user_language_v2",
+    "generation_retry_wave",
+    "2026-07-26T17:03:00Z",
+  );
+  const before = await snapshotRunTree(setup.runRoot);
+  const validated = await materializer.materialize(request);
+  assert.equal(validated.status, "validated");
+  assert.deepEqual(await snapshotRunTree(setup.runRoot), before);
+  const published = await materializer.materialize({
+    ...request,
+    operation: "publish",
+    publication_plan: validated.compilation.publication_plan,
+  });
+  assert.equal(published.status, "published");
+  const taskEnvelope = published.compilation.compiled_envelopes.find(
+    (entry) =>
+      entry.artifact_type === "startup_opportunity.research_task.discovery_candidate.current",
+  );
+  const dispatchEnvelope = published.compilation.compiled_envelopes.find(
+    (entry) => entry.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(taskEnvelope);
+  assert.ok(dispatchEnvelope);
+  assert.equal(taskEnvelope.artifact_path, "tasks/discovery/unit_user_language_v2.attempt-2.json");
+  assert.equal(taskEnvelope.document.attempt, 2);
+  assert.equal(
+    taskEnvelope.document.supersedes_task_ref,
+    "tasks/discovery/acquisition_failed.attempt-1.json",
+  );
+  assert.equal(
+    taskEnvelope.document.allowed_output_path,
+    "artifacts/discovery/generation/unit_user_language_v2.r1.json",
+  );
+  assert.equal(
+    (dispatchEnvelope.document.tasks as Record<string, unknown>[])[0]?.allowed_output_path,
+    taskEnvelope.document.allowed_output_path,
   );
 });
 

@@ -133,7 +133,11 @@ export interface DocumentBundleReferenceContext {
   readonly prospectiveManifest?: Readonly<Record<string, unknown>>;
   readonly artifactPublicationRecords?: ReadonlyMap<
     string,
-    { readonly publicationOrdinal: number; readonly contentHash: string }
+    {
+      readonly publicationOrdinal: number;
+      readonly contentHash: string;
+      readonly publicationCommitHash?: string;
+    }
   >;
 }
 
@@ -142,6 +146,7 @@ export interface HistoricalDiscoveryPlanBinding {
   readonly planHash: string;
   readonly planRevision: number;
   readonly candidateRefs: readonly string[];
+  readonly generationTaskRefs?: readonly string[];
 }
 
 export interface DocumentBundleValidationResult {
@@ -222,6 +227,12 @@ function records(value: unknown): readonly Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter(isRecord) : [];
 }
 
+function strings(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
 function schemaVersionOf(document: unknown): string | null {
   return isRecord(document) && typeof document.schema_version === "string"
     ? document.schema_version
@@ -263,6 +274,20 @@ function referenceIssue(
     message,
     details,
   };
+}
+
+function refDocumentPath(ref: string): string {
+  return ref.split("#", 1)[0] ?? "";
+}
+
+function isDiscoveryReviewSelfReference(
+  source: EffectiveDocument,
+  requirement: ReferenceRequirement,
+): boolean {
+  return (
+    source.schemaVersion === "startup_opportunity.discovery_adversarial_review.current" &&
+    refDocumentPath(requirement.ref) === source.path
+  );
 }
 
 function refsFromArray(
@@ -350,6 +375,35 @@ const OPPORTUNITY_FAMILY_EVIDENCE_SCHEMA_VERSIONS = [
   "startup_opportunity.source_manifest.discovery_evaluation.current",
 ] as const;
 
+const DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS = [
+  "startup_opportunity.discovery_generation_result.v1",
+  "startup_opportunity.discovery_lane_result.v1",
+  "startup_opportunity.enrichment_branch_result.v1",
+  "startup_opportunity.discovery_adversarial_review.current",
+  "startup_opportunity.adversarial_review.v1",
+  "startup_opportunity.assessment_evidence.v1",
+  "startup_opportunity.candidate_neutral_evidence.v1",
+  "startup_opportunity.evidence.assessment.current",
+  "startup_opportunity.claim.assessment.current",
+  "startup_opportunity.finding.assessment.current",
+  "startup_opportunity.insight.assessment.current",
+  "startup_opportunity.judgment_assessment.assessment.current",
+  "startup_opportunity.source_manifest.assessment.current",
+  "startup_opportunity.evidence.discovery_candidate.current",
+  "startup_opportunity.claim.discovery_candidate.current",
+  "startup_opportunity.finding.discovery_candidate.current",
+  "startup_opportunity.insight.discovery_candidate.current",
+  "startup_opportunity.judgment_assessment.discovery_candidate.current",
+  "startup_opportunity.source_manifest.discovery_candidate.current",
+  "startup_opportunity.evidence.discovery_evaluation.current",
+  "startup_opportunity.claim.discovery_evaluation.current",
+  "startup_opportunity.finding.discovery_evaluation.current",
+  "startup_opportunity.insight.discovery_evaluation.current",
+  "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+  "startup_opportunity.source_manifest.discovery_evaluation.current",
+  "startup_opportunity.commercial_research_audit.current",
+] as const;
+
 function opportunityFamilyRefs(document: Record<string, unknown>): readonly ReferenceRequirement[] {
   const families = document.opportunity_families;
   if (!Array.isArray(families)) return [];
@@ -398,6 +452,7 @@ function refsFromNestedArray(
   arrayField: string,
   refField: string,
   expectedSchemaVersion: string | readonly string[],
+  expectedIdField?: string,
 ): readonly ReferenceRequirement[] {
   const values = document[arrayField];
   if (!Array.isArray(values)) {
@@ -419,6 +474,7 @@ function refsFromNestedArray(
                 typeof expectedSchemaVersion === "string"
                   ? [expectedSchemaVersion]
                   : expectedSchemaVersion,
+              ...(expectedIdField === undefined ? {} : { expectedIdField }),
             },
           ]
         : [],
@@ -526,11 +582,47 @@ function refsFromNestedNestedObjectArray(
   });
 }
 
+function refsFromNestedNestedArray(
+  document: Record<string, unknown>,
+  outerArrayField: string,
+  innerArrayField: string,
+  refField: string,
+  expectedSchemaVersion: string | readonly string[],
+  expectedIdField?: string,
+): readonly ReferenceRequirement[] {
+  const outerValues = document[outerArrayField];
+  if (!Array.isArray(outerValues)) return [];
+  return outerValues.flatMap((outer, outerIndex) => {
+    if (!isRecord(outer) || !Array.isArray(outer[innerArrayField])) return [];
+    return outer[innerArrayField].flatMap((inner, innerIndex) => {
+      if (!isRecord(inner)) return [];
+      const nested = inner[refField];
+      const refs = typeof nested === "string" ? [nested] : Array.isArray(nested) ? nested : [];
+      return refs.flatMap((ref, refIndex) =>
+        typeof ref === "string"
+          ? [
+              {
+                instancePath: `/${outerArrayField}/${outerIndex}/${innerArrayField}/${innerIndex}/${refField}${Array.isArray(nested) ? `/${refIndex}` : ""}`,
+                ref,
+                expectedSchemaVersions:
+                  typeof expectedSchemaVersion === "string"
+                    ? [expectedSchemaVersion]
+                    : expectedSchemaVersion,
+                ...(expectedIdField === undefined ? {} : { expectedIdField }),
+              },
+            ]
+          : [],
+      );
+    });
+  });
+}
+
 function refsFromObjectArray(
   document: Record<string, unknown>,
   objectField: string,
   arrayField: string,
   expectedSchemaVersion: string | readonly string[],
+  expectedIdField?: string,
 ): readonly ReferenceRequirement[] {
   const object = document[objectField];
   if (!isRecord(object)) {
@@ -550,6 +642,7 @@ function refsFromObjectArray(
               typeof expectedSchemaVersion === "string"
                 ? [expectedSchemaVersion]
                 : expectedSchemaVersion,
+            ...(expectedIdField === undefined ? {} : { expectedIdField }),
           },
         ]
       : [],
@@ -742,6 +835,135 @@ function reportProjectionRefs(document: Record<string, unknown>): readonly Refer
       "startup_opportunity.commercial_research_audit.current",
     ),
   ];
+}
+
+const DISCOVERY_REVIEW_SUMMARY_MATERIAL_REF_FIELDS = [
+  "supporting_refs",
+  "opposing_refs",
+  "background_refs",
+  "contradictory_refs",
+  "unknown_refs",
+] as const;
+
+function terminalDiscoveryReviewSummaryRefs(
+  document: Record<string, unknown>,
+): readonly ReferenceRequirement[] {
+  return records(document.discovery_review_summaries).flatMap((summary, index) => {
+    const materialVisibility = isRecord(summary.material_visibility)
+      ? summary.material_visibility
+      : {};
+    const searchClosure = isRecord(summary.search_closure) ? summary.search_closure : {};
+    return [
+      ...(typeof summary.review_ref === "string"
+        ? [
+            {
+              instancePath: `/discovery_review_summaries/${index}/review_ref`,
+              ref: summary.review_ref,
+              expectedSchemaVersions: ["startup_opportunity.discovery_adversarial_review.current"],
+            },
+          ]
+        : []),
+      ...(typeof summary.owned_output_path === "string"
+        ? [
+            {
+              instancePath: `/discovery_review_summaries/${index}/owned_output_path`,
+              ref: summary.owned_output_path,
+              expectedSchemaVersions: ["startup_opportunity.discovery_adversarial_review.current"],
+            },
+          ]
+        : []),
+      ...(typeof summary.task_ref === "string"
+        ? [
+            {
+              instancePath: `/discovery_review_summaries/${index}/task_ref`,
+              ref: summary.task_ref,
+              expectedSchemaVersions: [
+                "startup_opportunity.research_task.discovery_review.current",
+              ],
+            },
+          ]
+        : []),
+      ...(typeof summary.dispatch_batch_ref === "string"
+        ? [
+            {
+              instancePath: `/discovery_review_summaries/${index}/dispatch_batch_ref`,
+              ref: summary.dispatch_batch_ref,
+              expectedSchemaVersions: ["startup_opportunity.dispatch_batch.discovery.current"],
+              expectedIdField: "task_id",
+            },
+          ]
+        : []),
+      ...(typeof summary.execution_plan_ref === "string"
+        ? [
+            {
+              instancePath: `/discovery_review_summaries/${index}/execution_plan_ref`,
+              ref: summary.execution_plan_ref,
+              expectedSchemaVersions: [
+                "startup_opportunity.research_execution_plan.discovery.current",
+              ],
+            },
+          ]
+        : []),
+      ...(typeof summary.scope_frame_ref === "string"
+        ? [
+            {
+              instancePath: `/discovery_review_summaries/${index}/scope_frame_ref`,
+              ref: summary.scope_frame_ref,
+              expectedSchemaVersions: ["startup_opportunity.scope_frame.discovery.current"],
+            },
+          ]
+        : []),
+      ...(typeof summary.research_plan_ref === "string"
+        ? [
+            {
+              instancePath: `/discovery_review_summaries/${index}/research_plan_ref`,
+              ref: summary.research_plan_ref,
+              expectedSchemaVersions: ["startup_opportunity.research_plan.v1"],
+            },
+          ]
+        : []),
+      ...strings(summary.reviewed_plan_question_refs).map((ref, questionIndex) => ({
+        instancePath: `/discovery_review_summaries/${index}/reviewed_plan_question_refs/${questionIndex}`,
+        ref,
+        expectedSchemaVersions: ["startup_opportunity.research_plan.v1"],
+        expectedIdField: "question_id",
+      })),
+      ...records(summary.review_findings).flatMap((finding, findingIndex) => [
+        ...strings(finding.reviewed_plan_question_refs).map((ref, questionIndex) => ({
+          instancePath: `/discovery_review_summaries/${index}/review_findings/${findingIndex}/reviewed_plan_question_refs/${questionIndex}`,
+          ref,
+          expectedSchemaVersions: ["startup_opportunity.research_plan.v1"],
+          expectedIdField: "question_id",
+        })),
+        ...DISCOVERY_REVIEW_SUMMARY_MATERIAL_REF_FIELDS.flatMap((field) =>
+          strings(finding[field]).map((ref, refIndex) => ({
+            instancePath: `/discovery_review_summaries/${index}/review_findings/${findingIndex}/${field}/${refIndex}`,
+            ref,
+            expectedSchemaVersions: DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+          })),
+        ),
+      ]),
+      ...DISCOVERY_REVIEW_SUMMARY_MATERIAL_REF_FIELDS.flatMap((field) =>
+        strings(materialVisibility[field]).map((ref, refIndex) => ({
+          instancePath: `/discovery_review_summaries/${index}/material_visibility/${field}/${refIndex}`,
+          ref,
+          expectedSchemaVersions: DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        })),
+      ),
+      ...records(summary.decision_relevant_gaps).flatMap((gap, gapIndex) =>
+        strings(gap.basis_refs).map((ref, refIndex) => ({
+          instancePath: `/discovery_review_summaries/${index}/decision_relevant_gaps/${gapIndex}/basis_refs/${refIndex}`,
+          ref,
+          expectedSchemaVersions: DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        })),
+      ),
+      ...strings(searchClosure.adopted_source_refs).map((ref, refIndex) => ({
+        instancePath: `/discovery_review_summaries/${index}/search_closure/adopted_source_refs/${refIndex}`,
+        ref,
+        expectedSchemaVersions: DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+      })),
+    ];
+  });
 }
 
 function solutionSummaryRefs(
@@ -2859,6 +3081,26 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.research_task.discovery_evaluation.current",
         ),
       ];
+    case "startup_opportunity.research_task.discovery_review.current":
+      return [
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromArray(
+          document,
+          "assigned_plan_question_refs",
+          "startup_opportunity.research_plan.v1",
+          "question_id",
+        ),
+        ...optionalRef(
+          document,
+          "supersedes_task_ref",
+          "startup_opportunity.research_task.discovery_review.current",
+        ),
+      ];
     case "startup_opportunity.evidence.discovery_evaluation.current":
       return [
         ...nestedRef(
@@ -3624,6 +3866,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
     case "startup_opportunity.terminal_report_source.v1":
       return [
         ...reportProjectionRefs(document),
+        ...terminalDiscoveryReviewSummaryRefs(document),
         ...solutionSummaryRefsFromArray(document, "directions"),
         ...optionalRef(
           document,
@@ -3698,6 +3941,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.research_task.assessment.current",
           "startup_opportunity.research_task.discovery_candidate.current",
           "startup_opportunity.research_task.discovery_evaluation.current",
+          "startup_opportunity.research_task.discovery_review.current",
         ]),
         ...refsFromObjectArray(document, "incumbent_response_assignment", "subject_refs", [
           "startup_opportunity.discovery_candidate.v1",
@@ -3935,6 +4179,14 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
             "startup_opportunity.concept_hypothesis.assessment_intake.current",
           ],
         ),
+        ...refsFromNestedNestedArray(
+          document,
+          "stages",
+          "lanes",
+          "assigned_plan_question_refs",
+          "startup_opportunity.research_plan.v1",
+          "question_id",
+        ),
       ];
     case "startup_opportunity.research_execution_plan.assessment.current":
       return [
@@ -3982,6 +4234,13 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
             "startup_opportunity.concept_hypothesis.assessment.current",
             "startup_opportunity.concept_hypothesis.assessment_intake.current",
           ],
+        ),
+        ...refsFromNestedArray(
+          document,
+          "tasks",
+          "assigned_plan_question_refs",
+          "startup_opportunity.research_plan.v1",
+          "question_id",
         ),
       ];
     case "startup_opportunity.dispatch_batch.assessment.current":
@@ -4221,6 +4480,117 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "startup_opportunity.evidence.discovery_candidate.current",
         ]),
       ];
+    case "startup_opportunity.discovery_adversarial_review.current":
+      return [
+        ...optionalRef(
+          document,
+          "task_ref",
+          "startup_opportunity.research_task.discovery_review.current",
+        ),
+        ...optionalRef(
+          document,
+          "dispatch_batch_ref",
+          "startup_opportunity.dispatch_batch.discovery.current",
+          "task_id",
+        ),
+        ...optionalRef(
+          document,
+          "execution_plan_ref",
+          "startup_opportunity.research_execution_plan.discovery.current",
+        ),
+        ...optionalRef(
+          document,
+          "scope_frame_ref",
+          "startup_opportunity.scope_frame.discovery.current",
+        ),
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...refsFromObjectArray(
+          document,
+          "review_subject",
+          "reviewed_plan_question_refs",
+          "startup_opportunity.research_plan.v1",
+          "question_id",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "review_findings",
+          "reviewed_plan_question_refs",
+          "startup_opportunity.research_plan.v1",
+          "question_id",
+        ),
+        ...refsFromNestedArray(
+          document,
+          "review_findings",
+          "supporting_refs",
+          DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        ),
+        ...refsFromNestedArray(
+          document,
+          "review_findings",
+          "opposing_refs",
+          DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        ),
+        ...refsFromNestedArray(
+          document,
+          "review_findings",
+          "background_refs",
+          DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        ),
+        ...refsFromNestedArray(
+          document,
+          "review_findings",
+          "contradictory_refs",
+          DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        ),
+        ...refsFromNestedArray(
+          document,
+          "review_findings",
+          "unknown_refs",
+          DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        ),
+        ...refsFromObjectArray(
+          document,
+          "material_visibility",
+          "supporting_refs",
+          DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        ),
+        ...refsFromObjectArray(
+          document,
+          "material_visibility",
+          "opposing_refs",
+          DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        ),
+        ...refsFromObjectArray(
+          document,
+          "material_visibility",
+          "background_refs",
+          DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        ),
+        ...refsFromObjectArray(
+          document,
+          "material_visibility",
+          "contradictory_refs",
+          DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        ),
+        ...refsFromObjectArray(
+          document,
+          "material_visibility",
+          "unknown_refs",
+          DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        ),
+        ...refsFromNestedArray(
+          document,
+          "decision_relevant_gaps",
+          "basis_refs",
+          DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        ),
+        ...refsFromObjectArray(
+          document,
+          "search_closure",
+          "adopted_source_refs",
+          DISCOVERY_REVIEW_REFERENCABLE_SCHEMA_VERSIONS,
+        ),
+      ];
     case "startup_opportunity.source_manifest.discovery_runtime.current":
       return [
         ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
@@ -4401,9 +4771,7 @@ function historicalDiscoveryView(
   readonly documents: readonly EffectiveDocument[];
   readonly errors: readonly ValidationIssue[];
 } {
-  if (bindings.length === 0) {
-    return { documents, errors: [] };
-  }
+  const candidateBoundBindings = bindings.filter((binding) => binding.candidateRefs.length > 0);
   const candidates = new Map(
     documents
       .filter((entry) => entry.schemaVersion === "startup_opportunity.discovery_candidate.v1")
@@ -4437,14 +4805,46 @@ function historicalDiscoveryView(
     return { documents, errors: [] };
   }
   const [requiredPlanRef] = requiredPlanRefs;
-  const matching = bindings.filter((binding) => {
+  const plan = documents.find(
+    (entry) =>
+      entry.path === requiredPlanRef &&
+      entry.schemaVersion === "startup_opportunity.research_plan.v1",
+  );
+  if (candidateBoundBindings.length === 0) {
+    const manifest = documents.find(
+      (entry) => entry.schemaVersion === "startup_opportunity.run_manifest.v1",
+    );
+    if (
+      owner === "g2_1" &&
+      plan !== undefined &&
+      manifest !== undefined &&
+      manifest.document.current_plan_ref === requiredPlanRef &&
+      manifest.document.plan_revision === plan.document.revision
+    ) {
+      return {
+        documents: documents.map((entry) =>
+          entry.path === "manifest.json"
+            ? {
+                ...entry,
+                document: {
+                  ...entry.document,
+                  current_phase: "discovery",
+                },
+              }
+            : entry,
+        ),
+        errors: [],
+      };
+    }
+    return { documents, errors: [] };
+  }
+  const matching = candidateBoundBindings.filter((binding) => {
     if (
       binding.planRef !== requiredPlanRef ||
       typeof binding.planRef !== "string" ||
       typeof binding.planHash !== "string" ||
       !Number.isInteger(binding.planRevision) ||
       binding.planRevision < 1 ||
-      binding.candidateRefs.length === 0 ||
       new Set(binding.candidateRefs).size !== binding.candidateRefs.length
     ) {
       return false;
@@ -4461,11 +4861,6 @@ function historicalDiscoveryView(
       return isRecord(lineage) && maps.has(String(lineage.source_map_ref));
     });
   });
-  const plan = documents.find(
-    (entry) =>
-      entry.path === requiredPlanRef &&
-      entry.schemaVersion === "startup_opportunity.research_plan.v1",
-  );
   const revisions = new Set(matching.map((binding) => binding.planRevision));
   const hashes = new Set(matching.map((binding) => binding.planHash));
   if (
@@ -4503,6 +4898,7 @@ function historicalDiscoveryView(
                 ...entry.document,
                 current_plan_ref: requiredPlanRef,
                 plan_revision: matching[0]?.planRevision,
+                ...(owner === "g2_1" ? { current_phase: "discovery" } : {}),
               },
             }
           : entry,
@@ -4867,11 +5263,22 @@ export class ArtifactValidator {
     for (const source of effectiveDocuments) {
       for (const requirement of referenceRequirements(source)) {
         const [targetPath = "", fragment] = requirement.ref.split("#", 2);
+        const qualifiedPath = `${source.path}#${requirement.instancePath}`;
+        if (isDiscoveryReviewSelfReference(source, requirement)) {
+          referenceErrors.push(
+            referenceIssue(
+              "reference.self_ref_forbidden",
+              qualifiedPath,
+              "Discovery adversarial review material references must not point at the review result itself",
+              { ref: requirement.ref, sourcePath: source.path },
+            ),
+          );
+          continue;
+        }
         const exactTarget = exactJsonlTarget(requirement, targetPath, fragment, {
           exactJsonlRecords,
         });
         const target = exactTarget ?? documentsByPath.get(targetPath);
-        const qualifiedPath = `${source.path}#${requirement.instancePath}`;
         if (!target) {
           referenceErrors.push(
             referenceIssue(
@@ -5025,12 +5432,11 @@ export class ArtifactValidator {
         document: entry.document,
         envelope: entry.envelope,
       }));
-    const historicalPlanRefs = new Set(historicalBindings.map((binding) => binding.planRef));
     referenceErrors.push(
       ...validateDiscoveryCandidateContract(
         discoveryCandidateDocuments,
         this.discoveryCandidatePolicy,
-        historicalPlanRefs,
+        historicalBindings,
         exactJsonlRecords,
       ),
     );

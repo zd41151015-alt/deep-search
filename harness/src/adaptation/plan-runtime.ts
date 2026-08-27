@@ -53,6 +53,7 @@ import {
   effectiveDocuments,
   isRecord,
   leafPlanningContexts,
+  unitEntries,
 } from "./contracts.js";
 import {
   type AdaptationInputDocument,
@@ -72,6 +73,8 @@ const DISCOVERY_PLAN_OPERATION_VERSION =
   "startup_opportunity.plan_revision_operation.discovery.current" as const;
 const ASSESSMENT_PLAN_OPERATION_VERSION =
   "startup_opportunity.plan_revision_operation.assessment.current" as const;
+const DISCOVERY_GENERATION_RESULT_SCHEMA =
+  "startup_opportunity.discovery_generation_result.v1" as const;
 
 const TERMINAL_ACTIONS = new Set([
   "terminate_insufficient_evidence",
@@ -223,14 +226,30 @@ export interface PlanOperationRecoveryResult {
 function historicalDiscoveryPlanBindings(
   receipt: PlanOperationReceipt,
 ): readonly HistoricalDiscoveryPlanBinding[] {
-  if (
-    receipt.schema_version !== DISCOVERY_PLAN_OPERATION_VERSION ||
-    receipt.candidate_bindings === undefined ||
-    receipt.candidate_bindings.length === 0
-  ) {
+  if (receipt.schema_version !== DISCOVERY_PLAN_OPERATION_VERSION) {
     return [];
   }
-  const revisions = new Set(receipt.candidate_bindings.map((binding) => binding.plan_revision));
+  const planRevisionMatch = receipt.base_plan_ref.match(
+    /^plans\/research-plan\.r([1-9][0-9]*)\.json$/u,
+  );
+  const fallbackPlanRevision =
+    planRevisionMatch?.[1] === undefined ? 0 : Number.parseInt(planRevisionMatch[1], 10);
+  const candidateBindings = receipt.candidate_bindings ?? [];
+  const generationTaskRefs = historicalGenerationTaskRefs(receipt);
+  if (candidateBindings.length === 0) {
+    return receipt.revision_created
+      ? [
+          {
+            planRef: receipt.base_plan_ref,
+            planHash: receipt.base_plan_hash,
+            planRevision: fallbackPlanRevision,
+            candidateRefs: [],
+            ...(generationTaskRefs.length === 0 ? {} : { generationTaskRefs }),
+          },
+        ]
+      : [];
+  }
+  const revisions = new Set(candidateBindings.map((binding) => binding.plan_revision));
   if (revisions.size !== 1) {
     throw new StoreError(
       "recovery.invalid_plan_operation",
@@ -242,12 +261,42 @@ function historicalDiscoveryPlanBindings(
     {
       planRef: receipt.base_plan_ref,
       planHash: receipt.base_plan_hash,
-      planRevision: receipt.candidate_bindings[0]?.plan_revision ?? 0,
-      candidateRefs: uniqueSorted(
-        receipt.candidate_bindings.map((binding) => binding.candidate_ref),
-      ),
+      planRevision: candidateBindings[0]?.plan_revision ?? fallbackPlanRevision,
+      candidateRefs: uniqueSorted(candidateBindings.map((binding) => binding.candidate_ref)),
+      ...(generationTaskRefs.length === 0 ? {} : { generationTaskRefs }),
     },
   ];
+}
+
+function historicalGenerationTaskRefs(receipt: PlanOperationReceipt): readonly string[] {
+  if (!receipt.revision_created) return [];
+  const resultPlanEnvelope = receipt.control_envelopes.find(
+    (envelope) =>
+      envelope.artifact_path === receipt.result_plan_ref &&
+      envelope.artifact_type === "startup_opportunity.research_plan.v1",
+  );
+  const resultPlan = isRecord(resultPlanEnvelope?.document) ? resultPlanEnvelope.document : null;
+  if (resultPlan === null) return [];
+  return uniqueSorted(
+    unitEntries(resultPlan).flatMap((entry) => {
+      const unit = entry.unit;
+      const attempt = typeof unit.attempt === "number" ? unit.attempt : null;
+      const supersedes =
+        typeof unit.supersedes_unit_ref === "string" ? unit.supersedes_unit_ref : "";
+      const [planRef = "", supersededUnitId = ""] = supersedes.split("#", 2);
+      if (
+        unit.required_artifact_schema !== DISCOVERY_GENERATION_RESULT_SCHEMA ||
+        attempt === null ||
+        !Number.isInteger(attempt) ||
+        attempt <= 1 ||
+        planRef !== receipt.base_plan_ref ||
+        supersededUnitId.length === 0
+      ) {
+        return [];
+      }
+      return [`tasks/discovery/${supersededUnitId}.attempt-${String(attempt - 1)}.json`];
+    }),
+  );
 }
 
 function uniqueSorted(values: readonly string[]): readonly string[] {
@@ -885,6 +934,26 @@ function preKillCandidateBindings(
       plan_revision: planRevision,
     };
   });
+}
+
+function mergeCandidateBindings(
+  ...groups: readonly (readonly PlanCandidateBinding[])[]
+): readonly PlanCandidateBinding[] {
+  const byRef = new Map<string, PlanCandidateBinding>();
+  for (const binding of groups.flat()) {
+    const existing = byRef.get(binding.candidate_ref);
+    if (existing !== undefined && canonicalJson(existing) !== canonicalJson(binding)) {
+      throw new StoreError(
+        "adaptation.discovery_candidate_binding_conflict",
+        "candidate-bound Plan receipt contains conflicting candidate membership bytes",
+        { candidateRef: binding.candidate_ref },
+      );
+    }
+    byRef.set(binding.candidate_ref, binding);
+  }
+  return [...byRef.values()].sort((left, right) =>
+    left.candidate_ref.localeCompare(right.candidate_ref),
+  );
 }
 
 function scopeReconciliationAuthorized(
@@ -1786,19 +1855,19 @@ export class PlanRevisionRuntime {
       basePlanRef,
       Number(suppliedPlan.document.revision),
     );
-    const candidateBindings =
-      preKillBindings.length > 0
-        ? preKillBindings
-        : assessmentAdaptation
-          ? []
-          : await durableDiscoveryCandidateBindings(
-              runRoot,
-              manifest,
-              input.runId,
-              basePlanRef,
-              Number(suppliedPlan.document.revision),
-              this.artifacts,
-            );
+    const durableCandidateBindings = assessmentAdaptation
+      ? []
+      : await durableDiscoveryCandidateBindings(
+          runRoot,
+          manifest,
+          input.runId,
+          basePlanRef,
+          Number(suppliedPlan.document.revision),
+          this.artifacts,
+        );
+    const candidateBindings = assessmentAdaptation
+      ? []
+      : mergeCandidateBindings(preKillBindings, durableCandidateBindings);
     const assessmentPlanRefs = uniqueSorted(
       selectedDecisions.flatMap((decision) =>
         typeof decision.document.assessment_plan_ref === "string"
@@ -2556,6 +2625,8 @@ export async function recoverPlanRevisionOperationsLocked(
       (receipt.candidate_bindings?.length ?? 0) > 0
     ) {
       candidateBound.push(receipt.operation_key);
+    }
+    if (receipt.schema_version === DISCOVERY_PLAN_OPERATION_VERSION) {
       historicalBindings.push(...historicalDiscoveryPlanBindings(receipt));
     }
     const current = await readManifest(runRoot, validator);

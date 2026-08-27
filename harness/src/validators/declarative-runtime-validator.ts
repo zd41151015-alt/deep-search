@@ -25,6 +25,7 @@ const RUNTIME_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.dispatch_launch_registration.v1",
   "startup_opportunity.candidate_neutral_evidence.v1",
   "startup_opportunity.discovery_generation_result.v1",
+  "startup_opportunity.discovery_adversarial_review.current",
   "startup_opportunity.discovery_stage_readiness.v1",
   "startup_opportunity.source_manifest.discovery_runtime.current",
   "startup_opportunity.gap_snapshot.discovery.readiness.current",
@@ -52,6 +53,7 @@ const STAGE_ORDER = [
   "hard_gate_scan",
   "candidate_evaluation",
   "retained_candidate_deep_review",
+  "review",
   "discovery_synthesis",
 ] as const;
 
@@ -97,6 +99,117 @@ function issue(
 
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {
   return canonicalJson([...new Set(left)].sort()) === canonicalJson([...new Set(right)].sort());
+}
+
+function sameStringSets(left: readonly string[], right: readonly string[]): boolean {
+  return (
+    new Set(left).size === left.length &&
+    new Set(right).size === right.length &&
+    sameStrings(left, right)
+  );
+}
+
+function isStringSubset(left: readonly string[], right: readonly string[]): boolean {
+  return left.every((value) => right.includes(value));
+}
+
+const DISCOVERY_REVIEW_MATERIAL_REF_FIELDS = [
+  "supporting_refs",
+  "opposing_refs",
+  "background_refs",
+  "contradictory_refs",
+  "unknown_refs",
+] as const;
+
+function uniqueSorted(values: readonly string[]): readonly string[] {
+  return [...new Set(values)].sort();
+}
+
+function everyAssignedQuestionHasEveryRequiredStance(
+  assignedQuestionRefs: readonly string[],
+  requiredStances: readonly string[],
+  findings: readonly Record<string, unknown>[],
+): boolean {
+  return assignedQuestionRefs.every((questionRef) =>
+    requiredStances.every((stance) =>
+      findings.some(
+        (finding) =>
+          finding.stance === stance &&
+          strings(finding.reviewed_plan_question_refs).includes(questionRef),
+      ),
+    ),
+  );
+}
+
+function discoveryReviewMaterialVisibilityValid(review: Record<string, unknown>): boolean {
+  const visibility = isRecord(review.material_visibility) ? review.material_visibility : {};
+  const visibleRefs = uniqueSorted(
+    DISCOVERY_REVIEW_MATERIAL_REF_FIELDS.flatMap((field) => strings(visibility[field])),
+  );
+  for (const finding of records(review.review_findings)) {
+    for (const field of DISCOVERY_REVIEW_MATERIAL_REF_FIELDS) {
+      const visible = strings(visibility[field]);
+      if (!isStringSubset(strings(finding[field]), visible)) return false;
+    }
+  }
+  for (const gap of records(review.decision_relevant_gaps)) {
+    if (!isStringSubset(strings(gap.basis_refs), visibleRefs)) return false;
+  }
+  const searchClosure = isRecord(review.search_closure) ? review.search_closure : {};
+  return sameStrings(visibleRefs, uniqueSorted(strings(searchClosure.adopted_source_refs)));
+}
+
+function discoveryReviewSearchClosureStatusValid(review: Record<string, unknown>): boolean {
+  const searchClosure = isRecord(review.search_closure) ? review.search_closure : {};
+  const status = String(review.status);
+  const closureStatus = String(searchClosure.status ?? "");
+  const routes = strings(searchClosure.acquisition_routes_attempted);
+  const gaps = strings(searchClosure.unresolved_gaps);
+  const noSearchRoute = routes.length === 1 && routes[0] === "none";
+  const hasActualRoute = routes.length > 0 && !routes.includes("none");
+  const states = [
+    ...records(review.review_findings).map((finding) => finding.evidence_state),
+    ...records(review.decision_relevant_gaps).map((gap) => gap.state),
+  ];
+  if (status === "completed" && closureStatus === "search_not_required") {
+    return (
+      noSearchRoute &&
+      gaps.length === 0 &&
+      states.length > 0 &&
+      states.every((state) => state === "not_applicable")
+    );
+  }
+  if (status === "completed" || status === "partial" || status === "insufficient_evidence") {
+    return (
+      closureStatus === status && hasActualRoute && (status !== "completed" || gaps.length === 0)
+    );
+  }
+  if (status === "failed") {
+    return (
+      (closureStatus === "failed_before_search" && noSearchRoute) ||
+      (closureStatus === "unavailable" && hasActualRoute)
+    );
+  }
+  if (status === "ignored_late" || status === "superseded") {
+    if (closureStatus === "search_not_required") {
+      return (
+        noSearchRoute &&
+        gaps.length === 0 &&
+        states.length > 0 &&
+        states.every((state) => state === "not_applicable")
+      );
+    }
+    if (
+      closureStatus === "completed" ||
+      closureStatus === "partial" ||
+      closureStatus === "insufficient_evidence" ||
+      closureStatus === "unavailable"
+    ) {
+      return hasActualRoute && (closureStatus !== "completed" || gaps.length === 0);
+    }
+    return closureStatus === "failed_before_search" && noSearchRoute;
+  }
+  return false;
 }
 
 function latestDocument(
@@ -382,6 +495,20 @@ function validateExecutionPlan(
             "runtime.evaluation_role_invalid",
             `${entry.path}#${stageId}/${unitId}`,
             "candidate evaluation must use evaluation lanes",
+          ),
+        );
+      }
+      if (
+        kind === "review" &&
+        (lane.lane_role !== "review" ||
+          scope.kind !== "none" ||
+          lane.submission_schema !== "startup_opportunity.discovery_adversarial_review.current")
+      ) {
+        errors.push(
+          issue(
+            "runtime.review_lane_invalid",
+            `${entry.path}#${stageId}/${unitId}`,
+            "Discovery review stages must be plan-level adversarial review lanes",
           ),
         );
       }
@@ -1015,6 +1142,117 @@ function validateCandidateNeutralEvidence(
         "runtime.candidate_neutral_substrate_mismatch",
         `${entry.path}#/mechanical_binding`,
         "candidate-neutral Evidence identity and mechanical binding must equal its substrate record",
+      ),
+    );
+  }
+}
+
+function validateDiscoveryReviewResult(
+  entry: DeclarativeRuntimeDocument,
+  byPath: ReadonlyMap<string, DeclarativeRuntimeDocument>,
+  errors: ValidationIssue[],
+): void {
+  const review = entry.document;
+  const task = target(byPath, review.task_ref);
+  const batch = target(byPath, review.dispatch_batch_ref);
+  const execution = target(byPath, review.execution_plan_ref);
+  const plan = target(byPath, review.research_plan_ref);
+  const scope = target(byPath, review.scope_frame_ref);
+  const taskId = String(review.dispatch_batch_ref).split("#", 2)[1];
+  const dispatchTask = records(batch?.document.tasks).find(
+    (candidate) => candidate.task_id === taskId,
+  );
+  const executionLane =
+    execution?.schemaVersion === "startup_opportunity.research_execution_plan.discovery.current"
+      ? laneByUnit(execution.document, review.unit_id)
+      : null;
+  const reviewedQuestionRefs = isRecord(review.review_subject)
+    ? strings(review.review_subject.reviewed_plan_question_refs)
+    : [];
+  const findings = records(review.review_findings);
+  const assignedQuestionRefs = strings(task?.document.assigned_plan_question_refs);
+  const dispatchQuestionRefs = strings(dispatchTask?.assigned_plan_question_refs);
+  const executionQuestionRefs = strings(executionLane?.lane.assigned_plan_question_refs);
+  const boundary = isRecord(review.authority_boundary) ? review.authority_boundary : {};
+  const requiredStances = strings(review.required_stances);
+  const findingQuestionRefs = findings.flatMap((finding) =>
+    strings((finding as Record<string, unknown>).reviewed_plan_question_refs),
+  );
+  if (
+    task?.schemaVersion !== "startup_opportunity.research_task.discovery_review.current" ||
+    batch?.schemaVersion !== "startup_opportunity.dispatch_batch.discovery.current" ||
+    execution?.schemaVersion !== "startup_opportunity.research_execution_plan.discovery.current" ||
+    plan?.schemaVersion !== "startup_opportunity.research_plan.v1" ||
+    scope?.schemaVersion !== "startup_opportunity.scope_frame.discovery.current" ||
+    dispatchTask === undefined ||
+    executionLane === null ||
+    entry.path !== review.owned_output_path ||
+    task.path !== review.task_ref ||
+    task.document.task_id !== dispatchTask.task_id ||
+    task.document.unit_id !== review.unit_id ||
+    dispatchTask.unit_id !== review.unit_id ||
+    task.document.allowed_output_path !== entry.path ||
+    dispatchTask.allowed_output_path !== entry.path ||
+    task.document.required_artifact_schema !== review.schema_version ||
+    dispatchTask.required_artifact_schema !== review.schema_version ||
+    task.document.agent_role !== "adversarial-reviewer" ||
+    task.document.source_phase !== "adversarial_challenger" ||
+    review.owner_role !== "adversarial-reviewer" ||
+    review.run_id !== task.document.run_id ||
+    review.run_id !== batch.document.run_id ||
+    batch.document.research_plan_ref !== review.research_plan_ref ||
+    batch.document.execution_plan_ref !== review.execution_plan_ref ||
+    task.document.research_plan_ref !== review.research_plan_ref ||
+    task.document.scope_frame_ref !== review.scope_frame_ref ||
+    execution.document.research_plan_ref !== review.research_plan_ref ||
+    executionLane.stage.stage_kind !== "review" ||
+    executionLane.lane.lane_role !== "review" ||
+    executionLane.lane.submission_path !== entry.path ||
+    executionLane.lane.submission_schema !== review.schema_version ||
+    !isRecord(executionLane.lane.candidate_scope) ||
+    executionLane.lane.candidate_scope.kind !== "none" ||
+    strings(executionLane.lane.candidate_scope.candidate_refs).length !== 0 ||
+    canonicalJson(task.document.required_stances) !== canonicalJson(review.required_stances) ||
+    !sameStringSets(assignedQuestionRefs, reviewedQuestionRefs) ||
+    !sameStringSets(dispatchQuestionRefs, reviewedQuestionRefs) ||
+    !sameStringSets(executionQuestionRefs, reviewedQuestionRefs) ||
+    reviewedQuestionRefs.some((ref) => !ref.startsWith(`${String(review.research_plan_ref)}#`)) ||
+    findings.length === 0 ||
+    findings.some(
+      (finding) =>
+        !isStringSubset(
+          strings((finding as Record<string, unknown>).reviewed_plan_question_refs),
+          reviewedQuestionRefs,
+        ),
+    ) ||
+    !sameStrings([...new Set(findingQuestionRefs)], reviewedQuestionRefs) ||
+    !everyAssignedQuestionHasEveryRequiredStance(reviewedQuestionRefs, requiredStances, findings) ||
+    !discoveryReviewMaterialVisibilityValid(review) ||
+    !discoveryReviewSearchClosureStatusValid(review) ||
+    review.task_hash !== canonicalContentHash(task.document) ||
+    review.dispatch_batch_hash !== canonicalContentHash(batch.document) ||
+    review.execution_plan_hash !== canonicalContentHash(execution.document) ||
+    review.research_plan_hash !== canonicalContentHash(plan.document) ||
+    review.run_id !== scope.document.run_id ||
+    boundary.reference_only !== true ||
+    boundary.not_gate !== true ||
+    boundary.not_ranking !== true ||
+    boundary.not_elimination !== true ||
+    boundary.not_confidence_ceiling !== true ||
+    boundary.mutates_current_plan !== false ||
+    boundary.rewrites_report !== false
+  ) {
+    errors.push(
+      issue(
+        "runtime.discovery_review_binding_mismatch",
+        entry.path,
+        "Discovery adversarial review result must bind the exact review Task, Dispatch, Execution, Plan, scope, output path, hashes, and neutral authority boundary",
+        {
+          taskRef: review.task_ref,
+          dispatchBatchRef: review.dispatch_batch_ref,
+          executionPlanRef: review.execution_plan_ref,
+          researchPlanRef: review.research_plan_ref,
+        },
       ),
     );
   }
@@ -1717,6 +1955,9 @@ export function validateDeclarativeRuntimeContract(
         break;
       case "startup_opportunity.discovery_generation_result.v1":
         validateGenerationResult(entry, byPath, errors);
+        break;
+      case "startup_opportunity.discovery_adversarial_review.current":
+        validateDiscoveryReviewResult(entry, byPath, errors);
         break;
       case "startup_opportunity.candidate_neutral_evidence.v1":
         validateCandidateNeutralEvidence(entry, byPath, exactJsonlRecords, errors);

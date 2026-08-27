@@ -63,6 +63,139 @@ function strings(value: unknown): readonly string[] {
     : [];
 }
 
+function uniqueSorted(values: readonly string[]): readonly string[] {
+  return [...new Set(values)].sort();
+}
+
+function reviewLiteralText(value: unknown): string {
+  return typeof value === "string" ? value : String(value ?? "");
+}
+
+function callerAuthoredText(value: unknown): string {
+  return typeof value === "string" ? value : String(value ?? "");
+}
+
+const DISCOVERY_REVIEW_MATERIAL_REF_FIELDS = [
+  "supporting_refs",
+  "opposing_refs",
+  "background_refs",
+  "contradictory_refs",
+  "unknown_refs",
+] as const;
+
+function projectedReviewMaterialVisibility(
+  document: Record<string, unknown>,
+): Record<string, unknown> {
+  const visibility = isRecord(document.material_visibility) ? document.material_visibility : {};
+  return Object.fromEntries(
+    DISCOVERY_REVIEW_MATERIAL_REF_FIELDS.map((field) => [
+      field,
+      uniqueSorted(strings(visibility[field])),
+    ]),
+  );
+}
+
+function projectedReviewFindings(
+  document: Record<string, unknown>,
+): readonly Record<string, unknown>[] {
+  return records(document.review_findings)
+    .map((finding) => ({
+      finding_id: finding.finding_id,
+      stance: finding.stance,
+      reviewed_plan_question_refs: uniqueSorted(strings(finding.reviewed_plan_question_refs)),
+      evidence_state: finding.evidence_state,
+      summary: finding.summary,
+      supporting_refs: uniqueSorted(strings(finding.supporting_refs)),
+      opposing_refs: uniqueSorted(strings(finding.opposing_refs)),
+      background_refs: uniqueSorted(strings(finding.background_refs)),
+      contradictory_refs: uniqueSorted(strings(finding.contradictory_refs)),
+      unknown_refs: uniqueSorted(strings(finding.unknown_refs)),
+      limitations: uniqueSorted(strings(finding.limitations)),
+    }))
+    .sort((left, right) => String(left.finding_id).localeCompare(String(right.finding_id)));
+}
+
+function projectedReviewGaps(
+  document: Record<string, unknown>,
+): readonly Record<string, unknown>[] {
+  return records(document.decision_relevant_gaps)
+    .map((gap) => ({
+      gap_id: gap.gap_id,
+      state: gap.state,
+      summary: gap.summary,
+      basis_refs: uniqueSorted(strings(gap.basis_refs)),
+      requires_plan_adaptation: gap.requires_plan_adaptation,
+      recommended_follow_up: gap.recommended_follow_up,
+      limitations: uniqueSorted(strings(gap.limitations)),
+    }))
+    .sort((left, right) => String(left.gap_id).localeCompare(String(right.gap_id)));
+}
+
+function projectedReviewSearchClosure(document: Record<string, unknown>): Record<string, unknown> {
+  const closure = isRecord(document.search_closure) ? document.search_closure : {};
+  return {
+    status: closure.status,
+    acquisition_routes_attempted: uniqueSorted(strings(closure.acquisition_routes_attempted)),
+    adopted_source_refs: uniqueSorted(strings(closure.adopted_source_refs)),
+    unresolved_gaps: uniqueSorted(strings(closure.unresolved_gaps)),
+    stop_reason: closure.stop_reason,
+  };
+}
+
+export function deriveDiscoveryReviewSummary(input: {
+  readonly path: string;
+  readonly contentHash: string;
+  readonly document: Record<string, unknown>;
+}): Record<string, unknown> {
+  const subject = isRecord(input.document.review_subject) ? input.document.review_subject : {};
+  return {
+    review_ref: input.path,
+    review_content_hash: input.contentHash,
+    review_result_id: input.document.review_result_id,
+    status: input.document.status,
+    owner_role: input.document.owner_role,
+    unit_id: input.document.unit_id,
+    attempt: input.document.attempt,
+    owned_output_path: input.document.owned_output_path,
+    task_ref: input.document.task_ref,
+    dispatch_batch_ref: input.document.dispatch_batch_ref,
+    execution_plan_ref: input.document.execution_plan_ref,
+    scope_frame_ref: input.document.scope_frame_ref,
+    research_plan_ref: input.document.research_plan_ref,
+    reviewed_plan_question_refs: uniqueSorted(strings(subject.reviewed_plan_question_refs)),
+    required_stances: uniqueSorted(strings(input.document.required_stances)),
+    review_findings: projectedReviewFindings(input.document),
+    material_visibility: projectedReviewMaterialVisibility(input.document),
+    decision_relevant_gaps: projectedReviewGaps(input.document),
+    search_closure: projectedReviewSearchClosure(input.document),
+    authority_boundary: isRecord(input.document.authority_boundary)
+      ? {
+          reference_only: input.document.authority_boundary.reference_only,
+          not_gate: input.document.authority_boundary.not_gate,
+          not_ranking: input.document.authority_boundary.not_ranking,
+          not_elimination: input.document.authority_boundary.not_elimination,
+          not_confidence_ceiling: input.document.authority_boundary.not_confidence_ceiling,
+          mutates_current_plan: input.document.authority_boundary.mutates_current_plan,
+          rewrites_report: input.document.authority_boundary.rewrites_report,
+        }
+      : {},
+    valid_as_of: input.document.valid_as_of,
+    limitations: uniqueSorted(strings(input.document.limitations)),
+  };
+}
+
+export function deriveDiscoveryReviewSummaries(
+  reviews: readonly {
+    readonly path: string;
+    readonly contentHash: string;
+    readonly document: Record<string, unknown>;
+  }[],
+): readonly Record<string, unknown>[] {
+  return reviews
+    .map(deriveDiscoveryReviewSummary)
+    .sort((left, right) => String(left.review_ref).localeCompare(String(right.review_ref)));
+}
+
 function requiredRecord(value: unknown, field: string): Record<string, unknown> {
   if (!isRecord(value)) {
     throw new Error(`terminal report field ${field} must be an object`);
@@ -176,6 +309,74 @@ function enumLabel(value: unknown, zh: boolean): string {
     return localized;
   }
   return text.replaceAll("_", " ");
+}
+
+const REVIEW_ENUM_LABELS: Readonly<Record<"zh" | "en", Readonly<Record<string, string>>>> = {
+  zh: {
+    "adversarial-reviewer": "对抗审阅者",
+    completed: "已完成",
+    partial: "部分完成",
+    insufficient_evidence: "证据不足",
+    failed: "失败",
+    ignored_late: "已忽略（迟到）",
+    superseded: "已被取代",
+    support: "支持",
+    oppose: "反对",
+    mixed: "混合",
+    background: "背景",
+    unknown: "未知",
+    supported: "已支持",
+    unavailable: "不可用",
+    inferred: "推断",
+    not_applicable: "不适用",
+    no_evidence_found: "未找到证据",
+    add_unit: "添加任务",
+    retry_unit: "重试任务",
+    wait: "等待",
+    manual_review: "人工复核",
+    no_action: "无需动作",
+    failed_before_search: "搜索前失败",
+    search_not_required: "无需搜索",
+  },
+  en: {
+    "adversarial-reviewer": "adversarial reviewer",
+    completed: "completed",
+    partial: "partial",
+    insufficient_evidence: "insufficient evidence",
+    failed: "failed",
+    ignored_late: "ignored late",
+    superseded: "superseded",
+    support: "support",
+    oppose: "oppose",
+    mixed: "mixed",
+    background: "background",
+    unknown: "unknown",
+    supported: "supported",
+    unavailable: "unavailable",
+    inferred: "inferred",
+    not_applicable: "not applicable",
+    no_evidence_found: "no evidence found",
+    add_unit: "add unit",
+    retry_unit: "retry unit",
+    wait: "wait",
+    manual_review: "manual review",
+    no_action: "no action",
+    failed_before_search: "failed before search",
+    search_not_required: "search not required",
+  },
+};
+
+function reviewEnumLabel(value: unknown, zh: boolean): string {
+  const text = String(value);
+  const localized = (zh ? REVIEW_ENUM_LABELS.zh : REVIEW_ENUM_LABELS.en)[text];
+  if (localized === undefined) {
+    throw new Error(`terminal report review enum mapping is missing for ${text}`);
+  }
+  return localized;
+}
+
+function reviewEnumList(values: readonly string[], zh: boolean): string {
+  return values.map((value) => reviewEnumLabel(value, zh)).join(", ");
 }
 
 function marketPriorityLabel(value: unknown, zh: boolean): string {
@@ -336,7 +537,7 @@ function renderDirections(source: Record<string, unknown>, zh: boolean, compact:
                   : zh
                     ? "不使用 AI"
                     : "does not use AI";
-              return `${enumLabel(solution.disposition, zh)}: ${userVisibleText(solution.solution_behavior, zh)} (${userVisibleText(solution.solution_type, zh)}; ${userVisibleText(solution.delivery_form, zh)}; ${ai})`;
+              return `${enumLabel(solution.disposition, zh)}: ${callerAuthoredText(solution.solution_behavior)} (${callerAuthoredText(solution.solution_type)}; ${callerAuthoredText(solution.delivery_form)}; ${ai})`;
             }),
             zh ? "无" : "None recorded",
           ),
@@ -347,10 +548,10 @@ function renderDirections(source: Record<string, unknown>, zh: boolean, compact:
             bulletList(
               records(solutionSummary.considered_approaches).map(
                 (approach) =>
-                  `${userVisibleText(approach.implementation_direction, zh)}: ${strings(
+                  `${callerAuthoredText(approach.implementation_direction)}: ${strings(
                     approach.disposition_reasons,
                   )
-                    .map((reason) => userVisibleText(reason, zh))
+                    .map((reason) => callerAuthoredText(reason))
                     .join("; ")}`,
               ),
               zh ? "无" : "None recorded",
@@ -368,10 +569,10 @@ function renderDirections(source: Record<string, unknown>, zh: boolean, compact:
             directionUncertainties.map((entry) =>
               entry.state === "inferred"
                 ? zh
-                  ? `推测：${userVisibleText(entry.statement, true)}；推理起点：${userVisibleText(entry.starting_point, true)}；推理过程：${userVisibleText(entry.reasoning, true)}；不确定性：${userVisibleText(entry.uncertainty, true)}；待验证：${userVisibleText(entry.validation_needed, true)}`
+                  ? `推测：${callerAuthoredText(entry.statement)}；推理起点：${callerAuthoredText(entry.starting_point)}；推理过程：${callerAuthoredText(entry.reasoning)}；不确定性：${callerAuthoredText(entry.uncertainty)}；待验证：${callerAuthoredText(entry.validation_needed)}`
                   : `Inference: ${String(entry.statement)}; starting point: ${String(entry.starting_point)}; reasoning: ${String(entry.reasoning)}; uncertainty: ${String(entry.uncertainty)}; validation needed: ${String(entry.validation_needed)}`
                 : zh
-                  ? `未知：${userVisibleText(entry.statement, true)}；不确定性：${userVisibleText(entry.uncertainty, true)}；待验证：${userVisibleText(entry.validation_needed, true)}`
+                  ? `未知：${callerAuthoredText(entry.statement)}；不确定性：${callerAuthoredText(entry.uncertainty)}；待验证：${callerAuthoredText(entry.validation_needed)}`
                   : `Unknown: ${String(entry.statement)}; uncertainty: ${String(entry.uncertainty)}; validation needed: ${String(entry.validation_needed)}`,
             ),
             zh ? "无" : "None",
@@ -407,7 +608,7 @@ function renderSources(source: Record<string, unknown>, zh: boolean, limit?: num
     }
     const inference = entry.inference;
     return zh
-      ? `${base}: 推测：${userVisibleText(entry.claim, true)}；推理起点：${userVisibleText(inference.starting_point, true)}；推理过程：${userVisibleText(inference.reasoning, true)}；不确定性：${userVisibleText(inference.uncertainty, true)}；待验证：${userVisibleText(inference.validation_needed, true)}`
+      ? `${base}: 推测：${callerAuthoredText(entry.claim)}；推理起点：${callerAuthoredText(inference.starting_point)}；推理过程：${callerAuthoredText(inference.reasoning)}；不确定性：${callerAuthoredText(inference.uncertainty)}；待验证：${callerAuthoredText(inference.validation_needed)}`
       : `${base}: Inference: ${String(entry.claim)}; starting point: ${String(inference.starting_point)}; reasoning: ${String(inference.reasoning)}; uncertainty: ${String(inference.uncertainty)}; validation needed: ${String(inference.validation_needed)}`;
   });
   const omitted = allSources.length - sources.length;
@@ -517,6 +718,17 @@ function renderResearchProvenance(
   return `${lines.join("\n")}\n`;
 }
 
+function renderDiscoveryReviewReferenceNotice(
+  source: Record<string, unknown>,
+  zh: boolean,
+): string {
+  const count = records(source.discovery_review_summaries).length;
+  if (count === 0) return "";
+  return zh
+    ? `\n## 发现对抗性复核边界\n\n已发布 ${count} 个发现阶段对抗性复核结果；它们在审计附录中逐项列出，仅供引用，不作为 Gate、排序、淘汰或信心上限依据。\n\n`
+    : `\n## Discovery Adversarial Review Boundary\n\n${count} Discovery adversarial review result${count === 1 ? "" : "s"} are listed in the audit appendix as reference-only material; they are not a Gate, ranking, elimination, or confidence-ceiling authority.\n\n`;
+}
+
 export function renderTerminalDecisionBrief(source: Record<string, unknown>): string {
   const zh = isChinese(source.research_language);
   const conclusion = requiredRecord(source.research_conclusion, "research_conclusion");
@@ -542,6 +754,7 @@ export function renderTerminalDecisionBrief(source: Record<string, unknown>): st
     renderIncumbentResponseDisclosure(source, zh),
     `\n## ${zh ? "有顺序的验证建议" : "Ordered Validation Recommendations"}\n`,
     renderValidationPlan(source, zh, 5),
+    renderDiscoveryReviewReferenceNotice(source, zh),
     `\n## ${zh ? "有效期与局限" : "Freshness And Limitations"}\n`,
     `${String(freshness.summary)}\n\n`,
     bulletList(strings(source.limitations), zh ? "无" : "None"),
@@ -580,6 +793,7 @@ export function renderTerminalFullReport(source: Record<string, unknown>): strin
     renderResearchProvenance(source, zh),
     `\n## ${zh ? "有顺序的验证建议" : "Ordered Validation Recommendations"}\n`,
     renderValidationPlan(source, zh),
+    renderDiscoveryReviewReferenceNotice(source, zh),
     `\n## ${zh ? "证据新鲜度" : "Evidence Freshness"}\n`,
     `${String(freshness.summary)}\n\n`,
     `## ${zh ? "局限" : "Limitations"}\n`,
@@ -606,47 +820,162 @@ export function renderTerminalAuditAppendix(source: Record<string, unknown>): st
     renderGateWarnings(source, zh),
     `\n## ${zh ? "研究来源沿袭" : "Research Provenance"}\n`,
     renderResearchProvenance(source, zh, true),
+    `\n## ${zh ? "发现对抗性复核（仅供引用）" : "Discovery Adversarial Reviews (Reference Only)"}\n`,
+    renderDiscoveryReviewSummaries(source, zh),
     `\n## ${zh ? "材料采用、限制与排除" : "Material Adoption, Limitations, And Exclusions"}\n`,
     renderEvidenceDispositions(source, zh),
   ].join("");
 }
 
-const ZH_INTERNAL_TERM_RULES = [
-  /\bsame[- ]run\b/iu,
-  /\bpre[- ]thesis\b/iu,
-  /\bbaseline\b/iu,
-  /\bcounterfactual\b/iu,
-  /\b(?:Manifest|Schema|Validator|Gap)\b/u,
-  /\bevidence\b/iu,
-  /\bharness\b/iu,
-  /\bartifact\b/iu,
-  /\b(?:decision_grade|directional_proxy|context_only|not_ready|decision_grade_demand_signal|directional_demand_signal|current_user_language|competitive_scope_disposed|market_priority_signal_limited|candidate_purchase_or_commitment|acquisition_or_distribution|retention_or_usage|unit_economics)\b/iu,
-  /\b(?:opportunity_discovery|concept_evidence_assessment|assessment_early_kill|assessment_commercial|assessment_delivery|discovery_generation|candidate_evaluation|runtime_blocked|not_executed|unranked_hypothesis)\b/iu,
-  /(?:研究结论|证据强度|执行完整度|运行健康|状态|成熟度|当前动作|排序状态)\s*:\s*(?:investigate_further|insufficient_evidence|no_recommendation|not_started|partially_applicable)\b/iu,
-] as const;
+function renderReviewRefs(label: string, refs: readonly string[], zh: boolean): string {
+  if (refs.length === 0) return "";
+  return `  - ${label}: ${refs.map((ref) => userVisibleText(ref, zh)).join(", ")}\n`;
+}
+
+function renderDiscoveryReviewFindings(review: Record<string, unknown>, zh: boolean): string {
+  const findings = records(review.review_findings);
+  if (findings.length === 0)
+    return zh ? "- 未记录结构化发现。\n" : "- No structured findings recorded.\n";
+  return findings
+    .map((finding) => {
+      const lines = [
+        `- ${zh ? "立场" : "Stance"}=${reviewEnumLabel(finding.stance, zh)}; ${zh ? "材料状态" : "material state"}=${reviewEnumLabel(finding.evidence_state, zh)}; ${zh ? "问题" : "questions"}=${strings(
+          finding.reviewed_plan_question_refs,
+        )
+          .map((ref) => userVisibleText(ref, zh))
+          .join(", ")}`,
+        `  - ${zh ? "摘要" : "Summary"}: ${reviewLiteralText(finding.summary)}`,
+        renderReviewRefs(zh ? "支持材料" : "Supporting refs", strings(finding.supporting_refs), zh),
+        renderReviewRefs(zh ? "反对材料" : "Opposing refs", strings(finding.opposing_refs), zh),
+        renderReviewRefs(zh ? "背景材料" : "Background refs", strings(finding.background_refs), zh),
+        renderReviewRefs(
+          zh ? "矛盾材料" : "Contradictory refs",
+          strings(finding.contradictory_refs),
+          zh,
+        ),
+        renderReviewRefs(zh ? "未知材料" : "Unknown refs", strings(finding.unknown_refs), zh),
+      ];
+      return `${lines.join("\n")}\n`;
+    })
+    .join("");
+}
+
+function renderDiscoveryReviewMaterialVisibility(
+  review: Record<string, unknown>,
+  zh: boolean,
+): string {
+  const visibility = isRecord(review.material_visibility) ? review.material_visibility : {};
+  const labels: Readonly<Record<(typeof DISCOVERY_REVIEW_MATERIAL_REF_FIELDS)[number], string>> = zh
+    ? {
+        supporting_refs: "支持材料",
+        opposing_refs: "反对材料",
+        background_refs: "背景材料",
+        contradictory_refs: "矛盾材料",
+        unknown_refs: "未知材料",
+      }
+    : {
+        supporting_refs: "Supporting refs",
+        opposing_refs: "Opposing refs",
+        background_refs: "Background refs",
+        contradictory_refs: "Contradictory refs",
+        unknown_refs: "Unknown refs",
+      };
+  return DISCOVERY_REVIEW_MATERIAL_REF_FIELDS.map((field) => {
+    const refs = strings(visibility[field]).map((ref) => userVisibleText(ref, zh));
+    return `- ${labels[field]}: ${refs.length === 0 ? (zh ? "无" : "None recorded") : refs.join(", ")}\n`;
+  }).join("");
+}
+
+function renderDiscoveryReviewGaps(review: Record<string, unknown>, zh: boolean): string {
+  const gaps = records(review.decision_relevant_gaps);
+  if (gaps.length === 0)
+    return zh ? "- 未记录决策相关缺口。\n" : "- No decision-relevant gaps recorded.\n";
+  return gaps
+    .map(
+      (gap) =>
+        `- ${reviewEnumLabel(gap.state, zh)} / ${reviewEnumLabel(gap.recommended_follow_up, zh)}: ${reviewLiteralText(gap.summary)}\n${renderReviewRefs(
+          zh ? "依据材料" : "Basis refs",
+          strings(gap.basis_refs),
+          zh,
+        )}`,
+    )
+    .join("");
+}
+
+function renderDiscoveryReviewSearchClosure(review: Record<string, unknown>, zh: boolean): string {
+  const closure = isRecord(review.search_closure) ? review.search_closure : {};
+  return [
+    `- ${zh ? "终态" : "Status"}: ${reviewEnumLabel(closure.status, zh)}\n`,
+    `- ${zh ? "路线" : "Routes"}: ${strings(closure.acquisition_routes_attempted)
+      .map((route) => reviewLiteralText(route))
+      .join(", ")}\n`,
+    renderReviewRefs(
+      zh ? "采用来源" : "Adopted source refs",
+      strings(closure.adopted_source_refs),
+      zh,
+    ),
+    `- ${zh ? "未解决缺口" : "Unresolved gaps"}: ${
+      strings(closure.unresolved_gaps).length === 0
+        ? zh
+          ? "无"
+          : "None"
+        : strings(closure.unresolved_gaps)
+            .map((gap) => reviewLiteralText(gap))
+            .join("; ")
+    }\n`,
+    `- ${zh ? "停止原因" : "Stop reason"}: ${reviewLiteralText(closure.stop_reason)}\n`,
+  ].join("");
+}
+
+function renderDiscoveryReviewSummaries(source: Record<string, unknown>, zh: boolean): string {
+  const summaries = records(source.discovery_review_summaries);
+  if (summaries.length === 0) {
+    return zh
+      ? "- 未发布发现阶段对抗性复核结果。\n"
+      : "- No Discovery adversarial review result was published.\n";
+  }
+  return summaries
+    .map((review) =>
+      [
+        `### ${reviewLiteralText(review.review_result_id)}\n\n`,
+        `- ${zh ? "复核引用" : "Review ref"}: ${userVisibleText(review.review_ref, zh)}\n`,
+        `- ${zh ? "负责人角色" : "Owner role"}: ${reviewEnumLabel(review.owner_role, zh)}\n`,
+        `- ${zh ? "结果状态" : "Result status"}: ${reviewEnumLabel(review.status, zh)}\n`,
+        `- ${zh ? "任务引用" : "Task ref"}: ${userVisibleText(review.task_ref, zh)}\n`,
+        `- ${zh ? "执行引用" : "Execution ref"}: ${userVisibleText(review.execution_plan_ref, zh)}\n`,
+        `- ${zh ? "分派引用" : "Dispatch ref"}: ${userVisibleText(review.dispatch_batch_ref, zh)}\n`,
+        `- ${zh ? "问题引用" : "Question refs"}: ${strings(review.reviewed_plan_question_refs)
+          .map((ref) => userVisibleText(ref, zh))
+          .join(", ")}\n`,
+        `- ${zh ? "要求立场" : "Required stances"}: ${reviewEnumList(strings(review.required_stances), zh)}\n`,
+        `- ${zh ? "边界" : "Boundary"}: ${
+          zh
+            ? "仅引用；不作为 Gate、排序、淘汰或信心上限依据。"
+            : "reference-only; not a Gate, ranking, elimination, or confidence-ceiling authority."
+        }\n`,
+        `\n${zh ? "发现" : "Findings"}:\n`,
+        renderDiscoveryReviewFindings(review, zh),
+        `\n${zh ? "可见材料" : "Visible material"}:\n`,
+        renderDiscoveryReviewMaterialVisibility(review, zh),
+        `\n${zh ? "决策相关缺口" : "Decision-relevant gaps"}:\n`,
+        renderDiscoveryReviewGaps(review, zh),
+        `\n${zh ? "搜索闭合" : "Search Closure"}:\n`,
+        renderDiscoveryReviewSearchClosure(review, zh),
+      ].join(""),
+    )
+    .join("\n");
+}
 
 const ZH_STRUCTURED_DIAGNOSTIC_RULES = [
   /\b(?:artifacts|claims|evidence|findings|harness|insights|judgments|plans|runs|tasks)\/[A-Za-z0-9_./:#-]+/u,
   /\b(?:artifact|commercial_research|contract|report|run|terminal_reporting)\.[a-z0-9_.-]+\b/u,
 ] as const;
 
-function terminalLocalizedProse(source: Record<string, unknown>): readonly string[] {
-  return [
-    ...records(source.commercial_uncertainties).flatMap((entry) =>
-      ["statement", "starting_point", "reasoning", "uncertainty", "validation_needed"].flatMap(
-        (field) => (typeof entry[field] === "string" ? [String(entry[field])] : []),
-      ),
-    ),
-    ...records(source.sources).flatMap((entry) => {
-      const inference = isRecord(entry.inference) ? entry.inference : {};
-      return [
-        ...(typeof entry.claim === "string" ? [entry.claim] : []),
-        ...["starting_point", "reasoning", "uncertainty", "validation_needed"].flatMap((field) =>
-          typeof inference[field] === "string" ? [String(inference[field])] : [],
-        ),
-      ];
-    }),
-  ];
+function renderedHarnessDiagnosticText(source: Record<string, unknown>): string {
+  return records(source.gate_warnings)
+    .flatMap((warning) => [warning.message, warning.decision_impact])
+    .filter((value): value is string => typeof value === "string")
+    .join("\n");
 }
 
 export function localizedTerminalUserViewIssues(
@@ -654,26 +983,11 @@ export function localizedTerminalUserViewIssues(
   markdown: string,
 ): readonly string[] {
   if (!isChinese(source.research_language)) return [];
-  let visible = markdown;
-  for (const item of records(source.sources)) {
-    for (const allowed of [item.title, item.url]) {
-      if (typeof allowed === "string") visible = visible.replaceAll(allowed, "");
-    }
-  }
-  for (const item of records(source.report_citations)) {
-    for (const allowed of [item.label, item.url]) {
-      if (typeof allowed === "string") visible = visible.replaceAll(allowed, "");
-    }
-  }
-  const prose = terminalLocalizedProse(source).join("\n");
-  return [
-    ...ZH_STRUCTURED_DIAGNOSTIC_RULES.flatMap((rule, index) =>
-      rule.test(prose) ? [`localized_structured_diagnostic_${index + 1}`] : [],
-    ),
-    ...ZH_INTERNAL_TERM_RULES.flatMap((rule, index) =>
-      rule.test(visible) ? [`localized_internal_term_${index + 1}`] : [],
-    ),
-  ];
+  void markdown;
+  const visible = renderedHarnessDiagnosticText(source);
+  return ZH_STRUCTURED_DIAGNOSTIC_RULES.flatMap((rule, index) =>
+    rule.test(visible) ? [`localized_structured_diagnostic_${index + 1}`] : [],
+  );
 }
 
 export interface DerivedTerminalReportDocument {

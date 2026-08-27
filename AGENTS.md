@@ -36,6 +36,7 @@
 
 ## Development
 
+- Do not use keywords, substrings, regular-expression hits, token counts, or other lexical matching over free-form prose as authority for research semantics, Artifact classification, Evidence disposition, workflow selection, state transitions, Gate outcomes, ranking, confidence, recommendation ceilings, publication eligibility, report omission, or any other domain behavior. Represent and validate those meanings through owning structured fields, enums, typed refs/hashes, provenance, and current contracts. Lexical checks are allowed only when the property being checked is itself explicitly lexical (for example, schema syntax, path shape, secret detection, or a contract-defined user-visible literal boundary); they must remain non-semantic, scope- and position-aware, avoid converting incidental wording into domain truth, and include positive and negative regressions for legitimate literal occurrences. Code review must reject prose-keyword-driven behavior unless the owning contract explicitly establishes such a lexical boundary.
 - Use Node.js `24.18.x` and npm `11.16.x`; install exactly from `package-lock.json` with `npm ci`.
 - Run `npm run lint`, `npm run typecheck`, `npm test`, `npm run validate:schemas`, `npm run validate:current-contract`, `npm run validate:fixtures`, and `npm run verify:skeleton` for repository/toolchain/schema changes.
 - Add production behavior only in the domain module that owns it. A directory, empty schema, mock-only path, or deferred-command entry is not evidence that downstream behavior is implemented.

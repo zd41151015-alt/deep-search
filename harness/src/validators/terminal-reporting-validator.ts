@@ -3,6 +3,7 @@ import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical
 import {
   commercialProjectionRefs,
   deriveReportStatistics,
+  isCommercialAuditRelevantTask,
 } from "../reporting/commercial-report-tables.js";
 import {
   canonicalizeReadableSources,
@@ -15,6 +16,7 @@ import {
   deriveTerminalReportSubjectAuthorities,
 } from "../reporting/report-projection-authority.js";
 import {
+  deriveDiscoveryReviewSummaries,
   deriveTerminalReportDocuments,
   localizedTerminalUserViewIssues,
   terminalReportDocumentsEqual,
@@ -80,7 +82,66 @@ function referencedAuditRefs(source: Record<string, unknown>): readonly string[]
     ...records(execution.required_followups).flatMap((entry) => strings(entry.related_refs)),
     ...strings(execution.pending_operation_refs),
     ...records(runtime.issues).flatMap((entry) => strings(entry.related_refs)),
+    ...records(source.discovery_review_summaries).flatMap(discoveryReviewSummaryRefs),
   ];
+}
+
+const DISCOVERY_REVIEW_SUMMARY_MATERIAL_REF_FIELDS = [
+  "supporting_refs",
+  "opposing_refs",
+  "background_refs",
+  "contradictory_refs",
+  "unknown_refs",
+] as const;
+
+function discoveryReviewSummaryRefs(summary: Record<string, unknown>): readonly string[] {
+  const materialVisibility = isRecord(summary.material_visibility)
+    ? summary.material_visibility
+    : {};
+  const searchClosure = isRecord(summary.search_closure) ? summary.search_closure : {};
+  return [
+    ...[
+      summary.review_ref,
+      summary.owned_output_path,
+      summary.task_ref,
+      summary.dispatch_batch_ref,
+      summary.execution_plan_ref,
+      summary.scope_frame_ref,
+      summary.research_plan_ref,
+    ].flatMap((ref) => (typeof ref === "string" ? [ref] : [])),
+    ...strings(summary.reviewed_plan_question_refs),
+    ...records(summary.review_findings).flatMap((finding) => [
+      ...strings(finding.reviewed_plan_question_refs),
+      ...DISCOVERY_REVIEW_SUMMARY_MATERIAL_REF_FIELDS.flatMap((field) => strings(finding[field])),
+    ]),
+    ...DISCOVERY_REVIEW_SUMMARY_MATERIAL_REF_FIELDS.flatMap((field) =>
+      strings(materialVisibility[field]),
+    ),
+    ...records(summary.decision_relevant_gaps).flatMap((gap) => strings(gap.basis_refs)),
+    ...strings(searchClosure.adopted_source_refs),
+  ];
+}
+
+function discoveryReviewSummaries(
+  documents: readonly TerminalReportingDocument[],
+): readonly Record<string, unknown>[] {
+  return deriveDiscoveryReviewSummaries(
+    documents.flatMap((entry) => {
+      if (entry.schemaVersion !== "startup_opportunity.discovery_adversarial_review.current") {
+        return [];
+      }
+      return [
+        {
+          path: entry.path,
+          contentHash:
+            typeof entry.envelope?.content_hash === "string"
+              ? entry.envelope.content_hash
+              : canonicalContentHash(entry.document),
+          document: entry.document,
+        },
+      ];
+    }),
+  );
 }
 
 function validateSource(
@@ -121,6 +182,7 @@ function validateSource(
       source,
       envelopesByPath,
     );
+    const expectedDiscoveryReviewSummaries = discoveryReviewSummaries(documents);
     for (const [field, actual, expected] of [
       ["research_language", source.research_language, expectedLanguage],
       ["report_subject_labels", source.report_subject_labels, expectedSubjectLabels],
@@ -145,6 +207,21 @@ function validateSource(
           ),
         );
       }
+    }
+    if (
+      (source.discovery_review_summaries !== undefined ||
+        expectedDiscoveryReviewSummaries.length > 0) &&
+      canonicalJson(records(source.discovery_review_summaries)) !==
+        canonicalJson(expectedDiscoveryReviewSummaries)
+    ) {
+      errors.push(
+        issue(
+          "terminal_reporting.mechanical_projection_mismatch",
+          `${entry.path}#/discovery_review_summaries`,
+          "terminal Discovery review summaries must be mechanically derived from exact current-Run review authorities",
+          { field: "discovery_review_summaries", expected: expectedDiscoveryReviewSummaries },
+        ),
+      );
     }
   } catch (error) {
     errors.push(
@@ -471,16 +548,31 @@ function validateSource(
       candidate.schemaVersion === "startup_opportunity.commercial_research_audit.current",
   );
   const reportAuditRefs = new Set(strings(source.commercial_research_audit_refs));
+  const auditAppendixRefs = sourceAuditRefs(source);
   const omittedAudits = allAudits
     .map((audit) => audit.path)
     .filter((ref) => !reportAuditRefs.has(ref));
+  const omittedDiscoveryReviews = documents
+    .filter(
+      (candidate) =>
+        candidate.schemaVersion === "startup_opportunity.discovery_adversarial_review.current",
+    )
+    .map((review) => review.path)
+    .filter((ref) => !auditAppendixRefs.has(ref));
   const taskAuditPaths = documents
     .filter((candidate) =>
       [
         "startup_opportunity.research_task.assessment.current",
         "startup_opportunity.research_task.discovery_candidate.current",
         "startup_opportunity.research_task.discovery_evaluation.current",
+        "startup_opportunity.research_task.discovery_review.current",
       ].includes(candidate.schemaVersion),
+    )
+    .filter((candidate) =>
+      isCommercialAuditRelevantTask({
+        path: candidate.path,
+        document: candidate.document,
+      }),
     )
     .flatMap((task) => {
       const requirements = isRecord(task.document.commercial_research_requirements)
@@ -522,6 +614,7 @@ function validateSource(
             "startup_opportunity.research_task.assessment.current",
             "startup_opportunity.research_task.discovery_candidate.current",
             "startup_opportunity.research_task.discovery_evaluation.current",
+            "startup_opportunity.research_task.discovery_review.current",
           ].includes(candidate.schemaVersion),
         )
         .map((task) => [String(task.document.unit_id), task]),
@@ -534,9 +627,14 @@ function validateSource(
       for (const lane of records(stage.lanes)) {
         const unitId = String(lane.unit_id ?? "");
         const auditPath = `artifacts/research-audits/${unitId}.json`;
-        plannedLaneAuditPaths.push(auditPath);
         const audit = allAudits.find((candidate) => candidate.path === auditPath);
         const task = tasksByUnit.get(unitId);
+        const requiresCommercialAudit =
+          String(lane.submission_schema ?? "") !==
+          "startup_opportunity.discovery_adversarial_review.current";
+        if (requiresCommercialAudit) {
+          plannedLaneAuditPaths.push(auditPath);
+        }
         const auditExecution =
           audit === undefined || typeof audit.document.execution_plan_ref !== "string"
             ? undefined
@@ -617,6 +715,16 @@ function validateSource(
         `${entry.path}#/commercial_research_audit_refs`,
         "final reporting requires a Search Closure for every planned lane and must include every validated commercial audit",
         { omittedAudits: omittedAudits.sort(), missingClosures },
+      ),
+    );
+  }
+  if (omittedDiscoveryReviews.length > 0) {
+    errors.push(
+      issue(
+        "terminal_reporting.audit_closure_missing",
+        `${entry.path}#/audit_refs`,
+        "terminal reporting must retain Discovery adversarial review results in the audit appendix as reference-only material",
+        { omittedDiscoveryReviews: omittedDiscoveryReviews.sort() },
       ),
     );
   }

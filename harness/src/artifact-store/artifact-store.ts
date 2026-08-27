@@ -87,6 +87,15 @@ export interface ArtifactPublicationRecord {
   readonly publicationCommitHash: string;
 }
 
+export interface ArtifactPublicationLedgerEntry {
+  readonly publicationOrdinal: number;
+  readonly publicationCommitHash: string;
+  readonly artifactPath: string;
+  readonly artifactType: string;
+  readonly contentHash: string;
+  readonly envelope: FormalArtifactEnvelope;
+}
+
 interface ArtifactBundleOperationReceipt {
   readonly schema_version: "startup_opportunity.artifact_bundle_operation.current";
   readonly operation_key: string;
@@ -1639,14 +1648,50 @@ export class ArtifactStore {
     runId: string,
   ): Promise<ReadonlyMap<string, ArtifactPublicationRecord>> {
     const records = new Map<string, ArtifactPublicationRecord>();
-    for (const commit of await this.publicationCommitsLocked(runRoot, runId)) {
-      records.set(commit.artifact_path, {
-        publicationOrdinal: commit.publication_ordinal,
-        contentHash: commit.content_hash,
-        publicationCommitHash: commit.publication_commit_hash,
+    for (const entry of await this.publicationLedgerLocked(runRoot, runId)) {
+      records.set(entry.artifactPath, {
+        publicationOrdinal: entry.publicationOrdinal,
+        contentHash: entry.contentHash,
+        publicationCommitHash: entry.publicationCommitHash,
       });
     }
     return new Map([...records.entries()].sort(([left], [right]) => left.localeCompare(right)));
+  }
+
+  async publicationLedgerLocked(
+    runRoot: string,
+    runId: string,
+  ): Promise<readonly ArtifactPublicationLedgerEntry[]> {
+    const receipts = await this.artifactOperationReceiptsLocked(runRoot, runId);
+    const receiptsByOperation = new Map(
+      receipts.map((receipt) => [receipt.operation_key, receipt]),
+    );
+    return (await this.publicationCommitsLocked(runRoot, runId)).map((commit) => {
+      const receipt = receiptsByOperation.get(commit.operation_key);
+      if (
+        receipt === undefined ||
+        receipt.artifact_path !== commit.artifact_path ||
+        receipt.artifact_type !== commit.artifact_type ||
+        receipt.content_hash !== commit.content_hash
+      ) {
+        throw new StoreError(
+          "recovery.publication_chain_invalid",
+          "Artifact publication commit must resolve its exact immutable operation receipt",
+          {
+            publicationOrdinal: commit.publication_ordinal,
+            artifactPath: commit.artifact_path,
+          },
+        );
+      }
+      return {
+        publicationOrdinal: commit.publication_ordinal,
+        publicationCommitHash: commit.publication_commit_hash,
+        artifactPath: commit.artifact_path,
+        artifactType: commit.artifact_type,
+        contentHash: commit.content_hash,
+        envelope: receipt.envelope,
+      };
+    });
   }
 
   async listFormalDocuments(runRoot: string): Promise<readonly DocumentBundleEntry[]> {

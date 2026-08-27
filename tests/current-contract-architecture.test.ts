@@ -548,6 +548,10 @@ test("Scope reconciliation modules select their exact contract families", async 
       expectedFamilies: ["assessment_research", "discovery_research", "run_control_planning"],
     },
     {
+      modulePath: "harness/src/runtime/discovery-wave-contracts.ts",
+      expectedFamilies: ["declarative_runtime", "discovery_research", "run_control_planning"],
+    },
+    {
       modulePath: "harness/src/run-store/scope-write-guard.ts",
       expectedFamilies: ALL_CONTRACT_FAMILIES,
     },
@@ -566,7 +570,11 @@ test("Scope reconciliation modules select their exact contract families", async 
 });
 
 test("public command and export surfaces retain every contract family", async () => {
-  for (const modulePath of ["harness/src/commands.ts", "harness/src/index.ts"]) {
+  for (const modulePath of [
+    "harness/src/cli.ts",
+    "harness/src/commands.ts",
+    "harness/src/index.ts",
+  ]) {
     const result = await inspectSyntheticModuleImpact(modulePath);
     assert.deepEqual(
       result.affectedFamilies.map((family) => family.id),

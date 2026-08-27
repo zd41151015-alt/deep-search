@@ -5,6 +5,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  ArtifactStore,
   canonicalContentHash,
   createArtifactValidator,
   DispatchLaunchRegistry,
@@ -12,10 +13,13 @@ import {
   deriveSolutionExplorationObservations,
   EvidenceStore,
   type FormalArtifactEnvelope,
+  ReportRuntime,
   RunStore,
   StoreError,
   validateDecisionSubjectContract,
 } from "../harness/src/index.js";
+import { completePreparedTerminalReportLocked } from "../harness/src/reporting/report-runtime.js";
+import { renderTerminalAuditAppendix } from "../harness/src/reporting/terminal-reporting.js";
 import {
   type CandidateFanInAuthority,
   type DiscoveryObjectDeclaration,
@@ -27,6 +31,7 @@ import {
   projectFanInLaneClassification,
 } from "../harness/src/runtime/discovery-stage-projections.js";
 import {
+  createDiscoveryMapsFixture,
   fixtureEnvelope,
   G21_CORE_REFS,
   G21_MAP_REFS,
@@ -363,6 +368,7 @@ function revisionEnvelope(
   document: Record<string, unknown>,
   inputRefs: readonly string[],
   createdAt: string,
+  producerRole = "main_agent",
 ): FormalArtifactEnvelope {
   return {
     schema_version: "startup_opportunity.artifact_envelope.current",
@@ -370,7 +376,7 @@ function revisionEnvelope(
     artifact_path: artifactPath,
     run_id: runId,
     created_at: createdAt,
-    producer_role: "main_agent",
+    producer_role: producerRole,
     input_refs: [...new Set(inputRefs)].sort(),
     content_hash: canonicalContentHash(document),
     document,
@@ -953,6 +959,72 @@ async function publishThroughFanIn(state: State): Promise<void> {
   });
 }
 
+function noIncumbentResponseAssignment(): Record<string, unknown> {
+  return {
+    analysis_depth: "not_assigned",
+    assignment_role: "none",
+    subject_refs: [],
+    rationale: "SYNTHETIC review-only lane does not own incumbent response analysis.",
+  };
+}
+
+function reviewCommercialRequirements(unitId: string): Record<string, unknown> {
+  return {
+    research_stage: "solution_neutral_scan",
+    resource_allocation: {
+      customer_commercial_percent: 65,
+      market_structure_percent: 17,
+      academic_percent: 18,
+    },
+    planned_queries: [
+      {
+        query: "SYNTHETIC structured adversarial review desk scan.",
+        commercial_dimensions: ["counterevidence"],
+      },
+    ],
+    quantitative_competitive_scope: {
+      scan_mode: "broad_scan",
+      required_metric_families: ["competitive_intensity"],
+      required_competitor_types: ["status_quo"],
+      api_is_optional: true,
+      provider_allowlist_enforced: false,
+      acquisition_execution_owner: "research_agent_or_caller",
+      harness_hidden_network_calls: false,
+      prohibited_access_methods: [
+        "bypass_access_control",
+        "circumvent_login",
+        "circumvent_paywall",
+        "circumvent_captcha",
+        "store_credentials",
+      ],
+    },
+    incumbent_response_assignment: noIncumbentResponseAssignment(),
+    required_commercial_dimensions: ["independent_counterevidence"],
+    commercial_audit_output_path: `artifacts/research-audits/${unitId}.json`,
+  };
+}
+
+function reviewExecutionContract(): Record<string, unknown> {
+  return {
+    formal_artifacts_explicit: true,
+    harness_generated_research: false,
+    harness_generated_judgment: false,
+    agent_dispatch: false,
+    hidden_llm_calls: false,
+    network_research: false,
+    external_validation: false,
+    publication_implies_validation: false,
+  };
+}
+
+function reviewStragglerPolicy(): Record<string, unknown> {
+  return {
+    on_timeout: "publish_partial",
+    grace_minutes: 2,
+    blocks_stage: true,
+  };
+}
+
 test("G2.3 validates a closed conversion, formal thesis, freeze, and semantic merge bundle", async (context) => {
   const state = await setup(context, "contract");
   const validator = await createArtifactValidator(repositoryRoot);
@@ -1189,6 +1261,543 @@ test("G2.3 projects provisional Opportunity solution posture through synthesis a
     ["decision_subject.direction_body_mismatch"],
   );
   assert.deepEqual(await treeSnapshot(state.runRoot), terminalDriftBefore);
+});
+
+test("G2.3 terminal closeout renders Discovery adversarial review as reference-only audit material", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g2-3-review-terminal-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runId = "g2-3-review-terminal-synthetic";
+  const runRoot = path.join(runsRoot, runId);
+  const validator = await createArtifactValidator(repositoryRoot);
+  const store = new RunStore(runsRoot, validator);
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-08-10T12:00:00Z",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic discovery review user"],
+      decisionGoal: "test terminal review visibility",
+      researchLanguage: "en-US",
+    },
+  });
+  const bundle = await createDiscoveryMapsFixture("general", runId);
+  const unitId = "unit_terminal_discovery_review";
+  const taskId = "task_terminal_discovery_review";
+  const stageId = "stage_terminal_discovery_review";
+  const dispatchGroup = "dispatch_terminal_discovery_review";
+  const executionPath = "plans/research-execution.r1.json";
+  const dispatchPath = "tasks/dispatch/terminal-discovery-review.r1.json";
+  const taskPath = `tasks/discovery/reviews/${unitId}.attempt-1.json`;
+  const reviewPath = "artifacts/reviews/terminal-discovery-adversarial-review.json";
+  const snapshotPath = "artifacts/reporting/decision-subject-snapshot.r1.json";
+  const terminalPath = "artifacts/reporting/terminal-report-source.r1.json";
+  const questionRefs = [`${G21_PLAN_REF}#question_demand`, `${G21_PLAN_REF}#question_workflow`];
+  const researchGoal =
+    "SYNTHETIC review every assigned Plan question from support and opposition stances.";
+  const plan = effective(bundle, G21_PLAN_REF);
+  plan.waves = [
+    {
+      wave_id: "wave_terminal_discovery_review",
+      depends_on: [],
+      units: [
+        {
+          unit_id: unitId,
+          unit_type: "adversarial_review",
+          plan_disposition: "enabled",
+          priority_band: "normal",
+          attempt: 1,
+          supersedes_unit_ref: null,
+          research_goal: researchGoal,
+          input_refs: [G21_SCOPE_REF],
+          agent_role: "adversarial-reviewer",
+          output_path: reviewPath,
+          required_artifact_schema: "startup_opportunity.discovery_adversarial_review.current",
+          source_preferences: ["SYNTHETIC use structured review material refs only."],
+          required_outputs: ["SYNTHETIC support and oppose coverage per assigned question."],
+          stop_conditions: ["SYNTHETIC stop after assigned question and stance closure."],
+        },
+      ],
+    },
+  ];
+  refresh(bundle, G21_PLAN_REF);
+  await publishInitialPlanBundle(
+    store,
+    runId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  );
+
+  const planHash = canonicalContentHash(plan);
+  const lane = {
+    unit_id: unitId,
+    lane_role: "review",
+    candidate_scope: { kind: "none", candidate_refs: [] },
+    incumbent_response_assignment: noIncumbentResponseAssignment(),
+    reporting_dimensions: ["adversarial_review"],
+    assigned_plan_question_refs: questionRefs,
+    submission_path: reviewPath,
+    submission_schema: "startup_opportunity.discovery_adversarial_review.current",
+    time_budget_minutes: 10,
+    max_sources: 5,
+    straggler_policy: reviewStragglerPolicy(),
+    dispatch_group: dispatchGroup,
+  };
+  const executionDocument = {
+    schema_version: "startup_opportunity.research_execution_plan.discovery.current",
+    execution_plan_id: "execution_terminal_discovery_review",
+    run_id: runId,
+    mode: "opportunity_discovery",
+    revision: 1,
+    parent_execution_plan_ref: null,
+    research_plan_ref: G21_PLAN_REF,
+    research_plan_hash: planHash,
+    created_at: "2026-08-10T12:01:00Z",
+    research_depth: "quick",
+    total_time_budget_minutes: 10,
+    resource_allocation: {
+      customer_commercial_percent: 65,
+      market_structure_percent: 17,
+      academic_percent: 18,
+    },
+    stages: [
+      {
+        stage_id: stageId,
+        stage_kind: "review",
+        depends_on: [],
+        gate_before: null,
+        gate_after: "required",
+        lanes: [lane],
+      },
+    ],
+    limitations: ["SYNTHETIC execution overlay; no hidden research was performed."],
+  };
+  const dispatchTask = {
+    task_id: taskId,
+    unit_id: unitId,
+    lane_role: "review",
+    incumbent_response_assignment: noIncumbentResponseAssignment(),
+    research_goal: researchGoal,
+    input_refs: [G21_SCOPE_REF],
+    assigned_plan_question_refs: questionRefs,
+    allowed_output_path: reviewPath,
+    required_artifact_schema: "startup_opportunity.discovery_adversarial_review.current",
+    time_budget_minutes: 10,
+    max_sources: 5,
+    straggler_policy: reviewStragglerPolicy(),
+  };
+  const dispatchDocument = {
+    schema_version: "startup_opportunity.dispatch_batch.discovery.current",
+    batch_id: "dispatch_terminal_discovery_review",
+    revision: 1,
+    run_id: runId,
+    mode: "opportunity_discovery",
+    execution_plan_ref: executionPath,
+    research_plan_ref: G21_PLAN_REF,
+    stage_id: stageId,
+    dispatch_group: dispatchGroup,
+    task_ready_at: "2026-08-10T12:01:30Z",
+    dispatch_requested_at: "2026-08-10T12:02:00Z",
+    dispatch_mode: "parallel_immediate",
+    tasks: [dispatchTask],
+    agent_dispatch_performed: false,
+    launch_registration_required: true,
+    limitations: ["SYNTHETIC dispatch contract; no external agent was launched."],
+  };
+  const taskDocument = {
+    schema_version: "startup_opportunity.research_task.discovery_review.current",
+    task_id: taskId,
+    run_id: runId,
+    unit_id: unitId,
+    mode: "opportunity_discovery",
+    phase: "review",
+    wave_id: "wave_terminal_discovery_review",
+    unit_type: "adversarial_review",
+    research_goal: researchGoal,
+    commercial_research_requirements: reviewCommercialRequirements(unitId),
+    scope_frame_ref: G21_SCOPE_REF,
+    research_plan_ref: G21_PLAN_REF,
+    input_refs: [G21_SCOPE_REF],
+    attempt: 1,
+    supersedes_task_ref: null,
+    agent_role: "adversarial-reviewer",
+    source_phase: "adversarial_challenger",
+    required_source_group_ids: ["source_group_terminal_discovery_review"],
+    assigned_plan_question_refs: questionRefs,
+    allowed_output_path: reviewPath,
+    required_artifact_schema: "startup_opportunity.discovery_adversarial_review.current",
+    required_stances: ["support", "oppose"],
+    stop_conditions: ["SYNTHETIC stop after structured support and oppose closure."],
+    completion_message_contract: {
+      formal_artifact_authority: false,
+      include_artifact_path: true,
+      include_limitations: true,
+    },
+    execution_contract: reviewExecutionContract(),
+    dispatched_at: "2026-08-10T12:02:00Z",
+  };
+  const executionEnvelope = revisionEnvelope(
+    runId,
+    executionPath,
+    executionDocument,
+    [G21_PLAN_REF],
+    "2026-08-10T12:01:00Z",
+  );
+  const dispatchEnvelope = revisionEnvelope(
+    runId,
+    dispatchPath,
+    dispatchDocument,
+    [G21_PLAN_REF, executionPath],
+    "2026-08-10T12:02:00Z",
+    "harness",
+  );
+  const taskEnvelope = revisionEnvelope(
+    runId,
+    taskPath,
+    taskDocument,
+    [G21_SCOPE_REF, G21_PLAN_REF, executionPath, `${dispatchPath}#${taskId}`],
+    "2026-08-10T12:02:30Z",
+  );
+  const literalReviewProse = "Schema.org Evidence Based Design Vendor Baseline Pro Manifest";
+  const literalGapProse =
+    "Schema.org gap summary keeps Evidence Based Design and Vendor Baseline Pro wording.";
+  const literalUnresolvedGapProse =
+    "Manifest unresolved gap should preserve Schema.org and Evidence Based Design wording.";
+  const literalStopReason =
+    "Stop after checking Vendor Baseline Pro and Schema.org material without keyword rewrites.";
+  const reviewDocument = {
+    schema_version: "startup_opportunity.discovery_adversarial_review.current",
+    review_result_id: "review_terminal_discovery_visibility",
+    run_id: runId,
+    unit_id: unitId,
+    attempt: 1,
+    owner_role: "adversarial-reviewer",
+    owned_output_path: reviewPath,
+    task_ref: taskPath,
+    task_hash: taskEnvelope.content_hash,
+    dispatch_batch_ref: `${dispatchPath}#${taskId}`,
+    dispatch_batch_hash: dispatchEnvelope.content_hash,
+    execution_plan_ref: executionPath,
+    execution_plan_hash: executionEnvelope.content_hash,
+    scope_frame_ref: G21_SCOPE_REF,
+    research_plan_ref: G21_PLAN_REF,
+    research_plan_hash: planHash,
+    status: "partial",
+    review_subject: {
+      subject_kind: "plan_level_discovery",
+      target_candidate_refs: [],
+      target_opportunity_refs: [],
+      reviewed_plan_question_refs: questionRefs,
+    },
+    required_stances: ["support", "oppose"],
+    review_findings: questionRefs.flatMap((questionRef, index) => [
+      {
+        finding_id: `finding_support_${index + 1}`,
+        stance: "support",
+        reviewed_plan_question_refs: [questionRef],
+        evidence_state: "unknown",
+        summary:
+          index === 0
+            ? literalReviewProse
+            : "SYNTHETIC support-side review found only unknown material.",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: ["SYNTHETIC no real source was claimed."],
+      },
+      {
+        finding_id: `finding_oppose_${index + 1}`,
+        stance: "oppose",
+        reviewed_plan_question_refs: [questionRef],
+        evidence_state: "no_evidence_found",
+        summary: "SYNTHETIC oppose-side review did not find decisive material.",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: ["SYNTHETIC no positive Evidence is required for review completion."],
+      },
+    ]),
+    material_visibility: {
+      supporting_refs: [],
+      opposing_refs: [],
+      background_refs: [],
+      contradictory_refs: [],
+      unknown_refs: [],
+    },
+    decision_relevant_gaps: [
+      {
+        gap_id: "gap_terminal_discovery_review_unknown",
+        state: "unknown",
+        summary: literalGapProse,
+        basis_refs: [],
+        requires_plan_adaptation: false,
+        recommended_follow_up: "manual_review",
+        limitations: ["SYNTHETIC honest weak result remains visible."],
+      },
+    ],
+    search_closure: {
+      status: "partial",
+      acquisition_routes_attempted: ["desk_review"],
+      adopted_source_refs: [],
+      unresolved_gaps: [literalUnresolvedGapProse],
+      stop_reason: literalStopReason,
+    },
+    authority_boundary: {
+      reference_only: true,
+      not_gate: true,
+      not_ranking: true,
+      not_elimination: true,
+      not_confidence_ceiling: true,
+      mutates_current_plan: false,
+      rewrites_report: false,
+    },
+    valid_as_of: "2026-08-10",
+    limitations: ["SYNTHETIC Discovery review result; not a decision authority."],
+  };
+  const reviewEnvelope = revisionEnvelope(
+    runId,
+    reviewPath,
+    reviewDocument,
+    [taskPath, `${dispatchPath}#${taskId}`, executionPath, G21_SCOPE_REF, G21_PLAN_REF],
+    "2026-08-10T12:03:00Z",
+    "adversarial_reviewer",
+  );
+  for (const envelope of [executionEnvelope, dispatchEnvelope, taskEnvelope, reviewEnvelope]) {
+    const validation = validator.validateDocument(envelope, envelope.artifact_path);
+    assert.equal(
+      validation.valid,
+      true,
+      `${envelope.artifact_path}: ${JSON.stringify(validation.errors, null, 2)}`,
+    );
+  }
+  await store.publishArtifactBundle({
+    runId,
+    envelopes: [executionEnvelope, dispatchEnvelope, taskEnvelope],
+  });
+  await store.publishArtifact({
+    runId,
+    envelope: reviewEnvelope,
+  });
+
+  const scope = effective(bundle, G21_SCOPE_REF);
+  const snapshotDocument = {
+    schema_version: "startup_opportunity.decision_subject_snapshot.current",
+    snapshot_id: "decision_subjects_terminal_discovery_review",
+    revision: 1,
+    parent_snapshot_ref: null,
+    parent_snapshot_hash: null,
+    run_id: runId,
+    mode: "opportunity_discovery",
+    scope_frame_ref: G21_SCOPE_REF,
+    scope_frame_hash: canonicalContentHash(scope),
+    research_plan_ref: G21_PLAN_REF,
+    research_plan_hash: planHash,
+    synthesis_input_hashes: [],
+    created_at: "2026-08-10T12:04:00Z",
+    subjects: [],
+    limitations: ["SYNTHETIC no final Opportunity subject was formed."],
+  };
+  const snapshotEnvelope = revisionEnvelope(
+    runId,
+    snapshotPath,
+    snapshotDocument,
+    [G21_SCOPE_REF, G21_PLAN_REF],
+    "2026-08-10T12:04:00Z",
+  );
+  await store.publishArtifact({ runId, envelope: snapshotEnvelope });
+
+  const terminalDocument = {
+    schema_version: "startup_opportunity.terminal_report_source.v1",
+    report_id: "terminal_discovery_review_visibility",
+    run_id: runId,
+    mode: "opportunity_discovery",
+    research_language: "en-US",
+    producer_role: "main_agent",
+    owned_output_path: terminalPath,
+    materialized_path: "report.json",
+    generated_at: "2026-08-10T12:05:00Z",
+    decision_subject_snapshot_ref: snapshotPath,
+    decision_subject_snapshot_hash: snapshotEnvelope.content_hash,
+    decision_subject_synthesis_hashes: [],
+    current_decision_subject_ids: [],
+    terminal_outcome: "completed",
+    decision_question: "SYNTHETIC terminal Discovery review visibility.",
+    execution: {
+      completeness: "complete",
+      completed_stages: ["review"],
+      incomplete_stages: [],
+      required_followups: [],
+      pending_operation_refs: [],
+    },
+    research_conclusion: {
+      outcome: "no_recommendation",
+      current_recommendation: "SYNTHETIC no recommendation is made from a reference-only review.",
+      meaning: "SYNTHETIC Discovery review material is visible but not a decision authority.",
+      evidence_strength: "insufficient",
+      allowed_claim: "SYNTHETIC terminal report includes the review in audit provenance only.",
+    },
+    runtime_health: { status: "healthy", issues: [] },
+    directions: [],
+    sources: [],
+    excluded_evidence: [],
+    commercial_research_audit_refs: [],
+    commercial_uncertainties: [],
+    quantitative_signal_rows: [],
+    competitive_substitute_rows: [],
+    incumbent_response_risk_rows: [],
+    research_coverage_gaps: [],
+    commercial_subject_aggregates: [],
+    commercial_background_material: [],
+    commercial_research_status: {
+      state: "not_planned",
+      planned_task_refs: [],
+      missing_task_refs: [],
+      submitted_audit_refs: [],
+    },
+    gate_warnings: [],
+    ordered_validation_plan: [],
+    freshness: {
+      earliest_valid_as_of: null,
+      latest_valid_as_of: null,
+      summary: "SYNTHETIC terminal review visibility fixture has no market freshness claim.",
+    },
+    limitations: ["SYNTHETIC terminal source; not market Evidence."],
+    external_action_boundary: {
+      execution_owner: "user",
+      execution_supported: false,
+      result_tracking_supported: false,
+      external_validation_claimed: false,
+    },
+    audit_refs: [],
+  };
+  const terminalEnvelope = revisionEnvelope(
+    runId,
+    terminalPath,
+    terminalDocument,
+    [G21_SCOPE_REF, G21_PLAN_REF, snapshotPath, reviewPath],
+    "2026-08-10T12:05:00Z",
+  );
+  const prospectiveManifest = {
+    ...(await store.status(runId)).manifest,
+    status: "completed",
+    status_before_clarification: null,
+    current_decision_subject_snapshot_ref: snapshotPath,
+    current_decision_subject_snapshot_hash: snapshotEnvelope.content_hash,
+    updated_at: "2026-08-10T12:05:30Z",
+  };
+  const runtime = new ReportRuntime(runsRoot, validator);
+  const operation = await runtime.prepareTerminalLocked(runRoot, {
+    reportEnvelope: terminalEnvelope,
+    prospectiveManifest,
+    supportingEnvelopes: [],
+  });
+  const summaries = operation.source_envelope.document.discovery_review_summaries as Record<
+    string,
+    unknown
+  >[];
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0]?.review_ref, reviewPath);
+  assert.equal(summaries[0]?.review_content_hash, reviewEnvelope.content_hash);
+  assert.equal(summaries[0]?.owner_role, "adversarial-reviewer");
+  assert.equal(summaries[0]?.status, "partial");
+  assert.deepEqual(summaries[0]?.required_stances, ["oppose", "support"]);
+  assert.deepEqual(summaries[0]?.reviewed_plan_question_refs, [...questionRefs].sort());
+  assert.ok((operation.source_envelope.document.audit_refs as string[]).includes(reviewPath));
+  assert.ok((operation.source_envelope.input_refs as string[]).includes(reviewPath));
+
+  const output = (target: string): string => {
+    const found = operation.materialized_outputs.find((entry) => entry.target_path === target);
+    assert.ok(found, target);
+    return found.bytes;
+  };
+  const reportJson = JSON.parse(output("report.json")) as Record<string, unknown>;
+  assert.equal(
+    (reportJson.discovery_review_summaries as Record<string, unknown>[])[0]?.review_ref,
+    reviewPath,
+  );
+  const decisionBrief = output("decision-brief.md");
+  const fullReport = output("report.md");
+  const appendix = output("audit-appendix.md");
+  assert.match(decisionBrief, /Discovery Adversarial Review Boundary/);
+  assert.match(fullReport, /Discovery Adversarial Review Boundary/);
+  assert.match(appendix, /Discovery Adversarial Reviews \(Reference Only\)/);
+  assert.match(appendix, /review_terminal_discovery_visibility/);
+  assert.match(
+    appendix,
+    /reference-only; not a Gate, ranking, elimination, or confidence-ceiling authority/,
+  );
+  assert.match(appendix, /material state=unknown/);
+  assert.match(appendix, /material state=no evidence found/);
+  assert.match(appendix, new RegExp(literalReviewProse.replaceAll(".", "\\.")));
+  assert.match(appendix, new RegExp(literalGapProse.replaceAll(".", "\\.")));
+  assert.match(appendix, new RegExp(literalUnresolvedGapProse.replaceAll(".", "\\.")));
+  assert.match(appendix, new RegExp(literalStopReason.replaceAll(".", "\\.")));
+  assert.doesNotMatch(appendix, new RegExp(reviewPath));
+  assert.doesNotMatch(appendix, new RegExp(taskPath));
+  assert.doesNotMatch(appendix, new RegExp(G21_PLAN_REF));
+  assert.doesNotMatch(decisionBrief, /ranked by Discovery adversarial review/iu);
+  assert.doesNotMatch(fullReport, /eliminated by Discovery adversarial review/iu);
+
+  const zhSource = structuredClone(operation.source_envelope.document);
+  zhSource.research_language = "zh-CN";
+  const zhAppendix = renderTerminalAuditAppendix(zhSource);
+  assert.match(zhAppendix, /发现对抗性复核（仅供引用）/);
+  assert.match(zhAppendix, new RegExp(literalReviewProse.replaceAll(".", "\\.")));
+  assert.match(zhAppendix, new RegExp(literalGapProse.replaceAll(".", "\\.")));
+  assert.match(zhAppendix, new RegExp(literalUnresolvedGapProse.replaceAll(".", "\\.")));
+  assert.match(zhAppendix, new RegExp(literalStopReason.replaceAll(".", "\\.")));
+  assert.doesNotMatch(zhAppendix, /结构合同\.org/u);
+  assert.doesNotMatch(zhAppendix, /证据 Based Design/u);
+  assert.doesNotMatch(zhAppendix, /Vendor 基线 Pro/u);
+  assert.doesNotMatch(zhAppendix, /研究状态索引/u);
+  assert.doesNotMatch(zhAppendix, new RegExp(reviewPath));
+  assert.doesNotMatch(zhAppendix, new RegExp(taskPath));
+  assert.doesNotMatch(zhAppendix, new RegExp(G21_PLAN_REF));
+
+  const artifacts = new ArtifactStore(runsRoot, validator);
+  const published = await completePreparedTerminalReportLocked(
+    runRoot,
+    operation,
+    artifacts,
+    validator,
+  );
+  assert.equal(published.status, "published");
+  const storedReport = JSON.parse(
+    await readFile(path.join(runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.equal(
+    (storedReport.discovery_review_summaries as Record<string, unknown>[])[0]?.review_ref,
+    reviewPath,
+  );
+  assert.match(
+    await readFile(path.join(runRoot, "audit-appendix.md"), "utf8"),
+    /Discovery Adversarial Reviews \(Reference Only\)/,
+  );
+  const replay = await completePreparedTerminalReportLocked(
+    runRoot,
+    operation,
+    artifacts,
+    validator,
+  );
+  assert.equal(replay.status, "idempotent_replay");
+
+  const tampered = structuredClone(terminalEnvelope);
+  tampered.document.discovery_review_summaries = [{ ...summaries[0], status: "completed" }];
+  (tampered as { content_hash: string }).content_hash = canonicalContentHash(tampered.document);
+  await assert.rejects(
+    runtime.prepareTerminalLocked(runRoot, {
+      reportEnvelope: tampered,
+      prospectiveManifest,
+      supportingEnvelopes: [],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.mechanical_projection_drift",
+  );
 });
 
 test("G2.3 rejects not_yet_explored when multiple formal solutions remain and writes nothing", async (context) => {

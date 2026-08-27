@@ -956,6 +956,113 @@
     "commercial_research_status": {
       "$ref": "../assessment/commercial/commercial-report-projection.schema.json#/$defs/commercialResearchStatus"
     },
+    "discovery_review_summaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "review_ref",
+          "review_content_hash",
+          "review_result_id",
+          "status",
+          "owner_role",
+          "unit_id",
+          "attempt",
+          "owned_output_path",
+          "task_ref",
+          "dispatch_batch_ref",
+          "execution_plan_ref",
+          "scope_frame_ref",
+          "research_plan_ref",
+          "reviewed_plan_question_refs",
+          "required_stances",
+          "review_findings",
+          "material_visibility",
+          "decision_relevant_gaps",
+          "search_closure",
+          "authority_boundary",
+          "valid_as_of",
+          "limitations"
+        ],
+        "properties": {
+          "review_ref": {
+            "type": "string",
+            "pattern": "^artifacts/reviews/[A-Za-z0-9._-]+\\.json$"
+          },
+          "review_content_hash": {
+            "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+          },
+          "review_result_id": {
+            "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "status": {
+            "$ref": "../discovery/review/adversarial-review-result.schema.json#/properties/status"
+          },
+          "owner_role": {
+            "const": "adversarial-reviewer"
+          },
+          "unit_id": {
+            "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "owned_output_path": {
+            "$ref": "../discovery/review/adversarial-review-result.schema.json#/properties/owned_output_path"
+          },
+          "task_ref": {
+            "$ref": "../discovery/review/adversarial-review-result.schema.json#/properties/task_ref"
+          },
+          "dispatch_batch_ref": {
+            "$ref": "../discovery/review/adversarial-review-result.schema.json#/properties/dispatch_batch_ref"
+          },
+          "execution_plan_ref": {
+            "$ref": "../discovery/review/adversarial-review-result.schema.json#/properties/execution_plan_ref"
+          },
+          "scope_frame_ref": {
+            "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
+          },
+          "research_plan_ref": {
+            "$ref": "../core/definitions.schema.json#/$defs/planRef"
+          },
+          "reviewed_plan_question_refs": {
+            "type": "array",
+            "allOf": [
+              {
+                "$ref": "../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+              }
+            ],
+            "minItems": 1
+          },
+          "required_stances": {
+            "$ref": "../discovery/review/adversarial-review-result.schema.json#/properties/required_stances"
+          },
+          "review_findings": {
+            "$ref": "../discovery/review/adversarial-review-result.schema.json#/properties/review_findings"
+          },
+          "material_visibility": {
+            "$ref": "../discovery/review/adversarial-review-result.schema.json#/properties/material_visibility"
+          },
+          "decision_relevant_gaps": {
+            "$ref": "../discovery/review/adversarial-review-result.schema.json#/properties/decision_relevant_gaps"
+          },
+          "search_closure": {
+            "$ref": "../discovery/review/adversarial-review-result.schema.json#/properties/search_closure"
+          },
+          "authority_boundary": {
+            "$ref": "../discovery/review/adversarial-review-result.schema.json#/properties/authority_boundary"
+          },
+          "valid_as_of": {
+            "$ref": "../discovery/review/adversarial-review-result.schema.json#/properties/valid_as_of"
+          },
+          "limitations": {
+            "$ref": "#/$defs/uniqueStrings"
+          }
+        }
+      }
+    },
     "gate_warnings": {
       "type": "array",
       "items": {

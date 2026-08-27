@@ -80,6 +80,7 @@ const ID_FIELDS = [
   "insight_id",
   "judgment_id",
   "manifest_id",
+  "review_result_id",
 ] as const;
 
 class ClosureResolver {
@@ -443,6 +444,132 @@ function discoveryClosure(
   };
 }
 
+function discoveryReviewDisposition(
+  review: Record<string, unknown>,
+  evidenceBindingCount: number,
+): LaneScopeDisposition {
+  if (review.status === "failed") return "unavailable";
+  if (review.status === "partial" || review.status === "insufficient_evidence") return "partial";
+  const states = [
+    ...records(review.review_findings).map((finding) => finding.evidence_state),
+    ...records(review.decision_relevant_gaps).map((gap) => gap.state),
+  ];
+  if (states.length > 0 && states.every((state) => state === "not_applicable")) {
+    return "not_applicable";
+  }
+  if (states.includes("unavailable")) return "unavailable";
+  if (states.includes("unknown")) return "unknown";
+  if (states.includes("no_evidence_found") && evidenceBindingCount === 0) {
+    return "no_evidence_found";
+  }
+  if (
+    states.length > 0 &&
+    states.every((state) => state === "inferred" || state === "not_applicable")
+  ) {
+    return "inferred";
+  }
+  return evidenceBindingCount > 0 ? "covered" : "partial";
+}
+
+function discoveryReviewClosure(
+  scopeKey: string,
+  resolver: ClosureResolver,
+): { accumulator: ClosureAccumulator; disposition: LaneScopeDisposition } | null {
+  if (scopeKey !== "adversarial_review") return null;
+  const review = resolver.artifacts.find(
+    (artifact) =>
+      artifact.artifact_type === "startup_opportunity.discovery_adversarial_review.current",
+  );
+  if (review === undefined) return null;
+  const closure = accumulator();
+  addSemantic(
+    closure,
+    review,
+    "/",
+    `adversarial_review:${String(review.document.review_result_id ?? review.artifact_ref)}:${String(
+      review.document.status,
+    )}`,
+  );
+  const findings = records(review.document.review_findings);
+  for (const [index, finding] of findings.entries()) {
+    addSemantic(
+      closure,
+      review,
+      `/review_findings/${String(index)}`,
+      `review_finding:${String(finding.finding_id)}:${String(finding.stance)}:${String(
+        finding.evidence_state,
+      )}`,
+    );
+    for (const field of [
+      "supporting_refs",
+      "opposing_refs",
+      "background_refs",
+      "contradictory_refs",
+      "unknown_refs",
+    ]) {
+      for (const reference of strings(finding[field]))
+        collectReference(resolver, closure, reference);
+    }
+  }
+  const visibility = isRecord(review.document.material_visibility)
+    ? review.document.material_visibility
+    : {};
+  addSemantic(
+    closure,
+    review,
+    "/material_visibility",
+    `review_material_visibility:${canonicalJson({
+      supporting: uniqueSorted(strings(visibility.supporting_refs)),
+      opposing: uniqueSorted(strings(visibility.opposing_refs)),
+      background: uniqueSorted(strings(visibility.background_refs)),
+      contradictory: uniqueSorted(strings(visibility.contradictory_refs)),
+      unknown: uniqueSorted(strings(visibility.unknown_refs)),
+    })}`,
+  );
+  for (const field of [
+    "supporting_refs",
+    "opposing_refs",
+    "background_refs",
+    "contradictory_refs",
+    "unknown_refs",
+  ]) {
+    for (const reference of strings(visibility[field]))
+      collectReference(resolver, closure, reference);
+  }
+  for (const [index, gap] of records(review.document.decision_relevant_gaps).entries()) {
+    addSemantic(
+      closure,
+      review,
+      `/decision_relevant_gaps/${String(index)}`,
+      `review_gap:${String(gap.gap_id)}:${String(gap.state)}:${String(gap.recommended_follow_up)}`,
+    );
+    for (const reference of strings(gap.basis_refs)) collectReference(resolver, closure, reference);
+  }
+  const searchClosure = isRecord(review.document.search_closure)
+    ? review.document.search_closure
+    : {};
+  addSemantic(
+    closure,
+    review,
+    "/search_closure",
+    `review_search_closure:${canonicalJson({
+      status: searchClosure.status,
+      acquisition_routes_attempted: uniqueSorted(
+        strings(searchClosure.acquisition_routes_attempted),
+      ),
+      adopted_source_refs: uniqueSorted(strings(searchClosure.adopted_source_refs)),
+      unresolved_gaps: uniqueSorted(strings(searchClosure.unresolved_gaps)),
+      stop_reason: searchClosure.stop_reason,
+    })}`,
+  );
+  for (const reference of strings(searchClosure.adopted_source_refs))
+    collectReference(resolver, closure, reference);
+  return {
+    accumulator: closure,
+    disposition: discoveryReviewDisposition(review.document, closure.evidence.size),
+  };
+}
+
 export function deriveLaneScopeFormalClosure(
   assignedScope: readonly string[],
   artifacts: readonly LaneClosureArtifact[],
@@ -462,6 +589,7 @@ export function deriveLaneScopeFormalClosure(
     const derived =
       assessmentClosure(scopeKey, rootResolver) ??
       commercialClosure(scopeKey, rootResolver) ??
+      discoveryReviewClosure(scopeKey, rootResolver) ??
       discoveryClosure(scopeKey, rootResolver);
     if (derived === null) {
       issues.push({

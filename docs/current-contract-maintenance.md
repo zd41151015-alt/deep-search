@@ -104,6 +104,7 @@ Apply this checklist to every implementation iteration and every independent rev
 
 ### Semantic Fidelity
 
+- Does the change avoid using keywords, substrings, regular-expression hits, token counts, or other lexical matching over free-form prose to infer research meaning or drive validation, classification, workflow, state, Gate, ranking, confidence, recommendation, publication, or report-disposition behavior? Any permitted lexical check must validate an explicitly lexical contract boundary, remain non-semantic and scope-/position-aware, and have positive and negative regressions proving that legitimate wording does not change domain truth.
 - Are `partial`, `unavailable`, `unknown`, `inferred`, `not_applicable`, and `no_evidence_found` kept distinct throughout authored input, compiled Artifact, validation, receipt, aggregation, and report projection?
 - Can incomplete or conflicting research be submitted honestly without fabricating completeness, a number, a direct observation, or a stronger conclusion?
 - If a formal Artifact cannot represent a legitimate result, does the change improve the owning current contract instead of adding a fallback guess or rejecting the result?

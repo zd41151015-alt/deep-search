@@ -22,8 +22,10 @@ import {
   sha256Bytes,
   validateDecisionSubjectContract,
 } from "../harness/src/index.js";
+import { createCommercialAuditProjector } from "../harness/src/reporting/commercial-report-tables.js";
 import {
   localizedTerminalUserViewIssues,
+  renderTerminalAuditAppendix,
   renderTerminalDecisionBrief,
   renderTerminalFullReport,
 } from "../harness/src/reporting/terminal-reporting.js";
@@ -1393,7 +1395,7 @@ test("Chinese terminal report localizes quantitative priority and readiness enum
   assert.match(full, /方向性代理指标/);
 });
 
-test("Chinese terminal prose localizes compiler inference text without changing audit truth", async (context) => {
+test("Chinese terminal prose preserves caller-authored research wording without changing audit truth", async (context) => {
   const state = await prepareRun(context);
   const source = terminalReportEnvelope(state).document;
   source.research_provenance = {
@@ -1422,10 +1424,443 @@ test("Chinese terminal prose localizes compiler inference text without changing 
   const brief = renderTerminalDecisionBrief(source);
   const full = renderTerminalFullReport(source);
   assert.equal(canonicalJson(source), structuredTruth);
-  assert.match(full, /证据 supports only an inferred purchase signal/);
-  assert.doesNotMatch(`${brief}\n${full}`, /\b(?:Evidence|Harness|Artifact|current-Run)\b/u);
+  assert.match(full, /Evidence supports only an inferred purchase signal/);
+  assert.match(
+    `${brief}\n${full}`,
+    /Harness inference retains exact Evidence refs in the Artifact audit/,
+  );
+  assert.match(`${brief}\n${full}`, /Evidence indicates a current-Run hypothesis, not validation/);
+  assert.match(`${brief}\n${full}`, /Harness-owned reasoning cites the exact Evidence Artifact/);
   assert.deepEqual(localizedTerminalUserViewIssues(source, brief), []);
   assert.deepEqual(localizedTerminalUserViewIssues(source, full), []);
+});
+
+test("localized terminal guard allows ordinary research prose and rejects structured diagnostic leaks", () => {
+  const source = {
+    research_language: "zh-CN",
+    sources: [],
+    report_citations: [],
+    audit_refs: [],
+    gate_warnings: [],
+  };
+  assert.deepEqual(
+    localizedTerminalUserViewIssues(
+      source,
+      "Schema.org Evidence Based Design Vendor Baseline Pro Manifest",
+    ),
+    [],
+  );
+  assert.deepEqual(
+    localizedTerminalUserViewIssues(
+      source,
+      "研究材料指出 plans/private-terminal-state.json 是某产品文档中的公开路径。",
+    ),
+    [],
+  );
+  assert.deepEqual(
+    localizedTerminalUserViewIssues(
+      { ...source, audit_refs: ["plans/private-terminal-state.json"] },
+      "审计引用占位：plans/private-terminal-state.json",
+    ),
+    [],
+  );
+  assert.deepEqual(
+    localizedTerminalUserViewIssues(source, "### 1. contract.unit_tuple_not_allowed 协议分析"),
+    [],
+  );
+  assert.deepEqual(
+    localizedTerminalUserViewIssues(
+      source,
+      "合法研究摘要：\n- [warning / decision_validity] contract.unit_tuple_not_allowed 是被研究产品的原文。",
+    ),
+    [],
+  );
+  assert.deepEqual(
+    localizedTerminalUserViewIssues(
+      {
+        ...source,
+        gate_warnings: [
+          {
+            code: "terminal_reporting.synthetic_fixture",
+            severity: "warning",
+            category: "decision_validity",
+            message:
+              "安全首行\nplans/private-terminal-state.json contract.unit_tuple_not_allowed 决策影响: synthetic",
+            decision_impact: "synthetic diagnostic must stay structured",
+            artifact_refs: [],
+          },
+        ],
+      },
+      "结构化警告的可见形态不再决定 guard 结果。",
+    ),
+    ["localized_structured_diagnostic_1", "localized_structured_diagnostic_2"],
+  );
+  assert.deepEqual(
+    localizedTerminalUserViewIssues(
+      {
+        ...source,
+        gate_warnings: [
+          {
+            code: "terminal_reporting.synthetic_fixture",
+            severity: "warning",
+            category: "decision_validity",
+            message: "Inspect plans/private-terminal-state.json.",
+            decision_impact: "contract.unit_tuple_not_allowed must stay structured",
+            artifact_refs: [],
+          },
+        ],
+      },
+      "- [warning / decision_validity] plans/private-terminal-state.json contract.unit_tuple_not_allowed 决策影响: synthetic",
+    ),
+    ["localized_structured_diagnostic_1", "localized_structured_diagnostic_2"],
+  );
+});
+
+test("Discovery review audit appendix localizes structured enums without rewriting caller prose", async (context) => {
+  const state = await prepareRun(context);
+  await markRunTerminal(state);
+  const source = structuredClone(terminalReportEnvelope(state).document) as Record<string, unknown>;
+  source.research_language = "zh-CN";
+  source.research_provenance = {
+    available_handoff_count: 0,
+    captured_item_count: 0,
+    consumed_item_refs: [],
+    used_handoff_items: [],
+    imported_substrate_refs: [],
+    adopted_inherited_evidence_refs: [],
+    cited_inherited_evidence_refs: [],
+    adopted_current_evidence_refs: [],
+    cited_current_evidence_refs: [],
+    revalidation_gaps: [],
+  };
+  const reviewedPlanQuestionRefs = [
+    "plans/research-plan.r1.json#question_demand",
+    "plans/research-plan.r1.json#question_counterfactual",
+  ];
+  const callerSummary = "研究材料指出 plans/private-terminal-state.json 是某产品文档中的公开路径。";
+  const callerGapSummary = "论文讨论 contract.unit_tuple_not_allowed 这一协议标识，不能改写。";
+  const callerStopReason =
+    "合法研究摘要：\n- [warning / decision_validity] contract.unit_tuple_not_allowed 是被研究产品的原文。";
+  const reviewBase = {
+    review_ref: "artifacts/reviews/review-enum-matrix.json",
+    review_content_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    task_ref: "tasks/discovery/reviews/reviewenum1.attempt-1.json",
+    dispatch_batch_ref: "tasks/dispatch/reviewenum1.r1.json#lane_reviewenum1",
+    execution_plan_ref: "plans/research-execution.r99.json",
+    scope_frame_ref: "scope-frame.json",
+    research_plan_ref: "plans/research-plan.r1.json",
+    reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+    required_stances: ["support", "oppose"],
+    owner_role: "adversarial-reviewer",
+    authority_boundary: {
+      reference_only: true,
+      not_gate: true,
+      not_ranking: true,
+      not_elimination: true,
+      not_confidence_ceiling: true,
+      mutates_current_plan: false,
+      rewrites_report: false,
+    },
+    valid_as_of: "2026-07-25",
+    limitations: [callerSummary, callerGapSummary],
+    review_findings: [
+      {
+        finding_id: "finding_support_supported",
+        stance: "support",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "supported",
+        summary: callerSummary,
+        supporting_refs: ["artifacts/reviews/review-enum-matrix.json#supporting"],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: [callerSummary],
+      },
+      {
+        finding_id: "finding_oppose_partial",
+        stance: "oppose",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "partial",
+        summary: callerGapSummary,
+        supporting_refs: [],
+        opposing_refs: ["artifacts/reviews/review-enum-matrix.json#opposing"],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: [callerGapSummary],
+      },
+      {
+        finding_id: "finding_mixed_unknown",
+        stance: "mixed",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "unknown",
+        summary: "caller prose remains literal",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: ["artifacts/reviews/review-enum-matrix.json#background"],
+        contradictory_refs: [],
+        unknown_refs: ["artifacts/reviews/review-enum-matrix.json#unknown"],
+        limitations: ["caller prose remains literal"],
+      },
+      {
+        finding_id: "finding_background_unavailable",
+        stance: "background",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "unavailable",
+        summary: "background material remains reference-only",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: ["artifacts/reviews/review-enum-matrix.json#background-2"],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: ["background material remains reference-only"],
+      },
+      {
+        finding_id: "finding_unknown_inferred",
+        stance: "unknown",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "inferred",
+        summary: "inference remains explicit",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: ["artifacts/reviews/review-enum-matrix.json#contradictory"],
+        unknown_refs: [],
+        limitations: ["inference remains explicit"],
+      },
+      {
+        finding_id: "finding_support_not_applicable",
+        stance: "support",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "not_applicable",
+        summary: "not applicable remains visible",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: ["not applicable remains visible"],
+      },
+      {
+        finding_id: "finding_oppose_no_evidence",
+        stance: "oppose",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "no_evidence_found",
+        summary: "no evidence remains honest",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: ["no evidence remains honest"],
+      },
+      {
+        finding_id: "finding_mixed_insufficient",
+        stance: "mixed",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "insufficient_evidence",
+        summary: "insufficient evidence stays distinct",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: ["insufficient evidence stays distinct"],
+      },
+    ],
+    material_visibility: {
+      supporting_refs: ["artifacts/reviews/review-enum-matrix.json#supporting"],
+      opposing_refs: ["artifacts/reviews/review-enum-matrix.json#opposing"],
+      background_refs: ["artifacts/reviews/review-enum-matrix.json#background"],
+      contradictory_refs: ["artifacts/reviews/review-enum-matrix.json#contradictory"],
+      unknown_refs: ["artifacts/reviews/review-enum-matrix.json#unknown"],
+    },
+    decision_relevant_gaps: [
+      {
+        gap_id: "gap_partial_add",
+        state: "partial",
+        summary: callerGapSummary,
+        basis_refs: ["artifacts/reviews/review-enum-matrix.json#gap-partial"],
+        requires_plan_adaptation: true,
+        recommended_follow_up: "add_unit",
+        limitations: [callerGapSummary],
+      },
+      {
+        gap_id: "gap_unknown_retry",
+        state: "unknown",
+        summary: callerSummary,
+        basis_refs: ["artifacts/reviews/review-enum-matrix.json#gap-unknown"],
+        requires_plan_adaptation: true,
+        recommended_follow_up: "retry_unit",
+        limitations: [callerSummary],
+      },
+      {
+        gap_id: "gap_unavailable_wait",
+        state: "unavailable",
+        summary: "gap text stays literal",
+        basis_refs: ["artifacts/reviews/review-enum-matrix.json#gap-unavailable"],
+        requires_plan_adaptation: false,
+        recommended_follow_up: "wait",
+        limitations: ["gap text stays literal"],
+      },
+      {
+        gap_id: "gap_inferred_manual",
+        state: "inferred",
+        summary: "manual review remains explicit",
+        basis_refs: ["artifacts/reviews/review-enum-matrix.json#gap-inferred"],
+        requires_plan_adaptation: false,
+        recommended_follow_up: "manual_review",
+        limitations: ["manual review remains explicit"],
+      },
+      {
+        gap_id: "gap_not_applicable_noaction",
+        state: "not_applicable",
+        summary: "no action stays visible",
+        basis_refs: ["artifacts/reviews/review-enum-matrix.json#gap-not-applicable"],
+        requires_plan_adaptation: false,
+        recommended_follow_up: "no_action",
+        limitations: ["no action stays visible"],
+      },
+      {
+        gap_id: "gap_noevidence_manual",
+        state: "no_evidence_found",
+        summary: "no evidence found stays literal",
+        basis_refs: ["artifacts/reviews/review-enum-matrix.json#gap-no-evidence"],
+        requires_plan_adaptation: true,
+        recommended_follow_up: "manual_review",
+        limitations: ["no evidence found stays literal"],
+      },
+      {
+        gap_id: "gap_insufficient_retry",
+        state: "insufficient_evidence",
+        summary: "insufficient evidence remains distinguishable",
+        basis_refs: ["artifacts/reviews/review-enum-matrix.json#gap-insufficient"],
+        requires_plan_adaptation: true,
+        recommended_follow_up: "retry_unit",
+        limitations: ["insufficient evidence remains distinguishable"],
+      },
+    ],
+    search_closure: {
+      status: "completed",
+      acquisition_routes_attempted: ["manual review"],
+      adopted_source_refs: ["artifacts/reviews/review-enum-matrix.json#supporting"],
+      unresolved_gaps: ["gap_partial_add"],
+      stop_reason: callerStopReason,
+    },
+  };
+  const reviewSummaries = [
+    {
+      ...structuredClone(reviewBase),
+      review_result_id: "reviewcompleted",
+      status: "completed",
+      search_closure: { ...reviewBase.search_closure, status: "completed" },
+    },
+    {
+      ...structuredClone(reviewBase),
+      review_result_id: "reviewpartial",
+      status: "partial",
+      search_closure: { ...reviewBase.search_closure, status: "partial" },
+    },
+    {
+      ...structuredClone(reviewBase),
+      review_result_id: "reviewinsufficient",
+      status: "insufficient_evidence",
+      search_closure: { ...reviewBase.search_closure, status: "insufficient_evidence" },
+    },
+    {
+      ...structuredClone(reviewBase),
+      review_result_id: "reviewfailed",
+      status: "failed",
+      search_closure: { ...reviewBase.search_closure, status: "failed_before_search" },
+    },
+    {
+      ...structuredClone(reviewBase),
+      review_result_id: "reviewignored",
+      status: "ignored_late",
+      search_closure: { ...reviewBase.search_closure, status: "search_not_required" },
+    },
+    {
+      ...structuredClone(reviewBase),
+      review_result_id: "reviewsuperseded",
+      status: "superseded",
+      search_closure: { ...reviewBase.search_closure, status: "unavailable" },
+    },
+  ];
+  source.discovery_review_summaries = reviewSummaries;
+
+  const zhAppendix = renderTerminalAuditAppendix(source);
+  const enAppendix = renderTerminalAuditAppendix({ ...source, research_language: "en-US" });
+
+  assert.match(zhAppendix, /负责人角色: 对抗审阅者/);
+  assert.match(zhAppendix, /结果状态: 已完成/);
+  assert.match(zhAppendix, /结果状态: 部分完成/);
+  assert.match(zhAppendix, /结果状态: 证据不足/);
+  assert.match(zhAppendix, /结果状态: 失败/);
+  assert.match(zhAppendix, /结果状态: 已忽略（迟到）/);
+  assert.match(zhAppendix, /结果状态: 已被取代/);
+  assert.match(zhAppendix, /要求立场: 支持, 反对/);
+  assert.match(zhAppendix, /立场=支持; 材料状态=已支持/);
+  assert.match(zhAppendix, /立场=未知; 材料状态=推断/);
+  assert.match(zhAppendix, /未找到证据/);
+  assert.match(
+    zhAppendix,
+    /部分完成 \/ 添加任务: 论文讨论 contract\.unit_tuple_not_allowed 这一协议标识，不能改写。/,
+  );
+  assert.match(
+    zhAppendix,
+    /未知 \/ 重试任务: 研究材料指出 plans\/private-terminal-state\.json 是某产品文档中的公开路径。/,
+  );
+  assert.match(zhAppendix, /推断 \/ 人工复核: manual review remains explicit/);
+  assert.match(zhAppendix, /终态: 无需搜索/);
+  assert.match(zhAppendix, /终态: 搜索前失败/);
+  assert.match(zhAppendix, /终态: 证据不足/);
+  assert.ok(zhAppendix.includes(callerSummary));
+  assert.ok(zhAppendix.includes(callerGapSummary));
+  assert.ok(zhAppendix.includes(callerStopReason));
+  assert.equal(zhAppendix.includes("adversarial-reviewer"), false);
+  assert.equal(zhAppendix.includes("search_not_required"), false);
+  assert.equal(zhAppendix.includes("retry_unit"), false);
+  assert.equal(zhAppendix.includes("add_unit"), false);
+  assert.equal(zhAppendix.includes("manual_review"), false);
+
+  assert.match(enAppendix, /Owner role: adversarial reviewer/);
+  assert.match(enAppendix, /Result status: completed/);
+  assert.match(enAppendix, /Result status: partial/);
+  assert.match(enAppendix, /Result status: insufficient evidence/);
+  assert.match(enAppendix, /Result status: failed/);
+  assert.match(enAppendix, /Result status: ignored late/);
+  assert.match(enAppendix, /Result status: superseded/);
+  assert.match(enAppendix, /Required stances: support, oppose/);
+  assert.match(enAppendix, /Stance=support; material state=supported/);
+  assert.match(enAppendix, /Stance=unknown; material state=inferred/);
+  assert.match(
+    enAppendix,
+    /partial \/ add unit: 论文讨论 contract\.unit_tuple_not_allowed 这一协议标识，不能改写。/,
+  );
+  assert.match(
+    enAppendix,
+    /unknown \/ retry unit: 研究材料指出 plans\/private-terminal-state\.json 是某产品文档中的公开路径。/,
+  );
+  assert.match(enAppendix, /inferred \/ manual review: manual review remains explicit/);
+  assert.match(enAppendix, /Status: search not required/);
+  assert.match(enAppendix, /Status: failed before search/);
+  assert.match(enAppendix, /Status: insufficient evidence/);
+  assert.ok(enAppendix.includes(callerSummary));
+  assert.ok(enAppendix.includes(callerGapSummary));
+  assert.ok(enAppendix.includes(callerStopReason));
+  assert.equal(enAppendix.includes("adversarial-reviewer"), false);
+  assert.equal(enAppendix.includes("search_not_required"), false);
+  assert.equal(enAppendix.includes("manual_review"), false);
+
+  const invalid = structuredClone(source) as Record<string, unknown>;
+  const invalidReview = (invalid.discovery_review_summaries as Record<string, unknown>[])[0];
+  assert.ok(invalidReview);
+  invalidReview.status = "new_unmapped_status";
+  assert.throws(
+    () => renderTerminalAuditAppendix(invalid),
+    /terminal report review enum mapping is missing for new_unmapped_status/,
+  );
 });
 
 test("Chinese terminal report renders provisional solution exploration labels", async (context) => {
@@ -1506,7 +1941,7 @@ test("Chinese terminal report renders provisional solution exploration labels", 
   assert.match(full, /暂定实现/);
 });
 
-test("ReportRuntime localizes terminal inference vocabulary while preserving structured truth", async (context) => {
+test("ReportRuntime preserves terminal inference vocabulary while rejecting structured diagnostic leaks", async (context) => {
   const state = await prepareRun(context, {
     injectTerminalLocalizationVocabulary: true,
     researchLanguage: "zh-CN",
@@ -1585,22 +2020,10 @@ test("ReportRuntime localizes terminal inference vocabulary while preserving str
     .map((target) => String(outputs.get(target)))
     .join("\n");
   const userProse = markdown.replaceAll(TERMINAL_LOCALIZATION_SOURCE_URL, "");
-  assert.doesNotMatch(
+  assert.match(
     userProse,
-    /\b(?:baseline|counterfactual|same[- ]run|pre[- ]thesis|Manifest|Schema|Validator|Gap)\b/iu,
+    /baseline counterfactual same-run pre-thesis Manifest Schema Validator Gap/,
   );
-  for (const localized of [
-    "基线",
-    "反向检验",
-    "本次研究内",
-    "机会判断形成前",
-    "研究状态索引",
-    "结构合同",
-    "校验机制",
-    "研究缺口",
-  ]) {
-    assert.match(userProse, new RegExp(localized));
-  }
   for (const target of ["decision-brief.md", "report.md", "audit-appendix.md"] as const) {
     assert.deepEqual(
       localizedTerminalUserViewIssues(
@@ -1611,20 +2034,28 @@ test("ReportRuntime localizes terminal inference vocabulary while preserving str
     );
   }
 
-  const internalDiagnostic = structuredClone(request);
-  const internalSource = (internalDiagnostic.document.sources as Record<string, unknown>[])[0];
-  assert.ok(internalSource);
-  const internalInference = internalSource.inference as Record<string, unknown>;
-  internalInference.reasoning =
-    "Inspect plans/private-terminal-state.json after contract.unit_tuple_not_allowed.";
+  const internalDiagnostic = structuredClone(storedDemandAudit) as FormalArtifactEnvelope & {
+    artifact_path: string;
+    document: {
+      compiler_warnings: Record<string, unknown>[];
+    };
+  };
+  internalDiagnostic.artifact_path = "artifacts/research-audits/terminal-structured-leak.json";
+  const internalWarning = internalDiagnostic.document.compiler_warnings[0];
+  assert.ok(internalWarning);
+  internalWarning.message =
+    "Safe first line.\nInspect plans/private-terminal-state.json after contract.unit_tuple_not_allowed.";
+  internalWarning.decision_impact =
+    "SYNTHETIC gate warning must stay inside structured diagnostics.";
+  internalWarning.artifact_refs = [internalDiagnostic.artifact_path];
   (internalDiagnostic as { content_hash: string }).content_hash = canonicalContentHash(
     internalDiagnostic.document,
   );
   await assert.rejects(
     state.runtime.prepareTerminalLocked(state.runRoot, {
-      reportEnvelope: internalDiagnostic,
+      reportEnvelope: request,
       prospectiveManifest,
-      supportingEnvelopes: [],
+      supportingEnvelopes: [internalDiagnostic],
     }),
     (error: unknown) =>
       error instanceof StoreError &&
@@ -1976,6 +2407,191 @@ test("terminal Search Closure reconciles every planned lane before or after Task
   assert.equal(
     synthesisCodes.includes("terminal_reporting.search_closure_binding_mismatch"),
     false,
+  );
+});
+
+test("terminal reporting keeps Discovery review visible without requiring a commercial Audit", async (context) => {
+  const state = await prepareRun(context);
+  await markRunTerminal(state);
+  const source = terminalReportEnvelope(state);
+  const assembled = await state.store.buildValidationContext(G14_RUN_ID, {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [{ path: source.artifact_path, document: source }],
+    exact_records: [],
+  });
+  const base = reportingDocuments(assembled.bundle.documents);
+  const reviewedQuestionRefs = [
+    "plans/research-plan.r1.json#question_demand",
+    "plans/research-plan.r1.json#question_counterfactual",
+  ];
+  const reviewTaskPath = "tasks/discovery/reviews/unit_terminal_review.attempt-1.json";
+  const reviewResultPath = "artifacts/reviews/terminal-adversarial-review.json";
+  const reviewExecutionPath = "plans/research-execution.r99.json";
+  const reviewTask = {
+    schema_version: "startup_opportunity.research_task.discovery_review.current",
+    task_id: "task_terminal_review",
+    run_id: G14_RUN_ID,
+    unit_id: "unit_terminal_review",
+    mode: "opportunity_discovery",
+    phase: "review",
+    wave_id: "wave_terminal_review",
+    unit_type: "adversarial_review",
+    research_goal: "SYNTHETIC terminal review visibility fixture.",
+    commercial_research_requirements: {
+      commercial_audit_output_path: "artifacts/research-audits/unit_terminal_review.json",
+    },
+    scope_frame_ref: "scope-frame.json",
+    research_plan_ref: "plans/research-plan.r1.json",
+    input_refs: ["plans/research-plan.r1.json"],
+    attempt: 1,
+    supersedes_task_ref: null,
+    agent_role: "adversarial-reviewer",
+    source_phase: "adversarial_challenger",
+    required_source_group_ids: ["source_group_terminal_review"],
+    assigned_plan_question_refs: reviewedQuestionRefs,
+    allowed_output_path: reviewResultPath,
+    required_artifact_schema: "startup_opportunity.discovery_adversarial_review.current",
+    required_stances: ["support", "oppose"],
+    stop_conditions: ["SYNTHETIC terminal review stop condition."],
+    completion_message_contract: {
+      formal_artifact_authority: false,
+      include_artifact_path: true,
+      include_limitations: true,
+    },
+    execution_contract: {
+      formal_artifacts_explicit: true,
+      harness_generated_research: false,
+      harness_generated_judgment: false,
+      agent_dispatch: false,
+      hidden_llm_calls: false,
+      network_research: false,
+      external_validation: false,
+      publication_implies_validation: false,
+    },
+    dispatched_at: "2026-07-25T19:02:00Z",
+  };
+  const reviewExecution = {
+    schema_version: "startup_opportunity.research_execution_plan.discovery.current",
+    run_id: G14_RUN_ID,
+    mode: "opportunity_discovery",
+    revision: 99,
+    research_plan_ref: "plans/research-plan.r1.json",
+    stages: [
+      {
+        stage_id: "stage_terminal_review",
+        stage_kind: "review",
+        lanes: [
+          {
+            lane_id: "lane_terminal_review",
+            unit_id: "unit_terminal_review",
+            lane_role: "review",
+            candidate_scope: { kind: "none", candidate_refs: [] },
+            incumbent_response_assignment: {
+              analysis_depth: "not_assigned",
+              assignment_role: "none",
+              subject_refs: [],
+              rationale: "Discovery review is reference-only and not commercial research.",
+            },
+            reporting_dimensions: ["adversarial_review"],
+            assigned_plan_question_refs: reviewedQuestionRefs,
+            submission_path: reviewResultPath,
+            submission_schema: "startup_opportunity.discovery_adversarial_review.current",
+          },
+        ],
+      },
+    ],
+  };
+  const reviewResult = {
+    schema_version: "startup_opportunity.discovery_adversarial_review.current",
+    review_result_id: "review_terminal_visibility",
+    run_id: G14_RUN_ID,
+    unit_id: "unit_terminal_review",
+    status: "partial",
+    material_visibility: {
+      supporting_refs: [],
+      opposing_refs: [],
+      background_refs: [],
+      contradictory_refs: [],
+      unknown_refs: [],
+    },
+    authority_boundary: {
+      reference_only: true,
+      not_gate: true,
+      not_ranking: true,
+      not_elimination: true,
+      not_confidence_ceiling: true,
+      mutates_current_plan: false,
+      rewrites_report: false,
+    },
+  };
+  const reviewDocuments: TerminalReportingDocument[] = [
+    {
+      path: reviewExecutionPath,
+      schemaVersion: "startup_opportunity.research_execution_plan.discovery.current",
+      document: reviewExecution,
+      envelope: null,
+    },
+    {
+      path: reviewTaskPath,
+      schemaVersion: "startup_opportunity.research_task.discovery_review.current",
+      document: reviewTask,
+      envelope: null,
+    },
+    {
+      path: reviewResultPath,
+      schemaVersion: "startup_opportunity.discovery_adversarial_review.current",
+      document: reviewResult,
+      envelope: null,
+    },
+  ];
+
+  const hiddenReview = [...structuredClone(base), ...reviewDocuments];
+  const hiddenCodes = validateTerminalReportingContract(hiddenReview).map((issue) => issue.code);
+  assert.ok(hiddenCodes.includes("terminal_reporting.audit_closure_missing"));
+  assert.equal(hiddenCodes.includes("terminal_reporting.search_closure_incomplete"), false);
+
+  const visibleReview = [...structuredClone(base), ...reviewDocuments];
+  const sourceEntry = visibleReview.find(
+    (entry) => entry.schemaVersion === "startup_opportunity.terminal_report_source.v1",
+  );
+  assert.ok(sourceEntry);
+  sourceEntry.document.audit_refs = [
+    ...new Set([...(sourceEntry.document.audit_refs as string[]), reviewResultPath]),
+  ].sort();
+  if (sourceEntry.envelope !== null) {
+    sourceEntry.envelope.document = sourceEntry.document;
+    sourceEntry.envelope.content_hash = canonicalContentHash(sourceEntry.document);
+  }
+  const visibleCodes = validateTerminalReportingContract(visibleReview).map((issue) => issue.code);
+  assert.equal(visibleCodes.includes("terminal_reporting.audit_closure_missing"), false);
+  assert.equal(visibleCodes.includes("terminal_reporting.search_closure_incomplete"), false);
+
+  const missingCommercialAudit = visibleReview.filter(
+    (entry) => entry.path !== "artifacts/research-audits/unit_demand.json",
+  );
+  assert.ok(
+    validateTerminalReportingContract(missingCommercialAudit)
+      .map((issue) => issue.code)
+      .includes("terminal_reporting.search_closure_incomplete"),
+  );
+
+  const reviewProjection = createCommercialAuditProjector(
+    [],
+    [{ path: reviewTaskPath, document: reviewTask }],
+  ).project();
+  assert.equal(reviewProjection.commercial_research_status.state, "not_planned");
+  assert.deepEqual(reviewProjection.commercial_research_status.missing_task_refs, []);
+  const commercialTask = base.find((entry) => entry.path === "tasks/unit_demand.attempt-1.json");
+  assert.ok(commercialTask);
+  const commercialProjection = createCommercialAuditProjector(
+    [],
+    [{ path: commercialTask.path, document: commercialTask.document }],
+    new Map(base.map((entry) => [entry.path, entry.document])),
+  ).project(["concept_assess_001"]);
+  assert.ok(
+    (commercialProjection.commercial_research_status.missing_task_refs as string[]).includes(
+      commercialTask.path,
+    ),
   );
 });
 

@@ -37,6 +37,14 @@
     "ignored_late": "ignored_late_artifact_refs",
     "superseded": "superseded_units_existing"
   },
+  "discovery_review_status_projection": {
+    "completed": "completed_units",
+    "partial": "completed_units",
+    "insufficient_evidence": "completed_units",
+    "failed": "failed_units",
+    "ignored_late": "ignored_late_artifact_refs",
+    "superseded": "superseded_units_existing"
+  },
   "enrichment_branch_status_projection": {
     "completed": "completed_units",
     "partial": "completed_units",
@@ -232,6 +240,9 @@
     "caller_supplied_research_semantics": true,
     "harness_compiled_envelopes": true,
     "minimal_validation_closure": true,
+    "publication_plan_manifest_snapshot_bound": true,
+    "publication_plan_commit_head_bound": true,
+    "scoped_manifest_replay_from_publication_commits": true,
     "same_wave_batch_descriptor": true,
     "agent_dispatch_performed": false,
     "hidden_model_calls": false,

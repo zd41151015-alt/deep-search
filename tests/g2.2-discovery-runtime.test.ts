@@ -37,10 +37,12 @@ import {
   G22_FAN_IN,
   G22_GENERATION_CLAIM,
   G22_GENERATION_LANE,
+  G22_GENERATION_TASK,
   G22_PRE_CANDIDATE_RELATION,
   G22_REJECTED_PRE_CANDIDATE,
   G22_RETAINED_PRE_CANDIDATE,
   G22_RUN_ID,
+  G22_SOLUTION_R1,
   G22_WATCHLIST_PRE_CANDIDATE,
   refreshDiscoveryCandidateFormation,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
@@ -52,6 +54,7 @@ import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-
 import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const planR2Ref = "plans/research-plan.r2.json";
 
 interface RuntimeState {
   readonly root: string;
@@ -81,6 +84,73 @@ function candidateContractDocuments(bundle: DocumentBundle): DiscoveryCandidateD
       envelope: isEnvelope ? (stored as Record<string, unknown>) : null,
     };
   });
+}
+
+function bundleWithPaths(bundle: DocumentBundle, paths: readonly string[]): DocumentBundle {
+  const keep = new Set(paths);
+  const cloned = structuredClone(bundle) as DocumentBundle & {
+    documents: { path: string; document: Record<string, unknown> }[];
+  };
+  cloned.documents = cloned.documents.filter((entry) => keep.has(entry.path));
+  return cloned;
+}
+
+async function discoveryCandidatePolicy(): Promise<DiscoveryCandidatePolicy> {
+  return JSON.parse(
+    await readFile(
+      path.join(repositoryRoot, "harness/policies/discovery-candidates.current.json"),
+      "utf8",
+    ),
+  ) as DiscoveryCandidatePolicy;
+}
+
+function cloneCandidateDocument(
+  entry: DiscoveryCandidateDocument,
+  pathValue: string,
+  candidateIdValue: string,
+): DiscoveryCandidateDocument {
+  const cloned = structuredClone(entry);
+  const document = {
+    ...cloned.document,
+    candidate_id: candidateIdValue,
+  };
+  const envelope =
+    cloned.envelope === null
+      ? null
+      : {
+          ...cloned.envelope,
+          artifact_path: pathValue,
+          content_hash: canonicalContentHash(document),
+          document,
+        };
+  return {
+    ...cloned,
+    path: pathValue,
+    document,
+    envelope,
+  };
+}
+
+function bundleWithTaskTargetCandidateRefs(
+  bundle: DocumentBundle,
+  taskPath: string,
+  targetCandidateRefs: readonly string[],
+): DocumentBundle {
+  const cloned = structuredClone(bundle) as DocumentBundle & {
+    documents: { path: string; document: Record<string, unknown> }[];
+  };
+  const taskEntry = cloned.documents.find((entry) => entry.path === taskPath);
+  assert.ok(taskEntry, taskPath);
+  const taskEnvelope = taskEntry.document as FormalArtifactEnvelope & {
+    content_hash: string;
+    document: Record<string, unknown>;
+  };
+  taskEnvelope.document = {
+    ...taskEnvelope.document,
+    target_candidate_refs: [...targetCandidateRefs],
+  };
+  taskEnvelope.content_hash = canonicalContentHash(taskEnvelope.document);
+  return cloned;
 }
 
 async function snapshotTree(root: string): Promise<Readonly<Record<string, string>>> {
@@ -322,6 +392,319 @@ test("G2.2 selects the Manifest current Plan while retaining Plan history", asyn
   });
 });
 
+function historicalPlanRevisionBundle(bundle: DocumentBundle) {
+  const documentBundle = structuredClone(bundle) as DocumentBundle & {
+    documents: { path: string; document: Record<string, unknown> }[];
+  };
+  const manifest = documentBundle.documents.find((entry) => entry.path === "manifest.json")
+    ?.document as Record<string, unknown> | undefined;
+  const planR1Entry = documentBundle.documents.find((entry) => entry.path === G21_PLAN_REF);
+  assert.ok(manifest);
+  assert.ok(planR1Entry);
+  const planR2Entry = {
+    ...structuredClone(planR1Entry),
+    path: planR2Ref,
+  } as {
+    path: string;
+    document: FormalArtifactEnvelope & {
+      artifact_path: string;
+      content_hash: string;
+      document: Record<string, unknown>;
+    };
+  };
+  const planR2Envelope = planR2Entry.document;
+  planR2Envelope.artifact_path = planR2Entry.path;
+  planR2Envelope.document = {
+    ...(planR2Envelope.document as Record<string, unknown>),
+    revision: 2,
+    parent_plan_ref: G21_PLAN_REF,
+    triggered_by_adaptation_refs: ["adaptations/decisions/adapt-empty-generation-retry.json"],
+  };
+  planR2Envelope.content_hash = canonicalContentHash(planR2Envelope.document);
+  documentBundle.documents.push(planR2Entry);
+  manifest.current_plan_ref = planR2Entry.path;
+  manifest.plan_revision = 2;
+  return {
+    documentBundle,
+    planR1Hash: (planR1Entry.document as FormalArtifactEnvelope).content_hash,
+  };
+}
+test("historical candidate bindings require exact candidate membership", async () => {
+  const bundle = await createDiscoveryCandidateFixture();
+  const { documentBundle: historicalBundle, planR1Hash } = historicalPlanRevisionBundle(bundle);
+  const documentBundle = bundleWithPaths(historicalBundle, [
+    "manifest.json",
+    G21_SCOPE_REF,
+    G21_PLAN_REF,
+    planR2Ref,
+    G21_OPPORTUNITY_REF,
+    G21_SOLUTION_REF,
+    G22_DEMAND_R1,
+    G22_BASELINE_R1,
+    G22_SOLUTION_R1,
+  ]);
+  const exactBinding = {
+    planRef: G21_PLAN_REF,
+    planHash: planR1Hash,
+    planRevision: 1,
+    candidateRefs: [G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1],
+  };
+  const policy = await discoveryCandidatePolicy();
+  const exactIssues = validateDiscoveryCandidateContract(
+    candidateContractDocuments(documentBundle),
+    policy,
+    [exactBinding],
+  );
+  assert.deepEqual(exactIssues, []);
+
+  const outsiderSource = candidateContractDocuments(bundle).find(
+    (entry) => entry.path === G22_DEMAND_R1,
+  );
+  assert.ok(outsiderSource);
+  const outsider = cloneCandidateDocument(
+    outsiderSource,
+    "artifacts/discovery/candidates/candidate_neutralized.r1.json",
+    "candidate_neutralized",
+  );
+  const outsiderBundle = structuredClone(documentBundle) as typeof documentBundle & {
+    documents: { path: string; document: Record<string, unknown> }[];
+  };
+  outsiderBundle.documents.push({
+    path: outsider.path,
+    document: outsider.envelope ?? outsider.document,
+  });
+  const rejected = validateDiscoveryCandidateContract(
+    candidateContractDocuments(outsiderBundle),
+    policy,
+    [exactBinding],
+  );
+  assert.ok(
+    rejected.some(
+      (issue) =>
+        issue.code === "discovery_candidate.scope_identity_mismatch" &&
+        issue.instancePath === outsider.path,
+    ),
+    JSON.stringify(rejected, null, 2),
+  );
+});
+
+test("candidate-neutral generation retries authorize the exact generation task only", async () => {
+  const bundle = await createDiscoveryCandidateFixture();
+  const { documentBundle, planR1Hash } = historicalPlanRevisionBundle(bundle);
+  const generationTaskEntry = documentBundle.documents.find(
+    (entry) => entry.path === G22_GENERATION_TASK,
+  );
+  assert.ok(generationTaskEntry);
+  const generationTaskEnvelope = generationTaskEntry.document as FormalArtifactEnvelope & {
+    document: Record<string, unknown>;
+  };
+  generationTaskEnvelope.document = {
+    ...(generationTaskEnvelope.document as Record<string, unknown>),
+    required_artifact_schema: "startup_opportunity.discovery_generation_result.v1",
+    allowed_output_path: "artifacts/discovery/generation/unit_seed_independent_demand.r1.json",
+    target_candidate_refs: [],
+    input_refs: [G21_SCOPE_REF],
+  };
+  (generationTaskEntry.document as { content_hash: string }).content_hash = canonicalContentHash(
+    generationTaskEnvelope.document,
+  );
+  const generationBundle = bundleWithPaths(documentBundle, [
+    "manifest.json",
+    G21_SCOPE_REF,
+    G21_PLAN_REF,
+    planR2Ref,
+    G21_OPPORTUNITY_REF,
+    G22_GENERATION_TASK,
+  ]);
+  const generationBinding = {
+    planRef: G21_PLAN_REF,
+    planHash: planR1Hash,
+    planRevision: 1,
+    candidateRefs: [],
+    generationTaskRefs: [G22_GENERATION_TASK],
+  };
+  const policy = await discoveryCandidatePolicy();
+  const exactIssues = validateDiscoveryCandidateContract(
+    candidateContractDocuments(generationBundle),
+    policy,
+    [generationBinding],
+  );
+  assert.deepEqual(exactIssues, []);
+
+  const wrongPlanBinding = {
+    ...generationBinding,
+    planRef: "plans/research-plan.r0.json",
+  };
+  const wrongPlanIssues = validateDiscoveryCandidateContract(
+    candidateContractDocuments(generationBundle),
+    policy,
+    [wrongPlanBinding],
+  );
+  assert.ok(
+    wrongPlanIssues.some(
+      (issue) =>
+        issue.code === "discovery_candidate.task_binding_mismatch" &&
+        issue.instancePath === G22_GENERATION_TASK,
+    ),
+    JSON.stringify(wrongPlanIssues, null, 2),
+  );
+
+  const outsiderSource = candidateContractDocuments(bundle).find(
+    (entry) => entry.path === G22_DEMAND_R1,
+  );
+  assert.ok(outsiderSource);
+  const outsider = cloneCandidateDocument(
+    outsiderSource,
+    "artifacts/discovery/candidates/candidate_neutralized.r1.json",
+    "candidate_neutralized",
+  );
+  const candidateBundle = structuredClone(generationBundle) as typeof generationBundle & {
+    documents: { path: string; document: Record<string, unknown> }[];
+  };
+  candidateBundle.documents.push({
+    path: outsider.path,
+    document: outsider.envelope ?? outsider.document,
+  });
+  const rejected = validateDiscoveryCandidateContract(
+    candidateContractDocuments(candidateBundle),
+    policy,
+    [generationBinding],
+  );
+  assert.ok(
+    rejected.some(
+      (issue) =>
+        issue.code === "discovery_candidate.scope_identity_mismatch" &&
+        issue.instancePath === outsider.path,
+    ),
+    JSON.stringify(rejected, null, 2),
+  );
+});
+
+test("historical task bindings authorize candidate subsets and reject non-members", async () => {
+  const bundle = await createDiscoveryCandidateFixture();
+  const { documentBundle: historicalBundle, planR1Hash } = historicalPlanRevisionBundle(bundle);
+  const exactBinding = {
+    planRef: G21_PLAN_REF,
+    planHash: planR1Hash,
+    planRevision: 1,
+    candidateRefs: [G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1],
+  };
+  const taskBundle = bundleWithPaths(historicalBundle, [
+    "manifest.json",
+    G21_SCOPE_REF,
+    G21_PLAN_REF,
+    planR2Ref,
+    G21_OPPORTUNITY_REF,
+    G21_SOLUTION_REF,
+    G22_DEMAND_R1,
+    G22_BASELINE_R1,
+    G22_SOLUTION_R1,
+    G22_GENERATION_TASK,
+  ]);
+  const policy = await discoveryCandidatePolicy();
+  const exactIssues = validateDiscoveryCandidateContract(
+    candidateContractDocuments(taskBundle),
+    policy,
+    [exactBinding],
+  );
+  assert.deepEqual(exactIssues, []);
+
+  const singleCandidateTaskBundle = bundleWithTaskTargetCandidateRefs(
+    taskBundle,
+    G22_GENERATION_TASK,
+    [G22_DEMAND_R1],
+  );
+  const singleCandidateIssues = validateDiscoveryCandidateContract(
+    candidateContractDocuments(singleCandidateTaskBundle),
+    policy,
+    [exactBinding],
+  );
+  assert.deepEqual(singleCandidateIssues, []);
+
+  const subsetTaskBundle = bundleWithTaskTargetCandidateRefs(taskBundle, G22_GENERATION_TASK, [
+    G22_DEMAND_R1,
+    G22_BASELINE_R1,
+  ]);
+  const subsetIssues = validateDiscoveryCandidateContract(
+    candidateContractDocuments(subsetTaskBundle),
+    policy,
+    [exactBinding],
+  );
+  assert.deepEqual(subsetIssues, []);
+
+  const outsiderSource = candidateContractDocuments(bundle).find(
+    (entry) => entry.path === G22_DEMAND_R1,
+  );
+  assert.ok(outsiderSource);
+  const outsider = cloneCandidateDocument(
+    outsiderSource,
+    "artifacts/discovery/candidates/candidate_task_unbound.r1.json",
+    "candidate_task_unbound",
+  );
+  const nonMemberTaskBundle = bundleWithTaskTargetCandidateRefs(taskBundle, G22_GENERATION_TASK, [
+    G22_DEMAND_R1,
+    outsider.path,
+  ]) as typeof taskBundle & {
+    documents: { path: string; document: Record<string, unknown> }[];
+  };
+  nonMemberTaskBundle.documents.push({
+    path: outsider.path,
+    document: outsider.envelope ?? outsider.document,
+  });
+  const nonMemberRejected = validateDiscoveryCandidateContract(
+    candidateContractDocuments(nonMemberTaskBundle),
+    policy,
+    [exactBinding],
+  );
+  assert.ok(
+    nonMemberRejected.some(
+      (issue) =>
+        issue.code === "discovery_candidate.task_binding_mismatch" &&
+        issue.instancePath === G22_GENERATION_TASK,
+    ),
+    JSON.stringify(nonMemberRejected, null, 2),
+  );
+
+  const crossPlanCandidate = cloneCandidateDocument(
+    outsiderSource,
+    "artifacts/discovery/candidates/candidate_task_cross_plan.r1.json",
+    "candidate_task_cross_plan",
+  );
+  crossPlanCandidate.document.research_plan_ref = planR2Ref;
+  if (crossPlanCandidate.envelope !== null) {
+    crossPlanCandidate.envelope.document = crossPlanCandidate.document;
+    crossPlanCandidate.envelope.content_hash = canonicalContentHash(crossPlanCandidate.document);
+  }
+  const crossPlanTaskBundle = bundleWithTaskTargetCandidateRefs(taskBundle, G22_GENERATION_TASK, [
+    G22_DEMAND_R1,
+    crossPlanCandidate.path,
+  ]) as typeof taskBundle & {
+    documents: { path: string; document: Record<string, unknown> }[];
+  };
+  crossPlanTaskBundle.documents.push({
+    path: crossPlanCandidate.path,
+    document: crossPlanCandidate.envelope ?? crossPlanCandidate.document,
+  });
+  const crossPlanRejected = validateDiscoveryCandidateContract(
+    candidateContractDocuments(crossPlanTaskBundle),
+    policy,
+    [
+      {
+        ...exactBinding,
+        candidateRefs: [...exactBinding.candidateRefs, crossPlanCandidate.path],
+      },
+    ],
+  );
+  assert.ok(
+    crossPlanRejected.some(
+      (issue) =>
+        issue.code === "discovery_candidate.task_binding_mismatch" &&
+        issue.instancePath === G22_GENERATION_TASK,
+    ),
+    JSON.stringify(crossPlanRejected, null, 2),
+  );
+});
+
 test("G2.2 Candidate formation closes current Scope, Plan, synthesis inputs, and prior admission", async () => {
   const policy = JSON.parse(
     await readFile(
@@ -386,7 +769,7 @@ test("G2.2 Candidate formation closes current Scope, Plan, synthesis inputs, and
     validateDiscoveryCandidateContract(
       candidateContractDocuments(unlabelledCopy),
       policy,
-      new Set(),
+      [],
       new Map([[decisionRef, admission]]),
     ).some((issue) => issue.code === "discovery_candidate.prior_input_target_not_propagated"),
   );
@@ -394,7 +777,7 @@ test("G2.2 Candidate formation closes current Scope, Plan, synthesis inputs, and
     validateDiscoveryCandidateContract(
       priorDocuments,
       policy,
-      new Set(),
+      [],
       new Map([[decisionRef, admission]]),
     ).some((issue) =>
       [
@@ -453,7 +836,7 @@ test("G2.2 Candidate formation closes current Scope, Plan, synthesis inputs, and
     validateDiscoveryCandidateContract(
       inheritedDocuments,
       policy,
-      new Set(),
+      [],
       new Map([[decisionRef, admission]]),
     ).some((issue) => issue.code === "discovery_candidate.prior_input_provenance_not_propagated"),
   );
@@ -471,7 +854,7 @@ test("G2.2 Candidate formation closes current Scope, Plan, synthesis inputs, and
     validateDiscoveryCandidateContract(
       inheritedDocuments,
       policy,
-      new Set(),
+      [],
       new Map([[decisionRef, admission]]),
     ).some((issue) => issue.code === "discovery_candidate.prior_input_provenance_not_propagated"),
     false,

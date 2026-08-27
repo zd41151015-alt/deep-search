@@ -36,7 +36,7 @@
             "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"
           },
           "producer_role": {
-            "enum": ["main_agent", "lane_researcher", "harness"]
+            "enum": ["main_agent", "lane_researcher", "adversarial_reviewer", "harness"]
           },
           "input_refs": {
             "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"

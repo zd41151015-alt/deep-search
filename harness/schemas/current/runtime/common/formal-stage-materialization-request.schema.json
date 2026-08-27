@@ -52,6 +52,7 @@
             "hard_gate_scan",
             "candidate_evaluation",
             "retained_candidate_deep_review",
+            "review",
             "discovery_synthesis"
           ]
         },
@@ -101,7 +102,7 @@
         "unit_id": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
         },
-        "lane_role": { "enum": ["opportunity", "evaluation", "risk"] },
+        "lane_role": { "enum": ["opportunity", "evaluation", "risk", "review"] },
         "candidate_scope": {
           "type": "object",
           "additionalProperties": false,
@@ -263,6 +264,15 @@
                 { "contains": { "const": "support" } },
                 { "contains": { "const": "oppose" } }
               ]
+            },
+            "assigned_plan_question_refs": {
+              "type": "array",
+              "allOf": [
+                {
+                  "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+                }
+              ],
+              "minItems": 1
             },
             "stop_conditions": {
               "type": "array",

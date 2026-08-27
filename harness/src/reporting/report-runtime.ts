@@ -67,7 +67,10 @@ import {
   deriveReportSubjectLabels,
   deriveTerminalReportSubjectAuthorities,
 } from "./report-projection-authority.js";
-import { deriveTerminalReportDocuments } from "./terminal-reporting.js";
+import {
+  deriveDiscoveryReviewSummaries,
+  deriveTerminalReportDocuments,
+} from "./terminal-reporting.js";
 
 const REPORT_SECTION_ORDER = [
   "assessment_result_and_evidence_strength",
@@ -2314,6 +2317,7 @@ export class ReportRuntime {
         "startup_opportunity.research_task.assessment.current",
         "startup_opportunity.research_task.discovery_candidate.current",
         "startup_opportunity.research_task.discovery_evaluation.current",
+        "startup_opportunity.research_task.discovery_review.current",
       ].includes(String(entry.document.schema_version)),
     );
     const audits = context.bundle.documents.flatMap((entry) => {
@@ -2332,6 +2336,29 @@ export class ReportRuntime {
           document: entry.document.document,
         },
       ];
+    });
+    const discoveryReviews = context.bundle.documents.flatMap((entry) => {
+      if (
+        entry.document.schema_version !== "startup_opportunity.artifact_envelope.current" ||
+        entry.document.artifact_type !==
+          "startup_opportunity.discovery_adversarial_review.current" ||
+        !isRecord(entry.document.document) ||
+        typeof entry.document.content_hash !== "string"
+      ) {
+        return [];
+      }
+      return [
+        {
+          path: entry.path,
+          contentHash: entry.document.content_hash,
+          document: entry.document.document,
+        },
+      ];
+    });
+    const discoveryReviewRefs = discoveryReviews.map((review) => review.path);
+    const discoveryReviewSummaries = deriveDiscoveryReviewSummaries(discoveryReviews);
+    const discoveryReviewAuditRefs = typedReportInputRefs({
+      discovery_review_summaries: discoveryReviewSummaries,
     });
     const sourceDocument = structuredClone(source.document);
     const provenanceDocuments = context.bundle.documents.flatMap((entry) => {
@@ -2393,6 +2420,18 @@ export class ReportRuntime {
       throw new StoreError(
         "report.source_invalid",
         "caller-supplied research provenance drifts from exact current-Run handoff and Evidence records",
+      );
+    }
+    if (
+      source.artifact_type === "startup_opportunity.terminal_report_source.v1" &&
+      sourceDocument.discovery_review_summaries !== undefined &&
+      canonicalJson(records(sourceDocument.discovery_review_summaries)) !==
+        canonicalJson(discoveryReviewSummaries)
+    ) {
+      throw new StoreError(
+        "report.mechanical_projection_drift",
+        "caller-supplied Discovery review summary drifts from exact current-Run review authorities",
+        { field: "discovery_review_summaries" },
       );
     }
     const decisionSnapshot =
@@ -2603,6 +2642,7 @@ export class ReportRuntime {
             research_provenance: researchProvenance,
             directions: synthesizedDirections,
             ordered_validation_plan: synthesizedValidationPlan,
+            discovery_review_summaries: discoveryReviewSummaries,
           }
         : {}),
     };
@@ -2692,8 +2732,14 @@ export class ReportRuntime {
             research_provenance: researchProvenance,
             directions: synthesizedDirections,
             ordered_validation_plan: synthesizedValidationPlan,
+            discovery_review_summaries: discoveryReviewSummaries,
             audit_refs: [
-              ...new Set([...strings(sourceDocument.audit_refs), ...projectedAuditRefs]),
+              ...new Set([
+                ...strings(sourceDocument.audit_refs),
+                ...projectedAuditRefs,
+                ...discoveryReviewRefs,
+                ...discoveryReviewAuditRefs,
+              ]),
             ].sort(),
           }
         : {}),
@@ -2710,6 +2756,8 @@ export class ReportRuntime {
           ),
           ...strings(researchProvenance.causal_handoff_refs),
           ...fullProjection.commercial_research_audit_refs,
+          ...discoveryReviewRefs,
+          ...discoveryReviewAuditRefs,
           ...reportCitations.map((citation) => citation.evidence_ref),
           ...subjectAuthorities.map((authority) => authority.subjectRef),
           ...dispositions.reportEvidenceDispositions.map((entry) => String(entry.evidence_ref)),

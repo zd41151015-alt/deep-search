@@ -37,6 +37,7 @@
     "startup_opportunity.enrichment_branch_result.v1",
     "startup_opportunity.concept_evidence_assessment_branch_result.v1",
     "startup_opportunity.assessment_lane_result.v1",
+    "startup_opportunity.discovery_adversarial_review.current",
     "startup_opportunity.adversarial_review.v1"
   ],
   "unit_rules": [
@@ -227,7 +228,7 @@
       "phase": "review",
       "unit_type": "adversarial_review",
       "agent_role": "adversarial-reviewer",
-      "required_artifact_schema": "startup_opportunity.adversarial_review.v1"
+      "required_artifact_schema": "startup_opportunity.discovery_adversarial_review.current"
     },
     {
       "mode": "concept_evidence_assessment",

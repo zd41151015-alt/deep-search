@@ -23,6 +23,7 @@
       "enum": [
         "startup_opportunity.adaptation_decision.discovery.current",
         "startup_opportunity.adaptation_decision.assessment.current",
+        "startup_opportunity.discovery_adversarial_review.current",
         "startup_opportunity.adversarial_review.v1",
         "startup_opportunity.ai_adoption_trust.v1",
         "startup_opportunity.ai_capability_benchmark.v1",
@@ -119,6 +120,7 @@
         "startup_opportunity.research_task.assessment.current",
         "startup_opportunity.research_task.discovery_candidate.current",
         "startup_opportunity.research_task.discovery_evaluation.current",
+        "startup_opportunity.research_task.discovery_review.current",
         "startup_opportunity.run_manifest.v1",
         "startup_opportunity.scope_frame.assessment.current",
         "startup_opportunity.scope_frame.discovery.current",
@@ -304,6 +306,26 @@
         "properties": {
           "document": {
             "$ref": "../assessment/adaptation/adaptation-decision.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "const": "startup_opportunity.discovery_adversarial_review.current"
+          }
+        },
+        "required": ["artifact_type"]
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "adversarial_reviewer"
+          },
+          "document": {
+            "$ref": "../discovery/review/adversarial-review-result.schema.json"
           }
         }
       }
@@ -2148,6 +2170,25 @@
           },
           "document": {
             "$ref": "../discovery/evaluation/research-task.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "const": "startup_opportunity.research_task.discovery_review.current"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "main_agent"
+          },
+          "document": {
+            "$ref": "../discovery/review/research-task.schema.json"
           }
         }
       }

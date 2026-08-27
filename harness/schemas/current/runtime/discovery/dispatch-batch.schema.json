@@ -87,7 +87,7 @@
             "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
           },
           "lane_role": {
-            "enum": ["opportunity", "evaluation", "risk"]
+            "enum": ["opportunity", "evaluation", "risk", "review"]
           },
           "incumbent_response_assignment": {
             "$ref": "../../assessment/commercial/incumbent-response-risk.schema.json#/$defs/assignment"
@@ -97,6 +97,15 @@
           },
           "input_refs": {
             "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "assigned_plan_question_refs": {
+            "type": "array",
+            "allOf": [
+              {
+                "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+              }
+            ],
+            "minItems": 1
           },
           "allowed_output_path": {
             "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"

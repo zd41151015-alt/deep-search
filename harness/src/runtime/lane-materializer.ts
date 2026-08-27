@@ -1,4 +1,4 @@
-import { canonicalJson, operationKey } from "../artifact-store/canonical.js";
+import { canonicalContentHash, canonicalJson, operationKey } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { EvidenceStore, type EvidenceStoreRecord } from "../evidence-store/evidence-store.js";
 import { RunStore } from "../run-store/run-store.js";
@@ -14,6 +14,7 @@ import {
   DeclarativeRuntimeCompiler,
   type RuntimeArtifactCompilationResult,
   type RuntimePublicationPlan,
+  runtimePublicationPlansEquivalentForScopedClosure,
 } from "./declarative-runtime.js";
 import {
   deriveLaneScopeFormalClosure,
@@ -43,14 +44,22 @@ interface LaneStagingDocument extends Record<string, unknown> {
   readonly run_id: string;
   readonly task_ref: string;
   readonly created_at: string;
-  readonly producer_role: "lane_researcher";
+  readonly producer_role: "lane_researcher" | "adversarial_reviewer";
   readonly operation: "validate_only" | "publish";
   readonly publication_plan?: RuntimePublicationPlan;
   readonly evidence_receipt_refs: readonly string[];
   readonly delivery_contract: {
     readonly search_closure: {
-      readonly status: "completed" | "not_required" | "failed_before_search";
+      readonly status:
+        | "completed"
+        | "partial"
+        | "insufficient_evidence"
+        | "unavailable"
+        | "not_required"
+        | "search_not_required"
+        | "failed_before_search";
       readonly acquisition_routes_attempted: readonly string[];
+      readonly adopted_source_refs?: readonly string[];
       readonly unresolved_gaps: readonly string[];
       readonly stop_reason: string;
     };
@@ -85,11 +94,18 @@ interface LaneDeliveryAuthority {
   readonly runId: string;
   readonly taskRef: string;
   readonly task: Record<string, unknown>;
+  readonly taskHash: string;
   readonly taskSchema: string;
   readonly unitId: string;
   readonly planRef: string;
+  readonly plan: Record<string, unknown>;
+  readonly planHash: string;
   readonly executionRef: string;
+  readonly execution: Record<string, unknown>;
+  readonly executionHash: string;
   readonly dispatchTaskRef: string;
+  readonly dispatch: Record<string, unknown>;
+  readonly dispatchHash: string;
   readonly stageId: string;
   readonly executionLane: Record<string, unknown>;
   readonly assignedScope: readonly string[];
@@ -103,7 +119,7 @@ interface PreparedAgentArtifact {
   readonly family: AgentArtifactFamily;
   readonly artifact_type: string;
   readonly artifact_path: string;
-  readonly producer_role: "lane_researcher";
+  readonly producer_role: "lane_researcher" | "adversarial_reviewer";
   readonly input_refs: readonly string[];
   readonly document: Record<string, unknown>;
 }
@@ -121,7 +137,14 @@ export interface LaneDeliveryResult {
     readonly delivered_artifact_count: number;
     readonly scope_count: number;
     readonly evidence_ref_count: number;
-    readonly search_closure_status: "completed" | "not_required" | "failed_before_search";
+    readonly search_closure_status:
+      | "completed"
+      | "partial"
+      | "insufficient_evidence"
+      | "unavailable"
+      | "not_required"
+      | "search_not_required"
+      | "failed_before_search";
   };
   readonly delivery_receipt: RuntimeArtifactCompilationResult["compiled_envelopes"][number];
   readonly compilation: RuntimeArtifactCompilationResult;
@@ -351,6 +374,20 @@ function isDiscoveryGenerationAuthority(authority: LaneDeliveryAuthority): boole
   );
 }
 
+function isDiscoveryReviewAuthority(authority: LaneDeliveryAuthority): boolean {
+  return (
+    authority.taskSchema === "startup_opportunity.research_task.discovery_review.current" &&
+    authority.task.required_artifact_schema ===
+      "startup_opportunity.discovery_adversarial_review.current"
+  );
+}
+
+function expectedProducerRole(
+  authority: LaneDeliveryAuthority,
+): "lane_researcher" | "adversarial_reviewer" {
+  return isDiscoveryReviewAuthority(authority) ? "adversarial_reviewer" : "lane_researcher";
+}
+
 function discoveryLineage(authority: LaneDeliveryAuthority): Record<string, unknown> {
   return {
     task_ref: authority.taskRef,
@@ -366,6 +403,204 @@ function discoveryLineage(authority: LaneDeliveryAuthority): Record<string, unkn
     scope_frame_ref: authority.task.scope_frame_ref,
     research_plan_ref: authority.planRef,
   };
+}
+
+function projectReviewSearchClosure(searchClosure: unknown): Record<string, unknown> | null {
+  if (!isRecord(searchClosure)) return null;
+  if (typeof searchClosure.status !== "string" || typeof searchClosure.stop_reason !== "string") {
+    return null;
+  }
+  if (!Array.isArray(searchClosure.adopted_source_refs)) {
+    return null;
+  }
+  return {
+    status: searchClosure.status,
+    acquisition_routes_attempted: strings(searchClosure.acquisition_routes_attempted),
+    adopted_source_refs: uniqueSorted(strings(searchClosure.adopted_source_refs)),
+    unresolved_gaps: strings(searchClosure.unresolved_gaps),
+    stop_reason: searchClosure.stop_reason,
+  };
+}
+
+function reviewStatusMatchesSearchClosure(
+  reviewStatus: unknown,
+  searchClosure: LaneStagingDocument["delivery_contract"]["search_closure"],
+  scopeFormalClosure: readonly LaneScopeFormalClosure[] = [],
+): boolean {
+  const routes = strings(searchClosure.acquisition_routes_attempted);
+  const noSearchRoute = routes.length === 1 && routes[0] === "none";
+  const hasActualRoute = routes.length > 0 && !routes.includes("none");
+  const allNotApplicable =
+    scopeFormalClosure.length > 0 &&
+    scopeFormalClosure.every((entry) => entry.disposition === "not_applicable");
+  if (
+    reviewStatus === "completed" ||
+    reviewStatus === "partial" ||
+    reviewStatus === "insufficient_evidence"
+  ) {
+    if (
+      reviewStatus === "completed" &&
+      searchClosure.status === "search_not_required" &&
+      noSearchRoute &&
+      searchClosure.unresolved_gaps.length === 0 &&
+      allNotApplicable
+    ) {
+      return true;
+    }
+    return (
+      searchClosure.status === reviewStatus &&
+      hasActualRoute &&
+      (reviewStatus !== "completed" || searchClosure.unresolved_gaps.length === 0)
+    );
+  }
+  if (reviewStatus === "failed") {
+    return (
+      (searchClosure.status === "failed_before_search" && noSearchRoute) ||
+      (searchClosure.status === "unavailable" && hasActualRoute)
+    );
+  }
+  if (reviewStatus === "ignored_late" || reviewStatus === "superseded") {
+    if (searchClosure.status === "search_not_required") {
+      return noSearchRoute && searchClosure.unresolved_gaps.length === 0 && allNotApplicable;
+    }
+    if (
+      searchClosure.status === "completed" ||
+      searchClosure.status === "partial" ||
+      searchClosure.status === "insufficient_evidence" ||
+      searchClosure.status === "unavailable"
+    ) {
+      return (
+        hasActualRoute &&
+        (searchClosure.status !== "completed" || searchClosure.unresolved_gaps.length === 0)
+      );
+    }
+    return searchClosure.status === "failed_before_search" && noSearchRoute;
+  }
+  return false;
+}
+
+const REVIEW_MATERIAL_REF_FIELDS = [
+  "supporting_refs",
+  "opposing_refs",
+  "background_refs",
+  "contradictory_refs",
+  "unknown_refs",
+] as const;
+
+function refDocumentPath(ref: string): string {
+  return ref.split("#", 1)[0] ?? "";
+}
+
+function isSelfReference(ref: string, artifactPath: string): boolean {
+  return refDocumentPath(ref) === artifactPath;
+}
+
+function reviewMaterialVisibilityIssues(
+  staging: LaneStagingDocument,
+  reviewArtifact: PreparedAgentArtifact,
+): readonly LaneDeliveryIssue[] {
+  const document = reviewArtifact.document;
+  const visibility = isRecord(document.material_visibility) ? document.material_visibility : {};
+  const issues: LaneDeliveryIssue[] = [];
+  const selfReferenceFields: readonly {
+    readonly path: string;
+    readonly refs: readonly string[];
+  }[] = [
+    ...REVIEW_MATERIAL_REF_FIELDS.map((field) => ({
+      path: `/agent_documents/${String(reviewArtifact.staging_index)}/document/material_visibility/${field}`,
+      refs: strings(visibility[field]),
+    })),
+    ...records(document.review_findings).flatMap((finding, findingIndex) =>
+      REVIEW_MATERIAL_REF_FIELDS.map((field) => ({
+        path: `/agent_documents/${String(reviewArtifact.staging_index)}/document/review_findings/${String(findingIndex)}/${field}`,
+        refs: strings(finding[field]),
+      })),
+    ),
+    ...records(document.decision_relevant_gaps).map((gap, gapIndex) => ({
+      path: `/agent_documents/${String(reviewArtifact.staging_index)}/document/decision_relevant_gaps/${String(gapIndex)}/basis_refs`,
+      refs: strings(gap.basis_refs),
+    })),
+    {
+      path: `/agent_documents/${String(reviewArtifact.staging_index)}/document/search_closure/adopted_source_refs`,
+      refs: strings(
+        isRecord(document.search_closure) ? document.search_closure.adopted_source_refs : [],
+      ),
+    },
+  ];
+  for (const field of selfReferenceFields) {
+    for (const reference of field.refs.filter((ref) =>
+      isSelfReference(ref, reviewArtifact.artifact_path),
+    )) {
+      issues.push(
+        issue(
+          staging.staging_id,
+          "lane_delivery.review_self_reference_forbidden",
+          field.path,
+          "Discovery review material references must not point at the review result itself",
+          "A review result cannot use its own output as material, gap basis, or adopted source authority.",
+          reference,
+          true,
+          [reference, reviewArtifact.artifact_path],
+        ),
+      );
+    }
+  }
+  for (const [findingIndex, finding] of records(document.review_findings).entries()) {
+    for (const field of REVIEW_MATERIAL_REF_FIELDS) {
+      const visible = new Set(strings(visibility[field]));
+      for (const reference of strings(finding[field]).filter((ref) => !visible.has(ref))) {
+        issues.push(
+          issue(
+            staging.staging_id,
+            "lane_delivery.review_material_visibility_mismatch",
+            `/agent_documents/${String(reviewArtifact.staging_index)}/document/review_findings/${String(findingIndex)}/${field}`,
+            "Discovery review finding material refs must appear in material_visibility with the same structured role",
+            "The reviewer cited role-specific material in a finding without making that same role visible in the review inventory.",
+            reference,
+            false,
+            [reference, reviewArtifact.artifact_path],
+          ),
+        );
+      }
+    }
+  }
+  const visibleRefs = uniqueSorted(
+    REVIEW_MATERIAL_REF_FIELDS.flatMap((field) => strings(visibility[field])),
+  );
+  const visibleRefSet = new Set(visibleRefs);
+  for (const [gapIndex, gap] of records(document.decision_relevant_gaps).entries()) {
+    for (const reference of strings(gap.basis_refs).filter((ref) => !visibleRefSet.has(ref))) {
+      issues.push(
+        issue(
+          staging.staging_id,
+          "lane_delivery.review_gap_basis_visibility_mismatch",
+          `/agent_documents/${String(reviewArtifact.staging_index)}/document/decision_relevant_gaps/${String(gapIndex)}/basis_refs`,
+          "Discovery review gap basis refs must appear in material_visibility",
+          "A decision-relevant gap cited material outside the single structured visible-material and Search Closure authority.",
+          reference,
+          false,
+          [reference, reviewArtifact.artifact_path],
+        ),
+      );
+    }
+  }
+  const searchClosure = isRecord(document.search_closure) ? document.search_closure : {};
+  const adoptedRefs = uniqueSorted(strings(searchClosure.adopted_source_refs));
+  if (canonicalJson(visibleRefs) !== canonicalJson(adoptedRefs)) {
+    issues.push(
+      issue(
+        staging.staging_id,
+        "lane_delivery.review_adopted_source_refs_mismatch",
+        `/agent_documents/${String(reviewArtifact.staging_index)}/document/search_closure/adopted_source_refs`,
+        "Discovery review adopted_source_refs must equal the material_visibility inventory",
+        "The review declared a Search Closure adopted-source truth that diverges from the role-specific visible material inventory.",
+        null,
+        false,
+        [reviewArtifact.artifact_path, ...visibleRefs, ...adoptedRefs],
+      ),
+    );
+  }
+  return issues;
 }
 
 function semanticArtifactContract(
@@ -549,6 +784,26 @@ function mechanicalDocumentFields(
         dispatch_batch_ref: authority.dispatchTaskRef,
         scope_frame_ref: authority.task.scope_frame_ref,
         research_plan_ref: authority.planRef,
+      };
+    }
+    if (contract.artifact_type === "startup_opportunity.discovery_adversarial_review.current") {
+      return {
+        ...common,
+        review_result_id: `review_${authority.unitId}_attempt_${String(authority.task.attempt)}`,
+        unit_id: authority.unitId,
+        attempt: Number(authority.task.attempt),
+        owner_role: "adversarial-reviewer",
+        owned_output_path: contract.artifact_path,
+        task_ref: authority.taskRef,
+        task_hash: authority.taskHash,
+        dispatch_batch_ref: authority.dispatchTaskRef,
+        dispatch_batch_hash: authority.dispatchHash,
+        execution_plan_ref: authority.executionRef,
+        execution_plan_hash: authority.executionHash,
+        scope_frame_ref: authority.task.scope_frame_ref,
+        research_plan_ref: authority.planRef,
+        research_plan_hash: authority.planHash,
+        required_stances: strings(authority.task.required_stances),
       };
     }
     if (contract.artifact_type === "startup_opportunity.assessment_lane_result.v1") {
@@ -760,6 +1015,44 @@ function preflight(
   }
 
   const closure = staging.delivery_contract.search_closure;
+  const reviewArtifact = prepared.find(
+    (artifact) =>
+      artifact.family === "lane_result" &&
+      artifact.artifact_type === "startup_opportunity.discovery_adversarial_review.current",
+  );
+  if (reviewArtifact !== undefined) {
+    issues.push(...reviewMaterialVisibilityIssues(staging, reviewArtifact));
+    const projectedReviewClosure = projectReviewSearchClosure(
+      reviewArtifact.document.search_closure,
+    );
+    if (
+      projectedReviewClosure === null ||
+      canonicalJson(projectedReviewClosure) !== canonicalJson(closure)
+    ) {
+      issues.push(
+        issue(
+          staging.staging_id,
+          "lane_delivery.review_search_closure_mismatch",
+          "/delivery_contract/search_closure",
+          "Discovery review result search closure must project exactly into the staged delivery contract",
+          "The review result and staged delivery contract diverge on the same search-closure authority.",
+        ),
+      );
+    }
+    if (
+      !reviewStatusMatchesSearchClosure(reviewArtifact.document.status, closure, scopeFormalClosure)
+    ) {
+      issues.push(
+        issue(
+          staging.staging_id,
+          "lane_delivery.review_status_search_closure_invalid",
+          "/delivery_contract/search_closure/status",
+          "Discovery review result status must match its structured Search Closure status",
+          "The review result and search closure report incompatible terminal states.",
+        ),
+      );
+    }
+  }
   if (
     closure.status === "completed" &&
     (closure.acquisition_routes_attempted.length === 0 ||
@@ -772,6 +1065,21 @@ function preflight(
         "/delivery_contract/search_closure/acquisition_routes_attempted",
         "completed search closure requires an actual acquisition route",
         "The Lane declared completion without disclosing how it searched.",
+      ),
+    );
+  }
+  if (
+    ["partial", "insufficient_evidence", "unavailable"].includes(closure.status) &&
+    (closure.acquisition_routes_attempted.length === 0 ||
+      closure.acquisition_routes_attempted.includes("none"))
+  ) {
+    issues.push(
+      issue(
+        staging.staging_id,
+        "lane_delivery.search_closure_route_missing",
+        "/delivery_contract/search_closure/acquisition_routes_attempted",
+        "partial, insufficient-evidence, or unavailable search closure requires an actual acquisition route",
+        "The Lane declared an applicable search outcome without disclosing how it searched.",
       ),
     );
   }
@@ -791,7 +1099,7 @@ function preflight(
     );
   }
   if (
-    closure.status === "not_required" &&
+    (closure.status === "not_required" || closure.status === "search_not_required") &&
     (closure.acquisition_routes_attempted.length !== 1 ||
       closure.acquisition_routes_attempted[0] !== "none" ||
       scopeFormalClosure.some((entry) => entry.disposition !== "not_applicable"))
@@ -1089,28 +1397,35 @@ export class LaneResultMaterializer {
     const requirements = isRecord(task.commercial_research_requirements)
       ? task.commercial_research_requirements
       : null;
+    const reviewAuthority =
+      taskSchema === "startup_opportunity.research_task.discovery_review.current" &&
+      outputType === "startup_opportunity.discovery_adversarial_review.current";
     const commercialAuditPath =
-      requirements !== null && typeof requirements.commercial_audit_output_path === "string"
+      !reviewAuthority &&
+      requirements !== null &&
+      typeof requirements.commercial_audit_output_path === "string"
         ? requirements.commercial_audit_output_path
         : null;
-    const assignedScope = uniqueSorted([
-      ...strings(executionLane.reporting_dimensions),
-      ...strings(requirements?.required_commercial_dimensions),
-      ...(isRecord(requirements?.quantitative_competitive_scope)
-        ? [
-            ...strings(requirements.quantitative_competitive_scope.required_metric_families).map(
-              (value) => `quantitative:${value}`,
-            ),
-            ...strings(requirements.quantitative_competitive_scope.required_competitor_types).map(
-              (value) => `competitive:${value}`,
-            ),
-          ]
-        : []),
-      ...(isRecord(executionLane.incumbent_response_assignment) &&
-      executionLane.incumbent_response_assignment.analysis_depth !== "not_assigned"
-        ? ["incumbent_response"]
-        : []),
-    ]);
+    const assignedScope = reviewAuthority
+      ? uniqueSorted(strings(executionLane.reporting_dimensions))
+      : uniqueSorted([
+          ...strings(executionLane.reporting_dimensions),
+          ...strings(requirements?.required_commercial_dimensions),
+          ...(isRecord(requirements?.quantitative_competitive_scope)
+            ? [
+                ...strings(
+                  requirements.quantitative_competitive_scope.required_metric_families,
+                ).map((value) => `quantitative:${value}`),
+                ...strings(
+                  requirements.quantitative_competitive_scope.required_competitor_types,
+                ).map((value) => `competitive:${value}`),
+              ]
+            : []),
+          ...(isRecord(executionLane.incumbent_response_assignment) &&
+          executionLane.incumbent_response_assignment.analysis_depth !== "not_assigned"
+            ? ["incumbent_response"]
+            : []),
+        ]);
     const assignedSubjectRefs = uniqueSorted([
       ...strings(task.target_candidate_refs),
       ...strings(task.target_opportunity_refs),
@@ -1126,11 +1441,18 @@ export class LaneResultMaterializer {
       runId: staging.run_id,
       taskRef: staging.task_ref,
       task,
+      taskHash: canonicalContentHash(task),
       taskSchema,
       unitId,
       planRef,
+      plan,
+      planHash: canonicalContentHash(plan),
       executionRef,
+      execution,
+      executionHash: canonicalContentHash(execution),
       dispatchTaskRef: `${dispatchPath}#${String(task.task_id)}`,
+      dispatch,
+      dispatchHash: canonicalContentHash(dispatch),
       stageId: String(dispatch.stage_id),
       executionLane,
       assignedScope,
@@ -1211,6 +1533,21 @@ export class LaneResultMaterializer {
     const staging = value as LaneStagingDocument;
     const authority = await this.authority(staging);
     const constructionIssues: LaneDeliveryIssue[] = [];
+    const producerRole = expectedProducerRole(authority);
+    if (staging.producer_role !== producerRole) {
+      constructionIssues.push(
+        issue(
+          staging.staging_id,
+          "lane_delivery.producer_role_mismatch",
+          "/producer_role",
+          "Lane staging producer_role must match the exact Task owner",
+          "The delivery was submitted by a role that does not own the current Task output contract.",
+          authority.taskRef,
+          true,
+          [authority.taskRef, staging.producer_role],
+        ),
+      );
+    }
     const prepared: PreparedAgentArtifact[] = [];
     for (const [index, artifact] of staging.agent_documents.entries()) {
       const contract = semanticArtifactContract(
@@ -1287,7 +1624,7 @@ export class LaneResultMaterializer {
         staging_index: index,
         family: artifact.artifact_family,
         ...contract,
-        producer_role: "lane_researcher",
+        producer_role: producerRole,
         input_refs: directRefs,
         document,
       });
@@ -1423,7 +1760,17 @@ export class LaneResultMaterializer {
       artifact_type: envelope.artifact_type,
       content_hash: envelope.content_hash,
     }));
+    const reviewArtifact = prepared.find(
+      (artifact) =>
+        artifact.family === "lane_result" &&
+        artifact.artifact_type === "startup_opportunity.discovery_adversarial_review.current",
+    );
     const scopeCoverage = laneScopeCoverageFromClosure(scopeFormalClosure.closure);
+    const reviewSearchClosure =
+      reviewArtifact === undefined
+        ? staging.delivery_contract.search_closure
+        : (projectReviewSearchClosure(reviewArtifact.document.search_closure) ??
+          staging.delivery_contract.search_closure);
     const receiptIdentity = {
       run_id: staging.run_id,
       staging_id: staging.staging_id,
@@ -1437,7 +1784,7 @@ export class LaneResultMaterializer {
       assigned_scope: authority.assignedScope,
       scope_coverage: scopeCoverage,
       scope_formal_closure: scopeFormalClosure.closure,
-      search_closure: staging.delivery_contract.search_closure,
+      search_closure: reviewSearchClosure,
     };
     const receiptPath = `artifacts/runtime/lane-deliveries/${staging.staging_id}.json`;
     const receiptDocument: Record<string, unknown> = {
@@ -1507,8 +1854,10 @@ export class LaneResultMaterializer {
         staging.publication_plan.request_id !== staging.staging_id ||
         staging.publication_plan.run_id !== staging.run_id ||
         staging.publication_plan.created_at !== staging.created_at ||
-        canonicalJson(staging.publication_plan.compiled_envelopes) !==
-          canonicalJson(validated.compiled_envelopes)
+        !runtimePublicationPlansEquivalentForScopedClosure(
+          validated.publication_plan,
+          staging.publication_plan,
+        )
       ) {
         throw new StoreError(
           "runtime.publication_plan_stale",

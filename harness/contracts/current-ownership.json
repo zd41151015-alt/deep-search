@@ -17,6 +17,7 @@
       "producerModules": [
         "harness/src/artifact-store/artifact-store.ts",
         "harness/src/commands.ts",
+        "harness/src/cli.ts",
         "harness/src/evidence-store/evidence-store.ts",
         "harness/src/index.ts",
         "harness/src/run-store/run-store.ts"
@@ -93,6 +94,7 @@
         "harness/src/adaptation/adaptation-commands.ts",
         "harness/src/adaptation/adaptation-author-runtime.ts",
         "harness/src/commands.ts",
+        "harness/src/cli.ts",
         "harness/src/evidence-store/evidence-store.ts",
         "harness/src/index.ts",
         "harness/src/runtime/g24-planning-capabilities.ts",
@@ -115,6 +117,7 @@
         "harness/src/validators/artifact-validator.ts",
         "harness/src/validators/g24-planning-rules.ts",
         "harness/src/validators/planning-contract-validator.ts",
+        "harness/src/runtime/discovery-wave-contracts.ts",
         "harness/src/validators/research-handoff-validator.ts"
       ],
       "policyPaths": [
@@ -173,6 +176,7 @@
       "producerModules": [
         "harness/src/compiler/commercial-research-compiler.ts",
         "harness/src/commands.ts",
+        "harness/src/cli.ts",
         "harness/src/evidence-store/evidence-store.ts",
         "harness/src/index.ts",
         "harness/src/runtime/lane-materializer.ts"
@@ -285,6 +289,7 @@
       "directRuntimeRoots": [],
       "ownerModules": [
         "harness/src/runtime/discovery-stage-projections.ts",
+        "harness/src/runtime/discovery-wave-contracts.ts",
         "harness/src/runtime/formal-stage-materializer.ts",
         "harness/src/opportunity-family-contract.ts",
         "harness/src/validators/discovery-candidate-validator.ts",
@@ -294,6 +299,7 @@
       ],
       "producerModules": [
         "harness/src/commands.ts",
+        "harness/src/cli.ts",
         "harness/src/comparison/comparison-commands.ts",
         "harness/src/evidence-store/evidence-store.ts",
         "harness/src/index.ts",
@@ -404,6 +410,7 @@
       "ownerModules": ["harness/src/validators/ai-bundle-validator.ts"],
       "producerModules": [
         "harness/src/commands.ts",
+        "harness/src/cli.ts",
         "harness/src/evidence-store/evidence-store.ts",
         "harness/src/index.ts",
         "harness/src/runtime/declarative-runtime.ts"
@@ -480,11 +487,13 @@
         "harness/src/runtime/dispatch-launch-registry.ts",
         "harness/src/runtime/lane-lifecycle-identity.ts",
         "harness/src/runtime/discovery-stage-projections.ts",
+        "harness/src/runtime/discovery-wave-contracts.ts",
         "harness/src/runtime/formal-stage-materializer.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "producerModules": [
         "harness/src/commands.ts",
+        "harness/src/cli.ts",
         "harness/src/evidence-store/evidence-store.ts",
         "harness/src/index.ts",
         "harness/src/runtime/artifact-scaffolds.ts",
@@ -567,6 +576,7 @@
       ],
       "producerModules": [
         "harness/src/commands.ts",
+        "harness/src/cli.ts",
         "harness/src/evidence-store/evidence-store.ts",
         "harness/src/index.ts",
         "harness/src/reporting/report-commands.ts",
@@ -692,6 +702,18 @@
       ]
     },
     {
+      "modulePath": "harness/src/cli.ts",
+      "impactFamilies": [
+        "ai_research",
+        "assessment_research",
+        "declarative_runtime",
+        "discovery_research",
+        "run_control_planning",
+        "store_publication",
+        "terminal_reporting"
+      ]
+    },
+    {
       "modulePath": "harness/src/evidence-store/evidence-store.ts",
       "impactFamilies": [
         "ai_research",
@@ -778,6 +800,10 @@
     {
       "modulePath": "harness/src/runtime/discovery-stage-projections.ts",
       "impactFamilies": ["declarative_runtime", "discovery_research"]
+    },
+    {
+      "modulePath": "harness/src/runtime/discovery-wave-contracts.ts",
+      "impactFamilies": ["declarative_runtime", "discovery_research", "run_control_planning"]
     },
     {
       "modulePath": "harness/src/runtime/formal-stage-materializer.ts",

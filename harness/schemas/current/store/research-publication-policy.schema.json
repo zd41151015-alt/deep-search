@@ -13,6 +13,7 @@
     "task_lifecycle_contract",
     "branch_status_projection",
     "discovery_lane_status_projection",
+    "discovery_review_status_projection",
     "enrichment_branch_status_projection",
     "report_publication_contract",
     "discovery_map_contract",
@@ -72,6 +73,9 @@
       "type": "object"
     },
     "discovery_lane_status_projection": {
+      "type": "object"
+    },
+    "discovery_review_status_projection": {
       "type": "object"
     },
     "enrichment_branch_status_projection": {

@@ -82,6 +82,14 @@ const CANDIDATE_CHANGE_FIELDS = [
   "limitations",
 ] as const;
 
+type HistoricalDiscoveryPlanBindingLike = {
+  readonly planRef: string;
+  readonly planHash: string;
+  readonly planRevision: number;
+  readonly candidateRefs: readonly string[];
+  readonly generationTaskRefs?: readonly string[];
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -203,6 +211,21 @@ function expectedPreCandidateDispositionSets(
       .filter((entry) => entry.disposition === "rejected")
       .map((entry) => String(entry.pre_candidate_ref)),
   };
+}
+
+function historicalBindingsByPlanRef(
+  bindings: readonly HistoricalDiscoveryPlanBindingLike[],
+): ReadonlyMap<string, readonly HistoricalDiscoveryPlanBindingLike[]> {
+  const grouped = new Map<string, HistoricalDiscoveryPlanBindingLike[]>();
+  for (const binding of bindings) {
+    const existing = grouped.get(binding.planRef);
+    if (existing === undefined) {
+      grouped.set(binding.planRef, [binding]);
+    } else {
+      existing.push(binding);
+    }
+  }
+  return grouped;
 }
 
 function evidenceLineage(document: Record<string, unknown>): Record<string, unknown> {
@@ -701,14 +724,20 @@ function validateScopeIdentity(
   entry: DiscoveryCandidateDocument,
   scope: DiscoveryCandidateDocument,
   plan: DiscoveryCandidateDocument,
-  historicalPlanRefs: ReadonlySet<string>,
+  historicalBindingsByPlanRef: ReadonlyMap<string, readonly HistoricalDiscoveryPlanBindingLike[]>,
   errors: ValidationIssue[],
 ): void {
+  const researchPlanRef =
+    typeof entry.document.research_plan_ref === "string" ? entry.document.research_plan_ref : "";
+  const historicalCandidateBinding = historicalBindingsByPlanRef
+    .get(researchPlanRef)
+    ?.find(
+      (binding) => binding.candidateRefs.length > 0 && binding.candidateRefs.includes(entry.path),
+    );
   if (
     entry.document.run_id !== scope.document.run_id ||
     entry.document.scope_frame_ref !== scope.path ||
-    (entry.document.research_plan_ref !== plan.path &&
-      !historicalPlanRefs.has(String(entry.document.research_plan_ref))) ||
+    (entry.document.research_plan_ref !== plan.path && historicalCandidateBinding === undefined) ||
     entry.document.discovery_profile !== scope.document.discovery_profile ||
     entry.document.market !== scope.document.market ||
     entry.document.language !== scope.document.language
@@ -951,23 +980,44 @@ function validateTask(
   documentsByPath: ReadonlyMap<string, DiscoveryCandidateDocument>,
   scope: DiscoveryCandidateDocument,
   plan: DiscoveryCandidateDocument,
-  historicalPlanRefs: ReadonlySet<string>,
+  historicalBindingsByPlanRef: ReadonlyMap<string, readonly HistoricalDiscoveryPlanBindingLike[]>,
   errors: ValidationIssue[],
 ): void {
   const expectedPath = `tasks/discovery/${String(task.document.unit_id)}.attempt-${String(
     task.document.attempt,
   )}.json`;
   const candidateRefs = strings(task.document.target_candidate_refs);
-  const taskPlanRef = String(task.document.research_plan_ref);
-  const historicalPlanBindingValid =
-    historicalPlanRefs.has(taskPlanRef) &&
-    candidateRefs.every(
-      (ref) => documentsByPath.get(ref)?.document.research_plan_ref === taskPlanRef,
+  const taskPlanRef =
+    typeof task.document.research_plan_ref === "string" ? task.document.research_plan_ref : "";
+  const historicalCandidateBindingValid = (historicalBindingsByPlanRef.get(taskPlanRef) ?? []).some(
+    (binding) => {
+      const bindingCandidateRefs = new Set(binding.candidateRefs);
+      return (
+        bindingCandidateRefs.size > 0 &&
+        bindingCandidateRefs.size === binding.candidateRefs.length &&
+        candidateRefs.length > 0 &&
+        new Set(candidateRefs).size === candidateRefs.length &&
+        candidateRefs.every(
+          (ref) =>
+            bindingCandidateRefs.has(ref) &&
+            documentsByPath.get(ref)?.document.research_plan_ref === binding.planRef,
+        )
+      );
+    },
+  );
+  const historicalGenerationTaskBindingValid =
+    candidateRefs.length === 0 &&
+    task.document.required_artifact_schema ===
+      "startup_opportunity.discovery_generation_result.v1" &&
+    (historicalBindingsByPlanRef.get(taskPlanRef) ?? []).some((binding) =>
+      strings(binding.generationTaskRefs).includes(task.path),
     );
   if (
     task.path !== expectedPath ||
     task.document.scope_frame_ref !== scope.path ||
-    (task.document.research_plan_ref !== plan.path && !historicalPlanBindingValid) ||
+    (task.document.research_plan_ref !== plan.path &&
+      !historicalCandidateBindingValid &&
+      !historicalGenerationTaskBindingValid) ||
     candidateRefs.some(
       (ref) =>
         documentsByPath.get(ref)?.schemaVersion !== "startup_opportunity.discovery_candidate.v1",
@@ -1892,7 +1942,7 @@ export function isDiscoveryCandidateSchemaVersion(schemaVersion: string): boolea
 export function validateDiscoveryCandidateContract(
   documents: readonly DiscoveryCandidateDocument[],
   policy: DiscoveryCandidatePolicy,
-  historicalPlanRefs: ReadonlySet<string> = new Set(),
+  historicalDiscoveryPlanBindings: readonly HistoricalDiscoveryPlanBindingLike[] = [],
   exactRecords: ReadonlyMap<string, Record<string, unknown>> = new Map(),
 ): readonly ValidationIssue[] {
   if (!documents.some((entry) => CONTRACT_SCHEMA_VERSIONS.has(entry.schemaVersion))) {
@@ -1900,6 +1950,7 @@ export function validateDiscoveryCandidateContract(
   }
   const errors: ValidationIssue[] = [];
   const documentsByPath = new Map(documents.map((entry) => [entry.path, entry]));
+  const bindingsByPlanRef = historicalBindingsByPlanRef(historicalDiscoveryPlanBindings);
   const candidates = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.discovery_candidate.v1",
   );
@@ -1968,7 +2019,7 @@ export function validateDiscoveryCandidateContract(
     validateDiscoveryLineage(entry, documentsByPath, scope, errors);
   }
   for (const candidate of candidates) {
-    validateScopeIdentity(candidate, scope, plan, historicalPlanRefs, errors);
+    validateScopeIdentity(candidate, scope, plan, bindingsByPlanRef, errors);
     validateCandidateSubject(candidate, documentsByPath, errors);
     validateCandidateRevision(candidate, candidatesByPath, errors);
     validateCandidateEnrichmentBindings(candidate, documentsByPath, candidatesByPath, errors);
@@ -1995,7 +2046,7 @@ export function validateDiscoveryCandidateContract(
     (entry) =>
       entry.schemaVersion === "startup_opportunity.research_task.discovery_candidate.current",
   )) {
-    validateTask(task, documentsByPath, scope, plan, historicalPlanRefs, errors);
+    validateTask(task, documentsByPath, scope, plan, bindingsByPlanRef, errors);
   }
   for (const sourceManifest of documents.filter(
     (entry) =>

@@ -126,7 +126,15 @@
       "required": ["status", "acquisition_routes_attempted", "unresolved_gaps", "stop_reason"],
       "properties": {
         "status": {
-          "enum": ["completed", "not_required", "failed_before_search"]
+          "enum": [
+            "completed",
+            "partial",
+            "insufficient_evidence",
+            "unavailable",
+            "not_required",
+            "search_not_required",
+            "failed_before_search"
+          ]
         },
         "acquisition_routes_attempted": {
           "type": "array",
@@ -142,6 +150,9 @@
               "none"
             ]
           }
+        },
+        "adopted_source_refs": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
         },
         "unresolved_gaps": {
           "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"

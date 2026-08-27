@@ -1,0 +1,377 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/discovery/review/adversarial-review-result.schema.json",
+  "title": "Startup Opportunity Discovery Adversarial Review Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "review_result_id",
+    "run_id",
+    "unit_id",
+    "attempt",
+    "owner_role",
+    "owned_output_path",
+    "task_ref",
+    "task_hash",
+    "dispatch_batch_ref",
+    "dispatch_batch_hash",
+    "execution_plan_ref",
+    "execution_plan_hash",
+    "scope_frame_ref",
+    "research_plan_ref",
+    "research_plan_hash",
+    "status",
+    "review_subject",
+    "required_stances",
+    "review_findings",
+    "material_visibility",
+    "decision_relevant_gaps",
+    "search_closure",
+    "authority_boundary",
+    "valid_as_of",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.discovery_adversarial_review.current"
+    },
+    "review_result_id": {
+      "$ref": "../evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "../evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "unit_id": {
+      "$ref": "../evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "owner_role": {
+      "const": "adversarial-reviewer"
+    },
+    "owned_output_path": {
+      "type": "string",
+      "pattern": "^artifacts/reviews/[A-Za-z0-9._-]+\\.json$"
+    },
+    "task_ref": {
+      "type": "string",
+      "pattern": "^tasks/discovery/reviews/[A-Za-z0-9][A-Za-z0-9._-]*\\.attempt-[1-9][0-9]*\\.json$"
+    },
+    "task_hash": {
+      "$ref": "../evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "dispatch_batch_ref": {
+      "type": "string",
+      "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "dispatch_batch_hash": {
+      "$ref": "../evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "execution_plan_ref": {
+      "type": "string",
+      "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+    },
+    "execution_plan_hash": {
+      "$ref": "../evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "scope_frame_ref": {
+      "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRef"
+    },
+    "research_plan_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/planRef"
+    },
+    "research_plan_hash": {
+      "$ref": "../evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "insufficient_evidence",
+        "failed",
+        "ignored_late",
+        "superseded"
+      ]
+    },
+    "review_subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_kind",
+        "target_candidate_refs",
+        "target_opportunity_refs",
+        "reviewed_plan_question_refs"
+      ],
+      "properties": {
+        "subject_kind": {
+          "const": "plan_level_discovery"
+        },
+        "target_candidate_refs": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "target_opportunity_refs": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "reviewed_plan_question_refs": {
+          "type": "array",
+          "allOf": [
+            {
+              "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+            }
+          ],
+          "minItems": 1
+        }
+      }
+    },
+    "required_stances": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["support", "oppose"]
+      },
+      "allOf": [
+        {
+          "contains": {
+            "const": "support"
+          }
+        },
+        {
+          "contains": {
+            "const": "oppose"
+          }
+        }
+      ]
+    },
+    "review_findings": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "finding_id",
+          "stance",
+          "reviewed_plan_question_refs",
+          "evidence_state",
+          "summary",
+          "supporting_refs",
+          "opposing_refs",
+          "background_refs",
+          "contradictory_refs",
+          "unknown_refs",
+          "limitations"
+        ],
+        "properties": {
+          "finding_id": {
+            "$ref": "../evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "stance": {
+            "enum": ["support", "oppose", "mixed", "background", "unknown"]
+          },
+          "reviewed_plan_question_refs": {
+            "type": "array",
+            "allOf": [
+              {
+                "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+              }
+            ],
+            "minItems": 1
+          },
+          "evidence_state": {
+            "enum": [
+              "supported",
+              "partial",
+              "unknown",
+              "unavailable",
+              "inferred",
+              "not_applicable",
+              "no_evidence_found",
+              "insufficient_evidence"
+            ]
+          },
+          "summary": {
+            "$ref": "../evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "supporting_refs": {
+            "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "opposing_refs": {
+            "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "background_refs": {
+            "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "contradictory_refs": {
+            "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "unknown_refs": {
+            "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "limitations": {
+            "$ref": "../evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "material_visibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supporting_refs",
+        "opposing_refs",
+        "background_refs",
+        "contradictory_refs",
+        "unknown_refs"
+      ],
+      "properties": {
+        "supporting_refs": {
+          "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "opposing_refs": {
+          "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "background_refs": {
+          "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "contradictory_refs": {
+          "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "unknown_refs": {
+          "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        }
+      }
+    },
+    "decision_relevant_gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gap_id",
+          "state",
+          "summary",
+          "basis_refs",
+          "requires_plan_adaptation",
+          "recommended_follow_up",
+          "limitations"
+        ],
+        "properties": {
+          "gap_id": {
+            "$ref": "../evaluation/definitions.schema.json#/$defs/identifier"
+          },
+          "state": {
+            "enum": [
+              "partial",
+              "unknown",
+              "unavailable",
+              "inferred",
+              "not_applicable",
+              "no_evidence_found",
+              "insufficient_evidence"
+            ]
+          },
+          "summary": {
+            "$ref": "../evaluation/definitions.schema.json#/$defs/nonEmptyString"
+          },
+          "basis_refs": {
+            "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+          },
+          "requires_plan_adaptation": {
+            "type": "boolean"
+          },
+          "recommended_follow_up": {
+            "enum": ["add_unit", "retry_unit", "wait", "manual_review", "no_action"]
+          },
+          "limitations": {
+            "$ref": "../evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+          }
+        }
+      }
+    },
+    "search_closure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "acquisition_routes_attempted",
+        "adopted_source_refs",
+        "unresolved_gaps",
+        "stop_reason"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "completed",
+            "partial",
+            "insufficient_evidence",
+            "failed_before_search",
+            "search_not_required",
+            "unavailable"
+          ]
+        },
+        "acquisition_routes_attempted": {
+          "$ref": "../evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "adopted_source_refs": {
+          "$ref": "../evaluation/definitions.schema.json#/$defs/artifactRefArray"
+        },
+        "unresolved_gaps": {
+          "$ref": "../evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+        },
+        "stop_reason": {
+          "$ref": "../evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "authority_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference_only",
+        "not_gate",
+        "not_ranking",
+        "not_elimination",
+        "not_confidence_ceiling",
+        "mutates_current_plan",
+        "rewrites_report"
+      ],
+      "properties": {
+        "reference_only": {
+          "const": true
+        },
+        "not_gate": {
+          "const": true
+        },
+        "not_ranking": {
+          "const": true
+        },
+        "not_elimination": {
+          "const": true
+        },
+        "not_confidence_ceiling": {
+          "const": true
+        },
+        "mutates_current_plan": {
+          "const": false
+        },
+        "rewrites_report": {
+          "const": false
+        }
+      }
+    },
+    "valid_as_of": {
+      "type": "string",
+      "format": "date"
+    },
+    "limitations": {
+      "$ref": "../evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  }
+}

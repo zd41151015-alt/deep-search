@@ -289,6 +289,12 @@ export interface CommercialTaskProjectionInput {
   readonly document: Record<string, unknown>;
 }
 
+export function isCommercialAuditRelevantTask(task: CommercialTaskProjectionInput): boolean {
+  return (
+    task.document.schema_version !== "startup_opportunity.research_task.discovery_review.current"
+  );
+}
+
 export interface CommercialAuditProjection {
   readonly commercial_research_audit_refs: readonly string[];
   readonly quantitative_signal_rows: readonly Record<string, unknown>[];
@@ -749,7 +755,9 @@ export function projectCommercialAuditTables(
   decisionSubjectIds?: readonly string[],
 ): CommercialAuditProjection {
   const sortedAudits = [...audits].sort((left, right) => left.path.localeCompare(right.path));
-  const sortedTasks = [...tasks].sort((left, right) => left.path.localeCompare(right.path));
+  const sortedTasks = [...tasks]
+    .filter(isCommercialAuditRelevantTask)
+    .sort((left, right) => left.path.localeCompare(right.path));
   const decisionSubjectSet = decisionSubjectIds === undefined ? null : new Set(decisionSubjectIds);
   const includesDecisionSubject = (subjectId: unknown): boolean =>
     decisionSubjectSet === null || decisionSubjectSet.has(String(subjectId));

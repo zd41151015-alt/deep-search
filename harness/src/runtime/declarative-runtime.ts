@@ -15,6 +15,7 @@ import {
   type ArtifactValidator,
   artifactRefsForDocument,
   type DocumentBundle,
+  type DocumentBundleReferenceContext,
 } from "../validators/artifact-validator.js";
 import type { CommercialResearchPolicy } from "../validators/commercial-research-validator.js";
 import { discoveryMapEnvelopeInputRefs } from "../validators/discovery-maps-validator.js";
@@ -29,6 +30,7 @@ import {
   resolveReferences,
 } from "../validators/reference-classifier.js";
 import type { ValidationIssue } from "../validators/schema-bundle.js";
+import { discoveryPlanLaunchReadinessIssuesFromBundle } from "./discovery-wave-contracts.js";
 import {
   type OperationObserver,
   type OperationTrace,
@@ -44,7 +46,7 @@ export interface RuntimeArtifactCompilationRequest extends Record<string, unknow
   readonly artifacts: readonly {
     readonly artifact_type: string;
     readonly artifact_path: string;
-    readonly producer_role: "main_agent" | "lane_researcher" | "harness";
+    readonly producer_role: "main_agent" | "lane_researcher" | "adversarial_reviewer" | "harness";
     readonly input_refs?: readonly string[];
     readonly document: Record<string, unknown>;
   }[];
@@ -58,6 +60,11 @@ export interface RuntimePublicationPlan extends Record<string, unknown> {
   readonly run_id: string;
   readonly created_at: string;
   readonly manifest_content_hash: string;
+  readonly manifest_snapshot: Readonly<Record<string, unknown>>;
+  readonly publication_commit_snapshot: {
+    readonly publication_ordinal: number;
+    readonly publication_commit_hash: string | null;
+  };
   readonly compiled_envelopes: readonly FormalArtifactEnvelope[];
   readonly validation_closure: {
     readonly documents: readonly { readonly path: string; readonly content_hash: string }[];
@@ -74,6 +81,185 @@ export interface RuntimePublicationPlan extends Record<string, unknown> {
     readonly artifact_path: string;
     readonly content_hash: string;
   }[];
+}
+
+function runtimePublicationPlanIdentity(plan: RuntimePublicationPlan): Record<string, unknown> {
+  const stableIdentity = { ...plan } as Record<string, unknown>;
+  delete stableIdentity.plan_id;
+  return stableIdentity;
+}
+
+function runtimePublicationPlanManifestEntry(
+  plan: RuntimePublicationPlan,
+): { readonly path: string; readonly content_hash: string } | undefined {
+  const matches = plan.validation_closure.documents.filter(
+    (entry) => entry.path === "manifest.json",
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function runtimePublicationCommitSnapshot(
+  records: DocumentBundleReferenceContext["artifactPublicationRecords"] | undefined,
+): RuntimePublicationPlan["publication_commit_snapshot"] {
+  const head = [...(records?.values() ?? [])]
+    .sort((left, right) => left.publicationOrdinal - right.publicationOrdinal)
+    .at(-1);
+  if (head === undefined) {
+    return { publication_ordinal: 0, publication_commit_hash: null };
+  }
+  if (typeof head.publicationCommitHash !== "string") {
+    throw new StoreError(
+      "runtime.publication_commit_snapshot_unavailable",
+      "runtime publication planning requires the current Artifact publication commit head",
+    );
+  }
+  return {
+    publication_ordinal: head.publicationOrdinal,
+    publication_commit_hash: head.publicationCommitHash,
+  };
+}
+
+function runtimePublicationPlanIsSelfConsistent(plan: RuntimePublicationPlan): boolean {
+  const manifestEntry = runtimePublicationPlanManifestEntry(plan);
+  if (manifestEntry === undefined) {
+    return false;
+  }
+  if (
+    !isRecord(plan.manifest_snapshot) ||
+    plan.manifest_snapshot.run_id !== plan.run_id ||
+    plan.manifest_content_hash !== canonicalContentHash(plan.manifest_snapshot) ||
+    plan.publication_commit_snapshot.publication_ordinal < 0 ||
+    !Number.isInteger(plan.publication_commit_snapshot.publication_ordinal) ||
+    (plan.publication_commit_snapshot.publication_ordinal === 0 &&
+      plan.publication_commit_snapshot.publication_commit_hash !== null) ||
+    (plan.publication_commit_snapshot.publication_ordinal > 0 &&
+      typeof plan.publication_commit_snapshot.publication_commit_hash !== "string")
+  ) {
+    return false;
+  }
+  const documentPaths = plan.validation_closure.documents.map((entry) => entry.path);
+  const exactRecordRefs = plan.validation_closure.exact_records.map((entry) => entry.ref);
+  const resolvedRefs = plan.resolved_references.map((entry) => entry.ref);
+  const publicationPaths = plan.publication.map((entry) => entry.artifact_path);
+  if (
+    new Set(documentPaths).size !== documentPaths.length ||
+    new Set(exactRecordRefs).size !== exactRecordRefs.length ||
+    new Set(resolvedRefs).size !== resolvedRefs.length ||
+    new Set(publicationPaths).size !== publicationPaths.length
+  ) {
+    return false;
+  }
+  if (
+    canonicalJson(plan.publication) !==
+    canonicalJson(
+      plan.compiled_envelopes.map((envelope) => ({
+        artifact_path: envelope.artifact_path,
+        content_hash: envelope.content_hash,
+      })),
+    )
+  ) {
+    return false;
+  }
+  const closureDocuments = new Map(
+    plan.validation_closure.documents.map((entry) => [entry.path, entry.content_hash] as const),
+  );
+  for (const envelope of plan.compiled_envelopes) {
+    if (
+      envelope.content_hash !== canonicalContentHash(envelope.document) ||
+      closureDocuments.get(envelope.artifact_path) !== canonicalContentHash(envelope)
+    ) {
+      return false;
+    }
+  }
+  const identity = runtimePublicationPlanIdentity(plan);
+  const expectedPlanId = operationKey("runtime_publication_plan", identity);
+  if (
+    plan.plan_id !== expectedPlanId ||
+    plan.manifest_content_hash !== manifestEntry.content_hash
+  ) {
+    return false;
+  }
+  return plan.resolved_references.every((reference) => {
+    if (reference.target_path === "manifest.json") {
+      return reference.content_hash === plan.manifest_content_hash;
+    }
+    const targetHash = closureDocuments.get(reference.target_path);
+    return (
+      targetHash === undefined ||
+      reference.content_hash === null ||
+      reference.content_hash === targetHash
+    );
+  });
+}
+
+function runtimePublicationPlanScopedProjection(
+  candidate: RuntimePublicationPlan,
+  reference: RuntimePublicationPlan,
+): RuntimePublicationPlan {
+  const referenceDocumentPaths = new Set(
+    reference.validation_closure.documents.map((entry) => entry.path),
+  );
+  const referenceExactRecordRefs = new Set(
+    reference.validation_closure.exact_records.map((entry) => entry.ref),
+  );
+  const referenceResolvedRefs = new Set(reference.resolved_references.map((entry) => entry.ref));
+  const referenceManifestEntry = runtimePublicationPlanManifestEntry(reference);
+  const referenceManifestResolvedRefs = new Map(
+    reference.resolved_references
+      .filter((entry) => entry.target_path === "manifest.json")
+      .map((entry) => [entry.ref, entry] as const),
+  );
+  const validationClosure = {
+    documents: candidate.validation_closure.documents
+      .filter((entry) => referenceDocumentPaths.has(entry.path))
+      .map((entry) =>
+        entry.path === "manifest.json" && referenceManifestEntry !== undefined
+          ? referenceManifestEntry
+          : entry,
+      )
+      .sort((left, right) => left.path.localeCompare(right.path)),
+    exact_records: candidate.validation_closure.exact_records
+      .filter((entry) => referenceExactRecordRefs.has(entry.ref))
+      .sort((left, right) => left.ref.localeCompare(right.ref)),
+  };
+  const normalized: RuntimePublicationPlan = {
+    ...candidate,
+    manifest_content_hash: reference.manifest_content_hash,
+    manifest_snapshot: reference.manifest_snapshot,
+    publication_commit_snapshot: reference.publication_commit_snapshot,
+    validation_closure: validationClosure,
+    resolved_references: candidate.resolved_references
+      .filter((referenceEntry) => referenceResolvedRefs.has(referenceEntry.ref))
+      .map((referenceEntry) =>
+        referenceEntry.target_path === "manifest.json"
+          ? (referenceManifestResolvedRefs.get(referenceEntry.ref) ?? referenceEntry)
+          : referenceEntry,
+      )
+      .sort((left, right) => left.ref.localeCompare(right.ref)),
+  };
+  const identity = runtimePublicationPlanIdentity(normalized);
+  return {
+    ...normalized,
+    plan_id: operationKey("runtime_publication_plan", identity),
+  };
+}
+
+export function runtimePublicationPlansEquivalentForScopedClosure(
+  left: RuntimePublicationPlan | undefined,
+  right: RuntimePublicationPlan | undefined,
+): boolean {
+  if (left === undefined || right === undefined) return false;
+  if (
+    !runtimePublicationPlanIsSelfConsistent(left) ||
+    !runtimePublicationPlanIsSelfConsistent(right)
+  ) {
+    return false;
+  }
+  return (
+    canonicalJson(left) === canonicalJson(right) ||
+    canonicalJson(runtimePublicationPlanScopedProjection(right, left)) === canonicalJson(left) ||
+    canonicalJson(runtimePublicationPlanScopedProjection(left, right)) === canonicalJson(right)
+  );
 }
 
 export interface RuntimeArtifactCompilationResult {
@@ -487,7 +673,11 @@ export class DeclarativeRuntimeCompiler {
       request.publication_plan?.compiled_envelopes.map((envelope) => ({
         artifact_type: envelope.artifact_type,
         artifact_path: envelope.artifact_path,
-        producer_role: envelope.producer_role as "main_agent" | "lane_researcher" | "harness",
+        producer_role: envelope.producer_role as
+          | "main_agent"
+          | "lane_researcher"
+          | "adversarial_reviewer"
+          | "harness",
         input_refs: envelope.input_refs,
         document: envelope.document,
       })) ?? request.artifacts;
@@ -771,12 +961,17 @@ export class DeclarativeRuntimeCompiler {
         context.bundle,
         context.referenceContext,
       );
+      const launchReadinessIssues =
+        mode === "opportunity_discovery"
+          ? discoveryPlanLaunchReadinessIssuesFromBundle(context.bundle)
+          : [];
       const semanticIssues = [
         ...planValidation.planningContract.contractErrors,
         ...planValidation.planErrors,
+        ...launchReadinessIssues,
       ];
       gateIssues.push(...semanticIssues);
-      if (!planValidation.valid) {
+      if (!planValidation.valid || launchReadinessIssues.length > 0) {
         const validationIssues = semanticIssues.map((error) =>
           diagnostic(
             error.code,
@@ -803,6 +998,7 @@ export class DeclarativeRuntimeCompiler {
             referenceErrors: planValidation.planningContract.documentBundle.referenceErrors,
             contractErrors: planValidation.planningContract.contractErrors,
             planErrors: planValidation.planErrors,
+            launchReadinessErrors: launchReadinessIssues,
           },
         );
       }
@@ -829,6 +1025,10 @@ export class DeclarativeRuntimeCompiler {
       run_id: request.run_id,
       created_at: request.created_at,
       manifest_content_hash: canonicalContentHash(manifest.document),
+      manifest_snapshot: manifest.document,
+      publication_commit_snapshot: runtimePublicationCommitSnapshot(
+        context.referenceContext.artifactPublicationRecords,
+      ),
       compiled_envelopes: envelopes,
       validation_closure: {
         documents: context.bundle.documents
@@ -857,6 +1057,19 @@ export class DeclarativeRuntimeCompiler {
       ...planIdentity,
       plan_id: operationKey("runtime_publication_plan", planIdentity),
     };
+    if (
+      request.publication_plan !== undefined &&
+      !runtimePublicationPlanIsSelfConsistent(request.publication_plan)
+    ) {
+      throw new StoreError(
+        "runtime.publication_plan_stale",
+        "supplied publication plan identity or Manifest binding is internally inconsistent",
+        {
+          suppliedPlanId: request.publication_plan.plan_id,
+          suppliedManifestContentHash: request.publication_plan.manifest_content_hash,
+        },
+      );
+    }
     let publicationPlan = compiledPublicationPlan;
     if (
       request.publication_plan !== undefined &&
@@ -888,6 +1101,8 @@ export class DeclarativeRuntimeCompiler {
           const replayIdentity = {
             ...planIdentity,
             manifest_content_hash: request.publication_plan.manifest_content_hash,
+            manifest_snapshot: request.publication_plan.manifest_snapshot,
+            publication_commit_snapshot: request.publication_plan.publication_commit_snapshot,
             validation_closure: {
               ...planIdentity.validation_closure,
               documents: planIdentity.validation_closure.documents.map((entry) =>
@@ -920,16 +1135,48 @@ export class DeclarativeRuntimeCompiler {
         },
       );
     }
+    const suppliedPlanMatchesCurrent =
+      request.publication_plan !== undefined &&
+      canonicalJson(request.publication_plan) === canonicalJson(compiledPublicationPlan);
+    const suppliedPlanManifestMatchesCurrent =
+      request.publication_plan !== undefined &&
+      request.publication_plan.manifest_content_hash ===
+        compiledPublicationPlan.manifest_content_hash &&
+      canonicalJson(request.publication_plan.manifest_snapshot) ===
+        canonicalJson(compiledPublicationPlan.manifest_snapshot) &&
+      canonicalJson(request.publication_plan.publication_commit_snapshot) ===
+        canonicalJson(compiledPublicationPlan.publication_commit_snapshot);
+    const suppliedPlanScopedEquivalent =
+      request.publication_plan !== undefined &&
+      runtimePublicationPlansEquivalentForScopedClosure(
+        request.publication_plan,
+        compiledPublicationPlan,
+      );
+    const suppliedPlanManifestScopeCurrent =
+      request.publication_plan === undefined ||
+      suppliedPlanMatchesCurrent ||
+      (await this.runs.runtimePublicationPlanManifestScopeIsCurrent({
+        runId: request.run_id,
+        manifestSnapshot: request.publication_plan.manifest_snapshot,
+        publicationCommitSnapshot: request.publication_plan.publication_commit_snapshot,
+        publication: request.publication_plan.publication,
+        validationClosureDocumentPaths: request.publication_plan.validation_closure.documents.map(
+          (entry) => entry.path,
+        ),
+      }));
     if (
       request.publication_plan !== undefined &&
-      canonicalJson(request.publication_plan) !== canonicalJson(publicationPlan)
+      (suppliedPlanManifestMatchesCurrent
+        ? !suppliedPlanMatchesCurrent
+        : !suppliedPlanScopedEquivalent || !suppliedPlanManifestScopeCurrent)
     ) {
       throw new StoreError(
         "runtime.publication_plan_stale",
         "publication plan differs from the current validated Run closure",
         {
           suppliedPlanId: request.publication_plan.plan_id,
-          currentPlanId: publicationPlan.plan_id,
+          currentPlanId: compiledPublicationPlan.plan_id,
+          manifestScopeCurrent: suppliedPlanManifestScopeCurrent,
           differingPlanFields: Object.keys(compiledPublicationPlan).filter(
             (field) =>
               canonicalJson(request.publication_plan?.[field]) !==

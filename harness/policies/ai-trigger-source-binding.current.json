@@ -6,7 +6,7 @@
     "policy_ref": "harness/policies/adaptation.current.json",
     "schema_version": "startup_opportunity.adaptation_policy.current",
     "policy_version": "1.0.0",
-    "content_hash": "sha256:0bb4569cd42a3f552d55fa48a239d23f7429a905fb0e1cc0ff50935c228d1bf1"
+    "content_hash": "sha256:4cc628ee33187e6fe2c80ab6b0df9e51d09693f2d3a4f56c4a7de226120c8b6f"
   },
   "contract_versions": {
     "planning_context": "startup_opportunity.planning_context.ai_source_bound.current",

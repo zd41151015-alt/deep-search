@@ -208,6 +208,37 @@ function sameStringSet(left: unknown, right: readonly string[]): boolean {
   return canonicalJson([...strings(left)].sort()) === canonicalJson([...right].sort());
 }
 
+function executionStageKindForTask(
+  task: CommercialResearchDocument,
+  documentsByPath: ReadonlyMap<string, CommercialResearchDocument>,
+  dispatches: readonly CommercialResearchDocument[],
+): string | null {
+  const taskId = typeof task.document.task_id === "string" ? task.document.task_id : null;
+  const unitId = typeof task.document.unit_id === "string" ? task.document.unit_id : null;
+  if (taskId === null || unitId === null) return null;
+  for (const dispatch of dispatches) {
+    const dispatchTask = records(dispatch.document.tasks).find(
+      (entry) => entry.task_id === taskId && entry.unit_id === unitId,
+    );
+    if (dispatchTask === undefined) continue;
+    const executionPlanRef =
+      typeof dispatch.document.execution_plan_ref === "string"
+        ? dispatch.document.execution_plan_ref
+        : null;
+    const execution = executionPlanRef === null ? undefined : documentsByPath.get(executionPlanRef);
+    if (
+      execution?.schemaVersion !== "startup_opportunity.research_execution_plan.discovery.current"
+    ) {
+      continue;
+    }
+    const stage = records(execution.document.stages).find((candidate) =>
+      records(candidate.lanes).some((lane) => lane.unit_id === unitId),
+    );
+    if (typeof stage?.stage_kind === "string") return stage.stage_kind;
+  }
+  return null;
+}
+
 function stableId(prefix: string, value: unknown): string {
   return `${prefix}_${canonicalContentHash(value).slice("sha256:".length, "sha256:".length + 24)}`;
 }
@@ -962,11 +993,14 @@ function validateScopeAndStages(
       const assignedRefs = strings(incumbentAssignment.subject_refs);
       const analysisDepth = incumbentAssignment.analysis_depth;
       const sourcePhase = entry.document.source_phase;
+      const executionStageKind = executionStageKindForTask(entry, documentsByPath, dispatches);
       const allowedIncumbentDepths =
         entry.schemaVersion === "startup_opportunity.research_task.discovery_candidate.current"
           ? sourcePhase === "candidate_generation"
             ? ["not_assigned"]
-            : ["not_assigned", "lightweight_scan"]
+            : executionStageKind === "retained_candidate_deep_review"
+              ? ["not_assigned", "targeted_deep_dive"]
+              : ["not_assigned", "lightweight_scan"]
           : entry.schemaVersion === "startup_opportunity.research_task.discovery_evaluation.current"
             ? ["not_assigned", "targeted_deep_dive"]
             : ["not_assigned", "targeted_deep_dive"];
@@ -982,7 +1016,7 @@ function validateScopeAndStages(
             "commercial_research.incumbent_response_stage_mismatch",
             `${entry.path}#/commercial_research_requirements/incumbent_response_assignment`,
             "incumbent response research must remain absent during candidate generation, use lightweight scans for formed candidates, and reserve targeted deep dives for retained opportunities or formed concepts",
-            { allowedIncumbentDepths, actualDepth: analysisDepth, sourcePhase },
+            { allowedIncumbentDepths, actualDepth: analysisDepth, sourcePhase, executionStageKind },
           ),
         );
       }

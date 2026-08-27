@@ -9,6 +9,7 @@ import {
   DeclarativeRuntimeCompiler,
   type RuntimeArtifactCompilationResult,
   type RuntimePublicationPlan,
+  runtimePublicationPlansEquivalentForScopedClosure,
 } from "./declarative-runtime.js";
 import {
   type CandidateFanInAuthority,
@@ -19,6 +20,11 @@ import {
   projectDiscoverySetup,
   projectDiscoverySynthesis,
 } from "./discovery-stage-projections.js";
+import {
+  DISCOVERY_REVIEW_TASK_SCHEMA,
+  discoveryTaskProjectionForRequiredArtifactSchema,
+  discoveryWaveLaneProjectionIssues,
+} from "./discovery-wave-contracts.js";
 
 export type FormalStageKind =
   | "discovery_wave"
@@ -48,6 +54,7 @@ export interface WaveDeclaration {
     | "hard_gate_scan"
     | "candidate_evaluation"
     | "retained_candidate_deep_review"
+    | "review"
     | "discovery_synthesis";
   readonly unit_ids: readonly string[];
   readonly lanes: readonly WaveLaneDeclaration[];
@@ -62,7 +69,7 @@ export interface WaveDeclaration {
 
 export interface WaveLaneDeclaration extends Record<string, unknown> {
   readonly unit_id: string;
-  readonly lane_role: "opportunity" | "evaluation" | "risk";
+  readonly lane_role: "opportunity" | "evaluation" | "risk" | "review";
   readonly candidate_scope: Record<string, unknown>;
   readonly incumbent_response_assignment: Record<string, unknown>;
   readonly reporting_dimensions: readonly string[];
@@ -96,6 +103,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function records(value: unknown): readonly Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter(isRecord) : [];
 }
+function strings(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
 function effective(document: Record<string, unknown>): Record<string, unknown> {
   return document.schema_version === "startup_opportunity.artifact_envelope.current" &&
     isRecord(document.document)
@@ -106,6 +118,17 @@ function unique(values: readonly string[]): readonly string[] {
   return [...new Set(values)].sort();
 }
 
+function researchPlanQuestionRefs(
+  planRef: string,
+  plan: Record<string, unknown>,
+): readonly string[] {
+  return unique(
+    records(plan.research_questions).flatMap((question) =>
+      typeof question.question_id === "string" ? [`${planRef}#${question.question_id}`] : [],
+    ),
+  );
+}
+
 function relationTargets(request: FormalStageMaterializationRequest): readonly string[] {
   const localKeys = new Set((request.artifacts ?? []).flatMap((entry) => entry.local_key ?? []));
   return (request.artifacts ?? []).flatMap((entry) =>
@@ -114,6 +137,16 @@ function relationTargets(request: FormalStageMaterializationRequest): readonly s
         (ref) => !localKeys.has(ref) && (ref.includes(".json") || ref.includes(".jsonl")),
       ),
     ),
+  );
+}
+
+function requestUsesRetainedCandidateScope(request: FormalStageMaterializationRequest): boolean {
+  return (
+    request.stage_kind === "discovery_wave" &&
+    records(request.wave?.lanes).some((lane) => {
+      const scope = isRecord(lane.candidate_scope) ? lane.candidate_scope : {};
+      return scope.kind === "retained";
+    })
   );
 }
 
@@ -137,12 +170,37 @@ function automaticAuthorityRefs(
     .map((ref) => ref.split("#", 1)[0] ?? ref)
     .filter((ref) => /\.r[1-9][0-9]*\.json$/u.test(ref))
     .map((ref) => ref.replace(/\.r[1-9][0-9]*\.json$/u, ".r"));
+  const retainedFanInRefs = requestUsesRetainedCandidateScope(request)
+    ? manifestRefs.filter(
+        (ref) =>
+          ref === "artifacts/discovery/fan-in.r1.json" ||
+          ref.startsWith("artifacts/discovery/fan-in/"),
+      )
+    : [];
   return unique([
     ...(request.top_level_formal_refs ?? []),
     ...fanInRefs,
     ...explicit,
+    ...retainedFanInRefs,
     ...manifestRefs.filter((ref) => revisionFamilies.some((prefix) => ref.startsWith(prefix))),
   ]);
+}
+
+function retainedCandidateScopeAuthority(
+  byPath: ReadonlyMap<string, Record<string, unknown>>,
+  planRef: string,
+): Readonly<{ candidateRefs: readonly string[]; authorityRefs: readonly string[] }> {
+  const fanIns = [...byPath.entries()].filter(
+    ([, document]) =>
+      document.schema_version === "startup_opportunity.discovery_fan_in.v2" &&
+      document.research_plan_ref === planRef,
+  );
+  return {
+    candidateRefs: unique(
+      fanIns.flatMap(([, document]) => strings(document.retained_candidate_refs)),
+    ),
+    authorityRefs: unique(fanIns.map(([ref]) => ref)),
+  };
 }
 
 export class FormalStageMaterializer {
@@ -246,7 +304,12 @@ export class FormalStageMaterializer {
           created_at: request.created_at,
           artifacts: compiledArtifacts,
         });
-        if (canonicalJson(validated.publication_plan) !== canonicalJson(suppliedPlan)) {
+        if (
+          !runtimePublicationPlansEquivalentForScopedClosure(
+            validated.publication_plan,
+            suppliedPlan,
+          )
+        ) {
           throw new StoreError(
             "formal_materialization.publication_plan_stale",
             "publish requires the exact plan produced for these authored semantics and current Manifest",
@@ -434,6 +497,7 @@ export class FormalStageMaterializer {
       );
     }
     const planUnits = new Map(units.map((unit) => [String(unit.unit_id), unit]));
+    const retainedScopeAuthority = retainedCandidateScopeAuthority(byPath, planRef);
     const scopeEntries = [...byPath.entries()].filter(([, document]) =>
       String(document.schema_version).startsWith("startup_opportunity.scope_frame."),
     );
@@ -478,26 +542,57 @@ export class FormalStageMaterializer {
         );
       const submissionPath = String(unit.output_path ?? "");
       const submissionSchema = String(unit.required_artifact_schema ?? "");
-      const taskType =
-        submissionSchema === "startup_opportunity.enrichment_branch_result.v1"
-          ? "startup_opportunity.research_task.discovery_evaluation.current"
-          : [
-                "startup_opportunity.discovery_lane_result.v1",
-                "startup_opportunity.discovery_generation_result.v1",
-              ].includes(submissionSchema)
-            ? "startup_opportunity.research_task.discovery_candidate.current"
-            : null;
-      if (taskType === null) {
+      const taskProjection = discoveryTaskProjectionForRequiredArtifactSchema(submissionSchema);
+      if (taskProjection === null) {
         throw new StoreError(
           "formal_materialization.unit_output_unsupported",
           "selected Plan Unit has no canonical Discovery Task projection",
           { unitId: lane.unit_id, requiredArtifactSchema: submissionSchema },
         );
       }
+      const laneProjectionIssues = discoveryWaveLaneProjectionIssues(wave.stage_kind, unit, lane, {
+        retainedAuthorityRefs: retainedScopeAuthority.authorityRefs,
+        retainedCandidateRefs: retainedScopeAuthority.candidateRefs,
+      });
+      if (laneProjectionIssues.length > 0) {
+        throw new StoreError(
+          "formal_materialization.wave_lane_semantics_invalid",
+          "declared wave Lane semantics cannot be projected into the selected Plan Unit contract",
+          { unitId: lane.unit_id, issues: laneProjectionIssues },
+        );
+      }
+      const taskType = taskProjection.taskType;
+      const reviewTask = taskType === DISCOVERY_REVIEW_TASK_SCHEMA;
+      const taskSemantics = isRecord(lane.task_semantics) ? lane.task_semantics : {};
+      const allPlanQuestionRefs = researchPlanQuestionRefs(planRef, plan);
+      const hasExplicitQuestionAssignment = Object.hasOwn(
+        taskSemantics,
+        "assigned_plan_question_refs",
+      );
+      const assignedPlanQuestionRefs = reviewTask
+        ? unique(
+            hasExplicitQuestionAssignment
+              ? strings(taskSemantics.assigned_plan_question_refs)
+              : allPlanQuestionRefs,
+          )
+        : [];
+      if (
+        reviewTask &&
+        (assignedPlanQuestionRefs.length === 0 ||
+          assignedPlanQuestionRefs.some((ref) => !allPlanQuestionRefs.includes(ref)))
+      ) {
+        throw new StoreError(
+          "formal_materialization.review_question_assignment_invalid",
+          "Discovery adversarial review must assign a non-empty exact subset of current Plan questions",
+          {
+            unitId: lane.unit_id,
+            assignedPlanQuestionRefs,
+            currentPlanQuestionRefs: allPlanQuestionRefs,
+          },
+        );
+      }
       const attempt = Number(unit.attempt);
-      const taskDirectory = taskType.includes("evaluation")
-        ? "tasks/discovery/enrichment"
-        : "tasks/discovery";
+      const taskDirectory = taskProjection.taskDirectory;
       const taskPath = `${taskDirectory}/${lane.unit_id}.attempt-${String(attempt)}.json`;
       const supersededUnitId =
         typeof unit.supersedes_unit_ref === "string"
@@ -519,14 +614,18 @@ export class FormalStageMaterializer {
         resource_allocation: structuredClone(wave.resource_allocation),
         incumbent_response_assignment: structuredClone(lane.incumbent_response_assignment),
       };
+      const taskSemanticsForTask = structuredClone(taskSemantics);
+      if (!reviewTask) {
+        delete taskSemanticsForTask.assigned_plan_question_refs;
+      }
       const taskDocument = {
-        ...structuredClone(lane.task_semantics),
+        ...taskSemanticsForTask,
         schema_version: taskType,
         task_id: `task_${lane.unit_id}_attempt_${String(attempt)}`,
         run_id: request.run_id,
         unit_id: lane.unit_id,
         mode: plan.mode,
-        phase: taskType.includes("evaluation") ? "enrichment" : "discovery",
+        phase: taskProjection.taskPhase,
         wave_id: wave.wave_id,
         unit_type: unit.unit_type,
         research_goal: unit.research_goal,
@@ -539,6 +638,7 @@ export class FormalStageMaterializer {
         scope_frame_ref: scopeFrameRef,
         allowed_output_path: submissionPath,
         required_artifact_schema: submissionSchema,
+        ...(reviewTask ? { assigned_plan_question_refs: assignedPlanQuestionRefs } : {}),
         dispatched_at: request.created_at,
         completion_message_contract: {
           formal_artifact_authority: false,
@@ -552,6 +652,7 @@ export class FormalStageMaterializer {
         candidate_scope: lane.candidate_scope,
         incumbent_response_assignment: lane.incumbent_response_assignment,
         reporting_dimensions: lane.reporting_dimensions,
+        ...(reviewTask ? { assigned_plan_question_refs: assignedPlanQuestionRefs } : {}),
         submission_path: submissionPath,
         submission_schema: submissionSchema,
         time_budget_minutes: lane.time_budget_minutes,
@@ -567,6 +668,7 @@ export class FormalStageMaterializer {
         incumbent_response_assignment: lane.incumbent_response_assignment,
         research_goal: unit.research_goal,
         input_refs: unit.input_refs ?? [],
+        ...(reviewTask ? { assigned_plan_question_refs: assignedPlanQuestionRefs } : {}),
         allowed_output_path: submissionPath,
         required_artifact_schema: submissionSchema,
         time_budget_minutes: lane.time_budget_minutes,

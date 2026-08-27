@@ -1,18 +1,22 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   canonicalContentHash,
+  canonicalJson,
   createAdaptationAuthorRuntime,
   createArtifactValidator,
+  DeclarativeRuntimeCompiler,
   DispatchLaunchRegistry,
   EvidenceStore,
   type FormalArtifactEnvelope,
   FormalStageMaterializer,
+  LaneResultMaterializer,
+  operationKey,
   planningRunStateHash,
   RunStore,
   StoreError,
@@ -23,6 +27,7 @@ import {
   G21_MAP_REFS,
   G21_OPPORTUNITY_REF,
   G21_PLAN_REF,
+  G21_SCOPE_REF,
   G21_SEED_REF,
   G21_SOLUTION_REF,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
@@ -33,6 +38,8 @@ import {
   G22_DEMAND_R1,
   G22_DEMAND_R2,
   G22_EVALUATION_TASK,
+  G22_FAN_IN,
+  G22_FINDING,
   G22_GENERATION_TASK,
   G22_RUN_ID,
   G22_SOLUTION_R1,
@@ -55,7 +62,11 @@ import {
   G23_SOLUTION_CONVERSION,
   synthesisEnvelope,
 } from "./fixtures/g2.3/discovery-synthesis-fixture.js";
-import { createConfirmedRun, publishInitialPlanBundle } from "./helpers/current-run.js";
+import {
+  createConfirmedRun,
+  initialPlanBundleEnvelopes,
+  publishInitialPlanBundle,
+} from "./helpers/current-run.js";
 import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -72,6 +83,75 @@ function parseCli<T>(result: ReturnType<typeof runCli>): T {
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout) as T;
 }
+
+function materializeHelpScaffold(helpText: string): Record<string, unknown> {
+  const marker = "Minimal discovery_wave scaffold:\n";
+  const start = helpText.indexOf(marker);
+  assert.notEqual(start, -1);
+  const jsonStart = helpText.indexOf("{", start);
+  const jsonEndMarker =
+    "\n\nHarness derives refs, hashes, Task/Dispatch/Execution paths, and launch-readiness diagnostics";
+  const jsonEnd = helpText.indexOf(jsonEndMarker, jsonStart);
+  assert.notEqual(jsonStart, -1);
+  assert.notEqual(jsonEnd, -1);
+  return JSON.parse(helpText.slice(jsonStart, jsonEnd)) as Record<string, unknown>;
+}
+
+test("CLI subcommand help exposes request entries and keeps malformed help invocations invalid", () => {
+  const formalHelp = runCli(["materialize-formal-stage", "--help"]);
+  assert.equal(formalHelp.status, 0, formalHelp.stderr);
+  assert.match(
+    formalHelp.stdout,
+    /Usage:\n {2}npm run harness -- materialize-formal-stage --file FILE/,
+  );
+  assert.match(
+    formalHelp.stdout,
+    /schema_version=startup_opportunity\.formal_stage_materialization_request\.current/,
+  );
+  assert.match(formalHelp.stdout, /Minimal discovery_wave scaffold/);
+
+  const doctorHelp = runCli(["doctor", "-h"]);
+  assert.equal(doctorHelp.status, 0, doctorHelp.stderr);
+  assert.match(doctorHelp.stdout, /npm run harness -- doctor \[--json\]/);
+
+  const mixedHelp = runCli(["materialize-formal-stage", "--help", "--file", "request.json"]);
+  assert.equal(mixedHelp.status, 64);
+  assert.match(mixedHelp.stderr, /command\.invalid_arguments/);
+
+  const unknownHelp = runCli(["not-a-command", "--help"]);
+  assert.equal(unknownHelp.status, 64);
+  assert.match(unknownHelp.stderr, /Unknown command: not-a-command/);
+});
+
+test("CLI materialize-formal-stage help scaffold is executable after binding one current generation Unit", async (t) => {
+  const help = runCli(["materialize-formal-stage", "--help"]);
+  assert.equal(help.status, 0, help.stderr);
+  const scaffold = materializeHelpScaffold(help.stdout);
+  const state = await prepareGenerationPlanRun(t, "cli-help-scaffold-executable");
+  const request = replaceExactStrings(
+    scaffold,
+    new Map([
+      ["request_id", "cli_help_generation_scaffold"],
+      ["run_id", state.runId],
+      ["current_plan_wave_id", "wave_discovery_synthetic"],
+      ["stage_id", "stage_cli_help_generation"],
+      ["unit_id", "unit_seed_independent_demand"],
+      ["audit_id", "cli_help_generation_audit"],
+    ]),
+  ) as Record<string, unknown>;
+  const result = await new FormalStageMaterializer(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  ).materialize(request);
+  assert.equal(result.status, "validated");
+  const task = result.compilation.compiled_envelopes.find(
+    (entry) =>
+      entry.artifact_type === "startup_opportunity.research_task.discovery_candidate.current",
+  );
+  assert.ok(task);
+  assert.equal(state.validator.validateDocument(task.document, task.artifact_path).valid, true);
+});
 
 async function writeJson(root: string, name: string, value: unknown): Promise<string> {
   const file = path.join(root, name);
@@ -101,6 +181,35 @@ function compileRequest(
     created_at: createdAt,
     artifacts,
   };
+}
+
+function refreshRuntimePublicationPlanId(plan: Record<string, unknown>): void {
+  const identity = { ...plan };
+  delete identity.plan_id;
+  plan.plan_id = operationKey("runtime_publication_plan", identity);
+}
+
+function retargetRuntimePublicationPlanManifest(
+  plan: Record<string, unknown>,
+  mutateManifest: (manifest: Record<string, unknown>) => void,
+): void {
+  const manifest = structuredClone(plan.manifest_snapshot) as Record<string, unknown>;
+  mutateManifest(manifest);
+  const manifestHash = canonicalContentHash(manifest);
+  plan.manifest_snapshot = manifest;
+  plan.manifest_content_hash = manifestHash;
+  const validationClosure = plan.validation_closure as Record<string, unknown>;
+  const documents = validationClosure.documents as Record<string, unknown>[];
+  const manifestClosure = documents.find((entry) => entry.path === "manifest.json");
+  assert.ok(manifestClosure);
+  manifestClosure.content_hash = manifestHash;
+  const resolvedReferences = plan.resolved_references as Record<string, unknown>[];
+  for (const reference of resolvedReferences) {
+    if (reference.target_path === "manifest.json") {
+      reference.content_hash = manifestHash;
+    }
+  }
+  refreshRuntimePublicationPlanId(plan);
 }
 
 async function snapshotTree(root: string): Promise<Readonly<Record<string, string>>> {
@@ -432,6 +541,263 @@ async function prepareCleanPlanRun(context: TestContext, suffix: string) {
   });
 }
 
+async function prepareGenerationPlanBundle(
+  context: TestContext,
+  suffix: string,
+  generationOutputPath = "artifacts/discovery/generation/unit_seed_independent_demand.r1.json",
+) {
+  const root = await mkdtemp(path.join(tmpdir(), `formal-stage-${suffix}-`));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runId = `formal-stage-${suffix}`;
+  const validator = await createArtifactValidator(repositoryRoot);
+  const store = new RunStore(runsRoot, validator);
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test generation Plan materialization",
+      researchLanguage: "en-US",
+    },
+    createdAt,
+  });
+  const evidence = new EvidenceStore(runsRoot);
+  const generation = (
+    await evidence.record({
+      runId,
+      unitId: "unit_seed_independent_demand",
+      researchGoal: "SYNTHETIC generation substrate; not Evidence.",
+      source: {
+        kind: "user_provided",
+        canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-generation`,
+      },
+      rawContent: "SYNTHETIC generation bytes; not Evidence.",
+      recordedAt: createdAt,
+    })
+  ).record;
+  const evaluation = (
+    await evidence.record({
+      runId,
+      unitId: "unit_counterfactual",
+      researchGoal: "SYNTHETIC evaluation substrate; not Evidence.",
+      source: {
+        kind: "user_provided",
+        canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-evaluation`,
+      },
+      rawContent: "SYNTHETIC evaluation bytes; not Evidence.",
+      recordedAt: createdAt,
+    })
+  ).record;
+  const bundle = await createDiscoveryRuntimeFixture(
+    runId,
+    { generation, evaluation },
+    [],
+    "general",
+    true,
+  );
+  const plan = fixtureEffective(bundle, G21_PLAN_REF);
+  const planWave = (plan.waves as Record<string, unknown>[])[0];
+  assert.ok(planWave);
+  const generationUnit = (planWave.units as Record<string, unknown>[]).find(
+    (unit) => unit.unit_id === "unit_seed_independent_demand",
+  );
+  assert.ok(generationUnit);
+  generationUnit.output_path = generationOutputPath;
+  generationUnit.required_artifact_schema = "startup_opportunity.discovery_generation_result.v1";
+  const planEnvelope = fixtureEnvelope(bundle, G21_PLAN_REF);
+  (planEnvelope as { content_hash: string }).content_hash = canonicalContentHash(plan);
+  return { root, runsRoot, runId, validator, bundle, store };
+}
+
+async function prepareGenerationPlanRun(context: TestContext, suffix: string) {
+  const state = await prepareGenerationPlanBundle(context, suffix);
+  return prepareRunFromBundle(context, {
+    ...state,
+    publishSetupArtifacts: false,
+  });
+}
+
+function convertGenerationUnitToAdversarialReview(
+  bundle: Awaited<ReturnType<typeof createDiscoveryRuntimeFixture>>,
+  outputPath = "artifacts/reviews/adversarial-review.json",
+): void {
+  const plan = fixtureEffective(bundle, G21_PLAN_REF);
+  const planWave = (plan.waves as Record<string, unknown>[])[0];
+  assert.ok(planWave);
+  const unit = (planWave.units as Record<string, unknown>[]).find(
+    (candidate) => candidate.unit_id === "unit_seed_independent_demand",
+  );
+  assert.ok(unit);
+  Object.assign(unit, {
+    unit_type: "adversarial_review",
+    agent_role: "adversarial-reviewer",
+    output_path: outputPath,
+    required_artifact_schema: "startup_opportunity.discovery_adversarial_review.current",
+    required_outputs: ["startup_opportunity.discovery_adversarial_review.current"],
+  });
+  const planEnvelope = fixtureEnvelope(bundle, G21_PLAN_REF);
+  (planEnvelope as { content_hash: string }).content_hash = canonicalContentHash(plan);
+}
+
+async function prepareAdversarialReviewPlanRun(context: TestContext, suffix: string) {
+  const state = await prepareGenerationPlanBundle(context, suffix);
+  convertGenerationUnitToAdversarialReview(state.bundle);
+  return prepareRunFromBundle(context, {
+    ...state,
+    publishSetupArtifacts: false,
+  });
+}
+
+const retainedDeepReviewUnitId = "unit_retained_deep_review";
+const retainedDeepReviewWaveId = "wave_retained_scope_synthetic";
+
+function retainedDeepReviewPlanWave(): Record<string, unknown> {
+  return {
+    wave_id: retainedDeepReviewWaveId,
+    depends_on: ["wave_discovery_synthetic"],
+    units: [
+      {
+        unit_id: retainedDeepReviewUnitId,
+        unit_type: "bounded_domain_research",
+        lane_kind: "retained_candidate_deep_review",
+        plan_disposition: "enabled",
+        priority_band: "high",
+        attempt: 1,
+        supersedes_unit_ref: null,
+        research_goal:
+          "SYNTHETIC retained-candidate deep review Unit; no external research is performed.",
+        input_refs: [G21_SCOPE_REF],
+        agent_role: "lane-researcher",
+        output_path: `artifacts/discovery/lanes/${retainedDeepReviewUnitId}.attempt-1.json`,
+        required_artifact_schema: "startup_opportunity.discovery_lane_result.v1",
+        source_preferences: ["SYNTHETIC retained-candidate source preference."],
+        required_outputs: ["startup_opportunity.discovery_lane_result.v1"],
+        stop_conditions: ["SYNTHETIC retained-candidate stop condition."],
+      },
+    ],
+  };
+}
+
+async function prepareRunThroughDiscoveryFanIn(context: TestContext, suffix: string) {
+  const root = await mkdtemp(path.join(tmpdir(), `formal-stage-${suffix}-`));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runId = `formal-stage-${suffix}`;
+  const validator = await createArtifactValidator(repositoryRoot);
+  const store = new RunStore(runsRoot, validator);
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "test retained-scope formal materialization",
+      researchLanguage: "en-US",
+    },
+    createdAt,
+  });
+  const evidence = new EvidenceStore(runsRoot);
+  const generation = (
+    await evidence.record({
+      runId,
+      unitId: "unit_seed_independent_demand",
+      researchGoal: "SYNTHETIC retained-scope substrate; not Evidence.",
+      source: {
+        kind: "user_provided",
+        canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-generation`,
+      },
+      rawContent: "SYNTHETIC generation bytes; not Evidence.",
+      recordedAt: createdAt,
+    })
+  ).record;
+  const evaluation = (
+    await evidence.record({
+      runId,
+      unitId: "unit_counterfactual",
+      researchGoal: "SYNTHETIC retained-scope substrate; not Evidence.",
+      source: {
+        kind: "user_provided",
+        canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-evaluation`,
+      },
+      rawContent: "SYNTHETIC evaluation bytes; not Evidence.",
+      recordedAt: createdAt,
+    })
+  ).record;
+  const bundle = await createDiscoverySynthesisFixture(runId, { generation, evaluation }, [
+    retainedDeepReviewPlanWave(),
+  ]);
+  await publishInitialPlanBundle(
+    store,
+    runId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  );
+  await store.publishArtifactBundle({
+    runId,
+    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
+  });
+  await store.publishArtifactBundle({
+    runId,
+    envelopes: envelopesByType(bundle, "startup_opportunity.discovery_candidate.v1").filter(
+      (candidate) => candidate.document.revision === 1,
+    ),
+  });
+  const candidateRuntime = discoveryWaveEnvelopes(
+    bundle,
+    runId,
+    "startup_opportunity.research_task.discovery_candidate.current",
+    1,
+    "candidate_runtime",
+  );
+  await store.publishArtifactBundle({
+    runId,
+    envelopes: candidateRuntime,
+  });
+  const candidateDispatch = candidateRuntime.find(
+    (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(candidateDispatch);
+  await registerAllDispatchLaunches(
+    runsRoot,
+    validator,
+    runId,
+    candidateDispatch,
+    "launch_retained_scope_candidate",
+  );
+  await store.publishArtifactBundle({
+    runId,
+    envelopes: envelopesByType(
+      bundle,
+      "startup_opportunity.evidence.discovery_candidate.current",
+      "startup_opportunity.claim.discovery_candidate.current",
+      "startup_opportunity.finding.discovery_candidate.current",
+      "startup_opportunity.insight.discovery_candidate.current",
+      "startup_opportunity.judgment_assessment.discovery_candidate.current",
+      "startup_opportunity.source_manifest.discovery_candidate.current",
+    ),
+  });
+  await store.publishArtifactBundle({
+    runId,
+    envelopes: [
+      runtimeEnvelope(bundle, G22_DEMAND_R2),
+      ...envelopesByType(
+        bundle,
+        "startup_opportunity.discovery_lane_result.v1",
+        "startup_opportunity.concrete_pre_candidate.v1",
+        "startup_opportunity.pre_candidate_relation.v1",
+      ),
+    ],
+  });
+  await store.publishArtifact({
+    runId,
+    envelope: runtimeEnvelope(bundle, G22_FAN_IN),
+  });
+  return { root, runsRoot, runId, validator, bundle, store };
+}
+
 function waveRequest(
   runId: string,
   task: Record<string, unknown>,
@@ -496,6 +862,281 @@ function waveRequest(
       gate_after: "required",
       limitations: ["SYNTHETIC materialization test; no research was performed."],
     },
+  };
+}
+
+function generationWaveRequest(
+  runId: string,
+  task: Record<string, unknown>,
+  operation: "validate_only" | "publish" = "validate_only",
+): Record<string, unknown> {
+  const commercial = task.commercial_research_requirements as Record<string, unknown>;
+  return {
+    schema_version: "startup_opportunity.formal_stage_materialization_request.current",
+    request_id: "formal_generation_wave_request",
+    run_id: runId,
+    operation,
+    created_at: createdAt,
+    stage_kind: "discovery_wave",
+    wave: {
+      wave_id: "wave_discovery_synthetic",
+      stage_id: "stage_generation",
+      stage_kind: "discovery_generation",
+      unit_ids: ["unit_seed_independent_demand"],
+      lanes: [
+        {
+          unit_id: "unit_seed_independent_demand",
+          lane_role: "opportunity",
+          candidate_scope: { kind: "none", candidate_refs: [] },
+          incumbent_response_assignment: {
+            analysis_depth: "not_assigned",
+            assignment_role: "none",
+            subject_refs: [],
+            rationale: "Candidate generation does not own incumbent response analysis.",
+          },
+          reporting_dimensions: ["user_language"],
+          time_budget_minutes: 10,
+          max_sources: 5,
+          straggler_policy: {
+            on_timeout: "publish_partial",
+            grace_minutes: 2,
+            blocks_stage: true,
+          },
+          commercial_research_semantics: {
+            research_stage: commercial.research_stage,
+            planned_queries: commercial.planned_queries,
+            quantitative_competitive_scope: commercial.quantitative_competitive_scope,
+            required_commercial_dimensions: commercial.required_commercial_dimensions,
+            commercial_audit_output_path: commercial.commercial_audit_output_path,
+          },
+          task_semantics: {
+            target_candidate_refs: [],
+            source_phase: "candidate_generation",
+            required_source_group_ids: ["source_group_generation"],
+            required_stances: ["support", "oppose"],
+            stop_conditions: ["SYNTHETIC bounded generation stop condition."],
+            execution_contract: task.execution_contract,
+          },
+        },
+      ],
+      research_depth: "quick",
+      total_time_budget_minutes: 10,
+      resource_allocation: commercial.resource_allocation,
+      gate_before: null,
+      gate_after: "required",
+      limitations: ["SYNTHETIC generation materialization test; no research was performed."],
+    },
+  };
+}
+
+function reviewExecutionContract(): Record<string, unknown> {
+  return {
+    formal_artifacts_explicit: true,
+    harness_generated_research: false,
+    harness_generated_judgment: false,
+    agent_dispatch: false,
+    hidden_llm_calls: false,
+    network_research: false,
+    external_validation: false,
+    publication_implies_validation: false,
+  };
+}
+
+function adversarialReviewWaveRequest(
+  runId: string,
+  task: Record<string, unknown>,
+  operation: "validate_only" | "publish" = "validate_only",
+): Record<string, unknown> {
+  const commercial = task.commercial_research_requirements as Record<string, unknown>;
+  const assignedPlanQuestionRefs = [
+    `${G21_PLAN_REF}#question_demand`,
+    `${G21_PLAN_REF}#question_counterfactual`,
+  ];
+  return {
+    schema_version: "startup_opportunity.formal_stage_materialization_request.current",
+    request_id: "formal_adversarial_review_wave_request",
+    run_id: runId,
+    operation,
+    created_at: createdAt,
+    stage_kind: "discovery_wave",
+    wave: {
+      wave_id: "wave_discovery_synthetic",
+      stage_id: "stage_review",
+      stage_kind: "review",
+      unit_ids: ["unit_seed_independent_demand"],
+      lanes: [
+        {
+          unit_id: "unit_seed_independent_demand",
+          lane_role: "review",
+          candidate_scope: { kind: "none", candidate_refs: [] },
+          incumbent_response_assignment: {
+            analysis_depth: "not_assigned",
+            assignment_role: "none",
+            subject_refs: [],
+            rationale: "Plan-level adversarial review does not own incumbent response analysis.",
+          },
+          reporting_dimensions: ["adversarial_review"],
+          time_budget_minutes: 10,
+          max_sources: 5,
+          straggler_policy: {
+            on_timeout: "publish_partial",
+            grace_minutes: 2,
+            blocks_stage: true,
+          },
+          commercial_research_semantics: {
+            research_stage: commercial.research_stage,
+            planned_queries: commercial.planned_queries,
+            quantitative_competitive_scope: commercial.quantitative_competitive_scope,
+            required_commercial_dimensions: commercial.required_commercial_dimensions,
+            commercial_audit_output_path: commercial.commercial_audit_output_path,
+          },
+          task_semantics: {
+            source_phase: "adversarial_challenger",
+            required_source_group_ids: ["source_group_adversarial_review"],
+            assigned_plan_question_refs: assignedPlanQuestionRefs,
+            required_stances: ["support", "oppose"],
+            stop_conditions: ["SYNTHETIC bounded adversarial review stop condition."],
+            execution_contract: reviewExecutionContract(),
+          },
+        },
+      ],
+      research_depth: "quick",
+      total_time_budget_minutes: 10,
+      resource_allocation: commercial.resource_allocation,
+      gate_before: null,
+      gate_after: "required",
+      limitations: ["SYNTHETIC adversarial review materialization; no research was performed."],
+    },
+  };
+}
+
+function adversarialReviewResultStaging(
+  runId: string,
+  taskRef: string,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const reviewedPlanQuestionRefs = [
+    `${G21_PLAN_REF}#question_demand`,
+    `${G21_PLAN_REF}#question_counterfactual`,
+  ];
+  const reviewResult = {
+    status: "partial",
+    review_subject: {
+      subject_kind: "plan_level_discovery",
+      target_candidate_refs: [],
+      target_opportunity_refs: [],
+      reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+    },
+    review_findings: [
+      {
+        finding_id: "finding_review_support_partial",
+        stance: "support",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "partial",
+        summary:
+          "SYNTHETIC support remains partial; the review preserves weak material without upgrading confidence.",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: ["Synthetic fixture has no external source authority."],
+      },
+      {
+        finding_id: "finding_review_oppose_unknown",
+        stance: "oppose",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "unknown",
+        summary:
+          "SYNTHETIC opposing material remains unknown and is visible as review context only.",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: ["No claim of absent evidence is made."],
+      },
+      {
+        finding_id: "finding_review_background_no_evidence",
+        stance: "background",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "no_evidence_found",
+        summary: "SYNTHETIC background search found no usable material within the bounded fixture.",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: ["No background source is promoted to Evidence."],
+      },
+    ],
+    material_visibility: {
+      supporting_refs: [],
+      opposing_refs: [],
+      background_refs: [],
+      contradictory_refs: [],
+      unknown_refs: [],
+    },
+    decision_relevant_gaps: [
+      {
+        gap_id: "gap_review_insufficient_counterevidence",
+        state: "insufficient_evidence",
+        summary:
+          "SYNTHETIC counterevidence remains insufficient and should not become a ranking or gate authority.",
+        basis_refs: [],
+        requires_plan_adaptation: false,
+        recommended_follow_up: "manual_review",
+        limitations: ["A main-agent adaptation decision would be required to change the Plan."],
+      },
+      {
+        gap_id: "gap_review_inferred_background",
+        state: "inferred",
+        summary: "SYNTHETIC background inference is preserved separately from unknown.",
+        basis_refs: [],
+        requires_plan_adaptation: false,
+        recommended_follow_up: "no_action",
+        limitations: ["Inference is context only."],
+      },
+    ],
+    search_closure: {
+      status: "partial",
+      acquisition_routes_attempted: ["user_provided"],
+      adopted_source_refs: [],
+      unresolved_gaps: ["Opposing and background material remain incomplete."],
+      stop_reason: "The bounded synthetic review fixture reached its stop condition.",
+    },
+    authority_boundary: {
+      reference_only: true,
+      not_gate: true,
+      not_ranking: true,
+      not_elimination: true,
+      not_confidence_ceiling: true,
+      mutates_current_plan: false,
+      rewrites_report: false,
+    },
+    valid_as_of: "2026-08-19",
+    limitations: ["Discovery adversarial review is reference-only and non-gating."],
+    ...overrides,
+  };
+  return {
+    schema_version: "startup_opportunity.lane_staging_document.current",
+    staging_id: "staging_adversarial_review_result",
+    run_id: runId,
+    task_ref: taskRef,
+    created_at: "2026-08-19T09:04:00Z",
+    producer_role: "adversarial_reviewer",
+    operation: "validate_only",
+    evidence_receipt_refs: [],
+    delivery_contract: {
+      search_closure: {
+        status: "partial",
+        acquisition_routes_attempted: ["user_provided"],
+        adopted_source_refs: [],
+        unresolved_gaps: ["Opposing and background material remain incomplete."],
+        stop_reason: "The bounded synthetic review fixture reached its stop condition.",
+      },
+    },
+    agent_documents: [{ artifact_family: "lane_result", document: reviewResult }],
   };
 }
 
@@ -586,6 +1227,1333 @@ test("wave materialization projects one Plan Unit into exact Execution, Dispatch
   assert.equal(canonicalTask.document.required_artifact_schema, lane?.submission_schema);
 });
 
+test("public Plan publication accepts generation Artifact revision identity and materializes the wave", async (t) => {
+  const state = await prepareGenerationPlanRun(t, "generation-plan-publication");
+  const task = fixtureEffective(state.bundle, G22_GENERATION_TASK);
+  const request = generationWaveRequest(state.runId, task);
+  const materializer = new FormalStageMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const runRoot = path.join(state.runsRoot, state.runId);
+  const before = await snapshotTree(runRoot);
+  const validated = await materializer.materialize(request);
+  assert.equal(validated.status, "validated");
+  assert.deepEqual(await snapshotTree(runRoot), before);
+  const published = await materializer.materialize({
+    ...request,
+    operation: "publish",
+    publication_plan: validated.compilation.publication_plan,
+  });
+  assert.equal(published.status, "published");
+  const envelopes = published.compilation.compiled_envelopes;
+  const taskEnvelope = envelopes.find(
+    (entry) =>
+      entry.artifact_type === "startup_opportunity.research_task.discovery_candidate.current",
+  );
+  const dispatchEnvelope = envelopes.find(
+    (entry) => entry.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(taskEnvelope);
+  assert.ok(dispatchEnvelope);
+  assert.equal(taskEnvelope.document.attempt, 1);
+  assert.equal(
+    taskEnvelope.document.allowed_output_path,
+    "artifacts/discovery/generation/unit_seed_independent_demand.r1.json",
+  );
+  assert.deepEqual(taskEnvelope.document.target_candidate_refs, []);
+  assert.equal(
+    taskEnvelope.document.required_artifact_schema,
+    "startup_opportunity.discovery_generation_result.v1",
+  );
+  assert.equal(
+    (dispatchEnvelope.document.tasks as Record<string, unknown>[])[0]?.allowed_output_path,
+    taskEnvelope.document.allowed_output_path,
+  );
+});
+
+test("startup launch observability remains diagnostic and separate from Evidence authority", async (t) => {
+  const state = await prepareGenerationPlanRun(t, "startup-observability");
+  const task = fixtureEffective(state.bundle, G22_GENERATION_TASK);
+  const materializer = new FormalStageMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const request = generationWaveRequest(state.runId, task);
+  const validated = await materializer.materialize(request);
+  const published = await materializer.materialize({
+    ...request,
+    operation: "publish",
+    publication_plan: validated.compilation.publication_plan,
+  });
+  const dispatchEnvelope = published.compilation.compiled_envelopes.find(
+    (entry) => entry.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(dispatchEnvelope);
+
+  const beforeLaunch = await state.store.status(state.runId);
+  const beforeMilestones = beforeLaunch.observability.startupMilestones;
+  assert.equal(beforeMilestones.scopeConfirmed.state, "observed");
+  assert.equal(beforeMilestones.firstPlanPublished.state, "observed");
+  assert.equal(beforeMilestones.firstDispatchPublished.state, "observed");
+  assert.equal(beforeMilestones.firstEvidenceRecorded.state, "observed");
+  assert.equal(beforeMilestones.firstLaunchRegistered.state, "not_observed");
+  assert.equal(beforeMilestones.preflightFailure.state, "not_observed");
+
+  await registerAllDispatchLaunches(
+    state.runsRoot,
+    state.validator,
+    state.runId,
+    dispatchEnvelope,
+    "launch_startup_observability",
+  );
+  const afterLaunch = await state.store.status(state.runId);
+  const afterMilestones = afterLaunch.observability.startupMilestones;
+  assert.equal(afterMilestones.firstLaunchRegistered.state, "observed");
+  for (const milestone of Object.values(afterMilestones)) {
+    assert.equal(milestone.evidenceAuthority, false);
+    assert.equal(milestone.researchConclusionAuthority, false);
+  }
+
+  const evidenceRecords = await new EvidenceStore(state.runsRoot).listRecords(state.runId);
+  const evidenceJson = JSON.stringify(evidenceRecords);
+  assert.equal(evidenceJson.includes("startupMilestones"), false);
+  assert.equal(evidenceJson.includes("firstPlanPublished"), false);
+  assert.equal(evidenceJson.includes("researchConclusionAuthority"), false);
+
+  const failureState = await prepareGenerationPlanBundle(
+    t,
+    "startup-observability-preflight",
+    "artifacts/discovery/generation/unit_seed_independent_demand.attempt-1.json",
+  );
+  const failureEnvelopes = await initialPlanBundleEnvelopes(
+    failureState.store,
+    failureState.runId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(failureState.bundle, ref)),
+  );
+  const failureRunRoot = path.join(failureState.runsRoot, failureState.runId);
+  const beforeFailure = await snapshotTree(failureRunRoot);
+  await assert.rejects(
+    new DeclarativeRuntimeCompiler(
+      failureState.runsRoot,
+      failureState.validator,
+      repositoryRoot,
+    ).compile({
+      schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+      request_id: "startup_observability_preflight_failure",
+      run_id: failureState.runId,
+      operation: "publish",
+      created_at: createdAt,
+      artifacts: failureEnvelopes.map((envelope) => ({
+        artifact_type: envelope.artifact_type,
+        artifact_path: envelope.artifact_path,
+        producer_role: envelope.producer_role,
+        input_refs: envelope.input_refs,
+        document: envelope.document,
+      })),
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "runtime.compilation_plan_preflight_failed",
+  );
+  const afterFailure = await snapshotTree(failureRunRoot);
+  const withoutObservationLogs = (snapshot: Record<string, string>) =>
+    Object.fromEntries(
+      Object.entries(snapshot).filter(
+        ([name]) => !name.startsWith("events.jsonl") && !name.startsWith(".store/operations/log-"),
+      ),
+    );
+  assert.deepEqual(withoutObservationLogs(afterFailure), withoutObservationLogs(beforeFailure));
+  const failureStatus = await failureState.store.status(failureState.runId);
+  assert.equal(failureStatus.observability.startupMilestones.preflightFailure.state, "observed");
+  assert.equal(
+    failureStatus.observability.startupMilestones.preflightFailure.errorCode,
+    "runtime.compilation_plan_preflight_failed",
+  );
+  assert.equal(
+    failureStatus.observability.startupMilestones.preflightFailure.evidenceAuthority,
+    false,
+  );
+  assert.equal(
+    failureStatus.observability.startupMilestones.preflightFailure.researchConclusionAuthority,
+    false,
+  );
+});
+
+test("startup milestones require matching publication commits and true Plan preflight failures", async (t) => {
+  const orphanPlanState = await prepareGenerationPlanBundle(t, "startup-orphan-plan");
+  const orphanPlanEnvelope = fixtureEnvelope(orphanPlanState.bundle, G21_PLAN_REF);
+  await mkdir(path.join(orphanPlanState.runsRoot, orphanPlanState.runId, "plans"), {
+    recursive: true,
+  });
+  await writeFile(
+    path.join(orphanPlanState.runsRoot, orphanPlanState.runId, orphanPlanEnvelope.artifact_path),
+    `${JSON.stringify(orphanPlanEnvelope, null, 2)}\n`,
+  );
+  const orphanPlanStatus = await orphanPlanState.store.status(orphanPlanState.runId);
+  assert.equal(
+    orphanPlanStatus.observability.startupMilestones.firstPlanPublished.state,
+    "not_observed",
+  );
+
+  const state = await prepareGenerationPlanRun(t, "startup-orphan-dispatch-launch");
+  const task = fixtureEffective(state.bundle, G22_GENERATION_TASK);
+  const materializer = new FormalStageMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const request = generationWaveRequest(state.runId, task);
+  const validated = await materializer.materialize(request);
+  const dispatchEnvelope = validated.compilation.compiled_envelopes.find(
+    (entry) => entry.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(dispatchEnvelope);
+  await mkdir(
+    path.dirname(path.join(state.runsRoot, state.runId, dispatchEnvelope.artifact_path)),
+    {
+      recursive: true,
+    },
+  );
+  await writeFile(
+    path.join(state.runsRoot, state.runId, dispatchEnvelope.artifact_path),
+    `${JSON.stringify(dispatchEnvelope, null, 2)}\n`,
+  );
+  const launchDocument = {
+    schema_version: "startup_opportunity.dispatch_launch_registration.v1",
+    registration_id: "orphan_launch_registration",
+    run_id: state.runId,
+    dispatch_ref: dispatchEnvelope.artifact_path,
+    dispatch_hash: dispatchEnvelope.content_hash,
+    request_hash: `sha256:${"1".repeat(64)}`,
+    registered_at: "2026-08-19T09:30:00Z",
+    registrations: [
+      {
+        unit_id: "unit_seed_independent_demand",
+        task_ref: `${dispatchEnvelope.artifact_path}#task_unit_seed_independent_demand_attempt_1`,
+        task_id: "task_unit_seed_independent_demand_attempt_1",
+        attempt: 1,
+        execution_attempt_id: "exec_orphan_launch",
+        lifecycle_ref: `artifacts/runtime/lane-lifecycle/lifecycle_${"1".repeat(32)}.r1.json`,
+        lifecycle_hash: `sha256:${"2".repeat(64)}`,
+      },
+    ],
+    limitations: [
+      "SYNTHETIC orphan launch registration is deliberately uncommitted and not authoritative.",
+    ],
+  };
+  const launchEnvelope = {
+    schema_version: "startup_opportunity.artifact_envelope.current",
+    artifact_type: "startup_opportunity.dispatch_launch_registration.v1",
+    artifact_path: "artifacts/runtime/dispatch-launch-registrations/orphan-launch.json",
+    run_id: state.runId,
+    created_at: "2026-08-19T09:30:00Z",
+    producer_role: "harness",
+    input_refs: [dispatchEnvelope.artifact_path],
+    content_hash: canonicalContentHash(launchDocument),
+    document: launchDocument,
+  };
+  await mkdir(path.dirname(path.join(state.runsRoot, state.runId, launchEnvelope.artifact_path)), {
+    recursive: true,
+  });
+  await writeFile(
+    path.join(state.runsRoot, state.runId, launchEnvelope.artifact_path),
+    `${JSON.stringify(launchEnvelope, null, 2)}\n`,
+  );
+  const orphanRuntimeStatus = await state.store.status(state.runId);
+  assert.equal(
+    orphanRuntimeStatus.observability.startupMilestones.firstDispatchPublished.state,
+    "not_observed",
+  );
+  assert.equal(
+    orphanRuntimeStatus.observability.startupMilestones.firstLaunchRegistered.state,
+    "not_observed",
+  );
+
+  await state.store.recordRuntimeOperationObservation({
+    runId: state.runId,
+    operationId: "generic_validation_failure",
+    startedAt: "2026-08-19T09:31:00Z",
+    completedAt: "2026-08-19T09:31:01Z",
+    durationMs: 1,
+    outcome: "failed",
+    failureClassification: "validation_failed",
+    errorCode: "runtime.publication_plan_stale",
+    artifactRefs: [],
+  });
+  const genericFailureStatus = await state.store.status(state.runId);
+  assert.equal(
+    genericFailureStatus.observability.startupMilestones.preflightFailure.state,
+    "not_observed",
+  );
+
+  await state.store.recordRuntimeOperationObservation({
+    runId: state.runId,
+    operationId: "true_plan_preflight_failure",
+    startedAt: "2026-08-19T09:32:00Z",
+    completedAt: "2026-08-19T09:32:01Z",
+    durationMs: 1,
+    outcome: "failed",
+    failureClassification: "validation_failed",
+    errorCode: "runtime.compilation_plan_preflight_failed",
+    artifactRefs: [],
+  });
+  const truePreflightStatus = await state.store.status(state.runId);
+  assert.equal(
+    truePreflightStatus.observability.startupMilestones.preflightFailure.state,
+    "observed",
+  );
+  assert.equal(
+    truePreflightStatus.observability.startupMilestones.preflightFailure.errorCode,
+    "runtime.compilation_plan_preflight_failed",
+  );
+});
+
+test("public initial Plan publication rejects obsolete generation attempt paths before writes", async (t) => {
+  const state = await prepareGenerationPlanBundle(
+    t,
+    "generation-plan-obsolete-path",
+    "artifacts/discovery/generation/unit_seed_independent_demand.attempt-1.json",
+  );
+  const runRoot = path.join(state.runsRoot, state.runId);
+  const envelopes = await initialPlanBundleEnvelopes(
+    state.store,
+    state.runId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
+  );
+  const before = await snapshotTree(runRoot);
+  await assert.rejects(
+    state.store.publishArtifactBundle({ runId: state.runId, envelopes }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "artifact.planning_preflight_failed" &&
+      JSON.stringify(error.details).includes("plan.output_path_contract_mismatch"),
+  );
+  assert.deepEqual(await snapshotTree(runRoot), before);
+});
+
+test("public initial Plan publication rejects unsupported launch output schemas before writes", async (t) => {
+  const state = await prepareGenerationPlanBundle(t, "generation-plan-unsupported-schema");
+  const plan = fixtureEffective(state.bundle, G21_PLAN_REF);
+  const generationWave = (plan.waves as Record<string, unknown>[])[0];
+  assert.ok(generationWave);
+  const generationUnit = (generationWave.units as Record<string, unknown>[]).find(
+    (unit) => unit.unit_id === "unit_seed_independent_demand",
+  );
+  assert.ok(generationUnit);
+  generationUnit.required_artifact_schema = "startup_opportunity.unsupported_runtime_result.v1";
+  generationUnit.output_path =
+    "artifacts/discovery/generation/unit_seed_independent_demand.r1.json";
+  const planEnvelope = fixtureEnvelope(state.bundle, G21_PLAN_REF);
+  (planEnvelope as { content_hash: string }).content_hash = canonicalContentHash(plan);
+  const runRoot = path.join(state.runsRoot, state.runId);
+  const envelopes = await initialPlanBundleEnvelopes(
+    state.store,
+    state.runId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
+  );
+  const before = await snapshotTree(runRoot);
+  await assert.rejects(
+    state.store.publishArtifactBundle({ runId: state.runId, envelopes }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "artifact.planning_preflight_failed" &&
+      JSON.stringify(error.details).includes("plan.launch_unit_output_unsupported"),
+  );
+  assert.deepEqual(await snapshotTree(runRoot), before);
+});
+
+test("public initial Plan publication accepts policy-supported adversarial review topology and rejects drift", async (t) => {
+  const valid = await prepareGenerationPlanBundle(t, "adversarial-review-plan");
+  const validPlan = fixtureEffective(valid.bundle, G21_PLAN_REF);
+  const validWave = (validPlan.waves as Record<string, unknown>[])[0];
+  assert.ok(validWave);
+  const adversarialUnit = (validWave.units as Record<string, unknown>[]).find(
+    (unit) => unit.unit_id === "unit_seed_independent_demand",
+  );
+  assert.ok(adversarialUnit);
+  Object.assign(adversarialUnit, {
+    unit_type: "adversarial_review",
+    agent_role: "adversarial-reviewer",
+    output_path: "artifacts/reviews/adversarial-review.json",
+    required_artifact_schema: "startup_opportunity.discovery_adversarial_review.current",
+    required_outputs: ["startup_opportunity.discovery_adversarial_review.current"],
+  });
+  const validPlanEnvelope = fixtureEnvelope(valid.bundle, G21_PLAN_REF);
+  (validPlanEnvelope as { content_hash: string }).content_hash = canonicalContentHash(validPlan);
+  const published = await publishInitialPlanBundle(
+    valid.store,
+    valid.runId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(valid.bundle, ref)),
+  );
+  assert.equal(published.status, "published");
+
+  const invalid = await prepareGenerationPlanBundle(t, "adversarial-review-plan-drift");
+  const invalidPlan = fixtureEffective(invalid.bundle, G21_PLAN_REF);
+  const invalidWave = (invalidPlan.waves as Record<string, unknown>[])[0];
+  assert.ok(invalidWave);
+  const invalidUnit = (invalidWave.units as Record<string, unknown>[]).find(
+    (unit) => unit.unit_id === "unit_seed_independent_demand",
+  );
+  assert.ok(invalidUnit);
+  Object.assign(invalidUnit, {
+    unit_type: "adversarial_review",
+    agent_role: "lane-researcher",
+    output_path: "artifacts/reviews/adversarial-review.json",
+    required_artifact_schema: "startup_opportunity.discovery_adversarial_review.current",
+    required_outputs: ["startup_opportunity.discovery_adversarial_review.current"],
+  });
+  const invalidPlanEnvelope = fixtureEnvelope(invalid.bundle, G21_PLAN_REF);
+  (invalidPlanEnvelope as { content_hash: string }).content_hash =
+    canonicalContentHash(invalidPlan);
+  const before = await snapshotTree(path.join(invalid.runsRoot, invalid.runId));
+  await assert.rejects(
+    publishInitialPlanBundle(
+      invalid.store,
+      invalid.runId,
+      G21_CORE_REFS.map((ref) => fixtureEnvelope(invalid.bundle, ref)),
+    ),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "artifact.planning_preflight_failed" &&
+      (JSON.stringify(error.details).includes("plan.launch_agent_role_unsupported") ||
+        JSON.stringify(error.details).includes("contract.unit_tuple_not_allowed")),
+  );
+  assert.deepEqual(await snapshotTree(path.join(invalid.runsRoot, invalid.runId)), before);
+});
+
+test("public adversarial review Plan rejects review output path drift before writes", async (t) => {
+  const state = await prepareGenerationPlanBundle(t, "adversarial-review-plan-path-drift");
+  convertGenerationUnitToAdversarialReview(
+    state.bundle,
+    "artifacts/discovery/lanes/adversarial-review.attempt-1.json",
+  );
+  const before = await snapshotTree(path.join(state.runsRoot, state.runId));
+  await assert.rejects(
+    publishInitialPlanBundle(
+      state.store,
+      state.runId,
+      G21_CORE_REFS.map((ref) => fixtureEnvelope(state.bundle, ref)),
+    ),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "artifact.planning_preflight_failed" &&
+      JSON.stringify(error.details).includes("plan.launch_output_path_contract_mismatch"),
+  );
+  assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.runId)), before);
+});
+
+test("policy-supported adversarial review Unit materializes a launchable review wave", async (t) => {
+  const state = await prepareAdversarialReviewPlanRun(t, "adversarial-review-materialized");
+  const taskTemplate = fixtureEffective(state.bundle, G22_EVALUATION_TASK);
+  const request = adversarialReviewWaveRequest(state.runId, taskTemplate);
+  const materializer = new FormalStageMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const runRoot = path.join(state.runsRoot, state.runId);
+  const before = await snapshotTree(runRoot);
+  const validated = await materializer.materialize(request);
+  assert.equal(validated.status, "validated");
+  assert.deepEqual(await snapshotTree(runRoot), before);
+  assert.deepEqual(validated.artifacts.map((entry) => entry.artifact_type).sort(), [
+    "startup_opportunity.dispatch_batch.discovery.current",
+    "startup_opportunity.research_execution_plan.discovery.current",
+    "startup_opportunity.research_task.discovery_review.current",
+  ]);
+  assert.equal(validated.compilation.dispatch_launch_checklists.length, 1);
+  const prePublishChecklist = validated.compilation.dispatch_launch_checklists[0];
+  assert.ok(prePublishChecklist);
+  assert.equal(prePublishChecklist.status, "open");
+  assert.deepEqual(
+    prePublishChecklist.checklist.map((entry) => ({
+      unit_id: entry.unit_id,
+      allowed_output_path: entry.allowed_output_path,
+      required_artifact_schema: entry.required_artifact_schema,
+    })),
+    [
+      {
+        unit_id: "unit_seed_independent_demand",
+        allowed_output_path: "artifacts/reviews/adversarial-review.json",
+        required_artifact_schema: "startup_opportunity.discovery_adversarial_review.current",
+      },
+    ],
+  );
+
+  const published = await materializer.materialize({
+    ...request,
+    operation: "publish",
+    publication_plan: validated.compilation.publication_plan,
+  });
+  assert.equal(published.status, "published");
+  const envelopes = published.compilation.compiled_envelopes;
+  const reviewTask = envelopes.find(
+    (entry) => entry.artifact_type === "startup_opportunity.research_task.discovery_review.current",
+  );
+  const execution = envelopes.find(
+    (entry) =>
+      entry.artifact_type === "startup_opportunity.research_execution_plan.discovery.current",
+  );
+  const dispatch = envelopes.find(
+    (entry) => entry.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(reviewTask && execution && dispatch);
+  assert.equal(reviewTask.producer_role, "main_agent");
+  assert.equal(
+    reviewTask.artifact_path,
+    "tasks/discovery/reviews/unit_seed_independent_demand.attempt-1.json",
+  );
+  assert.equal(reviewTask.document.phase, "review");
+  assert.equal(reviewTask.document.agent_role, "adversarial-reviewer");
+  assert.equal(reviewTask.document.unit_type, "adversarial_review");
+  assert.equal(
+    reviewTask.document.allowed_output_path,
+    "artifacts/reviews/adversarial-review.json",
+  );
+  assert.equal(
+    reviewTask.document.required_artifact_schema,
+    "startup_opportunity.discovery_adversarial_review.current",
+  );
+  assert.equal(
+    state.validator.validateDocument(reviewTask.document, reviewTask.artifact_path).valid,
+    true,
+  );
+  const executionContract = reviewTask.document.execution_contract as Record<string, unknown>;
+  assert.equal(executionContract.hidden_llm_calls, false);
+  assert.equal(executionContract.network_research, false);
+  assert.equal(executionContract.harness_generated_research, false);
+  assert.equal(executionContract.agent_dispatch, false);
+
+  const stage = (execution.document.stages as Record<string, unknown>[])[0];
+  const lane = (stage?.lanes as Record<string, unknown>[] | undefined)?.[0];
+  const dispatchTask = (dispatch.document.tasks as Record<string, unknown>[])[0];
+  assert.equal(stage?.stage_kind, "review");
+  assert.equal(lane?.lane_role, "review");
+  assert.deepEqual(lane?.candidate_scope, { kind: "none", candidate_refs: [] });
+  assert.equal(lane?.submission_schema, "startup_opportunity.discovery_adversarial_review.current");
+  assert.equal(dispatchTask?.lane_role, "review");
+  assert.equal(
+    dispatchTask?.required_artifact_schema,
+    reviewTask.document.required_artifact_schema,
+  );
+  assert.equal(dispatchTask?.allowed_output_path, reviewTask.document.allowed_output_path);
+  assert.equal(dispatch.document.agent_dispatch_performed, false);
+
+  const registry = new DispatchLaunchRegistry(state.runsRoot, state.validator, repositoryRoot);
+  const launchCheck = await registry.check(
+    state.runId,
+    dispatch.artifact_path,
+    dispatch.content_hash,
+  );
+  assert.equal(launchCheck.status, "open");
+  assert.equal(
+    launchCheck.checklist[0]?.task_ref,
+    `${dispatch.artifact_path}#${dispatchTask?.task_id}`,
+  );
+  assert.equal(
+    launchCheck.checklist[0]?.required_artifact_schema,
+    "startup_opportunity.discovery_adversarial_review.current",
+  );
+});
+
+test("public adversarial review result validates, publishes, replays, and closes the Unit", async (t) => {
+  const state = await prepareAdversarialReviewPlanRun(t, "adversarial-review-delivery");
+  const taskTemplate = fixtureEffective(state.bundle, G22_EVALUATION_TASK);
+  const request = adversarialReviewWaveRequest(state.runId, taskTemplate);
+  const stageMaterializer = new FormalStageMaterializer(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  const waveValidated = await stageMaterializer.materialize(request);
+  const wavePublished = await stageMaterializer.materialize({
+    ...request,
+    operation: "publish",
+    publication_plan: waveValidated.compilation.publication_plan,
+  });
+  const reviewTask = wavePublished.compilation.compiled_envelopes.find(
+    (entry) => entry.artifact_type === "startup_opportunity.research_task.discovery_review.current",
+  );
+  assert.ok(reviewTask);
+
+  const laneMaterializer = new LaneResultMaterializer(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  const staging = adversarialReviewResultStaging(state.runId, reviewTask.artifact_path);
+  const runRoot = path.join(state.runsRoot, state.runId);
+  const beforeValidate = await snapshotTree(runRoot);
+  const validated = await laneMaterializer.materialize(staging);
+  assert.equal(validated.status, "accepted");
+  assert.equal(validated.compilation.status, "validated");
+  assert.deepEqual(await snapshotTree(runRoot), beforeValidate);
+
+  const reviewEnvelope = validated.compilation.compiled_envelopes.find(
+    (entry) => entry.artifact_type === "startup_opportunity.discovery_adversarial_review.current",
+  );
+  assert.ok(reviewEnvelope);
+  assert.equal(reviewEnvelope.producer_role, "adversarial_reviewer");
+  assert.equal(reviewEnvelope.artifact_path, "artifacts/reviews/adversarial-review.json");
+  assert.equal(reviewEnvelope.document.owner_role, "adversarial-reviewer");
+  assert.equal(reviewEnvelope.document.owned_output_path, reviewEnvelope.artifact_path);
+  assert.equal(reviewEnvelope.document.task_ref, reviewTask.artifact_path);
+  assert.equal(reviewEnvelope.document.task_hash, canonicalContentHash(reviewTask.document));
+  assert.deepEqual(reviewEnvelope.document.required_stances, reviewTask.document.required_stances);
+  const reviewSubject = reviewEnvelope.document.review_subject as Record<string, unknown>;
+  assert.deepEqual(
+    [...(reviewSubject.reviewed_plan_question_refs as string[])].sort(),
+    [...(reviewTask.document.assigned_plan_question_refs as string[])].sort(),
+  );
+  assert.deepEqual(
+    (reviewEnvelope.document.review_findings as Record<string, unknown>[]).map((finding) =>
+      [...(finding.reviewed_plan_question_refs as string[])].sort(),
+    ),
+    [
+      [...(reviewTask.document.assigned_plan_question_refs as string[])].sort(),
+      [...(reviewTask.document.assigned_plan_question_refs as string[])].sort(),
+      [...(reviewTask.document.assigned_plan_question_refs as string[])].sort(),
+    ],
+  );
+  assert.equal(
+    state.validator.validateDocument(reviewEnvelope.document, reviewEnvelope.artifact_path).valid,
+    true,
+  );
+  assert.deepEqual(
+    (reviewEnvelope.document.review_findings as Record<string, unknown>[]).map(
+      (finding) => finding.evidence_state,
+    ),
+    ["partial", "unknown", "no_evidence_found"],
+  );
+  assert.deepEqual(
+    (reviewEnvelope.document.decision_relevant_gaps as Record<string, unknown>[]).map(
+      (gap) => gap.state,
+    ),
+    ["insufficient_evidence", "inferred"],
+  );
+  assert.deepEqual(reviewEnvelope.document.authority_boundary, {
+    reference_only: true,
+    not_gate: true,
+    not_ranking: true,
+    not_elimination: true,
+    not_confidence_ceiling: true,
+    mutates_current_plan: false,
+    rewrites_report: false,
+  });
+
+  const published = await laneMaterializer.materialize({
+    ...staging,
+    operation: "publish",
+    publication_plan: validated.compilation.publication_plan,
+  });
+  assert.equal(published.status, "accepted");
+  assert.equal(published.compilation.status, "published");
+  const manifestAfterPublish = (await state.store.status(state.runId)).manifest;
+  assert.ok(manifestAfterPublish.completed_units.includes("unit_seed_independent_demand"));
+  assert.ok(!manifestAfterPublish.active_units.includes("unit_seed_independent_demand"));
+  assert.ok(manifestAfterPublish.artifact_refs.includes(reviewEnvelope.artifact_path));
+  const receipt = published.delivery_receipt.document;
+  assert.deepEqual(receipt.assigned_scope, ["adversarial_review"]);
+  assert.deepEqual(receipt.scope_coverage, [
+    {
+      scope_key: "adversarial_review",
+      status: "partial",
+      evidence_refs: [],
+      notes: "Harness-derived from the exact formal Lane Result or Audit semantic closure.",
+    },
+  ]);
+  const deliveryContract = staging.delivery_contract as Record<string, unknown>;
+  assert.deepEqual(receipt.search_closure, deliveryContract.search_closure);
+  assert.ok(
+    (receipt.scope_formal_closure as Record<string, unknown>[]).some((entry) =>
+      (entry.semantic_bindings as Record<string, unknown>[]).some(
+        (binding) => binding.semantic_path === "/material_visibility",
+      ),
+    ),
+  );
+
+  const replay = await laneMaterializer.materialize({
+    ...staging,
+    operation: "publish",
+    publication_plan: validated.compilation.publication_plan,
+  });
+  assert.equal(replay.status, "accepted");
+  assert.equal(replay.compilation.status, "idempotent_replay");
+});
+
+test("public adversarial review result rejects role, path, task, run, ref, hash, and shape drift before writes", async (t) => {
+  const state = await prepareAdversarialReviewPlanRun(t, "adversarial-review-delivery-drift");
+  const taskTemplate = fixtureEffective(state.bundle, G22_EVALUATION_TASK);
+  const request = adversarialReviewWaveRequest(state.runId, taskTemplate);
+  const stageMaterializer = new FormalStageMaterializer(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  const waveValidated = await stageMaterializer.materialize(request);
+  const wavePublished = await stageMaterializer.materialize({
+    ...request,
+    operation: "publish",
+    publication_plan: waveValidated.compilation.publication_plan,
+  });
+  const reviewTask = wavePublished.compilation.compiled_envelopes.find(
+    (entry) => entry.artifact_type === "startup_opportunity.research_task.discovery_review.current",
+  );
+  assert.ok(reviewTask);
+  const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const runRoot = path.join(state.runsRoot, state.runId);
+  const cases: readonly [string, (staging: Record<string, unknown>) => void, string][] = [
+    [
+      "empty-question-refs",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const subject = document.review_subject as Record<string, unknown>;
+        subject.reviewed_plan_question_refs = [];
+      },
+      "lane_delivery.schema.minItems",
+    ],
+    [
+      "empty-findings",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        document.review_findings = [];
+      },
+      "lane_delivery.schema.minItems",
+    ],
+    [
+      "missing-stance",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        document.review_findings = (document.review_findings as Record<string, unknown>[]).filter(
+          (finding) => finding.stance !== "oppose",
+        );
+      },
+      "runtime.discovery_review_binding_mismatch",
+    ],
+    [
+      "cross-question-stance-gap",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const [q1, q2] = [
+          `${G21_PLAN_REF}#question_demand`,
+          `${G21_PLAN_REF}#question_counterfactual`,
+        ];
+        document.review_findings = [
+          {
+            finding_id: "finding_support_q1_only",
+            stance: "support",
+            reviewed_plan_question_refs: [q1],
+            evidence_state: "unknown",
+            summary: "SYNTHETIC support covers only the first assigned question.",
+            supporting_refs: [],
+            opposing_refs: [],
+            background_refs: [],
+            contradictory_refs: [],
+            unknown_refs: [],
+            limitations: [],
+          },
+          {
+            finding_id: "finding_oppose_q2_only",
+            stance: "oppose",
+            reviewed_plan_question_refs: [q2],
+            evidence_state: "no_evidence_found",
+            summary: "SYNTHETIC opposition covers only the second assigned question.",
+            supporting_refs: [],
+            opposing_refs: [],
+            background_refs: [],
+            contradictory_refs: [],
+            unknown_refs: [],
+            limitations: [],
+          },
+        ];
+      },
+      "runtime.discovery_review_binding_mismatch",
+    ],
+    [
+      "subset-drift",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const subject = document.review_subject as Record<string, unknown>;
+        subject.reviewed_plan_question_refs = [`${G21_PLAN_REF}#question_demand`];
+      },
+      "runtime.discovery_review_binding_mismatch",
+    ],
+    [
+      "search-closure-status-drift",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const closure = document.search_closure as Record<string, unknown>;
+        closure.status = "completed";
+      },
+      "lane_delivery.review_search_closure_mismatch",
+    ],
+    [
+      "search-closure-route-drift",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const closure = document.search_closure as Record<string, unknown>;
+        closure.acquisition_routes_attempted = ["public_web"];
+      },
+      "lane_delivery.review_search_closure_mismatch",
+    ],
+    [
+      "search-closure-gap-drift",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const closure = document.search_closure as Record<string, unknown>;
+        closure.unresolved_gaps = ["SYNTHETIC conflicting closure gap."];
+      },
+      "lane_delivery.review_search_closure_mismatch",
+    ],
+    [
+      "search-closure-stop-reason-drift",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const closure = document.search_closure as Record<string, unknown>;
+        closure.stop_reason = "SYNTHETIC conflicting stop reason.";
+      },
+      "lane_delivery.review_search_closure_mismatch",
+    ],
+    [
+      "finding-material-visibility-omission",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const findings = document.review_findings as Record<string, unknown>[];
+        assert.ok(findings[0]);
+        findings[0].opposing_refs = [G22_FINDING];
+      },
+      "lane_delivery.review_material_visibility_mismatch",
+    ],
+    [
+      "finding-material-visibility-wrong-role",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const findings = document.review_findings as Record<string, unknown>[];
+        assert.ok(findings[0]);
+        findings[0].opposing_refs = [G22_FINDING];
+        const visibility = document.material_visibility as Record<string, unknown>;
+        visibility.supporting_refs = [G22_FINDING];
+        const closure = document.search_closure as Record<string, unknown>;
+        closure.adopted_source_refs = [G22_FINDING];
+        const delivery = staging.delivery_contract as Record<string, unknown>;
+        const deliveryClosure = delivery.search_closure as Record<string, unknown>;
+        deliveryClosure.adopted_source_refs = [G22_FINDING];
+      },
+      "lane_delivery.review_material_visibility_mismatch",
+    ],
+    [
+      "self-reference-supporting-ref",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const findings = document.review_findings as Record<string, unknown>[];
+        assert.ok(findings[0]);
+        findings[0].supporting_refs = ["artifacts/reviews/adversarial-review.json"];
+        const visibility = document.material_visibility as Record<string, unknown>;
+        visibility.supporting_refs = ["artifacts/reviews/adversarial-review.json"];
+        const closure = document.search_closure as Record<string, unknown>;
+        closure.adopted_source_refs = ["artifacts/reviews/adversarial-review.json"];
+        const delivery = staging.delivery_contract as Record<string, unknown>;
+        const deliveryClosure = delivery.search_closure as Record<string, unknown>;
+        deliveryClosure.adopted_source_refs = ["artifacts/reviews/adversarial-review.json"];
+      },
+      "lane_delivery.review_self_reference_forbidden",
+    ],
+    [
+      "gap-basis-visibility-omission",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const gaps = document.decision_relevant_gaps as Record<string, unknown>[];
+        assert.ok(gaps[0]);
+        gaps[0].basis_refs = [G22_FINDING];
+      },
+      "lane_delivery.review_gap_basis_visibility_mismatch",
+    ],
+    [
+      "gap-basis-self-reference",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const gaps = document.decision_relevant_gaps as Record<string, unknown>[];
+        assert.ok(gaps[0]);
+        gaps[0].basis_refs = ["artifacts/reviews/adversarial-review.json"];
+        const visibility = document.material_visibility as Record<string, unknown>;
+        visibility.background_refs = ["artifacts/reviews/adversarial-review.json"];
+        const closure = document.search_closure as Record<string, unknown>;
+        closure.adopted_source_refs = ["artifacts/reviews/adversarial-review.json"];
+        const delivery = staging.delivery_contract as Record<string, unknown>;
+        const deliveryClosure = delivery.search_closure as Record<string, unknown>;
+        deliveryClosure.adopted_source_refs = ["artifacts/reviews/adversarial-review.json"];
+      },
+      "lane_delivery.review_self_reference_forbidden",
+    ],
+    [
+      "gap-basis-missing-ref",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const missing = "artifacts/reviews/missing-adversarial-review.json";
+        const gaps = document.decision_relevant_gaps as Record<string, unknown>[];
+        assert.ok(gaps[0]);
+        gaps[0].basis_refs = [missing];
+        const visibility = document.material_visibility as Record<string, unknown>;
+        visibility.background_refs = [missing];
+        const closure = document.search_closure as Record<string, unknown>;
+        closure.adopted_source_refs = [missing];
+        const delivery = staging.delivery_contract as Record<string, unknown>;
+        const deliveryClosure = delivery.search_closure as Record<string, unknown>;
+        deliveryClosure.adopted_source_refs = [missing];
+      },
+      "reference.missing",
+    ],
+    [
+      "adopted-source-refs-omission",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const visibility = document.material_visibility as Record<string, unknown>;
+        visibility.supporting_refs = [G22_FINDING];
+      },
+      "lane_delivery.review_adopted_source_refs_mismatch",
+    ],
+    [
+      "adopted-source-refs-addition",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const closure = document.search_closure as Record<string, unknown>;
+        closure.adopted_source_refs = [G22_FINDING];
+        const delivery = staging.delivery_contract as Record<string, unknown>;
+        const deliveryClosure = delivery.search_closure as Record<string, unknown>;
+        deliveryClosure.adopted_source_refs = [G22_FINDING];
+      },
+      "lane_delivery.review_adopted_source_refs_mismatch",
+    ],
+    [
+      "adopted-source-refs-wrong-ref",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const missing = "artifacts/reviews/missing-adversarial-review.json";
+        const visibility = document.material_visibility as Record<string, unknown>;
+        visibility.supporting_refs = [missing];
+        const closure = document.search_closure as Record<string, unknown>;
+        closure.adopted_source_refs = [missing];
+        const delivery = staging.delivery_contract as Record<string, unknown>;
+        const deliveryClosure = delivery.search_closure as Record<string, unknown>;
+        deliveryClosure.adopted_source_refs = [missing];
+      },
+      "reference.missing",
+    ],
+    [
+      "completed-result-partial-closure",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        document.status = "completed";
+      },
+      "lane_delivery.review_status_search_closure_invalid",
+    ],
+    [
+      "completed-result-with-unresolved-gaps",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const resultClosure = document.search_closure as Record<string, unknown>;
+        resultClosure.status = "completed";
+        const delivery = staging.delivery_contract as Record<string, unknown>;
+        const deliveryClosure = delivery.search_closure as Record<string, unknown>;
+        deliveryClosure.status = "completed";
+      },
+      "lane_delivery.review_status_search_closure_invalid",
+    ],
+    [
+      "search-not-required-with-applicable-findings",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        document.status = "completed";
+        const closure = document.search_closure as Record<string, unknown>;
+        Object.assign(closure, {
+          status: "search_not_required",
+          acquisition_routes_attempted: ["none"],
+          unresolved_gaps: [],
+          stop_reason: "SYNTHETIC no-search status conflicts with applicable findings.",
+        });
+        const delivery = staging.delivery_contract as Record<string, unknown>;
+        Object.assign(delivery.search_closure as Record<string, unknown>, closure);
+      },
+      "lane_delivery.review_status_search_closure_invalid",
+    ],
+    [
+      "partial-result-with-no-search-route",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const closure = document.search_closure as Record<string, unknown>;
+        Object.assign(closure, {
+          acquisition_routes_attempted: ["none"],
+          stop_reason: "SYNTHETIC partial outcome cannot claim no search was required.",
+        });
+        const delivery = staging.delivery_contract as Record<string, unknown>;
+        Object.assign(delivery.search_closure as Record<string, unknown>, closure);
+      },
+      "lane_delivery.review_status_search_closure_invalid",
+    ],
+    [
+      "role",
+      (staging) => {
+        staging.producer_role = "lane_researcher";
+      },
+      "lane_delivery.producer_role_mismatch",
+    ],
+    [
+      "path",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        document.owned_output_path = "artifacts/reviews/forged.json";
+      },
+      "lane_delivery.mechanical_field_forged",
+    ],
+    [
+      "task",
+      (staging) => {
+        staging.task_ref = "tasks/discovery/reviews/missing.attempt-1.json";
+      },
+      "runtime.lane_authority_unresolved",
+    ],
+    [
+      "run",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        document.run_id = "other-run";
+      },
+      "lane_delivery.mechanical_field_forged",
+    ],
+    [
+      "ref",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        const subject = document.review_subject as Record<string, unknown>;
+        subject.reviewed_plan_question_refs = [`${G21_SCOPE_REF}#question_demand`];
+      },
+      "reference.type_mismatch",
+    ],
+    [
+      "hash",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        document.task_hash = `sha256:${"0".repeat(64)}`;
+      },
+      "lane_delivery.mechanical_field_forged",
+    ],
+    [
+      "shape",
+      (staging) => {
+        const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+          {}) as Record<string, unknown>;
+        document.schema_version = "startup_opportunity.adversarial_review.v1";
+      },
+      "lane_delivery.mechanical_field_forged",
+    ],
+  ];
+  for (const [label, mutate, expectedCode] of cases) {
+    const invalid = structuredClone(
+      adversarialReviewResultStaging(state.runId, reviewTask.artifact_path),
+    );
+    mutate(invalid);
+    const before = await snapshotTree(runRoot);
+    await assert.rejects(
+      materializer.materialize(invalid),
+      (error: unknown) => {
+        assert.ok(error instanceof StoreError, label);
+        const details = JSON.stringify(error.details);
+        assert.ok(
+          error.code === expectedCode || details.includes(expectedCode),
+          `${label}: ${error.code} ${details}`,
+        );
+        return true;
+      },
+      label,
+    );
+    assert.deepEqual(await snapshotTree(runRoot), before, label);
+  }
+});
+
+test("public adversarial review result accepts honest unknown and no-evidence stances", async (t) => {
+  const state = await prepareAdversarialReviewPlanRun(t, "adversarial-review-honest-weak");
+  const taskTemplate = fixtureEffective(state.bundle, G22_EVALUATION_TASK);
+  const request = adversarialReviewWaveRequest(state.runId, taskTemplate);
+  const stageMaterializer = new FormalStageMaterializer(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  const waveValidated = await stageMaterializer.materialize(request);
+  const wavePublished = await stageMaterializer.materialize({
+    ...request,
+    operation: "publish",
+    publication_plan: waveValidated.compilation.publication_plan,
+  });
+  const reviewTask = wavePublished.compilation.compiled_envelopes.find(
+    (entry) => entry.artifact_type === "startup_opportunity.research_task.discovery_review.current",
+  );
+  assert.ok(reviewTask);
+  const reviewedPlanQuestionRefs = [
+    `${G21_PLAN_REF}#question_demand`,
+    `${G21_PLAN_REF}#question_counterfactual`,
+  ];
+  const weakDeliveryClosure = {
+    status: "insufficient_evidence",
+    acquisition_routes_attempted: ["user_provided"],
+    adopted_source_refs: [],
+    unresolved_gaps: ["SYNTHETIC weak review leaves both stance conclusions unresolved."],
+    stop_reason: "The bounded synthetic weak review reached its stop condition.",
+  };
+  const staging = adversarialReviewResultStaging(state.runId, reviewTask.artifact_path, {
+    status: "insufficient_evidence",
+    review_findings: [
+      {
+        finding_id: "finding_review_support_unknown",
+        stance: "support",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "unknown",
+        summary: "SYNTHETIC support remains unknown; no positive Evidence is claimed or required.",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: ["Unknown support is preserved as a structured state."],
+      },
+      {
+        finding_id: "finding_review_oppose_no_evidence",
+        stance: "oppose",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "no_evidence_found",
+        summary: "SYNTHETIC opposing search found no usable material within the bounded fixture.",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: ["No-evidence state is not collapsed into unknown."],
+      },
+    ],
+    decision_relevant_gaps: [
+      {
+        gap_id: "gap_review_unavailable_route",
+        state: "unavailable",
+        summary: "SYNTHETIC route was unavailable but remains visible as a gap.",
+        basis_refs: [],
+        requires_plan_adaptation: false,
+        recommended_follow_up: "manual_review",
+        limitations: ["Unavailable is distinct from no_evidence_found."],
+      },
+      {
+        gap_id: "gap_review_not_applicable_dimension",
+        state: "not_applicable",
+        summary: "SYNTHETIC non-applicable context remains separately represented.",
+        basis_refs: [],
+        requires_plan_adaptation: false,
+        recommended_follow_up: "no_action",
+        limitations: ["Not-applicable does not become a search gap."],
+      },
+    ],
+    search_closure: {
+      ...weakDeliveryClosure,
+    },
+  });
+  const delivery = staging.delivery_contract as Record<string, unknown>;
+  delivery.search_closure = weakDeliveryClosure;
+  const document = ((staging.agent_documents as Record<string, unknown>[])[0]?.document ??
+    {}) as Record<string, unknown>;
+  document.search_closure = {
+    ...weakDeliveryClosure,
+  };
+  const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const validated = await materializer.materialize(staging);
+  assert.equal(validated.status, "accepted");
+  const reviewEnvelope = validated.compilation.compiled_envelopes.find(
+    (entry) => entry.artifact_type === "startup_opportunity.discovery_adversarial_review.current",
+  );
+  assert.ok(reviewEnvelope);
+  assert.deepEqual(
+    (reviewEnvelope.document.review_findings as Record<string, unknown>[]).map(
+      (finding) => finding.evidence_state,
+    ),
+    ["unknown", "no_evidence_found"],
+  );
+  assert.deepEqual(
+    (reviewEnvelope.document.decision_relevant_gaps as Record<string, unknown>[]).map(
+      (gap) => gap.state,
+    ),
+    ["unavailable", "not_applicable"],
+  );
+  assert.deepEqual(validated.delivery_receipt.document.search_closure, weakDeliveryClosure);
+});
+
+test("public adversarial review result accepts no-search completion only when all assigned scope is not applicable", async (t) => {
+  const state = await prepareAdversarialReviewPlanRun(t, "adversarial-review-not-required");
+  const taskTemplate = fixtureEffective(state.bundle, G22_EVALUATION_TASK);
+  const request = adversarialReviewWaveRequest(state.runId, taskTemplate);
+  const stageMaterializer = new FormalStageMaterializer(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  const waveValidated = await stageMaterializer.materialize(request);
+  const wavePublished = await stageMaterializer.materialize({
+    ...request,
+    operation: "publish",
+    publication_plan: waveValidated.compilation.publication_plan,
+  });
+  const reviewTask = wavePublished.compilation.compiled_envelopes.find(
+    (entry) => entry.artifact_type === "startup_opportunity.research_task.discovery_review.current",
+  );
+  assert.ok(reviewTask);
+  const reviewedPlanQuestionRefs = [
+    `${G21_PLAN_REF}#question_demand`,
+    `${G21_PLAN_REF}#question_counterfactual`,
+  ];
+  const notRequiredClosure = {
+    status: "search_not_required",
+    acquisition_routes_attempted: ["none"],
+    adopted_source_refs: [],
+    unresolved_gaps: [],
+    stop_reason: "All assigned synthetic review questions were structurally not applicable.",
+  };
+  const staging = adversarialReviewResultStaging(state.runId, reviewTask.artifact_path, {
+    status: "completed",
+    review_findings: [
+      {
+        finding_id: "finding_review_support_not_applicable",
+        stance: "support",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "not_applicable",
+        summary: "SYNTHETIC support stance was not applicable to the assigned questions.",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: ["No positive Evidence was required or fabricated."],
+      },
+      {
+        finding_id: "finding_review_oppose_not_applicable",
+        stance: "oppose",
+        reviewed_plan_question_refs: reviewedPlanQuestionRefs,
+        evidence_state: "not_applicable",
+        summary: "SYNTHETIC oppose stance was not applicable to the assigned questions.",
+        supporting_refs: [],
+        opposing_refs: [],
+        background_refs: [],
+        contradictory_refs: [],
+        unknown_refs: [],
+        limitations: ["No opposing Evidence was required or fabricated."],
+      },
+    ],
+    decision_relevant_gaps: [
+      {
+        gap_id: "gap_review_not_applicable",
+        state: "not_applicable",
+        summary: "SYNTHETIC no-search review leaves no applicable decision gap.",
+        basis_refs: [],
+        requires_plan_adaptation: false,
+        recommended_follow_up: "no_action",
+        limitations: ["No follow-up is mechanically inferred."],
+      },
+    ],
+    search_closure: notRequiredClosure,
+  });
+  const delivery = staging.delivery_contract as Record<string, unknown>;
+  delivery.search_closure = notRequiredClosure;
+  const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const validated = await materializer.materialize(staging);
+  assert.equal(validated.status, "accepted");
+  assert.deepEqual(validated.delivery_receipt.document.search_closure, notRequiredClosure);
+  assert.deepEqual(validated.delivery_receipt.document.scope_coverage, [
+    {
+      scope_key: "adversarial_review",
+      status: "not_applicable",
+      evidence_refs: [],
+      notes: "Harness-derived from the exact formal Lane Result or Audit semantic closure.",
+    },
+  ]);
+  const published = await materializer.materialize({
+    ...staging,
+    operation: "publish",
+    publication_plan: validated.compilation.publication_plan,
+  });
+  assert.equal(published.compilation.status, "published");
+});
+
+test("adversarial review wave materialization rejects stage, role, target, and source-phase drift before writes", async (t) => {
+  const cases: readonly [string, (request: Record<string, unknown>) => void, string][] = [
+    [
+      "stage",
+      (request) => {
+        const wave = request.wave as Record<string, unknown>;
+        wave.stage_kind = "candidate_evaluation";
+      },
+      "formal_materialization.review_stage_kind_mismatch",
+    ],
+    [
+      "role",
+      (request) => {
+        const wave = request.wave as Record<string, unknown>;
+        const lane = (wave.lanes as Record<string, unknown>[])[0];
+        assert.ok(lane);
+        lane.lane_role = "risk";
+      },
+      "formal_materialization.review_lane_role_mismatch",
+    ],
+    [
+      "target",
+      (request) => {
+        const wave = request.wave as Record<string, unknown>;
+        const lane = (wave.lanes as Record<string, unknown>[])[0];
+        assert.ok(lane);
+        lane.candidate_scope = { kind: "explicit", candidate_refs: [G22_DEMAND_R1] };
+        (lane.task_semantics as Record<string, unknown>).target_candidate_refs = [G22_DEMAND_R1];
+      },
+      "formal_materialization.review_target_refs_mismatch",
+    ],
+    [
+      "source-phase",
+      (request) => {
+        const wave = request.wave as Record<string, unknown>;
+        const lane = (wave.lanes as Record<string, unknown>[])[0];
+        assert.ok(lane);
+        (lane.task_semantics as Record<string, unknown>).source_phase = "candidate_evaluation";
+      },
+      "formal_materialization.review_source_phase_mismatch",
+    ],
+  ];
+
+  for (const [suffix, mutate, expectedDetailCode] of cases) {
+    await t.test(suffix, async () => {
+      const state = await prepareAdversarialReviewPlanRun(t, `adversarial-review-${suffix}-drift`);
+      const taskTemplate = fixtureEffective(state.bundle, G22_EVALUATION_TASK);
+      const request = adversarialReviewWaveRequest(state.runId, taskTemplate);
+      mutate(request);
+      const before = await snapshotTree(path.join(state.runsRoot, state.runId));
+      await assert.rejects(
+        new FormalStageMaterializer(state.runsRoot, state.validator, repositoryRoot).materialize(
+          request,
+        ),
+        (error: unknown) =>
+          error instanceof StoreError &&
+          error.code === "formal_materialization.wave_lane_semantics_invalid" &&
+          JSON.stringify(error.details).includes(expectedDetailCode),
+      );
+      assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.runId)), before);
+    });
+  }
+});
+
 test("wave materialization rejects duplicate Lane claims and never defaults missing Agent semantics", async (t) => {
   const state = await prepareRun(t, "wave-negative");
   const task = fixtureEffective(state.bundle, G22_EVALUATION_TASK);
@@ -611,6 +2579,212 @@ test("wave materialization rejects duplicate Lane claims and never defaults miss
     (error: unknown) =>
       error instanceof StoreError && error.code === "formal_materialization.request_invalid",
   );
+});
+
+test("wave materialization closes candidate scope and Task target candidates before writes", async (t) => {
+  const state = await prepareRun(t, "wave-scope-target-closure");
+  const task = fixtureEffective(state.bundle, G22_EVALUATION_TASK);
+  const materializer = new FormalStageMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const runRoot = path.join(state.runsRoot, state.runId);
+
+  function laneOf(request: Record<string, unknown>): Record<string, unknown> {
+    const lane = ((request.wave as Record<string, unknown>).lanes as Record<string, unknown>[])[0];
+    assert.ok(lane);
+    return lane;
+  }
+
+  function setExplicitCandidateTargets(
+    request: Record<string, unknown>,
+    candidateRefs: readonly string[],
+  ): void {
+    const lane = laneOf(request);
+    lane.candidate_scope = { kind: "explicit", candidate_refs: [...candidateRefs] };
+    lane.incumbent_response_assignment = {
+      analysis_depth: "lightweight_scan",
+      assignment_role: "owner",
+      subject_refs: [...candidateRefs],
+      rationale: "SYNTHETIC explicit candidate evaluation owner.",
+    };
+    (lane.task_semantics as Record<string, unknown>).target_candidate_refs = [...candidateRefs];
+  }
+
+  for (const candidateRefs of [[G22_DEMAND_R1], [G22_DEMAND_R1, G22_BASELINE_R1]] as const) {
+    const valid = waveRequest(state.runId, task);
+    valid.top_level_formal_refs = G21_MAP_REFS;
+    setExplicitCandidateTargets(valid, candidateRefs);
+    const before = await snapshotTree(runRoot);
+    const result = await materializer.materialize(valid);
+    assert.equal(result.status, "validated");
+    assert.deepEqual(await snapshotTree(runRoot), before);
+  }
+
+  const mismatch = waveRequest(state.runId, task);
+  mismatch.top_level_formal_refs = G21_MAP_REFS;
+  const mismatchLane = laneOf(mismatch);
+  mismatchLane.candidate_scope = { kind: "explicit", candidate_refs: [G22_DEMAND_R1] };
+  mismatchLane.incumbent_response_assignment = {
+    analysis_depth: "not_assigned",
+    assignment_role: "none",
+    subject_refs: [],
+    rationale: "SYNTHETIC mismatch is rejected before incumbent assignment authority is needed.",
+  };
+  (mismatchLane.task_semantics as Record<string, unknown>).target_candidate_refs = [
+    G22_BASELINE_R1,
+  ];
+  const beforeMismatch = await snapshotTree(runRoot);
+  await assert.rejects(
+    materializer.materialize(mismatch),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "formal_materialization.wave_lane_semantics_invalid" &&
+      JSON.stringify(error.details).includes(
+        "formal_materialization.discovery_lane_candidate_scope_target_mismatch",
+      ),
+  );
+  assert.deepEqual(await snapshotTree(runRoot), beforeMismatch);
+
+  const retainedState = await prepareRunThroughDiscoveryFanIn(t, "wave-retained-scope-target");
+  const retainedTask = fixtureEffective(retainedState.bundle, G22_EVALUATION_TASK);
+  const retainedMaterializer = new FormalStageMaterializer(
+    retainedState.runsRoot,
+    retainedState.validator,
+    repositoryRoot,
+  );
+  const retainedRunRoot = path.join(retainedState.runsRoot, retainedState.runId);
+  const retained = waveRequest(retainedState.runId, retainedTask);
+  retained.top_level_formal_refs = [...G21_MAP_REFS, G22_FAN_IN];
+  const retainedWave = retained.wave as Record<string, unknown>;
+  retainedWave.wave_id = retainedDeepReviewWaveId;
+  retainedWave.stage_id = "stage_retained_scope";
+  retainedWave.stage_kind = "retained_candidate_deep_review";
+  retainedWave.unit_ids = [retainedDeepReviewUnitId];
+  const retainedLane = laneOf(retained);
+  retainedLane.unit_id = retainedDeepReviewUnitId;
+  retainedLane.candidate_scope = { kind: "retained", candidate_refs: [] };
+  retainedLane.incumbent_response_assignment = {
+    analysis_depth: "targeted_deep_dive",
+    assignment_role: "owner",
+    subject_refs: [G22_DEMAND_R2],
+    rationale: "SYNTHETIC retained candidate deep-review owner.",
+  };
+  (retainedLane.task_semantics as Record<string, unknown>).target_candidate_refs = [G22_DEMAND_R2];
+  const beforeRetained = await snapshotTree(retainedRunRoot);
+  const retainedResult = await retainedMaterializer.materialize(retained);
+  assert.equal(retainedResult.status, "validated");
+  assert.deepEqual(await snapshotTree(retainedRunRoot), beforeRetained);
+
+  const retainedWrongTarget = structuredClone(retained);
+  const retainedWrongLane = laneOf(retainedWrongTarget);
+  (retainedWrongLane.task_semantics as Record<string, unknown>).target_candidate_refs = [
+    G22_DEMAND_R1,
+  ];
+  (retainedWrongLane.incumbent_response_assignment as Record<string, unknown>).subject_refs = [
+    G22_DEMAND_R1,
+  ];
+  const beforeRetainedWrongTarget = await snapshotTree(retainedRunRoot);
+  await assert.rejects(
+    retainedMaterializer.materialize(retainedWrongTarget),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "formal_materialization.wave_lane_semantics_invalid" &&
+      JSON.stringify(error.details).includes(
+        "formal_materialization.discovery_lane_retained_scope_target_mismatch",
+      ),
+  );
+  assert.deepEqual(await snapshotTree(retainedRunRoot), beforeRetainedWrongTarget);
+});
+
+test("wave materialization rejects generation tuple drift before publication writes", async (t) => {
+  const state = await prepareGenerationPlanRun(t, "generation-wave-tuple-drift");
+  const task = fixtureEffective(state.bundle, G22_GENERATION_TASK);
+  const request = generationWaveRequest(state.runId, task);
+  const materializer = new FormalStageMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const runRoot = path.join(state.runsRoot, state.runId);
+  const cases = [
+    {
+      label: "stage_kind",
+      mutate(value: Record<string, unknown>) {
+        (value.wave as Record<string, unknown>).stage_kind = "candidate_evaluation";
+      },
+      code: "generation_stage_kind_mismatch",
+    },
+    {
+      label: "lane_role",
+      mutate(value: Record<string, unknown>) {
+        const lane = (
+          (value.wave as Record<string, unknown>).lanes as Record<string, unknown>[]
+        )[0];
+        assert.ok(lane);
+        lane.lane_role = "evaluation";
+      },
+      code: "generation_lane_role_mismatch",
+    },
+    {
+      label: "candidate_scope",
+      mutate(value: Record<string, unknown>) {
+        const lane = (
+          (value.wave as Record<string, unknown>).lanes as Record<string, unknown>[]
+        )[0];
+        assert.ok(lane);
+        lane.candidate_scope = {
+          kind: "explicit",
+          candidate_refs: ["artifacts/discovery/candidates/candidate_demand.r1.json"],
+        };
+      },
+      code: "generation_candidate_scope_mismatch",
+    },
+    {
+      label: "source_phase",
+      mutate(value: Record<string, unknown>) {
+        const lane = (
+          (value.wave as Record<string, unknown>).lanes as Record<string, unknown>[]
+        )[0];
+        assert.ok(lane);
+        (lane.task_semantics as Record<string, unknown>).source_phase = "candidate_evaluation";
+      },
+      code: "generation_source_phase_mismatch",
+    },
+    {
+      label: "research_stage",
+      mutate(value: Record<string, unknown>) {
+        const lane = (
+          (value.wave as Record<string, unknown>).lanes as Record<string, unknown>[]
+        )[0];
+        assert.ok(lane);
+        (lane.commercial_research_semantics as Record<string, unknown>).research_stage =
+          "solution_specific_evaluation";
+      },
+      code: "generation_research_stage_mismatch",
+    },
+    {
+      label: "target_refs",
+      mutate(value: Record<string, unknown>) {
+        const lane = (
+          (value.wave as Record<string, unknown>).lanes as Record<string, unknown>[]
+        )[0];
+        assert.ok(lane);
+        (lane.task_semantics as Record<string, unknown>).target_candidate_refs = [
+          "artifacts/discovery/candidates/candidate_demand.r1.json",
+        ];
+      },
+      code: "generation_target_refs_mismatch",
+    },
+  ] as const;
+
+  for (const scenario of cases) {
+    const invalid = structuredClone(request);
+    scenario.mutate(invalid);
+    const before = await snapshotTree(runRoot);
+    await assert.rejects(
+      materializer.materialize(invalid),
+      (error: unknown) =>
+        error instanceof StoreError &&
+        error.code === "formal_materialization.wave_lane_semantics_invalid" &&
+        JSON.stringify(error.details).includes(scenario.code),
+      scenario.label,
+    );
+    assert.deepEqual(await snapshotTree(runRoot), before, scenario.label);
+  }
 });
 
 test("formal stage publish consumes the exact validation plan and replay rejects changed semantics", async (t) => {
@@ -648,6 +2822,247 @@ test("formal stage publish consumes the exact validation plan and replay rejects
       error.code === "formal_materialization.publication_plan_semantics_mismatch",
   );
   assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.runId)), before);
+});
+
+test("formal stage validate_only plan remains stable across unrelated formal Artifact and Evidence growth", async (t) => {
+  const state = await prepareGenerationPlanRun(t, "scoped-publication-plan-growth");
+  const task = fixtureEffective(state.bundle, G22_GENERATION_TASK);
+  const materializer = new FormalStageMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const request = generationWaveRequest(state.runId, task);
+  const validated = await materializer.materialize(request);
+
+  await new EvidenceStore(state.runsRoot).record({
+    runId: state.runId,
+    unitId: "unit_unrelated_growth",
+    researchGoal: "SYNTHETIC unrelated bytes appended after validate_only; not Evidence.",
+    source: {
+      kind: "user_provided",
+      canonical_uri: "urn:startup-opportunity:user-provided:unrelated-growth",
+    },
+    rawContent: "SYNTHETIC unrelated growth bytes; not Evidence.",
+    recordedAt: "2026-08-19T09:20:00Z",
+  });
+  const setupValidated = await materializer.materialize(setupRequest(state.runId, state.bundle));
+  await materializer.materialize({
+    ...setupRequest(state.runId, state.bundle),
+    operation: "publish",
+    publication_plan: setupValidated.compilation.publication_plan,
+  });
+
+  const published = await materializer.materialize({
+    ...request,
+    operation: "publish",
+    publication_plan: validated.compilation.publication_plan,
+  });
+  assert.equal(published.status, "published");
+  const publishedClosurePaths = published.compilation.publication_plan.validation_closure.documents
+    .map((entry) => entry.path)
+    .sort();
+  for (const ref of G21_MAP_REFS) {
+    assert.ok(!publishedClosurePaths.includes(ref), ref);
+  }
+  assert.equal(
+    published.compilation.publication_plan.validation_closure.exact_records.some((entry) =>
+      entry.ref.startsWith("evidence/manifest.jsonl#"),
+    ),
+    false,
+  );
+
+  await new EvidenceStore(state.runsRoot).record({
+    runId: state.runId,
+    unitId: "unit_unrelated_growth_replay",
+    researchGoal: "SYNTHETIC unrelated bytes appended before exact replay; not Evidence.",
+    source: {
+      kind: "user_provided",
+      canonical_uri: "urn:startup-opportunity:user-provided:unrelated-growth-replay",
+    },
+    rawContent: "SYNTHETIC unrelated replay growth bytes; not Evidence.",
+    recordedAt: "2026-08-19T09:25:00Z",
+  });
+  const replay = await materializer.materialize({
+    ...request,
+    operation: "publish",
+    publication_plan: validated.compilation.publication_plan,
+  });
+  assert.equal(replay.status, "idempotent_replay");
+});
+
+test("formal publication plans reject identity, Manifest closure, and resolved-reference tampering before formal writes", async (t) => {
+  const state = await prepareGenerationPlanRun(t, "publication-plan-tamper");
+  const task = fixtureEffective(state.bundle, G22_GENERATION_TASK);
+  const materializer = new FormalStageMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const request = generationWaveRequest(state.runId, task);
+  const validated = await materializer.materialize(request);
+  const zeroHash = `sha256:${"0".repeat(64)}`;
+  const cases: readonly [string, (plan: Record<string, unknown>) => void][] = [
+    [
+      "plan_id",
+      (plan) => {
+        plan.plan_id = zeroHash;
+      },
+    ],
+    [
+      "manifest_content_hash",
+      (plan) => {
+        plan.manifest_content_hash = zeroHash;
+      },
+    ],
+    [
+      "Manifest validation_closure document",
+      (plan) => {
+        const closure = plan.validation_closure as Record<string, unknown>;
+        const documents = closure.documents as Record<string, unknown>[];
+        const manifest = documents.find((entry) => entry.path === "manifest.json");
+        assert.ok(manifest);
+        manifest.content_hash = zeroHash;
+      },
+    ],
+  ];
+  for (const [label, mutate] of cases) {
+    const tampered = structuredClone(validated.compilation.publication_plan) as Record<
+      string,
+      unknown
+    >;
+    mutate(tampered);
+    const before = await snapshotTree(path.join(state.runsRoot, state.runId));
+    await assert.rejects(
+      materializer.materialize({
+        ...request,
+        operation: "publish",
+        publication_plan: tampered,
+      }),
+      (error: unknown) =>
+        error instanceof StoreError &&
+        [
+          "formal_materialization.publication_plan_stale",
+          "runtime.publication_plan_stale",
+        ].includes(error.code),
+      label,
+    );
+    assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.runId)), before, label);
+  }
+
+  const executionEnvelope = validated.compilation.compiled_envelopes.find(
+    (entry) =>
+      entry.artifact_type === "startup_opportunity.research_execution_plan.discovery.current",
+  );
+  assert.ok(executionEnvelope);
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator, repositoryRoot);
+  const manifestRefRequest = compileRequest(state.runId, "request_manifest_ref_tamper", [
+    {
+      artifact_type: executionEnvelope.artifact_type,
+      artifact_path: executionEnvelope.artifact_path,
+      producer_role: "main_agent",
+      input_refs: ["manifest.json"],
+      document: executionEnvelope.document,
+    },
+  ]);
+  const manifestRefValidated = await compiler.compile(manifestRefRequest);
+  const tamperedResolvedReference = structuredClone(
+    manifestRefValidated.publication_plan,
+  ) as Record<string, unknown>;
+  const resolvedReferences = tamperedResolvedReference.resolved_references as Record<
+    string,
+    unknown
+  >[];
+  const manifestReference = resolvedReferences.find(
+    (entry) => entry.ref === "manifest.json" && entry.target_path === "manifest.json",
+  );
+  assert.ok(manifestReference);
+  manifestReference.content_hash = zeroHash;
+  await assert.rejects(
+    compiler.compile({
+      ...manifestRefRequest,
+      operation: "publish",
+      artifacts: [],
+      publication_plan: tamperedResolvedReference,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "runtime.publication_plan_stale",
+  );
+  await assert.rejects(
+    readFile(path.join(state.runsRoot, state.runId, executionEnvelope.artifact_path), "utf8"),
+  );
+});
+
+test("formal publication plans reject self-consistent Manifest tampering before formal writes", async (t) => {
+  const state = await prepareGenerationPlanRun(t, "publication-plan-self-consistent-tamper");
+  const task = fixtureEffective(state.bundle, G22_GENERATION_TASK);
+  const materializer = new FormalStageMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const request = generationWaveRequest(state.runId, task);
+  const validated = await materializer.materialize(request);
+  const executionEnvelope = validated.compilation.compiled_envelopes.find(
+    (entry) =>
+      entry.artifact_type === "startup_opportunity.research_execution_plan.discovery.current",
+  );
+  assert.ok(executionEnvelope);
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator, repositoryRoot);
+  const manifestRefRequest = compileRequest(state.runId, "request_manifest_self_tamper", [
+    {
+      artifact_type: executionEnvelope.artifact_type,
+      artifact_path: executionEnvelope.artifact_path,
+      producer_role: "main_agent",
+      input_refs: ["manifest.json"],
+      document: executionEnvelope.document,
+    },
+  ]);
+  const manifestRefValidated = await compiler.compile(manifestRefRequest);
+  const tampered = structuredClone(manifestRefValidated.publication_plan) as Record<
+    string,
+    unknown
+  >;
+  const original = manifestRefValidated.publication_plan as unknown as Record<string, unknown>;
+  retargetRuntimePublicationPlanManifest(tampered, (manifest) => {
+    manifest.limitations = [
+      ...(((manifest.limitations as string[] | undefined) ?? []) as string[]),
+      "SYNTHETIC caller tampered the validate-only Manifest snapshot.",
+    ];
+  });
+  assert.notEqual(tampered.plan_id, original.plan_id);
+  assert.notEqual(tampered.manifest_content_hash, original.manifest_content_hash);
+  assert.notEqual(
+    canonicalJson(tampered.manifest_snapshot),
+    canonicalJson(original.manifest_snapshot),
+  );
+  const tamperedClosure = tampered.validation_closure as Record<string, unknown>;
+  const originalClosure = original.validation_closure as Record<string, unknown>;
+  assert.notEqual(
+    (tamperedClosure.documents as Record<string, unknown>[]).find(
+      (entry) => entry.path === "manifest.json",
+    )?.content_hash,
+    (originalClosure.documents as Record<string, unknown>[]).find(
+      (entry) => entry.path === "manifest.json",
+    )?.content_hash,
+  );
+  assert.notEqual(
+    (tampered.resolved_references as Record<string, unknown>[]).find(
+      (entry) => entry.target_path === "manifest.json",
+    )?.content_hash,
+    (original.resolved_references as Record<string, unknown>[]).find(
+      (entry) => entry.target_path === "manifest.json",
+    )?.content_hash,
+  );
+  const manifestBefore = await readFile(
+    path.join(state.runsRoot, state.runId, "manifest.json"),
+    "utf8",
+  );
+  await assert.rejects(
+    compiler.compile({
+      ...manifestRefRequest,
+      operation: "publish",
+      artifacts: [],
+      publication_plan: tampered,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "runtime.publication_plan_stale",
+  );
+  assert.equal(
+    await readFile(path.join(state.runsRoot, state.runId, "manifest.json"), "utf8"),
+    manifestBefore,
+  );
+  await assert.rejects(
+    readFile(path.join(state.runsRoot, state.runId, executionEnvelope.artifact_path), "utf8"),
+  );
 });
 
 test("formal stage validate_only does not recover a pending Plan operation", async (t) => {

@@ -328,6 +328,16 @@
       "document_schema_version": "startup_opportunity.value_layer_analysis.v1"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/discovery/review/research-task.schema.json",
+      "file": "current/discovery/review/research-task.schema.json",
+      "document_schema_version": "startup_opportunity.research_task.discovery_review.current"
+    },
+    {
+      "id": "https://startup-opportunity.local/schemas/current/discovery/review/adversarial-review-result.schema.json",
+      "file": "current/discovery/review/adversarial-review-result.schema.json",
+      "document_schema_version": "startup_opportunity.discovery_adversarial_review.current"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/discovery/reporting/discovery-adaptation-binding-policy.schema.json",
       "file": "current/discovery/reporting/discovery-adaptation-binding-policy.schema.json",
       "document_schema_version": "startup_opportunity.discovery_adaptation_binding_policy.current"

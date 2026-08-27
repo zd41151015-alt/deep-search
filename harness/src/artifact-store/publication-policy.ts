@@ -30,6 +30,7 @@ export interface ResearchPublicationPolicy {
   readonly task_lifecycle_contract: Readonly<Record<string, unknown>>;
   readonly branch_status_projection: Readonly<Record<string, string>>;
   readonly discovery_lane_status_projection: Readonly<Record<string, string>>;
+  readonly discovery_review_status_projection: Readonly<Record<string, string>>;
   readonly enrichment_branch_status_projection: Readonly<Record<string, string>>;
   readonly report_publication_contract: Readonly<Record<string, unknown>>;
   readonly discovery_map_contract: Readonly<Record<string, unknown>>;
