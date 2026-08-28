@@ -448,7 +448,11 @@ export function commercialProjectionRefs(source: Record<string, unknown>): reado
   const status = isRecord(source.commercial_research_status)
     ? source.commercial_research_status
     : {};
+  const fullProjection = isRecord(source.full_commercial_projection)
+    ? source.full_commercial_projection
+    : null;
   return [
+    ...(fullProjection === null ? [] : commercialProjectionRefs(fullProjection)),
     ...strings(source.commercial_research_audit_refs),
     ...records(source.quantitative_signal_rows).flatMap((row) => {
       const observation = isRecord(row.observation) ? row.observation : {};
@@ -2303,7 +2307,11 @@ export function criticalResearchGapGroups(
 export function deriveReportStatistics(
   source: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, number>> {
-  const quantitativeRows = records(source.quantitative_signal_rows);
+  const fullProjection = isRecord(source.full_commercial_projection)
+    ? source.full_commercial_projection
+    : null;
+  const completeProjection = fullProjection === null ? source : { ...source, ...fullProjection };
+  const quantitativeRows = records(completeProjection.quantitative_signal_rows);
   const decisionGradeCount = quantitativeRows.filter((row) => {
     const observation = isRecord(row.observation) ? row.observation : {};
     const decisionUse = isRecord(observation.decision_use) ? observation.decision_use : {};
@@ -2314,9 +2322,9 @@ export function deriveReportStatistics(
     quantitative_signal_count: quantitativeRows.length,
     decision_grade_quantitative_signal_count: decisionGradeCount,
     directional_or_context_quantitative_signal_count: quantitativeRows.length - decisionGradeCount,
-    competitive_object_count: records(source.competitive_substitute_rows).length,
-    full_gap_row_count: records(source.research_coverage_gaps).length,
-    critical_gap_group_count: criticalResearchGapGroups(source).length,
+    competitive_object_count: records(completeProjection.competitive_substitute_rows).length,
+    full_gap_row_count: records(completeProjection.research_coverage_gaps).length,
+    critical_gap_group_count: criticalResearchGapGroups(completeProjection).length,
     excluded_evidence_count: records(source.report_evidence_dispositions).filter(
       (entry) => entry.disposition === "excluded",
     ).length,

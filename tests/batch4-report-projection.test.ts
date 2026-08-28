@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { canonicalContentHash } from "../harness/src/artifact-store/canonical.js";
 import type { FormalArtifactEnvelope } from "../harness/src/index.js";
 import {
   criticalResearchGapGroups,
@@ -31,7 +32,15 @@ import {
   deriveReportDispositions,
   deriveReportSubjectLabels,
 } from "../harness/src/reporting/report-projection-authority.js";
-import { renderTerminalAuditAppendix } from "../harness/src/reporting/terminal-reporting.js";
+import {
+  deriveTerminalReportDocuments,
+  renderTerminalAuditAppendix,
+  terminalReportDocumentsEqual,
+} from "../harness/src/reporting/terminal-reporting.js";
+import {
+  type TerminalReportingDocument,
+  validateTerminalReportingContract,
+} from "../harness/src/validators/terminal-reporting-validator.js";
 
 function researchGap(
   subjectId: string,
@@ -84,6 +93,272 @@ function terminalAuditSource(
     },
     ...overrides,
   };
+}
+
+const TERMINAL_SOURCE_REF = "artifacts/reporting/terminal-report-source.r1.json";
+const TERMINAL_MISSING_TASK_REF = "tasks/discovery/evaluation/commercial_missing.attempt-1.json";
+const TERMINAL_SUBMITTED_AUDIT_REF = "artifacts/research-audits/commercial_observed.json";
+const TERMINAL_SUBJECT_ID = "subject_a";
+
+function terminalExecutionGap(
+  taskRef = TERMINAL_MISSING_TASK_REF,
+  subjectIds: readonly string[] = [TERMINAL_SUBJECT_ID],
+): Record<string, unknown> {
+  return {
+    task_ref: taskRef,
+    coverage_kind: "execution",
+    subject_ids: [...subjectIds],
+    state: "unavailable",
+    reason: "The planned commercial research task has no current valid Audit artifact.",
+    decision_impact:
+      "Execution remains incomplete; assigned commercial dimensions are not formally delivered.",
+    decision_relevance: "blocking",
+    assigned_metric_families: ["demand_scale"],
+    assigned_competitor_types: ["direct_product"],
+    assigned_commercial_dimensions: ["purchase_signal"],
+  };
+}
+
+function terminalResearchGap(): Record<string, unknown> {
+  return {
+    coverage_kind: "research",
+    subject_ids: [TERMINAL_SUBJECT_ID],
+    dimension: "purchase_signal",
+    state: "partial",
+    query_attempts: [],
+    reason: "Submitted commercial research left a bounded purchase-signal gap.",
+    alternative_metric: null,
+    decision_impact: "The missing purchase signal constrains ranking strength.",
+    decision_relevance: "non_blocking",
+    audit_refs: [TERMINAL_SUBMITTED_AUDIT_REF],
+    task_refs: [TERMINAL_MISSING_TASK_REF],
+  };
+}
+
+function commercialWarning(taskRef = TERMINAL_MISSING_TASK_REF): Record<string, unknown> {
+  return {
+    code: "commercial_research.report_audit_closure_incomplete",
+    severity: "warning",
+    category: "coverage",
+    message: "A planned commercial Audit is missing.",
+    decision_impact: "The report must disclose that planned commercial execution was incomplete.",
+    artifact_refs: [taskRef],
+  };
+}
+
+function fullCommercialProjection(
+  state: "complete" | "planned_with_gaps" | "planned_but_missing" | "not_planned",
+  overrides: Partial<{
+    plannedTaskRefs: readonly string[];
+    missingTaskRefs: readonly string[];
+    submittedAuditRefs: readonly string[];
+    gaps: readonly Record<string, unknown>[];
+    subjectAggregates: readonly Record<string, unknown>[];
+  }> = {},
+): Record<string, unknown> {
+  const plannedTaskRefs =
+    overrides.plannedTaskRefs ?? (state === "not_planned" ? [] : [TERMINAL_MISSING_TASK_REF]);
+  const missingTaskRefs =
+    overrides.missingTaskRefs ?? (state === "planned_but_missing" ? plannedTaskRefs : []);
+  const submittedAuditRefs =
+    overrides.submittedAuditRefs ??
+    (state === "complete" || state === "planned_with_gaps" ? [TERMINAL_SUBMITTED_AUDIT_REF] : []);
+  return {
+    commercial_research_audit_refs: [...submittedAuditRefs],
+    quantitative_signal_rows: [],
+    competitive_substitute_rows: [],
+    incumbent_response_risk_rows: [],
+    research_coverage_gaps: [
+      ...(overrides.gaps ??
+        (state === "planned_but_missing"
+          ? [terminalExecutionGap()]
+          : state === "planned_with_gaps"
+            ? [terminalResearchGap()]
+            : [])),
+    ],
+    commercial_subject_aggregates: [
+      ...(overrides.subjectAggregates ??
+        (state === "not_planned"
+          ? []
+          : [
+              {
+                subject_id: TERMINAL_SUBJECT_ID,
+                audit_refs: [...submittedAuditRefs],
+                task_refs: [...plannedTaskRefs],
+                quantitative_coverage: [],
+                competitive_coverage: [],
+                research_status: state,
+                execution_warning_task_refs: [...missingTaskRefs],
+              },
+            ])),
+    ],
+    commercial_background_material: [],
+    commercial_research_status: {
+      state,
+      planned_task_refs: [...plannedTaskRefs],
+      missing_task_refs: [...missingTaskRefs],
+      submitted_audit_refs: [...submittedAuditRefs],
+    },
+  };
+}
+
+function terminalSource(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
+  const baseAuditRefs = ["adaptations/decisions/adapt-runtime.json"];
+  return {
+    schema_version: "startup_opportunity.terminal_report_source.v1",
+    report_id: "terminal_projection_fixture",
+    run_id: "terminal_projection_fixture",
+    mode: "opportunity_discovery",
+    research_language: "en-US",
+    producer_role: "main_agent",
+    owned_output_path: TERMINAL_SOURCE_REF,
+    materialized_path: "report.json",
+    generated_at: "2026-07-24T12:09:30Z",
+    decision_subject_snapshot_ref: "artifacts/reporting/decision-subject-snapshot.r1.json",
+    decision_subject_snapshot_hash: `sha256:${"0".repeat(64)}`,
+    decision_subject_synthesis_hashes: [],
+    current_decision_subject_ids: [],
+    terminal_outcome: "failed",
+    decision_question: "SYNTHETIC terminal projection question.",
+    execution: {
+      completeness: "partial",
+      completed_stages: ["initial bounded research"],
+      incomplete_stages: [
+        {
+          stage: "commercial audit",
+          cause: "runtime_blocked",
+          detail: "The synthetic runtime stopped before all planned commercial Audits closed.",
+          conclusion_impact: "No final subject or commercial ranking can be delivered.",
+          related_refs: baseAuditRefs,
+        },
+      ],
+      required_followups: [
+        {
+          followup_id: "missing_commercial_audit",
+          status: "not_executed",
+          detail: "A planned commercial Audit was not formally delivered.",
+          related_refs: baseAuditRefs,
+        },
+      ],
+      pending_operation_refs: [],
+    },
+    research_conclusion: {
+      outcome: "no_recommendation",
+      current_recommendation: "No research recommendation can be formed from this terminal state.",
+      meaning: "The runtime stopped before a final subject was available.",
+      evidence_strength: "insufficient",
+      allowed_claim: "The bounded Run ended before a final subject was formed.",
+    },
+    runtime_health: {
+      status: "blocked",
+      issues: [
+        {
+          code: "synthetic_runtime_failure",
+          stage: "commercial audit",
+          detail: "The synthetic runtime failure interrupted formal commercial delivery.",
+          conclusion_impact:
+            "The report may disclose missing planned work but not infer market truth.",
+          related_refs: baseAuditRefs,
+        },
+      ],
+    },
+    directions: [],
+    sources: [],
+    excluded_evidence: [],
+    commercial_research_audit_refs: [],
+    commercial_uncertainties: [],
+    quantitative_signal_rows: [],
+    competitive_substitute_rows: [],
+    incumbent_response_risk_rows: [],
+    research_coverage_gaps: [],
+    commercial_subject_aggregates: [],
+    commercial_background_material: [],
+    commercial_research_status: {
+      state: "not_planned",
+      planned_task_refs: [],
+      missing_task_refs: [],
+      submitted_audit_refs: [],
+    },
+    gate_warnings: [],
+    ordered_validation_plan: [],
+    freshness: {
+      earliest_valid_as_of: null,
+      latest_valid_as_of: null,
+      summary: "SYNTHETIC fixture has no market-source freshness claim.",
+    },
+    limitations: ["SYNTHETIC fixture only; no external validation was executed."],
+    external_action_boundary: {
+      execution_owner: "user",
+      execution_supported: false,
+      result_tracking_supported: false,
+      external_validation_claimed: false,
+    },
+    audit_refs: baseAuditRefs,
+    report_citations: [],
+    report_evidence_dispositions: [],
+    report_source_dispositions: [],
+    report_subject_labels: [],
+    research_provenance: {
+      available_handoff_count: 0,
+      captured_item_count: 0,
+      causal_handoff_refs: [],
+      consumed_item_refs: [],
+      used_handoff_items: [],
+      imported_substrate_refs: [],
+      formal_inherited_evidence_refs: [],
+      adopted_inherited_evidence_refs: [],
+      cited_inherited_evidence_refs: [],
+      formal_current_evidence_refs: [],
+      adopted_current_evidence_refs: [],
+      cited_current_evidence_refs: [],
+      revalidation_gaps: [],
+    },
+    ...overrides,
+  };
+}
+
+function terminalEnvelope(document: Record<string, unknown>): FormalArtifactEnvelope {
+  return {
+    schema_version: "startup_opportunity.artifact_envelope.current",
+    artifact_type: String(document.schema_version),
+    artifact_path: TERMINAL_SOURCE_REF,
+    run_id: String(document.run_id),
+    created_at: String(document.generated_at),
+    producer_role: "main_agent",
+    input_refs: [],
+    content_hash: canonicalContentHash(document),
+    document,
+  } as unknown as FormalArtifactEnvelope;
+}
+
+function terminalConsistency(source: Record<string, unknown>): Record<string, unknown> {
+  const derived = deriveTerminalReportDocuments(terminalEnvelope(source));
+  const consistency = derived.find(
+    (entry) =>
+      entry.artifactType === "startup_opportunity.report_consistency_evaluation.terminal.current",
+  );
+  assert.ok(consistency);
+  return consistency.document;
+}
+
+function reportingDocument(
+  path: string,
+  schemaVersion: string,
+  document: Record<string, unknown>,
+): TerminalReportingDocument {
+  const envelope = {
+    schema_version: "startup_opportunity.artifact_envelope.current",
+    artifact_type: schemaVersion,
+    artifact_path: path,
+    run_id: String(document.run_id),
+    created_at: "2026-07-24T12:09:30Z",
+    producer_role:
+      schemaVersion === "startup_opportunity.terminal_report_source.v1" ? "main_agent" : "harness",
+    input_refs: [],
+    content_hash: canonicalContentHash(document),
+    document,
+  };
+  return { path, schemaVersion, document, envelope };
 }
 
 test("critical gap projection is truthful per subject, state, and decision impact and caps only the view", () => {
@@ -1021,4 +1296,204 @@ test("audit appendix groups exclusions but retains every exact Evidence referenc
   assert.match(appendix, /Source A.*canonical\.synthetic\.invalid\/a/su);
   assert.match(appendix, /Source B.*canonical\.synthetic\.invalid\/b/su);
   assert.equal(deriveReportStatistics(source).excluded_evidence_count, 2);
+});
+
+test("terminal report preserves full planned commercial gaps when core has no final subject", () => {
+  const fullProjection = fullCommercialProjection("planned_but_missing");
+  const source = terminalSource({
+    full_commercial_projection: fullProjection,
+    gate_warnings: [commercialWarning()],
+    audit_refs: ["adaptations/decisions/adapt-runtime.json", TERMINAL_MISSING_TASK_REF],
+  });
+  assert.equal((source.commercial_research_status as Record<string, unknown>).state, "not_planned");
+  assert.equal(
+    (fullProjection.commercial_research_status as Record<string, unknown>).state,
+    "planned_but_missing",
+  );
+  const statistics = deriveReportStatistics(source);
+  assert.equal(statistics.full_gap_row_count, 1);
+  assert.equal(statistics.critical_gap_group_count, 1);
+
+  const appendix = renderTerminalAuditAppendix(source);
+  assert.match(appendix, /critical gap groups 1/u);
+  assert.match(appendix, /execution \/ research/u);
+  assert.match(appendix, /planned commercial research task has no current valid Audit artifact/u);
+  assert.doesNotMatch(appendix, /No formal commercial research task was planned/u);
+
+  const derived = deriveTerminalReportDocuments(terminalEnvelope(source));
+  const brief = String(
+    derived.find(
+      (entry) => entry.artifactType === "startup_opportunity.decision_brief.terminal.current",
+    )?.document.markdown,
+  );
+  const report = String(
+    derived.find((entry) => entry.artifactType === "startup_opportunity.terminal_report_view.v1")
+      ?.document.markdown,
+  );
+  assert.match(brief, /full gap rows 1/u);
+  assert.match(brief, /critical gap groups 1/u);
+  assert.match(report, /full gap rows 1/u);
+  assert.match(report, /critical gap groups 1/u);
+  assert.doesNotMatch(report, /No formal commercial research task was planned/u);
+
+  const consistency = terminalConsistency(source);
+  assert.equal(consistency.evaluator_result, "passed");
+  assert.deepEqual(consistency.evaluation_issues, []);
+});
+
+test("terminal commercial consistency accepts structured planned execution states", () => {
+  const sources = [
+    terminalSource({ full_commercial_projection: fullCommercialProjection("complete") }),
+    terminalSource({ full_commercial_projection: fullCommercialProjection("planned_with_gaps") }),
+    terminalSource({ full_commercial_projection: fullCommercialProjection("not_planned") }),
+    terminalSource({
+      full_commercial_projection: fullCommercialProjection("planned_but_missing"),
+      gate_warnings: [commercialWarning()],
+    }),
+  ];
+  for (const source of sources) {
+    const consistency = terminalConsistency(source);
+    assert.equal(consistency.evaluator_result, "passed");
+    assert.deepEqual(consistency.evaluation_issues, []);
+  }
+});
+
+test("terminal commercial consistency ignores caller-authored literal prose", () => {
+  const base = terminalSource();
+  const baseExecution = base.execution as Record<string, unknown>;
+  const baseConclusion = base.research_conclusion as Record<string, unknown>;
+  const literal =
+    "Caller-authored literal: No formal commercial research task was planned; Research status is incomplete.";
+  const source = terminalSource({
+    execution: {
+      ...baseExecution,
+      required_followups: [
+        {
+          followup_id: "caller_literal_followup",
+          status: "not_executed",
+          detail: literal,
+          related_refs: ["adaptations/decisions/adapt-runtime.json"],
+        },
+      ],
+    },
+    research_conclusion: {
+      ...baseConclusion,
+      current_recommendation: literal,
+      meaning: "This sentence is caller-authored prose, not a commercial execution status.",
+    },
+    limitations: [literal],
+    full_commercial_projection: fullCommercialProjection("planned_but_missing"),
+    gate_warnings: [commercialWarning()],
+  });
+  const derived = deriveTerminalReportDocuments(terminalEnvelope(source));
+  const brief = String(
+    derived.find(
+      (entry) => entry.artifactType === "startup_opportunity.decision_brief.terminal.current",
+    )?.document.markdown,
+  );
+  const report = String(
+    derived.find((entry) => entry.artifactType === "startup_opportunity.terminal_report_view.v1")
+      ?.document.markdown,
+  );
+  assert.match(brief, /No formal commercial research task was planned/u);
+  assert.match(report, /Research status is incomplete/u);
+  const consistency = terminalConsistency(source);
+  assert.equal(consistency.evaluator_result, "passed");
+  assert.deepEqual(consistency.evaluation_issues, []);
+});
+
+test("terminal commercial consistency fails closed on contradictory structured execution", () => {
+  const baseExecution = terminalSource().execution as Record<string, unknown>;
+  const cases: readonly {
+    readonly source: Record<string, unknown>;
+    readonly issueCode: string;
+  }[] = [
+    {
+      source: terminalSource({
+        full_commercial_projection: fullCommercialProjection("not_planned", {
+          plannedTaskRefs: [TERMINAL_MISSING_TASK_REF],
+        }),
+        gate_warnings: [commercialWarning()],
+      }),
+      issueCode: "commercial_not_planned_status_has_planned_refs",
+    },
+    {
+      source: terminalSource({
+        full_commercial_projection: fullCommercialProjection("planned_but_missing", { gaps: [] }),
+        gate_warnings: [commercialWarning()],
+      }),
+      issueCode: "commercial_missing_task_gap_absent",
+    },
+    {
+      source: terminalSource({
+        full_commercial_projection: fullCommercialProjection("planned_but_missing"),
+      }),
+      issueCode: "commercial_missing_task_warning_absent",
+    },
+    {
+      source: terminalSource({
+        execution: { ...baseExecution, completeness: "complete" },
+        full_commercial_projection: fullCommercialProjection("planned_but_missing"),
+        gate_warnings: [commercialWarning()],
+      }),
+      issueCode: "commercial_missing_task_claimed_complete_execution",
+    },
+    {
+      source: terminalSource({
+        full_commercial_projection: fullCommercialProjection("planned_but_missing", {
+          submittedAuditRefs: [TERMINAL_SUBMITTED_AUDIT_REF],
+        }),
+        gate_warnings: [commercialWarning()],
+      }),
+      issueCode: "commercial_planned_but_missing_status_incoherent",
+    },
+    {
+      source: terminalSource({
+        full_commercial_projection: fullCommercialProjection("complete"),
+        gate_warnings: [commercialWarning()],
+      }),
+      issueCode: "commercial_complete_status_has_missing_work",
+    },
+  ];
+  for (const { source, issueCode } of cases) {
+    const consistency = terminalConsistency(source);
+    assert.equal(consistency.evaluator_result, "failed");
+    assert.ok(
+      (consistency.evaluation_issues as Record<string, unknown>[]).some(
+        (issue) => issue.code === issueCode,
+      ),
+      JSON.stringify(consistency.evaluation_issues, null, 2),
+    );
+  }
+});
+
+test("terminal validator rejects structured sidecar drift", () => {
+  const source = terminalSource({
+    full_commercial_projection: fullCommercialProjection("planned_but_missing"),
+    gate_warnings: [commercialWarning()],
+  });
+  const derived = deriveTerminalReportDocuments(terminalEnvelope(source));
+  const documents = [
+    reportingDocument(TERMINAL_SOURCE_REF, "startup_opportunity.terminal_report_source.v1", source),
+    ...derived.map((entry) =>
+      reportingDocument(entry.artifactPath, entry.artifactType, structuredClone(entry.document)),
+    ),
+  ];
+  const brief = documents.find(
+    (entry) => entry.schemaVersion === "startup_opportunity.decision_brief.terminal.current",
+  );
+  assert.ok(brief);
+  const execution = brief.document.execution as Record<string, unknown>;
+  brief.document.execution = { ...execution, completeness: "complete" };
+  if (brief.envelope !== null) brief.envelope.content_hash = canonicalContentHash(brief.document);
+  const expectedBrief = derived.find(
+    (entry) => entry.artifactType === "startup_opportunity.decision_brief.terminal.current",
+  );
+  assert.ok(expectedBrief);
+  assert.equal(terminalReportDocumentsEqual(brief.document, expectedBrief.document), false);
+  const issues = validateTerminalReportingContract(documents);
+  assert.ok(
+    issues.some((issue) => issue.code === "terminal_reporting.derived_drift"),
+    JSON.stringify(issues, null, 2),
+  );
 });

@@ -1205,15 +1205,29 @@ function assertDerivedConsistencyPassed(derived: readonly FormalArtifactEnvelope
       "startup_opportunity.report_consistency_evaluation.terminal.current",
     ].includes(entry.artifact_type),
   );
+  const forbiddenMatches = strings(consistency?.document.forbidden_expression_matches);
+  const evaluationIssues = records(consistency?.document.evaluation_issues);
   if (
     consistency !== undefined &&
-    (consistency.document.evaluator_result !== "passed" ||
-      strings(consistency.document.forbidden_expression_matches).length > 0)
+    (consistency.document.evaluator_result !== "passed" || forbiddenMatches.length > 0)
   ) {
+    if (
+      forbiddenMatches.length > 0 &&
+      evaluationIssues.every((issue) => issue.code === "forbidden_expression")
+    ) {
+      throw new StoreError(
+        "report.forbidden_expression_detected",
+        "discovery report contains forbidden validation, probability, or global-score language",
+        { matches: forbiddenMatches, evaluationIssues },
+      );
+    }
     throw new StoreError(
-      "report.forbidden_expression_detected",
-      "discovery report contains forbidden validation, probability, or global-score language",
-      { matches: consistency.document.forbidden_expression_matches },
+      "report.consistency_evaluation_failed",
+      "report consistency evaluation must pass before publication",
+      {
+        matches: forbiddenMatches,
+        evaluationIssues,
+      },
     );
   }
 }

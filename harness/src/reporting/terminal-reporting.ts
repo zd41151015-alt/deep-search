@@ -1,6 +1,7 @@
 import type { FormalArtifactEnvelope } from "../artifact-store/artifact-store.js";
 import { canonicalContentHash, canonicalJson, sha256Bytes } from "../artifact-store/canonical.js";
 import {
+  deriveReportStatistics,
   renderCompetitiveSubjectSummary,
   renderCompetitiveSubstituteMatrix,
   renderCriticalResearchGaps,
@@ -44,6 +45,7 @@ const TERMINAL_REPORT_SECTION_IDS = [
 const TERMINAL_CONSISTENCY_DIMENSIONS = [
   "execution_conclusion_runtime_separation",
   "terminal_completeness",
+  "planned_commercial_execution",
   "source_readability",
   "source_strength",
   "hypothesis_specificity",
@@ -818,6 +820,21 @@ function userRuntimeHealthProjection(source: Record<string, unknown>): Record<st
   };
 }
 
+function terminalStatisticsSource(source: Record<string, unknown>): Record<string, unknown> {
+  return { ...source, report_statistics: deriveReportStatistics(source) };
+}
+
+function terminalFullCommercialProjectionSource(
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const fullProjection = isRecord(source.full_commercial_projection)
+    ? source.full_commercial_projection
+    : null;
+  if (fullProjection === null) return source;
+  const auditSource = { ...source, ...fullProjection };
+  return { ...auditSource, report_statistics: deriveReportStatistics(auditSource) };
+}
+
 function renderValidationPlan(
   source: Record<string, unknown>,
   zh: boolean,
@@ -920,6 +937,7 @@ export function renderTerminalDecisionBrief(source: Record<string, unknown>): st
   const zh = isChinese(source.research_language);
   const conclusion = requiredRecord(source.research_conclusion, "research_conclusion");
   const freshness = requiredRecord(source.freshness, "freshness");
+  const statisticsSource = terminalStatisticsSource(source);
   return [
     `# ${zh ? "决策简报" : "Decision Brief"}\n\n`,
     `## ${zh ? "现在应该做什么" : "What To Do Now"}\n`,
@@ -928,7 +946,7 @@ export function renderTerminalDecisionBrief(source: Record<string, unknown>): st
     `${zh ? "证据强度" : "Evidence strength"}: ${enumLabel(conclusion.evidence_strength, zh)}\n\n`,
     `${zh ? "这意味着" : "Meaning"}: ${prose(conclusion.meaning, zh)}\n\n`,
     `## ${zh ? "研究概览" : "Research At A Glance"}\n`,
-    renderStatistics(source, zh),
+    renderStatistics(statisticsSource, zh),
     `## ${zh ? "执行完整度" : "Execution Completeness"}\n`,
     renderExecution(source, zh),
     `\n## ${zh ? "运行健康" : "Runtime Health"}\n`,
@@ -956,6 +974,7 @@ export function renderTerminalFullReport(source: Record<string, unknown>): strin
   const zh = isChinese(source.research_language);
   const conclusion = requiredRecord(source.research_conclusion, "research_conclusion");
   const freshness = requiredRecord(source.freshness, "freshness");
+  const statisticsSource = terminalStatisticsSource(source);
   return [
     `# ${zh ? "创业机会研究终态报告" : "Startup Opportunity Terminal Research Report"}\n\n`,
     `${zh ? "决策问题" : "Decision question"}: ${prose(source.decision_question, zh)}\n\n`,
@@ -963,7 +982,7 @@ export function renderTerminalFullReport(source: Record<string, unknown>): strin
     `${prose(conclusion.current_recommendation, zh)}\n\n${prose(conclusion.meaning, zh)}\n\n`,
     `${zh ? "允许的结论措辞" : "Allowed claim"}: ${prose(conclusion.allowed_claim, zh)}\n\n`,
     `## ${zh ? "研究概览" : "Research At A Glance"}\n`,
-    renderStatistics(source, zh),
+    renderStatistics(statisticsSource, zh),
     `## ${zh ? "执行完整度" : "Execution Completeness"}\n`,
     renderExecution(source, zh),
     `\n## ${zh ? "运行健康" : "Runtime Health"}\n`,
@@ -997,19 +1016,20 @@ export function renderTerminalFullReport(source: Record<string, unknown>): strin
 
 export function renderTerminalAuditAppendix(source: Record<string, unknown>): string {
   const zh = isChinese(source.research_language);
+  const auditSource = terminalFullCommercialProjectionSource(source);
   return [
     `# ${zh ? "创业机会研究审计附录" : "Startup Opportunity Research Audit Appendix"}\n\n`,
     `> ${zh ? "本附录与决策摘要和核心报告均从同一份最终结构化报告机械派生；完整审计真值保留在结构化报告中。" : "This appendix is mechanically derived by the Harness from the same final report model as the brief and core report; report.json retains the complete structured truth."}\n\n`,
     `## ${zh ? "机械统计" : "Mechanical Statistics"}\n`,
-    renderStatistics(source, zh),
+    renderStatistics(auditSource, zh),
     `\n## ${zh ? "全部量化信号（含代理与背景）" : "All Quantitative Signals (Including Proxies And Context)"}\n`,
-    renderQuantitativeSignalTable(source, zh),
+    renderQuantitativeSignalTable(auditSource, zh),
     `\n## ${zh ? "完整竞品与广义替代矩阵" : "Full Competitive And Substitute Matrix"}\n`,
-    renderCompetitiveSubstituteMatrix(source, zh),
+    renderCompetitiveSubstituteMatrix(auditSource, zh),
     `\n## ${zh ? "头部公司吸收与响应风险" : "Incumbent Absorption And Response Risk"}\n`,
-    renderIncumbentResponseRiskTable(source, zh),
+    renderIncumbentResponseRiskTable(auditSource, zh),
     `\n## ${zh ? "完整研究覆盖缺口" : "Full Research Coverage Gaps"}\n`,
-    renderResearchCoverageGaps(source, zh),
+    renderResearchCoverageGaps(auditSource, zh),
     `\n## ${zh ? "非阻塞诊断" : "Non-blocking Diagnostics"}\n`,
     renderGateWarnings(source, zh),
     `\n## ${zh ? "研究来源沿袭" : "Research Provenance"}\n`,
@@ -1163,6 +1183,118 @@ function renderDiscoveryReviewSummaries(source: Record<string, unknown>, zh: boo
     )
     .join("\n");
 }
+
+function terminalCommercialConsistencyIssues(
+  source: Record<string, unknown>,
+  reportRef: string,
+): readonly Record<string, unknown>[] {
+  const fullProjection = terminalFullCommercialProjectionSource(source);
+  const expectedStatistics = deriveReportStatistics(source);
+  const actualStatistics = isRecord(source.report_statistics) ? source.report_statistics : null;
+  const fullStatus = isRecord(fullProjection.commercial_research_status)
+    ? fullProjection.commercial_research_status
+    : {};
+  const fullState = String(fullStatus.state ?? "not_planned");
+  const plannedTaskRefs = strings(fullStatus.planned_task_refs);
+  const missingTaskRefs = strings(fullStatus.missing_task_refs);
+  const submittedAuditRefs = strings(fullStatus.submitted_audit_refs);
+  const warningCodes = new Set(
+    records(source.gate_warnings).map((warning) => String(warning.code)),
+  );
+  const execution = isRecord(source.execution) ? source.execution : {};
+  const fullGapRows = records(fullProjection.research_coverage_gaps);
+  const executionGapTaskRefs = new Set(
+    fullGapRows.flatMap((row) =>
+      row.coverage_kind === "execution"
+        ? [...(typeof row.task_ref === "string" ? [row.task_ref] : []), ...strings(row.task_refs)]
+        : [],
+    ),
+  );
+  const issues: Record<string, unknown>[] = [];
+  const add = (code: string, field: string, revisionRequest: string): void => {
+    issues.push({
+      code,
+      field,
+      artifact_ref: reportRef,
+      revision_request: revisionRequest,
+    });
+  };
+  if (
+    actualStatistics !== null &&
+    canonicalJson(actualStatistics) !== canonicalJson(expectedStatistics)
+  ) {
+    add(
+      "commercial_report_statistics_mismatch",
+      "report_statistics",
+      "Derive report statistics mechanically from the same full commercial projection used by terminal report surfaces.",
+    );
+  }
+  if (
+    fullState === "not_planned" &&
+    (plannedTaskRefs.length > 0 ||
+      missingTaskRefs.length > 0 ||
+      submittedAuditRefs.length > 0 ||
+      warningCodes.has("commercial_research.report_audit_closure_incomplete"))
+  ) {
+    add(
+      "commercial_not_planned_status_has_planned_refs",
+      "full_commercial_projection.commercial_research_status",
+      "Make not_planned exclusive with planned tasks, submitted Audits, missing tasks, and planned-Audit warnings.",
+    );
+  }
+  if (missingTaskRefs.length > 0) {
+    if (execution.completeness === "complete") {
+      add(
+        "commercial_missing_task_claimed_complete_execution",
+        "execution.completeness",
+        "Keep execution completeness partial or not_started while planned commercial tasks are missing.",
+      );
+    }
+    const missingRows = missingTaskRefs.filter((taskRef) => !executionGapTaskRefs.has(taskRef));
+    if (missingRows.length > 0) {
+      add(
+        "commercial_missing_task_gap_absent",
+        "full_commercial_projection.research_coverage_gaps",
+        "Project every missing planned commercial task as an execution/research gap with decision impact.",
+      );
+    }
+    if (!warningCodes.has("commercial_research.report_audit_closure_incomplete")) {
+      add(
+        "commercial_missing_task_warning_absent",
+        "gate_warnings",
+        "Disclose missing planned commercial Audits as a non-blocking commercial Gate warning.",
+      );
+    }
+  }
+  if (
+    fullState === "planned_but_missing" &&
+    (plannedTaskRefs.length === 0 || missingTaskRefs.length === 0 || submittedAuditRefs.length > 0)
+  ) {
+    add(
+      "commercial_planned_but_missing_status_incoherent",
+      "full_commercial_projection.commercial_research_status",
+      "Use planned_but_missing only when planned tasks exist, missing tasks exist, and no current Audit closed the planned work.",
+    );
+  }
+  if (
+    fullState === "complete" &&
+    (missingTaskRefs.length > 0 ||
+      fullGapRows.some((row) => row.coverage_kind === "execution") ||
+      warningCodes.has("commercial_research.report_audit_closure_incomplete"))
+  ) {
+    add(
+      "commercial_complete_status_has_missing_work",
+      "full_commercial_projection.commercial_research_status",
+      "Render complete only when planned commercial execution has no missing task or unresolved execution gap.",
+    );
+  }
+  return issues.sort((left, right) =>
+    `${String(left.code)}:${String(left.field)}`.localeCompare(
+      `${String(right.code)}:${String(right.field)}`,
+    ),
+  );
+}
+
 export interface DerivedTerminalReportDocument {
   readonly artifactPath: string;
   readonly artifactType: string;
@@ -1235,6 +1367,16 @@ export function deriveTerminalReportDocuments(
     decisionBrief: briefMarkdown,
     reportView: `${viewMarkdown}\n${auditAppendixMarkdown}`,
   });
+  const semanticIssues = terminalCommercialConsistencyIssues(source, reportEnvelope.artifact_path);
+  const evaluationIssues = [
+    ...matches.map((match) => ({
+      code: "forbidden_expression",
+      field: match,
+      artifact_ref: reportEnvelope.artifact_path,
+      revision_request: "Remove the forbidden claim and publish a new immutable report revision.",
+    })),
+    ...semanticIssues,
+  ];
   const consistencyDocument: Record<string, unknown> = {
     schema_version: "startup_opportunity.report_consistency_evaluation.terminal.current",
     evaluation_id: `terminal_report_consistency_${revision.slice(1)}`,
@@ -1248,13 +1390,8 @@ export function deriveTerminalReportDocuments(
     scan_contract_version: REPORT_SCAN_CONTRACT_VERSION,
     scanned_surfaces: REPORT_SCAN_SURFACES,
     forbidden_expression_matches: matches,
-    evaluator_result: matches.length === 0 ? "passed" : "failed",
-    evaluation_issues: matches.map((match) => ({
-      code: "forbidden_expression",
-      field: match,
-      artifact_ref: reportEnvelope.artifact_path,
-      revision_request: "Remove the forbidden claim and publish a new immutable report revision.",
-    })),
+    evaluator_result: evaluationIssues.length === 0 ? "passed" : "failed",
+    evaluation_issues: evaluationIssues,
     input_artifact_hashes: [
       { ref: reportEnvelope.artifact_path, content_hash: reportHash },
       { ref: briefPath, content_hash: canonicalContentHash(briefDocument) },

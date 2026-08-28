@@ -52,6 +52,7 @@ import {
   initialPlanBundleEnvelopes,
   publishInitialPlanBundle,
 } from "./helpers/current-run.js";
+import { discoveryWaveEnvelopes } from "./helpers/discovery-wave.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const PLAN_REF = "plans/research-plan.r1.json";
@@ -1273,6 +1274,7 @@ async function setupPersistedRun(
     | "terminate"
     | "terminate-unclosed"
     | "runtime-failure"
+    | "runtime-failure-discovery"
     | "generation-retry"
     | "complete"
     | "cancel"
@@ -1303,7 +1305,11 @@ async function setupPersistedRun(
     createdAt: "2026-07-24T12:00:00Z",
   });
   const preKill = action.startsWith("pre-kill-");
-  const discoveryBacked = preKill || action === "post-g2-add" || action === "phase-transition-add";
+  const discoveryBacked =
+    preKill ||
+    action === "post-g2-add" ||
+    action === "phase-transition-add" ||
+    action === "runtime-failure-discovery";
   let discoveryBundle: DocumentBundle | null = null;
   let plan: Record<string, unknown>;
   if (discoveryBacked) {
@@ -1459,7 +1465,7 @@ async function setupPersistedRun(
     ? gapSnapshot(runId, "candidate_pre_killed", PRE_KILL_CANDIDATE_REF)
     : action === "stop-followup"
       ? gapSnapshot(runId, "no_material_new_evidence", PLAN_REF)
-      : action === "runtime-failure"
+      : action === "runtime-failure" || action === "runtime-failure-discovery"
         ? gapSnapshot(runId, "runtime_blocked", PLAN_REF)
         : action === "post-g2-add"
           ? gapSnapshot(runId, "evidence_insufficient", PRE_KILL_CANDIDATE_REF)
@@ -1468,7 +1474,7 @@ async function setupPersistedRun(
     gap.gaps = [];
     gap.unresolved_decision_relevant_questions = [];
   }
-  if (action === "runtime-failure") {
+  if (action === "runtime-failure" || action === "runtime-failure-discovery") {
     gap.stop_signals = ["runtime_blocked"];
   }
   if (action === "post-g2-add") {
@@ -1497,7 +1503,7 @@ async function setupPersistedRun(
         ? clarificationDecision(runId)
         : action === "terminate" || action === "terminate-unclosed"
           ? terminationDecision(runId)
-          : action === "runtime-failure"
+          : action === "runtime-failure" || action === "runtime-failure-discovery"
             ? runtimeFailureDecision(runId)
             : action === "complete"
               ? completionDecision(runId)
@@ -6448,6 +6454,88 @@ test("runtime failure alone may close with a disclosed missing Search Closure", 
       );
     },
   );
+});
+
+test("planned commercial Task without Audit is disclosed through the full projection", async (contextTest) => {
+  const runId = "runtime-failure-planned-commercial-audit-missing";
+  const setup = await setupPersistedRun(contextTest, runId, "runtime-failure-discovery");
+  assert.ok(setup.discoveryBundle);
+  const wave = discoveryWaveEnvelopes(
+    setup.discoveryBundle,
+    runId,
+    "startup_opportunity.research_task.discovery_candidate.current",
+    1,
+    "terminal_commercial_missing",
+  );
+  const plannedTaskRefs = wave
+    .filter(
+      (envelope) =>
+        envelope.artifact_type === "startup_opportunity.research_task.discovery_candidate.current",
+    )
+    .map((envelope) => envelope.artifact_path)
+    .sort();
+  assert.ok(plannedTaskRefs.length > 0);
+  await setup.store.publishArtifactBundle({ runId, envelopes: wave });
+
+  const terminal = await prepareTerminalReporting(setup, true);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  await runtime.apply({
+    runId,
+    adaptationBundle: terminal.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    terminalReportEnvelope: terminal.reportEnvelope,
+    createdAt: "2026-07-27T18:02:00Z",
+    checkpointCreatedAt: "2026-07-27T18:03:00Z",
+    nextStep: "Disclose the runtime failure and missing planned commercial Audit.",
+    beliefSummary: {
+      current_belief:
+        "The runtime failed before the planned commercial research Task could publish an Audit.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Can a repaired runtime complete a new Run?",
+    },
+  });
+  const status = await setup.store.status(runId);
+  assert.equal(status.manifest.status, "failed");
+  assert.equal(status.terminalReportDisposition, "ready", JSON.stringify(status, null, 2));
+  assert.deepEqual(status.terminalReportIssues, []);
+
+  const report = JSON.parse(
+    await readFile(path.join(setup.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.equal((report.commercial_research_status as Record<string, unknown>).state, "not_planned");
+  const fullProjection = report.full_commercial_projection as Record<string, unknown>;
+  const fullStatus = fullProjection.commercial_research_status as Record<string, unknown>;
+  assert.equal(fullStatus.state, "planned_but_missing");
+  assert.deepEqual([...((fullStatus.planned_task_refs as string[]) ?? [])].sort(), plannedTaskRefs);
+  assert.deepEqual([...((fullStatus.missing_task_refs as string[]) ?? [])].sort(), plannedTaskRefs);
+  const fullGaps = fullProjection.research_coverage_gaps as Record<string, unknown>[];
+  for (const taskRef of plannedTaskRefs) {
+    assert.ok(
+      fullGaps.some((row) => row.coverage_kind === "execution" && row.task_ref === taskRef),
+      taskRef,
+    );
+  }
+  assert.equal(
+    (report.report_statistics as Record<string, unknown>).full_gap_row_count,
+    fullGaps.length,
+  );
+  assert.ok(fullGaps.length > 0);
+  const warningCodes = new Set(
+    (report.gate_warnings as Record<string, unknown>[]).map((warning) => warning.code),
+  );
+  assert.ok(warningCodes.has("commercial_research.report_audit_closure_incomplete"));
+  assert.ok(warningCodes.has("terminal_reporting.search_closure_incomplete"));
+
+  const markdown = await readFile(path.join(setup.runRoot, "report.md"), "utf8");
+  assert.match(markdown, /No final research subject is available/u);
+  assert.match(markdown, /full gap rows [1-9]/u);
+  assert.doesNotMatch(markdown, /No formal commercial research task was planned/u);
+  const appendix = await readFile(path.join(setup.runRoot, "audit-appendix.md"), "utf8");
+  assert.match(appendix, /execution \/ research/u);
+  assert.match(appendix, /planned commercial research task has no current valid Audit artifact/u);
+  assert.doesNotMatch(appendix, /No formal commercial research task was planned/u);
 });
 
 test("terminal report publication fault recovers from the immutable source on reopen", async (contextTest) => {
