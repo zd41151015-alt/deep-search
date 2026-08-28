@@ -83,6 +83,10 @@ const TERMINAL_ACTIONS = new Set([
   "cancel_research",
 ]);
 
+export function isTerminalAdaptationAction(action: string): boolean {
+  return TERMINAL_ACTIONS.has(action);
+}
+
 function projectPlanningPhase(
   bundle: DocumentBundle,
   contextPath: string,
@@ -113,7 +117,7 @@ function projectPlanningPhase(
   };
 }
 
-function terminalOutcomeMatchesAction(action: string, outcome: unknown): boolean {
+export function terminalOutcomeMatchesAction(action: string, outcome: unknown): boolean {
   switch (action) {
     case "terminate_insufficient_evidence":
       return outcome === "insufficient_evidence";
@@ -178,6 +182,13 @@ export interface PlanApplyResult {
   readonly checkpointRef: string;
   readonly adaptationRefs: readonly string[];
   readonly terminalReport: BuildReportResult | null;
+}
+
+export interface PlanApplyPreflightResult {
+  readonly operationKey: string;
+  readonly checkpointRef: string;
+  readonly finalManifestContentHash: string;
+  readonly terminalReportArtifactPaths: readonly string[];
 }
 
 interface PlanOperationReceipt {
@@ -1737,6 +1748,12 @@ export class PlanRevisionRuntime {
     }
   }
 
+  async preflight(input: ApplyPlanRevisionInput): Promise<PlanApplyPreflightResult> {
+    validateRunId(input.runId);
+    const runRoot = await openRunDirectoryReadOnly(this.runsRoot, input.runId);
+    return withRunLock(runRoot, () => this.preflightLocked(runRoot, input));
+  }
+
   async apply(input: ApplyPlanRevisionInput): Promise<PlanApplyResult> {
     validateRunId(input.runId);
     const selected = effectiveDocuments(input.adaptationBundle).filter((document) =>
@@ -1785,17 +1802,93 @@ export class PlanRevisionRuntime {
     return withRunLock(runRoot, () => this.applyLocked(runRoot, input));
   }
 
+  private async preflightLocked(
+    runRoot: string,
+    input: ApplyPlanRevisionInput,
+  ): Promise<PlanApplyPreflightResult> {
+    const prepared = await this.prepareOperationLocked(runRoot, input, {
+      allowExistingReceipt: false,
+      allowPendingRecovery: false,
+    });
+    return {
+      operationKey: prepared.receipt.operation_key,
+      checkpointRef: prepared.receipt.checkpoint_envelope.artifact_path,
+      finalManifestContentHash: canonicalContentHash(prepared.receipt.manifest),
+      terminalReportArtifactPaths:
+        prepared.receipt.terminal_report_operation === null
+          ? []
+          : terminalReportArtifactPaths(input.terminalReportEnvelope?.artifact_path ?? ""),
+    };
+  }
+
   private async applyLocked(
     runRoot: string,
     input: ApplyPlanRevisionInput,
   ): Promise<PlanApplyResult> {
+    const prepared = await this.prepareOperationLocked(runRoot, input, {
+      allowExistingReceipt: true,
+      allowPendingRecovery: true,
+    });
+    if (prepared.existingReceipt !== null) {
+      const manifest = await readManifest(runRoot, this.validator);
+      if (
+        !(await planOperationCompletionIsDurable(
+          runRoot,
+          manifest,
+          prepared.existingReceipt,
+          this.artifacts,
+          this.logs,
+        ))
+      ) {
+        const completion = await completeOperation(
+          runRoot,
+          prepared.existingReceipt,
+          this.artifacts,
+          this.logs,
+          this.validator,
+          input.faultAt,
+          input.terminalReportFaultAt,
+        );
+        return this.result(
+          prepared.existingReceipt,
+          "idempotent_replay",
+          completion.terminalReport,
+        );
+      }
+      return this.result(prepared.existingReceipt, "idempotent_replay");
+    }
+    await publishReceipt(runRoot, prepared.receipt);
+    assertFault("after_intent", input.faultAt);
+    const completion = await completeOperation(
+      runRoot,
+      prepared.receipt,
+      this.artifacts,
+      this.logs,
+      this.validator,
+      input.faultAt,
+      input.terminalReportFaultAt,
+    );
+    return this.result(prepared.receipt, "applied", completion.terminalReport);
+  }
+
+  private async prepareOperationLocked(
+    runRoot: string,
+    input: ApplyPlanRevisionInput,
+    options: {
+      readonly allowExistingReceipt: boolean;
+      readonly allowPendingRecovery: boolean;
+    },
+  ): Promise<{
+    readonly receipt: PlanOperationReceipt;
+    readonly existingReceipt: PlanOperationReceipt | null;
+  }> {
     const planOperationRecovery = await recoverPlanRevisionOperationsLocked(
       runRoot,
       input.runId,
       this.validator,
       this.artifacts,
       this.logs,
-      input.recoverPlanOperations !== false,
+      options.allowPendingRecovery && input.recoverPlanOperations !== false,
     );
     const manifest = await readManifest(runRoot, this.validator);
     if (
@@ -2035,27 +2128,7 @@ export class PlanRevisionRuntime {
         );
       }
       if (manifest.current_plan_ref === existingReceipt.result_plan_ref) {
-        if (
-          !(await planOperationCompletionIsDurable(
-            runRoot,
-            manifest,
-            existingReceipt,
-            this.artifacts,
-            this.logs,
-          ))
-        ) {
-          const completion = await completeOperation(
-            runRoot,
-            existingReceipt,
-            this.artifacts,
-            this.logs,
-            this.validator,
-            input.faultAt,
-            input.terminalReportFaultAt,
-          );
-          return this.result(existingReceipt, "idempotent_replay", completion.terminalReport);
-        }
-        return this.result(existingReceipt, "idempotent_replay");
+        return { receipt: existingReceipt, existingReceipt };
       }
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
@@ -2546,29 +2619,9 @@ export class PlanRevisionRuntime {
           { operationKey: expectedOperationKey },
         );
       }
-      const completion = await completeOperation(
-        runRoot,
-        existingReceipt,
-        this.artifacts,
-        this.logs,
-        this.validator,
-        input.faultAt,
-        input.terminalReportFaultAt,
-      );
-      return this.result(existingReceipt, "idempotent_replay", completion.terminalReport);
+      return { receipt: existingReceipt, existingReceipt };
     }
-    await publishReceipt(runRoot, receipt);
-    assertFault("after_intent", input.faultAt);
-    const completion = await completeOperation(
-      runRoot,
-      receipt,
-      this.artifacts,
-      this.logs,
-      this.validator,
-      input.faultAt,
-      input.terminalReportFaultAt,
-    );
-    return this.result(receipt, "applied", completion.terminalReport);
+    return { receipt, existingReceipt: null };
   }
 
   private result(

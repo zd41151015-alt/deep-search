@@ -6,17 +6,18 @@ Formal research enters through the repo-local `$startup-opportunity` Skill. The 
 
 ## Install
 
-The implementation stack is frozen to TypeScript `7.0.2`, Node.js `24.18.x`, npm `11.16.x`, and the single npm lockfile v3. Use a version manager that reads `.node-version`, then install the exact dependency graph and validate the checkout:
+The implementation stack is frozen to TypeScript `7.0.2`, Node.js `24.18.x`, npm `11.16.x`, and the single npm lockfile v3. Use the repo-local bootstrap before the first npm command; it finds an installed exact Node/npm pair, activates it for the child process, and fails closed with installation diagnostics when the pair is unavailable:
 
 ```sh
-npm ci
-npm run harness -- doctor --json
+./scripts/activate-frozen-toolchain.sh npm ci
+./scripts/activate-frozen-toolchain.sh npm run harness -- doctor --json
 ```
 
 The repository enables npm engine checks. Installation fails when the active Node/npm pair is outside the frozen versions.
 The same pair is also declared through npm `devEngines`, so `npm run` commands fail before execution when a shell has drifted to another Node or npm release.
+The bootstrap affects only the command it launches; prefix each command from an unactivated parent shell, or activate the same Node/npm pair in that shell first. Set `STARTUP_OPPORTUNITY_NODE24_BIN=/path/to/bin` if Node.js `24.18.0` with npm `11.16.0` is installed somewhere the bootstrap cannot discover.
 
-Codex loads `.codex/config.toml`, the three project agents, optional hooks, and the local Evidence MCP server only for a trusted project. The MCP server uses stdio and receives no credentials. The main-agent configuration exposes prompt-approved `create_run`, `propose_scope`, `confirm_scope`, and `record_evidence` operations plus read-only `get_evidence_manifest`; project agents receive narrower role-specific allow-lists. The server cannot fetch a URL or form a research judgment.
+Codex loads `.codex/config.toml`, the three project agents, optional hooks, and the local Evidence MCP server only for a trusted project. The MCP server is launched through the same frozen-toolchain bootstrap, uses stdio, and receives no credentials. The main-agent configuration exposes prompt-approved `create_run`, `propose_scope`, `confirm_scope`, and `record_evidence` operations plus read-only `get_evidence_manifest`; project agents receive narrower role-specific allow-lists. The server cannot fetch a URL or form a research judgment.
 
 See [Operations](docs/operations.md) for clean-checkout setup, trust, hooks-disabled operation, recovery, and surface-specific launch notes.
 
@@ -62,32 +63,32 @@ run_id: RUN_ID
 Hooks and MCP improve guardrails and handoff ergonomics, but neither is a correctness dependency. The explicit entrypoints remain available when hooks are disabled or the local MCP server is unavailable:
 
 ```sh
-npm run harness -- help
-npm run harness -- doctor --json
-npm run harness -- create-run --run-id RUN_ID --mode concept_evidence_assessment --geography GEO --customer-model b2c --target-user USER --decision-goal GOAL --research-language LANG
-npm run harness -- confirm-scope --run-id RUN_ID --expected-scope-proposal-revision N --expected-scope-proposal-ref REF --expected-scope-proposal-hash HASH --user-confirmation-attestation TEXT
-npm run harness -- propose-scope --run-id RUN_ID --expected-scope-revision N --geography GEO --customer-model b2c --target-user USER --decision-goal GOAL --research-language LANG --reason REASON
-npm run harness -- status-run --run-id RUN_ID
-npm run harness -- load-run --run-id RUN_ID
-npm run harness -- create-research-handoff --file path/to/research-handoff-input.json
-npm run harness -- read-research-handoff --run-id RUN_ID --handoff-ref REF --item-id ITEM_ID
-npm run harness -- record-evidence --run-id RUN_ID --unit-id UNIT_ID --source-url URL --research-goal GOAL --content-file FILE
-npm run harness -- validate-artifact --file path/to/document.json --json
-npm run harness -- validate-plan --bundle path/to/document-bundle.json --json
-npm run harness -- publish-artifact --file path/to/envelope-or-bundle.json
-npm run harness -- compile-artifacts --file path/to/runtime-artifact-compilation-request.json
-npm run harness -- materialize-formal-stage --file path/to/formal-stage-materialization-request.json
-npm run harness -- materialize-lane-result --file path/to/lane-staging-document.json
-npm run harness -- scaffold-lane-submission --run-id RUN_ID --task-ref REF
-npm run harness -- checkpoint-run --file path/to/checkpoint-input.json
-npm run harness -- analyze-gaps --file path/to/gap-analysis-input.json --json
-npm run harness -- validate-adaptation --bundle path/to/document-bundle.json --json
-npm run harness -- apply-plan-revision --file path/to/apply-input.json --json
-npm run harness -- author-plan-adaptation --file path/to/adaptation-author-request.json --runs-root path/to/runs --json
-npm run harness -- calculate-comparison --bundle path/to/document-bundle.json --json
-npm run harness -- calculate-sensitivity --bundle path/to/document-bundle.json --json
-npm run harness -- audit-traceability --bundle path/to/document-bundle.json --json
-npm run harness -- build-report --file path/to/build-report-input.json --json
+./scripts/activate-frozen-toolchain.sh npm run harness -- help
+./scripts/activate-frozen-toolchain.sh npm run harness -- doctor --json
+./scripts/activate-frozen-toolchain.sh npm run harness -- create-run --run-id RUN_ID --mode concept_evidence_assessment --geography GEO --customer-model b2c --target-user USER --decision-goal GOAL --research-language LANG
+./scripts/activate-frozen-toolchain.sh npm run harness -- confirm-scope --run-id RUN_ID --expected-scope-proposal-revision N --expected-scope-proposal-ref REF --expected-scope-proposal-hash HASH --user-confirmation-attestation TEXT
+./scripts/activate-frozen-toolchain.sh npm run harness -- propose-scope --run-id RUN_ID --expected-scope-revision N --geography GEO --customer-model b2c --target-user USER --decision-goal GOAL --research-language LANG --reason REASON
+./scripts/activate-frozen-toolchain.sh npm run harness -- status-run --run-id RUN_ID
+./scripts/activate-frozen-toolchain.sh npm run harness -- load-run --run-id RUN_ID
+./scripts/activate-frozen-toolchain.sh npm run harness -- create-research-handoff --file path/to/research-handoff-input.json
+./scripts/activate-frozen-toolchain.sh npm run harness -- read-research-handoff --run-id RUN_ID --handoff-ref REF --item-id ITEM_ID
+./scripts/activate-frozen-toolchain.sh npm run harness -- record-evidence --run-id RUN_ID --unit-id UNIT_ID --source-url URL --research-goal GOAL --content-file FILE
+./scripts/activate-frozen-toolchain.sh npm run harness -- validate-artifact --file path/to/document.json --json
+./scripts/activate-frozen-toolchain.sh npm run harness -- validate-plan --bundle path/to/document-bundle.json --json
+./scripts/activate-frozen-toolchain.sh npm run harness -- publish-artifact --file path/to/envelope-or-bundle.json
+./scripts/activate-frozen-toolchain.sh npm run harness -- compile-artifacts --file path/to/runtime-artifact-compilation-request.json
+./scripts/activate-frozen-toolchain.sh npm run harness -- materialize-formal-stage --file path/to/formal-stage-materialization-request.json
+./scripts/activate-frozen-toolchain.sh npm run harness -- materialize-lane-result --file path/to/lane-staging-document.json
+./scripts/activate-frozen-toolchain.sh npm run harness -- scaffold-lane-submission --run-id RUN_ID --task-ref REF
+./scripts/activate-frozen-toolchain.sh npm run harness -- checkpoint-run --file path/to/checkpoint-input.json
+./scripts/activate-frozen-toolchain.sh npm run harness -- analyze-gaps --file path/to/gap-analysis-input.json --json
+./scripts/activate-frozen-toolchain.sh npm run harness -- validate-adaptation --bundle path/to/document-bundle.json --json
+./scripts/activate-frozen-toolchain.sh npm run harness -- apply-plan-revision --file path/to/apply-input.json --json
+./scripts/activate-frozen-toolchain.sh npm run harness -- author-plan-adaptation --file path/to/adaptation-author-request.json --runs-root path/to/runs --json
+./scripts/activate-frozen-toolchain.sh npm run harness -- calculate-comparison --bundle path/to/document-bundle.json --json
+./scripts/activate-frozen-toolchain.sh npm run harness -- calculate-sensitivity --bundle path/to/document-bundle.json --json
+./scripts/activate-frozen-toolchain.sh npm run harness -- audit-traceability --bundle path/to/document-bundle.json --json
+./scripts/activate-frozen-toolchain.sh npm run harness -- build-report --file path/to/build-report-input.json --json
 ```
 
 Command success proves mechanical validity only. It does not establish Evidence truth, sufficiency, market demand, recommendation readiness, external validation, or startup success.
@@ -104,21 +105,21 @@ Search allocation percentages are planning guidance, not query-count or deadline
 
 ## Development
 
-Use the frozen runtime for every command:
+Use the frozen runtime for every command. Prefix commands with the bootstrap when the parent shell has not already activated Node.js `24.18.0` and npm `11.16.0`:
 
 ```sh
-npm run lint
-npm run typecheck
-npm test
-npm run validate:schemas
-npm run validate:current-contract
-npm run validate:fixtures
-npm run validate:store
-npm run test:faults
-npm run test:recovery
-npm run test:g4
-npm run test:g4:clean
-npm run verify:skeleton
+./scripts/activate-frozen-toolchain.sh npm run lint
+./scripts/activate-frozen-toolchain.sh npm run typecheck
+./scripts/activate-frozen-toolchain.sh npm test
+./scripts/activate-frozen-toolchain.sh npm run validate:schemas
+./scripts/activate-frozen-toolchain.sh npm run validate:current-contract
+./scripts/activate-frozen-toolchain.sh npm run validate:fixtures
+./scripts/activate-frozen-toolchain.sh npm run validate:store
+./scripts/activate-frozen-toolchain.sh npm run test:faults
+./scripts/activate-frozen-toolchain.sh npm run test:recovery
+./scripts/activate-frozen-toolchain.sh npm run test:g4
+./scripts/activate-frozen-toolchain.sh npm run test:g4:clean
+./scripts/activate-frozen-toolchain.sh npm run verify:skeleton
 ```
 
 The architecture authority is `startup-opportunity-codex-research-harness.md`. Implementation state and accepted verification evidence live in `startup-opportunity-implementation-progress.md`.

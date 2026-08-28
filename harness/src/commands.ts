@@ -1,8 +1,10 @@
 import { type DoctorReport, inspectRepository } from "./repository-contract.js";
 
-const HELP = `Startup Opportunity Research Harness (G4.1)
+const HELP = `Startup Opportunity Research Harness (G4.4)
 
 Usage:
+  ./scripts/activate-frozen-toolchain.sh npm run harness -- help
+  ./scripts/activate-frozen-toolchain.sh npm run harness -- doctor --json
   npm run harness -- help
   npm run harness -- <command> --help
   npm run harness -- doctor [--json]
@@ -71,7 +73,10 @@ Commands:
   audit-traceability Validate a closed G1.4 assessment or G2.4 discovery traceability/report chain.
   build-report       Publish a non-terminal assessment/discovery report and materialize its views.
 
-The optional --observe flag on long deterministic operations writes phase/count/timing JSONL to stderr without changing stdout results or formal Run state. Terminal report sources are accepted only by the atomic terminal apply-plan-revision closeout; build-report cannot publish them independently. Validation, publication, recovery, comparison/sensitivity summaries, and report materialization success are mechanical only. Caller-supplied Artifacts use the generic validation/publication surface. The Harness does not dispatch agents, execute lanes, synthesize thesis or evaluation semantics, perform network research, infer research judgments, or claim Evidence/market validation success.
+Bootstrap:
+  Use ./scripts/activate-frozen-toolchain.sh for the first npm command and any later command launched from an unactivated parent shell. The bootstrap selects an installed Node.js 24.18.0/npm 11.16.0 pair for the child command and fails closed with installation/activation diagnostics when unavailable.
+
+The optional --observe flag on long deterministic operations writes phase/count/timing JSONL to stderr without changing stdout results or formal Run state. Terminal report sources are accepted only by the atomic terminal apply-plan-revision closeout or author-plan-adaptation apply; build-report cannot publish them independently. Validation, publication, recovery, comparison/sensitivity summaries, and report materialization success are mechanical only. Caller-supplied Artifacts use the generic validation/publication surface. The Harness does not dispatch agents, execute lanes, synthesize thesis or evaluation semantics, perform network research, infer research judgments, or claim Evidence/market validation success.
 `;
 
 export function printHelp(

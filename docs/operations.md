@@ -3,12 +3,12 @@
 ## Clean Checkout
 
 1. Check out the repository without copying an existing `runs/` directory, `.env`, or local credentials.
-2. Activate Node.js `24.18.0` and npm `11.16.0`; `.node-version` records the exact Node release, while npm `devEngines` fails commands before execution when either active version drifts.
-3. Run `npm ci` from the repository root. Do not use another package manager or generate another lockfile.
-4. Run `npm run harness -- doctor --json` and require `ok=true`.
+2. Use `./scripts/activate-frozen-toolchain.sh` for the first npm command and any later command launched from an unactivated parent shell; it selects an installed Node.js `24.18.0` with npm `11.16.0` for the child process and fails closed when the exact pair is unavailable.
+3. Run `./scripts/activate-frozen-toolchain.sh npm ci` from the repository root. Do not use another package manager or generate another lockfile.
+4. Run `./scripts/activate-frozen-toolchain.sh npm run harness -- doctor --json` and require `ok=true`.
 5. Open the repository as a trusted Codex project before relying on `.codex/config.toml`, custom agents, hooks, or the local MCP server.
 
-The project configuration forwards no credentials. The local Evidence server uses `node --import tsx`, stdio, and repository-local `runs/`. The main-agent allow-list contains prompt-approved `create_run`, `propose_scope`, `confirm_scope`, and `record_evidence` operations plus read-only `get_evidence_manifest`; project agents receive narrower role-specific allow-lists.
+The project configuration forwards no credentials. The local Evidence server is launched through `./scripts/activate-frozen-toolchain.sh`, then uses `node --import tsx`, stdio, and repository-local `runs/`. The main-agent allow-list contains prompt-approved `create_run`, `propose_scope`, `confirm_scope`, and `record_evidence` operations plus read-only `get_evidence_manifest`; project agents receive narrower role-specific allow-lists.
 
 ## Codex Surfaces
 
@@ -32,12 +32,12 @@ There is no custom slash command, alternate prompt, UI-only action, or separate 
 Hooks are auxiliary. A user or administrator may disable the `hooks` feature, decline project hook trust, or disable an individual project hook. In every case, follow the Skill's explicit sequence and run the deterministic commands directly. At minimum:
 
 ```sh
-npm run harness -- doctor --json
-npm run harness -- create-run --run-id RUN_ID --mode MODE --geography GEO --customer-model b2c --target-user USER --decision-goal GOAL --research-language LANG
-npm run harness -- confirm-scope --run-id RUN_ID --expected-scope-proposal-revision N --expected-scope-proposal-ref REF --expected-scope-proposal-hash HASH --user-confirmation-attestation TEXT
-npm run harness -- propose-scope --run-id RUN_ID --expected-scope-revision N --geography GEO --customer-model MODEL --target-user USER --decision-goal GOAL --research-language LANG --reason REASON
-npm run harness -- status-run --run-id RUN_ID
-npm run harness -- load-run --run-id RUN_ID
+./scripts/activate-frozen-toolchain.sh npm run harness -- doctor --json
+./scripts/activate-frozen-toolchain.sh npm run harness -- create-run --run-id RUN_ID --mode MODE --geography GEO --customer-model b2c --target-user USER --decision-goal GOAL --research-language LANG
+./scripts/activate-frozen-toolchain.sh npm run harness -- confirm-scope --run-id RUN_ID --expected-scope-proposal-revision N --expected-scope-proposal-ref REF --expected-scope-proposal-hash HASH --user-confirmation-attestation TEXT
+./scripts/activate-frozen-toolchain.sh npm run harness -- propose-scope --run-id RUN_ID --expected-scope-revision N --geography GEO --customer-model MODEL --target-user USER --decision-goal GOAL --research-language LANG --reason REASON
+./scripts/activate-frozen-toolchain.sh npm run harness -- status-run --run-id RUN_ID
+./scripts/activate-frozen-toolchain.sh npm run harness -- load-run --run-id RUN_ID
 ```
 
 Evidence can use `record-evidence` directly when MCP is disabled. Artifact validation/publication, Plan validation/adaptation, checkpoints, traceability, and report checks are always explicit Harness steps. Hook output is never a formal Artifact or a substitute for these commands.
@@ -93,17 +93,17 @@ A normal research Run does not execute repository engineering suites. Run doctor
 For repository code, schema, policy, Skill/hook, documentation-command, or toolchain changes, use a clean checkout and run:
 
 ```sh
-npm ci
-npm run harness -- doctor --json
-npm run verify:skeleton
-npm run lint
-npm run typecheck
-npm test
-npm run validate:schemas
-npm run validate:current-contract
-npm run validate:fixtures
-npm run test:g4
-npm run test:g4:clean
+./scripts/activate-frozen-toolchain.sh npm ci
+./scripts/activate-frozen-toolchain.sh npm run harness -- doctor --json
+./scripts/activate-frozen-toolchain.sh npm run verify:skeleton
+./scripts/activate-frozen-toolchain.sh npm run lint
+./scripts/activate-frozen-toolchain.sh npm run typecheck
+./scripts/activate-frozen-toolchain.sh npm test
+./scripts/activate-frozen-toolchain.sh npm run validate:schemas
+./scripts/activate-frozen-toolchain.sh npm run validate:current-contract
+./scripts/activate-frozen-toolchain.sh npm run validate:fixtures
+./scripts/activate-frozen-toolchain.sh npm run test:g4
+./scripts/activate-frozen-toolchain.sh npm run test:g4:clean
 ```
 
 These are deterministic implementation checks. They are not formal research, external validation, or a whole-G4 boundary acceptance.

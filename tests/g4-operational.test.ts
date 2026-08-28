@@ -65,7 +65,9 @@ test("explicit create, status, Evidence, and recovery remain usable with hooks d
       cwd: repositoryRoot,
       hook_event_name: "PreToolUse",
       tool_name: "Bash",
-      tool_input: { command: "npm run harness -- doctor --json" },
+      tool_input: {
+        command: "./scripts/activate-frozen-toolchain.sh npm run harness -- doctor --json",
+      },
     }),
   );
   assert.equal(hook.status, 0, hook.stderr);

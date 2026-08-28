@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { type SpawnSyncReturns, spawnSync } from "node:child_process";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import {
 } from "../harness/src/index.js";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const TOOLCHAIN_BOOTSTRAP = "scripts/activate-frozen-toolchain.sh";
 
 async function read(relativePath: string): Promise<string> {
   return readFile(path.join(repositoryRoot, relativePath), "utf8");
@@ -32,6 +33,53 @@ async function makeContractCopy(): Promise<string> {
   return copyRoot;
 }
 
+async function writeExecutable(filename: string, contents: string): Promise<void> {
+  await writeFile(filename, contents, { mode: 0o755 });
+  await chmod(filename, 0o755);
+}
+
+async function fakeToolchainBin(
+  root: string,
+  dirname: string,
+  nodeVersion: string,
+  npmVersion: string,
+): Promise<string> {
+  const bin = path.join(root, dirname);
+  await mkdir(bin, { recursive: true });
+  await writeExecutable(
+    path.join(bin, "node"),
+    `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' '${nodeVersion}'
+  exit 0
+fi
+printf '%s\\n' '${nodeVersion}'
+`,
+  );
+  await writeExecutable(
+    path.join(bin, "npm"),
+    `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' '${npmVersion}'
+  exit 0
+fi
+printf 'fake npm invoked with selected Node %s\\n' "$("${bin}/node" --version)"
+`,
+  );
+  return bin;
+}
+
+function runToolchainBootstrap(
+  args: readonly string[],
+  env: Record<string, string>,
+): SpawnSyncReturns<string> {
+  return spawnSync(path.join(repositoryRoot, TOOLCHAIN_BOOTSTRAP), args, {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
+}
+
 test("repository doctor accepts the committed foundation contract", async () => {
   const report = await inspectRepository(repositoryRoot);
   assert.equal(
@@ -39,8 +87,9 @@ test("repository doctor accepts the committed foundation contract", async () => 
     true,
     JSON.stringify(report.checks.filter((check) => check.status === "fail")),
   );
-  assert.equal(report.skeletonVersion, "g4.3");
+  assert.equal(report.skeletonVersion, "g4.4");
   assert.equal(report.stack.runtime, "Node.js 24.18.x LTS");
+  assert.equal(report.stack.packageManager, "npm 11.16.x");
   assert.ok(report.checks.length > REQUIRED_REPOSITORY_PATHS.length);
 });
 
@@ -165,7 +214,7 @@ test("Skill doctor script is runnable and reports the skeleton contract", () => 
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout) as { ok?: boolean; skeletonVersion?: string };
   assert.equal(report.ok, true);
-  assert.equal(report.skeletonVersion, "g4.3");
+  assert.equal(report.skeletonVersion, "g4.4");
 });
 
 test("doctor rejects a missing required entry", async (context) => {
@@ -225,4 +274,100 @@ test("package lock and runtime metadata are frozen to one npm stack", async () =
   });
   assert.equal(packageJson.packageManager, "npm@11.16.0");
   assert.equal(packageLock.lockfileVersion, 3);
+});
+
+test("repo-local bootstrap selects exact Node/npm before standard npm commands", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-toolchain-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const wrong = await fakeToolchainBin(root, "wrong path first", "v26.5.0", "11.17.0");
+  const exact = await fakeToolchainBin(root, "exact path with spaces", "v24.18.0", "11.16.0");
+
+  const result = runToolchainBootstrap(["sh", "-c", "node --version && npm --version"], {
+    PATH: `${wrong}:/bin:/usr/bin`,
+    STARTUP_OPPORTUNITY_TOOLCHAIN_CANDIDATES: exact,
+    STARTUP_OPPORTUNITY_TOOLCHAIN_SKIP_DEFAULTS: "1",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "v24.18.0\n11.16.0\n");
+});
+
+test("repo-local bootstrap fails closed when the exact Node/npm pair is missing", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-toolchain-missing-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const wrong = await fakeToolchainBin(root, "wrong-only", "v26.5.0", "11.17.0");
+
+  const result = runToolchainBootstrap(["sh", "-c", "printf should-not-run"], {
+    PATH: `${wrong}:/bin:/usr/bin`,
+    STARTUP_OPPORTUNITY_TOOLCHAIN_SKIP_DEFAULTS: "1",
+  });
+
+  assert.equal(result.status, 127);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /expected Node\.js v24\.18\.0 with npm 11\.16\.0/);
+  assert.match(result.stderr, /node v26\.5\.0/);
+});
+
+test("repo-local bootstrap rejects exact Node with the wrong npm", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-toolchain-npm-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const wrongNpm = await fakeToolchainBin(root, "node24-npm1117", "v24.18.0", "11.17.0");
+
+  const result = runToolchainBootstrap(["npm", "run", "harness", "--", "doctor", "--json"], {
+    PATH: `${wrongNpm}:/bin:/usr/bin`,
+    STARTUP_OPPORTUNITY_TOOLCHAIN_CANDIDATES: wrongNpm,
+    STARTUP_OPPORTUNITY_TOOLCHAIN_SKIP_DEFAULTS: "1",
+  });
+
+  assert.equal(result.status, 127);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Node\.js v24\.18\.0 candidates with wrong npm/);
+  assert.match(result.stderr, /npm 11\.17\.0/);
+});
+
+test("repo-local bootstrap handles multiple candidates and spaces in paths", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-toolchain-spaces-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const wrong = await fakeToolchainBin(root, "candidate wrong npm", "v24.18.0", "11.17.0");
+  const exact = await fakeToolchainBin(root, "candidate exact npm", "v24.18.0", "11.16.0");
+
+  const result = runToolchainBootstrap(["sh", "-c", "node --version && npm --version"], {
+    PATH: "/bin:/usr/bin",
+    STARTUP_OPPORTUNITY_TOOLCHAIN_CANDIDATES: `${wrong}:${exact}`,
+    STARTUP_OPPORTUNITY_TOOLCHAIN_SKIP_DEFAULTS: "1",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "v24.18.0\n11.16.0\n");
+});
+
+test("repo-local bootstrap accepts an already-correct PATH", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-toolchain-standard-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const exact = await fakeToolchainBin(root, "active-exact", "v24.18.0", "11.16.0");
+
+  const result = runToolchainBootstrap(["sh", "-c", "node --version && npm --version"], {
+    PATH: `${exact}:/bin:/usr/bin`,
+    STARTUP_OPPORTUNITY_TOOLCHAIN_SKIP_DEFAULTS: "1",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "v24.18.0\n11.16.0\n");
+});
+
+test("doctor reports active npm drift independently from package metadata", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-doctor-npm-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const wrongNpm = await fakeToolchainBin(root, "node24-npm1117", "v24.18.0", "11.17.0");
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${wrongNpm}:/bin:/usr/bin`;
+  try {
+    const report = await inspectRepository(repositoryRoot);
+    const check = report.checks.find((entry) => entry.id === "toolchain:package-manager-runtime");
+    assert.equal(check?.status, "fail");
+    assert.match(check?.detail ?? "", /expected npm 11\.16\.0, received 11\.17\.0/);
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+  }
 });

@@ -926,9 +926,11 @@ function terminalReportSource(
   generatedAt = "2026-07-24T12:09:30Z",
   terminalOutcomeOverride?: "completed" | "cancelled",
   researchLanguage = CONFIRMED_SCOPE.research_language,
+  auditRefs: readonly string[] = [DECISION_REF, GAP_REF, currentPlanRef].sort(),
+  relatedGapRef = GAP_REF,
 ): FormalArtifactEnvelope {
   const artifactPath = "artifacts/reporting/terminal-report-source.r1.json";
-  const auditRefs = [DECISION_REF, GAP_REF, currentPlanRef].sort();
+  const reportAuditRefs = [...auditRefs].sort();
   const document: Record<string, unknown> = {
     schema_version: "startup_opportunity.terminal_report_source.v1",
     report_id: "terminal_report_runtime_1",
@@ -967,7 +969,7 @@ function terminalReportSource(
                     ? "用户取消了当前研究 Run。"
                     : "合成材料不足以支持继续形成机会结论。",
                 conclusion_impact: "本次仅部分执行，不能据此排序任何方向。",
-                related_refs: [GAP_REF],
+                related_refs: [relatedGapRef],
               },
             ],
       required_followups: [
@@ -975,7 +977,7 @@ function terminalReportSource(
           followup_id: "bounded_followup",
           status: "legally_closed",
           detail: "当前范围内的有界追加调研已经按最新缺口决定关闭。",
-          related_refs: [GAP_REF],
+          related_refs: [relatedGapRef],
         },
       ],
       pending_operation_refs: [],
@@ -1021,7 +1023,7 @@ function terminalReportSource(
               stage: "机会综合",
               detail: "合成运行时故障阻止了后续执行。",
               conclusion_impact: "不能形成、排序或推荐任何机会方向。",
-              related_refs: [GAP_REF],
+              related_refs: [relatedGapRef],
             },
           ],
         }
@@ -1057,13 +1059,13 @@ function terminalReportSource(
       result_tracking_supported: false,
       external_validation_claimed: false,
     },
-    audit_refs: auditRefs,
+    audit_refs: reportAuditRefs,
   };
   const source = formalEnvelope(
     runId,
     artifactPath,
     document,
-    [...auditRefs, decisionSubjectSnapshotRef].sort(),
+    [...reportAuditRefs, decisionSubjectSnapshotRef].sort(),
     "startup_opportunity.artifact_envelope.current",
   );
   return { ...source, created_at: generatedAt };
@@ -1669,6 +1671,8 @@ async function prepareTerminalReporting(
   terminalOutcomeOverride?: "completed" | "cancelled",
   researchLanguage = setup.researchLanguage,
   generatedAt = "2026-07-24T12:09:30Z",
+  auditRefs?: readonly string[],
+  relatedGapRef?: string,
 ) {
   const runId = String(setup.currentManifest.run_id);
   const storedDecisionContextEnvelope =
@@ -1790,6 +1794,8 @@ async function prepareTerminalReporting(
       generatedAt,
       terminalOutcomeOverride,
       researchLanguage,
+      auditRefs,
+      relatedGapRef,
     ),
   };
 }
@@ -8777,6 +8783,386 @@ test("public adaptation author path validates without writes, publishes exact co
     revisionPublished.gap_envelope.document.parent_snapshot_ref,
     published.gap_envelope.artifact_path,
   );
+});
+
+test("public adaptation author path preflights and recovers terminal prose correction", async (contextTest) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-terminal-author-"));
+  contextTest.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runId = "adaptation-author-terminal-closeout";
+  const validator = await createArtifactValidator(repositoryRoot);
+  const store = new RunStore(runsRoot, validator);
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    scopeProposal: {
+      geography: "Synthetic",
+      customerModel: "b2c",
+      targetUsers: ["synthetic user"],
+      decisionGoal: "verify terminal author closeout recovery",
+      researchLanguage: "en-US",
+    },
+    createdAt: "2026-07-24T12:00:00Z",
+  });
+  const plan = basePlan(runId);
+  await publishInitialPlanBundle(
+    store,
+    runId,
+    [formalEnvelope(runId, PLAN_REF, plan)],
+    "enrichment",
+  );
+  const runRoot = path.join(runsRoot, runId);
+  const manifestPath = path.join(runRoot, "manifest.json");
+  const activeManifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  activeManifest.status = "researching";
+  activeManifest.current_phase = "enrichment";
+  activeManifest.followup_round = 2;
+  activeManifest.completed_units = ["counter_completed"];
+  activeManifest.active_units = ["buyer_active"];
+  activeManifest.failed_units = [];
+  activeManifest.updated_at = "2026-07-24T12:06:00Z";
+  await writeFile(manifestPath, `${canonicalJson(activeManifest)}\n`);
+
+  const currentManifest = (await store.status(runId)).manifest;
+  const planningContextEnvelope = JSON.parse(
+    await readFile(path.join(runRoot, CONTEXT_REF), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const baseAdaptationBundle: DocumentBundle = {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents: [
+      { path: "manifest.json", document: currentManifest as unknown as Record<string, unknown> },
+      { path: PLAN_REF, document: plan },
+      {
+        path: CONTEXT_REF,
+        document: planningContextEnvelope as unknown as Record<string, unknown>,
+      },
+    ],
+    exact_records: scopeDecisions(runId).map((document) => ({
+      ref: `decisions.jsonl#${String(document.decision_id)}`,
+      document,
+    })),
+  };
+  const gapId = "gap_author_terminal";
+  const gapRef = `adaptations/gap-snapshots/${gapId}.r1.json`;
+  const adaptationId = "adapt_author_terminal_terminate";
+  const adaptationRef = `adaptations/decisions/${adaptationId}.json`;
+  const originalDeclarations = [
+    {
+      declaration_id: "declared_author_terminal_gap",
+      gap_type: "evidence_insufficient",
+      subject_ref: PLAN_REF,
+      basis_refs: ["manifest.json", PLAN_REF],
+      evidence_refs: [],
+      decision_impact: ["execution_validity"],
+      severity: "blocking",
+      recommended_unit_types: [],
+      detail:
+        "The main agent declares the remaining evidence gap is blocking and has no bounded follow-up.",
+    },
+    {
+      declaration_id: "declared_author_terminal_closure_gap",
+      gap_type: "evidence_insufficient",
+      subject_ref: PLAN_REF,
+      basis_refs: ["manifest.json", PLAN_REF],
+      evidence_refs: [],
+      decision_impact: ["execution_validity"],
+      severity: "blocking",
+      recommended_unit_types: [],
+      detail:
+        "The main agent declares a distinct terminal closure gap that must remain bound to the immutable Gap Snapshot.",
+    },
+  ] as const;
+  const terminal = await prepareTerminalReporting(
+    {
+      root,
+      runsRoot,
+      runRoot,
+      store,
+      validator,
+      plan,
+      gap: {},
+      decision: {},
+      userDecision: null,
+      triggerEventRecord: null,
+      planningContext: {
+        path: CONTEXT_REF,
+        document: planningContextEnvelope as unknown as Record<string, unknown>,
+      },
+      currentManifest,
+      adaptationBundle: baseAdaptationBundle,
+      checkpointEntry: { path: "checkpoints/unused.json", document: {} },
+      discoveryBundle: null,
+      researchLanguage: CONFIRMED_SCOPE.research_language,
+    },
+    false,
+    undefined,
+    CONFIRMED_SCOPE.research_language,
+    "2026-07-24T12:09:30Z",
+    [adaptationRef, gapRef, PLAN_REF],
+    gapRef,
+  );
+  const request = {
+    schema_version: "startup_opportunity.adaptation_author_request.current",
+    request_id: "author_terminal_closeout",
+    run_id: runId,
+    operation: "validate_only",
+    top_level_formal_refs: [],
+    gap: {
+      snapshot_id: gapId,
+      created_at: "2026-07-24T12:07:40Z",
+      trigger_kind: "wave_completed",
+      trigger_event_ref: null,
+      phase: "enrichment",
+      wave_id: "wave_runtime_1",
+      observed_artifact_refs: [],
+      material_new_evidence_observed: false,
+      repeated_source_refs: [],
+      agent_declared_gaps: originalDeclarations,
+    },
+    decisions: [
+      {
+        adaptation_id: adaptationId,
+        cover_all_generated_gaps: true,
+        action: "terminate_insufficient_evidence",
+        reason: "The blocking evidence gap cannot be resolved within the bounded Run.",
+        expected_decision_impact: ["execution_validity", "next_action"],
+        stop_condition: "No bounded follow-up remains available.",
+        requested_by: "main_agent",
+        created_at: "2026-07-24T12:07:50Z",
+      },
+    ],
+    apply_created_at: "2026-07-24T12:10:00Z",
+    checkpoint_created_at: "2026-07-24T12:11:00Z",
+    next_phase: "enrichment",
+    next_step: "Deliver the terminal report from the exact public authoring plan.",
+    belief_summary: {
+      current_belief: "SYNTHETIC evidence remains insufficient after the bounded cycle.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["No market validation is claimed."],
+      remaining_disagreement: ["A concrete opportunity remains unproven."],
+      next_decision_relevant_question: "What evidence would justify a new Run?",
+    },
+    terminal_report_envelope: terminal.reportEnvelope,
+  } as const;
+  const author = await createAdaptationAuthorRuntime(repositoryRoot, runsRoot);
+  const invalidLanguage = clone(terminal.reportEnvelope);
+  invalidLanguage.document.research_language = "zh-CN";
+  (invalidLanguage as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+    invalidLanguage.document,
+  );
+  const beforeInvalid = await snapshotRunTree(runRoot);
+  await assert.rejects(
+    author.execute({ ...request, terminal_report_envelope: invalidLanguage }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.research_language_authority_invalid",
+  );
+  assert.deepEqual(await snapshotRunTree(runRoot), beforeInvalid);
+  await assert.rejects(readFile(path.join(runRoot, gapRef), "utf8"));
+  await assert.rejects(readFile(path.join(runRoot, adaptationRef), "utf8"));
+
+  const validated = await author.execute(request);
+  assert.equal(validated.status, "validated");
+  assert.deepEqual(await snapshotRunTree(runRoot), beforeInvalid);
+  const published = await author.execute({
+    ...request,
+    operation: "publish",
+    publication_plan: validated.publication_plan,
+  });
+  assert.equal(published.status, "published");
+  assert.equal((await store.status(runId)).manifest.latest_gap_snapshot_ref, gapRef);
+  assert.deepEqual((await store.status(runId)).manifest.pending_adaptation_refs, [adaptationRef]);
+  const publishedGaps = Array.isArray(published.gap_envelope.document.gaps)
+    ? published.gap_envelope.document.gaps.filter(
+        (gap): gap is Record<string, unknown> => typeof gap === "object" && gap !== null,
+      )
+    : [];
+  assert.deepEqual(
+    publishedGaps
+      .filter((gap) => gap.detection_mode === "agent_semantic")
+      .map((gap) => {
+        const triggeredBy = gap.triggered_by;
+        return typeof triggeredBy === "object" &&
+          triggeredBy !== null &&
+          "declaration_id" in triggeredBy
+          ? String(triggeredBy.declaration_id)
+          : "";
+      })
+      .sort(),
+    originalDeclarations.map((declaration) => declaration.declaration_id).sort(),
+  );
+
+  const publishedLanguageDrift = clone(terminal.reportEnvelope);
+  publishedLanguageDrift.document.research_language = "zh-CN";
+  (publishedLanguageDrift as unknown as { content_hash: string }).content_hash =
+    canonicalContentHash(publishedLanguageDrift.document);
+  const afterPublish = await snapshotRunTree(runRoot);
+  await assert.rejects(
+    author.execute({ ...request, terminal_report_envelope: publishedLanguageDrift }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "report.research_language_authority_invalid",
+  );
+  assert.deepEqual(await snapshotRunTree(runRoot), afterPublish);
+
+  const assertNoWritePublishedGapMismatch = async (
+    candidate: unknown,
+    message: string,
+  ): Promise<void> => {
+    const before = await snapshotRunTree(runRoot);
+    await assert.rejects(
+      author.execute(candidate),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "adaptation.author_published_gap_mismatch",
+    );
+    assert.deepEqual(await snapshotRunTree(runRoot), before, message);
+  };
+  await assertNoWritePublishedGapMismatch(
+    {
+      ...request,
+      gap: { ...request.gap, agent_declared_gaps: originalDeclarations.slice(0, 1) },
+    },
+    "deleting an agent declaration from a published terminal correction request must write nothing",
+  );
+  await assertNoWritePublishedGapMismatch(
+    {
+      ...request,
+      gap: {
+        ...request.gap,
+        agent_declared_gaps: [
+          originalDeclarations[0],
+          {
+            ...originalDeclarations[1],
+            declaration_id: "declared_author_terminal_replacement_gap",
+          },
+        ],
+      },
+    },
+    "replacing an agent declaration id must not reuse the published Gap",
+  );
+  await assertNoWritePublishedGapMismatch(
+    {
+      ...request,
+      gap: {
+        ...request.gap,
+        agent_declared_gaps: [
+          originalDeclarations[0],
+          {
+            ...originalDeclarations[1],
+            detail: "The main agent declares a changed terminal closure gap after publication.",
+          },
+        ],
+      },
+    },
+    "changing an agent declaration field must not reuse the published Gap",
+  );
+  await assertNoWritePublishedGapMismatch(
+    {
+      ...request,
+      gap: {
+        ...request.gap,
+        agent_declared_gaps: [
+          ...originalDeclarations,
+          {
+            declaration_id: "declared_author_terminal_added_gap",
+            gap_type: "evidence_insufficient",
+            subject_ref: PLAN_REF,
+            basis_refs: ["manifest.json", PLAN_REF],
+            evidence_refs: [],
+            decision_impact: ["execution_validity"],
+            severity: "blocking",
+            recommended_unit_types: [],
+            detail:
+              "The main agent declares an additional terminal gap that cannot be hidden behind the published Gap.",
+          },
+        ],
+      },
+    },
+    "adding an agent declaration to the same published snapshot id must write nothing",
+  );
+
+  const corrected = clone(terminal.reportEnvelope);
+  const correctedConclusion = corrected.document.research_conclusion as Record<string, unknown>;
+  correctedConclusion.current_recommendation =
+    "暂缓形成或排序创业机会；本次更正仅调整终态说明文字。";
+  (corrected as unknown as { content_hash: string }).content_hash = canonicalContentHash(
+    corrected.document,
+  );
+  const correctedRequest = { ...request, terminal_report_envelope: corrected };
+  const correctedValidated = await author.execute(correctedRequest);
+  assert.equal(correctedValidated.status, "validated");
+  assert.equal(correctedValidated.publication_plan.gap_ref, gapRef);
+  assert.deepEqual(correctedValidated.publication_plan.adaptation_refs, [adaptationRef]);
+  assert.equal(
+    correctedValidated.publication_plan.gap_content_hash,
+    published.publication_plan.gap_content_hash,
+  );
+  assert.deepEqual(
+    correctedValidated.publication_plan.adaptation_content_hashes,
+    published.publication_plan.adaptation_content_hashes,
+  );
+  for (const field of [
+    "request_content_hash",
+    "operation_key",
+    "checkpoint_ref",
+    "plan_id",
+  ] as const) {
+    assert.notEqual(correctedValidated.publication_plan[field], published.publication_plan[field]);
+  }
+  assert.deepEqual(await snapshotRunTree(runRoot), afterPublish);
+
+  await assert.rejects(
+    author.execute({
+      ...correctedRequest,
+      operation: "apply",
+      publication_plan: published.publication_plan,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "adaptation.author_publication_plan_stale",
+  );
+  assert.deepEqual(await snapshotRunTree(runRoot), afterPublish);
+  await assert.rejects(
+    author.execute({
+      ...correctedRequest,
+      operation: "apply",
+      publication_plan: {
+        ...correctedValidated.publication_plan,
+        operation_key: operationKey("tampered_author_plan", { runId }),
+      },
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "adaptation.author_publication_plan_stale",
+  );
+  assert.deepEqual(await snapshotRunTree(runRoot), afterPublish);
+
+  const correctedApplyRequest = {
+    ...correctedRequest,
+    operation: "apply" as const,
+    publication_plan: correctedValidated.publication_plan,
+  };
+  await assert.rejects(
+    author.execute(correctedApplyRequest, { faultAt: "after_manifest_update" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const interrupted = await store.status(runId);
+  assert.equal(interrupted.manifest.status, "insufficient_evidence");
+  assert.equal(interrupted.terminalReportDisposition, "ready");
+  for (const relativePath of [
+    "report.json",
+    "decision-brief.md",
+    "report.md",
+    "audit-appendix.md",
+  ]) {
+    assert.equal((await readFile(path.join(runRoot, relativePath), "utf8")).length > 0, true);
+  }
+  const replay = await author.execute(correctedApplyRequest);
+  assert.equal(replay.status, "idempotent_replay");
+  assert.equal(replay.apply_result?.terminalReport?.status, "idempotent_replay");
+  const exactReplay = await author.execute(correctedApplyRequest);
+  assert.equal(exactReplay.status, "idempotent_replay");
+  assert.deepEqual((await store.status(runId)).manifest.pending_adaptation_refs, []);
+  assert.deepEqual((await store.status(runId)).manifest.applied_adaptation_refs, [adaptationRef]);
 });
 
 test("adaptation author validate-only does not complete a pending Plan recovery", async (contextTest) => {

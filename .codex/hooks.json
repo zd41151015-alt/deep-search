@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node --import tsx \"$(git rev-parse --show-toplevel)/.codex/hooks/research-guard.ts\" pre-tool-use",
+            "command": "\"$(git rev-parse --show-toplevel)/scripts/activate-frozen-toolchain.sh\" node --import tsx \"$(git rev-parse --show-toplevel)/.codex/hooks/research-guard.ts\" pre-tool-use",
             "timeout": 15,
             "statusMessage": "Checking research operation boundary"
           }
@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node --import tsx \"$(git rev-parse --show-toplevel)/.codex/hooks/research-guard.ts\" post-tool-use",
+            "command": "\"$(git rev-parse --show-toplevel)/scripts/activate-frozen-toolchain.sh\" node --import tsx \"$(git rev-parse --show-toplevel)/.codex/hooks/research-guard.ts\" post-tool-use",
             "timeout": 15
           }
         ]
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node --import tsx \"$(git rev-parse --show-toplevel)/.codex/hooks/research-guard.ts\" stop",
+            "command": "\"$(git rev-parse --show-toplevel)/scripts/activate-frozen-toolchain.sh\" node --import tsx \"$(git rev-parse --show-toplevel)/.codex/hooks/research-guard.ts\" stop",
             "timeout": 15
           }
         ]

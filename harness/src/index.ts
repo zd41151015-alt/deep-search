@@ -51,6 +51,7 @@ export {
   currentPlanningRunStateHash,
   PLAN_APPLY_RESULT_VERSION,
   type PlanApplyFaultBoundary,
+  type PlanApplyPreflightResult,
   type PlanApplyResult,
   type PlanOperationRecoveryResult,
   PlanRevisionRuntime,

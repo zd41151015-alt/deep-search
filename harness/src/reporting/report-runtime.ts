@@ -2207,6 +2207,7 @@ export class ReportRuntime {
       runRoot,
       input.prospectiveManifest,
       input.supportingEnvelopes,
+      false,
     );
     const derived = deriveReportEnvelopes(source);
     assertTerminalUserVisibleBoundary(source, derived);
@@ -2235,6 +2236,9 @@ export class ReportRuntime {
       true,
       prospectivePaths,
       input.prospectiveManifest,
+      new Set(),
+      new Set(),
+      false,
     );
     const validation = this.validator.validateDocumentBundle(
       context.bundle,
@@ -2262,6 +2266,7 @@ export class ReportRuntime {
     runRoot?: string,
     prospectiveManifest?: RunManifest,
     supportingEnvelopes: readonly FormalArtifactEnvelope[] = [],
+    recoverPlanOperations = true,
   ): Promise<FormalArtifactEnvelope> {
     if (
       ![
@@ -2290,6 +2295,7 @@ export class ReportRuntime {
             {
               includeAllFormalArtifacts: true,
               prospectiveArtifactPaths: [source.artifact_path],
+              recoverPlanOperations,
             },
           )
         : this.store.buildValidationContextLocked(
@@ -2312,6 +2318,9 @@ export class ReportRuntime {
               ...supportingEnvelopes.map((envelope) => envelope.artifact_path),
             ]),
             prospectiveManifest,
+            new Set(),
+            new Set(),
+            recoverPlanOperations,
           );
     const context = await buildContext(source).catch((error: unknown) => {
       if (error instanceof StoreError && error.code === "validation_context.authority_conflict") {

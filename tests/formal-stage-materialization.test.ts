@@ -4918,10 +4918,13 @@ test("public CLI authors a clean setup through adaptation without internal publi
     terminal_report_envelope: hiddenDiagnosticTerminalEnvelope,
   });
   const beforeHiddenDiagnosticValidation = await snapshotTree(runRoot);
-  const hiddenDiagnosticValidated = parseCli<Record<string, unknown>>(
-    cli("author-plan-adaptation", "--file", hiddenDiagnosticValidationFile),
+  const hiddenDiagnosticRejected = cli(
+    "author-plan-adaptation",
+    "--file",
+    hiddenDiagnosticValidationFile,
   );
-  assert.equal(hiddenDiagnosticValidated.status, "validated");
+  assert.equal(hiddenDiagnosticRejected.status, 1);
+  assert.match(hiddenDiagnosticRejected.stderr, /apply\.unexpected_terminal_report_source/u);
   assert.deepEqual(await snapshotTree(runRoot), beforeHiddenDiagnosticValidation);
   const hiddenMarkdown = deriveTerminalReportDocuments(hiddenDiagnosticTerminalEnvelope)
     .flatMap((document) => [

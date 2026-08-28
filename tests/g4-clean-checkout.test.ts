@@ -61,8 +61,9 @@ test("candidate snapshot installs and runs explicit entries plus stdio MCP", asy
   await assert.rejects(stat(path.join(runtimeRoot, ".git")));
   await assert.rejects(stat(path.join(runtimeRoot, "node_modules")));
 
+  const bootstrap = path.join(runtimeRoot, "scripts/activate-frozen-toolchain.sh");
   const npm = path.join(path.dirname(process.execPath), "npm");
-  const install = run(npm, ["ci"], runtimeRoot, { timeout: 180_000 });
+  const install = run(bootstrap, ["npm", "ci"], runtimeRoot, { timeout: 180_000 });
   assert.equal(install.status, 0, `${install.stdout}\n${install.stderr}`);
   assert.match(install.stdout, /added \d+ packages/);
 
@@ -72,8 +73,8 @@ test("candidate snapshot installs and runs explicit entries plus stdio MCP", asy
   assert.equal(npmVersion.stdout.trim(), "11.16.0");
 
   const doctor = run(
-    process.execPath,
-    ["--import", "tsx", "harness/src/cli.ts", "doctor", "--json"],
+    bootstrap,
+    ["npm", "run", "--silent", "harness", "--", "doctor", "--json"],
     runtimeRoot,
   );
   assert.equal(doctor.status, 0, doctor.stderr);
@@ -88,7 +89,9 @@ test("candidate snapshot installs and runs explicit entries plus stdio MCP", asy
         cwd: path.join(runtimeRoot, "harness"),
         hook_event_name: "PreToolUse",
         tool_name: "Bash",
-        tool_input: { command: "npm run harness -- doctor --json" },
+        tool_input: {
+          command: "./scripts/activate-frozen-toolchain.sh npm run harness -- doctor --json",
+        },
       }),
     },
   );
@@ -103,6 +106,13 @@ test("candidate snapshot installs and runs explicit entries plus stdio MCP", asy
   };
   assert.equal(config.features?.hooks, true);
   const evidenceConfig = config.mcp_servers?.startup_opportunity_evidence;
+  assert.equal(evidenceConfig?.command, "./scripts/activate-frozen-toolchain.sh");
+  assert.deepEqual(evidenceConfig?.args, [
+    "node",
+    "--import",
+    "tsx",
+    "harness/src/mcp/evidence-server.ts",
+  ]);
   assert.deepEqual(evidenceConfig?.enabled_tools, [
     "create_run",
     "propose_scope",
@@ -229,7 +239,7 @@ test("candidate snapshot installs and runs explicit entries plus stdio MCP", asy
   assert.equal(load.status, 0, load.stderr);
   assert.equal((JSON.parse(load.stdout) as { recovered?: unknown }).recovered, false);
 
-  assert.equal(evidenceConfig?.command, "node");
+  assert.equal(evidenceConfig?.command, "./scripts/activate-frozen-toolchain.sh");
   assert.ok(evidenceConfig?.args);
   const transport = new StdioClientTransport({
     command: evidenceConfig.command,

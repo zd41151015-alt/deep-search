@@ -5,8 +5,8 @@ max_concurrent_threads_per_session = 10
 hooks = true
 
 [mcp_servers.startup_opportunity_evidence]
-command = "node"
-args = ["--import", "tsx", "harness/src/mcp/evidence-server.ts"]
+command = "./scripts/activate-frozen-toolchain.sh"
+args = ["node", "--import", "tsx", "harness/src/mcp/evidence-server.ts"]
 cwd = "."
 enabled = true
 required = false

@@ -7,12 +7,7 @@ import {
   sha256Hex,
 } from "../artifact-store/canonical.js";
 import { StoreError } from "../artifact-store/store-error.js";
-import {
-  type LocalizedTerminalUserVisibleIssue,
-  localizedTerminalDerivedDocumentIssueDetails,
-  localizedTerminalSourceIssues,
-} from "../reporting/report-localization.js";
-import { deriveTerminalReportDocuments } from "../reporting/terminal-reporting.js";
+import { ReportRuntime, terminalReportArtifactPaths } from "../reporting/report-runtime.js";
 import { type BeliefSummary, type RunManifest, RunStore } from "../run-store/run-store.js";
 import {
   type ArtifactValidator,
@@ -34,10 +29,12 @@ import {
 import { type AgentDeclaredGap, createGapAnalyzer } from "./gap-analyzer.js";
 import {
   createPlanRevisionRuntime,
+  isTerminalAdaptationAction,
   type PlanApplyFaultBoundary,
   type PlanApplyResult,
+  terminalOutcomeMatchesAction,
 } from "./plan-runtime.js";
-import { transformPlan } from "./plan-transformer.js";
+import { type PlanTransformationResult, transformPlan } from "./plan-transformer.js";
 import { createPlanSemanticValidator } from "./plan-validator.js";
 
 export const ADAPTATION_AUTHOR_REQUEST_VERSION =
@@ -250,60 +247,6 @@ function normalizeRequest(request: AdaptationAuthorRequest): AdaptationAuthorReq
       };
 }
 
-function prefixedSurfaceIssue(
-  issue: LocalizedTerminalUserVisibleIssue,
-): LocalizedTerminalUserVisibleIssue {
-  return issue.field.startsWith("surface:")
-    ? issue
-    : {
-        ...issue,
-        field: issue.field.startsWith("#/")
-          ? `#/terminal_report_envelope/document${issue.field.slice(1)}`
-          : `#/terminal_report_envelope/document/${issue.field}`,
-      };
-}
-
-function assertTerminalUserVisibleBoundary(request: AdaptationAuthorRequest): void {
-  const envelopeValue = request.terminal_report_envelope;
-  if (
-    envelopeValue === undefined ||
-    envelopeValue.artifact_type !== "startup_opportunity.terminal_report_source.v1" ||
-    !isRecord(envelopeValue.document) ||
-    envelopeValue.document.schema_version !== "startup_opportunity.terminal_report_source.v1"
-  ) {
-    return;
-  }
-  const source = envelopeValue.document;
-  const sourceIssues = localizedTerminalSourceIssues(source, "#").map(prefixedSurfaceIssue);
-  let issues: readonly LocalizedTerminalUserVisibleIssue[] = [];
-  try {
-    issues = [
-      ...sourceIssues,
-      ...deriveTerminalReportDocuments(envelopeValue).flatMap((document) =>
-        localizedTerminalDerivedDocumentIssueDetails(source, document.document, "#"),
-      ),
-    ].map(prefixedSurfaceIssue);
-  } catch (error) {
-    issues = [
-      ...sourceIssues,
-      {
-        code: "localized_terminal_projection_failed",
-        field: "#/terminal_report_envelope",
-        matched_text: error instanceof Error ? error.message : "terminal report projection failed",
-        repair_hint:
-          "Fix terminal report source values so the Harness can render the localized terminal brief, report, and audit appendix.",
-      },
-    ];
-  }
-  if (issues.length > 0) {
-    throw new StoreError(
-      "adaptation.author_terminal_user_view_invalid",
-      "terminal report source contains user-visible internal mechanics; fix every listed field before publication",
-      { issues },
-    );
-  }
-}
-
 function storedEnvelope(
   documents: ReadonlyMap<string, ReturnType<typeof effectiveDocuments>[number]>,
   artifactPathValue: string,
@@ -453,6 +396,26 @@ function planDiff(
   };
 }
 
+function storedAgentSemanticDeclarations(
+  gaps: readonly Record<string, unknown>[],
+): Map<string, Record<string, unknown>> | null {
+  const byDeclarationId = new Map<string, Record<string, unknown>>();
+  for (const entry of gaps) {
+    if (entry.detection_mode !== "agent_semantic") continue;
+    if (!isRecord(entry.triggered_by)) return null;
+    const declarationId = entry.triggered_by.declaration_id;
+    if (
+      typeof declarationId !== "string" ||
+      declarationId.length === 0 ||
+      byDeclarationId.has(declarationId)
+    ) {
+      return null;
+    }
+    byDeclarationId.set(declarationId, entry);
+  }
+  return byDeclarationId;
+}
+
 function exactStoredGapMatchesRequest(
   gap: Record<string, unknown>,
   requestGap: Record<string, unknown>,
@@ -476,14 +439,22 @@ function exactStoredGapMatchesRequest(
   }
   const gaps = records(gap.gaps);
   const declarations = agentDeclaredGaps(requestGap.agent_declared_gaps);
+  const storedDeclarations = storedAgentSemanticDeclarations(gaps);
+  if (storedDeclarations === null) return false;
+  const declarationIds = declarations.map((declaration) => declaration.declarationId);
+  const uniqueDeclarationIds = uniqueSorted(declarationIds);
+  if (
+    uniqueDeclarationIds.length !== declarationIds.length ||
+    canonicalJson([...storedDeclarations.keys()].sort()) !== canonicalJson(uniqueDeclarationIds)
+  ) {
+    return false;
+  }
   for (const declaration of declarations) {
-    const generated = gaps.find(
-      (entry) =>
-        isRecord(entry.triggered_by) &&
-        entry.triggered_by.declaration_id === declaration.declarationId,
-    );
+    const generated = storedDeclarations.get(declaration.declarationId);
+    if (generated === undefined || !isRecord(generated.triggered_by)) return false;
+    const triggeredBy = generated.triggered_by;
     if (
-      generated === undefined ||
+      generated.detection_mode !== "agent_semantic" ||
       generated.gap_type !== declaration.gapType ||
       generated.subject_ref !== declaration.subjectRef ||
       generated.severity !== declaration.severity ||
@@ -495,8 +466,11 @@ function exactStoredGapMatchesRequest(
         canonicalJson(uniqueSorted(declaration.decisionImpact)) ||
       canonicalJson(uniqueSorted(strings(generated.recommended_unit_types))) !==
         canonicalJson(uniqueSorted(declaration.recommendedUnitTypes ?? [])) ||
-      (generated.triggered_by as Record<string, unknown>).declared_by !== "main_agent" ||
-      (generated.triggered_by as Record<string, unknown>).detail !== declaration.detail
+      triggeredBy.declaration_id !== declaration.declarationId ||
+      triggeredBy.declared_by !== "main_agent" ||
+      canonicalJson(uniqueSorted(strings(triggeredBy.observed_artifact_refs))) !==
+        canonicalJson(uniqueSorted(strings(requestGap.observed_artifact_refs))) ||
+      triggeredBy.detail !== declaration.detail
     ) {
       return false;
     }
@@ -515,6 +489,7 @@ export class AdaptationAuthorRuntime {
     private readonly runsRoot: string,
     private readonly validator: ArtifactValidator,
     private readonly store: RunStore,
+    private readonly reports: ReportRuntime,
   ) {}
 
   static async create(
@@ -527,6 +502,7 @@ export class AdaptationAuthorRuntime {
       runsRoot,
       validator,
       new RunStore(runsRoot, validator),
+      new ReportRuntime(runsRoot, validator),
     );
   }
 
@@ -535,7 +511,6 @@ export class AdaptationAuthorRuntime {
     options: AdaptationAuthorExecutionOptions = {},
   ): Promise<AdaptationAuthorResult> {
     const request = normalizeRequest(validateRequest(this.validator, value));
-    assertTerminalUserVisibleBoundary(request);
     if (request.operation !== "validate_only") {
       assertPublicationPlanIdentity(request, request.publication_plan as Record<string, unknown>);
     }
@@ -918,6 +893,108 @@ export class AdaptationAuthorRuntime {
     };
   }
 
+  private async preflightTerminalCloseout(
+    request: AdaptationAuthorRequest,
+    transformed: PlanTransformationResult,
+    gapEnvelope: FormalArtifactEnvelope,
+    adaptationEnvelopes: readonly FormalArtifactEnvelope[],
+    operationKeyValue: string,
+  ): Promise<void> {
+    const terminalActions = transformed.actionNames.filter(isTerminalAdaptationAction);
+    if (terminalActions.length === 0) {
+      if (request.terminal_report_envelope !== undefined) {
+        throw new StoreError(
+          "apply.unexpected_terminal_report_source",
+          "non-terminal adaptation cannot publish a terminal report source",
+        );
+      }
+      return;
+    }
+    if (request.terminal_report_envelope === undefined) {
+      throw new StoreError(
+        "apply.terminal_report_source_required",
+        "terminal adaptation requires an explicit main-agent terminal report source",
+      );
+    }
+    const source = request.terminal_report_envelope;
+    const validation = this.validator.validateDocument(source, source.artifact_path);
+    if (
+      !validation.valid ||
+      source.schema_version !== "startup_opportunity.artifact_envelope.current" ||
+      source.artifact_type !== "startup_opportunity.terminal_report_source.v1" ||
+      source.run_id !== request.run_id ||
+      source.producer_role !== "main_agent" ||
+      terminalActions.length !== 1 ||
+      !terminalOutcomeMatchesAction(
+        terminalActions[0] as string,
+        source.document.terminal_outcome,
+      ) ||
+      !adaptationEnvelopes.every((envelopeValue) =>
+        source.input_refs.includes(envelopeValue.artifact_path),
+      )
+    ) {
+      throw new StoreError(
+        "apply.terminal_report_source_invalid",
+        "terminal report source must be valid, bound to one terminal action, and use its exact outcome",
+        { errors: validation.errors },
+      );
+    }
+    const terminalPaths = terminalReportArtifactPaths(source.artifact_path);
+    const checkpointRef = `checkpoints/checkpoint-plan-apply-${sha256Hex(operationKeyValue).slice(
+      0,
+      20,
+    )}.json`;
+    const finalManifest: RunManifest = {
+      ...transformed.manifest,
+      updated_at: request.checkpoint_created_at,
+      artifact_refs: uniqueSorted([
+        ...transformed.manifest.artifact_refs,
+        gapEnvelope.artifact_path,
+        ...adaptationEnvelopes.map((entry) => entry.artifact_path),
+        ...terminalPaths,
+      ]),
+      checkpoint_ref: checkpointRef,
+    };
+    const triggerGapRefs = uniqueSorted(
+      adaptationEnvelopes.flatMap((entry) => strings(entry.document.trigger_gap_refs)),
+    );
+    const checkpointDocument: Record<string, unknown> = {
+      schema_version: "startup_opportunity.checkpoint.v1",
+      checkpoint_id: `checkpoint_plan_apply_${sha256Hex(operationKeyValue).slice(0, 20)}`,
+      run_id: request.run_id,
+      created_at: request.checkpoint_created_at,
+      producer_role: "harness",
+      input_refs: uniqueSorted([
+        "manifest.json",
+        ...adaptationEnvelopes.map((entry) => entry.artifact_path),
+      ]),
+      manifest_snapshot: finalManifest,
+      current_plan_ref: finalManifest.current_plan_ref,
+      plan_revision: finalManifest.plan_revision,
+      completed_units: finalManifest.completed_units,
+      invalidated_units: finalManifest.invalidated_units,
+      artifact_refs: finalManifest.artifact_refs,
+      latest_gap_snapshot_ref: finalManifest.latest_gap_snapshot_ref,
+      applied_adaptation_refs: finalManifest.applied_adaptation_refs,
+      pending_adaptation_refs: finalManifest.pending_adaptation_refs,
+      unresolved_gap_refs: triggerGapRefs,
+      next_step: request.next_step,
+      belief_summary: request.belief_summary,
+    };
+    const checkpointEnvelope = envelope(
+      request.run_id,
+      checkpointRef,
+      checkpointDocument,
+      "harness",
+      checkpointDocument.input_refs as readonly string[],
+    );
+    await this.reports.prepareTerminalLocked(path.join(this.runsRoot, request.run_id), {
+      reportEnvelope: source,
+      prospectiveManifest: finalManifest,
+      supportingEnvelopes: [gapEnvelope, ...adaptationEnvelopes, checkpointEnvelope],
+    });
+  }
+
   private async prepare(request: AdaptationAuthorRequest): Promise<PreparedAuthorOperation> {
     const status = await this.store.status(request.run_id);
     const manifest = status.manifest;
@@ -944,6 +1021,16 @@ export class AdaptationAuthorRuntime {
         topLevelFormalRefs: uniqueSorted([
           manifest.current_plan_ref,
           ...(manifest.latest_gap_snapshot_ref === null ? [] : [manifest.latest_gap_snapshot_ref]),
+          ...request.decisions
+            .map((decision) => adaptationPath(String(decision.adaptation_id)))
+            .filter((ref) =>
+              [
+                ...manifest.pending_adaptation_refs,
+                ...manifest.validated_adaptation_refs,
+                ...manifest.rejected_adaptation_refs,
+                ...manifest.applied_adaptation_refs,
+              ].includes(ref),
+            ),
           ...planningContextRefs(manifest),
           ...requestedRefs.filter((ref) => !artifactPath(ref).endsWith(".jsonl")),
         ]),
@@ -984,6 +1071,7 @@ export class AdaptationAuthorRuntime {
 
     let gapDocument: Record<string, unknown>;
     let gapPath: string;
+    let usePublishedGapAndDecisions = false;
     if (request.operation === "apply") {
       const latestGap =
         manifest.latest_gap_snapshot_ref === null
@@ -1001,37 +1089,57 @@ export class AdaptationAuthorRuntime {
       gapDocument = latestGap.document;
       gapPath = latestGap.path;
     } else {
-      const analyzed = (await createGapAnalyzer(this.repositoryRoot)).analyze({
-        documentBundle: baseContext.bundle,
-        referenceContext: baseContext.referenceContext,
-        snapshotId: String(request.gap.snapshot_id),
-        createdAt: String(request.gap.created_at),
-        triggerKind: String(request.gap.trigger_kind) as
-          | "wave_completed"
-          | "user_decision"
-          | "artifact_validation_failed"
-          | "adversarial_review_completed"
-          | "resume_reconciliation",
-        phase: String(request.gap.phase),
-        waveId: request.gap.wave_id === null ? null : String(request.gap.wave_id),
-        triggerEventRef:
-          request.gap.trigger_event_ref === null ? null : String(request.gap.trigger_event_ref),
-        observedArtifactRefs: strings(request.gap.observed_artifact_refs),
-        materialNewEvidenceObserved: request.gap.material_new_evidence_observed === true,
-        repeatedSourceRefs: strings(request.gap.repeated_source_refs),
-        agentDeclaredGaps: agentDeclaredGaps(request.gap.agent_declared_gaps),
-      });
-      if (!analyzed.valid || analyzed.snapshot === null) {
-        throw new StoreError(
-          "adaptation.author_gap_invalid",
-          "Gap Snapshot could not be derived from current authority and explicit Agent-declared gaps",
-          { result: analyzed },
-        );
+      const latestGap =
+        manifest.latest_gap_snapshot_ref === null
+          ? undefined
+          : baseDocuments.get(manifest.latest_gap_snapshot_ref);
+      const latestGapIsPlanSnapshot =
+        latestGap?.schemaVersion === "startup_opportunity.gap_snapshot.discovery.plan.current";
+      const latestGapMatchesRequest =
+        latestGapIsPlanSnapshot && exactStoredGapMatchesRequest(latestGap.document, request.gap);
+      if (latestGapMatchesRequest) {
+        gapDocument = latestGap.document;
+        gapPath = latestGap.path;
+        usePublishedGapAndDecisions = true;
+      } else {
+        if (latestGapIsPlanSnapshot && latestGap.document.snapshot_id === request.gap.snapshot_id) {
+          throw new StoreError(
+            "adaptation.author_published_gap_mismatch",
+            "published Gap Snapshot with this snapshot_id does not exactly match this author request",
+          );
+        }
+        const analyzed = (await createGapAnalyzer(this.repositoryRoot)).analyze({
+          documentBundle: baseContext.bundle,
+          referenceContext: baseContext.referenceContext,
+          snapshotId: String(request.gap.snapshot_id),
+          createdAt: String(request.gap.created_at),
+          triggerKind: String(request.gap.trigger_kind) as
+            | "wave_completed"
+            | "user_decision"
+            | "artifact_validation_failed"
+            | "adversarial_review_completed"
+            | "resume_reconciliation",
+          phase: String(request.gap.phase),
+          waveId: request.gap.wave_id === null ? null : String(request.gap.wave_id),
+          triggerEventRef:
+            request.gap.trigger_event_ref === null ? null : String(request.gap.trigger_event_ref),
+          observedArtifactRefs: strings(request.gap.observed_artifact_refs),
+          materialNewEvidenceObserved: request.gap.material_new_evidence_observed === true,
+          repeatedSourceRefs: strings(request.gap.repeated_source_refs),
+          agentDeclaredGaps: agentDeclaredGaps(request.gap.agent_declared_gaps),
+        });
+        if (!analyzed.valid || analyzed.snapshot === null) {
+          throw new StoreError(
+            "adaptation.author_gap_invalid",
+            "Gap Snapshot could not be derived from current authority and explicit Agent-declared gaps",
+            { result: analyzed },
+          );
+        }
+        gapDocument = analyzed.snapshot;
+        gapPath = `adaptations/gap-snapshots/${String(gapDocument.snapshot_id)}.r${String(
+          gapDocument.revision,
+        )}.json`;
       }
-      gapDocument = analyzed.snapshot;
-      gapPath = `adaptations/gap-snapshots/${String(gapDocument.snapshot_id)}.r${String(
-        gapDocument.revision,
-      )}.json`;
     }
     const gapIds = new Set(records(gapDocument.gaps).map((gap) => String(gap.gap_id)));
     const seenDecisionPaths = new Set<string>();
@@ -1056,7 +1164,7 @@ export class AdaptationAuthorRuntime {
         ),
       };
     });
-    const gapEnvelope = envelope(
+    const expectedGapEnvelope = envelope(
       request.run_id,
       gapPath,
       gapDocument,
@@ -1073,7 +1181,7 @@ export class AdaptationAuthorRuntime {
           : []),
       ]),
     );
-    const adaptationEnvelopes = decisionDocuments.map((entry) =>
+    const expectedAdaptationEnvelopes = decisionDocuments.map((entry) =>
       envelope(
         request.run_id,
         entry.path,
@@ -1082,10 +1190,31 @@ export class AdaptationAuthorRuntime {
         artifactRefsForDocument(entry),
       ),
     );
-    if (request.operation === "apply") {
-      const storedByPath = new Map(
-        effectiveDocuments(baseContext.bundle).map((entry) => [entry.path, entry]),
+    const storedByPath = new Map(
+      effectiveDocuments(baseContext.bundle).map((entry) => [entry.path, entry]),
+    );
+    const storedGapEnvelope = storedByPath.get(gapPath)?.envelope;
+    const storedAdaptationEnvelopes = expectedAdaptationEnvelopes.map(
+      (entry) => storedByPath.get(entry.artifact_path)?.envelope,
+    );
+    const publishedBytesMatch =
+      usePublishedGapAndDecisions &&
+      storedGapEnvelope !== null &&
+      storedGapEnvelope !== undefined &&
+      canonicalJson(storedGapEnvelope) === canonicalJson(expectedGapEnvelope) &&
+      storedAdaptationEnvelopes.every(
+        (stored, index) =>
+          stored !== null &&
+          stored !== undefined &&
+          canonicalJson(stored) === canonicalJson(expectedAdaptationEnvelopes[index]),
       );
+    const gapEnvelope = publishedBytesMatch
+      ? (storedGapEnvelope as unknown as FormalArtifactEnvelope)
+      : expectedGapEnvelope;
+    const adaptationEnvelopes = publishedBytesMatch
+      ? storedAdaptationEnvelopes.map((entry) => entry as unknown as FormalArtifactEnvelope)
+      : expectedAdaptationEnvelopes;
+    if (request.operation === "apply") {
       if (
         gapEnvelope.content_hash !== storedByPath.get(gapPath)?.envelope?.content_hash ||
         adaptationEnvelopes.some((entry) => {
@@ -1102,13 +1231,19 @@ export class AdaptationAuthorRuntime {
           "apply author input differs from the exact published Gap/Adaptation bytes",
         );
       }
+    } else if (usePublishedGapAndDecisions && !publishedBytesMatch) {
+      throw new StoreError(
+        "adaptation.author_published_content_mismatch",
+        "published Gap/Adaptation bytes differ from the current author request",
+      );
     }
 
-    const prospectivePaths = [gapPath, ...decisionDocuments.map((entry) => entry.path)];
+    const authoredPaths = [gapPath, ...decisionDocuments.map((entry) => entry.path)];
+    const prospectivePaths = usePublishedGapAndDecisions ? [] : authoredPaths;
     const adaptationInput: DocumentBundle = {
       ...baseContext.bundle,
       documents: [
-        ...baseContext.bundle.documents.filter((entry) => !prospectivePaths.includes(entry.path)),
+        ...baseContext.bundle.documents.filter((entry) => !authoredPaths.includes(entry.path)),
         { path: gapPath, document: gapEnvelope },
         ...adaptationEnvelopes.map((entry) => ({ path: entry.artifact_path, document: entry })),
       ],
@@ -1198,6 +1333,13 @@ export class AdaptationAuthorRuntime {
             plan_operation_key: transformed.operationKey,
             report_request_hash: canonicalContentHash(request.terminal_report_envelope),
           });
+    await this.preflightTerminalCloseout(
+      request,
+      transformed,
+      gapEnvelope,
+      adaptationEnvelopes,
+      applyOperationKey,
+    );
     const publicationPlanIdentity = {
       schema_version: "startup_opportunity.adaptation_author_publication_plan.current",
       request_content_hash: requestContentHash(request),

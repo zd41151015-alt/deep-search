@@ -74,8 +74,13 @@ test("project config and hook registry expose the narrow repo-local integration"
   assert.equal(config.features?.hooks, true);
   assert.equal(config.agents?.max_concurrent_threads_per_session, 10);
   const evidence = config.mcp_servers?.startup_opportunity_evidence;
-  assert.equal(evidence?.command, "node");
-  assert.deepEqual(evidence?.args, ["--import", "tsx", "harness/src/mcp/evidence-server.ts"]);
+  assert.equal(evidence?.command, "./scripts/activate-frozen-toolchain.sh");
+  assert.deepEqual(evidence?.args, [
+    "node",
+    "--import",
+    "tsx",
+    "harness/src/mcp/evidence-server.ts",
+  ]);
   assert.deepEqual(evidence?.enabled_tools, [
     "create_run",
     "propose_scope",
@@ -104,7 +109,9 @@ test("ordinary hook inputs continue without manufacturing telemetry or formal Ar
   assert.equal(
     await evaluatePreToolUse({
       tool_name: "Bash",
-      tool_input: { command: "npm run harness -- doctor --json" },
+      tool_input: {
+        command: "./scripts/activate-frozen-toolchain.sh npm run harness -- doctor --json",
+      },
     }),
     undefined,
   );

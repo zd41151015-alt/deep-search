@@ -1,8 +1,12 @@
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import { CURRENT_POLICY_PATHS } from "./current-policy-paths.js";
 
-export const SKELETON_VERSION = "g4.3" as const;
+const execFileAsync = promisify(execFile);
+
+export const SKELETON_VERSION = "g4.4" as const;
 
 export const IMPLEMENTATION_STACK = {
   language: "TypeScript 7.0.2",
@@ -198,6 +202,7 @@ export const REQUIRED_REPOSITORY_PATHS = [
   "README.md",
   "package.json",
   "package-lock.json",
+  "scripts/activate-frozen-toolchain.sh",
   "tsconfig.json",
   ".agents/skills/startup-opportunity/SKILL.md",
   ...SKILL_REFERENCE_PATHS,
@@ -307,11 +312,35 @@ function checkRuntime(): DoctorCheck {
   };
 }
 
+async function checkPackageManagerRuntime(root: string): Promise<DoctorCheck> {
+  try {
+    const { stdout } = await execFileAsync("npm", ["--version"], {
+      cwd: root,
+      windowsHide: true,
+    });
+    const version = stdout.trim();
+    const valid = version === "11.16.0";
+    return {
+      id: "toolchain:package-manager-runtime",
+      status: valid ? "pass" : "fail",
+      detail: valid ? `running npm ${version}` : `expected npm 11.16.0, received ${version}`,
+    };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "could not execute npm --version";
+    return {
+      id: "toolchain:package-manager-runtime",
+      status: "fail",
+      detail: `expected npm 11.16.0, but npm --version failed: ${detail}`,
+    };
+  }
+}
+
 export async function inspectRepository(root: string): Promise<DoctorReport> {
   const checks = await Promise.all([
     ...REQUIRED_REPOSITORY_PATHS.map((relativePath) => readNonEmptyFile(root, relativePath)),
     ...FORBIDDEN_LOCKFILES.map((filename) => checkForbiddenLockfile(root, filename)),
     checkPackageMetadata(root),
+    checkPackageManagerRuntime(root),
   ]);
   const allChecks = [...checks, checkRuntime()];
 
