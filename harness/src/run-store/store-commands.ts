@@ -220,6 +220,11 @@ export async function runCreateRun(
       "--mode",
       "--created-at",
       "--parent-run-id",
+      "--technical-restart-source-run-id",
+      "--technical-restart-source-manifest-hash",
+      "--technical-restart-source-terminal-report-source-ref",
+      "--technical-restart-source-terminal-report-source-hash",
+      "--technical-restart-user-attestation",
       "--runs-root",
       "--geography",
       "--customer-model",
@@ -239,12 +244,53 @@ export async function runCreateRun(
     }
     const createdAt = parsed.values.get("--created-at");
     const parentRunId = parsed.values.get("--parent-run-id");
+    const technicalRestartSourceRunId = parsed.values.get("--technical-restart-source-run-id");
+    const technicalRestartArgs = [
+      "--technical-restart-source-run-id",
+      "--technical-restart-source-manifest-hash",
+      "--technical-restart-source-terminal-report-source-ref",
+      "--technical-restart-source-terminal-report-source-hash",
+      "--technical-restart-user-attestation",
+    ] as const;
+    const suppliedTechnicalRestartArgs = technicalRestartArgs.filter((name) =>
+      parsed.values.has(name),
+    );
+    if (
+      suppliedTechnicalRestartArgs.length > 0 &&
+      suppliedTechnicalRestartArgs.length !== technicalRestartArgs.length
+    ) {
+      throw new StoreError(
+        "command.invalid_arguments",
+        "technical restart create-run arguments must be supplied as a complete exact provenance set",
+        { supplied: suppliedTechnicalRestartArgs },
+      );
+    }
     const input: CreateRunInput = {
       runId: required(parsed, "--run-id"),
       mode: mode as RunMode,
       scopeProposal: researchScope(parsed),
       ...(createdAt === undefined ? {} : { createdAt }),
       ...(parentRunId === undefined ? {} : { parentRunId }),
+      ...(technicalRestartSourceRunId === undefined
+        ? {}
+        : {
+            technicalRestart: {
+              sourceRunId: technicalRestartSourceRunId,
+              sourceManifestHash: required(parsed, "--technical-restart-source-manifest-hash"),
+              sourceTerminalReportSourceRef: required(
+                parsed,
+                "--technical-restart-source-terminal-report-source-ref",
+              ),
+              sourceTerminalReportSourceHash: required(
+                parsed,
+                "--technical-restart-source-terminal-report-source-hash",
+              ),
+              userAuthorizationAttestation: required(
+                parsed,
+                "--technical-restart-user-attestation",
+              ),
+            },
+          }),
     };
     const validator = await createArtifactValidator(repositoryRoot);
     return new RunStore(roots(parsed, repositoryRoot), validator).create(input);

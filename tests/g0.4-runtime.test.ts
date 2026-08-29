@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -17,6 +17,7 @@ import {
   createGapAnalyzer,
   createPlanRevisionRuntime,
   createPlanSemanticValidator,
+  DeclarativeRuntimeCompiler,
   type DocumentBundle,
   EvidenceStore,
   type FormalArtifactEnvelope,
@@ -43,6 +44,10 @@ import {
   G21_OPPORTUNITY_REF,
   G21_SOLUTION_REF,
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
+import {
+  fixtureEffective,
+  G22_EVALUATION_TASK,
+} from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
   createDiscoveryRuntimeFixture,
   runtimeEnvelope,
@@ -1276,6 +1281,7 @@ async function setupPersistedRun(
     | "runtime-failure"
     | "runtime-failure-discovery"
     | "generation-retry"
+    | "runtime-failure-maps"
     | "complete"
     | "cancel"
     | "pre-kill-exact"
@@ -1305,11 +1311,16 @@ async function setupPersistedRun(
     createdAt: "2026-07-24T12:00:00Z",
   });
   const preKill = action.startsWith("pre-kill-");
+  const runtimeFailure =
+    action === "runtime-failure" ||
+    action === "runtime-failure-discovery" ||
+    action === "runtime-failure-maps";
   const discoveryBacked =
     preKill ||
     action === "post-g2-add" ||
     action === "phase-transition-add" ||
-    action === "runtime-failure-discovery";
+    action === "runtime-failure-discovery" ||
+    action === "runtime-failure-maps";
   let discoveryBundle: DocumentBundle | null = null;
   let plan: Record<string, unknown>;
   if (discoveryBacked) {
@@ -1465,7 +1476,7 @@ async function setupPersistedRun(
     ? gapSnapshot(runId, "candidate_pre_killed", PRE_KILL_CANDIDATE_REF)
     : action === "stop-followup"
       ? gapSnapshot(runId, "no_material_new_evidence", PLAN_REF)
-      : action === "runtime-failure" || action === "runtime-failure-discovery"
+      : runtimeFailure
         ? gapSnapshot(runId, "runtime_blocked", PLAN_REF)
         : action === "post-g2-add"
           ? gapSnapshot(runId, "evidence_insufficient", PRE_KILL_CANDIDATE_REF)
@@ -1474,7 +1485,7 @@ async function setupPersistedRun(
     gap.gaps = [];
     gap.unresolved_decision_relevant_questions = [];
   }
-  if (action === "runtime-failure" || action === "runtime-failure-discovery") {
+  if (runtimeFailure) {
     gap.stop_signals = ["runtime_blocked"];
   }
   if (action === "post-g2-add") {
@@ -1503,7 +1514,7 @@ async function setupPersistedRun(
         ? clarificationDecision(runId)
         : action === "terminate" || action === "terminate-unclosed"
           ? terminationDecision(runId)
-          : action === "runtime-failure" || action === "runtime-failure-discovery"
+          : runtimeFailure
             ? runtimeFailureDecision(runId)
             : action === "complete"
               ? completionDecision(runId)
@@ -1803,6 +1814,259 @@ async function prepareTerminalReporting(
       auditRefs,
       relatedGapRef,
     ),
+  };
+}
+
+function sameSyntheticScopeProposal() {
+  return {
+    geography: "Synthetic",
+    customerModel: "b2c" as const,
+    targetUsers: ["synthetic user"],
+    decisionGoal: "test current contract",
+    researchLanguage: "en-US",
+  };
+}
+
+function formalStageWaveRequest(
+  runId: string,
+  task: Record<string, unknown>,
+  operation: "validate_only" | "publish" = "validate_only",
+): Record<string, unknown> {
+  const commercial = task.commercial_research_requirements as Record<string, unknown>;
+  const candidateRefs = Array.isArray(task.target_candidate_refs)
+    ? task.target_candidate_refs.filter((ref): ref is string => typeof ref === "string")
+    : [];
+  const sourceGroupIds = Array.isArray(task.required_source_group_ids)
+    ? task.required_source_group_ids.filter((ref): ref is string => typeof ref === "string")
+    : [];
+  const stopConditions = Array.isArray(task.stop_conditions)
+    ? task.stop_conditions.filter((ref): ref is string => typeof ref === "string")
+    : [];
+  return {
+    schema_version: "startup_opportunity.formal_stage_materialization_request.current",
+    request_id: "formal_wave_request",
+    run_id: runId,
+    operation,
+    created_at: "2026-07-28T12:08:00Z",
+    stage_kind: "discovery_wave",
+    wave: {
+      wave_id: String(task.wave_id ?? "wave_discovery_synthetic"),
+      stage_id: "stage_candidate_evaluation",
+      stage_kind: "candidate_evaluation",
+      unit_ids: [String(task.unit_id ?? "unit_counterfactual")],
+      lanes: [
+        {
+          unit_id: String(task.unit_id ?? "unit_counterfactual"),
+          lane_role: "evaluation",
+          candidate_scope: {
+            kind: "explicit",
+            candidate_refs: candidateRefs,
+          },
+          incumbent_response_assignment: {
+            analysis_depth: "lightweight_scan",
+            assignment_role: "owner",
+            subject_refs: candidateRefs,
+            rationale: "SYNTHETIC bounded incumbent scan; no research was performed.",
+          },
+          reporting_dimensions: ["demand", "buyer", "counterevidence"],
+          time_budget_minutes: 10,
+          max_sources: 5,
+          straggler_policy: {
+            on_timeout: "publish_partial",
+            grace_minutes: 2,
+            blocks_stage: true,
+          },
+          commercial_research_semantics: {
+            research_stage: commercial.research_stage,
+            planned_queries: commercial.planned_queries,
+            quantitative_competitive_scope: commercial.quantitative_competitive_scope,
+            required_commercial_dimensions: commercial.required_commercial_dimensions,
+            commercial_audit_output_path: commercial.commercial_audit_output_path,
+          },
+          task_semantics: {
+            target_candidate_refs: candidateRefs,
+            source_phase: String(task.source_phase ?? "candidate_evaluation"),
+            required_source_group_ids: sourceGroupIds,
+            required_stances: ["support", "oppose"],
+            stop_conditions: stopConditions,
+            execution_contract: task.execution_contract,
+          },
+        },
+      ],
+      research_depth: "quick",
+      total_time_budget_minutes: 10,
+      resource_allocation: commercial.resource_allocation,
+      gate_before: null,
+      gate_after: "required",
+      limitations: ["SYNTHETIC materialization test; no research was performed."],
+    },
+  };
+}
+
+function executionPlan(runId: string, plan: Record<string, unknown>): Record<string, unknown> {
+  const waves = Array.isArray(plan.waves) ? (plan.waves as Record<string, unknown>[]) : [];
+  const stageIdByWaveId = new Map<string, string>();
+  for (const [index, wave] of waves.entries()) {
+    const waveId = String(wave.wave_id ?? index);
+    stageIdByWaveId.set(waveId, `stage_generation_${waveId.replaceAll("-", "_")}`);
+  }
+  const stages = waves.map((wave, index) => {
+    const waveId = String(wave.wave_id ?? index);
+    const lanes = (Array.isArray(wave.units) ? (wave.units as Record<string, unknown>[]) : []).map(
+      (unit) => ({
+        unit_id: unit.unit_id,
+        lane_role: "opportunity",
+        candidate_scope: { kind: "none", candidate_refs: [] },
+        incumbent_response_assignment: {
+          analysis_depth: "not_assigned",
+          assignment_role: "none",
+          subject_refs: [],
+          rationale: "This lane is not the assigned incumbent response owner.",
+        },
+        reporting_dimensions: ["demand", "buyer"],
+        submission_path: `artifacts/discovery/generation/${String(unit.unit_id)}.r1.json`,
+        submission_schema: "startup_opportunity.discovery_generation_result.v1",
+        time_budget_minutes: 10,
+        max_sources: 5,
+        straggler_policy: {
+          on_timeout: "publish_partial",
+          grace_minutes: 2,
+          blocks_stage: true,
+        },
+        dispatch_group: `group_generation_${waveId}`,
+      }),
+    );
+    return {
+      stage_id: String(
+        stageIdByWaveId.get(waveId) ?? `stage_generation_${waveId.replaceAll("-", "_")}`,
+      ),
+      stage_kind: "discovery_generation",
+      depends_on: Array.isArray(wave.depends_on)
+        ? wave.depends_on
+            .filter((dep): dep is string => typeof dep === "string")
+            .map((dep) => stageIdByWaveId.get(dep) ?? dep)
+        : [],
+      gate_before: null,
+      gate_after: "required",
+      lanes,
+    };
+  });
+  return {
+    schema_version: "startup_opportunity.research_execution_plan.discovery.current",
+    execution_plan_id: `execution_generation_synthetic_${runId}`,
+    run_id: runId,
+    mode: "opportunity_discovery",
+    revision: 1,
+    parent_execution_plan_ref: null,
+    research_plan_ref: PLAN_REF,
+    research_plan_hash: canonicalContentHash(plan),
+    created_at: "2026-07-28T12:08:00Z",
+    research_depth: "quick",
+    total_time_budget_minutes: 20,
+    resource_allocation: {
+      customer_commercial_percent: 65,
+      market_structure_percent: 17,
+      academic_percent: 18,
+    },
+    stages,
+    limitations: ["SYNTHETIC contract execution overlay; no research was performed."],
+  };
+}
+
+function runtimeArtifact(
+  artifactPath: string,
+  document: Record<string, unknown>,
+  producerRole: "main_agent" | "lane_researcher" | "harness",
+): Record<string, unknown> {
+  return {
+    artifact_type: String(document.schema_version),
+    artifact_path: artifactPath,
+    producer_role: producerRole,
+    document,
+  };
+}
+
+function compilationRequest(
+  runId: string,
+  operation: "validate_only" | "publish",
+  artifacts: readonly Record<string, unknown>[],
+  requestId = "request_runtime_synthetic",
+): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: requestId,
+    run_id: runId,
+    operation,
+    created_at: "2026-07-28T12:08:00Z",
+    artifacts,
+  };
+}
+
+async function terminalRuntimeFailureSource(
+  contextTest: TestContext,
+  runId: string,
+  withMaps = false,
+) {
+  const setup = await setupPersistedRun(
+    contextTest,
+    runId,
+    withMaps ? "runtime-failure-maps" : "runtime-failure",
+  );
+  const terminal = await prepareTerminalReporting(setup, true);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  await runtime.apply({
+    runId,
+    adaptationBundle: terminal.adaptationBundle,
+    adaptationRefs: [DECISION_REF],
+    terminalReportEnvelope: terminal.reportEnvelope,
+    createdAt: "2026-07-28T12:08:00Z",
+    checkpointCreatedAt: "2026-07-28T12:09:00Z",
+    nextStep: "Report the runtime failure and require any repaired execution to use a new Run.",
+    beliefSummary: {
+      current_belief: "A technical runtime failure prevents a research conclusion.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: [],
+      remaining_disagreement: [],
+      next_decision_relevant_question: "Can a repaired runtime attempt start under a new Run id?",
+    },
+  });
+  const status = await setup.store.status(runId);
+  assert.equal(status.manifest.status, "failed");
+  assert.equal(status.terminalReportDisposition, "ready", JSON.stringify(status, null, 2));
+  const sourceEnvelope = JSON.parse(
+    await readFile(path.join(setup.runRoot, terminal.reportEnvelope.artifact_path), "utf8"),
+  ) as FormalArtifactEnvelope;
+  return {
+    setup,
+    terminal,
+    sourceStatus: status,
+    sourceManifestHash: canonicalContentHash(status.manifest),
+    sourceTerminalReportSourceRef: sourceEnvelope.artifact_path,
+    sourceTerminalReportSourceHash: sourceEnvelope.content_hash,
+  };
+}
+
+function technicalRestartDeclaration(
+  sourceRunId: string,
+  sourceManifestHash: string,
+  sourceTerminalReportSourceRef: string,
+  sourceTerminalReportSourceHash: string,
+  overrides: Partial<{
+    readonly sourceRunId: string;
+    readonly sourceManifestHash: string;
+    readonly sourceTerminalReportSourceRef: string;
+    readonly sourceTerminalReportSourceHash: string;
+    readonly userAuthorizationAttestation: string;
+  }> = {},
+) {
+  return {
+    sourceRunId,
+    sourceManifestHash,
+    sourceTerminalReportSourceRef,
+    sourceTerminalReportSourceHash,
+    userAuthorizationAttestation:
+      "The fixture caller explicitly authorizes a technical restart after the runtime fix.",
+    ...overrides,
   };
 }
 
@@ -6360,6 +6624,1034 @@ test("runtime failure substrate inventory fails closed on broken Evidence Store 
   );
   for (const relativePath of ["report.json", "decision-brief.md", "report.md"]) {
     await assert.rejects(readFile(path.join(setup.runRoot, relativePath), "utf8"));
+  }
+});
+
+test("technical restart binds a new current Run to an exact terminal runtime failure", async (contextTest) => {
+  const sourceRunId = "runtime-failure-technical-restart-source";
+  const replacementRunId = "runtime-failure-technical-restart-new-attempt";
+  const {
+    setup,
+    sourceStatus,
+    sourceManifestHash,
+    sourceTerminalReportSourceRef,
+    sourceTerminalReportSourceHash,
+  } = await terminalRuntimeFailureSource(contextTest, sourceRunId, true);
+  assert.equal(sourceStatus.derivedExecutionDisposition, "terminal");
+  assert.ok(
+    G21_MAP_REFS.every((ref) => sourceStatus.manifest.artifact_refs.includes(ref)),
+    JSON.stringify(sourceStatus.manifest.artifact_refs, null, 2),
+  );
+
+  const createInput = {
+    runId: replacementRunId,
+    mode: "opportunity_discovery" as const,
+    createdAt: "2026-07-25T00:00:00Z",
+    scopeProposal: sameSyntheticScopeProposal(),
+    technicalRestart: technicalRestartDeclaration(
+      sourceRunId,
+      sourceManifestHash,
+      sourceTerminalReportSourceRef,
+      sourceTerminalReportSourceHash,
+    ),
+  };
+  const created = await setup.store.create(createInput);
+  assert.equal(created.status, "created");
+  assert.equal(created.manifest.parent_run_id, null);
+  assert.equal(created.manifest.status, "awaiting_scope_confirmation");
+  assert.equal(created.manifest.current_phase, null);
+  assert.equal(created.manifest.current_plan_ref, null);
+  assert.equal(created.manifest.plan_revision, 0);
+  assert.equal(created.manifest.current_decision_subject_snapshot_ref, null);
+  assert.deepEqual(created.manifest.artifact_refs, []);
+  assert.deepEqual(created.manifest.completed_units, []);
+  assert.deepEqual(created.manifest.active_units, []);
+  assert.deepEqual(created.manifest.failed_units, []);
+  assert.deepEqual(created.manifest.applied_adaptation_refs, []);
+  const provenance = created.technicalRestartProvenance;
+  assert.ok(provenance);
+  assert.equal(provenance.sourceRunId, sourceRunId);
+  assert.equal(provenance.replacementRunId, replacementRunId);
+  assert.equal(provenance.sourceManifestHash, sourceManifestHash);
+  assert.equal(provenance.sourceTerminalReportSourceRef, sourceTerminalReportSourceRef);
+  assert.equal(provenance.sourceTerminalReportSourceHash, sourceTerminalReportSourceHash);
+  assert.equal(provenance.terminalAuthority, "record_runtime_failure");
+  assert.equal(provenance.restartBoundary, "technical_fix_new_attempt");
+  assert.equal(provenance.relationshipBasis, "caller_declared_exact_terminal_runtime_failure");
+  assert.equal(provenance.inheritedRunState, "none");
+
+  const replayed = await setup.store.create(createInput);
+  assert.equal(replayed.status, "idempotent_replay");
+  assert.deepEqual(replayed.technicalRestartProvenance, provenance);
+
+  const sourceAfterRestart = await setup.store.status(sourceRunId);
+  assert.equal(sourceAfterRestart.manifest.status, "failed");
+  assert.equal(sourceAfterRestart.derivedExecutionDisposition, "superseded_by_new_attempt");
+  assert.equal(sourceAfterRestart.terminalReportDisposition, "ready");
+  assert.deepEqual(sourceAfterRestart.technicalRestartReplacementRunIds, [replacementRunId]);
+  assert.ok(
+    sourceAfterRestart.resumeContext.blockingReasons.includes(
+      `technical_restart_replacement:${replacementRunId}`,
+    ),
+  );
+
+  const replacementStatus = await setup.store.status(replacementRunId);
+  assert.equal(replacementStatus.derivedExecutionDisposition, "current");
+  assert.equal(replacementStatus.currentLeafRunId, replacementRunId);
+  assert.deepEqual(replacementStatus.technicalRestartReplacementRunIds, []);
+  assert.deepEqual(replacementStatus.technicalRestartProvenance, provenance);
+  assert.equal(replacementStatus.terminalReportDisposition, "not_required");
+  assert.equal(replacementStatus.manifest.current_plan_ref, null);
+  assert.deepEqual(replacementStatus.manifest.artifact_refs, []);
+
+  const reopenedStore = new RunStore(setup.runsRoot, await createArtifactValidator(repositoryRoot));
+  const reopenedSourceStatus = await reopenedStore.status(sourceRunId);
+  assert.equal(reopenedSourceStatus.manifest.status, "failed");
+  assert.equal(reopenedSourceStatus.derivedExecutionDisposition, "superseded_by_new_attempt");
+  await assert.rejects(
+    reopenedStore.load(sourceRunId),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+  );
+  const reopenedReplacement = await reopenedStore.load(replacementRunId);
+  assert.equal(reopenedReplacement.manifest.parent_run_id, null);
+  assert.equal(reopenedReplacement.manifest.current_plan_ref, null);
+  assert.deepEqual(reopenedReplacement.manifest.artifact_refs, []);
+  await assert.rejects(
+    setup.store.assertResearchExecutionAllowed(sourceRunId),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+  );
+  const sourceTreeBeforeBlockedWrite = await snapshotRunTree(setup.runRoot);
+  await assert.rejects(
+    setup.store.publishArtifact({
+      runId: sourceRunId,
+      envelope: formalEnvelope(sourceRunId, PLAN_REF, setup.plan),
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+  );
+  assert.deepEqual(await snapshotRunTree(setup.runRoot), sourceTreeBeforeBlockedWrite);
+
+  await assert.rejects(
+    setup.store.proposeScope({
+      runId: sourceRunId,
+      expectedScopeRevision: 1,
+      proposedAt: "2026-07-25T00:01:00Z",
+      reason: "A superseded terminal source cannot be mutated after the restart boundary.",
+      scopeProposal: {
+        ...sameSyntheticScopeProposal(),
+        decisionGoal: "attempt an invalid source mutation",
+      },
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+  );
+
+  await setup.store.confirmScope({
+    runId: replacementRunId,
+    expectedScopeProposalRevision: 1,
+    expectedScopeProposalRef: created.scopeProposalRef,
+    expectedScopeProposalHash: created.scopeProposalHash,
+    confirmedAt: "2026-07-25T00:02:00Z",
+    userConfirmationAttestation:
+      "The fixture caller attests exact user confirmation of the replacement Scope.",
+  });
+  await assert.rejects(
+    setup.store.publishArtifact({
+      runId: replacementRunId,
+      envelope: formalEnvelope(sourceRunId, PLAN_REF, setup.plan),
+    }),
+    (error: unknown) => error instanceof StoreError,
+  );
+  const replacementAfterRejectedImport = await setup.store.status(replacementRunId);
+  assert.equal(replacementAfterRejectedImport.manifest.current_plan_ref, null);
+  assert.deepEqual(replacementAfterRejectedImport.manifest.artifact_refs, []);
+});
+
+test("technical restart replays every crash boundary and stays non-superseded until the closure is committed", async (contextTest) => {
+  const scenarios = [
+    {
+      name: "before publish",
+      faultAt: "before_publish" as const,
+      expectedSourceDisposition: "indeterminate" as const,
+      expectedReplacementDisposition: "not_found" as const,
+      expectedReplayStatus: "created" as const,
+    },
+    {
+      name: "after run publish",
+      faultAt: "technical_restart_after_run_publish" as const,
+      expectedSourceDisposition: "indeterminate" as const,
+      expectedReplacementDisposition: "indeterminate" as const,
+      expectedReplayStatus: "idempotent_replay" as const,
+    },
+    {
+      name: "after source commit",
+      faultAt: "technical_restart_after_source_commit" as const,
+      expectedSourceDisposition: "indeterminate" as const,
+      expectedReplacementDisposition: "indeterminate" as const,
+      expectedReplayStatus: "idempotent_replay" as const,
+    },
+    {
+      name: "after replacement commit",
+      faultAt: "technical_restart_after_replacement_commit" as const,
+      expectedSourceDisposition: "superseded_by_new_attempt" as const,
+      expectedReplacementDisposition: "current" as const,
+      expectedReplayStatus: "idempotent_replay" as const,
+    },
+  ] as const;
+
+  for (const scenario of scenarios) {
+    await contextTest.test(scenario.name, async (subcontext) => {
+      const sourceRunId = `runtime-failure-technical-restart-${scenario.name.replaceAll(" ", "-")}-source`;
+      const replacementRunId = `runtime-failure-technical-restart-${scenario.name.replaceAll(" ", "-")}-new-attempt`;
+      const {
+        setup,
+        sourceManifestHash,
+        sourceTerminalReportSourceRef,
+        sourceTerminalReportSourceHash,
+      } = await terminalRuntimeFailureSource(subcontext, sourceRunId, true);
+
+      const createInput = {
+        runId: replacementRunId,
+        mode: "opportunity_discovery" as const,
+        createdAt: "2026-07-25T00:05:00Z",
+        scopeProposal: sameSyntheticScopeProposal(),
+        technicalRestart: technicalRestartDeclaration(
+          sourceRunId,
+          sourceManifestHash,
+          sourceTerminalReportSourceRef,
+          sourceTerminalReportSourceHash,
+        ),
+      };
+
+      await assert.rejects(
+        setup.store.create({ ...createInput, faultAt: scenario.faultAt }),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+
+      const sourceBeforeReplay = await setup.store.status(sourceRunId);
+      assert.equal(
+        sourceBeforeReplay.derivedExecutionDisposition,
+        scenario.expectedSourceDisposition,
+      );
+      assert.equal(
+        sourceBeforeReplay.currentLeafRunId,
+        scenario.name === "after replacement commit" ? sourceRunId : null,
+      );
+      if (scenario.expectedReplacementDisposition === "not_found") {
+        await assert.rejects(
+          setup.store.status(replacementRunId),
+          (error: unknown) => error instanceof StoreError && error.code === "run.not_found",
+        );
+      } else {
+        const replacementBeforeReplay = await setup.store.status(replacementRunId);
+        assert.equal(
+          replacementBeforeReplay.derivedExecutionDisposition,
+          scenario.expectedReplacementDisposition,
+        );
+      }
+
+      const replay = await setup.store.create(createInput);
+      assert.equal(replay.status, scenario.expectedReplayStatus);
+
+      const reopenedStore = new RunStore(
+        setup.runsRoot,
+        await createArtifactValidator(repositoryRoot),
+      );
+      const sourceAfterReplay = await reopenedStore.status(sourceRunId);
+      assert.equal(sourceAfterReplay.derivedExecutionDisposition, "superseded_by_new_attempt");
+      assert.deepEqual(sourceAfterReplay.technicalRestartReplacementRunIds, [replacementRunId]);
+      assert.equal(sourceAfterReplay.currentLeafRunId, sourceRunId);
+      await assert.rejects(
+        reopenedStore.load(sourceRunId),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+      );
+      const replacementAfterReplay = await reopenedStore.status(replacementRunId);
+      assert.equal(replacementAfterReplay.derivedExecutionDisposition, "current");
+      assert.equal(replacementAfterReplay.currentLeafRunId, replacementRunId);
+    });
+  }
+});
+
+test("technical restart exact replay reuses pending created_at and blocks occupied replacement ids", async (contextTest) => {
+  const sourceRunId = "runtime-failure-technical-restart-pending-replay-source";
+  const replacementRunId = "runtime-failure-technical-restart-pending-replay-new-attempt";
+  const {
+    setup,
+    sourceManifestHash,
+    sourceTerminalReportSourceRef,
+    sourceTerminalReportSourceHash,
+  } = await terminalRuntimeFailureSource(contextTest, sourceRunId, true);
+  const createInput = {
+    runId: replacementRunId,
+    mode: "opportunity_discovery" as const,
+    createdAt: "2026-07-25T00:05:00Z",
+    scopeProposal: sameSyntheticScopeProposal(),
+    technicalRestart: technicalRestartDeclaration(
+      sourceRunId,
+      sourceManifestHash,
+      sourceTerminalReportSourceRef,
+      sourceTerminalReportSourceHash,
+    ),
+  };
+
+  await assert.rejects(
+    setup.store.create({ ...createInput, faultAt: "before_publish" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const pendingTree = await snapshotRunTree(setup.runRoot);
+  await assert.rejects(
+    setup.store.create({
+      runId: replacementRunId,
+      mode: "opportunity_discovery",
+      scopeProposal: sameSyntheticScopeProposal(),
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "technical_restart.declaration_conflict",
+  );
+  assert.deepEqual(await snapshotRunTree(setup.runRoot), pendingTree);
+  await assert.rejects(
+    setup.store.create({
+      ...createInput,
+      createdAt: "2026-07-25T00:05:30Z",
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "technical_restart.declaration_conflict",
+  );
+  assert.deepEqual(await snapshotRunTree(setup.runRoot), pendingTree);
+
+  const { createdAt: _createdAt, ...replayInput } = createInput;
+  const replay = await setup.store.create(replayInput);
+  assert.equal(replay.status, "created");
+  assert.equal(replay.manifest.created_at, createInput.createdAt);
+  const sourceAfterReplay = await setup.store.status(sourceRunId);
+  assert.equal(sourceAfterReplay.derivedExecutionDisposition, "superseded_by_new_attempt");
+  assert.deepEqual(sourceAfterReplay.technicalRestartReplacementRunIds, [replacementRunId]);
+});
+
+test("technical restart existing-target replay reuses stored created_at when omitted", async (contextTest) => {
+  const scenarios = [
+    {
+      name: "after run publish",
+      faultAt: "technical_restart_after_run_publish" as const,
+    },
+    {
+      name: "after source commit",
+      faultAt: "technical_restart_after_source_commit" as const,
+    },
+  ] as const;
+
+  for (const scenario of scenarios) {
+    await contextTest.test(scenario.name, async (subcontext) => {
+      const sourceRunId = `runtime-failure-technical-restart-existing-target-${scenario.name.replaceAll(
+        " ",
+        "-",
+      )}-source`;
+      const replacementRunId = `runtime-failure-technical-restart-existing-target-${scenario.name.replaceAll(
+        " ",
+        "-",
+      )}-new-attempt`;
+      const {
+        setup,
+        sourceManifestHash,
+        sourceTerminalReportSourceRef,
+        sourceTerminalReportSourceHash,
+      } = await terminalRuntimeFailureSource(subcontext, sourceRunId, true);
+
+      const createInput = {
+        runId: replacementRunId,
+        mode: "opportunity_discovery" as const,
+        createdAt: "2026-07-25T00:06:00Z",
+        scopeProposal: sameSyntheticScopeProposal(),
+        technicalRestart: technicalRestartDeclaration(
+          sourceRunId,
+          sourceManifestHash,
+          sourceTerminalReportSourceRef,
+          sourceTerminalReportSourceHash,
+        ),
+      };
+
+      await assert.rejects(
+        setup.store.create({ ...createInput, faultAt: scenario.faultAt }),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+
+      const sourceBeforeReplay = await setup.store.status(sourceRunId);
+      assert.equal(sourceBeforeReplay.derivedExecutionDisposition, "indeterminate");
+
+      const { createdAt: _createdAt, ...replayInput } = createInput;
+      const replay = await setup.store.create(replayInput);
+      assert.equal(replay.status, "idempotent_replay");
+      assert.equal(replay.manifest.created_at, createInput.createdAt);
+      assert.equal(replay.technicalRestartProvenance?.declaredAt, createInput.createdAt);
+
+      const sourceAfterReplay = await setup.store.status(sourceRunId);
+      assert.equal(sourceAfterReplay.derivedExecutionDisposition, "superseded_by_new_attempt");
+      assert.deepEqual(sourceAfterReplay.technicalRestartReplacementRunIds, [replacementRunId]);
+    });
+  }
+});
+
+test("technical restart current-only gates block compile and formal-stage on a real superseded source", async (contextTest) => {
+  const sourceRunId = "runtime-failure-technical-restart-real-gated-source";
+  const replacementRunId = "runtime-failure-technical-restart-real-gated-new-attempt";
+  const {
+    setup,
+    sourceManifestHash,
+    sourceTerminalReportSourceRef,
+    sourceTerminalReportSourceHash,
+  } = await terminalRuntimeFailureSource(contextTest, sourceRunId, true);
+  const validator = await createArtifactValidator(repositoryRoot);
+  const compiler = new DeclarativeRuntimeCompiler(setup.runsRoot, validator, repositoryRoot);
+  const materializer = new FormalStageMaterializer(setup.runsRoot, validator, repositoryRoot);
+  const planQuestion = (setup.plan.research_questions as Record<string, unknown>[])[0];
+  assert.ok(planQuestion);
+  const policyRef = "harness/policies/adaptation.current.json";
+  const fragmentRef = `${PLAN_REF}#${String(planQuestion.question_id)}`;
+  const compileArtifact = {
+    ...runtimeArtifact(
+      "plans/research-execution.r1.json",
+      executionPlan(sourceRunId, setup.plan),
+      "main_agent",
+    ),
+    input_refs: [policyRef, fragmentRef],
+  };
+  const compileRequest = compilationRequest(
+    sourceRunId,
+    "validate_only",
+    [compileArtifact],
+    "request_superseded_real_compile",
+  );
+  const beforeValidation = await snapshotRunTree(setup.runRoot);
+  const validatedCompile = await compiler.compile(compileRequest).catch((error: unknown) => {
+    if (error instanceof StoreError) {
+      assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+    }
+    throw error;
+  });
+  const task = fixtureEffective(setup.discoveryBundle as DocumentBundle, G22_EVALUATION_TASK);
+  const waveRequest = formalStageWaveRequest(sourceRunId, task);
+  const validatedWave = await materializer.materialize(waveRequest).catch((error: unknown) => {
+    if (error instanceof StoreError) {
+      assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+    }
+    throw error;
+  });
+  assert.deepEqual(await snapshotRunTree(setup.runRoot), beforeValidation);
+
+  const createInput = {
+    runId: replacementRunId,
+    mode: "opportunity_discovery" as const,
+    createdAt: "2026-07-25T00:07:00Z",
+    scopeProposal: sameSyntheticScopeProposal(),
+    technicalRestart: technicalRestartDeclaration(
+      sourceRunId,
+      sourceManifestHash,
+      sourceTerminalReportSourceRef,
+      sourceTerminalReportSourceHash,
+    ),
+  };
+  await setup.store.create(createInput);
+  const sourceAfterRestart = await setup.store.status(sourceRunId);
+  assert.equal(sourceAfterRestart.derivedExecutionDisposition, "superseded_by_new_attempt");
+  assert.deepEqual(sourceAfterRestart.technicalRestartReplacementRunIds, [replacementRunId]);
+
+  const beforeBlockedWrites = await snapshotRunTree(setup.runRoot);
+  await assert.rejects(
+    compiler.compile(compileRequest),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+  );
+  assert.deepEqual(await snapshotRunTree(setup.runRoot), beforeBlockedWrites);
+  await assert.rejects(
+    compiler.compile({
+      schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+      request_id: "request_superseded_real_compile_publish",
+      run_id: sourceRunId,
+      operation: "publish",
+      created_at: "2026-07-28T12:08:00Z",
+      artifacts: [],
+      publication_plan: validatedCompile.publication_plan,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+  );
+  assert.deepEqual(await snapshotRunTree(setup.runRoot), beforeBlockedWrites);
+  await assert.rejects(
+    materializer.materialize(waveRequest),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+  );
+  assert.deepEqual(await snapshotRunTree(setup.runRoot), beforeBlockedWrites);
+  await assert.rejects(
+    materializer.materialize({
+      ...waveRequest,
+      operation: "publish",
+      publication_plan: validatedWave.compilation.publication_plan,
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+  );
+  assert.deepEqual(await snapshotRunTree(setup.runRoot), beforeBlockedWrites);
+});
+
+test("technical restart rejects non-terminal, cross-root, and forged source authority", async (contextTest) => {
+  await contextTest.test("non-terminal source", async (subcontext) => {
+    const sourceRunId = "technical-restart-non-terminal-source";
+    const setup = await setupPersistedRun(subcontext, sourceRunId, "runtime-failure-maps");
+    const sourceManifestHash = canonicalContentHash(
+      (await setup.store.status(sourceRunId)).manifest,
+    );
+    await assert.rejects(
+      setup.store.create({
+        runId: "technical-restart-from-non-terminal",
+        mode: "opportunity_discovery",
+        createdAt: "2026-07-25T00:10:00Z",
+        scopeProposal: sameSyntheticScopeProposal(),
+        technicalRestart: {
+          sourceRunId,
+          sourceManifestHash,
+          sourceTerminalReportSourceRef: "artifacts/reporting/terminal-report-source.r1.json",
+          sourceTerminalReportSourceHash: sha256Bytes("missing terminal source"),
+          userAuthorizationAttestation:
+            "The fixture caller attempts a restart before terminal closeout.",
+        },
+      }),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "technical_restart.source_not_runtime_failed",
+    );
+  });
+
+  await contextTest.test("missing source id in same root", async (subcontext) => {
+    const sourceRunId = "technical-restart-missing-source-authority";
+    const {
+      setup,
+      sourceManifestHash,
+      sourceTerminalReportSourceRef,
+      sourceTerminalReportSourceHash,
+    } = await terminalRuntimeFailureSource(
+      subcontext,
+      "technical-restart-existing-source-for-missing-id",
+    );
+    await assert.rejects(
+      setup.store.create({
+        runId: "technical-restart-forged-source-id",
+        mode: "opportunity_discovery",
+        createdAt: "2026-07-25T00:11:00Z",
+        scopeProposal: sameSyntheticScopeProposal(),
+        technicalRestart: technicalRestartDeclaration(
+          sourceRunId,
+          sourceManifestHash,
+          sourceTerminalReportSourceRef,
+          sourceTerminalReportSourceHash,
+        ),
+      }),
+      (error: unknown) => error instanceof StoreError && error.code === "run.not_found",
+    );
+  });
+
+  await contextTest.test("cross-root source", async (subcontext) => {
+    const sourceRunId = "technical-restart-cross-root-source";
+    const {
+      setup,
+      sourceManifestHash,
+      sourceTerminalReportSourceRef,
+      sourceTerminalReportSourceHash,
+    } = await terminalRuntimeFailureSource(subcontext, sourceRunId);
+    const otherRoot = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g04-cross-root-"));
+    subcontext.after(() => rm(otherRoot, { recursive: true, force: true }));
+    const otherStore = new RunStore(
+      path.join(otherRoot, "runs"),
+      await createArtifactValidator(repositoryRoot),
+    );
+    await assert.rejects(
+      otherStore.create({
+        runId: "technical-restart-cross-root-replacement",
+        mode: "opportunity_discovery",
+        createdAt: "2026-07-25T00:12:00Z",
+        scopeProposal: sameSyntheticScopeProposal(),
+        technicalRestart: technicalRestartDeclaration(
+          sourceRunId,
+          sourceManifestHash,
+          sourceTerminalReportSourceRef,
+          sourceTerminalReportSourceHash,
+        ),
+      }),
+      (error: unknown) => error instanceof StoreError && error.code === "run.not_found",
+    );
+    assert.equal((await setup.store.status(sourceRunId)).derivedExecutionDisposition, "terminal");
+  });
+
+  await contextTest.test("source manifest hash mismatch", async (subcontext) => {
+    const sourceRunId = "technical-restart-forged-manifest-source";
+    const {
+      setup,
+      sourceManifestHash,
+      sourceTerminalReportSourceRef,
+      sourceTerminalReportSourceHash,
+    } = await terminalRuntimeFailureSource(subcontext, sourceRunId);
+    await assert.rejects(
+      setup.store.create({
+        runId: "technical-restart-forged-manifest-replacement",
+        mode: "opportunity_discovery",
+        createdAt: "2026-07-25T00:13:00Z",
+        scopeProposal: sameSyntheticScopeProposal(),
+        technicalRestart: technicalRestartDeclaration(
+          sourceRunId,
+          sourceManifestHash,
+          sourceTerminalReportSourceRef,
+          sourceTerminalReportSourceHash,
+          {
+            sourceManifestHash: sha256Bytes("forged manifest hash"),
+          },
+        ),
+      }),
+      (error: unknown) =>
+        error instanceof StoreError &&
+        error.code === "technical_restart.source_manifest_hash_mismatch",
+    );
+  });
+
+  await contextTest.test("terminal report source ref and hash mismatch", async (subcontext) => {
+    const sourceRunId = "technical-restart-forged-terminal-source";
+    const {
+      setup,
+      sourceManifestHash,
+      sourceTerminalReportSourceRef,
+      sourceTerminalReportSourceHash,
+    } = await terminalRuntimeFailureSource(subcontext, sourceRunId);
+    await assert.rejects(
+      setup.store.create({
+        runId: "technical-restart-forged-terminal-ref",
+        mode: "opportunity_discovery",
+        createdAt: "2026-07-25T00:14:00Z",
+        scopeProposal: sameSyntheticScopeProposal(),
+        technicalRestart: technicalRestartDeclaration(
+          sourceRunId,
+          sourceManifestHash,
+          sourceTerminalReportSourceRef,
+          sourceTerminalReportSourceHash,
+          {
+            sourceTerminalReportSourceRef: `${sourceTerminalReportSourceRef}#fragment`,
+          },
+        ),
+      }),
+      (error: unknown) =>
+        error instanceof StoreError &&
+        error.code === "technical_restart.terminal_report_ref_invalid",
+    );
+    await assert.rejects(
+      setup.store.create({
+        runId: "technical-restart-forged-terminal-hash",
+        mode: "opportunity_discovery",
+        createdAt: "2026-07-25T00:15:00Z",
+        scopeProposal: sameSyntheticScopeProposal(),
+        technicalRestart: technicalRestartDeclaration(
+          sourceRunId,
+          sourceManifestHash,
+          sourceTerminalReportSourceRef,
+          sourceTerminalReportSourceHash,
+          {
+            sourceTerminalReportSourceHash: sha256Bytes("forged terminal source hash"),
+          },
+        ),
+      }),
+      (error: unknown) =>
+        error instanceof StoreError &&
+        error.code === "technical_restart.terminal_report_source_hash_mismatch",
+    );
+  });
+});
+
+test("technical restart keeps ordinary same-scope Runs independent", async (contextTest) => {
+  const sourceRunId = "technical-restart-silent-same-scope-source";
+  const newRunId = "technical-restart-silent-same-scope-new-run";
+  const { setup } = await terminalRuntimeFailureSource(contextTest, sourceRunId, true);
+  const created = await setup.store.create({
+    runId: newRunId,
+    mode: "opportunity_discovery",
+    createdAt: "2026-07-25T00:20:00Z",
+    scopeProposal: sameSyntheticScopeProposal(),
+  });
+  assert.equal(created.technicalRestartProvenance, null);
+  const sourceStatus = await setup.store.status(sourceRunId);
+  assert.equal(sourceStatus.derivedExecutionDisposition, "terminal");
+  assert.deepEqual(sourceStatus.technicalRestartReplacementRunIds, []);
+  const newRunStatus = await setup.store.status(newRunId);
+  assert.equal(newRunStatus.derivedExecutionDisposition, "current");
+  assert.equal(newRunStatus.technicalRestartProvenance, null);
+  assert.deepEqual(newRunStatus.continuationRunIds, []);
+});
+
+test("technical restart lookups tolerate an absent technical-restarts tree on a fresh store", async (contextTest) => {
+  const runId = "technical-restart-absent-index-tree";
+  const { setup } = await terminalRuntimeFailureSource(contextTest, runId);
+  await rm(path.join(setup.runsRoot, ".technical-restarts"), { recursive: true, force: true });
+  const status = await setup.store.status(runId);
+  assert.equal(status.derivedExecutionDisposition, "terminal");
+  assert.deepEqual(status.technicalRestartReplacementRunIds, []);
+  const reopenedStore = new RunStore(setup.runsRoot, await createArtifactValidator(repositoryRoot));
+  const reopened = await reopenedStore.load(runId);
+  assert.equal(reopened.manifest.run_id, runId);
+});
+
+test("technical restart rejects continuation parents and duplicate replacement attempts", async (contextTest) => {
+  await contextTest.test("parent_run_id is forbidden", async (subcontext) => {
+    const sourceRunId = "technical-restart-parent-forbidden-source";
+    const {
+      setup,
+      sourceManifestHash,
+      sourceTerminalReportSourceRef,
+      sourceTerminalReportSourceHash,
+    } = await terminalRuntimeFailureSource(subcontext, sourceRunId);
+    await assert.rejects(
+      setup.store.create({
+        runId: "technical-restart-parent-forbidden-replacement",
+        mode: "opportunity_discovery",
+        createdAt: "2026-07-25T00:30:00Z",
+        parentRunId: sourceRunId,
+        scopeProposal: sameSyntheticScopeProposal(),
+        technicalRestart: technicalRestartDeclaration(
+          sourceRunId,
+          sourceManifestHash,
+          sourceTerminalReportSourceRef,
+          sourceTerminalReportSourceHash,
+        ),
+      }),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "technical_restart.parent_forbidden",
+    );
+  });
+
+  await contextTest.test(
+    "source can have only one authoritative replacement",
+    async (subcontext) => {
+      const sourceRunId = "technical-restart-duplicate-source";
+      const {
+        setup,
+        sourceManifestHash,
+        sourceTerminalReportSourceRef,
+        sourceTerminalReportSourceHash,
+      } = await terminalRuntimeFailureSource(subcontext, sourceRunId);
+      await setup.store.create({
+        runId: "technical-restart-first-replacement",
+        mode: "opportunity_discovery",
+        createdAt: "2026-07-25T00:31:00Z",
+        scopeProposal: sameSyntheticScopeProposal(),
+        technicalRestart: technicalRestartDeclaration(
+          sourceRunId,
+          sourceManifestHash,
+          sourceTerminalReportSourceRef,
+          sourceTerminalReportSourceHash,
+        ),
+      });
+      await assert.rejects(
+        setup.store.create({
+          runId: "technical-restart-second-replacement",
+          mode: "opportunity_discovery",
+          createdAt: "2026-07-25T00:32:00Z",
+          scopeProposal: sameSyntheticScopeProposal(),
+          technicalRestart: technicalRestartDeclaration(
+            sourceRunId,
+            sourceManifestHash,
+            sourceTerminalReportSourceRef,
+            sourceTerminalReportSourceHash,
+          ),
+        }),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "technical_restart.source_already_replaced",
+      );
+    },
+  );
+});
+
+test("technical restart serializes concurrent replacement attempts on one source Run", async (contextTest) => {
+  const sourceRunId = "technical-restart-concurrent-source";
+  const {
+    setup,
+    sourceManifestHash,
+    sourceTerminalReportSourceRef,
+    sourceTerminalReportSourceHash,
+  } = await terminalRuntimeFailureSource(contextTest, sourceRunId);
+  const declaration = technicalRestartDeclaration(
+    sourceRunId,
+    sourceManifestHash,
+    sourceTerminalReportSourceRef,
+    sourceTerminalReportSourceHash,
+  );
+  const firstRunId = "technical-restart-concurrent-first";
+  const secondRunId = "technical-restart-concurrent-second";
+  const results = await Promise.allSettled([
+    setup.store.create({
+      runId: firstRunId,
+      mode: "opportunity_discovery",
+      createdAt: "2026-07-25T00:33:00Z",
+      scopeProposal: sameSyntheticScopeProposal(),
+      technicalRestart: declaration,
+    }),
+    setup.store.create({
+      runId: secondRunId,
+      mode: "opportunity_discovery",
+      createdAt: "2026-07-25T00:33:30Z",
+      scopeProposal: sameSyntheticScopeProposal(),
+      technicalRestart: declaration,
+    }),
+  ]);
+  const fulfilled = results.find((result) => result.status === "fulfilled");
+  const rejected = results.find((result) => result.status === "rejected");
+  assert.ok(fulfilled && fulfilled.status === "fulfilled", JSON.stringify(results, null, 2));
+  assert.ok(rejected && rejected.status === "rejected", JSON.stringify(results, null, 2));
+  const winnerRunId = (fulfilled.value as { runId: string }).runId;
+  const loserRunId = winnerRunId === firstRunId ? secondRunId : firstRunId;
+  const loserReason = rejected.reason as unknown;
+  assert.ok(
+    loserReason instanceof StoreError &&
+      [
+        "technical_restart.source_already_replaced",
+        "technical_restart.declaration_conflict",
+      ].includes(loserReason.code),
+    JSON.stringify(loserReason, null, 2),
+  );
+  assert.equal(
+    (await setup.store.status(sourceRunId)).derivedExecutionDisposition,
+    "superseded_by_new_attempt",
+  );
+  assert.deepEqual((await setup.store.status(sourceRunId)).technicalRestartReplacementRunIds, [
+    winnerRunId,
+  ]);
+  assert.equal((await setup.store.status(winnerRunId)).derivedExecutionDisposition, "current");
+  await assert.rejects(
+    setup.store.status(loserRunId),
+    (error: unknown) => error instanceof StoreError && error.code === "run.not_found",
+  );
+});
+
+test("technical restart fails closed when either side of the closure is deleted or tampered", async (contextTest) => {
+  for (const scenario of [
+    {
+      name: "source receipt deleted",
+      mutate: async (sourceReceiptPath: string, _projectionPath: string) => {
+        await rm(sourceReceiptPath, { force: true });
+      },
+      expectedIssue: "technical_restart.source_receipt_missing",
+    },
+    {
+      name: "source receipt directory deleted",
+      mutate: async (sourceReceiptPath: string, _projectionPath: string) => {
+        await rm(path.dirname(sourceReceiptPath), { recursive: true, force: true });
+      },
+      expectedIssue: "technical_restart.source_receipt_missing",
+    },
+    {
+      name: "sources tree deleted",
+      mutate: async (sourceReceiptPath: string, _projectionPath: string) => {
+        await rm(path.dirname(path.dirname(sourceReceiptPath)), {
+          recursive: true,
+          force: true,
+        });
+      },
+      expectedIssue: "technical_restart.source_receipt_missing",
+    },
+    {
+      name: "replacement projection deleted",
+      mutate: async (_sourceReceiptPath: string, projectionPath: string) => {
+        await rm(projectionPath, { force: true });
+      },
+      expectedIssue: "technical_restart.replacement_projection_missing",
+    },
+    {
+      name: "replacement projection tampered",
+      mutate: async (_sourceReceiptPath: string, projectionPath: string) => {
+        const entry = JSON.parse(await readFile(projectionPath, "utf8")) as Record<string, unknown>;
+        entry.source_manifest_hash = sha256Bytes("tampered technical restart projection");
+        await writeFile(projectionPath, `${canonicalJson(entry)}\n`);
+      },
+      expectedIssue: "technical_restart.replacement_projection_mismatch",
+    },
+  ] as const) {
+    await contextTest.test(scenario.name, async (subcontext) => {
+      const sourceRunId = `technical-restart-${scenario.name.replaceAll(" ", "-")}-source`;
+      const replacementRunId = `technical-restart-${scenario.name.replaceAll(" ", "-")}-new-attempt`;
+      const {
+        setup,
+        sourceManifestHash,
+        sourceTerminalReportSourceRef,
+        sourceTerminalReportSourceHash,
+      } = await terminalRuntimeFailureSource(subcontext, sourceRunId, true);
+      await setup.store.create({
+        runId: replacementRunId,
+        mode: "opportunity_discovery",
+        createdAt: "2026-07-25T00:36:00Z",
+        scopeProposal: sameSyntheticScopeProposal(),
+        technicalRestart: technicalRestartDeclaration(
+          sourceRunId,
+          sourceManifestHash,
+          sourceTerminalReportSourceRef,
+          sourceTerminalReportSourceHash,
+        ),
+      });
+      const sourceReceiptPath = path.join(
+        setup.runsRoot,
+        ".technical-restarts",
+        "sources",
+        sourceRunId,
+        `${replacementRunId}.json`,
+      );
+      const projectionPath = path.join(
+        setup.runsRoot,
+        ".technical-restarts",
+        "replacements",
+        `${replacementRunId}.json`,
+      );
+      await scenario.mutate(sourceReceiptPath, projectionPath);
+      const status = await setup.store.status(sourceRunId);
+      assert.equal(status.derivedExecutionDisposition, "indeterminate");
+      assert.deepEqual(status.technicalRestartReplacementRunIds, [replacementRunId]);
+      assert.ok(
+        status.executionResolutionIssues.some((issue) => issue.startsWith(scenario.expectedIssue)),
+        JSON.stringify(status.executionResolutionIssues, null, 2),
+      );
+      await assert.rejects(
+        setup.store.load(sourceRunId),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "run.continuation_indeterminate",
+      );
+    });
+  }
+});
+
+test("technical restart rejects symlinked source and replacement parent directories", async (contextTest) => {
+  for (const scenario of [
+    {
+      name: "source directory symlink",
+      mutate: async (runsRoot: string, outside: string) => {
+        await rm(path.join(runsRoot, ".technical-restarts", "sources"), {
+          recursive: true,
+          force: true,
+        });
+        await symlink(outside, path.join(runsRoot, ".technical-restarts", "sources"));
+      },
+      expectReject: true,
+    },
+    {
+      name: "replacement directory symlink",
+      mutate: async (runsRoot: string, outside: string) => {
+        await rm(path.join(runsRoot, ".technical-restarts", "replacements"), {
+          recursive: true,
+          force: true,
+        });
+        await symlink(outside, path.join(runsRoot, ".technical-restarts", "replacements"));
+      },
+      expectReject: true,
+    },
+  ] as const) {
+    await contextTest.test(scenario.name, async (subcontext) => {
+      const sourceRunId = `technical-restart-${scenario.name.replaceAll(" ", "-")}-source`;
+      const replacementRunId = `technical-restart-${scenario.name.replaceAll(" ", "-")}-new-attempt`;
+      const {
+        setup,
+        sourceManifestHash,
+        sourceTerminalReportSourceRef,
+        sourceTerminalReportSourceHash,
+      } = await terminalRuntimeFailureSource(subcontext, sourceRunId, true);
+      await setup.store.create({
+        runId: replacementRunId,
+        mode: "opportunity_discovery",
+        createdAt: "2026-07-25T00:37:00Z",
+        scopeProposal: sameSyntheticScopeProposal(),
+        technicalRestart: technicalRestartDeclaration(
+          sourceRunId,
+          sourceManifestHash,
+          sourceTerminalReportSourceRef,
+          sourceTerminalReportSourceHash,
+        ),
+      });
+      const outside = await mkdtemp(
+        path.join(tmpdir(), "startup-opportunity-tech-restart-symlink-"),
+      );
+      subcontext.after(() => rm(outside, { recursive: true, force: true }));
+      await scenario.mutate(setup.runsRoot, outside);
+      if (scenario.expectReject) {
+        await assert.rejects(
+          setup.store.status(sourceRunId),
+          (error: unknown) => error instanceof StoreError && error.code === "path.symlink_escape",
+        );
+      } else {
+        const status = await setup.store.status(sourceRunId);
+        assert.equal(status.derivedExecutionDisposition, "indeterminate");
+        assert.ok(
+          status.executionResolutionIssues.some(
+            (issue) =>
+              issue.startsWith("technical_restart.index_unreadable") ||
+              issue.startsWith("technical_restart.replacement_projection_unreadable"),
+          ),
+          JSON.stringify(status.executionResolutionIssues, null, 2),
+        );
+      }
+    });
+  }
+});
+
+test("technical restart status fails closed on corrupt or pending restart indexes", async (contextTest) => {
+  for (const scenario of [
+    {
+      name: "corrupt",
+      expectedIssue: "technical_restart.index_entry_invalid",
+      mutate: async (indexPath: string) => {
+        await writeFile(indexPath, `${canonicalJson({ not_schema_valid: true })}\n`);
+      },
+    },
+    {
+      name: "pending",
+      expectedIssue: "technical_restart.index_pending",
+      mutate: async (indexPath: string) => {
+        const entry = JSON.parse(await readFile(indexPath, "utf8")) as Record<string, unknown>;
+        entry.state = "pending";
+        await writeFile(indexPath, `${canonicalJson(entry)}\n`);
+      },
+    },
+  ] as const) {
+    await contextTest.test(scenario.name, async (subcontext) => {
+      const sourceRunId = `technical-restart-${scenario.name}-index-source`;
+      const replacementRunId = `technical-restart-${scenario.name}-index-replacement`;
+      const {
+        setup,
+        sourceManifestHash,
+        sourceTerminalReportSourceRef,
+        sourceTerminalReportSourceHash,
+      } = await terminalRuntimeFailureSource(subcontext, sourceRunId);
+      await setup.store.create({
+        runId: replacementRunId,
+        mode: "opportunity_discovery",
+        createdAt: "2026-07-25T00:40:00Z",
+        scopeProposal: sameSyntheticScopeProposal(),
+        technicalRestart: technicalRestartDeclaration(
+          sourceRunId,
+          sourceManifestHash,
+          sourceTerminalReportSourceRef,
+          sourceTerminalReportSourceHash,
+        ),
+      });
+      await scenario.mutate(
+        path.join(
+          setup.runsRoot,
+          ".technical-restarts",
+          "sources",
+          sourceRunId,
+          `${replacementRunId}.json`,
+        ),
+      );
+      const status = await setup.store.status(sourceRunId);
+      assert.equal(status.derivedExecutionDisposition, "indeterminate");
+      assert.equal(status.currentLeafRunId, null);
+      assert.deepEqual(status.technicalRestartReplacementRunIds, [replacementRunId]);
+      assert.ok(
+        status.executionResolutionIssues.some((issue) => issue.startsWith(scenario.expectedIssue)),
+        JSON.stringify(status.executionResolutionIssues, null, 2),
+      );
+    });
   }
 });
 

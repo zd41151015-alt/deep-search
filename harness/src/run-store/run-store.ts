@@ -166,8 +166,21 @@ export interface CreateRunInput {
   readonly mode: RunMode;
   readonly createdAt?: string;
   readonly parentRunId?: string | null;
+  readonly technicalRestart?: TechnicalRestartDeclarationInput | undefined;
   readonly scopeProposal: ResearchScope;
-  readonly faultAt?: "before_publish";
+  readonly faultAt?:
+    | "before_publish"
+    | "technical_restart_after_run_publish"
+    | "technical_restart_after_source_commit"
+    | "technical_restart_after_replacement_commit";
+}
+
+export interface TechnicalRestartDeclarationInput {
+  readonly sourceRunId: string;
+  readonly sourceManifestHash: string;
+  readonly sourceTerminalReportSourceRef: string;
+  readonly sourceTerminalReportSourceHash: string;
+  readonly userAuthorizationAttestation: string;
 }
 
 export interface ProposeScopeInput {
@@ -375,6 +388,7 @@ export interface CreateRunResult {
   readonly scopeProposalRef: string;
   readonly scopeProposalHash: string;
   readonly scopeProposal: ResearchScope;
+  readonly technicalRestartProvenance: TechnicalRestartProvenance | null;
 }
 
 export interface BeliefSummary {
@@ -438,10 +452,17 @@ export interface StatusRunResult {
   readonly runId: string;
   readonly manifest: RunManifest;
   readonly continuationRunIds: readonly string[];
-  readonly derivedExecutionDisposition: "current" | "continued" | "terminal" | "indeterminate";
+  readonly derivedExecutionDisposition:
+    | "current"
+    | "continued"
+    | "terminal"
+    | "superseded_by_new_attempt"
+    | "indeterminate";
   readonly currentLeafRunId: string | null;
   readonly continuationChain: readonly string[];
   readonly executionResolutionIssues: readonly string[];
+  readonly technicalRestartReplacementRunIds: readonly string[];
+  readonly technicalRestartProvenance: TechnicalRestartProvenance | null;
   readonly terminalReportDisposition: "not_required" | "missing" | "invalid" | "ready";
   readonly terminalReportIssues: readonly string[];
   readonly workingDirectory: string;
@@ -520,11 +541,34 @@ export interface RuntimeOperationObservationInput {
 export interface RunExecutionResolution {
   readonly schemaVersion: "startup_opportunity.run_execution_resolution.v1";
   readonly requestedRunId: string;
-  readonly disposition: "current" | "continued" | "terminal" | "indeterminate";
+  readonly disposition:
+    | "current"
+    | "continued"
+    | "terminal"
+    | "superseded_by_new_attempt"
+    | "indeterminate";
   readonly currentLeafRunId: string | null;
   readonly continuationChain: readonly string[];
   readonly directContinuationRunIds: readonly string[];
+  readonly directTechnicalRestartRunIds: readonly string[];
+  readonly technicalRestartProvenance: TechnicalRestartProvenance | null;
   readonly issues: readonly string[];
+}
+
+export interface TechnicalRestartProvenance {
+  readonly schemaVersion: "startup_opportunity.technical_restart_provenance.v1";
+  readonly sourceRunId: string;
+  readonly replacementRunId: string;
+  readonly sourceManifestRef: "manifest.json";
+  readonly sourceManifestHash: string;
+  readonly sourceTerminalReportSourceRef: string;
+  readonly sourceTerminalReportSourceHash: string;
+  readonly terminalAuthority: "record_runtime_failure";
+  readonly restartBoundary: "technical_fix_new_attempt";
+  readonly relationshipBasis: "caller_declared_exact_terminal_runtime_failure";
+  readonly inheritedRunState: "none";
+  readonly userAuthorizationAttestation: string;
+  readonly declaredAt: string;
 }
 
 export interface BuildValidationContextResult {
@@ -590,6 +634,24 @@ interface ContinuationLineageEntry extends Record<string, unknown> {
   readonly created_at: string;
 }
 
+interface TechnicalRestartLineageEntry extends Record<string, unknown> {
+  readonly schema_version: "startup_opportunity.technical_restart_lineage_entry.v1";
+  readonly source_run_id: string;
+  readonly replacement_run_id: string;
+  readonly replacement_identity_hash: string;
+  readonly source_manifest_ref: "manifest.json";
+  readonly source_manifest_hash: string;
+  readonly source_terminal_report_source_ref: string;
+  readonly source_terminal_report_source_hash: string;
+  readonly terminal_authority: "record_runtime_failure";
+  readonly restart_boundary: "technical_fix_new_attempt";
+  readonly relationship_basis: "caller_declared_exact_terminal_runtime_failure";
+  readonly inherited_run_state: "none";
+  readonly user_authorization_attestation: string;
+  readonly state: "pending" | "committed";
+  readonly created_at: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -610,6 +672,37 @@ function outputPathForTaskProjection(task: Record<string, unknown>): string | nu
     : typeof task.submission_path === "string"
       ? task.submission_path
       : null;
+}
+
+function technicalRestartReplacementIdentity(manifest: RunManifest): Record<string, unknown> {
+  return {
+    run_id: manifest.run_id,
+    mode: manifest.mode,
+    parent_run_id: manifest.parent_run_id,
+    created_at: manifest.created_at,
+    scope_proposal_ref: manifest.scope_proposal_ref,
+    scope_proposal_hash: manifest.scope_proposal_hash,
+  };
+}
+
+function technicalRestartProvenance(
+  entry: TechnicalRestartLineageEntry,
+): TechnicalRestartProvenance {
+  return {
+    schemaVersion: "startup_opportunity.technical_restart_provenance.v1",
+    sourceRunId: entry.source_run_id,
+    replacementRunId: entry.replacement_run_id,
+    sourceManifestRef: entry.source_manifest_ref,
+    sourceManifestHash: entry.source_manifest_hash,
+    sourceTerminalReportSourceRef: entry.source_terminal_report_source_ref,
+    sourceTerminalReportSourceHash: entry.source_terminal_report_source_hash,
+    terminalAuthority: entry.terminal_authority,
+    restartBoundary: entry.restart_boundary,
+    relationshipBasis: entry.relationship_basis,
+    inheritedRunState: entry.inherited_run_state,
+    userAuthorizationAttestation: entry.user_authorization_attestation,
+    declaredAt: entry.created_at,
+  };
 }
 
 function outputSchemaForTaskProjection(task: Record<string, unknown>): string | null {
@@ -1415,6 +1508,11 @@ export class RunStore {
         { scopeRevision: manifest.scope_revision },
       );
     }
+    await this.assertCurrentLeafWritable(runId);
+  }
+
+  async assertCurrentLeafWritable(runId: string): Promise<void> {
+    await this.assertCurrentLeaf(runId);
   }
 
   async proposeScope(input: ProposeScopeInput): Promise<ProposeScopeResult> {
@@ -1654,8 +1752,363 @@ export class RunStore {
     );
   }
 
+  private technicalRestartIndexPaths(
+    entry: TechnicalRestartLineageEntry,
+    options: { readonly includeReplacementProjection?: boolean } = {},
+  ): readonly string[] {
+    const paths = [
+      `.technical-restarts/sources/${entry.source_run_id}/${entry.replacement_run_id}.json`,
+    ];
+    if (options.includeReplacementProjection === true && entry.state === "committed") {
+      paths.push(`.technical-restarts/replacements/${entry.replacement_run_id}.json`);
+    }
+    return paths;
+  }
+
+  private async technicalRestartDirectory(relativePath: string): Promise<string | null> {
+    try {
+      const directory = await resolveRunPath(this.runsRoot, relativePath);
+      const stat = await lstat(directory);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        throw new StoreError("path.symlink_escape", "path traverses a symlink or non-directory", {
+          path: relativePath,
+        });
+      }
+      return directory;
+    } catch (error) {
+      if (
+        (error instanceof StoreError && error.code === "path.parent_missing") ||
+        isNodeError(error, "ENOENT")
+      ) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private async writeTechnicalRestartIndexEntry(
+    validatedRunsRoot: string,
+    entry: TechnicalRestartLineageEntry,
+    options: { readonly includeReplacementProjection?: boolean } = {},
+  ): Promise<void> {
+    const validation = this.validator.validateDocument(entry);
+    if (!validation.valid) {
+      throw new StoreError(
+        "technical_restart.index_invalid",
+        "technical restart lineage entry is not schema-valid",
+        { errors: validation.errors },
+      );
+    }
+    const contents = `${canonicalJson(entry)}\n`;
+    try {
+      const sourceDirectory = await this.technicalRestartDirectory(
+        `.technical-restarts/sources/${entry.source_run_id}`,
+      );
+      if (sourceDirectory !== null) {
+        const sourceEntries = await readdir(sourceDirectory, { withFileTypes: true });
+        for (const candidate of sourceEntries) {
+          if (!candidate.name.endsWith(".json")) {
+            if (candidate.isFile() || candidate.isDirectory() || candidate.isSymbolicLink()) {
+              throw new StoreError(
+                "technical_restart.source_already_replaced",
+                "technical restart source already has an authoritative replacement or unresolved replacement index",
+                {
+                  sourceRunId: entry.source_run_id,
+                  replacementRunIds: [entry.replacement_run_id],
+                },
+              );
+            }
+            continue;
+          }
+          const candidateRunId = candidate.name.slice(0, -5);
+          try {
+            validateRunId(candidateRunId);
+          } catch {
+            throw new StoreError(
+              "technical_restart.source_already_replaced",
+              "technical restart source already has an authoritative replacement or unresolved replacement index",
+              {
+                sourceRunId: entry.source_run_id,
+                replacementRunIds: [entry.replacement_run_id],
+              },
+            );
+          }
+          if (candidateRunId !== entry.replacement_run_id) {
+            throw new StoreError(
+              "technical_restart.source_already_replaced",
+              "technical restart source already has an authoritative replacement or unresolved replacement index",
+              {
+                sourceRunId: entry.source_run_id,
+                replacementRunIds: [candidateRunId, entry.replacement_run_id].sort(),
+              },
+            );
+          }
+        }
+      }
+    } catch (error) {
+      if (!(error instanceof StoreError) && !isNodeError(error, "ENOENT")) {
+        throw error;
+      }
+      if (error instanceof StoreError) {
+        throw error;
+      }
+    }
+    for (const relativePath of this.technicalRestartIndexPaths(entry, options)) {
+      try {
+        const existingPath = await resolveRunPath(validatedRunsRoot, relativePath);
+        const existing = JSON.parse(await readFile(existingPath, "utf8")) as unknown;
+        const existingState = isRecord(existing) ? existing.state : null;
+        const compatibleIdentity =
+          isRecord(existing) &&
+          canonicalJson({ ...existing, state: entry.state }) === canonicalJson(entry);
+        const compatibleState =
+          existingState === entry.state ||
+          (existingState === "pending" && entry.state === "committed");
+        if (!compatibleIdentity || !compatibleState) {
+          throw new StoreError(
+            "technical_restart.index_conflict",
+            "technical restart lineage path is already bound to different provenance",
+            { path: relativePath },
+          );
+        }
+      } catch (error) {
+        if (
+          !isNodeError(error, "ENOENT") &&
+          !(error instanceof StoreError && error.code === "path.parent_missing")
+        ) {
+          throw error;
+        }
+      }
+      await atomicReplace(
+        validatedRunsRoot,
+        relativePath,
+        contents,
+        `technical-restart-${sha256Hex(
+          operationKey("technical_restart_index", {
+            relative_path: relativePath,
+            entry,
+          }),
+        )}`,
+      );
+    }
+  }
+
+  private async sourceTerminalReportEnvelope(
+    sourceRoot: string,
+    sourceRunId: string,
+    sourceTerminalReportSourceRef: string,
+  ): Promise<FormalArtifactEnvelope> {
+    const parsed = validateArtifactRef(sourceTerminalReportSourceRef);
+    if (
+      parsed.fragment !== null ||
+      !/^artifacts\/reporting\/terminal-report-source\.r[1-9][0-9]*\.json$/.test(parsed.path)
+    ) {
+      throw new StoreError(
+        "technical_restart.terminal_report_ref_invalid",
+        "technical restart source must bind the whole terminal report source Artifact",
+        { sourceTerminalReportSourceRef },
+      );
+    }
+    const entry = (await this.artifacts.listFormalDocuments(sourceRoot)).find(
+      (candidate) => candidate.path === parsed.path,
+    );
+    if (
+      entry === undefined ||
+      !isRecord(entry.document) ||
+      entry.document.artifact_type !== "startup_opportunity.terminal_report_source.v1"
+    ) {
+      throw new StoreError(
+        "technical_restart.terminal_report_source_missing",
+        "technical restart source terminal report source is missing",
+        { sourceRunId, sourceTerminalReportSourceRef },
+      );
+    }
+    const envelope = entry.document as FormalArtifactEnvelope;
+    await this.artifacts.validateStoredEnvelope(sourceRoot, sourceRunId, envelope);
+    return envelope;
+  }
+
+  private async assertRuntimeFailureTerminalAuthority(
+    sourceRoot: string,
+    sourceManifest: RunManifest,
+    sourceTerminalReportSourceRef: string,
+    sourceTerminalReportSourceHash: string,
+  ): Promise<void> {
+    if (sourceManifest.status !== "failed") {
+      throw new StoreError(
+        "technical_restart.source_not_runtime_failed",
+        "technical restart source must already be terminal failed by record_runtime_failure",
+        { sourceRunId: sourceManifest.run_id, status: sourceManifest.status },
+      );
+    }
+    const reportStatus = await this.terminalReportStatus(
+      sourceManifest.run_id,
+      sourceRoot,
+      sourceManifest,
+    );
+    if (reportStatus.disposition !== "ready") {
+      throw new StoreError(
+        "technical_restart.terminal_report_not_ready",
+        "technical restart source must have a ready terminal report before replacement",
+        {
+          sourceRunId: sourceManifest.run_id,
+          terminalReportDisposition: reportStatus.disposition,
+          terminalReportIssues: reportStatus.issues,
+        },
+      );
+    }
+    const sourceEnvelope = await this.sourceTerminalReportEnvelope(
+      sourceRoot,
+      sourceManifest.run_id,
+      sourceTerminalReportSourceRef,
+    );
+    if (sourceEnvelope.content_hash !== sourceTerminalReportSourceHash) {
+      throw new StoreError(
+        "technical_restart.terminal_report_source_hash_mismatch",
+        "technical restart source terminal report source hash does not match",
+        {
+          sourceRunId: sourceManifest.run_id,
+          expected: sourceTerminalReportSourceHash,
+          actual: sourceEnvelope.content_hash,
+        },
+      );
+    }
+    const sourceDocument = sourceEnvelope.document;
+    const runtimeHealth = isRecord(sourceDocument.runtime_health)
+      ? sourceDocument.runtime_health
+      : {};
+    if (
+      !["failed", "blocked"].includes(String(sourceDocument.terminal_outcome)) ||
+      runtimeHealth.status !== "blocked"
+    ) {
+      throw new StoreError(
+        "technical_restart.terminal_report_source_not_runtime_blocked",
+        "technical restart source report must disclose a blocked runtime failure",
+        { sourceRunId: sourceManifest.run_id },
+      );
+    }
+    const formalByPath = new Map(
+      (await this.artifacts.listFormalDocuments(sourceRoot)).map((entry) => [entry.path, entry]),
+    );
+    const auditRefs = new Set(strings(sourceDocument.audit_refs));
+    let runtimeFailureDecisionRef: string | null = null;
+    for (const adaptationRef of sourceManifest.applied_adaptation_refs) {
+      const entry = formalByPath.get(adaptationRef);
+      const envelope = entry?.document as FormalArtifactEnvelope | undefined;
+      if (
+        envelope !== undefined &&
+        (envelope.artifact_type === "startup_opportunity.adaptation_decision.discovery.current" ||
+          envelope.artifact_type ===
+            "startup_opportunity.adaptation_decision.assessment.current") &&
+        isRecord(envelope.document) &&
+        envelope.document.action === "record_runtime_failure"
+      ) {
+        await this.artifacts.validateStoredEnvelope(sourceRoot, sourceManifest.run_id, envelope);
+        runtimeFailureDecisionRef = adaptationRef;
+        break;
+      }
+    }
+    if (runtimeFailureDecisionRef === null || !auditRefs.has(runtimeFailureDecisionRef)) {
+      throw new StoreError(
+        "technical_restart.runtime_failure_authority_missing",
+        "technical restart requires the exact applied record_runtime_failure decision in the terminal report audit refs",
+        { sourceRunId: sourceManifest.run_id },
+      );
+    }
+  }
+
+  private async technicalRestartEntryFromDeclaration(
+    input: CreateRunInput,
+    replacementManifest: RunManifest,
+    state: TechnicalRestartLineageEntry["state"],
+  ): Promise<TechnicalRestartLineageEntry | null> {
+    if (input.technicalRestart === undefined) {
+      return null;
+    }
+    const declaration = input.technicalRestart;
+    validateRunId(declaration.sourceRunId);
+    if (declaration.sourceRunId === input.runId) {
+      throw new StoreError(
+        "technical_restart.source_run_invalid",
+        "technical restart source Run must differ from the replacement Run",
+      );
+    }
+    if (input.parentRunId !== undefined && input.parentRunId !== null) {
+      throw new StoreError(
+        "technical_restart.parent_forbidden",
+        "technical restart is a new current-only Run and must not use parent_run_id continuation",
+      );
+    }
+    if (
+      !isSha256(declaration.sourceManifestHash) ||
+      !isSha256(declaration.sourceTerminalReportSourceHash) ||
+      declaration.userAuthorizationAttestation.trim().length === 0
+    ) {
+      throw new StoreError(
+        "technical_restart.declaration_invalid",
+        "technical restart requires exact source hashes and explicit user authorization",
+      );
+    }
+    const sourceRoot = await openRunDirectoryReadOnly(this.runsRoot, declaration.sourceRunId);
+    const sourceManifest = await this.readManifest(sourceRoot);
+    if (sourceManifest.mode !== input.mode) {
+      throw new StoreError(
+        "technical_restart.mode_mismatch",
+        "technical restart cannot silently change Run mode",
+        { sourceMode: sourceManifest.mode, replacementMode: input.mode },
+      );
+    }
+    const sourceManifestHash = canonicalContentHash(sourceManifest);
+    if (sourceManifestHash !== declaration.sourceManifestHash) {
+      throw new StoreError(
+        "technical_restart.source_manifest_hash_mismatch",
+        "technical restart source Manifest hash does not match",
+        {
+          sourceRunId: declaration.sourceRunId,
+          expected: declaration.sourceManifestHash,
+          actual: sourceManifestHash,
+        },
+      );
+    }
+    await this.assertRuntimeFailureTerminalAuthority(
+      sourceRoot,
+      sourceManifest,
+      declaration.sourceTerminalReportSourceRef,
+      declaration.sourceTerminalReportSourceHash,
+    );
+    return {
+      schema_version: "startup_opportunity.technical_restart_lineage_entry.v1",
+      source_run_id: declaration.sourceRunId,
+      replacement_run_id: input.runId,
+      replacement_identity_hash: canonicalContentHash(
+        technicalRestartReplacementIdentity(replacementManifest),
+      ),
+      source_manifest_ref: "manifest.json",
+      source_manifest_hash: declaration.sourceManifestHash,
+      source_terminal_report_source_ref: declaration.sourceTerminalReportSourceRef,
+      source_terminal_report_source_hash: declaration.sourceTerminalReportSourceHash,
+      terminal_authority: "record_runtime_failure",
+      restart_boundary: "technical_fix_new_attempt",
+      relationship_basis: "caller_declared_exact_terminal_runtime_failure",
+      inherited_run_state: "none",
+      user_authorization_attestation: declaration.userAuthorizationAttestation,
+      state,
+      created_at: replacementManifest.created_at,
+    };
+  }
+
   async create(input: CreateRunInput): Promise<CreateRunResult> {
     validateRunId(input.runId);
+    if (
+      input.technicalRestart !== undefined &&
+      input.parentRunId !== undefined &&
+      input.parentRunId !== null
+    ) {
+      throw new StoreError(
+        "technical_restart.parent_forbidden",
+        "technical restart is a new current-only Run and must not use parent_run_id continuation",
+      );
+    }
     if (input.parentRunId !== undefined && input.parentRunId !== null) {
       validateRunId(input.parentRunId);
       if (input.parentRunId === input.runId) {
@@ -1694,19 +2147,24 @@ export class RunStore {
         });
       }
     }
-    const createdAt = input.createdAt ?? new Date().toISOString();
-    const manifest = makeManifest(input, createdAt);
+    let createdAt = input.createdAt ?? new Date().toISOString();
+    let manifest = makeManifest(input, createdAt);
     this.validateManifest(manifest);
-    const proposalRecord = scopeProposalRecord(
+    let declaredTechnicalRestart = await this.technicalRestartEntryFromDeclaration(
+      input,
+      manifest,
+      "committed",
+    );
+    let proposalRecord = scopeProposalRecord(
       input.runId,
       1,
       input.scopeProposal,
       createdAt,
       "Caller proposed this Scope for user review; no user confirmation is asserted.",
     );
-    const proposalRef = `decisions.jsonl#${String(proposalRecord.decision_id)}`;
-    const proposalHash = canonicalContentHash(proposalRecord);
-    const scopeValidation = this.validator.validateDocument(proposalRecord, "decisions.jsonl");
+    let proposalRef = `decisions.jsonl#${String(proposalRecord.decision_id)}`;
+    let proposalHash = canonicalContentHash(proposalRecord);
+    let scopeValidation = this.validator.validateDocument(proposalRecord, "decisions.jsonl");
     if (!scopeValidation.valid) {
       throw new StoreError(
         "run.scope_proposal_invalid",
@@ -1714,7 +2172,7 @@ export class RunStore {
         { errors: scopeValidation.errors },
       );
     }
-    const event = {
+    let event = {
       schema_version: "startup_opportunity.event.v1",
       event_id: `run_created_${sha256Hex(operationKey("run_created", { run_id: input.runId }))}`,
       run_id: input.runId,
@@ -1724,7 +2182,7 @@ export class RunStore {
       reason: "The deterministic Run Store created the Run boundary.",
       artifact_refs: [],
     };
-    const eventValidation = this.validator.validateDocument(event, "events.jsonl");
+    let eventValidation = this.validator.validateDocument(event, "events.jsonl");
     if (!eventValidation.valid) {
       throw new StoreError("run.initial_event_invalid", "initial Run Event is not schema-valid", {
         errors: eventValidation.errors,
@@ -1767,6 +2225,49 @@ export class RunStore {
             runId: input.runId,
           });
         }
+        const existingRestart = await this.technicalRestartSourceForReplacement(input.runId);
+        if (existingRestart.issues.length > 0) {
+          throw new StoreError(
+            "technical_restart.index_indeterminate",
+            "existing Run technical restart provenance cannot be resolved safely",
+            { runId: input.runId, issues: existingRestart.issues },
+          );
+        }
+        if (
+          input.technicalRestart !== undefined &&
+          input.createdAt !== undefined &&
+          input.createdAt !== loaded.manifest.created_at
+        ) {
+          throw new StoreError(
+            "technical_restart.declaration_conflict",
+            "exact technical restart replay must reuse the original created_at",
+            {
+              runId: input.runId,
+              createdAt: input.createdAt,
+              replayCreatedAt: loaded.manifest.created_at,
+            },
+          );
+        }
+        const replayDeclaredTechnicalRestart =
+          input.technicalRestart === undefined
+            ? null
+            : await this.technicalRestartEntryFromDeclaration(
+                input,
+                loaded.manifest,
+                existingRestart.entry?.state ?? "committed",
+              );
+        if (
+          (replayDeclaredTechnicalRestart === null) !== (existingRestart.entry === null) ||
+          (replayDeclaredTechnicalRestart !== null &&
+            existingRestart.entry !== null &&
+            canonicalJson(replayDeclaredTechnicalRestart) !== canonicalJson(existingRestart.entry))
+        ) {
+          throw new StoreError(
+            "technical_restart.declaration_conflict",
+            "existing Run is bound to different technical restart provenance",
+            { runId: input.runId },
+          );
+        }
         await this.registerContinuation(runsRoot, loaded.manifest);
         await this.ensureWorkingDirectory(input.runId);
         return {
@@ -1781,10 +2282,108 @@ export class RunStore {
           scopeProposal: researchScopeFromDocument(
             initialProposal.scope as Record<string, unknown>,
           ),
+          technicalRestartProvenance:
+            existingRestart.entry === null
+              ? null
+              : technicalRestartProvenance(existingRestart.entry),
         };
       } catch (error) {
         if (!isNodeError(error, "ENOENT")) {
           throw error;
+        }
+      }
+
+      const replayContext = await this.technicalRestartReplayContextForReplacement(input.runId);
+      if (replayContext.issues.length > 0) {
+        throw new StoreError(
+          "technical_restart.declaration_conflict",
+          "existing Run id is already occupied by technical restart provenance",
+          {
+            runId: input.runId,
+            sourceRunId: replayContext.sourceRunId,
+            issues: replayContext.issues,
+          },
+        );
+      }
+      const pendingReplay =
+        input.technicalRestart !== undefined &&
+        replayContext.entry !== null &&
+        replayContext.entry.state === "pending";
+      if (input.technicalRestart === undefined && replayContext.entry !== null) {
+        throw new StoreError(
+          "technical_restart.declaration_conflict",
+          "existing Run id is already occupied by technical restart provenance",
+          {
+            runId: input.runId,
+            sourceRunId: replayContext.sourceRunId,
+          },
+        );
+      }
+      if (
+        pendingReplay &&
+        input.createdAt !== undefined &&
+        input.createdAt !== replayContext.entry.created_at
+      ) {
+        throw new StoreError(
+          "technical_restart.declaration_conflict",
+          "exact technical restart replay must reuse the original created_at",
+          {
+            runId: input.runId,
+            createdAt: input.createdAt,
+            replayCreatedAt: replayContext.entry.created_at,
+          },
+        );
+      }
+      if (pendingReplay && replayContext.entry !== null) {
+        createdAt = replayContext.entry.created_at;
+        manifest = makeManifest(input, createdAt);
+        this.validateManifest(manifest);
+        declaredTechnicalRestart = await this.technicalRestartEntryFromDeclaration(
+          input,
+          manifest,
+          "committed",
+        );
+        if (declaredTechnicalRestart === null) {
+          throw new StoreError(
+            "technical_restart.declaration_conflict",
+            "exact technical restart replay requires the declared provenance",
+            { runId: input.runId, sourceRunId: replayContext.sourceRunId },
+          );
+        }
+        proposalRecord = scopeProposalRecord(
+          input.runId,
+          1,
+          input.scopeProposal,
+          createdAt,
+          "Caller proposed this Scope for user review; no user confirmation is asserted.",
+        );
+        proposalRef = `decisions.jsonl#${String(proposalRecord.decision_id)}`;
+        proposalHash = canonicalContentHash(proposalRecord);
+        scopeValidation = this.validator.validateDocument(proposalRecord, "decisions.jsonl");
+        if (!scopeValidation.valid) {
+          throw new StoreError(
+            "run.scope_proposal_invalid",
+            "initial Scope proposal is not schema-valid",
+            { errors: scopeValidation.errors },
+          );
+        }
+        event = {
+          schema_version: "startup_opportunity.event.v1",
+          event_id: `run_created_${sha256Hex(operationKey("run_created", { run_id: input.runId }))}`,
+          run_id: input.runId,
+          event_type: "run_created",
+          timestamp: createdAt,
+          actor: "harness",
+          reason: "The deterministic Run Store created the Run boundary.",
+          artifact_refs: [],
+        };
+        eventValidation = this.validator.validateDocument(event, "events.jsonl");
+        if (!eventValidation.valid) {
+          throw new StoreError(
+            "run.initial_event_invalid",
+            "initial Run Event is not schema-valid",
+            { errors: eventValidation.errors },
+          );
         }
       }
 
@@ -1827,18 +2426,77 @@ export class RunStore {
           inputRefs: [`events.jsonl#${event.event_id}`, proposalRef],
         });
         const finalManifest = await this.readManifest(stagingRoot);
-        if (input.faultAt === "before_publish") {
-          throw new StoreError("fault.injected", "injected failure before atomic Run publication");
-        }
         if (finalManifest.parent_run_id !== null) {
           await this.registerContinuation(runsRoot, finalManifest, "pending");
           continuationPending = true;
         }
-        try {
+        const publishCreatedRun = async (): Promise<void> => {
           await rename(stagingRoot, target);
           published = true;
           await syncDirectory(runsRoot);
+          if (input.faultAt === "technical_restart_after_run_publish") {
+            throw new StoreError("fault.injected", "injected failure after atomic Run publication");
+          }
           await this.registerContinuation(runsRoot, finalManifest);
+          if (declaredTechnicalRestart !== null) {
+            await this.writeTechnicalRestartIndexEntry(runsRoot, declaredTechnicalRestart);
+            if (input.faultAt === "technical_restart_after_source_commit") {
+              throw new StoreError(
+                "fault.injected",
+                "injected failure after technical restart source commitment",
+              );
+            }
+            await this.writeTechnicalRestartIndexEntry(runsRoot, declaredTechnicalRestart, {
+              includeReplacementProjection: true,
+            });
+          }
+          if (input.faultAt === "technical_restart_after_replacement_commit") {
+            throw new StoreError(
+              "fault.injected",
+              "injected failure after technical restart replacement commitment",
+            );
+          }
+        };
+        try {
+          const technicalRestartEntry = declaredTechnicalRestart;
+          if (technicalRestartEntry !== null) {
+            try {
+              await withRunCreationLock(runsRoot, technicalRestartEntry.source_run_id, async () => {
+                const pendingTechnicalRestartEntry: TechnicalRestartLineageEntry = {
+                  ...technicalRestartEntry,
+                  state: "pending",
+                };
+                await this.writeTechnicalRestartIndexEntry(runsRoot, pendingTechnicalRestartEntry);
+                if (input.faultAt === "before_publish") {
+                  throw new StoreError(
+                    "fault.injected",
+                    "injected failure before atomic Run publication",
+                  );
+                }
+                await publishCreatedRun();
+              });
+            } catch (error) {
+              if (error instanceof StoreError && error.code === "run.create_locked") {
+                throw new StoreError(
+                  "technical_restart.declaration_conflict",
+                  "technical restart source already has an in-flight replacement attempt",
+                  {
+                    sourceRunId: technicalRestartEntry.source_run_id,
+                    replacementRunId: input.runId,
+                  },
+                );
+              }
+              throw error;
+            }
+          } else {
+            if (input.faultAt === "before_publish") {
+              throw new StoreError(
+                "fault.injected",
+                "injected failure before atomic Run publication",
+              );
+            }
+            await publishCreatedRun();
+          }
         } catch (error) {
           if (continuationPending && !published && finalManifest.parent_run_id !== null) {
             await rm(
@@ -1864,6 +2522,10 @@ export class RunStore {
           scopeProposalRef: proposalRef,
           scopeProposalHash: proposalHash,
           scopeProposal: researchScopeFromDocument(proposalRecord.scope as Record<string, unknown>),
+          technicalRestartProvenance:
+            declaredTechnicalRestart === null
+              ? null
+              : technicalRestartProvenance(declaredTechnicalRestart),
         };
       } finally {
         await rm(stagingRoot, { recursive: true, force: true });
@@ -1878,39 +2540,54 @@ export class RunStore {
     const trace = operationTrace("run_recovery", options.observe);
     trace.start("operation");
     try {
-      trace.start("execution_resolution");
-      const resolution = await this.resolveExecution(runId);
-      if (resolution.disposition === "indeterminate") {
-        throw new StoreError(
-          "run.continuation_indeterminate",
-          "Run continuation lineage cannot be resolved safely",
-          { runId, issues: resolution.issues },
-        );
-      }
-      if (resolution.currentLeafRunId !== runId) {
-        throw new StoreError("run.not_current_leaf", "Run has an authoritative continuation leaf", {
-          runId,
-          currentLeafRunId: resolution.currentLeafRunId,
-        });
-      }
-      trace.complete("execution_resolution", {
-        continuation_depth: resolution.continuationChain.length,
-      });
-      trace.start("recovery_validation");
       const runRoot = await openRunDirectory(this.runsRoot, runId);
-      const result = await withRunLock(runRoot, () => this.recoverLocked(runRoot, runId));
-      const recoveredArtifacts =
-        result.recoveredArtifactPaths.length +
-        result.reportRecovery.recoveredFormalArtifactPaths.length +
-        result.reportRecovery.recoveredMaterializedPaths.length;
-      trace.complete("recovery_validation", {
-        recovered_artifacts: recoveredArtifacts,
-        repaired_logs: result.logRepairs.length,
-        orphan_active_units: result.orphanActiveUnits.length,
-      });
-      trace.complete("operation", {
-        recovered_artifacts: recoveredArtifacts,
-        repaired_logs: result.logRepairs.length,
+      trace.start("execution_resolution");
+      const result = await withRunLock(runRoot, async () => {
+        await this.repairTechnicalRestartClosureForReplacement(runRoot, runId);
+        const resolution = await this.resolveExecution(runId);
+        if (resolution.disposition === "indeterminate") {
+          throw new StoreError(
+            "run.continuation_indeterminate",
+            "Run continuation lineage cannot be resolved safely",
+            { runId, issues: resolution.issues },
+          );
+        }
+        if (resolution.disposition === "superseded_by_new_attempt") {
+          throw new StoreError(
+            "run.superseded_by_new_attempt",
+            "Run has an authoritative technical replacement attempt",
+            { runId, replacementRunIds: resolution.directTechnicalRestartRunIds },
+          );
+        }
+        if (resolution.currentLeafRunId !== runId) {
+          throw new StoreError(
+            "run.not_current_leaf",
+            "Run has an authoritative continuation leaf",
+            {
+              runId,
+              currentLeafRunId: resolution.currentLeafRunId,
+            },
+          );
+        }
+        trace.complete("execution_resolution", {
+          continuation_depth: resolution.continuationChain.length,
+        });
+        trace.start("recovery_validation");
+        const recovered = await this.recoverLocked(runRoot, runId);
+        const recoveredArtifacts =
+          recovered.recoveredArtifactPaths.length +
+          recovered.reportRecovery.recoveredFormalArtifactPaths.length +
+          recovered.reportRecovery.recoveredMaterializedPaths.length;
+        trace.complete("recovery_validation", {
+          recovered_artifacts: recoveredArtifacts,
+          repaired_logs: recovered.logRepairs.length,
+          orphan_active_units: recovered.orphanActiveUnits.length,
+        });
+        trace.complete("operation", {
+          recovered_artifacts: recoveredArtifacts,
+          repaired_logs: recovered.logRepairs.length,
+        });
+        return recovered;
       });
       return result;
     } catch (error) {
@@ -1993,12 +2670,505 @@ export class RunStore {
     };
   }
 
+  private async validateTechnicalRestartEntry(
+    value: unknown,
+    expectedSourceRunId: string | null,
+    expectedReplacementRunId: string | null,
+    options: {
+      readonly requireCommitted?: boolean;
+      readonly requireReplacementClosure?: boolean;
+      readonly requireReplacementProjection?: boolean;
+    } = {},
+  ): Promise<{
+    readonly entry: TechnicalRestartLineageEntry | null;
+    readonly issues: readonly string[];
+  }> {
+    const validation = this.validator.validateDocument(value);
+    if (
+      !validation.valid ||
+      !isRecord(value) ||
+      value.schema_version !== "startup_opportunity.technical_restart_lineage_entry.v1" ||
+      (expectedSourceRunId !== null && value.source_run_id !== expectedSourceRunId) ||
+      (expectedReplacementRunId !== null && value.replacement_run_id !== expectedReplacementRunId)
+    ) {
+      return { entry: null, issues: ["technical_restart.index_entry_invalid"] };
+    }
+    const entry = value as TechnicalRestartLineageEntry;
+    if (entry.state === "pending" && options.requireCommitted !== false) {
+      return {
+        entry: null,
+        issues: [`technical_restart.index_pending:${entry.replacement_run_id}`],
+      };
+    }
+    const issues: string[] = [];
+    try {
+      const sourceRoot = await openRunDirectoryReadOnly(this.runsRoot, entry.source_run_id);
+      const sourceManifest = await this.readManifest(sourceRoot);
+      if (canonicalContentHash(sourceManifest) !== entry.source_manifest_hash) {
+        issues.push(`technical_restart.source_manifest_hash_mismatch:${entry.replacement_run_id}`);
+      } else {
+        try {
+          await this.assertRuntimeFailureTerminalAuthority(
+            sourceRoot,
+            sourceManifest,
+            entry.source_terminal_report_source_ref,
+            entry.source_terminal_report_source_hash,
+          );
+        } catch (error) {
+          issues.push(
+            `${error instanceof StoreError ? error.code : "technical_restart.source_unreadable"}:${entry.replacement_run_id}`,
+          );
+        }
+      }
+    } catch (error) {
+      issues.push(
+        `${error instanceof StoreError ? error.code : "technical_restart.source_unreadable"}:${entry.replacement_run_id}`,
+      );
+    }
+    if (options.requireReplacementClosure !== false) {
+      try {
+        const replacementRoot = await openRunDirectoryReadOnly(
+          this.runsRoot,
+          entry.replacement_run_id,
+        );
+        const replacement = await this.readManifest(replacementRoot);
+        if (
+          replacement.parent_run_id !== null ||
+          canonicalContentHash(technicalRestartReplacementIdentity(replacement)) !==
+            entry.replacement_identity_hash
+        ) {
+          issues.push(
+            `technical_restart.replacement_identity_mismatch:${entry.replacement_run_id}`,
+          );
+        }
+      } catch (error) {
+        issues.push(
+          `${error instanceof StoreError ? error.code : "technical_restart.replacement_unreadable"}:${entry.replacement_run_id}`,
+        );
+      }
+    }
+    if (options.requireReplacementProjection !== false) {
+      try {
+        const projectionPath = await resolveRunPath(
+          this.runsRoot,
+          `.technical-restarts/replacements/${entry.replacement_run_id}.json`,
+        );
+        const projectionStat = await lstat(projectionPath);
+        if (!projectionStat.isFile() || projectionStat.isSymbolicLink()) {
+          issues.push(
+            `technical_restart.replacement_projection_invalid:${entry.replacement_run_id}`,
+          );
+        } else {
+          const projection = JSON.parse(await readFile(projectionPath, "utf8")) as unknown;
+          const projectionValidation = this.validator.validateDocument(projection);
+          const committedProjection = { ...entry, state: "committed" as const };
+          if (
+            !projectionValidation.valid ||
+            !isRecord(projection) ||
+            canonicalJson(projection) !== canonicalJson(committedProjection)
+          ) {
+            issues.push(
+              `technical_restart.replacement_projection_mismatch:${entry.replacement_run_id}`,
+            );
+          }
+        }
+      } catch (error) {
+        issues.push(
+          isNodeError(error, "ENOENT")
+            ? `technical_restart.replacement_projection_missing:${entry.replacement_run_id}`
+            : `${error instanceof StoreError ? error.code : "technical_restart.replacement_projection_unreadable"}:${entry.replacement_run_id}`,
+        );
+      }
+    }
+    return { entry: issues.length === 0 ? entry : null, issues };
+  }
+
+  private async technicalRestartReceiptForReplacement(replacementRunId: string): Promise<{
+    readonly sourceRunId: string | null;
+    readonly entry: TechnicalRestartLineageEntry | null;
+    readonly issues: readonly string[];
+  }> {
+    const sourcesRoot = await this.technicalRestartDirectory(".technical-restarts/sources");
+    if (sourcesRoot === null) {
+      return { sourceRunId: null, entry: null, issues: [] };
+    }
+    let sourceEntries: Dirent[];
+    try {
+      sourceEntries = await readdir(sourcesRoot, { withFileTypes: true });
+    } catch (_error) {
+      return { sourceRunId: null, entry: null, issues: ["technical_restart.index_unreadable"] };
+    }
+    let sourceRunId: string | null = null;
+    let entry: TechnicalRestartLineageEntry | null = null;
+    const issues: string[] = [];
+    for (const candidate of sourceEntries.sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
+      try {
+        validateRunId(candidate.name);
+      } catch {
+        issues.push("technical_restart.index_filename_invalid");
+        continue;
+      }
+      if (!candidate.isDirectory() || candidate.isSymbolicLink()) {
+        issues.push(`technical_restart.index_entry_invalid:${candidate.name}`);
+        continue;
+      }
+      const receiptPath = await resolveRunPath(
+        this.runsRoot,
+        `.technical-restarts/sources/${candidate.name}/${replacementRunId}.json`,
+      );
+      try {
+        const stat = await lstat(receiptPath);
+        if (!stat.isFile() || stat.isSymbolicLink()) {
+          issues.push(`technical_restart.index_entry_invalid:${replacementRunId}`);
+          continue;
+        }
+      } catch (error) {
+        if (isNodeError(error, "ENOENT")) {
+          continue;
+        }
+        issues.push("technical_restart.index_unreadable");
+        continue;
+      }
+      try {
+        const result = await this.validateTechnicalRestartEntry(
+          JSON.parse(await readFile(receiptPath, "utf8")) as unknown,
+          candidate.name,
+          replacementRunId,
+          {
+            requireCommitted: false,
+            requireReplacementClosure: false,
+            requireReplacementProjection: false,
+          },
+        );
+        issues.push(...result.issues);
+        if (result.entry !== null) {
+          if (sourceRunId !== null && sourceRunId !== candidate.name) {
+            issues.push(`technical_restart.multiple_sources:${replacementRunId}`);
+          } else {
+            sourceRunId = candidate.name;
+            entry = result.entry;
+          }
+        }
+      } catch {
+        issues.push(`technical_restart.index_entry_invalid:${replacementRunId}`);
+      }
+    }
+    return { sourceRunId, entry, issues: [...new Set(issues)].sort() };
+  }
+
+  private async technicalRestartProjectionForReplacement(replacementRunId: string): Promise<{
+    readonly entry: TechnicalRestartLineageEntry | null;
+    readonly issues: readonly string[];
+  }> {
+    const projectionsDirectory = await this.technicalRestartDirectory(
+      ".technical-restarts/replacements",
+    );
+    if (projectionsDirectory === null) {
+      return { entry: null, issues: [] };
+    }
+    const projectionPath = path.join(projectionsDirectory, `${replacementRunId}.json`);
+    try {
+      const stat = await lstat(projectionPath);
+      if (!stat.isFile() || stat.isSymbolicLink()) {
+        return {
+          entry: null,
+          issues: [`technical_restart.replacement_projection_invalid:${replacementRunId}`],
+        };
+      }
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) {
+        return { entry: null, issues: [] };
+      }
+      return {
+        entry: null,
+        issues: ["technical_restart.replacement_projection_unreadable"],
+      };
+    }
+    try {
+      const value = JSON.parse(await readFile(projectionPath, "utf8")) as unknown;
+      const validation = this.validator.validateDocument(value);
+      if (
+        !validation.valid ||
+        !isRecord(value) ||
+        value.schema_version !== "startup_opportunity.technical_restart_lineage_entry.v1" ||
+        value.replacement_run_id !== replacementRunId ||
+        value.state !== "committed"
+      ) {
+        return {
+          entry: null,
+          issues: [`technical_restart.replacement_projection_invalid:${replacementRunId}`],
+        };
+      }
+      return { entry: value as TechnicalRestartLineageEntry, issues: [] };
+    } catch {
+      return {
+        entry: null,
+        issues: [`technical_restart.replacement_projection_invalid:${replacementRunId}`],
+      };
+    }
+  }
+
+  private async technicalRestartReplacements(sourceRunId: string): Promise<{
+    readonly replacements: readonly TechnicalRestartLineageEntry[];
+    readonly recognizedRunIds: readonly string[];
+    readonly issues: readonly string[];
+  }> {
+    const directory = await this.technicalRestartDirectory(
+      `.technical-restarts/sources/${sourceRunId}`,
+    );
+    const replacements: TechnicalRestartLineageEntry[] = [];
+    const recognizedRunIds: string[] = [];
+    const issues: string[] = [];
+    const sourceReceiptRunIds = new Set<string>();
+    if (directory !== null) {
+      let entries: Dirent[];
+      try {
+        entries = await readdir(directory, { withFileTypes: true });
+      } catch (_error) {
+        return {
+          replacements: [],
+          recognizedRunIds: [],
+          issues: ["technical_restart.index_unreadable"],
+        };
+      }
+      for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+        const replacementRunId = entry.name.endsWith(".json") ? entry.name.slice(0, -5) : "";
+        try {
+          validateRunId(replacementRunId);
+          recognizedRunIds.push(replacementRunId);
+        } catch {
+          issues.push("technical_restart.index_filename_invalid");
+          continue;
+        }
+        if (!entry.isFile() || entry.isSymbolicLink()) {
+          issues.push(`technical_restart.index_entry_invalid:${replacementRunId}`);
+          continue;
+        }
+        try {
+          const result = await this.validateTechnicalRestartEntry(
+            JSON.parse(
+              await readFile(await resolveRunPath(directory, entry.name), "utf8"),
+            ) as unknown,
+            sourceRunId,
+            replacementRunId,
+          );
+          issues.push(...result.issues);
+          if (result.entry !== null) {
+            replacements.push(result.entry);
+            sourceReceiptRunIds.add(replacementRunId);
+          }
+        } catch {
+          issues.push(`technical_restart.index_entry_invalid:${replacementRunId}`);
+        }
+      }
+    }
+    let projectionEntries: Dirent[];
+    const projectionsDirectory = await this.technicalRestartDirectory(
+      ".technical-restarts/replacements",
+    );
+    try {
+      projectionEntries =
+        projectionsDirectory === null
+          ? []
+          : await readdir(projectionsDirectory, { withFileTypes: true });
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) {
+        projectionEntries = [];
+      } else {
+        issues.push("technical_restart.index_unreadable");
+        projectionEntries = [];
+      }
+    }
+    for (const projectionEntry of projectionEntries.sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
+      const replacementRunId = projectionEntry.name.endsWith(".json")
+        ? projectionEntry.name.slice(0, -5)
+        : "";
+      try {
+        validateRunId(replacementRunId);
+      } catch {
+        issues.push("technical_restart.index_filename_invalid");
+        continue;
+      }
+      if (!projectionEntry.isFile() || projectionEntry.isSymbolicLink()) {
+        issues.push(`technical_restart.replacement_projection_invalid:${replacementRunId}`);
+        continue;
+      }
+      const projection = await this.technicalRestartProjectionForReplacement(replacementRunId);
+      issues.push(...projection.issues);
+      if (projection.entry === null || projection.entry.source_run_id !== sourceRunId) {
+        continue;
+      }
+      recognizedRunIds.push(replacementRunId);
+      if (!sourceReceiptRunIds.has(replacementRunId)) {
+        issues.push(`technical_restart.source_receipt_missing:${replacementRunId}`);
+      }
+    }
+    if (replacements.length > 1) {
+      issues.push(`technical_restart.multiple_replacements:${sourceRunId}`);
+    }
+    return {
+      replacements: replacements.sort((left, right) =>
+        left.replacement_run_id.localeCompare(right.replacement_run_id),
+      ),
+      recognizedRunIds: [...new Set(recognizedRunIds)].sort(),
+      issues: [...new Set(issues)].sort(),
+    };
+  }
+
+  private async technicalRestartSourceForReplacement(replacementRunId: string): Promise<{
+    readonly entry: TechnicalRestartLineageEntry | null;
+    readonly issues: readonly string[];
+  }> {
+    const receipt = await this.technicalRestartReceiptForReplacement(replacementRunId);
+    const projection = await this.technicalRestartProjectionForReplacement(replacementRunId);
+    const issues: string[] = [...receipt.issues, ...projection.issues];
+    if (
+      receipt.entry === null &&
+      receipt.sourceRunId === null &&
+      projection.entry === null &&
+      issues.length === 0
+    ) {
+      return { entry: null, issues: [] };
+    }
+    if (receipt.entry === null || receipt.sourceRunId === null) {
+      if (projection.entry !== null) {
+        issues.push(`technical_restart.source_receipt_missing:${replacementRunId}`);
+      }
+      return { entry: null, issues: [...new Set(issues)].sort() };
+    }
+    if (receipt.entry.state !== "committed") {
+      issues.push(`technical_restart.index_pending:${replacementRunId}`);
+      return { entry: null, issues: [...new Set(issues)].sort() };
+    }
+    if (projection.entry === null) {
+      issues.push(`technical_restart.replacement_projection_missing:${replacementRunId}`);
+      return { entry: null, issues: [...new Set(issues)].sort() };
+    }
+    if (receipt.sourceRunId !== projection.entry.source_run_id) {
+      issues.push(`technical_restart.index_entry_invalid:${replacementRunId}`);
+      return { entry: null, issues: [...new Set(issues)].sort() };
+    }
+    if (
+      canonicalJson({ ...receipt.entry, state: "committed" as const }) !==
+      canonicalJson(projection.entry)
+    ) {
+      issues.push(`technical_restart.index_entry_invalid:${replacementRunId}`);
+      return { entry: null, issues: [...new Set(issues)].sort() };
+    }
+    return { entry: receipt.entry, issues: [...new Set(issues)].sort() };
+  }
+
+  private async technicalRestartReplayContextForReplacement(replacementRunId: string): Promise<{
+    readonly sourceRunId: string | null;
+    readonly entry: TechnicalRestartLineageEntry | null;
+    readonly issues: readonly string[];
+  }> {
+    const receipt = await this.technicalRestartReceiptForReplacement(replacementRunId);
+    const projection = await this.technicalRestartProjectionForReplacement(replacementRunId);
+    const issues = [...new Set([...receipt.issues, ...projection.issues])].sort();
+    if (
+      receipt.entry === null &&
+      receipt.sourceRunId === null &&
+      projection.entry === null &&
+      issues.length === 0
+    ) {
+      return { sourceRunId: null, entry: null, issues: [] };
+    }
+    if (projection.entry !== null && (receipt.entry === null || receipt.sourceRunId === null)) {
+      issues.push(`technical_restart.source_receipt_missing:${replacementRunId}`);
+      return { sourceRunId: null, entry: null, issues: [...new Set(issues)].sort() };
+    }
+    if (receipt.entry === null || receipt.sourceRunId === null) {
+      return { sourceRunId: null, entry: null, issues: [...new Set(issues)].sort() };
+    }
+    if (receipt.entry.state === "pending") {
+      if (projection.entry !== null) {
+        issues.push(`technical_restart.index_pending:${replacementRunId}`);
+        return { sourceRunId: null, entry: null, issues: [...new Set(issues)].sort() };
+      }
+      return {
+        sourceRunId: receipt.sourceRunId,
+        entry: receipt.entry,
+        issues: [...new Set(issues)].sort(),
+      };
+    }
+    if (projection.entry === null) {
+      issues.push(`technical_restart.replacement_projection_missing:${replacementRunId}`);
+      return { sourceRunId: null, entry: null, issues: [...new Set(issues)].sort() };
+    }
+    if (receipt.sourceRunId !== projection.entry.source_run_id) {
+      issues.push(`technical_restart.index_entry_invalid:${replacementRunId}`);
+      return { sourceRunId: null, entry: null, issues: [...new Set(issues)].sort() };
+    }
+    if (
+      canonicalJson({ ...receipt.entry, state: "committed" as const }) !==
+      canonicalJson(projection.entry)
+    ) {
+      issues.push(`technical_restart.index_entry_invalid:${replacementRunId}`);
+      return { sourceRunId: null, entry: null, issues: [...new Set(issues)].sort() };
+    }
+    return {
+      sourceRunId: receipt.sourceRunId,
+      entry: receipt.entry,
+      issues: [...new Set(issues)].sort(),
+    };
+  }
+
+  private async repairTechnicalRestartClosureForReplacement(
+    runRoot: string,
+    runId: string,
+  ): Promise<void> {
+    const receipt = await this.technicalRestartReceiptForReplacement(runId);
+    if (receipt.entry === null || receipt.sourceRunId === null || receipt.issues.length > 0) {
+      return;
+    }
+    const committedEntry: TechnicalRestartLineageEntry = {
+      ...receipt.entry,
+      state: "committed",
+    };
+    await withRunCreationLock(this.runsRoot, receipt.sourceRunId, async (lockedRunsRoot) => {
+      const currentManifest = await this.readManifest(runRoot);
+      if (
+        canonicalContentHash(technicalRestartReplacementIdentity(currentManifest)) !==
+        committedEntry.replacement_identity_hash
+      ) {
+        throw new StoreError(
+          "technical_restart.replacement_identity_mismatch",
+          "technical restart replacement Manifest does not match the declared technical restart boundary",
+          { runId, sourceRunId: receipt.sourceRunId },
+        );
+      }
+      await this.writeTechnicalRestartIndexEntry(lockedRunsRoot, committedEntry, {
+        includeReplacementProjection: true,
+      });
+    });
+  }
+
   async resolveExecution(runId: string): Promise<RunExecutionResolution> {
     validateRunId(runId);
+    const replacementSource = await this.technicalRestartSourceForReplacement(runId);
+    if (replacementSource.issues.length > 0) {
+      return {
+        schemaVersion: "startup_opportunity.run_execution_resolution.v1",
+        requestedRunId: runId,
+        disposition: "indeterminate",
+        currentLeafRunId: null,
+        continuationChain: [runId],
+        directContinuationRunIds: [],
+        directTechnicalRestartRunIds: [],
+        technicalRestartProvenance: null,
+        issues: replacementSource.issues,
+      };
+    }
     let cursor = await this.readManifest(await openRunDirectoryReadOnly(this.runsRoot, runId));
     const chain = [runId];
     const seen = new Set(chain);
     let directContinuationRunIds: readonly string[] = [];
+    let directTechnicalRestartRunIds: readonly string[] = [];
     while (true) {
       const indexed = await this.continuationChildren(cursor.run_id);
       if (chain.length === 1) {
@@ -2016,23 +3186,55 @@ export class RunStore {
           currentLeafRunId: null,
           continuationChain: chain,
           directContinuationRunIds,
+          directTechnicalRestartRunIds,
+          technicalRestartProvenance:
+            replacementSource.entry === null
+              ? null
+              : technicalRestartProvenance(replacementSource.entry),
           issues: [...new Set(issues)].sort(),
         };
       }
       const child = indexed.children[0];
       if (child === undefined) {
+        const technicalRestart = await this.technicalRestartReplacements(cursor.run_id);
+        if (chain.length === 1) {
+          directTechnicalRestartRunIds = technicalRestart.recognizedRunIds;
+        }
+        if (technicalRestart.issues.length > 0) {
+          return {
+            schemaVersion: "startup_opportunity.run_execution_resolution.v1",
+            requestedRunId: runId,
+            disposition: "indeterminate",
+            currentLeafRunId: null,
+            continuationChain: chain,
+            directContinuationRunIds,
+            directTechnicalRestartRunIds,
+            technicalRestartProvenance:
+              replacementSource.entry === null
+                ? null
+                : technicalRestartProvenance(replacementSource.entry),
+            issues: technicalRestart.issues,
+          };
+        }
         return {
           schemaVersion: "startup_opportunity.run_execution_resolution.v1",
           requestedRunId: runId,
           disposition:
-            chain.length > 1
-              ? "continued"
-              : TERMINAL_RUN_STATUSES.has(cursor.status)
-                ? "terminal"
-                : "current",
+            chain.length === 1 && technicalRestart.replacements.length === 1
+              ? "superseded_by_new_attempt"
+              : chain.length > 1
+                ? "continued"
+                : TERMINAL_RUN_STATUSES.has(cursor.status)
+                  ? "terminal"
+                  : "current",
           currentLeafRunId: cursor.run_id,
           continuationChain: chain,
           directContinuationRunIds,
+          directTechnicalRestartRunIds,
+          technicalRestartProvenance:
+            replacementSource.entry === null
+              ? null
+              : technicalRestartProvenance(replacementSource.entry),
           issues: [],
         };
       }
@@ -2044,6 +3246,11 @@ export class RunStore {
           currentLeafRunId: null,
           continuationChain: chain,
           directContinuationRunIds,
+          directTechnicalRestartRunIds,
+          technicalRestartProvenance:
+            replacementSource.entry === null
+              ? null
+              : technicalRestartProvenance(replacementSource.entry),
           issues: [`continuation.cycle:${child.run_id}`],
         };
       }
@@ -2391,6 +3598,11 @@ export class RunStore {
       ...blockingGapIds.map((id) => `blocking_gap:${id}`),
       ...manifest.pending_adaptation_refs.map((ref) => `pending_adaptation:${ref}`),
       ...manifest.failed_units.map((unitId) => `failed_unit:${unitId}`),
+      ...(resolution.disposition === "superseded_by_new_attempt"
+        ? resolution.directTechnicalRestartRunIds.map(
+            (replacementRunId) => `technical_restart_replacement:${replacementRunId}`,
+          )
+        : []),
       ...resolution.issues,
       ...terminalReportStatus.issues,
     ].sort();
@@ -2404,6 +3616,8 @@ export class RunStore {
       currentLeafRunId: resolution.currentLeafRunId,
       continuationChain: resolution.continuationChain,
       executionResolutionIssues: resolution.issues,
+      technicalRestartReplacementRunIds: resolution.directTechnicalRestartRunIds,
+      technicalRestartProvenance: resolution.technicalRestartProvenance,
       terminalReportDisposition: terminalReportStatus.disposition,
       terminalReportIssues: terminalReportStatus.issues,
       workingDirectory: this.workingDirectory(runId),
@@ -2451,6 +3665,16 @@ export class RunStore {
         runId,
         currentLeafRunId: resolution.currentLeafRunId,
       });
+    }
+    if (resolution.disposition === "superseded_by_new_attempt") {
+      throw new StoreError(
+        "run.superseded_by_new_attempt",
+        "Run has an authoritative technical replacement attempt",
+        {
+          runId,
+          replacementRunIds: resolution.directTechnicalRestartRunIds,
+        },
+      );
     }
   }
 

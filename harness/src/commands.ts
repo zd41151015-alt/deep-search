@@ -43,7 +43,7 @@ Commands:
   help               Show the implemented deterministic Harness command surface.
   doctor             Validate repository, toolchain, Skill, agent, Harness, and test contracts.
   validate-artifact  Validate one document, a typed document bundle, or the schema bundle itself.
-  create-run         Persist a confined Run and exact Scope proposal awaiting confirmation.
+  create-run         Persist a confined Run and exact Scope proposal awaiting confirmation; exact technical restart provenance may declare a new current-only attempt after record_runtime_failure.
   propose-scope      Append a corrected Scope proposal without claiming user confirmation.
   confirm-scope      Bind caller-attested confirmation to the exact proposal revision/ref/hash.
   load-run           Validate, reconcile, and reopen a persisted Run.

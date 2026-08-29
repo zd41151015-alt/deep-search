@@ -663,6 +663,7 @@ export class DeclarativeRuntimeCompiler {
         },
       );
     }
+    await this.runs.assertCurrentLeafWritable(request.run_id);
     trace.complete("current_run_resolution", {
       continuation_depth: resolution.continuationChain.length,
     });

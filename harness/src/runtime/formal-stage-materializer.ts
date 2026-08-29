@@ -227,7 +227,8 @@ export class FormalStageMaterializer {
         { errors: validation.errors },
       );
     const status = await this.runs.status(request.run_id);
-    if (status.currentLeafRunId !== request.run_id || status.manifest.current_plan_ref === null) {
+    await this.runs.assertCurrentLeafWritable(request.run_id);
+    if (status.manifest.current_plan_ref === null) {
       throw new StoreError(
         "formal_materialization.current_plan_missing",
         "formal materialization requires the current Run leaf and Plan",

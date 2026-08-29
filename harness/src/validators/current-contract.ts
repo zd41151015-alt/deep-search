@@ -36,6 +36,7 @@ export const DIRECT_RUNTIME_SCHEMA_VERSIONS = [
   "startup_opportunity.runtime_artifact_compilation_result.assessment.current",
   "startup_opportunity.scaffold_request.current",
   "startup_opportunity.scaffold_result.current",
+  "startup_opportunity.technical_restart_lineage_entry.v1",
 ] as const;
 
 const STATIC_PRODUCTION_SCAN_PATHS = [

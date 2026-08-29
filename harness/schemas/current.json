@@ -148,6 +148,11 @@
       "document_schema_version": "startup_opportunity.run_manifest.v1"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/core/technical-restart-lineage-entry.schema.json",
+      "file": "current/core/technical-restart-lineage-entry.schema.json",
+      "document_schema_version": "startup_opportunity.technical_restart_lineage_entry.v1"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/discovery/synthesis/discovery-fan-in.schema.json",
       "file": "current/discovery/synthesis/discovery-fan-in.schema.json",
       "document_schema_version": "startup_opportunity.discovery_fan_in.v2"
