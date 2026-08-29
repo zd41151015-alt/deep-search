@@ -160,3 +160,36 @@ test("explicit create, status, Evidence, and recovery remain usable with hooks d
   assert.equal(loaded.recovered, false);
   assert.equal(loaded.manifest?.mode, "concept_evidence_assessment");
 });
+
+test("create-run rejects partial technical restart provenance", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g4-operational-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const create = runScript("harness/src/cli.ts", [
+    "create-run",
+    "--run-id",
+    "g4-partial-technical-restart",
+    "--mode",
+    "opportunity_discovery",
+    "--geography",
+    "Synthetic",
+    "--customer-model",
+    "b2c",
+    "--target-user",
+    "synthetic user",
+    "--decision-goal",
+    "reject incomplete technical restart provenance",
+    "--research-language",
+    "en-US",
+    "--technical-restart-source-run-id",
+    "g4-source-run",
+    "--runs-root",
+    path.join(root, "runs"),
+  ]);
+  assert.equal(create.status, 64, create.stderr || create.stdout);
+  const failure = JSON.parse(create.stderr) as {
+    error?: { code?: string; message?: string; details?: { supplied?: readonly string[] } };
+  };
+  assert.equal(failure.error?.code, "command.invalid_arguments");
+  assert.match(failure.error?.message ?? "", /complete exact provenance set/);
+  assert.deepEqual(failure.error?.details?.supplied, ["--technical-restart-source-run-id"]);
+});

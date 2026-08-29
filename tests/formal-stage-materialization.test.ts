@@ -650,6 +650,49 @@ test("formal stage publish consumes the exact validation plan and replay rejects
   assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.runId)), before);
 });
 
+test("formal stage validate_only and publish reject a superseded source without writing", async (t) => {
+  const state = await prepareRun(t, "wave-superseded");
+  const task = fixtureEffective(state.bundle, G22_EVALUATION_TASK);
+  const materializer = new FormalStageMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const request = waveRequest(state.runId, task);
+  const validated = await materializer.materialize(request);
+  const before = await snapshotTree(path.join(state.runsRoot, state.runId));
+  const runs = (materializer as unknown as { runs: RunStore }).runs as RunStore & {
+    resolveExecution: RunStore["resolveExecution"];
+  };
+  const originalResolveExecution = runs.resolveExecution.bind(runs);
+  const currentResolution = await state.store.resolveExecution(state.runId);
+  runs.resolveExecution = async (runId: string) => ({
+    ...currentResolution,
+    requestedRunId: runId,
+    disposition: "superseded_by_new_attempt",
+    currentLeafRunId: runId,
+    directTechnicalRestartRunIds: ["formal-stage-superseded-replacement"],
+    issues: [],
+  });
+  try {
+    await assert.rejects(
+      materializer.materialize(request),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+    );
+    assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.runId)), before);
+
+    await assert.rejects(
+      materializer.materialize({
+        ...request,
+        operation: "publish",
+        publication_plan: validated.compilation.publication_plan,
+      }),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+    );
+    assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.runId)), before);
+  } finally {
+    runs.resolveExecution = originalResolveExecution;
+  }
+});
+
 test("formal stage validate_only does not recover a pending Plan operation", async (t) => {
   const state = await prepareRun(t, "validate-only-pending-plan");
   const task = fixtureEffective(state.bundle, G22_EVALUATION_TASK);

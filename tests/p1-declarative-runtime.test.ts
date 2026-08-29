@@ -902,6 +902,61 @@ test("public compiler validates, publishes, replays, and recovers a temp-write f
   assert.equal(faultStatus.observability.publishRetryCount, 1);
 });
 
+test("compiler validate_only and publish reject a superseded source without writing", async (t) => {
+  const state = await prepareRun(t, "compiler-superseded");
+  const execution = executionPlan(state.runId, state.plan);
+  const planQuestion = (state.plan.research_questions as Record<string, unknown>[])[0];
+  assert.ok(planQuestion);
+  const policyRef = "harness/policies/adaptation.current.json";
+  const fragmentRef = `${G21_PLAN_REF}#${String(planQuestion.question_id)}`;
+  const artifact = {
+    ...runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+    input_refs: [policyRef, fragmentRef],
+  };
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  const request = compilationRequest(
+    state.runId,
+    "validate_only",
+    [artifact],
+    "request_superseded_synthetic",
+  );
+  const validated = await compiler.compile(request);
+  const before = await snapshotTree(path.join(state.runsRoot, state.runId));
+  const runs = (compiler as unknown as { runs: RunStore }).runs as RunStore & {
+    resolveExecution: RunStore["resolveExecution"];
+  };
+  const originalResolveExecution = runs.resolveExecution.bind(runs);
+  const currentResolution = await state.runStore.resolveExecution(state.runId);
+  runs.resolveExecution = async (runId: string) => ({
+    ...currentResolution,
+    requestedRunId: runId,
+    disposition: "superseded_by_new_attempt",
+    currentLeafRunId: runId,
+    directTechnicalRestartRunIds: ["compiler-superseded-replacement"],
+    issues: [],
+  });
+  try {
+    await assert.rejects(
+      compiler.compile(request),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+    );
+    assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.runId)), before);
+
+    await assert.rejects(
+      compiler.compile({
+        ...compilationRequest(state.runId, "publish", [], "request_superseded_publish_synthetic"),
+        publication_plan: validated.publication_plan,
+      }),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+    );
+    assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.runId)), before);
+  } finally {
+    runs.resolveExecution = originalResolveExecution;
+  }
+});
+
 test("compiler preflight aggregates construction and reference root causes before any write", async (t) => {
   const state = await prepareRun(t, "preflight-diagnostics");
   const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);

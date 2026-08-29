@@ -29,6 +29,14 @@ const scopeShape = z.object({
   research_language: z.string(),
 });
 
+const technicalRestartShape = z.object({
+  source_run_id: z.string(),
+  source_manifest_hash: z.string(),
+  source_terminal_report_source_ref: z.string(),
+  source_terminal_report_source_hash: z.string(),
+  user_authorization_attestation: z.string(),
+});
+
 export function createEvidenceMcpServer(
   runsRoot: string,
   repositoryRoot = process.cwd(),
@@ -46,13 +54,14 @@ export function createEvidenceMcpServer(
     "create_run",
     {
       description:
-        "Create a Run with an exact Scope proposal awaiting separate confirmation. This operation never asserts that a user confirmed the proposal.",
+        "Create a Run with an exact Scope proposal awaiting separate confirmation. Optional exact technical_restart provenance may declare a fresh current-only attempt after record_runtime_failure, but it never inherits Plan, Task, or terminal state.",
       inputSchema: {
         run_id: z.string(),
         mode: z.enum(["opportunity_discovery", "concept_evidence_assessment"]),
         scope_proposal: scopeShape,
         created_at: z.string().optional(),
         parent_run_id: z.string().nullable().optional(),
+        technical_restart: technicalRestartShape.optional(),
       },
       outputSchema: { result: recordShape },
       annotations: {
@@ -63,7 +72,7 @@ export function createEvidenceMcpServer(
         openWorldHint: false,
       },
     },
-    async ({ run_id, mode, scope_proposal, created_at, parent_run_id }) => {
+    async ({ run_id, mode, scope_proposal, created_at, parent_run_id, technical_restart }) => {
       const result = await (await runStore).create({
         runId: run_id,
         mode,
@@ -76,6 +85,18 @@ export function createEvidenceMcpServer(
         },
         ...(created_at === undefined ? {} : { createdAt: created_at }),
         ...(parent_run_id === undefined ? {} : { parentRunId: parent_run_id }),
+        ...(technical_restart === undefined
+          ? {}
+          : {
+              technicalRestart: {
+                sourceRunId: technical_restart.source_run_id,
+                sourceManifestHash: technical_restart.source_manifest_hash,
+                sourceTerminalReportSourceRef: technical_restart.source_terminal_report_source_ref,
+                sourceTerminalReportSourceHash:
+                  technical_restart.source_terminal_report_source_hash,
+                userAuthorizationAttestation: technical_restart.user_authorization_attestation,
+              },
+            }),
       });
       const structuredContent = { result };
       return {

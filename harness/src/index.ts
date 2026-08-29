@@ -159,6 +159,8 @@ export {
   type RunMode,
   RunStore,
   type StatusRunResult,
+  type TechnicalRestartDeclarationInput,
+  type TechnicalRestartProvenance,
 } from "./run-store/run-store.js";
 export {
   runAdmitPriorInput,
