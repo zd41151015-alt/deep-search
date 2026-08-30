@@ -80,9 +80,9 @@ Completed Runs are immutable. Terminal reporting is completed on the original re
 
 ## Evidence Adapter
 
-`record_evidence` accepts one existing Run id, unit id, research goal, canonical public URL or reserved user-provided URN, and caller-supplied UTF-8 content. It does not fetch the URL. Its append is deterministic and idempotent for the canonical source/content/goal tuple.
+`record_evidence` accepts one existing Run id, unit id, optional unit attempt, source-level `acquisition_goal`, canonical public URL or reserved user-provided URN, and caller-supplied UTF-8 content. It does not fetch the URL. Its append is deterministic and idempotent for the canonical unit-attempt/source/content/acquisition-goal tuple.
 
-`get_evidence_manifest` returns validated substrate metadata only. Tool success does not attest source availability, quote fidelity, provenance, independence, bias, freshness, representativeness, sufficiency, or truth. Agents must declare those fields in formal Evidence Artifacts and bind them to exact substrate refs.
+`get_evidence_manifest` returns validated substrate metadata plus explicit `record_count`, `unique_source_count`, `unique_raw_count`, and `unique_source_raw_count` statistics. Tool success and those counts do not attest source availability, quote fidelity, provenance, independence, bias, freshness, representativeness, sufficiency, or truth. Agents must declare those fields in formal Evidence Artifacts and bind them to exact substrate refs.
 
 ## Normal Research Checks
 

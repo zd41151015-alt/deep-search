@@ -101,7 +101,7 @@ async function prepareSingleBranch(context: TestContext, runId = G12_RUN_ID) {
   const publicRecord = await evidenceStore.record({
     runId,
     unitId: branch.unitId,
-    researchGoal,
+    acquisitionGoal: researchGoal,
     source: { kind: "public_url", canonical_url: "https://synthetic.invalid/state-support" },
     rawContent: "SYNTHETIC STATE SUPPORT BYTES; NOT MARKET EVIDENCE.",
     recordedAt: "2026-07-24T20:20:00Z",
@@ -109,7 +109,7 @@ async function prepareSingleBranch(context: TestContext, runId = G12_RUN_ID) {
   const userRecord = await evidenceStore.record({
     runId,
     unitId: branch.unitId,
-    researchGoal,
+    acquisitionGoal: researchGoal,
     source: {
       kind: "user_provided",
       canonical_uri: "urn:startup-opportunity:user-provided:state-oppose",
@@ -121,6 +121,7 @@ async function prepareSingleBranch(context: TestContext, runId = G12_RUN_ID) {
     branch,
     [publicRecord.record, userRecord.record],
     0,
+    String(task.document.research_goal),
   ).map((envelope) => ({
     ...envelope,
     run_id: runId,
@@ -210,7 +211,7 @@ async function publishVerticalFixture(context: TestContext) {
     const publicRecord = await evidenceStore.record({
       runId: G12_RUN_ID,
       unitId: branch.unitId,
-      researchGoal,
+      acquisitionGoal: researchGoal,
       source: {
         kind: "public_url",
         canonical_url: `https://synthetic.invalid/${branch.unitId}?fixture=1#ignored`,
@@ -221,7 +222,7 @@ async function publishVerticalFixture(context: TestContext) {
     const userRecord = await evidenceStore.record({
       runId: G12_RUN_ID,
       unitId: branch.unitId,
-      researchGoal,
+      acquisitionGoal: researchGoal,
       source: {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${branch.unitId}:oppose`,
@@ -236,7 +237,14 @@ async function publishVerticalFixture(context: TestContext) {
   for (const [index, branch] of G12_BRANCHES.entries()) {
     const pair = records.get(branch.unitId);
     assert.ok(pair);
-    const envelopes = [...branchResearchEnvelopes(branch, pair, index)];
+    const envelopes = [
+      ...branchResearchEnvelopes(
+        branch,
+        pair,
+        index,
+        String(tasks[index]?.document.research_goal ?? ""),
+      ),
+    ];
     branchBundles.push(envelopes);
     await state.store.publishArtifactBundle({ runId: G12_RUN_ID, envelopes });
   }
@@ -650,7 +658,7 @@ test("v2 Evidence Store canonicalizes public URL, supports user origin, dedups r
   const common = {
     runId: "run_g1_2_evidence_001",
     unitId: "unit_synthetic",
-    researchGoal: "Exercise the synthetic v2 identity contract.",
+    acquisitionGoal: "Exercise the synthetic v2 identity contract.",
     rawContent: "SYNTHETIC SHARED BYTES",
     recordedAt: "2026-07-24T20:10:00Z",
   } as const;
@@ -1111,7 +1119,7 @@ test("Evidence receipt cross-task drift fails reopen before any recovery write",
   const recorded = await evidence.record({
     runId: "run_g1_2_receipt_drift_001",
     unitId: "unit_receipt_original",
-    researchGoal: "Synthetic receipt drift contract only.",
+    acquisitionGoal: "Synthetic receipt drift contract only.",
     source: { kind: "public_url", canonical_url: "https://synthetic.invalid/receipt-drift" },
     rawContent: "SYNTHETIC RECEIPT DRIFT BYTES",
     recordedAt: "2026-07-24T20:10:00Z",
@@ -1130,7 +1138,10 @@ test("Evidence receipt cross-task drift fails reopen before any recovery write",
   const before = await snapshotTree(runRoot);
   await assert.rejects(
     store.load("run_g1_2_receipt_drift_001"),
-    (error: unknown) => error instanceof StoreError && error.code === "recovery.missing_operation",
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "recovery.invalid_operation" &&
+      error.details.cause === "evidence.invalid_record",
   );
   assert.deepEqual(await snapshotTree(runRoot), before);
 });
@@ -1142,7 +1153,7 @@ test("v2 Evidence receipt recovers raw publication after an injected crash", asy
     evidence.record({
       runId: "run_g1_2_fault_001",
       unitId: "unit_fault",
-      researchGoal: "Synthetic fault recovery only.",
+      acquisitionGoal: "Synthetic fault recovery only.",
       source: {
         kind: "public_url",
         canonical_url: "https://synthetic.invalid/fault",

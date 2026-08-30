@@ -630,6 +630,7 @@ function assessmentEvidence(
     source_type: "web_page",
     source_name: "Synthetic assessment Evidence contract source",
     research_goal: planUnit.research_goal,
+    task_lineage_goal: planUnit.research_goal,
     source_group_id: "source_synthetic_assessment_contract",
     mechanical_binding: {
       substrate_record_ref: `evidence/manifest.jsonl#${String(record.evidence_id)}`,
@@ -941,7 +942,8 @@ test("multi-dimension results preserve lane coverage and early-kill gates stop l
     },
     source_hash: `sha256:${evidenceHash}`,
     content_hash: `sha256:${contentHash}`,
-    research_goal: problemPlanUnit.research_goal,
+    unit_attempt: 1,
+    acquisition_goal: problemPlanUnit.research_goal,
     raw_content_ref: `evidence/raw/sha256-${contentHash}.bin`,
     operation_key: `sha256:${"3".repeat(64)}`,
     recorded_at: createdAt,
@@ -1578,7 +1580,7 @@ test("Assessment Evidence binds a current dispatch task and exact Evidence Store
     await new EvidenceStore(state.runsRoot).record({
       runId: state.runId,
       unitId: "unit_problem_evidence",
-      researchGoal: String(planUnit.research_goal),
+      acquisitionGoal: String(planUnit.research_goal),
       source: {
         kind: "public_url",
         canonical_url: "https://assessment-evidence.synthetic.invalid/current-contract",

@@ -748,7 +748,7 @@ test("Evidence recovery rejects a receipt stored under the wrong operation-key f
     runId: "evidence-receipt-drift",
     unitId: "unit_001",
     source: { kind: "public_url", canonical_url: "https://example.com/receipt" },
-    researchGoal: "Exercise receipt filename integrity.",
+    acquisitionGoal: "Exercise receipt filename integrity.",
     rawContent: "receipt bytes",
     recordedAt: "2026-07-23T12:05:00Z",
   });

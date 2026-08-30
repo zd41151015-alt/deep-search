@@ -24,7 +24,8 @@ export type EvidenceFaultBoundary = "after_raw_temp" | "after_intent" | "after_r
 interface RecordEvidenceInputBase {
   readonly runId: string;
   readonly unitId: string;
-  readonly researchGoal: string;
+  readonly unitAttempt?: number;
+  readonly acquisitionGoal?: string;
   readonly rawContent: string | Uint8Array;
   readonly recordedAt?: string;
   readonly operationKey?: string;
@@ -66,10 +67,11 @@ export interface EvidenceStoreRecord extends Record<string, unknown> {
   readonly evidence_id: string;
   readonly run_id: string;
   readonly unit_id: string;
+  readonly unit_attempt: number;
   readonly source: CanonicalEvidenceSource;
   readonly source_hash: string;
   readonly content_hash: string;
-  readonly research_goal: string;
+  readonly acquisition_goal: string;
   readonly raw_content_ref: string;
   readonly operation_key: string;
   readonly recorded_at: string;
@@ -101,6 +103,13 @@ export interface EvidenceRecordCapture {
   readonly rawBytes: Uint8Array;
 }
 
+export interface EvidenceStoreStatistics {
+  readonly record_count: number;
+  readonly unique_source_count: number;
+  readonly unique_raw_count: number;
+  readonly unique_source_raw_count: number;
+}
+
 export interface PreparedEvidenceRecord {
   readonly record: EvidenceStoreRecord;
   readonly rawBytes: Uint8Array;
@@ -109,7 +118,13 @@ export interface PreparedEvidenceRecord {
 export function prepareEvidenceRecord(input: RecordEvidenceInput): PreparedEvidenceRecord {
   validateRunId(input.runId);
   assertNonEmpty(input.unitId, "unitId");
-  assertNonEmpty(input.researchGoal, "researchGoal");
+  const acquisitionGoal = inputAcquisitionGoal(input);
+  const unitAttempt = input.unitAttempt ?? 1;
+  if (!Number.isInteger(unitAttempt) || unitAttempt < 1) {
+    throw new StoreError("evidence.invalid_input", "unitAttempt must be a positive integer", {
+      unitAttempt,
+    });
+  }
   const rawBytes =
     typeof input.rawContent === "string"
       ? Buffer.from(input.rawContent, "utf8")
@@ -118,15 +133,18 @@ export function prepareEvidenceRecord(input: RecordEvidenceInput): PreparedEvide
   const source = canonicalizeSource(input.source);
   const handoffBinding = validateHandoffBinding(input.handoffBinding);
   const stableOperationKey = expectedEvidenceOperationKey(
+    input.runId,
+    input.unitId,
+    unitAttempt,
     source,
     contentHash,
-    input.researchGoal,
+    acquisitionGoal,
     handoffBinding,
   );
   if (input.operationKey !== undefined && input.operationKey !== stableOperationKey) {
     throw new StoreError(
       "operation.key_mismatch",
-      "Evidence operation key must match the canonical source/content/goal tuple",
+      "Evidence operation key must match the canonical source/content/acquisition-goal tuple",
       { expected: stableOperationKey, actual: input.operationKey },
     );
   }
@@ -138,8 +156,9 @@ export function prepareEvidenceRecord(input: RecordEvidenceInput): PreparedEvide
       evidence_id: `ev_${operationHex}`,
       run_id: input.runId,
       unit_id: input.unitId,
+      unit_attempt: unitAttempt,
       content_hash: contentHash,
-      research_goal: input.researchGoal,
+      acquisition_goal: acquisitionGoal,
       raw_content_ref: `evidence/raw/sha256-${contentHex}.bin`,
       operation_key: stableOperationKey,
       recorded_at: input.recordedAt ?? new Date().toISOString(),
@@ -180,6 +199,16 @@ function assertNonEmpty(value: string, field: string): void {
   }
 }
 
+function inputAcquisitionGoal(input: RecordEvidenceInputBase): string {
+  if (input.acquisitionGoal === undefined) {
+    throw new StoreError("evidence.invalid_input", "acquisitionGoal must not be empty", {
+      field: "acquisitionGoal",
+    });
+  }
+  assertNonEmpty(input.acquisitionGoal, "acquisitionGoal");
+  return input.acquisitionGoal;
+}
+
 function pathBasename(relativePath: string): string {
   return relativePath.split("/").at(-1) ?? "";
 }
@@ -216,15 +245,21 @@ function canonicalizeSource(source: CanonicalEvidenceSource): CanonicalEvidenceS
 }
 
 function expectedEvidenceOperationKey(
+  runId: string,
+  unitId: string,
+  unitAttempt: number,
   source: CanonicalEvidenceSource,
   contentHash: string,
-  researchGoal: string,
+  acquisitionGoal: string,
   handoffBinding?: EvidenceHandoffBinding,
 ): string {
   return operationKey("record_evidence", {
+    run_id: runId,
+    unit_id: unitId,
+    unit_attempt: unitAttempt,
     source,
     content_hash: contentHash,
-    research_goal: researchGoal,
+    acquisition_goal: acquisitionGoal,
     ...(handoffBinding === undefined ? {} : { handoff_binding: handoffBinding }),
   });
 }
@@ -285,10 +320,11 @@ function validateEvidenceRecord(value: unknown, runId: string): EvidenceStoreRec
       "evidence_id",
       "run_id",
       "unit_id",
+      "unit_attempt",
       "source",
       "source_hash",
       "content_hash",
-      "research_goal",
+      "acquisition_goal",
       "raw_content_ref",
       "operation_key",
       "recorded_at",
@@ -298,9 +334,11 @@ function validateEvidenceRecord(value: unknown, runId: string): EvidenceStoreRec
     value.run_id !== runId ||
     typeof value.unit_id !== "string" ||
     !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.unit_id) ||
+    !Number.isInteger(value.unit_attempt) ||
+    (value.unit_attempt as number) < 1 ||
     !isRecord(value.source) ||
-    typeof value.research_goal !== "string" ||
-    value.research_goal.trim().length === 0 ||
+    typeof value.acquisition_goal !== "string" ||
+    value.acquisition_goal.trim().length === 0 ||
     typeof value.recorded_at !== "string" ||
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
       value.recorded_at,
@@ -331,9 +369,12 @@ function validateEvidenceRecord(value: unknown, runId: string): EvidenceStoreRec
     value.source_hash !== sha256Bytes(canonicalJson(source)) ||
     value.operation_key !==
       expectedEvidenceOperationKey(
+        value.run_id,
+        value.unit_id,
+        value.unit_attempt as number,
         source,
         value.content_hash,
-        value.research_goal,
+        value.acquisition_goal,
         handoffBinding,
       ) ||
     value.evidence_id !== `ev_${operationHex}` ||
@@ -375,9 +416,12 @@ function validateEvidenceReceipt(
     );
   }
   const expectedKey = expectedEvidenceOperationKey(
+    record.run_id,
+    record.unit_id,
+    record.unit_attempt,
     record.source,
     record.content_hash,
-    record.research_goal,
+    record.acquisition_goal,
     record.handoff_binding,
   );
   const expectedFilename = `evidence-${sha256Hex(value.operation_key)}.json`;
@@ -453,6 +497,17 @@ async function appendRecord(filename: string, record: EvidenceStoreRecord): Prom
   }
 }
 
+function evidenceStatistics(records: readonly EvidenceStoreRecord[]): EvidenceStoreStatistics {
+  return {
+    record_count: records.length,
+    unique_source_count: new Set(records.map((record) => record.source_hash)).size,
+    unique_raw_count: new Set(records.map((record) => record.content_hash)).size,
+    unique_source_raw_count: new Set(
+      records.map((record) => `${record.source_hash}\u0000${record.content_hash}`),
+    ).size,
+  };
+}
+
 export class EvidenceStore {
   constructor(private readonly runsRoot: string) {}
 
@@ -465,7 +520,7 @@ export class EvidenceStore {
     }
     validateRunId(input.runId);
     assertNonEmpty(input.unitId, "unitId");
-    assertNonEmpty(input.researchGoal, "researchGoal");
+    inputAcquisitionGoal(input);
     await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
@@ -499,7 +554,7 @@ export class EvidenceStore {
   ): Promise<RecordEvidenceResult> {
     validateRunId(input.runId);
     assertNonEmpty(input.unitId, "unitId");
-    assertNonEmpty(input.researchGoal, "researchGoal");
+    inputAcquisitionGoal(input);
     await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
     if (!scopeMutationPrevalidated) {
       await assertScopeAllowsStorageMutationLocked(this.runsRoot, runRoot, input.runId, {
@@ -644,6 +699,12 @@ export class EvidenceStore {
     return this.listRecordsLocked(runRoot, runId);
   }
 
+  async statistics(runId: string): Promise<EvidenceStoreStatistics> {
+    validateRunId(runId);
+    const runRoot = await openRunDirectoryReadOnly(this.runsRoot, runId);
+    return this.statisticsLocked(runRoot, runId);
+  }
+
   async readExactRecordLocked(
     runRoot: string,
     runId: string,
@@ -684,6 +745,10 @@ export class EvidenceStore {
       throw new StoreError("evidence.corrupt_tail", "repair evidence manifest before reading");
     }
     return parsed.records;
+  }
+
+  async statisticsLocked(runRoot: string, runId: string): Promise<EvidenceStoreStatistics> {
+    return evidenceStatistics(await this.listRecordsLocked(runRoot, runId));
   }
 
   async recoverLocked(runRoot: string, runId: string): Promise<EvidenceRecoveryResult> {

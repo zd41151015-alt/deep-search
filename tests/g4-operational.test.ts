@@ -139,7 +139,7 @@ test("explicit create, status, Evidence, and recovery remain usable with hooks d
     "unit_g4_synthetic",
     "--source-url",
     "https://example.invalid/g4-operational-unverified",
-    "--research-goal",
+    "--acquisition-goal",
     "Exercise the explicit hooks-disabled Evidence path only.",
     "--content-file",
     "tests/fixtures/g4/synthetic-evidence.txt",

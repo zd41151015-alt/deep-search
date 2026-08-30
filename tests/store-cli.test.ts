@@ -97,7 +97,7 @@ test("Harness and Skill G0.3 entries create, record, checkpoint, and reopen a re
     "cli_unit_001",
     "--source-url",
     "https://example.com/cli#fragment",
-    "--research-goal",
+    "--acquisition-goal",
     "Exercise the operational Evidence substrate entry.",
     "--content-file",
     "tests/fixtures/store/evidence-source.txt",
@@ -115,9 +115,11 @@ test("Harness and Skill G0.3 entries create, record, checkpoint, and reopen a re
     runId,
     "--unit-id",
     "cli_unit_002",
+    "--unit-attempt",
+    "2",
     "--source-uri",
     "urn:startup-opportunity:user-provided:cli-fixture-002",
-    "--research-goal",
+    "--acquisition-goal",
     "Exercise the G1.2 user-provided substrate contract.",
     "--content-file",
     "tests/fixtures/store/evidence-source.txt",
@@ -125,11 +127,13 @@ test("Harness and Skill G0.3 entries create, record, checkpoint, and reopen a re
     "2026-07-23T12:01:30Z",
   ]);
   assert.equal(materializedEvidence.status, 0, materializedEvidence.stderr);
-  assert.equal(
-    (JSON.parse(materializedEvidence.stdout) as { record: { schema_version: string } }).record
-      .schema_version,
-    "startup_opportunity.evidence_store_record.v2",
-  );
+  const materializedRecord = (
+    JSON.parse(materializedEvidence.stdout) as {
+      record: { schema_version: string; unit_attempt: number };
+    }
+  ).record;
+  assert.equal(materializedRecord.schema_version, "startup_opportunity.evidence_store_record.v2");
+  assert.equal(materializedRecord.unit_attempt, 2);
 
   const artifactDocument = {
     schema_version: "startup_opportunity.event.v1",

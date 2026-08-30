@@ -384,7 +384,7 @@ function checkEvidence(
     ["evidence_id", "evidence_id"],
     ["run_id", "run_id"],
     ["unit_id", "unit_id"],
-    ["research_goal", "research_goal"],
+    ["research_goal", "acquisition_goal"],
   ];
   for (const [evidenceField, substrateField] of fieldPairs) {
     if (evidence.document[evidenceField] !== substrate[substrateField]) {
@@ -397,6 +397,26 @@ function checkEvidence(
         ),
       );
     }
+  }
+  if (evidence.document.task_lineage_goal !== task.document.research_goal) {
+    errors.push(
+      issue(
+        "research_contract.task_lineage_goal_mismatch",
+        `${evidence.path}#/task_lineage_goal`,
+        "Evidence task lineage goal differs from its typed task",
+        { taskRef: task.path },
+      ),
+    );
+  }
+  if (task.document.attempt !== substrate.unit_attempt) {
+    errors.push(
+      issue(
+        "research_contract.substrate_attempt_mismatch",
+        `${evidence.path}#/lineage/attempt`,
+        "Evidence substrate attempt differs from its typed task",
+        { taskRef: task.path },
+      ),
+    );
   }
   const mechanicalFields = [
     "source",

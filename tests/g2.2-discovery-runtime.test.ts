@@ -210,7 +210,7 @@ async function setup(context: TestContext, suffix: string): Promise<RuntimeState
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-generation`,
       },
-      researchGoal: "SYNTHETIC runtime generation substrate; not Evidence or validation.",
+      acquisitionGoal: "SYNTHETIC runtime generation substrate; not Evidence or validation.",
       rawContent: "SYNTHETIC generation bytes; not Evidence.",
       recordedAt: "2026-07-27T17:40:00Z",
     })
@@ -223,7 +223,7 @@ async function setup(context: TestContext, suffix: string): Promise<RuntimeState
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-evaluation`,
       },
-      researchGoal: "SYNTHETIC runtime evaluation substrate; not Evidence or validation.",
+      acquisitionGoal: "SYNTHETIC runtime evaluation substrate; not Evidence or validation.",
       rawContent: "SYNTHETIC evaluation bytes; not Evidence.",
       recordedAt: "2026-07-27T17:41:00Z",
     })

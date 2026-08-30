@@ -214,7 +214,7 @@ test("candidate snapshot installs and runs explicit entries plus stdio MCP", asy
       "unit_clean_checkout",
       "--source-url",
       "https://example.invalid/g4-clean-checkout-unverified",
-      "--research-goal",
+      "--acquisition-goal",
       "Exercise clean-checkout deterministic Evidence handoff only.",
       "--content-file",
       "tests/fixtures/g4/synthetic-evidence.txt",
@@ -264,12 +264,17 @@ test("candidate snapshot installs and runs explicit entries plus stdio MCP", asy
     arguments: { run_id: runId },
   });
   assert.equal((manifest.structuredContent as { records?: unknown[] }).records?.length, 1);
+  assert.equal(
+    (manifest.structuredContent as { statistics?: { record_count?: unknown } }).statistics
+      ?.record_count,
+    1,
+  );
   const mcpRecord = await client.callTool({
     name: "record_evidence",
     arguments: {
       run_id: runId,
       unit_id: "unit_clean_checkout_mcp",
-      research_goal: "Exercise clean-checkout stdio handoff only.",
+      acquisition_goal: "Exercise clean-checkout stdio handoff only.",
       source: {
         kind: "user_provided",
         canonical_uri: "urn:startup-opportunity:user-provided:g4-clean-checkout-synthetic",

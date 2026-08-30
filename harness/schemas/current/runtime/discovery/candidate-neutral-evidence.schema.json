@@ -15,6 +15,7 @@
     "source_type",
     "source_name",
     "research_goal",
+    "task_lineage_goal",
     "source_group_id",
     "mechanical_binding",
     "evidence_tier",
@@ -65,6 +66,9 @@
       "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
     },
     "research_goal": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "task_lineage_goal": {
       "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
     },
     "source_group_id": {

@@ -70,6 +70,20 @@ function required(parsed: ParsedArguments, name: string): string {
   return value;
 }
 
+function optionalPositiveInteger(parsed: ParsedArguments, name: string): number | undefined {
+  const value = parsed.values.get(name);
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!/^[1-9][0-9]*$/.test(value)) {
+    throw new StoreError("command.invalid_arguments", `${name} must be a positive integer`, {
+      name,
+      value,
+    });
+  }
+  return Number.parseInt(value, 10);
+}
+
 function rejectUnknown(parsed: ParsedArguments, allowed: readonly string[]): void {
   const unknown = [...parsed.values.keys(), ...parsed.repeated.keys()].filter(
     (name) => !allowed.includes(name),
@@ -593,9 +607,10 @@ export async function runRecordEvidence(
     rejectUnknown(parsed, [
       "--run-id",
       "--unit-id",
+      "--unit-attempt",
       "--source-url",
       "--source-uri",
-      "--research-goal",
+      "--acquisition-goal",
       "--content-file",
       "--recorded-at",
       "--operation-key",
@@ -610,6 +625,7 @@ export async function runRecordEvidence(
     const suppliedOperationKey = parsed.values.get("--operation-key");
     const sourceUrl = parsed.values.get("--source-url");
     const sourceUri = parsed.values.get("--source-uri");
+    const unitAttempt = optionalPositiveInteger(parsed, "--unit-attempt");
     const sourceCount = [sourceUrl, sourceUri].filter((value) => value !== undefined).length;
     if (sourceCount !== 1) {
       throw new StoreError(
@@ -620,7 +636,8 @@ export async function runRecordEvidence(
     const common = {
       runId,
       unitId: required(parsed, "--unit-id"),
-      researchGoal: required(parsed, "--research-goal"),
+      ...(unitAttempt === undefined ? {} : { unitAttempt }),
+      acquisitionGoal: required(parsed, "--acquisition-goal"),
       rawContent: await readFile(required(parsed, "--content-file")),
       ...(recordedAt === undefined ? {} : { recordedAt }),
       ...(suppliedOperationKey === undefined ? {} : { operationKey: suppliedOperationKey }),

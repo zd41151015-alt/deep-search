@@ -19,7 +19,7 @@ Usage:
   npm run harness -- create-research-handoff --file FILE [--runs-root DIR]
   npm run harness -- read-research-handoff --run-id ID --handoff-ref REF --item-id ID [--item-id ID]
   npm run harness -- reform-decision-subject --run-id ID --terminal-snapshot-ref REF --terminal-subject-id ID --reformed-subject-ref REF --reformation-input-ref REF --reason REASON
-  npm run harness -- record-evidence --run-id ID --unit-id ID (--source-url URL | --source-uri URN) --research-goal GOAL --content-file FILE
+  npm run harness -- record-evidence --run-id ID --unit-id ID [--unit-attempt N] (--source-url URL | --source-uri URN) --acquisition-goal GOAL --content-file FILE
   npm run harness -- publish-artifact --file FILE [--runs-root DIR]
   npm run harness -- compile-artifacts --file FILE [--runs-root DIR] [--observe]
   npm run harness -- materialize-formal-stage --file FILE [--runs-root DIR] [--observe]

@@ -56,13 +56,14 @@ Record synthetic caller-supplied bytes without MCP:
 npm run harness -- record-evidence \
   --run-id sample-assess-unverified \
   --unit-id unit-synthetic-example \
+  --unit-attempt 1 \
   --source-url https://example.invalid/g4-synthetic-unverified \
-  --research-goal "Exercise deterministic Evidence handoff only." \
+  --acquisition-goal "Exercise deterministic Evidence handoff only." \
   --content-file tests/fixtures/g4/synthetic-evidence.txt \
   --recorded-at 2026-07-30T00:01:00Z
 ```
 
-The equivalent MCP call supplies the same fields and raw content to `record_evidence`. It does not fetch `example.invalid`.
+The equivalent MCP call supplies the same fields, optional `unit_attempt`, and raw content to `record_evidence`. It does not fetch `example.invalid`.
 
 ## Resume And Status
 

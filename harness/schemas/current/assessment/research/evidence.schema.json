@@ -16,6 +16,7 @@
     "published_at",
     "retrieved_at",
     "research_goal",
+    "task_lineage_goal",
     "research_phase_role",
     "geo",
     "language",
@@ -83,6 +84,9 @@
       "$ref": "./definitions.schema.json#/$defs/timestamp"
     },
     "research_goal": {
+      "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
+    },
+    "task_lineage_goal": {
       "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
     },
     "research_phase_role": {

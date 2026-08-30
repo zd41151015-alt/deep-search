@@ -701,7 +701,8 @@ function mechanicalDocumentFields(
         dispatch_batch_ref: authority.dispatchTaskRef,
         scope_frame_ref: authority.task.scope_frame_ref,
         research_plan_ref: authority.planRef,
-        research_goal: authority.task.research_goal,
+        research_goal: evidenceRecord.acquisition_goal,
+        task_lineage_goal: authority.task.research_goal,
         target_candidate_refs: [],
         solution_refs: [],
         mechanical_binding: {
@@ -723,6 +724,8 @@ function mechanicalDocumentFields(
         concept_hypothesis_ref: authority.assignedSubjectRefs[0],
         research_plan_ref: authority.planRef,
         execution_plan_ref: authority.executionRef,
+        research_goal: evidenceRecord.acquisition_goal,
+        task_lineage_goal: authority.task.research_goal,
         mechanical_binding: {
           substrate_record_ref: `evidence/manifest.jsonl#${evidenceRecord.evidence_id}`,
           source_hash: evidenceRecord.source_hash,
@@ -737,6 +740,8 @@ function mechanicalDocumentFields(
       ...common,
       evidence_id: evidenceRecord.evidence_id,
       unit_id: authority.unitId,
+      research_goal: evidenceRecord.acquisition_goal,
+      task_lineage_goal: authority.task.research_goal,
       lineage: discoveryLineage(authority),
       ...(authority.taskSchema === "startup_opportunity.research_task.assessment.current"
         ? {
@@ -1580,9 +1585,10 @@ export class LaneResultMaterializer {
           );
           if (
             !staging.evidence_receipt_refs.includes(artifact.evidence_receipt_ref) ||
-            evidenceRecord.unit_id !== authority.unitId
+            evidenceRecord.unit_id !== authority.unitId ||
+            evidenceRecord.unit_attempt !== Number(authority.task.attempt)
           ) {
-            throw new Error("receipt is outside the Lane delivery or unit");
+            throw new Error("receipt is outside the Lane delivery unit or attempt");
           }
         } catch {
           constructionIssues.push(
@@ -1590,8 +1596,8 @@ export class LaneResultMaterializer {
               staging.staging_id,
               "lane_delivery.evidence_binding_invalid",
               `/agent_documents/${String(index)}/evidence_receipt_ref`,
-              "typed Evidence must bind one exact same-Run, same-unit Evidence Store receipt",
-              "The Evidence semantic document names a missing, undeclared, or wrong-unit substrate receipt.",
+              "typed Evidence must bind one exact same-Run, same-unit, same-attempt Evidence Store receipt",
+              "The Evidence semantic document names a missing, undeclared, wrong-unit, or wrong-attempt substrate receipt.",
               artifact.evidence_receipt_ref,
               true,
               [artifact.evidence_receipt_ref, authority.taskRef],

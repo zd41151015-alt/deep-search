@@ -395,6 +395,9 @@ function validateTaskAndMaterial(
         substrate.evidence_id !== material.document.evidence_id ||
         substrate.run_id !== material.document.run_id ||
         substrate.unit_id !== material.document.unit_id ||
+        substrate.acquisition_goal !== material.document.research_goal ||
+        task?.document.research_goal !== material.document.task_lineage_goal ||
+        substrate.unit_attempt !== task?.document.attempt ||
         substrate.source_hash !== binding.source_hash ||
         substrate.content_hash !== binding.content_hash ||
         substrate.raw_content_ref !== binding.raw_content_ref ||

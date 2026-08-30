@@ -93,7 +93,7 @@ async function prepareGenerationResultRun(t: TestContext) {
     await evidence.record({
       runId,
       unitId: "unit_seed_independent_demand",
-      researchGoal: "SYNTHETIC generation substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC generation substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri: "urn:startup-opportunity:user-provided:generation-lane-materialization",
@@ -106,7 +106,7 @@ async function prepareGenerationResultRun(t: TestContext) {
     await evidence.record({
       runId,
       unitId: "unit_counterfactual",
-      researchGoal: "SYNTHETIC evaluation substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC evaluation substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri:
@@ -370,7 +370,7 @@ async function prepareEnrichmentBranchRun(t: TestContext) {
           kind: "user_provided",
           canonical_uri: `urn:startup-opportunity:user-provided:enrichment-${label}`,
         },
-        researchGoal: `SYNTHETIC ${label} substrate; not Evidence.`,
+        acquisitionGoal: `SYNTHETIC ${label} substrate; not Evidence.`,
         rawContent: `SYNTHETIC ${label} bytes; not Evidence.`,
         recordedAt: "2026-07-27T20:50:00Z",
       })

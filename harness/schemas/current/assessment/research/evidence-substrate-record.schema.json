@@ -9,10 +9,11 @@
     "evidence_id",
     "run_id",
     "unit_id",
+    "unit_attempt",
     "source",
     "source_hash",
     "content_hash",
-    "research_goal",
+    "acquisition_goal",
     "raw_content_ref",
     "operation_key",
     "recorded_at"
@@ -31,6 +32,10 @@
     "unit_id": {
       "$ref": "./definitions.schema.json#/$defs/identifier"
     },
+    "unit_attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
     "source": {
       "$ref": "./definitions.schema.json#/$defs/canonicalSource"
     },
@@ -40,7 +45,7 @@
     "content_hash": {
       "$ref": "./definitions.schema.json#/$defs/sha256"
     },
-    "research_goal": {
+    "acquisition_goal": {
       "$ref": "./definitions.schema.json#/$defs/nonEmptyString"
     },
     "raw_content_ref": {

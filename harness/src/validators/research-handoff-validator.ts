@@ -169,6 +169,13 @@ function targetHash(target: ResearchHandoffDocument): string {
     : canonicalContentHash(target.document);
 }
 
+function researchPlanUnits(
+  document: Record<string, unknown>,
+): ReadonlyMap<string, Record<string, unknown>> {
+  const units = records(document.waves).flatMap((wave) => records(wave.units));
+  return new Map(units.map((unit) => [String(unit.unit_id), unit]));
+}
+
 function handoffBindings(document: ResearchHandoffDocument): readonly Record<string, unknown>[] {
   if (document.schemaVersion === "startup_opportunity.discovery_candidate.v1") {
     const formation = isRecord(document.document.formation) ? document.document.formation : {};
@@ -730,6 +737,8 @@ function validateHandoffArtifact(
     String(document.target_scope_ref),
     ...(planBound ? [String(document.target_plan_ref)] : []),
   ].sort();
+  const targetPlanUnits =
+    planBound && plan !== undefined ? researchPlanUnits(plan.document) : new Map();
   if (
     handoff.path !== expectedPath ||
     handoff.envelope?.producer_role !== "harness" ||
@@ -816,6 +825,22 @@ function validateHandoffArtifact(
     }
     const [targetRef, targetRecord] = targetRecords[0] ?? [];
     const binding = isRecord(targetRecord?.handoff_binding) ? targetRecord.handoff_binding : {};
+    const targetUnitId = typeof item.target_unit_id === "string" ? item.target_unit_id : null;
+    const targetUnitAttempt = Number(item.target_unit_attempt);
+    const targetPlanUnit = targetUnitId === null ? undefined : targetPlanUnits.get(targetUnitId);
+    const targetPlanUnitAttempt = Number(targetPlanUnit?.attempt);
+    const targetUnitClosureValid =
+      planBound &&
+      targetPlanUnit !== undefined &&
+      typeof targetPlanUnit.research_goal === "string" &&
+      targetPlanUnit.research_goal.trim().length > 0 &&
+      item.target_research_goal === targetPlanUnit.research_goal &&
+      Number.isInteger(targetUnitAttempt) &&
+      targetUnitAttempt > 0 &&
+      Number.isInteger(targetPlanUnitAttempt) &&
+      targetPlanUnitAttempt === targetUnitAttempt &&
+      targetRecord?.unit_id === targetUnitId &&
+      targetRecord.unit_attempt === targetUnitAttempt;
     let sourceRecordedAt: unknown;
     try {
       const sourceRecord = JSON.parse(
@@ -830,6 +855,9 @@ function validateHandoffArtifact(
       targetRef !== item.target_evidence_ref ||
       canonicalContentHash(targetRecord) !== item.target_evidence_record_hash ||
       targetRecord?.content_hash !== item.source_raw_content_hash ||
+      !targetUnitClosureValid ||
+      binding.handoff_ref !== handoff.path ||
+      binding.handoff_item_id !== item.item_id ||
       binding.source_run_id !== document.source_run_id ||
       binding.source_evidence_path !== item.source_artifact_path ||
       binding.source_record_hash !== item.source_record_hash ||
@@ -843,7 +871,7 @@ function validateHandoffArtifact(
         issue(
           "research_handoff.evidence_copy_binding_mismatch",
           `${handoff.path}#/items/${index}`,
-          "Imported Evidence must retain exact handoff, source record, raw byte, freshness, and applicability provenance",
+          "Imported Evidence must retain exact handoff, target Plan unit, source record, raw byte, freshness, and applicability provenance",
         ),
       );
     }

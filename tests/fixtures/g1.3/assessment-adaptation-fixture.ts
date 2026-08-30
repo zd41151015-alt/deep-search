@@ -277,7 +277,7 @@ export async function prepareG13Run(
   const first = await evidenceStore.record({
     runId,
     unitId: branch.unitId,
-    researchGoal,
+    acquisitionGoal: researchGoal,
     source: {
       kind: "public_url",
       canonical_url: "https://buyer-gap.synthetic.invalid/current-language",
@@ -288,7 +288,7 @@ export async function prepareG13Run(
   const second = await evidenceStore.record({
     runId,
     unitId: branch.unitId,
-    researchGoal,
+    acquisitionGoal: researchGoal,
     source: {
       kind: "user_provided",
       canonical_uri: "urn:startup-opportunity:user-provided:g1-3-buyer-gap:oppose",
@@ -297,9 +297,12 @@ export async function prepareG13Run(
     recordedAt: "2026-07-25T16:04:00Z",
   });
   const records = [first.record, second.record] as const;
-  const branchEnvelopes = branchResearchEnvelopes(branch, records, 5).map((entry) =>
-    withRun(entry, runId),
-  );
+  const branchEnvelopes = branchResearchEnvelopes(
+    branch,
+    records,
+    5,
+    String(task.document.research_goal),
+  ).map((entry) => withRun(entry, runId));
   await store.publishArtifactBundle({ runId, envelopes: branchEnvelopes });
 
   return {
@@ -364,7 +367,7 @@ export async function publishAdditionalG13Branch(
   const first = await evidenceStore.record({
     runId: state.runId,
     unitId: branch.unitId,
-    researchGoal,
+    acquisitionGoal: researchGoal,
     source: {
       kind: "public_url",
       canonical_url: `https://${branch.unitId}.synthetic.invalid/current-signal`,
@@ -375,7 +378,7 @@ export async function publishAdditionalG13Branch(
   const second = await evidenceStore.record({
     runId: state.runId,
     unitId: branch.unitId,
-    researchGoal,
+    acquisitionGoal: researchGoal,
     source: {
       kind: "user_provided",
       canonical_uri: `urn:startup-opportunity:user-provided:g1-3-${branch.unitId}:oppose`,
@@ -387,8 +390,8 @@ export async function publishAdditionalG13Branch(
   state.records.push(...records);
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: branchResearchEnvelopes(branch, records, 7).map((entry) =>
-      withRun(entry, state.runId),
+    envelopes: branchResearchEnvelopes(branch, records, 7, String(task.document.research_goal)).map(
+      (entry) => withRun(entry, state.runId),
     ),
   });
 }

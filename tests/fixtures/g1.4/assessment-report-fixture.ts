@@ -243,10 +243,11 @@ function substrateRecord(
     evidence_id: `ev_${evidenceDigit.repeat(64)}`,
     run_id: G14_RUN_ID,
     unit_id: "unit_demand",
+    unit_attempt: 1,
     source,
     source_hash: hash(evidenceDigit === "1" ? "a" : "b"),
     content_hash: hash(evidenceDigit === "1" ? "c" : "d"),
-    research_goal: "Exercise a synthetic G1.4 contract scenario without market assertions.",
+    acquisition_goal: "Exercise a synthetic G1.4 contract scenario without market assertions.",
     raw_content_ref: `evidence/raw/sha256-${evidenceDigit === "1" ? "c".repeat(64) : "d".repeat(64)}.bin`,
     operation_key: hash(evidenceDigit === "1" ? "e" : "f"),
     recorded_at: `2026-07-25T18:0${offset}:00Z`,
@@ -552,7 +553,16 @@ export async function createG14ContractBundle(
   if (demandBranch === undefined) {
     throw new Error("synthetic demand branch is missing");
   }
-  const chain = branchResearchEnvelopes(demandBranch, SYNTHETIC_RECORDS, 0);
+  const demandTask = documents.get(`tasks/${demandBranch.unitId}.attempt-1.json`);
+  if (demandTask === undefined) {
+    throw new Error("synthetic demand task is missing");
+  }
+  const chain = branchResearchEnvelopes(
+    demandBranch,
+    SYNTHETIC_RECORDS,
+    0,
+    String(demandTask.research_goal),
+  );
   for (const entry of chain) {
     if (entry.artifact_path === demandBranch.outputPath) {
       documents.set(entry.artifact_path, clone(entry.document));
@@ -1298,7 +1308,7 @@ export function replaceG14EvidenceRecords(
     for (const field of [
       "source_hash",
       "content_hash",
-      "research_goal",
+      "acquisition_goal",
       "raw_content_ref",
       "operation_key",
       "recorded_at",
@@ -1326,7 +1336,7 @@ export function replaceG14EvidenceRecords(
       recorded_at: record.recorded_at,
     });
     evidence.retrieved_at = record.recorded_at;
-    evidence.research_goal = record.research_goal;
+    evidence.research_goal = record.acquisition_goal;
     const provenance = evidence.provenance as Record<string, unknown>;
     provenance.user_provided_at =
       record.source.kind === "user_provided" ? record.recorded_at : null;

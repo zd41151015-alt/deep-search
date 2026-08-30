@@ -197,6 +197,23 @@ async function commercialPolicy(): Promise<CommercialResearchPolicy> {
   return policy.commercial_research_contract;
 }
 
+test("current research publication policy names the Evidence Store operation identity", async () => {
+  const policy = JSON.parse(
+    await readFile(
+      path.join(repositoryRoot, "harness/policies/research-publication.current.json"),
+      "utf8",
+    ),
+  ) as { evidence_contract?: unknown };
+  assert.deepEqual(policy.evidence_contract, {
+    substrate_record: "startup_opportunity.evidence_store_record.v2",
+    business_evidence: "startup_opportunity.evidence.assessment.current",
+    audit_artifact: "startup_opportunity.evidence_audit.v1",
+    stable_identity:
+      "run_id_unit_id_unit_attempt_canonical_source_content_hash_acquisition_goal_handoff_sha256.v2",
+    raw_dedup_identity: "content_sha256.v1",
+  });
+});
+
 function commercialDelivery(
   overrides: Readonly<Record<string, unknown>> = {},
 ): Record<string, unknown> {

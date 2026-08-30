@@ -161,6 +161,17 @@
         }
       ]
     },
+    "nullablePositiveInteger": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "handoffItem": {
       "type": "object",
       "additionalProperties": false,
@@ -182,6 +193,7 @@
         "applicability_disposition",
         "revalidation_status",
         "target_unit_id",
+        "target_unit_attempt",
         "target_research_goal",
         "target_artifact_ref",
         "target_evidence_ref",
@@ -248,6 +260,9 @@
         "target_unit_id": {
           "$ref": "#/$defs/nullableString"
         },
+        "target_unit_attempt": {
+          "$ref": "#/$defs/nullablePositiveInteger"
+        },
         "target_research_goal": {
           "$ref": "#/$defs/nullableString"
         },
@@ -293,9 +308,12 @@
                 "type": "string",
                 "minLength": 1
               },
+              "target_unit_attempt": {
+                "type": "integer",
+                "minimum": 1
+              },
               "target_research_goal": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/nullableString"
               },
               "target_artifact_ref": {
                 "type": "null"
@@ -315,6 +333,9 @@
                 "const": "hypothesis_input_only"
               },
               "target_unit_id": {
+                "type": "null"
+              },
+              "target_unit_attempt": {
                 "type": "null"
               },
               "target_research_goal": {
