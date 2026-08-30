@@ -693,7 +693,7 @@ async function prepareGenerationPlanBundle(
     await evidence.record({
       runId,
       unitId: "unit_seed_independent_demand",
-      researchGoal: "SYNTHETIC generation substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC generation substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-generation`,
@@ -706,7 +706,7 @@ async function prepareGenerationPlanBundle(
     await evidence.record({
       runId,
       unitId: "unit_counterfactual",
-      researchGoal: "SYNTHETIC evaluation substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC evaluation substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-evaluation`,
@@ -829,7 +829,7 @@ async function prepareRunThroughDiscoveryFanIn(context: TestContext, suffix: str
     await evidence.record({
       runId,
       unitId: "unit_seed_independent_demand",
-      researchGoal: "SYNTHETIC retained-scope substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC retained-scope substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-generation`,
@@ -842,7 +842,7 @@ async function prepareRunThroughDiscoveryFanIn(context: TestContext, suffix: str
     await evidence.record({
       runId,
       unitId: "unit_counterfactual",
-      researchGoal: "SYNTHETIC retained-scope substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC retained-scope substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-evaluation`,
@@ -2958,7 +2958,7 @@ test("formal stage validate_only plan remains stable across unrelated formal Art
   await new EvidenceStore(state.runsRoot).record({
     runId: state.runId,
     unitId: "unit_unrelated_growth",
-    researchGoal: "SYNTHETIC unrelated bytes appended after validate_only; not Evidence.",
+    acquisitionGoal: "SYNTHETIC unrelated bytes appended after validate_only; not Evidence.",
     source: {
       kind: "user_provided",
       canonical_uri: "urn:startup-opportunity:user-provided:unrelated-growth",
@@ -2995,7 +2995,7 @@ test("formal stage validate_only plan remains stable across unrelated formal Art
   await new EvidenceStore(state.runsRoot).record({
     runId: state.runId,
     unitId: "unit_unrelated_growth_replay",
-    researchGoal: "SYNTHETIC unrelated bytes appended before exact replay; not Evidence.",
+    acquisitionGoal: "SYNTHETIC unrelated bytes appended before exact replay; not Evidence.",
     source: {
       kind: "user_provided",
       canonical_uri: "urn:startup-opportunity:user-provided:unrelated-growth-replay",

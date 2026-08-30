@@ -1101,7 +1101,7 @@ async function seedRuntimeFailureSubstrateOnlyEvidence(
             kind: "user_provided",
             canonical_uri: `urn:startup-opportunity:user-provided:${runId}-capture-${index + 1}`,
           },
-      researchGoal: `SYNTHETIC runtime failure captured source ${index + 1}; retained only as substrate and not formal Evidence.`,
+      acquisitionGoal: `SYNTHETIC runtime failure captured source ${index + 1}; retained only as substrate and not formal Evidence.`,
       rawContent: `SYNTHETIC runtime failure raw bytes ${index + 1}; not formal Evidence and not a conclusion source.`,
       recordedAt: `2026-07-24T12:${String(10 + index).padStart(2, "0")}:00Z`,
     });
@@ -6120,11 +6120,12 @@ function syntheticEvidenceRecord(
     run_id: runId,
     evidence_id: `ev_${hex.repeat(64)}`,
     unit_id: "synthetic_unit",
+    unit_attempt: 1,
     source: {
       kind: "public_url",
       canonical_url: "https://synthetic.invalid/formal-authority/shared",
     },
-    research_goal: `SYNTHETIC substrate ${hex}; preserve exact formalization boundary.`,
+    acquisition_goal: `SYNTHETIC substrate ${hex}; preserve exact formalization boundary.`,
     recorded_at: recordedAt,
   };
 }
@@ -6384,7 +6385,7 @@ test("runtime failure rejects cross-Run or broken caller substrate provenance", 
         {
           evidence_ref: crossRunRef,
           source: crossRunRecord.source,
-          research_goal: crossRunRecord.research_goal,
+          research_goal: crossRunRecord.acquisition_goal,
           recorded_at: crossRunRecord.recorded_at,
           status: "captured_not_formalized",
         },
@@ -6503,7 +6504,7 @@ test("runtime failure rejects caller substrate provenance from another Run befor
         {
           evidence_ref: crossRunRef,
           source: crossRunRecord.source,
-          research_goal: crossRunRecord.research_goal,
+          research_goal: crossRunRecord.acquisition_goal,
           recorded_at: crossRunRecord.recorded_at,
           status: "captured_not_formalized",
         },

@@ -544,7 +544,7 @@ export function deriveResearchProvenance(
             record.schema_version === "startup_opportunity.evidence_store_record.v2" &&
             record.run_id === runId &&
             typeof record.evidence_id === "string" &&
-            typeof record.research_goal === "string" &&
+            typeof record.acquisition_goal === "string" &&
             typeof record.recorded_at === "string" &&
             !formalEvidenceSubstrateRefs.has(
               `evidence/manifest.jsonl#${String(record.evidence_id)}`,
@@ -567,7 +567,7 @@ export function deriveResearchProvenance(
           return {
             evidence_ref: `evidence/manifest.jsonl#${String(record.evidence_id)}`,
             source: structuredClone(source) as unknown as CanonicalEvidenceSource,
-            research_goal: String(record.research_goal),
+            research_goal: String(record.acquisition_goal),
             recorded_at: String(record.recorded_at),
             status: "captured_not_formalized" as const,
             ...(isRecord(record.handoff_binding)
