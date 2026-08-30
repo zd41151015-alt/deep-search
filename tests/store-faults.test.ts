@@ -177,7 +177,7 @@ test("Evidence recovery publishes raw temp and replays its manifest receipt", as
       runId: "evidence-recovery",
       unitId: "source_unit_001",
       source: { kind: "public_url", canonical_url: "https://example.com/source#fragment" },
-      researchGoal: "Preserve source bytes across a crash.",
+      acquisitionGoal: "Preserve source bytes across a crash.",
       rawContent: "recoverable evidence bytes",
       recordedAt: "2026-07-23T12:07:00Z",
       faultAt: "after_intent",
@@ -204,7 +204,7 @@ test("Evidence JSONL tail corruption is truncated and replayed from immutable re
     runId: "evidence-tail",
     unitId: "source_unit_001",
     source: { kind: "public_url", canonical_url: "https://example.com/source" },
-    researchGoal: "Test Evidence JSONL recovery.",
+    acquisitionGoal: "Test Evidence JSONL recovery.",
     rawContent: "evidence bytes",
     recordedAt: "2026-07-23T12:08:00Z",
   });
@@ -227,7 +227,7 @@ test("Evidence recovery rejects a corrupted operation identity without appending
     runId: "evidence-identity",
     unitId: "source_unit_001",
     source: { kind: "public_url", canonical_url: "https://example.com/identity" },
-    researchGoal: "Validate the Evidence mechanical identity contract.",
+    acquisitionGoal: "Validate the Evidence mechanical identity contract.",
     rawContent: "identity bytes",
     recordedAt: "2026-07-23T12:09:00Z",
   });
@@ -252,7 +252,7 @@ test("Evidence recovery rejects duplicate complete stable identities", async (co
     runId: "evidence-duplicate",
     unitId: "source_unit_001",
     source: { kind: "public_url", canonical_url: "https://example.com/duplicate" },
-    researchGoal: "Validate Evidence identity uniqueness.",
+    acquisitionGoal: "Validate Evidence identity uniqueness.",
     rawContent: "duplicate identity bytes",
     recordedAt: "2026-07-23T12:10:00Z",
   });

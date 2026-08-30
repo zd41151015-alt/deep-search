@@ -50,6 +50,7 @@ import {
   type EvidenceRecoveryResult,
   EvidenceStore,
   type EvidenceStoreRecord,
+  type EvidenceStoreStatistics,
   prepareEvidenceRecord,
 } from "../evidence-store/evidence-store.js";
 import {
@@ -276,6 +277,14 @@ export interface CreateResearchHandoffItemInput {
   readonly targetResearchGoal?: string;
 }
 
+type NormalizedResearchHandoffItemInput = Omit<
+  CreateResearchHandoffItemInput,
+  "targetResearchGoal"
+> & {
+  readonly targetResearchGoal?: string | null;
+  readonly targetUnitAttempt?: number;
+};
+
 export interface CreateResearchHandoffInput {
   readonly runId: string;
   readonly handoffId: string;
@@ -474,6 +483,10 @@ export interface StatusRunResult {
     readonly failureClassifications: Readonly<Record<string, number>>;
     readonly artifactCount: number;
     readonly evidenceCount: number;
+    readonly evidenceRecordCount: number;
+    readonly uniqueEvidenceSourceCount: number;
+    readonly uniqueEvidenceRawCount: number;
+    readonly uniqueEvidenceSourceRawCount: number;
     readonly blockingReasons: readonly string[];
   };
 }
@@ -579,6 +592,132 @@ function strings(value: unknown): readonly string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function researchPlanUnits(
+  planEnvelope: FormalArtifactEnvelope | undefined,
+): ReadonlyMap<string, Record<string, unknown>> {
+  if (planEnvelope === undefined) return new Map();
+  const units = researchPlanUnitsFromDocument(planEnvelope.document);
+  return new Map(units.map((unit) => [String(unit.unit_id), unit]));
+}
+
+function researchPlanUnitsFromDocument(
+  document: Record<string, unknown>,
+): readonly Record<string, unknown>[] {
+  return records(document.waves).flatMap((wave) => records(wave.units));
+}
+
+function normalizeResearchHandoffItemsForPlan(
+  items: readonly CreateResearchHandoffItemInput[],
+  planEnvelope: FormalArtifactEnvelope | undefined,
+): readonly NormalizedResearchHandoffItemInput[] {
+  const units = researchPlanUnits(planEnvelope);
+  return items.map((item) => {
+    if (item.role !== "reusable_evidence") return item;
+    if (planEnvelope === undefined) {
+      return {
+        ...item,
+        targetResearchGoal: item.targetResearchGoal ?? null,
+        targetUnitAttempt: 1,
+      };
+    }
+    const unit = item.targetUnitId === undefined ? undefined : units.get(item.targetUnitId);
+    const targetResearchGoal =
+      typeof unit?.research_goal === "string" ? unit.research_goal : undefined;
+    const targetUnitAttempt = Number(unit?.attempt);
+    if (
+      unit === undefined ||
+      targetResearchGoal === undefined ||
+      targetResearchGoal.trim().length === 0 ||
+      !Number.isInteger(targetUnitAttempt) ||
+      targetUnitAttempt < 1
+    ) {
+      throw new StoreError(
+        "research_handoff.item_contract_invalid",
+        "Reusable Evidence handoff target unit must resolve to one exact current Plan unit",
+        { itemId: item.itemId, targetUnitId: item.targetUnitId },
+      );
+    }
+    if (item.targetResearchGoal !== undefined && item.targetResearchGoal !== targetResearchGoal) {
+      throw new StoreError(
+        "research_handoff.item_contract_invalid",
+        "Reusable Evidence handoff target goal must match the exact current Plan unit",
+        { itemId: item.itemId, targetUnitId: item.targetUnitId },
+      );
+    }
+    return {
+      ...item,
+      targetResearchGoal,
+      targetUnitAttempt,
+    };
+  });
+}
+
+function researchHandoffIntentPlanUnitClosureValid(
+  intent: ResearchHandoffOperationIntent,
+  planDocument: Record<string, unknown>,
+): boolean {
+  const units = new Map(
+    researchPlanUnitsFromDocument(planDocument).map((unit) => [String(unit.unit_id), unit]),
+  );
+  const items = records(intent.envelope.document.items).filter(
+    (item) => item.source_kind === "evidence_substrate",
+  );
+  return (
+    items.length === intent.evidence_imports.length &&
+    items.every((item) => {
+      const unitId = typeof item.target_unit_id === "string" ? item.target_unit_id : null;
+      const unitAttempt = Number(item.target_unit_attempt);
+      const unit = unitId === null ? undefined : units.get(unitId);
+      const planAttempt = Number(unit?.attempt);
+      const importRecord = intent.evidence_imports.find((entry) => {
+        const binding = isRecord(entry.record.handoff_binding)
+          ? entry.record.handoff_binding
+          : undefined;
+        return binding?.handoff_item_id === item.item_id;
+      })?.record;
+      return (
+        unit !== undefined &&
+        typeof unit.research_goal === "string" &&
+        unit.research_goal.trim().length > 0 &&
+        item.target_research_goal === unit.research_goal &&
+        Number.isInteger(unitAttempt) &&
+        unitAttempt > 0 &&
+        Number.isInteger(planAttempt) &&
+        planAttempt === unitAttempt &&
+        importRecord?.unit_id === unitId &&
+        importRecord.unit_attempt === unitAttempt
+      );
+    })
+  );
+}
+
+function normalizeResearchHandoffItemsForReplay(
+  items: readonly CreateResearchHandoffItemInput[],
+  intent: ResearchHandoffOperationIntent,
+): readonly NormalizedResearchHandoffItemInput[] {
+  const existingById = new Map(
+    records(intent.request_identity.items).map((item) => [String(item.itemId), item]),
+  );
+  return items.map((item) => {
+    if (item.role !== "reusable_evidence") return item;
+    const existing = existingById.get(item.itemId);
+    const targetResearchGoal =
+      item.targetResearchGoal !== undefined
+        ? item.targetResearchGoal
+        : typeof existing?.targetResearchGoal === "string" || existing?.targetResearchGoal === null
+          ? existing.targetResearchGoal
+          : undefined;
+    const targetUnitAttempt = Number(existing?.targetUnitAttempt);
+    return {
+      ...item,
+      ...(targetResearchGoal === undefined ? {} : { targetResearchGoal }),
+      ...(Number.isInteger(targetUnitAttempt) && targetUnitAttempt > 0
+        ? { targetUnitAttempt }
+        : {}),
+    };
+  });
 }
 
 function outputPathForTaskProjection(task: Record<string, unknown>): string | null {
@@ -708,10 +847,15 @@ function validateResearchHandoffOperationIntent(
         captured.revalidation_status === item.revalidationStatus &&
         (evidence
           ? captured.target_unit_id === item.targetUnitId &&
-            captured.target_research_goal === item.targetResearchGoal &&
+            captured.target_research_goal === (item.targetResearchGoal ?? null) &&
+            captured.target_unit_attempt === item.targetUnitAttempt &&
+            Number.isInteger(Number(item.targetUnitAttempt)) &&
+            Number(item.targetUnitAttempt) > 0 &&
             captured.target_artifact_ref === null
           : captured.target_unit_id === null &&
             captured.target_research_goal === null &&
+            captured.target_unit_attempt === null &&
+            item.targetUnitAttempt === undefined &&
             captured.target_artifact_ref === item.targetArtifactRef)
       );
     });
@@ -739,7 +883,8 @@ function validateResearchHandoffOperationIntent(
         runId,
         unitId: entry.record.unit_id,
         source: entry.record.source,
-        researchGoal: entry.record.research_goal,
+        acquisitionGoal: entry.record.acquisition_goal,
+        unitAttempt: entry.record.unit_attempt,
         rawContent: Buffer.from(entry.raw_content_base64, "base64"),
         recordedAt: entry.record.recorded_at,
         operationKey: entry.record.operation_key,
@@ -768,14 +913,22 @@ function validateResearchHandoffOperationIntent(
       const captured = capturedItems.find(
         (item) => binding !== undefined && item.item_id === binding.handoff_item_id,
       );
+      const requestItem = requestItems.find(
+        (item) => binding !== undefined && item.itemId === binding.handoff_item_id,
+      );
       return (
         binding !== undefined &&
+        requestItem !== undefined &&
         captured?.source_kind === "evidence_substrate" &&
         binding.handoff_ref === intent.handoff_ref &&
         binding.source_run_id === handoffDocument.source_run_id &&
         binding.source_evidence_path === captured.source_artifact_path &&
         binding.source_record_hash === captured.source_record_hash &&
         binding.source_raw_content_hash === captured.source_raw_content_hash &&
+        entry.record.unit_id === requestItem.targetUnitId &&
+        entry.record.unit_attempt === requestItem.targetUnitAttempt &&
+        entry.record.unit_id === captured.target_unit_id &&
+        entry.record.unit_attempt === captured.target_unit_attempt &&
         `evidence/manifest.jsonl#${entry.record.evidence_id}` === captured.target_evidence_ref &&
         canonicalContentHash(entry.record) === captured.target_evidence_record_hash
       );
@@ -2231,7 +2384,7 @@ export class RunStore {
       ...resolution.issues,
       ...terminalReportStatus.issues,
     ].sort();
-    const evidenceCount = (await this.evidence.listRecords(runId)).length;
+    const evidenceStatistics: EvidenceStoreStatistics = await this.evidence.statistics(runId);
     return {
       schemaVersion: "startup_opportunity.status_run_result.v1",
       runId,
@@ -2267,7 +2420,11 @@ export class RunStore {
           ),
         ),
         artifactCount: manifest.artifact_refs.length,
-        evidenceCount,
+        evidenceCount: evidenceStatistics.record_count,
+        evidenceRecordCount: evidenceStatistics.record_count,
+        uniqueEvidenceSourceCount: evidenceStatistics.unique_source_count,
+        uniqueEvidenceRawCount: evidenceStatistics.unique_raw_count,
+        uniqueEvidenceSourceRawCount: evidenceStatistics.unique_source_raw_count,
         blockingReasons,
       },
     };
@@ -5567,8 +5724,8 @@ export class RunStore {
         (item.role === "reusable_evidence" &&
           (item.targetUnitId === undefined ||
             !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(item.targetUnitId) ||
-            item.targetResearchGoal === undefined ||
-            item.targetResearchGoal.trim().length === 0)) ||
+            (item.targetResearchGoal !== undefined &&
+              item.targetResearchGoal.trim().length === 0))) ||
         (item.role === "reusable_evidence" && item.targetArtifactRef !== undefined) ||
         (item.role !== "reusable_evidence" &&
           (item.targetArtifactRef === undefined ||
@@ -5638,7 +5795,7 @@ export class RunStore {
           source_run_id: input.sourceRunId,
           user_authorization_attestation: input.userAuthorizationAttestation,
           target_purpose: input.targetPurpose,
-          items: input.items,
+          items: normalizeResearchHandoffItemsForReplay(input.items, existingIntent),
           ...(input.capturedAt === undefined ? {} : { captured_at: input.capturedAt }),
         };
         if (canonicalJson(existingIntent.request_identity) !== canonicalJson(expectedRequest)) {
@@ -5717,7 +5874,7 @@ export class RunStore {
       }
       if (
         prePlanAssessmentFormation &&
-        (input.items.every((item) => item.role === "reusable_evidence") ||
+        (input.items.some((item) => item.role === "reusable_evidence") ||
           input.items.some(
             (item) =>
               item.role !== "reusable_evidence" &&
@@ -5762,6 +5919,7 @@ export class RunStore {
         await this.artifacts.validateStoredEnvelope(targetRoot, input.runId, planEnvelope);
       }
       const capturedAt = input.capturedAt ?? new Date().toISOString();
+      const handoffItems = normalizeResearchHandoffItemsForPlan(input.items, planEnvelope);
       const requestIdentity = {
         run_id: input.runId,
         handoff_id: input.handoffId,
@@ -5779,7 +5937,7 @@ export class RunStore {
         target_scope_confirmation_hash: manifest.scope_confirmation_hash,
         target_plan_ref: planEnvelope?.artifact_path ?? null,
         target_plan_hash: planEnvelope?.content_hash ?? null,
-        items: input.items,
+        items: handoffItems,
       };
       const handoffOperationKey = operationKey("create_research_handoff", requestIdentity);
       const intentPath = `.store/operations/${researchHandoffOperationFilename(handoffOperationKey)}`;
@@ -5790,7 +5948,7 @@ export class RunStore {
       );
       const capturedItems: Record<string, unknown>[] = [];
       const evidenceImports: ResearchHandoffOperationIntent["evidence_imports"][number][] = [];
-      for (const item of input.items) {
+      for (const item of handoffItems) {
         validateArtifactRef(item.sourceArtifactPath);
         const evidenceSource = item.sourceArtifactPath.startsWith("evidence/manifest.jsonl#");
         if (evidenceSource) {
@@ -5806,9 +5964,11 @@ export class RunStore {
             sourceByteHash !== item.expectedSourceByteHash ||
             sourceRecordHash !== item.expectedSourceContentHash ||
             item.targetUnitId === undefined ||
-            item.targetResearchGoal === undefined ||
+            item.targetUnitAttempt === undefined ||
             item.targetUnitId.trim().length === 0 ||
-            item.targetResearchGoal.trim().length === 0
+            (!prePlanAssessmentFormation &&
+              (typeof item.targetResearchGoal !== "string" ||
+                item.targetResearchGoal.trim().length === 0))
           ) {
             throw new StoreError(
               "research_handoff.source_binding_mismatch",
@@ -5820,7 +5980,8 @@ export class RunStore {
             runId: input.runId,
             unitId: item.targetUnitId,
             source: capture.record.source,
-            researchGoal: item.targetResearchGoal,
+            acquisitionGoal: capture.record.acquisition_goal,
+            unitAttempt: item.targetUnitAttempt,
             rawContent: capture.rawBytes,
             recordedAt: capturedAt,
             handoffBinding: {
@@ -5860,7 +6021,8 @@ export class RunStore {
             applicability_disposition: item.applicabilityDisposition,
             revalidation_status: item.revalidationStatus,
             target_unit_id: item.targetUnitId,
-            target_research_goal: item.targetResearchGoal,
+            target_unit_attempt: item.targetUnitAttempt,
+            target_research_goal: item.targetResearchGoal ?? null,
             target_artifact_ref: null,
             target_evidence_ref: targetEvidenceRef,
             target_evidence_record_hash: canonicalContentHash(imported.record),
@@ -5916,6 +6078,7 @@ export class RunStore {
           applicability_disposition: item.applicabilityDisposition,
           revalidation_status: item.revalidationStatus,
           target_unit_id: null,
+          target_unit_attempt: null,
           target_research_goal: null,
           target_artifact_ref: item.targetArtifactRef,
           target_evidence_ref: null,
@@ -5984,7 +6147,8 @@ export class RunStore {
           runId: input.runId,
           unitId: evidenceImport.record.unit_id,
           source: evidenceImport.record.source,
-          researchGoal: evidenceImport.record.research_goal,
+          acquisitionGoal: evidenceImport.record.acquisition_goal,
+          unitAttempt: evidenceImport.record.unit_attempt,
           rawContent: Buffer.from(evidenceImport.raw_content_base64, "base64"),
           recordedAt: evidenceImport.record.recorded_at,
           operationKey: evidenceImport.record.operation_key,
@@ -7320,6 +7484,7 @@ export class RunStore {
   }
 
   private async recoverLocked(runRoot: string, runId: string): Promise<LoadRunResult> {
+    await this.preflightResearchHandoffOperationsLocked(runRoot, runId);
     const evidenceRecovery = await this.evidence.recoverLocked(runRoot, runId);
     const artifactRecovery = await this.artifacts.recoverLocked(runRoot, runId);
     const handoffRecovery = await this.recoverResearchHandoffOperationsLocked(runRoot, runId);
@@ -7632,6 +7797,30 @@ export class RunStore {
     return recovered.sort();
   }
 
+  private async preflightResearchHandoffOperationsLocked(
+    runRoot: string,
+    runId: string,
+  ): Promise<void> {
+    const operationsDirectory = await resolveRunPath(runRoot, ".store/operations");
+    for (const filename of (await readdir(operationsDirectory)).sort()) {
+      if (!filename.startsWith("research-handoff-") || !filename.endsWith(".json")) continue;
+      const intent = validateResearchHandoffOperationIntent(
+        JSON.parse(
+          await readFile(await resolveRunPath(runRoot, `.store/operations/${filename}`), "utf8"),
+        ) as unknown,
+        filename,
+        runId,
+      );
+      if (!(await this.researchHandoffIntentTargetPlanClosureValid(runRoot, intent))) {
+        throw new StoreError(
+          "recovery.invalid_research_handoff_operation",
+          "Research handoff Evidence imports must close over the exact target Plan unit and attempt",
+          { handoffRef: intent.handoff_ref },
+        );
+      }
+    }
+  }
+
   private async replayResearchHandoffIntentLocked(
     runRoot: string,
     runId: string,
@@ -7642,6 +7831,13 @@ export class RunStore {
     readonly recoveredRefs: readonly string[];
   }> {
     const recovered: string[] = [];
+    if (!(await this.researchHandoffIntentTargetPlanClosureValid(runRoot, intent))) {
+      throw new StoreError(
+        "recovery.invalid_research_handoff_operation",
+        "Research handoff Evidence imports must close over the exact target Plan unit and attempt",
+        { handoffRef: intent.handoff_ref },
+      );
+    }
     const existingEvidence = new Map(
       (await this.evidence.listRecordsLocked(runRoot, runId)).map((record) => [
         record.operation_key,
@@ -7712,7 +7908,8 @@ export class RunStore {
           runId,
           unitId: evidenceImport.record.unit_id,
           source: evidenceImport.record.source,
-          researchGoal: evidenceImport.record.research_goal,
+          acquisitionGoal: evidenceImport.record.acquisition_goal,
+          unitAttempt: evidenceImport.record.unit_attempt,
           rawContent: Buffer.from(evidenceImport.raw_content_base64, "base64"),
           recordedAt: evidenceImport.record.recorded_at,
           operationKey: evidenceImport.record.operation_key,
@@ -7734,6 +7931,44 @@ export class RunStore {
     if (existingHandoff === undefined || publication.status === "published")
       recovered.push(intent.handoff_ref);
     return { artifactStatus: publication.status, recoveredRefs: recovered.sort() };
+  }
+
+  private async researchHandoffIntentTargetPlanClosureValid(
+    runRoot: string,
+    intent: ResearchHandoffOperationIntent,
+  ): Promise<boolean> {
+    const document = intent.envelope.document;
+    const evidenceItems = records(document.items).filter(
+      (item) => item.source_kind === "evidence_substrate",
+    );
+    if (document.target_plan_ref === null) {
+      return evidenceItems.length === 0 && intent.evidence_imports.length === 0;
+    }
+    if (typeof document.target_plan_ref !== "string") return false;
+    try {
+      const planEnvelope = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, document.target_plan_ref), "utf8"),
+      ) as unknown;
+      if (
+        !isRecord(planEnvelope) ||
+        !isCurrentEnvelopeSchema(planEnvelope.schema_version) ||
+        planEnvelope.artifact_type !== "startup_opportunity.research_plan.v1" ||
+        planEnvelope.artifact_path !== document.target_plan_ref ||
+        planEnvelope.run_id !== intent.run_id ||
+        planEnvelope.content_hash !== document.target_plan_hash ||
+        !isRecord(planEnvelope.document)
+      ) {
+        return false;
+      }
+      await this.artifacts.validateStoredEnvelope(
+        runRoot,
+        intent.run_id,
+        planEnvelope as FormalArtifactEnvelope,
+      );
+      return researchHandoffIntentPlanUnitClosureValid(intent, planEnvelope.document);
+    } catch {
+      return false;
+    }
   }
 
   private async researchHandoffIntentStillApplicable(
@@ -7784,11 +8019,23 @@ export class RunStore {
       const value = JSON.parse(
         await readFile(await resolveRunPath(runRoot, manifest.current_plan_ref), "utf8"),
       ) as unknown;
-      return (
-        isRecord(value) &&
-        isCurrentEnvelopeSchema(value.schema_version) &&
-        value.content_hash === document.target_plan_hash
+      if (
+        !isRecord(value) ||
+        !isCurrentEnvelopeSchema(value.schema_version) ||
+        value.artifact_type !== "startup_opportunity.research_plan.v1" ||
+        value.artifact_path !== document.target_plan_ref ||
+        value.run_id !== intent.run_id ||
+        value.content_hash !== document.target_plan_hash ||
+        !isRecord(value.document)
+      ) {
+        return false;
+      }
+      await this.artifacts.validateStoredEnvelope(
+        runRoot,
+        intent.run_id,
+        value as FormalArtifactEnvelope,
       );
+      return researchHandoffIntentPlanUnitClosureValid(intent, value.document);
     } catch {
       return false;
     }

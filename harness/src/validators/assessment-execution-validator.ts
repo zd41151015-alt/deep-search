@@ -124,7 +124,7 @@ function evidenceSourceIdentity(
     substrate.run_id !== item.document.run_id ||
     substrate.unit_id !== item.document.unit_id ||
     substrate.evidence_id !== item.document.evidence_id ||
-    substrate.research_goal !== item.document.research_goal ||
+    substrate.acquisition_goal !== item.document.research_goal ||
     typeof substrate.source_hash !== "string" ||
     binding.source_hash !== substrate.source_hash ||
     binding.content_hash !== substrate.content_hash ||
@@ -581,7 +581,7 @@ function validateAssessmentEvidence(
     execution?.schemaVersion !== "startup_opportunity.research_execution_plan.assessment.current" ||
     execution.document.run_id !== evidence.document.run_id ||
     execution.document.concept_hypothesis_ref !== evidence.document.concept_hypothesis_ref ||
-    unit?.research_goal !== evidence.document.research_goal
+    unit?.research_goal !== evidence.document.task_lineage_goal
   ) {
     errors.push(
       issue(
@@ -601,7 +601,8 @@ function validateAssessmentEvidence(
     substrate.run_id !== evidence.document.run_id ||
     substrate.unit_id !== evidence.document.unit_id ||
     substrate.evidence_id !== evidence.document.evidence_id ||
-    substrate.research_goal !== evidence.document.research_goal ||
+    substrate.acquisition_goal !== evidence.document.research_goal ||
+    unit?.attempt !== substrate.unit_attempt ||
     substrate.source_hash !== mechanical.source_hash ||
     substrate.content_hash !== mechanical.content_hash ||
     substrate.raw_content_ref !== mechanical.raw_content_ref ||

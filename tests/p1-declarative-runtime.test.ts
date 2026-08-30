@@ -16,6 +16,7 @@ import {
   type DocumentBundle,
   dispatchLaunchRegistrationPath,
   EvidenceStore,
+  type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
   LaneResultMaterializer,
   operationKey,
@@ -395,7 +396,7 @@ function compilerCodes(error: unknown): readonly string[] {
   if (!(error instanceof StoreError)) {
     return [];
   }
-  return ["bundleErrors", "documentErrors", "referenceErrors"].flatMap((field) => {
+  return ["issues", "bundleErrors", "documentErrors", "referenceErrors"].flatMap((field) => {
     const values = error.details[field];
     return Array.isArray(values)
       ? values.flatMap((value) =>
@@ -486,7 +487,7 @@ async function prepareDiscoveryTaskBridgeRun(context: TestContext, suffix: strin
     await evidence.record({
       runId,
       unitId: "unit_seed_independent_demand",
-      researchGoal: "SYNTHETIC task bridge generation substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC task bridge generation substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-task-bridge-generation`,
@@ -499,7 +500,7 @@ async function prepareDiscoveryTaskBridgeRun(context: TestContext, suffix: strin
     await evidence.record({
       runId,
       unitId: "unit_counterfactual",
-      researchGoal: "SYNTHETIC task bridge evaluation substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC task bridge evaluation substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-task-bridge-evaluation`,
@@ -2810,7 +2811,7 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
       kind: "public_url",
       canonical_url: "https://synthetic.invalid/lane-materializer-handoff",
     },
-    researchGoal: "Preserve exact synthetic bytes for imported Evidence lineage testing.",
+    acquisitionGoal: "Preserve exact synthetic bytes for imported Evidence lineage testing.",
     rawContent: "SYNTHETIC imported Evidence bytes; not a market claim.",
     recordedAt: "2026-07-31T16:00:31Z",
   });
@@ -2836,8 +2837,6 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
         applicabilityDisposition: "applicable",
         revalidationStatus: "not_required",
         targetUnitId: unitId,
-        targetResearchGoal:
-          "Reassess exact synthetic Evidence under the target Scope and current Plan.",
       },
     ],
   });
@@ -2854,7 +2853,15 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
   const evidenceRef = `evidence/records/${importedRecord.evidence_id}.json`;
   const auditPath = `artifacts/research-audits/${unitId}.json`;
   const semanticEvidence = structuredClone(semanticEvidenceEnvelope.document);
-  for (const field of ["schema_version", "run_id", "evidence_id", "unit_id", "mechanical_binding"])
+  for (const field of [
+    "schema_version",
+    "run_id",
+    "evidence_id",
+    "unit_id",
+    "research_goal",
+    "task_lineage_goal",
+    "mechanical_binding",
+  ])
     delete semanticEvidence[field];
   const semanticLaneResult = incompleteDiscoveryLaneResult(state.runId, task, auditPath);
   for (const field of [
@@ -2992,6 +2999,8 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
   assert.ok(typedEvidenceEnvelope);
   assert.ok(typedEvidenceEnvelope.input_refs.includes(handoff.handoffRef));
   assert.equal(typedEvidenceEnvelope.document.evidence_lifecycle_status, "unverified");
+  assert.equal(typedEvidenceEnvelope.document.research_goal, importedRecord.acquisition_goal);
+  assert.equal(typedEvidenceEnvelope.document.task_lineage_goal, task.document.research_goal);
   assert.equal(
     (typedEvidenceEnvelope.document.mechanical_binding as Record<string, unknown>)
       .substrate_record_ref,
@@ -3261,21 +3270,65 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
   const firstTask = (batch.tasks as Record<string, unknown>[])[0];
   assert.ok(firstTask);
   const unitId = String(firstTask.unit_id);
-  const substrate = await new EvidenceStore(state.runsRoot).record({
-    runId: state.runId,
-    unitId,
-    researchGoal: String(firstTask.research_goal),
-    source: {
-      kind: "user_provided",
-      canonical_uri: `urn:startup-opportunity:user-provided:${state.runId}`,
-    },
-    rawContent: "SYNTHETIC contract bytes; not market Evidence.",
-    recordedAt: "2026-07-31T16:02:00Z",
+  const taskResearchGoal = String(firstTask.research_goal);
+  const evidenceStore = new EvidenceStore(state.runsRoot);
+  const substrateInputs = Array.from({ length: 17 }, (_, index) => {
+    const ordinal = String(index + 1).padStart(2, "0");
+    return {
+      runId: state.runId,
+      unitId,
+      unitAttempt: 1,
+      acquisitionGoal: `SYNTHETIC source-level acquisition goal ${ordinal}; not the broad Task goal.`,
+      source: {
+        kind: "user_provided" as const,
+        canonical_uri: `urn:startup-opportunity:user-provided:${state.runId}-source-${ordinal}`,
+      },
+      rawContent: `SYNTHETIC distinct raw bytes ${ordinal}; not market Evidence.`,
+      recordedAt: `2026-07-31T16:02:${ordinal}Z`,
+    };
   });
-  const evidencePath = `evidence/discovery/generation/${substrate.record.evidence_id}.json`;
-  const evidence = {
+  const substrates = [];
+  for (const input of substrateInputs) {
+    substrates.push(await evidenceStore.record(input));
+  }
+  assert.deepEqual(
+    substrates.map((substrate) => substrate.status),
+    Array.from({ length: 17 }, () => "recorded"),
+  );
+  for (const input of substrateInputs) {
+    assert.equal((await evidenceStore.record(input)).status, "idempotent_replay");
+  }
+  assert.ok(
+    substrates.every((substrate) => substrate.record.acquisition_goal !== taskResearchGoal),
+  );
+  const reproducedRecords = (await evidenceStore.listRecords(state.runId)).filter(
+    (record) =>
+      record.unit_id === unitId &&
+      record.acquisition_goal.startsWith("SYNTHETIC source-level acquisition goal "),
+  );
+  assert.deepEqual(
+    {
+      record_count: reproducedRecords.length,
+      unique_source_count: new Set(reproducedRecords.map((record) => record.source_hash)).size,
+      unique_raw_count: new Set(reproducedRecords.map((record) => record.content_hash)).size,
+      unique_source_raw_count: new Set(
+        reproducedRecords.map((record) => `${record.source_hash}\u0000${record.content_hash}`),
+      ).size,
+    },
+    {
+      record_count: 17,
+      unique_source_count: 17,
+      unique_raw_count: 17,
+      unique_source_raw_count: 17,
+    },
+  );
+  assert.equal((await evidenceStore.statistics(state.runId)).record_count, 19);
+  const formalEvidenceFor = (
+    record: EvidenceStoreRecord,
+    index: number,
+  ): Record<string, unknown> => ({
     schema_version: "startup_opportunity.candidate_neutral_evidence.v1",
-    evidence_id: substrate.record.evidence_id,
+    evidence_id: record.evidence_id,
     run_id: state.runId,
     unit_id: unitId,
     dispatch_batch_ref: `tasks/dispatch/runtime.r1.json#${String(firstTask.task_id)}`,
@@ -3283,15 +3336,16 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
     research_plan_ref: G21_PLAN_REF,
     source_type: "synthetic_contract_fixture",
     source_name: "SYNTHETIC fixture source; not Evidence.",
-    research_goal: firstTask.research_goal,
-    source_group_id: "source_group_synthetic",
+    research_goal: record.acquisition_goal,
+    task_lineage_goal: taskResearchGoal,
+    source_group_id: `source_group_synthetic_${String(index + 1).padStart(2, "0")}`,
     mechanical_binding: {
-      substrate_record_ref: `evidence/manifest.jsonl#${substrate.record.evidence_id}`,
-      source_hash: substrate.record.source_hash,
-      content_hash: substrate.record.content_hash,
-      raw_content_ref: substrate.record.raw_content_ref,
-      operation_key: substrate.record.operation_key,
-      recorded_at: substrate.record.recorded_at,
+      substrate_record_ref: `evidence/manifest.jsonl#${record.evidence_id}`,
+      source_hash: record.source_hash,
+      content_hash: record.content_hash,
+      raw_content_ref: record.raw_content_ref,
+      operation_key: record.operation_key,
+      recorded_at: record.recorded_at,
     },
     evidence_tier: "model_inference_only",
     evidence_lifecycle_status: "unverified",
@@ -3301,7 +3355,15 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
     target_candidate_refs: [],
     solution_refs: [],
     limitations: ["SYNTHETIC_ONLY_NOT_EVIDENCE"],
-  };
+  });
+  const evidenceArtifacts = substrates.map((substrate, index) => ({
+    path: `evidence/discovery/generation/${substrate.record.evidence_id}.json`,
+    document: formalEvidenceFor(substrate.record, index),
+  }));
+  const firstEvidenceArtifact = evidenceArtifacts[0];
+  assert.ok(firstEvidenceArtifact);
+  const evidence = firstEvidenceArtifact.document;
+  const evidencePaths = evidenceArtifacts.map((artifact) => artifact.path);
   const sourceManifestPath = `evidence/source-manifests/discovery/${unitId}.json`;
   const sourceManifest = {
     schema_version: "startup_opportunity.source_manifest.discovery_runtime.current",
@@ -3312,10 +3374,11 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
     execution_plan_ref: "plans/research-execution.r1.json",
     dispatch_batch_ref: `tasks/dispatch/runtime.r1.json#${String(firstTask.task_id)}`,
     research_phase_role: "candidate_generation",
-    accepted_evidence_refs: [evidencePath],
-    canonical_source_groups: [
-      { group_id: "source_group_synthetic", evidence_refs: [evidencePath] },
-    ],
+    accepted_evidence_refs: evidencePaths,
+    canonical_source_groups: evidenceArtifacts.map((artifact) => ({
+      group_id: String(artifact.document.source_group_id),
+      evidence_refs: [artifact.path],
+    })),
     shared_dataset_groups: [],
     duplicate_or_syndication_groups: [],
     source_type_coverage: ["synthetic_contract_fixture"],
@@ -3323,11 +3386,11 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
     time_coverage: {
       earliest_valid_as_of: "2026-07-31",
       latest_valid_as_of: "2026-07-31",
-      accepted_evidence_count: 1,
+      accepted_evidence_count: evidencePaths.length,
     },
     stance_coverage: ["context"],
     known_source_blind_spots: ["No real source was used."],
-    freshness_summary: { active: 0, stale: 0, unverified: 1, superseded: 0 },
+    freshness_summary: { active: 0, stale: 0, unverified: evidencePaths.length, superseded: 0 },
     limitations: ["SYNTHETIC_ONLY_NOT_EVIDENCE"],
   };
   const generationPath = String(firstTask.allowed_output_path);
@@ -3342,7 +3405,7 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
     scope_frame_ref: G21_SCOPE_REF,
     research_plan_ref: G21_PLAN_REF,
     source_manifest_ref: sourceManifestPath,
-    evidence_refs: [evidencePath],
+    evidence_refs: evidencePaths,
     judgment_assessment_refs: [],
     candidate_proposals: [],
     target_candidate_refs: [],
@@ -3352,7 +3415,9 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
   };
 
   const tampered = structuredClone(evidence);
-  tampered.mechanical_binding.content_hash = `sha256:${"0".repeat(64)}`;
+  (tampered.mechanical_binding as Record<string, unknown>).content_hash = `sha256:${"0".repeat(
+    64,
+  )}`;
   await assert.rejects(
     compiler.compile(
       compilationRequest(state.runId, "validate_only", [
@@ -3362,28 +3427,208 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
     (error: unknown) =>
       compilerCodes(error).includes("runtime.candidate_neutral_substrate_mismatch"),
   );
+  const missingSubstrate = structuredClone(evidence);
+  (missingSubstrate.mechanical_binding as Record<string, unknown>).substrate_record_ref =
+    `evidence/manifest.jsonl#ev_${"0".repeat(64)}`;
+  await assert.rejects(
+    compiler.compile(
+      compilationRequest(state.runId, "validate_only", [
+        runtimeArtifact(
+          "evidence/discovery/generation/missing-substrate.json",
+          missingSubstrate,
+          "lane_researcher",
+        ),
+      ]),
+    ),
+    (error: unknown) => error instanceof StoreError && error.code === "reference.missing",
+  );
+  const forgedLineage = structuredClone(evidence);
+  forgedLineage.task_lineage_goal = "SYNTHETIC forged Task lineage goal.";
+  await assert.rejects(
+    compiler.compile(
+      compilationRequest(state.runId, "validate_only", [
+        runtimeArtifact(
+          "evidence/discovery/generation/forged-lineage.json",
+          forgedLineage,
+          "lane_researcher",
+        ),
+      ]),
+    ),
+    (error: unknown) =>
+      compilerCodes(error).includes("runtime.candidate_neutral_evidence_binding_mismatch"),
+  );
+  const wrongRun = structuredClone(evidence);
+  wrongRun.run_id = "other-run";
+  await assert.rejects(
+    compiler.compile(
+      compilationRequest(state.runId, "validate_only", [
+        runtimeArtifact(firstEvidenceArtifact.path, wrongRun, "lane_researcher"),
+      ]),
+    ),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "runtime.compilation_preflight_failed",
+  );
   const staleSummary = structuredClone(sourceManifest);
   staleSummary.freshness_summary = { active: 1, stale: 0, unverified: 0, superseded: 0 };
   await assert.rejects(
     compiler.compile(
       compilationRequest(state.runId, "validate_only", [
-        runtimeArtifact(evidencePath, evidence, "lane_researcher"),
+        ...evidenceArtifacts.map((artifact) =>
+          runtimeArtifact(artifact.path, artifact.document, "lane_researcher"),
+        ),
         runtimeArtifact(sourceManifestPath, staleSummary, "lane_researcher"),
       ]),
     ),
     (error: unknown) => compilerCodes(error).includes("runtime.source_manifest_summary_mismatch"),
   );
 
-  await compiler.compile(
-    compilationRequest(state.runId, "publish", [
-      runtimeArtifact(evidencePath, evidence, "lane_researcher"),
-      runtimeArtifact(sourceManifestPath, sourceManifest, "lane_researcher"),
-      runtimeArtifact(generationPath, generation, "lane_researcher"),
-    ]),
+  const publishedGeneration = await compiler
+    .compile(
+      compilationRequest(state.runId, "publish", [
+        ...evidenceArtifacts.map((artifact) =>
+          runtimeArtifact(artifact.path, artifact.document, "lane_researcher"),
+        ),
+        runtimeArtifact(sourceManifestPath, sourceManifest, "lane_researcher"),
+        runtimeArtifact(generationPath, generation, "lane_researcher"),
+      ]),
+    )
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+      }
+      throw error;
+    });
+  assert.equal(
+    publishedGeneration.compiled_envelopes.filter(
+      (envelope) => envelope.artifact_type === "startup_opportunity.candidate_neutral_evidence.v1",
+    ).length,
+    17,
   );
+  const recordsAfterFormalization = await evidenceStore.listRecords(state.runId);
+  const reproducedRecordsAfterFormalization = recordsAfterFormalization.filter(
+    (record) =>
+      record.unit_id === unitId &&
+      record.acquisition_goal.startsWith("SYNTHETIC source-level acquisition goal "),
+  );
+  assert.deepEqual(
+    {
+      record_count: reproducedRecordsAfterFormalization.length,
+      unique_source_count: new Set(
+        reproducedRecordsAfterFormalization.map((record) => record.source_hash),
+      ).size,
+      unique_raw_count: new Set(
+        reproducedRecordsAfterFormalization.map((record) => record.content_hash),
+      ).size,
+      unique_source_raw_count: new Set(
+        reproducedRecordsAfterFormalization.map(
+          (record) => `${record.source_hash}\u0000${record.content_hash}`,
+        ),
+      ).size,
+    },
+    {
+      record_count: 17,
+      unique_source_count: 17,
+      unique_raw_count: 17,
+      unique_source_raw_count: 17,
+    },
+  );
+  assert.equal(
+    recordsAfterFormalization.filter((record) => record.acquisition_goal === taskResearchGoal)
+      .length,
+    0,
+  );
+  assert.equal((await evidenceStore.statistics(state.runId)).record_count, 19);
   const manifest = (await state.runStore.status(state.runId)).manifest;
   assert.ok(manifest.completed_units.includes(unitId));
   assert.ok(!manifest.active_units.includes(unitId));
+});
+
+test("candidate-neutral Evidence rejects wrong-unit and cross-attempt substrate reuse", async (t) => {
+  const state = await prepareDiscoveryTaskBridgeRun(t, "generation-lineage-negative");
+  const execution = executionPlan(state.runId, state.plan);
+  const batch = dispatchBatch(state.runId, state.plan, execution);
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  await compiler.compile(
+    compilationRequest(state.runId, "publish", [
+      runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+      runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
+      ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
+    ]),
+  );
+  const firstTask = (batch.tasks as Record<string, unknown>[])[0];
+  assert.ok(firstTask);
+  const unitId = String(firstTask.unit_id);
+  const taskResearchGoal = String(firstTask.research_goal);
+  const evidenceStore = new EvidenceStore(state.runsRoot);
+  const formalEvidenceFor = (record: EvidenceStoreRecord): Record<string, unknown> => ({
+    schema_version: "startup_opportunity.candidate_neutral_evidence.v1",
+    evidence_id: record.evidence_id,
+    run_id: state.runId,
+    unit_id: unitId,
+    dispatch_batch_ref: `tasks/dispatch/runtime.r1.json#${String(firstTask.task_id)}`,
+    scope_frame_ref: G21_SCOPE_REF,
+    research_plan_ref: G21_PLAN_REF,
+    source_type: "synthetic_contract_fixture",
+    source_name: "SYNTHETIC lineage boundary fixture; not Evidence.",
+    research_goal: record.acquisition_goal,
+    task_lineage_goal: taskResearchGoal,
+    source_group_id: `source_group_${record.evidence_id.slice(0, 12)}`,
+    mechanical_binding: {
+      substrate_record_ref: `evidence/manifest.jsonl#${record.evidence_id}`,
+      source_hash: record.source_hash,
+      content_hash: record.content_hash,
+      raw_content_ref: record.raw_content_ref,
+      operation_key: record.operation_key,
+      recorded_at: record.recorded_at,
+    },
+    evidence_tier: "model_inference_only",
+    evidence_lifecycle_status: "unverified",
+    evidence_role: "context",
+    representativeness: "SYNTHETIC contract fixture only.",
+    valid_as_of: "2026-07-31",
+    target_candidate_refs: [],
+    solution_refs: [],
+    limitations: ["SYNTHETIC_ONLY_NOT_EVIDENCE"],
+  });
+  const wrongUnit = await evidenceStore.record({
+    runId: state.runId,
+    unitId: "unit_wrong_lineage_synthetic",
+    unitAttempt: 1,
+    acquisitionGoal: "SYNTHETIC wrong-unit acquisition goal; not Evidence.",
+    source: {
+      kind: "user_provided",
+      canonical_uri: `urn:startup-opportunity:user-provided:${state.runId}-wrong-unit`,
+    },
+    rawContent: "SYNTHETIC wrong-unit bytes; not Evidence.",
+    recordedAt: "2026-07-31T16:02:20Z",
+  });
+  const crossAttempt = await evidenceStore.record({
+    runId: state.runId,
+    unitId,
+    unitAttempt: 2,
+    acquisitionGoal: "SYNTHETIC cross-attempt acquisition goal; not Evidence.",
+    source: {
+      kind: "user_provided",
+      canonical_uri: `urn:startup-opportunity:user-provided:${state.runId}-cross-attempt`,
+    },
+    rawContent: "SYNTHETIC cross-attempt bytes; not Evidence.",
+    recordedAt: "2026-07-31T16:02:21Z",
+  });
+  for (const record of [wrongUnit.record, crossAttempt.record]) {
+    await assert.rejects(
+      compiler.compile(
+        compilationRequest(state.runId, "validate_only", [
+          runtimeArtifact(
+            `evidence/discovery/generation/${record.evidence_id}.json`,
+            formalEvidenceFor(record),
+            "lane_researcher",
+          ),
+        ]),
+      ),
+      (error: unknown) =>
+        compilerCodes(error).includes("runtime.candidate_neutral_substrate_mismatch"),
+    );
+  }
 });
 
 test("readiness and Gap semantics require bounded solution generation and basis closure", async () => {
@@ -3736,7 +3981,7 @@ test("all direct Store writes fail closed after continuation while the child rem
     evidence.record({
       runId: state.runId,
       unitId: "unit_parent_synthetic",
-      researchGoal: "SYNTHETIC parent write must be rejected.",
+      acquisitionGoal: "SYNTHETIC parent write must be rejected.",
       source: {
         kind: "user_provided",
         canonical_uri: "urn:startup-opportunity:user-provided:p1-parent-synthetic",
@@ -3748,7 +3993,7 @@ test("all direct Store writes fail closed after continuation while the child rem
   const childEvidence = await evidence.record({
     runId: childRunId,
     unitId: "unit_child_synthetic",
-    researchGoal: "SYNTHETIC child write remains permitted.",
+    acquisitionGoal: "SYNTHETIC child write remains permitted.",
     source: {
       kind: "user_provided",
       canonical_uri: "urn:startup-opportunity:user-provided:p1-child-synthetic",
@@ -3781,7 +4026,7 @@ test("pending, corrupt, and multiple continuation authorities are indeterminate"
     new EvidenceStore(pending.runsRoot).record({
       runId: pending.runId,
       unitId: "unit_pending_synthetic",
-      researchGoal: "SYNTHETIC pending guard.",
+      acquisitionGoal: "SYNTHETIC pending guard.",
       source: {
         kind: "user_provided",
         canonical_uri: "urn:startup-opportunity:user-provided:p1-pending-synthetic",

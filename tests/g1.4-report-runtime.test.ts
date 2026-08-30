@@ -707,7 +707,7 @@ async function prepareRun(
     const support = await evidence.record({
       runId: G14_RUN_ID,
       unitId: branch.unitId,
-      researchGoal,
+      acquisitionGoal: researchGoal,
       source: {
         kind: "public_url",
         canonical_url:
@@ -721,7 +721,7 @@ async function prepareRun(
     const oppose = await evidence.record({
       runId: G14_RUN_ID,
       unitId: branch.unitId,
-      researchGoal,
+      acquisitionGoal: researchGoal,
       source: {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:g1-4:${branch.unitId}:oppose`,
@@ -775,7 +775,12 @@ async function prepareRun(
     await store.publishArtifactBundle({
       runId: G14_RUN_ID,
       envelopes: [
-        ...branchResearchEnvelopes(branch, records, index).map((envelope) => {
+        ...branchResearchEnvelopes(
+          branch,
+          records,
+          index,
+          String(documentAt(bundle, taskPath).research_goal),
+        ).map((envelope) => {
           const document = structuredClone(envelope.document);
           if (
             branch.unitId === demand.unitId &&
@@ -1686,7 +1691,7 @@ test("terminal report derives consistent current and inherited research provenan
       kind: "public_url",
       canonical_url: "https://synthetic.invalid/regulator/vendor-api-proxy",
     },
-    researchGoal: "Synthetic provider-agnostic handoff disclosure fixture.",
+    acquisitionGoal: "Synthetic provider-agnostic handoff disclosure fixture.",
     rawContent: "SYNTHETIC news, forum, regulator, vendor, API and estimate bytes; not Evidence.",
     recordedAt: "2026-07-25T17:00:00Z",
   });
@@ -1728,8 +1733,7 @@ test("terminal report derives consistent current and inherited research provenan
         freshnessDisposition: "current",
         applicabilityDisposition: "applicable",
         revalidationStatus: "not_required",
-        targetUnitId: "unit_target_handoff_reassessment",
-        targetResearchGoal: "Reassess exact inherited bytes against the target Concept and Scope.",
+        targetUnitId: "unit_demand",
       },
     ],
   });

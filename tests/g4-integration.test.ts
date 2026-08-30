@@ -989,7 +989,8 @@ test("Evidence MCP records and lists synthetic unverified caller-supplied bytes"
     arguments: {
       run_id: fixture.runId,
       unit_id: "unit_synthetic_fixture",
-      research_goal: "Exercise the local Evidence handoff without making a truth claim.",
+      unit_attempt: 2,
+      acquisition_goal: "Exercise the local Evidence handoff without making a truth claim.",
       source: {
         kind: "public_url",
         canonical_url: "https://example.invalid/synthetic-unverified",
@@ -1001,17 +1002,28 @@ test("Evidence MCP records and lists synthetic unverified caller-supplied bytes"
   assert.equal(recorded.isError, undefined);
   const recordResult = recorded.structuredContent as {
     status?: unknown;
-    record?: { evidence_id?: unknown };
+    record?: { evidence_id?: unknown; unit_attempt?: unknown };
   };
   assert.equal(recordResult.status, "recorded");
   assert.match(String(recordResult.record?.evidence_id), /^ev_[a-f0-9]{64}$/);
+  assert.equal(recordResult.record?.unit_attempt, 2);
 
   const manifest = await client.callTool({
     name: "get_evidence_manifest",
     arguments: { run_id: fixture.runId },
   });
-  const manifestResult = manifest.structuredContent as { records?: unknown[] };
+  const manifestResult = manifest.structuredContent as {
+    records?: unknown[];
+    statistics?: {
+      record_count?: unknown;
+      unique_source_count?: unknown;
+      unique_raw_count?: unknown;
+    };
+  };
   assert.equal(manifestResult.records?.length, 1);
+  assert.equal(manifestResult.statistics?.record_count, 1);
+  assert.equal(manifestResult.statistics?.unique_source_count, 1);
+  assert.equal(manifestResult.statistics?.unique_raw_count, 1);
 
   const correctionCall = await client.callTool({
     name: "propose_scope",
@@ -1058,7 +1070,7 @@ test("Evidence MCP records and lists synthetic unverified caller-supplied bytes"
     arguments: {
       run_id: fixture.runId,
       unit_id: "unit_scope_unreconciled_synthetic",
-      research_goal: "This write must remain blocked until Plan reconciliation.",
+      acquisition_goal: "This write must remain blocked until Plan reconciliation.",
       source: {
         kind: "public_url",
         canonical_url: "https://example.invalid/scope-unreconciled-synthetic",
@@ -1069,5 +1081,9 @@ test("Evidence MCP records and lists synthetic unverified caller-supplied bytes"
   });
   assert.equal(blocked.isError, true);
   assert.match(JSON.stringify(blocked.content), /latest user Scope revision|Scope revision/i);
-  assert.equal((await fixture.store.status(fixture.runId)).observability.evidenceCount, 1);
+  const status = await fixture.store.status(fixture.runId);
+  assert.equal(status.observability.evidenceCount, 1);
+  assert.equal(status.observability.evidenceRecordCount, 1);
+  assert.equal(status.observability.uniqueEvidenceSourceCount, 1);
+  assert.equal(status.observability.uniqueEvidenceRawCount, 1);
 });

@@ -678,7 +678,7 @@ async function setup(
           kind: "user_provided",
           canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-${label}`,
         },
-        researchGoal: `SYNTHETIC ${label} substrate; not Evidence.`,
+        acquisitionGoal: `SYNTHETIC ${label} substrate; not Evidence.`,
         rawContent: `SYNTHETIC ${label} bytes; not Evidence.`,
         recordedAt: "2026-07-27T20:50:00Z",
       })

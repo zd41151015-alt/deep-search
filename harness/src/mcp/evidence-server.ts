@@ -21,6 +21,12 @@ const sourceSchema = z.discriminatedUnion("kind", [
 ]);
 
 const recordShape = z.record(z.string(), z.unknown());
+const evidenceStatisticsShape = z.object({
+  record_count: z.number().int().nonnegative(),
+  unique_source_count: z.number().int().nonnegative(),
+  unique_raw_count: z.number().int().nonnegative(),
+  unique_source_raw_count: z.number().int().nonnegative(),
+});
 const scopeShape = z.object({
   geography: z.string(),
   customer_model: z.enum(["b2c", "b2b", "b2b2c", "mixed"]),
@@ -182,7 +188,8 @@ export function createEvidenceMcpServer(
       inputSchema: {
         run_id: z.string(),
         unit_id: z.string(),
-        research_goal: z.string(),
+        unit_attempt: z.number().int().positive().optional(),
+        acquisition_goal: z.string(),
         source: sourceSchema,
         raw_content: z.string().max(10_000_000),
         recorded_at: z.string().optional(),
@@ -200,12 +207,21 @@ export function createEvidenceMcpServer(
         openWorldHint: false,
       },
     },
-    async ({ run_id, unit_id, research_goal, source, raw_content, recorded_at }) => {
+    async ({
+      run_id,
+      unit_id,
+      unit_attempt,
+      acquisition_goal,
+      source,
+      raw_content,
+      recorded_at,
+    }) => {
       await (await runStore).assertResearchExecutionAllowed(run_id);
       const result = await store.record({
         runId: run_id,
         unitId: unit_id,
-        researchGoal: research_goal,
+        ...(unit_attempt === undefined ? {} : { unitAttempt: unit_attempt }),
+        acquisitionGoal: acquisition_goal,
         source,
         rawContent: raw_content,
         ...(recorded_at === undefined ? {} : { recordedAt: recorded_at }),
@@ -231,6 +247,7 @@ export function createEvidenceMcpServer(
       outputSchema: {
         schemaVersion: z.literal("startup_opportunity.mcp_evidence_manifest.v1"),
         runId: z.string(),
+        statistics: evidenceStatisticsShape,
         records: z.array(recordShape),
       },
       annotations: {
@@ -245,6 +262,7 @@ export function createEvidenceMcpServer(
       const result = {
         schemaVersion: "startup_opportunity.mcp_evidence_manifest.v1" as const,
         runId: run_id,
+        statistics: await store.statistics(run_id),
         records: await store.listRecords(run_id),
       };
       return {

@@ -825,7 +825,7 @@ async function setup(
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-generation`,
       },
-      researchGoal: "SYNTHETIC G2.3 generation substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC G2.3 generation substrate; not Evidence.",
       rawContent: "SYNTHETIC G2.3 generation bytes; not Evidence.",
       recordedAt: "2026-07-27T17:40:00Z",
     })
@@ -838,7 +838,7 @@ async function setup(
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-evaluation`,
       },
-      researchGoal: "SYNTHETIC G2.3 evaluation substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC G2.3 evaluation substrate; not Evidence.",
       rawContent: "SYNTHETIC G2.3 evaluation bytes; not Evidence.",
       recordedAt: "2026-07-27T17:41:00Z",
     })

@@ -2,7 +2,7 @@
 
 Research Kernel 是可复用的 lane 方法，不是顶层 orchestrator 或隐藏服务。agent 定义 research goal，搜索并阅读有代表性的来源，记录 Evidence，提取 Claim，综合 Finding 与 Insight，并提出与决策相关的问题。Harness 负责验证和存储由此产生的 Artifact。
 
-记录来源时先通过 `record-evidence` 保存调用方已取得的 raw bytes，再用 v5 envelope 发布 materialized Evidence。public source 使用 canonical HTTP(S) URL；user-provided existing material 使用保留 URN。Agent 必须显式填写 provenance、independence、bias、freshness、representativeness 与 limitations；不得让 Harness 根据 URL 或内容猜测。chat 和 task completion message 永远不是正式 Evidence 或 branch Artifact。
+记录来源时先通过 `record-evidence` 保存调用方已取得的 raw bytes，再用 v5 envelope 发布 materialized Evidence。public source 使用 canonical HTTP(S) URL；user-provided existing material 使用保留 URN。`record-evidence` 的 `acquisition_goal` 是 Agent/调用方填写的来源级采集意图，不是 Task 的 exact `research_goal`；`unit_attempt` 是 exact Task attempt 的机械绑定，省略时为 1；正式 Evidence 的 `task_lineage_goal` 由 Harness/Lane materializer 从 exact Task 机械派生，Agent 不要手填可派生的 Task goal。Agent 必须显式填写 provenance、independence、bias、freshness、representativeness 与 limitations；不得让 Harness 根据 URL 或内容猜测。chat 和 task completion message 永远不是正式 Evidence 或 branch Artifact。
 
 G2.4 enrichment Evidence 使用 v3 document/v12 或 repaired v13 envelope，但仍只绑定 `record-evidence` 已持久化的 exact v2 substrate record；版本升级不授权 Harness 获取来源、推断 provenance 或把 synthetic/unknown material 提升为真实 Evidence。
 

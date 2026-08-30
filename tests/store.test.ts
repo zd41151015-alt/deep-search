@@ -308,7 +308,7 @@ test("unconfirmed Scope blocks public and locked Evidence and Artifact writes be
   const evidenceInput = {
     runId: "scope-storage-boundary-test",
     unitId: "unit_scope_bypass",
-    researchGoal: "SYNTHETIC unauthorized Evidence write.",
+    acquisitionGoal: "SYNTHETIC unauthorized Evidence write.",
     source: {
       kind: "user_provided" as const,
       canonical_uri: "urn:startup-opportunity:user-provided:scope-bypass-synthetic",
@@ -622,7 +622,7 @@ test("Evidence Store canonicalizes source identity, stores real bytes, deduplica
       kind: "public_url",
       canonical_url: "HTTPS://Example.COM:443/research?q=buyer#section",
     },
-    researchGoal: "Check buyer evidence.",
+    acquisitionGoal: "Check buyer evidence.",
     rawContent: raw,
     recordedAt: "2026-07-23T12:20:00Z",
   });
@@ -640,7 +640,7 @@ test("Evidence Store canonicalizes source identity, stores real bytes, deduplica
       kind: "public_url",
       canonical_url: "https://example.com/research?q=buyer#different",
     },
-    researchGoal: "Check buyer evidence.",
+    acquisitionGoal: "Check buyer evidence.",
     rawContent: raw,
   });
   assert.equal(replay.status, "idempotent_replay");
@@ -650,6 +650,12 @@ test("Evidence Store canonicalizes source identity, stores real bytes, deduplica
       .length,
     1,
   );
+  assert.deepEqual(await evidence.statistics("store-test"), {
+    record_count: 1,
+    unique_source_count: 1,
+    unique_raw_count: 1,
+    unique_source_raw_count: 1,
+  });
 
   await assert.rejects(
     evidence.record({
@@ -659,13 +665,55 @@ test("Evidence Store canonicalizes source identity, stores real bytes, deduplica
         kind: "public_url",
         canonical_url: "https://example.com/research?q=buyer",
       },
-      researchGoal: "Changed goal.",
+      acquisitionGoal: "Changed goal.",
       rawContent: "different bytes",
       operationKey: first.record.operation_key,
       recordedAt: "2026-07-23T12:20:00Z",
     }),
     (error: unknown) => error instanceof StoreError && error.code === "operation.key_mismatch",
   );
+
+  const distinctAcquisitionGoal = await evidence.record({
+    runId: "store-test",
+    unitId: "buyer_unit_001",
+    source: {
+      kind: "public_url",
+      canonical_url: "https://example.com/research?q=buyer",
+    },
+    acquisitionGoal:
+      "Preserve the same source bytes for a distinct source-level collection intent.",
+    rawContent: raw,
+    recordedAt: "2026-07-23T12:21:00Z",
+  });
+  assert.equal(distinctAcquisitionGoal.status, "recorded");
+  assert.notEqual(distinctAcquisitionGoal.record.evidence_id, first.record.evidence_id);
+  assert.equal(distinctAcquisitionGoal.record.source_hash, first.record.source_hash);
+  assert.equal(distinctAcquisitionGoal.record.content_hash, first.record.content_hash);
+  assert.deepEqual(await evidence.statistics("store-test"), {
+    record_count: 2,
+    unique_source_count: 1,
+    unique_raw_count: 1,
+    unique_source_raw_count: 1,
+  });
+  const status = await setup(context, "store-status-statistics-test");
+  const statusEvidence = new EvidenceStore(status.runsRoot);
+  await statusEvidence.record({
+    runId: "store-status-statistics-test",
+    unitId: "buyer_unit_001",
+    acquisitionGoal: "Preserve status record/source/raw count distinction.",
+    source: {
+      kind: "user_provided",
+      canonical_uri: "urn:startup-opportunity:user-provided:status-stats-synthetic",
+    },
+    rawContent: raw,
+    recordedAt: "2026-07-23T12:22:00Z",
+  });
+  const statusResult = await status.store.status("store-status-statistics-test");
+  assert.equal(statusResult.observability.evidenceCount, 1);
+  assert.equal(statusResult.observability.evidenceRecordCount, 1);
+  assert.equal(statusResult.observability.uniqueEvidenceSourceCount, 1);
+  assert.equal(statusResult.observability.uniqueEvidenceRawCount, 1);
+  assert.equal(statusResult.observability.uniqueEvidenceSourceRawCount, 1);
 });
 
 test("reopen rejects overlapping manifest unit status sets", async (context) => {

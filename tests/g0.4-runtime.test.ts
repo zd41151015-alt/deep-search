@@ -959,7 +959,7 @@ async function setupPersistedRun(
             kind: "user_provided",
             canonical_uri: `urn:startup-opportunity:user-provided:${runId}-${label}`,
           },
-          researchGoal: `SYNTHETIC ${label} pre-kill binding substrate; not Evidence.`,
+          acquisitionGoal: `SYNTHETIC ${label} pre-kill binding substrate; not Evidence.`,
           rawContent: `SYNTHETIC ${label} bytes; not Evidence or validation.`,
           recordedAt: "2026-07-24T12:00:30Z",
         })

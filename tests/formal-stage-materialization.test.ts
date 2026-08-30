@@ -290,7 +290,7 @@ async function prepareRun(context: TestContext, suffix: string) {
     await evidence.record({
       runId,
       unitId: "unit_seed_independent_demand",
-      researchGoal: "SYNTHETIC materialization substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC materialization substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-generation`,
@@ -303,7 +303,7 @@ async function prepareRun(context: TestContext, suffix: string) {
     await evidence.record({
       runId,
       unitId: "unit_counterfactual",
-      researchGoal: "SYNTHETIC materialization substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC materialization substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-evaluation`,
@@ -392,7 +392,7 @@ async function prepareCleanPlanRun(context: TestContext, suffix: string) {
     await evidence.record({
       runId,
       unitId: "unit_seed_independent_demand",
-      researchGoal: "SYNTHETIC materialization substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC materialization substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-generation`,
@@ -405,7 +405,7 @@ async function prepareCleanPlanRun(context: TestContext, suffix: string) {
     await evidence.record({
       runId,
       unitId: "unit_counterfactual",
-      researchGoal: "SYNTHETIC materialization substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC materialization substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:${suffix}-evaluation`,
@@ -819,7 +819,7 @@ test("G2.3 public materializer derives exact Opportunity solution summaries and 
     await evidence.record({
       runId,
       unitId: "unit_seed_independent_demand",
-      researchGoal: "SYNTHETIC G2.3 materializer substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC G2.3 materializer substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri: "urn:startup-opportunity:user-provided:g2-3-summary-generation",
@@ -832,7 +832,7 @@ test("G2.3 public materializer derives exact Opportunity solution summaries and 
     await evidence.record({
       runId,
       unitId: "unit_counterfactual",
-      researchGoal: "SYNTHETIC G2.3 materializer substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC G2.3 materializer substrate; not Evidence.",
       source: {
         kind: "user_provided",
         canonical_uri: "urn:startup-opportunity:user-provided:g2-3-summary-evaluation",
@@ -1431,7 +1431,7 @@ test("public CLI authors a clean setup through adaptation without internal publi
       "unit_counterfactual",
       "--source-uri",
       "urn:startup-opportunity:user-provided:formal-author-cli-background",
-      "--research-goal",
+      "--acquisition-goal",
       "Preserve weak, opposing, background, and conflicting material without upgrading it.",
       "--content-file",
       rawEvidenceFile,
@@ -1462,7 +1462,7 @@ test("public CLI authors a clean setup through adaptation without internal publi
       "unit_seed_independent_demand",
       "--source-uri",
       "urn:startup-opportunity:user-provided:formal-author-cli-generation-context",
-      "--research-goal",
+      "--acquisition-goal",
       "Preserve weak generation context without upgrading it.",
       "--content-file",
       generationRawEvidenceFile,
@@ -1495,7 +1495,6 @@ test("public CLI authors a clean setup through adaptation without internal publi
   const typedEvidence = {
     source_type: "synthetic_contract_fixture",
     source_name: "SYNTHETIC caller-supplied background material",
-    research_goal: "Retain weak opposing context without promoting it.",
     research_phase_role: "candidate_evaluation",
     geo: "Synthetic",
     language: "en-US",
@@ -1525,7 +1524,6 @@ test("public CLI authors a clean setup through adaptation without internal publi
   const generationTypedEvidence = {
     ...structuredClone(typedEvidence),
     source_name: "SYNTHETIC caller-supplied generation context",
-    research_goal: "Retain weak generation context without promoting it.",
     research_phase_role: "candidate_generation",
     source_group_id: "source_group_cli_generation",
     source_assessment: {

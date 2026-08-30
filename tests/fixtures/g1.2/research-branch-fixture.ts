@@ -409,6 +409,7 @@ export function branchResearchEnvelopes(
   branch: FixtureBranch,
   records: readonly [EvidenceStoreRecord, EvidenceStoreRecord],
   offset: number,
+  taskLineageGoal: string,
 ): readonly FormalArtifactEnvelope[] {
   const taskRef = `tasks/${branch.unitId}.attempt-1.json`;
   const evidencePaths = records.map((record) => `evidence/records/${record.evidence_id}.json`);
@@ -425,7 +426,8 @@ export function branchResearchEnvelopes(
       source_name: `Synthetic contract fixture ${branch.unitId} ${index + 1}`,
       published_at: null,
       retrieved_at: record.recorded_at,
-      research_goal: record.research_goal,
+      research_goal: record.acquisition_goal,
+      task_lineage_goal: taskLineageGoal,
       research_phase_role: index === 0 ? "candidate_evaluation" : "adversarial_challenger",
       geo: "synthetic-not-a-market",
       language: "en",

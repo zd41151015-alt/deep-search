@@ -961,6 +961,11 @@ function validateCandidateNeutralEvidence(
   }
   const taskId = String(evidence.dispatch_batch_ref).split("#", 2)[1];
   const task = records(batch.document.tasks).find((candidate) => candidate.task_id === taskId);
+  const plan = target(byPath, batch.document.research_plan_ref);
+  const unit =
+    plan?.schemaVersion === "startup_opportunity.research_plan.v1"
+      ? planUnits(plan.document).find((entry) => entry.unit.unit_id === evidence.unit_id)?.unit
+      : undefined;
   const execution = target(byPath, batch.document.execution_plan_ref);
   const lane =
     execution?.schemaVersion === "startup_opportunity.research_execution_plan.discovery.current"
@@ -971,7 +976,8 @@ function validateCandidateNeutralEvidence(
     lane === null ||
     lane.stage.stage_kind !== "discovery_generation" ||
     task.unit_id !== evidence.unit_id ||
-    task.research_goal !== evidence.research_goal ||
+    task.research_goal !== evidence.task_lineage_goal ||
+    unit?.research_goal !== evidence.task_lineage_goal ||
     evidence.run_id !== batch.document.run_id ||
     evidence.research_plan_ref !== batch.document.research_plan_ref
   ) {
@@ -998,7 +1004,7 @@ function validateCandidateNeutralEvidence(
     );
     return;
   }
-  const identityFields = ["evidence_id", "run_id", "unit_id", "research_goal"] as const;
+  const identityFields = ["evidence_id", "run_id", "unit_id"] as const;
   const mechanicalFields = [
     "source_hash",
     "content_hash",
@@ -1008,6 +1014,8 @@ function validateCandidateNeutralEvidence(
   ] as const;
   if (
     identityFields.some((field) => evidence[field] !== substrate[field]) ||
+    evidence.research_goal !== substrate.acquisition_goal ||
+    substrate.unit_attempt !== unit?.attempt ||
     mechanicalFields.some((field) => binding[field] !== substrate[field])
   ) {
     errors.push(

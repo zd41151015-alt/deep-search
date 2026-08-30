@@ -18,6 +18,8 @@ The same pair is also declared through npm `devEngines`, so `npm run` commands f
 
 Codex loads `.codex/config.toml`, the three project agents, optional hooks, and the local Evidence MCP server only for a trusted project. The MCP server uses stdio and receives no credentials. The main-agent configuration exposes prompt-approved `create_run`, `propose_scope`, `confirm_scope`, and `record_evidence` operations plus read-only `get_evidence_manifest`; project agents receive narrower role-specific allow-lists. The server cannot fetch a URL or form a research judgment.
 
+`get_evidence_manifest` reports substrate record counts separately from unique canonical source, raw byte, and source/raw counts. The record count is not a source count: multiple records can intentionally preserve different source-level acquisition goals for the same source bytes.
+
 See [Operations](docs/operations.md) for clean-checkout setup, trust, hooks-disabled operation, recovery, and surface-specific launch notes.
 
 ## Use
@@ -71,7 +73,7 @@ npm run harness -- status-run --run-id RUN_ID
 npm run harness -- load-run --run-id RUN_ID
 npm run harness -- create-research-handoff --file path/to/research-handoff-input.json
 npm run harness -- read-research-handoff --run-id RUN_ID --handoff-ref REF --item-id ITEM_ID
-npm run harness -- record-evidence --run-id RUN_ID --unit-id UNIT_ID --source-url URL --research-goal GOAL --content-file FILE
+npm run harness -- record-evidence --run-id RUN_ID --unit-id UNIT_ID [--unit-attempt N] --source-url URL --acquisition-goal GOAL --content-file FILE
 npm run harness -- validate-artifact --file path/to/document.json --json
 npm run harness -- validate-plan --bundle path/to/document-bundle.json --json
 npm run harness -- publish-artifact --file path/to/envelope-or-bundle.json

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canonicalContentHash } from "../harness/src/artifact-store/canonical.js";
+import { canonicalContentHash, operationKey } from "../harness/src/artifact-store/canonical.js";
 import {
   renderMarketPriorityAndCommercialReadiness,
   renderQuantitativeSignalTable,
@@ -367,17 +367,25 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
     sharedDatasetGroup: string | null = null,
     syndicationGroup: string | null = null,
   ) => {
-    const operationKey = canonicalContentHash({ path });
     const contentHash = canonicalContentHash({ content: path });
     const source = {
       kind: "public_url",
       canonical_url: `https://${sourceIdentity}.synthetic.invalid/source`,
     };
     const sourceHash = canonicalContentHash(source);
-    const evidenceId = `ev_${operationKey.slice("sha256:".length)}`;
     const unitId =
       path.includes("before") || path.includes("existing") ? "unit_before" : "unit_after";
-    const researchGoal = "Synthetic information-gain authority fixture.";
+    const unitAttempt = 1;
+    const acquisitionGoal = "Synthetic information-gain authority fixture.";
+    const operationKeyValue = operationKey("record_evidence", {
+      run_id: "run_gain_synthetic",
+      unit_id: unitId,
+      unit_attempt: unitAttempt,
+      source,
+      content_hash: contentHash,
+      acquisition_goal: acquisitionGoal,
+    });
+    const evidenceId = `ev_${operationKeyValue.slice("sha256:".length)}`;
     const substrateRef = `evidence/manifest.jsonl#${evidenceId}`;
     const recordedAt = "2026-08-02T00:00:00Z";
     exactRecords.set(substrateRef, {
@@ -385,12 +393,13 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
       evidence_id: evidenceId,
       run_id: "run_gain_synthetic",
       unit_id: unitId,
+      unit_attempt: unitAttempt,
       source,
       source_hash: sourceHash,
       content_hash: contentHash,
-      research_goal: researchGoal,
+      acquisition_goal: acquisitionGoal,
       raw_content_ref: `evidence/raw/sha256-${contentHash.slice("sha256:".length)}.bin`,
-      operation_key: operationKey,
+      operation_key: operationKeyValue,
       recorded_at: recordedAt,
     });
     return entry(path, "startup_opportunity.assessment_evidence.v1", {
@@ -400,7 +409,8 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
       concept_hypothesis_ref: conceptRef,
       execution_plan_ref: executionPlanRef,
       research_plan_ref: researchPlanRef,
-      research_goal: researchGoal,
+      research_goal: acquisitionGoal,
+      task_lineage_goal: acquisitionGoal,
       source_group_id: sourceGroup,
       source_assessment: {
         independence,
@@ -416,7 +426,7 @@ test("formal Assessment closure derives gain and ignores old-Plan or cross-subje
         source_hash: sourceHash,
         content_hash: contentHash,
         raw_content_ref: `evidence/raw/sha256-${contentHash.slice("sha256:".length)}.bin`,
-        operation_key: operationKey,
+        operation_key: operationKeyValue,
         recorded_at: recordedAt,
       },
     });
@@ -796,37 +806,49 @@ test("formal repeated same-source proxy lineage preserves no-gain history across
   });
   const evidence = (index: number) => {
     const path = evidenceRefs[index] as string;
-    const operationKey = canonicalContentHash({ path });
     const contentHash = canonicalContentHash({ content: path });
     const source = {
       kind: "public_url",
       canonical_url: "https://same-source.synthetic.invalid/repeated-proxy",
     };
     const sourceHash = canonicalContentHash(source);
-    const evidenceId = `ev_${operationKey.slice("sha256:".length)}`;
+    const unitId = `unit_repeated_${index + 1}`;
+    const unitAttempt = 1;
+    const acquisitionGoal = "Synthetic repeated-proxy information-gain fixture.";
+    const operationKeyValue = operationKey("record_evidence", {
+      run_id: runId,
+      unit_id: unitId,
+      unit_attempt: unitAttempt,
+      source,
+      content_hash: contentHash,
+      acquisition_goal: acquisitionGoal,
+    });
+    const evidenceId = `ev_${operationKeyValue.slice("sha256:".length)}`;
     const substrateRef = `evidence/manifest.jsonl#${evidenceId}`;
     const recordedAt = "2026-08-02T00:00:00Z";
     exactRecords.set(substrateRef, {
       schema_version: "startup_opportunity.evidence_store_record.v2",
       evidence_id: evidenceId,
       run_id: runId,
-      unit_id: `unit_repeated_${index + 1}`,
+      unit_id: unitId,
+      unit_attempt: unitAttempt,
       source,
       source_hash: sourceHash,
       content_hash: contentHash,
-      research_goal: "Synthetic repeated-proxy information-gain fixture.",
+      acquisition_goal: acquisitionGoal,
       raw_content_ref: `evidence/raw/sha256-${contentHash.slice("sha256:".length)}.bin`,
-      operation_key: operationKey,
+      operation_key: operationKeyValue,
       recorded_at: recordedAt,
     });
     return entry(path, "startup_opportunity.assessment_evidence.v1", {
       evidence_id: evidenceId,
       run_id: runId,
-      unit_id: `unit_repeated_${index + 1}`,
+      unit_id: unitId,
       concept_hypothesis_ref: subjectRef,
       execution_plan_ref: executionRefs[index],
       research_plan_ref: planRef,
-      research_goal: "Synthetic repeated-proxy information-gain fixture.",
+      research_goal: acquisitionGoal,
+      task_lineage_goal: acquisitionGoal,
       source_group_id: `agent_renamed_group_${index + 1}`,
       source_assessment: {
         independence: "independent_secondary",
@@ -842,7 +864,7 @@ test("formal repeated same-source proxy lineage preserves no-gain history across
         source_hash: sourceHash,
         content_hash: contentHash,
         raw_content_ref: `evidence/raw/sha256-${contentHash.slice("sha256:".length)}.bin`,
-        operation_key: operationKey,
+        operation_key: operationKeyValue,
         recorded_at: recordedAt,
       },
     });

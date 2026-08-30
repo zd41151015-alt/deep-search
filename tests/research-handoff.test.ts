@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -14,6 +14,7 @@ import {
   type DocumentBundle,
   EvidenceStore,
   type FormalArtifactEnvelope,
+  operationKey,
   RunStore,
   StoreError,
   sha256Bytes,
@@ -112,6 +113,33 @@ function exactReferenceCodes(error: StoreError): readonly string[] {
     : [];
 }
 
+function sha256HexFromHash(hash: string): string {
+  const match = hash.match(/^sha256:([a-f0-9]{64})$/);
+  assert.ok(match?.[1]);
+  return match[1];
+}
+
+function retargetEvidenceImportRecord(
+  record: Record<string, unknown>,
+  overrides: { readonly unitId?: string; readonly unitAttempt?: number },
+): Record<string, unknown> {
+  const next = structuredClone(record);
+  if (overrides.unitId !== undefined) next.unit_id = overrides.unitId;
+  if (overrides.unitAttempt !== undefined) next.unit_attempt = overrides.unitAttempt;
+  const stableOperationKey = operationKey("record_evidence", {
+    run_id: next.run_id,
+    unit_id: next.unit_id,
+    unit_attempt: next.unit_attempt,
+    source: next.source,
+    content_hash: next.content_hash,
+    acquisition_goal: next.acquisition_goal,
+    handoff_binding: next.handoff_binding,
+  });
+  next.operation_key = stableOperationKey;
+  next.evidence_id = `ev_${sha256HexFromHash(stableOperationKey)}`;
+  return next;
+}
+
 function formalEnvelopesByType(
   bundle: DocumentBundle,
   ...artifactTypes: readonly string[]
@@ -123,6 +151,22 @@ function formalEnvelopesByType(
         entry.schema_version === "startup_opportunity.artifact_envelope.current" &&
         artifactTypes.includes(entry.artifact_type),
     );
+}
+
+function validationDocuments(bundle: DocumentBundle): readonly ResearchHandoffDocument[] {
+  return bundle.documents.map((entry) => {
+    const value = entry.document as Record<string, unknown>;
+    const envelope =
+      value.schema_version === "startup_opportunity.artifact_envelope.current"
+        ? (value as unknown as FormalArtifactEnvelope)
+        : null;
+    return {
+      path: entry.path,
+      schemaVersion: String(envelope?.artifact_type ?? value.schema_version),
+      document: (envelope?.document ?? value) as Record<string, unknown>,
+      envelope,
+    };
+  });
 }
 
 function bindHandoff(
@@ -216,7 +260,7 @@ async function recordDiscoverySubstrate(state: HandoffState, suffix: string) {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:handoff:${suffix}:generation`,
       },
-      researchGoal: "SYNTHETIC current-Run generation substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC current-Run generation substrate; not Evidence.",
       rawContent: "SYNTHETIC current-Run generation bytes; not Evidence.",
       recordedAt: "2026-08-12T17:20:00Z",
     })
@@ -229,7 +273,7 @@ async function recordDiscoverySubstrate(state: HandoffState, suffix: string) {
         kind: "user_provided",
         canonical_uri: `urn:startup-opportunity:user-provided:handoff:${suffix}:evaluation`,
       },
-      researchGoal: "SYNTHETIC current-Run evaluation substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC current-Run evaluation substrate; not Evidence.",
       rawContent: "SYNTHETIC current-Run evaluation bytes; not Evidence.",
       recordedAt: "2026-08-12T17:21:00Z",
     })
@@ -240,12 +284,17 @@ async function recordDiscoverySubstrate(state: HandoffState, suffix: string) {
 async function createReadHandoff(
   state: HandoffState,
   targetArtifactRef = G21_OPPORTUNITY_REF,
+  options: { readonly includeReusableEvidence?: boolean } = {},
 ): Promise<HandoffBindingState> {
   const input = structuredClone(state.input);
   const prior = input.items.find((item) => item.itemId === "prior_opportunity_map");
   assert.ok(prior);
   (prior as { targetArtifactRef?: string }).targetArtifactRef = targetArtifactRef;
-  const created = await state.store.createResearchHandoff(input);
+  const items =
+    options.includeReusableEvidence === false
+      ? input.items.filter((item) => item.role !== "reusable_evidence")
+      : input.items;
+  const created = await state.store.createResearchHandoff({ ...input, items });
   await state.store.readResearchHandoff({
     runId: state.targetRunId,
     handoffRef: created.handoffRef,
@@ -590,7 +639,7 @@ async function prepareState(
       kind: "public_url",
       canonical_url: "https://synthetic.invalid/forum/vendor-api-proxy?case=handoff#ignored",
     },
-    researchGoal: "Preserve provider-agnostic synthetic source bytes for handoff testing.",
+    acquisitionGoal: "Preserve provider-agnostic synthetic source bytes for handoff testing.",
     rawContent: sourceEvidenceRaw,
     recordedAt: "2026-08-12T17:05:00Z",
   });
@@ -628,8 +677,7 @@ async function prepareState(
         freshnessDisposition: "current",
         applicabilityDisposition: "applicable",
         revalidationStatus: "not_required",
-        targetUnitId: "unit_target_reweighting",
-        targetResearchGoal: "Reassess these exact bytes under the target Scope and current Plan.",
+        targetUnitId: "unit_seed_independent_demand",
       },
     ],
   };
@@ -668,6 +716,25 @@ test("formal handoff copies exact reusable Evidence and controlled reads freeze 
     imported.record.handoff_binding?.source_evidence_path,
     state.input.items[1]?.sourceArtifactPath,
   );
+  const reusableInput = state.input.items.find(
+    (item) => item.itemId === "reusable_source_material",
+  );
+  assert.ok(reusableInput);
+  assert.equal(imported.record.unit_id, reusableInput.targetUnitId);
+  assert.equal(imported.record.unit_attempt, 1);
+  assert.equal(
+    imported.record.acquisition_goal,
+    "Preserve provider-agnostic synthetic source bytes for handoff testing.",
+  );
+  const handoffEnvelope = JSON.parse(
+    await readFile(path.join(state.runsRoot, state.targetRunId, created.handoffRef), "utf8"),
+  ) as FormalArtifactEnvelope;
+  const reusableItem = (handoffEnvelope.document.items as Record<string, unknown>[]).find(
+    (item) => item.item_id === "reusable_source_material",
+  );
+  assert.ok(reusableItem);
+  assert.equal(reusableItem.target_unit_id, imported.record.unit_id);
+  assert.equal(reusableItem.target_unit_attempt, imported.record.unit_attempt);
 
   const evidenceOnlyRead = await state.store.readResearchHandoff({
     runId: state.targetRunId,
@@ -697,6 +764,66 @@ test("formal handoff copies exact reusable Evidence and controlled reads freeze 
   });
   assert.equal(replay.status, "idempotent_replay");
   assert.equal(replay.consumptionDecisionHash, priorRead.consumptionDecisionHash);
+});
+
+test("published handoff validation rejects imported Evidence outside the exact target unit and attempt", async (context) => {
+  for (const variant of ["wrong-target-unit", "wrong-target-attempt"] as const) {
+    await context.test(variant, async (subcontext) => {
+      const state = await prepareState(subcontext, `published-${variant}`);
+      const created = await state.store.createResearchHandoff(state.input);
+      const publishedHandoffEnvelope = JSON.parse(
+        await readFile(path.join(state.runsRoot, state.targetRunId, created.handoffRef), "utf8"),
+      ) as FormalArtifactEnvelope;
+      const validation = await state.store.buildValidationContext(
+        state.targetRunId,
+        {
+          schema_version: "startup_opportunity.document_bundle.current",
+          documents: [
+            {
+              path: created.handoffRef,
+              document: publishedHandoffEnvelope,
+            },
+          ],
+          exact_records: [],
+        },
+        { includeAllFormalArtifacts: true },
+      );
+      const documents = structuredClone(validationDocuments(validation.bundle));
+      const handoff = documents.find((entry) => entry.path === created.handoffRef);
+      assert.ok(handoff);
+      const reusableItem = (handoff.document.items as Record<string, unknown>[]).find(
+        (item) => item.item_id === "reusable_source_material",
+      );
+      assert.ok(reusableItem);
+      const originalTargetRef = String(reusableItem.target_evidence_ref);
+      const exactJsonlRecords = validation.referenceContext.exactJsonlRecords;
+      assert.ok(exactJsonlRecords);
+      const originalRecord = exactJsonlRecords.get(originalTargetRef);
+      assert.ok(originalRecord);
+      const tamperedRecord = retargetEvidenceImportRecord(originalRecord, {
+        ...(variant === "wrong-target-unit" ? { unitId: "unit_counterfactual" } : {}),
+        ...(variant === "wrong-target-attempt" ? { unitAttempt: 2 } : {}),
+      });
+      const tamperedTargetRef = `evidence/manifest.jsonl#${String(tamperedRecord.evidence_id)}`;
+      reusableItem.target_evidence_ref = tamperedTargetRef;
+      reusableItem.target_evidence_record_hash = canonicalContentHash(tamperedRecord);
+      if (handoff.envelope !== null) {
+        handoff.envelope.content_hash = canonicalContentHash(handoff.document);
+      }
+      const exactRecords = new Map(exactJsonlRecords);
+      exactRecords.delete(originalTargetRef);
+      exactRecords.set(tamperedTargetRef, tamperedRecord);
+      const issues = validateResearchHandoffContract(documents, exactRecords);
+      assert.ok(
+        issues.some(
+          (issue) =>
+            issue.code === "research_handoff.evidence_copy_binding_mismatch" &&
+            issue.instancePath === `${created.handoffRef}#/items/1`,
+        ),
+        JSON.stringify(issues, null, 2),
+      );
+    });
+  }
 });
 
 test("reading prior synthesis binds only its target and explicit same-Run descendants", async (context) => {
@@ -826,7 +953,7 @@ test("formal Evidence adoption requires the exact controlled read, item, and tar
             kind: "user_provided",
             canonical_uri: `urn:startup-opportunity:user-provided:handoff:evidence-authority:${variant}`,
           },
-          researchGoal: "SYNTHETIC comparison substrate; not Evidence.",
+          acquisitionGoal: "SYNTHETIC comparison substrate; not Evidence.",
           rawContent: "SYNTHETIC comparison bytes; not Evidence.",
           recordedAt: "2026-08-12T17:21:00Z",
         })
@@ -927,7 +1054,7 @@ test("restricted inherited substrate remains context and cannot support a formal
         kind: "user_provided",
         canonical_uri: "urn:startup-opportunity:user-provided:handoff:restricted-evidence:current",
       },
-      researchGoal: "SYNTHETIC current-Run comparison substrate; not Evidence.",
+      acquisitionGoal: "SYNTHETIC current-Run comparison substrate; not Evidence.",
       rawContent: "SYNTHETIC current-Run comparison bytes; not Evidence.",
       recordedAt: "2026-08-12T17:21:00Z",
     })
@@ -1647,7 +1774,7 @@ test("terminal provenance follows only its explicit report root", () => {
   );
 });
 
-test("Concept intake formation binds the exact handoff item without treating copied Evidence as prior synthesis", async (context) => {
+test("Concept intake formation binds the exact handoff item without pre-Plan Evidence reuse", async (context) => {
   const state = await prepareState(context, "concept-consumer", {
     publishTargetCore: false,
     targetMode: "concept_evidence_assessment",
@@ -1662,7 +1789,17 @@ test("Concept intake formation binds the exact handoff item without treating cop
       TARGET_SCOPE_R1,
     ),
   });
-  const binding = await createReadHandoff(state, "concept-hypothesis.json");
+  await assert.rejects(
+    state.store.createResearchHandoff({
+      ...structuredClone(state.input),
+      handoffId: "handoff_concept_consumer_evidence_rejected",
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "research_handoff.item_contract_invalid",
+  );
+  const binding = await createReadHandoff(state, "concept-hypothesis.json", {
+    includeReusableEvidence: false,
+  });
   const concept = structuredClone(bundleDocument(assessmentFixture, "concept-hypothesis.json"));
   concept.run_id = state.targetRunId;
   concept.schema_version = "startup_opportunity.concept_hypothesis.assessment_intake.current";
@@ -1712,15 +1849,6 @@ test("Concept intake formation binds the exact handoff item without treating cop
     state.store,
     state.targetRunId,
     [missingInputRef],
-    "research_handoff.consumer_binding_mismatch",
-  );
-
-  const evidenceSubstitution = clonedEnvelope(envelope);
-  bindHandoff(evidenceSubstitution, binding.reusableBinding);
-  await assertPublicationRejected(
-    state.store,
-    state.targetRunId,
-    [evidenceSubstitution],
     "research_handoff.consumer_binding_mismatch",
   );
 
@@ -1833,7 +1961,9 @@ test("pre-Plan Assessment admits only the initial intake formation and rejects i
   );
   assert.deepEqual(await snapshotTree(targetRoot), beforeInvalid);
 
-  const binding = await createReadHandoff(state, "concept-hypothesis.json");
+  const binding = await createReadHandoff(state, "concept-hypothesis.json", {
+    includeReusableEvidence: false,
+  });
   await state.store.publishArtifact({
     runId: state.targetRunId,
     envelope: assessmentConceptEnvelope(
@@ -1852,7 +1982,7 @@ test("pre-Plan Assessment admits only the initial intake formation and rejects i
       itemIds: ["reusable_source_material"],
     }),
     (error: unknown) =>
-      error instanceof StoreError && error.code === "research_handoff.intake_formation_closed",
+      error instanceof StoreError && error.code === "research_handoff.item_missing",
   );
   const second = {
     ...structuredClone(state.input),
@@ -1912,8 +2042,12 @@ test("Scope r2 Assessment handoff binds exact re-formation through Concept and f
   const prior = input.items.find((item) => item.itemId === "prior_opportunity_map");
   assert.ok(prior);
   (prior as { targetArtifactRef?: string }).targetArtifactRef = "concept-hypothesis.json";
+  const inputWithoutReusableEvidence = {
+    ...input,
+    items: input.items.filter((item) => item.role !== "reusable_evidence"),
+  };
   await assert.rejects(
-    state.store.createResearchHandoff({ ...input, faultAt: "after_intent" }),
+    state.store.createResearchHandoff({ ...inputWithoutReusableEvidence, faultAt: "after_intent" }),
     (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
   );
   const reopenedStore = new RunStore(state.runsRoot, await createArtifactValidator(repositoryRoot));
@@ -1921,7 +2055,10 @@ test("Scope r2 Assessment handoff binds exact re-formation through Concept and f
   const handoffRef = `artifacts/research-handoffs/${input.handoffId}.json`;
   assert.ok(recovered.recovered);
   assert.ok(recovered.manifest.artifact_refs.includes(handoffRef));
-  assert.equal((await reopenedStore.createResearchHandoff(input)).status, "idempotent_replay");
+  assert.equal(
+    (await reopenedStore.createResearchHandoff(inputWithoutReusableEvidence)).status,
+    "idempotent_replay",
+  );
   const firstRead = await reopenedStore.readResearchHandoff({
     runId: state.targetRunId,
     handoffRef,
@@ -2008,7 +2145,10 @@ test("a pre-Plan Assessment handoff becomes historical and inapplicable after Sc
   const prior = input.items.find((item) => item.itemId === "prior_opportunity_map");
   assert.ok(prior);
   (prior as { targetArtifactRef?: string }).targetArtifactRef = "concept-hypothesis.json";
-  const created = await state.store.createResearchHandoff(input);
+  const created = await state.store.createResearchHandoff({
+    ...input,
+    items: input.items.filter((item) => item.role !== "reusable_evidence"),
+  });
   const targetRoot = path.join(state.runsRoot, state.targetRunId);
   const oldBytes = await readFile(path.join(targetRoot, created.handoffRef));
   await reviseScope(state, "assessment-stale-r1-handoff");
@@ -2161,7 +2301,7 @@ test("generic Evidence publication cannot forge a Harness-owned handoff binding"
     runId: state.targetRunId,
     unitId: imported.unit_id,
     source: imported.source,
-    researchGoal: imported.research_goal,
+    acquisitionGoal: imported.acquisition_goal,
     rawContent: state.sourceEvidenceRaw,
     recordedAt: imported.recorded_at,
     operationKey: imported.operation_key,
@@ -2348,6 +2488,186 @@ test("tampered target-owned handoff intent fails closed on reopen", async (conte
       error instanceof StoreError && error.code === "recovery.invalid_research_handoff_operation",
   );
   assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.targetRunId)), before);
+});
+
+test("handoff recovery rejects imported Evidence outside the exact target unit and attempt before writes", async (context) => {
+  for (const variant of ["wrong-target-unit", "wrong-target-attempt"] as const) {
+    await context.test(variant, async (subcontext) => {
+      const state = await prepareState(subcontext, `tamper-${variant}`);
+      await assert.rejects(
+        state.store.createResearchHandoff({
+          ...state.input,
+          faultAt: "after_intent",
+        }),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+      const targetRoot = path.join(state.runsRoot, state.targetRunId);
+      const operationDirectory = path.join(targetRoot, ".store/operations");
+      const filename = (await readdir(operationDirectory)).find((entry) =>
+        entry.startsWith("research-handoff-"),
+      );
+      assert.ok(filename);
+      const operationPath = path.join(operationDirectory, filename);
+      const intent = JSON.parse(await readFile(operationPath, "utf8")) as Record<string, unknown>;
+      const imports = intent.evidence_imports as {
+        record: Record<string, unknown>;
+        raw_content_base64: string;
+      }[];
+      assert.equal(imports.length, 1);
+      const evidenceImport = imports[0];
+      assert.ok(evidenceImport);
+      const tamperedRecord = retargetEvidenceImportRecord(evidenceImport.record, {
+        ...(variant === "wrong-target-unit" ? { unitId: "unit_counterfactual" } : {}),
+        ...(variant === "wrong-target-attempt" ? { unitAttempt: 2 } : {}),
+      });
+      evidenceImport.record = tamperedRecord;
+      const envelope = intent.envelope as Record<string, unknown>;
+      const document = envelope.document as Record<string, unknown>;
+      const items = document.items as Record<string, unknown>[];
+      const reusableItem = items.find((item) => item.item_id === "reusable_source_material");
+      assert.ok(reusableItem);
+      reusableItem.target_evidence_ref = `evidence/manifest.jsonl#${String(
+        tamperedRecord.evidence_id,
+      )}`;
+      reusableItem.target_evidence_record_hash = canonicalContentHash(tamperedRecord);
+      envelope.content_hash = canonicalContentHash(document);
+      await writeFile(operationPath, `${canonicalJson(intent)}\n`);
+
+      const before = await snapshotTree(targetRoot);
+      await assert.rejects(
+        state.store.load(state.targetRunId),
+        (error: unknown) =>
+          error instanceof StoreError &&
+          error.code === "recovery.invalid_research_handoff_operation",
+      );
+      assert.deepEqual(await snapshotTree(targetRoot), before);
+    });
+  }
+});
+
+test("handoff recovery validates target Plan canonical bytes before imported Evidence writes", async (context) => {
+  const state = await prepareState(context, "tamper-target-plan-canonical");
+  await assert.rejects(
+    state.store.createResearchHandoff({
+      ...state.input,
+      faultAt: "after_intent",
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const targetRoot = path.join(state.runsRoot, state.targetRunId);
+  const operationDirectory = path.join(targetRoot, ".store/operations");
+  for (const filename of await readdir(operationDirectory)) {
+    if (
+      (!filename.startsWith("artifact-") && !filename.startsWith("bundle-")) ||
+      !filename.endsWith(".json")
+    ) {
+      continue;
+    }
+    await rm(path.join(operationDirectory, filename));
+  }
+  const publicationDirectory = path.join(targetRoot, ".store/publications");
+  for (const filename of await readdir(publicationDirectory)) {
+    if (!filename.endsWith(".json")) continue;
+    await rm(path.join(publicationDirectory, filename));
+  }
+  const targetPlanRef = "plans/research-plan.r1.json";
+  for (const filename of await readdir(operationDirectory)) {
+    if (!filename.startsWith("research-handoff-") || !filename.endsWith(".json")) continue;
+    const operationPath = path.join(operationDirectory, filename);
+    const operation = JSON.parse(await readFile(operationPath, "utf8")) as Record<string, unknown>;
+    const envelope = operation.envelope as Record<string, unknown>;
+    const document = envelope.document as Record<string, unknown>;
+    assert.equal(document.target_plan_ref, targetPlanRef);
+  }
+  const planPath = path.join(targetRoot, "plans/research-plan.r1.json");
+  const planEnvelope = JSON.parse(await readFile(planPath, "utf8")) as FormalArtifactEnvelope;
+  const originalPlanHash = planEnvelope.content_hash;
+  planEnvelope.document.plan_id = "tampered_plan_document_with_old_content_hash";
+  assert.equal(planEnvelope.content_hash, originalPlanHash);
+  await writeFile(planPath, `${canonicalJson(planEnvelope)}\n`);
+
+  const before = await snapshotTree(targetRoot);
+  const handoffRef = `artifacts/research-handoffs/${state.input.handoffId}.json`;
+  assert.equal(before[handoffRef], undefined);
+  assert.equal(before["evidence/manifest.jsonl"] ?? "", "");
+  await assert.rejects(
+    state.store.load(state.targetRunId),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "recovery.invalid_research_handoff_operation",
+  );
+  assert.deepEqual(await snapshotTree(targetRoot), before);
+});
+
+test("handoff recovery preflights target Plan before partial imported Evidence recovery", async (context) => {
+  for (const partial of ["receipt-raw-temp", "receipt-raw-target"] as const) {
+    await context.test(partial, async (subcontext) => {
+      const state = await prepareState(subcontext, `tamper-target-plan-${partial}`);
+      await assert.rejects(
+        state.store.createResearchHandoff({
+          ...state.input,
+          faultAt: "after_intent",
+        }),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+
+      const targetRoot = path.join(state.runsRoot, state.targetRunId);
+      const operationDirectory = path.join(targetRoot, ".store/operations");
+      const filename = (await readdir(operationDirectory)).find((entry) =>
+        entry.startsWith("research-handoff-"),
+      );
+      assert.ok(filename);
+      const intent = JSON.parse(
+        await readFile(path.join(operationDirectory, filename), "utf8"),
+      ) as Record<string, unknown>;
+      const imports = intent.evidence_imports as {
+        readonly record: Record<string, unknown>;
+        readonly raw_content_base64: string;
+      }[];
+      assert.equal(imports.length, 1);
+      const evidenceImport = imports[0];
+      assert.ok(evidenceImport);
+      const record = evidenceImport.record;
+      const operationHex = sha256HexFromHash(String(record.operation_key));
+      const receiptRelative = `.store/operations/evidence-${operationHex}.json`;
+      await writeFile(
+        path.join(targetRoot, receiptRelative),
+        `${canonicalJson({
+          schema_version: "startup_opportunity.evidence_store_operation.current",
+          operation_key: record.operation_key,
+          record,
+        })}\n`,
+      );
+      const rawBytes = Buffer.from(evidenceImport.raw_content_base64, "base64");
+      if (partial === "receipt-raw-temp") {
+        await writeFile(
+          path.join(targetRoot, ".store/temp", `evidence-${operationHex}.raw.tmp`),
+          rawBytes,
+        );
+      } else {
+        const rawTarget = path.join(targetRoot, String(record.raw_content_ref));
+        await mkdir(path.dirname(rawTarget), { recursive: true });
+        await writeFile(rawTarget, rawBytes);
+      }
+
+      const planPath = path.join(targetRoot, "plans/research-plan.r1.json");
+      const planEnvelope = JSON.parse(await readFile(planPath, "utf8")) as FormalArtifactEnvelope;
+      const originalPlanHash = planEnvelope.content_hash;
+      planEnvelope.document.plan_id = `tampered_plan_document_with_old_content_hash_${partial}`;
+      assert.equal(planEnvelope.content_hash, originalPlanHash);
+      await writeFile(planPath, `${canonicalJson(planEnvelope)}\n`);
+
+      const before = await snapshotTree(targetRoot);
+      assert.equal(before["evidence/manifest.jsonl"] ?? "", "");
+      assert.ok(before[receiptRelative]);
+      await assert.rejects(
+        state.store.load(state.targetRunId),
+        (error: unknown) =>
+          error instanceof StoreError &&
+          error.code === "recovery.invalid_research_handoff_operation",
+      );
+      assert.deepEqual(await snapshotTree(targetRoot), before);
+    });
+  }
 });
 
 test("tampered handoff envelope closure fails before imported Evidence mutation", async (context) => {
