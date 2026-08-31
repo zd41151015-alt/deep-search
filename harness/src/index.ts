@@ -219,8 +219,15 @@ export {
 export {
   type LaneDeliveryResult,
   LaneResultMaterializer,
+  type LaneStagingSourceProvenance,
   type LaneSubmissionChecklistResult,
 } from "./runtime/lane-materializer.js";
+export {
+  deriveLaneSubmissionContract,
+  type LaneArtifactFamily,
+  type LaneSubmissionContract,
+  laneSubmissionStagingPath,
+} from "./runtime/lane-submission-contract.js";
 export {
   type ObservableOperation,
   type OperationObservation,

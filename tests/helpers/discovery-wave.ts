@@ -2,12 +2,17 @@ import {
   artifactRefsForDocument,
   canonicalContentHash,
   type DocumentBundle,
+  deriveLaneSubmissionContract,
   type FormalArtifactEnvelope,
 } from "../../harness/src/index.js";
 
 type DiscoveryTaskType =
   | "startup_opportunity.research_task.discovery_candidate.current"
   | "startup_opportunity.research_task.discovery_evaluation.current";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 function effectiveDocument(bundle: DocumentBundle, artifactPath: string): Record<string, unknown> {
   const entry = bundle.documents.find((candidate) => candidate.path === artifactPath);
@@ -116,6 +121,20 @@ export function discoveryWaveEnvelopes(
     task.document.agent_role = binding.unit.agent_role;
     task.document.allowed_output_path = binding.unit.output_path;
     task.document.required_artifact_schema = binding.unit.required_artifact_schema;
+    task.document.lane_submission_contract = deriveLaneSubmissionContract({
+      runId,
+      unitId: String(task.document.unit_id),
+      taskId: String(task.document.task_id),
+      attempt: Number(task.document.attempt ?? 1),
+      formalOutputPath: String(binding.unit.output_path),
+      formalArtifactSchema: String(binding.unit.required_artifact_schema),
+      commercialAuditOutputPath:
+        isRecord(task.document.commercial_research_requirements) &&
+        typeof task.document.commercial_research_requirements.commercial_audit_output_path ===
+          "string"
+          ? String(task.document.commercial_research_requirements.commercial_audit_output_path)
+          : null,
+    });
     return refreshEnvelope(task);
   });
   const executionPath = `plans/research-execution.r${revision}.json`;
@@ -179,6 +198,13 @@ export function discoveryWaveEnvelopes(
     reporting_dimensions: [targetedResponse ? "recent_user_language" : "demand"],
     submission_path: task.document.allowed_output_path,
     submission_schema: task.document.required_artifact_schema,
+    commercial_audit_output_path:
+      isRecord(task.document.commercial_research_requirements) &&
+      typeof task.document.commercial_research_requirements.commercial_audit_output_path ===
+        "string"
+        ? task.document.commercial_research_requirements.commercial_audit_output_path
+        : null,
+    lane_submission_contract: task.document.lane_submission_contract,
     ...lanePolicy,
     dispatch_group: dispatchGroup,
   }));
@@ -227,6 +253,14 @@ export function discoveryWaveEnvelopes(
     dispatch_mode: "parallel_immediate",
     tasks: tasks.map((task, index) => {
       const unit = unitBindings.get(String(task.document.unit_id))?.unit as Record<string, unknown>;
+      const laneSubmissionContract = task.document.lane_submission_contract;
+      const requirements = isRecord(task.document.commercial_research_requirements)
+        ? task.document.commercial_research_requirements
+        : null;
+      const commercialAuditOutputPath =
+        requirements !== null && typeof requirements.commercial_audit_output_path === "string"
+          ? requirements.commercial_audit_output_path
+          : null;
       return {
         task_id: task.document.task_id,
         unit_id: task.document.unit_id,
@@ -238,6 +272,8 @@ export function discoveryWaveEnvelopes(
         input_refs: unit.input_refs,
         allowed_output_path: task.document.allowed_output_path,
         required_artifact_schema: task.document.required_artifact_schema,
+        commercial_audit_output_path: commercialAuditOutputPath,
+        lane_submission_contract: laneSubmissionContract,
         ...lanePolicy,
       };
     }),

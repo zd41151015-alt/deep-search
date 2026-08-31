@@ -75,6 +75,8 @@
           "input_refs",
           "allowed_output_path",
           "required_artifact_schema",
+          "commercial_audit_output_path",
+          "lane_submission_contract",
           "time_budget_minutes",
           "max_sources",
           "straggler_policy"
@@ -113,6 +115,18 @@
           "required_artifact_schema": {
             "type": "string",
             "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
+          },
+          "commercial_audit_output_path": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^artifacts/research-audits/[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "lane_submission_contract": {
+            "$ref": "../common/lane-submission-contract.schema.json"
           },
           "time_budget_minutes": {
             "type": "integer",

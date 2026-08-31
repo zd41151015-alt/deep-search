@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -22,6 +22,7 @@ import {
   StoreError,
 } from "../harness/src/index.js";
 import { deriveTerminalReportDocuments } from "../harness/src/reporting/terminal-reporting.js";
+import { createFormalStageRuntimeCompiler } from "../harness/src/runtime/declarative-runtime.js";
 import {
   fixtureEnvelope,
   G21_CORE_REFS,
@@ -156,8 +157,18 @@ test("CLI materialize-formal-stage help scaffold is executable after binding one
 
 async function writeJson(root: string, name: string, value: unknown): Promise<string> {
   const file = path.join(root, name);
+  await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, `${JSON.stringify(value, null, 2)}\n`);
   return file;
+}
+
+async function writeLaneStagingFile(
+  runRoot: string,
+  task: FormalArtifactEnvelope,
+  staging: Record<string, unknown>,
+): Promise<string> {
+  const contract = task.document.lane_submission_contract as Record<string, unknown>;
+  return writeJson(runRoot, String(contract.staging_output_path), staging);
 }
 
 function replaceExactStrings(value: unknown, replacements: ReadonlyMap<string, string>): unknown {
@@ -336,6 +347,36 @@ function terminalReportEnvelopeWithHiddenDiagnostics(runId: string): FormalArtif
   };
 }
 
+async function publishRuntimeEnvelopesAsFormalStage(
+  input: {
+    readonly runsRoot: string;
+    readonly runId: string;
+    readonly validator: Awaited<ReturnType<typeof createArtifactValidator>>;
+  },
+  envelopes: readonly FormalArtifactEnvelope[],
+  requestId: string,
+) {
+  const compiler = createFormalStageRuntimeCompiler(
+    input.runsRoot,
+    input.validator,
+    repositoryRoot,
+  );
+  return compiler.compile({
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: requestId,
+    run_id: input.runId,
+    operation: "publish",
+    created_at: String(envelopes[0]?.created_at ?? createdAt),
+    artifacts: envelopes.map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role,
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
+  });
+}
+
 async function snapshotTree(root: string): Promise<Readonly<Record<string, string>>> {
   const snapshot: Record<string, string> = {};
   const visit = async (directory: string, prefix = ""): Promise<void> => {
@@ -421,7 +462,11 @@ test("validation context binds a research task only to its owning Dispatch autho
     1,
     "candidate_runtime",
   );
-  await state.store.publishArtifactBundle({ runId: state.runId, envelopes: wave });
+  await publishRuntimeEnvelopesAsFormalStage(
+    state,
+    wave,
+    "request_validation_context_dispatch_scope_wave",
+  );
   const task = wave.find(
     (entry) =>
       entry.artifact_type === "startup_opportunity.research_task.discovery_candidate.current",
@@ -469,7 +514,11 @@ test("validation context ignores an orphan same-fields Dispatch authority outsid
     1,
     "candidate_runtime",
   );
-  await state.store.publishArtifactBundle({ runId: state.runId, envelopes: wave });
+  await publishRuntimeEnvelopesAsFormalStage(
+    state,
+    wave,
+    "request_validation_context_orphan_dispatch_wave",
+  );
   const task = wave.find(
     (entry) =>
       entry.artifact_type === "startup_opportunity.research_task.discovery_candidate.current",
@@ -876,10 +925,11 @@ async function prepareRunThroughDiscoveryFanIn(context: TestContext, suffix: str
     1,
     "candidate_runtime",
   );
-  await store.publishArtifactBundle({
-    runId,
-    envelopes: candidateRuntime,
-  });
+  await publishRuntimeEnvelopesAsFormalStage(
+    { runsRoot, runId, validator },
+    candidateRuntime,
+    "request_g2_3_summary_candidate_wave",
+  );
   const candidateDispatch = candidateRuntime.find(
     (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
   );
@@ -1893,8 +1943,9 @@ test("public adversarial review result validates, publishes, replays, and closes
   );
   const staging = adversarialReviewResultStaging(state.runId, reviewTask.artifact_path);
   const runRoot = path.join(state.runsRoot, state.runId);
+  const stagingPath = await writeLaneStagingFile(runRoot, reviewTask, staging);
   const beforeValidate = await snapshotTree(runRoot);
-  const validated = await laneMaterializer.materialize(staging);
+  const validated = await laneMaterializer.materializeFile(stagingPath);
   assert.equal(validated.status, "accepted");
   assert.equal(validated.compilation.status, "validated");
   assert.deepEqual(await snapshotTree(runRoot), beforeValidate);
@@ -1951,11 +2002,12 @@ test("public adversarial review result validates, publishes, replays, and closes
     rewrites_report: false,
   });
 
-  const published = await laneMaterializer.materialize({
+  const publishStagingPath = await writeLaneStagingFile(runRoot, reviewTask, {
     ...staging,
     operation: "publish",
     publication_plan: validated.compilation.publication_plan,
   });
+  const published = await laneMaterializer.materializeFile(publishStagingPath);
   assert.equal(published.status, "accepted");
   assert.equal(published.compilation.status, "published");
   const manifestAfterPublish = (await state.store.status(state.runId)).manifest;
@@ -1982,11 +2034,12 @@ test("public adversarial review result validates, publishes, replays, and closes
     ),
   );
 
-  const replay = await laneMaterializer.materialize({
+  const replayStagingPath = await writeLaneStagingFile(runRoot, reviewTask, {
     ...staging,
     operation: "publish",
     publication_plan: validated.compilation.publication_plan,
   });
+  const replay = await laneMaterializer.materializeFile(replayStagingPath);
   assert.equal(replay.status, "accepted");
   assert.equal(replay.compilation.status, "idempotent_replay");
 });
@@ -2388,9 +2441,10 @@ test("public adversarial review result rejects role, path, task, run, ref, hash,
       adversarialReviewResultStaging(state.runId, reviewTask.artifact_path),
     );
     mutate(invalid);
+    const invalidPath = await writeLaneStagingFile(runRoot, reviewTask, invalid);
     const before = await snapshotTree(runRoot);
     await assert.rejects(
-      materializer.materialize(invalid),
+      materializer.materializeFile(invalidPath),
       (error: unknown) => {
         assert.ok(error instanceof StoreError, label);
         const details = JSON.stringify(error.details);
@@ -2498,7 +2552,12 @@ test("public adversarial review result accepts honest unknown and no-evidence st
     ...weakDeliveryClosure,
   };
   const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
-  const validated = await materializer.materialize(staging);
+  const stagingPath = await writeLaneStagingFile(
+    path.join(state.runsRoot, state.runId),
+    reviewTask,
+    staging,
+  );
+  const validated = await materializer.materializeFile(stagingPath);
   assert.equal(validated.status, "accepted");
   const reviewEnvelope = validated.compilation.compiled_envelopes.find(
     (entry) => entry.artifact_type === "startup_opportunity.discovery_adversarial_review.current",
@@ -2595,7 +2654,12 @@ test("public adversarial review result accepts no-search completion only when al
   const delivery = staging.delivery_contract as Record<string, unknown>;
   delivery.search_closure = notRequiredClosure;
   const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
-  const validated = await materializer.materialize(staging);
+  const stagingPath = await writeLaneStagingFile(
+    path.join(state.runsRoot, state.runId),
+    reviewTask,
+    staging,
+  );
+  const validated = await materializer.materializeFile(stagingPath);
   assert.equal(validated.status, "accepted");
   assert.deepEqual(validated.delivery_receipt.document.search_closure, notRequiredClosure);
   assert.deepEqual(validated.delivery_receipt.document.scope_coverage, [
@@ -2606,11 +2670,16 @@ test("public adversarial review result accepts no-search completion only when al
       notes: "Harness-derived from the exact formal Lane Result or Audit semantic closure.",
     },
   ]);
-  const published = await materializer.materialize({
-    ...staging,
-    operation: "publish",
-    publication_plan: validated.compilation.publication_plan,
-  });
+  const publishStagingPath = await writeLaneStagingFile(
+    path.join(state.runsRoot, state.runId),
+    reviewTask,
+    {
+      ...staging,
+      operation: "publish",
+      publication_plan: validated.compilation.publication_plan,
+    },
+  );
+  const published = await materializer.materializeFile(publishStagingPath);
   assert.equal(published.compilation.status, "published");
 });
 
@@ -3071,16 +3140,26 @@ test("formal publication plans reject identity, Manifest closure, and resolved-r
       entry.artifact_type === "startup_opportunity.research_execution_plan.discovery.current",
   );
   assert.ok(executionEnvelope);
-  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator, repositoryRoot);
-  const manifestRefRequest = compileRequest(state.runId, "request_manifest_ref_tamper", [
-    {
-      artifact_type: executionEnvelope.artifact_type,
-      artifact_path: executionEnvelope.artifact_path,
-      producer_role: "main_agent",
-      input_refs: ["manifest.json"],
-      document: executionEnvelope.document,
-    },
-  ]);
+  const compiler = createFormalStageRuntimeCompiler(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  const manifestRefArtifacts = validated.compilation.compiled_envelopes.map((envelope) => ({
+    artifact_type: envelope.artifact_type,
+    artifact_path: envelope.artifact_path,
+    producer_role: envelope.producer_role,
+    input_refs:
+      envelope.artifact_path === executionEnvelope.artifact_path
+        ? ["manifest.json"]
+        : envelope.input_refs,
+    document: envelope.document,
+  }));
+  const manifestRefRequest = compileRequest(
+    state.runId,
+    "request_manifest_ref_tamper",
+    manifestRefArtifacts,
+  );
   const manifestRefValidated = await compiler.compile(manifestRefRequest);
   const tamperedResolvedReference = structuredClone(
     manifestRefValidated.publication_plan,
@@ -3120,16 +3199,26 @@ test("formal publication plans reject self-consistent Manifest tampering before 
       entry.artifact_type === "startup_opportunity.research_execution_plan.discovery.current",
   );
   assert.ok(executionEnvelope);
-  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator, repositoryRoot);
-  const manifestRefRequest = compileRequest(state.runId, "request_manifest_self_tamper", [
-    {
-      artifact_type: executionEnvelope.artifact_type,
-      artifact_path: executionEnvelope.artifact_path,
-      producer_role: "main_agent",
-      input_refs: ["manifest.json"],
-      document: executionEnvelope.document,
-    },
-  ]);
+  const compiler = createFormalStageRuntimeCompiler(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  const manifestRefArtifacts = validated.compilation.compiled_envelopes.map((envelope) => ({
+    artifact_type: envelope.artifact_type,
+    artifact_path: envelope.artifact_path,
+    producer_role: envelope.producer_role,
+    input_refs:
+      envelope.artifact_path === executionEnvelope.artifact_path
+        ? ["manifest.json"]
+        : envelope.input_refs,
+    document: envelope.document,
+  }));
+  const manifestRefRequest = compileRequest(
+    state.runId,
+    "request_manifest_self_tamper",
+    manifestRefArtifacts,
+  );
   const manifestRefValidated = await compiler.compile(manifestRefRequest);
   const tampered = structuredClone(manifestRefValidated.publication_plan) as Record<
     string,
@@ -3446,10 +3535,11 @@ test("G2.3 public materializer derives exact Opportunity solution summaries and 
     1,
     "candidate_runtime",
   );
-  await store.publishArtifactBundle({
-    runId,
-    envelopes: candidateRuntime,
-  });
+  await publishRuntimeEnvelopesAsFormalStage(
+    { runsRoot, runId, validator },
+    candidateRuntime,
+    "request_g2_3_summary_candidate_wave",
+  );
   const candidateDispatch = candidateRuntime.find(
     (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
   );
@@ -3981,14 +4071,35 @@ test("public CLI authors a clean setup through adaptation without internal publi
     entry.artifact_type.startsWith("startup_opportunity.research_execution_plan."),
   );
   assert.ok(generationTaskEnvelope && taskEnvelope && dispatchEnvelope && executionEnvelope);
+  const executionLaneFor = (unitId: string): Record<string, unknown> | undefined =>
+    (executionEnvelope.document.stages as Record<string, unknown>[])
+      .flatMap((stage) => stage.lanes as Record<string, unknown>[])
+      .find((lane) => lane.unit_id === unitId);
+  const dispatchTaskFor = (unitId: string): Record<string, unknown> | undefined =>
+    (dispatchEnvelope.document.tasks as Record<string, unknown>[]).find(
+      (task) => task.unit_id === unitId,
+    );
   const checklist = parseCli<{
     formal_artifact: boolean;
     additional_material_allowed: boolean;
     checklist: readonly unknown[];
+    lane_submission_contract: Record<string, unknown>;
   }>(cli("scaffold-lane-submission", "--run-id", runId, "--task-ref", taskEnvelope.artifact_path));
   assert.equal(checklist.formal_artifact, false);
   assert.equal(checklist.additional_material_allowed, true);
   assert.ok(checklist.checklist.length > 1);
+  assert.equal(
+    canonicalJson(taskEnvelope.document.lane_submission_contract),
+    canonicalJson(executionLaneFor("unit_counterfactual")?.lane_submission_contract),
+  );
+  assert.equal(
+    canonicalJson(taskEnvelope.document.lane_submission_contract),
+    canonicalJson(dispatchTaskFor("unit_counterfactual")?.lane_submission_contract),
+  );
+  assert.equal(
+    canonicalJson(taskEnvelope.document.lane_submission_contract),
+    canonicalJson(checklist.lane_submission_contract),
+  );
 
   const rawEvidenceFile = path.join(root, "lane-background.txt");
   await writeFile(
@@ -4429,9 +4540,13 @@ test("public CLI authors a clean setup through adaptation without internal publi
       { artifact_family: "commercial_audit", document: commercialDelivery },
     ],
   };
+  const generationLaneStagingPath = String(
+    (generationTaskEnvelope.document.lane_submission_contract as Record<string, unknown>)
+      .staging_output_path,
+  );
   const generationLaneValidationFile = await writeJson(
-    root,
-    "generation-lane-validate.json",
+    runRoot,
+    generationLaneStagingPath,
     generationLaneStaging,
   );
   const beforeGenerationLaneValidation = await snapshotTree(runRoot);
@@ -4441,7 +4556,20 @@ test("public CLI authors a clean setup through adaptation without internal publi
   assert.equal(generationLaneValidated.status, "accepted");
   assert.deepEqual(await snapshotTree(runRoot), beforeGenerationLaneValidation);
   const generationLaneCompilation = generationLaneValidated.compilation as Record<string, unknown>;
-  const generationLanePublishFile = await writeJson(root, "generation-lane-publish.json", {
+  const invalidGenerationLaneFile = await writeJson(
+    runRoot,
+    String(generationTaskEnvelope.document.allowed_output_path),
+    generationLaneStaging,
+  );
+  const invalidGenerationLaneResult = cli(
+    "materialize-lane-result",
+    "--file",
+    invalidGenerationLaneFile,
+  );
+  assert.notEqual(invalidGenerationLaneResult.status, 0);
+  assert.match(invalidGenerationLaneResult.stderr, /runtime\.lane_staging_path_invalid/);
+  await rm(invalidGenerationLaneFile, { force: true });
+  const generationLanePublishFile = await writeJson(runRoot, generationLaneStagingPath, {
     ...generationLaneStaging,
     operation: "publish",
     publication_plan: generationLaneCompilation.publication_plan,
@@ -4460,6 +4588,18 @@ test("public CLI authors a clean setup through adaptation without internal publi
   );
   const generationReceiptEnvelope =
     generationLanePublished.delivery_receipt as FormalArtifactEnvelope;
+  assert.equal(
+    canonicalJson(generationTaskEnvelope.document.lane_submission_contract),
+    canonicalJson(executionLaneFor("unit_seed_independent_demand")?.lane_submission_contract),
+  );
+  assert.equal(
+    canonicalJson(generationTaskEnvelope.document.lane_submission_contract),
+    canonicalJson(dispatchTaskFor("unit_seed_independent_demand")?.lane_submission_contract),
+  );
+  assert.equal(
+    canonicalJson(generationTaskEnvelope.document.lane_submission_contract),
+    canonicalJson(generationReceiptEnvelope.document.lane_submission_contract),
+  );
   const laneStaging = {
     schema_version: "startup_opportunity.lane_staging_document.current",
     staging_id: "staging_formal_author_cli",
@@ -4491,7 +4631,10 @@ test("public CLI authors a clean setup through adaptation without internal publi
       { artifact_family: "commercial_audit", document: commercialDelivery },
     ],
   };
-  const laneValidationFile = await writeJson(root, "lane-validate.json", laneStaging);
+  const laneStagingPath = String(
+    (taskEnvelope.document.lane_submission_contract as Record<string, unknown>).staging_output_path,
+  );
+  const laneValidationFile = await writeJson(runRoot, laneStagingPath, laneStaging);
   const beforeLaneValidation = await snapshotTree(runRoot);
   const laneValidated = parseCli<Record<string, unknown>>(
     cli("materialize-lane-result", "--file", laneValidationFile),
@@ -4499,7 +4642,53 @@ test("public CLI authors a clean setup through adaptation without internal publi
   assert.equal(laneValidated.status, "accepted");
   assert.deepEqual(await snapshotTree(runRoot), beforeLaneValidation);
   const laneCompilation = laneValidated.compilation as Record<string, unknown>;
-  const lanePublishFile = await writeJson(root, "lane-publish.json", {
+  const traversalLaneFile = await writeJson(runRoot, "../lane-traversal.json", laneStaging);
+  const traversalLaneResult = cli("materialize-lane-result", "--file", traversalLaneFile);
+  assert.notEqual(traversalLaneResult.status, 0);
+  assert.match(traversalLaneResult.stderr, /runtime\.lane_staging_path_invalid/);
+  const wrongAbsoluteFile = await writeJson(root, "lane-wrong-absolute.json", laneStaging);
+  const beforeWrongAbsolute = await snapshotTree(runRoot);
+  const wrongAbsoluteResult = cli("materialize-lane-result", "--file", wrongAbsoluteFile);
+  assert.notEqual(wrongAbsoluteResult.status, 0);
+  assert.match(wrongAbsoluteResult.stderr, /runtime\.lane_staging_path_invalid/);
+  assert.deepEqual(await snapshotTree(runRoot), beforeWrongAbsolute);
+  await rm(laneValidationFile, { force: true });
+  const escapedTarget = path.join(root, "lane-target-symlink-source.json");
+  await writeFile(escapedTarget, "{not json\n");
+  await symlink(escapedTarget, laneValidationFile);
+  const beforeTargetSymlink = await snapshotTree(runRoot);
+  const targetSymlinkResult = cli("materialize-lane-result", "--file", laneValidationFile);
+  assert.notEqual(targetSymlinkResult.status, 0);
+  assert.match(targetSymlinkResult.stderr, /path\.symlink_escape/);
+  assert.deepEqual(await snapshotTree(runRoot), beforeTargetSymlink);
+  await rm(laneValidationFile, { force: true });
+  const wrongAbsolutePublishFile = await writeJson(root, "lane-wrong-absolute-publish.json", {
+    ...laneStaging,
+    operation: "publish",
+    publication_plan: laneCompilation.publication_plan,
+  });
+  const beforeWrongAbsolutePublish = await snapshotTree(runRoot);
+  const wrongAbsolutePublishResult = cli(
+    "materialize-lane-result",
+    "--file",
+    wrongAbsolutePublishFile,
+  );
+  assert.notEqual(wrongAbsolutePublishResult.status, 0);
+  assert.match(wrongAbsolutePublishResult.stderr, /runtime\.lane_staging_path_invalid/);
+  assert.deepEqual(await snapshotTree(runRoot), beforeWrongAbsolutePublish);
+  const laneSubmissionParent = path.dirname(laneValidationFile);
+  await rm(laneSubmissionParent, { recursive: true, force: true });
+  const escapedParent = path.join(root, "lane-submissions-parent-symlink-source");
+  await mkdir(escapedParent, { recursive: true });
+  await writeFile(path.join(escapedParent, path.basename(laneValidationFile)), "{not json\n");
+  await symlink(escapedParent, laneSubmissionParent);
+  const beforeParentSymlink = await snapshotTree(runRoot);
+  const parentSymlinkResult = cli("materialize-lane-result", "--file", laneValidationFile);
+  assert.notEqual(parentSymlinkResult.status, 0);
+  assert.match(parentSymlinkResult.stderr, /path\.symlink_escape/);
+  assert.deepEqual(await snapshotTree(runRoot), beforeParentSymlink);
+  await rm(laneSubmissionParent, { force: true });
+  const lanePublishFile = await writeJson(runRoot, laneStagingPath, {
     ...laneStaging,
     operation: "publish",
     publication_plan: laneCompilation.publication_plan,
@@ -4513,6 +4702,10 @@ test("public CLI authors a clean setup through adaptation without internal publi
   );
   assert.equal((laneReplay.compilation as Record<string, unknown>).status, "idempotent_replay");
   const receiptEnvelope = lanePublished.delivery_receipt as FormalArtifactEnvelope;
+  assert.equal(
+    canonicalJson(taskEnvelope.document.lane_submission_contract),
+    canonicalJson(receiptEnvelope.document.lane_submission_contract),
+  );
   const delivered = receiptEnvelope.document.delivered_artifacts as Record<string, unknown>[];
   for (const deliveredRef of [
     evidenceRef,

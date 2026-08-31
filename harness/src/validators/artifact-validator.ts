@@ -139,6 +139,8 @@ export interface DocumentBundleReferenceContext {
       readonly publicationCommitHash?: string;
     }
   >;
+  readonly requireRuntimeProjectionAuthority?: boolean;
+  readonly trustedProspectiveRuntimeAuthorityPaths?: ReadonlySet<string>;
 }
 
 export interface HistoricalDiscoveryPlanBinding {
@@ -5521,7 +5523,22 @@ export class ArtifactValidator {
       ),
     );
     referenceErrors.push(
-      ...validateDeclarativeRuntimeContract(effectiveDocuments, exactJsonlRecords),
+      ...validateDeclarativeRuntimeContract(effectiveDocuments, exactJsonlRecords, {
+        ...(referenceContext.artifactPublicationRecords === undefined
+          ? {}
+          : { artifactPublicationRecords: referenceContext.artifactPublicationRecords }),
+        ...(referenceContext.requireRuntimeProjectionAuthority === undefined
+          ? {}
+          : {
+              requireRuntimeProjectionAuthority: referenceContext.requireRuntimeProjectionAuthority,
+            }),
+        ...(referenceContext.trustedProspectiveRuntimeAuthorityPaths === undefined
+          ? {}
+          : {
+              trustedProspectiveRuntimeAuthorityPaths:
+                referenceContext.trustedProspectiveRuntimeAuthorityPaths,
+            }),
+      }),
     );
     const assessmentExecutionDocuments: readonly AssessmentExecutionDocument[] =
       effectiveDocuments.map((entry) => ({

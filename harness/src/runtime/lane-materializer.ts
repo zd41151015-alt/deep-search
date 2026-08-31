@@ -1,4 +1,16 @@
-import { canonicalContentHash, canonicalJson, operationKey } from "../artifact-store/canonical.js";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import {
+  canonicalContentHash,
+  canonicalJson,
+  operationKey,
+  sha256Bytes,
+} from "../artifact-store/canonical.js";
+import {
+  openRunDirectoryReadOnly,
+  openRunsRootReadOnly,
+  resolveRunPath,
+} from "../artifact-store/path-policy.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { EvidenceStore, type EvidenceStoreRecord } from "../evidence-store/evidence-store.js";
 import { RunStore } from "../run-store/run-store.js";
@@ -21,6 +33,11 @@ import {
   type LaneScopeFormalClosure,
   laneScopeCoverageFromClosure,
 } from "./lane-delivery-closure.js";
+import {
+  deriveLaneSubmissionContract,
+  type LaneSubmissionContract,
+  sameLaneSubmissionContract,
+} from "./lane-submission-contract.js";
 import { type OperationObserver, operationTrace } from "./operation-observability.js";
 
 interface RequiredArtifact {
@@ -112,6 +129,7 @@ interface LaneDeliveryAuthority {
   readonly assignedSubjectRefs: readonly string[];
   readonly requiredArtifacts: readonly RequiredArtifact[];
   readonly commercialAuditPath: string | null;
+  readonly laneSubmissionContract: LaneSubmissionContract;
 }
 
 interface PreparedAgentArtifact {
@@ -122,6 +140,82 @@ interface PreparedAgentArtifact {
   readonly producer_role: "lane_researcher" | "adversarial_reviewer";
   readonly input_refs: readonly string[];
   readonly document: Record<string, unknown>;
+}
+
+export interface LaneStagingSourceProvenance {
+  readonly path_basis: "run_root_relative";
+  readonly run_id: string;
+  readonly staging_output_path: string;
+  readonly absolute_path: string;
+  readonly source_bytes_sha256: string;
+}
+
+interface LaneStagingFile {
+  readonly document: unknown;
+  readonly source: LaneStagingSourceProvenance;
+}
+
+const LANE_STAGING_FILE = /^[a-f0-9]{32}\.json$/u;
+
+function invalidLaneStagingPath(sourcePath: string, runsRoot: string): StoreError {
+  return new StoreError(
+    "runtime.lane_staging_path_invalid",
+    "Lane delivery file must be the exact run-root-relative staging output path from the current Task",
+    {
+      expected_path_shape: "runs/<run_id>/staging/lane-submissions/<32-hex>.json",
+      actual_path_basis: "host_path_for_cli_input_only",
+      actual_path: path.resolve(sourcePath),
+      runs_root: runsRoot,
+    },
+  );
+}
+
+async function readLaneStagingFile(runsRoot: string, sourcePath: string): Promise<LaneStagingFile> {
+  const root = await openRunsRootReadOnly(runsRoot);
+  const absolutePath = path.resolve(sourcePath);
+  const pathRoots = [...new Set([root, path.resolve(runsRoot)])];
+  const basis = pathRoots
+    .map((candidateRoot) => ({
+      root: candidateRoot,
+      relative: path.relative(candidateRoot, absolutePath),
+    }))
+    .find(
+      (candidate) =>
+        candidate.relative !== "" &&
+        !candidate.relative.startsWith("..") &&
+        !path.isAbsolute(candidate.relative),
+    );
+  if (basis === undefined) {
+    throw invalidLaneStagingPath(sourcePath, root);
+  }
+  const runRelativePath = basis.relative.split(path.sep).join("/");
+  const segments = runRelativePath.split("/");
+  if (
+    segments.length !== 4 ||
+    segments[1] !== "staging" ||
+    segments[2] !== "lane-submissions" ||
+    !LANE_STAGING_FILE.test(segments[3] ?? "")
+  ) {
+    throw invalidLaneStagingPath(sourcePath, root);
+  }
+  const runId = segments[0] ?? "";
+  const stagingOutputPath = `staging/lane-submissions/${segments[3]}`;
+  const runRoot = await openRunDirectoryReadOnly(root, runId);
+  const verifiedPath = await resolveRunPath(runRoot, stagingOutputPath);
+  if (path.resolve(basis.root, runId, stagingOutputPath) !== absolutePath) {
+    throw invalidLaneStagingPath(sourcePath, root);
+  }
+  const contents = await readFile(verifiedPath, "utf8");
+  return {
+    document: JSON.parse(contents) as unknown,
+    source: {
+      path_basis: "run_root_relative",
+      run_id: runId,
+      staging_output_path: stagingOutputPath,
+      absolute_path: verifiedPath,
+      source_bytes_sha256: sha256Bytes(contents),
+    },
+  };
 }
 
 export interface LaneDeliveryResult {
@@ -154,6 +248,12 @@ export interface LaneSubmissionChecklistResult {
   readonly schema_version: "startup_opportunity.lane_submission_checklist_result.current";
   readonly run_id: string;
   readonly task_ref: string;
+  readonly staging_output_path: string;
+  readonly staging_schema: "startup_opportunity.lane_staging_document.current";
+  readonly formal_output_path: string;
+  readonly required_artifact_schema: string;
+  readonly lane_submission_contract: LaneSubmissionContract;
+  readonly staging_document: LaneStagingDocument;
   readonly checklist: readonly {
     readonly scope_key: string;
     readonly status: null;
@@ -181,6 +281,17 @@ function strings(value: unknown): readonly string[] {
 
 function uniqueSorted(values: readonly string[]): readonly string[] {
   return [...new Set(values)].sort();
+}
+
+function completionSafeStagingId(task: Record<string, unknown>): string {
+  return `staging_${operationKey("lane_staging_document", {
+    run_id: task.run_id,
+    unit_id: task.unit_id,
+    task_id: task.task_id,
+    attempt: task.attempt,
+  })
+    .replace(/^sha256:/u, "")
+    .slice(0, 32)}`;
 }
 
 function duplicateStrings(values: readonly string[]): readonly string[] {
@@ -1236,7 +1347,7 @@ export class LaneResultMaterializer {
   private readonly evidence: EvidenceStore;
 
   constructor(
-    runsRoot: string,
+    private readonly runsRoot: string,
     private readonly validator: ArtifactValidator,
     repositoryRoot = process.cwd(),
   ) {
@@ -1269,6 +1380,31 @@ export class LaneResultMaterializer {
       schema_version: "startup_opportunity.lane_submission_checklist_result.current",
       run_id: runId,
       task_ref: taskRef,
+      staging_output_path: authority.laneSubmissionContract.staging_output_path,
+      staging_schema: authority.laneSubmissionContract.staging_schema,
+      formal_output_path: authority.laneSubmissionContract.formal_output_path,
+      required_artifact_schema: authority.laneSubmissionContract.formal_artifact_schema,
+      lane_submission_contract: authority.laneSubmissionContract,
+      staging_document: {
+        schema_version: "startup_opportunity.lane_staging_document.current",
+        staging_id: completionSafeStagingId(authority.task),
+        run_id: runId,
+        task_ref: taskRef,
+        created_at: "1970-01-01T00:00:00Z",
+        producer_role: "lane_researcher",
+        operation: "validate_only",
+        evidence_receipt_refs: [],
+        delivery_contract: {
+          search_closure: {
+            status: "failed_before_search",
+            acquisition_routes_attempted: ["none"],
+            unresolved_gaps: [],
+            stop_reason:
+              "CALLER_REQUIRED: replace with the Lane Search Closure before materialization.",
+          },
+        },
+        agent_documents: [{ artifact_family: "lane_result", document: {} }],
+      },
       checklist: authority.assignedScope.map((scopeKey) => ({
         scope_key: scopeKey,
         status: null,
@@ -1380,28 +1516,16 @@ export class LaneResultMaterializer {
         },
       );
     }
-    const outputPath = String(task.allowed_output_path ?? task.submission_path);
-    const outputType = String(
-      task.required_artifact_schema ??
-        executionLane.submission_schema ??
-        planUnit.required_artifact_schema,
-    );
-    if (
-      outputPath !== String(dispatchTask.allowed_output_path ?? dispatchTask.submission_path) ||
-      outputPath !== String(executionLane.submission_path) ||
-      outputPath !== String(planUnit.output_path) ||
-      outputType !== String(executionLane.submission_schema) ||
-      outputType !== String(planUnit.required_artifact_schema)
-    ) {
-      throw new StoreError(
-        "runtime.lane_authority_drift",
-        "Task output identity differs across Plan, Execution, and Dispatch",
-        { taskRef: staging.task_ref, outputPath, outputType },
-      );
-    }
     const requirements = isRecord(task.commercial_research_requirements)
       ? task.commercial_research_requirements
       : null;
+    const outputPath = String(task.allowed_output_path ?? task.submission_path);
+    const outputType = String(
+      task.required_artifact_schema ??
+        dispatchTask.required_artifact_schema ??
+        executionLane.submission_schema ??
+        planUnit.required_artifact_schema,
+    );
     const reviewAuthority =
       taskSchema === "startup_opportunity.research_task.discovery_review.current" &&
       outputType === "startup_opportunity.discovery_adversarial_review.current";
@@ -1431,6 +1555,31 @@ export class LaneResultMaterializer {
             ? ["incumbent_response"]
             : []),
         ]);
+    const laneSubmissionContract = deriveLaneSubmissionContract({
+      runId: staging.run_id,
+      unitId,
+      taskId: String(task.task_id),
+      attempt: Number(task.attempt ?? 1),
+      formalOutputPath: outputPath,
+      formalArtifactSchema: outputType,
+      commercialAuditOutputPath: commercialAuditPath,
+    });
+    if (
+      outputPath !== String(dispatchTask.allowed_output_path ?? dispatchTask.submission_path) ||
+      outputPath !== String(executionLane.submission_path) ||
+      outputPath !== String(planUnit.output_path) ||
+      outputType !== String(executionLane.submission_schema) ||
+      outputType !== String(planUnit.required_artifact_schema) ||
+      !sameLaneSubmissionContract(task.lane_submission_contract, laneSubmissionContract) ||
+      !sameLaneSubmissionContract(executionLane.lane_submission_contract, laneSubmissionContract) ||
+      !sameLaneSubmissionContract(dispatchTask.lane_submission_contract, laneSubmissionContract)
+    ) {
+      throw new StoreError(
+        "runtime.lane_authority_drift",
+        "Task output and Lane submission identities differ across Plan, Execution, Dispatch, and Task",
+        { taskRef: staging.task_ref, outputPath, outputType },
+      );
+    }
     const assignedSubjectRefs = uniqueSorted([
       ...strings(task.target_candidate_refs),
       ...strings(task.target_opportunity_refs),
@@ -1474,14 +1623,54 @@ export class LaneResultMaterializer {
             ]),
       ],
       commercialAuditPath,
+      laneSubmissionContract,
     };
+  }
+
+  async materializeFile(
+    sourcePath: string,
+    options: {
+      readonly observe?: OperationObserver | undefined;
+    } = {},
+  ): Promise<LaneDeliveryResult> {
+    const source = await readLaneStagingFile(this.runsRoot, sourcePath);
+    return this.materializeStaging(source.document, source.source, options.observe);
   }
 
   async materialize(
     value: unknown,
-    options: { readonly observe?: OperationObserver | undefined } = {},
+    options: {
+      readonly observe?: OperationObserver | undefined;
+      readonly sourcePath?: string | undefined;
+    } = {},
   ): Promise<LaneDeliveryResult> {
-    const trace = operationTrace("lane_materialization", options.observe);
+    if (options.sourcePath === undefined) {
+      throw new StoreError(
+        "runtime.lane_staging_source_missing",
+        "Lane materialization requires exact staging source provenance",
+      );
+    }
+    const source = await readLaneStagingFile(this.runsRoot, options.sourcePath);
+    if (canonicalJson(source.document) !== canonicalJson(value)) {
+      throw new StoreError(
+        "runtime.lane_staging_source_mismatch",
+        "Lane materialization input must match the exact safely-read staging file",
+        {
+          source_run_id: source.source.run_id,
+          source_staging_output_path: source.source.staging_output_path,
+          source_bytes_sha256: source.source.source_bytes_sha256,
+        },
+      );
+    }
+    return this.materializeStaging(value, source.source, options.observe);
+  }
+
+  private async materializeStaging(
+    value: unknown,
+    source: LaneStagingSourceProvenance,
+    observe?: OperationObserver,
+  ): Promise<LaneDeliveryResult> {
+    const trace = operationTrace("lane_materialization", observe);
     trace.start("lane_delivery", {
       agent_documents:
         isRecord(value) && Array.isArray(value.agent_documents) ? value.agent_documents.length : 0,
@@ -1491,7 +1680,7 @@ export class LaneResultMaterializer {
           : 0,
     });
     try {
-      const result = await this.materializeAttempt(value, options.observe);
+      const result = await this.materializeAttempt(value, observe, source);
       trace.complete("lane_delivery", {
         delivered_artifacts: result.preflight.delivered_artifact_count,
         assigned_scopes: result.preflight.scope_count,
@@ -1510,6 +1699,7 @@ export class LaneResultMaterializer {
   private async materializeAttempt(
     value: unknown,
     observe?: OperationObserver,
+    source?: LaneStagingSourceProvenance,
   ): Promise<LaneDeliveryResult> {
     const validation = this.validator.validateDocument(value);
     if (!validation.valid || !isRecord(value)) {
@@ -1536,7 +1726,25 @@ export class LaneResultMaterializer {
       );
     }
     const staging = value as LaneStagingDocument;
+    if (source === undefined) {
+      throw new StoreError(
+        "runtime.lane_staging_source_missing",
+        "Lane materialization requires exact staging source provenance",
+      );
+    }
+    if (staging.run_id !== source.run_id) {
+      throw new StoreError(
+        "runtime.lane_staging_source_mismatch",
+        "Lane staging document run_id must match its safely resolved source path",
+        {
+          document_run_id: staging.run_id,
+          source_run_id: source.run_id,
+          source_staging_output_path: source.staging_output_path,
+        },
+      );
+    }
     const authority = await this.authority(staging);
+    this.assertStagingSource(source, authority);
     const constructionIssues: LaneDeliveryIssue[] = [];
     const producerRole = expectedProducerRole(authority);
     if (staging.producer_role !== producerRole) {
@@ -1780,6 +1988,8 @@ export class LaneResultMaterializer {
     const receiptIdentity = {
       run_id: staging.run_id,
       staging_id: staging.staging_id,
+      staging_output_path: authority.laneSubmissionContract.staging_output_path,
+      lane_submission_contract: authority.laneSubmissionContract,
       task_ref: authority.taskRef,
       research_plan_ref: authority.planRef,
       execution_plan_ref: authority.executionRef,
@@ -1922,5 +2132,28 @@ export class LaneResultMaterializer {
         { artifact: staging.staging_id, errors: resultValidation.errors },
       );
     return result;
+  }
+
+  private assertStagingSource(
+    source: LaneStagingSourceProvenance,
+    authority: LaneDeliveryAuthority,
+  ): void {
+    if (
+      source.path_basis !== "run_root_relative" ||
+      source.run_id !== authority.runId ||
+      source.staging_output_path !== authority.laneSubmissionContract.staging_output_path
+    ) {
+      throw new StoreError(
+        "runtime.lane_staging_path_invalid",
+        "Lane delivery file must be the exact run-root-relative staging output path from the current Task",
+        {
+          expected_staging_output_path: authority.laneSubmissionContract.staging_output_path,
+          actual_path_basis: source.path_basis,
+          actual_run_id: source.run_id,
+          actual_staging_output_path: source.staging_output_path,
+          actual_path: source.absolute_path,
+        },
+      );
+    }
   }
 }

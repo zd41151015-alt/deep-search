@@ -19,6 +19,7 @@ import {
   StoreError,
   validateDiscoveryCandidateContract,
 } from "../harness/src/index.js";
+import { createFormalStageRuntimeCompiler } from "../harness/src/runtime/declarative-runtime.js";
 import {
   fixtureEnvelope,
   G21_CORE_REFS,
@@ -62,6 +63,7 @@ interface RuntimeState {
   readonly runRoot: string;
   readonly runId: string;
   readonly store: RunStore;
+  readonly validator: Awaited<ReturnType<typeof createArtifactValidator>>;
   readonly bundle: DocumentBundle;
 }
 
@@ -244,7 +246,7 @@ async function setup(context: TestContext, suffix: string): Promise<RuntimeState
     runId,
     envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundle, ref)),
   });
-  return { root, runsRoot, runRoot: path.join(runsRoot, runId), runId, store, bundle };
+  return { root, runsRoot, runRoot: path.join(runsRoot, runId), runId, store, validator, bundle };
 }
 
 async function publishCandidates(state: RuntimeState): Promise<void> {
@@ -265,7 +267,25 @@ async function publishTasks(state: RuntimeState): Promise<void> {
     "candidate_runtime",
   );
   assert.equal(wave.length, 4);
-  await state.store.publishArtifactBundle({ runId: state.runId, envelopes: wave });
+  const compiler = createFormalStageRuntimeCompiler(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  await compiler.compile({
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: "request_g2_2_candidate_runtime_wave",
+    run_id: state.runId,
+    operation: "publish",
+    created_at: String(wave[0]?.created_at ?? "2026-07-27T18:00:00Z"),
+    artifacts: wave.map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role,
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
+  });
 }
 
 async function publishMaterials(state: RuntimeState): Promise<void> {
@@ -1348,7 +1368,7 @@ test("G2.2 current recovery completes candidate temp writes and indexes publishe
   assert.equal((await state.store.load(state.runId)).recovered, false);
 });
 
-test("generic Harness CLI and Skill script publish only caller-supplied G2.2 envelopes", async (context) => {
+test("generic Harness CLI and Skill script publish G2.2 envelopes but reject runtime projection bundles", async (context) => {
   const state = await setup(context, "cli-skill");
   const candidateFile = path.join(state.root, "candidate-bundle.json");
   const taskFile = path.join(state.root, "task-bundle.json");
@@ -1389,6 +1409,7 @@ test("generic Harness CLI and Skill script publish only caller-supplied G2.2 env
       ).map((document) => ({ document })),
     })}\n`,
   );
+  const beforeRejectedTasks = await snapshotTree(state.runRoot);
   const skill = spawnSync(
     process.execPath,
     [
@@ -1402,10 +1423,11 @@ test("generic Harness CLI and Skill script publish only caller-supplied G2.2 env
     ],
     { cwd: repositoryRoot, encoding: "utf8" },
   );
-  assert.equal(skill.status, 0, skill.stderr || skill.stdout);
-  assert.equal((JSON.parse(skill.stdout) as { status: string }).status, "published");
+  assert.notEqual(skill.status, 0, skill.stdout);
+  assert.match(skill.stderr, /artifact\.reference_invalid/u);
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeRejectedTasks);
   const manifest = (await state.store.load(state.runId)).manifest;
-  assert.deepEqual(manifest.active_units, ["unit_counterfactual", "unit_seed_independent_demand"]);
+  assert.deepEqual(manifest.active_units, []);
 
   const discover = spawnSync(
     process.execPath,

@@ -170,6 +170,8 @@
     "receipt_id",
     "run_id",
     "staging_id",
+    "staging_output_path",
+    "lane_submission_contract",
     "task_ref",
     "research_plan_ref",
     "execution_plan_ref",
@@ -194,6 +196,10 @@
     "staging_id": {
       "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
     },
+    "staging_output_path": {
+      "$ref": "./lane-submission-contract.schema.json#/$defs/stagingOutputPath"
+    },
+    "lane_submission_contract": { "$ref": "./lane-submission-contract.schema.json" },
     "task_ref": {
       "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef"
     },

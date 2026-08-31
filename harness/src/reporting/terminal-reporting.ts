@@ -1210,6 +1210,11 @@ function terminalCommercialConsistencyIssues(
         : [],
     ),
   );
+  const aggregatedTaskRefs = new Set(
+    records(fullProjection.commercial_subject_aggregates).flatMap((aggregate) =>
+      strings(aggregate.task_refs),
+    ),
+  );
   const issues: Record<string, unknown>[] = [];
   const add = (code: string, field: string, revisionRequest: string): void => {
     issues.push({
@@ -1250,7 +1255,9 @@ function terminalCommercialConsistencyIssues(
         "Keep execution completeness partial or not_started while planned commercial tasks are missing.",
       );
     }
-    const missingRows = missingTaskRefs.filter((taskRef) => !executionGapTaskRefs.has(taskRef));
+    const missingRows = missingTaskRefs.filter(
+      (taskRef) => aggregatedTaskRefs.has(taskRef) && !executionGapTaskRefs.has(taskRef),
+    );
     if (missingRows.length > 0) {
       add(
         "commercial_missing_task_gap_absent",

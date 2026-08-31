@@ -7,6 +7,7 @@ import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   ArtifactStore,
+  artifactRefsForDocument,
   canonicalContentHash,
   canonicalJson,
   canonicalLaneLifecycleId,
@@ -14,9 +15,9 @@ import {
   createArtifactValidator,
   DeclarativeRuntimeCompiler,
   type DocumentBundle,
+  deriveLaneSubmissionContract,
   dispatchLaunchRegistrationPath,
   EvidenceStore,
-  type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
   LaneResultMaterializer,
   operationKey,
@@ -26,6 +27,7 @@ import {
   sha256Bytes,
   validateDeclarativeRuntimeContract,
 } from "../harness/src/index.js";
+import { createFormalStageRuntimeCompiler } from "../harness/src/runtime/declarative-runtime.js";
 import {
   createDiscoveryMapsFixture,
   fixtureDocument,
@@ -112,6 +114,84 @@ function runtimeArtifact(
   };
 }
 
+function envelopeFromRuntimeArtifact(
+  runId: string,
+  artifact: RuntimeArtifact,
+): FormalArtifactEnvelope {
+  const inputRefs =
+    artifact.input_refs ??
+    artifactRefsForDocument({
+      path: artifact.artifact_path,
+      document: artifact.document,
+    }).filter((ref) => ref.split("#", 1)[0] !== artifact.artifact_path);
+  return {
+    schema_version: "startup_opportunity.artifact_envelope.current",
+    artifact_type: artifact.artifact_type,
+    artifact_path: artifact.artifact_path,
+    run_id: runId,
+    created_at: createdAt,
+    producer_role: artifact.producer_role,
+    input_refs: inputRefs,
+    content_hash: canonicalContentHash(artifact.document),
+    document: artifact.document,
+  };
+}
+
+async function publishDiscoveryWaveFixture(
+  state: Awaited<ReturnType<typeof prepareDiscoveryTaskBridgeRun>>,
+  kind: "generation" | "evaluation" = "evaluation",
+): Promise<{
+  readonly execution: Record<string, unknown>;
+  readonly batch: Record<string, unknown>;
+  readonly envelopes: readonly FormalArtifactEnvelope[];
+}> {
+  const execution = executionPlan(state.runId, state.plan, kind);
+  const wave = discoveryWaveArtifacts(state.runId, state.bundle, state.plan, execution);
+  const envelopes = wave.artifacts.map((artifact) =>
+    envelopeFromRuntimeArtifact(state.runId, artifact),
+  );
+  await publishRuntimeArtifactsAsFormalStage(
+    state,
+    wave.artifacts,
+    `request_${kind}_wave_${canonicalContentHash({
+      run_id: state.runId,
+      paths: envelopes.map((envelope) => envelope.artifact_path).sort(),
+    }).slice("sha256:".length, "sha256:".length + 16)}`,
+  );
+  return { execution, batch: wave.batch, envelopes };
+}
+
+async function publishRuntimeArtifactsAsFormalStage(
+  state: Awaited<ReturnType<typeof prepareDiscoveryTaskBridgeRun>>,
+  artifacts: readonly RuntimeArtifact[],
+  requestId: string,
+) {
+  const compiler = createFormalStageRuntimeCompiler(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  return compiler.compile(compilationRequest(state.runId, "publish", artifacts, requestId));
+}
+
+async function publishRuntimeEnvelopesAsFormalStage(
+  state: Awaited<ReturnType<typeof prepareDiscoveryTaskBridgeRun>>,
+  envelopes: readonly FormalArtifactEnvelope[],
+  requestId: string,
+) {
+  return publishRuntimeArtifactsAsFormalStage(
+    state,
+    envelopes.map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role as "main_agent" | "lane_researcher" | "harness",
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
+    requestId,
+  );
+}
+
 function compilationRequest(
   runId: string,
   operation: "validate_only" | "publish",
@@ -134,6 +214,24 @@ function planUnits(plan: Record<string, unknown>): readonly Record<string, unkno
   );
 }
 
+function laneSubmissionContractForDiscoveryTask(
+  runId: string,
+  unitId: string,
+  taskId: string,
+  formalOutputPath: string,
+  formalArtifactSchema: string,
+): Record<string, unknown> {
+  return deriveLaneSubmissionContract({
+    runId,
+    unitId,
+    taskId,
+    attempt: 1,
+    formalOutputPath,
+    formalArtifactSchema,
+    commercialAuditOutputPath: `artifacts/research-audits/${unitId}.json`,
+  });
+}
+
 function executionPlan(
   runId: string,
   plan: Record<string, unknown>,
@@ -141,6 +239,13 @@ function executionPlan(
 ): Record<string, unknown> {
   const lanes = planUnits(plan).map((unit) => {
     const ownsResponse = kind === "evaluation" && unit.unit_id === "unit_counterfactual";
+    const unitId = String(unit.unit_id);
+    const submissionPath =
+      kind === "generation" ? `artifacts/discovery/generation/${unitId}.r1.json` : unit.output_path;
+    const submissionSchema =
+      kind === "generation"
+        ? "startup_opportunity.discovery_generation_result.v1"
+        : String(unit.required_artifact_schema);
     return {
       unit_id: unit.unit_id,
       lane_role: kind === "generation" ? "opportunity" : "evaluation",
@@ -154,14 +259,16 @@ function executionPlan(
           : "This lane is not the assigned incumbent response owner.",
       },
       reporting_dimensions: ["demand", "buyer"],
-      submission_path:
-        kind === "generation"
-          ? `artifacts/discovery/generation/${String(unit.unit_id)}.r1.json`
-          : unit.output_path,
-      submission_schema:
-        kind === "generation"
-          ? "startup_opportunity.discovery_generation_result.v1"
-          : unit.required_artifact_schema,
+      submission_path: submissionPath,
+      submission_schema: submissionSchema,
+      commercial_audit_output_path: `artifacts/research-audits/${unitId}.json`,
+      lane_submission_contract: laneSubmissionContractForDiscoveryTask(
+        runId,
+        unitId,
+        `task_${unitId}`,
+        String(submissionPath),
+        submissionSchema,
+      ),
       time_budget_minutes: 10,
       max_sources: 5,
       straggler_policy: { on_timeout: "publish_partial", grace_minutes: 2, blocks_stage: true },
@@ -341,6 +448,14 @@ function dispatchBatch(
         input_refs: unit.input_refs,
         allowed_output_path: lane.submission_path,
         required_artifact_schema: lane.submission_schema,
+        commercial_audit_output_path: lane.commercial_audit_output_path,
+        lane_submission_contract: laneSubmissionContractForDiscoveryTask(
+          runId,
+          String(lane.unit_id),
+          `task_${String(lane.unit_id)}`,
+          String(lane.submission_path),
+          String(lane.submission_schema),
+        ),
         time_budget_minutes: lane.time_budget_minutes,
         max_sources: lane.max_sources,
         straggler_policy: lane.straggler_policy,
@@ -350,6 +465,212 @@ function dispatchBatch(
     launch_registration_required: true,
     limitations: ["SYNTHETIC dispatch contract; the Harness does not start agents."],
   };
+}
+
+function discoveryWaveArtifacts(
+  runId: string,
+  bundle: DocumentBundle,
+  plan: Record<string, unknown>,
+  execution: Record<string, unknown>,
+): {
+  readonly batch: Record<string, unknown>;
+  readonly artifacts: readonly RuntimeArtifact[];
+} {
+  const batch = dispatchBatch(runId, plan, execution);
+  return {
+    batch,
+    artifacts: [
+      runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+      runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
+      ...canonicalTaskArtifacts(bundle, plan, batch),
+    ],
+  };
+}
+
+function forgeDiscoveryWaveTaskIds(
+  artifacts: readonly RuntimeArtifact[],
+  runId: string,
+): readonly RuntimeArtifact[] {
+  const cloned = structuredClone(artifacts) as RuntimeArtifact[];
+  const contractsByUnit = new Map<string, Record<string, unknown>>();
+  for (const artifact of cloned) {
+    if (
+      artifact.artifact_type !== "startup_opportunity.research_task.discovery_candidate.current" &&
+      artifact.artifact_type !== "startup_opportunity.research_task.discovery_evaluation.current"
+    ) {
+      continue;
+    }
+    const unitId = String(artifact.document.unit_id);
+    const taskId = `forged_${unitId}`;
+    artifact.document.task_id = taskId;
+    const requirements = artifact.document.commercial_research_requirements as Record<
+      string,
+      unknown
+    >;
+    const contract = deriveLaneSubmissionContract({
+      runId,
+      unitId,
+      taskId,
+      attempt: Number(artifact.document.attempt ?? 1),
+      formalOutputPath: String(artifact.document.allowed_output_path),
+      formalArtifactSchema: String(artifact.document.required_artifact_schema),
+      commercialAuditOutputPath:
+        typeof requirements.commercial_audit_output_path === "string"
+          ? requirements.commercial_audit_output_path
+          : null,
+    });
+    artifact.document.lane_submission_contract = contract;
+    contractsByUnit.set(unitId, contract);
+  }
+  for (const artifact of cloned) {
+    if (artifact.artifact_type === "startup_opportunity.dispatch_batch.discovery.current") {
+      for (const task of artifact.document.tasks as Record<string, unknown>[]) {
+        const unitId = String(task.unit_id);
+        const contract = contractsByUnit.get(unitId);
+        assert.ok(contract);
+        task.task_id = `forged_${unitId}`;
+        task.lane_submission_contract = structuredClone(contract);
+      }
+    }
+    if (
+      artifact.artifact_type === "startup_opportunity.research_execution_plan.discovery.current"
+    ) {
+      for (const stage of artifact.document.stages as Record<string, unknown>[]) {
+        for (const lane of stage.lanes as Record<string, unknown>[]) {
+          const contract = contractsByUnit.get(String(lane.unit_id));
+          assert.ok(contract);
+          lane.lane_submission_contract = structuredClone(contract);
+        }
+      }
+    }
+  }
+  return cloned;
+}
+
+function rawArtifactBundleReceipt(
+  runId: string,
+  envelopes: readonly FormalArtifactEnvelope[],
+  extra: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  const sorted = [...envelopes].sort((left, right) =>
+    left.artifact_path.localeCompare(right.artifact_path),
+  );
+  const operation = operationKey("publish_artifact_bundle", {
+    run_id: runId,
+    envelopes: sorted,
+  });
+  return {
+    schema_version: "startup_opportunity.artifact_bundle_operation.current",
+    operation_key: operation,
+    run_id: runId,
+    envelopes: sorted,
+    ...extra,
+  };
+}
+
+function forgedSerializedRecoveryAuthority(
+  runId: string,
+  operationKeyValue: string,
+  envelopes: readonly FormalArtifactEnvelope[],
+): Record<string, unknown> {
+  const artifactPaths = envelopes.map((envelope) => envelope.artifact_path).sort();
+  const identity = {
+    schema_version: "startup_opportunity.artifact_bundle_recovery_authority.current",
+    authority_kind: "formal_stage_runtime_projection",
+    operation_key: operationKeyValue,
+    run_id: runId,
+    artifact_paths: artifactPaths,
+    content_hashes: artifactPaths.map((artifactPath) => {
+      const envelope = envelopes.find((candidate) => candidate.artifact_path === artifactPath);
+      assert.ok(envelope);
+      return {
+        artifact_path: artifactPath,
+        content_hash: envelope.content_hash,
+      };
+    }),
+    trusted_prospective_runtime_authority_paths: artifactPaths,
+  };
+  return {
+    ...identity,
+    authority_hash: canonicalContentHash(identity),
+  };
+}
+
+async function writeRawArtifactBundleReceipt(
+  runRoot: string,
+  runId: string,
+  envelopes: readonly FormalArtifactEnvelope[],
+  extra: Readonly<Record<string, unknown>> = {},
+): Promise<string> {
+  const receipt = rawArtifactBundleReceipt(runId, envelopes, extra);
+  const operationDirectory = path.join(runRoot, ".store", "operations");
+  await mkdir(operationDirectory, { recursive: true });
+  const receiptPath = path.join(
+    operationDirectory,
+    `bundle-${String(receipt.operation_key).slice("sha256:".length)}.json`,
+  );
+  await writeFile(receiptPath, `${canonicalJson(receipt)}\n`);
+  return receiptPath;
+}
+
+async function removeArtifactOperationReceipts(
+  runRoot: string,
+  artifactPaths: readonly string[],
+): Promise<void> {
+  const operationDirectory = path.join(runRoot, ".store", "operations");
+  const artifactPathSet = new Set(artifactPaths);
+  for (const entry of await readdir(operationDirectory)) {
+    if (!entry.startsWith("artifact-") || !entry.endsWith(".json")) continue;
+    const receiptPath = path.join(operationDirectory, entry);
+    const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
+    if (typeof receipt.artifact_path === "string" && artifactPathSet.has(receipt.artifact_path)) {
+      await rm(receiptPath);
+    }
+  }
+}
+
+async function registerAllDispatchLaunches(
+  state: { readonly root: string; readonly runsRoot: string; readonly runId: string },
+  batch: Record<string, unknown>,
+  requestId: string,
+): Promise<void> {
+  const dispatchRef = "tasks/dispatch/runtime.r1.json";
+  const dispatchHash = canonicalContentHash(batch);
+  const tasks = Array.isArray(batch.tasks)
+    ? batch.tasks.filter(
+        (task): task is Record<string, unknown> =>
+          typeof task === "object" && task !== null && !Array.isArray(task),
+      )
+    : [];
+  const requestPath = path.join(state.root, `${requestId}.json`);
+  await writeFile(
+    requestPath,
+    `${JSON.stringify({
+      schema_version: "startup_opportunity.dispatch_launch_registration_request.v1",
+      request_id: requestId,
+      run_id: state.runId,
+      dispatch_ref: dispatchRef,
+      dispatch_hash: dispatchHash,
+      registered_at: "2026-07-31T16:01:02Z",
+      registrations: tasks.map((task) => ({
+        unit_id: String(task.unit_id),
+        task_ref: `${dispatchRef}#${String(task.task_id)}`,
+        task_id: String(task.task_id),
+        attempt: Number(task.attempt ?? 1),
+        execution_attempt_id: `${requestId}_${String(task.unit_id)}_attempt_1`,
+      })),
+    })}\n`,
+  );
+  const registered = runHarness([
+    "register-dispatch-launches",
+    "--file",
+    requestPath,
+    "--runs-root",
+    state.runsRoot,
+  ]);
+  assert.equal(registered.status, 0, registered.stderr);
+  const check = JSON.parse(registered.stdout) as Record<string, unknown>;
+  assert.equal(check.status, "closed");
 }
 
 function lifecycle(
@@ -396,7 +717,7 @@ function compilerCodes(error: unknown): readonly string[] {
   if (!(error instanceof StoreError)) {
     return [];
   }
-  return ["issues", "bundleErrors", "documentErrors", "referenceErrors"].flatMap((field) => {
+  return ["bundleErrors", "documentErrors", "referenceErrors"].flatMap((field) => {
     const values = error.details[field];
     return Array.isArray(values)
       ? values.flatMap((value) =>
@@ -406,6 +727,24 @@ function compilerCodes(error: unknown): readonly string[] {
         )
       : [];
   });
+}
+
+function compilerReferenceErrorRefs(error: StoreError): readonly string[] {
+  const values = error.details.referenceErrors;
+  if (!Array.isArray(values)) return [];
+  return values
+    .flatMap((value) =>
+      typeof value === "object" &&
+      value !== null &&
+      "details" in value &&
+      typeof value.details === "object" &&
+      value.details !== null &&
+      "ref" in value.details &&
+      typeof value.details.ref === "string"
+        ? [value.details.ref]
+        : [],
+    )
+    .sort();
 }
 
 async function prepareRun(context: TestContext, suffix: string) {
@@ -461,6 +800,18 @@ async function snapshotTree(root: string): Promise<Readonly<Record<string, strin
   return Object.fromEntries(
     Object.entries(snapshot).sort(([left], [right]) => left.localeCompare(right)),
   );
+}
+
+async function writeLaneStagingFile(
+  runRoot: string,
+  task: FormalArtifactEnvelope,
+  staging: Record<string, unknown>,
+): Promise<string> {
+  const contract = task.document.lane_submission_contract as Record<string, unknown>;
+  const sourcePath = path.join(runRoot, String(contract.staging_output_path));
+  await mkdir(path.dirname(sourcePath), { recursive: true });
+  await writeFile(sourcePath, `${JSON.stringify(staging, null, 2)}\n`);
+  return sourcePath;
 }
 
 async function prepareDiscoveryTaskBridgeRun(context: TestContext, suffix: string) {
@@ -572,6 +923,13 @@ function canonicalDiscoveryTask(
   envelope.document.input_refs = unit.input_refs;
   envelope.document.allowed_output_path = unit.output_path;
   envelope.document.required_artifact_schema = unit.required_artifact_schema;
+  envelope.document.lane_submission_contract = laneSubmissionContractForDiscoveryTask(
+    envelope.run_id,
+    String(envelope.document.unit_id),
+    String(envelope.document.task_id),
+    String(unit.output_path),
+    String(unit.required_artifact_schema),
+  );
   (envelope as unknown as { content_hash: string }).content_hash = canonicalContentHash(
     envelope.document,
   );
@@ -607,6 +965,7 @@ function canonicalDiscoveryTasks(
       >;
       task.document.allowed_output_path = dispatched.allowed_output_path;
       task.document.required_artifact_schema = dispatched.required_artifact_schema;
+      task.document.lane_submission_contract = dispatched.lane_submission_contract;
       if (
         dispatched.required_artifact_schema === "startup_opportunity.discovery_generation_result.v1"
       ) {
@@ -819,23 +1178,22 @@ async function moveManifestUnit(
 }
 
 test("public compiler validates, publishes, replays, and recovers a temp-write fault", async (t) => {
-  const first = await prepareRun(t, "compiler");
-  const execution = executionPlan(first.runId, first.plan);
-  const planQuestion = (first.plan.research_questions as Record<string, unknown>[])[0];
-  assert.ok(planQuestion);
-  const policyRef = "harness/policies/adaptation.current.json";
-  const fragmentRef = `${G21_PLAN_REF}#${String(planQuestion.question_id)}`;
-  const artifact = {
-    ...runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
-    input_refs: [policyRef, fragmentRef],
-  };
+  const first = await prepareDiscoveryTaskBridgeRun(t, "compiler");
   const compiler = new DeclarativeRuntimeCompiler(first.runsRoot, first.validator);
+  const wave = await publishDiscoveryWaveFixture(first);
+  const unitId = String(planUnits(first.plan)[0]?.unit_id);
+  const started = lifecycle(first.runId, unitId, wave.batch, 1, "agent_started");
+  const lifecyclePath = canonicalLaneLifecyclePath(started, 1);
   const requestId = "request_validate_synthetic";
-  const firstRunRoot = path.join(first.runsRoot, first.runId);
-  const beforeDryRun = await snapshotTree(firstRunRoot);
-  const validated = await compiler.compile(
-    compilationRequest(first.runId, "validate_only", [artifact], requestId),
+  const lifecycleRequest = compilationRequest(
+    first.runId,
+    "validate_only",
+    [runtimeArtifact(lifecyclePath, started, "main_agent")],
+    requestId,
   );
+  const firstRunRoot = first.runRoot;
+  const beforeDryRun = await snapshotTree(firstRunRoot);
+  const validated = await compiler.compile(lifecycleRequest);
   assert.equal(validated.status, "validated");
   assert.deepEqual(validated.publication_preflight, {
     status: "ready",
@@ -851,12 +1209,6 @@ test("public compiler validates, publishes, replays, and recovers a temp-write f
     "startup_opportunity.artifact_envelope.current",
   );
   assert.ok(validated.validation_closure.document_count > 1);
-  const resolvedByRef = new Map(
-    validated.publication_plan.resolved_references.map((reference) => [reference.ref, reference]),
-  );
-  assert.equal(resolvedByRef.get(policyRef)?.kind, "repository_policy");
-  assert.match(String(resolvedByRef.get(policyRef)?.content_hash), /^sha256:[a-f0-9]{64}$/u);
-  assert.equal(resolvedByRef.get(fragmentRef)?.kind, "run_artifact_fragment");
 
   const request = {
     ...compilationRequest(first.runId, "publish", [], requestId),
@@ -869,25 +1221,24 @@ test("public compiler validates, publishes, replays, and recovers a temp-write f
   assert.equal(replay.status, "idempotent_replay");
   assert.equal(replay.publication_plan.plan_id, validated.publication_plan.plan_id);
 
-  const fault = await prepareRun(t, "compiler-fault");
-  const faultArtifact = runtimeArtifact(
-    "plans/research-execution.r1.json",
-    executionPlan(fault.runId, fault.plan),
-    "main_agent",
-  );
+  const fault = await prepareDiscoveryTaskBridgeRun(t, "compiler-fault");
+  const faultWave = await publishDiscoveryWaveFixture(fault);
+  const faultCompiler = new DeclarativeRuntimeCompiler(fault.runsRoot, fault.validator);
+  const faultUnitId = String(planUnits(fault.plan)[0]?.unit_id);
+  const faultLifecycle = lifecycle(fault.runId, faultUnitId, faultWave.batch, 1, "agent_started");
+  const faultLifecyclePath = canonicalLaneLifecyclePath(faultLifecycle, 1);
   const faultRequest = compilationRequest(
     fault.runId,
     "publish",
-    [faultArtifact],
+    [runtimeArtifact(faultLifecyclePath, faultLifecycle, "main_agent")],
     "request_fault_synthetic",
   );
-  const faultCompiler = new DeclarativeRuntimeCompiler(fault.runsRoot, fault.validator);
   await assert.rejects(
     faultCompiler.compile(faultRequest, { faultAt: "after_temp_write" }),
     (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
   );
   const reopened = await new RunStore(fault.runsRoot, fault.validator).load(fault.runId);
-  assert.deepEqual(reopened.recoveredArtifactPaths, ["plans/research-execution.r1.json"]);
+  assert.deepEqual(reopened.recoveredArtifactPaths, [faultLifecyclePath]);
   const recovered = await faultCompiler.compile(faultRequest);
   assert.equal(recovered.status, "idempotent_replay");
   assert.equal((await faultCompiler.compile(faultRequest)).status, "idempotent_replay");
@@ -903,65 +1254,476 @@ test("public compiler validates, publishes, replays, and recovers a temp-write f
   assert.equal(faultStatus.observability.publishRetryCount, 1);
 });
 
-test("compiler validate_only and publish reject a superseded source without writing", async (t) => {
-  const state = await prepareRun(t, "compiler-superseded");
-  const execution = executionPlan(state.runId, state.plan);
-  const planQuestion = (state.plan.research_questions as Record<string, unknown>[])[0];
-  assert.ok(planQuestion);
-  const policyRef = "harness/policies/adaptation.current.json";
-  const fragmentRef = `${G21_PLAN_REF}#${String(planQuestion.question_id)}`;
-  const artifact = {
-    ...runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
-    input_refs: [policyRef, fragmentRef],
-  };
-  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
-  const request = compilationRequest(
-    state.runId,
-    "validate_only",
-    [artifact],
-    "request_superseded_synthetic",
+test("Discovery Execution lanes carry the exact Task and Dispatch submission contract", async (t) => {
+  const state = await prepareDiscoveryTaskBridgeRun(t, "execution-submission-contract");
+  const execution = executionPlan(state.runId, state.plan, "evaluation");
+  const batch = dispatchBatch(state.runId, state.plan, execution);
+  const tasks = canonicalDiscoveryTasks(state.bundle, state.plan, batch);
+  const documents = [
+    {
+      path: G21_PLAN_REF,
+      schemaVersion: String(state.plan.schema_version),
+      document: state.plan,
+      envelope: null,
+    },
+    {
+      path: "plans/research-execution.r1.json",
+      schemaVersion: String(execution.schema_version),
+      document: execution,
+      envelope: null,
+    },
+    {
+      path: "tasks/dispatch/runtime.r1.json",
+      schemaVersion: String(batch.schema_version),
+      document: batch,
+      envelope: null,
+    },
+    ...tasks.map((task) => ({
+      path: task.artifact_path,
+      schemaVersion: task.artifact_type,
+      document: task.document,
+      envelope: task as Record<string, unknown>,
+    })),
+  ];
+  assert.deepEqual(
+    validateDeclarativeRuntimeContract(documents).map((issue) => issue.code),
+    [],
   );
-  const validated = await compiler.compile(request);
-  const before = await snapshotTree(path.join(state.runsRoot, state.runId));
-  const runs = (compiler as unknown as { runs: RunStore }).runs as RunStore & {
-    resolveExecution: RunStore["resolveExecution"];
-  };
-  const originalResolveExecution = runs.resolveExecution.bind(runs);
-  const currentResolution = await state.runStore.resolveExecution(state.runId);
-  runs.resolveExecution = async (runId: string) => ({
-    ...currentResolution,
-    requestedRunId: runId,
-    disposition: "superseded_by_new_attempt",
-    currentLeafRunId: runId,
-    directTechnicalRestartRunIds: ["compiler-superseded-replacement"],
-    issues: [],
-  });
-  try {
-    await assert.rejects(
-      compiler.compile(request),
-      (error: unknown) =>
-        error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
-    );
-    assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.runId)), before);
+  const firstStage = (execution.stages as Record<string, unknown>[])[0];
+  assert.ok(firstStage);
+  const firstLane = (firstStage.lanes as Record<string, unknown>[])[0];
+  const firstTask = tasks.find((task) => task.document.unit_id === firstLane?.unit_id);
+  const firstDispatchTask = (batch.tasks as Record<string, unknown>[]).find(
+    (task) => task.unit_id === firstLane?.unit_id,
+  );
+  assert.ok(firstLane);
+  assert.ok(firstTask);
+  assert.ok(firstDispatchTask);
+  assert.equal(
+    canonicalJson(firstLane.lane_submission_contract),
+    canonicalJson(firstDispatchTask.lane_submission_contract),
+  );
+  assert.equal(
+    canonicalJson(firstLane.lane_submission_contract),
+    canonicalJson(firstTask.document.lane_submission_contract),
+  );
+  const documentsWithExecution = (document: Record<string, unknown>) => [
+    documents[0] as (typeof documents)[number],
+    {
+      path: "plans/research-execution.r1.json",
+      schemaVersion: String(document.schema_version),
+      document,
+      envelope: null,
+    },
+    documents[2] as (typeof documents)[number],
+    ...documents.slice(3),
+  ];
 
-    await assert.rejects(
-      compiler.compile({
-        ...compilationRequest(state.runId, "publish", [], "request_superseded_publish_synthetic"),
-        publication_plan: validated.publication_plan,
-      }),
-      (error: unknown) =>
-        error instanceof StoreError && error.code === "run.superseded_by_new_attempt",
+  const contractMutations: readonly [string, (contract: Record<string, unknown>) => void][] = [
+    [
+      "run",
+      (contract) => {
+        contract.run_id = "wrong-run";
+      },
+    ],
+    [
+      "unit",
+      (contract) => {
+        contract.unit_id = "wrong_unit";
+      },
+    ],
+    [
+      "task",
+      (contract) => {
+        contract.task_id = "wrong_task";
+      },
+    ],
+    [
+      "attempt",
+      (contract) => {
+        contract.attempt = 2;
+      },
+    ],
+    [
+      "path",
+      (contract) => {
+        contract.formal_output_path = "artifacts/discovery/lanes/wrong-output.attempt-1.json";
+      },
+    ],
+  ];
+  for (const [, mutate] of contractMutations) {
+    const drifted = structuredClone(execution);
+    const stage = (drifted.stages as Record<string, unknown>[])[0];
+    assert.ok(stage);
+    const lane = (stage.lanes as Record<string, unknown>[])[0];
+    assert.ok(lane);
+    mutate(lane.lane_submission_contract as Record<string, unknown>);
+    const codes = validateDeclarativeRuntimeContract(documentsWithExecution(drifted)).map(
+      (issue) => issue.code,
     );
-    assert.deepEqual(await snapshotTree(path.join(state.runsRoot, state.runId)), before);
-  } finally {
-    runs.resolveExecution = originalResolveExecution;
+    assert.ok(
+      codes.includes("runtime.execution_lane_submission_contract_mismatch"),
+      codes.join(","),
+    );
+  }
+
+  const missing = structuredClone(execution);
+  const missingStage = (missing.stages as Record<string, unknown>[])[0];
+  assert.ok(missingStage);
+  const missingLane = (missingStage.lanes as Record<string, unknown>[])[0];
+  assert.ok(missingLane);
+  delete missingLane.lane_submission_contract;
+  assert.ok(
+    validateDeclarativeRuntimeContract(documentsWithExecution(missing))
+      .map((issue) => issue.code)
+      .includes("runtime.execution_lane_submission_contract_mismatch"),
+  );
+
+  const duplicateStaging = structuredClone(execution);
+  const duplicateLanes = (duplicateStaging.stages as Record<string, unknown>[])[0]?.lanes as
+    | Record<string, unknown>[]
+    | undefined;
+  assert.ok(duplicateLanes?.[0]);
+  assert.ok(duplicateLanes[1]);
+  const secondContract = duplicateLanes[1].lane_submission_contract as Record<string, unknown>;
+  secondContract.staging_output_path = String(
+    (duplicateLanes[0].lane_submission_contract as Record<string, unknown>).staging_output_path,
+  );
+  const duplicateCodes = validateDeclarativeRuntimeContract(
+    documentsWithExecution(duplicateStaging),
+  ).map((issue) => issue.code);
+  assert.ok(duplicateCodes.includes("runtime.execution_staging_path_conflict"));
+
+  const dispatchDrift = structuredClone(batch);
+  const dispatchTask = (dispatchDrift.tasks as Record<string, unknown>[])[0];
+  assert.ok(dispatchTask);
+  const dispatchContract = dispatchTask.lane_submission_contract as Record<string, unknown>;
+  dispatchContract.task_id = "wrong_dispatch_task";
+  const dispatchCodes = validateDeclarativeRuntimeContract([
+    documents[0] as (typeof documents)[number],
+    {
+      path: "plans/research-execution.r1.json",
+      schemaVersion: String(execution.schema_version),
+      document: execution,
+      envelope: null,
+    },
+    {
+      path: "tasks/dispatch/runtime.r1.json",
+      schemaVersion: String(dispatchDrift.schema_version),
+      document: dispatchDrift,
+      envelope: null,
+    },
+    ...documents.slice(3),
+  ]).map((issue) => issue.code);
+  assert.ok(dispatchCodes.includes("runtime.dispatch_task_contract_mismatch"));
+});
+
+test("public compiler rejects self-authored Discovery Execution staging authority without Task and Dispatch", async (t) => {
+  const state = await prepareDiscoveryTaskBridgeRun(t, "execution-self-authored");
+  const execution = executionPlan(state.runId, state.plan, "evaluation");
+  const firstStage = (execution.stages as Record<string, unknown>[])[0];
+  assert.ok(firstStage);
+  const firstLane = (firstStage.lanes as Record<string, unknown>[])[0];
+  assert.ok(firstLane);
+  const forgedTaskId = "task_forged_execution_only";
+  firstLane.lane_submission_contract = deriveLaneSubmissionContract({
+    runId: state.runId,
+    unitId: String(firstLane.unit_id),
+    taskId: forgedTaskId,
+    attempt: 1,
+    formalOutputPath: String(firstLane.submission_path),
+    formalArtifactSchema: String(firstLane.submission_schema),
+    commercialAuditOutputPath: String(firstLane.commercial_audit_output_path),
+  });
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  const before = await snapshotTree(state.runRoot);
+  await assert.rejects(
+    compiler.compile(
+      compilationRequest(
+        state.runId,
+        "validate_only",
+        [runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent")],
+        "request_execution_self_authored_synthetic",
+      ),
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.equal(error.code, "runtime.compilation_validation_failed");
+      assert.ok(
+        compilerCodes(error).includes("runtime.execution_lane_submission_contract_mismatch"),
+        JSON.stringify(error.details, null, 2),
+      );
+      return true;
+    },
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), before);
+});
+
+test("public compiler rejects forged first-wave Task Dispatch Execution authority before writes", async (t) => {
+  const state = await prepareDiscoveryTaskBridgeRun(t, "forged-wave-authority");
+  const execution = executionPlan(state.runId, state.plan, "evaluation");
+  const wave = discoveryWaveArtifacts(state.runId, state.bundle, state.plan, execution);
+  const forged = forgeDiscoveryWaveTaskIds(wave.artifacts, state.runId);
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  const forgedPaths = forged.map((artifact) => artifact.artifact_path);
+
+  for (const operation of ["validate_only", "publish"] as const) {
+    const beforeManifest = (await state.runStore.status(state.runId)).manifest;
+    await assert.rejects(
+      compiler.compile(
+        compilationRequest(
+          state.runId,
+          operation,
+          forged,
+          `request_forged_wave_authority_${operation}_synthetic`,
+        ),
+      ),
+      (error: unknown) => {
+        assert.ok(error instanceof StoreError);
+        assert.equal(error.code, "runtime.compilation_validation_failed");
+        const codes = compilerCodes(error);
+        assert.ok(
+          codes.includes("runtime.execution_lane_submission_contract_mismatch") ||
+            codes.includes("runtime.dispatch_task_contract_mismatch"),
+          JSON.stringify(error.details, null, 2),
+        );
+        return true;
+      },
+    );
+    assert.deepEqual((await state.runStore.status(state.runId)).manifest, beforeManifest);
+    for (const artifactPath of forgedPaths) {
+      await assert.rejects(readFile(path.join(state.runRoot, artifactPath), "utf8"));
+    }
   }
 });
 
+test("public publication facades reject forged first-wave Task Dispatch Execution authority before writes", async (t) => {
+  const state = await prepareDiscoveryTaskBridgeRun(t, "forged-wave-publication");
+  const execution = executionPlan(state.runId, state.plan, "evaluation");
+  const wave = discoveryWaveArtifacts(state.runId, state.bundle, state.plan, execution);
+  const forged = forgeDiscoveryWaveTaskIds(wave.artifacts, state.runId);
+  const forgedEnvelopes = forged.map((artifact) =>
+    envelopeFromRuntimeArtifact(state.runId, artifact),
+  );
+  const forgedPaths = forgedEnvelopes.map((envelope) => envelope.artifact_path).sort();
+  const rejectsRuntimeAuthority = (error: unknown): boolean => {
+    assert.ok(error instanceof StoreError);
+    assert.equal(error.code, "artifact.reference_invalid");
+    const codes = compilerCodes(error);
+    assert.ok(
+      codes.includes("runtime.execution_lane_submission_contract_mismatch") ||
+        codes.includes("runtime.dispatch_task_contract_mismatch"),
+      JSON.stringify(error.details, null, 2),
+    );
+    return true;
+  };
+
+  const beforeRunStoreBundle = await snapshotTree(state.runRoot);
+  await assert.rejects(
+    state.runStore.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: forgedEnvelopes,
+    }),
+    rejectsRuntimeAuthority,
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeRunStoreBundle);
+
+  const artifactStore = new ArtifactStore(state.runsRoot, state.validator);
+  const beforeArtifactStoreBundle = await snapshotTree(state.runRoot);
+  await assert.rejects(
+    artifactStore.publishBundle({
+      runId: state.runId,
+      envelopes: forgedEnvelopes,
+    }),
+    rejectsRuntimeAuthority,
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeArtifactStoreBundle);
+
+  const forgedExecution = forgedEnvelopes.find(
+    (envelope) =>
+      envelope.artifact_type === "startup_opportunity.research_execution_plan.discovery.current",
+  );
+  assert.ok(forgedExecution);
+  const beforeExecutionSingleton = await snapshotTree(state.runRoot);
+  await assert.rejects(
+    state.runStore.publishArtifact({
+      runId: state.runId,
+      envelope: forgedExecution,
+    }),
+    rejectsRuntimeAuthority,
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeExecutionSingleton);
+
+  for (const envelope of forgedEnvelopes.filter((candidate) => candidate !== forgedExecution)) {
+    const beforeSingleton = await snapshotTree(state.runRoot);
+    await assert.rejects(
+      state.runStore.publishArtifact({ runId: state.runId, envelope }),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "artifact.wave_bundle_required",
+    );
+    assert.deepEqual(await snapshotTree(state.runRoot), beforeSingleton);
+  }
+
+  const forgedBundleFile = path.join(state.root, "forged-wave-publication-bundle.json");
+  await writeFile(
+    forgedBundleFile,
+    `${canonicalJson({
+      schema_version: "startup_opportunity.document_bundle.current",
+      documents: forgedEnvelopes.map((envelope) => ({
+        path: envelope.artifact_path,
+        document: envelope,
+      })),
+      exact_records: [],
+    })}\n`,
+  );
+  const beforeCli = await snapshotTree(state.runRoot);
+  const cli = runHarness([
+    "publish-artifact",
+    "--runs-root",
+    state.runsRoot,
+    "--file",
+    forgedBundleFile,
+  ]);
+  assert.notEqual(cli.status, 0, cli.stdout);
+  assert.match(cli.stderr, /artifact\.reference_invalid/u);
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeCli);
+  for (const artifactPath of forgedPaths) {
+    await assert.rejects(readFile(path.join(state.runRoot, artifactPath), "utf8"));
+  }
+});
+
+test("Artifact recovery rejects forged first-wave bundle receipt before writes", async (t) => {
+  for (const includeForgedAuthority of [false, true]) {
+    const state = await prepareDiscoveryTaskBridgeRun(
+      t,
+      `forged-wave-recovery-${includeForgedAuthority ? "with-authority" : "missing-authority"}`,
+    );
+    const execution = executionPlan(state.runId, state.plan, "evaluation");
+    const wave = discoveryWaveArtifacts(state.runId, state.bundle, state.plan, execution);
+    const forged = forgeDiscoveryWaveTaskIds(wave.artifacts, state.runId);
+    const forgedEnvelopes = forged.map((artifact) =>
+      envelopeFromRuntimeArtifact(state.runId, artifact),
+    );
+    const forgedPaths = forgedEnvelopes.map((envelope) => envelope.artifact_path).sort();
+    const rawReceipt = rawArtifactBundleReceipt(state.runId, forgedEnvelopes);
+    await writeRawArtifactBundleReceipt(
+      state.runRoot,
+      state.runId,
+      forgedEnvelopes,
+      includeForgedAuthority
+        ? {
+            recovery_authority: forgedSerializedRecoveryAuthority(
+              state.runId,
+              String(rawReceipt.operation_key),
+              (rawReceipt.envelopes as FormalArtifactEnvelope[]) ?? forgedEnvelopes,
+            ),
+          }
+        : {},
+    );
+    const beforeRecovery = await snapshotTree(state.runRoot);
+    await assert.rejects(
+      new RunStore(state.runsRoot, state.validator).load(state.runId),
+      (error: unknown) =>
+        error instanceof StoreError &&
+        (includeForgedAuthority
+          ? error.code === "recovery.invalid_bundle_operation"
+          : error.code === "recovery.bundle_authority_missing"),
+    );
+    assert.deepEqual(await snapshotTree(state.runRoot), beforeRecovery);
+    for (const artifactPath of forgedPaths) {
+      await assert.rejects(readFile(path.join(state.runRoot, artifactPath), "utf8"));
+    }
+  }
+});
+
+test("Discovery Execution inheritance requires an authoritative parent projection", async (t) => {
+  const state = await prepareDiscoveryTaskBridgeRun(t, "parent-execution-authority");
+  const parentExecution = executionPlan(state.runId, state.plan, "evaluation");
+  const wave = discoveryWaveArtifacts(state.runId, state.bundle, state.plan, parentExecution);
+  const parentArtifact = wave.artifacts[0];
+  const dispatchArtifact = wave.artifacts[1];
+  assert.ok(parentArtifact);
+  assert.ok(dispatchArtifact);
+  const parentEnvelope = envelopeFromRuntimeArtifact(state.runId, parentArtifact);
+  const dispatchEnvelope = envelopeFromRuntimeArtifact(state.runId, dispatchArtifact);
+  const taskEnvelopes = wave.artifacts
+    .slice(2)
+    .map((artifact) => envelopeFromRuntimeArtifact(state.runId, artifact));
+  const childExecution = {
+    ...structuredClone(parentExecution),
+    execution_plan_id: "execution_child_inherits_untrusted_parent_synthetic",
+    revision: 2,
+    parent_execution_plan_ref: "plans/research-execution.r1.json",
+  };
+  const childEnvelope = envelopeFromRuntimeArtifact(
+    state.runId,
+    runtimeArtifact("plans/research-execution.r2.json", childExecution, "main_agent"),
+  );
+  const documents = [
+    {
+      path: G21_PLAN_REF,
+      schemaVersion: "startup_opportunity.research_plan.v1",
+      document: state.plan,
+      envelope: null,
+    },
+    {
+      path: parentEnvelope.artifact_path,
+      schemaVersion: parentEnvelope.artifact_type,
+      document: parentEnvelope.document,
+      envelope: parentEnvelope as Record<string, unknown>,
+    },
+    {
+      path: childEnvelope.artifact_path,
+      schemaVersion: childEnvelope.artifact_type,
+      document: childEnvelope.document,
+      envelope: childEnvelope as Record<string, unknown>,
+    },
+    {
+      path: dispatchEnvelope.artifact_path,
+      schemaVersion: dispatchEnvelope.artifact_type,
+      document: dispatchEnvelope.document,
+      envelope: dispatchEnvelope as Record<string, unknown>,
+    },
+    ...taskEnvelopes.map((envelope) => ({
+      path: envelope.artifact_path,
+      schemaVersion: envelope.artifact_type,
+      document: envelope.document,
+      envelope: envelope as Record<string, unknown>,
+    })),
+  ];
+  const publishedDispatchAndTasks = new Map(
+    [dispatchEnvelope, ...taskEnvelopes].map((envelope, index) => [
+      envelope.artifact_path,
+      { publicationOrdinal: index + 1, contentHash: envelope.content_hash },
+    ]),
+  );
+
+  const codes = validateDeclarativeRuntimeContract(documents, new Map(), {
+    requireRuntimeProjectionAuthority: true,
+    artifactPublicationRecords: publishedDispatchAndTasks,
+  }).map((issue) => issue.code);
+  assert.ok(codes.includes("runtime.execution_lane_submission_contract_mismatch"), codes.join(","));
+
+  const closedCodes = validateDeclarativeRuntimeContract(documents, new Map(), {
+    requireRuntimeProjectionAuthority: true,
+    artifactPublicationRecords: new Map([
+      ...publishedDispatchAndTasks,
+      [
+        parentEnvelope.artifact_path,
+        { publicationOrdinal: 1, contentHash: parentEnvelope.content_hash },
+      ],
+    ]),
+  }).map((issue) => issue.code);
+  assert.ok(
+    !closedCodes.includes("runtime.execution_lane_submission_contract_mismatch"),
+    closedCodes.join(","),
+  );
+});
+
 test("compiler preflight aggregates construction and reference root causes before any write", async (t) => {
-  const state = await prepareRun(t, "preflight-diagnostics");
+  const state = await prepareDiscoveryTaskBridgeRun(t, "preflight-diagnostics");
   const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
-  const runRoot = path.join(state.runsRoot, state.runId);
+  const runRoot = state.runRoot;
   const before = await snapshotTree(runRoot);
   const invalidArtifacts = [
     runtimeArtifact(
@@ -1014,28 +1776,46 @@ test("compiler preflight aggregates construction and reference root causes befor
   );
   assert.deepEqual(await snapshotTree(runRoot), before);
 
-  const execution = executionPlan(state.runId, state.plan);
-  const validWithMissingRefs = {
-    ...runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
-    input_refs: ["artifacts/missing/first.json", "artifacts/missing/second.json"],
-  };
+  const validWithMissingRefs = [
+    runtimeArtifact(
+      "adaptations/coverage/reference-missing-carrier.json",
+      {
+        schema_version: "startup_opportunity.coverage_attestation.v1",
+        coverage_key: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        relation: "same_subject_and_semantically_equivalent_research_goal",
+        run_id: state.runId,
+        based_on_plan_ref: G21_PLAN_REF,
+        based_on_plan_revision: 1,
+        based_on_plan_hash: canonicalContentHash(state.plan),
+        gap_ref: "adaptations/gap-snapshots/missing-first.r1.json#gap_missing_first",
+        subject_ref: G22_DEMAND_R1,
+        target_unit_ref: "plans/research-plan.r2.json#unit_missing_second",
+        gap_research_goal: "SYNTHETIC missing reference aggregation gap.",
+        target_research_goal: "SYNTHETIC missing reference aggregation unit.",
+        semantic_equivalence_declared: true,
+        declared_by: "main_agent",
+        created_at: "2026-07-31T16:05:00Z",
+      },
+      "main_agent",
+    ),
+  ];
   await assert.rejects(
     compiler.compile(
       compilationRequest(
         state.runId,
         "validate_only",
-        [validWithMissingRefs],
+        validWithMissingRefs,
         "request_aggregate_references_synthetic",
       ),
     ),
     (error: unknown) => {
       assert.ok(error instanceof StoreError);
-      assert.equal(error.code, "reference.closure_failed");
+      assert.equal(error.code, "runtime.compilation_validation_failed");
+      assert.deepEqual(compilerReferenceErrorRefs(error), [
+        "adaptations/gap-snapshots/missing-first.r1.json#gap_missing_first",
+        "plans/research-plan.r2.json#unit_missing_second",
+      ]);
       const issues = error.details.issues as Record<string, unknown>[];
-      assert.deepEqual(
-        issues.map((issue) => issue.reference),
-        ["artifacts/missing/first.json", "artifacts/missing/second.json"],
-      );
       assert.ok(issues.every((issue) => typeof issue.likely_cause === "string"));
       assert.equal((error.details.root_causes as unknown[]).length, 1);
       return true;
@@ -1200,15 +1980,8 @@ test("compiler rejects an illegal initial Plan tuple before publication planning
 test("terminal compilation preserves current G2.1/G2.2 envelopes and aggregate roots", async (t) => {
   const state = await prepareDiscoveryTaskBridgeRun(t, "terminal-closure");
   const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
-  const execution = executionPlan(state.runId, state.plan);
-  await compiler.compile(
-    compilationRequest(
-      state.runId,
-      "publish",
-      [runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent")],
-      "request_terminal_closure_execution_synthetic",
-    ),
-  );
+  const wave = await publishDiscoveryWaveFixture(state, "generation");
+  await registerAllDispatchLaunches(state, wave.batch, "launch_terminal_closure_synthetic");
   const readinessPath = "artifacts/discovery/readiness/terminal-closure.r1.json";
   const readinessRequest = compilationRequest(
     state.runId,
@@ -1261,20 +2034,8 @@ test("terminal compilation preserves current G2.1/G2.2 envelopes and aggregate r
 test("terminal compilation recovers and replays after a temp-write fault", async (t) => {
   const state = await prepareDiscoveryTaskBridgeRun(t, "terminal-closure-fault");
   const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
-  await compiler.compile(
-    compilationRequest(
-      state.runId,
-      "publish",
-      [
-        runtimeArtifact(
-          "plans/research-execution.r1.json",
-          executionPlan(state.runId, state.plan),
-          "main_agent",
-        ),
-      ],
-      "request_terminal_closure_fault_execution_synthetic",
-    ),
-  );
+  const wave = await publishDiscoveryWaveFixture(state, "generation");
+  await registerAllDispatchLaunches(state, wave.batch, "launch_terminal_closure_fault_synthetic");
   const readinessPath = "artifacts/discovery/readiness/terminal-closure.r1.json";
   const request = compilationRequest(
     state.runId,
@@ -1392,12 +2153,15 @@ test("complete same-wave dispatch activates both units and lifecycle revisions c
     (error: unknown) => compilerCodes(error).includes("runtime.dispatch_group_incomplete"),
   );
 
-  const published = await compiler.compile(
-    compilationRequest(state.runId, "publish", [
-      executionArtifact,
-      runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
-      ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
-    ]),
+  const waveEnvelopes = [
+    executionArtifact,
+    runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
+    ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
+  ].map((artifact) => envelopeFromRuntimeArtifact(state.runId, artifact));
+  const published = await publishRuntimeEnvelopesAsFormalStage(
+    state,
+    waveEnvelopes,
+    "request_complete_same_wave_synthetic",
   );
   assert.equal(published.status, "published");
   const unitIds = planUnits(state.plan)
@@ -1428,19 +2192,16 @@ test("public CLI closes exact Dispatch launch sets incrementally and rejects ide
   const state = await prepareDiscoveryTaskBridgeRun(t, "launch-registry-cli");
   const execution = executionPlan(state.runId, state.plan, "evaluation");
   const batch = dispatchBatch(state.runId, state.plan, execution);
-  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
-  const published = await compiler.compile(
-    compilationRequest(state.runId, "publish", [
+  await publishRuntimeArtifactsAsFormalStage(
+    state,
+    [
       runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
       runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
       ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
-    ]),
+    ],
+    "request_launch_registry_cli_wave_synthetic",
   );
-  assert.equal(published.dispatch_launch_checklists.length, 1);
-  const initialChecklist = published.dispatch_launch_checklists[0];
-  assert.ok(initialChecklist);
-  assert.equal(initialChecklist.status, "open");
-  assert.deepEqual(initialChecklist.started_unit_ids, []);
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
 
   const dispatchRef = "tasks/dispatch/runtime.r1.json";
   const dispatchHash = canonicalContentHash(batch);
@@ -1497,6 +2258,11 @@ test("public CLI closes exact Dispatch launch sets incrementally and rejects ide
       "--runs-root",
       state.runsRoot,
     ]);
+  const initial = check();
+  assert.equal(initial.status, 0, initial.stderr);
+  const initialChecklist = JSON.parse(initial.stdout) as Record<string, unknown>;
+  assert.equal(initialChecklist.status, "open");
+  assert.deepEqual(initialChecklist.started_unit_ids, []);
 
   const firstRequest = await writeRequest("first", [
     registrations[0] as (typeof registrations)[number],
@@ -1985,18 +2751,141 @@ test("public CLI closes exact Dispatch launch sets incrementally and rejects ide
   }
 });
 
+test("Dispatch launch recovery rejects raw bundle receipt without dedicated authority before writes", async (t) => {
+  const state = await prepareDiscoveryTaskBridgeRun(t, "launch-raw-recovery-authority");
+  const execution = executionPlan(state.runId, state.plan, "evaluation");
+  const batch = dispatchBatch(state.runId, state.plan, execution);
+  await publishRuntimeArtifactsAsFormalStage(
+    state,
+    [
+      runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+      runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
+      ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
+    ],
+    "request_launch_raw_recovery_wave_synthetic",
+  );
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
+  const dispatchRef = "tasks/dispatch/runtime.r1.json";
+  const dispatchHash = canonicalContentHash(batch);
+  const formalTasks = canonicalDiscoveryTasks(state.bundle, state.plan, batch);
+  const dispatchTask = (batch.tasks as Record<string, unknown>[])[0];
+  assert.ok(dispatchTask);
+  const formalTask = formalTasks.find(
+    (candidate) => candidate.document.unit_id === dispatchTask.unit_id,
+  );
+  assert.ok(formalTask);
+  const requestId = "launch_raw_recovery_forged";
+  const registration = {
+    unit_id: String(dispatchTask.unit_id),
+    task_ref: `${dispatchRef}#${String(dispatchTask.task_id)}`,
+    task_id: String(dispatchTask.task_id),
+    attempt: Number(formalTask.document.attempt),
+    execution_attempt_id: `external_${String(dispatchTask.unit_id)}_attempt_1`,
+  };
+  const request = {
+    schema_version: "startup_opportunity.dispatch_launch_registration_request.v1",
+    request_id: requestId,
+    run_id: state.runId,
+    dispatch_ref: dispatchRef,
+    dispatch_hash: dispatchHash,
+    registered_at: "2026-07-31T16:01:02Z",
+    registrations: [registration],
+  };
+  const requestHash = canonicalContentHash(request);
+  const registrationRef = dispatchLaunchRegistrationPath(requestId);
+  const lifecycleDocument = {
+    schema_version: "startup_opportunity.lane_lifecycle.v1",
+    lifecycle_id: "",
+    revision: 1,
+    parent_lifecycle_ref: null,
+    run_id: state.runId,
+    unit_id: registration.unit_id,
+    attempt: registration.attempt,
+    execution_attempt_id: registration.execution_attempt_id,
+    dispatch_batch_ref: `${dispatchRef}#${registration.task_id}`,
+    dispatch_batch_hash: dispatchHash,
+    task_ref: registration.task_ref,
+    task_id: registration.task_id,
+    launch_registration_ref: registrationRef,
+    launch_registration_id: requestId,
+    launch_registration_hash: requestHash,
+    state: "agent_started",
+    timestamps: {
+      task_ready_at: "2026-07-31T16:01:00Z",
+      dispatch_requested_at: "2026-07-31T16:01:01Z",
+      agent_started_at: "2026-07-31T16:01:02Z",
+      evidence_recorded_at: null,
+      handoff_ready_at: null,
+      formalization_validated_at: null,
+      published_at: null,
+    },
+    failure: null,
+    limitations: [
+      "Caller-declared launch registration; the Harness does not verify that an external Codex task exists.",
+    ],
+  };
+  lifecycleDocument.lifecycle_id = canonicalLaneLifecycleId(lifecycleDocument);
+  const lifecycleRef = canonicalLaneLifecyclePath(lifecycleDocument, 1);
+  const registrationDocument = {
+    schema_version: "startup_opportunity.dispatch_launch_registration.v1",
+    registration_id: requestId,
+    run_id: state.runId,
+    dispatch_ref: dispatchRef,
+    dispatch_hash: dispatchHash,
+    request_hash: requestHash,
+    registered_at: request.registered_at,
+    registrations: [
+      {
+        ...registration,
+        lifecycle_ref: lifecycleRef,
+        lifecycle_hash: canonicalContentHash(lifecycleDocument),
+      },
+    ],
+    limitations: [
+      "Caller-declared launch registration; the Harness does not verify that an external Codex task exists.",
+    ],
+  };
+  const launchEnvelopes = (
+    await compiler.compile(
+      compilationRequest(
+        state.runId,
+        "validate_only",
+        [
+          runtimeArtifact(registrationRef, registrationDocument, "harness"),
+          runtimeArtifact(lifecycleRef, lifecycleDocument, "main_agent"),
+        ],
+        "validate_launch_raw_recovery_synthetic",
+      ),
+    )
+  ).compiled_envelopes;
+
+  await writeRawArtifactBundleReceipt(state.runRoot, state.runId, launchEnvelopes);
+  const beforeRecovery = await snapshotTree(state.runRoot);
+  await assert.rejects(
+    new RunStore(state.runsRoot, state.validator).load(state.runId),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "recovery.bundle_authority_missing",
+  );
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeRecovery);
+  for (const artifactPath of launchEnvelopes.map((envelope) => envelope.artifact_path)) {
+    await assert.rejects(readFile(path.join(state.runRoot, artifactPath), "utf8"));
+  }
+});
+
 test("dispatch launch publisher rejects stale same-request-id conflicts before bundle intent", async (t) => {
   const state = await prepareDiscoveryTaskBridgeRun(t, "launch-stale-preflight");
   const execution = executionPlan(state.runId, state.plan, "evaluation");
   const batch = dispatchBatch(state.runId, state.plan, execution);
-  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
-  await compiler.compile(
-    compilationRequest(state.runId, "publish", [
+  await publishRuntimeArtifactsAsFormalStage(
+    state,
+    [
       runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
       runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
       ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
-    ]),
+    ],
+    "request_launch_stale_preflight_wave_synthetic",
   );
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
 
   const dispatchRef = "tasks/dispatch/runtime.r1.json";
   const dispatchHash = canonicalContentHash(batch);
@@ -2204,14 +3093,16 @@ test("dispatch launch publisher rejects overlapping intent-only bundle conflicts
   const state = await prepareDiscoveryTaskBridgeRun(t, "launch-intent-only-overlap");
   const execution = executionPlan(state.runId, state.plan, "evaluation");
   const batch = dispatchBatch(state.runId, state.plan, execution);
-  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
-  await compiler.compile(
-    compilationRequest(state.runId, "publish", [
+  await publishRuntimeArtifactsAsFormalStage(
+    state,
+    [
       runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
       runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
       ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
-    ]),
+    ],
+    "request_launch_intent_overlap_wave_synthetic",
   );
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
 
   const dispatchRef = "tasks/dispatch/runtime.r1.json";
   const dispatchHash = canonicalContentHash(batch);
@@ -2313,34 +3204,43 @@ test("dispatch launch publisher rejects overlapping intent-only bundle conflicts
       )
     ).compiled_envelopes;
   };
-  const bundleReceipt = (envelopes: readonly FormalArtifactEnvelope[]) => {
-    const sorted = [...envelopes].sort((left, right) =>
-      left.artifact_path.localeCompare(right.artifact_path),
-    );
-    const operation = operationKey("publish_artifact_bundle", {
-      run_id: state.runId,
-      envelopes: sorted,
-    });
-    return {
-      schema_version: "startup_opportunity.artifact_bundle_operation.current",
-      operation_key: operation,
-      run_id: state.runId,
-      envelopes: sorted,
-    };
-  };
-
   const winnerEnvelopes = await compileLaunch([registrations[0] as (typeof registrations)[number]]);
   const loserEnvelopes = await compileLaunch([registrations[1] as (typeof registrations)[number]]);
-  const winnerReceipt = bundleReceipt(winnerEnvelopes);
-  const operationDirectory = path.join(state.runRoot, ".store", "operations");
-  await mkdir(operationDirectory, { recursive: true });
+  const beforeWinner = await state.runStore.status(state.runId);
+  const winner = await state.runStore.publishDispatchLaunchRegistration({
+    runId: state.runId,
+    envelopes: winnerEnvelopes,
+  });
+  assert.equal(winner.status, "published");
+  const winnerPaths = winnerEnvelopes.map((envelope) => envelope.artifact_path).sort();
+  await removePublicationCommitTail(state.runRoot, winnerPaths);
+  await removeArtifactOperationReceipts(state.runRoot, winnerPaths);
+  await Promise.all(winnerPaths.map((artifactPath) => rm(path.join(state.runRoot, artifactPath))));
   await writeFile(
-    path.join(
-      operationDirectory,
-      `bundle-${String(winnerReceipt.operation_key).slice("sha256:".length)}.json`,
-    ),
-    `${canonicalJson(winnerReceipt)}\n`,
+    path.join(state.runRoot, "manifest.json"),
+    `${canonicalJson(beforeWinner.manifest)}\n`,
   );
+  const operationDirectory = path.join(state.runRoot, ".store", "operations");
+  const winnerBundleReceipts = await Promise.all(
+    (await readdir(operationDirectory))
+      .filter((entry) => entry.startsWith("bundle-") && entry.endsWith(".json"))
+      .map(async (entry) =>
+        JSON.parse(await readFile(path.join(operationDirectory, entry), "utf8")),
+      ),
+  );
+  const winnerBundleReceipt = winnerBundleReceipts.find(
+    (receipt: Record<string, unknown>) =>
+      Array.isArray(receipt.envelopes) &&
+      receipt.envelopes.some((envelope) => {
+        return (
+          typeof envelope === "object" &&
+          envelope !== null &&
+          "artifact_path" in envelope &&
+          winnerPaths.includes(String(envelope.artifact_path))
+        );
+      }),
+  ) as Record<string, unknown> | undefined;
+  assert.ok(winnerBundleReceipt);
   const afterIntentOnly = await snapshotTree(state.runRoot);
   await assert.rejects(
     state.runStore.publishDispatchLaunchRegistration({
@@ -2388,14 +3288,16 @@ test("status derives retries from distinct execution attempts across the complet
   const state = await prepareDiscoveryTaskBridgeRun(t, "status-retries");
   const execution = executionPlan(state.runId, state.plan, "evaluation");
   const batch = dispatchBatch(state.runId, state.plan, execution);
-  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
-  await compiler.compile(
-    compilationRequest(state.runId, "publish", [
+  await publishRuntimeArtifactsAsFormalStage(
+    state,
+    [
       runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
       runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
       ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
-    ]),
+    ],
+    "request_status_retries_wave_synthetic",
   );
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
   const unitId = String(planUnits(state.plan)[0]?.unit_id);
   const attempt = (
     ordinal: number,
@@ -2476,21 +3378,46 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
         "request_incomplete_atomic_wave_synthetic",
       ),
     ),
-    (error: unknown) =>
-      error instanceof StoreError && error.code === "artifact.wave_bundle_incomplete",
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.equal(error.code, "runtime.compilation_validation_failed");
+      assert.ok(
+        compilerCodes(error).includes("runtime.execution_lane_submission_contract_mismatch"),
+        JSON.stringify(error.details, null, 2),
+      );
+      return true;
+    },
   );
   const afterIncomplete = await state.runStore.status(state.runId);
   assert.deepEqual(afterIncomplete.manifest, beforeIncomplete.manifest);
   assert.ok(!afterIncomplete.manifest.artifact_refs.includes("tasks/dispatch/runtime.r1.json"));
 
-  await compiler.compile(
-    compilationRequest(
-      state.runId,
-      "publish",
-      [runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent")],
-      "request_execution_only_synthetic",
+  const beforeExecutionOnly = await state.runStore.status(state.runId);
+  await assert.rejects(
+    compiler.compile(
+      compilationRequest(
+        state.runId,
+        "publish",
+        [runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent")],
+        "request_execution_only_synthetic",
+      ),
     ),
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.equal(error.code, "runtime.compilation_validation_failed");
+      assert.ok(
+        compilerCodes(error).includes("runtime.execution_lane_submission_contract_mismatch"),
+        JSON.stringify(error.details, null, 2),
+      );
+      return true;
+    },
   );
+  assert.deepEqual(
+    (await state.runStore.status(state.runId)).manifest,
+    beforeExecutionOnly.manifest,
+  );
+
+  const beforeMissingExecution = await state.runStore.status(state.runId);
   await assert.rejects(
     compiler.compile(
       compilationRequest(
@@ -2503,18 +3430,30 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
         "request_missing_execution_overlay_synthetic",
       ),
     ),
-    (error: unknown) =>
-      error instanceof StoreError && error.code === "artifact.wave_bundle_incomplete",
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.equal(error.code, "runtime.compilation_validation_failed");
+      assert.ok(compilerCodes(error).includes("reference.missing"), canonicalJson(error.details));
+      return true;
+    },
+  );
+  assert.deepEqual(
+    (await state.runStore.status(state.runId)).manifest,
+    beforeMissingExecution.manifest,
   );
 
-  const wavePublication = await compiler.compile(
-    compilationRequest(state.runId, "publish", [
-      runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
-      runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
-      ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
-    ]),
+  const wavePublicationEnvelopes = [
+    runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+    runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
+    ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
+  ].map((artifact) => envelopeFromRuntimeArtifact(state.runId, artifact));
+  const wavePublication = await publishRuntimeEnvelopesAsFormalStage(
+    state,
+    wavePublicationEnvelopes,
+    "request_canonical_dispatch_wave_synthetic",
   );
-  const task = wavePublication.compiled_envelopes.find(
+  assert.equal(wavePublication.status, "published");
+  const task = wavePublicationEnvelopes.find(
     (envelope) =>
       envelope.artifact_type === "startup_opportunity.research_task.discovery_candidate.current" &&
       envelope.document.unit_id === "unit_seed_independent_demand",
@@ -2578,8 +3517,9 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
     document: { finding_id: "finding_incomplete_delivery" },
   });
   invalid.delivery_contract.search_closure.acquisition_routes_attempted = ["none"];
+  const invalidFile = await writeLaneStagingFile(state.runRoot, task, invalid);
   const beforeRejectedPreflight = await snapshotTree(state.runRoot);
-  await assert.rejects(materializer.materialize(invalid), (error: unknown) => {
+  await assert.rejects(materializer.materializeFile(invalidFile), (error: unknown) => {
     assert.ok(error instanceof StoreError);
     assert.equal(error.code, "runtime.lane_preflight_failed");
     const issues = error.details.issues as Record<string, unknown>[];
@@ -2607,7 +3547,9 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
   const missingAudit = structuredClone(staging);
   missingAudit.staging_id = "staging_commercial_missing_audit_synthetic";
   missingAudit.agent_documents.pop();
-  await assert.rejects(materializer.materialize(missingAudit), (error: unknown) => {
+  const missingAuditFile = await writeLaneStagingFile(state.runRoot, task, missingAudit);
+  const beforeMissingAudit = await snapshotTree(state.runRoot);
+  await assert.rejects(materializer.materializeFile(missingAuditFile), (error: unknown) => {
     assert.ok(error instanceof StoreError);
     assert.equal(error.code, "runtime.lane_preflight_failed");
     const requiredIssue = (error.details.issues as Record<string, unknown>[]).find(
@@ -2619,7 +3561,7 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
     assert.equal(requiredIssue.mechanically_derivable, true);
     return true;
   });
-  assert.deepEqual(await snapshotTree(state.runRoot), beforeRejectedPreflight);
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeMissingAudit);
 
   const forgedAuthority = structuredClone(staging) as typeof staging & {
     delivery_contract: typeof staging.delivery_contract & {
@@ -2630,7 +3572,9 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
   forgedAuthority.staging_id = "staging_commercial_forged_authority_synthetic";
   forgedAuthority.delivery_contract.required_artifacts = [];
   forgedAuthority.delivery_contract.assigned_scope = ["unanswered_scope"];
-  await assert.rejects(materializer.materialize(forgedAuthority), (error: unknown) => {
+  const forgedAuthorityFile = await writeLaneStagingFile(state.runRoot, task, forgedAuthority);
+  const beforeForgedAuthority = await snapshotTree(state.runRoot);
+  await assert.rejects(materializer.materializeFile(forgedAuthorityFile), (error: unknown) => {
     assert.ok(error instanceof StoreError);
     assert.equal(error.code, "runtime.lane_staging_invalid");
     const issues = error.details.issues as Record<string, unknown>[];
@@ -2643,7 +3587,7 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
     );
     return true;
   });
-  assert.deepEqual(await snapshotTree(state.runRoot), beforeRejectedPreflight);
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeForgedAuthority);
 
   const incompleteCoverage = structuredClone(staging);
   incompleteCoverage.staging_id = "staging_commercial_incomplete_coverage_synthetic";
@@ -2655,8 +3599,14 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
     unresolved_gaps: ["Current commercial Evidence remains unavailable."],
     stop_reason: "The bounded query set was exhausted without usable evidence.",
   };
+  const incompleteCoverageFile = await writeLaneStagingFile(
+    state.runRoot,
+    task,
+    incompleteCoverage,
+  );
+  const beforeIncompleteCoverage = await snapshotTree(state.runRoot);
   const incompleteDryRun = await materializer
-    .materialize(incompleteCoverage)
+    .materializeFile(incompleteCoverageFile)
     .catch((error: unknown) => {
       if (error instanceof StoreError) {
         assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
@@ -2675,10 +3625,11 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
       .partial_scope_count,
     (incompleteDryRun.delivery_receipt.document.assigned_scope as unknown[]).length - 2,
   );
-  assert.deepEqual(await snapshotTree(state.runRoot), beforeRejectedPreflight);
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeIncompleteCoverage);
 
+  const stagingFile = await writeLaneStagingFile(state.runRoot, task, staging);
   const beforeDeliveryManifest = (await state.runStore.status(state.runId)).manifest;
-  const validated = await materializer.materialize(staging).catch((error: unknown) => {
+  const validated = await materializer.materializeFile(stagingFile).catch((error: unknown) => {
     if (error instanceof StoreError) {
       assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
     }
@@ -2688,12 +3639,15 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
   publication.operation = "publish";
   (publication as typeof publication & { publication_plan: unknown }).publication_plan =
     validated.compilation.publication_plan;
-  const materialized = await materializer.materialize(publication).catch((error: unknown) => {
-    if (error instanceof StoreError) {
-      assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
-    }
-    throw error;
-  });
+  const publicationFile = await writeLaneStagingFile(state.runRoot, task, publication);
+  const materialized = await materializer
+    .materializeFile(publicationFile)
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+      }
+      throw error;
+    });
   assert.equal(materialized.status, "accepted");
   assert.equal(materialized.compilation.status, "published");
   assert.deepEqual(
@@ -2802,7 +3756,7 @@ test("current dispatch atomically publishes exact canonical Discovery tasks and 
       reopenedDelivery.manifest.artifact_refs.includes(artifactPath),
     ),
   );
-  const deliveryReplay = await materializer.materialize(publication);
+  const deliveryReplay = await materializer.materializeFile(publicationFile);
   assert.equal(deliveryReplay.status, "accepted");
   assert.equal(deliveryReplay.compilation.status, "idempotent_replay");
   assert.deepEqual(
@@ -2820,15 +3774,17 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
   const state = await prepareDiscoveryTaskBridgeRun(t, "commercial-input-closure");
   const execution = executionPlan(state.runId, state.plan, "evaluation");
   const batch = dispatchBatch(state.runId, state.plan, execution);
-  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
-  const wave = await compiler.compile(
-    compilationRequest(state.runId, "publish", [
-      runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
-      runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
-      ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
-    ]),
+  const waveEnvelopes = [
+    runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+    runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
+    ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
+  ].map((artifact) => envelopeFromRuntimeArtifact(state.runId, artifact));
+  await publishRuntimeEnvelopesAsFormalStage(
+    state,
+    waveEnvelopes,
+    "request_commercial_input_closure_wave_synthetic",
   );
-  const task = wave.compiled_envelopes.find(
+  const task = waveEnvelopes.find(
     (envelope) =>
       envelope.artifact_type === "startup_opportunity.research_task.discovery_candidate.current" &&
       envelope.document.unit_id === "unit_seed_independent_demand",
@@ -2892,6 +3848,7 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
         applicabilityDisposition: "applicable",
         revalidationStatus: "not_required",
         targetUnitId: unitId,
+        targetResearchGoal: String(task.document.research_goal),
       },
     ],
   });
@@ -2908,16 +3865,10 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
   const evidenceRef = `evidence/records/${importedRecord.evidence_id}.json`;
   const auditPath = `artifacts/research-audits/${unitId}.json`;
   const semanticEvidence = structuredClone(semanticEvidenceEnvelope.document);
-  for (const field of [
-    "schema_version",
-    "run_id",
-    "evidence_id",
-    "unit_id",
-    "research_goal",
-    "task_lineage_goal",
-    "mechanical_binding",
-  ])
+  for (const field of ["schema_version", "run_id", "evidence_id", "unit_id", "mechanical_binding"])
     delete semanticEvidence[field];
+  semanticEvidence.research_goal = importedRecord.acquisition_goal;
+  semanticEvidence.task_lineage_goal = task.document.research_goal;
   const semanticLaneResult = incompleteDiscoveryLaneResult(state.runId, task, auditPath);
   for (const field of [
     "schema_version",
@@ -2968,8 +3919,9 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
   const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
   const incomplete = structuredClone(staging);
   incomplete.agent_documents.splice(1, 1);
+  const incompleteFile = await writeLaneStagingFile(state.runRoot, task, incomplete);
   const beforeIncomplete = await snapshotTree(state.runRoot);
-  await assert.rejects(materializer.materialize(incomplete), (error: unknown) => {
+  await assert.rejects(materializer.materializeFile(incompleteFile), (error: unknown) => {
     if (error instanceof StoreError && error.code === "runtime.lane_staging_invalid")
       assert.fail(JSON.stringify(error.details, null, 2));
     return (
@@ -2988,8 +3940,13 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
   const missingTypedEvidence = structuredClone(staging);
   missingTypedEvidence.staging_id = "staging_commercial_missing_typed_evidence_synthetic";
   missingTypedEvidence.agent_documents.shift();
+  const missingTypedEvidenceFile = await writeLaneStagingFile(
+    state.runRoot,
+    task,
+    missingTypedEvidence,
+  );
   const beforeMissingTypedEvidence = await snapshotTree(state.runRoot);
-  await assert.rejects(materializer.materialize(missingTypedEvidence), (error: unknown) => {
+  await assert.rejects(materializer.materializeFile(missingTypedEvidenceFile), (error: unknown) => {
     assert.ok(error instanceof StoreError);
     assert.equal(error.code, "runtime.lane_preflight_failed");
     const typedIssue = (error.details.issues as Record<string, unknown>[]).find(
@@ -3005,7 +3962,8 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
     !(await state.runStore.status(state.runId)).manifest.artifact_refs.includes(evidenceRef),
   );
 
-  const validated = await materializer.materialize(staging).catch((error: unknown) => {
+  const stagingFile = await writeLaneStagingFile(state.runRoot, task, staging);
+  const validated = await materializer.materializeFile(stagingFile).catch((error: unknown) => {
     if (error instanceof StoreError) {
       assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
     }
@@ -3042,7 +4000,8 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
   publish.operation = "publish";
   (publish as typeof publish & { publication_plan: unknown }).publication_plan =
     validated.compilation.publication_plan;
-  const materialized = await materializer.materialize(publish);
+  const publishFile = await writeLaneStagingFile(state.runRoot, task, publish);
+  const materialized = await materializer.materializeFile(publishFile);
   assert.equal(materialized.compilation.status, "published");
   const auditEnvelope = materialized.compilation.compiled_envelopes.find(
     (envelope) => envelope.artifact_path === auditPath,
@@ -3054,8 +4013,6 @@ test("commercial Audit semantic input closure is compiler-owned across validatio
   assert.ok(typedEvidenceEnvelope);
   assert.ok(typedEvidenceEnvelope.input_refs.includes(handoff.handoffRef));
   assert.equal(typedEvidenceEnvelope.document.evidence_lifecycle_status, "unverified");
-  assert.equal(typedEvidenceEnvelope.document.research_goal, importedRecord.acquisition_goal);
-  assert.equal(typedEvidenceEnvelope.document.task_lineage_goal, task.document.research_goal);
   assert.equal(
     (typedEvidenceEnvelope.document.mechanical_binding as Record<string, unknown>)
       .substrate_record_ref,
@@ -3191,16 +4148,34 @@ test("whole-wave intent restores every Dispatch and canonical task before Manife
   const execution = executionPlan(state.runId, state.plan, "evaluation");
   const batch = dispatchBatch(state.runId, state.plan, execution);
   const beforeWave = await state.runStore.status(state.runId);
-  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
-  const published = await compiler.compile(
-    compilationRequest(state.runId, "publish", [
-      runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
-      runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
-      ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
-    ]),
+  const waveEnvelopes = [
+    runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
+    runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
+    ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
+  ].map((artifact) => envelopeFromRuntimeArtifact(state.runId, artifact));
+  const published = await publishRuntimeEnvelopesAsFormalStage(
+    state,
+    waveEnvelopes,
+    "request_whole_wave_recovery_synthetic",
   );
-  const wavePaths = published.compiled_envelopes.map((envelope) => envelope.artifact_path).sort();
+  assert.equal(published.status, "published");
+  const wavePaths = waveEnvelopes.map((envelope) => envelope.artifact_path).sort();
   const operationsRoot = path.join(state.runRoot, ".store/operations");
+  const waveBundleReceipts = await Promise.all(
+    (await readdir(operationsRoot))
+      .filter((entry) => entry.startsWith("bundle-") && entry.endsWith(".json"))
+      .map(async (entry) => JSON.parse(await readFile(path.join(operationsRoot, entry), "utf8"))),
+  );
+  const waveBundleReceipt = waveBundleReceipts.find(
+    (receipt: Record<string, unknown>) =>
+      Array.isArray(receipt.envelopes) &&
+      JSON.stringify(
+        receipt.envelopes
+          .map((envelope: Record<string, unknown>) => String(envelope.artifact_path))
+          .sort(),
+      ) === JSON.stringify(wavePaths),
+  ) as Record<string, unknown> | undefined;
+  assert.ok(waveBundleReceipt);
   await removePublicationCommitTail(state.runRoot, wavePaths);
   const operationEntries = await readdir(operationsRoot);
   const receiptByPath = new Map<string, string>();
@@ -3266,13 +4241,14 @@ test("canonical Discovery task publication rejects missing waves, drift, and ter
   const drift = await prepareDiscoveryTaskBridgeRun(t, "drift");
   const execution = executionPlan(drift.runId, drift.plan, "evaluation");
   const batch = dispatchBatch(drift.runId, drift.plan, execution);
-  const compiler = new DeclarativeRuntimeCompiler(drift.runsRoot, drift.validator);
-  await compiler.compile(
-    compilationRequest(drift.runId, "publish", [
+  await publishRuntimeArtifactsAsFormalStage(
+    drift,
+    [
       runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
       runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
       ...canonicalTaskArtifacts(drift.bundle, drift.plan, batch),
-    ]),
+    ],
+    "request_canonical_task_drift_wave_synthetic",
   );
   const exactTask = canonicalDiscoveryTask(drift.bundle, drift.plan);
   const mismatches = [
@@ -3314,76 +4290,34 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
   const state = await prepareDiscoveryTaskBridgeRun(t, "generation");
   const execution = executionPlan(state.runId, state.plan);
   const batch = dispatchBatch(state.runId, state.plan, execution);
-  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
-  await compiler.compile(
-    compilationRequest(state.runId, "publish", [
+  await publishRuntimeArtifactsAsFormalStage(
+    state,
+    [
       runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
       runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
       ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
-    ]),
+    ],
+    "request_generation_completion_wave_synthetic",
   );
+  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
   const firstTask = (batch.tasks as Record<string, unknown>[])[0];
   assert.ok(firstTask);
   const unitId = String(firstTask.unit_id);
-  const taskResearchGoal = String(firstTask.research_goal);
-  const evidenceStore = new EvidenceStore(state.runsRoot);
-  const substrateInputs = Array.from({ length: 17 }, (_, index) => {
-    const ordinal = String(index + 1).padStart(2, "0");
-    return {
-      runId: state.runId,
-      unitId,
-      unitAttempt: 1,
-      acquisitionGoal: `SYNTHETIC source-level acquisition goal ${ordinal}; not the broad Task goal.`,
-      source: {
-        kind: "user_provided" as const,
-        canonical_uri: `urn:startup-opportunity:user-provided:${state.runId}-source-${ordinal}`,
-      },
-      rawContent: `SYNTHETIC distinct raw bytes ${ordinal}; not market Evidence.`,
-      recordedAt: `2026-07-31T16:02:${ordinal}Z`,
-    };
+  const substrate = await new EvidenceStore(state.runsRoot).record({
+    runId: state.runId,
+    unitId,
+    acquisitionGoal: String(firstTask.research_goal),
+    source: {
+      kind: "user_provided",
+      canonical_uri: `urn:startup-opportunity:user-provided:${state.runId}`,
+    },
+    rawContent: "SYNTHETIC contract bytes; not market Evidence.",
+    recordedAt: "2026-07-31T16:02:00Z",
   });
-  const substrates = [];
-  for (const input of substrateInputs) {
-    substrates.push(await evidenceStore.record(input));
-  }
-  assert.deepEqual(
-    substrates.map((substrate) => substrate.status),
-    Array.from({ length: 17 }, () => "recorded"),
-  );
-  for (const input of substrateInputs) {
-    assert.equal((await evidenceStore.record(input)).status, "idempotent_replay");
-  }
-  assert.ok(
-    substrates.every((substrate) => substrate.record.acquisition_goal !== taskResearchGoal),
-  );
-  const reproducedRecords = (await evidenceStore.listRecords(state.runId)).filter(
-    (record) =>
-      record.unit_id === unitId &&
-      record.acquisition_goal.startsWith("SYNTHETIC source-level acquisition goal "),
-  );
-  assert.deepEqual(
-    {
-      record_count: reproducedRecords.length,
-      unique_source_count: new Set(reproducedRecords.map((record) => record.source_hash)).size,
-      unique_raw_count: new Set(reproducedRecords.map((record) => record.content_hash)).size,
-      unique_source_raw_count: new Set(
-        reproducedRecords.map((record) => `${record.source_hash}\u0000${record.content_hash}`),
-      ).size,
-    },
-    {
-      record_count: 17,
-      unique_source_count: 17,
-      unique_raw_count: 17,
-      unique_source_raw_count: 17,
-    },
-  );
-  assert.equal((await evidenceStore.statistics(state.runId)).record_count, 19);
-  const formalEvidenceFor = (
-    record: EvidenceStoreRecord,
-    index: number,
-  ): Record<string, unknown> => ({
+  const evidencePath = `evidence/discovery/generation/${substrate.record.evidence_id}.json`;
+  const evidence = {
     schema_version: "startup_opportunity.candidate_neutral_evidence.v1",
-    evidence_id: record.evidence_id,
+    evidence_id: substrate.record.evidence_id,
     run_id: state.runId,
     unit_id: unitId,
     dispatch_batch_ref: `tasks/dispatch/runtime.r1.json#${String(firstTask.task_id)}`,
@@ -3391,16 +4325,16 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
     research_plan_ref: G21_PLAN_REF,
     source_type: "synthetic_contract_fixture",
     source_name: "SYNTHETIC fixture source; not Evidence.",
-    research_goal: record.acquisition_goal,
-    task_lineage_goal: taskResearchGoal,
-    source_group_id: `source_group_synthetic_${String(index + 1).padStart(2, "0")}`,
+    research_goal: firstTask.research_goal,
+    task_lineage_goal: firstTask.research_goal,
+    source_group_id: "source_group_synthetic",
     mechanical_binding: {
-      substrate_record_ref: `evidence/manifest.jsonl#${record.evidence_id}`,
-      source_hash: record.source_hash,
-      content_hash: record.content_hash,
-      raw_content_ref: record.raw_content_ref,
-      operation_key: record.operation_key,
-      recorded_at: record.recorded_at,
+      substrate_record_ref: `evidence/manifest.jsonl#${substrate.record.evidence_id}`,
+      source_hash: substrate.record.source_hash,
+      content_hash: substrate.record.content_hash,
+      raw_content_ref: substrate.record.raw_content_ref,
+      operation_key: substrate.record.operation_key,
+      recorded_at: substrate.record.recorded_at,
     },
     evidence_tier: "model_inference_only",
     evidence_lifecycle_status: "unverified",
@@ -3410,15 +4344,7 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
     target_candidate_refs: [],
     solution_refs: [],
     limitations: ["SYNTHETIC_ONLY_NOT_EVIDENCE"],
-  });
-  const evidenceArtifacts = substrates.map((substrate, index) => ({
-    path: `evidence/discovery/generation/${substrate.record.evidence_id}.json`,
-    document: formalEvidenceFor(substrate.record, index),
-  }));
-  const firstEvidenceArtifact = evidenceArtifacts[0];
-  assert.ok(firstEvidenceArtifact);
-  const evidence = firstEvidenceArtifact.document;
-  const evidencePaths = evidenceArtifacts.map((artifact) => artifact.path);
+  };
   const sourceManifestPath = `evidence/source-manifests/discovery/${unitId}.json`;
   const sourceManifest = {
     schema_version: "startup_opportunity.source_manifest.discovery_runtime.current",
@@ -3429,11 +4355,10 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
     execution_plan_ref: "plans/research-execution.r1.json",
     dispatch_batch_ref: `tasks/dispatch/runtime.r1.json#${String(firstTask.task_id)}`,
     research_phase_role: "candidate_generation",
-    accepted_evidence_refs: evidencePaths,
-    canonical_source_groups: evidenceArtifacts.map((artifact) => ({
-      group_id: String(artifact.document.source_group_id),
-      evidence_refs: [artifact.path],
-    })),
+    accepted_evidence_refs: [evidencePath],
+    canonical_source_groups: [
+      { group_id: "source_group_synthetic", evidence_refs: [evidencePath] },
+    ],
     shared_dataset_groups: [],
     duplicate_or_syndication_groups: [],
     source_type_coverage: ["synthetic_contract_fixture"],
@@ -3441,11 +4366,11 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
     time_coverage: {
       earliest_valid_as_of: "2026-07-31",
       latest_valid_as_of: "2026-07-31",
-      accepted_evidence_count: evidencePaths.length,
+      accepted_evidence_count: 1,
     },
     stance_coverage: ["context"],
     known_source_blind_spots: ["No real source was used."],
-    freshness_summary: { active: 0, stale: 0, unverified: evidencePaths.length, superseded: 0 },
+    freshness_summary: { active: 0, stale: 0, unverified: 1, superseded: 0 },
     limitations: ["SYNTHETIC_ONLY_NOT_EVIDENCE"],
   };
   const generationPath = String(firstTask.allowed_output_path);
@@ -3460,7 +4385,7 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
     scope_frame_ref: G21_SCOPE_REF,
     research_plan_ref: G21_PLAN_REF,
     source_manifest_ref: sourceManifestPath,
-    evidence_refs: evidencePaths,
+    evidence_refs: [evidencePath],
     judgment_assessment_refs: [],
     candidate_proposals: [],
     target_candidate_refs: [],
@@ -3470,9 +4395,7 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
   };
 
   const tampered = structuredClone(evidence);
-  (tampered.mechanical_binding as Record<string, unknown>).content_hash = `sha256:${"0".repeat(
-    64,
-  )}`;
+  tampered.mechanical_binding.content_hash = `sha256:${"0".repeat(64)}`;
   await assert.rejects(
     compiler.compile(
       compilationRequest(state.runId, "validate_only", [
@@ -3482,208 +4405,28 @@ test("candidate-neutral Evidence binds real substrate and generation completion 
     (error: unknown) =>
       compilerCodes(error).includes("runtime.candidate_neutral_substrate_mismatch"),
   );
-  const missingSubstrate = structuredClone(evidence);
-  (missingSubstrate.mechanical_binding as Record<string, unknown>).substrate_record_ref =
-    `evidence/manifest.jsonl#ev_${"0".repeat(64)}`;
-  await assert.rejects(
-    compiler.compile(
-      compilationRequest(state.runId, "validate_only", [
-        runtimeArtifact(
-          "evidence/discovery/generation/missing-substrate.json",
-          missingSubstrate,
-          "lane_researcher",
-        ),
-      ]),
-    ),
-    (error: unknown) => error instanceof StoreError && error.code === "reference.missing",
-  );
-  const forgedLineage = structuredClone(evidence);
-  forgedLineage.task_lineage_goal = "SYNTHETIC forged Task lineage goal.";
-  await assert.rejects(
-    compiler.compile(
-      compilationRequest(state.runId, "validate_only", [
-        runtimeArtifact(
-          "evidence/discovery/generation/forged-lineage.json",
-          forgedLineage,
-          "lane_researcher",
-        ),
-      ]),
-    ),
-    (error: unknown) =>
-      compilerCodes(error).includes("runtime.candidate_neutral_evidence_binding_mismatch"),
-  );
-  const wrongRun = structuredClone(evidence);
-  wrongRun.run_id = "other-run";
-  await assert.rejects(
-    compiler.compile(
-      compilationRequest(state.runId, "validate_only", [
-        runtimeArtifact(firstEvidenceArtifact.path, wrongRun, "lane_researcher"),
-      ]),
-    ),
-    (error: unknown) =>
-      error instanceof StoreError && error.code === "runtime.compilation_preflight_failed",
-  );
   const staleSummary = structuredClone(sourceManifest);
   staleSummary.freshness_summary = { active: 1, stale: 0, unverified: 0, superseded: 0 };
   await assert.rejects(
     compiler.compile(
       compilationRequest(state.runId, "validate_only", [
-        ...evidenceArtifacts.map((artifact) =>
-          runtimeArtifact(artifact.path, artifact.document, "lane_researcher"),
-        ),
+        runtimeArtifact(evidencePath, evidence, "lane_researcher"),
         runtimeArtifact(sourceManifestPath, staleSummary, "lane_researcher"),
       ]),
     ),
     (error: unknown) => compilerCodes(error).includes("runtime.source_manifest_summary_mismatch"),
   );
 
-  const publishedGeneration = await compiler
-    .compile(
-      compilationRequest(state.runId, "publish", [
-        ...evidenceArtifacts.map((artifact) =>
-          runtimeArtifact(artifact.path, artifact.document, "lane_researcher"),
-        ),
-        runtimeArtifact(sourceManifestPath, sourceManifest, "lane_researcher"),
-        runtimeArtifact(generationPath, generation, "lane_researcher"),
-      ]),
-    )
-    .catch((error: unknown) => {
-      if (error instanceof StoreError) {
-        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
-      }
-      throw error;
-    });
-  assert.equal(
-    publishedGeneration.compiled_envelopes.filter(
-      (envelope) => envelope.artifact_type === "startup_opportunity.candidate_neutral_evidence.v1",
-    ).length,
-    17,
+  await compiler.compile(
+    compilationRequest(state.runId, "publish", [
+      runtimeArtifact(evidencePath, evidence, "lane_researcher"),
+      runtimeArtifact(sourceManifestPath, sourceManifest, "lane_researcher"),
+      runtimeArtifact(generationPath, generation, "lane_researcher"),
+    ]),
   );
-  const recordsAfterFormalization = await evidenceStore.listRecords(state.runId);
-  const reproducedRecordsAfterFormalization = recordsAfterFormalization.filter(
-    (record) =>
-      record.unit_id === unitId &&
-      record.acquisition_goal.startsWith("SYNTHETIC source-level acquisition goal "),
-  );
-  assert.deepEqual(
-    {
-      record_count: reproducedRecordsAfterFormalization.length,
-      unique_source_count: new Set(
-        reproducedRecordsAfterFormalization.map((record) => record.source_hash),
-      ).size,
-      unique_raw_count: new Set(
-        reproducedRecordsAfterFormalization.map((record) => record.content_hash),
-      ).size,
-      unique_source_raw_count: new Set(
-        reproducedRecordsAfterFormalization.map(
-          (record) => `${record.source_hash}\u0000${record.content_hash}`,
-        ),
-      ).size,
-    },
-    {
-      record_count: 17,
-      unique_source_count: 17,
-      unique_raw_count: 17,
-      unique_source_raw_count: 17,
-    },
-  );
-  assert.equal(
-    recordsAfterFormalization.filter((record) => record.acquisition_goal === taskResearchGoal)
-      .length,
-    0,
-  );
-  assert.equal((await evidenceStore.statistics(state.runId)).record_count, 19);
   const manifest = (await state.runStore.status(state.runId)).manifest;
   assert.ok(manifest.completed_units.includes(unitId));
   assert.ok(!manifest.active_units.includes(unitId));
-});
-
-test("candidate-neutral Evidence rejects wrong-unit and cross-attempt substrate reuse", async (t) => {
-  const state = await prepareDiscoveryTaskBridgeRun(t, "generation-lineage-negative");
-  const execution = executionPlan(state.runId, state.plan);
-  const batch = dispatchBatch(state.runId, state.plan, execution);
-  const compiler = new DeclarativeRuntimeCompiler(state.runsRoot, state.validator);
-  await compiler.compile(
-    compilationRequest(state.runId, "publish", [
-      runtimeArtifact("plans/research-execution.r1.json", execution, "main_agent"),
-      runtimeArtifact("tasks/dispatch/runtime.r1.json", batch, "harness"),
-      ...canonicalTaskArtifacts(state.bundle, state.plan, batch),
-    ]),
-  );
-  const firstTask = (batch.tasks as Record<string, unknown>[])[0];
-  assert.ok(firstTask);
-  const unitId = String(firstTask.unit_id);
-  const taskResearchGoal = String(firstTask.research_goal);
-  const evidenceStore = new EvidenceStore(state.runsRoot);
-  const formalEvidenceFor = (record: EvidenceStoreRecord): Record<string, unknown> => ({
-    schema_version: "startup_opportunity.candidate_neutral_evidence.v1",
-    evidence_id: record.evidence_id,
-    run_id: state.runId,
-    unit_id: unitId,
-    dispatch_batch_ref: `tasks/dispatch/runtime.r1.json#${String(firstTask.task_id)}`,
-    scope_frame_ref: G21_SCOPE_REF,
-    research_plan_ref: G21_PLAN_REF,
-    source_type: "synthetic_contract_fixture",
-    source_name: "SYNTHETIC lineage boundary fixture; not Evidence.",
-    research_goal: record.acquisition_goal,
-    task_lineage_goal: taskResearchGoal,
-    source_group_id: `source_group_${record.evidence_id.slice(0, 12)}`,
-    mechanical_binding: {
-      substrate_record_ref: `evidence/manifest.jsonl#${record.evidence_id}`,
-      source_hash: record.source_hash,
-      content_hash: record.content_hash,
-      raw_content_ref: record.raw_content_ref,
-      operation_key: record.operation_key,
-      recorded_at: record.recorded_at,
-    },
-    evidence_tier: "model_inference_only",
-    evidence_lifecycle_status: "unverified",
-    evidence_role: "context",
-    representativeness: "SYNTHETIC contract fixture only.",
-    valid_as_of: "2026-07-31",
-    target_candidate_refs: [],
-    solution_refs: [],
-    limitations: ["SYNTHETIC_ONLY_NOT_EVIDENCE"],
-  });
-  const wrongUnit = await evidenceStore.record({
-    runId: state.runId,
-    unitId: "unit_wrong_lineage_synthetic",
-    unitAttempt: 1,
-    acquisitionGoal: "SYNTHETIC wrong-unit acquisition goal; not Evidence.",
-    source: {
-      kind: "user_provided",
-      canonical_uri: `urn:startup-opportunity:user-provided:${state.runId}-wrong-unit`,
-    },
-    rawContent: "SYNTHETIC wrong-unit bytes; not Evidence.",
-    recordedAt: "2026-07-31T16:02:20Z",
-  });
-  const crossAttempt = await evidenceStore.record({
-    runId: state.runId,
-    unitId,
-    unitAttempt: 2,
-    acquisitionGoal: "SYNTHETIC cross-attempt acquisition goal; not Evidence.",
-    source: {
-      kind: "user_provided",
-      canonical_uri: `urn:startup-opportunity:user-provided:${state.runId}-cross-attempt`,
-    },
-    rawContent: "SYNTHETIC cross-attempt bytes; not Evidence.",
-    recordedAt: "2026-07-31T16:02:21Z",
-  });
-  for (const record of [wrongUnit.record, crossAttempt.record]) {
-    await assert.rejects(
-      compiler.compile(
-        compilationRequest(state.runId, "validate_only", [
-          runtimeArtifact(
-            `evidence/discovery/generation/${record.evidence_id}.json`,
-            formalEvidenceFor(record),
-            "lane_researcher",
-          ),
-        ]),
-      ),
-      (error: unknown) =>
-        compilerCodes(error).includes("runtime.candidate_neutral_substrate_mismatch"),
-    );
-  }
 });
 
 test("readiness and Gap semantics require bounded solution generation and basis closure", async () => {

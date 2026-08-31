@@ -59,8 +59,8 @@ Commands:
   materialize-formal-stage Project one declared Wave or explicit setup/fan-in/synthesis object batch through the current compiler.
   register-dispatch-launches Atomically record caller-declared starts for exact Dispatch tasks as Lane Lifecycle revisions.
   check-dispatch-launches Read the exact Dispatch launch checklist and started/not-started set difference.
-  materialize-lane-result Materialize a caller-supplied lane staging document through the same compiler.
-  scaffold-lane-submission Derive an unfilled minimum coverage checklist from one exact current Task.
+  materialize-lane-result Materialize a caller-supplied lane staging document from the exact run-root-relative staging path through the same compiler.
+  scaffold-lane-submission Derive an unfilled minimum coverage checklist and exact run-root-relative staging output path from one current Task.
   scaffold-artifact  Produce a schema-valid structural scaffold without research judgment.
   checkpoint-run     Publish an immutable checkpoint from a JSON input document.
   validate-plan      Validate Planning Context v2 and full Research Plan semantics; --run-id assembles persisted authority.

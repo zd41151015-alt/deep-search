@@ -114,7 +114,7 @@ test("production exposes one current schema graph without version-selection stru
   assert.ok(result.activePolicyCount > 0);
   assert.ok(result.registryFamilyCount > 0);
   assert.equal(result.registeredArtifactTypeCount, result.artifactTypeCount);
-  assert.equal(result.registeredDirectRuntimeRootCount, 21);
+  assert.equal(result.registeredDirectRuntimeRootCount, 22);
   assert.ok(directRuntimeRoots.includes("startup_opportunity.dispatch_launch_check_result.v1"));
   assert.ok(
     directRuntimeRoots.includes("startup_opportunity.dispatch_launch_registration_request.v1"),
@@ -125,6 +125,7 @@ test("production exposes one current schema graph without version-selection stru
   assert.ok(
     directRuntimeRoots.includes("startup_opportunity.formal_stage_materialization_result.current"),
   );
+  assert.ok(directRuntimeRoots.includes("startup_opportunity.lane_submission_contract.current"));
 });
 
 test("ownership registry rejects a missing formal Artifact type owner", async (context) => {

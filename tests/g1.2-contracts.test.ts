@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -17,6 +17,7 @@ import {
   RunStore,
   StoreError,
 } from "../harness/src/index.js";
+import { createFormalStageRuntimeCompiler } from "../harness/src/runtime/declarative-runtime.js";
 import {
   branchResearchEnvelopes,
   dispatchEnvelope,
@@ -84,6 +85,45 @@ async function snapshotTree(root: string): Promise<Readonly<Record<string, strin
   );
 }
 
+async function writeLaneStagingFile(
+  runRoot: string,
+  task: FormalArtifactEnvelope,
+  staging: Record<string, unknown>,
+): Promise<string> {
+  const contract = task.document.lane_submission_contract as Record<string, unknown>;
+  const sourcePath = path.join(runRoot, String(contract.staging_output_path));
+  await mkdir(path.dirname(sourcePath), { recursive: true });
+  await writeFile(sourcePath, `${JSON.stringify(staging, null, 2)}\n`);
+  return sourcePath;
+}
+
+async function publishRuntimeEnvelopesAsFormalStage(
+  state: Awaited<ReturnType<typeof setup>>,
+  runId: string,
+  envelopes: readonly FormalArtifactEnvelope[],
+  requestId: string,
+) {
+  const compiler = createFormalStageRuntimeCompiler(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  return compiler.compile({
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: requestId,
+    run_id: runId,
+    operation: "publish",
+    created_at: String(envelopes[0]?.created_at ?? G12_BASE_TIME),
+    artifacts: envelopes.map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role,
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
+  });
+}
+
 async function prepareSingleBranch(context: TestContext, runId = G12_RUN_ID) {
   const state = await setup(context, runId);
   const base = await baseFixture();
@@ -92,12 +132,18 @@ async function prepareSingleBranch(context: TestContext, runId = G12_RUN_ID) {
   const initial = initialFixtureEnvelopes(base, [branch]);
   await publishInitialPlanBundle(state.store, runId, initial, "assessment");
   const task = taskEnvelope(base, branch, 2);
-  await state.store.publishArtifactBundle({
+  const publishedWave = await publishRuntimeEnvelopesAsFormalStage(
+    state,
     runId,
-    envelopes: [executionPlanEnvelope(base, [branch]), dispatchEnvelope(base, [branch]), task],
-  });
+    [executionPlanEnvelope(base, [branch]), dispatchEnvelope(base, [branch]), task],
+    `request_g1_2_single_branch_${runId}`,
+  );
+  const publishedTask = publishedWave.compiled_envelopes.find(
+    (envelope) => envelope.artifact_path === task.artifact_path,
+  );
+  assert.ok(publishedTask);
   const evidenceStore = new EvidenceStore(state.runsRoot);
-  const researchGoal = String(task.document.research_goal);
+  const researchGoal = String(publishedTask.document.research_goal);
   const publicRecord = await evidenceStore.record({
     runId,
     unitId: branch.unitId,
@@ -132,7 +178,7 @@ async function prepareSingleBranch(context: TestContext, runId = G12_RUN_ID) {
       envelope.document,
     );
   }
-  return { ...state, base, initial, branch, task, envelopes };
+  return { ...state, base, initial, branch, task: publishedTask, envelopes };
 }
 
 function semanticLaneDocument(envelope: FormalArtifactEnvelope): Record<string, unknown> {
@@ -199,15 +245,28 @@ async function publishVerticalFixture(context: TestContext) {
 
   const tasks = G12_BRANCHES.map((branch, index) => taskEnvelope(base, branch, index + 2));
   const dispatch = dispatchEnvelope(base);
-  await state.store.publishArtifactBundle({
-    runId: G12_RUN_ID,
-    envelopes: [executionPlanEnvelope(base), dispatch, ...tasks],
+  const publishedWave = await publishRuntimeEnvelopesAsFormalStage(
+    state,
+    G12_RUN_ID,
+    [executionPlanEnvelope(base), dispatch, ...tasks],
+    "request_g1_2_vertical_fixture_wave",
+  );
+  const publishedTasks = tasks.map((task) => {
+    const publishedTask = publishedWave.compiled_envelopes.find(
+      (envelope) => envelope.artifact_path === task.artifact_path,
+    );
+    assert.ok(publishedTask);
+    return publishedTask;
   });
+  const publishedDispatch = publishedWave.compiled_envelopes.find(
+    (envelope) => envelope.artifact_path === dispatch.artifact_path,
+  );
+  assert.ok(publishedDispatch);
 
   const evidenceStore = new EvidenceStore(state.runsRoot);
   const records = new Map<string, readonly [EvidenceStoreRecord, EvidenceStoreRecord]>();
   for (const [index, branch] of G12_BRANCHES.entries()) {
-    const researchGoal = String(tasks[index]?.document.research_goal ?? "");
+    const researchGoal = String(publishedTasks[index]?.document.research_goal ?? "");
     const publicRecord = await evidenceStore.record({
       runId: G12_RUN_ID,
       unitId: branch.unitId,
@@ -263,7 +322,14 @@ async function publishVerticalFixture(context: TestContext) {
     },
     inputRefs: G12_BRANCHES.map((branch) => branch.outputPath),
   });
-  return { ...state, initial, dispatch, tasks, records, branchBundles };
+  return {
+    ...state,
+    initial,
+    dispatch: publishedDispatch,
+    tasks: publishedTasks,
+    records,
+    branchBundles,
+  };
 }
 
 test("current bundle publishes Evidence Store and research branch schemas", async () => {
@@ -364,13 +430,18 @@ test("direct Assessment Task uses the typed one-shot Lane delivery path", async 
     agent_documents: agentDocuments,
   };
   const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
-  const before = await snapshotTree(state.runRoot);
   const duplicateAuthority = structuredClone(staging) as typeof staging & {
     delivery_contract: typeof staging.delivery_contract & { scope_coverage: unknown };
   };
   duplicateAuthority.staging_id = "staging_direct_assessment_duplicate_scope_authority";
   duplicateAuthority.delivery_contract.scope_coverage = [];
-  await assert.rejects(materializer.materialize(duplicateAuthority), (error: unknown) => {
+  const duplicateAuthorityFile = await writeLaneStagingFile(
+    state.runRoot,
+    state.task,
+    duplicateAuthority,
+  );
+  const beforeDuplicateAuthority = await snapshotTree(state.runRoot);
+  await assert.rejects(materializer.materializeFile(duplicateAuthorityFile), (error: unknown) => {
     assert.ok(error instanceof StoreError);
     assert.equal(error.code, "runtime.lane_staging_invalid");
     const issues = error.details.issues as Record<string, unknown>[];
@@ -383,10 +454,12 @@ test("direct Assessment Task uses the typed one-shot Lane delivery path", async 
     );
     return true;
   });
-  assert.deepEqual(await snapshotTree(state.runRoot), before);
+  assert.deepEqual(await snapshotTree(state.runRoot), beforeDuplicateAuthority);
   const observations: OperationObservation[] = [];
+  const stagingFile = await writeLaneStagingFile(state.runRoot, state.task, staging);
+  const before = await snapshotTree(state.runRoot);
   const validated = await materializer
-    .materialize(staging, { observe: (event) => observations.push(event) })
+    .materializeFile(stagingFile, { observe: (event) => observations.push(event) })
     .catch((error: unknown) => {
       if (error instanceof StoreError) {
         assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
@@ -443,7 +516,8 @@ test("direct Assessment Task uses the typed one-shot Lane delivery path", async 
   publish.operation = "publish";
   (publish as typeof publish & { publication_plan: unknown }).publication_plan =
     validated.compilation.publication_plan;
-  const published = await materializer.materialize(publish);
+  const publishFile = await writeLaneStagingFile(state.runRoot, state.task, publish);
+  const published = await materializer.materializeFile(publishFile);
   assert.equal(published.compilation.status, "published");
   assert.deepEqual(
     published.compilation.compiled_envelopes,
@@ -528,7 +602,7 @@ test("direct Assessment Task uses the typed one-shot Lane delivery path", async 
   assert.ok(
     branch.input_refs.includes(pathByLegacyRef.get(`insights/${state.branch.unitId}.json`) ?? ""),
   );
-  const replay = await materializer.materialize(publish);
+  const replay = await materializer.materializeFile(publishFile);
   assert.equal(replay.compilation.status, "idempotent_replay");
   const reopened = await new RunStore(state.runsRoot, state.validator).load(
     String(state.task.run_id),
@@ -637,14 +711,16 @@ test("research task publication is pending-to-active only and exact replay prese
     dispatchEnvelope(base, [recoveryBranch]),
     recoveryTask,
   ];
-  const publishedWave = await recoveryState.store.publishArtifactBundle({
-    runId: G12_RUN_ID,
-    envelopes: recoveryWave,
-  });
+  const publishedWave = await publishRuntimeEnvelopesAsFormalStage(
+    recoveryState,
+    G12_RUN_ID,
+    recoveryWave,
+    "request_g1_2_recovery_wave",
+  );
   assert.equal(publishedWave.status, "published");
   const replayedWave = await recoveryState.store.publishArtifactBundle({
     runId: G12_RUN_ID,
-    envelopes: recoveryWave,
+    envelopes: publishedWave.compiled_envelopes,
   });
   assert.equal(replayedWave.status, "idempotent_replay");
   const recovered = await recoveryState.store.load(G12_RUN_ID);

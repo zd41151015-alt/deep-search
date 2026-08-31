@@ -462,23 +462,28 @@ export async function createG14ContractBundle(
         depends_on: [],
         gate_before: null,
         gate_after: "terminal_allowed",
-        lanes: BRANCHES.map((branch) => ({
-          unit_id: branch.unitId,
-          lane_role: branch.unitId === "unit_counter" ? "risk" : "evaluation",
-          candidate_scope: { kind: "none", candidate_refs: [] },
-          incumbent_response_assignment: taskAssignment(branch),
-          reporting_dimensions: [branch.dimensionId],
-          submission_path: branch.outputPath,
-          submission_schema: "startup_opportunity.concept_evidence_assessment_branch_result.v1",
-          time_budget_minutes: 10,
-          max_sources: 5,
-          straggler_policy: {
-            on_timeout: "publish_partial",
-            grace_minutes: 0,
-            blocks_stage: false,
-          },
-          dispatch_group: "commercial_research",
-        })),
+        lanes: BRANCHES.map((branch) => {
+          const task = documents.get(`tasks/${branch.unitId}.attempt-1.json`);
+          return {
+            unit_id: branch.unitId,
+            lane_role: branch.unitId === "unit_counter" ? "risk" : "evaluation",
+            candidate_scope: { kind: "none", candidate_refs: [] },
+            incumbent_response_assignment: taskAssignment(branch),
+            reporting_dimensions: [branch.dimensionId],
+            submission_path: branch.outputPath,
+            submission_schema: "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+            commercial_audit_output_path: `artifacts/research-audits/${branch.unitId}.json`,
+            lane_submission_contract: task?.lane_submission_contract,
+            time_budget_minutes: 10,
+            max_sources: 5,
+            straggler_policy: {
+              on_timeout: "publish_partial",
+              grace_minutes: 0,
+              blocks_stage: false,
+            },
+            dispatch_group: "commercial_research",
+          };
+        }),
       },
     ],
     limitations: ["SYNTHETIC execution plan; no research was performed."],
@@ -509,6 +514,8 @@ export async function createG14ContractBundle(
         allowed_output_path: branch.outputPath,
         required_artifact_schema:
           "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        commercial_audit_output_path: `artifacts/research-audits/${branch.unitId}.json`,
+        lane_submission_contract: (task as Record<string, unknown>).lane_submission_contract,
         time_budget_minutes: 10,
         max_sources: 5,
         straggler_policy: {

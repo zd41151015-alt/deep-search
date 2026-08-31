@@ -5,6 +5,7 @@ import {
   deriveAssessmentInformationGainAuthority,
 } from "../validators/assessment-execution-validator.js";
 import { evaluateAssessmentFollowupInformationGain } from "./assessment-information-gain.js";
+import { deriveLaneSubmissionContract } from "./lane-submission-contract.js";
 
 export interface AssessmentFollowupRevisionResult {
   readonly researchPlanPath: string;
@@ -158,6 +159,8 @@ export function deriveAssessmentFollowupRevision(
   executionPlan.followup_round = Number(baseExecutionPlan.followup_round) + 1;
   const dimension = String(decision.dimension_id);
   const unitId = String(targetUnit.unit_id);
+  const taskId = `task_${unitId}`;
+  const submissionPath = String(targetUnit.output_path);
   executionPlan.stages = [
     ...(Array.isArray(baseExecutionPlan.stages) ? baseExecutionPlan.stages : []),
     {
@@ -178,8 +181,17 @@ export function deriveAssessmentFollowupRevision(
               "Buyer and acquisition follow-up units do not expand incumbent response scope.",
           },
           reporting_dimensions: [dimension],
-          submission_path: targetUnit.output_path,
+          submission_path: submissionPath,
           submission_schema: "startup_opportunity.assessment_lane_result.v1",
+          lane_submission_contract: deriveLaneSubmissionContract({
+            runId: String(baseExecutionPlan.run_id),
+            unitId,
+            taskId,
+            attempt: Number(targetUnit.attempt ?? 1),
+            formalOutputPath: submissionPath,
+            formalArtifactSchema: "startup_opportunity.assessment_lane_result.v1",
+            commercialAuditOutputPath: null,
+          }),
           time_budget_minutes: 15,
           max_sources: 10,
           straggler_policy: {

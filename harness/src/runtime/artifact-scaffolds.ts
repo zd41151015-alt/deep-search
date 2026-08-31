@@ -3,6 +3,7 @@ import { StoreError } from "../artifact-store/store-error.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
 import type { RuntimeArtifactCompilationRequest } from "./declarative-runtime.js";
 import { buildG24PlanningCapabilities } from "./g24-planning-capabilities.js";
+import { deriveLaneSubmissionContract } from "./lane-submission-contract.js";
 
 export type ScaffoldKind =
   | "intake"
@@ -147,6 +148,25 @@ function commercialRequirements(
   };
 }
 
+function laneSubmissionContract(
+  request: ScaffoldRequest,
+  unitId: string,
+  taskId: string,
+  formalOutputPath: string,
+  formalArtifactSchema: string,
+  commercialAuditOutputPath: string | null,
+) {
+  return deriveLaneSubmissionContract({
+    runId: request.run_id,
+    unitId,
+    taskId,
+    attempt: 1,
+    formalOutputPath,
+    formalArtifactSchema,
+    commercialAuditOutputPath,
+  });
+}
+
 function intake(request: ScaffoldRequest): ScaffoldArtifact {
   return {
     artifact_type: "startup_opportunity.intake.v1",
@@ -252,6 +272,14 @@ function assessmentPlanning(request: ScaffoldRequest): ScaffoldArtifact {
             reporting_dimensions: stage.dimensions,
             submission_path: `artifacts/assessment/lanes/unit-assessment-${index + 1}.attempt-1.json`,
             submission_schema: "startup_opportunity.assessment_lane_result.v1",
+            lane_submission_contract: laneSubmissionContract(
+              request,
+              `unit_assessment_${index + 1}`,
+              `task_unit_assessment_${index + 1}`,
+              `artifacts/assessment/lanes/unit-assessment-${index + 1}.attempt-1.json`,
+              "startup_opportunity.assessment_lane_result.v1",
+              null,
+            ),
             time_budget_minutes: 20,
             max_sources: 10,
             straggler_policy: {
@@ -309,6 +337,15 @@ function planning(request: ScaffoldRequest): ScaffoldArtifact {
               reporting_dimensions: ["commercial_behavior"],
               submission_path: "artifacts/discovery/generation/unit_scaffold.r1.json",
               submission_schema: "startup_opportunity.discovery_generation_result.v1",
+              commercial_audit_output_path: null,
+              lane_submission_contract: laneSubmissionContract(
+                request,
+                "unit_scaffold",
+                "task_unit_scaffold",
+                "artifacts/discovery/generation/unit_scaffold.r1.json",
+                "startup_opportunity.discovery_generation_result.v1",
+                null,
+              ),
               time_budget_minutes: 30,
               max_sources: 20,
               straggler_policy: {
@@ -357,6 +394,14 @@ function assessmentTask(request: ScaffoldRequest): ScaffoldArtifact {
       agent_role: "lane-researcher",
       allowed_output_path: ASSESSMENT_BRANCH_REF,
       required_artifact_schema: "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+      lane_submission_contract: laneSubmissionContract(
+        request,
+        "unit_assessment_scaffold",
+        "task_unit_assessment_scaffold",
+        ASSESSMENT_BRANCH_REF,
+        "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+        "artifacts/research-audits/unit_scaffold.json",
+      ),
       required_stances: ["support", "oppose"],
       tool_guidance: [PLACEHOLDER],
       stop_conditions: [PLACEHOLDER],
@@ -405,6 +450,14 @@ function task(request: ScaffoldRequest): ScaffoldArtifact {
       required_source_group_ids: ["source_group_scaffold"],
       allowed_output_path: "artifacts/discovery/lanes/unit_scaffold.attempt-1.json",
       required_artifact_schema: "startup_opportunity.discovery_lane_result.v1",
+      lane_submission_contract: laneSubmissionContract(
+        request,
+        "unit_scaffold",
+        "task_unit_scaffold",
+        "artifacts/discovery/lanes/unit_scaffold.attempt-1.json",
+        "startup_opportunity.discovery_lane_result.v1",
+        "artifacts/research-audits/unit_scaffold.json",
+      ),
       required_stances: ["support", "oppose"],
       stop_conditions: [PLACEHOLDER],
       completion_message_contract: {
@@ -452,6 +505,14 @@ function assessmentDispatch(request: ScaffoldRequest): ScaffoldArtifact {
             "acquisition_and_distribution",
           ],
           submission_path: ASSESSMENT_LANE_REF,
+          lane_submission_contract: laneSubmissionContract(
+            request,
+            "unit_assessment_scaffold",
+            "task_unit_assessment_scaffold",
+            ASSESSMENT_LANE_REF,
+            "startup_opportunity.assessment_lane_result.v1",
+            null,
+          ),
           time_budget_minutes: 20,
           max_sources: 10,
         },
@@ -495,6 +556,15 @@ function dispatch(request: ScaffoldRequest): ScaffoldArtifact {
           input_refs: [CANDIDATE_REF, SCOPE_REF],
           allowed_output_path: "artifacts/discovery/generation/unit_scaffold.r1.json",
           required_artifact_schema: "startup_opportunity.discovery_generation_result.v1",
+          commercial_audit_output_path: null,
+          lane_submission_contract: laneSubmissionContract(
+            request,
+            "unit_scaffold",
+            "task_unit_scaffold",
+            "artifacts/discovery/generation/unit_scaffold.r1.json",
+            "startup_opportunity.discovery_generation_result.v1",
+            null,
+          ),
           time_budget_minutes: 30,
           max_sources: 20,
           straggler_policy: {

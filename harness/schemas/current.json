@@ -68,6 +68,11 @@
       "document_schema_version": "startup_opportunity.lane_staging_document.current"
     },
     {
+      "id": "https://startup-opportunity.local/schemas/current/runtime/common/lane-submission-contract.schema.json",
+      "file": "current/runtime/common/lane-submission-contract.schema.json",
+      "document_schema_version": "startup_opportunity.lane_submission_contract.current"
+    },
+    {
       "id": "https://startup-opportunity.local/schemas/current/runtime/common/lane-delivery-receipt.schema.json",
       "file": "current/runtime/common/lane-delivery-receipt.schema.json",
       "document_schema_version": "startup_opportunity.lane_delivery_receipt.current"

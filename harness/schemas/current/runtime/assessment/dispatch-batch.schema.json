@@ -78,6 +78,7 @@
           "incumbent_response_assignment",
           "reporting_dimensions",
           "submission_path",
+          "lane_submission_contract",
           "time_budget_minutes",
           "max_sources"
         ],
@@ -105,6 +106,9 @@
           "submission_path": {
             "type": "string",
             "pattern": "^artifacts/assessment/lanes/[A-Za-z0-9][A-Za-z0-9._-]*\\.attempt-[1-9][0-9]*\\.json$"
+          },
+          "lane_submission_contract": {
+            "$ref": "../common/lane-submission-contract.schema.json"
           },
           "time_budget_minutes": {
             "type": "integer",

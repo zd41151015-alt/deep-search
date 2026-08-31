@@ -35,6 +35,8 @@
           "attempt",
           "allowed_output_path",
           "required_artifact_schema",
+          "staging_output_path",
+          "lane_submission_contract",
           "execution_attempt_ids",
           "launch_state"
         ],
@@ -57,6 +59,10 @@
             "type": "string",
             "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
           },
+          "staging_output_path": {
+            "$ref": "./lane-submission-contract.schema.json#/$defs/stagingOutputPath"
+          },
+          "lane_submission_contract": { "$ref": "./lane-submission-contract.schema.json" },
           "execution_attempt_ids": {
             "type": "array",
             "uniqueItems": true,

@@ -476,6 +476,7 @@
         "startup_opportunity.dispatch_launch_registration_request.v1",
         "startup_opportunity.formal_stage_materialization_request.current",
         "startup_opportunity.formal_stage_materialization_result.current",
+        "startup_opportunity.lane_submission_contract.current",
         "startup_opportunity.lane_staging_document.current",
         "startup_opportunity.lane_submission_checklist_result.current",
         "startup_opportunity.lane_delivery_result.current",
@@ -492,6 +493,7 @@
         "harness/src/runtime/discovery-stage-projections.ts",
         "harness/src/runtime/discovery-wave-contracts.ts",
         "harness/src/runtime/formal-stage-materializer.ts",
+        "harness/src/runtime/lane-submission-contract.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "producerModules": [
@@ -505,6 +507,7 @@
         "harness/src/runtime/discovery-stage-projections.ts",
         "harness/src/runtime/formal-stage-materializer.ts",
         "harness/src/runtime/g24-planning-capabilities.ts",
+        "harness/src/runtime/lane-submission-contract.ts",
         "harness/src/runtime/lane-materializer.ts"
       ],
       "consumerModules": [

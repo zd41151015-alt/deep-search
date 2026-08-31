@@ -6,7 +6,8 @@ import { DISCOVERY_MAPS_POLICY_PATH } from "../current-policy-paths.js";
 import { RunStore } from "../run-store/run-store.js";
 import type { ArtifactValidator } from "../validators/artifact-validator.js";
 import {
-  DeclarativeRuntimeCompiler,
+  createFormalStageRuntimeCompiler,
+  type DeclarativeRuntimeCompiler,
   type RuntimeArtifactCompilationResult,
   type RuntimePublicationPlan,
   runtimePublicationPlansEquivalentForScopedClosure,
@@ -25,6 +26,7 @@ import {
   discoveryTaskProjectionForRequiredArtifactSchema,
   discoveryWaveLaneProjectionIssues,
 } from "./discovery-wave-contracts.js";
+import { deriveLaneSubmissionContract } from "./lane-submission-contract.js";
 
 export type FormalStageKind =
   | "discovery_wave"
@@ -212,7 +214,7 @@ export class FormalStageMaterializer {
     private readonly repositoryRoot = process.cwd(),
   ) {
     this.runs = new RunStore(runsRoot, validator);
-    this.compiler = new DeclarativeRuntimeCompiler(runsRoot, validator, repositoryRoot);
+    this.compiler = createFormalStageRuntimeCompiler(runsRoot, validator, repositoryRoot);
   }
 
   async materialize(value: unknown): Promise<FormalStageMaterializationResult> {
@@ -614,11 +616,29 @@ export class FormalStageMaterializer {
         ...structuredClone(lane.commercial_research_semantics),
         resource_allocation: structuredClone(wave.resource_allocation),
         incumbent_response_assignment: structuredClone(lane.incumbent_response_assignment),
-      };
+      } as Record<string, unknown>;
       const taskSemanticsForTask = structuredClone(taskSemantics);
       if (!reviewTask) {
         delete taskSemanticsForTask.assigned_plan_question_refs;
       }
+      const laneSubmissionContract = deriveLaneSubmissionContract({
+        runId: request.run_id,
+        unitId: lane.unit_id,
+        taskId: `task_${lane.unit_id}_attempt_${String(attempt)}`,
+        attempt,
+        formalOutputPath: submissionPath,
+        formalArtifactSchema: submissionSchema,
+        commercialAuditOutputPath:
+          reviewTask ||
+          typeof commercialResearchRequirements.commercial_audit_output_path !== "string"
+            ? null
+            : commercialResearchRequirements.commercial_audit_output_path,
+      });
+      const commercialAuditOutputPath =
+        !reviewTask &&
+        typeof commercialResearchRequirements.commercial_audit_output_path === "string"
+          ? commercialResearchRequirements.commercial_audit_output_path
+          : null;
       const taskDocument = {
         ...taskSemanticsForTask,
         schema_version: taskType,
@@ -640,6 +660,7 @@ export class FormalStageMaterializer {
         allowed_output_path: submissionPath,
         required_artifact_schema: submissionSchema,
         ...(reviewTask ? { assigned_plan_question_refs: assignedPlanQuestionRefs } : {}),
+        lane_submission_contract: laneSubmissionContract,
         dispatched_at: request.created_at,
         completion_message_contract: {
           formal_artifact_authority: false,
@@ -656,6 +677,8 @@ export class FormalStageMaterializer {
         ...(reviewTask ? { assigned_plan_question_refs: assignedPlanQuestionRefs } : {}),
         submission_path: submissionPath,
         submission_schema: submissionSchema,
+        commercial_audit_output_path: commercialAuditOutputPath,
+        lane_submission_contract: laneSubmissionContract,
         time_budget_minutes: lane.time_budget_minutes,
         max_sources: lane.max_sources,
         straggler_policy: lane.straggler_policy,
@@ -672,6 +695,8 @@ export class FormalStageMaterializer {
         ...(reviewTask ? { assigned_plan_question_refs: assignedPlanQuestionRefs } : {}),
         allowed_output_path: submissionPath,
         required_artifact_schema: submissionSchema,
+        commercial_audit_output_path: commercialAuditOutputPath,
+        lane_submission_contract: laneSubmissionContract,
         time_budget_minutes: lane.time_budget_minutes,
         max_sources: lane.max_sources,
         straggler_policy: lane.straggler_policy,

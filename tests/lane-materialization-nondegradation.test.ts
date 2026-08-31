@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -14,6 +14,7 @@ import {
   RunStore,
   StoreError,
 } from "../harness/src/index.js";
+import { createFormalStageRuntimeCompiler } from "../harness/src/runtime/declarative-runtime.js";
 import {
   deriveLaneScopeFormalClosure,
   laneScopeCoverageFromClosure,
@@ -67,6 +68,48 @@ async function snapshotTree(root: string): Promise<Readonly<Record<string, strin
   }
   await visit(root);
   return snapshot;
+}
+
+async function writeLaneStagingFile(
+  runRoot: string,
+  task: FormalArtifactEnvelope,
+  staging: Record<string, unknown>,
+): Promise<string> {
+  const contract = task.document.lane_submission_contract as Record<string, unknown>;
+  const sourcePath = path.join(runRoot, String(contract.staging_output_path));
+  await mkdir(path.dirname(sourcePath), { recursive: true });
+  await writeFile(sourcePath, `${JSON.stringify(staging, null, 2)}\n`);
+  return sourcePath;
+}
+
+async function publishRuntimeEnvelopesAsFormalStage(
+  input: {
+    readonly runsRoot: string;
+    readonly runId: string;
+    readonly validator: Awaited<ReturnType<typeof createArtifactValidator>>;
+  },
+  envelopes: readonly FormalArtifactEnvelope[],
+  requestId: string,
+) {
+  const compiler = createFormalStageRuntimeCompiler(
+    input.runsRoot,
+    input.validator,
+    repositoryRoot,
+  );
+  return compiler.compile({
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: requestId,
+    run_id: input.runId,
+    operation: "publish",
+    created_at: String(envelopes[0]?.created_at ?? createdAt),
+    artifacts: envelopes.map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role,
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
+  });
 }
 
 async function prepareGenerationResultRun(t: TestContext) {
@@ -396,16 +439,17 @@ async function prepareEnrichmentBranchRun(t: TestContext) {
       (entry) => entry.document.revision === 1,
     ),
   });
-  await store.publishArtifactBundle({
-    runId,
-    envelopes: discoveryWaveEnvelopes(
+  await publishRuntimeEnvelopesAsFormalStage(
+    { runsRoot, runId, validator },
+    discoveryWaveEnvelopes(
       bundle,
       runId,
       "startup_opportunity.research_task.discovery_candidate.current",
       1,
       "candidate_runtime",
     ),
-  });
+    "request_lane_nondegradation_candidate_wave",
+  );
   await store.publishArtifactBundle({
     runId,
     envelopes: envelopesByType(
@@ -469,7 +513,11 @@ async function prepareEnrichmentBranchRun(t: TestContext) {
     3,
     "enrichment_runtime",
   );
-  await store.publishArtifactBundle({ runId, envelopes: wave });
+  await publishRuntimeEnvelopesAsFormalStage(
+    { runsRoot, runId, validator },
+    wave,
+    "request_lane_nondegradation_enrichment_wave",
+  );
   const taskEnvelope = wave.find((entry) => entry.artifact_path === G24_TASK_SUPPORT) as
     | FormalArtifactEnvelope
     | undefined;
@@ -762,9 +810,33 @@ test("Lane staging aggregates JSON Pointer diagnostics without writing", async (
   const searchClosure = deliveryContract.search_closure as Record<string, unknown>;
   searchClosure.status = "collapsed_unknown_state";
   searchClosure.acquisition_routes_attempted = [];
-  const before = await snapshotTree(root);
 
-  await assert.rejects(materializer.materialize(malformed), (error: unknown) => {
+  const beforeMissingValidateSource = await snapshotTree(root);
+  await assert.rejects(materializer.materialize(failedBeforeSearch), (error: unknown) => {
+    assert.ok(error instanceof StoreError);
+    assert.equal(error.code, "runtime.lane_staging_source_missing");
+    return true;
+  });
+  assert.deepEqual(await snapshotTree(root), beforeMissingValidateSource);
+
+  const missingSourcePublish = { ...failedBeforeSearch, operation: "publish" };
+  const beforeMissingPublishSource = await snapshotTree(root);
+  await assert.rejects(materializer.materialize(missingSourcePublish), (error: unknown) => {
+    assert.ok(error instanceof StoreError);
+    assert.equal(error.code, "runtime.lane_staging_source_missing");
+    return true;
+  });
+  assert.deepEqual(await snapshotTree(root), beforeMissingPublishSource);
+
+  const runRoot = path.join(runsRoot, String(malformed.run_id));
+  const malformedFile = path.join(
+    runRoot,
+    "staging/lane-submissions/00000000000000000000000000000000.json",
+  );
+  await mkdir(path.dirname(malformedFile), { recursive: true });
+  await writeFile(malformedFile, `${JSON.stringify(malformed, null, 2)}\n`);
+  const before = await snapshotTree(root);
+  await assert.rejects(materializer.materializeFile(malformedFile), (error: unknown) => {
     assert.ok(error instanceof StoreError);
     assert.equal(error.code, "runtime.lane_staging_invalid");
     const paths = (error.details.issues as Record<string, unknown>[]).map((entry) => entry.path);
@@ -782,8 +854,9 @@ test("Generation Lane Result derives Task-owned fields and rejects forged mechan
   const state = await prepareGenerationResultRun(t);
   const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
   const staging = generationLaneStaging(state.runId, String(state.taskEnvelope.artifact_path));
+  const stagingFile = await writeLaneStagingFile(state.runRoot, state.taskEnvelope, staging);
   const before = await snapshotTree(state.runRoot);
-  const validated = await materializer.materialize(staging);
+  const validated = await materializer.materializeFile(stagingFile);
   assert.equal(validated.status, "accepted");
   assert.deepEqual(await snapshotTree(state.runRoot), before);
   const generationEnvelope = validated.compilation.compiled_envelopes.find(
@@ -807,8 +880,9 @@ test("Generation Lane Result derives Task-owned fields and rejects forged mechan
   const forged = generationLaneStaging(state.runId, String(state.taskEnvelope.artifact_path), {
     dispatch_batch_ref: "tasks/dispatch/forged.r1.json#task_forged",
   });
+  const forgedFile = await writeLaneStagingFile(state.runRoot, state.taskEnvelope, forged);
   const beforeForged = await snapshotTree(state.runRoot);
-  await assert.rejects(materializer.materialize(forged), (error: unknown) => {
+  await assert.rejects(materializer.materializeFile(forgedFile), (error: unknown) => {
     assert.ok(error instanceof StoreError);
     assert.equal(error.code, "runtime.lane_preflight_failed");
     const issues = error.details.issues as Record<string, unknown>[];
@@ -833,8 +907,9 @@ test("Enrichment Branch Result derives Task-owned fields and rejects forged mech
     String(state.taskEnvelope.artifact_path),
     state.bundle,
   );
+  const stagingFile = await writeLaneStagingFile(state.runRoot, state.taskEnvelope, staging);
   const before = await snapshotTree(state.runRoot);
-  const validated = await materializer.materialize(staging);
+  const validated = await materializer.materializeFile(stagingFile);
   assert.equal(validated.status, "accepted");
   assert.deepEqual(await snapshotTree(state.runRoot), before);
   const branchEnvelope = validated.compilation.compiled_envelopes.find(
@@ -872,8 +947,9 @@ test("Enrichment Branch Result derives Task-owned fields and rejects forged mech
     state.bundle,
     { source_snapshot_ref: "artifacts/discovery/thesis-snapshots/forged.r1.json" },
   );
+  const forgedFile = await writeLaneStagingFile(state.runRoot, state.taskEnvelope, forged);
   const beforeForged = await snapshotTree(state.runRoot);
-  await assert.rejects(materializer.materialize(forged), (error: unknown) => {
+  await assert.rejects(materializer.materializeFile(forgedFile), (error: unknown) => {
     assert.ok(error instanceof StoreError);
     assert.equal(error.code, "runtime.lane_preflight_failed");
     const issues = error.details.issues as Record<string, unknown>[];

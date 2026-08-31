@@ -8,6 +8,7 @@ import type {
   FormalArtifactEnvelope,
 } from "../artifact-store/artifact-store.js";
 import { canonicalContentHash, canonicalJson, operationKey } from "../artifact-store/canonical.js";
+import { withAuthenticatedRuntimeProjectionAuthority } from "../artifact-store/runtime-projection-authority.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import { compileCommercialResearchDelivery } from "../compiler/commercial-research-compiler.js";
 import { RunStore } from "../run-store/run-store.js";
@@ -31,6 +32,10 @@ import {
 } from "../validators/reference-classifier.js";
 import type { ValidationIssue } from "../validators/schema-bundle.js";
 import { discoveryPlanLaunchReadinessIssuesFromBundle } from "./discovery-wave-contracts.js";
+import {
+  deriveLaneSubmissionContract,
+  type LaneSubmissionContract,
+} from "./lane-submission-contract.js";
 import {
   type OperationObserver,
   type OperationTrace,
@@ -313,6 +318,8 @@ export interface DispatchLaunchCheckResult extends Record<string, unknown> {
     readonly attempt: number;
     readonly allowed_output_path: string;
     readonly required_artifact_schema: string;
+    readonly staging_output_path: string;
+    readonly lane_submission_contract: LaneSubmissionContract;
     readonly execution_attempt_ids: readonly string[];
     readonly launch_state: "started" | "not_started" | "conflict";
   }[];
@@ -340,24 +347,43 @@ export function dispatchLaunchChecklist(
       const submissionAttempt = /\.attempt-([1-9][0-9]*)\.json$/u.exec(
         String(task.submission_path ?? ""),
       )?.[1];
+      const allowedOutputPath = String(
+        formalTask?.document.allowed_output_path ??
+          task.allowed_output_path ??
+          task.submission_path,
+      );
+      const requiredArtifactSchema = String(
+        formalTask?.document.required_artifact_schema ??
+          task.required_artifact_schema ??
+          task.submission_schema ??
+          (envelope.artifact_type === "startup_opportunity.dispatch_batch.assessment.current"
+            ? "startup_opportunity.assessment_lane_result.v1"
+            : ""),
+      );
+      const attempt = Number(
+        formalTask?.document.attempt ?? task.attempt ?? submissionAttempt ?? 1,
+      );
+      const contract =
+        (formalTask?.document.lane_submission_contract as LaneSubmissionContract | undefined) ??
+        (task.lane_submission_contract as LaneSubmissionContract | undefined) ??
+        deriveLaneSubmissionContract({
+          runId: envelope.run_id,
+          unitId: String(task.unit_id),
+          taskId: String(task.task_id),
+          attempt,
+          formalOutputPath: allowedOutputPath,
+          formalArtifactSchema: requiredArtifactSchema,
+          commercialAuditOutputPath: null,
+        });
       return {
         unit_id: String(task.unit_id),
         task_ref: `${envelope.artifact_path}#${String(task.task_id)}`,
         task_id: String(task.task_id),
-        attempt: Number(formalTask?.document.attempt ?? task.attempt ?? submissionAttempt ?? 1),
-        allowed_output_path: String(
-          formalTask?.document.allowed_output_path ??
-            task.allowed_output_path ??
-            task.submission_path,
-        ),
-        required_artifact_schema: String(
-          formalTask?.document.required_artifact_schema ??
-            task.required_artifact_schema ??
-            task.submission_schema ??
-            (envelope.artifact_type === "startup_opportunity.dispatch_batch.assessment.current"
-              ? "startup_opportunity.assessment_lane_result.v1"
-              : ""),
-        ),
+        attempt,
+        allowed_output_path: allowedOutputPath,
+        required_artifact_schema: requiredArtifactSchema,
+        staging_output_path: contract.staging_output_path,
+        lane_submission_contract: contract,
         execution_attempt_ids: [] as string[],
         launch_state: "not_started" as const,
       };
@@ -381,6 +407,18 @@ export interface CompileRuntimeArtifactsOptions {
   readonly observe?: OperationObserver | undefined;
   readonly recoverPlanOperations?: boolean;
   readonly includeAllFormalArtifacts?: boolean;
+}
+
+const FORMAL_STAGE_RUNTIME_COMPILERS = new WeakSet<DeclarativeRuntimeCompiler>();
+
+export function createFormalStageRuntimeCompiler(
+  runsRoot: string,
+  validator: ArtifactValidator,
+  repositoryRoot = process.cwd(),
+): DeclarativeRuntimeCompiler {
+  const compiler = new DeclarativeRuntimeCompiler(runsRoot, validator, repositoryRoot);
+  FORMAL_STAGE_RUNTIME_COMPILERS.add(compiler);
+  return compiler;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -546,6 +584,11 @@ const ASSESSMENT_EXECUTION_ARTIFACT_TYPES = new Set([
 const RUNTIME_NEUTRAL_ARTIFACT_TYPES = new Set([
   "startup_opportunity.lane_delivery_receipt.current",
   "startup_opportunity.commercial_research_audit.current",
+]);
+
+const SHARED_RUNTIME_PROJECTION_ARTIFACT_TYPES = new Set([
+  "startup_opportunity.research_execution_plan.discovery.current",
+  "startup_opportunity.dispatch_batch.discovery.current",
 ]);
 
 export class DeclarativeRuntimeCompiler {
@@ -764,9 +807,20 @@ export class DeclarativeRuntimeCompiler {
         "one compilation request cannot declare the same artifact path twice",
       );
     }
+    const hasAssessmentExecutionProjection = sourceArtifacts.some(
+      (artifact) =>
+        ASSESSMENT_EXECUTION_ARTIFACT_TYPES.has(artifact.artifact_type) &&
+        artifact.artifact_type !==
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+    );
     const artifactFamilies = new Set(
       sourceArtifacts
-        .filter((artifact) => !RUNTIME_NEUTRAL_ARTIFACT_TYPES.has(artifact.artifact_type))
+        .filter(
+          (artifact) =>
+            !RUNTIME_NEUTRAL_ARTIFACT_TYPES.has(artifact.artifact_type) &&
+            (!hasAssessmentExecutionProjection ||
+              !SHARED_RUNTIME_PROJECTION_ARTIFACT_TYPES.has(artifact.artifact_type)),
+        )
         .map((artifact) =>
           ASSESSMENT_EXECUTION_ARTIFACT_TYPES.has(artifact.artifact_type)
             ? "assessment"
@@ -883,10 +937,15 @@ export class DeclarativeRuntimeCompiler {
       includeAllFormalArtifacts: options.includeAllFormalArtifacts === true,
       recoverPlanOperations,
     });
-    const validation = this.validator.validateDocumentBundle(
-      context.bundle,
-      context.referenceContext,
-    );
+    const trustedProspectiveRuntimeAuthorityPaths = FORMAL_STAGE_RUNTIME_COMPILERS.has(this)
+      ? new Set(envelopes.map((envelope) => envelope.artifact_path))
+      : new Set<string>();
+    const referenceContext = {
+      ...context.referenceContext,
+      requireRuntimeProjectionAuthority: true,
+      trustedProspectiveRuntimeAuthorityPaths,
+    };
+    const validation = this.validator.validateDocumentBundle(context.bundle, referenceContext);
     gateIssues.push(
       ...validation.bundleErrors,
       ...validation.documents.flatMap((document) => document.errors),
@@ -958,10 +1017,7 @@ export class DeclarativeRuntimeCompiler {
         mode === "concept_evidence_assessment"
           ? await createAssessmentPlanSemanticValidator(this.repositoryRoot)
           : await createPlanSemanticValidator(this.repositoryRoot);
-      const planValidation = planValidator.validateDocumentBundle(
-        context.bundle,
-        context.referenceContext,
-      );
+      const planValidation = planValidator.validateDocumentBundle(context.bundle, referenceContext);
       const launchReadinessIssues =
         mode === "opportunity_discovery"
           ? discoveryPlanLaunchReadinessIssuesFromBundle(context.bundle)
@@ -1011,7 +1067,7 @@ export class DeclarativeRuntimeCompiler {
       refs: allDeclaredRefs,
       repositoryRoot: this.repositoryRoot,
       bundle: context.bundle,
-      referenceContext: context.referenceContext,
+      referenceContext,
     });
     const manifest = context.bundle.documents.find((entry) => entry.path === "manifest.json");
     if (manifest === undefined) {
@@ -1200,6 +1256,9 @@ export class DeclarativeRuntimeCompiler {
       envelopes.map((envelope) => [envelope.artifact_path, "validated"]),
     );
     if (request.operation === "publish") {
+      const formalStageTrustedPaths = FORMAL_STAGE_RUNTIME_COMPILERS.has(this)
+        ? envelopes.map((envelope) => envelope.artifact_path)
+        : [];
       if (options.faultAt !== undefined && envelopes.length !== 1) {
         throw new StoreError(
           "runtime.fault_boundary_invalid",
@@ -1208,20 +1267,30 @@ export class DeclarativeRuntimeCompiler {
       }
       if (envelopes.length === 1) {
         const envelope = envelopes[0] as FormalArtifactEnvelope;
-        const result = await this.runs.publishArtifact({
-          runId: request.run_id,
-          envelope,
-          expectedManifestContentHash: publicationPlan.manifest_content_hash,
-          ...(options.faultAt === undefined ? {} : { faultAt: options.faultAt }),
-        });
+        const result = await this.runs.publishArtifact(
+          withAuthenticatedRuntimeProjectionAuthority(
+            {
+              runId: request.run_id,
+              envelope,
+              expectedManifestContentHash: publicationPlan.manifest_content_hash,
+              ...(options.faultAt === undefined ? {} : { faultAt: options.faultAt }),
+            },
+            formalStageTrustedPaths,
+          ),
+        );
         publicationStatus = result.status;
         statuses = new Map([[result.artifactPath, result.status]]);
       } else {
-        const result = await this.runs.publishArtifactBundle({
-          runId: request.run_id,
-          envelopes,
-          expectedManifestContentHash: publicationPlan.manifest_content_hash,
-        });
+        const result = await this.runs.publishArtifactBundle(
+          withAuthenticatedRuntimeProjectionAuthority(
+            {
+              runId: request.run_id,
+              envelopes,
+              expectedManifestContentHash: publicationPlan.manifest_content_hash,
+            },
+            formalStageTrustedPaths,
+          ),
+        );
         publicationStatus = result.status;
         statuses = new Map(
           result.artifacts.map((artifact) => [artifact.artifactPath, artifact.status]),

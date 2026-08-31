@@ -2,6 +2,7 @@ import {
   canonicalContentHash,
   type DiscoveryProfile,
   type DocumentBundle,
+  deriveLaneSubmissionContract,
   type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
 } from "../../../harness/src/index.js";
@@ -247,6 +248,8 @@ function task(
   unitType = sourcePhase === "adversarial_challenger" ? "counter_evidence" : "market_space",
   targetOpportunityRefs: readonly string[] = OPPORTUNITIES,
 ): Record<string, unknown> {
+  const requiredArtifactSchema = "startup_opportunity.enrichment_branch_result.v1";
+  const commercialAuditOutputPath = `artifacts/research-audits/${unitId}.json`;
   return {
     schema_version: "startup_opportunity.research_task.discovery_evaluation.current",
     task_id: `task_${unitId}`,
@@ -290,7 +293,7 @@ function task(
         "distribution_channel",
         "independent_counterevidence",
       ],
-      commercial_audit_output_path: `artifacts/research-audits/${unitId}.json`,
+      commercial_audit_output_path: commercialAuditOutputPath,
     },
     target_opportunity_refs: [...targetOpportunityRefs],
     source_snapshot_ref: G23_SNAPSHOT,
@@ -304,7 +307,16 @@ function task(
     source_phase: sourcePhase,
     required_source_group_ids: [`source_group_${unitId}`],
     allowed_output_path: outputPath,
-    required_artifact_schema: "startup_opportunity.enrichment_branch_result.v1",
+    required_artifact_schema: requiredArtifactSchema,
+    lane_submission_contract: deriveLaneSubmissionContract({
+      runId,
+      unitId,
+      taskId: `task_${unitId}`,
+      attempt: 1,
+      formalOutputPath: outputPath,
+      formalArtifactSchema: requiredArtifactSchema,
+      commercialAuditOutputPath,
+    }),
     required_stances: ["support", "oppose"],
     stop_conditions: [SYNTHETIC],
     completion_message_contract: {

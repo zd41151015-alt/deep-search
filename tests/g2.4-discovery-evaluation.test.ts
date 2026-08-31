@@ -28,6 +28,7 @@ import {
 } from "../harness/src/index.js";
 import { scanReportSurface } from "../harness/src/reporting/report-consistency.js";
 import { renderDiscoveryTeamDecisionSummary } from "../harness/src/reporting/report-runtime.js";
+import { createFormalStageRuntimeCompiler } from "../harness/src/runtime/declarative-runtime.js";
 import { deriveSolutionEvaluationSummary } from "../harness/src/validators/discovery-synthesis-validator.js";
 import {
   fixtureEnvelope,
@@ -96,6 +97,32 @@ interface State {
   readonly validator: Awaited<ReturnType<typeof createArtifactValidator>>;
   readonly bundle: DocumentBundle;
   readonly substrate: DiscoveryEvaluationSubstrate;
+}
+
+async function publishRuntimeEnvelopesAsFormalStage(
+  state: State,
+  envelopes: readonly FormalArtifactEnvelope[],
+  requestId: string,
+): Promise<void> {
+  const compiler = createFormalStageRuntimeCompiler(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  await compiler.compile({
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: requestId,
+    run_id: state.runId,
+    operation: "publish",
+    created_at: String(envelopes[0]?.created_at ?? "2026-07-27T18:00:00Z"),
+    artifacts: envelopes.map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role,
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
+  });
 }
 
 function clone<T>(value: T): T {
@@ -825,10 +852,11 @@ async function publishThroughSynthesis(state: State): Promise<void> {
     1,
     "candidate_runtime",
   );
-  await state.store.publishArtifactBundle({
-    runId: state.runId,
-    envelopes: candidateRuntimeEnvelopes,
-  });
+  await publishRuntimeEnvelopesAsFormalStage(
+    state,
+    candidateRuntimeEnvelopes,
+    "request_g2_4_candidate_runtime_wave",
+  );
   await registerDispatchLaunches(
     state,
     candidateRuntimeEnvelopes,
@@ -902,10 +930,11 @@ async function publishThroughEnrichmentBranches(state: State): Promise<void> {
     3,
     "enrichment_runtime",
   );
-  await state.store.publishArtifactBundle({
-    runId: state.runId,
-    envelopes: enrichmentRuntimeEnvelopes,
-  });
+  await publishRuntimeEnvelopesAsFormalStage(
+    state,
+    enrichmentRuntimeEnvelopes,
+    "request_g2_4_enrichment_runtime_wave",
+  );
   await registerDispatchLaunches(
     state,
     enrichmentRuntimeEnvelopes,
@@ -3575,16 +3604,17 @@ test("G2.4 branch terminal states project mechanically and keep late or supersed
       const state = await setup(context, `status-${scenario.suffix}`);
       await publishThroughSynthesis(state);
       const evaluation = envelopes(state.bundle, "startup_opportunity.artifact_envelope.current");
-      await state.store.publishArtifactBundle({
-        runId: state.runId,
-        envelopes: discoveryWaveEnvelopes(
+      await publishRuntimeEnvelopesAsFormalStage(
+        state,
+        discoveryWaveEnvelopes(
           state.bundle,
           state.runId,
           "startup_opportunity.research_task.discovery_evaluation.current",
           3,
           "enrichment_runtime",
         ),
-      });
+        `request_g2_4_status_${scenario.suffix}_enrichment_wave`,
+      );
       await state.store.publishArtifactBundle({
         runId: state.runId,
         envelopes: byTypes(

@@ -28,6 +28,7 @@ export const DIRECT_RUNTIME_SCHEMA_VERSIONS = [
   "startup_opportunity.evidence_store_record.v2",
   "startup_opportunity.formal_stage_materialization_request.current",
   "startup_opportunity.formal_stage_materialization_result.current",
+  "startup_opportunity.lane_submission_contract.current",
   "startup_opportunity.lane_staging_document.current",
   "startup_opportunity.lane_submission_checklist_result.current",
   "startup_opportunity.lane_delivery_result.current",

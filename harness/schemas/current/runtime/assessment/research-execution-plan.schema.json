@@ -37,6 +37,7 @@
         "reporting_dimensions",
         "submission_path",
         "submission_schema",
+        "lane_submission_contract",
         "time_budget_minutes",
         "max_sources",
         "straggler_policy",
@@ -66,6 +67,9 @@
         },
         "submission_schema": {
           "const": "startup_opportunity.assessment_lane_result.v1"
+        },
+        "lane_submission_contract": {
+          "$ref": "../common/lane-submission-contract.schema.json"
         },
         "time_budget_minutes": {
           "type": "integer",

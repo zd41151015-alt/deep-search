@@ -9,6 +9,7 @@ import {
   dispatchLaunchRegistrationPath,
   dispatchLaunchRequestFromRegistration,
 } from "../runtime/lane-lifecycle-identity.js";
+import { deriveLaneSubmissionContract } from "../runtime/lane-submission-contract.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
 
 export interface DeclarativeRuntimeDocument {
@@ -16,6 +17,15 @@ export interface DeclarativeRuntimeDocument {
   readonly schemaVersion: string;
   readonly document: Record<string, unknown>;
   readonly envelope: Record<string, unknown> | null;
+}
+
+export interface DeclarativeRuntimeReferenceContext {
+  readonly artifactPublicationRecords?: ReadonlyMap<
+    string,
+    { readonly publicationOrdinal: number; readonly contentHash: string }
+  >;
+  readonly requireRuntimeProjectionAuthority?: boolean;
+  readonly trustedProspectiveRuntimeAuthorityPaths?: ReadonlySet<string>;
 }
 
 const RUNTIME_SCHEMA_VERSIONS = new Set([
@@ -46,6 +56,16 @@ const DISCOVERY_SYNTHESIS_SCHEMA_VERSIONS = new Set([
 const DISCOVERY_JUDGMENT_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.judgment_assessment.discovery_candidate.current",
   "startup_opportunity.judgment_assessment.discovery_evaluation.current",
+]);
+
+const DISCOVERY_FORMAL_TASK_SCHEMA_VERSIONS = new Set([
+  "startup_opportunity.research_task.discovery_candidate.current",
+  "startup_opportunity.research_task.discovery_evaluation.current",
+  "startup_opportunity.research_task.discovery_review.current",
+]);
+
+const ASSESSMENT_FORMAL_TASK_SCHEMA_VERSIONS = new Set([
+  "startup_opportunity.research_task.assessment.current",
 ]);
 
 const STAGE_ORDER = [
@@ -212,6 +232,185 @@ function discoveryReviewSearchClosureStatusValid(review: Record<string, unknown>
   return false;
 }
 
+function duplicateStrings(values: readonly string[]): readonly string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) duplicates.add(value);
+    seen.add(value);
+  }
+  return [...duplicates].sort();
+}
+
+function formalTaskEntryForDispatchTask(
+  task: Record<string, unknown>,
+  byPath: ReadonlyMap<string, DeclarativeRuntimeDocument>,
+  runId?: string,
+  schemaVersions: ReadonlySet<string> = DISCOVERY_FORMAL_TASK_SCHEMA_VERSIONS,
+): DeclarativeRuntimeDocument | undefined {
+  return [...byPath.values()]
+    .filter((entry) => schemaVersions.has(entry.schemaVersion))
+    .find(
+      (entry) =>
+        (runId === undefined || entry.document.run_id === runId) &&
+        entry.document.task_id === task.task_id &&
+        entry.document.unit_id === task.unit_id,
+    );
+}
+
+function hasRuntimeProjectionAuthority(
+  entry: DeclarativeRuntimeDocument | undefined,
+  context: DeclarativeRuntimeReferenceContext,
+): boolean {
+  if (context.requireRuntimeProjectionAuthority !== true) {
+    return true;
+  }
+  if (entry === undefined) {
+    return false;
+  }
+  if (context.trustedProspectiveRuntimeAuthorityPaths?.has(entry.path) === true) {
+    return true;
+  }
+  const published = context.artifactPublicationRecords?.get(entry.path);
+  return (
+    published !== undefined &&
+    typeof entry.envelope?.content_hash === "string" &&
+    published.contentHash === entry.envelope.content_hash
+  );
+}
+
+function dispatchTasksForExecutionLane(
+  executionPath: string,
+  execution: Record<string, unknown>,
+  stageId: string,
+  lane: Record<string, unknown>,
+  byPath: ReadonlyMap<string, DeclarativeRuntimeDocument>,
+): readonly {
+  readonly dispatchEntry: DeclarativeRuntimeDocument;
+  readonly dispatch: Record<string, unknown>;
+  readonly task: Record<string, unknown>;
+  readonly parentExecutionEntry?: DeclarativeRuntimeDocument;
+}[] {
+  const dispatchTaskMatches = (
+    path: string,
+    document: Record<string, unknown>,
+    bindings: readonly {
+      readonly stageId: string;
+      readonly dispatchGroup: unknown;
+    }[],
+  ) => {
+    const bindingKeys = new Set(
+      bindings.map((binding) => `${binding.stageId}:${String(binding.dispatchGroup)}`),
+    );
+    const dispatches = [...byPath.values()].filter(
+      (entry) =>
+        entry.schemaVersion === "startup_opportunity.dispatch_batch.discovery.current" &&
+        entry.document.run_id === execution.run_id &&
+        entry.document.execution_plan_ref === path &&
+        entry.document.research_plan_ref === document.research_plan_ref &&
+        bindingKeys.has(
+          `${String(entry.document.stage_id)}:${String(entry.document.dispatch_group)}`,
+        ),
+    );
+    return dispatches.flatMap((dispatch) =>
+      records(dispatch.document.tasks)
+        .filter((task) => task.unit_id === lane.unit_id)
+        .map((task) => ({ dispatchEntry: dispatch, dispatch: dispatch.document, task })),
+    );
+  };
+  const direct = dispatchTaskMatches(executionPath, execution, [
+    { stageId, dispatchGroup: lane.dispatch_group },
+  ]);
+  if (direct.length > 0) {
+    return direct;
+  }
+  const inheritedLaneBindings = (document: Record<string, unknown>) =>
+    records(document.stages).flatMap((stage) =>
+      records(stage.lanes)
+        .filter(
+          (candidate) =>
+            candidate.unit_id === lane.unit_id &&
+            candidate.submission_path === lane.submission_path &&
+            candidate.submission_schema === lane.submission_schema &&
+            dispatchProjectionCommercialAuditOutputPath(candidate) ===
+              dispatchProjectionCommercialAuditOutputPath(lane) &&
+            canonicalJson(candidate.lane_submission_contract ?? null) ===
+              canonicalJson(lane.lane_submission_contract ?? null),
+        )
+        .map((candidate) => ({
+          stageId: String(stage.stage_id),
+          dispatchGroup: candidate.dispatch_group,
+        })),
+    );
+  const inherited: {
+    readonly dispatchEntry: DeclarativeRuntimeDocument;
+    readonly dispatch: Record<string, unknown>;
+    readonly task: Record<string, unknown>;
+    readonly parentExecutionEntry?: DeclarativeRuntimeDocument;
+  }[] = [];
+  const seen = new Set<string>([executionPath]);
+  let parentRef =
+    typeof execution.parent_execution_plan_ref === "string"
+      ? execution.parent_execution_plan_ref
+      : null;
+  while (parentRef !== null && !seen.has(parentRef)) {
+    seen.add(parentRef);
+    const parent = target(byPath, parentRef);
+    if (
+      parent?.schemaVersion !== "startup_opportunity.research_execution_plan.discovery.current" ||
+      parent.document.run_id !== execution.run_id ||
+      parent.document.research_plan_ref !== execution.research_plan_ref
+    ) {
+      break;
+    }
+    inherited.push(
+      ...dispatchTaskMatches(
+        parent.path,
+        parent.document,
+        inheritedLaneBindings(parent.document),
+      ).map((match) => ({ ...match, parentExecutionEntry: parent })),
+    );
+    parentRef =
+      typeof parent.document.parent_execution_plan_ref === "string"
+        ? parent.document.parent_execution_plan_ref
+        : null;
+  }
+  return inherited;
+}
+
+function taskAttempt(
+  task: Record<string, unknown>,
+  formalTask: Record<string, unknown> | undefined,
+): number {
+  const submissionAttempt = /\.attempt-([1-9][0-9]*)\.json$/u.exec(
+    String(task.submission_path ?? task.allowed_output_path ?? ""),
+  )?.[1];
+  return Number(formalTask?.attempt ?? task.attempt ?? submissionAttempt ?? 1);
+}
+
+function commercialAuditOutputPath(formalTask: Record<string, unknown> | undefined): string | null {
+  if (
+    formalTask?.required_artifact_schema ===
+    "startup_opportunity.discovery_adversarial_review.current"
+  ) {
+    return null;
+  }
+  const requirements = isRecord(formalTask?.commercial_research_requirements)
+    ? formalTask.commercial_research_requirements
+    : null;
+  return requirements !== null && typeof requirements.commercial_audit_output_path === "string"
+    ? requirements.commercial_audit_output_path
+    : null;
+}
+
+function dispatchProjectionCommercialAuditOutputPath(
+  value: Record<string, unknown> | undefined,
+): string | null {
+  return typeof value?.commercial_audit_output_path === "string"
+    ? value.commercial_audit_output_path
+    : null;
+}
+
 function latestDocument(
   documents: readonly DeclarativeRuntimeDocument[],
 ): DeclarativeRuntimeDocument | null {
@@ -286,6 +485,7 @@ function dependencyClosure(
 function validateExecutionPlan(
   entry: DeclarativeRuntimeDocument,
   byPath: ReadonlyMap<string, DeclarativeRuntimeDocument>,
+  referenceContext: DeclarativeRuntimeReferenceContext,
   errors: ValidationIssue[],
 ): void {
   const execution = entry.document;
@@ -348,6 +548,8 @@ function validateExecutionPlan(
   }
   const seenUnits = new Set<string>();
   const dispatchWaves = new Map<string, Set<string>>();
+  const executionStagingPaths: string[] = [];
+  const requiresLaneSubmissionClosure = execution.mode === "opportunity_discovery";
   for (const stage of stages) {
     const stageId = String(stage.stage_id ?? "");
     const kind = String(stage.stage_kind ?? "");
@@ -385,6 +587,10 @@ function validateExecutionPlan(
     }
     for (const lane of stageLanes) {
       const unitId = String(lane.unit_id ?? "");
+      if (requiresLaneSubmissionClosure && isRecord(lane.lane_submission_contract)) {
+        const stagingPath = String(lane.lane_submission_contract.staging_output_path ?? "");
+        if (stagingPath !== "") executionStagingPaths.push(stagingPath);
+      }
       const planned = units.get(unitId);
       if (seenUnits.has(unitId)) {
         errors.push(
@@ -407,6 +613,93 @@ function validateExecutionPlan(
           ),
         );
         continue;
+      }
+      if (requiresLaneSubmissionClosure) {
+        const dispatchTaskMatches = dispatchTasksForExecutionLane(
+          entry.path,
+          execution,
+          stageId,
+          lane,
+          byPath,
+        );
+        const dispatchTaskMatch =
+          dispatchTaskMatches.length === 1 ? dispatchTaskMatches[0] : undefined;
+        const dispatchTask = dispatchTaskMatch?.task;
+        const formalTaskEntry =
+          dispatchTask === undefined
+            ? undefined
+            : formalTaskEntryForDispatchTask(dispatchTask, byPath, String(execution.run_id));
+        const formalTask = formalTaskEntry?.document;
+        const laneSubmissionContract = isRecord(lane.lane_submission_contract)
+          ? lane.lane_submission_contract
+          : null;
+        const expectedSubmissionContract =
+          formalTask === undefined
+            ? null
+            : deriveLaneSubmissionContract({
+                runId: String(execution.run_id),
+                unitId,
+                taskId: String(formalTask.task_id),
+                attempt: Number(formalTask.attempt ?? 1),
+                formalOutputPath: String(formalTask.allowed_output_path),
+                formalArtifactSchema: String(formalTask.required_artifact_schema),
+                commercialAuditOutputPath: commercialAuditOutputPath(formalTask),
+              });
+        if (
+          laneSubmissionContract === null ||
+          dispatchTaskMatches.length !== 1 ||
+          dispatchTask === undefined ||
+          formalTask === undefined ||
+          !hasRuntimeProjectionAuthority(dispatchTaskMatch?.dispatchEntry, referenceContext) ||
+          !hasRuntimeProjectionAuthority(formalTaskEntry, referenceContext) ||
+          (dispatchTaskMatch?.parentExecutionEntry !== undefined &&
+            !hasRuntimeProjectionAuthority(
+              dispatchTaskMatch.parentExecutionEntry,
+              referenceContext,
+            )) ||
+          dispatchTask.allowed_output_path !== lane.submission_path ||
+          dispatchTask.required_artifact_schema !== lane.submission_schema ||
+          dispatchProjectionCommercialAuditOutputPath(dispatchTask) !==
+            dispatchProjectionCommercialAuditOutputPath(lane) ||
+          formalTask.run_id !== execution.run_id ||
+          formalTask.research_plan_ref !== execution.research_plan_ref ||
+          formalTask.unit_id !== lane.unit_id ||
+          formalTask.allowed_output_path !== lane.submission_path ||
+          formalTask.required_artifact_schema !== lane.submission_schema ||
+          canonicalJson(laneSubmissionContract) !== canonicalJson(expectedSubmissionContract) ||
+          canonicalJson(dispatchTask.lane_submission_contract ?? null) !==
+            canonicalJson(expectedSubmissionContract) ||
+          canonicalJson(formalTask.lane_submission_contract ?? null) !==
+            canonicalJson(expectedSubmissionContract)
+        ) {
+          errors.push(
+            issue(
+              "runtime.execution_lane_submission_contract_mismatch",
+              `${entry.path}#${stageId}/${unitId}/lane_submission_contract`,
+              "execution lane must carry the exact Harness-derived Lane submission contract closed by its Dispatch task and Formal Task",
+              {
+                unitId,
+                dispatchTaskCount: dispatchTaskMatches.length,
+                formalTaskPresent: formalTask !== undefined,
+                dispatchAuthorityTrusted: hasRuntimeProjectionAuthority(
+                  dispatchTaskMatch?.dispatchEntry,
+                  referenceContext,
+                ),
+                formalTaskAuthorityTrusted: hasRuntimeProjectionAuthority(
+                  formalTaskEntry,
+                  referenceContext,
+                ),
+                parentExecutionAuthorityTrusted:
+                  dispatchTaskMatch?.parentExecutionEntry === undefined
+                    ? true
+                    : hasRuntimeProjectionAuthority(
+                        dispatchTaskMatch.parentExecutionEntry,
+                        referenceContext,
+                      ),
+              },
+            ),
+          );
+        }
       }
       const scope = isRecord(lane.candidate_scope) ? lane.candidate_scope : {};
       const candidateRefs = strings(scope.candidate_refs);
@@ -536,6 +829,17 @@ function validateExecutionPlan(
       dispatchWaves.set(group, waveSet);
     }
   }
+  if (requiresLaneSubmissionClosure) {
+    for (const duplicate of duplicateStrings(executionStagingPaths)) {
+      errors.push(
+        issue(
+          "runtime.execution_staging_path_conflict",
+          `${entry.path}#${duplicate}`,
+          "execution lanes must each have one unique Lane staging output path",
+        ),
+      );
+    }
+  }
   for (const [group, waves] of dispatchWaves) {
     if (waves.size > 1) {
       errors.push(
@@ -634,6 +938,7 @@ function validateExecutionPlan(
 function validateDispatchBatch(
   entry: DeclarativeRuntimeDocument,
   byPath: ReadonlyMap<string, DeclarativeRuntimeDocument>,
+  referenceContext: DeclarativeRuntimeReferenceContext,
   errors: ValidationIssue[],
 ): void {
   const batch = entry.document;
@@ -700,10 +1005,51 @@ function validateDispatchBatch(
       issue("runtime.dispatch_task_identity_conflict", entry.path, "task ids must be unique"),
     );
   }
+  const stagingPaths = tasks
+    .map((task) =>
+      isRecord(task.lane_submission_contract)
+        ? String(task.lane_submission_contract.staging_output_path ?? "")
+        : "",
+    )
+    .filter((value) => value !== "");
+  if (new Set(stagingPaths).size !== stagingPaths.length) {
+    errors.push(
+      issue(
+        "runtime.dispatch_staging_path_conflict",
+        entry.path,
+        "dispatch tasks must each have one unique Lane staging output path",
+      ),
+    );
+  }
   for (const task of tasks) {
     const unitId = String(task.unit_id ?? "");
+    const taskId = String(task.task_id ?? "");
     const unit = units.get(unitId);
     const lane = lanes.get(unitId);
+    const formalTaskSchemaVersions =
+      batch.mode === "concept_evidence_assessment"
+        ? ASSESSMENT_FORMAL_TASK_SCHEMA_VERSIONS
+        : DISCOVERY_FORMAL_TASK_SCHEMA_VERSIONS;
+    const formalTaskEntry = formalTaskEntryForDispatchTask(
+      task,
+      byPath,
+      String(batch.run_id),
+      formalTaskSchemaVersions,
+    );
+    const formalTask = formalTaskEntry?.document;
+    const laneCommercialAuditOutputPath = dispatchProjectionCommercialAuditOutputPath(lane);
+    const dispatchCommercialAuditOutputPath = dispatchProjectionCommercialAuditOutputPath(task);
+    const formalCommercialAuditOutputPath = commercialAuditOutputPath(formalTask);
+    const expectedSubmissionContract = deriveLaneSubmissionContract({
+      runId: String(batch.run_id),
+      unitId,
+      taskId,
+      attempt: taskAttempt(task, formalTask),
+      formalOutputPath: String(task.allowed_output_path),
+      formalArtifactSchema: String(task.required_artifact_schema),
+      commercialAuditOutputPath:
+        formalTask === undefined ? laneCommercialAuditOutputPath : formalCommercialAuditOutputPath,
+    });
     if (
       unit === undefined ||
       lane === undefined ||
@@ -714,6 +1060,18 @@ function validateDispatchBatch(
       !sameStrings(strings(task.input_refs), strings(unit.input_refs)) ||
       task.allowed_output_path !== lane.submission_path ||
       task.required_artifact_schema !== lane.submission_schema ||
+      dispatchCommercialAuditOutputPath !== laneCommercialAuditOutputPath ||
+      (formalTask !== undefined &&
+        dispatchCommercialAuditOutputPath !== formalCommercialAuditOutputPath) ||
+      canonicalJson(lane.lane_submission_contract ?? null) !==
+        canonicalJson(expectedSubmissionContract) ||
+      canonicalJson(task.lane_submission_contract ?? null) !==
+        canonicalJson(expectedSubmissionContract) ||
+      !hasRuntimeProjectionAuthority(entry, referenceContext) ||
+      !hasRuntimeProjectionAuthority(formalTaskEntry, referenceContext) ||
+      (formalTask !== undefined &&
+        canonicalJson(formalTask.lane_submission_contract ?? null) !==
+          canonicalJson(expectedSubmissionContract)) ||
       task.time_budget_minutes !== lane.time_budget_minutes ||
       task.max_sources !== lane.max_sources ||
       canonicalJson(task.straggler_policy) !== canonicalJson(lane.straggler_policy)
@@ -723,7 +1081,14 @@ function validateDispatchBatch(
           "runtime.dispatch_task_contract_mismatch",
           `${entry.path}#${String(task.task_id)}`,
           "dispatch task must be a deterministic projection of its Plan unit and execution overlay lane",
-          { unitId },
+          {
+            unitId,
+            dispatchAuthorityTrusted: hasRuntimeProjectionAuthority(entry, referenceContext),
+            formalTaskAuthorityTrusted: hasRuntimeProjectionAuthority(
+              formalTaskEntry,
+              referenceContext,
+            ),
+          },
         ),
       );
     }
@@ -1935,6 +2300,7 @@ export function isDeclarativeRuntimeSchemaVersion(schemaVersion: string): boolea
 export function validateDeclarativeRuntimeContract(
   documents: readonly DeclarativeRuntimeDocument[],
   exactJsonlRecords: ReadonlyMap<string, Record<string, unknown>> = new Map(),
+  referenceContext: DeclarativeRuntimeReferenceContext = {},
 ): readonly ValidationIssue[] {
   if (
     !documents.some(
@@ -1950,10 +2316,10 @@ export function validateDeclarativeRuntimeContract(
   for (const entry of documents) {
     switch (entry.schemaVersion) {
       case "startup_opportunity.research_execution_plan.discovery.current":
-        validateExecutionPlan(entry, byPath, errors);
+        validateExecutionPlan(entry, byPath, referenceContext, errors);
         break;
       case "startup_opportunity.dispatch_batch.discovery.current":
-        validateDispatchBatch(entry, byPath, errors);
+        validateDispatchBatch(entry, byPath, referenceContext, errors);
         break;
       case "startup_opportunity.lane_lifecycle.v1":
         validateLifecycle(entry, byPath, errors);

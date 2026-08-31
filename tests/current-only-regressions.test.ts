@@ -16,6 +16,7 @@ import {
   classifyReference,
   createArtifactValidator,
   type DecisionSubjectDocument,
+  deriveLaneSubmissionContract,
   validateCommercialResearchContract,
   validateDecisionSubjectContract,
 } from "../harness/src/index.js";
@@ -249,6 +250,8 @@ function commercialCompilerTask(
 ) {
   const unitId = taskPath.match(/\/(unit_[A-Za-z0-9_-]+)\.attempt-/u)?.[1];
   assert.ok(unitId);
+  const auditPath = `artifacts/research-audits/${unitId}.json`;
+  const requiredArtifactSchema = "startup_opportunity.commercial_research_audit.current";
   return {
     artifact_type: "startup_opportunity.research_task.discovery_candidate.current",
     artifact_path: taskPath,
@@ -258,9 +261,11 @@ function commercialCompilerTask(
       task_id: `task_${unitId}`,
       source_phase: "candidate_generation",
       target_subject_ref: subjectRef,
+      allowed_output_path: auditPath,
+      required_artifact_schema: requiredArtifactSchema,
       commercial_research_requirements: {
         research_stage: "solution_neutral_scan",
-        commercial_audit_output_path: "artifacts/research-audits/commercial-synthetic.json",
+        commercial_audit_output_path: auditPath,
         quantitative_competitive_scope: {
           required_metric_families: requiredMetricFamilies,
           required_competitor_types: requiredCompetitorTypes,
@@ -272,6 +277,15 @@ function commercialCompilerTask(
           rationale: "Synthetic compiler task does not assign incumbent response research.",
         },
       },
+      lane_submission_contract: deriveLaneSubmissionContract({
+        runId: "current-only-commercial-synthetic",
+        unitId,
+        taskId: `task_${unitId}`,
+        attempt: 1,
+        formalOutputPath: auditPath,
+        formalArtifactSchema: requiredArtifactSchema,
+        commercialAuditOutputPath: auditPath,
+      }),
     },
   };
 }
@@ -286,6 +300,10 @@ function incumbentResponseTask(
   readonly document: Record<string, unknown>;
 } {
   const targeted = analysisDepth === "targeted_deep_dive";
+  const auditPath = targeted
+    ? "artifacts/research-audits/response-targeted.json"
+    : "artifacts/research-audits/response-lightweight.json";
+  const requiredArtifactSchema = "startup_opportunity.commercial_research_audit.current";
   return {
     artifact_type: targeted
       ? "startup_opportunity.research_task.discovery_evaluation.current"
@@ -302,6 +320,8 @@ function incumbentResponseTask(
       ...(targeted
         ? { target_opportunity_refs: [...subjectRefs] }
         : { target_candidate_refs: [...subjectRefs] }),
+      allowed_output_path: auditPath,
+      required_artifact_schema: requiredArtifactSchema,
       commercial_research_requirements: {
         research_stage: targeted ? "solution_specific_evaluation" : "solution_neutral_scan",
         resource_allocation: {
@@ -346,10 +366,17 @@ function incumbentResponseTask(
           "distribution_channel",
           "independent_counterevidence",
         ],
-        commercial_audit_output_path: targeted
-          ? "artifacts/research-audits/response-targeted.json"
-          : "artifacts/research-audits/response-lightweight.json",
+        commercial_audit_output_path: auditPath,
       },
+      lane_submission_contract: deriveLaneSubmissionContract({
+        runId: "current-only-commercial-synthetic",
+        unitId: targeted ? "unit_response_targeted" : "unit_response_lightweight",
+        taskId: targeted ? "task_response_targeted" : "task_response_lightweight",
+        attempt: 1,
+        formalOutputPath: auditPath,
+        formalArtifactSchema: requiredArtifactSchema,
+        commercialAuditOutputPath: auditPath,
+      }),
     },
   };
 }
@@ -371,6 +398,11 @@ function incumbentResponseLineage(
   const unitId = String(task.document.unit_id);
   const dispatchPath = `tasks/dispatch/${unitId}.r1.json`;
   const stageId = `stage_${unitId}`;
+  const auditPath =
+    typeof requirements.commercial_audit_output_path === "string"
+      ? requirements.commercial_audit_output_path
+      : `artifacts/research-audits/${unitId}.json`;
+  const requiredArtifactSchema = "startup_opportunity.commercial_research_audit.current";
   const stageKind = targeted
     ? "retained_candidate_deep_review"
     : sourcePhase === "candidate_generation"
@@ -408,6 +440,18 @@ function incumbentResponseLineage(
             task_id: task.document.task_id,
             unit_id: task.document.unit_id,
             incumbent_response_assignment: structuredClone(assignment),
+            allowed_output_path: auditPath,
+            required_artifact_schema: requiredArtifactSchema,
+            commercial_audit_output_path: auditPath,
+            lane_submission_contract: deriveLaneSubmissionContract({
+              runId: "current-only-commercial-synthetic",
+              unitId,
+              taskId: String(task.document.task_id),
+              attempt: 1,
+              formalOutputPath: auditPath,
+              formalArtifactSchema: requiredArtifactSchema,
+              commercialAuditOutputPath: auditPath,
+            }),
           },
         ],
       },
@@ -4947,6 +4991,8 @@ test("claim confidence uses only related gaps while overall ceiling remains cons
       schema_version: "startup_opportunity.research_task.discovery_candidate.current",
       source_phase: "candidate_generation",
       target_subject_ref: "concept-price",
+      allowed_output_path: "artifacts/research-audits/unit_price.json",
+      required_artifact_schema: "startup_opportunity.commercial_research_audit.current",
       commercial_research_requirements: {
         research_stage: "solution_neutral_scan",
         quantitative_competitive_scope: {
@@ -4959,7 +5005,17 @@ test("claim confidence uses only related gaps while overall ceiling remains cons
           subject_refs: [],
           rationale: "Synthetic price task does not assign incumbent response research.",
         },
+        commercial_audit_output_path: "artifacts/research-audits/unit_price.json",
       },
+      lane_submission_contract: deriveLaneSubmissionContract({
+        runId: "current-only-commercial-synthetic",
+        unitId: "unit_price",
+        taskId: "task_unit_price",
+        attempt: 1,
+        formalOutputPath: "artifacts/research-audits/unit_price.json",
+        formalArtifactSchema: "startup_opportunity.commercial_research_audit.current",
+        commercialAuditOutputPath: "artifacts/research-audits/unit_price.json",
+      }),
     },
   };
   const compiled = compileCommercialResearchDelivery(
@@ -4981,8 +5037,19 @@ test("blocking metric gaps compile one current subject and Plan acquisition clos
   const taskPath = "tasks/discovery/unit_metric_gap.attempt-1.json";
   const task = commercialCompilerTask(taskPath, "candidate_current", ["retention_outcomes"]);
   Object.assign(task.document, { research_plan_ref: "plans/research-plan.r2.json" });
-  task.document.commercial_research_requirements.commercial_audit_output_path =
-    "artifacts/research-audits/unit_metric_gap.json";
+  const metricGapAuditPath = "artifacts/research-audits/unit_metric_gap.json";
+  task.document.allowed_output_path = metricGapAuditPath;
+  task.document.required_artifact_schema = "startup_opportunity.commercial_research_audit.current";
+  task.document.commercial_research_requirements.commercial_audit_output_path = metricGapAuditPath;
+  task.document.lane_submission_contract = deriveLaneSubmissionContract({
+    runId: "current-only-commercial-synthetic",
+    unitId: "unit_metric_gap",
+    taskId: "task_unit_metric_gap",
+    attempt: 1,
+    formalOutputPath: metricGapAuditPath,
+    formalArtifactSchema: "startup_opportunity.commercial_research_audit.current",
+    commercialAuditOutputPath: metricGapAuditPath,
+  });
   const delivery = commercialDelivery({
     unit_id: "unit_metric_gap",
     unresolved_gaps: [
@@ -6599,6 +6666,17 @@ test("structured research Gaps remain subject-local and explicit shared Gaps fan
   task.document.target_opportunity_refs = ["opportunity_a", "opportunity_b"];
   const requirements = task.document.commercial_research_requirements as Record<string, unknown>;
   requirements.commercial_audit_output_path = auditPath;
+  task.document.allowed_output_path = auditPath;
+  task.document.required_artifact_schema = "startup_opportunity.commercial_research_audit.current";
+  task.document.lane_submission_contract = deriveLaneSubmissionContract({
+    runId: "current-only-commercial-synthetic",
+    unitId: "unit_subject_gaps",
+    taskId: "task_unit_subject_gaps",
+    attempt: 1,
+    formalOutputPath: auditPath,
+    formalArtifactSchema: "startup_opportunity.commercial_research_audit.current",
+    commercialAuditOutputPath: auditPath,
+  });
   const compile = (unresolvedGaps: readonly Record<string, unknown>[]) =>
     compileCommercialResearchDelivery(
       commercialDelivery({

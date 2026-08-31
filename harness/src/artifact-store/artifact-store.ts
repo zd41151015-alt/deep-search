@@ -40,6 +40,12 @@ import {
   DOCUMENT_BUNDLE_SCHEMA_VERSION,
 } from "./publication-policy.js";
 import { withRunLock } from "./run-lock.js";
+import {
+  hasAuthenticatedRuntimeProjectionAuthority,
+  publicationRuntimeProjectionReferenceContext,
+  runtimeProjectionPublicationAuthorityPaths,
+  withAuthenticatedRuntimeProjectionAuthority,
+} from "./runtime-projection-authority.js";
 import { StoreError } from "./store-error.js";
 
 export type ArtifactFaultBoundary = "after_intent" | "after_temp_write" | "after_publish";
@@ -106,6 +112,28 @@ interface ArtifactBundleOperationReceipt {
 interface DispatchLaunchBundleShape {
   readonly registration: FormalArtifactEnvelope;
   readonly lifecycles: readonly FormalArtifactEnvelope[];
+}
+
+type ArtifactBundleRecoveryAuthorityKind =
+  | "dispatch_launch_registration"
+  | "formal_stage_runtime_projection";
+
+interface ArtifactBundleAuthorityReceiptIdentity {
+  readonly schema_version: "startup_opportunity.artifact_bundle_authority.current";
+  readonly bundle_operation_key: string;
+  readonly run_id: string;
+  readonly authority_kind: ArtifactBundleRecoveryAuthorityKind;
+  readonly previous_publication_commit_hash: string | null;
+  readonly artifact_paths: readonly string[];
+  readonly content_hashes: readonly {
+    readonly artifact_path: string;
+    readonly content_hash: string;
+  }[];
+  readonly trusted_prospective_runtime_authority_paths: readonly string[];
+}
+
+interface ArtifactBundleAuthorityReceipt extends ArtifactBundleAuthorityReceiptIdentity {
+  readonly authority_operation_key: string;
 }
 
 interface ArtifactBundleTargetPreflight {
@@ -205,6 +233,124 @@ function expectedArtifactBundleOperationKey(
   });
 }
 
+const RUNTIME_PROJECTION_ARTIFACT_TYPES = new Set([
+  "startup_opportunity.research_execution_plan.discovery.current",
+  "startup_opportunity.research_execution_plan.assessment.current",
+  "startup_opportunity.dispatch_batch.discovery.current",
+  "startup_opportunity.dispatch_batch.assessment.current",
+  "startup_opportunity.research_task.assessment.current",
+  "startup_opportunity.research_task.discovery_candidate.current",
+  "startup_opportunity.research_task.discovery_evaluation.current",
+]);
+
+const RUNTIME_PROJECTION_AUTHORITY_ARTIFACT_TYPES = new Set([
+  "startup_opportunity.dispatch_batch.discovery.current",
+  "startup_opportunity.dispatch_batch.assessment.current",
+  "startup_opportunity.research_task.assessment.current",
+  "startup_opportunity.research_task.discovery_candidate.current",
+  "startup_opportunity.research_task.discovery_evaluation.current",
+]);
+
+function bundleRequiresRuntimeProjectionAuthority(
+  envelopes: readonly FormalArtifactEnvelope[],
+): boolean {
+  return envelopes.some((envelope) =>
+    RUNTIME_PROJECTION_AUTHORITY_ARTIFACT_TYPES.has(envelope.artifact_type),
+  );
+}
+
+function requiredBundleRecoveryAuthorityKind(
+  envelopes: readonly FormalArtifactEnvelope[],
+  launchBundle: DispatchLaunchBundleShape | null,
+): ArtifactBundleRecoveryAuthorityKind | null {
+  if (launchBundle !== null) return "dispatch_launch_registration";
+  return bundleRequiresRuntimeProjectionAuthority(envelopes)
+    ? "formal_stage_runtime_projection"
+    : null;
+}
+
+function artifactBundleAuthorityReceiptPath(bundleOperationKey: string): string {
+  return `.store/operations/authority-bundle-${sha256Hex(bundleOperationKey)}.json`;
+}
+
+function artifactBundleAuthorityIdentity(input: {
+  readonly runId: string;
+  readonly bundleOperationKey: string;
+  readonly authorityKind: ArtifactBundleRecoveryAuthorityKind;
+  readonly previousPublicationCommitHash: string | null;
+  readonly envelopes: readonly FormalArtifactEnvelope[];
+  readonly trustedProspectiveRuntimeAuthorityPaths: Iterable<string>;
+}): ArtifactBundleAuthorityReceiptIdentity {
+  const artifactPaths = [
+    ...new Set(input.envelopes.map((envelope) => envelope.artifact_path)),
+  ].sort();
+  return {
+    schema_version: "startup_opportunity.artifact_bundle_authority.current",
+    bundle_operation_key: input.bundleOperationKey,
+    run_id: input.runId,
+    authority_kind: input.authorityKind,
+    previous_publication_commit_hash: input.previousPublicationCommitHash,
+    artifact_paths: artifactPaths,
+    content_hashes: artifactPaths.map((artifactPath) => {
+      const envelope = input.envelopes.find(
+        (candidate) => candidate.artifact_path === artifactPath,
+      );
+      return {
+        artifact_path: artifactPath,
+        content_hash: String(envelope?.content_hash ?? ""),
+      };
+    }),
+    trusted_prospective_runtime_authority_paths: [
+      ...new Set(input.trustedProspectiveRuntimeAuthorityPaths),
+    ].sort(),
+  };
+}
+
+function artifactBundleAuthorityReceipt(input: {
+  readonly runId: string;
+  readonly bundleOperationKey: string;
+  readonly authorityKind: ArtifactBundleRecoveryAuthorityKind;
+  readonly previousPublicationCommitHash: string | null;
+  readonly envelopes: readonly FormalArtifactEnvelope[];
+  readonly trustedProspectiveRuntimeAuthorityPaths: Iterable<string>;
+}): ArtifactBundleAuthorityReceipt {
+  const identity = artifactBundleAuthorityIdentity(input);
+  return {
+    ...identity,
+    authority_operation_key: operationKey("artifact_bundle_recovery_authority", identity),
+  };
+}
+
+function validateArtifactBundleAuthorityReceipt(
+  value: unknown,
+  filename: string,
+  expected: ArtifactBundleAuthorityReceipt,
+): ArtifactBundleAuthorityReceipt {
+  if (
+    !isRecord(value) ||
+    !hasExactlyKeys(value, [
+      "schema_version",
+      "bundle_operation_key",
+      "run_id",
+      "authority_kind",
+      "previous_publication_commit_hash",
+      "artifact_paths",
+      "content_hashes",
+      "trusted_prospective_runtime_authority_paths",
+      "authority_operation_key",
+    ]) ||
+    canonicalJson(value) !== canonicalJson(expected) ||
+    filename !== artifactBundleAuthorityReceiptPath(expected.bundle_operation_key).split("/").at(-1)
+  ) {
+    throw new StoreError(
+      "recovery.invalid_bundle_authority",
+      "Artifact bundle authority receipt does not match the Store-owned bundle publication fact",
+      { path: `.store/operations/${filename}` },
+    );
+  }
+  return value as unknown as ArtifactBundleAuthorityReceipt;
+}
+
 function validateArtifactBundleReceipt(
   value: unknown,
   filename: string,
@@ -243,6 +389,18 @@ function validateArtifactBundleReceipt(
     );
   }
   return receipt;
+}
+
+function sameArtifactBundleIntent(
+  left: ArtifactBundleOperationReceipt,
+  right: ArtifactBundleOperationReceipt,
+): boolean {
+  return (
+    left.schema_version === right.schema_version &&
+    left.operation_key === right.operation_key &&
+    left.run_id === right.run_id &&
+    canonicalJson(left.envelopes) === canonicalJson(right.envelopes)
+  );
 }
 
 function dispatchLaunchBundleShape(
@@ -498,6 +656,7 @@ async function listFiles(directory: string, prefix = ""): Promise<readonly strin
     if (
       relative === ".store" ||
       relative === "evidence/raw" ||
+      relative === "staging" ||
       relative === "report.json" ||
       relative === "decision-brief.md" ||
       relative === "report.md" ||
@@ -826,6 +985,13 @@ export class ArtifactStore {
       ),
     };
     await this.preflightBundleTargetsLocked(runRoot, input, dedicatedDispatchLaunch);
+    await this.writeBundleAuthorityReceiptLocked(runRoot, {
+      runId: input.runId,
+      bundleOperationKey,
+      envelopes: input.envelopes,
+      launchBundle: dedicatedDispatchLaunch ? dispatchLaunchBundleShape(input.envelopes) : null,
+      referenceContext,
+    });
     const bundleReceiptPath = `.store/operations/bundle-${bundleOperationHex}.json`;
     const bundleReceiptFile = await resolveRunPath(runRoot, bundleReceiptPath, {
       createParents: true,
@@ -930,7 +1096,7 @@ export class ArtifactStore {
         entry,
         input.runId,
       );
-      if (canonicalJson(existingReceipt) === canonicalJson(bundleReceipt)) {
+      if (sameArtifactBundleIntent(existingReceipt, bundleReceipt)) {
         exactBundleReceiptExists = true;
         continue;
       }
@@ -1298,13 +1464,28 @@ export class ArtifactStore {
   private async publicationCommitsLocked(
     runRoot: string,
     runId: string,
+    options: { readonly createDirectory?: boolean } = {},
   ): Promise<readonly ArtifactPublicationCommit[]> {
-    const publicationDirectory = await resolveRunPath(runRoot, ".store/publications", {
-      createParents: true,
-    });
-    await mkdir(publicationDirectory, { recursive: true });
+    const createDirectory = options.createDirectory !== false;
+    const publicationDirectory = await resolveRunPath(
+      runRoot,
+      ".store/publications",
+      createDirectory ? { createParents: true } : {},
+    );
+    if (createDirectory) {
+      await mkdir(publicationDirectory, { recursive: true });
+    }
     const commits: ArtifactPublicationCommit[] = [];
-    for (const entry of (await readdir(publicationDirectory)).sort()) {
+    let entries: readonly string[];
+    try {
+      entries = (await readdir(publicationDirectory)).sort();
+    } catch (error) {
+      if (!createDirectory && isNodeError(error, "ENOENT")) {
+        return [];
+      }
+      throw error;
+    }
+    for (const entry of entries) {
       if (!/^publication-[0-9]{12}-[a-f0-9]{64}\.json$/.test(entry)) {
         throw new StoreError(
           "recovery.invalid_publication_commit",
@@ -1403,6 +1584,94 @@ export class ArtifactStore {
     return commit;
   }
 
+  private async bundleAuthorityPreviousPublicationCommitHashLocked(
+    runRoot: string,
+    runId: string,
+    artifactPaths: readonly string[],
+  ): Promise<string | null> {
+    const artifactPathSet = new Set(artifactPaths);
+    const commits = await this.publicationCommitsLocked(runRoot, runId);
+    const firstBundleCommit = commits.find((commit) => artifactPathSet.has(commit.artifact_path));
+    return (
+      firstBundleCommit?.previous_commit_hash ?? commits.at(-1)?.publication_commit_hash ?? null
+    );
+  }
+
+  private async expectedBundleAuthorityReceiptLocked(
+    runRoot: string,
+    input: {
+      readonly runId: string;
+      readonly bundleOperationKey: string;
+      readonly envelopes: readonly FormalArtifactEnvelope[];
+      readonly authorityKind: ArtifactBundleRecoveryAuthorityKind;
+      readonly trustedProspectiveRuntimeAuthorityPaths: Iterable<string>;
+    },
+  ): Promise<ArtifactBundleAuthorityReceipt> {
+    return artifactBundleAuthorityReceipt({
+      runId: input.runId,
+      bundleOperationKey: input.bundleOperationKey,
+      authorityKind: input.authorityKind,
+      previousPublicationCommitHash: await this.bundleAuthorityPreviousPublicationCommitHashLocked(
+        runRoot,
+        input.runId,
+        input.envelopes.map((envelope) => envelope.artifact_path),
+      ),
+      envelopes: input.envelopes,
+      trustedProspectiveRuntimeAuthorityPaths: input.trustedProspectiveRuntimeAuthorityPaths,
+    });
+  }
+
+  private async writeBundleAuthorityReceiptLocked(
+    runRoot: string,
+    input: {
+      readonly runId: string;
+      readonly bundleOperationKey: string;
+      readonly envelopes: readonly FormalArtifactEnvelope[];
+      readonly launchBundle: DispatchLaunchBundleShape | null;
+      readonly referenceContext: DocumentBundleReferenceContext;
+    },
+  ): Promise<void> {
+    const requiredAuthorityKind = requiredBundleRecoveryAuthorityKind(
+      input.envelopes,
+      input.launchBundle,
+    );
+    if (requiredAuthorityKind === null) return;
+    if (
+      requiredAuthorityKind === "formal_stage_runtime_projection" &&
+      !hasAuthenticatedRuntimeProjectionAuthority(input.referenceContext)
+    ) {
+      return;
+    }
+    const authenticatedPaths = runtimeProjectionPublicationAuthorityPaths(input.referenceContext);
+    const authority = await this.expectedBundleAuthorityReceiptLocked(runRoot, {
+      runId: input.runId,
+      bundleOperationKey: input.bundleOperationKey,
+      envelopes: input.envelopes,
+      authorityKind: requiredAuthorityKind,
+      trustedProspectiveRuntimeAuthorityPaths:
+        requiredAuthorityKind === "formal_stage_runtime_projection"
+          ? input.envelopes
+              .filter((envelope) => RUNTIME_PROJECTION_ARTIFACT_TYPES.has(envelope.artifact_type))
+              .map((envelope) => envelope.artifact_path)
+              .filter((artifactPath) => authenticatedPaths.has(artifactPath))
+          : [],
+    });
+    const authorityPath = artifactBundleAuthorityReceiptPath(input.bundleOperationKey);
+    const authorityFile = await resolveRunPath(runRoot, authorityPath, { createParents: true });
+    try {
+      const existing = JSON.parse(await readFile(authorityFile, "utf8")) as unknown;
+      validateArtifactBundleAuthorityReceipt(existing, path.basename(authorityPath), authority);
+      return;
+    } catch (error) {
+      if (!isNodeError(error, "ENOENT")) throw error;
+    }
+    const authorityTempPath = `.store/temp/authority-bundle-${sha256Hex(
+      authority.authority_operation_key,
+    )}.tmp`;
+    await writeSyncedTemp(runRoot, authorityTempPath, `${canonicalJson(authority)}\n`);
+    await publishTemp(runRoot, authorityTempPath, authorityPath);
+  }
+
   private async assertNoUncommittedPublishedArtifactsLocked(
     runRoot: string,
     runId: string,
@@ -1436,6 +1705,101 @@ export class ArtifactStore {
       } catch (error) {
         if (!isNodeError(error, "ENOENT")) throw error;
       }
+    }
+  }
+
+  private async assertRecoverableBundleReceiptLocked(
+    runRoot: string,
+    receipt: ArtifactBundleOperationReceipt,
+    launchBundle: DispatchLaunchBundleShape | null,
+  ): Promise<void> {
+    const requiredAuthorityKind = requiredBundleRecoveryAuthorityKind(
+      receipt.envelopes,
+      launchBundle,
+    );
+    if (requiredAuthorityKind === null) return;
+    const trustedProspectiveRuntimeAuthorityPaths = new Set<string>();
+
+    const authorityPath = artifactBundleAuthorityReceiptPath(receipt.operation_key);
+    let authority: ArtifactBundleAuthorityReceipt;
+    try {
+      const authorityValue = JSON.parse(
+        await readFile(await resolveRunPath(runRoot, authorityPath), "utf8"),
+      ) as unknown;
+      const authorityTrustedPaths =
+        isRecord(authorityValue) &&
+        Array.isArray(authorityValue.trusted_prospective_runtime_authority_paths)
+          ? authorityValue.trusted_prospective_runtime_authority_paths.filter(
+              (value): value is string => typeof value === "string",
+            )
+          : [];
+      const expectedAuthority = await this.expectedBundleAuthorityReceiptLocked(runRoot, {
+        runId: receipt.run_id,
+        bundleOperationKey: receipt.operation_key,
+        envelopes: receipt.envelopes,
+        authorityKind: requiredAuthorityKind,
+        trustedProspectiveRuntimeAuthorityPaths: authorityTrustedPaths,
+      });
+      authority = validateArtifactBundleAuthorityReceipt(
+        authorityValue,
+        path.basename(authorityPath),
+        expectedAuthority,
+      );
+      const artifactTypesByPath = new Map(
+        receipt.envelopes.map((envelope) => [envelope.artifact_path, envelope.artifact_type]),
+      );
+      if (
+        authority.trusted_prospective_runtime_authority_paths.some((artifactPath) => {
+          const artifactType = artifactTypesByPath.get(artifactPath);
+          return artifactType === undefined || !RUNTIME_PROJECTION_ARTIFACT_TYPES.has(artifactType);
+        })
+      ) {
+        throw new StoreError(
+          "recovery.invalid_bundle_authority",
+          "Artifact bundle authority trusted paths must name runtime projection members",
+          { operationKey: receipt.operation_key },
+        );
+      }
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) {
+        throw new StoreError(
+          "recovery.bundle_authority_missing",
+          "pending Artifact bundle recovery requires Store-owned bundle authority",
+          {
+            operationKey: receipt.operation_key,
+            requiredAuthorityKind,
+            artifactPaths: receipt.envelopes.map((envelope) => envelope.artifact_path).sort(),
+          },
+        );
+      }
+      throw error;
+    }
+    for (const artifactPath of authority.trusted_prospective_runtime_authority_paths) {
+      trustedProspectiveRuntimeAuthorityPaths.add(artifactPath);
+    }
+    const referenceContext =
+      requiredAuthorityKind === "formal_stage_runtime_projection"
+        ? withAuthenticatedRuntimeProjectionAuthority({}, trustedProspectiveRuntimeAuthorityPaths)
+        : {};
+    try {
+      await this.validateEnvelopeSetReferences(runRoot, receipt.envelopes, referenceContext);
+    } catch (error) {
+      if (error instanceof StoreError && error.code === "artifact.reference_invalid") {
+        const referenceErrors = Array.isArray(error.details.referenceErrors)
+          ? error.details.referenceErrors
+          : [];
+        throw new StoreError(
+          "recovery.reference_invalid",
+          "pending Artifact bundle recovery references are invalid",
+          {
+            ...error.details,
+            referenceErrorCodes: referenceErrors.flatMap((issue) =>
+              isRecord(issue) && typeof issue.code === "string" ? [issue.code] : [],
+            ),
+          },
+        );
+      }
+      throw error;
     }
   }
 
@@ -1555,6 +1919,18 @@ export class ArtifactStore {
       }
     }
 
+    for (const { receipt, launchBundle } of bundleReceipts) {
+      const preflight = await this.preflightBundleTargetsLocked(
+        runRoot,
+        { runId, envelopes: receipt.envelopes },
+        launchBundle !== null,
+      );
+      if (preflight.allTargetsExist && preflight.allTargetsCommitted) {
+        continue;
+      }
+      await this.assertRecoverableBundleReceiptLocked(runRoot, receipt, launchBundle);
+    }
+
     const uncommittedPublished = operations.filter((operation) => operation.action === "commit");
     if (uncommittedPublished.length > 1) {
       throw new StoreError(
@@ -1647,12 +2023,20 @@ export class ArtifactStore {
     runRoot: string,
     runId: string,
   ): Promise<ReadonlyMap<string, ArtifactPublicationRecord>> {
+    return this.readPublicationRecordsLocked(runRoot, runId);
+  }
+
+  private async readPublicationRecordsLocked(
+    runRoot: string,
+    runId: string,
+    options: { readonly createDirectory?: boolean } = {},
+  ): Promise<ReadonlyMap<string, ArtifactPublicationRecord>> {
     const records = new Map<string, ArtifactPublicationRecord>();
-    for (const entry of await this.publicationLedgerLocked(runRoot, runId)) {
-      records.set(entry.artifactPath, {
-        publicationOrdinal: entry.publicationOrdinal,
-        contentHash: entry.contentHash,
-        publicationCommitHash: entry.publicationCommitHash,
+    for (const commit of await this.publicationCommitsLocked(runRoot, runId, options)) {
+      records.set(commit.artifact_path, {
+        publicationOrdinal: commit.publication_ordinal,
+        contentHash: commit.content_hash,
+        publicationCommitHash: commit.publication_commit_hash,
       });
     }
     return new Map([...records.entries()].sort(([left], [right]) => left.localeCompare(right)));
@@ -1787,6 +2171,15 @@ export class ArtifactStore {
     envelopes: readonly FormalArtifactEnvelope[],
     referenceContext: DocumentBundleReferenceContext = {},
   ): Promise<void> {
+    const artifactPublicationRecords = await this.readPublicationRecordsLocked(
+      runRoot,
+      envelopes[0]?.run_id ?? "",
+      { createDirectory: false },
+    );
+    const publicationReferenceContext = publicationRuntimeProjectionReferenceContext({
+      ...referenceContext,
+      artifactPublicationRecords,
+    });
     const pendingByPath = new Map(envelopes.map((envelope) => [envelope.artifact_path, envelope]));
     for (const envelope of envelopes) {
       for (const ref of collectPathRefs(envelope)) {
@@ -1895,12 +2288,9 @@ export class ArtifactStore {
         exact_records: [],
       },
       {
-        ...referenceContext,
+        ...publicationReferenceContext,
         exactJsonlRecords,
-        artifactPublicationRecords: await this.publicationRecordsLocked(
-          runRoot,
-          envelopes[0]?.run_id ?? "",
-        ),
+        artifactPublicationRecords,
       },
     );
     if (!bundleResult.valid) {

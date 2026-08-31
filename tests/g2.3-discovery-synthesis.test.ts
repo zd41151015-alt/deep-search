@@ -10,6 +10,7 @@ import {
   createArtifactValidator,
   DispatchLaunchRegistry,
   type DocumentBundle,
+  deriveLaneSubmissionContract,
   deriveSolutionExplorationObservations,
   EvidenceStore,
   type FormalArtifactEnvelope,
@@ -20,6 +21,7 @@ import {
 } from "../harness/src/index.js";
 import { completePreparedTerminalReportLocked } from "../harness/src/reporting/report-runtime.js";
 import { renderTerminalAuditAppendix } from "../harness/src/reporting/terminal-reporting.js";
+import { createFormalStageRuntimeCompiler } from "../harness/src/runtime/declarative-runtime.js";
 import {
   type CandidateFanInAuthority,
   type DiscoveryObjectDeclaration,
@@ -100,6 +102,32 @@ interface DecisionSubjectProjectionDocument {
   readonly schemaVersion: string;
   readonly document: Record<string, unknown>;
   readonly envelope: Record<string, unknown> | null;
+}
+
+async function publishRuntimeEnvelopesAsFormalStage(
+  state: State,
+  envelopes: readonly FormalArtifactEnvelope[],
+  requestId: string,
+): Promise<void> {
+  const compiler = createFormalStageRuntimeCompiler(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  await compiler.compile({
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: requestId,
+    run_id: state.runId,
+    operation: "publish",
+    created_at: String(envelopes[0]?.created_at ?? "2026-07-27T18:00:00Z"),
+    artifacts: envelopes.map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role,
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
+  });
 }
 
 function clone<T>(value: T): T {
@@ -875,22 +903,17 @@ async function publishThroughFanIn(state: State): Promise<void> {
     "startup_opportunity.discovery_candidate.v1",
   ).filter((candidate) => candidate.document.revision === 1);
   await state.store.publishArtifactBundle({ runId: state.runId, envelopes: initialCandidates });
-  await state.store.publishArtifactBundle({
-    runId: state.runId,
-    envelopes: discoveryWaveEnvelopes(
-      state.bundle,
-      state.runId,
-      "startup_opportunity.research_task.discovery_candidate.current",
-      1,
-      "candidate_runtime",
-    ),
-  });
   const candidateRuntimeEnvelopes = discoveryWaveEnvelopes(
     state.bundle,
     state.runId,
     "startup_opportunity.research_task.discovery_candidate.current",
     1,
     "candidate_runtime",
+  );
+  await publishRuntimeEnvelopesAsFormalStage(
+    state,
+    candidateRuntimeEnvelopes,
+    "request_g2_3_candidate_runtime_wave",
   );
   const dispatchEnvelope = candidateRuntimeEnvelopes.find(
     (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
@@ -1339,6 +1362,16 @@ test("G2.3 terminal closeout renders Discovery adversarial review as reference-o
     assigned_plan_question_refs: questionRefs,
     submission_path: reviewPath,
     submission_schema: "startup_opportunity.discovery_adversarial_review.current",
+    commercial_audit_output_path: null,
+    lane_submission_contract: deriveLaneSubmissionContract({
+      runId,
+      unitId,
+      taskId,
+      attempt: 1,
+      formalOutputPath: reviewPath,
+      formalArtifactSchema: "startup_opportunity.discovery_adversarial_review.current",
+      commercialAuditOutputPath: null,
+    }),
     time_budget_minutes: 10,
     max_sources: 5,
     straggler_policy: reviewStragglerPolicy(),
@@ -1383,6 +1416,8 @@ test("G2.3 terminal closeout renders Discovery adversarial review as reference-o
     assigned_plan_question_refs: questionRefs,
     allowed_output_path: reviewPath,
     required_artifact_schema: "startup_opportunity.discovery_adversarial_review.current",
+    commercial_audit_output_path: null,
+    lane_submission_contract: lane.lane_submission_contract,
     time_budget_minutes: 10,
     max_sources: 5,
     straggler_policy: reviewStragglerPolicy(),
@@ -1427,6 +1462,7 @@ test("G2.3 terminal closeout renders Discovery adversarial review as reference-o
     assigned_plan_question_refs: questionRefs,
     allowed_output_path: reviewPath,
     required_artifact_schema: "startup_opportunity.discovery_adversarial_review.current",
+    lane_submission_contract: lane.lane_submission_contract,
     required_stances: ["support", "oppose"],
     stop_conditions: ["SYNTHETIC stop after structured support and oppose closure."],
     completion_message_contract: {
@@ -1575,10 +1611,11 @@ test("G2.3 terminal closeout renders Discovery adversarial review as reference-o
       `${envelope.artifact_path}: ${JSON.stringify(validation.errors, null, 2)}`,
     );
   }
-  await store.publishArtifactBundle({
-    runId,
-    envelopes: [executionEnvelope, dispatchEnvelope, taskEnvelope],
-  });
+  await publishRuntimeEnvelopesAsFormalStage(
+    { root, runsRoot, runRoot, runId, store, validator, bundle },
+    [executionEnvelope, dispatchEnvelope, taskEnvelope],
+    "request_g2_3_review_runtime",
+  );
   await store.publishArtifact({
     runId,
     envelope: reviewEnvelope,
@@ -3124,6 +3161,7 @@ function fanInProjectionFixture(): {
   const weakRef = "artifacts/discovery/evidence/weak.json";
   const opposingRef = "artifacts/discovery/claims/opposing.json";
   const backgroundRef = "artifacts/discovery/findings/background.json";
+  const taskOutputSchema = "startup_opportunity.discovery_lane_result.v1";
   const task = {
     schema_version: "startup_opportunity.research_task.discovery_candidate.current",
     task_id: "task_unit_demand_attempt_1",
@@ -3132,7 +3170,16 @@ function fanInProjectionFixture(): {
     attempt: 1,
     research_plan_ref: "plans/research-plan.r1.json",
     allowed_output_path: laneResultRef,
-    required_artifact_schema: "startup_opportunity.discovery_lane_result.v1",
+    required_artifact_schema: taskOutputSchema,
+    lane_submission_contract: deriveLaneSubmissionContract({
+      runId,
+      unitId: "unit-demand",
+      taskId: "task_unit_demand_attempt_1",
+      attempt: 1,
+      formalOutputPath: laneResultRef,
+      formalArtifactSchema: taskOutputSchema,
+      commercialAuditOutputPath: "artifacts/research-audits/unit-demand.json",
+    }),
   };
   const laneResult = {
     schema_version: "startup_opportunity.discovery_lane_result.v1",
@@ -3200,6 +3247,10 @@ function fanInProjectionFixture(): {
       {
         task_id: task.task_id,
         unit_id: task.unit_id,
+        allowed_output_path: task.allowed_output_path,
+        required_artifact_schema: task.required_artifact_schema,
+        commercial_audit_output_path: "artifacts/research-audits/unit-demand.json",
+        lane_submission_contract: task.lane_submission_contract,
         straggler_policy: { on_timeout: "publish_partial", grace_minutes: 5, blocks_stage: false },
       },
     ],
